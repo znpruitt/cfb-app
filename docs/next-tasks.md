@@ -773,6 +773,30 @@ Acceptance boundary: every archived season's per-team game counts fall within th
 no archived FBS team's schedule contains a Division II opponent, and owner-facing records are
 unchanged by the repair (they are already correct — the repair must prove it does not disturb them).
 
+### Item 86 — the archive audit's integrity check can never pass
+
+`renderSection1Summary` (`src/app/api/debug/archive-audit/route.ts:244-247`) prints
+`wins == losses (expected for a closed game universe)?` and reports `NO` in every archived season —
+2018, 2021, 2022, 2023, 2024, and 2025 — because the premise does not hold. The universe is not
+closed while any FBS team goes unrostered: a rostered team beating an unrostered opponent books a win
+with no matching rostered loss. In 2018 that is a 106-8 record against unrostered teams, exactly the
+98-game gap the check flags.
+
+A check that fails unconditionally is worse than no check, because it trains an operator to skip the
+line where a genuine integrity failure would appear. This matters now specifically: the archive audit
+is the tool the Item 85 repair will be verified with.
+
+The meaningful invariant, derived by hand while investigating and closing exactly in all six seasons:
+
+- `bothRostered = teamGames - archiveGames`, `oneRostered = archiveGames - bothRostered`
+- `winsVsUnrostered + lossesVsUnrostered == oneRostered`
+
+That form accounts for the open universe and is sensitive to missing or duplicated games, which the
+current form is not.
+
+Acceptance boundary: the integrity line reports a pass on all six existing archives, and fails when a
+game is injected, dropped, or duplicated in a test fixture. A replacement that cannot be shown to
+fail on corruption is the same defect wearing a passing badge.
 ## Planned and parked campaigns
 
 These are valid future campaigns but are not activated implementation work:
