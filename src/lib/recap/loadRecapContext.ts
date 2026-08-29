@@ -16,9 +16,16 @@ export type WeeklyRecapContext = {
   games: AppGame[];
   rosterByTeam: Map<string, string>;
   scoresByKey: Record<string, ScorePack>;
-  oddsByGameKey: Record<string, CombinedOdds>;
-  archives: SeasonArchive[];
-  historicalRosters: Record<number, Map<string, string>>;
+  odds:
+    | { status: 'available'; byGameKey: Record<string, CombinedOdds> }
+    | { status: 'unavailable' };
+  records:
+    | {
+        status: 'available';
+        archives: SeasonArchive[];
+        historicalRosters: Record<number, Map<string, string>>;
+      }
+    | { status: 'unavailable' };
 };
 
 export type WeeklyRecapContextResult =
@@ -54,49 +61,66 @@ async function loadRecapContextUncached(
   year: number,
   nowIso: string
 ): Promise<WeeklyRecapContextResult> {
+  let build: Awaited<ReturnType<typeof assembleSeasonScoredBuild>>;
   try {
-    const [build, { ownersCsv }, history] = await Promise.all([
-      assembleSeasonScoredBuild(leagueSlug, year),
-      readConfirmedRosterInputs(leagueSlug, year),
-      loadHistoricalRecordContext(leagueSlug, year),
-    ]);
-    if (!ownersCsv) return { status: 'absent', reason: 'roster' };
-
-    const rosterByTeam = new Map(
-      parseOwnersCsv(ownersCsv).map(({ team, owner }) => [team, owner] as const)
-    );
-    if (rosterByTeam.size === 0) return { status: 'absent', reason: 'roster' };
-
-    const oddsStore = await getDurableOddsStore(year);
-    const oddsByGameKey: Record<string, CombinedOdds> = {};
-    for (const game of build.games) {
-      const odds = selectOddsForGame({
-        game,
-        record: oddsStore[game.key],
-        now: nowIso,
-      });
-      if (odds) oddsByGameKey[game.key] = odds;
-    }
-
-    return {
-      status: 'available',
-      context: {
-        seasonYear: year,
-        games: build.games,
-        rosterByTeam,
-        scoresByKey: build.scoresByKey,
-        oddsByGameKey,
-        archives: history.archives,
-        historicalRosters: history.historicalRosters,
-      },
-    };
+    build = await assembleSeasonScoredBuild(leagueSlug, year);
   } catch (error) {
     if (error instanceof SeasonScheduleCacheUnavailableError) {
       return { status: 'absent', reason: 'schedule' };
     }
-
     return { status: 'unavailable' };
   }
+
+  let ownersCsv: string | null;
+  try {
+    ({ ownersCsv } = await readConfirmedRosterInputs(leagueSlug, year));
+  } catch {
+    return { status: 'unavailable' };
+  }
+  if (!ownersCsv) return { status: 'absent', reason: 'roster' };
+
+  const rosterByTeam = new Map(
+    parseOwnersCsv(ownersCsv).map(({ team, owner }) => [team, owner] as const)
+  );
+  if (rosterByTeam.size === 0) return { status: 'absent', reason: 'roster' };
+
+  const [historyResult, oddsResult] = await Promise.allSettled([
+    loadHistoricalRecordContext(leagueSlug, year),
+    getDurableOddsStore(year),
+  ]);
+
+  let odds: WeeklyRecapContext['odds'] = { status: 'unavailable' };
+  if (oddsResult.status === 'fulfilled') {
+    const byGameKey: Record<string, CombinedOdds> = {};
+    try {
+      for (const game of build.games) {
+        const selected = selectOddsForGame({
+          game,
+          record: oddsResult.value[game.key],
+          now: nowIso,
+        });
+        if (selected) byGameKey[game.key] = selected;
+      }
+      odds = { status: 'available', byGameKey };
+    } catch {
+      // A malformed durable row is odds uncertainty, not a core recap failure.
+    }
+  }
+
+  return {
+    status: 'available',
+    context: {
+      seasonYear: year,
+      games: build.games,
+      rosterByTeam,
+      scoresByKey: build.scoresByKey,
+      odds,
+      records:
+        historyResult.status === 'fulfilled'
+          ? { status: 'available', ...historyResult.value }
+          : { status: 'unavailable' },
+    },
+  };
 }
 
 /** Request-local memoization only; other Insights loaders keep their own build. */

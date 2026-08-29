@@ -97,6 +97,10 @@ function availableRecapPayload(week: number, owner = `Owner ${week}`) {
       },
     ],
     movementLines: [],
+    recordChangeLines: [],
+    headToHeadLines: [],
+    notableResultLines: [],
+    tileHighlights: [],
   };
 }
 
@@ -146,11 +150,15 @@ test('invalid recap data cannot empty an otherwise healthy insights payload', ()
   assert.deepEqual(parsed.weeklyRecap, { status: 'unavailable' });
 });
 
-test('an older Slice 1 recap remains available when additive Slice 2 fields are absent', () => {
+test('an older recap remains available when additive detail fields are absent', () => {
   const recap = availableRecapPayload(1, 'Alice');
   Reflect.deleteProperty(recap, 'leaderLines');
   Reflect.deleteProperty(recap, 'tileLeaderLines');
   Reflect.deleteProperty(recap, 'movementLines');
+  Reflect.deleteProperty(recap, 'recordChangeLines');
+  Reflect.deleteProperty(recap, 'headToHeadLines');
+  Reflect.deleteProperty(recap, 'notableResultLines');
+  Reflect.deleteProperty(recap, 'tileHighlights');
   const parsed = parseInsightsPayload({
     insights: [{ id: 'healthy-insight' }],
     weeklyRecap: recap,
@@ -161,13 +169,21 @@ test('an older Slice 1 recap remains available when additive Slice 2 fields are 
   assert.deepEqual(parsed.weeklyRecap.leaderLines, []);
   assert.deepEqual(parsed.weeklyRecap.tileLeaderLines, []);
   assert.deepEqual(parsed.weeklyRecap.movementLines, []);
+  assert.deepEqual(parsed.weeklyRecap.recordChangeLines, []);
+  assert.deepEqual(parsed.weeklyRecap.headToHeadLines, []);
+  assert.deepEqual(parsed.weeklyRecap.notableResultLines, []);
+  assert.deepEqual(parsed.weeklyRecap.tileHighlights, []);
 });
 
-test('malformed present Slice 2 fields fail only the recap', () => {
+test('malformed present detail fields fail only the recap', () => {
   for (const [field, malformed] of [
     ['leaderLines', [{ id: 'best-record' }]],
     ['tileLeaderLines', 'not-an-array'],
     ['movementLines', [{ owner: 'Alice', direction: 'sideways' }]],
+    ['recordChangeLines', [{ kind: 'record-change', id: 'record' }]],
+    ['headToHeadLines', [{ kind: 'game', id: 'game' }]],
+    ['notableResultLines', 'not-an-array'],
+    ['tileHighlights', [{ kind: 'unknown' }]],
   ] as const) {
     const parsed = parseInsightsPayload({
       insights: [{ id: 'healthy-insight' }],

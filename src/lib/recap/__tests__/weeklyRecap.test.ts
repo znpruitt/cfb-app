@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { emptyDurableOddsRecord, type DurableOddsSnapshot } from '../../odds.ts';
+import { emptyDurableOddsRecord, type CombinedOdds, type DurableOddsSnapshot } from '../../odds.ts';
 import type { AppGame, ScheduleWireItem } from '../../schedule.ts';
 import type { ScorePack } from '../../scores.ts';
 import type { SeasonArchive } from '../../seasonArchive.ts';
@@ -80,6 +80,30 @@ function closingOddsSnapshot(): DurableOddsSnapshot {
   };
 }
 
+function combinedOdds(args: {
+  favorite: string;
+  homeSpread: number;
+  awaySpread: number;
+}): CombinedOdds {
+  return {
+    favorite: args.favorite,
+    spread: args.homeSpread,
+    homeSpread: args.homeSpread,
+    awaySpread: args.awaySpread,
+    spreadPriceHome: -110,
+    spreadPriceAway: -110,
+    total: 48.5,
+    mlHome: -260,
+    mlAway: 210,
+    overPrice: -110,
+    underPrice: -110,
+    source: 'DraftKings',
+    bookmakerKey: 'draftkings',
+    capturedAt: '2026-09-05T20:00:00.000Z',
+    lineSourceStatus: 'closing',
+  };
+}
+
 async function seedAvailableContext(slug: string): Promise<void> {
   await setAppState('schedule', `${YEAR}-all-all`, { items: [scheduleItem('401000001')] });
   await setAppState(`owners:${slug}:${YEAR}`, 'csv', 'team,owner\nTexas,Alice\nGeorgia,Bob\n');
@@ -88,18 +112,22 @@ async function seedAvailableContext(slug: string): Promise<void> {
   });
 }
 
-async function seedPriorArchive(slug: string): Promise<void> {
+async function seedArchive(slug: string, year: number): Promise<void> {
   const archive: SeasonArchive = {
     leagueSlug: slug,
-    year: YEAR - 1,
-    archivedAt: `${YEAR - 1}-12-01T00:00:00.000Z`,
+    year,
+    archivedAt: `${year}-12-01T00:00:00.000Z`,
     ownerRosterSnapshot: 'team,owner\nTexas,Prior Alice\nGeorgia,Prior Bob\n',
     standingsHistory: { weeks: [], byWeek: {}, byOwner: {} },
     finalStandings: [],
     games: [],
     scoresByKey: {},
   };
-  await setAppState(`standings-archive:${slug}`, String(YEAR - 1), archive);
+  await setAppState(`standings-archive:${slug}`, String(year), archive);
+}
+
+async function seedPriorArchive(slug: string): Promise<void> {
+  await seedArchive(slug, YEAR - 1);
 }
 
 function game(
@@ -175,9 +203,8 @@ function context(games: AppGame[], scoresByKey: Record<string, ScorePack>): Week
     games,
     rosterByTeam,
     scoresByKey,
-    oddsByGameKey: {},
-    archives: [],
-    historicalRosters: {},
+    odds: { status: 'available', byGameKey: {} },
+    records: { status: 'available', archives: [], historicalRosters: {} },
   };
 }
 
@@ -228,12 +255,33 @@ test('loader assembles games, roster, and scores from one cache-only context', a
   assert.equal(result.context.games.length, 1);
   assert.equal(result.context.rosterByTeam.get('Texas'), 'Alice');
   assert.equal(Object.keys(result.context.scoresByKey).length, 1);
-  assert.deepEqual(result.context.oddsByGameKey, {});
+  assert.deepEqual(result.context.odds, { status: 'available', byGameKey: {} });
+  assert.equal(result.context.records.status, 'available');
+  if (result.context.records.status !== 'available') return;
   assert.deepEqual(
-    result.context.archives.map((archive) => archive.year),
+    result.context.records.archives.map((archive) => archive.year),
     [YEAR - 1]
   );
-  assert.equal(result.context.historicalRosters[YEAR - 1]?.get('Texas'), 'Prior Alice');
+  assert.equal(result.context.records.historicalRosters[YEAR - 1]?.get('Texas'), 'Prior Alice');
+});
+
+test('loader excludes a same-year archive from historical record evidence', async () => {
+  const slug = 'recap-same-year-archive';
+  await seedAvailableContext(slug);
+  await seedPriorArchive(slug);
+  await seedArchive(slug, YEAR);
+
+  const result = await loadRecapContext(slug, YEAR, REQUEST_NOW.toISOString());
+
+  assert.equal(result.status, 'available');
+  if (result.status !== 'available') return;
+  assert.equal(result.context.records.status, 'available');
+  if (result.context.records.status !== 'available') return;
+  assert.deepEqual(
+    result.context.records.archives.map((archive) => archive.year),
+    [YEAR - 1]
+  );
+  assert.equal(result.context.records.historicalRosters[YEAR], undefined);
 });
 
 test('loader selects the stored closing line into the per-game odds lookup', async () => {
@@ -251,17 +299,38 @@ test('loader selects the stored closing line into the per-game odds lookup', asy
   assert.equal(result.status, 'available');
   if (result.status !== 'available') return;
   assert.equal(result.context.games[0]?.key, CANONICAL_GAME_KEY);
-  assert.equal(result.context.oddsByGameKey[CANONICAL_GAME_KEY]?.spread, -7.5);
-  assert.equal(result.context.oddsByGameKey[CANONICAL_GAME_KEY]?.lineSourceStatus, 'closing');
+  assert.equal(result.context.odds.status, 'available');
+  if (result.context.odds.status !== 'available') return;
+  assert.equal(result.context.odds.byGameKey[CANONICAL_GAME_KEY]?.spread, -7.5);
+  assert.equal(result.context.odds.byGameKey[CANONICAL_GAME_KEY]?.lineSourceStatus, 'closing');
 });
 
-test('loader keeps an odds-store read failure distinct from genuine odds absence', async () => {
+test('loader isolates odds-store uncertainty from the core recap', async () => {
   await seedAvailableContext('recap-odds-failure');
   __setAppStateReadFailureForTests(new Error('odds store read failed'), `durable-odds:${YEAR}`);
 
-  assert.deepEqual(await loadRecapContext('recap-odds-failure', YEAR, REQUEST_NOW.toISOString()), {
-    status: 'unavailable',
+  const result = await loadRecapContext('recap-odds-failure', YEAR, REQUEST_NOW.toISOString());
+  assert.equal(result.status, 'available');
+  if (result.status !== 'available') return;
+  assert.deepEqual(result.context.odds, { status: 'unavailable' });
+});
+
+test('loader isolates malformed durable odds rows from the core recap', async () => {
+  const slug = 'recap-malformed-odds';
+  await seedAvailableContext(slug);
+  const record = emptyDurableOddsRecord(CANONICAL_GAME_KEY);
+  await setDurableOddsStore(YEAR, { [CANONICAL_GAME_KEY]: record });
+  Object.defineProperty(record, 'closingSnapshot', {
+    get() {
+      throw new Error('malformed closing line');
+    },
   });
+
+  const result = await loadRecapContext(slug, YEAR, REQUEST_NOW.toISOString());
+
+  assert.equal(result.status, 'available');
+  if (result.status !== 'available') return;
+  assert.deepEqual(result.context.odds, { status: 'unavailable' });
 });
 
 test('loader treats a genuinely empty archive history as available context', async () => {
@@ -271,11 +340,14 @@ test('loader treats a genuinely empty archive history as available context', asy
 
   assert.equal(result.status, 'available');
   if (result.status !== 'available') return;
-  assert.deepEqual(result.context.archives, []);
-  assert.deepEqual(result.context.historicalRosters, {});
+  assert.deepEqual(result.context.records, {
+    status: 'available',
+    archives: [],
+    historicalRosters: {},
+  });
 });
 
-test('loader treats a listed null archive as uncertainty rather than empty history', async () => {
+test('loader isolates a listed null archive from the core recap', async () => {
   await seedAvailableContext('recap-null-archive');
   await setAppState<SeasonArchive | null>(
     'standings-archive:recap-null-archive',
@@ -283,12 +355,13 @@ test('loader treats a listed null archive as uncertainty rather than empty histo
     null
   );
 
-  assert.deepEqual(await loadRecapContext('recap-null-archive', YEAR, REQUEST_NOW.toISOString()), {
-    status: 'unavailable',
-  });
+  const result = await loadRecapContext('recap-null-archive', YEAR, REQUEST_NOW.toISOString());
+  assert.equal(result.status, 'available');
+  if (result.status !== 'available') return;
+  assert.deepEqual(result.context.records, { status: 'unavailable' });
 });
 
-test('loader keeps archive uncertainty distinct from a genuine empty history', async () => {
+test('loader keeps archive uncertainty scoped to record enrichment', async () => {
   await seedAvailableContext('recap-archive-failure');
   await seedPriorArchive('recap-archive-failure');
   __setAppStateReadFailureForTests(
@@ -296,12 +369,35 @@ test('loader keeps archive uncertainty distinct from a genuine empty history', a
     'standings-archive:recap-archive-failure'
   );
 
-  assert.deepEqual(
-    await loadRecapContext('recap-archive-failure', YEAR, REQUEST_NOW.toISOString()),
-    {
-      status: 'unavailable',
-    }
+  const result = await loadRecapContext('recap-archive-failure', YEAR, REQUEST_NOW.toISOString());
+  assert.equal(result.status, 'available');
+  if (result.status !== 'available') return;
+  assert.deepEqual(result.context.records, { status: 'unavailable' });
+});
+
+test('schedule absence wins deterministically over simultaneous archive uncertainty', async () => {
+  const slug = 'recap-absence-precedence';
+  __setAppStateReadFailureForTests(
+    new Error('the archive observer must see this when core data exists'),
+    `standings-archive:${slug}`
   );
+
+  assert.deepEqual(await loadRecapContext(slug, YEAR, REQUEST_NOW.toISOString()), {
+    status: 'absent',
+    reason: 'schedule',
+  });
+
+  const controlSlug = 'recap-absence-precedence-control';
+  await seedAvailableContext(controlSlug);
+  await seedPriorArchive(controlSlug);
+  __setAppStateReadFailureForTests(
+    new Error('the archive observer sees core-backed requests'),
+    `standings-archive:${controlSlug}`
+  );
+  const positiveControl = await loadRecapContext(controlSlug, YEAR, REQUEST_NOW.toISOString());
+  assert.equal(positiveControl.status, 'available');
+  if (positiveControl.status !== 'available') return;
+  assert.deepEqual(positiveControl.context.records, { status: 'unavailable' });
 });
 
 test('inactive lifecycle skips recap context loading, with an active-season positive control', async () => {
@@ -378,6 +474,81 @@ test('composer turns completed owner results into the minimal recap view model',
   ]);
   assert.deepEqual(recap.tileLeaderLines, recap.leaderLines);
   assert.deepEqual(recap.movementLines, []);
+  assert.equal(recap.tileHighlights.length, 3);
+  assert.ok(recap.tileHighlights.every((line) => line.kind === 'record-change'));
+});
+
+test('composer keeps core results while omitting unavailable record and odds enrichment', () => {
+  const recapGame = game();
+  const coreContext = context([recapGame], {
+    quiet: {
+      status: 'final',
+      away: { team: 'Georgia', score: 17 },
+      home: { team: 'Texas', score: 31 },
+      time: null,
+    },
+  });
+  const recap = composeWeeklyRecap(
+    {
+      status: 'available',
+      context: {
+        ...coreContext,
+        records: { status: 'unavailable' },
+        odds: { status: 'unavailable' },
+      },
+    },
+    REQUEST_NOW,
+    ACTIVE_SCOPE
+  );
+
+  assert.equal(recap.status, 'available');
+  if (recap.status !== 'available') return;
+  assert.equal(recap.ownerLines.length, 2);
+  assert.deepEqual(recap.recordChangeLines, []);
+  assert.equal(recap.headToHeadLines.length, 1);
+  assert.doesNotMatch(recap.headToHeadLines[0]?.label ?? '', /Odds upset/);
+});
+
+test('composer renders an odds upset from resolved sides even when stored favorite copy is wrong', () => {
+  const upsetGame = game();
+  const upsetContext = context([upsetGame], {
+    quiet: {
+      status: 'final',
+      away: { team: 'Georgia', score: 31 },
+      home: { team: 'Texas', score: 17 },
+      time: null,
+    },
+  });
+  const recap = composeWeeklyRecap(
+    {
+      status: 'available',
+      context: {
+        ...upsetContext,
+        records: { status: 'unavailable' },
+        odds: {
+          status: 'available',
+          byGameKey: {
+            quiet: combinedOdds({
+              favorite: 'Wrong stored favorite',
+              homeSpread: -7.5,
+              awaySpread: 7.5,
+            }),
+          },
+        },
+      },
+    },
+    REQUEST_NOW,
+    ACTIVE_SCOPE
+  );
+
+  assert.equal(recap.status, 'available');
+  if (recap.status !== 'available') return;
+  assert.equal(recap.headToHeadLines.length, 1);
+  assert.match(recap.headToHeadLines[0]?.label ?? '', /Odds upset/);
+  assert.equal(recap.headToHeadLines[0]?.winner.team, 'Georgia');
+  assert.equal(recap.headToHeadLines[0]?.loser.team, 'Texas');
+  assert.equal(recap.tileHighlights.length, 1);
+  assert.equal(recap.tileHighlights[0]?.kind, 'game');
 });
 
 test('composer exposes approved movement rows and the compact biggest-riser summary', () => {
@@ -478,9 +649,8 @@ test('composer names every owner tied for biggest riser', () => {
         seasonYear: YEAR,
         games,
         rosterByTeam,
-        archives: [],
-        historicalRosters: {},
-        oddsByGameKey: {},
+        records: { status: 'available', archives: [], historicalRosters: {} },
+        odds: { status: 'available', byGameKey: {} },
         scoresByKey: {
           'alice-one': finalScore(10, 70),
           'bob-one': finalScore(10, 60),
@@ -537,9 +707,8 @@ test('composer uses count copy when three owners share the exact weekly lead', (
         games: tiedGames,
         rosterByTeam,
         scoresByKey,
-        oddsByGameKey: {},
-        archives: [],
-        historicalRosters: {},
+        records: { status: 'available', archives: [], historicalRosters: {} },
+        odds: { status: 'available', byGameKey: {} },
       },
     },
     new Date('2026-09-07T16:00:00.000Z'),

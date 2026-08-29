@@ -1,4 +1,9 @@
 import type { AvailableWeeklyRecapViewModel } from '@/lib/recap/composeWeeklyRecap';
+import type {
+  WeeklyRecapGameLine,
+  WeeklyRecapRecordChangeLine,
+  WeeklyRecapTileHighlight,
+} from '@/lib/recap/composeWeeklyRecap';
 
 type RecapHeaderProps = Pick<AvailableWeeklyRecapViewModel, 'headline' | 'weekLabel'> & {
   headingId: string;
@@ -213,6 +218,160 @@ export function MovementList({
           </li>
         ))}
       </ul>
+    </section>
+  );
+}
+
+function RecordChangeRow({
+  line,
+  compact = false,
+}: {
+  line: WeeklyRecapRecordChangeLine;
+  compact?: boolean;
+}): React.ReactElement {
+  return (
+    <div
+      className={`${compact ? 'py-[6px]' : 'py-2'} border-b-[0.5px] border-zinc-800/80 last:border-b-0`}
+    >
+      <div
+        className={`flex items-baseline justify-between gap-3 font-medium text-zinc-100 ${
+          compact ? 'text-[13.5px]' : 'text-[14.5px]'
+        }`}
+      >
+        <span className="min-w-0 truncate">{line.label}</span>
+        <span className="shrink-0 tabular-nums">{line.value}</span>
+      </div>
+      <p className="mt-0.5 text-xs text-zinc-400">{line.context}</p>
+    </div>
+  );
+}
+
+export function RecordChangeList({
+  lines,
+  headingId,
+  compact = false,
+}: {
+  lines: WeeklyRecapRecordChangeLine[];
+  headingId: string;
+  compact?: boolean;
+}): React.ReactElement | null {
+  if (lines.length === 0) return null;
+
+  return (
+    <section aria-labelledby={headingId}>
+      <h3
+        id={headingId}
+        className="mb-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-400"
+      >
+        Record changes
+      </h3>
+      <div>
+        {lines.map((line) => (
+          <RecordChangeRow key={line.id} line={line} compact={compact} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function GameScoreboard({
+  line,
+  compact = false,
+}: {
+  line: WeeklyRecapGameLine;
+  compact?: boolean;
+}): React.ReactElement {
+  const side = (
+    entry: WeeklyRecapGameLine['winner'] | WeeklyRecapGameLine['loser'],
+    winner: boolean
+  ): React.ReactElement => (
+    <div
+      className={`flex items-baseline justify-between gap-3 py-px ${
+        compact ? 'text-[13.5px]' : 'text-sm'
+      } ${winner ? 'font-medium text-zinc-100' : 'text-zinc-400'}`}
+    >
+      <span className="flex min-w-0 items-baseline gap-2">
+        <span className={`truncate ${winner ? '' : 'text-zinc-500'}`}>{entry.team}</span>
+        {entry.owner ? (
+          <span className="shrink-0 text-[12.5px] font-normal text-zinc-500">{entry.owner}</span>
+        ) : null}
+      </span>
+      <span className={`shrink-0 tabular-nums ${winner ? 'font-semibold' : ''}`}>
+        {entry.score}
+      </span>
+    </div>
+  );
+
+  return (
+    <article className={`${compact ? 'py-2' : 'py-2.5'} border-b-[0.5px] border-zinc-800/80`}>
+      <p className="mb-1.5 text-xs text-zinc-400">
+        <span className="mr-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-300">
+          {line.label}
+        </span>
+        {line.detail}
+      </p>
+      {side(line.winner, true)}
+      {side(line.loser, false)}
+    </article>
+  );
+}
+
+export function GameScoreboardList({
+  lines,
+  heading,
+  headingId,
+  compact = false,
+}: {
+  lines: WeeklyRecapGameLine[];
+  heading: string;
+  headingId: string;
+  compact?: boolean;
+}): React.ReactElement | null {
+  if (lines.length === 0) return null;
+
+  return (
+    <section aria-labelledby={headingId}>
+      <h3
+        id={headingId}
+        className="mb-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-400"
+      >
+        {heading}
+      </h3>
+      <div className={compact ? '' : 'grid gap-x-12 min-[821px]:grid-cols-2'}>
+        {lines.map((line) => (
+          <GameScoreboard key={line.id} line={line} compact={compact} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+export function TileHighlightsList({
+  lines,
+  headingId,
+}: {
+  lines: WeeklyRecapTileHighlight[];
+  headingId: string;
+}): React.ReactElement | null {
+  if (lines.length === 0) return null;
+
+  return (
+    <section aria-labelledby={headingId}>
+      <h3
+        id={headingId}
+        className="mb-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-400"
+      >
+        Week highlights
+      </h3>
+      <div>
+        {lines.map((line) =>
+          line.kind === 'record-change' ? (
+            <RecordChangeRow key={line.id} line={line} compact />
+          ) : (
+            <GameScoreboard key={line.id} line={line} compact />
+          )
+        )}
+      </div>
     </section>
   );
 }

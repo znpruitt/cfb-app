@@ -4,8 +4,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { LeagueStatus } from '../../lib/league.ts';
 import type {
+  WeeklyRecapGameLine,
   WeeklyRecapLeaderLine,
   WeeklyRecapMovementLine,
+  WeeklyRecapRecordChangeLine,
+  WeeklyRecapTileHighlight,
   WeeklyRecapViewModel,
 } from '../../lib/recap/composeWeeklyRecap.ts';
 import type { AppGame } from '../../lib/schedule.ts';
@@ -70,6 +73,69 @@ function parseMovementLines(value: unknown): WeeklyRecapMovementLine[] | null {
   return lines.length === value.length ? lines : null;
 }
 
+function parseGameSide(
+  value: unknown
+): { team: string; owner: string | null; score: string } | null {
+  return isRecord(value) &&
+    typeof value.team === 'string' &&
+    (typeof value.owner === 'string' || value.owner === null) &&
+    typeof value.score === 'string'
+    ? { team: value.team, owner: value.owner, score: value.score }
+    : null;
+}
+
+function parseGameLine(value: unknown): WeeklyRecapGameLine | null {
+  if (
+    !isRecord(value) ||
+    value.kind !== 'game' ||
+    typeof value.id !== 'string' ||
+    typeof value.label !== 'string' ||
+    typeof value.detail !== 'string'
+  ) {
+    return null;
+  }
+  const winner = parseGameSide(value.winner);
+  const loser = parseGameSide(value.loser);
+  return winner && loser
+    ? { kind: 'game', id: value.id, label: value.label, detail: value.detail, winner, loser }
+    : null;
+}
+
+function parseGameLines(value: unknown): WeeklyRecapGameLine[] | null {
+  if (!Array.isArray(value)) return null;
+  const lines = value.map(parseGameLine);
+  return lines.every((line): line is WeeklyRecapGameLine => line !== null) ? lines : null;
+}
+
+function parseRecordChangeLine(value: unknown): WeeklyRecapRecordChangeLine | null {
+  return isRecord(value) &&
+    value.kind === 'record-change' &&
+    typeof value.id === 'string' &&
+    typeof value.label === 'string' &&
+    typeof value.value === 'string' &&
+    typeof value.context === 'string'
+    ? {
+        kind: 'record-change',
+        id: value.id,
+        label: value.label,
+        value: value.value,
+        context: value.context,
+      }
+    : null;
+}
+
+function parseRecordChangeLines(value: unknown): WeeklyRecapRecordChangeLine[] | null {
+  if (!Array.isArray(value)) return null;
+  const lines = value.map(parseRecordChangeLine);
+  return lines.every((line): line is WeeklyRecapRecordChangeLine => line !== null) ? lines : null;
+}
+
+function parseTileHighlights(value: unknown): WeeklyRecapTileHighlight[] | null {
+  if (!Array.isArray(value)) return null;
+  const lines = value.map((line) => parseRecordChangeLine(line) ?? parseGameLine(line));
+  return lines.every((line): line is WeeklyRecapTileHighlight => line !== null) ? lines : null;
+}
+
 function parseWeeklyRecap(value: unknown): WeeklyRecapViewModel {
   if (!isRecord(value) || typeof value.status !== 'string') return UNAVAILABLE_RECAP;
   if (value.status === 'inactive' || value.status === 'absent' || value.status === 'unavailable') {
@@ -95,7 +161,7 @@ function parseWeeklyRecap(value: unknown): WeeklyRecapViewModel {
       typeof line.pointsLabel === 'string'
   );
   if (ownerLines.length !== value.ownerLines.length) return UNAVAILABLE_RECAP;
-  // These Slice 2 fields are additive. During a rolling deploy, an older API
+  // These recap detail fields are additive. During a rolling deploy, an older API
   // response remains a valid Slice 1 recap; malformed fields that are present
   // still fail the recap closed without affecting the standing Insights feed.
   const leaderLines = value.leaderLines === undefined ? [] : parseLeaderLines(value.leaderLines);
@@ -103,7 +169,25 @@ function parseWeeklyRecap(value: unknown): WeeklyRecapViewModel {
     value.tileLeaderLines === undefined ? [] : parseLeaderLines(value.tileLeaderLines);
   const movementLines =
     value.movementLines === undefined ? [] : parseMovementLines(value.movementLines);
-  if (!leaderLines || !tileLeaderLines || !movementLines) return UNAVAILABLE_RECAP;
+  const recordChangeLines =
+    value.recordChangeLines === undefined ? [] : parseRecordChangeLines(value.recordChangeLines);
+  const headToHeadLines =
+    value.headToHeadLines === undefined ? [] : parseGameLines(value.headToHeadLines);
+  const notableResultLines =
+    value.notableResultLines === undefined ? [] : parseGameLines(value.notableResultLines);
+  const tileHighlights =
+    value.tileHighlights === undefined ? [] : parseTileHighlights(value.tileHighlights);
+  if (
+    !leaderLines ||
+    !tileLeaderLines ||
+    !movementLines ||
+    !recordChangeLines ||
+    !headToHeadLines ||
+    !notableResultLines ||
+    !tileHighlights
+  ) {
+    return UNAVAILABLE_RECAP;
+  }
 
   return {
     status: 'available',
@@ -116,6 +200,10 @@ function parseWeeklyRecap(value: unknown): WeeklyRecapViewModel {
     leaderLines,
     tileLeaderLines,
     movementLines,
+    recordChangeLines,
+    headToHeadLines,
+    notableResultLines,
+    tileHighlights,
   };
 }
 

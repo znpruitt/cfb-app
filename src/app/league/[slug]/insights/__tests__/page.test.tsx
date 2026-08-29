@@ -58,6 +58,10 @@ test('full recap qualifies and renders non-compact movement accessibly', () => {
         movementLines: [
           { owner: 'Alice', direction: 'up', deltaLabel: '▲ 1', shiftLabel: '#2 → #1' },
         ],
+        recordChangeLines: [],
+        headToHeadLines: [],
+        notableResultLines: [],
+        tileHighlights: [],
       }}
     />
   );
@@ -126,7 +130,10 @@ test('Insights page renders the request-time recap above the standing insight li
     html.indexOf('Weekly recap') < html.indexOf('Alice'),
     'the recap heading must lead its result rows'
   );
-  assert.doesNotMatch(html, /Notable results|Head-to-head|Biggest blowout/);
+  assert.match(html, /Record changes/);
+  assert.match(html, /Head-to-head results/);
+  assert.match(html, /Largest Single-Game Blowout/);
+  assert.doesNotMatch(html, /Notable results/);
 });
 
 test('Insights page renders the eligible week when it has no completed results', async () => {

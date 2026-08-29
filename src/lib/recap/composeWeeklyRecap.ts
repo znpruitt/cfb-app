@@ -6,6 +6,8 @@ import {
   type WeeklyOwnedGameResult,
   type WeeklyOwnerResult,
 } from '../selectors/weeklyRecapFacts.ts';
+import type { WeeklyOddsUpset } from '../selectors/weeklyOddsUpsets.ts';
+import type { WeeklyRecordChange } from '../selectors/weeklyRecordChanges.ts';
 import { buildWeekLabelMap, formatWeekLabel } from '../weekLabel.ts';
 import type { WeeklyRecapContextResult } from './loadRecapContext.ts';
 
@@ -30,6 +32,25 @@ export type WeeklyRecapMovementLine = {
   shiftLabel: string;
 };
 
+export type WeeklyRecapGameLine = {
+  kind: 'game';
+  id: string;
+  label: string;
+  detail: string;
+  winner: { team: string; owner: string | null; score: string };
+  loser: { team: string; owner: string | null; score: string };
+};
+
+export type WeeklyRecapRecordChangeLine = {
+  kind: 'record-change';
+  id: string;
+  label: string;
+  value: string;
+  context: string;
+};
+
+export type WeeklyRecapTileHighlight = WeeklyRecapRecordChangeLine | WeeklyRecapGameLine;
+
 export type WeeklyRecapViewModel =
   | { status: 'inactive' }
   | { status: 'absent' }
@@ -45,6 +66,10 @@ export type WeeklyRecapViewModel =
       leaderLines: WeeklyRecapLeaderLine[];
       tileLeaderLines: WeeklyRecapLeaderLine[];
       movementLines: WeeklyRecapMovementLine[];
+      recordChangeLines: WeeklyRecapRecordChangeLine[];
+      headToHeadLines: WeeklyRecapGameLine[];
+      notableResultLines: WeeklyRecapGameLine[];
+      tileHighlights: WeeklyRecapTileHighlight[];
     };
 
 export type AvailableWeeklyRecapViewModel = Extract<WeeklyRecapViewModel, { status: 'available' }>;
@@ -120,6 +145,192 @@ function gameResultContext(result: WeeklyOwnedGameResult): string {
   return `${winner} over ${loser} · ${margin}`;
 }
 
+function ownerContext(owners: string[]): string {
+  return owners.length > 0 ? formatAllOwnerNames(owners) : 'League record';
+}
+
+function composeRecordChangeLine(
+  change: WeeklyRecordChange,
+  weekLabel: string
+): WeeklyRecapRecordChangeLine | null {
+  const label = change.current?.label ?? change.previous?.label;
+  if (!label) return null;
+
+  if (!change.current) {
+    const previous = change.previous;
+    return previous
+      ? {
+          kind: 'record-change',
+          id: `record-${change.id}`,
+          label,
+          value: 'Broad tie',
+          context: `Previously ${previous.formattedValue} · ${ownerContext(previous.holders)}`,
+        }
+      : null;
+  }
+
+  const holder = ownerContext(change.current.holders);
+  const previous = change.previous;
+  const previousContext = previous
+    ? `Previous: ${previous.formattedValue} · ${ownerContext(previous.holders)}`
+    : 'New league record';
+  return {
+    kind: 'record-change',
+    id: `record-${change.id}`,
+    label,
+    value: change.current.formattedValue,
+    context: `${holder} · Through ${weekLabel} · ${previousContext}`,
+  };
+}
+
+type MutableGameLine = {
+  gameKey: string;
+  qualifiers: Map<string, string>;
+  winner: WeeklyRecapGameLine['winner'];
+  loser: WeeklyRecapGameLine['loser'];
+};
+
+const GAME_QUALIFIER_ORDER = new Map([
+  ['Odds upset', 0],
+  ['Closest game', 1],
+  ['Biggest margin', 2],
+  ['Head-to-head', 3],
+]);
+
+function ownedGameSides(result: WeeklyOwnedGameResult): Pick<MutableGameLine, 'winner' | 'loser'> {
+  return {
+    winner: {
+      team: result.winnerTeam,
+      owner: result.winnerOwner,
+      score: String(result.winnerScore),
+    },
+    loser: {
+      team: result.loserTeam,
+      owner: result.loserOwner,
+      score: String(result.loserScore),
+    },
+  };
+}
+
+function oddsUpsetSides(result: WeeklyOddsUpset): Pick<MutableGameLine, 'winner' | 'loser'> {
+  return {
+    winner: {
+      team: result.winnerTeam,
+      owner: result.winnerOwner,
+      score: String(result.winnerScore),
+    },
+    loser: {
+      team: result.favoriteTeam,
+      owner: result.favoriteOwner,
+      score: String(result.loserScore),
+    },
+  };
+}
+
+function addGameQualifier(
+  lines: Map<string, MutableGameLine>,
+  gameKey: string,
+  sides: Pick<MutableGameLine, 'winner' | 'loser'>,
+  label: string,
+  detail: string
+): void {
+  const current = lines.get(gameKey) ?? {
+    gameKey,
+    qualifiers: new Map<string, string>(),
+    ...sides,
+  };
+  current.qualifiers.set(label, detail);
+  lines.set(gameKey, current);
+}
+
+function finalizeGameLine(line: MutableGameLine): WeeklyRecapGameLine {
+  const qualifiers = Array.from(line.qualifiers.entries()).sort(
+    ([left], [right]) =>
+      (GAME_QUALIFIER_ORDER.get(left) ?? Number.MAX_SAFE_INTEGER) -
+        (GAME_QUALIFIER_ORDER.get(right) ?? Number.MAX_SAFE_INTEGER) || left.localeCompare(right)
+  );
+  return {
+    kind: 'game',
+    id: `game-${line.gameKey}`,
+    label: qualifiers.map(([label]) => label).join(' · '),
+    detail: [...new Set(qualifiers.map(([, detail]) => detail))].join(' · '),
+    winner: line.winner,
+    loser: line.loser,
+  };
+}
+
+function composeGameLines(facts: NonNullable<ReturnType<typeof selectWeeklyRecapFacts>>): {
+  headToHeadLines: WeeklyRecapGameLine[];
+  notableResultLines: WeeklyRecapGameLine[];
+  prioritizedNotableLines: WeeklyRecapGameLine[];
+} {
+  const lines = new Map<string, MutableGameLine>();
+  const headToHeadKeys = new Set(facts.ownerMatchups.map((result) => result.gameKey));
+
+  for (const result of facts.ownerMatchups) {
+    addGameQualifier(
+      lines,
+      result.gameKey,
+      ownedGameSides(result),
+      'Head-to-head',
+      `${result.margin}-point margin`
+    );
+  }
+  for (const result of facts.oddsUpsets) {
+    addGameQualifier(
+      lines,
+      result.gameKey,
+      oddsUpsetSides(result),
+      'Odds upset',
+      `Won as a +${result.spreadMagnitude}-point underdog`
+    );
+  }
+  for (const result of facts.accolades.closestGames) {
+    addGameQualifier(
+      lines,
+      result.gameKey,
+      ownedGameSides(result),
+      'Closest game',
+      `${result.margin}-point margin`
+    );
+  }
+  for (const result of facts.accolades.biggestBlowouts) {
+    addGameQualifier(
+      lines,
+      result.gameKey,
+      ownedGameSides(result),
+      'Biggest margin',
+      `${result.margin}-point margin`
+    );
+  }
+
+  const finalized = new Map(
+    Array.from(lines.entries()).map(([gameKey, line]) => [gameKey, finalizeGameLine(line)] as const)
+  );
+  const orderedUnique = (gameKeys: string[]): WeeklyRecapGameLine[] => {
+    const seen = new Set<string>();
+    return gameKeys.flatMap((gameKey) => {
+      if (seen.has(gameKey)) return [];
+      seen.add(gameKey);
+      const line = finalized.get(gameKey);
+      return line ? [line] : [];
+    });
+  };
+  const notableKeys = [
+    ...facts.oddsUpsets.map((result) => result.gameKey),
+    ...facts.accolades.closestGames.map((result) => result.gameKey),
+    ...facts.accolades.biggestBlowouts.map((result) => result.gameKey),
+  ];
+
+  return {
+    headToHeadLines: orderedUnique(facts.ownerMatchups.map((result) => result.gameKey)),
+    notableResultLines: orderedUnique(notableKeys).filter(
+      (line) => !headToHeadKeys.has(line.id.slice('game-'.length))
+    ),
+    prioritizedNotableLines: orderedUnique(notableKeys),
+  };
+}
+
 function composeLeaderLines(
   facts: NonNullable<ReturnType<typeof selectWeeklyRecapFacts>>
 ): WeeklyRecapLeaderLine[] {
@@ -179,9 +390,16 @@ export function composeWeeklyRecap(
     games: contextResult.context.games,
     rosterByTeam: contextResult.context.rosterByTeam,
     scoresByKey: contextResult.context.scoresByKey,
-    oddsByGameKey: contextResult.context.oddsByGameKey,
-    archives: contextResult.context.archives,
-    historicalRosters: contextResult.context.historicalRosters,
+    oddsByGameKey:
+      contextResult.context.odds.status === 'available' ? contextResult.context.odds.byGameKey : {},
+    archives:
+      contextResult.context.records.status === 'available'
+        ? contextResult.context.records.archives
+        : [],
+    historicalRosters:
+      contextResult.context.records.status === 'available'
+        ? contextResult.context.records.historicalRosters
+        : {},
     seasonYear: contextResult.context.seasonYear,
     now,
   });
@@ -225,6 +443,21 @@ export function composeWeeklyRecap(
         },
       ]
     : leaderLines;
+  const recordChangeLines =
+    contextResult.context.records.status === 'available'
+      ? facts.recordChanges.flatMap((change) => {
+          const line = composeRecordChangeLine(change, weekLabel);
+          return line ? [line] : [];
+        })
+      : [];
+  const gameLines = composeGameLines({
+    ...facts,
+    oddsUpsets: contextResult.context.odds.status === 'available' ? facts.oddsUpsets : [],
+  });
+  const tileHighlights: WeeklyRecapTileHighlight[] = [
+    ...recordChangeLines,
+    ...gameLines.prioritizedNotableLines,
+  ].slice(0, 3);
 
   return {
     status: 'available',
@@ -237,5 +470,9 @@ export function composeWeeklyRecap(
     leaderLines,
     tileLeaderLines,
     movementLines,
+    recordChangeLines,
+    headToHeadLines: gameLines.headToHeadLines,
+    notableResultLines: gameLines.notableResultLines,
+    tileHighlights,
   };
 }
