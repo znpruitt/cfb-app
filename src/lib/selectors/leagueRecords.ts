@@ -23,6 +23,7 @@
 
 import { parseOwnersCsv } from '../parseOwnersCsv';
 import type { SeasonArchive } from '../seasonArchive';
+import type { OwnedFinalParticipation } from '../standings.ts';
 import type { OwnerStandingsSeriesPoint } from '../standingsHistory';
 import type { ScorePack } from '../scores';
 
@@ -70,6 +71,45 @@ export type SelectAllRecordsInput = {
   /** Active owners from the current season's owners CSV. Used for drought only. */
   currentRoster: Map<string, string>;
 };
+
+/**
+ * Record families whose atoms are complete games, weeks, or an accumulating
+ * points total. These may be projected during an active season without
+ * pretending that the current standings are a completed season outcome.
+ */
+export const IN_SEASON_RECORD_IDS = [
+  'single_season_high_score',
+  'single_season_blowout',
+  'single_season_points_high',
+  'lopsided_rivalry',
+  'even_rivalry',
+  'dominance_streak',
+] as const;
+
+export type InSeasonRecordId = (typeof IN_SEASON_RECORD_IDS)[number];
+
+export type InSeasonOwnedFinal = {
+  gameKey: string;
+  year: number;
+  week: number;
+  winner: string;
+  loser: string;
+  margin: number;
+};
+
+/**
+ * Normalized evidence consumed by the six active-season-safe record selectors.
+ * Historical and live evidence are projected separately because their
+ * ownership/finality authorities intentionally differ.
+ */
+export type InSeasonRecordEvidence = {
+  seasonPoints: Array<{ owner: string; value: number; year: number }>;
+  weeklyScores: Array<{ owner: string; score: number; year: number; week: number }>;
+  blowouts: InSeasonOwnedFinal[];
+  rivalryResults: InSeasonOwnedFinal[];
+};
+
+export type InSeasonRecordProjection = Record<InSeasonRecordId, RecordEntry | null>;
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -137,7 +177,7 @@ type OwnerAccum = {
 /** A value bucket used for grouping tied owners. */
 type RankedBucket = { value: number; owners: string[] };
 
-type H2HResult = { year: number; winner: string; loser: string };
+type H2HResult = InSeasonOwnedFinal;
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -292,7 +332,14 @@ function collectAllTimeH2H(
       const key = homeOwner < awayOwner ? `${homeOwner}|${awayOwner}` : `${awayOwner}|${homeOwner}`;
 
       const list = pairs.get(key) ?? [];
-      list.push({ year: archive.year, winner, loser });
+      list.push({
+        gameKey: game.key,
+        year: archive.year,
+        week: game.canonicalWeek,
+        winner,
+        loser,
+        margin: Math.abs(homeScore - awayScore),
+      });
       pairs.set(key, list);
     }
   }
@@ -313,12 +360,7 @@ function weeklyPointsForOwner(series: OwnerStandingsSeriesPoint[]): Map<number, 
 }
 
 /** Pairs of (homeOwner, awayOwner, margin) for all owned-vs-owned final games in an archive. */
-type OwnedFinalMatchup = {
-  winner: string;
-  loser: string;
-  margin: number;
-  year: number;
-};
+type OwnedFinalMatchup = InSeasonOwnedFinal;
 
 function getOwnedFinalMatchups(archive: SeasonArchive): OwnedFinalMatchup[] {
   const ownerRows = parseOwnersCsv(archive.ownerRosterSnapshot);
@@ -343,10 +385,195 @@ function getOwnedFinalMatchups(archive: SeasonArchive): OwnedFinalMatchup[] {
     const margin = Math.abs(homeScore - awayScore);
     const winner = homeScore > awayScore ? homeOwner : awayOwner;
     const loser = homeScore > awayScore ? awayOwner : homeOwner;
-    results.push({ winner, loser, margin, year: archive.year });
+    results.push({
+      gameKey: game.key,
+      winner,
+      loser,
+      margin,
+      year: archive.year,
+      week: game.canonicalWeek,
+    });
   }
 
   return results;
+}
+
+function emptyInSeasonRecordEvidence(): InSeasonRecordEvidence {
+  return { seasonPoints: [], weeklyScores: [], blowouts: [], rivalryResults: [] };
+}
+
+function rivalryPairKey(ownerA: string, ownerB: string): string {
+  return ownerA < ownerB ? `${ownerA}|${ownerB}` : `${ownerB}|${ownerA}`;
+}
+
+/**
+ * Project completed archive evidence for the six active-season-safe records.
+ *
+ * This is deliberately HISTORICAL: it preserves the archive path's legacy
+ * ownership/finality semantics for parity. Never manufacture a partial
+ * `SeasonArchive` and pass it here; live seasons must use
+ * `projectLiveInSeasonRecordEvidence` so canonical ownership and the shared
+ * score-status classifier remain authoritative.
+ */
+export function projectHistoricalInSeasonRecordEvidence(args: {
+  archives: SeasonArchive[];
+  historicalRosters: Record<number, Map<string, string>>;
+}): InSeasonRecordEvidence {
+  const evidence = emptyInSeasonRecordEvidence();
+  const sortedArchives = [...args.archives].sort((left, right) => left.year - right.year);
+
+  for (const archive of sortedArchives) {
+    for (const row of archive.finalStandings) {
+      const value = row.pointsFor ?? 0;
+      if (!isEligibleOwner(row.owner) || value <= 0) continue;
+      evidence.seasonPoints.push({ owner: row.owner, value, year: archive.year });
+    }
+
+    for (const [owner, series] of Object.entries(archive.standingsHistory.byOwner)) {
+      if (!isEligibleOwner(owner)) continue;
+      for (const [week, score] of weeklyPointsForOwner(series)) {
+        if (score > 0) evidence.weeklyScores.push({ owner, score, year: archive.year, week });
+      }
+    }
+
+    evidence.blowouts.push(...getOwnedFinalMatchups(archive));
+  }
+
+  const h2hPairs = collectAllTimeH2H(sortedArchives, args.historicalRosters);
+  for (const results of h2hPairs.values()) evidence.rivalryResults.push(...results);
+
+  return evidence;
+}
+
+function compareLiveParticipations(
+  left: OwnedFinalParticipation,
+  right: OwnedFinalParticipation
+): number {
+  if (left.game.canonicalWeek !== right.game.canonicalWeek) {
+    return left.game.canonicalWeek - right.game.canonicalWeek;
+  }
+
+  const parsedLeftKickoff = left.game.date ? Date.parse(left.game.date) : Number.NaN;
+  const parsedRightKickoff = right.game.date ? Date.parse(right.game.date) : Number.NaN;
+  const leftKickoff = Number.isFinite(parsedLeftKickoff)
+    ? parsedLeftKickoff
+    : Number.POSITIVE_INFINITY;
+  const rightKickoff = Number.isFinite(parsedRightKickoff)
+    ? parsedRightKickoff
+    : Number.POSITIVE_INFINITY;
+  if (leftKickoff !== rightKickoff) return leftKickoff - rightKickoff;
+  if (left.game.stageOrder !== right.game.stageOrder) {
+    return left.game.stageOrder - right.game.stageOrder;
+  }
+  if (left.game.slotOrder !== right.game.slotOrder) {
+    return left.game.slotOrder - right.game.slotOrder;
+  }
+  return left.game.key.localeCompare(right.game.key);
+}
+
+/** Project canonical live owned-final participations into record evidence. */
+export function projectLiveInSeasonRecordEvidence(args: {
+  seasonYear: number;
+  participations: OwnedFinalParticipation[];
+}): InSeasonRecordEvidence {
+  const evidence = emptyInSeasonRecordEvidence();
+  const seasonPointsByOwner = new Map<string, number>();
+  const weeklyScoresByOwner = new Map<string, Map<number, number>>();
+  const matchupByGame = new Map<string, InSeasonOwnedFinal>();
+  const ordered = [...args.participations].sort(compareLiveParticipations);
+
+  for (const participation of ordered) {
+    if (!isEligibleOwner(participation.owner)) continue;
+
+    seasonPointsByOwner.set(
+      participation.owner,
+      (seasonPointsByOwner.get(participation.owner) ?? 0) + participation.pointsFor
+    );
+    const weekly = weeklyScoresByOwner.get(participation.owner) ?? new Map<number, number>();
+    weekly.set(
+      participation.game.canonicalWeek,
+      (weekly.get(participation.game.canonicalWeek) ?? 0) + participation.pointsFor
+    );
+    weeklyScoresByOwner.set(participation.owner, weekly);
+
+    const opponentOwner = participation.opponentOwner;
+    if (
+      !opponentOwner ||
+      !isEligibleOwner(opponentOwner) ||
+      opponentOwner === participation.owner ||
+      matchupByGame.has(participation.game.key)
+    ) {
+      continue;
+    }
+
+    const ownerWon = participation.result === 'win';
+    matchupByGame.set(participation.game.key, {
+      gameKey: participation.game.key,
+      year: args.seasonYear,
+      week: participation.game.canonicalWeek,
+      winner: ownerWon ? participation.owner : opponentOwner,
+      loser: ownerWon ? opponentOwner : participation.owner,
+      margin: Math.abs(participation.pointsFor - participation.pointsAgainst),
+    });
+  }
+
+  for (const [owner, value] of seasonPointsByOwner) {
+    if (value > 0) evidence.seasonPoints.push({ owner, value, year: args.seasonYear });
+  }
+  for (const [owner, weeklyScores] of weeklyScoresByOwner) {
+    for (const [week, score] of weeklyScores) {
+      if (score > 0) evidence.weeklyScores.push({ owner, score, year: args.seasonYear, week });
+    }
+  }
+  evidence.blowouts.push(...matchupByGame.values());
+  evidence.rivalryResults.push(...matchupByGame.values());
+
+  return evidence;
+}
+
+function mergeInSeasonRecordEvidence(
+  sources: readonly InSeasonRecordEvidence[]
+): InSeasonRecordEvidence {
+  const merged = emptyInSeasonRecordEvidence();
+  for (const source of sources) {
+    merged.seasonPoints.push(...source.seasonPoints);
+    merged.weeklyScores.push(...source.weeklyScores);
+    merged.blowouts.push(...source.blowouts);
+    merged.rivalryResults.push(...source.rivalryResults);
+  }
+  return merged;
+}
+
+function groupRivalryResults(results: InSeasonOwnedFinal[]): Map<string, H2HResult[]> {
+  const pairs = new Map<string, H2HResult[]>();
+  for (const result of results) {
+    const key = rivalryPairKey(result.winner, result.loser);
+    const pair = pairs.get(key) ?? [];
+    pair.push(result);
+    pairs.set(key, pair);
+  }
+  return pairs;
+}
+
+/**
+ * Compute only the six records whose semantics are safe for partial seasons.
+ * This path cannot reach `buildCareerAccumulator` or any final-standings event
+ * selector by construction.
+ */
+export function selectInSeasonRecordProjection(
+  sources: readonly InSeasonRecordEvidence[]
+): InSeasonRecordProjection {
+  const evidence = mergeInSeasonRecordEvidence(sources);
+  const h2hPairs = groupRivalryResults(evidence.rivalryResults);
+
+  return {
+    single_season_high_score: selectSingleSeasonHighScoreRecord(evidence.weeklyScores),
+    single_season_blowout: selectSingleSeasonBlowoutRecord(evidence.blowouts),
+    single_season_points_high: selectSingleSeasonPointsHighRecord(evidence.seasonPoints),
+    lopsided_rivalry: selectLopsidedRivalryRecord(h2hPairs),
+    even_rivalry: selectEvenRivalryRecord(h2hPairs),
+    dominance_streak: selectDominanceStreakRecord(h2hPairs),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -579,18 +806,9 @@ function selectCareerDynastyRecord(
 // Season record selectors
 // ---------------------------------------------------------------------------
 
-function selectSingleSeasonPointsHighRecord(sortedArchives: SeasonArchive[]): RecordEntry | null {
-  type Entry = { owner: string; value: number; year: number };
-  const entries: Entry[] = [];
-
-  for (const archive of sortedArchives) {
-    for (const row of archive.finalStandings) {
-      if (!isEligibleOwner(row.owner)) continue;
-      if ((row.pointsFor ?? 0) <= 0) continue;
-      entries.push({ owner: row.owner, value: row.pointsFor ?? 0, year: archive.year });
-    }
-  }
-
+function selectSingleSeasonPointsHighRecord(
+  entries: InSeasonRecordEvidence['seasonPoints']
+): RecordEntry | null {
   if (entries.length === 0) return null;
 
   const maxValue = Math.max(...entries.map((e) => e.value));
@@ -660,20 +878,9 @@ function selectSingleSeasonPointsLowRecord(sortedArchives: SeasonArchive[]): Rec
   };
 }
 
-function selectSingleSeasonHighScoreRecord(sortedArchives: SeasonArchive[]): RecordEntry | null {
-  type Entry = { owner: string; score: number; year: number; week: number };
-  const entries: Entry[] = [];
-
-  for (const archive of sortedArchives) {
-    for (const [owner, series] of Object.entries(archive.standingsHistory.byOwner)) {
-      if (!isEligibleOwner(owner)) continue;
-      const weekly = weeklyPointsForOwner(series);
-      for (const [week, pts] of weekly) {
-        if (pts > 0) entries.push({ owner, score: pts, year: archive.year, week });
-      }
-    }
-  }
-
+function selectSingleSeasonHighScoreRecord(
+  entries: InSeasonRecordEvidence['weeklyScores']
+): RecordEntry | null {
   if (entries.length === 0) return null;
 
   const maxScore = Math.max(...entries.map((e) => e.score));
@@ -701,12 +908,7 @@ function selectSingleSeasonHighScoreRecord(sortedArchives: SeasonArchive[]): Rec
   };
 }
 
-function selectSingleSeasonBlowoutRecord(sortedArchives: SeasonArchive[]): RecordEntry | null {
-  const all: OwnedFinalMatchup[] = [];
-  for (const archive of sortedArchives) {
-    all.push(...getOwnedFinalMatchups(archive));
-  }
-
+function selectSingleSeasonBlowoutRecord(all: InSeasonOwnedFinal[]): RecordEntry | null {
   if (all.length === 0) return null;
 
   const maxMargin = Math.max(...all.map((m) => m.margin));
@@ -1077,8 +1279,13 @@ export function selectAllRecords(input: SelectAllRecordsInput): LeagueRecords {
 
   const sortedArchives = [...archives].sort((a, b) => a.year - b.year);
   const accum = buildCareerAccumulator(sortedArchives);
-  const h2hPairs = collectAllTimeH2H(sortedArchives, historicalRosters);
   const activeOwners = activeOwnerSet(currentRoster);
+  const inSeasonProjection = selectInSeasonRecordProjection([
+    projectHistoricalInSeasonRecordEvidence({
+      archives: sortedArchives,
+      historicalRosters,
+    }),
+  ]);
 
   // Career records
   const careerRecords: RecordEntry[] = [
@@ -1094,17 +1301,17 @@ export function selectAllRecords(input: SelectAllRecordsInput): LeagueRecords {
 
   // Season records
   const seasonRecords: RecordEntry[] = [
-    selectSingleSeasonPointsHighRecord(sortedArchives),
+    inSeasonProjection.single_season_points_high,
     selectSingleSeasonPointsLowRecord(sortedArchives),
-    selectSingleSeasonHighScoreRecord(sortedArchives),
-    selectSingleSeasonBlowoutRecord(sortedArchives),
+    inSeasonProjection.single_season_high_score,
+    inSeasonProjection.single_season_blowout,
   ].filter((r): r is RecordEntry => r !== null);
 
   // Rivalry records
   const rivalryRecords: RecordEntry[] = [
-    selectLopsidedRivalryRecord(h2hPairs),
-    selectEvenRivalryRecord(h2hPairs),
-    selectDominanceStreakRecord(h2hPairs),
+    inSeasonProjection.lopsided_rivalry,
+    inSeasonProjection.even_rivalry,
+    inSeasonProjection.dominance_streak,
   ].filter((r): r is RecordEntry => r !== null);
 
   // Event records
