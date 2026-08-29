@@ -67,7 +67,8 @@ Rules:
   suite, and production build. One remediation round closed tied-context, placeholder, parity-fixture,
   archive-absence, and rivalry-coverage findings; final independent Codex and Claude reviews found
   no remaining P0/P1/P2 issue. Non-blocking follow-ups remain recorded with item 42.
-- Status: Implemented — pre-merge closeout complete; not yet merged.
+- Status: Merged via PR #525 (merge commit `6b541730`), 2026-08-29; production promotion not yet
+  verified.
 
 ### PLATFORM-114-SCHEDULE-PROVIDER-CLASSIFICATION-v1
 
