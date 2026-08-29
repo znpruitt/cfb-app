@@ -4211,8 +4211,26 @@ Key architectural decisions across Phase 5:
 - **Verification:** Exact code commit `52895e79` passed TypeScript, `lint:all`, the 4,402-test full
   suite, and production build. One bounded remediation round closed the actionable findings; final
   independent Codex and Claude reviews found no remaining P0/P1/P2 issue.
-- **Open follow-ups:** Item 42 in `docs/next-tasks.md` retains the review follow-ups, Slice 4 odds
-  work, final recap wiring, Forward Look, and stored event-source delivery.
+- **Open follow-ups:** Item 42 in `docs/next-tasks.md` retains the review follow-ups, final recap
+  wiring, Forward Look, and stored event-source delivery.
+
+### INSIGHTS-026e — Weekly Recap Odds Upsets — Complete
+
+- **Status:** Merged via PR #527 (merge commit `a1b25582`), 2026-08-29; production promotion not yet
+  verified.
+- **PROMPT_ID(s):** `INSIGHTS-026e-RECAP-ODDS-UPSETS-v1`.
+- **Outcome:** The request-time recap now derives structured odds-vs-result upset facts from the
+  season-scoped durable odds store without a provider or HTTP call. Game badges and recap facts use
+  one shared six-point pregame-spread policy; live ownership/finality remains canonical,
+  owned-v-owned games are deduplicated, placeholder-only games are excluded, and facts are ordered
+  deterministically. The shared policy also now measures asymmetric lines from the favorite side's
+  own spread. The facts remain deliberately unwired until the final recap rendering pass.
+- **Verification:** Exact code commit `3d1ed850` passed TypeScript, `lint:all`, the 4,416-test full
+  suite, and production build. One bounded remediation round fixed the asymmetric-line threshold
+  edge and strengthened ownership/week/order coverage; final independent Codex and Claude reviews
+  found no remaining P0/P1/P2 issue.
+- **Open follow-ups:** Item 42 in `docs/next-tasks.md` retains the final recap wiring pass, the
+  non-blocking Slice 3/4 review follow-ups, Forward Look, and stored event-source delivery.
 
 ### Template for future entries
 
