@@ -380,9 +380,9 @@ test('composer names every owner tied for biggest riser', () => {
   if (recap.status !== 'available') return;
   assert.deepEqual(recap.tileLeaderLines.at(-1), {
     id: 'biggest-riser',
-    label: 'Dave, Eve & Frank',
+    label: 'Biggest risers',
     value: '▲ 3',
-    context: 'Biggest risers',
+    context: 'Dave, Eve & Frank',
     tone: 'positive',
   });
 });

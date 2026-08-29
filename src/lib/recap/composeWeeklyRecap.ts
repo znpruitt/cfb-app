@@ -206,17 +206,17 @@ export function composeWeeklyRecap(
   const biggestRisers = biggestRiser
     ? facts.rankMovement.filter((movement) => movement.rankDelta === biggestRiser.rankDelta)
     : [];
+  const hasTiedBiggestRisers = biggestRisers.length > 1;
   const tileLeaderLines = biggestRiser
     ? [
         ...leaderLines,
         {
           id: 'biggest-riser' as const,
-          label: formatAllOwnerNames(biggestRisers.map((movement) => movement.owner)),
+          label: hasTiedBiggestRisers ? 'Biggest risers' : biggestRiser.owner,
           value: `▲ ${biggestRiser.rankDelta}`,
-          context:
-            biggestRisers.length === 1
-              ? `Biggest riser · #${biggestRiser.previousRank} → #${biggestRiser.currentRank}`
-              : 'Biggest risers',
+          context: hasTiedBiggestRisers
+            ? formatAllOwnerNames(biggestRisers.map((movement) => movement.owner))
+            : `Biggest riser · #${biggestRiser.previousRank} → #${biggestRiser.currentRank}`,
           tone: 'positive' as const,
         },
       ]
