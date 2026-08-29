@@ -699,20 +699,31 @@ continuous detection on live data with no extra provider call and no scheduled j
 `fetch:teams` time covers teams that appear in no game. Classify the outcomes, because they are not
 equally serious:
 
-- same id, different school — REASSIGNMENT. The dangerous case: silently rebinds history. Must fail
-  loudly.
+- same id, different name — requires human adjudication. This single class covers BOTH a benign
+  rebrand and a dangerous reassignment, and the system cannot safely tell them apart: `East Texas
+  A&M` (formerly Texas A&M-Commerce) is a real, benign instance already present in the feed. A
+  rename keeps continuity — same conference, recognizably related name — but that is judgment, not a
+  rule.
 - same school, different id — re-keying. Needs a mapping decision before any further write.
 - id no longer present — ordinarily conference realignment leaving FBS; informational.
 
-`src/lib/conferenceDiagnostics.ts` and its debug route are the idiomatic precedent for recording and
-surfacing this.
+**Posture: surface, never block.** The provider is expected to be clean, so these events should be
+rare, and blocking ingest on the first rebrand of a season would break the app for a benign cause.
+Ingest therefore continues. What must not happen is a SILENT rebinding of durable identity: a new
+`(id, name)` observation that disagrees with the stored binding is recorded as a conflict rather than
+overwriting it, and the durable rebind requires explicit operator action. That way a switch cannot
+propagate into the database unnoticed while a rename cannot take the season down.
+
+`src/lib/conferenceDiagnostics.ts` and its debug route are the idiomatic precedent for recording
+this; System Health is the established surface for making an operator aware of it.
 
 Acceptance boundary, both required:
 
 - Two distinct schools never share a normalized identity key, proven by a catalog-wide collision
   sweep, and a conflict fails loudly instead of resolving by first-write-wins.
-- Provider identity drift is detected and surfaced, with id reassignment failing loudly rather than
-  being absorbed silently.
+- Provider identity drift is detected and surfaced, and a disagreeing `(id, name)` observation never
+  silently overwrites the stored binding. Ingest continues; the durable rebind requires operator
+  action.
 - A per-team season game-count invariant rejects an impossible schedule. The FBS ceiling is **17**
   — 12 regular-season games, plus a conference championship, plus four College Football Playoff
   rounds under the 12-team format — so the threshold must accommodate a full title run or it will
