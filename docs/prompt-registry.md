@@ -51,6 +51,34 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### INSIGHTS-026b-RECAP-LAYOUT-v2
+
+- Purpose: rebuild the weekly recap's approved layout and Overview tile on the proven Slice 1 facts
+  without changing the remaining vertical content slices.
+- Scope: shared recap header and weekly-record grid, the Insights lead section, a request-time
+  Overview tile derived from already-hydrated app data, calendar-only tile phase selection, focused
+  rendering/selector coverage, and the three owning design-system amendments. No new endpoint,
+  durable artifact, scheduler, record projection, odds policy, or unwired content placeholder.
+- Outcome: the Insights recap now uses the mockup's headline and four-column weekly-record layout;
+  Overview gets a normal-flow, collapsed-by-default recap tile during the eligible-to-Thursday
+  window, with expansion revealing the compact shared rows. Recap context uncertainty remains
+  independent from standing insights, and the mounted tile reevaluates the 06:00 ET boundaries.
+- Review / verification: full TypeScript, lint, test, build, visual, and independent-review gates
+  are required before merge and are reported with the implementation handoff.
+- Status: Implemented on the replacement feature branch; review and merge pending.
+
+### INSIGHTS-026b-RECAP-LAYOUT-v1
+
+- Purpose: apply the approved weekly-recap mockup as a layout stage between the walking skeleton and
+  the remaining fact-family slices.
+- Scope: the same member surfaces and design-system amendments later retained by v2.
+- Outcome: stopped after two remediation rounds exposed an unstable seam: the mounted Overview tile
+  could miss its request-time 06:00 ET transitions, and extending the insights response added an
+  uncached season build to the existing endpoint. No v1 implementation was merged.
+- Review / verification: the seam assessment required clean reconstruction from `origin/main`
+  instead of a third patch to the stopped branch.
+- Status: Superseded/unimplemented by `INSIGHTS-026b-RECAP-LAYOUT-v2`.
+
 ### INSIGHTS-026a-RECAP-SKELETON-v1
 
 - Purpose: establish the request-time weekly Look Back pipeline before adding the remaining recap

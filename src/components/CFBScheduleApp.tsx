@@ -91,6 +91,10 @@ import { resolveLeagueSeason } from '../lib/leagueSeason';
 import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
 import type { Insight as EngineInsight } from '../lib/selectors/insights';
 import type { LifecycleState } from '../lib/insights/types';
+import {
+  composeWeeklyRecapTile,
+  type AvailableWeeklyRecapViewModel,
+} from '../lib/recap/composeWeeklyRecap';
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
 const EXPLICIT_SEASON = Number.parseInt(process.env.NEXT_PUBLIC_SEASON ?? '', 10);
@@ -368,6 +372,7 @@ export default function CFBScheduleApp({
   const [scoreHydrationState, setScoreHydrationState] = useState<ScoreHydrationState>(
     EMPTY_SCORE_HYDRATION_STATE
   );
+  const [scoreHydrationAvailable, setScoreHydrationAvailable] = useState(false);
 
   const [draftPhase, setDraftPhase] = useState<DraftPhase | null>(null);
   const [draftScheduledAt, setDraftScheduledAt] = useState<string | null>(null);
@@ -409,6 +414,7 @@ export default function CFBScheduleApp({
     setRankings(null);
     setScheduleLoaded(false);
     setScoreHydrationState(EMPTY_SCORE_HYDRATION_STATE);
+    setScoreHydrationAvailable(false);
   }, []);
 
   const loadRankings = useCallback(
@@ -1062,6 +1068,7 @@ export default function CFBScheduleApp({
     oddsUsage,
     scoreHydrationState,
     setScoreHydrationState,
+    setScoreHydrationAvailable,
     setIssues,
     setOddsByKey,
     setScoresByKey,
@@ -1078,6 +1085,43 @@ export default function CFBScheduleApp({
     // standings would stay tied to the render-time snapshot until navigation.
     onGamesFinalized: handleGamesFinalized,
   });
+
+  const weeklyRecap = useMemo<AvailableWeeklyRecapViewModel | null>(() => {
+    if (
+      !scheduleLoaded ||
+      !scoreHydrationAvailable ||
+      rosterByTeam.size === 0 ||
+      canonicalStandings?.ownersRosterSource !== 'csv' ||
+      liveStaleClock === 0
+    ) {
+      return null;
+    }
+
+    const tile = composeWeeklyRecapTile(
+      {
+        status: 'available',
+        context: {
+          seasonYear: selectedSeason,
+          games,
+          rosterByTeam,
+          scoresByKey,
+        },
+      },
+      new Date(liveStaleClock),
+      { leagueStatus, seasonYear: selectedSeason }
+    );
+    return tile.state === 'recap' ? tile.recap : null;
+  }, [
+    games,
+    canonicalStandings?.ownersRosterSource,
+    leagueStatus,
+    liveStaleClock,
+    rosterByTeam,
+    scheduleLoaded,
+    scoreHydrationAvailable,
+    scoresByKey,
+    selectedSeason,
+  ]);
 
   const gameDayConfidence = useMemo(
     () =>
@@ -1795,6 +1839,7 @@ export default function CFBScheduleApp({
                   leagueSlug={leagueSlug}
                   engineInsights={engineInsights}
                   lifecycleState={insightsLifecycleState}
+                  weeklyRecap={weeklyRecap}
                   currentYear={selectedSeason}
                 />
               ) : primarySurfaceKind === 'standings' ? (

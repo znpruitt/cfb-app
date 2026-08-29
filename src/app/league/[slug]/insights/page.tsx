@@ -1,10 +1,12 @@
 import { isPlatformAdminSession } from '@/lib/server/adminAuth';
 
 import LeaguePageShell from '@/components/LeaguePageShell';
+import { RecapHeader, WeekRecordsGrid } from '@/components/recap/RecapPrimitives';
 import { loadInsightsForLeague } from '../../../../lib/insights/loadInsights';
 import { getLeague } from '../../../../lib/leagueRegistry';
 import {
   composeWeeklyRecap,
+  type AvailableWeeklyRecapViewModel,
   type WeeklyRecapViewModel,
 } from '../../../../lib/recap/composeWeeklyRecap';
 import { loadRecapContextForSeasonScope } from '../../../../lib/recap/loadRecapContext';
@@ -18,67 +20,32 @@ import AllInsightsRow from './AllInsightsRow';
 export const dynamic = 'force-dynamic';
 
 function WeeklyRecapSection({ recap }: { recap: WeeklyRecapViewModel }): React.ReactElement | null {
-  if (recap.status === 'inactive') return null;
+  if (recap.status !== 'available') return null;
+
+  const availableRecap: AvailableWeeklyRecapViewModel = recap;
 
   return (
     <section
       aria-labelledby="weekly-recap-heading"
-      className="mb-7 border-b border-gray-200 pb-7 dark:border-zinc-800"
+      className="mb-10 border-b border-zinc-800 pb-10"
     >
-      <div className="mb-3 flex items-baseline justify-between gap-4">
-        <h2
-          id="weekly-recap-heading"
-          className="text-lg font-semibold tracking-tight text-gray-950 dark:text-zinc-50"
-        >
-          Weekly recap
-        </h2>
-        {recap.status === 'available' ? (
-          <p className="shrink-0 text-sm font-medium text-gray-600 dark:text-zinc-400">
-            {recap.weekLabel}
-          </p>
-        ) : null}
-      </div>
+      <RecapHeader
+        headingId="weekly-recap-heading"
+        headline={availableRecap.headline}
+        weekLabel={availableRecap.weekLabel}
+      />
 
-      {recap.status === 'unavailable' ? (
-        <p className="text-sm text-gray-600 dark:text-zinc-400">
-          This week&apos;s recap isn&apos;t available right now. Please check back shortly.
-        </p>
-      ) : recap.status === 'absent' ? (
-        <p className="text-sm text-gray-600 dark:text-zinc-400">
-          No weekly recap is available yet.
+      {availableRecap.ownerLines.length === 0 ? (
+        <p className="mt-2 text-sm text-zinc-400">
+          No completed results were recorded for this week.
         </p>
       ) : (
-        <>
-          {recap.ownerLines.length === 0 ? (
-            <p className="text-sm text-gray-600 dark:text-zinc-400">
-              No completed results were recorded for {recap.weekLabel}.
-            </p>
-          ) : (
-            <ul className="divide-y divide-gray-100 dark:divide-zinc-800/80">
-              {recap.ownerLines.map((line) => (
-                <li key={line.owner} className="flex items-center justify-between gap-4 py-2.5">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-gray-950 dark:text-zinc-100">
-                      {line.owner}
-                    </p>
-                    <p className="text-xs text-gray-500 dark:text-zinc-500">{line.pointsLabel}</p>
-                  </div>
-                  <p className="shrink-0 text-sm font-semibold tabular-nums text-gray-800 dark:text-zinc-200">
-                    {line.recordLabel}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          )}
-
-          {recap.unresolvedMessage || recap.abandonedMessage || recap.missingResultMessage ? (
-            <div className="mt-3 space-y-1 text-xs text-gray-500 dark:text-zinc-500">
-              {recap.unresolvedMessage ? <p>{recap.unresolvedMessage}</p> : null}
-              {recap.abandonedMessage ? <p>{recap.abandonedMessage}</p> : null}
-              {recap.missingResultMessage ? <p>{recap.missingResultMessage}</p> : null}
-            </div>
-          ) : null}
-        </>
+        <div className="mt-11">
+          <WeekRecordsGrid
+            headingId="weekly-recap-records-heading"
+            ownerLines={availableRecap.ownerLines}
+          />
+        </div>
       )}
     </section>
   );

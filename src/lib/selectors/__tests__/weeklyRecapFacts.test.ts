@@ -4,9 +4,13 @@ import test from 'node:test';
 import type { ScorePack } from '../../scores.ts';
 import type { AppGame } from '../../schedule.ts';
 import {
+  compareWeeklyOwnerResults,
   isWeeklyRecapActiveSeason,
   selectWeeklyRecapFacts,
+  selectWeeklyRecapLeaders,
   selectWeeklyRecapTargetWeek,
+  selectWeeklyRecapTileState,
+  type WeeklyOwnerResult,
 } from '../weeklyRecapFacts.ts';
 
 function game(args: {
@@ -83,6 +87,24 @@ function finalScore(away: number, home: number): ScorePack {
   };
 }
 
+function ownerResult(
+  owner: string,
+  wins: number,
+  losses: number,
+  pointDifferential: number,
+  pointsFor: number
+): WeeklyOwnerResult {
+  return {
+    owner,
+    wins,
+    losses,
+    gamesPlayed: wins + losses,
+    pointsFor,
+    pointsAgainst: pointsFor - pointDifferential,
+    pointDifferential,
+  };
+}
+
 test('request-time recaps exist only for the matching active season', () => {
   assert.equal(
     isWeeklyRecapActiveSeason({
@@ -137,6 +159,59 @@ test('06:00 ET cutoff clears a 23:00 ET kickoff on the final game-date', () => {
     week: 4,
     latestGameDate: '2026-09-05',
   });
+});
+
+test('Overview tile state changes at 06:00 ET on eligibility day and Thursday', () => {
+  const targetWeek = { week: 4, latestGameDate: '2026-09-05' };
+
+  assert.equal(
+    selectWeeklyRecapTileState(targetWeek, new Date('2026-09-06T09:59:00.000Z')),
+    'hidden'
+  );
+  assert.equal(
+    selectWeeklyRecapTileState(targetWeek, new Date('2026-09-06T10:00:00.000Z')),
+    'recap'
+  );
+  assert.equal(
+    selectWeeklyRecapTileState(targetWeek, new Date('2026-09-10T09:59:00.000Z')),
+    'recap'
+  );
+  assert.equal(
+    selectWeeklyRecapTileState(targetWeek, new Date('2026-09-10T10:00:00.000Z')),
+    'upcoming'
+  );
+});
+
+test('weekly record order resolves wins, win percentage, then point differential', () => {
+  const byWins = [ownerResult('One Win', 1, 0, 30, 40), ownerResult('Two Wins', 2, 2, 0, 80)].sort(
+    compareWeeklyOwnerResults
+  );
+  assert.equal(byWins[0].owner, 'Two Wins');
+
+  const byWinPct = [
+    ownerResult('Two of Three', 2, 1, 50, 80),
+    ownerResult('Perfect', 2, 0, 1, 40),
+  ].sort(compareWeeklyOwnerResults);
+  assert.equal(byWinPct[0].owner, 'Perfect');
+
+  const byDifferential = [
+    ownerResult('Narrow', 2, 0, 3, 70),
+    ownerResult('Decisive', 2, 0, 20, 60),
+  ].sort(compareWeeklyOwnerResults);
+  assert.equal(byDifferential[0].owner, 'Decisive');
+});
+
+test('exact competitive ties retain every weekly leader instead of choosing alphabetically', () => {
+  const leaders = selectWeeklyRecapLeaders([
+    ownerResult('Bob', 1, 0, 14, 31),
+    ownerResult('Alice', 1, 0, 14, 31),
+    ownerResult('Carol', 1, 0, 7, 24),
+  ]);
+
+  assert.deepEqual(
+    leaders.map((leader) => leader.owner),
+    ['Alice', 'Bob']
+  );
 });
 
 test('a Monday-night week becomes eligible Tuesday morning, not Monday night', () => {

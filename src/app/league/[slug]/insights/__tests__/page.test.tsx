@@ -73,6 +73,8 @@ test('Insights page renders the request-time recap above the standing insight li
   const html = await renderPageContent(SLUG);
 
   assert.match(html, /Weekly recap/);
+  assert.match(html, /Alice takes the week at 1–0/);
+  assert.match(html, /Week records/);
   assert.match(html, /Alice/);
   assert.match(html, /31 PF · 17 PA/);
   assert.match(html, /1–0/);
@@ -114,8 +116,9 @@ test('Insights page renders the eligible week when it has no completed results',
 
   const html = await renderPageContent(slug);
 
-  assert.match(html, /No completed results were recorded for Week 1\./);
-  assert.match(html, /1 game remains unresolved\./);
+  assert.match(html, /No completed results were recorded for this week\./);
+  assert.doesNotMatch(html, /game remains unresolved/);
+  assert.doesNotMatch(html, /Week records/);
 });
 
 test('Insights page surfaces a completed league game whose result is unavailable', async () => {
@@ -149,8 +152,9 @@ test('Insights page surfaces a completed league game whose result is unavailable
 
   const html = await renderPageContent(slug);
 
-  assert.match(html, /No completed results were recorded for Week 1\./);
-  assert.match(html, /1 game\. Waiting on complete results\./);
+  assert.match(html, /No completed results were recorded for this week\./);
+  assert.doesNotMatch(html, /Waiting on complete results/);
+  assert.doesNotMatch(html, /coverage|cache|CFBD/i);
 });
 
 test('Insights page hides the request-time recap outside the active season', async () => {

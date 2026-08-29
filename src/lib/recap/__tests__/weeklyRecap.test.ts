@@ -10,7 +10,7 @@ import {
   setAppState,
 } from '../../server/appStateStore.ts';
 import { __resetTeamDatabaseStoreForTests } from '../../server/teamDatabaseStore.ts';
-import { composeWeeklyRecap } from '../composeWeeklyRecap.ts';
+import { composeWeeklyRecap, composeWeeklyRecapTile } from '../composeWeeklyRecap.ts';
 import {
   loadRecapContext,
   loadRecapContextForSeasonScope,
@@ -61,8 +61,18 @@ async function seedAvailableContext(slug: string): Promise<void> {
   });
 }
 
-function game(args: { key?: string; date?: string; startTimeTBD?: boolean } = {}): AppGame {
+function game(
+  args: {
+    key?: string;
+    date?: string;
+    startTimeTBD?: boolean;
+    away?: string;
+    home?: string;
+  } = {}
+): AppGame {
   const key = args.key ?? 'quiet';
+  const away = args.away ?? 'Georgia';
+  const home = args.home ?? 'Texas';
   return {
     key,
     eventId: key,
@@ -90,23 +100,23 @@ function game(args: { key?: string; date?: string; startTimeTBD?: boolean } = {}
     participants: {
       away: {
         kind: 'team',
-        teamId: 'Georgia',
-        displayName: 'Georgia',
-        canonicalName: 'Georgia',
-        rawName: 'Georgia',
+        teamId: away,
+        displayName: away,
+        canonicalName: away,
+        rawName: away,
       },
       home: {
         kind: 'team',
-        teamId: 'Texas',
-        displayName: 'Texas',
-        canonicalName: 'Texas',
-        rawName: 'Texas',
+        teamId: home,
+        displayName: home,
+        canonicalName: home,
+        rawName: home,
       },
     },
-    csvAway: 'Georgia',
-    csvHome: 'Texas',
-    canAway: 'Georgia',
-    canHome: 'Texas',
+    csvAway: away,
+    csvHome: home,
+    canAway: away,
+    canHome: home,
     awayConf: 'SEC',
     homeConf: 'SEC',
   };
@@ -122,6 +132,15 @@ function context(games: AppGame[], scoresByKey: Record<string, ScorePack>): Week
     games,
     rosterByTeam,
     scoresByKey,
+  };
+}
+
+function finalScore(away: number, home: number): ScorePack {
+  return {
+    status: 'final',
+    away: { team: 'Away', score: away },
+    home: { team: 'Home', score: home },
+    time: null,
   };
 }
 
@@ -206,13 +225,43 @@ test('composer turns completed owner results into the minimal recap view model',
   assert.equal(recap.status, 'available');
   if (recap.status !== 'available') return;
   assert.equal(recap.weekLabel, 'Week 1');
+  assert.equal(recap.latestGameDate, '2026-09-05');
+  assert.equal(recap.headline, 'Alice takes the week at 1–0');
   assert.deepEqual(recap.ownerLines, [
     { owner: 'Alice', recordLabel: '1–0', pointsLabel: '31 PF · 17 PA' },
     { owner: 'Bob', recordLabel: '0–1', pointsLabel: '17 PF · 31 PA' },
   ]);
-  assert.equal(recap.unresolvedMessage, null);
-  assert.equal(recap.abandonedMessage, null);
-  assert.equal(recap.missingResultMessage, null);
+});
+
+test('composer uses count copy when three owners share the exact weekly lead', () => {
+  const tiedGames = [
+    game({ key: 'alice-win', away: 'Florida', home: 'Texas' }),
+    game({ key: 'bob-win', away: 'Clemson', home: 'Georgia' }),
+    game({ key: 'carol-win', away: 'Florida', home: 'Miami' }),
+  ];
+  const rosterByTeam = new Map([
+    ['Texas', 'Alice'],
+    ['Georgia', 'Bob'],
+    ['Miami', 'Carol'],
+  ]);
+  const scoresByKey: Record<string, ScorePack> = {
+    'alice-win': finalScore(17, 31),
+    'bob-win': finalScore(17, 31),
+    'carol-win': finalScore(17, 31),
+  };
+
+  const recap = composeWeeklyRecap(
+    {
+      status: 'available',
+      context: { seasonYear: YEAR, games: tiedGames, rosterByTeam, scoresByKey },
+    },
+    new Date('2026-09-07T16:00:00.000Z'),
+    ACTIVE_SCOPE
+  );
+
+  assert.equal(recap.status, 'available');
+  if (recap.status !== 'available') return;
+  assert.equal(recap.headline, 'Three owners share the week at 1–0');
 });
 
 test('composer preserves a visible no-results state while one sibling keeps the slate unresolved', () => {
@@ -231,9 +280,7 @@ test('composer preserves a visible no-results state while one sibling keeps the 
   assert.equal(recap.status, 'available');
   if (recap.status !== 'available') return;
   assert.deepEqual(recap.ownerLines, []);
-  assert.equal(recap.unresolvedMessage, '2 games remain unresolved.');
-  assert.equal(recap.abandonedMessage, null);
-  assert.equal(recap.missingResultMessage, null);
+  assert.equal(recap.headline, null);
 });
 
 test('composer reports games without results only after every pending sibling clears the gate', () => {
@@ -258,8 +305,7 @@ test('composer reports games without results only after every pending sibling cl
 
   assert.equal(recap.status, 'available');
   if (recap.status !== 'available') return;
-  assert.equal(recap.unresolvedMessage, null);
-  assert.equal(recap.abandonedMessage, '2 games have no recorded result.');
+  assert.equal(recap.headline, null);
 });
 
 test('composer surfaces a concluded game that is missing a usable result', () => {
@@ -277,7 +323,66 @@ test('composer surfaces a concluded game that is missing a usable result', () =>
 
   assert.equal(recap.status, 'available');
   if (recap.status !== 'available') return;
-  assert.equal(recap.missingResultMessage, '1 game. Waiting on complete results.');
+  assert.equal(recap.headline, null);
+});
+
+test('composer names both owners when the best competitive weekly record is exactly tied', () => {
+  const aliceGame = game({ key: 'alice-win', home: 'Texas', away: 'Purdue' });
+  const bobGame = game({
+    key: 'bob-win',
+    date: '2026-09-06T01:00:00.000Z',
+    home: 'Georgia',
+    away: 'Rutgers',
+  });
+  const recap = composeWeeklyRecap(
+    {
+      status: 'available',
+      context: context([aliceGame, bobGame], {
+        'alice-win': {
+          status: 'final',
+          away: { team: 'Purdue', score: 17 },
+          home: { team: 'Texas', score: 31 },
+          time: null,
+        },
+        'bob-win': {
+          status: 'final',
+          away: { team: 'Rutgers', score: 17 },
+          home: { team: 'Georgia', score: 31 },
+          time: null,
+        },
+      }),
+    },
+    new Date('2026-09-07T16:00:00.000Z'),
+    ACTIVE_SCOPE
+  );
+
+  assert.equal(recap.status, 'available');
+  if (recap.status !== 'available') return;
+  assert.equal(recap.headline, 'Alice and Bob share the week at 1–0');
+});
+
+test('tile composer applies the request-time recap window without changing recap facts', () => {
+  const recapGame = game();
+  const contextResult = {
+    status: 'available' as const,
+    context: context([recapGame], {
+      quiet: {
+        status: 'final',
+        away: { team: 'Georgia', score: 17 },
+        home: { team: 'Texas', score: 31 },
+        time: null,
+      },
+    }),
+  };
+
+  assert.equal(
+    composeWeeklyRecapTile(contextResult, new Date('2026-09-07T16:00:00.000Z'), ACTIVE_SCOPE).state,
+    'recap'
+  );
+  assert.deepEqual(
+    composeWeeklyRecapTile(contextResult, new Date('2026-09-10T10:00:00.000Z'), ACTIVE_SCOPE),
+    { state: 'upcoming' }
+  );
 });
 
 test('composer keeps context failure separate from genuine absence', () => {

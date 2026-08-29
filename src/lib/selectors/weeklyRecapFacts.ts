@@ -51,6 +51,8 @@ export type WeeklyRecapFacts = {
   missingResultCount: number;
 };
 
+export type WeeklyRecapTileState = 'hidden' | 'recap' | 'upcoming';
+
 export function isWeeklyRecapActiveSeason(args: {
   leagueStatus: LeagueStatus | undefined;
   seasonYear: number;
@@ -118,6 +120,83 @@ function isEligible(latestGameDate: string, now: EasternDateTime): boolean {
   if (elapsedDays < 1) return false;
 
   return now.minutesAfterMidnight >= RECAP_ELIGIBILITY_HOUR * MINUTES_PER_HOUR;
+}
+
+/**
+ * Weekly-record order matches the standings table: wins, win percentage,
+ * point differential, points for, then owner name for a stable total order.
+ */
+export function compareWeeklyOwnerResults(
+  left: WeeklyOwnerResult,
+  right: WeeklyOwnerResult
+): number {
+  if (right.wins !== left.wins) return right.wins - left.wins;
+
+  const leftWinPct = left.gamesPlayed > 0 ? left.wins / left.gamesPlayed : 0;
+  const rightWinPct = right.gamesPlayed > 0 ? right.wins / right.gamesPlayed : 0;
+  if (rightWinPct !== leftWinPct) return rightWinPct - leftWinPct;
+  if (right.pointDifferential !== left.pointDifferential) {
+    return right.pointDifferential - left.pointDifferential;
+  }
+  if (right.pointsFor !== left.pointsFor) return right.pointsFor - left.pointsFor;
+  return left.owner.localeCompare(right.owner);
+}
+
+function haveEqualCompetitiveRecord(left: WeeklyOwnerResult, right: WeeklyOwnerResult): boolean {
+  const leftWinPct = left.gamesPlayed > 0 ? left.wins / left.gamesPlayed : 0;
+  const rightWinPct = right.gamesPlayed > 0 ? right.wins / right.gamesPlayed : 0;
+  return (
+    left.wins === right.wins &&
+    leftWinPct === rightWinPct &&
+    left.pointDifferential === right.pointDifferential &&
+    left.pointsFor === right.pointsFor
+  );
+}
+
+/** Return every owner sharing the best competitive weekly record. */
+export function selectWeeklyRecapLeaders(ownerResults: WeeklyOwnerResult[]): WeeklyOwnerResult[] {
+  const ordered = [...ownerResults].sort(compareWeeklyOwnerResults);
+  const leader = ordered[0];
+  if (!leader || leader.wins === 0) return [];
+  return ordered.filter((result) => haveEqualCompetitiveRecord(result, leader));
+}
+
+/**
+ * Resolve the Overview tile's render-time phase from calendar facts only.
+ * The recap window is [next-day 06:00 ET, Thursday 06:00 ET).
+ */
+export function selectWeeklyRecapTileState(
+  targetWeek: WeeklyRecapTargetWeek | null,
+  now: Date
+): WeeklyRecapTileState {
+  if (!targetWeek) return 'hidden';
+
+  const easternNow = easternDateTime(now);
+  const latestDay = utcDayNumber(targetWeek.latestGameDate);
+  const currentDay = easternNow ? utcDayNumber(easternNow.dateKey) : null;
+  if (!easternNow || latestDay == null || currentDay == null) return 'hidden';
+
+  const eligibilityDay = latestDay + 1;
+  const cutoffMinutes = RECAP_ELIGIBILITY_HOUR * MINUTES_PER_HOUR;
+  if (
+    currentDay < eligibilityDay ||
+    (currentDay === eligibilityDay && easternNow.minutesAfterMidnight < cutoffMinutes)
+  ) {
+    return 'hidden';
+  }
+
+  const eligibilityWeekday = new Date(eligibilityDay * 86_400_000).getUTCDay();
+  const thursday = 4;
+  const daysUntilThursday = (thursday - eligibilityWeekday + 7) % 7;
+  const thursdayCutoffDay = eligibilityDay + daysUntilThursday;
+  if (
+    currentDay < thursdayCutoffDay ||
+    (currentDay === thursdayCutoffDay && easternNow.minutesAfterMidnight < cutoffMinutes)
+  ) {
+    return 'recap';
+  }
+
+  return 'upcoming';
 }
 
 /** Select the latest week past its next-day 06:00 ET cutoff, independent of game status. */
@@ -213,9 +292,7 @@ export function selectWeeklyRecapFacts(args: {
 
   return {
     targetWeek,
-    ownerResults: Array.from(totalsByOwner.values()).sort((left, right) =>
-      left.owner.localeCompare(right.owner)
-    ),
+    ownerResults: Array.from(totalsByOwner.values()).sort(compareWeeklyOwnerResults),
     unresolvedCount,
     abandonedCount,
     missingResultCount,

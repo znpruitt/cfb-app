@@ -24,8 +24,9 @@ Supersedes: (none)
 
 ## Current execution order
 
-`CURRENT`: Item 42 — INSIGHTS-026 weekly recap, Slice 2
-(`INSIGHTS-026b-RECAP-DETAILS-v1`). `NEXT` is unassigned beyond that slice.
+`CURRENT`: Item 42 — INSIGHTS-026 weekly recap layout stage
+(`INSIGHTS-026b-RECAP-LAYOUT-v2`), implemented on its replacement branch and awaiting merge.
+`NEXT`: Item 42, Slice 2 details (`INSIGHTS-026c-RECAP-DETAILS-v1`).
 
 The 2026-08-26 roadmap audit recommends this season-reliability sequence after the current slice;
 it is proposed ordering, not an owner-selected `NEXT` designation:
@@ -389,15 +390,20 @@ record eligibility converges with generator-specific rules.
 The request-time Look Back skeleton is complete. It is scoped to the league's exact active season,
 selects the immediately preceding eligible canonical week after the next-day 06:00 ET cutoff, and
 renders at the top of the existing Insights page. Standing/durable insights remain independent and
-are inherited alongside the recap rather than replaced by it.
+are inherited alongside the recap rather than replaced by it. The layout stage is implemented on a
+replacement branch: it adds the shared recap structure and a calendar-gated Overview tile derived
+from already-hydrated app data, without changing the remaining fact-family plan.
 
 Continue the request-time portion vertically:
 
-- **CURRENT — Slice 2 (`INSIGHTS-026b-RECAP-DETAILS-v1`):** add week-explicit movement,
+- **CURRENT — Layout stage (`INSIGHTS-026b-RECAP-LAYOUT-v2`):** complete independent review and
+  merge the shared Insights/Overview rendering structure.
+- **NEXT — Slice 2 (`INSIGHTS-026c-RECAP-DETAILS-v1`):** add week-explicit movement,
   owner-vs-owner detail, and weekly accolades to the proven pipeline.
 - Slice 3: add the allowlisted partial-season record-change projection.
 - Slice 4: add odds upsets through a shared odds-upset policy helper.
-- Slice 5: add the compact Overview rendering and remove the dead prior pulse view-model fields.
+- Final wiring/pass: fill the existing Overview tile from the completed fact families and remove the
+  dead prior pulse view-model fields.
 
 This request-time campaign does not close item 42. A later stored artifact must add immutability and
 become the event producer that can unblock item 30's NEW tag. Before that work, settle fixed-period

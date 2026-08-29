@@ -55,6 +55,7 @@ type UseLiveRefreshParams = {
   oddsUsage: OddsUsageSnapshot | null;
   scoreHydrationState: ScoreHydrationState;
   setScoreHydrationState: Dispatch<SetStateAction<ScoreHydrationState>>;
+  setScoreHydrationAvailable?: Dispatch<SetStateAction<boolean>>;
   setIssues: Dispatch<SetStateAction<string[]>>;
   setOddsByKey: Dispatch<SetStateAction<Record<string, CombinedOdds>>>;
   setScoresByKey: Dispatch<SetStateAction<Record<string, ScorePack>>>;
@@ -208,6 +209,7 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
     oddsUsage,
     scoreHydrationState,
     setScoreHydrationState,
+    setScoreHydrationAvailable,
     setIssues,
     setOddsByKey,
     setScoresByKey,
@@ -494,6 +496,7 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
           // partitions' scores absent (e.g. one in-window bowl marking all of
           // postseason hydrated). Targeted ticks never complete hydration.
           if (!options?.scorePartitions) {
+            setScoreHydrationAvailable?.(scoreIssues.length === 0);
             const loadedSeasonTypes = getHydrationSeasonTypes(scoreScopeForRequest);
             if (loadedSeasonTypes.length > 0) {
               setScoreHydrationState((prev) => markScoreHydrationLoaded(prev, loadedSeasonTypes));
@@ -502,6 +505,7 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
           // The auto-poll throttle was stamped at poll initiation (above), not here,
           // so the timer's cadence is not offset by fetch latency.
         } catch (err) {
+          if (!options?.scorePartitions) setScoreHydrationAvailable?.(false);
           if (options?.scorePartitions) setLiveScoreObservation(null);
           setIssues((p) => [...p, `Scores fetch failed: ${(err as Error).message}`]);
         }
@@ -527,6 +531,7 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
       setOddsUsage,
       setOddsSnapshotAt,
       setScoreHydrationState,
+      setScoreHydrationAvailable,
       setScoresByKey,
       visibleGames,
       weeks,
