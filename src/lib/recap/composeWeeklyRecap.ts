@@ -190,6 +190,7 @@ function rivalryConstituentLabel(change: WeeklyRecordChange, key: string): strin
 
 function rivalryConstituentDelta(change: WeeklyRecordChange): string | null {
   if (!change.previous || !change.current) return null;
+  if (change.previous.contextString && change.current.contextString) return null;
   const previous = new Set(change.previous.constituentKeys ?? []);
   const current = new Set(change.current.constituentKeys ?? []);
   const joined = [...current]
@@ -252,16 +253,21 @@ function composeRecordChangeLine(
     // change from identical value/subject copy.
     return null;
   }
+  const constituentDelta = rivalryConstituentDelta(change);
   const previousContext = previous
     ? `Previous: ${previous.formattedValue} · ${previousSubject}`
     : 'New league record';
-  const constituentDelta = rivalryConstituentDelta(change);
+  const previousAddsInformation =
+    !previous ||
+    !constituentDelta ||
+    change.current.formattedValue !== previous.formattedValue ||
+    holder !== previousSubject;
   return {
     kind: 'record-change',
     id: `record-${change.id}`,
     label,
     value: change.current.formattedValue,
-    context: `${holder}${constituentDelta ? ` · ${constituentDelta}` : ''} · Through ${weekLabel} · ${previousContext}`,
+    context: `${holder}${constituentDelta ? ` · ${constituentDelta}` : ''} · Through ${weekLabel}${previousAddsInformation ? ` · ${previousContext}` : ''}`,
   };
 }
 

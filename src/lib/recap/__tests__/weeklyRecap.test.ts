@@ -862,7 +862,73 @@ test('composer keeps overlapping tied-pair changes visible when the owner union 
   assert.ok(rivalryLines.every((line) => /2 rivalries tied/.test(line.context)));
   assert.ok(rivalryLines.every((line) => /Bob over Carol joined/.test(line.context)));
   assert.ok(rivalryLines.every((line) => /Alice over Bob dropped out/.test(line.context)));
-  assert.ok(rivalryLines.every((line) => /Previous: .*2 rivalries tied/.test(line.context)));
+  assert.ok(rivalryLines.every((line) => !/Previous:/.test(line.context)));
+});
+
+test('composer does not duplicate pair names when one sole rivalry replaces another', () => {
+  const games = [
+    game({ key: 'alice-one', week: 1, home: 'Texas', away: 'Georgia' }),
+    game({
+      key: 'alice-two',
+      week: 2,
+      date: '2026-09-13T00:00:00.000Z',
+      home: 'Texas',
+      away: 'Georgia',
+    }),
+    game({
+      key: 'alice-three',
+      week: 3,
+      date: '2026-09-20T00:00:00.000Z',
+      home: 'Georgia',
+      away: 'Texas',
+    }),
+    game({
+      key: 'carol-one',
+      week: 3,
+      date: '2026-09-20T01:00:00.000Z',
+      home: 'Miami',
+      away: 'Clemson',
+    }),
+    game({
+      key: 'carol-two',
+      week: 3,
+      date: '2026-09-20T02:00:00.000Z',
+      home: 'Miami',
+      away: 'Clemson',
+    }),
+  ];
+  const recap = composeWeeklyRecap(
+    {
+      status: 'available',
+      context: {
+        seasonYear: YEAR,
+        games,
+        rosterByTeam: new Map([
+          ['Texas', 'Alice'],
+          ['Georgia', 'Bob'],
+          ['Miami', 'Carol'],
+          ['Clemson', 'Dan'],
+        ]),
+        scoresByKey: Object.fromEntries(games.map(({ key }) => [key, finalScore(10, 20)])),
+        records: { status: 'available', archives: [], historicalRosters: {} },
+        odds: { status: 'available', byGameKey: {} },
+      },
+    },
+    new Date('2026-09-21T16:00:00.000Z'),
+    ACTIVE_SCOPE
+  );
+
+  assert.equal(recap.status, 'available');
+  if (recap.status !== 'available') return;
+  const rivalryLines = recap.recordChangeLines.filter(
+    (line) => line.id === 'record-lopsided_rivalry' || line.id === 'record-dominance_streak'
+  );
+  assert.equal(rivalryLines.length, 2);
+  for (const line of rivalryLines) {
+    assert.equal(line.context.match(/Carol over Dan/g)?.length, 1);
+    assert.equal(line.context.match(/Alice over Bob/g)?.length, 1);
+    assert.doesNotMatch(line.context, /joined|dropped out/);
+  }
 });
 
 test('composer describes tied even-rivalry records as pairs rather than one owner set', () => {
