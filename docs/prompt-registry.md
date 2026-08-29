@@ -72,7 +72,8 @@ Rules:
   LOW (unreachable policy-source disjunct) were remediated, and its observability finding is tracked
   as a deferral rather than folded in. Behaviour confirmed on preview after an authorized cache
   refresh.
-- Status: Implemented — PR #524 open.
+- Status: Merged via PR #524 (merge commit `4a78d1b5`), 2026-08-29; production promotion and the
+  required schedule-cache refresh not yet verified.
 
 ### INSIGHTS-026c-RECAP-DETAILS-v1
 

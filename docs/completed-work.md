@@ -4178,6 +4178,26 @@ Key architectural decisions across Phase 5:
 - **Open follow-ups:** Item 42 remains in `docs/next-tasks.md` for the remaining request-time slices,
   Forward Look, and the stored event-source artifact.
 
+### PLATFORM-114 — Schedule Eligibility from the Provider Division Label — Complete
+
+- **Status:** Merged via PR #524 (merge commit `4a78d1b5`), 2026-08-29; production promotion not yet
+  verified, and the fix does not take effect there until an authorized full-season schedule refresh
+  repopulates the cache.
+- **PROMPT_ID(s):** `PLATFORM-114-SCHEDULE-PROVIDER-CLASSIFICATION-v1`.
+- **Outcome:** Schedule eligibility now classifies a participant from CFBD's own per-row division
+  label instead of reconstructing it from the conference string and name resolution. This closed a
+  live defect in which a Division II school sharing a normalized identity key with an ownable FBS
+  team put its entire season into the canonical schedule as tracked games. Rows without the label
+  keep the prior inference path, and that fallback was narrowed so only a real catalog record — not
+  an unresolved or ambiguous conference — can assert a below-FBS division.
+- **Verification:** Commit `e1edb680` passed TypeScript, `lint:all`, `next build`, and the 4,388-test
+  full suite; five mutations were each killed by a distinct test. Independent Codex review found no
+  actionable finding; the second reviewer's MEDIUM and LOW were remediated before merge. Behaviour
+  confirmed on preview after an authorized cache refresh: the phantom games were gone from every
+  week, genuine cross-division games survived, and standings carried no stale credit.
+- **Open follow-ups:** See the canonical deferrals/current queue in `docs/next-tasks.md` (Items 83
+  and 84).
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone (DOCS-012). Entries describe shipped
