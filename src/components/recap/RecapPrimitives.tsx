@@ -71,7 +71,7 @@ export function WeekRecordsGrid({
         {ownerLines.map((line) => (
           <li
             key={line.owner}
-            className={`${compact ? 'py-[6px]' : 'py-2'} border-b border-zinc-800/80 last:border-b-0`}
+            className={`${compact ? 'py-[6px]' : 'py-2'} border-b-[0.5px] border-zinc-800/80 last:border-b-0`}
           >
             <div
               className={`flex items-baseline justify-between gap-3 font-medium text-zinc-100 ${

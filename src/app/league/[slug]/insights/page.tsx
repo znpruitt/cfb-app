@@ -1,12 +1,11 @@
 import { isPlatformAdminSession } from '@/lib/server/adminAuth';
 
 import LeaguePageShell from '@/components/LeaguePageShell';
-import { RecapHeader, WeekRecordsGrid } from '@/components/recap/RecapPrimitives';
+import WeeklyRecapSection from '@/components/recap/WeeklyRecapSection';
 import { loadInsightsForLeague } from '../../../../lib/insights/loadInsights';
 import { getLeague } from '../../../../lib/leagueRegistry';
 import {
   composeWeeklyRecap,
-  type AvailableWeeklyRecapViewModel,
   type WeeklyRecapViewModel,
 } from '../../../../lib/recap/composeWeeklyRecap';
 import { loadRecapContextForSeasonScope } from '../../../../lib/recap/loadRecapContext';
@@ -18,43 +17,6 @@ import { renderLeagueGateIfBlocked } from '../leagueGate';
 import AllInsightsRow from './AllInsightsRow';
 
 export const dynamic = 'force-dynamic';
-
-function WeeklyRecapSection({ recap }: { recap: WeeklyRecapViewModel }): React.ReactElement | null {
-  if (recap.status !== 'available') return null;
-
-  const availableRecap: AvailableWeeklyRecapViewModel = recap;
-
-  return (
-    <section
-      aria-labelledby="weekly-recap-heading"
-      className="mb-10 border-b border-zinc-800 pb-10"
-    >
-      <RecapHeader
-        headingId="weekly-recap-heading"
-        headline={availableRecap.headline}
-        weekLabel={availableRecap.weekLabel}
-      />
-
-      {availableRecap.ownerLines.length === 0 ? (
-        <p className="mt-2 text-sm text-zinc-400">
-          No completed results were recorded for this week.
-        </p>
-      ) : (
-        <div className="mt-11">
-          <WeekRecordsGrid
-            headingId="weekly-recap-records-heading"
-            ownerLines={availableRecap.ownerLines}
-          />
-          {availableRecap.isIncomplete ? (
-            <p className="mt-4 text-sm text-zinc-400">
-              This recap reflects the completed results currently available.
-            </p>
-          ) : null}
-        </div>
-      )}
-    </section>
-  );
-}
 
 export default async function LeagueInsightsPage({
   params,

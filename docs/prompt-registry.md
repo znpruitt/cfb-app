@@ -67,8 +67,13 @@ Rules:
   and the mounted tile reevaluates the 06:00 ET boundaries.
 - Review / verification: the first independent Claude/Codex review round found lifecycle,
   incomplete-copy, accessibility, and mockup-fidelity seams; remediation cycle 1 addresses them
-  with focused hook, selector, composer, RSC, and component coverage. Full gates and the independent
-  rereview are required before merge and are reported with the implementation handoff.
+  with focused hook, selector, composer, RSC, and component coverage. The independent rereview found
+  two remaining hydration seams: cross-phase failures were aggregated, and an older in-flight build
+  could suppress the replacement generation's bootstrap. Remediation cycle 2 makes hydration
+  phase-specific and generation-aware, restores the two member-facing uncertainty notices, moves
+  Overview applicability into a tested selector, and applies the final row-hairline correction.
+  Full gates and the final independent rereview are required before merge and are reported with the
+  implementation handoff.
 - Status: Implemented on the replacement feature branch; review and merge pending.
 
 ### INSIGHTS-026b-RECAP-LAYOUT-v1

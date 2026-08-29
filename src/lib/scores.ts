@@ -186,6 +186,7 @@ async function fetchScoreRows(params: {
   requestUrls: string[];
   snapshotAt: string | null;
   liveObservedAt: string | null;
+  failedSeasonTypes: Array<'regular' | 'postseason'>;
 }> {
   const { season, mode, issues, apiBaseUrl, refresh = false, authHeaders } = params;
 
@@ -204,6 +205,7 @@ async function fetchScoreRows(params: {
 
   const rows: ScoreRow[] = [];
   const requestUrls: string[] = [];
+  const failedSeasonTypes = new Set<'regular' | 'postseason'>();
 
   // Served-freshness floor: the OLDEST durable `meta.generatedAt` across the
   // nonempty responses that contributed rows. An empty response (nothing to
@@ -252,6 +254,7 @@ async function fetchScoreRows(params: {
         issues.push(`Scores week ${providerWeek} (${seasonType}): ${res.status} ${err}`);
         partitionReadFailed = true;
         liveObservationIncomplete = true;
+        failedSeasonTypes.add(seasonType);
         continue;
       }
       const json = await res.json();
@@ -284,11 +287,13 @@ async function fetchScoreRows(params: {
         partitionReadFailed || liveObservationIncomplete || oldestLiveObservationMs === null
           ? null
           : new Date(oldestLiveObservationMs).toISOString(),
+      failedSeasonTypes: Array.from(failedSeasonTypes),
     };
   }
 
   for (const seasonType of mode.seasonTypes) {
     let seasonTypeRowCount = 0;
+    let seasonTypeReadFailed = false;
     const seasonUrl = buildApiUrl(
       `/api/scores?year=${season}&seasonType=${seasonType}${refreshSuffix}`,
       apiBaseUrl
@@ -320,6 +325,7 @@ async function fetchScoreRows(params: {
       if (!weekRes.ok) {
         const weekErr = await weekRes.text().catch(() => '');
         issues.push(`Scores week ${w} (${seasonType}): ${weekRes.status} ${weekErr}`);
+        seasonTypeReadFailed = true;
         continue;
       }
 
@@ -339,7 +345,9 @@ async function fetchScoreRows(params: {
 
     if (seasonTypeRowCount === 0) {
       issues.push(seasonFallbackIssue);
+      seasonTypeReadFailed = true;
     }
+    if (seasonTypeReadFailed) failedSeasonTypes.add(seasonType);
   }
 
   return {
@@ -347,6 +355,7 @@ async function fetchScoreRows(params: {
     requestUrls,
     snapshotAt: oldestSnapshotMs === null ? null : new Date(oldestSnapshotMs).toISOString(),
     liveObservedAt: null,
+    failedSeasonTypes: Array.from(failedSeasonTypes),
   };
 }
 
@@ -412,6 +421,8 @@ export async function fetchScoresByGame(params: {
    * partition. Null for hydration/manual modes or any incomplete response.
    */
   liveObservedAt: string | null;
+  /** Schedule phases whose requested cache read was incomplete. */
+  failedSeasonTypes: Array<'regular' | 'postseason'>;
   debugSnapshot?: {
     providerRowCount: number;
     attachedCount: number;
@@ -437,7 +448,14 @@ export async function fetchScoresByGame(params: {
   const issues: string[] = [];
 
   if (games.length === 0) {
-    return { scoresByKey: {}, issues, diag: [], snapshotAt: null, liveObservedAt: null };
+    return {
+      scoresByKey: {},
+      issues,
+      diag: [],
+      snapshotAt: null,
+      liveObservedAt: null,
+      failedSeasonTypes: [],
+    };
   }
   const diag: ScoresDiagEntry[] = [];
 
@@ -485,14 +503,16 @@ export async function fetchScoresByGame(params: {
   }));
   const scheduleIndex = buildScheduleIndex(scheduleIndexGames, resolver);
 
-  const { rows, requestUrls, snapshotAt, liveObservedAt } = await fetchScoreRows({
-    season,
-    mode,
-    issues,
-    apiBaseUrl,
-    refresh,
-    authHeaders,
-  });
+  const { rows, requestUrls, snapshotAt, liveObservedAt, failedSeasonTypes } = await fetchScoreRows(
+    {
+      season,
+      mode,
+      issues,
+      apiBaseUrl,
+      refresh,
+      authHeaders,
+    }
+  );
   const normalizedRows: NormalizedScoreRow[] = rows.map((row) => ({
     week: row.week,
     seasonType: row.seasonType,
@@ -538,6 +558,7 @@ export async function fetchScoresByGame(params: {
     diag,
     snapshotAt,
     liveObservedAt,
+    failedSeasonTypes,
     debugSnapshot: debugTrace
       ? {
           providerRowCount: scopedRows.length,

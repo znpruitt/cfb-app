@@ -37,6 +37,11 @@ export default function RecapTile({
               ownerLines={recap.ownerLines}
               compact
             />
+            {recap.isIncomplete ? (
+              <p className="mt-4 text-[13px] text-zinc-400">
+                This recap reflects the completed results currently available.
+              </p>
+            ) : null}
           </div>
           <div className="mt-4">
             <button

@@ -10,6 +10,7 @@ import {
   setAppState,
 } from '@/lib/server/appStateStore';
 import { __resetTeamDatabaseStoreForTests } from '@/lib/server/teamDatabaseStore';
+import WeeklyRecapSection from '@/components/recap/WeeklyRecapSection';
 
 import LeagueInsightsPage from '../page';
 
@@ -26,6 +27,16 @@ test.beforeEach(async () => {
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
   __resetTeamDatabaseStoreForTests();
+});
+
+test('Insights recap keeps context uncertainty distinct from genuine absence', () => {
+  const unavailable = renderToStaticMarkup(
+    <WeeklyRecapSection recap={{ status: 'unavailable' }} />
+  );
+  const absent = renderToStaticMarkup(<WeeklyRecapSection recap={{ status: 'absent' }} />);
+
+  assert.match(unavailable, /Weekly recap data is unavailable right now\./);
+  assert.equal(absent, '');
 });
 
 test('Insights page renders the request-time recap above the standing insight list', async () => {

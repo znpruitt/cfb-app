@@ -84,18 +84,21 @@ test('full-scope hydration cleanliness updates only the requested schedule phase
   const afterPostseasonSuccess = updateScoreHydrationCleanState(
     { regular: false, postseason: false },
     ['postseason'],
-    true
+    []
   );
   assert.deepEqual(afterPostseasonSuccess, { regular: false, postseason: true });
 
-  assert.deepEqual(updateScoreHydrationCleanState(afterPostseasonSuccess, ['regular'], true), {
+  assert.deepEqual(updateScoreHydrationCleanState(afterPostseasonSuccess, ['regular'], []), {
     regular: true,
     postseason: true,
   });
-  assert.deepEqual(updateScoreHydrationCleanState(afterPostseasonSuccess, ['postseason'], false), {
-    regular: false,
-    postseason: false,
-  });
+  assert.deepEqual(
+    updateScoreHydrationCleanState(afterPostseasonSuccess, ['postseason'], ['postseason']),
+    {
+      regular: false,
+      postseason: false,
+    }
+  );
 });
 
 // PLATFORM-080 — transition-aware finalization detection.

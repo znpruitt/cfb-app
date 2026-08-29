@@ -105,6 +105,16 @@ test('a populated incomplete recap keeps a visible factual headline', () => {
 
   assert.ok(rendered.getByRole('heading', { name: 'Week 1 results' }));
   assert.ok(rendered.getByRole('button', { name: 'View full recap' }));
+  const notice = rendered.getByText(
+    'This recap reflects the completed results currently available.'
+  );
+  const panel = notice.closest('div[id]') as HTMLDivElement | null;
+  assert.ok(panel);
+  assert.equal(panel.hidden, true);
+
+  fireEvent.click(rendered.getByRole('button', { name: 'View full recap' }));
+  assert.equal(panel.hidden, false);
+  fireEvent.click(rendered.getByRole('button', { name: 'Collapse' }));
 });
 
 test('Overview mounts the recap tile as the first item in the podium flow', () => {

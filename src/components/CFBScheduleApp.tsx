@@ -90,6 +90,7 @@ import type { LeagueStatus } from '../lib/league';
 import { resolveLeagueSeason } from '../lib/leagueSeason';
 import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
 import type { Insight as EngineInsight } from '../lib/selectors/insights';
+import { selectWeeklyRecapOverviewReadiness } from '../lib/selectors/weeklyRecapFacts';
 import type { LifecycleState } from '../lib/insights/types';
 import {
   composeWeeklyRecapTile,
@@ -1095,11 +1096,13 @@ export default function CFBScheduleApp({
 
   const weeklyRecap = useMemo<AvailableWeeklyRecapViewModel | null>(() => {
     if (
-      !scheduleLoaded ||
-      rosterByTeam.size === 0 ||
-      canonicalStandings?.ownersRosterSource !== 'csv' ||
-      canonicalRows.length === 0 ||
-      liveStaleClock === 0
+      !selectWeeklyRecapOverviewReadiness({
+        scheduleLoaded,
+        rosterSize: rosterByTeam.size,
+        ownersRosterSource: canonicalStandings?.ownersRosterSource,
+        ownerCount: canonicalRows.length,
+        hasRenderClock: liveStaleClock !== 0,
+      })
     ) {
       return null;
     }

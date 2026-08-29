@@ -397,7 +397,7 @@ from already-hydrated app data, without changing the remaining fact-family plan.
 Continue the request-time portion vertically:
 
 - **CURRENT — Layout stage (`INSIGHTS-026b-RECAP-LAYOUT-v2`):** complete independent review and
-  merge the shared Insights/Overview rendering structure; remediation cycle 1 is awaiting its
+  merge the shared Insights/Overview rendering structure; remediation cycle 2 is awaiting its final
   independent rereview.
 - **NEXT — Slice 2 (`INSIGHTS-026c-RECAP-DETAILS-v1`):** add week-explicit movement,
   owner-vs-owner detail, and weekly accolades to the proven pipeline.

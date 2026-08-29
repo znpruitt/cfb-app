@@ -1,5 +1,6 @@
 import { getGameOwners } from '../gameOwnership.ts';
 import type { LeagueStatus } from '../league.ts';
+import type { CanonicalStandingsRosterSource } from './leagueStandings.ts';
 import type { ScorePack } from '../scores.ts';
 import type { AppGame } from '../schedule.ts';
 import {
@@ -59,6 +60,23 @@ export function isWeeklyRecapActiveSeason(args: {
   seasonYear: number;
 }): boolean {
   return args.leagueStatus?.state === 'season' && args.leagueStatus.year === args.seasonYear;
+}
+
+/** Member-surface prerequisites for composing the client-side Overview recap. */
+export function selectWeeklyRecapOverviewReadiness(args: {
+  scheduleLoaded: boolean;
+  rosterSize: number;
+  ownersRosterSource: CanonicalStandingsRosterSource | undefined;
+  ownerCount: number;
+  hasRenderClock: boolean;
+}): boolean {
+  return (
+    args.scheduleLoaded &&
+    args.rosterSize > 0 &&
+    args.ownersRosterSource === 'csv' &&
+    args.ownerCount > 0 &&
+    args.hasRenderClock
+  );
 }
 
 function easternDateTime(value: Date): EasternDateTime | null {

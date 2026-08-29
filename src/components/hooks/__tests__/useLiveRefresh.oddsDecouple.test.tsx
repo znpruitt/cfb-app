@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import test, { afterEach, beforeEach } from 'node:test';
+import { useState } from 'react';
 import { JSDOM } from 'jsdom';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 
 import type { AppGame } from '../../../lib/schedule';
 import { EMPTY_SCORE_HYDRATION_STATE } from '../../../lib/scoreHydration';
+import type { ScorePack } from '../../../lib/scores';
 import { useLiveRefresh } from '../useLiveRefresh';
 
 // ---------------------------------------------------------------------------
@@ -35,21 +37,21 @@ function game(overrides: Partial<AppGame> = {}): AppGame {
   return {
     key: overrides.key ?? 'g',
     eventId: overrides.eventId ?? 'g',
-    week: 1,
-    providerWeek: 1,
-    canonicalWeek: 1,
+    week: overrides.week ?? 1,
+    providerWeek: overrides.providerWeek ?? 1,
+    canonicalWeek: overrides.canonicalWeek ?? overrides.week ?? 1,
     date: overrides.date ?? null,
-    stage: 'regular',
+    stage: overrides.stage ?? 'regular',
     status: 'scheduled',
     stageOrder: 1,
     slotOrder: 0,
-    eventKey: 'g',
+    eventKey: overrides.eventKey ?? overrides.key ?? 'g',
     label: null,
     conference: null,
     bowlName: null,
     playoffRound: null,
-    postseasonRole: null,
-    providerGameId: null,
+    postseasonRole: overrides.postseasonRole ?? null,
+    providerGameId: overrides.providerGameId ?? overrides.key ?? 'g',
     neutral: false,
     neutralDisplay: 'home_away',
     venue: null,
@@ -175,6 +177,156 @@ test('a clean full-scope score hydration records cleanliness for its own season 
   });
 
   assert.deepEqual(cleanState, { regular: true, postseason: false });
+});
+
+test('a failed postseason read does not invalidate clean regular-season hydration', async () => {
+  const regularGame = game({ key: 'regular' });
+  const postseasonGame = game({
+    key: 'postseason',
+    week: 16,
+    canonicalWeek: 16,
+    providerWeek: 1,
+    stage: 'bowl',
+  });
+  let cleanState = { ...EMPTY_SCORE_HYDRATION_STATE };
+  let hydrationState = { ...EMPTY_SCORE_HYDRATION_STATE };
+  const params = makeParams();
+  params.games = [regularGame, postseasonGame];
+  params.visibleGames = params.games;
+  params.scoreScopeGames = params.games;
+  params.setScoreHydrationCleanState = (action) => {
+    cleanState = typeof action === 'function' ? action(cleanState) : action;
+  };
+  params.setScoreHydrationState = (action) => {
+    hydrationState = typeof action === 'function' ? action(hydrationState) : action;
+  };
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    fetchUrls.push(url);
+    if (url.includes('/api/teams')) {
+      return new Response(JSON.stringify({ items: [] }), { status: 200 });
+    }
+    if (url.includes('/api/scores') && url.includes('seasonType=postseason')) {
+      return new Response('postseason unavailable', { status: 503 });
+    }
+    return new Response(JSON.stringify({ items: [], meta: {} }), { status: 200 });
+  }) as typeof fetch;
+
+  const { result } = renderHook(() => useLiveRefresh(params));
+  await act(async () => {
+    await result.current.refreshLiveData({
+      manual: false,
+      scoreScopeGamesOverride: params.games,
+    });
+  });
+
+  assert.deepEqual(cleanState, { regular: true, postseason: false });
+  assert.deepEqual(hydrationState, { regular: true, postseason: false });
+});
+
+type Deferred<T> = {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+};
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((complete) => {
+    resolve = complete;
+  });
+  return { promise, resolve };
+}
+
+function scoreResponse(id: string): Response {
+  return new Response(
+    JSON.stringify({
+      items: [
+        {
+          id,
+          week: 1,
+          seasonType: 'regular',
+          status: 'final',
+          home: 'Home',
+          away: 'Away',
+          homeScore: 21,
+          awayScore: 14,
+          time: null,
+        },
+      ],
+      meta: {},
+    }),
+    { status: 200, headers: { 'Content-Type': 'application/json' } }
+  );
+}
+
+test('a schedule rebuild discards the old in-flight hydration and retries the new generation', async () => {
+  const firstScoreRead = deferred<Response>();
+  const secondScoreRead = deferred<Response>();
+  let scoreReadCount = 0;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = typeof input === 'string' ? input : input.toString();
+    fetchUrls.push(url);
+    if (url.includes('/api/teams')) {
+      return new Response(JSON.stringify({ items: [] }), { status: 200 });
+    }
+    if (url.includes('/api/scores')) {
+      scoreReadCount += 1;
+      return scoreReadCount === 1 ? firstScoreRead.promise : secondScoreRead.promise;
+    }
+    return new Response(JSON.stringify({ items: [], meta: {} }), { status: 200 });
+  }) as typeof fetch;
+
+  const oldGame = game({ key: 'old-generation' });
+  const newGame = game({ key: 'new-generation' });
+  const view = renderHook(
+    ({ currentGames, scheduleGeneration }) => {
+      const [scores, setScores] = useState<Record<string, ScorePack>>({});
+      const [hydrationState, setHydrationState] = useState({ ...EMPTY_SCORE_HYDRATION_STATE });
+      const [cleanState, setCleanState] = useState({ ...EMPTY_SCORE_HYDRATION_STATE });
+      const [loadingLive, setLoadingLive] = useState(false);
+      const params = makeParams();
+      const hook = useLiveRefresh({
+        ...params,
+        scheduleLoaded: true,
+        scheduleGeneration,
+        games: currentGames,
+        visibleGames: currentGames,
+        scoreScopeGames: currentGames,
+        scoresByKey: scores,
+        scoreHydrationState: hydrationState,
+        setScoreHydrationState: setHydrationState,
+        setScoreHydrationCleanState: setCleanState,
+        setScoresByKey: setScores,
+        loadingLive,
+        setLoadingLive,
+      });
+      return { ...hook, scores, cleanState, hydrationState };
+    },
+    { initialProps: { currentGames: [oldGame], scheduleGeneration: 1 } }
+  );
+
+  await waitFor(() => assert.equal(scoreReadCount, 1));
+  view.rerender({ currentGames: [newGame], scheduleGeneration: 2 });
+
+  await act(async () => {
+    firstScoreRead.resolve(scoreResponse('old-generation'));
+    await firstScoreRead.promise;
+  });
+  await waitFor(() => assert.equal(scoreReadCount, 2));
+  assert.deepEqual(
+    view.result.current.scores,
+    {},
+    'the stale completion must not repopulate scores'
+  );
+
+  await act(async () => {
+    secondScoreRead.resolve(scoreResponse('new-generation'));
+    await secondScoreRead.promise;
+  });
+  await waitFor(() => assert.ok(view.result.current.scores['new-generation']));
+  assert.equal(view.result.current.scores['old-generation'], undefined);
+  assert.deepEqual(view.result.current.cleanState, { regular: true, postseason: false });
+  assert.deepEqual(view.result.current.hydrationState, { regular: true, postseason: false });
 });
 
 test('an explicit includeOdds manual refresh still fetches /api/odds with refresh=1 (seam preserved)', async () => {
