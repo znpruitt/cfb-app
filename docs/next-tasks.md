@@ -854,6 +854,49 @@ Acceptance boundary:
 - Ranked information appears once as inline detail and once as a scannable category chip — not three
   times.
 
+### Item 88 — Provider data health cannot describe a schedule-armed dataset
+
+Observed on `/admin/diagnostics` during the 2026 opening slate (2026-08-29), with live scoring
+working correctly at the time.
+
+**The issue is a model mismatch, not a wiring bug.** Provider data asks *how long since this dataset
+last refreshed*; Scheduler delivery asks *did the refresh that was expected actually happen*. For a
+fixed-cadence dataset those questions coincide, which is why schedule, rankings, and conferences read
+correctly. Scores is schedule-armed — refreshed per week partition, only while games sit in the
+kickoff window, and legitimately not refreshed for days outside one — so elapsed time carries no
+information about it and the first question has no meaningful answer.
+
+Both observable symptoms are consequences of that one mismatch:
+
+- Canonical status `scores:year:2026` has `lastAttemptAt: null` in production while every other active
+  dataset is populated. Nothing writes it, because scores never refreshes "the year";
+  `/api/cron/live-scores` records `weekPartitionScope(year, week, seasonType)`. Schedule appears
+  healthy only because `fullSeasonScheduleRefresh` happens to write a year scope as well.
+- `staleAfterMs` for scores is 48 hours, so the freshness dot reads `Current` for a scores cache two
+  days old. No fixed threshold can be right here: a two-day gap is correct in the offseason and
+  catastrophic mid-slate.
+
+Consequence: during a live slate the Scores row carries two signals and neither can see a scoring
+outage. If the live-scores cron stopped mid-game the row would read `Current · No refresh history`
+until the 48-hour window elapsed. Severity is bounded — Scheduler delivery does surface the truth
+(`Live scores · On time · Success · 2m ago`), so an outage is detectable — but Provider data is the
+row an operator checks first when asking whether scores are updating, and it is the one dataset where
+the answer matters minute to minute.
+
+**Do not fix by writing a synthetic year-scope record.** That populates the row while still answering
+the wrong question. The health model needs to express EXPECTATION for schedule-armed datasets, which
+is what Scheduler delivery already does and what PLATFORM-086B2B established as observation-versus-
+snapshot freshness for live scores. Consider whether the fix generalizes: game-stats is also
+automation-driven and also reads null.
+
+Acceptance boundary:
+
+- The Scores row distinguishes "no refresh was expected" from "a refresh was expected and did not
+  happen"; it never reports healthy in the second case.
+- With games in the kickoff window, the row stops reading healthy within one polling window of live
+  scoring stopping — proven by suppressing the writer in a test, not by reasoning about thresholds.
+- Outside the kickoff window, a multi-day gap does not raise an issue.
+
 ## Planned and parked campaigns
 
 These are valid future campaigns but are not activated implementation work:
