@@ -27,6 +27,7 @@ function sameRecord(left: RecordEntry | null, right: RecordEntry | null): boolea
     left.id === right.id &&
     left.value === right.value &&
     sameHolders(left.holders, right.holders) &&
+    sameHolders(left.constituentKeys ?? [], right.constituentKeys ?? []) &&
     left.formattedValue === right.formattedValue &&
     (left.contextString ?? null) === (right.contextString ?? null)
   );

@@ -158,7 +158,11 @@ function recordSubject(
     change.id === 'even_rivalry' ||
     change.id === 'dominance_streak'
   ) {
-    return record.contextString ?? 'Multiple rivalries tied';
+    return (
+      record.contextString ??
+      (record.constituentKeys ? `${record.constituentKeys.length} rivalries tied` : null) ??
+      'Multiple rivalries tied'
+    );
   }
   return ownerContext(record.holders);
 }
@@ -204,7 +208,8 @@ function composeRecordChangeLine(
     previous &&
     change.current.formattedValue === previous.formattedValue &&
     holder === previousSubject &&
-    sameRecordHolders(change.current.holders, previous.holders)
+    sameRecordHolders(change.current.holders, previous.holders) &&
+    sameRecordHolders(change.current.constituentKeys ?? [], previous.constituentKeys ?? [])
   ) {
     // The selector also observes latest-game context changes. If that detail is
     // not safe to attribute in this compact line, do not manufacture a visible

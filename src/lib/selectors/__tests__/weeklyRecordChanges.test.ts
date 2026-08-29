@@ -276,6 +276,50 @@ test('record diff distinguishes a newly suppressed broad tie from a vanished rec
   assert.equal(change?.suppressedCurrent?.value, 50);
 });
 
+test('record diff compares rivalry constituents when tied pairs share the same owner union', () => {
+  const lopsided = selectWeeklyRecordChanges({
+    archives: [],
+    historicalRosters: {},
+    seasonYear: 2026,
+    targetWeek: 3,
+    participations: [
+      ...ownedMatchup('Alice', 'Bob', 1),
+      ...ownedMatchup('Alice', 'Bob', 2),
+      ...ownedMatchup('Alice', 'Carol', 1),
+      ...ownedMatchup('Alice', 'Carol', 2),
+      ...ownedMatchup('Bob', 'Carol', 1),
+      ...ownedMatchup('Bob', 'Carol', 2),
+      ...ownedMatchup('Bob', 'Alice', 3),
+    ],
+  });
+  const even = selectWeeklyRecordChanges({
+    archives: [],
+    historicalRosters: {},
+    seasonYear: 2026,
+    targetWeek: 3,
+    participations: [
+      ...ownedMatchup('Alice', 'Bob', 1),
+      ...ownedMatchup('Bob', 'Alice', 2),
+      ...ownedMatchup('Alice', 'Carol', 1),
+      ...ownedMatchup('Carol', 'Alice', 2),
+      ...ownedMatchup('Bob', 'Carol', 1),
+      ...ownedMatchup('Carol', 'Bob', 2),
+      ...ownedMatchup('Alice', 'Bob', 3),
+    ],
+  });
+
+  assert.deepEqual(
+    lopsided
+      .filter((entry) => entry.id === 'lopsided_rivalry' || entry.id === 'dominance_streak')
+      .map((entry) => entry.id),
+    ['lopsided_rivalry', 'dominance_streak']
+  );
+  assert.equal(
+    even.some((entry) => entry.id === 'even_rivalry'),
+    true
+  );
+});
+
 test('target-week reversal diffs all three live rivalry records in chronological order', () => {
   const result = selectWeeklyRecordChanges({
     archives: [],

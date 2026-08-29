@@ -51,6 +51,12 @@ export type RecordEntry = {
    * slot from the numeric value. Single-holder records may omit this.
    */
   contextString?: string;
+  /**
+   * Stable identities of the claims represented by a pair-shaped record.
+   * Temporal diffs compare these because a flattened holder union cannot
+   * distinguish AB + AC from AB + BC.
+   */
+  constituentKeys?: string[];
   // TODO(INSIGHTS-020-RECORD-CHANGE-v1): populated by future record-change insights pipeline; see docs/next-tasks.md
   /** Set when the record holder(s) or value changed since the prior request. */
   recentChange?: { previousHolders: string[]; previousValue: number };
@@ -1043,6 +1049,9 @@ function selectLopsidedRivalryRecord(
     holders,
     value: maxDiff,
     formattedValue: `${top.dominantWins}–${top.loserWins}`,
+    constituentKeys: topEntries
+      .map((entry) => JSON.stringify([entry.dominant, entry.loser]))
+      .sort(),
     ...(topEntries.length === 1 ? { contextString: `${top.dominant} over ${top.loser}` } : {}),
     gapToSecond: gap,
     secondPlace: Number.isFinite(secondMax)
@@ -1103,6 +1112,7 @@ function selectEvenRivalryRecord(
     holders,
     value: top.meetings,
     formattedValue: `${top.winsA}–${top.winsB} (${top.meetings} games)`,
+    constituentKeys: topEntries.map((entry) => JSON.stringify([entry.ownerA, entry.ownerB])).sort(),
     ...(topEntries.length === 1 ? { contextString: `${top.ownerA} & ${top.ownerB}` } : {}),
     gapToSecond: null,
     secondPlace: null,
@@ -1157,6 +1167,7 @@ function selectDominanceStreakRecord(
     holders,
     value: maxStreak,
     formattedValue: `${maxStreak} straight`,
+    constituentKeys: topEntries.map((entry) => JSON.stringify([entry.winner, entry.loser])).sort(),
     ...(topEntries.length === 1 ? { contextString: `${top.winner} over ${top.loser}` } : {}),
     gapToSecond: gap,
     secondPlace: Number.isFinite(secondMax)

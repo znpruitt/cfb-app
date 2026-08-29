@@ -725,7 +725,7 @@ test('composer carries a truthful tied-rivalry predecessor into a sole record', 
   );
   assert.equal(rivalryLines.length, 2);
   assert.ok(rivalryLines.every((line) => /Alice over Bob/.test(line.context)));
-  assert.ok(rivalryLines.every((line) => /Multiple rivalries tied/.test(line.context)));
+  assert.ok(rivalryLines.every((line) => /2 rivalries tied/.test(line.context)));
   assert.ok(rivalryLines.every((line) => !/New league record/.test(line.context)));
 });
 
@@ -789,11 +789,11 @@ test('composer preserves unique-to-tied rivalry changes with neutral pair copy',
     (line) => line.id === 'record-lopsided_rivalry' || line.id === 'record-dominance_streak'
   );
   assert.equal(rivalryLines.length, 2);
-  assert.ok(rivalryLines.every((line) => /Multiple rivalries tied/.test(line.context)));
+  assert.ok(rivalryLines.every((line) => /2 rivalries tied/.test(line.context)));
   assert.ok(rivalryLines.every((line) => /Previous: .*Alice over Bob/.test(line.context)));
 });
 
-test('composer keeps a tied rivalry field change visible when the value stays fixed', () => {
+test('composer keeps overlapping tied-pair changes visible when the owner union stays fixed', () => {
   const games = [
     game({ key: 'alice-one', week: 1, home: 'Texas', away: 'Georgia' }),
     game({
@@ -810,16 +810,22 @@ test('composer keeps a tied rivalry field change visible when the value stays fi
       home: 'Georgia',
       away: 'Texas',
     }),
-    game({ key: 'carol-one', week: 1, home: 'Miami', away: 'Clemson' }),
+    game({ key: 'alice-carol-one', week: 1, home: 'Texas', away: 'Miami' }),
     game({
-      key: 'carol-two',
+      key: 'alice-carol-two',
       week: 2,
       date: '2026-09-13T00:00:00.000Z',
-      home: 'Miami',
-      away: 'Clemson',
+      home: 'Texas',
+      away: 'Miami',
     }),
-    game({ key: 'erin-one', week: 1, home: 'UCLA', away: 'USC' }),
-    game({ key: 'erin-two', week: 2, date: '2026-09-13T00:00:00.000Z', home: 'UCLA', away: 'USC' }),
+    game({ key: 'bob-carol-one', week: 1, home: 'Georgia', away: 'Miami' }),
+    game({
+      key: 'bob-carol-two',
+      week: 2,
+      date: '2026-09-13T00:00:00.000Z',
+      home: 'Georgia',
+      away: 'Miami',
+    }),
   ];
   const recap = composeWeeklyRecap(
     {
@@ -831,9 +837,6 @@ test('composer keeps a tied rivalry field change visible when the value stays fi
           ['Texas', 'Alice'],
           ['Georgia', 'Bob'],
           ['Miami', 'Carol'],
-          ['Clemson', 'Dan'],
-          ['UCLA', 'Erin'],
-          ['USC', 'Frank'],
         ]),
         scoresByKey: Object.fromEntries(games.map(({ key }) => [key, finalScore(10, 20)])),
         records: { status: 'available', archives: [], historicalRosters: {} },
@@ -850,7 +853,8 @@ test('composer keeps a tied rivalry field change visible when the value stays fi
     (line) => line.id === 'record-lopsided_rivalry' || line.id === 'record-dominance_streak'
   );
   assert.equal(rivalryLines.length, 2);
-  assert.ok(rivalryLines.every((line) => /Multiple rivalries tied/.test(line.context)));
+  assert.ok(rivalryLines.every((line) => /2 rivalries tied/.test(line.context)));
+  assert.ok(rivalryLines.every((line) => /Previous: .*3 rivalries tied/.test(line.context)));
 });
 
 test('composer describes tied even-rivalry records as pairs rather than one owner set', () => {
@@ -896,7 +900,7 @@ test('composer describes tied even-rivalry records as pairs rather than one owne
   assert.equal(recap.status, 'available');
   if (recap.status !== 'available') return;
   const evenRivalry = recap.recordChangeLines.find((line) => line.id === 'record-even_rivalry');
-  assert.match(evenRivalry?.context ?? '', /Multiple rivalries tied/);
+  assert.match(evenRivalry?.context ?? '', /2 rivalries tied/);
   assert.doesNotMatch(evenRivalry?.context ?? '', /Alice, Bob, Carol & Dan/);
 });
 
