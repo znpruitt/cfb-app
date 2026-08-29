@@ -290,6 +290,81 @@ test('composer exposes approved movement rows and the compact biggest-riser summ
   });
 });
 
+test('composer names every owner tied for biggest riser', () => {
+  const games = [
+    game({ key: 'alice-one', week: 1, home: 'Texas', away: 'Purdue' }),
+    game({ key: 'bob-one', week: 1, home: 'Georgia', away: 'Rutgers' }),
+    game({ key: 'carol-one', week: 1, home: 'Miami', away: 'Florida State' }),
+    game({ key: 'dave-one', week: 1, home: 'Clemson', away: 'UCF' }),
+    game({
+      key: 'alice-two',
+      week: 2,
+      date: '2026-09-13T00:00:00.000Z',
+      home: 'Texas',
+      away: 'Purdue',
+    }),
+    game({
+      key: 'bob-two',
+      week: 2,
+      date: '2026-09-13T00:00:00.000Z',
+      home: 'Georgia',
+      away: 'Rutgers',
+    }),
+    game({
+      key: 'carol-two',
+      week: 2,
+      date: '2026-09-13T00:00:00.000Z',
+      home: 'Miami',
+      away: 'Florida State',
+    }),
+    game({
+      key: 'dave-two',
+      week: 2,
+      date: '2026-09-13T00:00:00.000Z',
+      home: 'Clemson',
+      away: 'UCF',
+    }),
+  ];
+  const rosterByTeam = new Map([
+    ['Texas', 'Alice'],
+    ['Georgia', 'Bob'],
+    ['Miami', 'Carol'],
+    ['Clemson', 'Dave'],
+  ]);
+  const recap = composeWeeklyRecap(
+    {
+      status: 'available',
+      context: {
+        seasonYear: YEAR,
+        games,
+        rosterByTeam,
+        scoresByKey: {
+          'alice-one': finalScore(10, 40),
+          'bob-one': finalScore(15, 35),
+          'carol-one': finalScore(35, 15),
+          'dave-one': finalScore(40, 10),
+          'alice-two': finalScore(60, 10),
+          'bob-two': finalScore(55, 10),
+          'carol-two': finalScore(15, 65),
+          'dave-two': finalScore(10, 55),
+        },
+      },
+    },
+    new Date('2026-09-14T16:00:00.000Z'),
+    ACTIVE_SCOPE
+  );
+
+  assert.equal(recap.status, 'available');
+  if (recap.status !== 'available') return;
+  assert.deepEqual(recap.tileLeaderLines.at(-1), {
+    id: 'biggest-riser',
+    label: 'Carol & Dave',
+    value: '▲ 2',
+    context: 'Biggest risers',
+    tone: 'positive',
+  });
+});
+
 test('composer uses count copy when three owners share the exact weekly lead', () => {
   const tiedGames = [
     game({ key: 'alice-win', away: 'Florida', home: 'Texas' }),
@@ -395,6 +470,11 @@ test('composer gives a fully resolved winless owner week a factual fallback head
   assert.deepEqual(recap.ownerLines, [
     { owner: 'Alice', recordLabel: '0–1', pointsLabel: '17 PF · 31 PA' },
   ]);
+  assert.equal(
+    recap.leaderLines.some((line) => line.id === 'best-record'),
+    false,
+    'a winless week has no best-record leader'
+  );
 });
 
 test('composer reports games without results only after every pending sibling clears the gate', () => {

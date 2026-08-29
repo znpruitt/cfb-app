@@ -59,7 +59,11 @@ export default function WeeklyRecapSection({
           </div>
           {availableRecap.movementLines.length > 0 ? (
             <div className="mt-9 max-w-md">
-              <MovementList lines={availableRecap.movementLines} />
+              <MovementList
+                heading={`${availableRecap.weekLabel} movement`}
+                headingId="weekly-recap-movement-heading"
+                lines={availableRecap.movementLines}
+              />
             </div>
           ) : null}
           {availableRecap.isIncomplete ? (

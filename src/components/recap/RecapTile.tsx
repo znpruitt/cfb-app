@@ -31,7 +31,12 @@ export default function RecapTile({
           weekLabel={recap.weekLabel}
           compact
         />
-        {hasResults ? <WeekLeadersList lines={recap.tileLeaderLines} /> : null}
+        {hasResults ? (
+          <WeekLeadersList
+            headingId={`${headingId}-week-leaders-heading`}
+            lines={recap.tileLeaderLines}
+          />
+        ) : null}
       </div>
 
       {!hasResults ? (
@@ -48,7 +53,12 @@ export default function RecapTile({
             />
             {recap.movementLines.length > 0 ? (
               <div className="mt-9 max-w-md">
-                <MovementList lines={recap.movementLines} compact />
+                <MovementList
+                  heading={`${recap.weekLabel} movement`}
+                  headingId={`${panelId}-movement-heading`}
+                  lines={recap.movementLines}
+                  compact
+                />
               </div>
             ) : null}
             {recap.isIncomplete ? (

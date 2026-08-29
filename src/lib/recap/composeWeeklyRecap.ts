@@ -98,9 +98,13 @@ function weeklyHeadline(facts: ReturnType<typeof selectWeeklyRecapFacts>): strin
 }
 
 function ownerNames(results: WeeklyOwnerResult[]): string {
-  if (results.length === 1) return results[0]!.owner;
-  if (results.length === 2) return `${results[0]!.owner} & ${results[1]!.owner}`;
-  return `${results.length} owners tied`;
+  return formatOwnerNames(results.map((result) => result.owner));
+}
+
+function formatOwnerNames(owners: string[]): string {
+  if (owners.length === 1) return owners[0]!;
+  if (owners.length === 2) return `${owners[0]} & ${owners[1]}`;
+  return `${owners.length} owners tied`;
 }
 
 function gameResultContext(result: WeeklyOwnedGameResult): string {
@@ -115,18 +119,17 @@ function composeLeaderLines(
   facts: NonNullable<ReturnType<typeof selectWeeklyRecapFacts>>
 ): WeeklyRecapLeaderLine[] {
   const lines: WeeklyRecapLeaderLine[] = [];
-  const firstResult = facts.ownerResults[0];
   const recordLeaders = selectWeeklyRecapLeaders(facts.ownerResults);
-  const bestRecord = recordLeaders.length > 0 ? recordLeaders : firstResult ? [firstResult] : [];
-  if (firstResult && bestRecord.length > 0) {
+  const firstRecordLeader = recordLeaders[0];
+  if (firstRecordLeader) {
     lines.push({
       id: 'best-record',
       label: 'Best record',
-      value: `${firstResult.wins}–${firstResult.losses}`,
+      value: `${firstRecordLeader.wins}–${firstRecordLeader.losses}`,
       context:
-        bestRecord.length === 1
-          ? `${bestRecord[0]!.owner} · ${bestRecord[0]!.pointsFor} PF`
-          : ownerNames(bestRecord),
+        recordLeaders.length === 1
+          ? `${firstRecordLeader.owner} · ${firstRecordLeader.pointsFor} PF`
+          : ownerNames(recordLeaders),
     });
   }
 
@@ -195,14 +198,20 @@ export function composeWeeklyRecap(
     shiftLabel: `#${movement.previousRank} → #${movement.currentRank}`,
   }));
   const biggestRiser = facts.rankMovement.find((movement) => movement.rankDelta > 0);
+  const biggestRisers = biggestRiser
+    ? facts.rankMovement.filter((movement) => movement.rankDelta === biggestRiser.rankDelta)
+    : [];
   const tileLeaderLines = biggestRiser
     ? [
         ...leaderLines,
         {
           id: 'biggest-riser' as const,
-          label: biggestRiser.owner,
+          label: formatOwnerNames(biggestRisers.map((movement) => movement.owner)),
           value: `▲ ${biggestRiser.rankDelta}`,
-          context: `Biggest riser · #${biggestRiser.previousRank} → #${biggestRiser.currentRank}`,
+          context:
+            biggestRisers.length === 1
+              ? `Biggest riser · #${biggestRiser.previousRank} → #${biggestRiser.currentRank}`
+              : 'Biggest risers',
           tone: 'positive' as const,
         },
       ]

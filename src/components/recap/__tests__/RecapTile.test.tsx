@@ -110,8 +110,9 @@ test('recap tile expands its compact week-record grid in normal flow and collaps
   fireEvent.click(expand);
 
   assert.ok(rendered.getByRole('heading', { name: 'Week records' }));
-  assert.ok(rendered.getByRole('heading', { name: 'Movement' }));
+  assert.ok(rendered.getByRole('heading', { name: 'Week 1 movement' }));
   assert.ok(rendered.getByText('#2 → #1'));
+  assert.ok(rendered.getByLabelText('Moved up in standings'));
   assert.match(rendered.getByText('55 PF · 38 PA').className, /text-zinc-400/);
   assert.equal(panel.hidden, false);
   const collapse = rendered.getByRole('button', { name: 'Collapse' });
@@ -126,6 +127,10 @@ test('recap tile expands its compact week-record grid in normal flow and collaps
   assert.match(within(recordsSection).getByText('2–0').className, /shrink-0/);
   assert.equal(rendered.queryByText('Notable results'), null);
   assert.equal(rendered.queryByText('Head-to-head'), null);
+
+  const leadersHeading = rendered.getByRole('heading', { name: 'Week leaders' });
+  const movementHeading = rendered.getByRole('heading', { name: 'Week 1 movement' });
+  assert.notEqual(leadersHeading.id, movementHeading.id);
 
   fireEvent.click(collapse);
   assert.equal(panel.hidden, true);

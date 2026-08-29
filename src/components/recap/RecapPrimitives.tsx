@@ -128,15 +128,17 @@ export function WeekLeadersStrip({
 
 export function WeekLeadersList({
   lines,
+  headingId,
 }: {
   lines: AvailableWeeklyRecapViewModel['tileLeaderLines'];
+  headingId: string;
 }): React.ReactElement | null {
   if (lines.length === 0) return null;
 
   return (
-    <section aria-labelledby="recap-tile-week-leaders-heading">
+    <section aria-labelledby={headingId}>
       <h3
-        id="recap-tile-week-leaders-heading"
+        id={headingId}
         className="mb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-400"
       >
         Week leaders
@@ -165,22 +167,24 @@ export function WeekLeadersList({
 
 export function MovementList({
   lines,
+  heading,
+  headingId,
   compact = false,
 }: {
   lines: AvailableWeeklyRecapViewModel['movementLines'];
+  heading: string;
+  headingId: string;
   compact?: boolean;
 }): React.ReactElement | null {
   if (lines.length === 0) return null;
 
   return (
-    <section
-      aria-labelledby={compact ? 'recap-tile-movement-heading' : 'weekly-recap-movement-heading'}
-    >
+    <section aria-labelledby={headingId}>
       <h3
-        id={compact ? 'recap-tile-movement-heading' : 'weekly-recap-movement-heading'}
+        id={headingId}
         className="mb-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-400"
       >
-        Movement
+        {heading}
       </h3>
       <ul>
         {lines.map((line) => (
@@ -195,6 +199,9 @@ export function MovementList({
             >
               <span className="min-w-0 truncate">{line.owner}</span>
               <span
+                aria-label={
+                  line.direction === 'up' ? 'Moved up in standings' : 'Dropped in standings'
+                }
                 className={`shrink-0 tabular-nums ${
                   line.direction === 'up' ? 'text-green-400' : 'text-red-400'
                 }`}

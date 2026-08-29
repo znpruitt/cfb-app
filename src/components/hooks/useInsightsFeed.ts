@@ -95,9 +95,14 @@ function parseWeeklyRecap(value: unknown): WeeklyRecapViewModel {
       typeof line.pointsLabel === 'string'
   );
   if (ownerLines.length !== value.ownerLines.length) return UNAVAILABLE_RECAP;
-  const leaderLines = parseLeaderLines(value.leaderLines);
-  const tileLeaderLines = parseLeaderLines(value.tileLeaderLines);
-  const movementLines = parseMovementLines(value.movementLines);
+  // These Slice 2 fields are additive. During a rolling deploy, an older API
+  // response remains a valid Slice 1 recap; malformed fields that are present
+  // still fail the recap closed without affecting the standing Insights feed.
+  const leaderLines = value.leaderLines === undefined ? [] : parseLeaderLines(value.leaderLines);
+  const tileLeaderLines =
+    value.tileLeaderLines === undefined ? [] : parseLeaderLines(value.tileLeaderLines);
+  const movementLines =
+    value.movementLines === undefined ? [] : parseMovementLines(value.movementLines);
   if (!leaderLines || !tileLeaderLines || !movementLines) return UNAVAILABLE_RECAP;
 
   return {

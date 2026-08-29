@@ -42,6 +42,32 @@ test('Insights recap keeps context uncertainty distinct from genuine absence', (
   assert.equal(absent, '');
 });
 
+test('full recap qualifies and renders non-compact movement accessibly', () => {
+  const html = renderToStaticMarkup(
+    <WeeklyRecapSection
+      recap={{
+        status: 'available',
+        week: 2,
+        weekLabel: 'Week 2',
+        latestGameDate: '2026-09-12',
+        headline: 'Alice takes the week at 1–0',
+        isIncomplete: true,
+        ownerLines: [{ owner: 'Alice', recordLabel: '1–0', pointsLabel: '31 PF · 17 PA' }],
+        leaderLines: [],
+        tileLeaderLines: [],
+        movementLines: [
+          { owner: 'Alice', direction: 'up', deltaLabel: '▲ 1', shiftLabel: '#2 → #1' },
+        ],
+      }}
+    />
+  );
+
+  assert.match(html, /Week 2 movement/);
+  assert.match(html, /aria-label="Moved up in standings"/);
+  assert.match(html, /text-\[14\.5px\]/);
+  assert.doesNotMatch(html, /recap-tile-movement-heading/);
+});
+
 test('Insights page renders the request-time recap above the standing insight list', async () => {
   await addLeague({
     slug: SLUG,
@@ -89,7 +115,7 @@ test('Insights page renders the request-time recap above the standing insight li
   assert.match(html, /Weekly recap/);
   assert.match(html, /Alice takes the week at 1–0/);
   assert.match(html, /Week records/);
-  assert.match(html, /Week leaders/);
+  assert.match(html, /aria-label="Week leaders"/);
   assert.match(html, /Best record/);
   assert.match(html, /High score/);
   assert.match(html, /Closest game/);
