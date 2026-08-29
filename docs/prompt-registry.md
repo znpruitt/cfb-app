@@ -69,7 +69,7 @@ Rules:
   cache-placement, refresh-race, request-cost, and degraded-schedule seams. Exact code commit
   `2176e7c2` passed TypeScript, `lint:all`, the 4,370-test full suite, and production build; final
   independent Claude and Codex confirmations reported no actionable findings.
-- Status: Implemented — awaiting merge.
+- Status: Merged via PR #521 (merge commit `af0a2118`), 2026-08-29.
 
 ### INSIGHTS-026b-RECAP-LAYOUT-v2
 

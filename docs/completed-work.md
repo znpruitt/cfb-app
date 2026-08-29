@@ -1,7 +1,7 @@
 # Completed Work Log
 
 Status: Historical (append-only ledger)
-Last verified: 2026-08-28
+Last verified: 2026-08-29
 Owner: Project documentation
 Canonical for: append-only record of shipped phases/milestones (outcomes) — historical, not current implementation authority
 Supersedes: (none)
@@ -4143,6 +4143,23 @@ Key architectural decisions across Phase 5:
   Claude review left no open P0/P1/P2 finding.
 - **Open follow-ups:** Item 42 remains in `docs/next-tasks.md` for recap details, record changes, odds
   upsets, Overview rendering, Forward Look, and the stored event-source artifact.
+
+### INSIGHTS-026b — Weekly Recap Layout and Overview Tile — Complete
+
+- **Status:** Merged via PR #521 (merge commit `af0a2118`), 2026-08-29; production promotion not
+  yet verified.
+- **PROMPT_ID(s):** `INSIGHTS-026b-RECAP-LAYOUT-v3` (superseding the unmerged v1/v2 attempts).
+- **Outcome:** The full Insights recap and collapsed-by-default Overview tile now share the approved
+  recap header and weekly-record grid. The tile consumes the server-coherent recap payload, refreshes
+  at its schedule-independent 06:00 ET boundary, preserves standing insights across recap failures,
+  and remains visible above the podium when client schedule bootstrap fails.
+- **Verification:** Twenty-three test declarations were added relative to the campaign base for the
+  date boundaries, recap response seam, refresh behavior, shared rendering, and degraded/successful
+  Overview placement. Exact PR head `ab8f1561` passed TypeScript, `lint:all`, the full test suite,
+  and production build; desktop and mobile browser checks passed, and final independent Claude and
+  Codex reviews reported no actionable findings.
+- **Open follow-ups:** Item 42 remains in `docs/next-tasks.md` for the remaining fact-family slices,
+  Forward Look, and the stored event-source artifact.
 
 ### Template for future entries
 

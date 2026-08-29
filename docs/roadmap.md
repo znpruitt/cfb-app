@@ -197,11 +197,13 @@ Full-page view of all insights for a league, accessible via "See all →" from t
 > questions.
 >
 > **Delivery decision 2026-08-28 (owner):** build the Look Back request-time first, in vertical
-> slices. Slice 1 is merged: the full recap begins at the top of the existing Insights page and is
-> scoped to the league's exact active season and immediately preceding eligible week. Existing
-> standing/durable insights remain independent. The compact Overview rendering is a later slice;
-> the immutable artifact/event-source portion remains open. Forward Look will target the immediate
-> upcoming canonical week and needs its own schedule/rankings inputs.
+> slices. The walking skeleton and layout stage are merged: the full recap begins at the top of the
+> existing Insights page, and a compact expandable rendering occupies Overview's elevated
+> timely-content zone. Both consume the same request-time recap for the league's exact active season and
+> immediately preceding eligible week; existing standing/durable insights remain independent. The
+> remaining vertical slices enrich that proven structure. The immutable artifact/event-source
+> portion remains open. Forward Look will target the immediate upcoming canonical week and needs
+> its own schedule/rankings inputs.
 
 Enrich the existing insights panel on the overview page with contextual, data-driven narrative content. The panel structure is already built — this campaign populates it with meaningful insights that adapt automatically based on lifecycle state (offseason / preseason / in-season / postseason).
 
