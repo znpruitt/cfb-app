@@ -1,7 +1,7 @@
 # Prompt Registry
 
 Status: Current ledger
-Last verified: 2026-08-28
+Last verified: 2026-08-29
 Owner: Project documentation
 Canonical for: prompt ledger / historical implementation record (not an active backlog)
 Supersedes: (none)
@@ -59,13 +59,17 @@ Rules:
   response after its cross-request cache; consume it through guarded client fetching with one
   eligibility-boundary refresh; remove v2's recap-specific score-hydration coupling; retain the
   Slice 1 selectors, Insights lead section, shared layout components, and design amendments.
-- Outcome: In progress. The audited target keeps the existing visuals while making the server recap
-  context authoritative for ownership, schedule, and score attribution on both member surfaces.
-- Review / verification: The v2 final Codex and Claude reviews independently confirmed that its
-  Overview gate could combine server-canonical readiness with a stale local roster after an owners
-  API failure. A focused seam audit selected the existing Insights route as the bounded replacement
-  and found no need to rebuild Slice 1 or the recap component structure.
-- Status: In progress on the replacement feature branch.
+- Outcome: the approved Insights lead and expandable Overview tile now share the same recap layout
+  and server-coherent view model. The Overview client fetch is enabled only on that surface,
+  reevaluates at the schedule-independent 06:00 ET boundary, preserves healthy standing insights
+  when recap refresh fails, and renders the tile outside the schedule-success gate while keeping it
+  immediately above the podium in normal flow.
+- Review / verification: the v2 seam audit selected the existing authenticated Insights route as
+  the bounded replacement and preserved Slice 1. The v3 review cycle then closed lifecycle-year,
+  cache-placement, refresh-race, request-cost, and degraded-schedule seams. Exact code commit
+  `2176e7c2` passed TypeScript, `lint:all`, the 4,370-test full suite, and production build; final
+  independent Claude and Codex confirmations reported no actionable findings.
+- Status: Implemented — awaiting merge.
 
 ### INSIGHTS-026b-RECAP-LAYOUT-v2
 
