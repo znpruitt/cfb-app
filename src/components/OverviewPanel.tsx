@@ -24,7 +24,6 @@ import {
 import { getCategoryConfig } from '../lib/insightCategories';
 import { OVERVIEW_INSIGHT_SLOTS, OVERVIEW_INSIGHT_SLOTS_WITH_RECAP } from '../lib/insights/limits';
 import type { LifecycleState } from '../lib/insights/types';
-import type { AvailableWeeklyRecapViewModel } from '../lib/recap/composeWeeklyRecap';
 import { isDarkTheme } from '../lib/ownerColors';
 import {
   deriveResolvedMovementStandings,
@@ -52,7 +51,6 @@ import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
 import type { StandingsHistory } from '../lib/standingsHistory';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
 import RankedTeamName from './RankedTeamName';
-import RecapTile from './recap/RecapTile';
 
 /**
  * The last `n` weeks that are RESOLVED — played, with a usable snapshot.
@@ -1397,7 +1395,6 @@ type OverviewPanelProps = {
   leagueSlug?: string;
   engineInsights?: Insight[];
   lifecycleState?: LifecycleState;
-  weeklyRecap?: AvailableWeeklyRecapViewModel | null;
   currentYear?: number;
 };
 
@@ -1425,7 +1422,6 @@ export default function OverviewPanel({
   leagueSlug,
   engineInsights = [],
   lifecycleState,
-  weeklyRecap = null,
   currentYear,
 }: OverviewPanelProps): React.ReactElement {
   // Canonical owns the resolved-week snapshot for Overview: rows, standings
@@ -1638,8 +1634,6 @@ export default function OverviewPanel({
 
   return (
     <div className="space-y-5">
-      {weeklyRecap ? <RecapTile recap={weeklyRecap} /> : null}
-
       {/* Podium / Hero */}
       <LeagueSummaryHero
         summary={viewModel.championSummary}

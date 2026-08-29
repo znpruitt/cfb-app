@@ -5,10 +5,6 @@ import { JSDOM } from 'jsdom';
 import { cleanup, fireEvent, render } from '@testing-library/react';
 
 import type { AvailableWeeklyRecapViewModel } from '@/lib/recap/composeWeeklyRecap';
-import type { OverviewContext, OwnerMatchupMatrix } from '@/lib/overview';
-import type { StandingsCoverage } from '@/lib/standings';
-
-import OverviewPanel from '../../OverviewPanel';
 import RecapTile from '../RecapTile';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
@@ -37,19 +33,6 @@ const recap: AvailableWeeklyRecapViewModel = {
     { owner: 'Bob', recordLabel: '0–1', pointsLabel: '10 PF · 24 PA' },
   ],
 };
-
-const overviewContext: OverviewContext = {
-  scopeLabel: 'League',
-  scopeDetail: 'Week 1',
-  emphasis: 'upcoming',
-  highlightsTitle: 'What matters next',
-  highlightsDescription: 'Upcoming league games.',
-  liveDescription: 'Live games move first.',
-  sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
-};
-
-const matchupMatrix: OwnerMatchupMatrix = { owners: [], rows: [] };
-const standingsCoverage: StandingsCoverage = { state: 'complete', message: null };
 
 test('recap tile expands its compact week-record grid in normal flow and collapses again', () => {
   const rendered = render(<RecapTile recap={recap} />);
@@ -133,24 +116,4 @@ test('a populated incomplete recap keeps a visible factual headline', () => {
   fireEvent.click(rendered.getByRole('button', { name: 'View full recap' }));
   assert.equal(panel.hidden, false);
   fireEvent.click(rendered.getByRole('button', { name: 'Collapse' }));
-});
-
-test('Overview mounts the recap tile as the first item in the podium flow', () => {
-  const rendered = render(
-    <OverviewPanel
-      standingsLeaders={[]}
-      standingsCoverage={standingsCoverage}
-      matchupMatrix={matchupMatrix}
-      liveItems={[]}
-      keyMatchups={[]}
-      context={overviewContext}
-      weeklyRecap={recap}
-    />
-  );
-
-  const root = rendered.container.firstElementChild;
-  const tile = rendered.getByText('Weekly recap').closest('section');
-  assert.ok(root);
-  assert.ok(tile);
-  assert.equal(root.firstElementChild, tile);
 });

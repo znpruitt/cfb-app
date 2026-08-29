@@ -13,6 +13,7 @@ import MatchupsWeekPanel from './MatchupsWeekPanel';
 import WeekViewTabs, { type WeekViewMode } from './WeekViewTabs';
 import PostseasonPanel from './PostseasonPanel';
 import RankingsPageContent from './RankingsPageContent';
+import RecapTile from './recap/RecapTile';
 import StandingsPanel from './StandingsPanel';
 import OverviewPanel from './OverviewPanel';
 import OwnerPanel from './OwnerPanel';
@@ -1688,6 +1689,12 @@ export default function CFBScheduleApp({
         </section>
       ) : null}
 
+      {/* The recap is server-derived and remains useful when the client schedule
+          bootstrap is unavailable. Keep this timely-content slot outside the
+          schedule-dependent primary-surface gate; when Overview can render it
+          still precedes the podium in normal flow. */}
+      {primarySurfaceKind === 'overview' && weeklyRecap ? <RecapTile recap={weeklyRecap} /> : null}
+
       {canRenderPrimarySurface && (
         <>
           {shouldShowWeekControls ? (
@@ -1797,7 +1804,6 @@ export default function CFBScheduleApp({
                   leagueSlug={leagueSlug}
                   engineInsights={engineInsights}
                   lifecycleState={insightsLifecycleState}
-                  weeklyRecap={weeklyRecap}
                   currentYear={selectedSeason}
                 />
               ) : primarySurfaceKind === 'standings' ? (
