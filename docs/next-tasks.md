@@ -387,18 +387,19 @@ record eligibility converges with generator-specific rules.
 ### Item 42 — INSIGHTS-026 weekly recap and event source (In progress)
 
 The request-time Look Back skeleton and layout stage are complete. The recap is scoped to the
-league's exact active season,
-selects the immediately preceding eligible canonical week after the next-day 06:00 ET cutoff, and
-renders at the top of the existing Insights page. Its Overview tile consumes the same
-server-coherent recap view model, reevaluates the request-time boundary independently from client
-schedule readiness, and remains visible if client schedule bootstrap fails. Standing/durable
-insights remain independent and are inherited alongside the recap rather than replaced by it. The
-approved shared recap structure does not change the remaining fact-family plan.
+league's exact active season, selects the immediately preceding eligible canonical week after the
+next-day 06:00 ET cutoff, and renders at the top of the existing Insights page. Its Overview tile
+consumes the same server-coherent recap view model, reevaluates the request-time boundary
+independently from client schedule readiness, and remains visible if client schedule bootstrap
+fails. Standing/durable insights remain independent and are inherited alongside the recap rather
+than replaced by it. The approved shared recap structure does not change the remaining fact-family
+plan.
 
 Continue the request-time portion vertically:
 
-- **CURRENT — Slice 2 (`INSIGHTS-026c-RECAP-DETAILS-v1`):** add week-explicit movement,
-  owner-vs-owner detail, and weekly accolades to the proven pipeline.
+- **CURRENT — Slice 2 (`INSIGHTS-026c-RECAP-DETAILS-v1`):** implemented and review-complete; merge
+  pending. It adds week-explicit movement, owner-vs-owner detail, and weekly accolades to the proven
+  pipeline while leaving notable-result UI unwired.
 - **NEXT — Slice 3:** add the allowlisted partial-season record-change projection.
 - Slice 4: add odds upsets through a shared odds-upset policy helper.
 - Final wiring/pass: fill the existing Overview tile from the completed fact families and remove the
