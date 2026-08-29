@@ -1712,3 +1712,41 @@ test('an AMBIGUOUS conference must not terminate classification as non-FBS', () 
     resetConferenceClassificationRecords();
   }
 });
+
+test('an UNRECOGNIZED provider classification falls through to inference, not to OTHER', () => {
+  const resolver = eligibilityResolver();
+  const metadata = eligibilityMetadata();
+
+  // The static type is a compile-time fiction at this boundary: durable schedule
+  // rows are cast from app-state JSON unchecked, and `applyManualOverride`
+  // spreads an unvalidated Partial<AppGame>. A value outside CFBD's vocabulary
+  // must NOT be treated as authoritative — `providerClassificationToSubdivision`
+  // maps anything that is not fbs/fcs to OTHER, so trusting it blindly would
+  // silently drop a real FBS game.
+  for (const junk of ['FBS', 'Fbs', 'i', 'division-2', '', ' ']) {
+    assert.equal(
+      classifyTeamSubdivision({
+        canonicalTeamName: 'Georgia Southern',
+        conference: '',
+        teamMetadataByCanonicalName: metadata,
+        resolver,
+        providerClassification: junk as never,
+      }),
+      'FBS',
+      `unrecognized provider classification ${JSON.stringify(junk)} must fall through to the catalog`
+    );
+  }
+
+  // Control: a value INSIDE the vocabulary still short-circuits, so the loop
+  // above is proving validation and not merely that the branch never fires.
+  assert.equal(
+    classifyTeamSubdivision({
+      canonicalTeamName: 'Georgia Southern',
+      conference: '',
+      teamMetadataByCanonicalName: metadata,
+      resolver,
+      providerClassification: 'ii',
+    }),
+    'OTHER'
+  );
+});

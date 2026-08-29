@@ -1,6 +1,7 @@
 import { createTeamIdentityResolver, type TeamCatalogItem } from './teamIdentity.ts';
 import {
   classifyConferenceForSubdivision,
+  normalizeProviderClassification,
   providerClassificationToSubdivision,
   type ConferenceSubdivision,
   type ProviderClassification,
@@ -112,25 +113,33 @@ export function classifyTeamSubdivision(params: {
   // particular can collide a non-FBS school onto an FBS catalog entry whose
   // normalized key it happens to share (`Missouri S&T` -> `missourist`, the key
   // Missouri State already claims via its `missouri st` alt).
-  if (providerClassification) {
-    return providerClassificationToSubdivision(providerClassification);
+  // Re-validate at this boundary rather than trusting the static type. Durable
+  // schedule rows are cast from app-state JSON without runtime checking
+  // (`seasonBuild`, `canonicalScheduleCache`) and `applyManualOverride` spreads an
+  // unvalidated `Partial<AppGame>` from the postseason-override store, so a value
+  // outside CFBD's vocabulary can reach here. Unrecognized input must fall THROUGH
+  // to inference — `providerClassificationToSubdivision` maps anything that is not
+  // `fbs`/`fcs` to `OTHER`, so trusting it blindly would let a stray `'FBS'` (wrong
+  // case) or a future division token silently drop a real FBS game.
+  const trustedClassification = normalizeProviderClassification(providerClassification);
+  if (trustedClassification) {
+    return providerClassificationToSubdivision(trustedClassification);
   }
 
   if (conferenceSubdivision === 'FCS') {
     return 'FCS';
   }
 
-  // Fallback, provider classification absent. A conference a real record
+  // Fallback, provider classification absent. A conference a real catalog record
   // classifies as Division II/III terminates here rather than falling through to
   // the resolver, so a name collision cannot promote a lower-division team to
   // FBS. The source check is load-bearing: `OTHER` is overloaded — it is also
-  // what an AMBIGUOUS conference match returns, which carries no classification
-  // information at all, and terminating on that would drop real FBS games whose
-  // conference string happens to match conflicting records.
-  const conferenceIsAuthoritative =
-    conferenceMatch.source === 'cfbd_conference_lookup' ||
-    conferenceMatch.source === 'present_day_policy';
-  if (conferenceSubdivision === 'OTHER' && conferenceIsAuthoritative) {
+  // what an UNRESOLVED or AMBIGUOUS conference returns, neither of which carries
+  // any classification information, and terminating on those would drop real FBS
+  // games. `cfbd_conference_lookup` is the ONLY source that can produce an
+  // authoritative `OTHER`: present-day policy resolves exclusively to FBS or FCS
+  // (`conferenceSubdivision.ts` `fromPolicyMatch`).
+  if (conferenceSubdivision === 'OTHER' && conferenceMatch.source === 'cfbd_conference_lookup') {
     return 'OTHER';
   }
 
