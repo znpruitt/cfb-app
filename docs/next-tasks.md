@@ -656,9 +656,8 @@ plus phantom rows in the archived game list. Earlier backfilled seasons (2018-20
 pollution for the same reason and are safe for a structural one — Missouri State was not FBS before
 July 2025, so it could not appear on any historical roster.
 
-**Governing decision:** do not re-derive the 2025 archive. Re-deriving a completed championship
-season to remove rows that affect no owner is a destructive operation on historical truth with worse
-downside than the defect. The corruption is documented here and left in place.
+Repairing the affected archives is tracked separately as Item 85; this item covers preventing new
+collisions, not correcting existing data.
 
 **Objective: make identity numeric, and demote names to display and search.** CFBD supplies a team
 id on every provider surface this app consumes, and the app discards it on two of them:
@@ -680,9 +679,9 @@ Sequence, and the ordering is the load-bearing part:
    indistinguishable from correct ones.
 2. Persist the provider id at each ingest point: catalog fetch, score normalizer (schedule already
    does), and the draft pick at selection time.
-3. Migrate stored names to ids under the assertion, live state only. Archives are frozen and are
-   deliberately not re-derived (above), so readers must tolerate both keyings rather than the
-   migration rewriting history.
+3. Migrate stored names to ids under the assertion. Scope live state first; archives are frozen and
+   are repaired on their own schedule (Item 85), so readers must tolerate both keyings rather than
+   this migration rewriting history as a side effect.
 4. Make the id authoritative wherever it exists; names become display, search, and provider-variant
    alias matching only.
 
@@ -743,6 +742,31 @@ additive scope needing its own recorder and coverage.
 
 Acceptance boundary: when the provider label contradicts the catalog classification, the disagreement
 is observable without changing which one wins.
+
+### Item 85 — repair archived seasons polluted by the identity collision
+
+Low priority, but a genuine to-do rather than an accepted loss.
+
+The 2025 archive merged two schools under one identity: the archive audit reports Missouri State at
+13-11, which is 24 games against a 17-game FBS ceiling — its real slate plus Missouri S&T's Division
+II slate. Impact is contained because Missouri State was a no-claim team that season, so no owner
+record, win percentage, or championship is wrong; the residue is an inflated no-claim aggregate row
+and phantom rows in the archived game list. Backfilled seasons 2018-2024 are expected to carry the
+same pollution, also unowned, because Missouri State was not FBS before July 2025 and could not
+appear on a historical roster — expected, not verified.
+
+PLATFORM-114 is forward-only: it stops new seasons tracking these games but does not touch frozen
+archives. Re-derivation is feasible now that eligibility classifies from the provider division label,
+but requires the affected season's schedule cache to be refreshed first so its rows carry the
+classification the rebuild reads.
+
+Handle with care: this rewrites completed seasons, including a championship year. Prefer a
+verifiable, reversible path — audit and diff before writing, and preserve the prior archive — over an
+in-place rebuild.
+
+Acceptance boundary: every archived season's per-team game counts fall within the 17-game ceiling,
+no archived FBS team's schedule contains a Division II opponent, and owner-facing records are
+unchanged by the repair (they are already correct — the repair must prove it does not disturb them).
 
 ## Planned and parked campaigns
 
