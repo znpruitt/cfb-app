@@ -751,9 +751,14 @@ The 2025 archive merged two schools under one identity: the archive audit report
 13-11, which is 24 games against a 17-game FBS ceiling — its real slate plus Missouri S&T's Division
 II slate. Impact is contained because Missouri State was a no-claim team that season, so no owner
 record, win percentage, or championship is wrong; the residue is an inflated no-claim aggregate row
-and phantom rows in the archived game list. Backfilled seasons 2018-2024 are expected to carry the
-same pollution, also unowned, because Missouri State was not FBS before July 2025 and could not
-appear on a historical roster — expected, not verified.
+and phantom rows in the archived game list. **Verified 2026-08-29: only 2025 is affected.** The archive audit was run across every existing
+season (2018, 2021-2025; 2019 and 2020 have no archive, matching the six seasons the league has
+played). Maximum per-team game counts are 15, 15, 15, 15, and 16 for the pre-2025 seasons — all
+legitimate — against 24 for Missouri State in 2025, the only breach of the ceiling in roughly 5,500
+archived games. Missouri State is unrostered in every pre-2025 archive. Residual limit: the audit's
+per-team table covers ROSTERED teams only, so phantom games attributed to an unrostered team in an
+earlier season would not appear; nothing owner-facing is affected either way. Scope is therefore one
+season and one team.
 
 PLATFORM-114 is forward-only: it stops new seasons tracking these games but does not touch frozen
 archives. Re-derivation is feasible now that eligibility classifies from the provider division label,
