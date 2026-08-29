@@ -118,12 +118,14 @@ export async function GET(req: Request) {
       conference: item.homeConference ?? '',
       teamMetadataByCanonicalName: canonicalTeamMetadataByName,
       resolver,
+      providerClassification: item.homeClassification,
     });
     const awaySubdivision = classifyTeamSubdivision({
       canonicalTeamName: canonicalAway,
       conference: item.awayConference ?? '',
       teamMetadataByCanonicalName: canonicalTeamMetadataByName,
       resolver,
+      providerClassification: item.awayClassification,
     });
 
     const eligibility = getRegularSeasonEligibilityDecision({
@@ -201,10 +203,12 @@ export async function GET(req: Request) {
         home: {
           subdivision: homeSubdivision,
           isFbs: homeSubdivision === 'FBS',
+          providerClassification: item.homeClassification ?? null,
         },
         away: {
           subdivision: awaySubdivision,
           isFbs: awaySubdivision === 'FBS',
+          providerClassification: item.awayClassification ?? null,
         },
       },
       eligibility,

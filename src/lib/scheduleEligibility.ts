@@ -1,7 +1,9 @@
 import { createTeamIdentityResolver, type TeamCatalogItem } from './teamIdentity.ts';
 import {
   classifyConferenceForSubdivision,
+  providerClassificationToSubdivision,
   type ConferenceSubdivision,
+  type ProviderClassification,
 } from './conferenceSubdivision.ts';
 import {
   recordAmbiguousConference,
@@ -43,6 +45,13 @@ export function classifyTeamSubdivision(params: {
   conference: string;
   teamMetadataByCanonicalName: Map<string, TeamCatalogItem>;
   resolver: ReturnType<typeof createTeamIdentityResolver>;
+  /**
+   * CFBD's own division label for THIS participant on THIS row, when the
+   * schedule record carries it. Authoritative when present — see the
+   * short-circuit below. Absent on records written before classification was
+   * persisted, which keeps the conference/catalog fallback.
+   */
+  providerClassification?: ProviderClassification;
   diagnosticsContext?: string;
   diagnosticsGameId?: string;
 }): EligibilitySubdivision {
@@ -51,6 +60,7 @@ export function classifyTeamSubdivision(params: {
     conference,
     teamMetadataByCanonicalName,
     resolver,
+    providerClassification,
     diagnosticsContext,
     diagnosticsGameId,
   } = params;
@@ -96,8 +106,32 @@ export function classifyTeamSubdivision(params: {
     });
   }
 
+  // The provider already told us this participant's division on this very row.
+  // Prefer it over every form of reconstruction below: conference-string
+  // matching and name resolution are both inference, and name resolution in
+  // particular can collide a non-FBS school onto an FBS catalog entry whose
+  // normalized key it happens to share (`Missouri S&T` -> `missourist`, the key
+  // Missouri State already claims via its `missouri st` alt).
+  if (providerClassification) {
+    return providerClassificationToSubdivision(providerClassification);
+  }
+
   if (conferenceSubdivision === 'FCS') {
     return 'FCS';
+  }
+
+  // Fallback, provider classification absent. A conference a real record
+  // classifies as Division II/III terminates here rather than falling through to
+  // the resolver, so a name collision cannot promote a lower-division team to
+  // FBS. The source check is load-bearing: `OTHER` is overloaded — it is also
+  // what an AMBIGUOUS conference match returns, which carries no classification
+  // information at all, and terminating on that would drop real FBS games whose
+  // conference string happens to match conflicting records.
+  const conferenceIsAuthoritative =
+    conferenceMatch.source === 'cfbd_conference_lookup' ||
+    conferenceMatch.source === 'present_day_policy';
+  if (conferenceSubdivision === 'OTHER' && conferenceIsAuthoritative) {
+    return 'OTHER';
   }
 
   const resolved = resolver.resolveName(canonicalTeamName);

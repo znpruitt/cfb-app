@@ -10,6 +10,7 @@ import {
   resetConferenceClassificationRecords,
   setConferenceClassificationRecords,
   type CfbdConferenceRecord,
+  type ProviderClassification,
 } from './conferenceSubdivision.ts';
 import type { HydrationDiagnostic } from './postseason-hydrate.ts';
 import {
@@ -95,6 +96,15 @@ export type ScheduleWireItem = {
   awayId?: number | null;
   homeConference: string;
   awayConference: string;
+  /**
+   * CFBD's own per-participant division label. OPTIONAL compatibility fields:
+   * durable schedule records written before classification persistence
+   * legitimately lack both properties, and a cache read never fabricates them.
+   * When present this is the AUTHORITATIVE eligibility input; when absent the
+   * conference/catalog fallback in `scheduleEligibility.ts` applies.
+   */
+  homeClassification?: ProviderClassification;
+  awayClassification?: ProviderClassification;
   status: string;
   /** CFBD `completed` flag (PLATFORM-086E1A) — retained provider metadata only. */
   completed?: boolean;
@@ -189,6 +199,13 @@ export type AppGame = {
   canHome: string;
   awayConf: string;
   homeConf: string;
+  /**
+   * Provider division label carried through from the schedule row so every
+   * consumer of `scheduleEligibility` classifies from the SAME input. Absent
+   * when the underlying schedule record predates classification persistence.
+   */
+  homeClassification?: ProviderClassification;
+  awayClassification?: ProviderClassification;
 };
 
 export function getGameParticipantTeamId(game: AppGame, side: 'home' | 'away'): string | null {
@@ -319,6 +336,8 @@ function retainedScheduleMetadata(item: ScheduleWireItem): Partial<AppGame> {
   if (typeof item.startTimeTBD === 'boolean') fields.startTimeTBD = item.startTimeTBD;
   if (typeof item.venueId === 'number') fields.venueId = item.venueId;
   if (typeof item.completed === 'boolean') fields.completed = item.completed;
+  if (item.homeClassification) fields.homeClassification = item.homeClassification;
+  if (item.awayClassification) fields.awayClassification = item.awayClassification;
   if (Array.isArray(item.media) && item.media.length > 0) fields.media = item.media;
   return fields;
 }

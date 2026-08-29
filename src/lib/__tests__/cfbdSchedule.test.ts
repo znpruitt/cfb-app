@@ -685,3 +685,34 @@ test('participant ids: all existing schedule metadata is unchanged by id normali
   assert.equal(item.seasonType, 'regular');
   assert.equal(item.gamePhase, 'regular');
 });
+
+function mapClassification(overrides: Record<string, unknown>) {
+  const result = mapCfbdScheduleGame(
+    { id: 9100, week: 3, home_team: 'Missouri S&T', away_team: 'Northeastern State', ...overrides },
+    'regular'
+  );
+  assert.equal(result.ok, true);
+  if (!result.ok) throw new Error('unreachable');
+  return result.item;
+}
+
+test('provider classification: snake_case and camelCase are both persisted', () => {
+  assert.equal(mapClassification({ home_classification: 'ii' }).homeClassification, 'ii');
+  assert.equal(mapClassification({ homeClassification: 'fcs' }).homeClassification, 'fcs');
+  assert.equal(mapClassification({ away_classification: 'iii' }).awayClassification, 'iii');
+  assert.equal(mapClassification({ awayClassification: 'fbs' }).awayClassification, 'fbs');
+  assert.equal(mapClassification({ home_classification: '  FBS  ' }).homeClassification, 'fbs');
+});
+
+test('provider classification: absent stays ABSENT rather than defaulting', () => {
+  // A missing label must never be coerced — a consumer reading a defaulted value
+  // as "not FBS" would silently drop real games.
+  const item = mapClassification({});
+  assert.equal('homeClassification' in item, false);
+  assert.equal('awayClassification' in item, false);
+
+  // Values outside CFBD's vocabulary are treated as absent, not passed through.
+  const junk = mapClassification({ home_classification: 'division-2', away_classification: 42 });
+  assert.equal('homeClassification' in junk, false);
+  assert.equal('awayClassification' in junk, false);
+});

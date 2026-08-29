@@ -2,6 +2,10 @@ import {
   matchConferenceChampionshipSlotByConference,
   matchConferenceChampionshipSlotByText,
 } from '../conferenceChampionships.ts';
+import {
+  normalizeProviderClassification,
+  type ProviderClassification,
+} from '../conferenceSubdivision.ts';
 
 export type SeasonType = 'regular' | 'postseason';
 
@@ -130,6 +134,17 @@ export type ScheduleItem = {
   awayId: number | null;
   homeConference: string;
   awayConference: string;
+  /**
+   * CFBD's own per-participant division label (`fbs` | `fcs` | `ii` | `iii`).
+   * Retained provider metadata, included ONLY when the provider supplied a value
+   * in the known vocabulary, so an absent label stays absent rather than being
+   * coerced to a default a consumer could misread as "not FBS". This is the
+   * AUTHORITATIVE subdivision input for schedule eligibility — the conference
+   * and catalog inference in `scheduleEligibility.ts` is the fallback for rows
+   * that lack it.
+   */
+  homeClassification?: ProviderClassification;
+  awayClassification?: ProviderClassification;
   status: string;
   /**
    * CFBD `completed` flag (PLATFORM-086E1A). Retained provider metadata only —
@@ -287,7 +302,7 @@ function hasPlayoffMarker(text: string): boolean {
  * CFBD classification values that are EXPLICIT negative evidence for CFP
  * inference. CFBD currently emits `fbs`, `fcs`, `ii`, and `iii`.
  */
-const NON_FBS_CLASSIFICATIONS: ReadonlySet<string> = new Set(['fcs', 'ii', 'iii']);
+const NON_FBS_CLASSIFICATIONS: ReadonlySet<ProviderClassification> = new Set(['fcs', 'ii', 'iii']);
 
 /**
  * Whether the provider EXPLICITLY classifies either participant below FBS.
@@ -301,9 +316,12 @@ const NON_FBS_CLASSIFICATIONS: ReadonlySet<string> = new Set(['fcs', 'ii', 'iii'
  * text fallback, and explicit FBS CFP rows are unaffected.
  */
 function hasExplicitNonFbsParticipant(game: CfbdScheduleGame): boolean {
-  const home = normalizeString(game.home_classification ?? game.homeClassification).toLowerCase();
-  const away = normalizeString(game.away_classification ?? game.awayClassification).toLowerCase();
-  return NON_FBS_CLASSIFICATIONS.has(home) || NON_FBS_CLASSIFICATIONS.has(away);
+  const home = normalizeProviderClassification(game.home_classification ?? game.homeClassification);
+  const away = normalizeProviderClassification(game.away_classification ?? game.awayClassification);
+  return (
+    (home !== undefined && NON_FBS_CLASSIFICATIONS.has(home)) ||
+    (away !== undefined && NON_FBS_CLASSIFICATIONS.has(away))
+  );
 }
 
 function hasChampionshipMarker(text: string): boolean {
@@ -699,6 +717,12 @@ export function mapCfbdScheduleGame(
   const completed = normalizeBooleanFlag(game.completed);
   const startTimeTBD = normalizeBooleanFlag(game.start_time_tbd ?? game.startTimeTBD);
   const venueId = normalizeVenueId(game.venue_id ?? game.venueId);
+  const homeClassification = normalizeProviderClassification(
+    game.home_classification ?? game.homeClassification
+  );
+  const awayClassification = normalizeProviderClassification(
+    game.away_classification ?? game.awayClassification
+  );
 
   return {
     ok: true,
@@ -714,6 +738,8 @@ export function mapCfbdScheduleGame(
       awayId: normalizeParticipantId(game.away_id ?? game.awayId),
       homeConference,
       awayConference,
+      ...(homeClassification !== undefined ? { homeClassification } : {}),
+      ...(awayClassification !== undefined ? { awayClassification } : {}),
       status: normalizeString(game.status) || 'scheduled',
       ...(completed !== undefined ? { completed } : {}),
       ...(startTimeTBD !== undefined ? { startTimeTBD } : {}),
