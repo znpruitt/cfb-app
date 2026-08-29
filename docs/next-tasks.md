@@ -24,8 +24,7 @@ Supersedes: (none)
 
 ## Current execution order
 
-`CURRENT`: Item 42, Slice 3 record changes.
-`NEXT`: Item 42, Slice 4 odds upsets.
+`CURRENT`: Item 42, final recap wiring/pass.
 
 The 2026-08-26 roadmap audit recommends this season-reliability sequence after the current slice;
 it is proposed ordering, not an owner-selected `NEXT` designation:
@@ -408,29 +407,36 @@ record eligibility converges with generator-specific rules.
 
 ### Item 42 — INSIGHTS-026 weekly recap and event source (In progress)
 
-The request-time Look Back skeleton, layout, Slice 2 detail layer, and Slice 3 record-change
-projection are complete. The recap is scoped to the league's exact active season, selects the
-immediately preceding eligible canonical week after the next-day 06:00 ET cutoff, and renders at the
-top of the existing Insights page. Its Overview tile consumes the same server-coherent recap view
-model, reevaluates the request-time boundary independently from client schedule readiness, and
-remains visible if client schedule bootstrap fails. Standing/durable insights remain independent
-and are inherited alongside the recap rather than replaced by it. Slice 2 adds week-explicit
-movement, owner-vs-owner detail, and weekly accolades. Slice 3 derives allowlisted active-season
-record changes against historical evidence without passing a partial season through the career
-accumulator. Notable-result and record-change UI remain deliberately unwired for the final pass.
+The request-time Look Back skeleton, layout, Slice 2 detail layer, Slice 3 record-change projection,
+and Slice 4 odds-upset facts are complete. The recap is scoped to the league's exact active season,
+selects the immediately preceding eligible canonical week after the next-day 06:00 ET cutoff, and
+renders at the top of the existing Insights page. Its Overview tile consumes the same
+server-coherent recap view model, reevaluates the request-time boundary independently from client
+schedule readiness, and remains visible if client schedule bootstrap fails. Standing/durable
+insights remain independent and are inherited alongside the recap rather than replaced by it. Slice
+2 adds week-explicit movement, owner-vs-owner detail, and weekly accolades. Slice 3 derives
+allowlisted active-season record changes against historical evidence without passing a partial
+season through the career accumulator. Slice 4 reads the durable season odds cache and derives
+structured odds upsets through the same favorite-side and six-point pregame-spread policy used by
+game badges. Notable-result, record-change, and odds-upset UI remain deliberately unwired for the
+final pass.
 
 Continue the request-time portion vertically:
 
-- **CURRENT — Slice 4:** add odds upsets through a shared odds-upset policy helper.
-- Final wiring/pass: fill the existing Overview tile from the completed fact families and remove the
-  dead prior pulse view-model fields.
+- **CURRENT — Final wiring/pass:** fill the existing Insights recap and Overview tile from the
+  completed fact families and remove the dead prior pulse view-model fields.
 
-Before the record-change surface is wired, resolve the non-blocking Slice 3 review follow-ups:
-decide whether isolated archive uncertainty suppresses only record changes or the whole recap;
-make schedule-absence precedence deterministic under simultaneous context failures; add direct
-coverage for excluding a same-year archive; and either carry rivalry-direction identity in the
-change comparator or document why the currently unreachable same-length holder reversal stays
-excluded.
+Before the remaining fact families are wired, resolve the non-blocking Slice 3/4 review follow-ups:
+decide whether isolated archive or odds uncertainty suppresses only its fact family or the whole
+recap; make schedule-absence precedence deterministic under simultaneous context failures; add
+direct coverage for excluding a same-year archive; and either carry rivalry-direction identity in
+the change comparator or document why the currently unreachable same-length holder reversal stays
+excluded. Pin the asymmetric-line live `upset_watch` branch when the shared policy tests are next
+touched. Repair or stop rendering the pre-existing malformed `CombinedOdds.favorite` producer field
+before recap copy names a favorite; recap facts correctly resolve the favorite from side spreads,
+but existing scoreboard/matchup consumers can still display the contradictory stored string. Measure
+the serialized durable-odds read during final wiring before deciding whether to parallelize it with
+the season build; preserve deterministic absence/failure precedence if that seam changes.
 
 This request-time campaign does not close item 42. A later stored artifact must add immutability and
 become the event producer that can unblock item 30's NEW tag. Before that work, settle fixed-period

@@ -1,6 +1,7 @@
 import { cache } from 'react';
 
 import type { LeagueStatus } from '../league.ts';
+import { selectOddsForGame, type CombinedOdds } from '../odds.ts';
 import { parseOwnersCsv } from '../parseOwnersCsv.ts';
 import type { ScorePack } from '../scores.ts';
 import type { AppGame } from '../schedule.ts';
@@ -8,12 +9,14 @@ import { getSeasonArchive, listSeasonArchives, type SeasonArchive } from '../sea
 import { assembleSeasonScoredBuild, SeasonScheduleCacheUnavailableError } from '../seasonBuild.ts';
 import { isWeeklyRecapActiveSeason } from '../selectors/weeklyRecapFacts.ts';
 import { readConfirmedRosterInputs } from '../server/confirmedRosterStore.ts';
+import { getDurableOddsStore } from '../server/durableOddsStore.ts';
 
 export type WeeklyRecapContext = {
   seasonYear: number;
   games: AppGame[];
   rosterByTeam: Map<string, string>;
   scoresByKey: Record<string, ScorePack>;
+  oddsByGameKey: Record<string, CombinedOdds>;
   archives: SeasonArchive[];
   historicalRosters: Record<number, Map<string, string>>;
 };
@@ -48,7 +51,8 @@ async function loadHistoricalRecordContext(
 
 async function loadRecapContextUncached(
   leagueSlug: string,
-  year: number
+  year: number,
+  nowIso: string
 ): Promise<WeeklyRecapContextResult> {
   try {
     const [build, { ownersCsv }, history] = await Promise.all([
@@ -63,6 +67,17 @@ async function loadRecapContextUncached(
     );
     if (rosterByTeam.size === 0) return { status: 'absent', reason: 'roster' };
 
+    const oddsStore = await getDurableOddsStore(year);
+    const oddsByGameKey: Record<string, CombinedOdds> = {};
+    for (const game of build.games) {
+      const odds = selectOddsForGame({
+        game,
+        record: oddsStore[game.key],
+        now: nowIso,
+      });
+      if (odds) oddsByGameKey[game.key] = odds;
+    }
+
     return {
       status: 'available',
       context: {
@@ -70,6 +85,7 @@ async function loadRecapContextUncached(
         games: build.games,
         rosterByTeam,
         scoresByKey: build.scoresByKey,
+        oddsByGameKey,
         archives: history.archives,
         historicalRosters: history.historicalRosters,
       },
@@ -91,7 +107,8 @@ export async function loadRecapContextForSeasonScope(args: {
   leagueSlug: string;
   seasonYear: number;
   leagueStatus: LeagueStatus | undefined;
+  now: Date;
 }): Promise<WeeklyRecapContextResult | null> {
   if (!isWeeklyRecapActiveSeason(args)) return null;
-  return loadRecapContext(args.leagueSlug, args.seasonYear);
+  return loadRecapContext(args.leagueSlug, args.seasonYear, args.now.toISOString());
 }

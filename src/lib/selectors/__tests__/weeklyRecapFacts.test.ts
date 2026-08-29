@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import type { CombinedOdds } from '../../odds.ts';
 import type { ScorePack } from '../../scores.ts';
 import type { AppGame } from '../../schedule.ts';
 import {
@@ -88,6 +89,26 @@ function finalScore(away: number, home: number): ScorePack {
   };
 }
 
+function closingOdds(favorite: string, spread: number): CombinedOdds {
+  return {
+    favorite,
+    spread: -spread,
+    homeSpread: -spread,
+    awaySpread: spread,
+    spreadPriceHome: -110,
+    spreadPriceAway: -110,
+    total: 52.5,
+    mlHome: -220,
+    mlAway: 180,
+    overPrice: -110,
+    underPrice: -110,
+    source: 'DraftKings',
+    bookmakerKey: 'draftkings',
+    capturedAt: '2026-09-05T20:00:00.000Z',
+    lineSourceStatus: 'closing',
+  };
+}
+
 function ownerResult(
   owner: string,
   wins: number,
@@ -109,11 +130,12 @@ function ownerResult(
 function selectWeeklyRecapFacts(
   args: Omit<
     Parameters<typeof selectWeeklyRecapFactsBase>[0],
-    'archives' | 'historicalRosters' | 'seasonYear'
-  >
+    'archives' | 'historicalRosters' | 'seasonYear' | 'oddsByGameKey'
+  > & { oddsByGameKey?: Record<string, CombinedOdds> }
 ) {
   return selectWeeklyRecapFactsBase({
     ...args,
+    oddsByGameKey: args.oddsByGameKey ?? {},
     archives: [],
     historicalRosters: {},
     seasonYear: 2026,
@@ -375,6 +397,33 @@ test('weekly owner results aggregate multiple teams with distinct PF and PA', ()
     facts.recordChanges.map((change) => change.id),
     ['single_season_high_score', 'single_season_blowout', 'single_season_points_high']
   );
+});
+
+test('weekly recap facts carry structured odds upsets from the supplied lookup', () => {
+  const upsetGame = game({
+    key: 'weekly-upset',
+    week: 1,
+    date: '2026-09-06T00:00:00.000Z',
+    away: 'Underdog',
+    home: 'Favorite',
+    status: 'final',
+    completed: true,
+  });
+  const facts = selectWeeklyRecapFacts({
+    games: [upsetGame],
+    rosterByTeam: new Map([
+      ['Underdog', 'Alice'],
+      ['Favorite', 'Bob'],
+    ]),
+    scoresByKey: { 'weekly-upset': finalScore(31, 24) },
+    oddsByGameKey: { 'weekly-upset': closingOdds('Favorite', 6) },
+    now: new Date('2026-09-07T16:00:00.000Z'),
+  });
+
+  assert.equal(facts?.oddsUpsets.length, 1);
+  assert.equal(facts?.oddsUpsets[0]?.gameKey, 'weekly-upset');
+  assert.equal(facts?.oddsUpsets[0]?.favoriteOwner, 'Bob');
+  assert.equal(facts?.oddsUpsets[0]?.winnerOwner, 'Alice');
 });
 
 test('owner facts exclude NoClaim while uncertainty stays scoped to real-owner games', () => {
