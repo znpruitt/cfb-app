@@ -66,7 +66,8 @@ Rules:
   suite, and production build. One remediation round fixed asymmetric-line threshold selection and
   pinned ordering/ownership/week edges; final independent Codex and Claude reviews found no
   remaining P0/P1/P2 issue. Non-blocking follow-ups remain recorded with item 42.
-- Status: Implemented — pre-merge closeout complete; not yet merged.
+- Status: Merged via PR #527 (merge commit `a1b25582`), 2026-08-29; production promotion not yet
+  verified.
 
 ### INSIGHTS-026d-RECAP-RECORD-CHANGES-v1
 
