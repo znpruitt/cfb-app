@@ -480,6 +480,43 @@ the multi-tenant gates above.
 
 ## Polish, engineering-health, and conditional observations
 
+### Item 82 — Overview games region: ordering, labelling, and empty states
+
+Three defects on one surface, observed together on `/league/tsc` during the 2026 opening slate
+(2026-08-29). Fix them as one slice — they share a component, a review, and a set of fixtures.
+
+**(a) The Upcoming watchlist ignores time.** `prioritizeOverviewItems`
+(`src/lib/selectors/overview.ts:428`) orders the list as `topMatchupKey`, then upset watches, then
+`rankedHighlightKey`, then everything else in input order. Input order is chronological, so the tail
+is correct; only the single top-matchup designation jumps the queue, and it is chosen purely on
+matchup quality with no time term anywhere. Observed effect: a Sep 6 game led three games kicking off
+within the hour, because weeks 0 and 1 share a bucket and it was the best matchup in that bucket.
+
+Preferred fix: let **position carry time and the badge carry quality** — sort strictly
+chronologically and keep the existing "Top matchup" tag. That deletes the three `pushByKey` calls
+rather than adding a horizon constant or a decay curve, and the tail already sorts correctly.
+Rejected alternatives: a time-bounded candidate set (another threshold to defend) and
+priority-decay-by-distance (most tunable, most to get wrong).
+
+**(b) "Featured games" is mislabelled.** The section renders `viewModel.recentResults` — completed
+games only — and its own empty copy admits it: "No recent results yet—completed games will appear
+here." An empty box under a heading promising curation reads as broken rather than as "nothing has
+finished yet." Rename to match the data, or change the data to match the name.
+
+**(c) The empty copy makes a promise.** "…completed games will appear here" is the shape `DESIGN.md`
+records as a past mistake in the trend empty state, where "will appear here" promised data that could
+never arrive. Lower stakes here since results do arrive, but the pattern is named in the design doc.
+
+Also consider section order while in here: Featured games → Upcoming watchlist → Live games means a
+dead results box sits above the live section during a slate, when live is the most valuable thing on
+the page.
+
+Related but separate: item 38's dead-code cluster (`leagueHighlights`, `deriveLeagueHighlights`,
+`leaguePulse`, `shouldShowLeaguePulse`, `keyMovements`). `25d9bc86` removed the last live consumer of
+`leagueHighlights` — a stale gate that hid the watchlist entirely — leaving only unread producers.
+
+- Backlog slug: `POLISH-OVERVIEW-GAMES-REGION-v1`
+
 ### Item 48 — test-infrastructure follow-ups
 
 - Move only genuinely cross-domain fixtures from subsystem `__tests__` directories into `src/test/`.
