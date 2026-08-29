@@ -626,6 +626,36 @@ model; a rename-only reading of that flag is wrong.
 
 - Backlog slug: `PLATFORM-NEXT16-UPGRADE-v1`
 
+### Item 83 — team-identity normalization collides distinct schools onto one key
+
+`normalizeTeamName` expands `&` to " and " and then strips the standalone "and", so `Missouri S&T`
+collapses to `missourist` — the key `Missouri State` already claims through its `missouri st` alt.
+`resolveName` therefore returns a resolved, ownable FBS identity for a Division II school, and the
+observed-name registration loop skips the real school because the key is taken.
+
+PLATFORM-114 stopped this reaching eligibility by classifying from the provider's division label, so
+the collision now degrades to diagnostic noise rather than tracked phantom games. It is still the
+root cause and still reaches `buildPairKey` and score-attachment identity.
+
+Unresolved: whether to fix at normalization (widest blast radius — every `&` key changes, including
+`texasam`, against alts already stored in their current form), at the catalog seed, or by making
+resolution refuse a key claimed by a different school. Acceptance boundary: two distinct schools must
+never share a normalized identity key, proven by a catalog-wide collision sweep.
+
+### Item 84 — an overriding provider classification records no diagnostic
+
+`classifyTeamSubdivision` treats the CFBD division label as authoritative over both the conference
+match and the team catalog, and returns before any of the existing conference recorders run. Every
+other classification source in that function records something.
+
+Consequence: a stale provider label — plausible for a school mid-transition, as Missouri State and
+Delaware both were on joining Conference USA — silently classifies both sides non-FBS, drops the game
+from the schedule, and emits nothing an operator can see. Deferred from the PLATFORM-114 review as
+additive scope needing its own recorder and coverage.
+
+Acceptance boundary: when the provider label contradicts the catalog classification, the disagreement
+is observable without changing which one wins.
+
 ## Planned and parked campaigns
 
 These are valid future campaigns but are not activated implementation work:
@@ -761,7 +791,12 @@ are removed rather than retained with strikethrough; their outcomes live in `doc
 - **Manual Odds refresh context.** The authorized Odds refresh still loads internal context through
   HTTP; extract a shared server authority when scheduled.
 - **Admin debug context loaders.** Some debug routes collapse non-2xx internal responses into empty
-  collections. Preserve typed failure instead.
+  collections. Preserve typed failure instead. Confirmed concretely during PLATFORM-114:
+  `/api/debug/schedule-eligibility` builds its four self-calls inline and forwards no credentials,
+  unlike every other debug route, which routes through `loadDebugSeasonContext` /
+  `forwardAdminAuthHeaders`. On preview it therefore returns every collection empty — including
+  `conferenceRecordsCount: 0` — which is indistinguishable from a genuinely empty season and made the
+  route unusable for verifying that slice.
 - **Score diagnostics self-call.** The scores debug route intentionally self-calls the authorized
   refresh so a cold cache does not report false zeros. Remove only after extracting a shared score
   refresh authority.
