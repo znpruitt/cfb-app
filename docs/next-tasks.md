@@ -660,10 +660,31 @@ July 2025, so it could not appear on any historical roster.
 season to remove rows that affect no owner is a destructive operation on historical truth with worse
 downside than the defect. The corruption is documented here and left in place.
 
-Unresolved: whether to fix at normalization (widest blast radius — every `&` key changes, including
-`texasam`, against alts already stored in their current form), at the catalog seed, by keying
-identity on the provider id, or by making resolution refuse a key already claimed by a different
-school.
+**Objective: make identity numeric, and demote names to display and search.** CFBD supplies a team
+id on every provider surface this app consumes, and the app discards it on two of them:
+`scripts/fetch-cfbd-teams.ts` types `CFBDTeam.id` and omits it from the written catalog; the score
+normalizer (`src/lib/scores/normalizers.ts`) reads names and points from the same `/games` payload
+whose `home_id`/`away_id` the schedule mapper already persists. The draft is the sharper case — the
+owner selects an unambiguous catalog row and `DraftPick.team` serializes it to a `string | null`
+name, destroying information the app itself created at the one moment identity was certain.
+
+There is no forward surface that requires a name. The commissioner CSV upload was a one-time
+mechanism for backfilling league history, not a live path, so no compatibility floor forces name-keyed
+identity to survive.
+
+Sequence, and the ordering is the load-bearing part:
+
+1. Land collision detection FIRST (see the acceptance boundary). A backfill resolves stored names
+   through the same lossy function that caused this bug — migrate before detecting and today's wrong
+   answers are frozen into ids that then *look* authoritative, making them permanently
+   indistinguishable from correct ones.
+2. Persist the provider id at each ingest point: catalog fetch, score normalizer (schedule already
+   does), and the draft pick at selection time.
+3. Migrate stored names to ids under the assertion, live state only. Archives are frozen and are
+   deliberately not re-derived (above), so readers must tolerate both keyings rather than the
+   migration rewriting history.
+4. Make the id authoritative wherever it exists; names become display, search, and provider-variant
+   alias matching only.
 
 Acceptance boundary, both required:
 
