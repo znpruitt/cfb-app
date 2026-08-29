@@ -885,6 +885,14 @@ SUMMARY still reads `Current` with `No refresh history` while that warning is ac
 contradicts the issue list directly above it. This is a legibility defect in one column, not a
 detection gap.
 
+**Confirmed on SUCCESS and confirmed to generalize (2026-08-29 19:19Z).** After recovery, with every
+job green and no issues reported, both week-partition writers still read `No refresh history` in the
+row summary: `scores:year:2026` and `game-stats:year:2026` each have `lastAttemptAt: null` while
+game-stats had succeeded three minutes earlier and its cache state had moved `absent` to `available`.
+`schedule:year:2026` was populated at 19:02. So this is not scores-specific and not failure-specific
+— it affects every dataset whose refresh is partition-scoped, and it misreports while things are
+working. Fix it for the class, not for scores.
+
 **Do not fix by writing a synthetic year-scope record.** That populates the row while still answering
 the wrong question. The health model needs to express EXPECTATION for schedule-armed datasets, which
 is what Scheduler delivery already does and what PLATFORM-086B2B established as observation-versus-
