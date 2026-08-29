@@ -147,12 +147,10 @@ test('invalid recap data cannot empty an otherwise healthy insights payload', ()
 });
 
 test('an older Slice 1 recap remains available when additive Slice 2 fields are absent', () => {
-  const {
-    leaderLines: _leaders,
-    tileLeaderLines: _tileLeaders,
-    movementLines: _movement,
-    ...recap
-  } = availableRecapPayload(1, 'Alice');
+  const recap = availableRecapPayload(1, 'Alice');
+  Reflect.deleteProperty(recap, 'leaderLines');
+  Reflect.deleteProperty(recap, 'tileLeaderLines');
+  Reflect.deleteProperty(recap, 'movementLines');
   const parsed = parseInsightsPayload({
     insights: [{ id: 'healthy-insight' }],
     weeklyRecap: recap,
