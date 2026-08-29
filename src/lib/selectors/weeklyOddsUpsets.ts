@@ -105,5 +105,8 @@ export function selectWeeklyOddsUpsets(args: {
     });
   }
 
-  return upsets;
+  return upsets.sort(
+    (left, right) =>
+      right.spreadMagnitude - left.spreadMagnitude || left.gameKey.localeCompare(right.gameKey)
+  );
 }

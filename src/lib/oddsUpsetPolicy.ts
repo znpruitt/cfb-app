@@ -20,8 +20,17 @@ export type OddsUpsetEvaluation = {
 
 export const DEFAULT_ODDS_UPSET_SPREAD_THRESHOLD = 6;
 
-function spreadMagnitude(odds?: CombinedOdds): number | null {
+function spreadMagnitudeForFavorite(
+  odds: CombinedOdds | undefined,
+  favoriteSide: OddsUpsetSide | null
+): number | null {
   if (!odds) return null;
+  if (favoriteSide === 'home' && typeof odds.homeSpread === 'number') {
+    return Math.abs(odds.homeSpread);
+  }
+  if (favoriteSide === 'away' && typeof odds.awaySpread === 'number') {
+    return Math.abs(odds.awaySpread);
+  }
   if (typeof odds.spread === 'number') return Math.abs(odds.spread);
   if (typeof odds.homeSpread === 'number') return Math.abs(odds.homeSpread);
   if (typeof odds.awaySpread === 'number') return Math.abs(odds.awaySpread);
@@ -62,7 +71,7 @@ export function evaluateOddsUpset(args: {
     spreadThreshold = DEFAULT_ODDS_UPSET_SPREAD_THRESHOLD,
   } = args;
   const favoriteSide = favoriteSideFromOdds(game, odds);
-  const magnitude = spreadMagnitude(odds);
+  const magnitude = spreadMagnitudeForFavorite(odds, favoriteSide);
   const meetsSpreadThreshold = magnitude != null && magnitude >= spreadThreshold;
   const underdogSide = favoriteSide === null ? null : favoriteSide === 'away' ? 'home' : 'away';
 

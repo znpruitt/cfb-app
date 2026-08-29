@@ -7,14 +7,14 @@ import type { ScorePack } from '../../scores.ts';
 import { deriveFinalOwnedParticipations } from '../../standings.ts';
 import { selectWeeklyOddsUpsets } from '../weeklyOddsUpsets.ts';
 
-function game(key: string, away = 'Underdog', home = 'Favorite'): AppGame {
+function game(key: string, away = 'Underdog', home = 'Favorite', week = 1): AppGame {
   return {
     key,
     eventId: key,
     eventKey: key,
-    week: 1,
-    canonicalWeek: 1,
-    providerWeek: 1,
+    week,
+    canonicalWeek: week,
+    providerWeek: week,
     stage: 'regular',
     stageOrder: 1,
     slotOrder: 0,
@@ -126,6 +126,62 @@ test('the shared six-point spread threshold includes -6 and excludes -5.5', () =
   );
 });
 
+test('an asymmetric line uses the favorite-side spread and orders larger upsets first', () => {
+  const smaller = game('smaller-upset');
+  const asymmetric = game('asymmetric-upset', 'Favorite', 'Underdog');
+  const asymmetricOdds: CombinedOdds = {
+    ...odds(6),
+    favorite: 'Favorite',
+    spread: 5.5,
+    homeSpread: 5.5,
+    awaySpread: -6,
+  };
+  const result = select({
+    games: [smaller, asymmetric],
+    scoresByKey: {
+      'smaller-upset': finalScore(31, 24),
+      'asymmetric-upset': finalScore(24, 31),
+    },
+    oddsByGameKey: {
+      'smaller-upset': odds(5.5),
+      'asymmetric-upset': asymmetricOdds,
+    },
+    rosterByTeam: new Map([
+      ['Underdog', 'Alice'],
+      ['Favorite', 'Bob'],
+    ]),
+  });
+
+  assert.deepEqual(
+    result.map(({ gameKey, spreadMagnitude }) => ({ gameKey, spreadMagnitude })),
+    [{ gameKey: 'asymmetric-upset', spreadMagnitude: 6 }]
+  );
+});
+
+test('weekly odds upsets sort by spread magnitude then game key', () => {
+  const smaller = game('z-smaller');
+  const tiedSecond = game('b-tied');
+  const tiedFirst = game('a-tied');
+  const result = select({
+    games: [smaller, tiedSecond, tiedFirst],
+    scoresByKey: {
+      'z-smaller': finalScore(31, 24),
+      'b-tied': finalScore(31, 24),
+      'a-tied': finalScore(31, 24),
+    },
+    oddsByGameKey: {
+      'z-smaller': odds(6),
+      'b-tied': odds(9),
+      'a-tied': odds(9),
+    },
+  });
+
+  assert.deepEqual(
+    result.map(({ gameKey }) => gameKey),
+    ['a-tied', 'b-tied', 'z-smaller']
+  );
+});
+
 test('an owned-v-owned upset emits one structured fact with favorite, winner, and line source', () => {
   const upsetGame = game('owned-upset');
   const result = select({
@@ -189,6 +245,34 @@ test('a NoClaim-only game cannot become a league odds-upset fact', () => {
         ['Favorite', 'NoClaim'],
       ]),
       oddsByGameKey: { 'no-claim': odds(7.5) },
+    }),
+    []
+  );
+});
+
+test('a real owner can upset an unclaimed favorite without attributing the favorite', () => {
+  const mixedClaimGame = game('mixed-claim');
+  const result = select({
+    games: [mixedClaimGame],
+    scoresByKey: { 'mixed-claim': finalScore(31, 24) },
+    rosterByTeam: new Map([
+      ['Underdog', 'Alice'],
+      ['Favorite', 'NoClaim'],
+    ]),
+    oddsByGameKey: { 'mixed-claim': odds(7.5) },
+  });
+
+  assert.equal(result[0]?.winnerOwner, 'Alice');
+  assert.equal(result[0]?.favoriteOwner, null);
+});
+
+test('participations from another canonical week are excluded', () => {
+  const priorWeek = game('prior-week', 'Underdog', 'Favorite', 2);
+  assert.deepEqual(
+    select({
+      games: [priorWeek],
+      scoresByKey: { 'prior-week': finalScore(31, 24) },
+      oddsByGameKey: { 'prior-week': odds(7.5) },
     }),
     []
   );
