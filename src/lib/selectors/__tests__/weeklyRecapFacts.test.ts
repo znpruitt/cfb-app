@@ -182,6 +182,19 @@ test('Overview tile state changes at 06:00 ET on eligibility day and Thursday', 
   );
 });
 
+test('a Wednesday-ending slate has an intentionally zero-length Overview recap window', () => {
+  const targetWeek = { week: 4, latestGameDate: '2026-09-09' };
+
+  assert.equal(
+    selectWeeklyRecapTileState(targetWeek, new Date('2026-09-10T09:59:00.000Z')),
+    'hidden'
+  );
+  assert.equal(
+    selectWeeklyRecapTileState(targetWeek, new Date('2026-09-10T10:00:00.000Z')),
+    'upcoming'
+  );
+});
+
 test('weekly record order resolves wins, win percentage, then point differential', () => {
   const byWins = [ownerResult('One Win', 1, 0, 30, 40), ownerResult('Two Wins', 2, 2, 0, 80)].sort(
     compareWeeklyOwnerResults

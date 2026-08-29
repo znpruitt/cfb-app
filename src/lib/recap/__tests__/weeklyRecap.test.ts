@@ -10,7 +10,11 @@ import {
   setAppState,
 } from '../../server/appStateStore.ts';
 import { __resetTeamDatabaseStoreForTests } from '../../server/teamDatabaseStore.ts';
-import { composeWeeklyRecap, composeWeeklyRecapTile } from '../composeWeeklyRecap.ts';
+import {
+  composeWeeklyRecap,
+  composeWeeklyRecapTile,
+  hasCleanWeeklyRecapHydration,
+} from '../composeWeeklyRecap.ts';
 import {
   loadRecapContext,
   loadRecapContextForSeasonScope,
@@ -227,6 +231,7 @@ test('composer turns completed owner results into the minimal recap view model',
   assert.equal(recap.weekLabel, 'Week 1');
   assert.equal(recap.latestGameDate, '2026-09-05');
   assert.equal(recap.headline, 'Alice takes the week at 1–0');
+  assert.equal(recap.isIncomplete, false);
   assert.deepEqual(recap.ownerLines, [
     { owner: 'Alice', recordLabel: '1–0', pointsLabel: '31 PF · 17 PA' },
     { owner: 'Bob', recordLabel: '0–1', pointsLabel: '17 PF · 31 PA' },
@@ -281,6 +286,63 @@ test('composer preserves a visible no-results state while one sibling keeps the 
   if (recap.status !== 'available') return;
   assert.deepEqual(recap.ownerLines, []);
   assert.equal(recap.headline, null);
+  assert.equal(recap.isIncomplete, true);
+});
+
+test('composer gives populated incomplete weeks a factual visible fallback headline', () => {
+  const completed = game({ key: 'completed' });
+  const unresolved = game({
+    key: 'unresolved',
+    date: '2026-09-06T01:00:00.000Z',
+    startTimeTBD: true,
+  });
+  const recap = composeWeeklyRecap(
+    {
+      status: 'available',
+      context: context([completed, unresolved], {
+        completed: {
+          status: 'final',
+          away: { team: 'Georgia', score: 17 },
+          home: { team: 'Texas', score: 31 },
+          time: null,
+        },
+      }),
+    },
+    new Date('2026-09-07T16:00:00.000Z'),
+    ACTIVE_SCOPE
+  );
+
+  assert.equal(recap.status, 'available');
+  if (recap.status !== 'available') return;
+  assert.equal(recap.headline, 'Week 1 results');
+  assert.equal(recap.isIncomplete, true);
+  assert.equal(recap.ownerLines.length, 2);
+});
+
+test('composer gives a fully resolved winless owner week a factual fallback headline', () => {
+  const recap = composeWeeklyRecap(
+    {
+      status: 'available',
+      context: context([game({ key: 'winless', away: 'Purdue', home: 'Texas' })], {
+        winless: {
+          status: 'final',
+          away: { team: 'Purdue', score: 31 },
+          home: { team: 'Texas', score: 17 },
+          time: null,
+        },
+      }),
+    },
+    new Date('2026-09-07T16:00:00.000Z'),
+    ACTIVE_SCOPE
+  );
+
+  assert.equal(recap.status, 'available');
+  if (recap.status !== 'available') return;
+  assert.equal(recap.headline, 'Week 1 results');
+  assert.equal(recap.isIncomplete, false);
+  assert.deepEqual(recap.ownerLines, [
+    { owner: 'Alice', recordLabel: '0–1', pointsLabel: '17 PF · 31 PA' },
+  ]);
 });
 
 test('composer reports games without results only after every pending sibling clears the gate', () => {
@@ -382,6 +444,44 @@ test('tile composer applies the request-time recap window without changing recap
   assert.deepEqual(
     composeWeeklyRecapTile(contextResult, new Date('2026-09-10T10:00:00.000Z'), ACTIVE_SCOPE),
     { state: 'upcoming' }
+  );
+});
+
+test('Overview hydration cleanliness is scoped to the recap week season type', () => {
+  const regularGame = game();
+  const recap = composeWeeklyRecap(
+    {
+      status: 'available',
+      context: context([regularGame], {
+        quiet: {
+          status: 'final',
+          away: { team: 'Georgia', score: 17 },
+          home: { team: 'Texas', score: 31 },
+          time: null,
+        },
+      }),
+    },
+    new Date('2026-09-07T16:00:00.000Z'),
+    ACTIVE_SCOPE
+  );
+
+  assert.equal(recap.status, 'available');
+  if (recap.status !== 'available') return;
+  assert.equal(
+    hasCleanWeeklyRecapHydration({
+      recap,
+      games: [regularGame],
+      cleanState: { regular: true, postseason: false },
+    }),
+    true
+  );
+  assert.equal(
+    hasCleanWeeklyRecapHydration({
+      recap,
+      games: [regularGame],
+      cleanState: { regular: false, postseason: true },
+    }),
+    false
   );
 });
 

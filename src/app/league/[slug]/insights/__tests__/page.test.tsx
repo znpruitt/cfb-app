@@ -130,11 +130,15 @@ test('Insights page surfaces a completed league game whose result is unavailable
     createdAt: '2024-01-01T00:00:00.000Z',
     status: { state: 'season', year: YEAR },
   });
-  await setAppState(`owners:${slug}:${YEAR}`, 'csv', 'team,owner\nTexas,Alice\nGeorgia,Bob\n');
+  await setAppState(
+    `owners:${slug}:${YEAR}`,
+    'csv',
+    'team,owner\nTexas,Alice\nGeorgia,Bob\nClemson,Carol\nFlorida,Dave\n'
+  );
   await setAppState('schedule', `${YEAR}-all-all`, {
     items: [
       {
-        id: '401000779',
+        id: '401000778',
         week: 1,
         seasonType: 'regular',
         startDate: '2024-08-25T00:00:00.000Z',
@@ -147,12 +151,42 @@ test('Insights page surfaces a completed league game whose result is unavailable
         status: 'STATUS_FINAL',
         completed: true,
       },
+      {
+        id: '401000779',
+        week: 1,
+        seasonType: 'regular',
+        startDate: '2024-08-25T00:00:00.000Z',
+        neutralSite: false,
+        conferenceGame: true,
+        homeTeam: 'Clemson',
+        awayTeam: 'Florida',
+        homeConference: 'ACC',
+        awayConference: 'SEC',
+        status: 'STATUS_FINAL',
+        completed: true,
+      },
+    ],
+  });
+  await setAppState('scores', `${YEAR}-all-regular`, {
+    items: [
+      {
+        id: '401000778',
+        week: 1,
+        seasonType: 'regular',
+        startDate: '2024-08-25T00:00:00.000Z',
+        status: 'final',
+        home: { team: 'Texas', score: 31 },
+        away: { team: 'Georgia', score: 17 },
+        time: null,
+      },
     ],
   });
 
   const html = await renderPageContent(slug);
 
-  assert.match(html, /No completed results were recorded for this week\./);
+  assert.match(html, /Week 1 results/);
+  assert.match(html, /31 PF · 17 PA/);
+  assert.match(html, /This recap reflects the completed results currently available\./);
   assert.doesNotMatch(html, /Waiting on complete results/);
   assert.doesNotMatch(html, /coverage|cache|CFBD/i);
 });

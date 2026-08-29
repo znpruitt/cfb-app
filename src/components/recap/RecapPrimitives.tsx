@@ -13,14 +13,18 @@ export function RecapHeader({
 }: RecapHeaderProps): React.ReactElement {
   return (
     <header>
-      <div className="flex items-baseline justify-between gap-4">
+      <div
+        className={
+          compact ? 'flex items-baseline gap-2' : 'flex items-baseline justify-between gap-4'
+        }
+      >
         <p
-          aria-hidden="true"
+          aria-hidden={headline ? undefined : 'true'}
           className="text-xs font-semibold uppercase tracking-[0.08em] text-zinc-400"
         >
           Weekly recap
         </p>
-        <p className="shrink-0 text-xs font-semibold uppercase tracking-[0.08em] text-zinc-500">
+        <p className="shrink-0 text-xs font-semibold uppercase tracking-[0.08em] text-zinc-400">
           {weekLabel}
         </p>
       </div>
@@ -55,11 +59,15 @@ export function WeekRecordsGrid({
     <section aria-labelledby={headingId}>
       <h3
         id={headingId}
-        className="mb-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-500"
+        className="mb-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-400"
       >
         Week records
       </h3>
-      <ul className="grid grid-cols-2 gap-x-8 sm:grid-cols-4 lg:gap-x-10">
+      <ul
+        className={`grid grid-cols-2 gap-x-8 min-[821px]:grid-cols-4 ${
+          compact ? '' : 'min-[821px]:gap-x-10'
+        }`}
+      >
         {ownerLines.map((line) => (
           <li
             key={line.owner}
@@ -73,7 +81,7 @@ export function WeekRecordsGrid({
               <span className="min-w-0 truncate">{line.owner}</span>
               <span className="shrink-0 tabular-nums">{line.recordLabel}</span>
             </div>
-            <p className="mt-0.5 text-xs tabular-nums text-zinc-500">{line.pointsLabel}</p>
+            <p className="mt-0.5 text-xs tabular-nums text-zinc-400">{line.pointsLabel}</p>
           </li>
         ))}
       </ul>

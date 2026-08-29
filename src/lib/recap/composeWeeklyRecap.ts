@@ -1,4 +1,6 @@
 import type { LeagueStatus } from '../league.ts';
+import type { AppGame } from '../schedule.ts';
+import { getHydrationSeasonTypes, type ScoreHydrationState } from '../scoreHydration.ts';
 import {
   isWeeklyRecapActiveSeason,
   selectWeeklyRecapLeaders,
@@ -24,6 +26,7 @@ export type WeeklyRecapViewModel =
       weekLabel: string;
       latestGameDate: string;
       headline: string | null;
+      isIncomplete: boolean;
       ownerLines: WeeklyRecapOwnerLine[];
     };
 
@@ -105,19 +108,34 @@ export function composeWeeklyRecap(
   const weekLabel = weekLabelMap.has(facts.targetWeek.week)
     ? compactWeekLabel
     : `Week ${facts.targetWeek.week}`;
+  const ownerLines = facts.ownerResults.map((result) => ({
+    owner: result.owner,
+    recordLabel: `${result.wins}–${result.losses}`,
+    pointsLabel: `${result.pointsFor} PF · ${result.pointsAgainst} PA`,
+  }));
+  const isIncomplete =
+    facts.unresolvedCount > 0 || facts.abandonedCount > 0 || facts.missingResultCount > 0;
 
   return {
     status: 'available',
     week: facts.targetWeek.week,
     weekLabel,
     latestGameDate: facts.targetWeek.latestGameDate,
-    headline: weeklyHeadline(facts),
-    ownerLines: facts.ownerResults.map((result) => ({
-      owner: result.owner,
-      recordLabel: `${result.wins}–${result.losses}`,
-      pointsLabel: `${result.pointsFor} PF · ${result.pointsAgainst} PA`,
-    })),
+    headline: weeklyHeadline(facts) ?? (ownerLines.length > 0 ? `${weekLabel} results` : null),
+    isIncomplete,
+    ownerLines,
   };
+}
+
+/** Whether the client has a clean full-scope hydration for the recap's exact schedule phase. */
+export function hasCleanWeeklyRecapHydration(args: {
+  recap: AvailableWeeklyRecapViewModel;
+  games: AppGame[];
+  cleanState: ScoreHydrationState;
+}): boolean {
+  const targetGames = args.games.filter((game) => game.canonicalWeek === args.recap.week);
+  const seasonTypes = getHydrationSeasonTypes(targetGames);
+  return seasonTypes.length > 0 && seasonTypes.every((seasonType) => args.cleanState[seasonType]);
 }
 
 export function composeWeeklyRecapTile(

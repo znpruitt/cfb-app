@@ -397,7 +397,8 @@ from already-hydrated app data, without changing the remaining fact-family plan.
 Continue the request-time portion vertically:
 
 - **CURRENT — Layout stage (`INSIGHTS-026b-RECAP-LAYOUT-v2`):** complete independent review and
-  merge the shared Insights/Overview rendering structure.
+  merge the shared Insights/Overview rendering structure; remediation cycle 1 is awaiting its
+  independent rereview.
 - **NEXT — Slice 2 (`INSIGHTS-026c-RECAP-DETAILS-v1`):** add week-explicit movement,
   owner-vs-owner detail, and weekly accolades to the proven pipeline.
 - Slice 3: add the allowlisted partial-season record-change projection.

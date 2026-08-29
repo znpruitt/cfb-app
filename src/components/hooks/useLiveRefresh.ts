@@ -41,6 +41,7 @@ type UseLiveRefreshParams = {
   selectedWeek: number | null;
   weeks: number[];
   scheduleLoaded: boolean;
+  scheduleGeneration: number;
   games: AppGame[];
   visibleGames: AppGame[];
   scoreScopeGames: AppGame[];
@@ -55,7 +56,7 @@ type UseLiveRefreshParams = {
   oddsUsage: OddsUsageSnapshot | null;
   scoreHydrationState: ScoreHydrationState;
   setScoreHydrationState: Dispatch<SetStateAction<ScoreHydrationState>>;
-  setScoreHydrationAvailable?: Dispatch<SetStateAction<boolean>>;
+  setScoreHydrationCleanState: Dispatch<SetStateAction<ScoreHydrationState>>;
   setIssues: Dispatch<SetStateAction<string[]>>;
   setOddsByKey: Dispatch<SetStateAction<Record<string, CombinedOdds>>>;
   setScoresByKey: Dispatch<SetStateAction<Record<string, ScorePack>>>;
@@ -171,14 +172,34 @@ export function detectScoreFinalizations(params: {
 export function nextBootstrapGuardState(params: {
   current: boolean;
   scheduleLoaded: boolean;
+  generationChanged?: boolean;
   didBootstrapThisPass?: boolean;
 }): boolean {
   // Lifecycle invariant: bootstrap guard is scoped to a loaded schedule lifecycle.
   // When schedule unloads (rebuild/reset), bootstrap must re-arm for the next load.
-  const { current, scheduleLoaded, didBootstrapThisPass = false } = params;
+  const {
+    current,
+    scheduleLoaded,
+    generationChanged = false,
+    didBootstrapThisPass = false,
+  } = params;
   if (!scheduleLoaded) return false;
+  if (generationChanged) return false;
   if (didBootstrapThisPass) return true;
   return current;
+}
+
+/** Apply a full-scope hydration outcome only to the schedule phases that request covered. */
+export function updateScoreHydrationCleanState(
+  state: ScoreHydrationState,
+  seasonTypes: Array<'regular' | 'postseason'>,
+  clean: boolean
+): ScoreHydrationState {
+  if (seasonTypes.length === 0) return state;
+  return {
+    regular: seasonTypes.includes('regular') ? clean : state.regular,
+    postseason: seasonTypes.includes('postseason') ? clean : state.postseason,
+  };
 }
 
 export function useLiveRefresh(params: UseLiveRefreshParams): {
@@ -201,6 +222,7 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
     selectedWeek,
     weeks,
     scheduleLoaded,
+    scheduleGeneration,
     games,
     visibleGames,
     scoreScopeGames,
@@ -209,7 +231,7 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
     oddsUsage,
     scoreHydrationState,
     setScoreHydrationState,
-    setScoreHydrationAvailable,
+    setScoreHydrationCleanState,
     setIssues,
     setOddsByKey,
     setScoresByKey,
@@ -227,6 +249,7 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
   const lastManualLiveRefreshMsRef = useRef<number>(0);
   const lastAutoScoresRefreshMsRef = useRef<number>(0);
   const hasAutoBootstrappedLiveRef = useRef<boolean>(false);
+  const bootstrappedScheduleGenerationRef = useRef<number | null>(null);
   const hasAttemptedLazyPostseasonHydrationRef = useRef<boolean>(false);
   // PLATFORM-080: memory of game keys observed across polls and those already
   // counted final, so we fire an RSC refresh only on a real non-final → final
@@ -248,18 +271,22 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
   liveScoreInputsRef.current = { games, scoresByKey, selectedSeason };
 
   useEffect(() => {
-    // Keep the bootstrap gate tied to scheduleLoaded transitions only.
+    const generationChanged =
+      scheduleLoaded && bootstrappedScheduleGenerationRef.current !== scheduleGeneration;
     hasAutoBootstrappedLiveRef.current = nextBootstrapGuardState({
       current: hasAutoBootstrappedLiveRef.current,
       scheduleLoaded,
+      generationChanged,
     });
-  }, [scheduleLoaded]);
+    bootstrappedScheduleGenerationRef.current = scheduleLoaded ? scheduleGeneration : null;
+    if (generationChanged) hasAttemptedLazyPostseasonHydrationRef.current = false;
+  }, [scheduleGeneration, scheduleLoaded]);
 
   useEffect(() => {
     // Observation evidence belongs to one loaded season lifecycle. Navigation
     // within it keeps the signal; an unload/rebuild or season change clears it.
     setLiveScoreObservation(null);
-  }, [scheduleLoaded, selectedSeason]);
+  }, [scheduleGeneration, scheduleLoaded, selectedSeason]);
 
   const refreshLiveData = useCallback(
     async (options?: {
@@ -364,10 +391,13 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
           }
         }
 
-        try {
-          // Attachment invariant: scores are always requested against schedule-derived game scope.
-          const scoreScopeForRequest = options?.scoreScopeGamesOverride ?? scoreScopeGames;
+        // Attachment invariant: scores are always requested against schedule-derived game scope.
+        const scoreScopeForRequest = options?.scoreScopeGamesOverride ?? scoreScopeGames;
+        const hydrationSeasonTypes = options?.scorePartitions
+          ? []
+          : getHydrationSeasonTypes(scoreScopeForRequest);
 
+        try {
           const {
             scoresByKey: nextScores,
             issues: scoreIssues,
@@ -496,16 +526,23 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
           // partitions' scores absent (e.g. one in-window bowl marking all of
           // postseason hydrated). Targeted ticks never complete hydration.
           if (!options?.scorePartitions) {
-            setScoreHydrationAvailable?.(scoreIssues.length === 0);
-            const loadedSeasonTypes = getHydrationSeasonTypes(scoreScopeForRequest);
-            if (loadedSeasonTypes.length > 0) {
-              setScoreHydrationState((prev) => markScoreHydrationLoaded(prev, loadedSeasonTypes));
+            setScoreHydrationCleanState((prev) =>
+              updateScoreHydrationCleanState(prev, hydrationSeasonTypes, scoreIssues.length === 0)
+            );
+            if (hydrationSeasonTypes.length > 0) {
+              setScoreHydrationState((prev) =>
+                markScoreHydrationLoaded(prev, hydrationSeasonTypes)
+              );
             }
           }
           // The auto-poll throttle was stamped at poll initiation (above), not here,
           // so the timer's cadence is not offset by fetch latency.
         } catch (err) {
-          if (!options?.scorePartitions) setScoreHydrationAvailable?.(false);
+          if (!options?.scorePartitions) {
+            setScoreHydrationCleanState((prev) =>
+              updateScoreHydrationCleanState(prev, hydrationSeasonTypes, false)
+            );
+          }
           if (options?.scorePartitions) setLiveScoreObservation(null);
           setIssues((p) => [...p, `Scores fetch failed: ${(err as Error).message}`]);
         }
@@ -531,7 +568,7 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
       setOddsUsage,
       setOddsSnapshotAt,
       setScoreHydrationState,
-      setScoreHydrationAvailable,
+      setScoreHydrationCleanState,
       setScoresByKey,
       visibleGames,
       weeks,
@@ -566,7 +603,7 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
       manual: false,
       scoreScopeGamesOverride: bootstrapScoreGames,
     });
-  }, [games, refreshLiveData, scheduleLoaded, selectedTab]);
+  }, [games, refreshLiveData, scheduleGeneration, scheduleLoaded, selectedTab]);
 
   // Visible-tab live-score polling (PLATFORM-086B2B): a self-rescheduling 3-minute
   // timer that re-evaluates eligibility every tick AND whenever the tab gains

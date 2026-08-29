@@ -61,10 +61,14 @@ Rules:
   durable artifact, scheduler, record projection, odds policy, or unwired content placeholder.
 - Outcome: the Insights recap now uses the mockup's headline and four-column weekly-record layout;
   Overview gets a normal-flow, collapsed-by-default recap tile during the eligible-to-Thursday
-  window, with expansion revealing the compact shared rows. Recap context uncertainty remains
-  independent from standing insights, and the mounted tile reevaluates the 06:00 ET boundaries.
-- Review / verification: full TypeScript, lint, test, build, visual, and independent-review gates
-  are required before merge and are reported with the implementation handoff.
+  window, with expansion revealing the compact shared rows. Schedule rebuilds now clear stale
+  identity-bound scores and re-arm hydration, while regular/postseason cleanliness gates the exact
+  recap week independently. Recap context uncertainty remains independent from standing insights,
+  and the mounted tile reevaluates the 06:00 ET boundaries.
+- Review / verification: the first independent Claude/Codex review round found lifecycle,
+  incomplete-copy, accessibility, and mockup-fidelity seams; remediation cycle 1 addresses them
+  with focused hook, selector, composer, RSC, and component coverage. Full gates and the independent
+  rereview are required before merge and are reported with the implementation handoff.
 - Status: Implemented on the replacement feature branch; review and merge pending.
 
 ### INSIGHTS-026b-RECAP-LAYOUT-v1

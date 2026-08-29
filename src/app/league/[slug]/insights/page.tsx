@@ -45,6 +45,11 @@ function WeeklyRecapSection({ recap }: { recap: WeeklyRecapViewModel }): React.R
             headingId="weekly-recap-records-heading"
             ownerLines={availableRecap.ownerLines}
           />
+          {availableRecap.isIncomplete ? (
+            <p className="mt-4 text-sm text-zinc-400">
+              This recap reflects the completed results currently available.
+            </p>
+          ) : null}
         </div>
       )}
     </section>

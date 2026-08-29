@@ -93,6 +93,7 @@ import type { Insight as EngineInsight } from '../lib/selectors/insights';
 import type { LifecycleState } from '../lib/insights/types';
 import {
   composeWeeklyRecapTile,
+  hasCleanWeeklyRecapHydration,
   type AvailableWeeklyRecapViewModel,
 } from '../lib/recap/composeWeeklyRecap';
 
@@ -372,7 +373,9 @@ export default function CFBScheduleApp({
   const [scoreHydrationState, setScoreHydrationState] = useState<ScoreHydrationState>(
     EMPTY_SCORE_HYDRATION_STATE
   );
-  const [scoreHydrationAvailable, setScoreHydrationAvailable] = useState(false);
+  const [scoreHydrationCleanState, setScoreHydrationCleanState] = useState<ScoreHydrationState>(
+    EMPTY_SCORE_HYDRATION_STATE
+  );
 
   const [draftPhase, setDraftPhase] = useState<DraftPhase | null>(null);
   const [draftScheduledAt, setDraftScheduledAt] = useState<string | null>(null);
@@ -414,7 +417,7 @@ export default function CFBScheduleApp({
     setRankings(null);
     setScheduleLoaded(false);
     setScoreHydrationState(EMPTY_SCORE_HYDRATION_STATE);
-    setScoreHydrationAvailable(false);
+    setScoreHydrationCleanState(EMPTY_SCORE_HYDRATION_STATE);
   }, []);
 
   const loadRankings = useCallback(
@@ -517,6 +520,9 @@ export default function CFBScheduleApp({
         setGames(built.games);
         setByes(built.byes);
         setConferences(built.conferences);
+        setScoresByKey({});
+        setScoreHydrationState(EMPTY_SCORE_HYDRATION_STATE);
+        setScoreHydrationCleanState(EMPTY_SCORE_HYDRATION_STATE);
         setScheduleLoaded(true);
         // Force a fresh Odds hydration for this (re)built schedule — a with-games
         // in-place reload does not toggle `scheduleLoaded`, so the generation bump
@@ -1058,6 +1064,7 @@ export default function CFBScheduleApp({
     selectedWeek,
     weeks,
     scheduleLoaded,
+    scheduleGeneration,
     games,
     visibleGames,
     scoreScopeGames,
@@ -1068,7 +1075,7 @@ export default function CFBScheduleApp({
     oddsUsage,
     scoreHydrationState,
     setScoreHydrationState,
-    setScoreHydrationAvailable,
+    setScoreHydrationCleanState,
     setIssues,
     setOddsByKey,
     setScoresByKey,
@@ -1089,9 +1096,9 @@ export default function CFBScheduleApp({
   const weeklyRecap = useMemo<AvailableWeeklyRecapViewModel | null>(() => {
     if (
       !scheduleLoaded ||
-      !scoreHydrationAvailable ||
       rosterByTeam.size === 0 ||
       canonicalStandings?.ownersRosterSource !== 'csv' ||
+      canonicalRows.length === 0 ||
       liveStaleClock === 0
     ) {
       return null;
@@ -1110,15 +1117,23 @@ export default function CFBScheduleApp({
       new Date(liveStaleClock),
       { leagueStatus, seasonYear: selectedSeason }
     );
-    return tile.state === 'recap' ? tile.recap : null;
+    if (tile.state !== 'recap') return null;
+    return hasCleanWeeklyRecapHydration({
+      recap: tile.recap,
+      games,
+      cleanState: scoreHydrationCleanState,
+    })
+      ? tile.recap
+      : null;
   }, [
     games,
+    canonicalRows.length,
     canonicalStandings?.ownersRosterSource,
     leagueStatus,
     liveStaleClock,
     rosterByTeam,
     scheduleLoaded,
-    scoreHydrationAvailable,
+    scoreHydrationCleanState,
     scoresByKey,
     selectedSeason,
   ]);

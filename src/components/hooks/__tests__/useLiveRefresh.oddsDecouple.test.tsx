@@ -92,6 +92,7 @@ function makeParams(): Parameters<typeof useLiveRefresh>[0] {
     // scheduleLoaded:false keeps the bootstrap/timer/lazy effects inert, so the
     // ONLY /api/odds requests are the ones the manual refreshLiveData calls make.
     scheduleLoaded: false,
+    scheduleGeneration: 0,
     games: [g],
     visibleGames: [g],
     scoreScopeGames: [g],
@@ -100,6 +101,7 @@ function makeParams(): Parameters<typeof useLiveRefresh>[0] {
     oddsUsage: null,
     scoreHydrationState: EMPTY_SCORE_HYDRATION_STATE,
     setScoreHydrationState: noop,
+    setScoreHydrationCleanState: noop,
     setIssues: noop,
     setOddsByKey: noop,
     setScoresByKey: noop,
@@ -155,6 +157,24 @@ test('an automatic (non-manual) live refresh never requests /api/odds', async ()
   await result.current.refreshLiveData({ manual: false, scoreScopeGamesOverride: [game()] });
 
   assert.equal(oddsUrls().length, 0, 'the live-refresh path must not auto-fetch odds');
+});
+
+test('a clean full-scope score hydration records cleanliness for its own season type', async () => {
+  let cleanState = { ...EMPTY_SCORE_HYDRATION_STATE };
+  const params = makeParams();
+  params.setScoreHydrationCleanState = (action) => {
+    cleanState = typeof action === 'function' ? action(cleanState) : action;
+  };
+  const { result } = renderHook(() => useLiveRefresh(params));
+
+  await act(async () => {
+    await result.current.refreshLiveData({
+      manual: false,
+      scoreScopeGamesOverride: [game()],
+    });
+  });
+
+  assert.deepEqual(cleanState, { regular: true, postseason: false });
 });
 
 test('an explicit includeOdds manual refresh still fetches /api/odds with refresh=1 (seam preserved)', async () => {

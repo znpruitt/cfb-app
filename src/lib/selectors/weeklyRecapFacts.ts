@@ -3,6 +3,7 @@ import type { LeagueStatus } from '../league.ts';
 import type { ScorePack } from '../scores.ts';
 import type { AppGame } from '../schedule.ts';
 import {
+  compareStandingsRows,
   deriveFinalOwnedParticipations,
   deriveStandingsCoverage,
   NO_CLAIM_OWNER,
@@ -130,16 +131,9 @@ export function compareWeeklyOwnerResults(
   left: WeeklyOwnerResult,
   right: WeeklyOwnerResult
 ): number {
-  if (right.wins !== left.wins) return right.wins - left.wins;
-
   const leftWinPct = left.gamesPlayed > 0 ? left.wins / left.gamesPlayed : 0;
   const rightWinPct = right.gamesPlayed > 0 ? right.wins / right.gamesPlayed : 0;
-  if (rightWinPct !== leftWinPct) return rightWinPct - leftWinPct;
-  if (right.pointDifferential !== left.pointDifferential) {
-    return right.pointDifferential - left.pointDifferential;
-  }
-  if (right.pointsFor !== left.pointsFor) return right.pointsFor - left.pointsFor;
-  return left.owner.localeCompare(right.owner);
+  return compareStandingsRows({ ...left, winPct: leftWinPct }, { ...right, winPct: rightWinPct });
 }
 
 function haveEqualCompetitiveRecord(left: WeeklyOwnerResult, right: WeeklyOwnerResult): boolean {
@@ -176,17 +170,14 @@ export function selectWeeklyRecapTileState(
   const currentDay = easternNow ? utcDayNumber(easternNow.dateKey) : null;
   if (!easternNow || latestDay == null || currentDay == null) return 'hidden';
 
+  if (!isEligible(targetWeek.latestGameDate, easternNow)) return 'hidden';
+
   const eligibilityDay = latestDay + 1;
   const cutoffMinutes = RECAP_ELIGIBILITY_HOUR * MINUTES_PER_HOUR;
-  if (
-    currentDay < eligibilityDay ||
-    (currentDay === eligibilityDay && easternNow.minutesAfterMidnight < cutoffMinutes)
-  ) {
-    return 'hidden';
-  }
-
   const eligibilityWeekday = new Date(eligibilityDay * 86_400_000).getUTCDay();
   const thursday = 4;
+  // A Wednesday-ending slate becomes eligible at the Thursday cutoff itself and
+  // therefore has an intentionally empty recap window under the fixed rule.
   const daysUntilThursday = (thursday - eligibilityWeekday + 7) % 7;
   const thursdayCutoffDay = eligibilityDay + daysUntilThursday;
   if (

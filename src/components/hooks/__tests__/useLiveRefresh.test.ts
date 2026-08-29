@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { detectScoreFinalizations, nextBootstrapGuardState } from '../useLiveRefresh';
+import {
+  detectScoreFinalizations,
+  nextBootstrapGuardState,
+  updateScoreHydrationCleanState,
+} from '../useLiveRefresh';
 import type { ScorePack } from '../../../lib/scores';
 
 function score(status: string): ScorePack {
@@ -64,6 +68,34 @@ test('continuous loaded state without bootstrap keeps guard stable', () => {
   });
 
   assert.equal(next, true);
+});
+
+test('an in-place schedule generation change rearms score bootstrap', () => {
+  const next = nextBootstrapGuardState({
+    current: true,
+    scheduleLoaded: true,
+    generationChanged: true,
+  });
+
+  assert.equal(next, false);
+});
+
+test('full-scope hydration cleanliness updates only the requested schedule phase', () => {
+  const afterPostseasonSuccess = updateScoreHydrationCleanState(
+    { regular: false, postseason: false },
+    ['postseason'],
+    true
+  );
+  assert.deepEqual(afterPostseasonSuccess, { regular: false, postseason: true });
+
+  assert.deepEqual(updateScoreHydrationCleanState(afterPostseasonSuccess, ['regular'], true), {
+    regular: true,
+    postseason: true,
+  });
+  assert.deepEqual(updateScoreHydrationCleanState(afterPostseasonSuccess, ['postseason'], false), {
+    regular: false,
+    postseason: false,
+  });
 });
 
 // PLATFORM-080 — transition-aware finalization detection.
