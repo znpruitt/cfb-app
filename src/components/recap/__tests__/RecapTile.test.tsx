@@ -98,6 +98,24 @@ test('zero-results tile shows only the factual empty line below its header', () 
   assert.equal(rendered.queryByRole('list'), null);
 });
 
+test('record dividers stop at the final responsive grid row', () => {
+  const ownerLines = Array.from({ length: 7 }, (_, index) => ({
+    owner: `Owner ${index + 1}`,
+    recordLabel: '1–0',
+    pointsLabel: '24 PF · 17 PA',
+  }));
+  const rendered = render(<RecapTile recap={{ ...recap, ownerLines }} />);
+  fireEvent.click(rendered.getByRole('button', { name: 'View full recap' }));
+
+  const rows = rendered.getAllByRole('listitem');
+  assert.match(rows[3]!.className, /border-b-\[0\.5px\]/);
+  assert.match(rows[3]!.className, /min-\[821px\]:border-b-\[0\.5px\]/);
+  assert.match(rows[4]!.className, /border-b-\[0\.5px\]/);
+  assert.match(rows[4]!.className, /min-\[821px\]:border-b-0/);
+  assert.match(rows[6]!.className, /border-b-0/);
+  assert.match(rows[6]!.className, /min-\[821px\]:border-b-0/);
+});
+
 test('a populated incomplete recap keeps a visible factual headline', () => {
   const rendered = render(
     <RecapTile recap={{ ...recap, headline: 'Week 1 results', isIncomplete: true }} />

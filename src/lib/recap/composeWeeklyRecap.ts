@@ -1,11 +1,8 @@
 import type { LeagueStatus } from '../league.ts';
-import type { AppGame } from '../schedule.ts';
-import { getHydrationSeasonTypes, type ScoreHydrationState } from '../scoreHydration.ts';
 import {
   isWeeklyRecapActiveSeason,
   selectWeeklyRecapLeaders,
   selectWeeklyRecapFacts,
-  selectWeeklyRecapTileState,
 } from '../selectors/weeklyRecapFacts.ts';
 import { buildWeekLabelMap, formatWeekLabel } from '../weekLabel.ts';
 import type { WeeklyRecapContextResult } from './loadRecapContext.ts';
@@ -31,11 +28,6 @@ export type WeeklyRecapViewModel =
     };
 
 export type AvailableWeeklyRecapViewModel = Extract<WeeklyRecapViewModel, { status: 'available' }>;
-
-export type WeeklyRecapTileViewModel =
-  | { state: 'hidden' }
-  | { state: 'upcoming' }
-  | { state: 'recap'; recap: AvailableWeeklyRecapViewModel };
 
 export type WeeklyRecapSeasonScope = {
   leagueStatus: LeagueStatus | undefined;
@@ -125,30 +117,4 @@ export function composeWeeklyRecap(
     isIncomplete,
     ownerLines,
   };
-}
-
-/** Whether the client has a clean full-scope hydration for the recap's exact schedule phase. */
-export function hasCleanWeeklyRecapHydration(args: {
-  recap: AvailableWeeklyRecapViewModel;
-  games: AppGame[];
-  cleanState: ScoreHydrationState;
-}): boolean {
-  const targetGames = args.games.filter((game) => game.canonicalWeek === args.recap.week);
-  const seasonTypes = getHydrationSeasonTypes(targetGames);
-  return seasonTypes.length > 0 && seasonTypes.every((seasonType) => args.cleanState[seasonType]);
-}
-
-export function composeWeeklyRecapTile(
-  contextResult: WeeklyRecapContextResult,
-  now: Date,
-  scope: WeeklyRecapSeasonScope
-): WeeklyRecapTileViewModel {
-  const recap = composeWeeklyRecap(contextResult, now, scope);
-  if (recap.status !== 'available') return { state: 'hidden' };
-
-  const state = selectWeeklyRecapTileState(
-    { week: recap.week, latestGameDate: recap.latestGameDate },
-    now
-  );
-  return state === 'recap' ? { state, recap } : { state };
 }

@@ -51,6 +51,22 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### INSIGHTS-026b-RECAP-LAYOUT-v3
+
+- Purpose: preserve the approved weekly-recap layout while rebuilding only the Overview data seam
+  around one server-coherent request-time recap payload.
+- Scope: attach an independently failing recap view model to the existing authenticated Insights
+  response after its cross-request cache; consume it through guarded client fetching with one
+  eligibility-boundary refresh; remove v2's recap-specific score-hydration coupling; retain the
+  Slice 1 selectors, Insights lead section, shared layout components, and design amendments.
+- Outcome: In progress. The audited target keeps the existing visuals while making the server recap
+  context authoritative for ownership, schedule, and score attribution on both member surfaces.
+- Review / verification: The v2 final Codex and Claude reviews independently confirmed that its
+  Overview gate could combine server-canonical readiness with a stale local roster after an owners
+  API failure. A focused seam audit selected the existing Insights route as the bounded replacement
+  and found no need to rebuild Slice 1 or the recap component structure.
+- Status: In progress on the replacement feature branch.
+
 ### INSIGHTS-026b-RECAP-LAYOUT-v2
 
 - Purpose: rebuild the weekly recap's approved layout and Overview tile on the proven Slice 1 facts
@@ -74,7 +90,8 @@ Rules:
   Overview applicability into a tested selector, and applies the final row-hairline correction.
   Full gates and the final independent rereview are required before merge and are reported with the
   implementation handoff.
-- Status: Implemented on the replacement feature branch; review and merge pending.
+- Status: Superseded/unmerged by `INSIGHTS-026b-RECAP-LAYOUT-v3` after final review found a
+  server/client roster-generation seam in the Overview data path.
 
 ### INSIGHTS-026b-RECAP-LAYOUT-v1
 

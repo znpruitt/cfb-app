@@ -4,11 +4,7 @@ import LeaguePageShell from '@/components/LeaguePageShell';
 import WeeklyRecapSection from '@/components/recap/WeeklyRecapSection';
 import { loadInsightsForLeague } from '../../../../lib/insights/loadInsights';
 import { getLeague } from '../../../../lib/leagueRegistry';
-import {
-  composeWeeklyRecap,
-  type WeeklyRecapViewModel,
-} from '../../../../lib/recap/composeWeeklyRecap';
-import { loadRecapContextForSeasonScope } from '../../../../lib/recap/loadRecapContext';
+import { loadWeeklyRecap } from '../../../../lib/recap/loadWeeklyRecap';
 import {
   resolveDisplayLeagueStatus,
   resolveLeagueOperatingYear,
@@ -48,13 +44,10 @@ export default async function LeagueInsightsPage({
   const now = new Date();
   const leagueStatus = resolveDisplayLeagueStatus(league);
   const seasonYear = resolveLeagueOperatingYear(league);
-  const [response, recapContext] = await Promise.all([
+  const [response, recap] = await Promise.all([
     loadInsightsForLeague(slug, seasonYear),
-    loadRecapContextForSeasonScope({ leagueSlug: slug, seasonYear, leagueStatus }),
+    loadWeeklyRecap({ leagueSlug: slug, seasonYear, leagueStatus, now }),
   ]);
-  const recap: WeeklyRecapViewModel = recapContext
-    ? composeWeeklyRecap(recapContext, now, { leagueStatus, seasonYear })
-    : { status: 'inactive' };
   const insights = response.insights.slice().sort((a, b) => b.priorityScore - a.priorityScore);
 
   return (

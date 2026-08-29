@@ -80,3 +80,6 @@ data/*.json
 # 1.4 MB raster the app never loads.
 /references/
 /homepage_reference_image.png
+
+# clerk configuration (can include secrets)
+/.clerk/

@@ -6,7 +6,6 @@ import type { AppGame } from '../../schedule.ts';
 import {
   compareWeeklyOwnerResults,
   isWeeklyRecapActiveSeason,
-  selectWeeklyRecapOverviewReadiness,
   selectWeeklyRecapFacts,
   selectWeeklyRecapLeaders,
   selectWeeklyRecapTargetWeek,
@@ -132,26 +131,6 @@ test('request-time recaps exist only for the matching active season', () => {
     isWeeklyRecapActiveSeason({ leagueStatus: { state: 'offseason' }, seasonYear: 2026 }),
     false
   );
-});
-
-test('Overview recap readiness requires every authoritative client input', () => {
-  const ready = {
-    scheduleLoaded: true,
-    rosterSize: 8,
-    ownersRosterSource: 'csv' as const,
-    ownerCount: 4,
-    hasRenderClock: true,
-  };
-
-  assert.equal(selectWeeklyRecapOverviewReadiness(ready), true);
-  assert.equal(selectWeeklyRecapOverviewReadiness({ ...ready, scheduleLoaded: false }), false);
-  assert.equal(selectWeeklyRecapOverviewReadiness({ ...ready, rosterSize: 0 }), false);
-  assert.equal(
-    selectWeeklyRecapOverviewReadiness({ ...ready, ownersRosterSource: 'archive' }),
-    false
-  );
-  assert.equal(selectWeeklyRecapOverviewReadiness({ ...ready, ownerCount: 0 }), false);
-  assert.equal(selectWeeklyRecapOverviewReadiness({ ...ready, hasRenderClock: false }), false);
 });
 
 test('target week stays on the previous slate after an early current-week final', () => {

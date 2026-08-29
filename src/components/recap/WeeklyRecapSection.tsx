@@ -24,7 +24,9 @@ export default function WeeklyRecapSection({
         >
           Weekly recap
         </h2>
-        <p className="mt-2 text-sm text-zinc-400">Weekly recap data is unavailable right now.</p>
+        <p className="mt-2 text-sm text-zinc-400">
+          This week&apos;s recap isn&apos;t available right now. Please check back shortly.
+        </p>
       </section>
     );
   }

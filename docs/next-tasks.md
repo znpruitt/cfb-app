@@ -25,7 +25,8 @@ Supersedes: (none)
 ## Current execution order
 
 `CURRENT`: Item 42 — INSIGHTS-026 weekly recap layout stage
-(`INSIGHTS-026b-RECAP-LAYOUT-v2`), implemented on its replacement branch and awaiting merge.
+(`INSIGHTS-026b-RECAP-LAYOUT-v3`), rebuilding only the Overview data seam around a
+server-coherent recap response after v2's final review.
 `NEXT`: Item 42, Slice 2 details (`INSIGHTS-026c-RECAP-DETAILS-v1`).
 
 The 2026-08-26 roadmap audit recommends this season-reliability sequence after the current slice;
@@ -390,15 +391,15 @@ record eligibility converges with generator-specific rules.
 The request-time Look Back skeleton is complete. It is scoped to the league's exact active season,
 selects the immediately preceding eligible canonical week after the next-day 06:00 ET cutoff, and
 renders at the top of the existing Insights page. Standing/durable insights remain independent and
-are inherited alongside the recap rather than replaced by it. The layout stage is implemented on a
-replacement branch: it adds the shared recap structure and a calendar-gated Overview tile derived
-from already-hydrated app data, without changing the remaining fact-family plan.
+are inherited alongside the recap rather than replaced by it. The layout stage retains its approved
+shared recap structure while its Overview tile is rebuilt to consume the same server-coherent recap
+view model, without changing the remaining fact-family plan.
 
 Continue the request-time portion vertically:
 
-- **CURRENT — Layout stage (`INSIGHTS-026b-RECAP-LAYOUT-v2`):** complete independent review and
-  merge the shared Insights/Overview rendering structure; remediation cycle 2 is awaiting its final
-  independent rereview.
+- **CURRENT — Layout stage (`INSIGHTS-026b-RECAP-LAYOUT-v3`):** complete the audited server-coherent
+  Overview seam rewrite, independent review, and merge the shared Insights/Overview rendering
+  structure.
 - **NEXT — Slice 2 (`INSIGHTS-026c-RECAP-DETAILS-v1`):** add week-explicit movement,
   owner-vs-owner detail, and weekly accolades to the proven pipeline.
 - Slice 3: add the allowlisted partial-season record-change projection.

@@ -35,7 +35,10 @@ test('Insights recap keeps context uncertainty distinct from genuine absence', (
   );
   const absent = renderToStaticMarkup(<WeeklyRecapSection recap={{ status: 'absent' }} />);
 
-  assert.match(unavailable, /Weekly recap data is unavailable right now\./);
+  assert.match(
+    unavailable,
+    /This week&#x27;s recap isn&#x27;t available right now\. Please check back shortly\./
+  );
   assert.equal(absent, '');
 });
 

@@ -55,6 +55,9 @@ export function WeekRecordsGrid({
   headingId,
   compact = false,
 }: WeekRecordsGridProps): React.ReactElement {
+  const mobileLastRowStart = Math.floor((ownerLines.length - 1) / 2) * 2;
+  const desktopLastRowStart = Math.floor((ownerLines.length - 1) / 4) * 4;
+
   return (
     <section aria-labelledby={headingId}>
       <h3
@@ -68,22 +71,30 @@ export function WeekRecordsGrid({
           compact ? '' : 'min-[821px]:gap-x-10'
         }`}
       >
-        {ownerLines.map((line) => (
-          <li
-            key={line.owner}
-            className={`${compact ? 'py-[6px]' : 'py-2'} border-b-[0.5px] border-zinc-800/80 last:border-b-0`}
-          >
-            <div
-              className={`flex items-baseline justify-between gap-3 font-medium text-zinc-100 ${
-                compact ? 'text-[13.5px]' : 'text-[14.5px]'
-              }`}
+        {ownerLines.map((line, index) => {
+          const mobileBorder = index >= mobileLastRowStart ? 'border-b-0' : 'border-b-[0.5px]';
+          const desktopBorder =
+            index >= desktopLastRowStart
+              ? 'min-[821px]:border-b-0'
+              : 'min-[821px]:border-b-[0.5px]';
+
+          return (
+            <li
+              key={line.owner}
+              className={`${compact ? 'py-[6px]' : 'py-2'} ${mobileBorder} ${desktopBorder} border-zinc-800/80`}
             >
-              <span className="min-w-0 truncate">{line.owner}</span>
-              <span className="shrink-0 tabular-nums">{line.recordLabel}</span>
-            </div>
-            <p className="mt-0.5 text-xs tabular-nums text-zinc-400">{line.pointsLabel}</p>
-          </li>
-        ))}
+              <div
+                className={`flex items-baseline justify-between gap-3 font-medium text-zinc-100 ${
+                  compact ? 'text-[13.5px]' : 'text-[14.5px]'
+                }`}
+              >
+                <span className="min-w-0 truncate">{line.owner}</span>
+                <span className="shrink-0 tabular-nums">{line.recordLabel}</span>
+              </div>
+              <p className="mt-0.5 text-xs tabular-nums text-zinc-400">{line.pointsLabel}</p>
+            </li>
+          );
+        })}
       </ul>
     </section>
   );

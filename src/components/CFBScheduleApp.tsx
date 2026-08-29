@@ -82,6 +82,7 @@ import {
 import { createRankingsRequestGuard } from '../lib/rankingsRequestGuard';
 import { buildOwnerColorMap, isDarkTheme } from '../lib/ownerColors';
 import { useScheduleBootstrap } from './hooks/useScheduleBootstrap';
+import { useInsightsFeed } from './hooks/useInsightsFeed';
 import { useLiveRefresh } from './hooks/useLiveRefresh';
 import { useOddsHydration } from './hooks/useOddsHydration';
 import { useLiveDelta } from './hooks/useLiveDelta';
@@ -89,14 +90,11 @@ import type { DraftPhase } from '../lib/draft';
 import type { LeagueStatus } from '../lib/league';
 import { resolveLeagueSeason } from '../lib/leagueSeason';
 import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
-import type { Insight as EngineInsight } from '../lib/selectors/insights';
-import { selectWeeklyRecapOverviewReadiness } from '../lib/selectors/weeklyRecapFacts';
-import type { LifecycleState } from '../lib/insights/types';
 import {
-  composeWeeklyRecapTile,
-  hasCleanWeeklyRecapHydration,
-  type AvailableWeeklyRecapViewModel,
-} from '../lib/recap/composeWeeklyRecap';
+  isWeeklyRecapActiveSeason,
+  selectWeeklyRecapTileState,
+} from '../lib/selectors/weeklyRecapFacts';
+import type { AvailableWeeklyRecapViewModel } from '../lib/recap/composeWeeklyRecap';
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
 const EXPLICIT_SEASON = Number.parseInt(process.env.NEXT_PUBLIC_SEASON ?? '', 10);
@@ -374,18 +372,10 @@ export default function CFBScheduleApp({
   const [scoreHydrationState, setScoreHydrationState] = useState<ScoreHydrationState>(
     EMPTY_SCORE_HYDRATION_STATE
   );
-  const [scoreHydrationCleanState, setScoreHydrationCleanState] = useState<ScoreHydrationState>(
-    EMPTY_SCORE_HYDRATION_STATE
-  );
 
   const [draftPhase, setDraftPhase] = useState<DraftPhase | null>(null);
   const [draftScheduledAt, setDraftScheduledAt] = useState<string | null>(null);
   const [draftCurrentRound, setDraftCurrentRound] = useState<number | null>(null);
-
-  const [engineInsights, setEngineInsights] = useState<EngineInsight[]>([]);
-  const [insightsLifecycleState, setInsightsLifecycleState] = useState<LifecycleState | undefined>(
-    undefined
-  );
 
   const scheduleRefreshInFlightRef = useRef<boolean>(false);
   const rankingsRequestGuardRef = useRef(createRankingsRequestGuard());
@@ -418,7 +408,6 @@ export default function CFBScheduleApp({
     setRankings(null);
     setScheduleLoaded(false);
     setScoreHydrationState(EMPTY_SCORE_HYDRATION_STATE);
-    setScoreHydrationCleanState(EMPTY_SCORE_HYDRATION_STATE);
   }, []);
 
   const loadRankings = useCallback(
@@ -521,9 +510,6 @@ export default function CFBScheduleApp({
         setGames(built.games);
         setByes(built.byes);
         setConferences(built.conferences);
-        setScoresByKey({});
-        setScoreHydrationState(EMPTY_SCORE_HYDRATION_STATE);
-        setScoreHydrationCleanState(EMPTY_SCORE_HYDRATION_STATE);
         setScheduleLoaded(true);
         // Force a fresh Odds hydration for this (re)built schedule — a with-games
         // in-place reload does not toggle `scheduleLoaded`, so the generation bump
@@ -831,13 +817,15 @@ export default function CFBScheduleApp({
   // scores/inputs are static — e.g. a network outage that stops updating
   // `scoresObservedAt` must still let `isStale` flip after the threshold, not
   // leave the overlay marked fresh forever (PLATFORM-086B2B). Client-only; armed
-  // once per loaded schedule; `0` until then so useLiveDelta uses Date.now().
+  // once per mounted league surface; `0` until then so useLiveDelta uses Date.now().
+  // The recap response is server-derived and can render even if the client
+  // schedule bootstrap fails, so this request-time display clock is not gated
+  // by schedule readiness.
   useEffect(() => {
-    if (!scheduleLoaded) return;
     setLiveStaleClock(Date.now());
     const id = window.setInterval(() => setLiveStaleClock(Date.now()), 60_000);
     return () => window.clearInterval(id);
-  }, [scheduleLoaded]);
+  }, []);
 
   const liveDeltaWeekKey = `${selectedSeason}:${selectedWeek ?? 'all'}`;
   const liveDelta = useLiveDelta({
@@ -1050,6 +1038,20 @@ export default function CFBScheduleApp({
     });
   }, [games, hasActiveViewFilters, selectedTab, selectedWeek, visibleGames]);
 
+  const {
+    insights: engineInsights,
+    lifecycleState: insightsLifecycleState,
+    weeklyRecap: weeklyRecapResponse,
+    refreshInsights,
+  } = useInsightsFeed({
+    leagueSlug,
+    seasonYear: selectedSeason,
+    leagueStatus,
+    games,
+    scheduleLoaded,
+    nowTick: liveStaleClock,
+  });
+
   // PLATFORM-080: recompute server canonicalStandings after an in-session game
   // finalization. router.refresh() re-runs the RSC tree; the /api/scores write
   // path already invalidated the standings cache tag, so canonical recomputes
@@ -1057,7 +1059,8 @@ export default function CFBScheduleApp({
   // derivation and no upstream provider fetch (PLATFORM-075 preserved).
   const handleGamesFinalized = useCallback(() => {
     router.refresh();
-  }, [router]);
+    refreshInsights();
+  }, [refreshInsights, router]);
 
   const { liveScoreObservation } = useLiveRefresh({
     selectedSeason,
@@ -1065,7 +1068,6 @@ export default function CFBScheduleApp({
     selectedWeek,
     weeks,
     scheduleLoaded,
-    scheduleGeneration,
     games,
     visibleGames,
     scoreScopeGames,
@@ -1076,7 +1078,6 @@ export default function CFBScheduleApp({
     oddsUsage,
     scoreHydrationState,
     setScoreHydrationState,
-    setScoreHydrationCleanState,
     setIssues,
     setOddsByKey,
     setScoresByKey,
@@ -1096,50 +1097,22 @@ export default function CFBScheduleApp({
 
   const weeklyRecap = useMemo<AvailableWeeklyRecapViewModel | null>(() => {
     if (
-      !selectWeeklyRecapOverviewReadiness({
-        scheduleLoaded,
-        rosterSize: rosterByTeam.size,
-        ownersRosterSource: canonicalStandings?.ownersRosterSource,
-        ownerCount: canonicalRows.length,
-        hasRenderClock: liveStaleClock !== 0,
-      })
+      liveStaleClock === 0 ||
+      weeklyRecapResponse.status !== 'available' ||
+      !isWeeklyRecapActiveSeason({ leagueStatus, seasonYear: selectedSeason })
     ) {
       return null;
     }
 
-    const tile = composeWeeklyRecapTile(
+    const state = selectWeeklyRecapTileState(
       {
-        status: 'available',
-        context: {
-          seasonYear: selectedSeason,
-          games,
-          rosterByTeam,
-          scoresByKey,
-        },
+        week: weeklyRecapResponse.week,
+        latestGameDate: weeklyRecapResponse.latestGameDate,
       },
-      new Date(liveStaleClock),
-      { leagueStatus, seasonYear: selectedSeason }
+      new Date(liveStaleClock)
     );
-    if (tile.state !== 'recap') return null;
-    return hasCleanWeeklyRecapHydration({
-      recap: tile.recap,
-      games,
-      cleanState: scoreHydrationCleanState,
-    })
-      ? tile.recap
-      : null;
-  }, [
-    games,
-    canonicalRows.length,
-    canonicalStandings?.ownersRosterSource,
-    leagueStatus,
-    liveStaleClock,
-    rosterByTeam,
-    scheduleLoaded,
-    scoreHydrationCleanState,
-    scoresByKey,
-    selectedSeason,
-  ]);
+    return state === 'recap' ? weeklyRecapResponse : null;
+  }, [leagueStatus, liveStaleClock, selectedSeason, weeklyRecapResponse]);
 
   const gameDayConfidence = useMemo(
     () =>
@@ -1208,40 +1181,6 @@ export default function CFBScheduleApp({
       })
       .catch(() => {}); // non-fatal
   }, [leagueSlug, draftLookupYear]);
-
-  useEffect(() => {
-    if (!leagueSlug) {
-      setEngineInsights([]);
-      setInsightsLifecycleState(undefined);
-      return;
-    }
-    let cancelled = false;
-    fetch(`/api/insights/${encodeURIComponent(leagueSlug)}?year=${selectedSeason}`, {
-      cache: 'no-store',
-    })
-      .then((res) =>
-        res.ok
-          ? (res.json() as Promise<{
-              insights?: EngineInsight[];
-              lifecycleState?: LifecycleState;
-            }>)
-          : null
-      )
-      .then((data) => {
-        if (cancelled) return;
-        setEngineInsights(Array.isArray(data?.insights) ? data!.insights! : []);
-        setInsightsLifecycleState(data?.lifecycleState);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setEngineInsights([]);
-          setInsightsLifecycleState(undefined);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [leagueSlug, selectedSeason]);
 
   const savePostseasonOverride = useCallback(
     (eventId: string, patch: Partial<AppGame>) => {

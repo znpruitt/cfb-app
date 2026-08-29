@@ -10,11 +10,7 @@ import {
   setAppState,
 } from '../../server/appStateStore.ts';
 import { __resetTeamDatabaseStoreForTests } from '../../server/teamDatabaseStore.ts';
-import {
-  composeWeeklyRecap,
-  composeWeeklyRecapTile,
-  hasCleanWeeklyRecapHydration,
-} from '../composeWeeklyRecap.ts';
+import { composeWeeklyRecap } from '../composeWeeklyRecap.ts';
 import {
   loadRecapContext,
   loadRecapContextForSeasonScope,
@@ -421,68 +417,6 @@ test('composer names both owners when the best competitive weekly record is exac
   assert.equal(recap.status, 'available');
   if (recap.status !== 'available') return;
   assert.equal(recap.headline, 'Alice and Bob share the week at 1–0');
-});
-
-test('tile composer applies the request-time recap window without changing recap facts', () => {
-  const recapGame = game();
-  const contextResult = {
-    status: 'available' as const,
-    context: context([recapGame], {
-      quiet: {
-        status: 'final',
-        away: { team: 'Georgia', score: 17 },
-        home: { team: 'Texas', score: 31 },
-        time: null,
-      },
-    }),
-  };
-
-  assert.equal(
-    composeWeeklyRecapTile(contextResult, new Date('2026-09-07T16:00:00.000Z'), ACTIVE_SCOPE).state,
-    'recap'
-  );
-  assert.deepEqual(
-    composeWeeklyRecapTile(contextResult, new Date('2026-09-10T10:00:00.000Z'), ACTIVE_SCOPE),
-    { state: 'upcoming' }
-  );
-});
-
-test('Overview hydration cleanliness is scoped to the recap week season type', () => {
-  const regularGame = game();
-  const recap = composeWeeklyRecap(
-    {
-      status: 'available',
-      context: context([regularGame], {
-        quiet: {
-          status: 'final',
-          away: { team: 'Georgia', score: 17 },
-          home: { team: 'Texas', score: 31 },
-          time: null,
-        },
-      }),
-    },
-    new Date('2026-09-07T16:00:00.000Z'),
-    ACTIVE_SCOPE
-  );
-
-  assert.equal(recap.status, 'available');
-  if (recap.status !== 'available') return;
-  assert.equal(
-    hasCleanWeeklyRecapHydration({
-      recap,
-      games: [regularGame],
-      cleanState: { regular: true, postseason: false },
-    }),
-    true
-  );
-  assert.equal(
-    hasCleanWeeklyRecapHydration({
-      recap,
-      games: [regularGame],
-      cleanState: { regular: false, postseason: true },
-    }),
-    false
-  );
 });
 
 test('composer keeps context failure separate from genuine absence', () => {
