@@ -4161,6 +4161,23 @@ Key architectural decisions across Phase 5:
 - **Open follow-ups:** Item 42 remains in `docs/next-tasks.md` for the remaining fact-family slices,
   Forward Look, and the stored event-source artifact.
 
+### INSIGHTS-026c — Weekly Recap Details — Complete
+
+- **Status:** Merged via PR #523 (merge commit `e41832ec`), 2026-08-29; production promotion not
+  yet verified.
+- **PROMPT_ID(s):** `INSIGHTS-026c-RECAP-DETAILS-v1`.
+- **Outcome:** Each eligible recap now carries explicit-week movement, distinct-owner matchup
+  detail, aggregate weekly high scores, and per-game closest-game/biggest-blowout facts derived from
+  canonical current-season ownership and finality. Insights and Overview render the approved Week
+  leaders and Movement sections; notable-result UI remains deliberately deferred.
+- **Verification:** Eight test declarations were added for movement boundaries, first-week
+  suppression, multi-team/cardinality handling, tied risers, additive payload compatibility, and
+  full-page rendering/accessibility. Exact PR head `ac5c20b1` passed TypeScript, `lint:all`, the
+  4,378-test full suite, and production build; final independent Claude and Codex reviews reported
+  no remaining findings.
+- **Open follow-ups:** Item 42 remains in `docs/next-tasks.md` for the remaining request-time slices,
+  Forward Look, and the stored event-source artifact.
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone (DOCS-012). Entries describe shipped

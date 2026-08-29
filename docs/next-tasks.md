@@ -24,8 +24,8 @@ Supersedes: (none)
 
 ## Current execution order
 
-`CURRENT`: Item 42, Slice 2 details (`INSIGHTS-026c-RECAP-DETAILS-v1`).
-`NEXT`: Item 42, Slice 3 record changes.
+`CURRENT`: Item 42, Slice 3 record changes.
+`NEXT`: Item 42, Slice 4 odds upsets.
 
 The 2026-08-26 roadmap audit recommends this season-reliability sequence after the current slice;
 it is proposed ordering, not an owner-selected `NEXT` designation:
@@ -408,22 +408,19 @@ record eligibility converges with generator-specific rules.
 
 ### Item 42 — INSIGHTS-026 weekly recap and event source (In progress)
 
-The request-time Look Back skeleton and layout stage are complete. The recap is scoped to the
-league's exact active season, selects the immediately preceding eligible canonical week after the
-next-day 06:00 ET cutoff, and renders at the top of the existing Insights page. Its Overview tile
-consumes the same server-coherent recap view model, reevaluates the request-time boundary
-independently from client schedule readiness, and remains visible if client schedule bootstrap
-fails. Standing/durable insights remain independent and are inherited alongside the recap rather
-than replaced by it. The approved shared recap structure does not change the remaining fact-family
-plan.
+The request-time Look Back skeleton, layout, and Slice 2 detail layer are complete. The recap is
+scoped to the league's exact active season, selects the immediately preceding eligible canonical
+week after the next-day 06:00 ET cutoff, and renders at the top of the existing Insights page. Its
+Overview tile consumes the same server-coherent recap view model, reevaluates the request-time
+boundary independently from client schedule readiness, and remains visible if client schedule
+bootstrap fails. Standing/durable insights remain independent and are inherited alongside the
+recap rather than replaced by it. Slice 2 adds week-explicit movement, owner-vs-owner detail, and
+weekly accolades while deliberately leaving notable-result UI unwired for the final wiring pass.
 
 Continue the request-time portion vertically:
 
-- **CURRENT — Slice 2 (`INSIGHTS-026c-RECAP-DETAILS-v1`):** implemented and review-complete; merge
-  pending. It adds week-explicit movement, owner-vs-owner detail, and weekly accolades to the proven
-  pipeline while leaving notable-result UI unwired.
-- **NEXT — Slice 3:** add the allowlisted partial-season record-change projection.
-- Slice 4: add odds upsets through a shared odds-upset policy helper.
+- **CURRENT — Slice 3:** add the allowlisted partial-season record-change projection.
+- **NEXT — Slice 4:** add odds upsets through a shared odds-upset policy helper.
 - Final wiring/pass: fill the existing Overview tile from the completed fact families and remove the
   dead prior pulse view-model fields.
 

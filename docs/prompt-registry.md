@@ -69,7 +69,7 @@ Rules:
   full-page rendering/accessibility. Exact commit `7cdfaa48` passed TypeScript, `lint:all`, the
   4,378-test full suite, and production build; final independent Claude and Codex confirmations
   reported no remaining findings.
-- Status: Implemented and review-complete; merge pending.
+- Status: Merged via PR #523 (merge commit `e41832ec`), 2026-08-29.
 
 ### INSIGHTS-026b-RECAP-LAYOUT-v3
 
