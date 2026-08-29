@@ -6,6 +6,7 @@ import type { AppGame } from '../../schedule.ts';
 import {
   compareWeeklyOwnerResults,
   isWeeklyRecapActiveSeason,
+  selectWeeklyRecapEligibilityBoundaryKey,
   selectWeeklyRecapFacts,
   selectWeeklyRecapLeaders,
   selectWeeklyRecapTargetWeek,
@@ -159,6 +160,17 @@ test('06:00 ET cutoff clears a 23:00 ET kickoff on the final game-date', () => {
     week: 4,
     latestGameDate: '2026-09-05',
   });
+});
+
+test('the schedule-independent eligibility boundary key changes exactly at 06:00 ET', () => {
+  assert.equal(
+    selectWeeklyRecapEligibilityBoundaryKey(new Date('2026-09-07T09:59:00.000Z')),
+    '2026-09-06'
+  );
+  assert.equal(
+    selectWeeklyRecapEligibilityBoundaryKey(new Date('2026-09-07T10:00:00.000Z')),
+    '2026-09-07'
+  );
 });
 
 test('Overview tile state changes at 06:00 ET on eligibility day and Thursday', () => {

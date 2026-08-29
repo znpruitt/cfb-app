@@ -79,3 +79,58 @@ test('authenticated Insights response attaches the authoritative request-time re
     { owner: 'Bob', recordLabel: '0–1', pointsLabel: '17 PF · 31 PA' },
   ]);
 });
+
+test('an omitted year resolves the league operating season rather than a stale projection', async () => {
+  const slug = `${SLUG}-legacy-year`;
+  await addLeague({
+    slug,
+    displayName: 'Weekly Recap Legacy Year League',
+    year: YEAR - 1,
+    createdAt: '2024-01-01T00:00:00.000Z',
+    status: { state: 'season', year: YEAR },
+  });
+  await setAppState(`owners:${slug}:${YEAR}`, 'csv', 'team,owner\nTexas,Alice\nGeorgia,Bob\n');
+  await setAppState('schedule', `${YEAR}-all-all`, {
+    items: [
+      {
+        id: '401000802',
+        week: 1,
+        seasonType: 'regular',
+        startDate: '2024-08-25T00:00:00.000Z',
+        neutralSite: false,
+        conferenceGame: true,
+        homeTeam: 'Texas',
+        awayTeam: 'Georgia',
+        homeConference: 'SEC',
+        awayConference: 'SEC',
+        status: 'STATUS_FINAL',
+        completed: true,
+      },
+    ],
+  });
+  await setAppState('scores', `${YEAR}-all-regular`, {
+    items: [
+      {
+        id: '401000802',
+        week: 1,
+        seasonType: 'regular',
+        startDate: '2024-08-25T00:00:00.000Z',
+        status: 'final',
+        home: { team: 'Texas', score: 31 },
+        away: { team: 'Georgia', score: 17 },
+        time: null,
+      },
+    ],
+  });
+
+  const response = await GET(new Request(`http://localhost/api/insights/${slug}`), {
+    params: Promise.resolve({ slug }),
+  });
+  const payload = (await response.json()) as InsightsResponse;
+
+  assert.equal(response.status, 200);
+  assert.equal(payload.weeklyRecap.status, 'available');
+  if (payload.weeklyRecap.status === 'available') {
+    assert.equal(payload.weeklyRecap.week, 1);
+  }
+});

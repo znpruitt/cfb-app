@@ -1,15 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { LeagueStatus } from '../../lib/league.ts';
 import type { WeeklyRecapViewModel } from '../../lib/recap/composeWeeklyRecap.ts';
 import type { AppGame } from '../../lib/schedule.ts';
 import type { Insight } from '../../lib/selectors/insights.ts';
-import {
-  isWeeklyRecapActiveSeason,
-  selectWeeklyRecapTargetWeek,
-} from '../../lib/selectors/weeklyRecapFacts.ts';
+import { selectWeeklyRecapEligibilityBoundaryKey } from '../../lib/selectors/weeklyRecapFacts.ts';
 import type { LifecycleState } from '../../lib/insights/types.ts';
 
 const INACTIVE_RECAP: WeeklyRecapViewModel = { status: 'inactive' };
@@ -96,8 +93,9 @@ export function useInsightsFeed(args: {
   games: AppGame[];
   scheduleLoaded: boolean;
   nowTick: number;
+  enabled?: boolean;
 }): InsightsPayload & { refreshInsights: () => void } {
-  const { leagueSlug, seasonYear, leagueStatus, games, scheduleLoaded, nowTick } = args;
+  const { leagueSlug, seasonYear, leagueStatus, nowTick, enabled = true } = args;
   const [payload, setPayload] = useState<InsightsPayload>({
     insights: [],
     lifecycleState: undefined,
@@ -106,8 +104,7 @@ export function useInsightsFeed(args: {
   const [resolvedScopeKey, setResolvedScopeKey] = useState<string | null>(null);
   const [refreshRevision, setRefreshRevision] = useState(0);
   const requestSequenceRef = useRef(0);
-  const observedTargetScopeRef = useRef<string | null>(null);
-  const observedTargetKeyRef = useRef<string | null>(null);
+  const payloadScopeRef = useRef<string | null>(null);
 
   const refreshInsights = useCallback(() => {
     setRefreshRevision((revision) => revision + 1);
@@ -117,14 +114,21 @@ export function useInsightsFeed(args: {
     ? `${leagueStatus.state}:${'year' in leagueStatus ? leagueStatus.year : 'none'}`
     : 'missing';
   const requestScopeKey = leagueSlug ? `${leagueSlug}:${seasonYear}:${lifecycleKey}` : null;
+  const eligibilityBoundaryKey =
+    nowTick > 0 ? selectWeeklyRecapEligibilityBoundaryKey(new Date(nowTick)) : null;
 
   useEffect(() => {
-    if (!leagueSlug) {
+    if (!enabled || !leagueSlug) {
       requestSequenceRef.current += 1;
+      payloadScopeRef.current = null;
       setPayload({ insights: [], lifecycleState: undefined, weeklyRecap: INACTIVE_RECAP });
       setResolvedScopeKey(null);
       return;
     }
+    // The mounted app arms its clock immediately after hydration. Waiting for
+    // that value avoids a duplicate first request while keeping the boundary
+    // decision independent from client schedule readiness.
+    if (eligibilityBoundaryKey === null) return;
 
     const scopeKey = `${leagueSlug}:${seasonYear}:${lifecycleKey}`;
     const requestSequence = ++requestSequenceRef.current;
@@ -139,56 +143,27 @@ export function useInsightsFeed(args: {
       })
       .then((value) => {
         if (requestSequence !== requestSequenceRef.current) return;
+        payloadScopeRef.current = scopeKey;
         setPayload(parseInsightsPayload(value));
         setResolvedScopeKey(scopeKey);
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted || requestSequence !== requestSequenceRef.current) return;
         void error;
-        setPayload({ insights: [], lifecycleState: undefined, weeklyRecap: UNAVAILABLE_RECAP });
+        const canPreserveFeed = payloadScopeRef.current === scopeKey;
+        setPayload((current) =>
+          canPreserveFeed
+            ? { ...current, weeklyRecap: UNAVAILABLE_RECAP }
+            : { insights: [], lifecycleState: undefined, weeklyRecap: UNAVAILABLE_RECAP }
+        );
+        payloadScopeRef.current = scopeKey;
         setResolvedScopeKey(scopeKey);
       });
 
     return () => controller.abort();
-  }, [leagueSlug, lifecycleKey, refreshRevision, seasonYear]);
+  }, [eligibilityBoundaryKey, enabled, leagueSlug, lifecycleKey, refreshRevision, seasonYear]);
 
-  const activeSeason = isWeeklyRecapActiveSeason({ leagueStatus, seasonYear });
-  const targetWeek = useMemo(
-    () =>
-      activeSeason && scheduleLoaded && nowTick > 0
-        ? (selectWeeklyRecapTargetWeek(games, new Date(nowTick))?.week ?? null)
-        : null,
-    [activeSeason, games, nowTick, scheduleLoaded]
-  );
-  const targetKey =
-    activeSeason && scheduleLoaded && nowTick > 0
-      ? `${leagueSlug ?? 'none'}:${seasonYear}:${targetWeek ?? 'none'}`
-      : null;
-  const targetScopeKey = targetKey === null ? null : requestScopeKey;
-  const resolvedPayload = resolvedScopeKey === requestScopeKey ? payload : null;
-
-  useEffect(() => {
-    if (targetKey === null || targetScopeKey === null) {
-      observedTargetScopeRef.current = null;
-      observedTargetKeyRef.current = null;
-      return;
-    }
-    if (observedTargetScopeRef.current !== targetScopeKey) {
-      if (!resolvedPayload) return;
-      observedTargetScopeRef.current = targetScopeKey;
-      observedTargetKeyRef.current = targetKey;
-      const responseWeek =
-        resolvedPayload.weeklyRecap.status === 'available'
-          ? resolvedPayload.weeklyRecap.week
-          : null;
-      if (targetWeek !== null && responseWeek !== targetWeek) refreshInsights();
-      return;
-    }
-    if (observedTargetKeyRef.current === targetKey) return;
-
-    observedTargetKeyRef.current = targetKey;
-    refreshInsights();
-  }, [refreshInsights, resolvedPayload, targetKey, targetScopeKey, targetWeek]);
+  const resolvedPayload = enabled && resolvedScopeKey === requestScopeKey ? payload : null;
 
   return {
     ...(resolvedPayload ?? {

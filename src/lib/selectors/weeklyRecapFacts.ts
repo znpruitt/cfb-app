@@ -111,6 +111,27 @@ function utcDayNumber(dateKey: string): number | null {
   return Math.floor(timestamp / 86_400_000);
 }
 
+function dateKeyFromUtcDayNumber(dayNumber: number): string {
+  return new Date(dayNumber * 86_400_000).toISOString().slice(0, 10);
+}
+
+/**
+ * Identify the most recent daily 06:00 ET eligibility boundary. Consumers can
+ * refetch when this key changes without depending on a client schedule build.
+ */
+export function selectWeeklyRecapEligibilityBoundaryKey(now: Date): string | null {
+  const easternNow = easternDateTime(now);
+  if (!easternNow) return null;
+  const currentDay = utcDayNumber(easternNow.dateKey);
+  if (currentDay == null) return null;
+
+  const boundaryDay =
+    easternNow.minutesAfterMidnight >= RECAP_ELIGIBILITY_HOUR * MINUTES_PER_HOUR
+      ? currentDay
+      : currentDay - 1;
+  return dateKeyFromUtcDayNumber(boundaryDay);
+}
+
 function isEligible(latestGameDate: string, now: EasternDateTime): boolean {
   const latestDay = utcDayNumber(latestGameDate);
   const currentDay = utcDayNumber(now.dateKey);

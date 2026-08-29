@@ -4,7 +4,10 @@ import { loadInsightsForLeague, type InsightsResponse } from '@/lib/insights/loa
 import { isAuthorizedForLeague } from '@/lib/leagueAuth';
 import { getLeague } from '@/lib/leagueRegistry';
 import { loadWeeklyRecap } from '@/lib/recap/loadWeeklyRecap';
-import { resolveDisplayLeagueStatus } from '@/lib/selectors/leagueLifecycle';
+import {
+  resolveDisplayLeagueStatus,
+  resolveLeagueOperatingYear,
+} from '@/lib/selectors/leagueLifecycle';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,7 +35,7 @@ export async function GET(
   const bypassSuppression = url.searchParams.get('bypassSuppression') === '1';
   const now = new Date();
   const league = await getLeague(slug);
-  const resolvedYear = year ?? league?.year;
+  const resolvedYear = year ?? (league ? resolveLeagueOperatingYear(league) : undefined);
 
   const [feed, weeklyRecap] = await Promise.all([
     loadInsightsForLeague(slug, resolvedYear, { bypassSuppression }),

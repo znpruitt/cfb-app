@@ -1050,6 +1050,7 @@ export default function CFBScheduleApp({
     games,
     scheduleLoaded,
     nowTick: liveStaleClock,
+    enabled: primarySurfaceKind === 'overview',
   });
 
   // PLATFORM-080: recompute server canonicalStandings after an in-session game
