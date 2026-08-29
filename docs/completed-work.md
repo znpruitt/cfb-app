@@ -4198,6 +4198,22 @@ Key architectural decisions across Phase 5:
 - **Open follow-ups:** See the canonical deferrals/current queue in `docs/next-tasks.md` (Items 83
   and 84).
 
+### INSIGHTS-026d — Weekly Recap Record-Change Projection — Complete
+
+- **Status:** Merged via PR #525 (merge commit `6b541730`), 2026-08-29; production promotion not yet
+  verified.
+- **PROMPT_ID(s):** `INSIGHTS-026d-RECAP-RECORD-CHANGES-v1`.
+- **Outcome:** The request-time recap now derives six active-season-safe record families against
+  completed historical evidence without feeding partial-season data into career accumulation. Live
+  evidence uses canonical ownership and finality, excludes placeholder owners, deduplicates
+  owned-v-owned games, and preserves the newest tied occurrence for change context. The facts remain
+  deliberately unwired until the final recap rendering pass.
+- **Verification:** Exact code commit `52895e79` passed TypeScript, `lint:all`, the 4,402-test full
+  suite, and production build. One bounded remediation round closed the actionable findings; final
+  independent Codex and Claude reviews found no remaining P0/P1/P2 issue.
+- **Open follow-ups:** Item 42 in `docs/next-tasks.md` retains the review follow-ups, Slice 4 odds
+  work, final recap wiring, Forward Look, and stored event-source delivery.
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone (DOCS-012). Entries describe shipped
