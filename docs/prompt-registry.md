@@ -51,6 +51,29 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-114-SCHEDULE-PROVIDER-CLASSIFICATION-v1
+
+- Purpose: stop schedule eligibility reconstructing a participant's division when CFBD already
+  stamps it on the same `/games` row, after a name-normalization collision put an entire Division II
+  season into the canonical schedule as tracked games belonging to an ownable FBS team.
+- Scope: provider `home_classification` / `away_classification` normalized at the mapper and
+  persisted through `ScheduleItem`, `ScheduleWireItem`, and `AppGame`; preferred over conference and
+  name inference in `classifyTeamSubdivision`, re-validated at that boundary because durable rows and
+  postseason overrides arrive as unvalidated JSON; the conference fallback narrowed to the one match
+  source that can assert a division; provider label surfaced in the eligibility diagnostic. Identity
+  resolution, score attachment, scheduling, and lifecycle policy are unchanged.
+- Outcome: a row the provider classifies `ii`/`iii` can no longer be promoted to FBS by a resolver
+  collision (`Missouri S&T` and `Missouri State` share the normalized key `missourist`). Rows lacking
+  the label keep the prior inference path, so the fix reaches production only after a full-season
+  schedule refresh repopulates the cache.
+- Review / verification: commit `e1edb680` passed TypeScript, `lint:all`, the 4,388-test full suite,
+  and `next build`; five mutations each killed by a distinct test. Independent Codex review found no
+  actionable finding; the second reviewer's MEDIUM (unvalidated provider label at the boundary) and
+  LOW (unreachable policy-source disjunct) were remediated, and its observability finding is tracked
+  as a deferral rather than folded in. Behaviour confirmed on preview after an authorized cache
+  refresh.
+- Status: Implemented — PR #524 open.
+
 ### INSIGHTS-026c-RECAP-DETAILS-v1
 
 - Purpose: add week-explicit movement, owner matchup detail, and weekly accolades to the proven

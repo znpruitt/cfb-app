@@ -81,6 +81,42 @@ function toSubdivision(classification?: string | null): ConferenceSubdivision {
   return 'OTHER';
 }
 
+/**
+ * CFBD's own per-participant division label, as emitted on `/games` rows
+ * (`home_classification` / `away_classification`). CFBD currently emits exactly
+ * `fbs`, `fcs`, `ii`, and `iii`.
+ */
+export type ProviderClassification = 'fbs' | 'fcs' | 'ii' | 'iii';
+
+const PROVIDER_CLASSIFICATIONS: ReadonlySet<string> = new Set(['fbs', 'fcs', 'ii', 'iii']);
+
+/**
+ * Narrow a raw provider classification to the closed union, or `undefined` when
+ * the provider omitted it or sent something outside the known vocabulary.
+ * `undefined` means ABSENT, never "not FBS" — callers must fall back to
+ * conference/catalog inference rather than reading absence as evidence.
+ */
+export function normalizeProviderClassification(
+  value: unknown
+): ProviderClassification | undefined {
+  const normalized = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return PROVIDER_CLASSIFICATIONS.has(normalized)
+    ? (normalized as ProviderClassification)
+    : undefined;
+}
+
+/**
+ * The subdivision a provider classification asserts. Division II/III both map to
+ * `OTHER`, matching how `toSubdivision` treats a D-II/D-III conference record.
+ */
+export function providerClassificationToSubdivision(
+  classification: ProviderClassification
+): ConferenceSubdivision {
+  if (classification === 'fbs') return 'FBS';
+  if (classification === 'fcs') return 'FCS';
+  return 'OTHER';
+}
+
 export function resolvePresentDayConferencePolicy(rawConference: string | null | undefined): {
   normalizedKey: string;
   policy: CurrentFootballConferencePolicy;

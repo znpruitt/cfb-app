@@ -10,7 +10,12 @@ import {
   getUnresolvedConferenceDiagnostics,
   resetUnresolvedConferenceDiagnostics,
 } from '../conferenceDiagnostics.ts';
-import type { CfbdConferenceRecord } from '../conferenceSubdivision.ts';
+import {
+  classifyConferenceForSubdivision,
+  resetConferenceClassificationRecords,
+  setConferenceClassificationRecords,
+  type CfbdConferenceRecord,
+} from '../conferenceSubdivision.ts';
 import { createTeamIdentityResolver, type TeamCatalogItem } from '../teamIdentity.ts';
 import {
   classifyTeamSubdivision,
@@ -1491,4 +1496,257 @@ test('isFbsTeam is driven by resolver/metadata classification', () => {
 
   assert.equal(isFbsTeam('Georgia Southern', metadata, resolver), true);
   assert.equal(isFbsTeam('Mercer', metadata, resolver), false);
+});
+
+/**
+ * `Missouri S&T` (Division II) and `Missouri State` (FBS) collapse to the SAME
+ * normalized identity key: `normalizeTeamName` turns `&` into " and " and then
+ * strips the standalone "and", so `Missouri S&T` -> `missourist` — the key
+ * `Missouri State` already claims through its `missouri st` alt. The resolver is
+ * therefore a POISONED subdivision source for this row, and eligibility must not
+ * consult it.
+ */
+const COLLIDING_TEAMS: TeamCatalogItem[] = [
+  { school: 'Missouri State', level: 'FBS', conference: 'Conference USA', alts: ['missouri st'] },
+];
+
+function collidingResolver() {
+  return createTeamIdentityResolver({
+    aliasMap: {},
+    teams: COLLIDING_TEAMS,
+    observedNames: ['Missouri S&T'],
+  });
+}
+
+test('POSITIVE CONTROL: the resolver really does collide Missouri S&T onto Missouri State', () => {
+  // Without this the regression tests below could pass for the wrong reason —
+  // a fixture that cannot reach the defect is not evidence that it is fixed.
+  const resolved = collidingResolver().resolveName('Missouri S&T');
+  assert.equal(resolved.status, 'resolved');
+  assert.equal(resolved.canonicalName, 'Missouri State');
+  assert.equal(resolved.subdivision, 'FBS');
+});
+
+test('provider classification overrides the resolver: a D-II team is never promoted to FBS', () => {
+  const resolver = collidingResolver();
+  const metadata = new Map(COLLIDING_TEAMS.map((team) => [team.school, team]));
+
+  assert.equal(
+    classifyTeamSubdivision({
+      canonicalTeamName: resolver.resolveName('Missouri S&T').canonicalName ?? 'Missouri S&T',
+      conference: 'Great Lakes',
+      teamMetadataByCanonicalName: metadata,
+      resolver,
+      providerClassification: 'ii',
+    }),
+    'OTHER'
+  );
+});
+
+test('provider classification is authoritative over conference AND catalog inference', () => {
+  const resolver = eligibilityResolver();
+  const metadata = eligibilityMetadata();
+
+  // Alabama is FBS by every fallback signal available (catalog level + an FBS
+  // conference). An explicit provider `fcs` must still win, which is only true
+  // while the provider short-circuit precedes the fallback.
+  assert.equal(
+    classifyTeamSubdivision({
+      canonicalTeamName: 'Alabama',
+      conference: 'American Athletic',
+      teamMetadataByCanonicalName: metadata,
+      resolver,
+      providerClassification: 'fcs',
+    }),
+    'FCS'
+  );
+
+  assert.equal(
+    classifyTeamSubdivision({
+      canonicalTeamName: 'Alabama',
+      conference: 'American Athletic',
+      teamMetadataByCanonicalName: metadata,
+      resolver,
+      providerClassification: 'fbs',
+    }),
+    'FBS'
+  );
+});
+
+test('fallback: a D-II conference terminates classification when the provider label is absent', () => {
+  setConferenceClassificationRecords(conferenceRecords);
+  try {
+    const resolver = collidingResolver();
+    const metadata = new Map(COLLIDING_TEAMS.map((team) => [team.school, team]));
+
+    // No providerClassification — this is a durable row written before
+    // classification persistence. "Great American" is CFBD-classified `ii`, and
+    // that alone must terminate the lookup: falling through to the resolver
+    // would return Missouri State's FBS.
+    const subdivision = classifyTeamSubdivision({
+      canonicalTeamName: resolver.resolveName('Missouri S&T').canonicalName ?? 'Missouri S&T',
+      conference: 'Great American',
+      teamMetadataByCanonicalName: metadata,
+      resolver,
+    });
+    assert.equal(subdivision, 'OTHER');
+
+    assert.deepEqual(
+      getRegularSeasonEligibilityDecision({
+        homeSubdivision: subdivision,
+        awaySubdivision: 'UNKNOWN',
+        homeResolved: true,
+        awayResolved: false,
+      }),
+      { include: false, reason: 'exclude_both_non_fbs' }
+    );
+  } finally {
+    resetConferenceClassificationRecords();
+  }
+});
+
+test('end to end: a provider-classified D-II row is dropped from the built schedule', () => {
+  const collidingTeams: TeamCatalogItem[] = [
+    ...teams,
+    {
+      school: 'Missouri State',
+      level: 'FBS',
+      conference: 'American Athletic',
+      alts: ['missouri st'],
+    },
+  ];
+
+  const scheduleItem: ScheduleWireItem = {
+    id: 'reg-d2-collision',
+    week: 1,
+    startDate: '2026-09-05T23:00:00Z',
+    neutralSite: false,
+    conferenceGame: false,
+    homeTeam: 'Missouri S&T',
+    awayTeam: 'Northeastern State',
+    homeConference: 'Great American',
+    awayConference: 'Great American',
+    homeClassification: 'ii',
+    awayClassification: 'ii',
+    status: 'scheduled',
+    seasonType: 'regular',
+  };
+
+  const built = buildScheduleFromApi({
+    season: 2026,
+    teams: collidingTeams,
+    scheduleItems: [scheduleItem],
+    aliasMap: {},
+    conferenceRecords,
+  });
+
+  assert.equal(
+    built.games.length,
+    0,
+    "Missouri S&T normalizes onto Missouri State's identity key, so without the " +
+      'provider classification this D-II row would be tracked as an FBS game'
+  );
+
+  // Control: the SAME wire row, with the provider calling both sides FBS, is kept.
+  // This proves the drop above is the classification decision and not some other
+  // filter rejecting the fixture.
+  const keptBuild = buildScheduleFromApi({
+    season: 2026,
+    teams: collidingTeams,
+    scheduleItems: [{ ...scheduleItem, homeClassification: 'fbs', awayClassification: 'fbs' }],
+    aliasMap: {},
+    conferenceRecords,
+  });
+  assert.equal(keptBuild.games.length, 1, 'fixture must be capable of producing a tracked game');
+});
+
+/**
+ * `OTHER` is overloaded: it is what a Division II/III conference record yields
+ * AND what an AMBIGUOUS conference match yields (conflicting candidate records,
+ * no usable classification). Only the former is evidence. Terminating on the
+ * latter drops real FBS games whose conference label happens to collide — which
+ * is exactly what the league-standings suite caught when this guard keyed on the
+ * subdivision alone instead of on the match SOURCE.
+ */
+const AMBIGUOUS_CONFERENCE_RECORDS: CfbdConferenceRecord[] = [
+  {
+    id: 900,
+    name: 'Independent Athletic Group',
+    shortName: 'IAG',
+    abbreviation: 'IAG',
+    classification: 'fbs',
+  },
+  {
+    id: 901,
+    name: 'Independent Athletic Group (Historical)',
+    shortName: 'IAG',
+    abbreviation: 'IAG',
+    classification: 'fcs',
+  },
+];
+
+test('an AMBIGUOUS conference must not terminate classification as non-FBS', () => {
+  setConferenceClassificationRecords(AMBIGUOUS_CONFERENCE_RECORDS);
+  try {
+    const resolver = eligibilityResolver();
+    const metadata = eligibilityMetadata();
+
+    // Positive control: this conference really does classify as OTHER/ambiguous,
+    // so the assertion below is exercising the branch it claims to.
+    const match = classifyConferenceForSubdivision('IAG');
+    assert.equal(match.subdivision, 'OTHER');
+    assert.equal(match.source, 'ambiguous');
+
+    // Georgia Southern is FBS in the catalog. An undecidable conference carries
+    // no classification information and must fall through to that catalog answer.
+    assert.equal(
+      classifyTeamSubdivision({
+        canonicalTeamName: 'Georgia Southern',
+        conference: 'IAG',
+        teamMetadataByCanonicalName: metadata,
+        resolver,
+      }),
+      'FBS'
+    );
+  } finally {
+    resetConferenceClassificationRecords();
+  }
+});
+
+test('an UNRECOGNIZED provider classification falls through to inference, not to OTHER', () => {
+  const resolver = eligibilityResolver();
+  const metadata = eligibilityMetadata();
+
+  // The static type is a compile-time fiction at this boundary: durable schedule
+  // rows are cast from app-state JSON unchecked, and `applyManualOverride`
+  // spreads an unvalidated Partial<AppGame>. A value outside CFBD's vocabulary
+  // must NOT be treated as authoritative — `providerClassificationToSubdivision`
+  // maps anything that is not fbs/fcs to OTHER, so trusting it blindly would
+  // silently drop a real FBS game.
+  for (const junk of ['FBS', 'Fbs', 'i', 'division-2', '', ' ']) {
+    assert.equal(
+      classifyTeamSubdivision({
+        canonicalTeamName: 'Georgia Southern',
+        conference: '',
+        teamMetadataByCanonicalName: metadata,
+        resolver,
+        providerClassification: junk as never,
+      }),
+      'FBS',
+      `unrecognized provider classification ${JSON.stringify(junk)} must fall through to the catalog`
+    );
+  }
+
+  // Control: a value INSIDE the vocabulary still short-circuits, so the loop
+  // above is proving validation and not merely that the branch never fires.
+  assert.equal(
+    classifyTeamSubdivision({
+      canonicalTeamName: 'Georgia Southern',
+      conference: '',
+      teamMetadataByCanonicalName: metadata,
+      resolver,
+      providerClassification: 'ii',
+    }),
+    'OTHER'
+  );
 });

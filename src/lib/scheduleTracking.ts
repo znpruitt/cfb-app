@@ -51,6 +51,7 @@ export function isTrackedGame(
         conference: game.homeConf,
         teamMetadataByCanonicalName,
         resolver,
+        providerClassification: game.homeClassification,
         diagnosticsContext: 'schedule:tracked',
         diagnosticsGameId: game.eventId,
       })
@@ -61,6 +62,7 @@ export function isTrackedGame(
         conference: game.awayConf,
         teamMetadataByCanonicalName,
         resolver,
+        providerClassification: game.awayClassification,
         diagnosticsContext: 'schedule:tracked',
         diagnosticsGameId: game.eventId,
       })
@@ -99,6 +101,7 @@ export function resolveRegularSeasonRow(params: {
     conference: item.homeConference ?? '',
     teamMetadataByCanonicalName,
     resolver,
+    providerClassification: item.homeClassification,
     diagnosticsContext: 'schedule:regular',
     diagnosticsGameId: String(item.id ?? ''),
   });
@@ -107,6 +110,7 @@ export function resolveRegularSeasonRow(params: {
     conference: item.awayConference ?? '',
     teamMetadataByCanonicalName,
     resolver,
+    providerClassification: item.awayClassification,
     diagnosticsContext: 'schedule:regular',
     diagnosticsGameId: String(item.id ?? ''),
   });
