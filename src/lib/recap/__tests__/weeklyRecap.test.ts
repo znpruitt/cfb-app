@@ -818,11 +818,17 @@ test('composer keeps overlapping tied-pair changes visible when the owner union 
       home: 'Texas',
       away: 'Miami',
     }),
-    game({ key: 'bob-carol-one', week: 1, home: 'Georgia', away: 'Miami' }),
     game({
-      key: 'bob-carol-two',
+      key: 'bob-carol-one',
       week: 2,
       date: '2026-09-13T00:00:00.000Z',
+      home: 'Georgia',
+      away: 'Miami',
+    }),
+    game({
+      key: 'bob-carol-two',
+      week: 3,
+      date: '2026-09-20T00:00:00.000Z',
       home: 'Georgia',
       away: 'Miami',
     }),
@@ -854,7 +860,9 @@ test('composer keeps overlapping tied-pair changes visible when the owner union 
   );
   assert.equal(rivalryLines.length, 2);
   assert.ok(rivalryLines.every((line) => /2 rivalries tied/.test(line.context)));
-  assert.ok(rivalryLines.every((line) => /Previous: .*3 rivalries tied/.test(line.context)));
+  assert.ok(rivalryLines.every((line) => /Bob over Carol joined/.test(line.context)));
+  assert.ok(rivalryLines.every((line) => /Alice over Bob dropped out/.test(line.context)));
+  assert.ok(rivalryLines.every((line) => /Previous: .*2 rivalries tied/.test(line.context)));
 });
 
 test('composer describes tied even-rivalry records as pairs rather than one owner set', () => {

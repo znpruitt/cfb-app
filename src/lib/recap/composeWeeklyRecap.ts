@@ -171,6 +171,42 @@ function sameRecordHolders(left: string[], right: string[]): boolean {
   return left.length === right.length && left.every((holder, index) => holder === right[index]);
 }
 
+function rivalryConstituentLabel(change: WeeklyRecordChange, key: string): string | null {
+  try {
+    const pair: unknown = JSON.parse(key);
+    if (
+      !Array.isArray(pair) ||
+      pair.length !== 2 ||
+      typeof pair[0] !== 'string' ||
+      typeof pair[1] !== 'string'
+    ) {
+      return null;
+    }
+    return change.id === 'even_rivalry' ? `${pair[0]} & ${pair[1]}` : `${pair[0]} over ${pair[1]}`;
+  } catch {
+    return null;
+  }
+}
+
+function rivalryConstituentDelta(change: WeeklyRecordChange): string | null {
+  if (!change.previous || !change.current) return null;
+  const previous = new Set(change.previous.constituentKeys ?? []);
+  const current = new Set(change.current.constituentKeys ?? []);
+  const joined = [...current]
+    .filter((key) => !previous.has(key))
+    .map((key) => rivalryConstituentLabel(change, key))
+    .filter((label): label is string => label !== null);
+  const dropped = [...previous]
+    .filter((key) => !current.has(key))
+    .map((key) => rivalryConstituentLabel(change, key))
+    .filter((label): label is string => label !== null);
+  const details = [
+    joined.length > 0 ? `${joined.join('; ')} joined` : null,
+    dropped.length > 0 ? `${dropped.join('; ')} dropped out` : null,
+  ].filter((detail): detail is string => detail !== null);
+  return details.length > 0 ? details.join(' · ') : null;
+}
+
 function composeRecordChangeLine(
   change: WeeklyRecordChange,
   weekLabel: string
@@ -219,12 +255,13 @@ function composeRecordChangeLine(
   const previousContext = previous
     ? `Previous: ${previous.formattedValue} · ${previousSubject}`
     : 'New league record';
+  const constituentDelta = rivalryConstituentDelta(change);
   return {
     kind: 'record-change',
     id: `record-${change.id}`,
     label,
     value: change.current.formattedValue,
-    context: `${holder} · Through ${weekLabel} · ${previousContext}`,
+    context: `${holder}${constituentDelta ? ` · ${constituentDelta}` : ''} · Through ${weekLabel} · ${previousContext}`,
   };
 }
 
