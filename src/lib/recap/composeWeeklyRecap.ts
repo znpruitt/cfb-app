@@ -3,6 +3,8 @@ import {
   isWeeklyRecapActiveSeason,
   selectWeeklyRecapLeaders,
   selectWeeklyRecapFacts,
+  type WeeklyOwnedGameResult,
+  type WeeklyOwnerResult,
 } from '../selectors/weeklyRecapFacts.ts';
 import { buildWeekLabelMap, formatWeekLabel } from '../weekLabel.ts';
 import type { WeeklyRecapContextResult } from './loadRecapContext.ts';
@@ -11,6 +13,21 @@ export type WeeklyRecapOwnerLine = {
   owner: string;
   recordLabel: string;
   pointsLabel: string;
+};
+
+export type WeeklyRecapLeaderLine = {
+  id: 'best-record' | 'high-score' | 'closest-game' | 'biggest-riser';
+  label: string;
+  value: string;
+  context: string;
+  tone?: 'positive';
+};
+
+export type WeeklyRecapMovementLine = {
+  owner: string;
+  direction: 'up' | 'down';
+  deltaLabel: string;
+  shiftLabel: string;
 };
 
 export type WeeklyRecapViewModel =
@@ -25,6 +42,9 @@ export type WeeklyRecapViewModel =
       headline: string | null;
       isIncomplete: boolean;
       ownerLines: WeeklyRecapOwnerLine[];
+      leaderLines: WeeklyRecapLeaderLine[];
+      tileLeaderLines: WeeklyRecapLeaderLine[];
+      movementLines: WeeklyRecapMovementLine[];
     };
 
 export type AvailableWeeklyRecapViewModel = Extract<WeeklyRecapViewModel, { status: 'available' }>;
@@ -77,6 +97,66 @@ function weeklyHeadline(facts: ReturnType<typeof selectWeeklyRecapFacts>): strin
   return `${count} owners share the week at ${record}`;
 }
 
+function ownerNames(results: WeeklyOwnerResult[]): string {
+  if (results.length === 1) return results[0]!.owner;
+  if (results.length === 2) return `${results[0]!.owner} & ${results[1]!.owner}`;
+  return `${results.length} owners tied`;
+}
+
+function gameResultContext(result: WeeklyOwnedGameResult): string {
+  const sameOwner = result.winnerOwner != null && result.winnerOwner === result.loserOwner;
+  const winner = sameOwner ? result.winnerTeam : (result.winnerOwner ?? result.winnerTeam);
+  const loser = sameOwner ? result.loserTeam : (result.loserOwner ?? result.loserTeam);
+  const margin = `${result.margin}-point margin`;
+  return `${winner} over ${loser} · ${margin}`;
+}
+
+function composeLeaderLines(
+  facts: NonNullable<ReturnType<typeof selectWeeklyRecapFacts>>
+): WeeklyRecapLeaderLine[] {
+  const lines: WeeklyRecapLeaderLine[] = [];
+  const firstResult = facts.ownerResults[0];
+  const recordLeaders = selectWeeklyRecapLeaders(facts.ownerResults);
+  const bestRecord = recordLeaders.length > 0 ? recordLeaders : firstResult ? [firstResult] : [];
+  if (firstResult && bestRecord.length > 0) {
+    lines.push({
+      id: 'best-record',
+      label: 'Best record',
+      value: `${firstResult.wins}–${firstResult.losses}`,
+      context:
+        bestRecord.length === 1
+          ? `${bestRecord[0]!.owner} · ${bestRecord[0]!.pointsFor} PF`
+          : ownerNames(bestRecord),
+    });
+  }
+
+  const highScores = facts.accolades.highScores;
+  const highScore = highScores[0];
+  if (highScore) {
+    lines.push({
+      id: 'high-score',
+      label: 'High score',
+      value: String(highScore.pointsFor),
+      context:
+        highScores.length === 1
+          ? `${highScore.owner} · ${highScore.wins}–${highScore.losses} on the week`
+          : ownerNames(highScores),
+    });
+  }
+
+  const closestGame = facts.accolades.closestGames[0];
+  if (closestGame) {
+    lines.push({
+      id: 'closest-game',
+      label: 'Closest game',
+      value: `${closestGame.winnerScore}–${closestGame.loserScore}`,
+      context: gameResultContext(closestGame),
+    });
+  }
+
+  return lines;
+}
+
 export function composeWeeklyRecap(
   contextResult: WeeklyRecapContextResult,
   now: Date,
@@ -107,6 +187,26 @@ export function composeWeeklyRecap(
   }));
   const isIncomplete =
     facts.unresolvedCount > 0 || facts.abandonedCount > 0 || facts.missingResultCount > 0;
+  const leaderLines = composeLeaderLines(facts);
+  const movementLines: WeeklyRecapMovementLine[] = facts.rankMovement.map((movement) => ({
+    owner: movement.owner,
+    direction: movement.rankDelta > 0 ? 'up' : 'down',
+    deltaLabel: `${movement.rankDelta > 0 ? '▲' : '▼'} ${Math.abs(movement.rankDelta)}`,
+    shiftLabel: `#${movement.previousRank} → #${movement.currentRank}`,
+  }));
+  const biggestRiser = facts.rankMovement.find((movement) => movement.rankDelta > 0);
+  const tileLeaderLines = biggestRiser
+    ? [
+        ...leaderLines,
+        {
+          id: 'biggest-riser' as const,
+          label: biggestRiser.owner,
+          value: `▲ ${biggestRiser.rankDelta}`,
+          context: `Biggest riser · #${biggestRiser.previousRank} → #${biggestRiser.currentRank}`,
+          tone: 'positive' as const,
+        },
+      ]
+    : leaderLines;
 
   return {
     status: 'available',
@@ -116,5 +216,8 @@ export function composeWeeklyRecap(
     headline: weeklyHeadline(facts) ?? (ownerLines.length > 0 ? `${weekLabel} results` : null),
     isIncomplete,
     ownerLines,
+    leaderLines,
+    tileLeaderLines,
+    movementLines,
   };
 }

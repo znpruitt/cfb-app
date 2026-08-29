@@ -3,7 +3,7 @@ import type {
   WeeklyRecapViewModel,
 } from '@/lib/recap/composeWeeklyRecap';
 
-import { RecapHeader, WeekRecordsGrid } from './RecapPrimitives';
+import { MovementList, RecapHeader, WeekLeadersStrip, WeekRecordsGrid } from './RecapPrimitives';
 
 export default function WeeklyRecapSection({
   recap,
@@ -49,17 +49,25 @@ export default function WeeklyRecapSection({
           No completed results were recorded for this week.
         </p>
       ) : (
-        <div className="mt-11">
-          <WeekRecordsGrid
-            headingId="weekly-recap-records-heading"
-            ownerLines={availableRecap.ownerLines}
-          />
+        <>
+          <WeekLeadersStrip lines={availableRecap.leaderLines} />
+          <div className="mt-9">
+            <WeekRecordsGrid
+              headingId="weekly-recap-records-heading"
+              ownerLines={availableRecap.ownerLines}
+            />
+          </div>
+          {availableRecap.movementLines.length > 0 ? (
+            <div className="mt-9 max-w-md">
+              <MovementList lines={availableRecap.movementLines} />
+            </div>
+          ) : null}
           {availableRecap.isIncomplete ? (
             <p className="mt-4 text-sm text-zinc-400">
               This recap reflects the completed results currently available.
             </p>
           ) : null}
-        </div>
+        </>
       )}
     </section>
   );

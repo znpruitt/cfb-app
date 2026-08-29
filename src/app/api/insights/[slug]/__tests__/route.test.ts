@@ -78,6 +78,11 @@ test('authenticated Insights response attaches the authoritative request-time re
     { owner: 'Alice', recordLabel: '1–0', pointsLabel: '31 PF · 17 PA' },
     { owner: 'Bob', recordLabel: '0–1', pointsLabel: '17 PF · 31 PA' },
   ]);
+  assert.deepEqual(
+    payload.weeklyRecap.leaderLines.map((line) => line.label),
+    ['Best record', 'High score', 'Closest game']
+  );
+  assert.deepEqual(payload.weeklyRecap.movementLines, []);
 });
 
 test('an omitted year resolves the league operating season rather than a stale projection', async () => {

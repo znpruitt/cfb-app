@@ -89,6 +89,10 @@ test('Insights page renders the request-time recap above the standing insight li
   assert.match(html, /Weekly recap/);
   assert.match(html, /Alice takes the week at 1–0/);
   assert.match(html, /Week records/);
+  assert.match(html, /Week leaders/);
+  assert.match(html, /Best record/);
+  assert.match(html, /High score/);
+  assert.match(html, /Closest game/);
   assert.match(html, /Alice/);
   assert.match(html, /31 PF · 17 PA/);
   assert.match(html, /1–0/);
@@ -96,6 +100,7 @@ test('Insights page renders the request-time recap above the standing insight li
     html.indexOf('Weekly recap') < html.indexOf('Alice'),
     'the recap heading must lead its result rows'
   );
+  assert.doesNotMatch(html, /Notable results|Head-to-head|Biggest blowout/);
 });
 
 test('Insights page renders the eligible week when it has no completed results', async () => {

@@ -85,6 +85,23 @@ function recapResponse(week: number, owner = `Owner ${week}`): Response {
         headline: `${owner} takes the week at 1–0`,
         isIncomplete: false,
         ownerLines: [{ owner, recordLabel: '1–0', pointsLabel: '31 PF · 17 PA' }],
+        leaderLines: [
+          {
+            id: 'best-record',
+            label: 'Best record',
+            value: '1–0',
+            context: `${owner} · 31 PF`,
+          },
+        ],
+        tileLeaderLines: [
+          {
+            id: 'best-record',
+            label: 'Best record',
+            value: '1–0',
+            context: `${owner} · 31 PF`,
+          },
+        ],
+        movementLines: [],
       },
     }),
     { status: 200, headers: { 'Content-Type': 'application/json' } }
