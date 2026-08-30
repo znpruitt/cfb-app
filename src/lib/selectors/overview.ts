@@ -317,24 +317,8 @@ export function prioritizeOverviewItems(params: {
 }): PrioritizedOverviewItem[] {
   const { items, highlightSignals, rankingsByTeamId, topOwnerNames } = params;
   const upsetWatchSet = new Set(highlightSignals.upsetWatchKeys);
-  const consumed = new Set<string>();
-  const ordered: OverviewGameItem[] = [];
-  const pushByKey = (key: string | null): void => {
-    if (!key || consumed.has(key)) return;
-    const match = items.find((item) => item.bucket.game.key === key);
-    if (!match) return;
-    consumed.add(key);
-    ordered.push(match);
-  };
 
-  pushByKey(highlightSignals.topMatchupKey);
-  highlightSignals.upsetWatchKeys.forEach((key) => pushByKey(key));
-  pushByKey(highlightSignals.rankedHighlightKey);
-  items.forEach((item) => {
-    if (!consumed.has(item.bucket.game.key)) ordered.push(item);
-  });
-
-  return ordered.map((item) => {
+  return items.map((item) => {
     const highlightTags = deriveGameHighlightTags({
       item,
       rankingsByTeamId,
@@ -366,6 +350,21 @@ export function prioritizeOverviewItems(params: {
             : null,
     };
   });
+}
+
+function compareWatchlistItems(a: OverviewGameItem, b: OverviewGameItem): number {
+  if (a.sortDate !== b.sortDate) return a.sortDate - b.sortDate;
+  if (a.priority !== b.priority) return b.priority - a.priority;
+  return a.bucket.game.key.localeCompare(b.bucket.game.key);
+}
+
+function compareRecentResultItems(a: OverviewGameItem, b: OverviewGameItem): number {
+  const aHasKickoff = Number.isFinite(a.sortDate);
+  const bHasKickoff = Number.isFinite(b.sortDate);
+  if (aHasKickoff !== bHasKickoff) return aHasKickoff ? -1 : 1;
+  if (aHasKickoff && a.sortDate !== b.sortDate) return b.sortDate - a.sortDate;
+  if (a.priority !== b.priority) return b.priority - a.priority;
+  return a.bucket.game.key.localeCompare(b.bucket.game.key);
 }
 
 export function deriveStandingsContextLabel(standingsLeaders: OwnerStandingsRow[]): string | null {
@@ -479,12 +478,15 @@ export function selectOverviewViewModel(params: {
   const previousStandings = resolvedMovement.previous;
   const topOwnerNames = new Set(standingsLeaders.slice(0, 3).map((row) => row.owner));
   const overviewMatchupCandidates = keyMatchups;
-  const featuredCandidates = overviewMatchupCandidates.filter(
-    (item) => gameStateFromScore(item.score) !== 'final'
-  );
-  const resultCandidates = overviewMatchupCandidates.filter(
-    (item) => gameStateFromScore(item.score) === 'final'
-  );
+  const featuredCandidates = overviewMatchupCandidates
+    .filter((item) => {
+      const gameState = gameStateFromScore(item.score);
+      return gameState !== 'final' && gameState !== 'inprogress';
+    })
+    .sort(compareWatchlistItems);
+  const resultCandidates = overviewMatchupCandidates
+    .filter((item) => gameStateFromScore(item.score) === 'final')
+    .sort(compareRecentResultItems);
   const highlightSignals = deriveOverviewHighlightSignals({
     keyMatchups: overviewMatchupCandidates,
     rankingsByTeamId,

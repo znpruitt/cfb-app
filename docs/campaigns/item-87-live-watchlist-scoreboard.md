@@ -8,7 +8,7 @@
 
 ## Problem
 
-Shipped Live and Upcoming watchlist cards state each matchup three times (title line, owner line, then again in a score sentence), leave the score unattributed to either side, and omit the owner→team mapping — "Whited vs Chamness" does not say who holds which team. Live games additionally render in **both** sections simultaneously: `selectors/overview.ts:483` filters `!== 'final'`, admitting `inprogress` by omission. Incidental, not intentional; Item 82 already records it as a defect.
+Shipped Live and Upcoming watchlist cards state each matchup three times (title line, owner line, then again in a score sentence), leave the score unattributed to either side, and omit the owner→team mapping — "Whited vs Chamness" does not say who holds which team. POLISH-015 removed the interim Live/watchlist duplication and made the watchlist chronological; Item 87 still replaces the separate renderers with one scoreboard and a structural promotion model.
 
 ---
 
@@ -150,10 +150,9 @@ Four bodies of work surfaced during this design that are **not** Item 87's surfa
 **Acceptance boundary — do not break the `selectFresh…` contract.** Freshness is that function's advertised behaviour; making it return stale data silently misleads every other caller. Add a sibling (`selectOwnerPendingDelta`, last-known) that the badge consumes behind the game-state gate, and leave the original intact. Two accessors with honest names beat one that no longer means what it says.
 **Why separate:** derivation logic in one component, different risk profile and test surface from a colour sweep. Should not ride along with A.
 
-### C → already Item 82. Overview watchlist/live duplication
+### C → delivered by POLISH-015. Overview watchlist/live duplication
 
-**Scope:** `selectors/overview.ts:483` filters `!== 'final'`, admitting `inprogress` by omission, so live games render in both the watchlist and the Live section. Already recorded as a defect in Item 82.
-**Do not file a new item — cite Item 82.** Its promotion-model fix in Item 87 as a consequence of the redesign. Either close Item 82 against Item 87, or fix it standalone if Item 87 is deferred — but do not fix it twice.
+**Delivered:** the interim selector excludes in-progress games from the watchlist and pins that boundary with regression coverage. Item 87 supersedes the predicate with a structural promotion model; do not reimplement the interim fix as a separate slice.
 
 ### D → Item 92. CFBD team-records integration
 
@@ -200,13 +199,13 @@ Ordered so colour settles once rather than shipping neutral live and flipping it
 
 | Order | Item | Why |
 |---|---|---|
-| 1 | **82** | In-season one-line predicate fix for a duplication members are seeing now. Do not wait on a design campaign to fix a live bug. Item 87 later supersedes it. |
-| 2 | **87 slices 1–2** | Defines the shared scoreboard component. |
-| 3 | **Item 42 wiring pass** (except notable results) | Unblocked — all four fact families shipped. Runs **in parallel** with 87; no dependency. |
-| 4 | **91** | Standings derivation — unblocks pill removal. |
-| 5 | **90** | Amber sweep, incl. pill removal and the `final` re-cut elsewhere. |
-| 6 | **92** → **87 slice 4** | Records integration, then the watchlist anchor. |
-| 7 | **017-PALETTE** | Reason and category hues. |
+| Done | **POLISH-015** | Interim duplication, chronological ordering, and empty-copy correction completed on the feature branch; Item 87 supersedes the implementation. |
+| 1 | **87 slices 1–2** | Defines the shared scoreboard component. |
+| 2 | **Item 42 wiring pass** (except notable results) | Unblocked — all four fact families shipped. Runs **in parallel** with 87; no dependency. |
+| 3 | **91** | Standings derivation — unblocks pill removal. |
+| 4 | **90** | Amber sweep, incl. pill removal and the `final` re-cut elsewhere. |
+| 5 | **92** → **87 slice 4** | Records integration, then the watchlist anchor. |
+| 6 | **017-PALETTE** | Reason and category hues. |
 
 **Genuine blockers — only three:** Item 91 → pill removal; Item 87's component → notable-results scoreboards; Item 92 → watchlist anchor. Everything else is preference. Items 87 and 90 are independent.
 
@@ -273,7 +272,7 @@ Green ships in at least **six** distinct meanings. The sharpest proof is a singl
 
 The tile states the reason with substance ("Whited leads Chamness 44–25"), not a bare label: a game earns promotion out of the weekly slate only if the reason is worth reading. **Capped at three** — at five it is another list with a nicer name, and the fourth competing list this campaign exists to remove. Games that do not make the cut still carry their notoriety tags in the watchlist, so nothing is hidden by the cap.
 
-**This retires the third `stateBadgeClasses` call site.** Converting Featured to the scoreboard component covers `:931` alongside `:746` and `:843`, so Overview carries no green-final and the sequencing question below resolves cleanly. Item 82(b) retains ownership of Featured's *selection and labelling*; Item 87 owns only how its rows render.
+**This retires the third `stateBadgeClasses` call site.** Converting Featured to the scoreboard component covers `:931` alongside `:746` and `:843`, so Overview carries no green-final and the sequencing question below resolves cleanly. The insights work retains ownership of Featured's *selection and labelling*; Item 87 owns only how its rows render.
 
 **Featured — what belongs in Item 87 and what does not.**
 

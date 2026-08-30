@@ -1108,7 +1108,7 @@ test('overview panel shows explicit empty states for featured and results when n
   // own empty-state hint instead.
   assert.match(html, /Add owners to populate standings\./);
   assert.doesNotMatch(html, /Open insight/);
-  assert.match(html, /No recent results yet—completed games will appear here\./);
+  assert.match(html, /No recent results yet\./);
 });
 
 test('overview panel keeps featured matchups hidden when none are meaningful for current phase', () => {

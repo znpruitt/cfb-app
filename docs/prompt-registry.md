@@ -51,6 +51,22 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### POLISH-015-OVERVIEW-GAMES-REGION-v1
+
+- Purpose: correct three visible Overview games-region defects during the active season without
+  restructuring a surface that Item 87 will replace.
+- Scope: watchlist/live state exclusion, chronological watchlist ordering with quality retained as
+  labels, current-condition empty copy, and focused selector/component coverage. Section names,
+  section order, and the future scoreboard/promotion model remain unchanged.
+- Outcome: in-progress games no longer enter the watchlist; scheduled games sort by kickoff, then
+  same-kickoff ownership priority, then stable game key; recent dated finals remain newest-first with
+  undated finals last; and the empty state now reads `No recent results yet.`
+- Review / verification: code commit `679f559a` passed TypeScript, lint, and the 4,442-test suite
+  during confirmation review. Independent Codex and Claude reviews ran against that same commit;
+  two remediation rounds moved ordering to the display seam and kept non-finite result dates out of
+  bounded recent slots. Mutation checks pin the predicate, both ordering seams, and the copy.
+- Status: Implemented on feature branch; not yet merged.
+
 ### INSIGHTS-026f-RECAP-FINAL-WIRING-v1
 
 - Purpose: complete the request-time weekly recap by wiring every finished fact family into the
