@@ -66,6 +66,12 @@ const CFBD_RETRY_POLICY = {
   jitterRatio: 0.2,
   retryOnHttpStatuses: [408, 425, 429, 500, 502, 503, 504],
 } as const;
+// The authorized manual refresh deliberately keeps its shorter per-attempt
+// ceiling. Unlike the cron paths it retries timeouts up to three times; adopting
+// the cron's 40s ceiling unchanged would permit roughly 120s and three billed
+// calls. PLATFORM-115 changes the automated paths only and preserves this
+// existing manual recovery/spend tradeoff.
+const CFBD_MANUAL_REQUEST_TIMEOUT_MS = 12_000;
 const CFBD_PACING_POLICY = {
   key: 'cfbd',
   minIntervalMs: 150,
@@ -409,7 +415,7 @@ async function refreshScorePartition(params: {
 
     const rawGames = await fetchUpstreamJson<CfbdGameLoose[]>(cfbdUrl.toString(), {
       cache: 'no-store',
-      timeoutMs: 12_000,
+      timeoutMs: CFBD_MANUAL_REQUEST_TIMEOUT_MS,
       headers: { Authorization: `Bearer ${cfbdApiKey}` },
       retry: CFBD_RETRY_POLICY,
       pacing: CFBD_PACING_POLICY,

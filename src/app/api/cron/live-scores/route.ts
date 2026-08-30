@@ -67,6 +67,13 @@ const RETRY_POLICY = {
   retryOnHttpStatuses: [],
 } as const;
 
+// PLATFORM-115: opening-slate CFBD latency was measured in the 8-25s band,
+// with one request still running beyond 30s. Forty seconds clears that band
+// and the observed outlier while remaining well inside the three-minute poll
+// cadence. RETRY_POLICY stays at one attempt, so the billed-call ceiling does
+// not change.
+const CFBD_REQUEST_TIMEOUT_MS = 40_000;
+
 const PACING_POLICY = { key: 'cfbd', minIntervalMs: 150 } as const;
 
 /** Reasons whose HTTP status is 500 (provider/durable/payload faults). */
@@ -318,7 +325,7 @@ async function runScoreboard(args: {
     const url = buildCfbdScoreboardUrl({ classification: 'fbs' });
     payload = await fetchUpstreamJson<unknown>(url.toString(), {
       cache: 'no-store',
-      timeoutMs: 12_000,
+      timeoutMs: CFBD_REQUEST_TIMEOUT_MS,
       headers: { Authorization: `Bearer ${cfbdApiKey}` },
       retry: RETRY_POLICY,
       pacing: PACING_POLICY,
@@ -490,7 +497,7 @@ async function runFinalReconciliation(args: {
     const url = buildCfbdGamesUrl({ year, seasonType: partition.seasonType, week: partition.week });
     payload = await fetchUpstreamJson<unknown>(url.toString(), {
       cache: 'no-store',
-      timeoutMs: 12_000,
+      timeoutMs: CFBD_REQUEST_TIMEOUT_MS,
       headers: { Authorization: `Bearer ${cfbdApiKey}` },
       retry: RETRY_POLICY,
       pacing: PACING_POLICY,
