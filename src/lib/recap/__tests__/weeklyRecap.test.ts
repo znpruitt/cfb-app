@@ -639,7 +639,10 @@ test('composer labels broad record ties without claiming the record vanished', (
   );
   assert.equal(highScore?.value, 'Broad tie');
   assert.doesNotMatch(highScore?.value ?? '', /No longer current/);
-  assert.match(highScore?.context ?? '', /Previous: .*Alice/);
+  assert.equal(
+    highScore?.context,
+    '50 pts (2026 Wk 2) · Through Week 2 · Previous: 50 pts (2026 Wk 1) · Alice'
+  );
 });
 
 test('composer names the directed rivalry when a prior record is no longer current', () => {
@@ -791,7 +794,19 @@ test('composer names a suppressed broad tie instead of claiming the surviving pa
     (line) => line.id === 'record-lopsided_rivalry' || line.id === 'record-dominance_streak'
   );
   assert.equal(rivalryLines.length, 2);
-  assert.ok(rivalryLines.every((line) => /Previous: .*Broad tie/.test(line.context)));
+  assert.deepEqual(
+    rivalryLines.map(({ id, context }) => ({ id, context })),
+    [
+      {
+        id: 'record-lopsided_rivalry',
+        context: 'Alice over Bob · Through Week 3 · Previous: 2-game lead · Broad tie',
+      },
+      {
+        id: 'record-dominance_streak',
+        context: 'Alice over Bob · Through Week 3 · Previous: 2 straight · Broad tie',
+      },
+    ]
+  );
   assert.ok(rivalryLines.every((line) => !/New league record/.test(line.context)));
 });
 

@@ -359,8 +359,8 @@ test('tied even-rivalry projection formats both zero and nonzero gaps invariantl
 
   assert.equal(split?.current?.formattedValue, 'Even after 2 games');
   assert.equal(oneGameGap?.current?.formattedValue, '1-game gap after 3 games');
-  assert.equal(split?.current?.constituentKeys?.length, 2);
-  assert.equal(oneGameGap?.current?.constituentKeys?.length, 2);
+  assert.deepEqual(split?.current?.constituentKeys, ['["Alice","Bob"]', '["Carol","Dan"]']);
+  assert.deepEqual(oneGameGap?.current?.constituentKeys, ['["Alice","Bob"]', '["Carol","Dan"]']);
 });
 
 test('record diff compares rivalry constituents when tied pairs share the same owner union', () => {
