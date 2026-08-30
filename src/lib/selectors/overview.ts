@@ -317,24 +317,8 @@ export function prioritizeOverviewItems(params: {
 }): PrioritizedOverviewItem[] {
   const { items, highlightSignals, rankingsByTeamId, topOwnerNames } = params;
   const upsetWatchSet = new Set(highlightSignals.upsetWatchKeys);
-  const consumed = new Set<string>();
-  const ordered: OverviewGameItem[] = [];
-  const pushByKey = (key: string | null): void => {
-    if (!key || consumed.has(key)) return;
-    const match = items.find((item) => item.bucket.game.key === key);
-    if (!match) return;
-    consumed.add(key);
-    ordered.push(match);
-  };
 
-  pushByKey(highlightSignals.topMatchupKey);
-  highlightSignals.upsetWatchKeys.forEach((key) => pushByKey(key));
-  pushByKey(highlightSignals.rankedHighlightKey);
-  items.forEach((item) => {
-    if (!consumed.has(item.bucket.game.key)) ordered.push(item);
-  });
-
-  return ordered.map((item) => {
+  return items.map((item) => {
     const highlightTags = deriveGameHighlightTags({
       item,
       rankingsByTeamId,
@@ -479,9 +463,10 @@ export function selectOverviewViewModel(params: {
   const previousStandings = resolvedMovement.previous;
   const topOwnerNames = new Set(standingsLeaders.slice(0, 3).map((row) => row.owner));
   const overviewMatchupCandidates = keyMatchups;
-  const featuredCandidates = overviewMatchupCandidates.filter(
-    (item) => gameStateFromScore(item.score) !== 'final'
-  );
+  const featuredCandidates = overviewMatchupCandidates.filter((item) => {
+    const gameState = gameStateFromScore(item.score);
+    return gameState !== 'final' && gameState !== 'inprogress';
+  });
   const resultCandidates = overviewMatchupCandidates.filter(
     (item) => gameStateFromScore(item.score) === 'final'
   );

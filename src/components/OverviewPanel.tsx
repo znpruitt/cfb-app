@@ -1727,7 +1727,7 @@ export default function OverviewPanel({
         <div className="mt-2.5">
           <FeaturedGamesList
             prioritizedItems={viewModel.recentResults}
-            emptyMessage="No recent results yet—completed games will appear here."
+            emptyMessage="No recent results yet."
             timeZone={timeZone}
             rankingsByTeamId={rankingsByTeamId}
           />

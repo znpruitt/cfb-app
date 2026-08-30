@@ -62,10 +62,10 @@ function game(overrides: Partial<AppGame>): AppGame {
   };
 }
 
-function item(key: string): OverviewGameItem {
+function item(key: string, date = '2026-09-01T17:00:00.000Z'): OverviewGameItem {
   return {
     bucket: {
-      game: game({ key }),
+      game: game({ key, date }),
       awayOwner: 'Alex',
       homeOwner: 'Blake',
       awayIsLeagueTeam: true,
@@ -73,7 +73,7 @@ function item(key: string): OverviewGameItem {
     },
     score: undefined,
     priority: 2,
-    sortDate: 0,
+    sortDate: Date.parse(date),
   };
 }
 
@@ -99,26 +99,30 @@ function historyFromSnapshots(
   };
 }
 
-test('prioritizeOverviewItems keeps highlight order and avoids duplicate labels', () => {
-  const items = [item('fallback'), item('top'), item('upset')];
+test('prioritizeOverviewItems preserves chronological order while retaining quality labels', () => {
+  const items = [
+    item('earlier-upset', '2026-09-01T17:00:00.000Z'),
+    item('middle-ranked', '2026-09-01T18:00:00.000Z'),
+    item('later-top', '2026-09-06T17:00:00.000Z'),
+  ];
   const ordered = prioritizeOverviewItems({
     items,
     highlightSignals: {
-      topMatchupKey: 'top',
-      upsetWatchKeys: ['top', 'upset'],
-      rankedHighlightKey: 'fallback',
+      topMatchupKey: 'later-top',
+      upsetWatchKeys: ['earlier-upset'],
+      rankedHighlightKey: 'middle-ranked',
     },
     rankingsByTeamId: new Map(),
-    topOwnerNames: new Set(['Alex', 'Blake']),
+    topOwnerNames: new Set(),
   });
 
   assert.deepEqual(
     ordered.map((entry) => entry.item.bucket.game.key),
-    ['top', 'upset', 'fallback']
+    ['earlier-upset', 'middle-ranked', 'later-top']
   );
   assert.equal(ordered[0]?.highlightLabel, 'Upset watch');
-  assert.equal(ordered[1]?.highlightLabel, 'Upset watch');
-  assert.ok(Array.isArray(ordered[0]?.highlightTags));
+  assert.equal(ordered[1]?.highlightLabel, 'Ranked spotlight');
+  assert.equal(ordered[2]?.highlightLabel, 'Top matchup');
 });
 
 test('deriveLeagueSummaryViewModel reports complete season champion copy', () => {
@@ -962,6 +966,53 @@ test('selectOverviewViewModel keeps a final-only slate outside the upcoming watc
   });
 
   assert.equal(model.shouldShowFeaturedMatchups, false);
+});
+
+test('selectOverviewViewModel never places an in-progress game in both the watchlist and Live', () => {
+  const live = {
+    ...item('live-game'),
+    score: {
+      status: 'Q2 0:00',
+      time: '0:00',
+      away: { team: 'Away', score: 14 },
+      home: { team: 'Home', score: 10 },
+    },
+  };
+  const scheduled = {
+    ...item('scheduled-game'),
+    score: {
+      status: 'Scheduled',
+      time: null,
+      away: { team: 'Away', score: null },
+      home: { team: 'Home', score: null },
+    },
+  };
+  const liveItems = [live];
+  const model = selectOverviewViewModel({
+    standingsLeaders: [],
+    standingsCoverage: { state: 'partial', message: null },
+    context: {
+      scopeLabel: 'League',
+      scopeDetail: 'Week 1',
+      emphasis: 'upcoming',
+      highlightsTitle: '',
+      highlightsDescription: '',
+      liveDescription: '',
+      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+    },
+    liveItems,
+    keyMatchups: [scheduled, live],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map(),
+  });
+  const liveKeys = new Set(liveItems.map((entry) => entry.bucket.game.key));
+  const watchlistKeys = model.featuredMatchups.map((entry) => entry.item.bucket.game.key);
+
+  assert.deepEqual(watchlistKeys, ['scheduled-game']);
+  assert.deepEqual(
+    watchlistKeys.filter((key) => liveKeys.has(key)),
+    []
+  );
 });
 
 test('selectOverviewViewModel keeps an empty slate hidden regardless of noisy matrix data', () => {
