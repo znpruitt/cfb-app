@@ -334,12 +334,12 @@ test('tied even-rivalry projection formats both zero and nonzero gaps invariantl
     archives: [],
     historicalRosters: {},
     seasonYear: 2026,
-    targetWeek: 2,
+    targetWeek: 4,
     participations: [
-      ...ownedMatchup('Alice', 'Bob', 1),
-      ...ownedMatchup('Bob', 'Alice', 2),
       ...ownedMatchup('Carol', 'Dan', 1),
       ...ownedMatchup('Dan', 'Carol', 2),
+      ...ownedMatchup('Alice', 'Bob', 3),
+      ...ownedMatchup('Bob', 'Alice', 4),
     ],
   }).find((entry) => entry.id === 'even_rivalry');
   const oneGameGap = selectWeeklyRecordChanges({
