@@ -352,6 +352,18 @@ export function prioritizeOverviewItems(params: {
   });
 }
 
+function compareWatchlistItems(a: OverviewGameItem, b: OverviewGameItem): number {
+  if (a.sortDate !== b.sortDate) return a.sortDate - b.sortDate;
+  if (a.priority !== b.priority) return b.priority - a.priority;
+  return a.bucket.game.key.localeCompare(b.bucket.game.key);
+}
+
+function compareRecentResultItems(a: OverviewGameItem, b: OverviewGameItem): number {
+  if (a.sortDate !== b.sortDate) return b.sortDate - a.sortDate;
+  if (a.priority !== b.priority) return b.priority - a.priority;
+  return a.bucket.game.key.localeCompare(b.bucket.game.key);
+}
+
 export function deriveStandingsContextLabel(standingsLeaders: OwnerStandingsRow[]): string | null {
   if (standingsLeaders.length < 2) return null;
   const leader = standingsLeaders[0];
@@ -463,13 +475,15 @@ export function selectOverviewViewModel(params: {
   const previousStandings = resolvedMovement.previous;
   const topOwnerNames = new Set(standingsLeaders.slice(0, 3).map((row) => row.owner));
   const overviewMatchupCandidates = keyMatchups;
-  const featuredCandidates = overviewMatchupCandidates.filter((item) => {
-    const gameState = gameStateFromScore(item.score);
-    return gameState !== 'final' && gameState !== 'inprogress';
-  });
-  const resultCandidates = overviewMatchupCandidates.filter(
-    (item) => gameStateFromScore(item.score) === 'final'
-  );
+  const featuredCandidates = overviewMatchupCandidates
+    .filter((item) => {
+      const gameState = gameStateFromScore(item.score);
+      return gameState !== 'final' && gameState !== 'inprogress';
+    })
+    .sort(compareWatchlistItems);
+  const resultCandidates = overviewMatchupCandidates
+    .filter((item) => gameStateFromScore(item.score) === 'final')
+    .sort(compareRecentResultItems);
   const highlightSignals = deriveOverviewHighlightSignals({
     keyMatchups: overviewMatchupCandidates,
     rankingsByTeamId,

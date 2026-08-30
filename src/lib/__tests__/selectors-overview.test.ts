@@ -62,10 +62,14 @@ function game(overrides: Partial<AppGame>): AppGame {
   };
 }
 
-function item(key: string, date = '2026-09-01T17:00:00.000Z'): OverviewGameItem {
+function item(
+  key: string,
+  date = '2026-09-01T17:00:00.000Z',
+  gameOverrides: Partial<AppGame> = {}
+): OverviewGameItem {
   return {
     bucket: {
-      game: game({ key, date }),
+      game: game({ ...gameOverrides, key, date }),
       awayOwner: 'Alex',
       homeOwner: 'Blake',
       awayIsLeagueTeam: true,
@@ -99,9 +103,9 @@ function historyFromSnapshots(
   };
 }
 
-test('prioritizeOverviewItems preserves chronological order while retaining quality labels', () => {
+test('prioritizeOverviewItems retains quality labels without changing caller-provided order', () => {
   const items = [
-    item('earlier-upset', '2026-09-01T17:00:00.000Z'),
+    item('earlier', '2026-09-01T17:00:00.000Z'),
     item('middle-ranked', '2026-09-01T18:00:00.000Z'),
     item('later-top', '2026-09-06T17:00:00.000Z'),
   ];
@@ -109,7 +113,7 @@ test('prioritizeOverviewItems preserves chronological order while retaining qual
     items,
     highlightSignals: {
       topMatchupKey: 'later-top',
-      upsetWatchKeys: ['earlier-upset'],
+      upsetWatchKeys: [],
       rankedHighlightKey: 'middle-ranked',
     },
     rankingsByTeamId: new Map(),
@@ -118,11 +122,129 @@ test('prioritizeOverviewItems preserves chronological order while retaining qual
 
   assert.deepEqual(
     ordered.map((entry) => entry.item.bucket.game.key),
-    ['earlier-upset', 'middle-ranked', 'later-top']
+    ['earlier', 'middle-ranked', 'later-top']
   );
-  assert.equal(ordered[0]?.highlightLabel, 'Upset watch');
+  assert.equal(ordered[0]?.highlightLabel, null);
   assert.equal(ordered[1]?.highlightLabel, 'Ranked spotlight');
   assert.equal(ordered[2]?.highlightLabel, 'Top matchup');
+});
+
+test('selectOverviewViewModel orders the watchlist by kickoff, ownership tie, then game key', () => {
+  const earlierBase = item('earlier-single', '2026-09-01T17:00:00.000Z');
+  const earlierSingle = {
+    ...earlierBase,
+    bucket: { ...earlierBase.bucket, homeOwner: undefined },
+    priority: 1,
+  };
+  const tiedOwned = item('tied-owned', '2026-09-01T18:00:00.000Z');
+  const tiedSingleZBase = item('tied-single-z', '2026-09-01T18:00:00.000Z');
+  const tiedSingleZ = {
+    ...tiedSingleZBase,
+    bucket: { ...tiedSingleZBase.bucket, homeOwner: undefined },
+    priority: 1,
+  };
+  const tiedSingleABase = item('tied-single-a', '2026-09-01T18:00:00.000Z');
+  const tiedSingleA = {
+    ...tiedSingleABase,
+    bucket: { ...tiedSingleABase.bucket, homeOwner: undefined },
+    priority: 1,
+  };
+  const laterTop = item('later-top', '2026-09-06T17:00:00.000Z', {
+    participants: {
+      away: {
+        kind: 'team',
+        teamId: 'later-away-id',
+        displayName: 'Later Away',
+        canonicalName: 'Later Away',
+        rawName: 'Later Away',
+      },
+      home: {
+        kind: 'team',
+        teamId: 'later-home-id',
+        displayName: 'Later Home',
+        canonicalName: 'Later Home',
+        rawName: 'Later Home',
+      },
+    },
+  });
+  const model = selectOverviewViewModel({
+    standingsLeaders: [],
+    standingsCoverage: { state: 'partial', message: null },
+    context: {
+      scopeLabel: 'League',
+      scopeDetail: 'Weeks 0–1',
+      emphasis: 'upcoming',
+      highlightsTitle: '',
+      highlightsDescription: '',
+      liveDescription: '',
+      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+    },
+    liveItems: [],
+    // This is the real producer shape: owned-vs-owned games precede single-owned games.
+    keyMatchups: [tiedOwned, laterTop, tiedSingleZ, earlierSingle, tiedSingleA],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map([
+      ['later-away-id', { rank: 4, rankSource: 'ap' as const }],
+      ['later-home-id', { rank: 9, rankSource: 'ap' as const }],
+    ]),
+    featuredLimit: 5,
+  });
+
+  assert.deepEqual(
+    model.featuredMatchups.map((entry) => entry.item.bucket.game.key),
+    ['earlier-single', 'tied-owned', 'tied-single-a', 'tied-single-z', 'later-top']
+  );
+  assert.equal(
+    model.featuredMatchups.find((entry) => entry.item.bucket.game.key === 'later-top')
+      ?.highlightLabel,
+    'Top matchup'
+  );
+});
+
+test('selectOverviewViewModel keeps recent results newest-first during an active slate', () => {
+  const older = {
+    ...item('older-final', '2026-09-01T17:00:00.000Z'),
+    score: {
+      status: 'Final',
+      time: null,
+      away: { team: 'Away', score: 24 },
+      home: { team: 'Home', score: 17 },
+    },
+  };
+  const newerBase = item('newer-final', '2026-09-01T20:00:00.000Z');
+  const newer = {
+    ...newerBase,
+    bucket: { ...newerBase.bucket, homeOwner: undefined },
+    priority: 1,
+    score: {
+      status: 'Final',
+      time: null,
+      away: { team: 'Away', score: 31 },
+      home: { team: 'Home', score: 20 },
+    },
+  };
+  const model = selectOverviewViewModel({
+    standingsLeaders: [],
+    standingsCoverage: { state: 'partial', message: null },
+    context: {
+      scopeLabel: 'League',
+      scopeDetail: 'Week 1',
+      emphasis: 'live',
+      highlightsTitle: '',
+      highlightsDescription: '',
+      liveDescription: '',
+      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+    },
+    liveItems: [],
+    keyMatchups: [older, newer],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.deepEqual(
+    model.recentResults.map((entry) => entry.item.bucket.game.key),
+    ['newer-final', 'older-final']
+  );
 });
 
 test('deriveLeagueSummaryViewModel reports complete season champion copy', () => {
