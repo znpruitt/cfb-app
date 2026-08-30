@@ -202,6 +202,17 @@
             </div>
             <div class="scoreboard">
               <div class="sb-tag"><span class="tag tag-blowout">Blowout</span>35-point margin</div>
+              <div class="sb-line loser"><span class="who"><span class="team">Alabama</span><span class="owner">Owner N</span></span><span class="score num">3</span></div>
+              <div class="sb-line winner"><span class="who"><span class="team">Indiana</span><span class="owner">Owner J</span></span><span class="score num">38</span></div>
+            </div>
+            <div class="scoreboard">
+              <div class="sb-tag"><span class="tag tag-nailbiter">Nailbiter</span>2-point margin</div>
+              <div class="sb-line winner"><span class="who"><span class="team">Illinois</span><span class="owner">Owner H</span></span><span class="score num">30</span></div>
+              <div class="sb-line loser"><span class="who"><span class="team">Tennessee</span><span class="owner">Owner L</span></span><span class="score num">28</span></div>
+            </div>
+          </div>
+            <div class="scoreboard">
+              <div class="sb-tag"><span class="tag tag-blowout">Blowout</span>35-point margin</div>
               <div class="sb-line winner"><span class="who"><span class="team">Indiana</span><span class="owner">Owner J</span></span><span class="score num">38</span></div>
               <div class="sb-line loser"><span class="who"><span class="team">Alabama</span><span class="owner">Owner N</span></span><span class="score num">3</span></div>
             </div>
@@ -249,7 +260,7 @@
     <ul>
       <li><strong>Decided &mdash; Overview zone:</strong> full-width tile above the podium accepted; DESIGN.md amendment to document the elevated timely-content zone (draft banner + recap tile). Podium displacement is bounded by the visibility window.</li>
       <li><strong>Tag color &mdash; final assignment folds into INSIGHTS-017-PALETTE:</strong> the rendered registry is 8 categories over 5 distinct dark hexes with two collisions already queued for rationalization (HISTORICAL/STANDINGS/SEASON share #AFA9EC; STATS/LEAGUE/fallback share #B4B2A9), and CAREER's #5DCAA5 is allocated but unreachable from the insights path. Assigning tag hues against a palette flagged for rework would be building on sand &mdash; instead, 017's scope expands to cover the three game-tag families alongside the insight categories, rationalized as one palette. Sequencing: 017 lands before (or with) the recap enrichment stage; enrichment consumes its tokens. The hues in this mockup (fuchsia/lime/teal) are visual placeholders only. Caution for 017: reclaiming #5DCAA5 sits near delta green #4ade80.</li>
-      <li><strong>Notable results are mini scoreboards</strong> (replacing sentence rows): a tag eyebrow with the qualifying stat, then winner and loser lines &mdash; team primary, owner as tertiary suffix, score right-anchored, winner weighted, loser dimmed. The layout replaces the "over" sentence, disambiguates repeat meetings, and aligns scores for scanning. This is a new micro-component for CLI blessing alongside the compact row; each line keeps the right-edge-anchor rule. Full recap renders them in a two-column grid; the tile stacks the top three.</li>
+      <li><strong>Notable results are mini scoreboards:</strong> a tag eyebrow with the qualifying stat, then two team lines &mdash; team primary, owner as tertiary suffix, score right-anchored. <strong>Row order is always away &rarr; home</strong> (CFB convention), never winner-first; ordering and emphasis are separable, so the winner carries the weight and the loser dims regardless of which line they occupy. Unowned opponents render team-only. The layout replaces the "over" sentence, disambiguates repeat meetings, and reserves the line-start logo slot. Shared micro-component with the live/watchlist scoreboard.</li>
       <li><strong>Staged rollout:</strong> this mockup is the layout target. Stage mapping &mdash; layout stage: recap structure, tile + expand-in-place, headline + week records (slice-1 data), sections absent (not placeholdered) until their data slice lands. Wiring stage: leaders, movement, odds-based upsets from existing derivations. Enrichment stage: notable tagging via gameTags.ts extension, threshold constants (BLOWOUT_MARGIN 30, NAILBITER_MARGIN 3, SHOOTOUT_COMBINED 85 &mdash; approved), tag color tokens, headline dek richness.</li>
       <li><strong>Week records line 2 is PF &middot; PA (win% considered and rejected):</strong> weekly win% is derived directly from the W&ndash;L on line 1, failing DESIGN.md's rule that line-2 metadata be at least as informative as the primary value; and "Win% &middot; Diff" is season-standings vocabulary, inviting a weekly .857 to be read as a season figure. PF &middot; PA is genuinely new information at that position. Comparability across unequal game counts is carried by the comparator-sorted order itself.</li>
       <li><strong>Zero-results state preserved, restyled:</strong> an eligible week with no completed results keeps the shipped state as a single secondary-text line under the recap header ("No completed results were recorded for this week.") &mdash; factual, past-tense, no counters, no promise.</li>
@@ -277,14 +288,15 @@
     ["Owner I","up","2","#5 \u2192 #3"],["Owner A","up","2","#9 \u2192 #7"],
     ["Owner K","down","2","#3 \u2192 #5"],["Owner H","down","1","#7 \u2192 #8"],["Owner L","down","1","#8 \u2192 #9"]
   ];
+  // [cls, label, detail, awayTeam, awayOwner, awayScore, homeTeam, homeOwner, homeScore, winner]
   const NOTABLES = [
-    ["upset","Upset","Won as +9.5 underdog","Owner E","Washington",38,"Owner J","Boise State",10],
-    ["blowout","Blowout","37-point margin","Owner H","UTSA",57,"Owner I","Florida International",20],
-    ["blowout","Blowout","35-point margin","Owner J","Indiana",38,"Owner N","Alabama",3],
-    ["blowout","Blowout","39-point margin","Owner A","Penn State",45,"","Purdue",6],
-    ["shutout","Shutout","Zero points allowed","Owner I","Oregon",23,"Owner K","Texas Tech",0],
-    ["shootout","Shootout","85 combined points","Owner I","Oregon",51,"Owner H","James Madison",34],
-    ["nailbiter","Nailbiter","2-point margin","Owner H","Illinois",30,"Owner L","Tennessee",28]
+    ["upset","Upset","Won as +9.5 underdog","Washington","Owner E",38,"Boise State","Owner J",10,"away"],
+    ["blowout","Blowout","37-point margin","UTSA","Owner H",57,"Florida International","Owner I",20,"away"],
+    ["blowout","Blowout","35-point margin","Alabama","Owner N",3,"Indiana","Owner J",38,"home"],
+    ["blowout","Blowout","39-point margin","Purdue","",6,"Penn State","Owner A",45,"home"],
+    ["shutout","Shutout","Zero points allowed","Texas Tech","Owner K",0,"Oregon","Owner I",23,"home"],
+    ["shootout","Shootout","85 combined points","James Madison","Owner H",34,"Oregon","Owner I",51,"home"],
+    ["nailbiter","Nailbiter","2-point margin","Illinois","Owner H",30,"Tennessee","Owner L",28,"away"]
   ];
   function recordRow([n,wl,pfpa]){
     return `<div class="row"><div class="line1"><span>${n}</span><span class="num">${wl}</span></div><div class="line2 num">${pfpa}</div></div>`;
@@ -294,12 +306,14 @@
     const arrow = dir==="up" ? "\u25b2" : "\u25bc";
     return `<div class="row"><div class="line1"><span>${n}</span><span class="${cls} num">${arrow} ${pl}</span></div><div class="line2 num">${shift}</div></div>`;
   }
-  function scoreboard([cls,label,detail,wo,wt,ws,lo,lt,ls]){
+  function scoreboard([cls,label,detail,at,ao,as_,ht,ho,hs,winner]){
     const who = (team, owner) => `<span class="who"><span class="team">${team}</span>${owner ? `<span class="owner">${owner}</span>` : ``}</span>`;
+    const line = (team, owner, score, isWinner) =>
+      `<div class="sb-line ${isWinner ? "winner" : "loser"}">${who(team,owner)}<span class="score num">${score}</span></div>`;
     return `<div class="scoreboard">
       <div class="sb-tag"><span class="tag tag-${cls}">${label}</span>${detail}</div>
-      <div class="sb-line winner">${who(wt,wo)}<span class="score num">${ws}</span></div>
-      <div class="sb-line loser">${who(lt,lo)}<span class="score num">${ls}</span></div>
+      ${line(at,ao,as_,winner==="away")}
+      ${line(ht,ho,hs,winner==="home")}
     </div>`;
   }
   function expandedHTML(){

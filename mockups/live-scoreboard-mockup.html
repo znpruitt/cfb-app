@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live / Watchlist Scoreboard — Mockup</title>
+<style>
+  :root {
+    --bg: #161616; --text: #ececec; --text-secondary: #8f8f8f; --text-tertiary: #6b6b6b;
+    --hairline: rgba(255,255,255,0.09); --blue: #60a5fa;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased; line-height: 1.4;
+  }
+  /* Container query context — DESIGN.md :120 prefers container over viewport queries */
+  .page { max-width: 980px; margin: 0 auto; padding: 56px 32px 96px; container-type: inline-size; }
+  .num { font-variant-numeric: tabular-nums; }
+  a { color: var(--blue); text-decoration: none; font-size: 13px; }
+  .linkbtn {
+    color: var(--blue); background: none; border: none; padding: 0; cursor: pointer;
+    font-family: inherit; font-size: 13px;
+  }
+  .linkbtn:hover { text-decoration: underline; }
+
+  /* Section title conforms to DESIGN.md :224 — 15px / 500 */
+  .section-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+  /* 17px/650 — deliberate exception to DESIGN.md :224 (15px/500) for game sections.
+     At 15/500 the section boundary reads weakly against dense two-column content. */
+  .section-head h2 { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; }
+  .section-head .count { color: var(--text-tertiary); }
+
+  .game-list { display: grid; grid-template-columns: 1fr 1fr; column-gap: 40px; }
+  /* Demo-only overrides so narrow preview panes can see both layouts. The container
+     query below is the real production rule; these force it for previewing and would
+     not exist in the implementation. */
+  body.demo-2col .game-list { display: grid !important; grid-template-columns: 1fr 1fr !important; }
+  body.demo-1col .game-list { display: block !important; }
+  /* DESIGN.md specifies the mechanism (container queries, :120) but no value; three
+     disagree in code today (640 FeaturedGamesList, 821 recap, 760 here). 760 is chosen on
+     content width: below it each card gets under ~350px, which clips team + owner + anchor
+     on the longest rows. The amendment should DECLARE the game-grid value rather than
+     inherit a sibling section's. */
+  @container (max-width: 760px) { .game-list { display: block; } }
+
+  .game-list .overflow { display: none; }
+  .game-list.expanded .overflow { display: block; }
+
+  .scoreboard { padding: 12px 0; border-bottom: 0.5px solid var(--hairline); }
+
+  /* Header rows are single-line by contract — any wrap desynchronises team rows across a grid row */
+  .sb-status {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 7px;
+    font-size: 12px; color: var(--text-tertiary);
+    white-space: nowrap; overflow: hidden;
+  }
+  .sb-status .state, .sb-status .eyebrow {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+  }
+  .sb-status .state { color: var(--text-secondary); }
+  .sb-status .eyebrow { color: var(--text-tertiary); }
+  .sb-title {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--text-secondary); margin-bottom: 3px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .sb-title.empty { visibility: hidden; }
+  .sb-meta-row {
+    font-size: 12px; color: var(--text-tertiary); margin-bottom: 7px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .sb-meta-row .tv { color: var(--text-secondary); }
+
+  /* Live badge — neutral text + neutral dot. No amber anywhere: amber clock badges AND
+     amber live-card borders are both drift against the reservations at :135, :215, :281. */
+  .live-badge {
+    display: flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 600;
+    letter-spacing: 0.08em; text-transform: uppercase; color: var(--text);
+  }
+  .live-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--text); }
+
+  .sb-line { display: flex; align-items: baseline; justify-content: space-between; font-size: 14px; padding: 2px 0; }
+  .sb-line .who { display: flex; align-items: baseline; gap: 6px; overflow: hidden; white-space: nowrap; margin-right: 12px; }
+  .sb-line .who > span { overflow: hidden; text-overflow: ellipsis; }
+  .sb-line .rank { color: var(--text-tertiary); font-size: 12px; }
+  .sb-line .owner { color: var(--text-tertiary); font-size: 12.5px; }
+  .sb-line .score { font-weight: 600; }
+  .sb-line.trailing { color: var(--text-secondary); }
+  .sb-line.trailing .score { font-weight: 500; }
+  .sb-line .score.pending { color: var(--text-tertiary); font-weight: 500; }
+  .sb-line .anchor-soft { color: var(--text-secondary); font-weight: 500; font-size: 13px; }
+  /* The anchor holds the record; the record belongs to the line's PRIMARY identifier.
+     Team-primary line (scoreboard) -> team record. Owner-primary line (week records,
+     standings, movement) -> owner record. Position is constant; context disambiguates. */
+  .sb-odds { margin-top: 5px; font-size: 12px; color: var(--text-tertiary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* ---- Colour preview (demo only) — illustrative candidates to inform
+     INSIGHTS-017-PALETTE scoping. NOT assignments; ships neutral until 017 lands.
+     Green live is constant across previews 1-4; only the eyebrow hue varies. ---- */
+  body[data-c]:not([data-c="0"]) .live-badge { color: #4ade80; }
+  body[data-c]:not([data-c="0"]) .live-badge::before { background: #4ade80; }
+  body[data-c="2"] .sb-title, body[data-c="2"] .sb-status .eyebrow { color: #c9a66b; }
+  body[data-c="3"] .sb-title, body[data-c="3"] .sb-status .eyebrow { color: #7dd3fc; }
+  body[data-c="4"] .sb-title, body[data-c="4"] .sb-status .eyebrow { color: #e879f9; }
+
+  /* ---- Featured tile: state-agnostic, persists through scheduled -> live -> final ---- */
+  .featured { background: #1e1e1e; border-radius: 8px; padding: 22px 26px; margin-bottom: 8px; }
+  .featured-head {
+    display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px;
+  }
+  .featured-head h2 { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; }
+  .featured-grid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 40px; }
+  @container (max-width: 760px) { .featured-grid { display: block; } }
+  .featured .scoreboard { padding: 10px 0; }
+  .featured .sb-line { font-size: 15px; }
+  .fx-reason {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+    color: #c9a66b; margin-bottom: 3px;
+  }
+  /* Out-of-scope marker — elements the reference shows but the current campaign does not build */
+  .oos { border-left: 2px dashed #6a5a3a; padding-left: 8px; margin-left: -10px; }
+  .oos-tag {
+    display: inline-block; font-size: 9px; font-weight: 600; letter-spacing: 0.06em;
+    text-transform: uppercase; color: #8a7a5a; border: 1px dashed #6a5a3a; border-radius: 3px;
+    padding: 0 4px; margin-bottom: 4px;
+  }
+  body[data-c="0"] .fx-reason { color: var(--text-secondary); }
+  .fx-why { font-size: 12px; color: var(--text-tertiary); margin-bottom: 8px; }
+
+  .expand-footer { margin-top: 12px; }
+  .divider { height: 1px; background: var(--hairline); margin: 36px 0; }
+
+  /* Mockup scaffolding (not part of design) */
+  .variant-label {
+    margin: 0 0 14px; padding-bottom: 8px; border-bottom: 1px dashed #4a4a4a;
+    font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #7a7a7a;
+  }
+  .option-note { font-size: 11px; color: #6a6a6a; font-style: italic; margin-bottom: 14px; }
+  .mockup-notes {
+    margin-top: 64px; padding: 24px; border: 1px dashed #4a4a4a; border-radius: 6px;
+    font-size: 13px; color: #a8a8a8; line-height: 1.7;
+  }
+  .mockup-notes strong { color: #d8d8d8; }
+  .mockup-notes ul { margin: 8px 0 0 18px; }
+</style>
+</head>
+<body class="demo-2col" data-c="2">
+<div class="page">
+
+  <div class="variant-label">Full-slate Saturday &mdash; two columns, progressive disclosure</div>
+  <div style="margin-bottom:16px;">
+    <button class="linkbtn" style="border:1px dashed #4a4a4a; border-radius:6px; padding:6px 12px; color:#a8a8a8;"
+      onclick="var b=document.body; var two=b.classList.contains('demo-2col'); b.classList.toggle('demo-2col', !two); b.classList.toggle('demo-1col', two); this.textContent = two ? 'Layout: one column (click to swap)' : 'Layout: two columns (click to swap)';">
+      Layout: two columns (click to swap)</button>
+    <button class="linkbtn" style="border:1px dashed #4a4a4a; border-radius:6px; padding:6px 12px; color:#a8a8a8; margin-left:8px;"
+      onclick="var b=document.body; var T=['Colour: neutral \u2014 no hues (click)','Colour: green live, neutral eyebrow (click)','Colour: green live, bronze eyebrow \u2014 proposed (click)','Colour: green live, sky eyebrow (click)','Colour: green live, fuchsia eyebrow (click)']; var i=(parseInt(b.getAttribute('data-c')||'0')+1)%5; b.setAttribute('data-c',i); this.textContent=T[i];">
+      Colour: green live, bronze eyebrow &mdash; proposed (click)</button>
+
+  </div>
+  <div class="option-note">First Live card (Rice at Texas State) is the <code>unknown</code> state &mdash; past kickoff, no usable score. Reads "Awaiting score", never the Live badge. Counts, caps and ordering are illustrative &mdash; selection logic belongs to the watchlist precedence campaign (prioritizeOverviewItems, overview.ts:428).</div>
+
+  <div class="featured">
+    <div class="featured-head">
+      <h2>Featured</h2>
+      <a href="#">Why these &rarr;</a>
+    </div>
+    <div class="featured-grid">
+      <div class="scoreboard">
+        <div class="oos">
+          <div class="oos-tag">Not built in Item 87 &mdash; insights work</div>
+          <div class="fx-reason">Rivalry</div>
+          <div class="fx-why">Whited leads Chamness 44&ndash;25 &mdash; the most lopsided rivalry on record</div>
+        </div>
+        <div class="sb-status"><span class="live-badge">Live</span><span>Q3 8:12</span></div>
+        <div class="sb-line trailing"><span class="who"><span class="team">Michigan</span><span class="owner">Whited</span></span><span class="score num">17</span></div>
+        <div class="sb-line"><span class="who"><span class="rank">#7</span><span class="team">Ohio State</span><span class="owner">Chamness</span></span><span class="score num">24</span></div>
+      </div>
+      <div class="scoreboard">
+        <div class="oos">
+          <div class="oos-tag">Not built in Item 87 &mdash; insights work</div>
+          <div class="fx-reason">Podium rematch</div>
+          <div class="fx-why">Last season's top two meet again &mdash; Chamness took the title by 2 games</div>
+        </div>
+        <div class="sb-meta-row">Sat, Aug 29 &middot; 8:00 PM &middot; <span class="tv">ABC</span></div>
+        <div class="sb-line"><span class="who"><span class="rank">#3</span><span class="team">Georgia</span><span class="owner">Chamness</span></span><span class="anchor-soft num">6&ndash;0</span></div>
+        <div class="sb-line"><span class="who"><span class="rank">#9</span><span class="team">Ole Miss</span><span class="owner">BHooper</span></span><span class="anchor-soft num">5&ndash;1</span></div>
+        <div class="sb-odds num">Georgia &minus;4.5 &middot; O/U 51.5</div>
+      </div>
+    </div>
+  </div>
+  <div class="option-note">Featured is state-agnostic: the left game is live, the right is still scheduled, and both stay here through final. Featured games do not appear in the state sections below. <strong>End state shown.</strong> Dashed-marked elements are not built in Item 87 &mdash; the reason label and substance line arrive with the insights work, which owns selection. Item 87 builds the scoreboard rows and leaves the slot.</div>
+
+  <div class="section-head">
+    <h2>Live <span class="count">&middot; 10</span></h2>
+    <a href="#">All matchups &rarr;</a>
+  </div>
+  <div class="game-list" id="live-list">
+      <div class="scoreboard">
+        <div class="sb-status"><span class="state">Awaiting score</span><span>Kicked off 2:30 PM</span></div>
+        <div class="sb-line"><span class="who"><span class="team">Rice</span><span class="owner">Maleski</span></span><span class="score num pending">&ndash;</span></div>
+        <div class="sb-line"><span class="who"><span class="team">Texas State</span><span class="owner">Ciprys</span></span><span class="score num pending">&ndash;</span></div>
+      </div>
+      <div class="scoreboard">
+        <div class="sb-status"><span class="live-badge">Live</span><span>Q2 2:46</span><span class="eyebrow">&middot; Top matchup</span></div>
+        <div class="sb-line trailing"><span class="who"><span class="team">San José State</span><span class="owner">Whited</span></span><span class="score num">0</span></div>
+        <div class="sb-line"><span class="who"><span class="rank">#14</span><span class="team">USC</span><span class="owner">Chamness</span></span><span class="score num">21</span></div>
+      </div>
+      <div class="scoreboard">
+        <div class="sb-status"><span class="live-badge">Live</span><span>Q1 2:37</span><span class="eyebrow">&middot; Top matchup</span></div>
+        <div class="sb-line trailing"><span class="who"><span class="team">NC State</span><span class="owner">BHooper</span></span><span class="score num">0</span></div>
+        <div class="sb-line"><span class="who"><span class="team">Virginia</span><span class="owner">Chamness</span></span><span class="score num">10</span></div>
+      </div>
+      <div class="scoreboard">
+        <div class="sb-status"><span class="live-badge">Live</span><span>Q3 11:02</span></div>
+        <div class="sb-line"><span class="who"><span class="rank">#9</span><span class="team">Ole Miss</span><span class="owner">BHooper</span></span><span class="score num">28</span></div>
+        <div class="sb-line trailing"><span class="who"><span class="team">Tulane</span><span class="owner">Gladney</span></span><span class="score num">17</span></div>
+      </div>
+      <div class="scoreboard">
+        <div class="sb-status"><span class="live-badge">Live</span><span>Q4 6:18</span></div>
+        <div class="sb-line trailing"><span class="who"><span class="team">Memphis</span><span class="owner">Stevens</span></span><span class="score num">24</span></div>
+        <div class="sb-line"><span class="who"><span class="team">Houston</span><span class="owner">Ciprys</span></span><span class="score num">27</span></div>
+      </div>
+      <div class="scoreboard">
+        <div class="sb-status"><span class="live-badge">Live</span><span>Q2 0:42</span></div>
+        <div class="sb-line"><span class="who"><span class="team">Kansas</span><span class="owner">Maleski</span></span><span class="score num">14</span></div>
+        <div class="sb-line"><span class="who"><span class="team">Baylor</span><span class="owner">Shambaugh</span></span><span class="score num">14</span></div>
+      </div>
+      <div class="scoreboard">
+        <div class="sb-status"><span class="live-badge">Live</span><span>Q3 4:55</span></div>
+        <div class="sb-line"><span class="who"><span class="team">Utah</span><span class="owner">Gladney</span></span><span class="score num">31</span></div>
+        <div class="sb-line trailing"><span class="who"><span class="team">Arizona State</span><span class="owner">Stevens</span></span><span class="score num">20</span></div>
+      </div>
+      <div class="scoreboard overflow">
+        <div class="sb-status"><span class="live-badge">Live</span><span>Q2 9:30</span></div>
+        <div class="sb-line trailing"><span class="who"><span class="team">Duke</span><span class="owner">Ciprys</span></span><span class="score num">7</span></div>
+        <div class="sb-line"><span class="who"><span class="team">Wake Forest</span><span class="owner">Whited</span></span><span class="score num">13</span></div>
+      </div>
+      <div class="scoreboard overflow">
+        <div class="sb-status"><span class="live-badge">Live</span><span>Q2 1:14</span></div>
+        <div class="sb-line trailing"><span class="who"><span class="team">Iowa</span><span class="owner">Shambaugh</span></span><span class="score num">3</span></div>
+        <div class="sb-line"><span class="who"><span class="team">Nebraska</span><span class="owner">Chamness</span></span><span class="score num">10</span></div>
+      </div>
+      <div class="scoreboard overflow">
+        <div class="sb-status"><span class="live-badge">Live</span><span>Q3 8:21</span></div>
+        <div class="sb-line"><span class="who"><span class="team">Middle Tennessee State</span><span class="owner">Shambaugh</span></span><span class="score num">13</span></div>
+        <div class="sb-line trailing"><span class="who"><span class="team">Florida International</span><span class="owner">Maleski</span></span><span class="score num">10</span></div>
+      </div>
+  </div>
+  <div class="expand-footer"><button class="linkbtn" onclick="var l=document.getElementById('live-list');l.classList.toggle('expanded');this.innerHTML = l.classList.contains('expanded') ? 'Collapse &uarr;' : 'Show 3 more live games &rarr;';">Show 3 more live games &rarr;</button></div>
+
+  <div class="divider"></div>
+
+  <div class="section-head">
+    <h2>Recent finals <span class="count">&middot; 6</span></h2>
+    <a href="#">All matchups &rarr;</a>
+  </div>
+  <div class="game-list" id="final-list">
+      <div class="scoreboard">
+        <div class="sb-status"><span class="state">Final</span><span>4:47 PM</span></div>
+        <div class="sb-line trailing"><span class="who"><span class="team">Alabama</span><span class="owner">Ciprys</span></span><span class="score num">3</span></div>
+        <div class="sb-line"><span class="who"><span class="team">Indiana</span><span class="owner">Gladney</span></span><span class="score num">38</span></div>
+      </div>
+      <div class="scoreboard">
+        <div class="sb-status"><span class="state">Final</span><span>4:12 PM</span></div>
+        <div class="sb-line"><span class="who"><span class="team">Washington</span><span class="owner">Stevens</span></span><span class="score num">38</span></div>
+        <div class="sb-line trailing"><span class="who"><span class="team">Boise State</span><span class="owner">Whited</span></span><span class="score num">10</span></div>
+      </div>
+      <div class="scoreboard">
+        <div class="sb-status"><span class="state">Final</span><span>3:55 PM</span></div>
+        <div class="sb-line trailing"><span class="who"><span class="team">Texas Tech</span><span class="owner">Maleski</span></span><span class="score num">0</span></div>
+        <div class="sb-line"><span class="who"><span class="rank">#6</span><span class="team">Oregon</span><span class="owner">BHooper</span></span><span class="score num">23</span></div>
+      </div>
+      <div class="scoreboard">
+        <div class="sb-status"><span class="state">Final</span><span>3:40 PM</span></div>
+        <div class="sb-line"><span class="who"><span class="team">Illinois</span><span class="owner">Whited</span></span><span class="score num">30</span></div>
+        <div class="sb-line trailing"><span class="who"><span class="team">Tennessee</span><span class="owner">Stevens</span></span><span class="score num">28</span></div>
+      </div>
+      <div class="scoreboard overflow">
+        <div class="sb-status"><span class="state">Final</span><span>3:22 PM</span></div>
+        <div class="sb-line trailing"><span class="who"><span class="team">Purdue</span></span><span class="score num">6</span></div>
+        <div class="sb-line"><span class="who"><span class="team">Penn State</span><span class="owner">Chamness</span></span><span class="score num">45</span></div>
+      </div>
+      <div class="scoreboard overflow">
+        <div class="sb-status"><span class="state">Final</span><span>2:58 PM</span></div>
+        <div class="sb-line"><span class="who"><span class="team">UTSA</span><span class="owner">Gladney</span></span><span class="score num">57</span></div>
+        <div class="sb-line trailing"><span class="who"><span class="team">Florida International</span><span class="owner">BHooper</span></span><span class="score num">20</span></div>
+      </div>
+      
+  </div>
+  <div class="expand-footer"><button class="linkbtn" onclick="var l=document.getElementById('final-list');l.classList.toggle('expanded');this.innerHTML = l.classList.contains('expanded') ? 'Collapse &uarr;' : 'Show 2 more finals &rarr;';">Show 2 more finals &rarr;</button></div>
+  
+
+  <div class="divider"></div>
+
+  <div class="section-head">
+    <h2>Upcoming watchlist <span class="count">&middot; 5</span></h2>
+    <a href="#">All matchups &rarr;</a>
+  </div>
+  <div class="game-list" id="sched-list">
+      <div class="scoreboard">
+        <div class="sb-title">Ranked spotlight</div>
+        <div class="sb-meta-row">Sat, Aug 29 &middot; 7:30 PM &middot; <span class="tv">ABC</span></div>
+        <div class="sb-line"><span class="who"><span class="rank">#24</span><span class="team">Louisville</span><span class="owner">Stevens</span></span><span class="anchor-soft num">5&ndash;1</span></div>
+        <div class="sb-line"><span class="who"><span class="rank">#3</span><span class="team">Georgia</span><span class="owner">Chamness</span></span><span class="anchor-soft num">6&ndash;0</span></div>
+        <div class="sb-odds num">Georgia &minus;10.5 &middot; O/U 52.5</div>
+      </div>
+      <div class="scoreboard">
+        <div class="sb-title empty">&nbsp;</div>
+        <div class="sb-meta-row">Sat, Aug 29 &middot; 8:00 PM &middot; <span class="tv">ESPN2</span></div>
+        <div class="sb-line"><span class="who"><span class="team">Jacksonville State</span><span class="owner">Whited</span></span><span class="anchor-soft num">3&ndash;3</span></div>
+        <div class="sb-line"><span class="who"><span class="team">North Dakota State</span><span class="owner">Whited</span></span><span class="anchor-soft num">5&ndash;1</span></div>
+        <div class="sb-odds num">North Dakota State &minus;7.5 &middot; O/U 44.5</div>
+      </div>
+      <div class="scoreboard overflow">
+        <div class="sb-title">Top matchup</div>
+        <div class="sb-meta-row">Sat, Aug 29 &middot; 8:00 PM &middot; <span class="tv">FOX</span></div>
+        <div class="sb-line"><span class="who"><span class="team">Miami</span><span class="owner">Gladney</span></span><span class="anchor-soft num">4&ndash;2</span></div>
+        <div class="sb-line"><span class="who"><span class="team">Florida State</span><span class="owner">Maleski</span></span><span class="anchor-soft num">3&ndash;3</span></div>
+        <div class="sb-odds num">Miami &minus;3.5 &middot; O/U 48.5</div>
+      </div>
+      <div class="scoreboard overflow">
+        <div class="sb-title empty">&nbsp;</div>
+        <div class="sb-meta-row">Sat, Aug 29 &middot; 10:15 PM</div>
+        <div class="sb-line"><span class="who"><span class="team">BYU</span><span class="owner">Ciprys</span></span><span class="anchor-soft num">4&ndash;2</span></div>
+        <div class="sb-line"><span class="who"><span class="team">TCU</span><span class="owner">Shambaugh</span></span><span class="anchor-soft num">2&ndash;4</span></div>
+        <div class="sb-odds num">BYU &minus;6.5 &middot; O/U 51.5</div>
+      </div>
+      <div class="scoreboard overflow">
+        <div class="sb-title empty">&nbsp;</div>
+        <div class="sb-meta-row">Sun, Sep 6 &middot; 3:30 PM</div>
+        <div class="sb-line"><span class="who"><span class="team">Fresno State</span><span class="owner">BHooper</span></span><span class="anchor-soft num">3&ndash;3</span></div>
+        <div class="sb-line"><span class="who"><span class="team">Nevada</span><span class="owner">Whited</span></span><span class="anchor-soft num">1&ndash;5</span></div>
+        <div class="sb-odds num">Line not yet posted</div>
+      </div>
+  </div>
+  <div class="expand-footer"><button class="linkbtn" onclick="var l=document.getElementById('sched-list');l.classList.toggle('expanded');this.innerHTML = l.classList.contains('expanded') ? 'Collapse &uarr;' : 'Show 3 more upcoming games &rarr;';">Show 3 more upcoming games &rarr;</button></div>
+  <div class="option-note">Last card (Fresno State at Nevada) shows the no-line-posted fallback.</div>
+
+  <div class="mockup-notes">
+    <strong>Mockup notes (not part of the design)</strong>
+    <ul>
+      <li><strong>What this proposes:</strong> the scoreboard micro-component with three rendered state variants (live, final, scheduled), the promotion model &mdash; a game occupies exactly one section instead of rendering in both watchlist and live as it does today (overview.ts:1009 filters <code>!== 'final'</code>, admitting in-progress by omission; Item 82 records it as a defect) &mdash; a two-column grid, and progressive disclosure per section.</li>
+      <li><strong>Live state is neutral text plus a neutral dot,</strong> per the amber reservations in DESIGN.md :135, :215 and :281, none of which admit a live exception. (POLISH-007 governs the league-header confidence signal and owned-team-row copy, not game-card badges &mdash; it is not the authority here.) Two pieces of shipped amber are drift and must both go: the clock badges, and the amber card borders on live cards (OverviewPanel.tsx:734, <code>border-amber-200/80 … dark:border-amber-900/70</code>), which additionally collide with DESIGN.md :195 reserving card chrome for meaningful border signals.</li>
+      <li><strong>The anchor holds a record; the record belongs to the line's primary identifier.</strong> A team-primary line (this scoreboard, in any state) anchors a <em>team</em> record. An owner-primary line (recap week records, standings, movement) anchors an <em>owner</em> record. Position stays constant across the app and context disambiguates &mdash; no label needed, and the team line stays at three elements plus an anchor, matching the live and final rows exactly. Spread and O/U move to the odds footer together.</li>
+      <li><strong>Team records confirmed and ship as the scheduled-state anchor.</strong> CFBD <code>GET /records?year=</code> returns every team in one call (684 rows, all four divisions; 138 FBS matching teams.json exactly), supports in-season partials, and is keyed by numeric <code>teamId</code> &mdash; so the join needs no name resolution and sidesteps Item 83's collision. It also carries <code>classification</code>, giving a second independent source for the division label alongside PLATFORM-114. Budget is not a constraint: 341 used against a 5,000 limit; the ~1000/month figure is the live-scores reserve floor, not the ceiling. At weekly cadence this is roughly 4 calls/month. The spread fallback is not needed. Do not derive records from cached schedule + scores &mdash; a partial record is a false statement, not a missing one.</li>
+      <li><strong>Recap alignment:</strong> the recap's notable-results scoreboards are the same component and inherit this rule. Their anchor is the score, since for a completed game the score is the relevant number &mdash; the anchor holds whatever number matters for that state (record when scheduled, score when live or final), which is also why the slot does not shift at kickoff. Open: whether recap notable results should additionally surface team records, which would require a fourth element on the line.</li>
+      <li><strong>Row order is always away &rarr; home</strong> (CFB convention) in every state including Final. Ordering and emphasis are separable: position is fixed by home/away, weight marks the leader or winner. Several examples show the home side leading or winning from the bottom line.</li>
+      <li><strong>The <code>unknown</code> state stays in Live and reads "Awaiting score."</strong> gameStateFromScore (gameUi.ts:51) returns a fourth value the three-section model must handle: past kickoff, no usable score. DESIGN.md :51-52 prescribes exactly this copy for the bounded post-kickoff gap and forbids both "Upcoming" and an unsupported "Live" claim. Routing it to Recent finals would assert the game finished &mdash; a stronger misstatement than either forbidden string &mdash; so it remains in Live with the status row reading "Awaiting score" and no Live badge, moving to Recent finals only when a final score attaches. The Live badge itself is unaffected elsewhere: those rows carry attached in-progress scores, and the prohibition is on claiming live <em>without</em> score evidence. Note: "Awaiting score" is placed in the status row rather than the per-team anchor, since it describes the game rather than either side; confirm that placement.</li>
+      <li><strong>Section migration is immediate.</strong> A finalising game moves from Live to Recent finals as soon as it finalises, including while a section is expanded. This is a live surface and staleness is worse than motion. Client expansion state itself survives (useLiveRefresh.ts:443 is a state update on a mounted tree; router.refresh() preserves client state) &mdash; only the content changes beneath it.</li>
+      <li><strong>Header rows are single-line by contract</strong> (nowrap + ellipsis on title, meta and status rows), because any wrap desynchronises team rows across a grid row. Consequence: the date/kickoff/broadcast line has a hard width budget and clips rather than wraps; precedence category names should stay to roughly two words.</li>
+      <li><strong>Cards with no precedence reason reserve the title row and hide it,</strong> so team lines stay aligned across a grid row. Cost is a line of whitespace on untagged cards.</li>
+      <li><strong>Two-column grid follows existing precedent</strong> rather than introducing it &mdash; FeaturedGamesList already ships <code>grid-cols-1 sm:grid-cols-2</code> on this surface. Flow is row-major, matching RecapPrimitives.tsx:70 and FeaturedGamesList. Degradation uses a container query per DESIGN.md :120. The doc specifies the mechanism but no value, and three disagree in code (640 FeaturedGamesList, 821 recap, 760 here). 760 is chosen on content width &mdash; below it each card gets under ~350px, which clips team + owner + anchor on the longest rows &mdash; so the amendment should declare the game-grid value rather than inherit a sibling section.</li>
+      <li><strong>Section titles are 17px/650 &mdash; a deliberate exception to DESIGN.md :224</strong> (15px/500). At the documented size the section boundary sits one step above a team line at 14px and reads weakly against dense two-column content, worsened by three stacked sections. Documented as a game-section exception, not drift.</li>
+      <li><strong>Broadcast network is free</strong> &mdash; buildCfbdGamesMediaUrl already runs via schedulePresentationRefresh.ts:273, cached year-wide, and joined onto rows by enrichScheduleItemsWithPresentation. No new call, no fallback needed.</li>
+      <li><strong>Rank renders only for currently-ranked teams</strong> (rank is nullable); untagged sides simply omit the prefix.</li>
+      <li><strong>Selection, ordering and caps defer</strong> to the watchlist precedence campaign. Do not fork prioritizeOverviewItems (overview.ts:428, called at :1019 and :1025 off deriveOverviewHighlightSignals in gameTags.ts:310).</li>
+      <li><strong>On colour &mdash; the surface is neutral because two decisions are deferred, not because colour is forbidden.</strong> Precedence eyebrows are slated for hues in INSIGHTS-017-PALETTE and render neutral here as placeholders. The preview cycles four candidates with green live held constant; these are scoping input for 017, not assignments.</li>
+      <li><strong>Proposed colour: bronze eyebrow (#c9a66b) with green live.</strong> Mockup defaults to this; the toggle cycles alternatives. Ranked bronze &gt; sky &gt; neutral &gt; fuchsia. Adjacency is not disqualifying &mdash; a reservation binds a token to a purpose, not a hue neighbourhood, and bronze (desaturated tan) is not champion amber (#BA7517, dark saturated gold). Temporal separation settles it: the live league page renders podium cards for #1&ndash;#3 in neutral chrome with no champion treatment, so amber is dormant through the season and bronze competes with nothing until a title is actually awarded. Fuchsia is rejected: complementary clash against green, and it sits between TRAJECTORY and HISTORICAL. Final hues are assigned by INSIGHTS-017-PALETTE; this is a ranked recommendation into that work, not a local assignment.</li>
+      <li><strong>Palette allocation is the real question for 017, not leftovers.</strong> Reservations can be re-cut when a colour does more work elsewhere. Ranked by how much colour actually contributes: <em>live status</em> is time-critical and glanceable, and colour is the whole signal &mdash; highest value. <em>Champion</em> is rare but emotionally weighted and gold is irreplaceable &mdash; keep. <em>Deltas</em> already carry an arrow and a number, so colour is reinforcement rather than the sole carrier &mdash; it could survive a narrower claim. <em>Interactive</em> blue is conventional but links also carry position and underline. <em>Insight category microlabels</em> are the weakest use: five-plus hues spent on 10px labels whose words already state their meaning &mdash; and they are the tokens already colliding (8 categories over 5 hexes, with CAREER's #5DCAA5 unreachable). If 017 needs headroom, that is where to reclaim it, rather than squeezing new signals into gaps between existing tokens.</li>
+      <li><strong>Live status is green, under a context-scoping rule that already governs the app.</strong> Green ships in at least six distinct meanings &mdash; the sharpest proof being deltaTextColor (OverviewPanel:95-99, positive delta) and gbDeltaColor (:298-302, <em>negative</em> delta, because gaining ground is good), the same token on opposite numeric signs, disambiguated purely by host element. The rule 017 should document, with the enforcement clause: <em>a hue carries exactly one meaning within a component family; context scopes meaning across families, never within one.</em> That makes the delta pair legal and forbids the case below.</li>
+      <li><strong>Featured is a separate axis from state.</strong> State moves games between sections; Featured exempts a game from that movement &mdash; it enters when selected and stays through scheduled, live and final. Featured games therefore appear only in the Featured tile, not in the state sections, preserving the promotion model's one-game-one-place rule. The tile carries the reason with substance ("Whited leads Chamness 44&ndash;25") rather than a bare label, since a game earns promotion out of the slate only if the reason is worth stating. Deliberately small &mdash; at five games it is another list with a nicer name.</li>
+      <li><strong>Featured resolves the green-final question.</strong> Converting Featured to the scoreboard component retires the third stateBadgeClasses call site (:931) alongside :746 and :843, so Overview carries no green-final and green-live ships in this campaign with no dependency on Item 90.</li>
+      <li><strong>Featured is the insights system with a game hook, not watchlist curation.</strong> The watchlist asks which games are worth watching on football criteria; Featured asks which games activate something the league already knows. The rivalry insight already ships in the feed &mdash; Featured is that same fact bound to a game about to be played between those owners. Selection therefore belongs with the insights pipeline, not prioritizeOverviewItems: the criteria are the existing insight taxonomy rather than a new one, the over-firing risk is likely already handled by the registry's priority and suppression machinery, reason labels inherit whatever hue INSIGHTS-017-PALETTE assigns to their category, and copy generates from the insight as feed items already do. Only pair-anchored insights qualify &mdash; "longest active title drought" has no game to attach to. New rule required: an insight surfaced in Featured should be suppressed from the feed that week, or the page states the same fact twice.</li>
+      <li><strong>Open on Featured:</strong> maximum count; whether zero qualifying games hides the tile; whether featuring resets weekly or a game can carry across weeks; and copy tone &mdash; "toilet bowl" reads as league banter rather than an insult only because this league's voice supports it, so auto-generated copy about members finishing last is an owner call, not a default. Selection logic belongs with the watchlist precedence work, not here.</li>
+      <li><strong>Eyebrow and title-row strings are placeholders, including "Top matchup."</strong> Item 87 records that label as false: gameTags.ts:441 fires it from isTopOwnerGame &mdash; true when <em>either</em> owner is top-three &mdash; while the identically-worded eyebrow elsewhere means "best game on the slate," and the two contradicted in production. Implementation must consume the renamed labels, not these strings. Hues are assigned in INSIGHTS-017-PALETTE; semantics are fixed by the Item 87 rename.</li>
+      <li><strong>Scoreboard row contract is a superset</strong> of what INSIGHTS-026b's enrichment stage needs (final-only rows for notable results). This file defines the full contract &mdash; three state variants, rank prefix, anchor slot, odds footer, reserved title row &mdash; so 026b's enrichment prompt consumes it rather than shipping a narrow version this campaign then has to widen.</li>
+    </ul>
+  </div>
+
+</div>
+</body>
+</html>

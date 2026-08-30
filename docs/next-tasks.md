@@ -406,18 +406,35 @@ already displayed independently. Move `resolveLeagueMembers`, `resolveSuperlativ
 exception. Audit the remaining `selectAllRecords` roster-as-membership derivation and decide how its
 record eligibility converges with generator-specific rules.
 
-### Item 42 — INSIGHTS-026 stored event source and Forward Look (In progress)
+### Item 42 — INSIGHTS-026 notable results, stored event source, and Forward Look (In progress)
 
 The complete request-time Look Back is recorded in `docs/completed-work.md`; do not requeue its
-selectors, content families, final wiring, or member renderings. Two distinct portions remain:
+selectors, content families, final wiring, or member renderings. One Look Back element was never
+built (portion 1 below) — it is an omission, not a requeue. Three distinct portions remain:
 
-1. **Stored artifact and event source.** Freeze one immutable recap per league and period so a late
+1. **Notable results — the one unbuilt Look Back element.** Mini scoreboards for individual games
+   in the recap: a tag eyebrow with the qualifying stat (`Blowout · 35-point margin`), then two team
+   lines, team primary with owner as a tertiary suffix and the score right-anchored. Row order is
+   away → home per CFB convention in every state, with weight marking the winner rather than
+   position. Deferred through 026b and 026c — `docs/prompt-registry.md:140` ("intentionally unwired
+   until the notable-results stage") and `docs/completed-work.md:4172` ("notable-result UI remains
+   deliberately deferred") — and scheduled for the final wiring pass, which closed without it. The
+   underlying facts already exist; only the rendering is missing.
+
+   **Consumes Item 87's scoreboard micro-component rather than defining its own.** Item 87 needs the
+   full contract (three state variants, rank prefix, state-dependent anchor, odds footer) and has
+   three consumers exercising every part; this needs a final-only row. A consumer using less of a
+   component than it offers is safe, widening one after shipping is not, so the campaign that needs
+   the whole contract builds it. Gated on whichever Item 87 slice first renders a final row — not
+   slice 1, which is Live-only. Reference: `mockups/weekly-recap-mockup.html`.
+
+2. **Stored artifact and event source.** Freeze one immutable recap per league and period so a late
    score cannot silently rewrite what members already saw, and make publication the event source
    that can unblock Item 30's NEW tag. Before implementation, settle fixed-period versus
    since-last-success windows, idempotency/catch-up, year validity, demo exclusion, scheduler
    receipts, and DST-correct ET cadence. Preserve the request-time facts layer rather than rebuilding
    it.
-2. **Thursday Forward Look.** Target the immediate upcoming canonical week. This is not another
+3. **Thursday Forward Look.** Target the immediate upcoming canonical week. This is not another
    Look Back composer: it needs upcoming-week selection plus schedule and rankings inputs the current
    loader does not gather.
 
