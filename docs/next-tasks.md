@@ -925,13 +925,48 @@ the binding constraint, not the attempt count.
 failures: a run succeeded at 19:09 immediately after the 19:06 failure, and served scores matched
 CFBD exactly. Treat this as tuning, not an outage — and do not raise the timeout during a slate.
 
-The constraint that makes this non-trivial: the live-scores contract is at most ONE billed CFBD
-request per run. Before raising the timeout or the retry count, establish whether a timed-out request
-still counts against CFBD quota — if it does, retrying a slow provider silently multiplies billed
-calls against the 1,000-call monthly reserve. That question governs the fix.
+**Measured 2026-08-29 — a timed-out request DOES bill.** The governing question is answered, and it
+rules out the simple fix. Against CFBD with the production key:
 
-Acceptance boundary: sustained provider latency in the 8-25s band does not fail a run, and the number
-of billed CFBD requests per run is unchanged and proven so.
+| action | billed |
+|---|---|
+| `GET /info` (the usage endpoint itself) | **0** — three reads left `usedCalls` flat, so it is a clean instrument |
+| one request allowed to complete | **1** (control) |
+| three requests aborted at 200ms — `http=000`, `size=0`, nothing received | **3** |
+
+CFBD counts on receipt, not on delivery. Hanging up mid-response costs a full call.
+
+**Consequence: the one-billed-call contract is already breachable under load, today.** With
+`maxAttempts: 3` and timeouts retried (`fetchUpstream.ts:158`), a run whose attempts all exceed 12s
+bills THREE calls, not one — and it does so precisely during degradation, when timeouts cluster. The
+reserve check runs before the attempt, not after the retries, so the extra spend is invisible. At ~20
+runs/hour a sustained slow spell costs up to 60 calls/hour instead of 20.
+
+**The 12-second limit is ours, not CFBD's.** `fetchUpstream.ts:124` creates an `AbortController` and
+aborts at `timeoutMs`; nothing on the provider side imposes it. CFBD gets slow, it does not hang up.
+`live-scores` declares no `maxDuration`, so it inherits the 300s platform default —
+`cron/season-transition/route.ts:58` is the in-repo precedent for declaring a longer envelope, with a
+test pinning it. The binding constraint is the 3-minute poll cadence, not the platform.
+
+**Which makes one long attempt strictly better than three short ones, on both axes:**
+
+| configuration | billed calls | wall time | outcome at 8-25s latency |
+|---|---|---|---|
+| today — 3 x 12s | 3 | ~36s | usually all three fail |
+| 1 x 40s, no retry | **1** | ~40s | almost always succeeds |
+| 3 x 40s | 3 | ~120s | succeeds, triples spend |
+
+The current configuration is close to worst-case: short enough to fail under load, retried enough to
+pay three times for failing. Raising the timeout WITHOUT reducing the retry count makes spend worse.
+
+Preferred fix: raise the timeout for quota-bearing CFBD calls and treat timeout as non-retryable for
+them specifically — distinct from network errors, which are free to retry. Alternatives if that is
+rejected: count retries against the per-run contract so the reserve check reflects real spend, or
+leave the ceiling and accept the failure rate.
+
+Acceptance boundary: sustained provider latency in the 8-25s band does not fail a run, AND billed
+CFBD requests per run are proven to be at most one — measured, not assumed, since the current code
+already violates that under load.
 
 ## Planned and parked campaigns
 
