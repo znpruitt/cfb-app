@@ -359,7 +359,10 @@ function compareWatchlistItems(a: OverviewGameItem, b: OverviewGameItem): number
 }
 
 function compareRecentResultItems(a: OverviewGameItem, b: OverviewGameItem): number {
-  if (a.sortDate !== b.sortDate) return b.sortDate - a.sortDate;
+  const aHasKickoff = Number.isFinite(a.sortDate);
+  const bHasKickoff = Number.isFinite(b.sortDate);
+  if (aHasKickoff !== bHasKickoff) return aHasKickoff ? -1 : 1;
+  if (aHasKickoff && a.sortDate !== b.sortDate) return b.sortDate - a.sortDate;
   if (a.priority !== b.priority) return b.priority - a.priority;
   return a.bucket.game.key.localeCompare(b.bucket.game.key);
 }

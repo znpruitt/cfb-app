@@ -201,7 +201,7 @@ test('selectOverviewViewModel orders the watchlist by kickoff, ownership tie, th
   );
 });
 
-test('selectOverviewViewModel keeps recent results newest-first during an active slate', () => {
+test('selectOverviewViewModel keeps dated recent results newest-first ahead of undated finals', () => {
   const older = {
     ...item('older-final', '2026-09-01T17:00:00.000Z'),
     score: {
@@ -223,6 +223,21 @@ test('selectOverviewViewModel keeps recent results newest-first during an active
       home: { team: 'Home', score: 20 },
     },
   };
+  const undatedBase = item('undated-final');
+  const undated = {
+    ...undatedBase,
+    bucket: {
+      ...undatedBase.bucket,
+      game: { ...undatedBase.bucket.game, date: null },
+    },
+    sortDate: Number.POSITIVE_INFINITY,
+    score: {
+      status: 'Final',
+      time: null,
+      away: { team: 'Away', score: 27 },
+      home: { team: 'Home', score: 24 },
+    },
+  };
   const model = selectOverviewViewModel({
     standingsLeaders: [],
     standingsCoverage: { state: 'partial', message: null },
@@ -236,9 +251,10 @@ test('selectOverviewViewModel keeps recent results newest-first during an active
       sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
     },
     liveItems: [],
-    keyMatchups: [older, newer],
+    keyMatchups: [older, newer, undated],
     matchupMatrix: { owners: [], rows: [] },
     rankingsByTeamId: new Map(),
+    resultsLimit: 2,
   });
 
   assert.deepEqual(
