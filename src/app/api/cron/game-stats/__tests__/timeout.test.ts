@@ -4,12 +4,14 @@ import test from 'node:test';
 import { wireGame, legacyRowFromWire } from '@/lib/gameStats/__tests__/fixtures';
 import { seedActiveWriterControl } from '@/lib/gameStats/__tests__/writerControlSeed';
 import { getCachedGameStats, getGameStatsKey } from '@/lib/gameStats/cache';
+import { weekPartitionScope } from '@/lib/providerRefreshScope';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
   setAppState,
 } from '@/lib/server/appStateStore';
-import { delayedJsonResponse, withCompressedTimeouts } from '@/test/compressedTimeout';
+import { getProviderRefreshStatus } from '@/lib/server/providerRefreshStatus';
+import { installDelayedCfbdProvider, withCompressedTimeouts } from '@/test/compressedTimeout';
 
 import { GET } from '../route';
 
@@ -68,30 +70,8 @@ function gameStatsRow(id: number, home: string, away: string) {
   });
 }
 
-function installDelayedProvider(args: {
-  payload: unknown;
-  delayMs: number;
-  nativeSetTimeout: typeof globalThis.setTimeout;
-}) {
-  let billedCalls = 0;
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = String(input);
-    if (url.includes('/info')) {
-      return new Response(JSON.stringify({ patronLevel: 1, remainingCalls: 4_000 }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      });
-    }
-    assert.ok(url.includes('/games/teams'), `expected /games/teams, got ${url}`);
-    billedCalls += 1;
-    return delayedJsonResponse({
-      payload: args.payload,
-      delayMs: args.delayMs,
-      init,
-      nativeSetTimeout: args.nativeSetTimeout,
-    });
-  }) as typeof fetch;
-  return () => billedCalls;
+function billedPaths(provider: ReturnType<typeof installDelayedCfbdProvider>) {
+  return provider.billedUrls().map((url) => new URL(url).pathname);
 }
 
 test.beforeEach(async () => {
@@ -116,9 +96,9 @@ test('game stats accepts 25s-equivalent provider latency with one billed request
   await seedSchedule([scheduleItem({ id: 9001, home: 'Alpha', away: 'Beta', ageHours: 5 })]);
 
   await withCompressedTimeouts(async (nativeSetTimeout) => {
-    const billedCalls = installDelayedProvider({
+    const provider = installDelayedCfbdProvider({
       payload: [gameStatsRow(9001, 'Alpha', 'Beta')],
-      delayMs: 25,
+      providerDelayMs: 25_000,
       nativeSetTimeout,
     });
     const res = await GET(cronRequest());
@@ -127,7 +107,7 @@ test('game stats accepts 25s-equivalent provider latency with one billed request
     assert.equal(res.status, 200);
     assert.equal(body.outcome, 'success');
     assert.equal(body.reason, 'written-clean');
-    assert.equal(billedCalls(), 1);
+    assert.deepEqual(billedPaths(provider), ['/games/teams']);
     assert.equal((await getCachedGameStats(YEAR, 3, 'regular'))?.games[0]?.providerGameId, 9001);
   });
 });
@@ -145,9 +125,9 @@ test('game-stats timeout retains prior-good data and bills exactly one request',
   });
 
   await withCompressedTimeouts(async (nativeSetTimeout) => {
-    const billedCalls = installDelayedProvider({
+    const provider = installDelayedCfbdProvider({
       payload: [gameStatsRow(9002, 'Gamma', 'Delta')],
-      delayMs: 50,
+      providerDelayMs: 50_000,
       nativeSetTimeout,
     });
     const res = await GET(cronRequest());
@@ -156,7 +136,12 @@ test('game-stats timeout retains prior-good data and bills exactly one request',
     assert.equal(res.status, 500);
     assert.equal(body.outcome, 'failure');
     assert.equal(body.reason, 'provider-fetch-failed');
-    assert.equal(billedCalls(), 1, 'a timed-out request bills, and the cron never retries it');
+    assert.deepEqual(billedPaths(provider), ['/games/teams']);
+    const status = await getProviderRefreshStatus(
+      'game-stats',
+      weekPartitionScope(YEAR, 3, 'regular')
+    );
+    assert.match(status.lastError?.message ?? '', /timed out after 40000ms/);
   });
 
   const stored = await getCachedGameStats(YEAR, 3, 'regular');

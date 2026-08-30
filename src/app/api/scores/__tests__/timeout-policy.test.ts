@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { __deleteAppStateFileForTests, __resetAppStateForTests } from '@/lib/server/appStateStore';
-import { delayedJsonResponse, withCompressedTimeouts } from '@/test/compressedTimeout';
+import { installDelayedCfbdProvider, withCompressedTimeouts } from '@/test/compressedTimeout';
 
 import { GET } from '../route';
 
@@ -29,25 +29,22 @@ test.after(() => {
   globalThis.fetch = ORIGINAL_FETCH;
 });
 
-test('manual scores refresh retains its three 12s attempts instead of adopting the cron ceiling', async () => {
-  let billedCalls = 0;
-
+test('manual scores refresh uses one longer attempt for 25s-equivalent provider latency', async () => {
   await withCompressedTimeouts(async (nativeSetTimeout) => {
-    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
-      billedCalls += 1;
-      return delayedJsonResponse({
-        payload: [],
-        delayMs: 25,
-        init,
-        nativeSetTimeout,
-      });
-    }) as typeof fetch;
+    const provider = installDelayedCfbdProvider({
+      payload: [],
+      providerDelayMs: 25_000,
+      nativeSetTimeout,
+    });
 
     const res = await GET(
       new Request('http://localhost/api/scores?year=2026&week=3&seasonType=regular&refresh=1')
     );
 
-    assert.equal(res.status, 502);
-    assert.equal(billedCalls, 3, 'the existing manual retry policy remains unchanged');
+    assert.equal(res.status, 200);
+    assert.deepEqual(
+      provider.billedUrls().map((url) => new URL(url).pathname),
+      ['/games']
+    );
   });
 });

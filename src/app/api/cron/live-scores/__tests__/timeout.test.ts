@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { weekPartitionScope } from '@/lib/providerRefreshScope';
 import type { CacheEntry } from '@/lib/scores/cache';
 import { getAppState } from '@/lib/server/appStateStore';
-import { delayedJsonResponse, withCompressedTimeouts } from '@/test/compressedTimeout';
+import { getProviderRefreshStatus } from '@/lib/server/providerRefreshStatus';
+import { installDelayedCfbdProvider, withCompressedTimeouts } from '@/test/compressedTimeout';
 
 import { YEAR, resetForTest, restoreEnv, runCron, seedSchedule, seedScoreEntry } from './harness';
 
@@ -59,48 +61,24 @@ async function readScores(): Promise<CacheEntry | null> {
   return (await getAppState<CacheEntry>('scores', `${YEAR}-3-regular`))?.value ?? null;
 }
 
-function installDelayedProvider(args: {
-  endpoint: '/scoreboard' | '/games';
-  payload: unknown;
-  delayMs: number;
-  nativeSetTimeout: typeof globalThis.setTimeout;
-}) {
-  let billedCalls = 0;
-  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = String(input);
-    if (url.includes('/info')) {
-      return new Response(JSON.stringify({ patronLevel: 1, remainingCalls: 4_000 }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      });
-    }
-    assert.ok(url.includes(args.endpoint), `expected ${args.endpoint}, got ${url}`);
-    billedCalls += 1;
-    return delayedJsonResponse({
-      payload: args.payload,
-      delayMs: args.delayMs,
-      init,
-      nativeSetTimeout: args.nativeSetTimeout,
-    });
-  }) as typeof fetch;
-  return () => billedCalls;
+function billedPaths(provider: ReturnType<typeof installDelayedCfbdProvider>) {
+  return provider.billedUrls().map((url) => new URL(url).pathname);
 }
 
 test('scoreboard accepts 25s-equivalent provider latency with one billed request', async () => {
   await seedSchedule([{ id: 401001, week: 3, ageHours: 1, homeId: 333, awayId: 61 }]);
 
   await withCompressedTimeouts(async (nativeSetTimeout) => {
-    const billedCalls = installDelayedProvider({
-      endpoint: '/scoreboard',
+    const provider = installDelayedCfbdProvider({
       payload: [scoreboardRow()],
-      delayMs: 25,
+      providerDelayMs: 25_000,
       nativeSetTimeout,
     });
     const { res, event } = await runCron();
 
     assert.equal(res?.status, 200);
     assert.equal(event.reason, 'scoreboard-written-clean');
-    assert.equal(billedCalls(), 1);
+    assert.deepEqual(billedPaths(provider), ['/scoreboard']);
     assert.equal((await readScores())?.items[0]?.home.score, 14);
   });
 });
@@ -123,17 +101,18 @@ test('scoreboard timeout fails cleanly, retains prior-good data, and bills one r
   });
 
   await withCompressedTimeouts(async (nativeSetTimeout) => {
-    const billedCalls = installDelayedProvider({
-      endpoint: '/scoreboard',
+    const provider = installDelayedCfbdProvider({
       payload: [scoreboardRow()],
-      delayMs: 50,
+      providerDelayMs: 50_000,
       nativeSetTimeout,
     });
     const { res, event } = await runCron();
 
     assert.equal(res?.status, 500);
     assert.equal(event.reason, 'provider-fetch-failed');
-    assert.equal(billedCalls(), 1, 'a timed-out request bills, and the cron never retries it');
+    assert.deepEqual(billedPaths(provider), ['/scoreboard']);
+    const status = await getProviderRefreshStatus('scores', weekPartitionScope(YEAR, 3, 'regular'));
+    assert.match(status.lastError?.message ?? '', /timed out after 40000ms/);
   });
 
   const stored = await readScores();
@@ -145,17 +124,16 @@ test('final reconciliation accepts 25s-equivalent provider latency with one bill
   await seedPendingFinal();
 
   await withCompressedTimeouts(async (nativeSetTimeout) => {
-    const billedCalls = installDelayedProvider({
-      endpoint: '/games',
+    const provider = installDelayedCfbdProvider({
       payload: [gamesRow()],
-      delayMs: 25,
+      providerDelayMs: 25_000,
       nativeSetTimeout,
     });
     const { res, event } = await runCron();
 
     assert.equal(res?.status, 200);
     assert.equal(event.reason, 'final-reconciliation-confirmed');
-    assert.equal(billedCalls(), 1);
+    assert.deepEqual(billedPaths(provider), ['/games']);
     assert.equal((await readScores())?.pendingFinalConfirmationIds, undefined);
   });
 });
@@ -164,17 +142,18 @@ test('final-reconciliation timeout retains the pending final and bills one reque
   await seedPendingFinal();
 
   await withCompressedTimeouts(async (nativeSetTimeout) => {
-    const billedCalls = installDelayedProvider({
-      endpoint: '/games',
+    const provider = installDelayedCfbdProvider({
       payload: [gamesRow()],
-      delayMs: 50,
+      providerDelayMs: 50_000,
       nativeSetTimeout,
     });
     const { res, event } = await runCron();
 
     assert.equal(res?.status, 500);
     assert.equal(event.reason, 'provider-fetch-failed');
-    assert.equal(billedCalls(), 1, 'a timed-out request bills, and the cron never retries it');
+    assert.deepEqual(billedPaths(provider), ['/games']);
+    const status = await getProviderRefreshStatus('scores', weekPartitionScope(YEAR, 3, 'regular'));
+    assert.match(status.lastError?.message ?? '', /timed out after 40000ms/);
   });
 
   const stored = await readScores();

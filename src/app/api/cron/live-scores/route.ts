@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { fetchCfbdUsage } from '@/lib/api/cfbdUsage';
+import { CFBD_PEAK_LATENCY_TIMEOUT_MS } from '@/lib/api/cfbdRequestPolicy';
 import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
 import { buildCfbdGamesUrl, buildCfbdScoreboardUrl } from '@/lib/cfbd';
 import { evaluateAutomationQuota, type CfbdUsageSnapshot } from '@/lib/gameStats/quotaPolicy';
@@ -67,12 +68,9 @@ const RETRY_POLICY = {
   retryOnHttpStatuses: [],
 } as const;
 
-// PLATFORM-115: opening-slate CFBD latency was measured in the 8-25s band,
-// with one request still running beyond 30s. Forty seconds clears that band
-// and the observed outlier while remaining well inside the three-minute poll
-// cadence. RETRY_POLICY stays at one attempt, so the billed-call ceiling does
-// not change.
-const CFBD_REQUEST_TIMEOUT_MS = 40_000;
+// PLATFORM-115: the shared 40s ceiling covers the completed 8-25s measurement
+// band and remains well inside the three-minute poll cadence. RETRY_POLICY stays
+// at one attempt, so the billed-call ceiling does not change.
 
 const PACING_POLICY = { key: 'cfbd', minIntervalMs: 150 } as const;
 
@@ -325,7 +323,7 @@ async function runScoreboard(args: {
     const url = buildCfbdScoreboardUrl({ classification: 'fbs' });
     payload = await fetchUpstreamJson<unknown>(url.toString(), {
       cache: 'no-store',
-      timeoutMs: CFBD_REQUEST_TIMEOUT_MS,
+      timeoutMs: CFBD_PEAK_LATENCY_TIMEOUT_MS,
       headers: { Authorization: `Bearer ${cfbdApiKey}` },
       retry: RETRY_POLICY,
       pacing: PACING_POLICY,
@@ -497,7 +495,7 @@ async function runFinalReconciliation(args: {
     const url = buildCfbdGamesUrl({ year, seasonType: partition.seasonType, week: partition.week });
     payload = await fetchUpstreamJson<unknown>(url.toString(), {
       cache: 'no-store',
-      timeoutMs: CFBD_REQUEST_TIMEOUT_MS,
+      timeoutMs: CFBD_PEAK_LATENCY_TIMEOUT_MS,
       headers: { Authorization: `Bearer ${cfbdApiKey}` },
       retry: RETRY_POLICY,
       pacing: PACING_POLICY,

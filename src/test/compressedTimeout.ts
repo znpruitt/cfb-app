@@ -1,8 +1,14 @@
 /**
  * Compress wall-clock timers while preserving production timeout ratios.
- * Delayed test providers receive the original timer so a 25ms response behaves
- * like a 25s response against a production timeout compressed by 1,000x.
+ * Production milliseconds are divided by 250, leaving a 60ms real-time margin
+ * between the 25s-equivalent response and the 40s-equivalent abort.
  */
+const TIME_COMPRESSION_FACTOR = 250;
+
+function compressedDelayMs(productionDelayMs: number): number {
+  return productionDelayMs / TIME_COMPRESSION_FACTOR;
+}
+
 export async function withCompressedTimeouts<T>(
   action: (nativeSetTimeout: typeof globalThis.setTimeout) => Promise<T>
 ): Promise<T> {
@@ -12,7 +18,7 @@ export async function withCompressedTimeouts<T>(
     delay?: number,
     ...args: unknown[]
   ) => {
-    const compressedDelay = typeof delay === 'number' ? delay / 1_000 : delay;
+    const compressedDelay = typeof delay === 'number' ? compressedDelayMs(delay) : delay;
     return Reflect.apply(nativeSetTimeout, globalThis, [handler, compressedDelay, ...args]);
   }) as typeof globalThis.setTimeout;
 
@@ -64,8 +70,41 @@ export function delayedJsonResponse(args: {
         })
       );
     }, delayMs);
-
-    // Close the small race between the initial check and listener installation.
-    if (signal?.aborted) onAbort();
   });
+}
+
+/**
+ * Stub CFBD with an unbilled `/info` probe and one delayed payload for every
+ * billed endpoint. Tests inspect every non-info URL after the route returns, so
+ * an unexpected extra provider request cannot disappear into route-level
+ * transport error handling.
+ */
+export function installDelayedCfbdProvider(args: {
+  payload: unknown;
+  providerDelayMs: number;
+  nativeSetTimeout: typeof globalThis.setTimeout;
+}) {
+  const billedUrls: string[] = [];
+
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes('/info')) {
+      return new Response(JSON.stringify({ patronLevel: 1, remainingCalls: 4_000 }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+
+    billedUrls.push(url);
+    return delayedJsonResponse({
+      payload: args.payload,
+      delayMs: compressedDelayMs(args.providerDelayMs),
+      init,
+      nativeSetTimeout: args.nativeSetTimeout,
+    });
+  }) as typeof fetch;
+
+  return {
+    billedUrls: () => [...billedUrls],
+  };
 }

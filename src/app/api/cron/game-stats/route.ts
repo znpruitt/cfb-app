@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { fetchCfbdUsage } from '@/lib/api/cfbdUsage';
+import { CFBD_PEAK_LATENCY_TIMEOUT_MS } from '@/lib/api/cfbdRequestPolicy';
 import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
 import { buildCfbdGameTeamStatsUrl, type CfbdSeasonType } from '@/lib/cfbd';
 import { GAME_STATS_SCOPE, getGameStatsKey } from '@/lib/gameStats/cache';
@@ -69,11 +70,9 @@ const RETRY_POLICY = {
   retryOnHttpStatuses: [],
 } as const;
 
-// PLATFORM-115: opening-slate CFBD latency was measured in the 8-25s band,
-// including a 21.5s /games/teams response, with another CFBD request still
-// running beyond 30s. Forty seconds covers that observed range while remaining
-// well inside the polling cadence. The one-attempt quota contract is unchanged.
-const CFBD_REQUEST_TIMEOUT_MS = 40_000;
+// PLATFORM-115: the shared 40s ceiling covers the completed 8-25s measurement
+// band and remains well inside the polling cadence. The one-attempt quota
+// contract is unchanged.
 
 const PACING_POLICY = {
   key: 'cfbd',
@@ -349,7 +348,7 @@ export async function GET(req: Request) {
       const cfbdUrl = buildCfbdGameTeamStatsUrl({ year, week, seasonType });
       payload = await fetchUpstreamJson<unknown>(cfbdUrl.toString(), {
         cache: 'no-store',
-        timeoutMs: CFBD_REQUEST_TIMEOUT_MS,
+        timeoutMs: CFBD_PEAK_LATENCY_TIMEOUT_MS,
         headers: { Authorization: `Bearer ${cfbdApiKey}` },
         retry: RETRY_POLICY,
         pacing: PACING_POLICY,
