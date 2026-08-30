@@ -65,8 +65,8 @@ Rules:
   during confirmation review. Independent Codex and Claude reviews ran against that same commit;
   two remediation rounds moved ordering to the display seam and kept non-finite result dates out of
   bounded recent slots. Mutation checks pin the predicate, both ordering seams, and the copy.
-- Status: Merged via PR #531 (merge commit `50b75f2f`), 2026-08-29; production promotion not yet
-  verified.
+- Status: Merged via PR #531 (merge commit `50b75f2f`), 2026-08-29; production promotion confirmed
+  by the owner on 2026-08-29.
 
 ### INSIGHTS-026f-RECAP-FINAL-WIRING-v1
 

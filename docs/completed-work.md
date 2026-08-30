@@ -4254,8 +4254,8 @@ Key architectural decisions across Phase 5:
 
 ### POLISH-015 — Overview Games Region Corrections — Complete
 
-- **Status:** Merged via PR #531 (merge commit `50b75f2f`), 2026-08-29; production promotion not yet
-  verified.
+- **Status:** Merged via PR #531 (merge commit `50b75f2f`), 2026-08-29; production promotion
+  confirmed by the owner on 2026-08-29.
 - **PROMPT_ID(s):** `POLISH-015-OVERVIEW-GAMES-REGION-v1`.
 - **Outcome:** The Upcoming watchlist now excludes in-progress games, so a live game cannot occupy
   both Upcoming and Live. Scheduled games sort by kickoff, then same-kickoff ownership priority,
