@@ -8,7 +8,7 @@
 
 ## Problem
 
-Shipped Live and Upcoming watchlist cards state each matchup three times (title line, owner line, then again in a score sentence), leave the score unattributed to either side, and omit the owner→team mapping — "Whited vs Chamness" does not say who holds which team. Live games additionally render in **both** sections simultaneously: `overview.ts:1009` filters `!== 'final'`, admitting `inprogress` by omission. Incidental, not intentional; Item 82 already records it as a defect.
+Shipped Live and Upcoming watchlist cards state each matchup three times (title line, owner line, then again in a score sentence), leave the score unattributed to either side, and omit the owner→team mapping — "Whited vs Chamness" does not say who holds which team. Live games additionally render in **both** sections simultaneously: `selectors/overview.ts:483` filters `!== 'final'`, admitting `inprogress` by omission. Incidental, not intentional; Item 82 already records it as a defect.
 
 ---
 
@@ -63,7 +63,7 @@ Reason title row → date / kickoff / broadcast → team lines anchored by **per
 
 ### Layout
 
-- **Two-column game grid**, following existing precedent rather than introducing it — `FeaturedGamesList` already ships `grid-cols-1 sm:grid-cols-2` on this surface. Row-major flow, matching `RecapPrimitives.tsx:70`.
+- **Two-column game grid**, following existing precedent rather than introducing it — `FeaturedGamesList` already ships `grid-cols-1 sm:grid-cols-2` on this surface. Row-major flow, matching `RecapPrimitives.tsx:75`.
 - **Container query at 760px**, per DESIGN.md `:120` preferring container over viewport queries. The doc specifies the mechanism but no value; three disagree in code (640 `FeaturedGamesList`, 821 recap, 760 here). 760 is chosen on content width — below it each card gets under ~350px, which clips team + owner + anchor on the longest rows. See Proposed amendments.
 - **Progressive disclosure per section:** bounded default, expands in place. Header link → Matchups tab; footer control expands this week's slate.
 - **Header rows single-line by contract** (nowrap + ellipsis). Any wrap desynchronises team rows across a grid row.
@@ -92,13 +92,17 @@ The original addendum inverted the risk. Corrected:
 
 ## Existing code — do not fork
 
+> Line numbers verified against `main` at `78905c47` (after INSIGHTS-026f, which moved ~550
+> lines out of `overview.ts`). Re-derive before citing them in a prompt — they have gone stale
+> once already.
+
 | Section | Component | Current layout |
 |---|---|---|
 | Upcoming watchlist | `GameSummaryList` (`OverviewPanel.tsx:768`) | `space-y-2.5`, single column |
 | Live | `GameCardList` (`OverviewPanel.tsx:714`) | `space-y-3`, single column, amber borders |
 | Featured games | `FeaturedGamesList` (`OverviewPanel.tsx:864`) | `grid-cols-1 sm:grid-cols-2` |
 
-Three components, no shared code today. Precedence sort is `prioritizeOverviewItems` (`overview.ts:428`), called at `:1019` and `:1025` off `deriveOverviewHighlightSignals` (`gameTags.ts:310`) — one sort, two call sites. **Must not be forked.**
+Three components, no shared code today. Precedence sort is `prioritizeOverviewItems` (`selectors/overview.ts:312`), called at `:492` and `:498` off `deriveOverviewHighlightSignals` (`gameTags.ts:310`) — one sort, two call sites. **Must not be forked.**
 
 ---
 
@@ -148,7 +152,7 @@ Four bodies of work surfaced during this design that are **not** Item 87's surfa
 
 ### C → already Item 82. Overview watchlist/live duplication
 
-**Scope:** `overview.ts:1009` filters `!== 'final'`, admitting `inprogress` by omission, so live games render in both the watchlist and the Live section. Already recorded as a defect in Item 82.
+**Scope:** `selectors/overview.ts:483` filters `!== 'final'`, admitting `inprogress` by omission, so live games render in both the watchlist and the Live section. Already recorded as a defect in Item 82.
 **Do not file a new item — cite Item 82.** Its promotion-model fix in Item 87 as a consequence of the redesign. Either close Item 82 against Item 87, or fix it standalone if Item 87 is deferred — but do not fix it twice.
 
 ### D → Item 92. CFBD team-records integration
