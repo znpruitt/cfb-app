@@ -4232,6 +4232,26 @@ Key architectural decisions across Phase 5:
 - **Open follow-ups:** Item 42 in `docs/next-tasks.md` retains the final recap wiring pass, the
   non-blocking Slice 3/4 review follow-ups, Forward Look, and stored event-source delivery.
 
+### INSIGHTS-026f — Weekly Recap Final Wiring — Complete
+
+- **Status:** Merged via PR #529 (merge commit `faadabb4`), 2026-08-29; production promotion not yet
+  verified.
+- **PROMPT_ID(s):** `INSIGHTS-026f-RECAP-FINAL-WIRING-v1`.
+- **Outcome:** The request-time Look Back now renders every completed fact family. The full Insights
+  recap includes owner records, weekly leaders, movement, owner-vs-owner results, accolades,
+  active-season-safe record changes, and odds upsets. The Overview tile keeps its compact headline
+  and uses progressive disclosure for dense records, leaders, movement, and at most three
+  prioritized highlights. Archive or odds uncertainty suppresses only that enrichment family, game
+  facts share one canonical scoreboard presentation, and the unused predecessor pulse view model is
+  removed.
+- **Verification:** Exact final commit `eab9c0cc` passed TypeScript, `lint:all`, the 4,439-test full
+  suite, production build, and desktop/mobile browser checks. Independent Claude and Codex reviews
+  closed without a remaining P0/P1/P2 finding after mutation-proven record-transition and rivalry-
+  identity coverage.
+- **Open follow-ups:** Item 42 in `docs/next-tasks.md` remains open only for the durable event-source
+  artifact and Thursday Forward Look. The broader malformed odds-favorite producer remains in the
+  canonical deferral register.
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone (DOCS-012). Entries describe shipped

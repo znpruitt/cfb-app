@@ -180,7 +180,7 @@ shows.
 
 Full-page view of all insights for a league, accessible via "See all →" from the overview panel. Grouped by category, full descriptions, lifecycle filtering.
 
-#### Insights Engine — Two Weekly In-Season Pulses (in progress — INSIGHTS-026)
+#### Insights Engine — Two Weekly In-Season Pulses (request-time Look Back complete — INSIGHTS-026)
 
 > **ID note (2026-08-14):** this campaign was filed under `INSIGHTS-018`, which the backlog also used
 > for the NEW-tag mechanism. Split to `INSIGHTS-026` so a content campaign stops hiding behind a
@@ -196,14 +196,14 @@ Full-page view of all insights for a league, accessible via "See all →" from t
 > 10am UTC. Express the intent in ET. See `docs/next-tasks.md` INSIGHTS-026 for the framework's open
 > questions.
 >
-> **Delivery decision 2026-08-28 (owner):** build the Look Back request-time first, in vertical
-> slices. The walking skeleton and layout stage are merged: the full recap begins at the top of the
-> existing Insights page, and a compact expandable rendering occupies Overview's elevated
-> timely-content zone. Both consume the same request-time recap for the league's exact active season and
-> immediately preceding eligible week; existing standing/durable insights remain independent. The
-> remaining vertical slices enrich that proven structure. The immutable artifact/event-source
-> portion remains open. Forward Look will target the immediate upcoming canonical week and needs
-> its own schedule/rankings inputs.
+> **Delivery decision 2026-08-28 (owner), completed 2026-08-29:** the request-time Look Back shipped
+> in vertical slices. The full recap leads the existing Insights page, and a compact expandable
+> rendering occupies Overview's elevated timely-content zone. Both consume one server-coherent
+> recap for the league's exact active season and immediately preceding eligible week; existing
+> standing/durable insights remain independent. Results, leaders, movement, head-to-head outcomes,
+> accolades, record changes, and odds upsets are all wired. The immutable artifact/event-source
+> portion remains open. Forward Look targets the immediate upcoming canonical week and needs its own
+> schedule/rankings inputs.
 
 Enrich the existing insights panel on the overview page with contextual, data-driven narrative content. The panel structure is already built — this campaign populates it with meaningful insights that adapt automatically based on lifecycle state (offseason / preseason / in-season / postseason).
 
@@ -245,7 +245,10 @@ Insights page. No dedicated pulse route or navigation entry.
 **Tone:** Mix of dry stats, narrative storytelling, and light humor.
 **Prerequisite:** Game Stats Pipeline ✓, Insights Engine Foundation ✓, Insights Engine Generators and Wiring ✓
 
-**Future polish (non-blocking):** Remove dead view model properties `keyMovements`, `leaguePulse`, `shouldShowLeaguePulse` from `selectOverviewViewModel` — computed but never read by any component.
+**Remaining delivery:** Store the Look Back as an immutable event-source artifact, and build the
+separate Thursday Forward Look over upcoming schedule/rankings inputs. The dead `keyMovements`,
+`leaguePulse`, and `shouldShowLeaguePulse` Overview fields were removed with the final request-time
+wiring pass.
 
 ---
 

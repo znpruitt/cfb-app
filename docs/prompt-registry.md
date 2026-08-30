@@ -51,6 +51,24 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### INSIGHTS-026f-RECAP-FINAL-WIRING-v1
+
+- Purpose: complete the request-time weekly recap by wiring every finished fact family into the
+  approved Insights and Overview renderings.
+- Scope: full recap composition, progressive Overview disclosure, independent archive/odds
+  enrichment failure handling, truthful record and rivalry transition copy, dead Overview pulse
+  removal, design-system guidance, browser verification, and focused regression coverage.
+- Outcome: Insights now renders all weekly results, leaders, movement, head-to-head outcomes,
+  accolades, record changes, and odds upsets; Overview retains the compact headline and reveals
+  dense records, leaders, movement, and at most three prioritized highlights in place. Unavailable
+  enrichment families disappear without taking down the core recap.
+- Review / verification: exact commit `eab9c0cc` passed TypeScript, `lint:all`, the 4,439-test full
+  suite, production build, and desktop/mobile browser checks. Independent Claude and Codex reviews
+  closed every P2; final mutation checks pinned broad-tie predecessor identity, invariant tied
+  rivalry values, and constituent ordering with no remaining P0/P1/P2 finding.
+- Status: Merged via PR #529 (merge commit `faadabb4`), 2026-08-29; production promotion not yet
+  verified.
+
 ### INSIGHTS-026e-RECAP-ODDS-UPSETS-v1
 
 - Purpose: add odds-vs-result upset facts to the request-time weekly recap without exposing an
