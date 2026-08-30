@@ -1,7 +1,7 @@
 # Prompt Registry
 
 Status: Current ledger
-Last verified: 2026-08-29
+Last verified: 2026-08-30
 Owner: Project documentation
 Canonical for: prompt ledger / historical implementation record (not an active backlog)
 Supersedes: (none)
@@ -61,12 +61,13 @@ Rules:
 - Outcome: all four scoped CFBD requests now use a shared 40-second ceiling. Both cron paths retain
   their one-attempt policy; the admin scores refresh deliberately changes from three 12-second
   attempts to one 40-second attempt, bounding one operator action to one billed call.
-- Review / verification: implementation commit `8fa5d417` passed TypeScript, lint, the focused
-  timeout suite, and all 4,449 tests during confirming review. Independent Codex review was clean;
-  Claude confirmed the production policy and identified proof-harness defects, which a
-  user-approved proof-only correction closed without another independent review. Mutation checks
-  prove a second attempt fails the billed-URL assertions on all three paths.
-- Status: Implemented — pre-merge.
+- Review / verification: exact PR head `c9a580e0` passed TypeScript, `lint:all`, the 4,450-test full
+  suite, and production build. Eight test declarations were added for accepted-band success,
+  over-ceiling failure, exact billed-request counts, and prior-good retention. Independent Codex
+  review was clean; Claude confirmed the production policy and identified proof-harness defects,
+  which a user-approved proof-only correction closed without another independent review. Mutation
+  checks prove a second attempt fails the billed-URL assertions on all three paths.
+- Status: Merged via PR #534 (merge commit `6492e68d`), 2026-08-30.
 
 ### POLISH-015-OVERVIEW-GAMES-REGION-v1
 

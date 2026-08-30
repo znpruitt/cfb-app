@@ -1,7 +1,7 @@
 # Completed Work Log
 
 Status: Historical (append-only ledger)
-Last verified: 2026-08-29
+Last verified: 2026-08-30
 Owner: Project documentation
 Canonical for: append-only record of shipped phases/milestones (outcomes) — historical, not current implementation authority
 Supersedes: (none)
@@ -4268,6 +4268,21 @@ Key architectural decisions across Phase 5:
   confirmation reviews found no credible in-scope P0/P1/P2.
 - **Open follow-ups:** Item 87 in `docs/next-tasks.md` remains the scoreboard and structural
   promotion-model replacement for this interim surface.
+
+### PLATFORM-115 — CFBD Request Timeout — Complete
+
+- **Status:** Merged via PR #534 (merge commit `6492e68d`), 2026-08-30.
+- **PROMPT_ID(s):** `PLATFORM-115-CFBD-REQUEST-TIMEOUT-v1`.
+- **Outcome:** The two live-score requests, game-stats cron request, and admin scores request now
+  share a 40-second CFBD timeout. The cron paths retain one attempt, while the admin action replaces
+  three short attempts with one longer attempt, so ordinary peak latency no longer exhausts the old
+  12-second ceiling without multiplying billed calls. Eligibility, cadence, quota reserve, schedule
+  windows, fallback behavior, and unrelated provider jobs are unchanged.
+- **Verification:** Eight test declarations were added for 25-second-equivalent success and clean
+  over-ceiling failure, with exact billed-request counts and prior-good cache retention pinned on
+  each targeted path. Exact PR head `c9a580e0` passed TypeScript, `lint:all`, the 4,450-test full
+  suite, and production build; retry mutations were killed by the billed-URL assertions.
+- **Open follow-ups:** None.
 
 ### Template for future entries
 
