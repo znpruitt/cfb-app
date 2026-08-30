@@ -24,7 +24,8 @@ Supersedes: (none)
 
 ## Current execution order
 
-`CURRENT`: Item 42, final recap wiring/pass.
+`CURRENT`: none. The request-time portion of Item 42 is complete; its stored event-source and
+Forward Look portions remain open but are not owner-selected as the next implementation.
 
 The 2026-08-26 roadmap audit recommends this season-reliability sequence after the current slice;
 it is proposed ordering, not an owner-selected `NEXT` designation:
@@ -405,47 +406,22 @@ already displayed independently. Move `resolveLeagueMembers`, `resolveSuperlativ
 exception. Audit the remaining `selectAllRecords` roster-as-membership derivation and decide how its
 record eligibility converges with generator-specific rules.
 
-### Item 42 — INSIGHTS-026 weekly recap and event source (In progress)
+### Item 42 — INSIGHTS-026 stored event source and Forward Look (In progress)
 
-The request-time Look Back skeleton, layout, Slice 2 detail layer, Slice 3 record-change projection,
-and Slice 4 odds-upset facts are complete. The recap is scoped to the league's exact active season,
-selects the immediately preceding eligible canonical week after the next-day 06:00 ET cutoff, and
-renders at the top of the existing Insights page. Its Overview tile consumes the same
-server-coherent recap view model, reevaluates the request-time boundary independently from client
-schedule readiness, and remains visible if client schedule bootstrap fails. Standing/durable
-insights remain independent and are inherited alongside the recap rather than replaced by it. Slice
-2 adds week-explicit movement, owner-vs-owner detail, and weekly accolades. Slice 3 derives
-allowlisted active-season record changes against historical evidence without passing a partial
-season through the career accumulator. Slice 4 reads the durable season odds cache and derives
-structured odds upsets through the same favorite-side and six-point pregame-spread policy used by
-game badges. Notable-result, record-change, and odds-upset UI remain deliberately unwired for the
-final pass.
+The complete request-time Look Back is recorded in `docs/completed-work.md`; do not requeue its
+selectors, content families, final wiring, or member renderings. Two distinct portions remain:
 
-Continue the request-time portion vertically:
+1. **Stored artifact and event source.** Freeze one immutable recap per league and period so a late
+   score cannot silently rewrite what members already saw, and make publication the event source
+   that can unblock Item 30's NEW tag. Before implementation, settle fixed-period versus
+   since-last-success windows, idempotency/catch-up, year validity, demo exclusion, scheduler
+   receipts, and DST-correct ET cadence. Preserve the request-time facts layer rather than rebuilding
+   it.
+2. **Thursday Forward Look.** Target the immediate upcoming canonical week. This is not another
+   Look Back composer: it needs upcoming-week selection plus schedule and rankings inputs the current
+   loader does not gather.
 
-- **CURRENT — Final wiring/pass:** fill the existing Insights recap and Overview tile from the
-  completed fact families and remove the dead prior pulse view-model fields.
-
-Before the remaining fact families are wired, resolve the non-blocking Slice 3/4 review follow-ups:
-decide whether isolated archive or odds uncertainty suppresses only its fact family or the whole
-recap; make schedule-absence precedence deterministic under simultaneous context failures; add
-direct coverage for excluding a same-year archive; and either carry rivalry-direction identity in
-the change comparator or document why the currently unreachable same-length holder reversal stays
-excluded. Pin the asymmetric-line live `upset_watch` branch when the shared policy tests are next
-touched. Repair or stop rendering the pre-existing malformed `CombinedOdds.favorite` producer field
-before recap copy names a favorite; recap facts correctly resolve the favorite from side spreads,
-but existing scoreboard/matchup consumers can still display the contradictory stored string. Measure
-the serialized durable-odds read during final wiring before deciding whether to parallelize it with
-the season build; preserve deterministic absence/failure precedence if that seam changes.
-
-This request-time campaign does not close item 42. A later stored artifact must add immutability and
-become the event producer that can unblock item 30's NEW tag. Before that work, settle fixed-period
-versus since-last-success windows, idempotency/catch-up, year validity, demo exclusion, scheduler
-receipts, and DST-correct ET cadence.
-
-Thursday Forward Look is separate future work. It targets the immediate upcoming canonical week of
-games and needs schedule/rankings inputs not gathered by the Look Back loader. INSIGHTS-020
-record-change work contributes to this campaign rather than preceding it as a standalone feature.
+Neither portion is currently selected for implementation.
 
 ### Item 43 — new preseason generators
 
@@ -1029,6 +1005,9 @@ are removed rather than retained with strikethrough; their outcomes live in `doc
 - **Expected-absence applicability for scores, odds, and rankings.** A genuinely cold deployment can
   still show neutral absence as degraded health. Each dataset needs its own applicability authority;
   do not generalize the game-stats slate rule.
+- **Malformed `CombinedOdds.favorite` producer field.** Recap copy resolves the favorite from side
+  spreads, but existing scoreboard and matchup consumers can still render a contradictory stored
+  favorite string. Repair the producer or stop those consumers from trusting the field.
 - **Provider diagnostics rebuild the canonical slate on every call.** Correctness is intact, but
   preseason System Health and provider-status reads pay catalog, alias, and schedule construction
   cost. A shared lazy/memoized slate seam is preferable to caller hints or completed-slate gating.
