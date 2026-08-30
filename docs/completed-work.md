@@ -4266,8 +4266,8 @@ Key architectural decisions across Phase 5:
   chronology, watchlist/Live exclusion, and bounded recent-result date handling; existing selector
   and empty-copy assertions were retargeted to the approved behavior. Independent Codex and Claude
   confirmation reviews found no credible in-scope P0/P1/P2.
-- **Open follow-ups:** Item 87 in `docs/next-tasks.md` remains the scoreboard and structural
-  promotion-model replacement for this interim surface.
+- **Open follow-ups:** POLISH-016 shipped Item 87's shared scoreboard and Live conversion. The
+  remaining Featured, promotion-model, and Watchlist slices stay in `docs/next-tasks.md`.
 
 ### PLATFORM-115 — CFBD Request Timeout — Complete
 
@@ -4283,6 +4283,21 @@ Key architectural decisions across Phase 5:
   each targeted path. Exact PR head `c9a580e0` passed TypeScript, `lint:all`, the 4,450-test full
   suite, and production build; retry mutations were killed by the billed-URL assertions.
 - **Open follow-ups:** None.
+
+### POLISH-016 — Overview Live Scoreboard Component — Complete
+
+- **Status:** Merged via PR #535 (merge commit `5fd59d39`), 2026-08-30.
+- **PROMPT_ID(s):** `POLISH-016-SCOREBOARD-COMPONENT-LIVE-v1`.
+- **Outcome:** The first Item 87 slice established the shared game-scoreboard contract with a real
+  Live consumer. Overview Live now presents neutral structural status, fixed away-to-home rows,
+  position-independent leader emphasis, rank/team/owner identity, and right-anchored scores in a
+  responsive two-column grid. The Live drilldown also targets the displayed game and clears stale
+  conference/team filters that could hide it.
+- **Verification:** Exact PR head `661531a2` passed TypeScript, `lint:all`, the 4,461-test full suite,
+  production build, and browser checks at the two-column and exact one-column boundary. Eleven tests
+  were added relative to the prior `main`; independent Codex review found no actionable regression,
+  and the owner waived the final Claude rerun after the focused test/navigation follow-up.
+- **Open follow-ups:** See the remaining Item 87 slices in `docs/next-tasks.md`.
 
 ### Template for future entries
 

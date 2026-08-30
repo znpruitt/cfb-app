@@ -1,6 +1,6 @@
 # Item 87 — Addendum: Live / Watchlist Scoreboard Treatment
 
-**Status:** Design decided; CLI-validated; corrections applied. Ready to commit pending the two open decisions below.
+**Status:** Slice 1 shipped via POLISH-016 / PR #535; slices 2–4 remain planned.
 **Reference mockup:** `mockups/live-scoreboard-mockup.html`
 **Related:** `INSIGHTS-026b-RECAP-LAYOUT-v1` (dispatched). Shares the scoreboard micro-component — see Sequencing.
 
@@ -182,7 +182,7 @@ Ordered so colour settles once rather than shipping neutral live and flipping it
 
 | # | Slice | Notes |
 |---|---|---|
-| 1 | Scoreboard component + Live section | Simplest state; verifiable against live games today. Ship the component with its first consumer — a component with no consumer cannot be verified behaviourally. |
+| ✅ 1 | Scoreboard component + Live section | Merged via POLISH-016 / PR #535 (`5fd59d39`), 2026-08-30. The component shipped with its first live consumer and no speculative state variants. |
 | 2 | Featured conversion + retire `stateBadgeClasses` + green-live flip | Colour settles in one step. **Load-bearing:** if Featured stays on old markup, `:931` survives, green-final survives, and the collision returns. |
 | 3 | Recent finals + promotion model | Needs `unknown` routing and the recap-eligibility clear. |
 | 4 | Watchlist | Riskiest — anchor depends on Item 92. Falls back to the spread anchor if 92 has not landed. |
@@ -200,7 +200,8 @@ Ordered so colour settles once rather than shipping neutral live and flipping it
 | Order | Item | Why |
 |---|---|---|
 | Done | **POLISH-015** | Interim duplication, chronological ordering, and empty-copy correction merged via PR #531; Item 87 supersedes the implementation. |
-| 1 | **87 slices 1–2** | Defines the shared scoreboard component. |
+| Done | **87 slice 1** | Shared scoreboard contract + Live consumer merged via PR #535. |
+| 1 | **87 slice 2** | Converts Featured, retires `stateBadgeClasses`, and settles green-live. |
 | 2 | **Item 42 wiring pass** (except notable results) | Unblocked — all four fact families shipped. Runs **in parallel** with 87; no dependency. |
 | 3 | **91** | Standings derivation — unblocks pill removal. |
 | 4 | **90** | Amber sweep, incl. pill removal and the `final` re-cut elsewhere. |
@@ -237,12 +238,12 @@ As of this writing 026a–026e have all merged and the recap campaign is finishe
 
 **What survives is the conclusion, for a different reason than originally given.** Notable-results scoreboards were never built — not in any recap slice, and not in 026b v3, whose scope was a data-seam rebuild rather than notable-results UI. `src/components/recap/` holds only `RecapPrimitives`, `RecapTile` and `WeeklyRecapSection`. So Item 87 still defines the scoreboard component, because nothing else has.
 
-**Notable results need a home — open decision.** Two options:
+**Notable results home — decided.** The alternatives considered were:
 
-- **Item 42's wiring pass absorbs them**, consuming Item 87's component. Correct on surface boundaries — notable results are recap UI, and putting recap UI inside Item 87 would cross surfaces the same way the amber sweep would have. Cost: that part of the wiring pass waits on Item 87 slice 1.
+- **Item 42's wiring pass absorbs them**, consuming Item 87's component. Correct on surface boundaries — notable results are recap UI, and putting recap UI inside Item 87 would cross surfaces the same way the amber sweep would have. Slice 1 established the shared anatomy but intentionally shipped only the consumed live variant, so this part still waits on whichever Item 87 slice first renders a final row.
 - **Item 87 takes them as a fourth consumer.** Keeps component and consumers in one campaign, but Item 87 is already large enough to carry a pre-agreed split point, and it would own UI on a surface it otherwise does not touch.
 
-**Recommended:** the wiring pass absorbs them, but as its own slice. Everything else in that pass is unblocked and can run in parallel with Item 87; only the notable-results slice waits on slice 1. That keeps surface boundaries clean without blocking the rest of the wiring.
+**Decision:** the wiring pass absorbs them, but as its own slice. Everything else in that pass is unblocked and can run in parallel with Item 87; only the notable-results slice waits on the first consumed final-row variant. That keeps surface boundaries clean without blocking the rest of the wiring.
 
 ## Palette allocation — input to INSIGHTS-017-PALETTE
 
