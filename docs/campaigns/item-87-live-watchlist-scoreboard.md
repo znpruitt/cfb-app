@@ -199,7 +199,7 @@ Ordered so colour settles once rather than shipping neutral live and flipping it
 
 | Order | Item | Why |
 |---|---|---|
-| Done | **POLISH-015** | Interim duplication, chronological ordering, and empty-copy correction completed on the feature branch; Item 87 supersedes the implementation. |
+| Done | **POLISH-015** | Interim duplication, chronological ordering, and empty-copy correction merged via PR #531; Item 87 supersedes the implementation. |
 | 1 | **87 slices 1–2** | Defines the shared scoreboard component. |
 | 2 | **Item 42 wiring pass** (except notable results) | Unblocked — all four fact families shipped. Runs **in parallel** with 87; no dependency. |
 | 3 | **91** | Standings derivation — unblocks pill removal. |
