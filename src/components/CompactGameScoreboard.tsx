@@ -11,11 +11,12 @@ export type CompactScoreboardParticipant = {
 };
 
 export type CompactGameScoreboardProps = {
-  state: 'live';
-  clock: string;
+  state: 'live' | 'final';
+  clock?: string;
   matchupLabel: string;
   away: CompactScoreboardParticipant;
   home: CompactScoreboardParticipant;
+  contextSlot?: React.ReactNode;
 };
 
 function leadingSide(
@@ -38,13 +39,14 @@ export default function CompactGameScoreboard({
   matchupLabel,
   away,
   home,
+  contextSlot,
 }: CompactGameScoreboardProps): React.ReactElement {
   const leader = leadingSide(away, home);
   const participants = [
     { side: 'away' as const, participant: away },
     { side: 'home' as const, participant: home },
   ];
-  const clockLabel = clock.trim();
+  const clockLabel = clock?.trim() ?? '';
 
   return (
     <article
@@ -53,15 +55,28 @@ export default function CompactGameScoreboard({
       data-game-scoreboard
       data-scoreboard-state={state}
     >
+      {contextSlot ? (
+        <div className="mb-1.5 min-w-0" data-scoreboard-context-slot>
+          {contextSlot}
+        </div>
+      ) : null}
       <div
         className="mb-1.5 flex items-center gap-2 overflow-hidden whitespace-nowrap text-xs dark:text-zinc-500"
         data-scoreboard-header
       >
-        <span className="inline-flex shrink-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] dark:text-zinc-200">
-          <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
-          Live
+        <span
+          className={`inline-flex shrink-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${
+            state === 'live' ? 'dark:text-emerald-400' : 'dark:text-zinc-400'
+          }`}
+        >
+          {state === 'live' ? (
+            <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
+          ) : null}
+          {state === 'live' ? 'Live' : 'Final'}
         </span>
-        {clockLabel ? <span className="min-w-0 truncate tabular-nums">{clockLabel}</span> : null}
+        {state === 'live' && clockLabel ? (
+          <span className="min-w-0 truncate tabular-nums">{clockLabel}</span>
+        ) : null}
       </div>
 
       {participants.map(({ side, participant }) => {

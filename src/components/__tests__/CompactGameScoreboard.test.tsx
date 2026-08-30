@@ -85,12 +85,53 @@ test('live scoreboard keeps its header and long team-owner identities on one cli
   );
 });
 
-test('live scoreboard expresses live state with neutral structure and no amber utility', () => {
+test('live scoreboard expresses live state in green with no amber utility', () => {
   const html = renderScoreboard();
 
   assert.match(html, /size-1\.5 rounded-full bg-current/);
+  assert.match(html, /dark:text-emerald-400/);
   assert.doesNotMatch(html, /amber/);
   assert.match(html, /data-scoreboard-state="live"/);
+});
+
+test('final scoreboard keeps away above a winning home team and uses neutral final status', () => {
+  const html = renderScoreboard({
+    state: 'final',
+    clock: '',
+    away: { teamName: 'Michigan', owner: 'Whited', rank: null, score: 17 },
+    home: {
+      teamName: 'Ohio State',
+      owner: 'Chamness',
+      rank: 7,
+      rankSource: 'ap',
+      score: 24,
+    },
+  });
+  const awayRow = html.indexOf('data-scoreboard-side="away"');
+  const homeRow = html.indexOf('data-scoreboard-side="home"');
+  const header = html.match(/<div[^>]+data-scoreboard-header[^>]*>([\s\S]*?)<\/div>/)?.[1];
+
+  assert.ok(awayRow >= 0 && homeRow > awayRow, 'away must remain above home');
+  assert.match(html, /data-scoreboard-side="away" data-scoreboard-leading="false"/);
+  assert.match(
+    html,
+    /font-semibold dark:text-zinc-50" data-scoreboard-side="home" data-scoreboard-leading="true"/
+  );
+  assert.ok(header, 'scoreboard header must render');
+  assert.match(header, />Final<\/span>/);
+  assert.doesNotMatch(header, /rounded-full bg-current|Live/);
+  assert.doesNotMatch(html, /emerald|amber/);
+  assert.match(html, /data-scoreboard-state="final"/);
+});
+
+test('scoreboard exposes an additive context slot above its state row', () => {
+  const html = renderScoreboard({ contextSlot: <span>Rivalry reason</span> });
+
+  assert.match(html, /data-scoreboard-context-slot/);
+  assert.ok(
+    html.indexOf('Rivalry reason') < html.indexOf('data-scoreboard-header'),
+    'context must render before the scoreboard state row'
+  );
 });
 
 test('live scoreboard omits the clock node when no trustworthy clock is available', () => {
