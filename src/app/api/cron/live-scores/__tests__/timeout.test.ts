@@ -61,10 +61,6 @@ async function readScores(): Promise<CacheEntry | null> {
   return (await getAppState<CacheEntry>('scores', `${YEAR}-3-regular`))?.value ?? null;
 }
 
-function billedPaths(provider: ReturnType<typeof installDelayedCfbdProvider>) {
-  return provider.billedUrls().map((url) => new URL(url).pathname);
-}
-
 test('scoreboard accepts 25s-equivalent provider latency with one billed request', async () => {
   await seedSchedule([{ id: 401001, week: 3, ageHours: 1, homeId: 333, awayId: 61 }]);
 
@@ -78,7 +74,7 @@ test('scoreboard accepts 25s-equivalent provider latency with one billed request
 
     assert.equal(res?.status, 200);
     assert.equal(event.reason, 'scoreboard-written-clean');
-    assert.deepEqual(billedPaths(provider), ['/scoreboard']);
+    assert.deepEqual(provider.billedPaths(), ['/scoreboard']);
     assert.equal((await readScores())?.items[0]?.home.score, 14);
   });
 });
@@ -110,7 +106,7 @@ test('scoreboard timeout fails cleanly, retains prior-good data, and bills one r
 
     assert.equal(res?.status, 500);
     assert.equal(event.reason, 'provider-fetch-failed');
-    assert.deepEqual(billedPaths(provider), ['/scoreboard']);
+    assert.deepEqual(provider.billedPaths(), ['/scoreboard']);
     const status = await getProviderRefreshStatus('scores', weekPartitionScope(YEAR, 3, 'regular'));
     assert.match(status.lastError?.message ?? '', /timed out after 40000ms/);
   });
@@ -133,7 +129,7 @@ test('final reconciliation accepts 25s-equivalent provider latency with one bill
 
     assert.equal(res?.status, 200);
     assert.equal(event.reason, 'final-reconciliation-confirmed');
-    assert.deepEqual(billedPaths(provider), ['/games']);
+    assert.deepEqual(provider.billedPaths(), ['/games']);
     assert.equal((await readScores())?.pendingFinalConfirmationIds, undefined);
   });
 });
@@ -151,7 +147,7 @@ test('final-reconciliation timeout retains the pending final and bills one reque
 
     assert.equal(res?.status, 500);
     assert.equal(event.reason, 'provider-fetch-failed');
-    assert.deepEqual(billedPaths(provider), ['/games']);
+    assert.deepEqual(provider.billedPaths(), ['/games']);
     const status = await getProviderRefreshStatus('scores', weekPartitionScope(YEAR, 3, 'regular'));
     assert.match(status.lastError?.message ?? '', /timed out after 40000ms/);
   });

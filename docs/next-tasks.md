@@ -24,25 +24,23 @@ Supersedes: (none)
 
 ## Current execution order
 
-`CURRENT`: Item 89 — CFBD request timeout.
-`NEXT`: Item 87 slice 1 — scoreboard component + Live section.
+`CURRENT`: Item 87 slice 1 — scoreboard component + Live section.
+`NEXT`: Item 87 slice 2 — Featured conversion and green-live state.
 
 Owner-selected run order (2026-08-29). In-season work first, then the Overview scoreboard campaign,
 reassessing against the reliability sequence below after Item 87 slice 2 rather than running the
 campaign straight through.
 
-1. **Item 89** — CFBD timeout. Settle whether a timed-out request bills against quota BEFORE raising
-   any timeout or retry count; that question governs the fix.
-2. **Item 87 slice 1** — scoreboard component + Live section. The prompt carries the full row
+1. **Item 87 slice 1** — scoreboard component + Live section. The prompt carries the full row
    contract, since three later consumers inherit it. Reference:
    `mockups/live-scoreboard-mockup.html`, spec in `docs/campaigns/`.
-3. **Item 87 slice 2** — Featured conversion, retire `stateBadgeClasses`, green-live flip. Colour
+2. **Item 87 slice 2** — Featured conversion, retire `stateBadgeClasses`, green-live flip. Colour
    settles in one step. **Pre-agreed split point:** if sizing signals trip, stop and re-slice here.
-4. **Reassess** against the reliability sequence below before continuing.
-5. **Item 92** — CFBD records integration. Must precede slice 4 or slice 4 ships the spread
+3. **Reassess** against the reliability sequence below before continuing.
+4. **Item 92** — CFBD records integration. Must precede slice 4 or slice 4 ships the spread
    fallback. Cadence is the live-scores cron, never `handleGamesFinalized`.
-6. **Item 87 slice 3** — Recent finals + promotion model.
-7. **Item 87 slice 4** — Watchlist, consuming records.
+5. **Item 87 slice 3** — Recent finals + promotion model.
+6. **Item 87 slice 4** — Watchlist, consuming records.
 
 Runnable at any point, no dependency on the above: **Item 91** (standings live-signal derivation),
 **Item 84** (provider-classification diagnostic), **Item 86** (archive audit integrity check).
@@ -56,7 +54,8 @@ Offseason-gated, not now: **Item 83** (identity collision) and **Item 80** (Next
 systems that are live.
 
 The 2026-08-26 roadmap audit recommends this season-reliability sequence; it is proposed ordering,
-not an owner-selected `NEXT` designation, and step 5 above is the point to weigh it:
+not an owner-selected `NEXT` designation, and the reassessment after Item 87 slice 2 is the point to
+weigh it:
 
 1. Item 64(c) — align abandonment handling in resolved-week selection.
 2. Item 63 — design delete-and-recreate reschedule reconciliation; also the main lever on
@@ -673,7 +672,7 @@ Sequence, and the ordering is the load-bearing part:
 
 1. Land collision detection FIRST (see the acceptance boundary). A backfill resolves stored names
    through the same lossy function that caused this bug — migrate before detecting and today's wrong
-   answers are frozen into ids that then *look* authoritative, making them permanently
+   answers are frozen into ids that then _look_ authoritative, making them permanently
    indistinguishable from correct ones.
 2. Persist the provider id at each ingest point: catalog fetch, score normalizer (schedule already
    does), and the draft pick at selection time.
@@ -698,7 +697,7 @@ equally serious:
 
 - same id, different name — requires human adjudication. This single class covers BOTH a benign
   rebrand and a dangerous reassignment, and the system cannot safely tell them apart: `East Texas
-  A&M` (formerly Texas A&M-Commerce) is a real, benign instance already present in the feed. A
+A&M` (formerly Texas A&M-Commerce) is a real, benign instance already present in the feed. A
   rename keeps continuity — same conference, recognizably related name — but that is judgment, not a
   rule.
 - same school, different id — re-keying. Needs a mapping decision before any further write.
@@ -724,7 +723,7 @@ Acceptance boundary, both required:
 - A per-team season game-count invariant rejects an impossible schedule. The FBS ceiling is **17**
   — 12 regular-season games, plus a conference championship, plus four College Football Playoff
   rounds under the 12-team format — so the threshold must accommodate a full title run or it will
-  reject legitimate seasons. This is the broader net: it catches the *consequence* of any future
+  reject legitimate seasons. This is the broader net: it catches the _consequence_ of any future
   collision regardless of cause, and a 24-game season went undetected for a full year without it.
 
 ### Item 84 — an overriding provider classification records no diagnostic
@@ -854,8 +853,8 @@ Acceptance boundary:
 Observed on `/admin/diagnostics` during the 2026 opening slate (2026-08-29), with live scoring
 working correctly at the time.
 
-**The issue is a model mismatch, not a wiring bug.** Provider data asks *how long since this dataset
-last refreshed*; Scheduler delivery asks *did the refresh that was expected actually happen*. For a
+**The issue is a model mismatch, not a wiring bug.** Provider data asks _how long since this dataset
+last refreshed_; Scheduler delivery asks _did the refresh that was expected actually happen_. For a
 fixed-cadence dataset those questions coincide, which is why schedule, rankings, and conferences read
 correctly. Scores is schedule-armed — refreshed per week partition, only while games sit in the
 kickoff window, and legitimately not refreshed for days outside one — so elapsed time carries no
@@ -902,87 +901,6 @@ Acceptance boundary:
   scoring stopping — proven by suppressing the writer in a test, not by reasoning about thresholds.
 - Outside the kickoff window, a multi-day gap does not raise an issue.
 - The row never reads healthy while an active issue names that same dataset.
-
-### Item 89 — CFBD request timeout is too tight for peak-Saturday provider latency
-
-Observed live on 2026-08-29 during the opening slate. Both CFBD-consuming jobs failed repeatedly with
-`provider-fetch-failed` while odds polling, which uses a different provider, kept succeeding.
-
-Measured directly against CFBD with the production key at the time of failure:
-
-- `/scoreboard` — one attempt exceeded 30s and aborted, then 16.0s, then 8.2s
-- `/games/teams` — 21.5s
-
-Every CFBD call site uses `timeoutMs: 12_000` (`cron/live-scores` x2, `cron/game-stats`,
-`api/scores`). Only one of those four measured responses would have completed inside it. CFBD was
-healthy — HTTP 200 with correct live data throughout — just slow under opening-weekend load.
-
-Retries do cover timeouts (`fetchUpstream.ts:158` retries `timeout` and `network` kinds), but three
-attempts against a provider consistently answering in 16-21s simply burn all three. The timeout is
-the binding constraint, not the attempt count.
-
-**No user impact occurred and none was at risk.** The 3-minute live-scores cadence absorbed the
-failures: a run succeeded at 19:09 immediately after the 19:06 failure, and served scores matched
-CFBD exactly. Treat this as tuning, not an outage — and do not raise the timeout during a slate.
-
-**Measured 2026-08-29 — a timed-out request DOES bill.** The governing question is answered, and it
-rules out the simple fix. Against CFBD with the production key:
-
-| action | billed |
-|---|---|
-| `GET /info` (the usage endpoint itself) | **0** — three reads left `usedCalls` flat, so it is a clean instrument |
-| one request allowed to complete | **1** (control) |
-| three requests aborted at 200ms — `http=000`, `size=0`, nothing received | **3** |
-
-CFBD counts on receipt, not on delivery. Hanging up mid-response costs a full call.
-
-**Correction (2026-08-29): the cron paths do NOT retry, and the one-billed-call contract holds.**
-An earlier revision of this item claimed a run could bill three calls. That was wrong — it assumed
-one retry policy across all four call sites. They differ:
-
-| call site | `maxAttempts` | billed on timeout |
-|---|---|---|
-| `cron/live-scores:321` (`/scoreboard`) | **1** | 1 |
-| `cron/live-scores:493` (`/games` reconciliation) | **1** | 1 |
-| `cron/game-stats:346` (`/games/teams`) | **1** | 1 |
-| `api/scores:412` (admin refresh) | **3**, with backoff | up to 3 |
-
-Both cron policies are `maxAttempts: 1` with zero delay and an empty `retryOnHttpStatuses`, so a
-timeout costs exactly one call and the contract is intact. Only `api/scores` — the admin-triggered
-refresh, not the automated path — can bill three, and it is not governed by the one-call cron
-contract.
-
-**This makes the cron fix unambiguous.** With no retry to trade against, raising the timeout changes
-billed calls not at all (1 either way) and raises the success rate. There is no spend tradeoff on the
-automated paths; the only question is the ceiling.
-
-**The 12-second limit is ours, not CFBD's.** `fetchUpstream.ts:124` creates an `AbortController` and
-aborts at `timeoutMs`; nothing on the provider side imposes it. CFBD gets slow, it does not hang up.
-`live-scores` declares no `maxDuration`, so it inherits the 300s platform default —
-`cron/season-transition/route.ts:58` is the in-repo precedent for declaring a longer envelope, with a
-test pinning it. The binding constraint is the 3-minute poll cadence, not the platform.
-
-**On the cron paths** (`maxAttempts: 1`):
-
-| configuration | billed | wall time | outcome at 8-25s latency |
-|---|---|---|---|
-| today — 1 x 12s | 1 | 12s | fails whenever latency exceeds 12s |
-| 1 x 40s | **1** | up to 40s | almost always succeeds |
-
-Same spend, higher success rate. The only cost is holding the function longer, and the binding
-constraint there is the 3-minute poll cadence, not the platform envelope.
-
-**On `api/scores`** (`maxAttempts: 3`, retries timeouts): raising the ceiling here WITHOUT reducing
-the retry count does multiply spend — three 40s attempts is three billed calls and ~120s. Decide this
-call site separately; it is an admin-triggered refresh, so a longer single attempt is the better
-trade there too, but the reasoning is not the same as the crons'.
-
-Preferred fix: raise `timeoutMs` on the three cron call sites; treat `api/scores` as its own decision
-about retry-versus-ceiling.
-
-Acceptance boundary: sustained provider latency in the 8-25s band does not fail a run, AND billed
-CFBD requests per cron run remain exactly one — proven by test, not assumed, since a timed-out
-request bills and a future retry change would silently break it.
 
 ## Planned and parked campaigns
 

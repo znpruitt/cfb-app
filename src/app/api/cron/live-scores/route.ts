@@ -68,8 +68,8 @@ const RETRY_POLICY = {
   retryOnHttpStatuses: [],
 } as const;
 
-// PLATFORM-115: the shared 40s ceiling covers the completed 8-25s measurement
-// band and remains well inside the three-minute poll cadence. RETRY_POLICY stays
+// PLATFORM-115: the shared 40s ceiling covers the accepted 8-25s latency band
+// and remains well inside the three-minute poll cadence. RETRY_POLICY stays
 // at one attempt, so the billed-call ceiling does not change.
 
 const PACING_POLICY = { key: 'cfbd', minIntervalMs: 150 } as const;

@@ -68,8 +68,10 @@ const CFBD_MANUAL_RETRY_POLICY = {
   retryOnHttpStatuses: [],
 } as const;
 // The authorized manual refresh is a separate spend decision from automation:
-// one 40s attempt succeeds throughout the measured 8-25s band and costs at most
-// one billed call, instead of retrying three 12s aborts that all bill.
+// one 40s attempt covers the accepted 8-25s band and costs at most one billed
+// call, instead of retrying three 12s aborts that all bill. Transient HTTP errors
+// also return after that one attempt; an operator can deliberately invoke a new
+// refresh without one action silently multiplying spend.
 const CFBD_PACING_POLICY = {
   key: 'cfbd',
   minIntervalMs: 150,

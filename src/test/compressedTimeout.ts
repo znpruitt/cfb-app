@@ -1,9 +1,9 @@
 /**
  * Compress wall-clock timers while preserving production timeout ratios.
- * Production milliseconds are divided by 250, leaving a 60ms real-time margin
- * between the 25s-equivalent response and the 40s-equivalent abort.
+ * Production milliseconds are divided by 50, leaving a 300ms real-time margin
+ * on the 25s success case and a 200ms margin on the 50s timeout case.
  */
-const TIME_COMPRESSION_FACTOR = 250;
+const TIME_COMPRESSION_FACTOR = 50;
 
 function compressedDelayMs(productionDelayMs: number): number {
   return productionDelayMs / TIME_COMPRESSION_FACTOR;
@@ -87,15 +87,20 @@ export function installDelayedCfbdProvider(args: {
   const billedUrls: string[] = [];
 
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = String(input);
-    if (url.includes('/info')) {
+    const url =
+      typeof input === 'string'
+        ? new URL(input)
+        : input instanceof URL
+          ? input
+          : new URL(input.url);
+    if (url.pathname === '/info') {
       return new Response(JSON.stringify({ patronLevel: 1, remainingCalls: 4_000 }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       });
     }
 
-    billedUrls.push(url);
+    billedUrls.push(url.toString());
     return delayedJsonResponse({
       payload: args.payload,
       delayMs: compressedDelayMs(args.providerDelayMs),
@@ -106,5 +111,6 @@ export function installDelayedCfbdProvider(args: {
 
   return {
     billedUrls: () => [...billedUrls],
+    billedPaths: () => billedUrls.map((url) => new URL(url).pathname),
   };
 }

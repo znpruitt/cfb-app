@@ -70,10 +70,6 @@ function gameStatsRow(id: number, home: string, away: string) {
   });
 }
 
-function billedPaths(provider: ReturnType<typeof installDelayedCfbdProvider>) {
-  return provider.billedUrls().map((url) => new URL(url).pathname);
-}
-
 test.beforeEach(async () => {
   MUTABLE_ENV.NODE_ENV = 'development';
   MUTABLE_ENV.CRON_SECRET = CRON_SECRET;
@@ -107,7 +103,7 @@ test('game stats accepts 25s-equivalent provider latency with one billed request
     assert.equal(res.status, 200);
     assert.equal(body.outcome, 'success');
     assert.equal(body.reason, 'written-clean');
-    assert.deepEqual(billedPaths(provider), ['/games/teams']);
+    assert.deepEqual(provider.billedPaths(), ['/games/teams']);
     assert.equal((await getCachedGameStats(YEAR, 3, 'regular'))?.games[0]?.providerGameId, 9001);
   });
 });
@@ -136,7 +132,7 @@ test('game-stats timeout retains prior-good data and bills exactly one request',
     assert.equal(res.status, 500);
     assert.equal(body.outcome, 'failure');
     assert.equal(body.reason, 'provider-fetch-failed');
-    assert.deepEqual(billedPaths(provider), ['/games/teams']);
+    assert.deepEqual(provider.billedPaths(), ['/games/teams']);
     const status = await getProviderRefreshStatus(
       'game-stats',
       weekPartitionScope(YEAR, 3, 'regular')

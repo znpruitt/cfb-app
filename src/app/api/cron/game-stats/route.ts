@@ -70,8 +70,8 @@ const RETRY_POLICY = {
   retryOnHttpStatuses: [],
 } as const;
 
-// PLATFORM-115: the shared 40s ceiling covers the completed 8-25s measurement
-// band and remains well inside the polling cadence. The one-attempt quota
+// PLATFORM-115: the shared 40s ceiling covers the accepted 8-25s latency band
+// and remains well inside the polling cadence. The one-attempt quota
 // contract is unchanged.
 
 const PACING_POLICY = {
