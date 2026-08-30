@@ -610,8 +610,8 @@ test('composer labels broad record ties without claiming the record vanished', (
   const games = owners.map((owner, index) =>
     game({
       key: `broad-tie-${owner}`,
-      week: index === owners.length - 1 ? 2 : 1,
-      date: index === owners.length - 1 ? '2026-09-13T00:00:00.000Z' : '2026-09-06T00:00:00.000Z',
+      week: index === 0 ? 1 : 2,
+      date: index === 0 ? '2026-09-06T00:00:00.000Z' : '2026-09-13T00:00:00.000Z',
       away: `Opponent ${owner}`,
       home: `Team ${owner}`,
     })
@@ -639,6 +639,7 @@ test('composer labels broad record ties without claiming the record vanished', (
   );
   assert.equal(highScore?.value, 'Broad tie');
   assert.doesNotMatch(highScore?.value ?? '', /No longer current/);
+  assert.match(highScore?.context ?? '', /Previous: .*Alice/);
 });
 
 test('composer names the directed rivalry when a prior record is no longer current', () => {

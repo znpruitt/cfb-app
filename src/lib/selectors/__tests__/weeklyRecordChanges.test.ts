@@ -329,6 +329,40 @@ test('tied rivalry projection uses the record metric instead of one sampled pair
   assert.notDeepEqual(change?.previous?.constituentKeys, change?.current?.constituentKeys);
 });
 
+test('tied even-rivalry projection formats both zero and nonzero gaps invariantly', () => {
+  const split = selectWeeklyRecordChanges({
+    archives: [],
+    historicalRosters: {},
+    seasonYear: 2026,
+    targetWeek: 2,
+    participations: [
+      ...ownedMatchup('Alice', 'Bob', 1),
+      ...ownedMatchup('Bob', 'Alice', 2),
+      ...ownedMatchup('Carol', 'Dan', 1),
+      ...ownedMatchup('Dan', 'Carol', 2),
+    ],
+  }).find((entry) => entry.id === 'even_rivalry');
+  const oneGameGap = selectWeeklyRecordChanges({
+    archives: [],
+    historicalRosters: {},
+    seasonYear: 2026,
+    targetWeek: 3,
+    participations: [
+      ...ownedMatchup('Alice', 'Bob', 1),
+      ...ownedMatchup('Bob', 'Alice', 2),
+      ...ownedMatchup('Bob', 'Alice', 3),
+      ...ownedMatchup('Carol', 'Dan', 1),
+      ...ownedMatchup('Carol', 'Dan', 2),
+      ...ownedMatchup('Dan', 'Carol', 3),
+    ],
+  }).find((entry) => entry.id === 'even_rivalry');
+
+  assert.equal(split?.current?.formattedValue, 'Even after 2 games');
+  assert.equal(oneGameGap?.current?.formattedValue, '1-game gap after 3 games');
+  assert.equal(split?.current?.constituentKeys?.length, 2);
+  assert.equal(oneGameGap?.current?.constituentKeys?.length, 2);
+});
+
 test('record diff compares rivalry constituents when tied pairs share the same owner union', () => {
   const lopsided = selectWeeklyRecordChanges({
     archives: [],

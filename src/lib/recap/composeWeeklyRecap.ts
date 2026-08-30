@@ -224,7 +224,7 @@ function composeRecordChangeLine(
         id: `record-${change.id}`,
         label,
         value: 'Broad tie',
-        context: `${suppressed.formattedValue} · Through ${weekLabel}`,
+        context: `${suppressed.formattedValue} · Through ${weekLabel}${previous ? ` · Previous: ${previous.formattedValue} · ${recordSubject(change, previous)}` : ''}`,
       };
     }
     return previous
