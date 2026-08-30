@@ -4252,6 +4252,23 @@ Key architectural decisions across Phase 5:
   artifact and Thursday Forward Look. The broader malformed odds-favorite producer remains in the
   canonical deferral register.
 
+### POLISH-015 — Overview Games Region Corrections — Complete
+
+- **Status:** Merged via PR #531 (merge commit `50b75f2f`), 2026-08-29; production promotion not yet
+  verified.
+- **PROMPT_ID(s):** `POLISH-015-OVERVIEW-GAMES-REGION-v1`.
+- **Outcome:** The Upcoming watchlist now excludes in-progress games, so a live game cannot occupy
+  both Upcoming and Live. Scheduled games sort by kickoff, then same-kickoff ownership priority,
+  then stable game key while quality remains visible in badges. Recent dated finals stay
+  newest-first with undated finals last, and the empty state states only the current condition.
+- **Verification:** Exact PR head `8f95c56e` passed TypeScript, `lint:all`, the 4,442-test full suite,
+  and production build. Three test declarations were added relative to `main` for display-seam
+  chronology, watchlist/Live exclusion, and bounded recent-result date handling; existing selector
+  and empty-copy assertions were retargeted to the approved behavior. Independent Codex and Claude
+  confirmation reviews found no credible in-scope P0/P1/P2.
+- **Open follow-ups:** Item 87 in `docs/next-tasks.md` remains the scoreboard and structural
+  promotion-model replacement for this interim surface.
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone (DOCS-012). Entries describe shipped
