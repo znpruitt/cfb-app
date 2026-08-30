@@ -24,26 +24,25 @@ Supersedes: (none)
 
 ## Current execution order
 
-`CURRENT`: Item 82 — Overview games region, trimmed to (d) duplication, (a) ordering, (c) empty copy.
-`NEXT`: Item 89 — CFBD request timeout.
+`CURRENT`: Item 89 — CFBD request timeout.
+`NEXT`: Item 87 slice 1 — scoreboard component + Live section.
 
 Owner-selected run order (2026-08-29). In-season work first, then the Overview scoreboard campaign,
 reassessing against the reliability sequence below after Item 87 slice 2 rather than running the
 campaign straight through.
 
-1. **Item 82** — trimmed slice. One file, one predicate, three `pushByKey` deletions.
-2. **Item 89** — CFBD timeout. Settle whether a timed-out request bills against quota BEFORE raising
+1. **Item 89** — CFBD timeout. Settle whether a timed-out request bills against quota BEFORE raising
    any timeout or retry count; that question governs the fix.
-3. **Item 87 slice 1** — scoreboard component + Live section. The prompt carries the full row
+2. **Item 87 slice 1** — scoreboard component + Live section. The prompt carries the full row
    contract, since three later consumers inherit it. Reference:
    `mockups/live-scoreboard-mockup.html`, spec in `docs/campaigns/`.
-4. **Item 87 slice 2** — Featured conversion, retire `stateBadgeClasses`, green-live flip. Colour
+3. **Item 87 slice 2** — Featured conversion, retire `stateBadgeClasses`, green-live flip. Colour
    settles in one step. **Pre-agreed split point:** if sizing signals trip, stop and re-slice here.
-5. **Reassess** against the reliability sequence below before continuing.
-6. **Item 92** — CFBD records integration. Must precede slice 4 or slice 4 ships the spread
+4. **Reassess** against the reliability sequence below before continuing.
+5. **Item 92** — CFBD records integration. Must precede slice 4 or slice 4 ships the spread
    fallback. Cadence is the live-scores cron, never `handleGamesFinalized`.
-7. **Item 87 slice 3** — Recent finals + promotion model.
-8. **Item 87 slice 4** — Watchlist, consuming records.
+6. **Item 87 slice 3** — Recent finals + promotion model.
+7. **Item 87 slice 4** — Watchlist, consuming records.
 
 Runnable at any point, no dependency on the above: **Item 91** (standings live-signal derivation),
 **Item 84** (provider-classification diagnostic), **Item 86** (archive audit integrity check).
@@ -516,68 +515,6 @@ the multi-tenant gates above.
 
 ## Polish, engineering-health, and conditional observations
 
-### Item 82 — Overview games region: ordering, labelling, and empty states
-
-Four defects on one surface, observed together on `/league/tsc` during the 2026 opening slate
-(2026-08-29). They share a component, a review, and a set of fixtures.
-
-**Dispatch scope (decided 2026-08-29):** ship **(d) duplication, (a) ordering, and (c) empty copy**.
-Leave the section NAME alone and leave section order to Item 87 — see Decisions below. (b) keeps
-ownership of Featured's selection and labelling but is executed by the insights work, not here.
-
-**(a) The Upcoming watchlist ignores time.** `prioritizeOverviewItems`
-(`src/lib/selectors/overview.ts:312`) orders the list as `topMatchupKey`, then upset watches, then
-`rankedHighlightKey`, then everything else in input order. Input order is chronological, so the tail
-is correct; only the single top-matchup designation jumps the queue, and it is chosen purely on
-matchup quality with no time term anywhere. Observed effect: a Sep 6 game led three games kicking off
-within the hour, because weeks 0 and 1 share a bucket and it was the best matchup in that bucket.
-
-Preferred fix: let **position carry time and the badge carry quality** — sort strictly
-chronologically and keep the existing "Top matchup" tag. That deletes the three `pushByKey` calls
-rather than adding a horizon constant or a decay curve, and the tail already sorts correctly.
-Rejected alternatives: a time-bounded candidate set (another threshold to defend) and
-priority-decay-by-distance (most tunable, most to get wrong).
-
-**(b) "Featured games" is mislabelled.** The section renders `viewModel.recentResults` — completed
-games only — and its own empty copy admits it: "No recent results yet—completed games will appear
-here." An empty box under a heading promising curation reads as broken rather than as "nothing has
-finished yet." Rename to match the data, or change the data to match the name.
-
-**(c) The empty copy makes a promise.** "…completed games will appear here" is the shape `DESIGN.md`
-records as a past mistake in the trend empty state, where "will appear here" promised data that could
-never arrive. Lower stakes here since results do arrive, but the pattern is named in the design doc.
-
-**(d) A live game renders in both the watchlist and the Live section.** `featuredCandidates`
-(`src/lib/selectors/overview.ts:483`) filters `gameStateFromScore(item.score) !== 'final'`, which
-admits `inprogress` by omission. A live game therefore stays eligible for the watchlist while also
-feeding the Live tile, and "Upcoming watchlist" renders a game showing a running clock and a score.
-Incidental, not intentional — no comment defends it. Observed on the opening slate: North Carolina
-vs TCU appeared twice on one screen, with a live clock in each.
-
-Fix: exclude in-progress games from the watchlist candidate set. This is the most user-visible of
-the four and the cheapest — a single predicate.
-
-**Decisions (2026-08-29).**
-
-- **Do not rename the section.** The choice in (b) was "rename to match the data, or change the data
-  to match the name." The data is being changed: Featured becomes an insights-driven axis where a
-  game carrying a rivalry or record insight is selected and persists through scheduled → live →
-  final. The name becomes correct when that lands, so renaming now means renaming twice. See
-  `docs/campaigns/item-87-live-watchlist-scoreboard.md`.
-- **Leave section order to Item 87.** Its promotion model reorders these sections as a consequence
-  of its design; doing it here means doing it twice, with the second overriding the first.
-- **Everything here is superseded by Item 87** except (b)'s selection ownership. It is worth
-  shipping anyway because 87 is several slices out and (d) and (a) are wrong on a live page now.
-
-Section order, for the record: Featured games → Upcoming watchlist → Live games puts a possibly-empty
-results box above the live section during a slate, when live is the most valuable thing on the page.
-
-Related but separate: item 38's dead-code cluster (`leagueHighlights`, `deriveLeagueHighlights`,
-`leaguePulse`, `shouldShowLeaguePulse`, `keyMovements`). `25d9bc86` removed the last live consumer of
-`leagueHighlights` — a stale gate that hid the watchlist entirely — leaving only unread producers.
-
-- Backlog slug: `POLISH-OVERVIEW-GAMES-REGION-v1`
-
 ### Item 48 — test-infrastructure follow-ups
 
 - Move only genuinely cross-domain fixtures from subsystem `__tests__` directories into `src/test/`.
@@ -861,10 +798,9 @@ fail on corruption is the same defect wearing a passing badge.
 
 ### Item 87 — rework Overview game listings as a scoreboard
 
-Presentation and information-architecture half of the Overview games region. Item 82 is the
-correctness and copy half on the same surface; they share a component, so sequence them deliberately
-rather than in parallel. `AGENTS.md` forbids folding IA work into a correctness slice, which is why
-these are separate items rather than one.
+Presentation and information-architecture half of the Overview games region. POLISH-015 delivered
+the interim correctness and empty-copy fixes on this surface; Item 87 now owns the replacement
+scoreboard and promotion model that supersede those state-specific lists.
 
 **Problem observed on `/league/tsc` during the 2026 opening slate (2026-08-29).** One game appeared
 twice on a single screen — in "Upcoming watchlist" and again in the "Live" tile — and the Live card
@@ -872,22 +808,20 @@ printed its own matchup name twice. Four cards filled the viewport, most of the 
 to chrome: three of four carried a `Top matchup` chip, ranks were rendered inline AND as a chip AND
 as a section eyebrow, and scheduled rows ended in an empty `———` box.
 
-Root causes, both structural:
+Remaining root cause:
 
-- `src/lib/selectors/overview.ts:483` filters featured candidates with `!== 'final'`, which admits
-  `inprogress`. A live game is therefore eligible for the watchlist while also feeding the Live tile,
-  and "Upcoming watchlist" renders a game at `Q2 0:00`.
 - The same conceptual object has four renderers: `GameSummaryList` and `GameCardList` on Overview,
   `GameScoreboard` on Matchups, and the recap primitives. The two Overview renderers are the weakest,
-  which is why this surface reads worst.
+  which is why this surface reads worst. POLISH-015 made the existing scheduled and live selectors
+  disjoint; Item 87 makes that one-place transition structural.
 
 **Settled decisions (owner, 2026-08-29).** The governing criterion for any marker is that it be
 TRUE and VALUABLE to the reader; scarcity is not the test, and chips are not capped. See `DESIGN.md`
 → Cards and game results for the rules these produced.
 
 - One chronological scoreboard list. Live and scheduled are the same row type distinguished by status
-  chip, so the duplication has nothing to filter — it cannot occur. This also delivers Item 82(a)'s
-  ordering fix, so land these together or sequence 82 first.
+  chip, so the duplication has nothing to filter — it cannot occur. This supersedes POLISH-015's
+  interim state-specific ordering and exclusion rules.
 - Right-edge anchor is the score, or the kickoff time when there is no score. The `———` placeholder
   violates the trailing-whitespace rule and carries no information.
 - Rows expand in place; tapping discloses rather than navigating.
