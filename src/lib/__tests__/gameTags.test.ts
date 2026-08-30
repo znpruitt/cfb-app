@@ -819,6 +819,39 @@ test('shared odds-upset policy measures an asymmetric line from the favorite sid
   assert.deepEqual(computeGameTags(taggedGame, score, odds, ownership), ['upset']);
 });
 
+test('live upset watch also measures an asymmetric line from the favorite side', () => {
+  const taggedGame = game({
+    key: 'asymmetric-upset-watch',
+    csvAway: 'Favorite',
+    csvHome: 'Underdog',
+  });
+  const score = {
+    status: 'In Progress',
+    away: { team: 'Favorite', score: 17 },
+    home: { team: 'Underdog', score: 24 },
+    time: '02:01',
+  };
+  const odds = {
+    favorite: 'Malformed favorite copy',
+    spread: 5.5,
+    homeSpread: 5.5,
+    awaySpread: -6,
+    spreadPriceHome: -110,
+    spreadPriceAway: -110,
+    total: 49.5,
+    mlHome: 180,
+    mlAway: -220,
+    overPrice: -110,
+    underPrice: -110,
+    source: 'DraftKings',
+    bookmakerKey: 'draftkings',
+    capturedAt: '2026-09-01T17:00:00.000Z',
+    lineSourceStatus: 'latest' as const,
+  };
+
+  assert.deepEqual(computeGameTags(taggedGame, score, odds, new Map()), ['upset_watch']);
+});
+
 test('computeGameTags applies priority ordering when multiple tags apply', () => {
   const taggedGame = game({ key: 'tag-priority', csvAway: 'A-Team', csvHome: 'B-Team' });
   const ownership = new Map<string, string>();

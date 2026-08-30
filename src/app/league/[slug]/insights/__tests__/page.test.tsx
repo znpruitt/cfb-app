@@ -58,6 +58,19 @@ test('full recap qualifies and renders non-compact movement accessibly', () => {
         movementLines: [
           { owner: 'Alice', direction: 'up', deltaLabel: '▲ 1', shiftLabel: '#2 → #1' },
         ],
+        recordChangeLines: [],
+        headToHeadLines: [],
+        notableResultLines: [
+          {
+            kind: 'game',
+            id: 'game-notable',
+            label: 'Closest game',
+            detail: '4-point margin',
+            winner: { team: 'Texas', owner: 'Alice', score: '31' },
+            loser: { team: 'Purdue', owner: null, score: '27' },
+          },
+        ],
+        tileHighlights: [],
       }}
     />
   );
@@ -65,6 +78,9 @@ test('full recap qualifies and renders non-compact movement accessibly', () => {
   assert.match(html, /Week 2 movement/);
   assert.match(html, /aria-label="Moved up in standings"/);
   assert.match(html, /text-\[14\.5px\]/);
+  assert.match(html, /Notable results/);
+  assert.match(html, /Closest game/);
+  assert.match(html, /Purdue/);
   assert.doesNotMatch(html, /recap-tile-movement-heading/);
 });
 
@@ -126,7 +142,10 @@ test('Insights page renders the request-time recap above the standing insight li
     html.indexOf('Weekly recap') < html.indexOf('Alice'),
     'the recap heading must lead its result rows'
   );
-  assert.doesNotMatch(html, /Notable results|Head-to-head|Biggest blowout/);
+  assert.match(html, /Record changes/);
+  assert.match(html, /Head-to-head results/);
+  assert.match(html, /Largest Single-Game Blowout/);
+  assert.doesNotMatch(html, /Notable results/);
 });
 
 test('Insights page renders the eligible week when it has no completed results', async () => {

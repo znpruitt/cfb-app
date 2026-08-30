@@ -347,11 +347,11 @@ test('selectOverviewViewModel truncates standings and splits featured vs recent'
   assert.equal(model.recentResults.length, 1);
   assert.equal(model.recentResults[0]?.item.bucket.game.key, 'final');
   assert.equal(typeof model.heroNarrative, 'string');
-  assert.equal(model.shouldShowLeaguePulse, true);
-  assert.ok(model.leaguePulse.length > 0);
+  assert.equal('shouldShowLeaguePulse' in model, false);
+  assert.equal('leaguePulse' in model, false);
   assert.equal(model.heroMode, 'leader');
   assert.equal(model.podiumLeaders.length, 0);
-  assert.ok(model.keyMovements.every((insight) => !insight.id.startsWith('live-top25')));
+  assert.equal('keyMovements' in model, false);
 });
 
 test('selectOverviewViewModel shows featured matchups when no highlight cards are available', () => {
@@ -805,7 +805,7 @@ test('selectOverviewViewModel is stable for identical inputs', () => {
   assert.deepEqual(selectOverviewViewModel(params), selectOverviewViewModel(params));
 });
 
-test('selectOverviewViewModel adds meaningful matrix highlight only when notable', () => {
+test('selectOverviewViewModel ignores retired matrix highlights when showing scheduled games', () => {
   const model = selectOverviewViewModel({
     standingsLeaders: [],
     standingsCoverage: { state: 'partial', message: null },
@@ -897,7 +897,7 @@ test('selectOverviewViewModel adds meaningful matrix highlight only when notable
       sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
     },
     liveItems: [],
-    keyMatchups: [],
+    keyMatchups: [item('scheduled-with-matrix-history')],
     matchupMatrix: {
       owners: ['A', 'B', 'C'],
       rows: [
@@ -930,12 +930,10 @@ test('selectOverviewViewModel adds meaningful matrix highlight only when notable
     rankingsByTeamId: new Map(),
   });
 
-  // leagueHighlights retired from view model — verify shouldShowFeaturedMatchups
-  // reacts to internal highlights (split matchup makes highlights non-empty → hides featured)
-  assert.equal(model.shouldShowFeaturedMatchups, false);
+  assert.equal(model.shouldShowFeaturedMatchups, true);
 });
 
-test('selectOverviewViewModel emits typed game highlight drilldowns with truthful CTA copy', () => {
+test('selectOverviewViewModel keeps a final-only slate outside the upcoming watchlist', () => {
   const final = {
     ...item('final-typed'),
     score: {
@@ -963,12 +961,10 @@ test('selectOverviewViewModel emits typed game highlight drilldowns with truthfu
     rankingsByTeamId: new Map(),
   });
 
-  // leagueHighlights retired from view model — verify shouldShowFeaturedMatchups
-  // is false when game highlights exist internally
   assert.equal(model.shouldShowFeaturedMatchups, false);
 });
 
-test('selectOverviewViewModel suppresses weak owner-vs-owner highlights', () => {
+test('selectOverviewViewModel keeps an empty slate hidden regardless of noisy matrix data', () => {
   const model = selectOverviewViewModel({
     standingsLeaders: [],
     standingsCoverage: { state: 'partial', message: null },
@@ -1005,11 +1001,10 @@ test('selectOverviewViewModel suppresses weak owner-vs-owner highlights', () => 
     rankingsByTeamId: new Map(),
   });
 
-  // leagueHighlights retired — weak matrix data should still produce shouldShowFeaturedMatchups: true
   assert.equal(model.shouldShowFeaturedMatchups, false);
 });
 
-test('selectOverviewViewModel removes noisy scope suffix and duplicated movement prefixes', () => {
+test('selectOverviewViewModel keeps retired pulse output absent for scoped history', () => {
   const final = {
     ...item('prefix-cleanup'),
     score: {
@@ -1119,8 +1114,7 @@ test('selectOverviewViewModel removes noisy scope suffix and duplicated movement
     rankingsByTeamId: new Map(),
   });
 
-  // leagueHighlights retired — verify pulse items don't include noisy scope suffix
-  assert.ok(model.leaguePulse.every((entry) => !/\(this postseason slate\)/i.test(entry.text)));
+  assert.equal('leaguePulse' in model, false);
 });
 
 test('selectOverviewViewModel keeps featured games when finals dominate early candidates', () => {
@@ -1212,7 +1206,7 @@ test('selectOverviewViewModel is deterministic for identical highlight inputs', 
   assert.deepEqual(selectOverviewViewModel(params), selectOverviewViewModel(params));
 });
 
-test('selectOverviewViewModel keeps live-competition pulse wording during active season', () => {
+test('selectOverviewViewModel keeps retired pulse fields absent during active season', () => {
   const model = selectOverviewViewModel({
     standingsLeaders: [
       {
@@ -1254,10 +1248,11 @@ test('selectOverviewViewModel keeps live-competition pulse wording during active
     rankingsByTeamId: new Map(),
   });
 
-  assert.ok(model.leaguePulse.some((entry) => /leads by|closest race/i.test(entry.text)));
+  assert.equal('leaguePulse' in model, false);
+  assert.equal('shouldShowLeaguePulse' in model, false);
 });
 
-test('selectOverviewViewModel removes live-competition pulse wording after season completes', () => {
+test('selectOverviewViewModel keeps retired pulse fields absent after season completes', () => {
   const postseasonFinal = {
     ...item('postseason-final'),
     bucket: {
@@ -1402,11 +1397,11 @@ test('selectOverviewViewModel removes live-competition pulse wording after seaso
     rankingsByTeamId: new Map(),
   });
 
-  assert.ok(model.leaguePulse.some((entry) => /Season complete/i.test(entry.text)));
-  assert.ok(model.leaguePulse.every((entry) => !/leads by|closest race/i.test(entry.text)));
+  assert.equal('leaguePulse' in model, false);
+  assert.equal('shouldShowLeaguePulse' in model, false);
 });
 
-test('selectOverviewViewModel suppresses league pulse when completed season only emits season-complete filler', () => {
+test('selectOverviewViewModel does not recreate retired pulse filler for a completed season', () => {
   const postseasonFinal = {
     ...item('postseason-final-thin-pulse'),
     bucket: {
@@ -1473,13 +1468,11 @@ test('selectOverviewViewModel suppresses league pulse when completed season only
     rankingsByTeamId: new Map(),
   });
 
-  assert.deepEqual(model.leaguePulse, [
-    { id: 'season-complete', text: 'Season complete: final standings locked.' },
-  ]);
-  assert.equal(model.shouldShowLeaguePulse, false);
+  assert.equal('leaguePulse' in model, false);
+  assert.equal('shouldShowLeaguePulse' in model, false);
 });
 
-test('selectOverviewViewModel active-season pulse keeps history-derived temporal signals', () => {
+test('selectOverviewViewModel keeps retired movement output absent with active-season results', () => {
   const model = selectOverviewViewModel({
     standingsLeaders: [
       {
@@ -1561,11 +1554,11 @@ test('selectOverviewViewModel active-season pulse keeps history-derived temporal
     rankingsByTeamId: new Map(),
   });
 
-  assert.ok(model.keyMovements.some((entry) => entry.id.startsWith('leader-gap')));
-  assert.equal(model.shouldShowLeaguePulse, true);
+  assert.equal('keyMovements' in model, false);
+  assert.equal('shouldShowLeaguePulse' in model, false);
 });
 
-test('selectOverviewViewModel movement snapshots ignore unresolved future weeks in standingsHistory', () => {
+test('selectOverviewViewModel keeps retired movement output absent with unresolved history', () => {
   const model = selectOverviewViewModel({
     standingsLeaders: [
       {
@@ -1804,8 +1797,21 @@ test('selectOverviewViewModel movement snapshots ignore unresolved future weeks 
     rankingsByTeamId: new Map(),
   });
 
-  assert.ok(model.keyMovements.some((entry) => entry.id === 'biggest-gain-Alex'));
-  assert.ok(!model.keyMovements.some((entry) => entry.id === 'biggest-gain-Blake'));
+  assert.equal('keyMovements' in model, false);
+  assert.deepEqual(
+    model.previousStandingsLeaders.map(({ owner, wins, losses }) => ({ owner, wins, losses })),
+    [
+      { owner: 'Alex', wins: 4, losses: 2 },
+      { owner: 'Blake', wins: 4, losses: 2 },
+    ]
+  );
+  assert.deepEqual(
+    model.standingsTopN.map(({ owner, wins, losses }) => ({ owner, wins, losses })),
+    [
+      { owner: 'Alex', wins: 6, losses: 2 },
+      { owner: 'Blake', wins: 4, losses: 4 },
+    ]
+  );
 });
 
 test('selectOverviewViewModel includes winPctTrend derived from resolved standings history', () => {

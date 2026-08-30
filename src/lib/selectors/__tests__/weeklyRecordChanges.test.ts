@@ -258,6 +258,155 @@ test('a target-week blowout tie retains the newest opponent context', () => {
   assert.equal(change?.current?.contextString, 'over Carol · 2026');
 });
 
+test('record diff distinguishes a newly suppressed broad tie from a vanished record', () => {
+  const owners = ['Alice', 'Bob', 'Carol', 'Dan', 'Erin', 'Frank', 'Grace'];
+  const result = selectWeeklyRecordChanges({
+    archives: [],
+    historicalRosters: {},
+    seasonYear: 2026,
+    targetWeek: 2,
+    participations: owners.map((owner, index) =>
+      participation(owner, index === owners.length - 1 ? 2 : 1, 50)
+    ),
+  });
+  const change = result.find((entry) => entry.id === 'single_season_high_score');
+
+  assert.equal(change?.current, null);
+  assert.deepEqual(change?.suppressedCurrent?.holders, owners);
+  assert.equal(change?.suppressedCurrent?.value, 50);
+});
+
+test('record diff preserves a broad-tie predecessor when the record becomes displayable', () => {
+  const rivalries = [
+    ['Alice', 'Bob'],
+    ['Carol', 'Dan'],
+    ['Erin', 'Frank'],
+    ['Grace', 'Heidi'],
+  ] as const;
+  const result = selectWeeklyRecordChanges({
+    archives: [],
+    historicalRosters: {},
+    seasonYear: 2026,
+    targetWeek: 3,
+    participations: [
+      ...rivalries.flatMap(([winner, loser]) => [
+        ...ownedMatchup(winner, loser, 1),
+        ...ownedMatchup(winner, loser, 2),
+      ]),
+      ...rivalries.slice(1).flatMap(([winner, loser]) => ownedMatchup(loser, winner, 3)),
+    ],
+  });
+  const change = result.find((entry) => entry.id === 'lopsided_rivalry');
+
+  assert.equal(change?.previous, null);
+  assert.equal(change?.suppressedPrevious?.constituentKeys?.length, 4);
+  assert.equal(change?.suppressedPrevious?.formattedValue, '2-game lead');
+  assert.equal(change?.current?.contextString, 'Alice over Bob');
+});
+
+test('tied rivalry projection uses the record metric instead of one sampled pair score', () => {
+  const result = selectWeeklyRecordChanges({
+    archives: [],
+    historicalRosters: {},
+    seasonYear: 2026,
+    targetWeek: 5,
+    participations: [
+      ...ownedMatchup('Alice', 'Bob', 1),
+      ...ownedMatchup('Alice', 'Bob', 2),
+      ...ownedMatchup('Alice', 'Bob', 3),
+      ...ownedMatchup('Bob', 'Alice', 4),
+      ...ownedMatchup('Carol', 'Dan', 1),
+      ...ownedMatchup('Carol', 'Dan', 2),
+      ...ownedMatchup('Erin', 'Frank', 1),
+      ...ownedMatchup('Bob', 'Alice', 5),
+      ...ownedMatchup('Erin', 'Frank', 5),
+    ],
+  });
+  const change = result.find((entry) => entry.id === 'lopsided_rivalry');
+
+  assert.equal(change?.previous?.formattedValue, '2-game lead');
+  assert.equal(change?.current?.formattedValue, '2-game lead');
+  assert.notDeepEqual(change?.previous?.constituentKeys, change?.current?.constituentKeys);
+});
+
+test('tied even-rivalry projection formats both zero and nonzero gaps invariantly', () => {
+  const split = selectWeeklyRecordChanges({
+    archives: [],
+    historicalRosters: {},
+    seasonYear: 2026,
+    targetWeek: 4,
+    participations: [
+      ...ownedMatchup('Carol', 'Dan', 1),
+      ...ownedMatchup('Dan', 'Carol', 2),
+      ...ownedMatchup('Alice', 'Bob', 3),
+      ...ownedMatchup('Bob', 'Alice', 4),
+    ],
+  }).find((entry) => entry.id === 'even_rivalry');
+  const oneGameGap = selectWeeklyRecordChanges({
+    archives: [],
+    historicalRosters: {},
+    seasonYear: 2026,
+    targetWeek: 3,
+    participations: [
+      ...ownedMatchup('Alice', 'Bob', 1),
+      ...ownedMatchup('Bob', 'Alice', 2),
+      ...ownedMatchup('Bob', 'Alice', 3),
+      ...ownedMatchup('Carol', 'Dan', 1),
+      ...ownedMatchup('Carol', 'Dan', 2),
+      ...ownedMatchup('Dan', 'Carol', 3),
+    ],
+  }).find((entry) => entry.id === 'even_rivalry');
+
+  assert.equal(split?.current?.formattedValue, 'Even after 2 games');
+  assert.equal(oneGameGap?.current?.formattedValue, '1-game gap after 3 games');
+  assert.deepEqual(split?.current?.constituentKeys, ['["Alice","Bob"]', '["Carol","Dan"]']);
+  assert.deepEqual(oneGameGap?.current?.constituentKeys, ['["Alice","Bob"]', '["Carol","Dan"]']);
+});
+
+test('record diff compares rivalry constituents when tied pairs share the same owner union', () => {
+  const lopsided = selectWeeklyRecordChanges({
+    archives: [],
+    historicalRosters: {},
+    seasonYear: 2026,
+    targetWeek: 3,
+    participations: [
+      ...ownedMatchup('Alice', 'Bob', 1),
+      ...ownedMatchup('Alice', 'Bob', 2),
+      ...ownedMatchup('Alice', 'Carol', 1),
+      ...ownedMatchup('Alice', 'Carol', 2),
+      ...ownedMatchup('Bob', 'Carol', 1),
+      ...ownedMatchup('Bob', 'Carol', 2),
+      ...ownedMatchup('Bob', 'Alice', 3),
+    ],
+  });
+  const even = selectWeeklyRecordChanges({
+    archives: [],
+    historicalRosters: {},
+    seasonYear: 2026,
+    targetWeek: 3,
+    participations: [
+      ...ownedMatchup('Alice', 'Bob', 1),
+      ...ownedMatchup('Bob', 'Alice', 2),
+      ...ownedMatchup('Alice', 'Carol', 1),
+      ...ownedMatchup('Carol', 'Alice', 2),
+      ...ownedMatchup('Bob', 'Carol', 1),
+      ...ownedMatchup('Carol', 'Bob', 2),
+      ...ownedMatchup('Alice', 'Bob', 3),
+    ],
+  });
+
+  assert.deepEqual(
+    lopsided
+      .filter((entry) => entry.id === 'lopsided_rivalry' || entry.id === 'dominance_streak')
+      .map((entry) => entry.id),
+    ['lopsided_rivalry', 'dominance_streak']
+  );
+  assert.equal(
+    even.some((entry) => entry.id === 'even_rivalry'),
+    true
+  );
+});
+
 test('target-week reversal diffs all three live rivalry records in chronological order', () => {
   const result = selectWeeklyRecordChanges({
     archives: [],

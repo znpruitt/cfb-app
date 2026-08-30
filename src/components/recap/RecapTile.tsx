@@ -4,7 +4,13 @@ import { useId, useState } from 'react';
 
 import type { AvailableWeeklyRecapViewModel } from '@/lib/recap/composeWeeklyRecap';
 
-import { MovementList, RecapHeader, WeekLeadersList, WeekRecordsGrid } from './RecapPrimitives';
+import {
+  MovementList,
+  RecapHeader,
+  TileHighlightsList,
+  WeekLeadersList,
+  WeekRecordsGrid,
+} from './RecapPrimitives';
 
 export default function RecapTile({
   recap,
@@ -15,29 +21,18 @@ export default function RecapTile({
   const headingId = useId();
   const panelId = useId();
   const hasResults = recap.ownerLines.length > 0;
+  const hasLeaders = recap.tileLeaderLines.length > 0;
+  const hasMovement = recap.movementLines.length > 0;
+  const hasHighlights = recap.tileHighlights.length > 0;
 
   return (
     <section aria-labelledby={headingId} className="rounded-lg bg-zinc-900 px-6 py-6 sm:px-7">
-      <div
-        className={
-          hasResults && recap.tileLeaderLines.length > 0
-            ? 'grid gap-5 min-[821px]:grid-cols-[7fr_5fr] min-[821px]:gap-14'
-            : undefined
-        }
-      >
-        <RecapHeader
-          headingId={headingId}
-          headline={recap.headline}
-          weekLabel={recap.weekLabel}
-          compact
-        />
-        {hasResults ? (
-          <WeekLeadersList
-            headingId={`${headingId}-week-leaders-heading`}
-            lines={recap.tileLeaderLines}
-          />
-        ) : null}
-      </div>
+      <RecapHeader
+        headingId={headingId}
+        headline={recap.headline}
+        weekLabel={recap.weekLabel}
+        compact
+      />
 
       {!hasResults ? (
         <p className="mt-2 text-[13px] text-zinc-400">
@@ -46,18 +41,40 @@ export default function RecapTile({
       ) : (
         <>
           <div id={panelId} className="mt-5 border-t border-zinc-800 pt-5" hidden={!expanded}>
-            <WeekRecordsGrid
-              headingId={`${panelId}-week-records-heading`}
-              ownerLines={recap.ownerLines}
-              compact
-            />
-            {recap.movementLines.length > 0 ? (
-              <div className="mt-9 max-w-md">
+            <div
+              className={
+                hasLeaders
+                  ? 'grid gap-9 min-[821px]:grid-cols-[7fr_5fr] min-[821px]:gap-12'
+                  : undefined
+              }
+            >
+              <WeekRecordsGrid
+                headingId={`${panelId}-week-records-heading`}
+                ownerLines={recap.ownerLines}
+                compact
+              />
+              <WeekLeadersList
+                headingId={`${panelId}-week-leaders-heading`}
+                lines={recap.tileLeaderLines}
+              />
+            </div>
+            {hasMovement || hasHighlights ? (
+              <div
+                className={
+                  hasMovement && hasHighlights
+                    ? 'mt-9 grid gap-9 min-[821px]:grid-cols-[5fr_7fr] min-[821px]:gap-12'
+                    : `mt-9 ${hasMovement ? 'max-w-md' : ''}`
+                }
+              >
                 <MovementList
                   heading={`${recap.weekLabel} movement`}
                   headingId={`${panelId}-movement-heading`}
                   lines={recap.movementLines}
                   compact
+                />
+                <TileHighlightsList
+                  headingId={`${panelId}-week-highlights-heading`}
+                  lines={recap.tileHighlights}
                 />
               </div>
             ) : null}

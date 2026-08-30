@@ -3,7 +3,14 @@ import type {
   WeeklyRecapViewModel,
 } from '@/lib/recap/composeWeeklyRecap';
 
-import { MovementList, RecapHeader, WeekLeadersStrip, WeekRecordsGrid } from './RecapPrimitives';
+import {
+  GameScoreboardList,
+  MovementList,
+  RecapHeader,
+  RecordChangeList,
+  WeekLeadersStrip,
+  WeekRecordsGrid,
+} from './RecapPrimitives';
 
 export default function WeeklyRecapSection({
   recap,
@@ -32,6 +39,8 @@ export default function WeeklyRecapSection({
   }
 
   const availableRecap: AvailableWeeklyRecapViewModel = recap;
+  const hasMovement = availableRecap.movementLines.length > 0;
+  const hasRecordChanges = availableRecap.recordChangeLines.length > 0;
 
   return (
     <section
@@ -57,12 +66,40 @@ export default function WeeklyRecapSection({
               ownerLines={availableRecap.ownerLines}
             />
           </div>
-          {availableRecap.movementLines.length > 0 ? (
-            <div className="mt-9 max-w-md">
+          {hasMovement || hasRecordChanges ? (
+            <div
+              className={
+                hasMovement && hasRecordChanges
+                  ? 'mt-11 grid gap-10 min-[821px]:grid-cols-[5fr_7fr] min-[821px]:gap-16'
+                  : `mt-11 ${hasMovement ? 'max-w-md' : ''}`
+              }
+            >
               <MovementList
                 heading={`${availableRecap.weekLabel} movement`}
                 headingId="weekly-recap-movement-heading"
                 lines={availableRecap.movementLines}
+              />
+              <RecordChangeList
+                headingId="weekly-recap-record-changes-heading"
+                lines={availableRecap.recordChangeLines}
+              />
+            </div>
+          ) : null}
+          {availableRecap.headToHeadLines.length > 0 ? (
+            <div className="mt-11">
+              <GameScoreboardList
+                heading="Head-to-head results"
+                headingId="weekly-recap-head-to-head-heading"
+                lines={availableRecap.headToHeadLines}
+              />
+            </div>
+          ) : null}
+          {availableRecap.notableResultLines.length > 0 ? (
+            <div className="mt-11">
+              <GameScoreboardList
+                heading="Notable results"
+                headingId="weekly-recap-notable-results-heading"
+                lines={availableRecap.notableResultLines}
               />
             </div>
           ) : null}

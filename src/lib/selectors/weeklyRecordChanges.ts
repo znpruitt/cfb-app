@@ -13,6 +13,10 @@ export type WeeklyRecordChange = {
   id: InSeasonRecordId;
   previous: RecordEntry | null;
   current: RecordEntry | null;
+  /** Previous record hidden only by the broad-tie display policy, if any. */
+  suppressedPrevious: RecordEntry | null;
+  /** Current record hidden only by the broad-tie display policy, if any. */
+  suppressedCurrent: RecordEntry | null;
 };
 
 function sameHolders(left: string[], right: string[]): boolean {
@@ -25,6 +29,7 @@ function sameRecord(left: RecordEntry | null, right: RecordEntry | null): boolea
     left.id === right.id &&
     left.value === right.value &&
     sameHolders(left.holders, right.holders) &&
+    sameHolders(left.constituentKeys ?? [], right.constituentKeys ?? []) &&
     left.formattedValue === right.formattedValue &&
     (left.contextString ?? null) === (right.contextString ?? null)
   );
@@ -62,15 +67,39 @@ export function selectWeeklyRecordChanges(args: {
   const previous = selectInSeasonRecordProjection([historicalEvidence, beforeEvidence], {
     tiedContext: 'latest',
   });
+  const previousIncludingBroadTies = selectInSeasonRecordProjection(
+    [historicalEvidence, beforeEvidence],
+    {
+      tiedContext: 'latest',
+      includeBroadTies: true,
+    }
+  );
   const current = selectInSeasonRecordProjection([historicalEvidence, currentEvidence], {
     tiedContext: 'latest',
   });
+  const currentIncludingBroadTies = selectInSeasonRecordProjection(
+    [historicalEvidence, currentEvidence],
+    {
+      tiedContext: 'latest',
+      includeBroadTies: true,
+    }
+  );
 
   return IN_SEASON_RECORD_IDS.flatMap((id): WeeklyRecordChange[] => {
     const previousRecord = previous[id];
     const currentRecord = current[id];
+    const suppressedPrevious = previousRecord === null ? previousIncludingBroadTies[id] : null;
+    const suppressedCurrent = currentRecord === null ? currentIncludingBroadTies[id] : null;
     return sameRecord(previousRecord, currentRecord)
       ? []
-      : [{ id, previous: previousRecord, current: currentRecord }];
+      : [
+          {
+            id,
+            previous: previousRecord,
+            current: currentRecord,
+            suppressedPrevious,
+            suppressedCurrent,
+          },
+        ];
   });
 }

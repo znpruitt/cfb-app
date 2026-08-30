@@ -175,6 +175,16 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 - Chips use neutral slate — blue remains interactivity-only, amber remains champion/podium
 - Game selection is context-aware: postseason surfaces playoff/bowl games, in-season surfaces current week
 - First Round CFP games are identified by neutral site = false (campus games)
+- A weekly-recap mini scoreboard is compact evidence, not a game card: no surface tint, border, or
+  team-color accent. Each team is the primary label, its owner is a tertiary inline suffix, and the
+  score stays right-anchored; the winner keeps primary weight while the loser is muted.
+- When one recap game proves several facts, merge the true category labels and details into one
+  scoreboard keyed by canonical game identity rather than repeating the result. Labels remain
+  neutral until an owning semantic tag-color system assigns meaning.
+- Full recap scoreboards may form two columns when space permits and collapse to one column on
+  mobile. The Overview disclosure always stacks them and caps the complete highlight list at three,
+  after record changes have taken priority, so expansion remains a summary rather than a second
+  full recap.
 
 ## Containerization
 

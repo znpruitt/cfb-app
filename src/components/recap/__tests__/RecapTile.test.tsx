@@ -83,6 +83,26 @@ const recap: AvailableWeeklyRecapViewModel = {
     { owner: 'Alice', direction: 'up', deltaLabel: '▲ 1', shiftLabel: '#2 → #1' },
     { owner: 'Bob', direction: 'down', deltaLabel: '▼ 1', shiftLabel: '#1 → #2' },
   ],
+  recordChangeLines: [],
+  headToHeadLines: [],
+  notableResultLines: [],
+  tileHighlights: [
+    {
+      kind: 'record-change',
+      id: 'record-single-season-high-score',
+      label: 'Highest Single-Week Score',
+      value: '55 pts (2026 Wk 1)',
+      context: 'Alice · Through Week 1 · New league record',
+    },
+    {
+      kind: 'game',
+      id: 'game-upset',
+      label: 'Odds upset',
+      detail: 'Beat a 7.5-point favorite',
+      winner: { team: 'Texas', owner: 'Alice', score: '31' },
+      loser: { team: 'Georgia', owner: 'Bob', score: '17' },
+    },
+  ],
 };
 
 test('recap tile expands its compact week-record grid in normal flow and collapses again', () => {
@@ -94,10 +114,10 @@ test('recap tile expands its compact week-record grid in normal flow and collaps
   assert.match(tile.className, /bg-zinc-900/);
   assert.match(rendered.getByText('Week 1').className, /text-zinc-400/);
   assert.equal(rendered.getByText('Weekly recap').getAttribute('aria-hidden'), null);
-  assert.ok(rendered.getByRole('heading', { name: 'Week leaders' }));
-  assert.ok(rendered.getByText('Biggest riser · #2 → #1'));
+  assert.equal(rendered.queryByRole('heading', { name: 'Week leaders' }), null);
   assert.equal(rendered.queryByRole('heading', { name: 'Week records' }), null);
   assert.equal(rendered.queryByRole('heading', { name: 'Movement' }), null);
+  assert.equal(rendered.queryByRole('heading', { name: 'Week highlights' }), null);
 
   const expand = rendered.getByRole('button', { name: 'View full recap' });
   assert.equal(expand.getAttribute('aria-expanded'), 'false');
@@ -109,11 +129,18 @@ test('recap tile expands its compact week-record grid in normal flow and collaps
 
   fireEvent.click(expand);
 
+  assert.ok(rendered.getByRole('heading', { name: 'Week leaders' }));
+  assert.ok(rendered.getByText('Biggest riser · #2 → #1'));
   assert.ok(rendered.getByRole('heading', { name: 'Week records' }));
   assert.ok(rendered.getByRole('heading', { name: 'Week 1 movement' }));
   assert.ok(rendered.getByText('#2 → #1'));
   assert.ok(rendered.getByLabelText('Moved up in standings'));
+  assert.ok(rendered.getByRole('heading', { name: 'Week highlights' }));
+  assert.ok(rendered.getByText('Highest Single-Week Score'));
+  assert.ok(rendered.getByText('Beat a 7.5-point favorite'));
   assert.match(rendered.getByText('55 PF · 38 PA').className, /text-zinc-400/);
+  assert.match(rendered.getByText('Georgia').className, /text-zinc-400/);
+  assert.doesNotMatch(rendered.getByText('Georgia').closest('article')?.className ?? '', /border/);
   assert.equal(panel.hidden, false);
   const collapse = rendered.getByRole('button', { name: 'Collapse' });
   assert.equal(collapse.getAttribute('aria-expanded'), 'true');
