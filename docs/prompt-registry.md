@@ -51,6 +51,23 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-115-CFBD-REQUEST-TIMEOUT-v1
+
+- Purpose: let CFBD-backed live-score and game-stat automation tolerate ordinary peak-Saturday
+  provider latency without increasing billed calls per cron run.
+- Scope: the two live-scores requests, the game-stats cron request, the separate admin scores
+  refresh decision, and focused timeout, billing, and prior-good retention coverage. Eligibility,
+  cadence, quota reserve, schedule windows, fallback behavior, and other provider jobs are unchanged.
+- Outcome: all four scoped CFBD requests now use a shared 40-second ceiling. Both cron paths retain
+  their one-attempt policy; the admin scores refresh deliberately changes from three 12-second
+  attempts to one 40-second attempt, bounding one operator action to one billed call.
+- Review / verification: implementation commit `8fa5d417` passed TypeScript, lint, the focused
+  timeout suite, and all 4,449 tests during confirming review. Independent Codex review was clean;
+  Claude confirmed the production policy and identified proof-harness defects, which a
+  user-approved proof-only correction closed without another independent review. Mutation checks
+  prove a second attempt fails the billed-URL assertions on all three paths.
+- Status: Implemented — pre-merge.
+
 ### POLISH-015-OVERVIEW-GAMES-REGION-v1
 
 - Purpose: correct three visible Overview games-region defects during the active season without

@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { NextResponse } from 'next/server';
 
+import { CFBD_PEAK_LATENCY_TIMEOUT_MS } from '@/lib/api/cfbdRequestPolicy';
 import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
 import { buildCfbdGamesUrl } from '@/lib/cfbd';
 import { type TeamCatalogItem } from '@/lib/teamIdentity';
@@ -59,13 +60,18 @@ const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1' || process.env.DEBUG_CFBD
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 250;
 
-const CFBD_RETRY_POLICY = {
-  maxAttempts: 3,
-  baseDelayMs: 250,
-  maxDelayMs: 2_000,
-  jitterRatio: 0.2,
-  retryOnHttpStatuses: [408, 425, 429, 500, 502, 503, 504],
+const CFBD_MANUAL_RETRY_POLICY = {
+  maxAttempts: 1,
+  baseDelayMs: 0,
+  maxDelayMs: 0,
+  jitterRatio: 0,
+  retryOnHttpStatuses: [],
 } as const;
+// The authorized manual refresh is a separate spend decision from automation:
+// one 40s attempt covers the accepted 8-25s band and costs at most one billed
+// call, instead of retrying three 12s aborts that all bill. Transient HTTP errors
+// also return after that one attempt; an operator can deliberately invoke a new
+// refresh without one action silently multiplying spend.
 const CFBD_PACING_POLICY = {
   key: 'cfbd',
   minIntervalMs: 150,
@@ -409,9 +415,9 @@ async function refreshScorePartition(params: {
 
     const rawGames = await fetchUpstreamJson<CfbdGameLoose[]>(cfbdUrl.toString(), {
       cache: 'no-store',
-      timeoutMs: 12_000,
+      timeoutMs: CFBD_PEAK_LATENCY_TIMEOUT_MS,
       headers: { Authorization: `Bearer ${cfbdApiKey}` },
-      retry: CFBD_RETRY_POLICY,
+      retry: CFBD_MANUAL_RETRY_POLICY,
       pacing: CFBD_PACING_POLICY,
     });
 

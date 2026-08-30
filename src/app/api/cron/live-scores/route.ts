@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { fetchCfbdUsage } from '@/lib/api/cfbdUsage';
+import { CFBD_PEAK_LATENCY_TIMEOUT_MS } from '@/lib/api/cfbdRequestPolicy';
 import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
 import { buildCfbdGamesUrl, buildCfbdScoreboardUrl } from '@/lib/cfbd';
 import { evaluateAutomationQuota, type CfbdUsageSnapshot } from '@/lib/gameStats/quotaPolicy';
@@ -66,6 +67,10 @@ const RETRY_POLICY = {
   jitterRatio: 0,
   retryOnHttpStatuses: [],
 } as const;
+
+// PLATFORM-115: the shared 40s ceiling covers the accepted 8-25s latency band
+// and remains well inside the three-minute poll cadence. RETRY_POLICY stays
+// at one attempt, so the billed-call ceiling does not change.
 
 const PACING_POLICY = { key: 'cfbd', minIntervalMs: 150 } as const;
 
@@ -318,7 +323,7 @@ async function runScoreboard(args: {
     const url = buildCfbdScoreboardUrl({ classification: 'fbs' });
     payload = await fetchUpstreamJson<unknown>(url.toString(), {
       cache: 'no-store',
-      timeoutMs: 12_000,
+      timeoutMs: CFBD_PEAK_LATENCY_TIMEOUT_MS,
       headers: { Authorization: `Bearer ${cfbdApiKey}` },
       retry: RETRY_POLICY,
       pacing: PACING_POLICY,
@@ -490,7 +495,7 @@ async function runFinalReconciliation(args: {
     const url = buildCfbdGamesUrl({ year, seasonType: partition.seasonType, week: partition.week });
     payload = await fetchUpstreamJson<unknown>(url.toString(), {
       cache: 'no-store',
-      timeoutMs: 12_000,
+      timeoutMs: CFBD_PEAK_LATENCY_TIMEOUT_MS,
       headers: { Authorization: `Bearer ${cfbdApiKey}` },
       retry: RETRY_POLICY,
       pacing: PACING_POLICY,

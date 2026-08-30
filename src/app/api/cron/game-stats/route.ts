@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { fetchCfbdUsage } from '@/lib/api/cfbdUsage';
+import { CFBD_PEAK_LATENCY_TIMEOUT_MS } from '@/lib/api/cfbdRequestPolicy';
 import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
 import { buildCfbdGameTeamStatsUrl, type CfbdSeasonType } from '@/lib/cfbd';
 import { GAME_STATS_SCOPE, getGameStatsKey } from '@/lib/gameStats/cache';
@@ -68,6 +69,10 @@ const RETRY_POLICY = {
   jitterRatio: 0,
   retryOnHttpStatuses: [],
 } as const;
+
+// PLATFORM-115: the shared 40s ceiling covers the accepted 8-25s latency band
+// and remains well inside the polling cadence. The one-attempt quota
+// contract is unchanged.
 
 const PACING_POLICY = {
   key: 'cfbd',
@@ -343,7 +348,7 @@ export async function GET(req: Request) {
       const cfbdUrl = buildCfbdGameTeamStatsUrl({ year, week, seasonType });
       payload = await fetchUpstreamJson<unknown>(cfbdUrl.toString(), {
         cache: 'no-store',
-        timeoutMs: 12_000,
+        timeoutMs: CFBD_PEAK_LATENCY_TIMEOUT_MS,
         headers: { Authorization: `Bearer ${cfbdApiKey}` },
         retry: RETRY_POLICY,
         pacing: PACING_POLICY,
