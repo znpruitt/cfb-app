@@ -2,6 +2,7 @@ import React from 'react';
 import Link from 'next/link';
 
 import MiniTrendsGrid from './MiniTrendsGrid';
+import CompactGameScoreboard from './CompactGameScoreboard';
 import ViewMoreLink, { viewMoreLinkClass } from './navigation/ViewMoreLink';
 import { selectResolvedStandingsWeeks } from '@/lib/selectors/historyResolution';
 import { TREND_EMPTY_MESSAGE } from '@/lib/trendEmptyState';
@@ -15,6 +16,7 @@ import { buildWeekLabelMap, formatWeekLabel } from '../lib/weekLabel';
 import { getGameOwners } from '../lib/gameOwnership';
 import { formatExpandedKickoff } from '../lib/gameCardPresentation';
 import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
+import { normalizeStatusTokens } from '../lib/gameStatus';
 import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import {
   deriveLeagueInsights,
@@ -46,7 +48,7 @@ import {
 } from '../lib/rankings';
 import { getGameParticipantTeamId, type AppGame } from '../lib/schedule';
 import type { ScorePack } from '../lib/scores';
-import { standingsCoverageNoticeWithSubject } from '../lib/standings';
+import { NO_CLAIM_OWNER, standingsCoverageNoticeWithSubject } from '../lib/standings';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
 import type { StandingsHistory } from '../lib/standingsHistory';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
@@ -137,15 +139,6 @@ function renderMatchupLabel(
   );
 }
 
-function formatScoreLine(item: OverviewGameItem): string {
-  const score = item.score;
-  if (!score) return 'Awaiting score';
-
-  const awayScore = score.away.score ?? '—';
-  const homeScore = score.home.score ?? '—';
-  return `${formatGameMatchupLabel(item.bucket.game)} · ${awayScore}-${homeScore}`;
-}
-
 function summarizeLeagueAngle(
   item: OverviewGameItem,
   rankingsByTeamId: Map<string, TeamRankingEnrichment>
@@ -231,47 +224,6 @@ function deriveFeaturedGameBadge(game: AppGame): { label: string; classes: strin
   }
 
   return null;
-}
-
-function SectionCard({
-  title,
-  children,
-  tone = 'default',
-  headingClassName,
-  compact = false,
-  action,
-}: {
-  title: string;
-  children: React.ReactNode;
-  tone?: 'default' | 'live' | 'weekly' | 'secondary';
-  headingClassName?: string;
-  compact?: boolean;
-  action?: React.ReactNode;
-}): React.ReactElement {
-  const toneClasses =
-    tone === 'live'
-      ? 'border-amber-200/80 bg-gradient-to-br from-amber-50/90 to-white dark:border-amber-900/60 dark:from-amber-950/25 dark:to-zinc-900'
-      : tone === 'weekly'
-        ? 'border-blue-200/70 bg-gradient-to-br from-blue-50/70 to-white dark:border-blue-900/60 dark:from-blue-950/20 dark:to-zinc-900'
-        : tone === 'secondary'
-          ? 'border-gray-200 bg-gray-50/80 dark:border-zinc-800 dark:bg-zinc-950/60'
-          : 'border-gray-300 bg-gray-50 dark:border-zinc-700 dark:bg-zinc-900';
-
-  return (
-    <section
-      className={`rounded-xl border shadow-sm ${compact ? 'p-2.5 sm:p-3.5' : 'p-3 sm:p-4.5'} ${toneClasses}`}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <h2
-          className={`text-lg font-semibold tracking-tight text-gray-950 dark:text-zinc-50 ${headingClassName ?? ''}`.trim()}
-        >
-          {title}
-        </h2>
-        {action ?? null}
-      </div>
-      <div className={`${compact ? 'mt-2' : 'mt-2.5'}`}>{children}</div>
-    </section>
-  );
 }
 
 function EmptyState({
@@ -711,13 +663,38 @@ function CondensedStandingsTable({
   );
 }
 
+const SCOREBOARD_ISO_DATE_PREFIX_RE = /^\d{4}-\d{2}-\d{2}[t\s]\d{2}:\d{2}/i;
+const SCOREBOARD_ISO_UTC_SUFFIX_RE = /z$/i;
+
+function liveScoreboardClock(score: ScorePack | null | undefined): string {
+  const status = score?.status.trim() ?? '';
+  const statusTokens = normalizeStatusTokens(status);
+  const hasGenericLiveStatus =
+    statusTokens === 'in progress' ||
+    statusTokens === 'inprogress' ||
+    statusTokens === 'status in progress' ||
+    statusTokens === 'live' ||
+    statusTokens === 'status live';
+
+  const scoreTime = score?.time?.trim() ?? '';
+  const looksLikeKickoffTimestamp =
+    scoreTime.length > 0 &&
+    (SCOREBOARD_ISO_DATE_PREFIX_RE.test(scoreTime) ||
+      SCOREBOARD_ISO_UTC_SUFFIX_RE.test(scoreTime)) &&
+    Number.isFinite(Date.parse(scoreTime));
+  const clock = looksLikeKickoffTimestamp ? '' : scoreTime;
+
+  if (hasGenericLiveStatus) return clock;
+  if (!status) return clock;
+  if (!clock || status.toLocaleLowerCase().includes(clock.toLocaleLowerCase())) return status;
+  return `${status} ${clock}`;
+}
+
 function GameCardList({
   items,
-  timeZone,
   rankingsByTeamId,
 }: {
   items: OverviewGameItem[];
-  timeZone: string;
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
 }): React.ReactElement {
   if (items.length === 0) {
@@ -725,40 +702,38 @@ function GameCardList({
   }
 
   return (
-    <div className="space-y-3 sm:space-y-3">
+    <div
+      className="grid grid-cols-2 gap-x-10 @max-[760.01px]:grid-cols-1"
+      data-live-scoreboard-grid
+    >
       {items.map((item) => {
-        const state = gameStateFromScore(item.score);
+        const game = item.bucket.game;
+        const awayTeamId = getGameParticipantTeamId(game, 'away') ?? game.canAway;
+        const homeTeamId = getGameParticipantTeamId(game, 'home') ?? game.canHome;
+        const awayRanking = getTeamRanking(rankingsByTeamId, awayTeamId);
+        const homeRanking = getTeamRanking(rankingsByTeamId, homeTeamId);
+
         return (
-          <article
-            key={item.bucket.game.key}
-            className="rounded-lg border border-amber-200/80 bg-white/85 p-3 sm:p-4 dark:border-amber-900/70 dark:bg-zinc-950/70"
-          >
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-              <div className="min-w-0">
-                <div className="text-sm font-semibold text-gray-950 dark:text-zinc-50">
-                  {renderMatchupLabel(item, rankingsByTeamId)}
-                </div>
-                <div className="text-sm text-gray-600 dark:text-zinc-300">
-                  {summarizeLeagueAngle(item, rankingsByTeamId)}
-                </div>
-              </div>
-              <span
-                className={`rounded-full border px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${stateBadgeClasses(state)}`}
-              >
-                {item.score?.status ?? 'Scheduled'}
-              </span>
-            </div>
-            <div className="mt-2 text-sm font-medium text-gray-800 dark:text-zinc-100">
-              {formatScoreLine(item)}
-            </div>
-            <div className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
-              {formatExpandedKickoff(
-                item.bucket.game.date,
-                timeZone,
-                item.bucket.game.startTimeTBD
-              )}
-            </div>
-          </article>
+          <CompactGameScoreboard
+            key={game.key}
+            state="live"
+            clock={liveScoreboardClock(item.score)}
+            matchupLabel={formatGameMatchupLabel(game)}
+            away={{
+              teamName: game.csvAway,
+              owner: item.bucket.awayOwner === NO_CLAIM_OWNER ? null : item.bucket.awayOwner,
+              rank: awayRanking.rank,
+              rankSource: awayRanking.rankSource,
+              score: item.score?.away.score ?? null,
+            }}
+            home={{
+              teamName: game.csvHome,
+              owner: item.bucket.homeOwner === NO_CLAIM_OWNER ? null : item.bucket.homeOwner,
+              rank: homeRanking.rank,
+              rankSource: homeRanking.rankSource,
+              score: item.score?.home.score ?? null,
+            }}
+          />
         );
       })}
     </div>
@@ -1376,7 +1351,7 @@ type OverviewPanelProps = {
   displayTimeZone?: string;
   onOwnerSelect?: (owner: string) => void;
   onViewSchedule?: () => void;
-  onViewMatchups?: () => void;
+  onViewMatchups?: (displayedGame?: AppGame) => void;
   onOpenHighlightTarget?: (target: HighlightDrilldownTarget) => void;
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
   rankings?: RankingsResponse | null;
@@ -1742,7 +1717,11 @@ export default function OverviewPanel({
             <SectionHeader
               title="Upcoming watchlist"
               action={
-                <button type="button" className={viewMoreLinkClass} onClick={onViewMatchups}>
+                <button
+                  type="button"
+                  className={viewMoreLinkClass}
+                  onClick={() => onViewMatchups?.()}
+                >
                   All matchups →
                 </button>
               }
@@ -1760,11 +1739,28 @@ export default function OverviewPanel({
         </>
       ) : null}
 
-      {/* Live games — keeps card treatment */}
+      {/* Live games */}
       {liveItems.length > 0 ? (
-        <SectionCard title={liveTitle} tone="live" compact>
-          <GameCardList items={liveItems} timeZone={timeZone} rankingsByTeamId={rankingsByTeamId} />
-        </SectionCard>
+        <>
+          <SectionDivider />
+          <section className="@container">
+            <SectionHeader
+              title={liveTitle}
+              action={
+                <button
+                  type="button"
+                  className={viewMoreLinkClass}
+                  onClick={() => onViewMatchups?.(liveItems[0]?.bucket.game)}
+                >
+                  All matchups →
+                </button>
+              }
+            />
+            <div className="mt-2.5">
+              <GameCardList items={liveItems} rankingsByTeamId={rankingsByTeamId} />
+            </div>
+          </section>
+        </>
       ) : null}
 
       {/* GB Race */}
