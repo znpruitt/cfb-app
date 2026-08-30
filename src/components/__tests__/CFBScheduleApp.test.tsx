@@ -335,7 +335,7 @@ test('postseason weekly matchups drill-down preserves postseason scope when no w
       selectedWeek: null,
       regularWeeks: [8, 9, 10],
     }),
-    { nextTab: 'postseason', nextWeek: null }
+    { nextTab: 'postseason', nextWeek: null, resetFilters: false }
   );
 });
 
@@ -346,7 +346,7 @@ test('postseason matchups drill-down does not coerce to regular week even when s
       selectedWeek: 9,
       regularWeeks: [8, 9, 10],
     }),
-    { nextTab: 'postseason', nextWeek: 9 }
+    { nextTab: 'postseason', nextWeek: 9, resetFilters: false }
   );
 });
 
@@ -357,7 +357,31 @@ test('non-postseason weekly matchups drill-down remains unchanged', () => {
       selectedWeek: 7,
       regularWeeks: [7, 8],
     }),
-    { nextTab: 7, nextWeek: 7 }
+    { nextTab: 7, nextWeek: 7, resetFilters: false }
+  );
+});
+
+test('Live matchups drill-down targets the displayed regular-season slate and resets filters', () => {
+  assert.deepEqual(
+    deriveWeeklyMatchupsDrilldownState({
+      selectedTab: 3,
+      selectedWeek: 3,
+      regularWeeks: [3, 7],
+      displayedGame: game({ week: 7 }),
+    }),
+    { nextTab: 7, nextWeek: 7, resetFilters: true }
+  );
+});
+
+test('Live matchups drill-down targets postseason and resets filters for a postseason game', () => {
+  assert.deepEqual(
+    deriveWeeklyMatchupsDrilldownState({
+      selectedTab: 7,
+      selectedWeek: 7,
+      regularWeeks: [7],
+      displayedGame: game({ week: 18, stage: 'bowl', postseasonRole: 'bowl' }),
+    }),
+    { nextTab: 'postseason', nextWeek: null, resetFilters: true }
   );
 });
 

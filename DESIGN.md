@@ -85,6 +85,9 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 - **Compact row token:** dense disclosures may use 6px vertical padding and a 13.5px line 1 while
   retaining the same weight, two-line hierarchy, and right-edge anchor. This is the explicit
   exception to the standard 14–15px line-1 rule; it is not a new default row size.
+- **Scoreboard exception:** the shared game scoreboard is a distinct pattern: one single-line status
+  row followed by two peer team lines, each with its own right-edge anchor. It is not a line-1
+  primary / line-2 metadata row and does not require secondary metadata beneath either team.
 
 ## List row width discipline
 
@@ -133,6 +136,9 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 ## Color
 
 - Amber/gold is reserved exclusively for champion/podium signals — not a general accent color
+- Live game state is structural: a neutral dot, neutral `Live` text, and the game clock. Amber live
+  badges and amber live-card borders are drift; the champion/podium reservations in this section
+  and `## Podium` admit no live-game exception
 - Blue signals interactivity or active state only — never use blue to mean "featured" or "important"
 - Chart line colors are fixed per owner for the full season — never change with standings position
 - No color for decoration — every color must encode meaning. This stands unamended for every
@@ -151,6 +157,17 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 ## Cards and game results
 
 - Game cards sit on a dark surface tint with a light border — discrete, bordered objects (see Containerization), carrying team-color accent bars on the top and bottom edges
+- The shared compact scoreboard uses a status row followed by away and home team lines. Each team is
+  the primary label, a nullable rank is its prefix, an owner is a tertiary inline suffix, and the
+  state-relevant value stays right-anchored. Unowned opponents render team-only; the same owner may
+  appear on both lines without special treatment. The team identity begins the row so a future logo
+  slot can be inserted structurally; logos are not part of the current component
+- Compact scoreboard order is always away → home. Position communicates home/away; font weight,
+  never reordering, marks the live leader or final winner
+- Compact scoreboard state variants share that row anatomy: scheduled uses a single-line kickoff /
+  broadcast header, team-record anchors, and an odds footer; live uses a neutral dot + `Live` + clock
+  status row and score anchors; final uses a neutral final-status row and score anchors. Header rows
+  never wrap and ellipsize when constrained so peer team lines remain aligned
 - Rankings display inline with team names — "#4 Oregon vs #2 Indiana"
 - Use W16 CFP rankings for postseason game cards — not Final Poll rankings
 - CFP round badges use full words — "CFP Quarterfinal" not "CFP QF"
@@ -189,6 +206,9 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 ## Containerization
 
 - Outer card containers are removed from all Overview sections except the season podium
+- Compact game scoreboards flow row-major in a two-column grid and collapse to one column when their
+  container is 760px wide or narrower. The breakpoint is based on card content width, not viewport
+  width
 - The weekly recap tile is the one timely-content exception: its full-width dark surface and 8px
   radius bind a collapsed editorial headline to its expand-in-place disclosure. It carries no
   decorative border or accent color, and this exception does not authorize card chrome for ordinary

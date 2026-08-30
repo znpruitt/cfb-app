@@ -1,0 +1,103 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import React from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+
+import CompactGameScoreboard from '../CompactGameScoreboard';
+
+function renderScoreboard(
+  overrides: Partial<React.ComponentProps<typeof CompactGameScoreboard>> = {}
+): string {
+  return renderToStaticMarkup(
+    <CompactGameScoreboard
+      state="live"
+      clock="Q3 8:12"
+      matchupLabel="Michigan at Ohio State"
+      away={{ teamName: 'Michigan', owner: 'Whited', rank: null, score: 17 }}
+      home={{
+        teamName: 'Ohio State',
+        owner: 'Chamness',
+        rank: 7,
+        rankSource: 'ap',
+        score: 24,
+      }}
+      {...overrides}
+    />
+  );
+}
+
+test('live scoreboard keeps away above a leading home team and emphasizes the bottom line', () => {
+  const html = renderScoreboard();
+  const awayRow = html.indexOf('data-scoreboard-side="away"');
+  const homeRow = html.indexOf('data-scoreboard-side="home"');
+
+  assert.ok(awayRow >= 0 && homeRow > awayRow, 'away must remain above home');
+  assert.match(html, /data-scoreboard-side="away" data-scoreboard-leading="false"/);
+  assert.match(
+    html,
+    /font-semibold dark:text-zinc-50" data-scoreboard-side="home" data-scoreboard-leading="true"/
+  );
+  assert.match(html, /title="AP rank #7">#7[\s\S]*Ohio State[\s\S]*Chamness[\s\S]*>24</);
+});
+
+test('live scoreboard renders an unowned opponent as team-only', () => {
+  const html = renderScoreboard({
+    away: { teamName: 'Purdue', owner: null, rank: null, score: 6 },
+    home: { teamName: 'Penn State', owner: 'Chamness', rank: null, score: 14 },
+  });
+
+  assert.match(html, /data-scoreboard-team="away">Purdue<\/span>/);
+  assert.doesNotMatch(html, /data-scoreboard-owner="away"/);
+  assert.match(html, /data-scoreboard-owner="home">Chamness<\/span>/);
+});
+
+test('live scoreboard renders the same owner as each team suffix when one owner holds both sides', () => {
+  const html = renderScoreboard({
+    away: { teamName: 'Jacksonville State', owner: 'Whited', rank: null, score: 14 },
+    home: { teamName: 'North Dakota State', owner: 'Whited', rank: null, score: 10 },
+  });
+
+  assert.match(html, /data-scoreboard-owner="away">Whited<\/span>/);
+  assert.match(html, /data-scoreboard-owner="home">Whited<\/span>/);
+});
+
+test('live scoreboard keeps its header and long team-owner identities on one clipped line', () => {
+  const html = renderScoreboard({
+    clock: 'Q4 10:59',
+    away: {
+      teamName: 'Middle Tennessee State University',
+      owner: 'An Exceptionally Long Owner Name',
+      rank: 24,
+      rankSource: 'cfp',
+      score: 20,
+    },
+  });
+
+  assert.match(
+    html,
+    /overflow-hidden whitespace-nowrap text-xs dark:text-zinc-500" data-scoreboard-header/
+  );
+  assert.match(html, /flex min-w-0 items-baseline gap-1\.5 overflow-hidden whitespace-nowrap/);
+  assert.match(html, /title="CFP rank #24"/);
+  assert.match(
+    html,
+    /class="min-w-0 truncate"><span data-scoreboard-team="away">Middle Tennessee State University/
+  );
+});
+
+test('live scoreboard expresses live state with neutral structure and no amber utility', () => {
+  const html = renderScoreboard();
+
+  assert.match(html, /size-1\.5 rounded-full bg-current/);
+  assert.doesNotMatch(html, /amber/);
+  assert.match(html, /data-scoreboard-state="live"/);
+});
+
+test('live scoreboard omits the clock node when no trustworthy clock is available', () => {
+  const html = renderScoreboard({ clock: '  ' });
+  const header = html.match(/<div[^>]+data-scoreboard-header[^>]*>([\s\S]*?)<\/div>/)?.[1];
+
+  assert.ok(header, 'scoreboard header must render');
+  assert.match(header, />Live<\/span>/);
+  assert.doesNotMatch(header, /tabular-nums/);
+});

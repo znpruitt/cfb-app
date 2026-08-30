@@ -185,14 +185,14 @@ test('overview panel uses neutral wording for neutral-site games', () => {
       standingsCoverage={coverage}
       matchupMatrix={matchupMatrix}
       liveItems={[item(neutralGame)]}
-      keyMatchups={[item(neutralGame)]}
+      keyMatchups={[]}
       context={defaultContext}
       displayTimeZone="UTC"
     />
   );
 
-  assert.match(html, /Texas<\/span> vs <span>Ohio State/);
-  assert.doesNotMatch(html, /Texas at Ohio State/);
+  assert.match(html, /aria-label="Texas vs Ohio State"/);
+  assert.doesNotMatch(html, /aria-label="Texas at Ohio State"/);
 });
 
 test('overview panel keeps home-away wording for standard games', () => {
@@ -216,7 +216,119 @@ test('overview panel keeps home-away wording for standard games', () => {
     />
   );
 
+  assert.match(html, /aria-label="Texas at Rice"/);
   assert.match(html, /Texas<\/span> @ <span>Rice/);
+});
+
+test('overview Live section consumes the shared scoreboard in a row-major responsive grid', () => {
+  const awayLeading = itemWithScore(
+    game({ key: 'away-leading', csvAway: 'Utah', csvHome: 'Arizona State' }),
+    {
+      status: 'Q3',
+      away: { team: 'Utah', score: 31 },
+      home: { team: 'Arizona State', score: 20 },
+      time: '4:55',
+    }
+  );
+  const homeLeading = itemWithScore(
+    game({ key: 'home-leading', csvAway: 'Michigan', csvHome: 'Ohio State' }),
+    {
+      status: 'STATUS_IN_PROGRESS',
+      away: { team: 'Michigan', score: 7 },
+      home: { team: 'Ohio State', score: 21 },
+      time: 'Q2',
+    }
+  );
+  const rankingsByTeamId = new Map([
+    ['a', { rank: 24, rankSource: 'cfp' as const }],
+    ['h', { rank: 7, rankSource: 'ap' as const }],
+  ]);
+
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[awayLeading, homeLeading]}
+      keyMatchups={[]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+      rankingsByTeamId={rankingsByTeamId}
+    />
+  );
+
+  assert.match(
+    html,
+    /grid grid-cols-2 gap-x-10 @max-\[760\.01px\]:grid-cols-1" data-live-scoreboard-grid/
+  );
+  assert.equal((html.match(/data-game-scoreboard=/g) ?? []).length, 2);
+  const awayLeadingCard = html.indexOf('aria-label="Utah at Arizona State"');
+  const homeLeadingCard = html.indexOf('aria-label="Michigan at Ohio State"');
+  assert.ok(awayLeadingCard >= 0, 'away-leading card must render its matchup label');
+  assert.ok(homeLeadingCard > awayLeadingCard, 'cards must keep row-major source order');
+  assert.match(
+    html,
+    /aria-label="Michigan at Ohio State"[\s\S]*data-scoreboard-side="away" data-scoreboard-leading="false"[\s\S]*data-scoreboard-side="home" data-scoreboard-leading="true"/
+  );
+  assert.match(html, />Live<\/span>[\s\S]*Q3 4:55/);
+  assert.match(html, />Live<\/span>[\s\S]*>Q2<\/span>/);
+  assert.match(html, /title="CFP rank #24"/);
+  assert.match(html, /title="AP rank #7"/);
+  assert.doesNotMatch(html, /STATUS_IN_PROGRESS|amber/);
+});
+
+test('overview Live section suppresses kickoff timestamps when no game clock is available', () => {
+  const genericLive = itemWithScore(
+    game({ key: 'generic-live', csvAway: 'Georgia', csvHome: 'Alabama' }),
+    {
+      status: 'in progress',
+      away: { team: 'Georgia', score: 10 },
+      home: { team: 'Alabama', score: 7 },
+      time: '2026-09-01T17:00:00.000Z',
+    }
+  );
+
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[genericLive]}
+      keyMatchups={[]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, />Live<\/span>/);
+  assert.doesNotMatch(html, /in progress|2026-09-01T17:00:00.000Z/);
+});
+
+test('overview Live section treats STATUS_LIVE as a generic state label', () => {
+  const genericLive = itemWithScore(
+    game({ key: 'status-live', csvAway: 'Auburn', csvHome: 'LSU' }),
+    {
+      status: 'STATUS_LIVE',
+      away: { team: 'Auburn', score: 3 },
+      home: { team: 'LSU', score: 7 },
+      time: 'Q2',
+    }
+  );
+
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[genericLive]}
+      keyMatchups={[]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, />Live<\/span>[\s\S]*>Q2<\/span>/);
+  assert.doesNotMatch(html, /STATUS_LIVE/);
 });
 
 test('overview highlights keep canonical neutral matchup separator with compact score header', () => {

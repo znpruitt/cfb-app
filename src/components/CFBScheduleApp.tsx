@@ -162,13 +162,30 @@ function getDraftCountdown(scheduledAt: string): string | null {
 }
 
 export function deriveWeeklyMatchupsDrilldownState(params: {
+  displayedGame?: AppGame;
   selectedTab: number | 'postseason' | null;
   selectedWeek: number | null;
   regularWeeks: number[];
-}): { nextTab: number | 'postseason' | null; nextWeek: number | null } {
-  const { selectedTab, selectedWeek } = params;
+}): {
+  nextTab: number | 'postseason' | null;
+  nextWeek: number | null;
+  resetFilters: boolean;
+} {
+  const { displayedGame, selectedTab, selectedWeek } = params;
   void params.regularWeeks;
-  return { nextTab: selectedTab, nextWeek: selectedWeek };
+
+  if (displayedGame) {
+    if (isTruePostseasonGame(displayedGame)) {
+      return { nextTab: 'postseason', nextWeek: null, resetFilters: true };
+    }
+    return {
+      nextTab: displayedGame.week,
+      nextWeek: displayedGame.week,
+      resetFilters: true,
+    };
+  }
+
+  return { nextTab: selectedTab, nextWeek: selectedWeek, resetFilters: false };
 }
 
 type HighlightNavigationState = {
@@ -967,24 +984,32 @@ export default function CFBScheduleApp({
     primarySurfaceKind === 'matchups' ||
     primarySurfaceKind === 'matrix' ||
     primarySurfaceKind === 'postseason';
-  const openWeeklyMatchupsView = useCallback(() => {
-    const nextDrilldownState = deriveWeeklyMatchupsDrilldownState({
-      selectedTab,
-      selectedWeek,
-      regularWeeks: weeks,
-    });
-    if (nextDrilldownState.nextWeek !== selectedWeek) {
-      setSelectedWeek(nextDrilldownState.nextWeek);
-    }
-    if (nextDrilldownState.nextTab !== selectedTab) {
-      setSelectedTab(nextDrilldownState.nextTab);
-    }
-    const clearedFocus = clearDrilldownFocusState();
-    setFocusedGameId(clearedFocus.focusedGameId);
-    setFocusedOwner(clearedFocus.focusedOwner);
-    setFocusedOwnerPair(clearedFocus.focusedOwnerPair);
-    setWeekViewMode('matchups');
-  }, [selectedTab, selectedWeek, weeks]);
+  const openWeeklyMatchupsView = useCallback(
+    (displayedGame?: AppGame) => {
+      const nextDrilldownState = deriveWeeklyMatchupsDrilldownState({
+        displayedGame,
+        selectedTab,
+        selectedWeek,
+        regularWeeks: weeks,
+      });
+      if (nextDrilldownState.resetFilters) {
+        setSelectedConference('ALL');
+        setTeamFilter('');
+      }
+      if (nextDrilldownState.nextWeek !== selectedWeek) {
+        setSelectedWeek(nextDrilldownState.nextWeek);
+      }
+      if (nextDrilldownState.nextTab !== selectedTab) {
+        setSelectedTab(nextDrilldownState.nextTab);
+      }
+      const clearedFocus = clearDrilldownFocusState();
+      setFocusedGameId(clearedFocus.focusedGameId);
+      setFocusedOwner(clearedFocus.focusedOwner);
+      setFocusedOwnerPair(clearedFocus.focusedOwnerPair);
+      setWeekViewMode('matchups');
+    },
+    [selectedTab, selectedWeek, weeks]
+  );
 
   const onOpenHighlightTarget = useCallback(
     (target: HighlightDrilldownTarget) => {
