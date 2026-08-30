@@ -1,7 +1,7 @@
 # Next Tasks (Active Queue)
 
 Status: Current
-Last verified: 2026-08-29
+Last verified: 2026-08-30
 Owner: Project documentation
 Canonical for: current execution order, planned/parked work, blockers, and the one canonical list of
 unresolved decisions and known deferrals
@@ -24,23 +24,20 @@ Supersedes: (none)
 
 ## Current execution order
 
-`CURRENT`: Item 87 slice 1 — scoreboard component + Live section.
-`NEXT`: Item 87 slice 2 — Featured conversion and green-live state.
+`CURRENT`: Item 87 slice 2 — Featured conversion and green-live state.
+`NEXT`: Reassess against the season-reliability sequence after slice 2.
 
 Owner-selected run order (2026-08-29). In-season work first, then the Overview scoreboard campaign,
 reassessing against the reliability sequence below after Item 87 slice 2 rather than running the
 campaign straight through.
 
-1. **Item 87 slice 1** — scoreboard component + Live section. The prompt carries the full row
-   contract, since three later consumers inherit it. Reference:
-   `mockups/live-scoreboard-mockup.html`, spec in `docs/campaigns/`.
-2. **Item 87 slice 2** — Featured conversion, retire `stateBadgeClasses`, green-live flip. Colour
+1. **Item 87 slice 2** — Featured conversion, retire `stateBadgeClasses`, green-live flip. Colour
    settles in one step. **Pre-agreed split point:** if sizing signals trip, stop and re-slice here.
-3. **Reassess** against the reliability sequence below before continuing.
-4. **Item 92** — CFBD records integration. Must precede slice 4 or slice 4 ships the spread
+2. **Reassess** against the reliability sequence below before continuing.
+3. **Item 92** — CFBD records integration. Must precede slice 4 or slice 4 ships the spread
    fallback. Cadence is the live-scores cron, never `handleGamesFinalized`.
-5. **Item 87 slice 3** — Recent finals + promotion model.
-6. **Item 87 slice 4** — Watchlist, consuming records.
+4. **Item 87 slice 3** — Recent finals + promotion model.
+5. **Item 87 slice 4** — Watchlist, consuming records.
 
 Runnable at any point, no dependency on the above: **Item 91** (standings live-signal derivation),
 **Item 84** (provider-classification diagnostic), **Item 86** (archive audit integrity check).
@@ -798,8 +795,9 @@ fail on corruption is the same defect wearing a passing badge.
 ### Item 87 — rework Overview game listings as a scoreboard
 
 Presentation and information-architecture half of the Overview games region. POLISH-015 delivered
-the interim correctness and empty-copy fixes on this surface; Item 87 now owns the replacement
-scoreboard and promotion model that supersede those state-specific lists.
+the interim correctness and empty-copy fixes on this surface. POLISH-016 / slice 1 then shipped the
+shared scoreboard contract and converted the Live section; slices 2–4 retain the remaining
+Featured, recent-finals promotion, and Watchlist work.
 
 **Problem observed on `/league/tsc` during the 2026 opening slate (2026-08-29).** One game appeared
 twice on a single screen — in "Upcoming watchlist" and again in the "Live" tile — and the Live card
@@ -809,10 +807,10 @@ as a section eyebrow, and scheduled rows ended in an empty `———` box.
 
 Remaining root cause:
 
-- The same conceptual object has four renderers: `GameSummaryList` and `GameCardList` on Overview,
-  `GameScoreboard` on Matchups, and the recap primitives. The two Overview renderers are the weakest,
-  which is why this surface reads worst. POLISH-015 made the existing scheduled and live selectors
-  disjoint; Item 87 makes that one-place transition structural.
+- The same conceptual object still has multiple renderers. Slice 1 moved Overview Live onto the
+  shared scoreboard anatomy, but Featured and `GameSummaryList` remain bespoke alongside
+  `GameScoreboard` on Matchups and the recap primitives. The remaining Item 87 slices complete the
+  Overview transition and make the scheduled/live promotion structural.
 
 **Settled decisions (owner, 2026-08-29).** The governing criterion for any marker is that it be
 TRUE and VALUABLE to the reader; scarcity is not the test, and chips are not capped. See `DESIGN.md`
