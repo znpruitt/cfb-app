@@ -936,11 +936,25 @@ rules out the simple fix. Against CFBD with the production key:
 
 CFBD counts on receipt, not on delivery. Hanging up mid-response costs a full call.
 
-**Consequence: the one-billed-call contract is already breachable under load, today.** With
-`maxAttempts: 3` and timeouts retried (`fetchUpstream.ts:158`), a run whose attempts all exceed 12s
-bills THREE calls, not one — and it does so precisely during degradation, when timeouts cluster. The
-reserve check runs before the attempt, not after the retries, so the extra spend is invisible. At ~20
-runs/hour a sustained slow spell costs up to 60 calls/hour instead of 20.
+**Correction (2026-08-29): the cron paths do NOT retry, and the one-billed-call contract holds.**
+An earlier revision of this item claimed a run could bill three calls. That was wrong — it assumed
+one retry policy across all four call sites. They differ:
+
+| call site | `maxAttempts` | billed on timeout |
+|---|---|---|
+| `cron/live-scores:321` (`/scoreboard`) | **1** | 1 |
+| `cron/live-scores:493` (`/games` reconciliation) | **1** | 1 |
+| `cron/game-stats:346` (`/games/teams`) | **1** | 1 |
+| `api/scores:412` (admin refresh) | **3**, with backoff | up to 3 |
+
+Both cron policies are `maxAttempts: 1` with zero delay and an empty `retryOnHttpStatuses`, so a
+timeout costs exactly one call and the contract is intact. Only `api/scores` — the admin-triggered
+refresh, not the automated path — can bill three, and it is not governed by the one-call cron
+contract.
+
+**This makes the cron fix unambiguous.** With no retry to trade against, raising the timeout changes
+billed calls not at all (1 either way) and raises the success rate. There is no spend tradeoff on the
+automated paths; the only question is the ceiling.
 
 **The 12-second limit is ours, not CFBD's.** `fetchUpstream.ts:124` creates an `AbortController` and
 aborts at `timeoutMs`; nothing on the provider side imposes it. CFBD gets slow, it does not hang up.
@@ -948,25 +962,27 @@ aborts at `timeoutMs`; nothing on the provider side imposes it. CFBD gets slow, 
 `cron/season-transition/route.ts:58` is the in-repo precedent for declaring a longer envelope, with a
 test pinning it. The binding constraint is the 3-minute poll cadence, not the platform.
 
-**Which makes one long attempt strictly better than three short ones, on both axes:**
+**On the cron paths** (`maxAttempts: 1`):
 
-| configuration | billed calls | wall time | outcome at 8-25s latency |
+| configuration | billed | wall time | outcome at 8-25s latency |
 |---|---|---|---|
-| today — 3 x 12s | 3 | ~36s | usually all three fail |
-| 1 x 40s, no retry | **1** | ~40s | almost always succeeds |
-| 3 x 40s | 3 | ~120s | succeeds, triples spend |
+| today — 1 x 12s | 1 | 12s | fails whenever latency exceeds 12s |
+| 1 x 40s | **1** | up to 40s | almost always succeeds |
 
-The current configuration is close to worst-case: short enough to fail under load, retried enough to
-pay three times for failing. Raising the timeout WITHOUT reducing the retry count makes spend worse.
+Same spend, higher success rate. The only cost is holding the function longer, and the binding
+constraint there is the 3-minute poll cadence, not the platform envelope.
 
-Preferred fix: raise the timeout for quota-bearing CFBD calls and treat timeout as non-retryable for
-them specifically — distinct from network errors, which are free to retry. Alternatives if that is
-rejected: count retries against the per-run contract so the reserve check reflects real spend, or
-leave the ceiling and accept the failure rate.
+**On `api/scores`** (`maxAttempts: 3`, retries timeouts): raising the ceiling here WITHOUT reducing
+the retry count does multiply spend — three 40s attempts is three billed calls and ~120s. Decide this
+call site separately; it is an admin-triggered refresh, so a longer single attempt is the better
+trade there too, but the reasoning is not the same as the crons'.
+
+Preferred fix: raise `timeoutMs` on the three cron call sites; treat `api/scores` as its own decision
+about retry-versus-ceiling.
 
 Acceptance boundary: sustained provider latency in the 8-25s band does not fail a run, AND billed
-CFBD requests per run are proven to be at most one — measured, not assumed, since the current code
-already violates that under load.
+CFBD requests per cron run remain exactly one — proven by test, not assumed, since a timed-out
+request bills and a future retry change would silently break it.
 
 ## Planned and parked campaigns
 
