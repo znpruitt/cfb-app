@@ -366,6 +366,14 @@ window shows a record missing that game. The documented consumer is the schedule
 this surfaces as a 3-1 team rendering as 2-1 on next week's matchup: a wrong number, not a
 freshness nuance.
 
+**Live example, 2026-08-31 — this is not theoretical.** PLATFORM-117 merged at 03:17, after week 1
+finished. 126 games are complete and 16 FBS teams have results, but the records cache is **empty**
+and System Health shows a yellow `no cached data`, correctly. The next kickoff is
+2026-09-10T23:00Z — **246.8 hours away** — and no trigger can fire before it. So the cache stays
+cold for **over ten days**, and slice 3/4 cannot be built against real record data in the meantime.
+Generalised: **any deploy landing between slates leaves the cache cold for the whole inter-slate
+gap**, which is most deploys.
+
 **Fix:** refresh when the cache is older than a ceiling **regardless of finalisations**, so the
 clock rather than an event drives recovery. A 12-hour ceiling adds at most ~2 calls/day (~60/month
 against 5,000). Test it in a state with **no** finalisations at all — that is the case the floor's
@@ -1309,12 +1317,11 @@ are removed rather than retained with strikethrough; their outcomes live in `doc
   given a `ProviderDataExpectation` (`providerDataDiagnostics.ts:108-137`); every other dataset is
   `expected` by construction, so its absence reads as an actionable gap. Each needs its own
   applicability authority; do not generalize the game-stats slate rule.
-  **`records` (added by PLATFORM-117) is the sharpest case in this class.** The others look absent
-  only on a cold deployment; records refreshes solely on a finalisation, so its cache is legitimately
-  absent between every slate and is guaranteed absent immediately after any deploy that precedes the
-  next final. It self-resolves at the first final of the next slate. Its applicability rule is also
-  the cheapest of the four and borrows nothing from game-stats: **`not-yet-expected` until the season
-  has at least one completed game, `expected` thereafter.**
+  **`records` is NOT in this class, and the 2026-08-31 yellow is CORRECT.** 2026 already has 126
+  completed games and 16 FBS teams with results, so any sane applicability rule returns `expected`.
+  Records data genuinely should exist and does not, because PLATFORM-117 deployed _after_ those games
+  finalised and a finalisation is its only trigger. **That is Item 97a, not an applicability gap** —
+  see there. Recorded because the two look identical on the panel and the wrong one is easy to blame.
 - **Malformed `CombinedOdds.favorite` producer field.** Recap copy resolves the favorite from side
   spreads, but existing scoreboard and matchup consumers can still render a contradictory stored
   favorite string. Repair the producer or stop those consumers from trusting the field.
