@@ -536,12 +536,42 @@ trip:
 aliases change less than that; scores are the only genuinely live one and already have their own
 3-minute polling. Keep the live path exactly as it is.
 
+#### 98d — targeted prefetch of History, paired with `staleTimes`
+
+**Do 98a and 98c first.** This is a follow-on that buys one specific transition; those two help both
+directions and every load.
+
+**Scope it to the single Overview → History tab link** (`WeekViewTabs.tsx:79`), not to links
+generally. From Overview there is exactly one History link, so `prefetch={true}` there is **one**
+speculative render. The 10+ prefetch burst described below happens on the _History_ page, which
+links to matchups, members, stats, rivalries, archive and one route per owner — that is where broad
+prefetching would be harmful, and those owner links likely want `prefetch={false}`.
+
+**`prefetch={true}` and `staleTimes` MUST ship together.** In Next 15 the client Router Cache's stale
+time for dynamic routes defaults to **0**, so a prefetched dynamic payload is fetched and then not
+reused. Shipping the prefetch alone pays History's full server render speculatively and discards it —
+strictly worse than doing nothing. Set a short `experimental.staleTimes.dynamic` (~30s): long enough
+to make the switch instant, short enough that a member never sees materially stale scores, which
+matters because the whole live-score design is built on a 3-minute freshness cadence.
+
+**What it buys, and what it does not.**
+
+- **Overview → History: most of the win.** History's cost is almost entirely its server render
+  (TTFB 377ms + Content Download 739ms) and it has no client-side data layer to miss.
+- **History → Overview: the RSC half only.** Prefetch warms the route payload, but `CFBScheduleApp`
+  fetches schedule, teams, rankings, aliases, owners and overrides from the _client_ after mount.
+  **98c is what fixes that direction**, not prefetch.
+
+**Verify it is not speculative waste:** after shipping, confirm in DevTools that a prefetched History
+navigation issues no new `history?_rsc=` request, and that the prefetch burst on the History page has
+not grown.
+
 #### Deliberately NOT in scope
 
 - **`getLeague` caching and Suspense boundaries.** TTFB is 236-310ms and green on both devices. The
   server's _first byte_ is not the problem; its streamed body is, and 98a fixes that.
-- **`staleTimes` and `prefetch` tuning.** Second-order. Revisit only if tab switching still feels
-  slow after 98c. Note that broad `prefetch={true}` would make things WORSE here: the History page
+- **Broad `prefetch={true}` across all links.** Targeted prefetch is now 98d; this entry is about
+  applying it generally, which would make things WORSE here: the History page
   already fires 10+ viewport RSC prefetches (`matchups`, `members`, `stats`, `rivalries`, `archive`,
   plus one per owner), all `force-dynamic`. They are shell-only today (8.2 kB across 14 requests),
   but forcing full prefetch would turn them into 10+ dynamic renders per visit. A return navigation
