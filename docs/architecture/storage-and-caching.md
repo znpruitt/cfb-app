@@ -1,7 +1,7 @@
 # Storage & Caching
 
 Status: Current
-Last verified: 2026-08-26
+Last verified: 2026-08-31
 Owner: Project documentation
 Canonical for: app-state store, alias/app-state storage layout, provider caches, standings cache keys/tags, season archive read cache keys/tags, Insights output cache keys/tags/freshness, legacy-alias cleanup status
 Supersedes: (none — complements [standings.md](standings.md) for the standings cache and [game-data-flow.md](game-data-flow.md) for provider caches)
@@ -27,6 +27,8 @@ A single key/value table, `app_state (scope text, key text, value jsonb, updated
 | `owners:${slug}:${year}` (key `csv`)    | current-season owner roster CSV                                                                                                                                                                                                                              |
 | `preseason-owners:${slug}`              | preseason owner names                                                                                                                                                                                                                                        |
 | `schedule`                              | cached canonical schedule items (per year)                                                                                                                                                                                                                   |
+| `team-records` (key `<year>`)           | normalized year-wide CFBD team records keyed by numeric `teamId`; allowlisted classification/conference/total W-L-T only, PLATFORM-117                                                                                                                     |
+| `team-records-refresh-control` (key `<year>`) | durable token-safe two-minute lease plus `lastProviderCallAt`, enforcing the six-hour provider-call floor across successes and failures, PLATFORM-117                                                                                                  |
 | `schedule-refresh-control` (key `<year>`) | durable per-year full-season refresh lease (`{ lease }`), token via `crypto.randomUUID`, 5-min, no backoff, PLATFORM-086E1A                                                                                                                                  |
 | `schedule-weekly-control` (key `<year>`)  | durable per-year postseason-boundary latch (`{ postseasonBoundaryReachedAt }`) — once a year classifies lifecycle-critical it stays exempt even if a reschedule moves the boundary later, PLATFORM-086E1B                                                     |
 | `schedule-media` (key `<year>-all`)       | normalized year-wide game-media PRESENTATION cache (`{ at, items: ScheduleMediaItem[] }` — allowlisted `gameId`/`mediaType`/`outlet` only), PLATFORM-086E1C1                                                                                                 |
@@ -71,9 +73,20 @@ Cache key: `['insights', slug, resolvedYear, seeds:<SEED_ALIASES_HASH>]` (distin
 
 Together with PLATFORM-082A (archive reads), this completes the **APPSTATESTORE-CACHING** campaign.
 
-## Provider caches (scores / odds / schedule)
+## Provider caches (scores / odds / schedule / team records)
 
 Scores, odds, and schedule each have durable app-state snapshots plus (for odds) an in-memory layer. Public reads serve these caches only and never trigger upstream fetches; authorized `refresh=1` / `bypassCache=1` (admin/cron) refreshes them (see [game-data-flow.md](game-data-flow.md)). The team catalog is read per-request (`React.cache`) rather than a process-lifetime singleton, so an admin sync on one instance is observed cross-instance.
+
+Team records are a cache-only future-consumer seam rather than a public route. PLATFORM-117's
+`readTeamRecordsCache(year)` reads the normalized `team-records/<year>` snapshot and never calls
+CFBD. Its only production writer, `refreshTeamRecords({ year })`, is invoked from the existing
+live-scores cron after a newly committed final and has no canonical-context, active-season, or
+season-registry gate; a completed prior season remains directly refreshable. The authority claims
+`team-records-refresh-control/<year>`, stamps `lastProviderCallAt` immediately before provider I/O,
+and allows at most one `/records` call per invocation after the durable six-hour floor. It rejects
+non-array payloads, nonempty payloads that normalize to zero rows, and zero-row replacement of a
+populated cache; commits are observation-ordered and provider success is recorded only after the
+durable write. There is no process memo, consumer, manual route, or separate scheduler receipt.
 
 ### Durable-first commit order (PLATFORM-085A)
 
@@ -139,9 +152,9 @@ Three durable state families support provider operations without becoming canoni
   transactions. Neither metadata lock is a source of canonical schedule, score, Odds, rankings, or
   game-stat truth.
 - **`provider-refresh-settings/global`** stores the operator global pause and per-dataset enable
-  flags. Five datasets consume those settings: game stats, scores, Odds, ordinary schedule
-  maintenance, and rankings. Lifecycle-critical season transition, season rollover, and
-  postseason-boundary schedule maintenance bypass them by design. Manual admin refresh is always
+  flags. Six datasets consume those settings: game stats, scores, Odds, ordinary schedule
+  maintenance, rankings, and team records. Lifecycle-critical season transition, season rollover,
+  and postseason-boundary schedule maintenance bypass them by design. Manual admin refresh is always
   ungated. Cadence remains version-controlled; no cron expression or numeric interval is editable
   from the application.
 - **`game-stats-writer-control/state`** stores the versioned
@@ -156,7 +169,7 @@ canonical cache/evidence diagnostics, scoped provider status, settings, quota ob
 configuration, and scheduler receipts. The build writes nothing; its only provider contact is one
 deliberate CFBD usage observation through the ordinary 10-minute cache, while all data-health facts
 remain durable/cache reads. The page has no
-year selector and no provider-refresh buttons: its only mutations are the global pause and the five
+year selector and no provider-refresh buttons: its only mutations are the global pause and the six
 setting-consuming dataset toggles. Provider refreshes and repairs live on Data Maintenance &
 Recovery.
 

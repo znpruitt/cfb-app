@@ -1,7 +1,7 @@
 # Next Tasks (Active Queue)
 
 Status: Current
-Last verified: 2026-08-30
+Last verified: 2026-08-31
 Owner: Project documentation
 Canonical for: current execution order, planned/parked work, blockers, and the one canonical list of
 unresolved decisions and known deferrals
@@ -32,11 +32,9 @@ reassessing against the reliability sequence below after Item 87 slice 2 rather 
 campaign straight through.
 
 1. **Reassess** against the reliability sequence below before continuing.
-2. **Item 92** — CFBD records integration. Must precede slice 4 or slice 4 ships the spread
-   fallback. Cadence is the live-scores cron, never `handleGamesFinalized`.
-3. **Item 87 slice 3** — Recent finals + promotion model.
-4. **Item 87 slice 4** — Watchlist, consuming records.
-5. **Item 87 slice 5** — Schedule rework. Filed 2026-08-30; Schedule adopts the scoreboard row,
+2. **Item 87 slice 3** — Recent finals + promotion model.
+3. **Item 87 slice 4** — Watchlist, consuming the PLATFORM-117 records cache.
+4. **Item 87 slice 5** — Schedule rework. Filed 2026-08-30; Schedule adopts the scoreboard row,
    two-column and all, and its green-`final` / amber-live is settled there rather than by a
    separate sweep. Also carries the `ownerOutcomeRowClasses` sibling asymmetry left by POLISH-018,
    which reaches `MatchupsWeekPanel` — a different week view mode, named deliberately in the
@@ -903,31 +901,6 @@ Acceptance boundary:
   scoring stopping — proven by suppressing the writer in a test, not by reasoning about thresholds.
 - Outside the kickoff window, a multi-day gap does not raise an issue.
 - The row never reads healthy while an active issue names that same dataset.
-
-### Item 92 — CFBD team-records integration
-
-Wire `GET /records?year=`, add a year-scoped cache on the existing pattern, set a refresh cadence, and
-account for quota. Verified against the provider: one year-scoped call returns every team in every
-division (2026: 684 rows — fbs 138, fcs 128, ii 171, iii 247), keyed by `teamId` and carrying
-`classification`. In-season partial records are returned correctly.
-
-Gates Item 87 slice 4 — the scheduled-state anchor is the team record. Slice 4 ships the spread
-anchor as a fallback if this has not landed.
-
-**Cadence: refresh in the live-scores cron**, which already observes non-final transitions and spends
-quota under a reserve check. **Do not hook `handleGamesFinalized`** (`CFBScheduleApp.tsx:1062`): it is
-a client callback firing per browser, so quota consumption would scale with how many people have the
-page open, and it inverts the cron-spends / client-reads split established by PLATFORM-086B2B and
-preserved by PLATFORM-075.
-
-A final scoreboard shows the team's record _including_ the game just played, so a weekly refresh
-would leave Saturday's finals stale. Deriving post-game records by adding a result to a cached
-pre-game value is rejected — double-count risk, and the quota does not justify it.
-
-Record the refresh under a scope the Provider data panel reads, or records joins scores and
-game-stats as a third dataset showing `No refresh history` while working correctly (Item 88).
-
-- Backlog slug: `PLATFORM-TEAM-RECORDS-v1`
 
 ### Item 93 — nine CFBD call sites still carry the pre-PLATFORM-115 timeout
 
