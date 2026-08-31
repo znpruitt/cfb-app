@@ -1,7 +1,7 @@
 # Item 87 — Addendum: Live / Watchlist Scoreboard Treatment
 
 **Status:** Slices 1–2 shipped via POLISH-016 / PR #535 and POLISH-017 / PR #537; Item 91 shipped via
-PLATFORM-116 / PR #539; Item 90 is implemented via POLISH-018 / PR #541 with merge pending. The
+PLATFORM-116 / PR #539; Item 90 shipped via POLISH-018 / PR #541. The
 pre-agreed reassessment point has been reached, and slices 3–4 remain planned.
 **Reference mockup:** `mockups/live-scoreboard-mockup.html`
 **Related:** `INSIGHTS-026b-RECAP-LAYOUT-v1` (dispatched). Shares the scoreboard micro-component — see Sequencing.
@@ -147,7 +147,7 @@ and precedence remain selector-owned. **Must not be forked.**
 
 Five bodies of work surfaced during this design that are **not** Item 87's surface. Filing them explicitly so none is lost in a scope note, and so Item 87's boundary stays clean.
 
-### A → Item 90. Shared status label + `final` re-cut — **implemented via POLISH-018 / PR #541; merge pending**
+### A → Item 90. Shared status label + `final` re-cut — **delivered by POLISH-018 / PR #541**
 
 **Narrowed when slice 5 was filed.** The original scope covered every surface Item 87 does not replace, Schedule included. Schedule's colour is now absorbed by slice 5, so this item drops `GameScoreboard` and `GameWeekPanel` entirely: converting a pill slice 5 deletes is throwaway work.
 
@@ -173,7 +173,7 @@ Five bodies of work surfaced during this design that are **not** Item 87's surfa
 **Implemented outcome:** POLISH-018 extracted the four-tone label, converted all four narrowed
 consumers, deleted the dead and bespoke status-class helpers, preserved Matchups' neutral
 freshness-gated pulse, and restored accessible contrast by pairing zinc-300 final with the dimmer
-zinc-400 unknown. PR #541 contains the implementation; merge remains pending at this closeout.
+zinc-400 unknown. Merged via PR #541 (`9a45e1f3`), 2026-08-31.
 
 **Item number: 90.** Cross-reference Item 87 slice 5 (absorbs the Schedule half) and Item 92.
 
@@ -247,7 +247,7 @@ Ordered so colour settles once rather than shipping neutral live and flipping it
 | Done | **87 slice 2** | Featured + neutral-final consumer merged via PR #537; green-live settled on Overview. |
 | Runnable | **Item 42 wiring pass** | All fact families and the consumed final-row scoreboard variant now exist; no Item 87 dependency remains. |
 | Done | **PLATFORM-116 / Item 91** | Tied/stale/scoreless standings signal and pill removal merged via PR #539. |
-| Implemented | **Item 90 / POLISH-018** | Shared label and neutral-final re-cut are in PR #541; merge pending. Schedule remains with slice 5. |
+| Done | **Item 90 / POLISH-018** | Shared label and neutral-final re-cut merged via PR #541. Schedule remains with slice 5. |
 | 5 | **92** → **87 slice 4** | Records integration, then the watchlist anchor. |
 | 6 | **017-PALETTE** | Reason and category hues. |
 

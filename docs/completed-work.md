@@ -1,7 +1,7 @@
 # Completed Work Log
 
 Status: Historical (append-only ledger)
-Last verified: 2026-08-30
+Last verified: 2026-08-31
 Owner: Project documentation
 Canonical for: append-only record of shipped phases/milestones (outcomes) — historical, not current implementation authority
 Supersedes: (none)
@@ -4336,6 +4336,26 @@ Key architectural decisions across Phase 5:
   after merge, and left no credible in-scope P0/P1/P2 finding after reachability/scope evaluation.
 - **Open follow-ups:** Item 90's remaining live-amber sweep and neutral-final re-cut are now
   unblocked in `docs/next-tasks.md`.
+
+### POLISH-018 — Shared Live Status Treatment — Complete
+
+- **Status:** Merged via PR #541 (merge commit `9a45e1f3`), 2026-08-31.
+- **PROMPT_ID(s):** `POLISH-018-LIVE-STATUS-TREATMENT-v1`.
+- **Outcome:** One shared borderless status label now gives the narrowed game surfaces four
+  semantic tones: emerald live with a static dot, neutral zinc final, sky scheduled, and dimmer
+  accessible zinc unknown. Compact scoreboards, Matchups, Members, and Overview consume it; the
+  dead shared helper and three bespoke consumer class helpers are gone. Matchups keeps its neutral,
+  freshness-gated live pulse because green already means a final win there. Schedule remains
+  deliberately unchanged for Item 87 slice 5.
+- **Verification:** Four test declarations were added relative to `main`, and existing render
+  assertions were retargeted without removing coverage. Exact code commit `db147036` and exact
+  pre-merge head `b1afafed` each passed `npm run lint`, TypeScript, and the 4,476-test full suite.
+  Reverting unknown to zinc-500 fired `unknown label must use dimmer accessible zinc`, proving the
+  focused tone assertion is non-vacuous. Independent Codex and Claude reviews found the same
+  contrast gap; one remediation closed it, and confirmation left no credible in-scope P0/P1/P2
+  after applying the settled Matchups and source-token requirements.
+- **Open follow-ups:** Item 87 slice 5 owns Schedule's accepted green-final/amber-live residual; see
+  the remaining Item 87 slices in `docs/next-tasks.md`.
 
 ### Template for future entries
 
