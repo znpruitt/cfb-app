@@ -1213,7 +1213,7 @@ test('F2F: stale rankings → rankings-cache-stale (warning, data-maintenance)',
   assert.equal(d!.repair, 'data-maintenance');
 });
 
-test('PLATFORM-117: records becomes stale after eight days even with no finalisation context', async () => {
+test('PLATFORM-118: records becomes stale after fourteen hours with no finalisation context', async () => {
   const item = {
     year: YEAR,
     teamId: 333,
@@ -1222,10 +1222,10 @@ test('PLATFORM-117: records becomes stale after eight days even with no finalisa
     conference: 'SEC',
     total: { games: 2, wins: 2, losses: 0, ties: 0 },
   };
-  const eightDays = 8 * 24 * 60 * 60 * 1000;
+  const fourteenHours = 14 * 60 * 60 * 1000;
 
   await setAppState('team-records', String(YEAR), {
-    at: NOW - eightDays,
+    at: NOW - fourteenHours,
     year: YEAR,
     items: [item],
   });
@@ -1233,7 +1233,7 @@ test('PLATFORM-117: records becomes stale after eight days even with no finalisa
   assert.equal(findByCode(boundary.diagnostics, 'records-cache-stale'), undefined);
 
   await setAppState('team-records', String(YEAR), {
-    at: NOW - eightDays - 1,
+    at: NOW - fourteenHours - 1,
     year: YEAR,
     items: [item],
   });
@@ -1241,10 +1241,33 @@ test('PLATFORM-117: records becomes stale after eight days even with no finalisa
   const diagnostic = findByCode(stale.diagnostics, 'records-cache-stale');
   assert.ok(
     diagnostic,
-    'the production diagnostics path enforces the records eight-day ceiling without a final'
+    'the production diagnostics path uses the settled fourteen-hour cache-age threshold'
   );
   assert.equal(diagnostic!.severity, 'warning');
   assert.equal(diagnostic!.repair, null, 'PLATFORM-117 ships no speculative manual consumer');
+});
+
+test('PLATFORM-118: an uncreditable-only records snapshot still receives stale diagnostics', async () => {
+  await setAppState('team-records', String(YEAR), {
+    at: NOW - 14 * 60 * 60 * 1000 - 1,
+    year: YEAR,
+    items: [
+      {
+        year: YEAR,
+        teamId: 333,
+        team: 'Alabama',
+        classification: 'fbs',
+        conference: 'SEC',
+        total: { games: 1, wins: 0, losses: 0, ties: 0 },
+      },
+    ],
+  });
+
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.ok(
+    findByCode(diagnostics, 'records-cache-stale'),
+    'present-but-uncreditable rows cannot make a stale provider snapshot disappear'
+  );
 });
 
 test('F2F: odds snapshot absent → odds-cache-missing (info); stale canonical → odds-cache-stale (2d boundary)', async () => {

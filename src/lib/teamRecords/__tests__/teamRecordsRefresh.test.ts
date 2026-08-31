@@ -17,6 +17,7 @@ import {
 } from '../teamRecordsCache.ts';
 import {
   refreshTeamRecords,
+  TEAM_RECORDS_MAX_CACHE_AGE_MS,
   TEAM_RECORDS_MIN_REFRESH_INTERVAL_MS,
   TEAM_RECORDS_REFRESH_CONTROL_SCOPE,
 } from '../teamRecordsRefresh.ts';
@@ -24,6 +25,7 @@ import {
 const YEAR = 2026;
 const NOW = Date.parse('2026-09-06T06:00:00.000Z');
 const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+const TWELVE_HOURS_MS = 12 * 60 * 60 * 1000;
 const ORIGINAL_FETCH = globalThis.fetch;
 const ORIGINAL_KEY = process.env.CFBD_API_KEY;
 
@@ -101,6 +103,38 @@ test('non-array is invalid and nonempty all-invalid rows are schema drift', () =
     kind: 'schema-drift',
   });
   assert.deepEqual(normalizeTeamRecordsPayload([], YEAR), { kind: 'rows', items: [] });
+});
+
+test('the reader passes a conforming row and preserves ties in the outcome sum', async () => {
+  const tied = normalizedItem();
+  tied.total = { games: 3, wins: 1, losses: 1, ties: 1 };
+  await setAppState('team-records', String(YEAR), {
+    at: NOW,
+    year: YEAR,
+    items: [tied],
+  });
+
+  const cache = await readTeamRecordsCache(YEAR);
+  assert.equal(cache?.items[0]?.teamId, tied.teamId);
+  assert.equal(cache?.items[0]?.total.ties, 1);
+  assert.deepEqual(cache?.uncreditableTeamIds, []);
+});
+
+test('the reader distinguishes an absent cache from a present uncreditable row', async () => {
+  assert.equal(await readTeamRecordsCache(YEAR), null);
+
+  const pendingOutcome = normalizedItem();
+  pendingOutcome.total = { games: 1, wins: 0, losses: 0, ties: 0 };
+  await setAppState('team-records', String(YEAR), {
+    at: NOW,
+    year: YEAR,
+    items: [pendingOutcome],
+  });
+
+  const cache = await readTeamRecordsCache(YEAR);
+  assert.ok(cache, 'a provider snapshot remains present even when no row is creditable');
+  assert.deepEqual(cache.items, []);
+  assert.deepEqual(cache.uncreditableTeamIds, [pendingOutcome.teamId]);
 });
 
 test('a year refresh writes the cache and its independent year status', async () => {
@@ -286,6 +320,35 @@ test('the six-hour floor suppresses a dense-Saturday finalisation call', async (
   assert.equal((await readTeamRecordsCache(YEAR))?.at, prior.at);
 });
 
+test('the twelve-hour ceiling refreshes without a finalisation observation', async () => {
+  assert.equal(
+    TEAM_RECORDS_MAX_CACHE_AGE_MS,
+    TWELVE_HOURS_MS,
+    'the independent production cache-age ceiling stays fixed at twelve hours'
+  );
+  const prior: TeamRecordsCacheEntry = {
+    at: NOW - TWELVE_HOURS_MS,
+    year: YEAR,
+    items: [normalizedItem()],
+  };
+  await setAppState('team-records', String(YEAR), prior);
+  const urls = stubRecords([providerRow({ total: { games: 3, wins: 3, losses: 0, ties: 0 } })]);
+
+  const result = await refreshTeamRecords({
+    year: YEAR,
+    finalizationObserved: false,
+    clock: () => NOW,
+  });
+
+  assert.equal(
+    result.reason,
+    'written-clean',
+    'only the ceiling can make a no-finalisation invocation refresh'
+  );
+  assert.equal(result.providerCallAttempted, true);
+  assert.equal(urls.length, 1);
+});
+
 test('a failed provider call still starts the durable six-hour floor', async () => {
   const urls = stubRecords({ wrong: 'top-level shape' });
 
@@ -296,7 +359,7 @@ test('a failed provider call still starts the durable six-hour floor', async () 
   });
 
   assert.equal(first.reason, 'invalid-payload');
-  assert.equal(second.reason, 'fresh-cache');
+  assert.equal(second.reason, 'provider-call-floor-active');
   assert.equal(
     urls.length,
     1,
@@ -323,7 +386,10 @@ test('a zero-row response cannot overwrite a populated prior-good cache', async 
 
   assert.equal(result.reason, 'empty-replacement-rejected');
   assert.equal(urls.length, 1);
-  assert.deepEqual(await readTeamRecordsCache(YEAR), prior);
+  assert.deepEqual(await readTeamRecordsCache(YEAR), {
+    ...prior,
+    uncreditableTeamIds: [],
+  });
   const status = await getProviderRefreshStatus('records', yearScope(YEAR));
   assert.equal(status.latestAttemptOutcome, 'failed');
   assert.equal(status.lastError?.code, 'records-empty-replacement-rejected');

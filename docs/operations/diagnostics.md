@@ -95,7 +95,8 @@ bounded and isolated, so one timeout or read failure marks that fact unavailable
 other sections.
 
 System Health's only mutations are the global automation pause and dataset enable controls for game
-stats, scores, Odds, ordinary schedule maintenance, and rankings. Conferences are manual-only.
+stats, scores, Team records, Odds, ordinary schedule maintenance, and rankings. Conferences are
+manual-only.
 Lifecycle-critical season transition, season rollover, and postseason-boundary schedule work are
 not disabled by these noncritical settings. All provider refresh and repair actions live on Data
 Maintenance & Recovery.
@@ -120,6 +121,9 @@ Important coverage rules:
 - **Schedule:** a missing current schedule, incomplete refresh, rejected replacement, or active-season
   staleness is visible. Partition uncertainty retains prior-good data.
 - **Rankings:** coverage requires at least one usable week; raw record presence is insufficient.
+- **Team records:** a snapshot older than fourteen hours warns. Rows whose W+L+T does not equal
+  games count as present for this age check even though the guarded reader exposes them separately
+  from creditable rows.
 - **Odds:** freshness comes from the selected season's canonical/default Odds cache, never a filtered
   variant or the quota-observation timestamp. Missing lines remain “not offered,” not an error.
 - **Conferences:** the bundled snapshot is a fallback floor; the dataset has no automatic job.
@@ -130,12 +134,13 @@ data.
 
 ## Scheduler receipts and runtime logs
 
-Seven jobs emit one allowlisted runtime JSON event per invocation, including authentication failures
+Eight jobs emit one allowlisted runtime JSON event per invocation, including authentication failures
 and controlled skips:
 
 | Job                  | Event                    | Scheduler   |
 | -------------------- | ------------------------ | ----------- |
 | Live scores          | `live-scores-cron`       | QStash      |
+| Team records         | `team-records-cron`      | QStash      |
 | Game stats           | `game-stats-cron`        | QStash      |
 | Odds                 | `odds-cron`              | QStash      |
 | Schedule maintenance | `schedule-refresh-cron`  | QStash      |

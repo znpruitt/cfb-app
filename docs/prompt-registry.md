@@ -51,6 +51,34 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-118-TEAM-RECORDS-FRESHNESS-v2
+
+- Purpose: guarantee clock-based recovery for cached team records and prevent counted-but-uncredited
+  provider rows from rendering as trustworthy W-L-T values before Item 87 consumes them.
+- Scope: the shared records freshness authority and reader, an authenticated hourly Team records
+  QStash job plus scheduler/health integration, the fourteen-hour diagnostic contract, operations
+  documentation, and focused/full-suite verification. Lifecycle pausing remains Item 96.
+- Outcome: the six-hour finalisation floor now coexists with an independent twelve-hour ceiling; the
+  hourly caller supplies no finalisation while the untouched live-scores caller keeps its signal.
+  Uncreditable rows remain distinguishable from absence by team id, and stale diagnostics count them
+  as present without deriving records from scores.
+- Review / verification: production commit `2be6f8f8` passed TypeScript, `lint:all`, and the full
+  suite; deleting the ceiling or reader guard fired their named discriminating assertions. Codex and
+  `/code-review` confirmations found no credible in-scope P0/P1/P2 after one remediation; the
+  fourteen-hour threshold explicitly assumes an unpaused hourly job, inherited by Item 96.
+- Status: Implemented — PR #546 open.
+
+### PLATFORM-118-TEAM-RECORDS-FRESHNESS-v1
+
+- Purpose: close the same freshness and reader-creditability gaps as the replacement prompt.
+- Scope: originally limited to the records refresh/cache modules and therefore lacked an independent
+  idle-time trigger; a later scope revision added a Team records job after implementation had begun.
+- Outcome: stopped. The first branch was not reused; v2 was re-derived from clean `main` after the
+  original scope and the no-schedule instruction proved incompatible with clock-based recovery.
+- Review / verification: review of stopped PR #545 established that `live-scores` exits on idle
+  deliveries before reaching records, so its finalisation-only call could not enforce a ceiling.
+- Status: Superseded/unimplemented (PR #545); replaced by v2 / PR #546.
+
 ### PLATFORM-117-TEAM-RECORDS-v1
 
 - Purpose: cache CFBD year-wide team records so Item 87 slice 4 can anchor scheduled matchups on

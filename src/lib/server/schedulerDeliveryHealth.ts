@@ -11,7 +11,7 @@ import {
 
 /**
  * PLATFORM-086F2E2B — the cache-only server reader + schedule-slot-aware delivery
- * classifier over the seven durable scheduler-execution receipts.
+ * classifier over the eight durable scheduler-execution receipts.
  *
  * It answers exactly ONE question per job: has this configured job produced a
  * sufficiently recent AUTHENTICATED application execution, given its actual fixed
@@ -80,6 +80,11 @@ const DELIVERY_POLICIES: Record<
   { cron: string; cadenceLabel: string; graceMs: number }
 > = {
   'live-scores': { cron: '*/3 * * * *', cadenceLabel: 'every 3 minutes', graceMs: 6 * MINUTE_MS },
+  'team-records': {
+    cron: '0 * * * *',
+    cadenceLabel: 'hourly (top of hour UTC)',
+    graceMs: 2 * HOUR_MS,
+  },
   'game-stats': { cron: '*/15 * * * *', cadenceLabel: 'every 15 minutes', graceMs: 30 * MINUTE_MS },
   odds: { cron: '0 * * * *', cadenceLabel: 'hourly (top of hour UTC)', graceMs: 2 * HOUR_MS },
   'schedule-refresh': {
@@ -116,7 +121,7 @@ export function schedulerDeliveryPolicy(job: ExternalSchedulerJob): SchedulerDel
   };
 }
 
-/** All seven delivery policies in canonical order. */
+/** All eight delivery policies in canonical order. */
 export function schedulerDeliveryPolicies(): SchedulerDeliveryPolicy[] {
   return EXTERNAL_SCHEDULER_JOBS.map((job) => schedulerDeliveryPolicy(job));
 }
@@ -243,11 +248,11 @@ function defaultLoadEntries(): Promise<ReadonlyArray<{ key: string; value: unkno
 }
 
 /**
- * Read all seven durable receipts through ONE cache-only scope read and classify
- * each job's delivery. Always returns exactly seven state-bearing rows in
+ * Read all eight durable receipts through ONE cache-only scope read and classify
+ * each job's delivery. Always returns exactly eight state-bearing rows in
  * canonical order — a missing key is `missing`, an unparseable row is `invalid`
  * (never contaminating siblings), a valid row is `on-time`/`late`, and a scope
- * read failure makes ALL seven `unavailable` (never leaking the storage error).
+ * read failure makes ALL eight `unavailable` (never leaking the storage error).
  * No provider call, internal HTTP request, quota probe, or write occurs.
  */
 export async function readSchedulerDeliveryHealth(

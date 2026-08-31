@@ -1,12 +1,11 @@
 /**
- * PLATFORM-117 — one year-scoped CFBD team-record cache and refresh authority.
+ * PLATFORM-118 — one year-scoped CFBD team-record cache and refresh authority.
  *
- * The live-scores cron is the only refresh caller. It may invoke this authority
- * only after its scoreboard merge reports at least one newly committed final.
- * A durable six-hour floor then bounds dense-Saturday usage to at most 124
- * `/records` calls in a 31-day month (ceil(31 * 24 / 6)). The eight-day ceiling
- * is a health/future-reader staleness threshold; it does not bypass the
- * finalisation trigger and therefore cannot create a no-final provider call.
+ * Live-scores supplies a newly-finalised-game observation; the independent
+ * hourly records job does not. This ONE authority combines that signal with a
+ * durable six-hour provider-call floor and an independent twelve-hour cache-age
+ * ceiling. The floor bounds usage to at most 124 `/records` calls in a 31-day
+ * month (ceil(31 * 24 / 6)); the healthy ceiling cadence is 62 calls.
  *
  * Invariants:
  *   - one unfiltered `GET /records?year=` request at most per invocation;
@@ -22,6 +21,7 @@ import { randomUUID } from 'node:crypto';
 import { CFBD_PEAK_LATENCY_TIMEOUT_MS } from '../api/cfbdRequestPolicy.ts';
 import { fetchUpstreamJson, UpstreamFetchError } from '../api/fetchUpstream.ts';
 import { buildCfbdRecordsUrl } from '../cfbd.ts';
+import type { QuotaRefusalReason } from '../gameStats/quotaPolicy.ts';
 import { yearScope } from '../providerRefreshScope.ts';
 import { withAppStateKeyTransaction } from '../server/appStateStore.ts';
 import {
@@ -44,6 +44,7 @@ import {
 
 export const TEAM_RECORDS_REFRESH_CONTROL_SCOPE = 'team-records-refresh-control';
 export const TEAM_RECORDS_MIN_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
+export const TEAM_RECORDS_MAX_CACHE_AGE_MS = 12 * 60 * 60 * 1000;
 const TEAM_RECORDS_LEASE_DURATION_MS = 2 * 60 * 1000;
 
 const RETRY_POLICY = {
@@ -60,7 +61,9 @@ export type TeamRecordsRefreshReason =
   | 'settings-unavailable'
   | 'cache-read-failed'
   | 'fresh-cache'
+  | 'provider-call-floor-active'
   | 'refresh-in-progress'
+  | `quota-${QuotaRefusalReason}`
   | 'cfbd-api-key-missing'
   | 'provider-fetch-failed'
   | 'invalid-payload'
@@ -97,6 +100,20 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+function isRefreshDue(params: {
+  cacheAt: number | null;
+  now: number;
+  finalizationObserved: boolean;
+}): boolean {
+  const { cacheAt, now, finalizationObserved } = params;
+  if (cacheAt === null) return true;
+  const ageMs = now - cacheAt;
+  return (
+    ageMs >= TEAM_RECORDS_MAX_CACHE_AGE_MS ||
+    (finalizationObserved && ageMs >= TEAM_RECORDS_MIN_REFRESH_INTERVAL_MS)
+  );
+}
+
 type RecordsLease = { token: string; expiresAt: string };
 type RecordsControl = {
   lease: RecordsLease | null;
@@ -128,7 +145,10 @@ async function acquireLease(
   now: number
 ): Promise<
   | { acquired: true; token: string }
-  | { acquired: false; reason: 'fresh-cache' | 'refresh-in-progress' | 'store-unavailable' }
+  | {
+      acquired: false;
+      reason: 'provider-call-floor-active' | 'refresh-in-progress' | 'store-unavailable';
+    }
 > {
   const token = randomUUID();
   try {
@@ -145,7 +165,10 @@ async function acquireLease(
           control.lastProviderCallAt !== null &&
           now - control.lastProviderCallAt < TEAM_RECORDS_MIN_REFRESH_INTERVAL_MS
         ) {
-          return { acquired: false as const, reason: 'fresh-cache' as const };
+          return {
+            acquired: false as const,
+            reason: 'provider-call-floor-active' as const,
+          };
         }
         await txn.write<RecordsControl>({
           lease: { token, expiresAt: new Date(now + TEAM_RECORDS_LEASE_DURATION_MS).toISOString() },
@@ -278,12 +301,20 @@ async function commitTeamRecords(params: {
  * be repaired directly. Records failure remains isolated in its own provider-
  * refresh status row.
  */
+export type TeamRecordsPreProviderDecision =
+  | { kind: 'allowed'; remaining: number }
+  | { kind: 'refused'; reason: QuotaRefusalReason; remaining: number | null };
+
 export async function refreshTeamRecords(params: {
   year: number;
+  /** True only when the caller observed a newly committed final game. */
+  finalizationObserved?: boolean;
+  /** Optional automatic-job quota gate, invoked only when provider work is due. */
+  beforeProviderCall?: () => Promise<TeamRecordsPreProviderDecision>;
   /** Test-only clock seam; production always reads wall time at each decision point. */
   clock?: () => number;
 }): Promise<TeamRecordsRefreshResult> {
-  const { year, clock = Date.now } = params;
+  const { year, finalizationObserved = true, beforeProviderCall, clock = Date.now } = params;
   const now = clock();
 
   try {
@@ -300,7 +331,7 @@ export async function refreshTeamRecords(params: {
   } catch {
     return result('cache-read-failed');
   }
-  if (prior && now - prior.at < TEAM_RECORDS_MIN_REFRESH_INTERVAL_MS) {
+  if (!isRefreshDue({ cacheAt: prior?.at ?? null, now, finalizationObserved })) {
     return result('fresh-cache');
   }
 
@@ -321,7 +352,7 @@ export async function refreshTeamRecords(params: {
     } catch {
       return result('cache-read-failed');
     }
-    if (prior && now - prior.at < TEAM_RECORDS_MIN_REFRESH_INTERVAL_MS) {
+    if (!isRefreshDue({ cacheAt: prior?.at ?? null, now, finalizationObserved })) {
       return result('fresh-cache');
     }
 
@@ -340,6 +371,22 @@ export async function refreshTeamRecords(params: {
       });
       attemptResolved = true;
       return result('cfbd-api-key-missing');
+    }
+
+    if (beforeProviderCall) {
+      const decision = await beforeProviderCall();
+      if (decision.kind === 'refused') {
+        const reason = `quota-${decision.reason}` as const;
+        await recordProviderRefreshFailure('records', scope, {
+          attempt,
+          error: `records ${year}: automatic quota gate refused (${decision.reason})`,
+          code: `records-${reason}`,
+          status: 429,
+          durationMs: Date.now() - startedAt,
+        });
+        attemptResolved = true;
+        return result(reason);
+      }
     }
 
     // Read the wall clock HERE, after settings/cache/status work and immediately

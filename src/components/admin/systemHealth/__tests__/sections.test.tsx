@@ -140,7 +140,7 @@ test('stoplight renders six panels with text state labels and no repair links', 
   );
 });
 
-test('scheduler renders 7 human-named rows keeping delivery and execution separate', async () => {
+test('scheduler renders 8 human-named rows keeping delivery and execution separate', async () => {
   const model = await buildModel({
     schedulerDelivery: () =>
       Promise.resolve(
@@ -159,9 +159,10 @@ test('scheduler renders 7 human-named rows keeping delivery and execution separa
   const html = renderToStaticMarkup(
     <SchedulerHealthSection jobs={model.schedulerJobs} nowMs={NOW} />
   );
-  // Human names, all seven.
+  // Human names, all eight.
   for (const label of [
     'Live scores',
+    'Team records',
     'Game stats',
     'Odds polling',
     'Weekly schedule',

@@ -96,7 +96,7 @@ test('late successful receipt → delivery-late issue, no execution fault', () =
 // PLATFORM-086F2H4 — a lifecycle execution failure routes NOWHERE. It used to
 // link Season Management, a page that could not repair a lifecycle fault and has
 // since been retired.
-test('a lifecycle execution failure offers no repair; a provider one still does', () => {
+test('unsupported execution failures offer no fake repair; a supported provider one still does', () => {
   const rows = healthyDelivery().jobs.map((row) =>
     row.job === 'season-rollover'
       ? deliveryRow('season-rollover', 'on-time', receiptFor('season-rollover', 'failure'))
@@ -110,6 +110,22 @@ test('a lifecycle execution failure offers no repair; a provider one still does'
   // used to link Season Management, a page that could not repair a lifecycle
   // fault and has since been retired.
   assert.equal(failed!.repair, null);
+
+  const recordsRows = healthyDelivery().jobs.map((row) =>
+    row.job === 'team-records'
+      ? deliveryRow('team-records', 'on-time', receiptFor('team-records', 'failure'))
+      : row
+  );
+  const recordsIssues = deriveSystemHealthIssues(
+    baseInputs({ schedulerDelivery: deliverySnapshot(recordsRows) })
+  );
+  const recordsFailed = find(recordsIssues, 'scheduler-execution-failed');
+  assert.equal(recordsFailed!.subject.id, 'team-records');
+  assert.equal(
+    recordsFailed!.repair,
+    null,
+    'Team records has no manual Data Maintenance action in this slice'
+  );
 
   // POSITIVE CONTROL — a NON-lifecycle job on the same shape still receives the
   // Data Maintenance repair, so the null above is routing and not repairs having

@@ -4,7 +4,7 @@
  * It composes six INDEPENDENT fact domains for a validated season year:
  * scheduler DELIVERY, scheduler EXECUTION outcome, canonical DATA health,
  * automation GATES, quota, and storage — then derives a deterministic,
- * prioritized issue list from them. The two axes stay separate: seven scheduler
+ * prioritized issue list from them. The two axes stay separate: eight scheduler
  * jobs (delivery) and seven provider datasets (data), which are NOT one-to-one.
  *
  * Every external boundary is behind an injectable loader; the default loaders
@@ -102,7 +102,7 @@ export type SystemHealthViewModel = {
   /** Section-level "stoplight" status panels, server-derived (fixed order). */
   panels: SystemHealthPanel[];
   automation: AutomationHealth;
-  /** Delivery axis — exactly seven scheduler jobs. */
+  /** Delivery axis — exactly eight scheduler jobs. */
   schedulerJobs: SchedulerDeliveryHealthRow[];
   /** Data axis — exactly seven provider datasets. */
   datasets: ProviderDatasetHealthRow[];

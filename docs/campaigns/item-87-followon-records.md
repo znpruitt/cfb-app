@@ -2,7 +2,7 @@
 
 **Supersedes nothing.** This is additive to `item-87-live-watchlist-scoreboard.md`. Apply into that document where it fits; the mockup at `mockups/live-scoreboard-mockup.html` already reflects everything below.
 
-> **APPLIED 2026-08-31.** Folded into `item-87-live-watchlist-scoreboard.md` → *Records across scoreboard states — resolved*, which is now canonical. This file is retained as the input record. Two adjustments were made when applying: **Item 92 shipped as PLATFORM-117** (PR #543, `9376521e`), so the records dependency is wiring rather than a blocker; and the freshness gaps this design makes user-visible are filed as **Item 97**, whose severity was raised because finals now render the post-game record.
+> **APPLIED 2026-08-31.** Folded into `item-87-live-watchlist-scoreboard.md` → *Records across scoreboard states — resolved*, which is now canonical. This file is retained as the input record. Two adjustments were made when applying: **Item 92 shipped as PLATFORM-117** (PR #543, `9376521e`), so the records dependency is wiring rather than a blocker; and the freshness gaps this design makes user-visible were filed as **Item 97** and subsequently implemented by `PLATFORM-118-TEAM-RECORDS-FRESHNESS-v2` (PR #546 open).
 
 ---
 

@@ -31,7 +31,7 @@ Configure secrets in the hosting platform; never commit values.
 | `CFBD_API_KEY` | Required for authorized CFBD schedule, score, rankings, teams/conferences, and game-stats refreshes. |
 | `ODDS_API_KEY` | Required for authorized The Odds API refreshes. |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` | Clerk identity and the platform-admin role. |
-| `CRON_SECRET` | Shared bearer secret for all seven `/api/cron/*` routes. A missing/mismatched value returns `401` before lifecycle or provider work. |
+| `CRON_SECRET` | Shared bearer secret for all eight `/api/cron/*` routes. A missing/mismatched value returns `401` before lifecycle or provider work. |
 | `LEAGUE_AUTH_SECRET` | Required whenever any league uses the private-link password gate; grants no admin role. |
 | `ADMIN_API_TOKEN` | Transitional optional fallback for approved machine/admin API callers. Do not build new flows around it; planned removal belongs to the reviewed commissioner/member authorization work after replacement Clerk scoping exists. |
 
@@ -52,19 +52,20 @@ System Health receipts against the promoted build.
 | --- | --- | --- |
 | Game stats | QStash `turfwar-game-stats-15m` | Every 15 minutes |
 | Live scores | QStash `turfwar-live-scores-3m` | Every 3 minutes |
+| Team records | QStash `turfwar-team-records-hourly` | Hourly |
 | Odds | QStash `turfwar-odds-hourly` | Hourly |
 | Schedule maintenance | QStash `turfwar-schedule-weekly` | Tuesdays 12:00 UTC |
 | Rankings | QStash `turfwar-rankings-publication` | 04:00 and 22:00 UTC |
 | Season transition | Vercel Cron | Daily 00:00 UTC |
 | Season rollover | Vercel Cron | Daily 00:00 UTC |
 
-The five QStash jobs are intentionally absent from `vercel.json`; versioned manager scripts own
-their external schedule definitions. All seven routes authenticate with `Bearer ${CRON_SECRET}`.
+The six QStash jobs are intentionally absent from `vercel.json`; versioned manager scripts own
+their external schedule definitions. All eight routes authenticate with `Bearer ${CRON_SECRET}`.
 The fixed trigger is a delivery ceiling: application policy decides whether an invocation has an
 eligible target and whether provider work is due. Provider-free skips are normal.
 
-Rotate `CRON_SECRET` as one coordinated operation across the Vercel environment and all five QStash
-schedules. Follow runbook §8k; a partially rotated set silently disables whichever jobs still carry
+Rotate `CRON_SECRET` as one coordinated operation across the Vercel environment and all six QStash
+schedules. Follow runbook §8l; a partially rotated set silently disables whichever jobs still carry
 the old value.
 
 ## Provider and cache safety
@@ -90,8 +91,8 @@ scheduler delivery/execution, canonical cache/evidence health, provider-refresh 
 automation settings, quota, and storage. The model writes nothing; its only provider contact is one
 cached CFBD usage observation. It has no year selector and no provider-refresh buttons.
 
-System Health can pause noncritical provider automation globally or disable one of the five live
-setting consumers: game stats, scores, Odds, ordinary schedule maintenance, and rankings.
+System Health can pause noncritical provider automation globally or disable one of the six live
+setting consumers: game stats, scores, team records, Odds, ordinary schedule maintenance, and rankings.
 Lifecycle-critical season transition, season rollover, and postseason-boundary schedule work are
 exempt. Conferences remain manual-only.
 
@@ -106,7 +107,7 @@ available when automatic jobs are paused.
 - Confirm `getAppStateStorageStatus()` resolves to Postgres and the production database is reachable.
 - Confirm platform-admin pages open for the authorized Clerk account; wrong-role/signed-out access
   fails closed; admin/debug APIs reject unauthenticated requests.
-- Inspect all five QStash schedules and both Vercel Cron entries. Verify their exact URLs, methods,
+- Inspect all six QStash schedules and both Vercel Cron entries. Verify their exact URLs, methods,
   cadence, retry policy, and shared bearer-secret wiring.
 - Confirm each job's System Health receipt reports the promoted build after its next fixed slot.
 - Verify public data routes serve durable caches without provider calls; run provider-spending checks

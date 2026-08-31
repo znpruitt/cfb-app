@@ -76,18 +76,25 @@ sanitized, bounded game identities before routing to the existing score-recovery
 
 **Automated live-score polling is ACTIVE (PLATFORM-086B2B, activated in production 2026-07-28).** The steady-state flow is: **QStash every three minutes → `GET /api/cron/live-scores` → settings + schedule-window gates → at most one billed CFBD score request when eligible → locked durable score partitions → cache-only browser reads.** Distinctions that hold: QStash **deliveries** happen every three minutes, but **CFBD quota is spent only** when the route selects a legitimate polling target (a game inside the `[kickoff − 15 min, kickoff + 24 h]` window, unresolved) **and** passes quota policy (the 1,000-call monthly reserve) — a delivery with either automation gate closed (`isAutoRefreshAllowed('scores')`: global pause off + `scores` enabled) or no in-window target makes no provider call and opens no attempt. The durable merge writes only the exact `scores/<year>-<providerWeek>-<seasonType>` partition under the same per-key advisory lock the manual refresh uses (PLATFORM-086B2A), and QStash at-least-once duplicates are tolerated (idempotent poll + locked merge) without a durable lease. **Browser/member traffic never calls CFBD and never uses `refresh=1`** — visible tabs re-read the cache-only reconciled view on the same three-minute cadence. `vercel.json` is unchanged and does **not** own this schedule (external QStash `turfwar-live-scores-3m`); active Odds automation is a separate QStash schedule described next.
 
-**Team records piggyback finalisation without becoming a scheduler job (PLATFORM-117).** When the
+**Team records use one freshness authority with two triggers (PLATFORM-118).** When the
 live-scores merge durably commits at least one new transition to final, the route first invalidates
 standings for the score year and then may call `refreshTeamRecords({ year })`. That authority is
 year-wide and independent of canonical schedule context: it issues at most one unfiltered CFBD
 `GET /records?year=` request, normalizes an allowlisted record keyed by numeric `teamId`, and commits
 under `team-records/<year>` with observation ordering and prior-good zero-row protection. A durable
-six-hour call floor (including failed/unusable calls) bounds dense-Saturday usage to at most 124
-calls in a 31-day month; an eight-day cache-age diagnostic remains reachable even when no finals
-occur. Records owns a separate `records` + `year` refresh attempt and auto-refresh toggle, so its
-failure cannot make the already-committed scores attempt unhealthy. Runs with no newly committed
-final never call `/records`; there is no new QStash/Vercel schedule, route, public provider path, or
-UI consumer. Item 87 slice 4 owns the first cache-only render and exact-ID join.
+six-hour provider-call floor (including failed/unusable `/records` calls) bounds usage to at most
+124 calls in a 31-day month. Independently, QStash invokes `GET /api/cron/team-records` hourly with
+no finalisation observation; a twelve-hour cache-age ceiling then recovers quiet slates at a normal
+maximum of 62 `/records` calls in a 31-day month. The job probes the unbilled CFBD `/info` endpoint
+only when refresh work is due, applies the shared reserve, and intentionally carries no durable
+quota-refusal backoff—the next hourly heartbeat re-arms. A fourteen-hour diagnostic threshold gives
+a two-hour cache-age margin over the ceiling and, because commits need not align to hourly slots,
+one to two hours after the first ceiling-eligible heartbeat. It assumes the hourly job is unpaused.
+Records owns a separate `records` + `year`
+refresh attempt, scheduler receipt, and auto-refresh toggle, so its failure cannot make the
+already-committed scores attempt unhealthy. Public reads remain cache-only; there is no UI consumer
+in this slice. The reader excludes rows whose W+L+T does not equal games while returning their team
+IDs as present-but-uncreditable, never deriving an outcome from app score data.
 
 **Automatic Odds polling is ACTIVE in production (PLATFORM-086C2; current controls are in deployment-runbook §8g and activation evidence is archived).** Both the authorized manual `GET /api/odds?refresh=1` and the automatic `GET /api/cron/odds` drive provider transport, payload interpretation, durable commit, and provider-refresh completion through ONE shared server-side execution authority (`executeOddsRefresh` in `src/lib/odds/oddsRefreshExecutor.ts`), so the two callers can never diverge on what a provider payload means or how it commits. Via the hourly QStash schedule `turfwar-odds-hourly`, the automatic flow is: **QStash hourly → `GET /api/cron/odds` → CRON_SECRET auth → settings gate (`isAutoRefreshAllowed('odds')`) → cache-only canonical context + cache-only closing-line maintenance → pure cadence decision → (only when a refresh is DUE) durable per-target lease + post-acquisition cadence re-check → quota-free `/sports` probe + the 50-credit automation reserve → at most ONE billed `/odds` request → atomic durable commit through the PLATFORM-086C1 refresh authority (per-target lease + observation ordering).** The hourly delivery is a cadence CEILING, not the request rate (baseline 6 h; 2 h inside the 6 h before a slate's first kickoff), so most deliveries are provider-free skips. **Public/member `/api/odds` is a strict durable-cache-only reader** — it never self-fetches, never spends quota, and (unlike before) never writes the durable store even for closing-line freezes (that maintenance runs only on the authorized manual path and the cron); cross-instance cron commits become visible within a bounded 120 s memo. The `ODDS_API_KEY` credential is redacted from every diagnostic/error surface (upstream URL + message sanitization) so it can never leak through a provider-error detail or debug log. `vercel.json` does **not** own this schedule (external QStash `turfwar-odds-hourly`); score automation (live-scores) and game-stats ingestion are separate schedules that share the same `CRON_SECRET`.
 

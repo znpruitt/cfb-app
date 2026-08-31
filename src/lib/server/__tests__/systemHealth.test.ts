@@ -90,14 +90,14 @@ function allAvailable() {
   return states;
 }
 
-// Case 1 — seven scheduler jobs + seven datasets remain separate collections.
-test('model exposes exactly seven scheduler jobs and seven datasets', async () => {
+// Case 1 — eight scheduler jobs + seven datasets remain separate collections.
+test('model exposes exactly eight scheduler jobs and seven datasets', async () => {
   const model = await buildSystemHealthViewModel({
     year: YEAR,
     nowMs: NOW,
     loaders: healthyLoaders(),
   });
-  assert.equal(model.schedulerJobs.length, 7);
+  assert.equal(model.schedulerJobs.length, 8);
   assert.equal(model.datasets.length, 7);
   assert.deepEqual(
     model.schedulerJobs.map((j) => j.job),
@@ -140,8 +140,8 @@ test('CFBD usage loader is invoked exactly once per build', async () => {
   assert.equal(model.quota.cfbd.state, 'available');
 });
 
-// Case 7 — a scheduler scope-read failure yields seven unavailable rows + one global issue.
-test('scheduler scope-read failure → seven unavailable rows, one global issue', async () => {
+// Case 7 — a scheduler scope-read failure yields eight unavailable rows + one global issue.
+test('scheduler scope-read failure → eight unavailable rows, one global issue', async () => {
   const model = await buildSystemHealthViewModel({
     year: YEAR,
     nowMs: NOW,
@@ -153,7 +153,7 @@ test('scheduler scope-read failure → seven unavailable rows, one global issue'
         }),
     }),
   });
-  assert.equal(model.schedulerJobs.length, 7);
+  assert.equal(model.schedulerJobs.length, 8);
   assert.ok(model.schedulerJobs.every((j) => j.deliveryState === 'unavailable'));
   const global = model.issues.filter((i) => i.code === 'scheduler-delivery-unavailable');
   assert.equal(global.length, 1);
@@ -366,7 +366,7 @@ test('one failed subsystem does not erase truthful results from the others', asy
   });
   assert.equal(model.quota.cfbd.state, 'unavailable');
   // Everything else stays truthful.
-  assert.equal(model.schedulerJobs.length, 7);
+  assert.equal(model.schedulerJobs.length, 8);
   assert.ok(model.schedulerJobs.every((j) => j.deliveryState === 'on-time'));
   assert.equal(model.storage.state, 'available');
   assert.equal(model.automation.state, 'available');
