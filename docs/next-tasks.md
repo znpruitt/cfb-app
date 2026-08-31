@@ -232,9 +232,14 @@ unsynchronized.
 
 - Backlog slug: `PLATFORM-LIVE-SCORE-CADENCE-v1`
 
-### Item 96 — Neon cost is wall-clock on always-on computes (measured 2026-08-31)
+### Item 96 — pause the in-season QStash schedules through the offseason
 
-**All four billing surfaces measured. Exposure is one variable: how many computes are running.**
+**The ask:** stop paying ~$19/month of Neon wall-clock during ~6 months with no games. Worth
+**~$114/year with no coverage tradeoff.** Everything below is the evidence that produced it; the
+open work is the *Scope to decide* list.
+
+**All four billing surfaces measured 2026-08-31. Exposure is one variable: how many computes are
+running.**
 
 | Surface | Monthly | Character |
 | --- | --- | --- |
