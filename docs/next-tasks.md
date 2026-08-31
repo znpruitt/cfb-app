@@ -518,8 +518,23 @@ away.
 **Fix: filter on provider classification** (no FBS participant → cannot be tracked) in the
 `/api/schedule` response. Use the coarse classification predicate, **not** a server-side
 reproduction of `isTrackedGame`, which needs the resolver and canonical metadata. The coarse filter
-is provably lossless. Expect ~2.76 MB → ~670 KB parsed; parse cost is worst on phones, which is
-exactly where FCP is amber.
+is provably lossless. Expect ~2.76 MB → ~670 KB parsed.
+
+**Measured 2026-08-31 — the cost is row processing, not bytes.** `buildScheduleFromApi`
+(`schedule.ts:345`) against the real production payload, 5 runs after a warm-up, median:
+
+| Input | Median | Range |
+| --- | --- | --- |
+| all 3,676 rows | **1267 ms** | 1233-1605 |
+| 888 FBS-involving rows | **353 ms** | 316-1369 |
+
+**~915 ms of main-thread work removed**, on laptop-class hardware. `JSON.parse` of 2.76 MB is only
+tens of ms; essentially all of this is the per-row walk, and it scales with row count
+(3.6x fewer rows → 3.6x less time). On a phone this runs 2-4x slower, so on mobile — where FCP is
+the amber metric — **98b is plausibly a LARGER win than 98a.**
+
+_Caveat:_ benchmarked with an empty `aliasMap`, so absolute numbers will differ in production; the
+ratio is what matters and it is row-count driven.
 
 #### 98c — no client cache, so every navigation refetches everything
 
