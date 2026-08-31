@@ -188,7 +188,8 @@ export type SystemHealthIssueInputs = {
 
 // -- Repair materialization ----------------------------------------------------
 
-const LIFECYCLE_JOBS: ReadonlySet<ExternalSchedulerJob> = new Set([
+const JOBS_WITHOUT_EXECUTION_REPAIR: ReadonlySet<ExternalSchedulerJob> = new Set([
+  'team-records',
   'season-transition',
   'season-rollover',
 ]);
@@ -431,15 +432,13 @@ function schedulerExecutionIssues(snapshot: SchedulerDeliveryHealthSnapshot): Sy
   for (const row of snapshot.jobs) {
     const receipt = row.receipt;
     if (!receipt) continue;
-    // PLATFORM-086F2H4 — a LIFECYCLE job's execution fault offers NO repair.
-    // It previously pointed at Season Management, which was already recorded as
-    // questionable (that page could not repair a lifecycle fault) and is now
-    // retired outright. `SystemHealthRepair` documents null as "never a fake
-    // link", and this matches what F2H3B2 established for
-    // `lifecycle-data-unusable`: there is no supported operation that repairs a
-    // production lifecycle record, so naming a destination would be a claim.
-    const lifecycle = LIFECYCLE_JOBS.has(row.job);
-    const repair = lifecycle ? null : repairFor('data-maintenance');
+    // A repair link is a claim that the destination can act on this fault.
+    // Lifecycle jobs have no supported repair operation, and Team records has no
+    // manual endpoint or Data Maintenance action in PLATFORM-118. Keep those
+    // execution faults observable without routing the operator to a dead end.
+    const repair = JOBS_WITHOUT_EXECUTION_REPAIR.has(row.job)
+      ? null
+      : repairFor('data-maintenance');
     if (receipt.result === 'failure') {
       issues.push({
         code: 'scheduler-execution-failed',

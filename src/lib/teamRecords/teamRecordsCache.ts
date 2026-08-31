@@ -30,8 +30,9 @@ export type TeamRecordsCacheEntry = {
 
 /**
  * Consumer-facing cache view. Provider rows that already count a game but do
- * not yet credit its outcome stay visible as an explicit reliability signal;
- * they are never repaired from app-owned score data.
+ * not yet credit its outcome are withheld from `items`, while their team IDs
+ * stay visible as the explicit reliability signal. They are never repaired
+ * from app-owned score data.
  */
 export type TeamRecordsCacheRead = TeamRecordsCacheEntry & {
   uncreditableTeamIds: number[];

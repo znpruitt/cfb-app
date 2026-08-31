@@ -549,10 +549,13 @@ run performs one fresh CFBD `/info` reserve probe and at most one billed `/recor
 is measured as zero billed CFBD calls on this project. A quota refusal records the refusal and the
 next hourly heartbeat probes again—there is intentionally no durable quota-refusal backoff.
 
-The records diagnostic warns after fourteen hours, leaving two hours of delivery headroom beyond
-the ceiling. That threshold assumes this hourly job is unpaused. Item 96 must preserve that
-assumption or add a generalized lifecycle-applicability rule when it introduces offseason pausing;
-this job has no records-only offseason exception today.
+The records diagnostic warns after fourteen hours, a two-hour cache-age margin beyond the ceiling.
+Because a cache commit can land between hourly slots, the first ceiling-eligible heartbeat can be up
+to 59 minutes later; the actionable margin after that slot is therefore between one and two hours,
+not two complete hourly delivery slots. Scheduler delivery grace remains an independent signal. The
+threshold assumes this hourly job is unpaused. Item 96 must preserve that assumption or add a
+generalized lifecycle-applicability rule when it introduces offseason pausing; this job has no
+records-only offseason exception today.
 
 Provision after the reviewed implementation is merged and promoted:
 
@@ -615,7 +618,7 @@ receipts (§6c); inspect production before diagnosing a production outage.
 
 1. Confirm `CRON_SECRET` is present in the promoted Vercel Production deployment.
 2. For QStash, inspect the relevant schedule and require exactly one redacted Authorization header.
-3. If the secret was rotated, follow the complete five-schedule procedure in §8k.
+3. If the secret was rotated, follow the complete six-schedule procedure in §8l.
 4. Keep gates closed until an HTTP 200 provider-free authentication proof succeeds.
 
 ### Clerk sign-in fails or redirects repeatedly

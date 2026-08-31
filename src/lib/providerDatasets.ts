@@ -159,9 +159,11 @@ export const PROVIDER_DATASET_DESCRIPTORS: Record<ProviderDataset, ProviderDatas
       'Active (PLATFORM-118): one year-wide /records request at most per invocation, a fixed six-hour call floor, a twelve-hour cache-age ceiling, and a fourteen-hour diagnostic threshold with headroom for the hourly trigger.',
     lifecycleCritical: false,
     autoRefreshSettingConsumed: true,
-    // Two hours of delivery headroom beyond the 12h refresh ceiling. This
-    // assumes the hourly job is unpaused; Item 96 must preserve or replace that
-    // applicability contract when generalized offseason pausing is built.
+    // A two-hour cache-age margin beyond the 12h refresh ceiling. Since commits
+    // can land between hourly slots, this leaves 1-2 hours after the first
+    // ceiling-eligible heartbeat. This assumes the hourly job is unpaused; Item
+    // 96 must preserve or replace that applicability contract when generalized
+    // offseason pausing is built.
     staleAfterMs: 14 * HOUR_MS,
   },
   conferences: {

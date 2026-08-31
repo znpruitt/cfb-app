@@ -1241,7 +1241,7 @@ test('PLATFORM-118: records becomes stale after fourteen hours with no finalisat
   const diagnostic = findByCode(stale.diagnostics, 'records-cache-stale');
   assert.ok(
     diagnostic,
-    'the production diagnostics path keeps two hours of headroom beyond the twelve-hour ceiling'
+    'the production diagnostics path uses the settled fourteen-hour cache-age threshold'
   );
   assert.equal(diagnostic!.severity, 'warning');
   assert.equal(diagnostic!.repair, null, 'PLATFORM-117 ships no speculative manual consumer');

@@ -88,7 +88,9 @@ no finalisation observation; a twelve-hour cache-age ceiling then recovers quiet
 maximum of 62 `/records` calls in a 31-day month. The job probes the unbilled CFBD `/info` endpoint
 only when refresh work is due, applies the shared reserve, and intentionally carries no durable
 quota-refusal backoff—the next hourly heartbeat re-arms. A fourteen-hour diagnostic threshold gives
-the unpaused hourly job two hours of delivery headroom. Records owns a separate `records` + `year`
+a two-hour cache-age margin over the ceiling and, because commits need not align to hourly slots,
+one to two hours after the first ceiling-eligible heartbeat. It assumes the hourly job is unpaused.
+Records owns a separate `records` + `year`
 refresh attempt, scheduler receipt, and auto-refresh toggle, so its failure cannot make the
 already-committed scores attempt unhealthy. Public reads remain cache-only; there is no UI consumer
 in this slice. The reader excludes rows whose W+L+T does not equal games while returning their team

@@ -46,7 +46,8 @@ function statusForReason(reason: TeamRecordsRefreshReason): number {
   if (
     reason === 'provider-fetch-failed' ||
     reason === 'invalid-payload' ||
-    reason === 'schema-drift'
+    reason === 'schema-drift' ||
+    reason === 'empty-replacement-rejected'
   ) {
     return 502;
   }

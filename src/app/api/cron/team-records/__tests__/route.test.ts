@@ -159,6 +159,37 @@ test('the hourly job refreshes a twelve-hour cache after one quota probe', async
   ]);
 });
 
+test('a rejected empty replacement returns 502 while preserving prior-good records', async () => {
+  await seedCache(12 * 60 * 60 * 1000);
+  const urls: string[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    urls.push(url);
+    if (url.endsWith('/info')) {
+      return new Response(JSON.stringify({ patronLevel: 1, remainingCalls: 5000 }), {
+        status: 200,
+      });
+    }
+    return new Response(JSON.stringify([]), { status: 200 });
+  }) as typeof fetch;
+
+  const response = await GET(request());
+  const body = (await response.json()) as Record<string, unknown>;
+  assert.equal(response.status, 502);
+  assert.equal(body.result, 'failure');
+  assert.equal(body.reason, 'empty-replacement-rejected');
+  assert.equal(body.providerCallAttempted, true);
+  assert.deepEqual(urls, [
+    'https://api.collegefootballdata.com/info',
+    `https://api.collegefootballdata.com/records?year=${YEAR}`,
+  ]);
+  assert.deepEqual(
+    (await getAppState<{ items: unknown[] }>('team-records', String(YEAR)))?.value.items,
+    [recordItem()],
+    'the failure response cannot overwrite the prior-good cache'
+  );
+});
+
 test('quota refusal probes hourly without attempting the billed records call', async () => {
   await seedCache(12 * 60 * 60 * 1000);
   const urls: string[] = [];
