@@ -26,6 +26,32 @@ Replaces sentence-style game rows in all three states. Shared with the recap's n
 - Unowned opponents render team-only. An owner holding both sides renders correctly with no special handling.
 - **The team-record anchor joins on provider team id, never on name.** The row resolves each side's W-L through `ScheduleItem.homeId` / `awayId` (`src/lib/schedule/cfbdSchedule.ts:133`, populated at `:737` and persisted in the durable schedule cache) against the year-scoped records cache, which is keyed by the same `teamId`. **When the id is null, render no anchor** — do not fall back to a name lookup. A name-keyed join would walk straight back into the collision surface PLATFORM-114 closed: `Missouri S&T` normalises onto `Missouri State`, so a D-II school's opponent would render an FBS team's record on an FBS matchup. Absent and `0-0` are different facts and must render differently; a Week 1 scheduled game legitimately shows `0-0`.
 
+#### CFBD id namespaces — verified live 2026-08-31
+
+CFBD uses **one team-id namespace** across endpoints. The field name reflects only what the row is *about*, not a different identifier:
+
+| Endpoint | Field | Why the name differs |
+| --- | --- | --- |
+| `/records` | `teamId` | one team per row — no role to qualify |
+| `/games` | `homeId` / `awayId` | two teams per row — role-qualified |
+| `/teams` | `id` | the row *is* the team |
+
+Probe: `/records?year=2025&team=Alabama` → `teamId: 333`; `/games?year=2025&week=1&team=Alabama` → `awayId: 333, awayTeam: "Alabama"`. Same id, both endpoints. So `ScheduleItem.homeId` → records `teamId` is a direct numeric join with no translation layer.
+
+**`/games.id` is the GAME id, not a team id.** One payload carries three namespaces at once:
+
+    { id: 401752665, venueId: 3697, homeId: 52, awayId: 333 }
+
+Team ids are two-to-three digits, venue ids four, game ids nine — so a crossed join fails loudly rather than returning a plausible wrong row. Do not rely on that; the magnitudes are an accident, not a contract.
+
+**All three ids are already load-bearing, and the exact-id-never-name rule is established, not new here:**
+
+- **Game id** — `ScheduleItem.id` is `String(game.id)` (`cfbdSchedule.ts:730`), the row's primary key; `/games/media` joins by it (`schedulePresentationJoin.ts:171`). *Caveat:* it falls back to a name-derived `${week}-${homeTeam}-${awayTeam}` when the provider omits `game.id`, so the row key is provider-id-when-available and name-derived otherwise — latent, and Item 83's territory.
+- **Venue id** — persisted conditionally, and venue details attach ONLY through the exact numeric `venueId`, never by name (`schedulePresentation.ts:9`, `schedulePresentationJoin.ts:213`).
+- **Team ids** — `scoreboardMatch.ts:45-48` and `gameStats/evidenceAuthority.ts:307-327` already match on exact oriented `homeId`/`awayId`.
+
+The record anchor is the third consumer of this discipline, not the first.
+
 #### State variants — widened for Schedule (slice 5), 2026-08-30
 
 Slice 5 makes Schedule the component's third consumer. Its surface carries states Overview never shows, so the contract is widened **now**, before slice 3 implements against it, rather than being re-widened later — the failure *Adjacent surface* warned about.
