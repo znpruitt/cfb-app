@@ -897,6 +897,48 @@ Acceptance boundary:
 - Outside the kickoff window, a multi-day gap does not raise an issue.
 - The row never reads healthy while an active issue names that same dataset.
 
+### Item 93 — nine CFBD call sites still carry the pre-PLATFORM-115 timeout
+
+PLATFORM-115 raised the CFBD request ceiling to 40s at four call sites. Its scope was enumerated
+from three files that happened to be open rather than a repo-wide sweep, so it missed the rest. The
+item shipped what it promised and its acceptance boundary held; the scope was wrong, not the work.
+
+**Evidence it matters, 2026-08-30.** Rankings publication failed at 22:00 UTC with
+`rankings-provider-fetch-failed` on both partitions, `durationMs: 36838`. Prior-good data kept
+serving, but `lastSuccessAt` was 2026-08-23 — so members saw the PRESEASON AP poll on Overview after
+week 1 had been played. A manual `bypassCache=1` refresh at 03:01 UTC recovered it (`rowsCommitted: 1`,
+`durationMs: 9749`).
+
+**That recovery is the argument, not the reassurance.** It took 9.75s against a 12s ceiling — cleared
+by 2.25 seconds, at 3am, on the quietest night of the week. Rankings runs twice daily at 04:00 and
+22:00 UTC; the 22:00 slot on a Saturday is mid-slate, which is exactly when the opening-weekend
+measurements showed CFBD answering in 16-21s.
+
+Still at `timeoutMs: 12_000`:
+
+| Call site | Notes |
+|---|---|
+| `src/lib/rankings/refreshAuthority.ts:105` | **Worst configured.** `maxAttempts: 3`, and `fetchUpstream.ts:158` retries timeouts regardless of `retryOnHttpStatuses`, so each failure burns THREE billed calls. 3 x 12s matches the observed 36838ms almost exactly. |
+| `src/app/api/schedule/route.ts:345` | |
+| `src/lib/schedule/fullSeasonScheduleFetch.ts:61` | |
+| `src/lib/schedule/schedulePresentationRefresh.ts:275`, `:516` | |
+| `src/app/api/conferences/route.ts:166` | |
+| `src/app/api/game-stats/route.ts:325` | non-cron path |
+| `src/app/api/admin/cache-historical-scores/route.ts:53` | |
+| `src/lib/odds/oddsRefreshExecutor.ts:422` | **Different provider** (The Odds API), which stayed healthy through the CFBD degradation. Decide separately; do not sweep it in on pattern-match alone. |
+
+`src/app/api/admin/team-database/route.ts:33` sits at 15s — same question, different value.
+
+**Reuse `CFBD_PEAK_LATENCY_TIMEOUT_MS`** (`src/lib/api/cfbdRequestPolicy.ts:7`) rather than introducing
+a second constant. A timed-out request bills (measured: `/info` costs 0, a completed call 1, an
+aborted call 1), so any site retrying timeouts multiplies spend during exactly the conditions that
+cause them — rankings is the live example.
+
+Acceptance boundary: no CFBD-consuming call site carries a ceiling below the shared constant without
+a recorded reason; billed calls per run are unchanged at each converted site, proven rather than
+assumed; and a repo-wide `timeoutMs` sweep is part of the verification, not the scoping — that
+omission is what produced this item.
+
 ## Planned and parked campaigns
 
 These are valid future campaigns but are not activated implementation work:
