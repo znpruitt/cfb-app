@@ -24,6 +24,7 @@ Replaces sentence-style game rows in all three states. Shared with the recap's n
 - Line-start slot reserved for future team logos; markup orders team first so the insertion point is structural. **Logos out of scope.**
 - **Row order is always away → home** in every state including Final. Ordering and emphasis are separable: position is fixed by home/away, weight marks the leader (live) or winner (final).
 - Unowned opponents render team-only. An owner holding both sides renders correctly with no special handling.
+- **The team-record anchor joins on provider team id, never on name.** The row resolves each side's W-L through `ScheduleItem.homeId` / `awayId` (`src/lib/schedule/cfbdSchedule.ts:133`, populated at `:737` and persisted in the durable schedule cache) against the year-scoped records cache, which is keyed by the same `teamId`. **When the id is null, render no anchor** — do not fall back to a name lookup. A name-keyed join would walk straight back into the collision surface PLATFORM-114 closed: `Missouri S&T` normalises onto `Missouri State`, so a D-II school's opponent would render an FBS team's record on an FBS matchup. Absent and `0-0` are different facts and must render differently; a Week 1 scheduled game legitimately shows `0-0`.
 
 #### State variants — widened for Schedule (slice 5), 2026-08-30
 
