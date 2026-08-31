@@ -246,6 +246,12 @@ echo "$files" | grep -qvE "^docs/|\.md$" && exit 1;
 exit 0
 ```
 
+**Consequence for reviving `preview`:** resetting `preview` to `main` produces a deployment only if
+`main`'s TIP commit touches code. When the tip is a docs closeout — the common case, since closeouts
+land last — the build is skipped, and `preview` gets no deployment, no branch alias, and therefore no
+Neon child branch. It restores itself on the next code commit pushed to `preview`. Observed
+2026-08-31.
+
 Vercel's exit semantics are important: `0` skips the build; `1` continues it. The command fails safe
 toward building:
 
