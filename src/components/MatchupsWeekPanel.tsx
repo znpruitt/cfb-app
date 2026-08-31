@@ -3,7 +3,12 @@ import React from 'react';
 import { formatExpandedKickoff } from '../lib/gameCardPresentation';
 import { classifyScorePackStatus } from '../lib/gameStatus';
 import type { CombinedOdds } from '../lib/odds';
-import { pillClass, usesNeutralSiteSemantics } from '../lib/gameUi';
+import {
+  gameStatusLabelPresentation,
+  pillClass,
+  usesNeutralSiteSemantics,
+  type GameStatusLabelTone,
+} from '../lib/gameUi';
 import {
   computeGameTags,
   computeStandings,
@@ -79,19 +84,6 @@ export function scrollFocusedOwnerIntoView(params: {
 
 const DEFAULT_VISIBLE_OPPONENTS = getDefaultVisibleOpponentsCount();
 
-function performanceClasses(tone: 'scheduled' | 'inprogress' | 'final' | 'neutral'): string {
-  if (tone === 'final') {
-    return 'bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300';
-  }
-  if (tone === 'inprogress') {
-    return 'bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300';
-  }
-  if (tone === 'neutral') {
-    return 'bg-slate-100 text-slate-700 dark:bg-zinc-800 dark:text-zinc-200';
-  }
-  return 'bg-blue-50 text-blue-800 dark:bg-blue-950/40 dark:text-blue-300';
-}
-
 function getOpponentBadgeClasses(descriptor: string): string {
   if (descriptor === 'Self') {
     return 'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-300';
@@ -108,11 +100,11 @@ function getOpponentBadgeClasses(descriptor: string): string {
 function ownerOutcomeRowClasses(tone: GameOutcomeTone): string {
   switch (tone) {
     case 'inprogress':
-      return 'border-l-2 border-l-amber-400/80 bg-amber-50/40 pl-2 dark:border-l-amber-500/70 dark:bg-amber-950/10';
+      return 'border-l-2 border-l-zinc-400/80 bg-zinc-50/40 pl-2 dark:border-l-zinc-500/70 dark:bg-zinc-950/10';
     case 'finalWin':
-      return 'border-l-2 border-l-emerald-400/80 bg-emerald-50/40 pl-2 dark:border-l-emerald-500/70 dark:bg-emerald-950/10';
+      return 'border-l-2 border-l-transparent bg-gray-50/40 pl-2 dark:border-l-emerald-500/70 dark:bg-zinc-950/10';
     case 'finalLoss':
-      return 'border-l-2 border-l-rose-400/80 bg-rose-50/40 pl-2 dark:border-l-rose-500/70 dark:bg-rose-950/10';
+      return 'border-l-2 border-l-transparent bg-gray-50/40 pl-2 dark:border-l-rose-500/70 dark:bg-zinc-950/10';
     case 'finalSelf':
       return 'border-l-2 border-l-violet-400/80 bg-violet-50/40 pl-2 dark:border-l-violet-500/70 dark:bg-violet-950/10';
     default:
@@ -121,14 +113,8 @@ function ownerOutcomeRowClasses(tone: GameOutcomeTone): string {
 }
 
 function ownerCardSurfaceClasses(tone: OwnerWeekSlate['performance']['tone']): string {
-  if (tone === 'final') {
-    return 'border-emerald-300/70 bg-emerald-500/15 dark:border-emerald-800/70 dark:bg-zinc-800';
-  }
-  if (tone === 'inprogress') {
-    return 'border-amber-300/70 bg-amber-500/15 dark:border-amber-800/70 dark:bg-zinc-800';
-  }
   if (tone === 'scheduled') {
-    return 'border-blue-300/70 bg-blue-500/15 dark:border-blue-800/70 dark:bg-zinc-800';
+    return 'border-sky-300/70 bg-sky-500/15 dark:border-sky-800/70 dark:bg-zinc-800';
   }
   return 'border-gray-300/90 bg-white dark:border-zinc-700 dark:bg-zinc-800';
 }
@@ -200,6 +186,11 @@ function GameRow({
     statusTone === 'inprogress' &&
     liveGameDelta?.status === 'inprogress' &&
     liveDelta?.isStale === false;
+  const statusLabelTone: GameStatusLabelTone = statusTone === 'inprogress' ? 'live' : statusTone;
+  const statusLabel = gameStatusLabelPresentation(statusLabelTone, {
+    liveHue: 'neutral',
+    liveDot: showLiveIndicator ? 'pulse' : 'none',
+  });
   const metadataEntries: string[] = [];
   if (statusTone === 'inprogress' && liveClockLabel) metadataEntries.push(liveClockLabel);
   metadataEntries.push(opponentDescriptor);
@@ -260,17 +251,15 @@ function GameRow({
               />
             </>
           )}
-          <span
-            className={`inline-flex w-fit items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${performanceClasses(statusTone)}`}
-          >
-            {statusTone === 'final' ? 'FINAL' : statusTone === 'inprogress' ? 'LIVE' : 'SCH'}
-            {showLiveIndicator ? (
+          <span className={statusLabel.className}>
+            {statusLabel.dotClassName ? (
               <span
                 aria-hidden="true"
                 data-matchups-live-indicator={slateGame.game.key}
-                className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500 dark:bg-amber-400"
+                className={statusLabel.dotClassName}
               />
             ) : null}
+            {statusTone === 'final' ? 'FINAL' : statusTone === 'inprogress' ? 'LIVE' : 'SCH'}
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-5 text-gray-500 dark:text-zinc-400">

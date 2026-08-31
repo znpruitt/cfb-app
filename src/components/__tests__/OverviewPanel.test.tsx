@@ -1038,6 +1038,11 @@ test('overview panel shows watchlist alongside results when highlight cards exis
   // the scheduled one in the watchlist.
   assert.match(html, /Upcoming watchlist/);
   assert.match(html, /Featured games/);
+  assert.match(
+    html,
+    /dark:text-sky-400">Scheduled<\/span>/,
+    'Overview watchlist must use the shared scheduled status label'
+  );
 });
 
 test('overview panel renders subtle standings movement indicator when prior standings exist', () => {

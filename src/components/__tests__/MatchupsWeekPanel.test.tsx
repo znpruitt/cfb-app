@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -122,7 +123,7 @@ test('matchups panel renders owner-centric cards and duplicates owner-vs-owner g
   );
   assert.match(
     html,
-    /rounded-xl border p-3\.5 shadow-sm sm:p-4 border-amber-300\/70 bg-amber-500\/15/
+    /rounded-xl border p-3\.5 shadow-sm sm:p-4 border-gray-300\/90 bg-white dark:border-zinc-700/
   );
   assert.doesNotMatch(html, /border-l-4 border-l-emerald-600 bg-emerald-50 text-gray-900/);
   assert.doesNotMatch(html, /Faces Bob/);
@@ -444,11 +445,14 @@ test('owner slates count final owned-vs-owned, NoClaim, and FCS results from own
   assert.match(averyCard, /FCS/);
   assert.match(averyCard, /NoClaim \(FBS\)/);
   assert.match(averyCard, /vs Blair/);
-  assert.match(html, /bg-emerald-500\/15/);
+  assert.match(
+    html,
+    /rounded-xl border p-3\.5 shadow-sm sm:p-4 border-gray-300\/90 bg-white dark:border-zinc-700/
+  );
   assert.match(html, /data-owner-card="Blair"/);
   assert.match(html, /0–1/);
-  assert.match(html, /border-l-emerald-400\/80 bg-emerald-50\/40/);
-  assert.match(html, /border-l-rose-400\/80 bg-rose-50\/40/);
+  assert.match(html, /dark:border-l-emerald-500\/70/);
+  assert.match(html, /dark:border-l-rose-500\/70/);
 });
 
 test('scheduled and live games do not change owner final record summaries', () => {
@@ -820,6 +824,29 @@ test('matchups panel renders fresh-LIVE indicator when liveDelta confirms in-pro
   );
 
   assert.match(html, /data-matchups-live-indicator="g-live"/);
+  assert.match(
+    html,
+    /dark:text-zinc-300"><span[^>]+data-matchups-live-indicator="g-live"[^>]+animate-pulse[^>]*><\/span>LIVE<\/span>/,
+    'fresh Matchups live status must keep a neutral label with its pulse'
+  );
+  assert.doesNotMatch(html, /amber/);
+});
+
+test('matchups status color vocabulary reserves one emerald and one rose source token for outcomes', () => {
+  const source = readFileSync(new URL('../MatchupsWeekPanel.tsx', import.meta.url), 'utf8');
+
+  assert.equal(
+    (source.match(/emerald/g) ?? []).length,
+    1,
+    'emerald must appear exactly once for finalWin'
+  );
+  assert.equal(
+    (source.match(/rose/g) ?? []).length,
+    1,
+    'rose must appear exactly once for finalLoss'
+  );
+  assert.doesNotMatch(source, /amber/);
+  assert.doesNotMatch(source, /function performanceClasses/);
 });
 
 test('matchups panel suppresses fresh-LIVE indicator when liveDelta is stale', () => {

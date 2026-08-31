@@ -67,23 +67,43 @@ export function gameStateFromScore(
   return 'scheduled';
 }
 
-export function statusClasses(
-  state: 'final' | 'inprogress' | 'scheduled' | 'unknown',
-  hasInfo: boolean
-): string {
-  if (!hasInfo) {
-    return 'border rounded border-l-4 border-l-red-600 bg-red-50 text-gray-900 dark:border-l-red-400 dark:bg-red-900/25 dark:text-zinc-100';
-  }
-  switch (state) {
-    case 'final':
-      return 'border rounded border-l-4 border-l-emerald-600 bg-emerald-50 text-gray-900 dark:border-l-emerald-400 dark:bg-emerald-900/25 dark:text-zinc-100';
-    case 'inprogress':
-      return 'border rounded border-l-4 border-l-amber-600 bg-amber-50 text-gray-900 dark:border-l-amber-400 dark:bg-amber-900/25 dark:text-zinc-100';
-    case 'scheduled':
-      return 'border rounded border-l-4 border-l-blue-600 bg-blue-50 text-gray-900 dark:border-l-blue-400 dark:bg-blue-900/25 dark:text-zinc-100';
-    default:
-      return 'border rounded text-gray-900 dark:text-zinc-100';
-  }
+export type GameStatusLabelTone = 'live' | 'final' | 'scheduled' | 'unknown';
+
+export type GameStatusLabelPresentation = {
+  className: string;
+  dotClassName: string | null;
+};
+
+export type GameStatusLabelOptions = {
+  liveHue?: 'emerald' | 'neutral';
+  liveDot?: 'static' | 'pulse' | 'none';
+};
+
+const STATUS_LABEL_TONE_CLASSES: Record<GameStatusLabelTone, string> = {
+  live: 'dark:text-emerald-400',
+  final: 'dark:text-zinc-400',
+  scheduled: 'dark:text-sky-400',
+  unknown: 'dark:text-zinc-500',
+};
+
+export function gameStatusLabelPresentation(
+  tone: GameStatusLabelTone,
+  options: GameStatusLabelOptions = {}
+): GameStatusLabelPresentation {
+  const { liveHue = 'emerald', liveDot = 'static' } = options;
+  const toneClassName =
+    tone === 'live' && liveHue === 'neutral'
+      ? 'dark:text-zinc-300'
+      : STATUS_LABEL_TONE_CLASSES[tone];
+  const dotClassName =
+    tone === 'live' && liveDot !== 'none'
+      ? `size-1.5 rounded-full bg-current${liveDot === 'pulse' ? ' animate-pulse' : ''}`
+      : null;
+
+  return {
+    className: `inline-flex w-fit shrink-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${toneClassName}`,
+    dotClassName,
+  };
 }
 
 export function chipClass(): string {

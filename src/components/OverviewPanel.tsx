@@ -14,7 +14,11 @@ import {
 } from '../lib/selectors/trends';
 import { buildWeekLabelMap, formatWeekLabel } from '../lib/weekLabel';
 import { formatExpandedKickoff } from '../lib/gameCardPresentation';
-import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
+import {
+  formatGameMatchupLabel,
+  gameStateFromScore,
+  gameStatusLabelPresentation,
+} from '../lib/gameUi';
 import { normalizeStatusTokens } from '../lib/gameStatus';
 import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import {
@@ -171,16 +175,6 @@ function summarizeLeagueAngle(
   }
 
   return renderMatchupLabel(item, rankingsByTeamId);
-}
-
-function stateBadgeClasses(state: 'final' | 'inprogress' | 'scheduled' | 'unknown'): string {
-  if (state === 'inprogress') {
-    return 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300';
-  }
-  if (state === 'final') {
-    return 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300';
-  }
-  return 'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300';
 }
 
 function deriveFeaturedGameBadge(game: AppGame): { label: string; classes: string } | null {
@@ -764,6 +758,7 @@ function GameSummaryList({
         const homeScore = score?.home.score ?? '—';
         const status = score?.status ?? 'Scheduled';
         const state = gameStateFromScore(score);
+        const statusLabel = gameStatusLabelPresentation(state === 'inprogress' ? 'live' : state);
         const kickoff = formatExpandedKickoff(
           item.bucket.game.date,
           timeZone,
@@ -812,9 +807,10 @@ function GameSummaryList({
                   </p>
                 ) : null}
                 <div className="mt-0.5 flex items-center gap-2 text-xs text-gray-500 dark:text-zinc-400">
-                  <span
-                    className={`inline-flex rounded-full border px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide ${stateBadgeClasses(state)}`}
-                  >
+                  <span className={statusLabel.className}>
+                    {statusLabel.dotClassName ? (
+                      <span className={statusLabel.dotClassName} aria-hidden="true" />
+                    ) : null}
                     {status}
                   </span>
                   <span aria-hidden="true">•</span>
