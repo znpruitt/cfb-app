@@ -900,6 +900,80 @@ Acceptance boundary:
 - Outside the kickoff window, a multi-day gap does not raise an issue.
 - The row never reads healthy while an active issue names that same dataset.
 
+### Item 90 — live-amber colour sweep and the `final` chip re-cut
+
+Spun off from Item 87 so an information-architecture rework is not folded into a token sweep
+(`AGENTS.md`). Replace live-amber with the agreed neutral/green live treatment across the components
+Item 87 does **not** replace, and re-cut `final` from emerald to neutral.
+
+Sites: `GameScoreboard.tsx:68-71` (the `final` and `inprogress` cases share one code block, so they
+move together), `GameWeekPanel.tsx:27/42/151/212`, `MatchupsWeekPanel.tsx:87/111/128/271`,
+`OwnerPanel.tsx:36`, and the `PostseasonPanel.tsx:78` render path.
+
+Overview's live-amber and its `stateBadgeClasses` green-final are **not** here — POLISH-016 and
+POLISH-017 removed them while replacing those components.
+
+**Gated on Item 91.** The `N live` pill is amber and looks like part of this sweep, but removing it
+before 91 lands reintroduces the blind spot 91 exists to close.
+
+- Backlog slug: `POLISH-LIVE-AMBER-SWEEP-v1`
+
+### Item 91 — standings-panel live-signal derivation
+
+An owner whose live game is **tied** currently gets no live signal from the green provisional badge.
+`liveDelta.ts` credits `pendingWins` only to an owner currently leading — ties produce no credit — and
+`selectFreshOwnerPendingDelta` (`:215`) returns `null` when `pendingWins + pendingLosses <= 0`. The
+amber `N live` pill is the only thing covering that case today.
+
+Three linked changes to the pending-delta pipeline:
+
+1. Render `+0–0` for tied live games rather than no credit, so the badge does not vanish on a tie.
+2. On `isStale`, hold the last valid delta and replace it on the next clean read instead of returning
+   `null` (`:211`). A selector policy change; scores are already cached.
+3. Gate badge rendering on **game state** (`gameStateFromScore`), not delta freshness, so a prolonged
+   outage cannot leave a finished game showing a live badge.
+
+`isStale` does not itself blank. Its contract (`liveDelta.ts:53-58`) says consumers may _dim or
+annotate_; the suppression is a consumer choice at `:211`. The 7-minute threshold (`:9-12`) is two
+missed 3-minute ticks — overlay freshness, not game completion. Preventing post-game live state is
+game state's job, which change 3 handles directly.
+
+**Do not break the `selectFresh…` contract.** Freshness is that function's advertised behaviour;
+making it return stale data silently misleads every other caller. Add a sibling
+(`selectOwnerPendingDelta`, last-known) that the badge consumes behind the game-state gate, and leave
+the original intact.
+
+With all three, the badge never disappears while games are live, and the `N live` pill
+(`OverviewPanel.tsx:628-630`, fed by `liveCountByOwner:1458`) becomes genuinely redundant and can be
+removed — leaving one green element per row and unblocking Item 90.
+
+- Backlog slug: `PLATFORM-STANDINGS-LIVE-SIGNAL-v1`
+
+### Item 92 — CFBD team-records integration
+
+Wire `GET /records?year=`, add a year-scoped cache on the existing pattern, set a refresh cadence, and
+account for quota. Verified against the provider: one year-scoped call returns every team in every
+division (2026: 684 rows — fbs 138, fcs 128, ii 171, iii 247), keyed by `teamId` and carrying
+`classification`. In-season partial records are returned correctly.
+
+Gates Item 87 slice 4 — the scheduled-state anchor is the team record. Slice 4 ships the spread
+anchor as a fallback if this has not landed.
+
+**Cadence: refresh in the live-scores cron**, which already observes non-final transitions and spends
+quota under a reserve check. **Do not hook `handleGamesFinalized`** (`CFBScheduleApp.tsx:1062`): it is
+a client callback firing per browser, so quota consumption would scale with how many people have the
+page open, and it inverts the cron-spends / client-reads split established by PLATFORM-086B2B and
+preserved by PLATFORM-075.
+
+A final scoreboard shows the team's record _including_ the game just played, so a weekly refresh
+would leave Saturday's finals stale. Deriving post-game records by adding a result to a cached
+pre-game value is rejected — double-count risk, and the quota does not justify it.
+
+Record the refresh under a scope the Provider data panel reads, or records joins scores and
+game-stats as a third dataset showing `No refresh history` while working correctly (Item 88).
+
+- Backlog slug: `PLATFORM-TEAM-RECORDS-v1`
+
 ### Item 93 — nine CFBD call sites still carry the pre-PLATFORM-115 timeout
 
 PLATFORM-115 raised the CFBD request ceiling to 40s at four call sites. Its scope was enumerated
