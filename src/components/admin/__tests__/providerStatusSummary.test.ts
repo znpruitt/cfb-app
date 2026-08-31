@@ -225,8 +225,8 @@ test('the stale window is per-dataset: a 5-day-old success is stale for scores b
   });
 });
 
-test('records reaches its eight-day stale ceiling when no finalisation opens a newer attempt', () => {
-  const olderThanCeiling = new Date(NOW - 8 * 86_400_000 - 1).toISOString();
+test('records reaches its 12-hour stale ceiling when no finalisation opens a newer attempt', () => {
+  const olderThanCeiling = new Date(NOW - 12 * 60 * 60 * 1000 - 1).toISOString();
   const s = {
     ...emptyProviderRefreshStatus('records', yearScope(2026)),
     lastAttemptAt: olderThanCeiling,

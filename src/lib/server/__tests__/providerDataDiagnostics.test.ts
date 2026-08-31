@@ -1213,7 +1213,7 @@ test('F2F: stale rankings → rankings-cache-stale (warning, data-maintenance)',
   assert.equal(d!.repair, 'data-maintenance');
 });
 
-test('PLATFORM-117: records becomes stale after eight days even with no finalisation context', async () => {
+test('PLATFORM-118: records becomes stale after 12 hours even with no finalisation context', async () => {
   const item = {
     year: YEAR,
     teamId: 333,
@@ -1222,10 +1222,10 @@ test('PLATFORM-117: records becomes stale after eight days even with no finalisa
     conference: 'SEC',
     total: { games: 2, wins: 2, losses: 0, ties: 0 },
   };
-  const eightDays = 8 * 24 * 60 * 60 * 1000;
+  const twelveHours = 12 * 60 * 60 * 1000;
 
   await setAppState('team-records', String(YEAR), {
-    at: NOW - eightDays,
+    at: NOW - twelveHours,
     year: YEAR,
     items: [item],
   });
@@ -1233,7 +1233,7 @@ test('PLATFORM-117: records becomes stale after eight days even with no finalisa
   assert.equal(findByCode(boundary.diagnostics, 'records-cache-stale'), undefined);
 
   await setAppState('team-records', String(YEAR), {
-    at: NOW - eightDays - 1,
+    at: NOW - twelveHours - 1,
     year: YEAR,
     items: [item],
   });
@@ -1241,10 +1241,15 @@ test('PLATFORM-117: records becomes stale after eight days even with no finalisa
   const diagnostic = findByCode(stale.diagnostics, 'records-cache-stale');
   assert.ok(
     diagnostic,
-    'the production diagnostics path enforces the records eight-day ceiling without a final'
+    'the production diagnostics path enforces the records 12-hour ceiling without a final'
   );
   assert.equal(diagnostic!.severity, 'warning');
-  assert.equal(diagnostic!.repair, null, 'PLATFORM-117 ships no speculative manual consumer');
+  assert.equal(
+    diagnostic!.repair,
+    null,
+    'records remain cache-only with no manual repair consumer'
+  );
+  assert.match(diagnostic!.message, /older than the 12-hour policy/);
 });
 
 test('F2F: odds snapshot absent → odds-cache-missing (info); stale canonical → odds-cache-stale (2d boundary)', async () => {

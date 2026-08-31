@@ -116,13 +116,14 @@ request's `Authorization` header must equal `Bearer ${CRON_SECRET}`. This is ind
 
 - Vercel Cron owns `/api/cron/season-transition` and `/api/cron/season-rollover`, both daily at
   00:00 UTC through `vercel.json`.
-- QStash owns the five external schedules: game stats (15 minutes), live scores (3 minutes), Odds
-  (hourly), schedule maintenance (Tuesday 12:00 UTC), and rankings publication (04:00/22:00 UTC).
-  They forward the same bearer secret and remain intentionally absent from `vercel.json`.
+- QStash owns the six external schedules: game stats (15 minutes), live scores (3 minutes), Odds
+  (hourly), schedule maintenance (Tuesday 12:00 UTC), rankings publication (04:00/22:00 UTC), and
+  team records (hourly). They forward the same bearer secret and remain intentionally absent from
+  `vercel.json`.
 
-All seven routes fail closed. A missing or mismatched `CRON_SECRET` returns `401` and stops the
-corresponding lifecycle or provider job. Rotation therefore spans all five QStash schedules plus
-verification of the two Vercel lifecycle routes; the operator procedure is deployment-runbook §8k.
+All eight routes fail closed. A missing or mismatched `CRON_SECRET` returns `401` and stops the
+corresponding lifecycle or provider job. Rotation therefore spans all six QStash schedules plus
+verification of the two Vercel lifecycle routes; the operator procedure is deployment-runbook §8l.
 
 ## League-password privacy gate (`LEAGUE_AUTH_SECRET`)
 

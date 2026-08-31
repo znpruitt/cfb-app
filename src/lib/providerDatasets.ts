@@ -153,14 +153,13 @@ export const PROVIDER_DATASET_DESCRIPTORS: Record<ProviderDataset, ProviderDatas
     provider: 'CFBD',
     hasActiveAutomation: true,
     currentAutomation:
-      'Triggered only after the live-scores cron durably commits a newly final game. A year-scoped durable cache and six-hour minimum interval cap the refresh at 124 calls in any 31-day month; the global pause + this Team records toggle gate it. Runs with no newly committed final make no records request.',
+      'Two signals share one refresh authority: a newly committed live-scores final may refresh after the six-hour floor, while the hourly QStash heartbeat (`turfwar-team-records-hourly` → GET /api/cron/team-records) refreshes when the independent 12-hour cache-age ceiling expires. Each due invocation makes at most one year-wide /records request, gated by the global pause + this Team records toggle; provider-free hourly skips do not probe quota.',
     plannedPolicy:
-      'Active (PLATFORM-117): finalisation-triggered, at most one year-wide /records request per live-scores run, with a fixed six-hour floor and an eight-day staleness ceiling.',
+      'Active (PLATFORM-118): hourly external heartbeat with a fixed 12-hour ceiling, plus finalisation-triggered refreshes after the independent six-hour floor; at most one year-wide /records request per due invocation.',
     lifecycleCritical: false,
     autoRefreshSettingConsumed: true,
-    // The provider snapshot normally advances after finals. Eight days gives a
-    // full no-finals week before health marks the dataset stale.
-    staleAfterMs: 8 * DAY_MS,
+    // Matches the independent clock-driven refresh ceiling.
+    staleAfterMs: 12 * 60 * 60 * 1000,
   },
   conferences: {
     dataset: 'conferences',

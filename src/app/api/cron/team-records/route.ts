@@ -63,35 +63,39 @@ export async function GET(req: Request) {
     }
     receiptInvocationId = createSchedulerInvocationId();
 
-    exec.quotaChecked = true;
-    let usageSnapshot: CfbdUsageSnapshot;
-    try {
-      const usage = await fetchCfbdUsage({ fresh: true });
-      usageSnapshot = { remainingCalls: usage.remaining, monthlyLimit: usage.limit };
-    } catch {
-      usageSnapshot = { remainingCalls: null };
-    }
-    const quota = evaluateAutomationQuota(usageSnapshot);
-    if (quota.kind === 'refused') {
-      exec.reason = `quota-${quota.reason}`;
-      return NextResponse.json({
-        result: exec.result,
-        reason: exec.reason,
-        year,
-        providerCallAttempted: false,
-        rowsReceived: 0,
-        rowsCommitted: 0,
-        remaining: quota.remaining,
-      });
-    }
-
-    const refresh = await refreshTeamRecords({ year, finalizationObserved: false });
+    const refresh = await refreshTeamRecords({
+      year,
+      finalizationObserved: false,
+      beforeProviderCall: async () => {
+        exec.quotaChecked = true;
+        let usageSnapshot: CfbdUsageSnapshot;
+        try {
+          const usage = await fetchCfbdUsage({ fresh: true });
+          usageSnapshot = { remainingCalls: usage.remaining, monthlyLimit: usage.limit };
+        } catch {
+          usageSnapshot = { remainingCalls: null };
+        }
+        const quota = evaluateAutomationQuota(usageSnapshot);
+        return quota.kind === 'allowed'
+          ? { kind: 'allowed' }
+          : {
+              kind: 'refused',
+              reason: `quota-${quota.reason}` as const,
+              remaining: quota.remaining,
+            };
+      },
+    });
     exec.result = resultForRefresh(refresh.reason);
     exec.reason = refresh.reason;
     exec.providerCallAttempted = refresh.providerCallAttempted;
     exec.rowsReceived = refresh.rowsReceived;
     exec.rowsCommitted = refresh.rowsCommitted;
-    return NextResponse.json({ result: exec.result, year, ...refresh });
+    return NextResponse.json({
+      result: exec.result,
+      year,
+      ...refresh,
+      ...(refresh.quotaRemaining !== undefined ? { remaining: refresh.quotaRemaining } : {}),
+    });
   } catch {
     return NextResponse.json({
       result: exec.result,

@@ -10,6 +10,8 @@ import {
   installSchedulerReceiptDeferrer,
   readSchedulerReceipt,
 } from '../../../../../lib/server/__tests__/schedulerReceiptTestHarness.ts';
+import { yearScope } from '../../../../../lib/providerRefreshScope.ts';
+import { getProviderRefreshStatus } from '../../../../../lib/server/providerRefreshStatus.ts';
 import { setDatasetAutoRefreshEnabled } from '../../../../../lib/server/providerRefreshSettings.ts';
 import type { TeamRecordsCronExecutionEvent } from '../../../../../lib/teamRecords/cronExecutionLog.ts';
 import { readTeamRecordsCache } from '../../../../../lib/teamRecords/teamRecordsCache.ts';
@@ -150,6 +152,13 @@ test('quota refusal is a controlled provider-free run with a truthful receipt', 
   assert.equal(event.providerCallAttempted, false);
   assert.equal(urls.filter((url) => url.endsWith('/info')).length, 1);
   assert.equal(urls.filter((url) => url.includes('/records?year=')).length, 0);
+  const status = await getProviderRefreshStatus('records', yearScope(YEAR));
+  assert.equal(status.latestAttemptOutcome, 'failed');
+  assert.equal(
+    status.lastError?.code,
+    'records-quota-below-reserve',
+    'a refused due refresh resolves its year-scoped provider attempt'
+  );
 
   await deferrer.flush();
   const receipt = await readSchedulerReceipt('team-records');
@@ -165,6 +174,8 @@ test('the hourly job does not turn the six-hour event floor into its cadence', a
   assert.equal(response.status, 200);
   assert.equal(event.result, 'no-op');
   assert.equal(event.reason, 'fresh-cache');
+  assert.equal(event.quotaChecked, false);
+  assert.equal(urls.filter((url) => url.endsWith('/info')).length, 0);
   assert.equal(urls.filter((url) => url.includes('/records?year=')).length, 0);
 });
 
@@ -197,5 +208,22 @@ test('the records operator toggle remains authoritative inside the refresh autho
   assert.equal(response.status, 200);
   assert.equal(event.result, 'skipped');
   assert.equal(event.reason, 'automation-paused-or-disabled');
-  assert.equal(urls.filter((url) => url.includes('/records?year=')).length, 0);
+  assert.equal(event.quotaChecked, false);
+  assert.deepEqual(urls, []);
+});
+
+test('a missing provider credential resolves the due attempt before any quota probe', async () => {
+  delete MUTABLE_ENV.CFBD_API_KEY;
+  const urls = stubCfbd();
+
+  const { response, event } = await runCron();
+
+  assert.equal(response.status, 200);
+  assert.equal(event.result, 'failure');
+  assert.equal(event.reason, 'cfbd-api-key-missing');
+  assert.equal(event.quotaChecked, false);
+  assert.deepEqual(urls, []);
+  const status = await getProviderRefreshStatus('records', yearScope(YEAR));
+  assert.equal(status.latestAttemptOutcome, 'failed');
+  assert.equal(status.lastError?.code, 'records-cfbd-api-key-missing');
 });

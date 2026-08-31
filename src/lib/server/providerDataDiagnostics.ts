@@ -866,9 +866,9 @@ export async function getProviderDataDiagnostics(
 
   // ---- Team records: year-wide cache age, independent of game context. ----
   // Records can be refreshed directly for any year and have no canonical-game,
-  // active-season, or registry dependency. Their declared eight-day ceiling is
+  // active-season, or registry dependency. Their declared 12-hour ceiling is
   // therefore enforced directly from the normalized cache entry's observation
-  // clock, including during a no-final stretch when automation makes no call.
+  // clock, including during a no-final stretch between hourly heartbeats.
   try {
     const records = await readTeamRecordsCache(year);
     if (records && records.items.length > 0 && now - records.at > STALE_RECORDS_AFTER_MS) {
@@ -876,7 +876,7 @@ export async function getProviderDataDiagnostics(
         'records',
         'warning',
         'records-cache-stale',
-        `Team records last refreshed ${formatRelativeTimestamp(records.at, now)} — older than the eight-day policy.`,
+        `Team records last refreshed ${formatRelativeTimestamp(records.at, now)} — older than the 12-hour policy.`,
         null
       );
     }

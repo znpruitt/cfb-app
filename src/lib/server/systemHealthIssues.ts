@@ -238,7 +238,7 @@ const DIAGNOSTIC_EXPLANATION: Record<ProviderDiagnosticCode, string> = {
   'rankings-cache-missing': 'No rankings are cached for the selected year.',
   'rankings-cache-stale': 'The cached rankings are older than the weekly refresh policy allows.',
   'rankings-diagnostics-unavailable': 'Rankings diagnostics could not be evaluated.',
-  'records-cache-stale': 'The cached team records are older than the eight-day policy allows.',
+  'records-cache-stale': 'The cached team records are older than the 12-hour policy allows.',
   'records-diagnostics-unavailable': 'Team-record diagnostics could not be evaluated.',
   'odds-cache-missing': 'No canonical odds snapshot is cached for the selected year.',
   'odds-cache-stale': 'The canonical odds snapshot is older than its freshness policy allows.',

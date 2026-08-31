@@ -1,4 +1,4 @@
-/** PLATFORM-117 — normalized, year-scoped CFBD team-record cache. */
+/** PLATFORM-117/118 — normalized, year-scoped CFBD team-record cache and creditability reader. */
 
 import { getAppState } from '../server/appStateStore.ts';
 

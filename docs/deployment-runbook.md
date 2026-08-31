@@ -76,7 +76,7 @@ using preview-safe credentials and the child database.
 | `ODDS_API_KEY` | Required for odds refreshes. |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Required for Clerk. |
 | `CLERK_SECRET_KEY` | Required for Clerk. |
-| `CRON_SECRET` | Required bearer credential for all seven cron routes. Use a long random value. |
+| `CRON_SECRET` | Required bearer credential for all eight cron routes. Use a long random value. |
 | `LEAGUE_AUTH_SECRET` | Required when any league has a password. Use a long random value. |
 
 `ADMIN_API_TOKEN` is an optional fallback during Clerk migration. It is not the league-password
@@ -595,7 +595,7 @@ receipts (§6c); inspect production before diagnosing a production outage.
 
 1. Confirm `CRON_SECRET` is present in the promoted Vercel Production deployment.
 2. For QStash, inspect the relevant schedule and require exactly one redacted Authorization header.
-3. If the secret was rotated, follow the complete five-schedule procedure in §8k.
+3. If the secret was rotated, follow the complete six-schedule procedure in §8l.
 4. Keep gates closed until an HTTP 200 provider-free authentication proof succeeds.
 
 ### Clerk sign-in fails or redirects repeatedly

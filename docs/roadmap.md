@@ -312,9 +312,10 @@ The campaign is **complete**, PLATFORM-086F2 included (the admin control-plane I
 `docs/architecture/admin-control-plane.md`, while the completed migration record is archived at
 `docs/archive/operations/admin-control-plane-f2-2026.md`). All provider automation shipped and activated: game-stats polling
 (15-minute), live-score polling (3-minute), Odds polling (hourly), weekly schedule maintenance +
-automatic presentation enrichment, and publication-aware rankings automation. Per-slice execution
+automatic presentation enrichment, publication-aware rankings automation, and hourly team-records
+freshness recovery. Per-slice execution
 records live in `docs/prompt-registry.md`; outcome milestones in `docs/completed-work.md`; current
-operator controls in `docs/deployment-runbook.md` §8e–§8k; historical activation evidence in
+operator controls in `docs/deployment-runbook.md` §8e–§8l; historical activation evidence in
 `docs/archive/operations/provider-activation-2026.md`.
 
 | Slice | What it owns | Status |

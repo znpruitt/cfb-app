@@ -1,5 +1,5 @@
 /**
- * PLATFORM-117 — one year-scoped CFBD team-record cache and refresh authority.
+ * PLATFORM-117/118 — one year-scoped CFBD team-record cache and refresh authority.
  *
  * The live-scores cron supplies an observed-finalisation signal; the independent
  * hourly team-records job supplies no such signal. A durable six-hour floor
@@ -20,6 +20,7 @@ import { randomUUID } from 'node:crypto';
 import { CFBD_PEAK_LATENCY_TIMEOUT_MS } from '../api/cfbdRequestPolicy.ts';
 import { fetchUpstreamJson, UpstreamFetchError } from '../api/fetchUpstream.ts';
 import { buildCfbdRecordsUrl } from '../cfbd.ts';
+import type { QuotaRefusalReason } from '../gameStats/quotaPolicy.ts';
 import { yearScope } from '../providerRefreshScope.ts';
 import { withAppStateKeyTransaction } from '../server/appStateStore.ts';
 import {
@@ -60,6 +61,7 @@ export type TeamRecordsRefreshReason =
   | 'cache-read-failed'
   | 'fresh-cache'
   | 'refresh-in-progress'
+  | `quota-${QuotaRefusalReason}`
   | 'cfbd-api-key-missing'
   | 'provider-fetch-failed'
   | 'invalid-payload'
@@ -77,7 +79,16 @@ export type TeamRecordsRefreshResult = {
   providerCallAttempted: boolean;
   rowsReceived: number;
   rowsCommitted: number;
+  quotaRemaining?: number | null;
 };
+
+export type TeamRecordsProviderGateResult =
+  | { kind: 'allowed' }
+  | {
+      kind: 'refused';
+      reason: `quota-${QuotaRefusalReason}`;
+      remaining: number | null;
+    };
 
 function isRefreshDue(params: {
   prior: TeamRecordsCacheEntry | null;
@@ -298,10 +309,17 @@ export async function refreshTeamRecords(params: {
    * intentionally omits this field. Clock-driven callers must pass `false`.
    */
   finalizationObserved?: boolean;
+  /**
+   * Optional caller-owned quota gate, invoked only after this authority proves a
+   * refresh is due, acquires the lease, opens the scoped attempt, and validates
+   * the provider credential. The live-scores caller already paid its quota gate;
+   * the hourly job supplies this hook so provider-free skips never probe quota.
+   */
+  beforeProviderCall?: () => Promise<TeamRecordsProviderGateResult>;
   /** Test-only clock seam; production always reads wall time at each decision point. */
   clock?: () => number;
 }): Promise<TeamRecordsRefreshResult> {
-  const { year, finalizationObserved = true, clock = Date.now } = params;
+  const { year, finalizationObserved = true, beforeProviderCall, clock = Date.now } = params;
   const now = clock();
 
   try {
@@ -358,6 +376,26 @@ export async function refreshTeamRecords(params: {
       });
       attemptResolved = true;
       return result('cfbd-api-key-missing');
+    }
+
+    if (beforeProviderCall) {
+      let gate: TeamRecordsProviderGateResult;
+      try {
+        gate = await beforeProviderCall();
+      } catch {
+        gate = { kind: 'refused', reason: 'quota-usage-unavailable', remaining: null };
+      }
+      if (gate.kind === 'refused') {
+        await recordProviderRefreshFailure('records', scope, {
+          attempt,
+          error: `records ${year}: ${gate.reason}`,
+          code: `records-${gate.reason}`,
+          status: 429,
+          durationMs: Date.now() - startedAt,
+        });
+        attemptResolved = true;
+        return result(gate.reason, { quotaRemaining: gate.remaining });
+      }
     }
 
     // Read the wall clock HERE, after settings/cache/status work and immediately
