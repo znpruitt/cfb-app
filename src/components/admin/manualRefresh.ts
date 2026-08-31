@@ -127,6 +127,10 @@ export function manualRefreshUrls(dataset: ProviderDataset, params: ManualRefres
       return [`/api/odds?year=${year}&refresh=1`];
     case 'rankings':
       return [`/api/rankings?year=${year}&bypassCache=1`];
+    case 'records':
+      // PLATFORM-117 ships automation + cache only; no speculative manual
+      // endpoint or UI consumer is part of this slice.
+      return [];
     case 'conferences':
       return [`/api/conferences?bypassCache=1`];
     case 'game-stats':

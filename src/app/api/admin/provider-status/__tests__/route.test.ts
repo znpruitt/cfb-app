@@ -131,13 +131,14 @@ test('GET returns one row per provider dataset with status, setting, and diagnos
     }>;
     globalPause: boolean;
   };
-  assert.equal(body.datasets.length, 6);
+  assert.equal(body.datasets.length, 7);
   const datasets = body.datasets.map((d) => d.dataset).sort();
   assert.deepEqual(datasets, [
     'conferences',
     'game-stats',
     'odds',
     'rankings',
+    'records',
     'schedule',
     'scores',
   ]);
@@ -158,11 +159,12 @@ test('POST set-global-pause persists and is reflected on the next GET', async ()
   assert.equal(body.globalPause, true);
 });
 
-test('POST set-dataset-enabled persists for CONSUMED datasets (game-stats, scores, odds, rankings)', async () => {
+test('POST set-dataset-enabled persists for consumed datasets', async () => {
   // Datasets with an EXISTING automatic job that consumes the toggle: game-stats
   // (PLATFORM-086H3E), scores (PLATFORM-086B2B live-score cron), odds
-  // (PLATFORM-086C2 Odds cron), and rankings (PLATFORM-086E2B publication cron).
-  for (const dataset of ['game-stats', 'scores', 'odds', 'rankings']) {
+  // (PLATFORM-086C2 Odds cron), rankings (PLATFORM-086E2B publication cron),
+  // and records (PLATFORM-117, inside the live-scores run).
+  for (const dataset of ['game-stats', 'scores', 'odds', 'rankings', 'records']) {
     const postRes = await POST(
       postRequest({ action: 'set-dataset-enabled', dataset, enabled: false })
     );
@@ -236,6 +238,7 @@ test('GET exposes a cacheStates map (absent for every dataset when nothing is ca
     'game-stats',
     'odds',
     'rankings',
+    'records',
     'schedule',
     'scores',
   ]);

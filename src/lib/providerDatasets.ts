@@ -21,6 +21,7 @@ export type ProviderDataset =
   | 'schedule'
   | 'odds'
   | 'rankings'
+  | 'records'
   | 'conferences'
   | 'game-stats';
 
@@ -29,6 +30,7 @@ export const PROVIDER_DATASETS: readonly ProviderDataset[] = [
   'schedule',
   'odds',
   'rankings',
+  'records',
   'conferences',
   'game-stats',
 ] as const;
@@ -64,9 +66,9 @@ export type ProviderDatasetDescriptor = {
   lifecycleCritical: boolean;
   /**
    * Whether an EXISTING automatic job consumes this dataset's auto-refresh
-   * enable/disable setting. Five do today: game stats, scores, Odds, ordinary
-   * schedule maintenance, and rankings. The panel uses this to avoid implying a
-   * toggle has an effect when no job consumes it (conferences).
+   * enable/disable setting. Six do today: game stats, scores, Odds, ordinary
+   * schedule maintenance, rankings, and team records. The panel uses this to
+   * avoid implying a toggle has an effect when no job consumes it (conferences).
    */
   autoRefreshSettingConsumed: boolean;
   /**
@@ -87,7 +89,7 @@ export const PROVIDER_DATASET_DESCRIPTORS: Record<ProviderDataset, ProviderDatas
     provider: 'CFBD',
     hasActiveAutomation: true,
     currentAutomation:
-      'Every 3 minutes (QStash `turfwar-live-scores-3m` → GET /api/cron/live-scores): schedule-armed, polling only kickoff-window games (~15 min before kickoff through 24 h after) while they remain unresolved — at most ONE billed CFBD /scoreboard or /games request per run, above the 1,000-call monthly reserve, honoring the global pause and the Scores auto-refresh toggle. Visible browser tabs refresh scores cache-only on the same 3-minute cadence while a live game is in window.',
+      'Every 3 minutes (QStash `turfwar-live-scores-3m` → GET /api/cron/live-scores): schedule-armed, polling only kickoff-window games (~15 min before kickoff through 24 h after) while they remain unresolved — at most ONE billed CFBD /scoreboard or /games score request per run, above the 1,000-call monthly reserve, honoring the global pause and the Scores auto-refresh toggle. A newly committed final can additionally trigger the separately tracked, six-hour-floor-gated Team records refresh. Visible browser tabs refresh scores cache-only on the same 3-minute cadence while a live game is in window.',
     plannedPolicy:
       'Active (PLATFORM-086B2B): fixed 3-minute schedule-armed cadence — the QStash schedule + browser refresh are version-controlled, not admin-editable; the auto-refresh toggle pauses/resumes the polling.',
     lifecycleCritical: false,
@@ -143,6 +145,21 @@ export const PROVIDER_DATASET_DESCRIPTORS: Record<ProviderDataset, ProviderDatas
     lifecycleCritical: false,
     autoRefreshSettingConsumed: true,
     // Weekly cadence (matches the diagnostics stale-rankings threshold).
+    staleAfterMs: 8 * DAY_MS,
+  },
+  records: {
+    dataset: 'records',
+    label: 'Team records',
+    provider: 'CFBD',
+    hasActiveAutomation: true,
+    currentAutomation:
+      'Triggered only after the live-scores cron durably commits a newly final game. A year-scoped durable cache and six-hour minimum interval cap the refresh at 124 calls in any 31-day month; the global pause + this Team records toggle gate it. Runs with no newly committed final make no records request.',
+    plannedPolicy:
+      'Active (PLATFORM-117): finalisation-triggered, at most one year-wide /records request per live-scores run, with a fixed six-hour floor and an eight-day staleness ceiling.',
+    lifecycleCritical: false,
+    autoRefreshSettingConsumed: true,
+    // The provider snapshot normally advances after finals. Eight days gives a
+    // full no-finals week before health marks the dataset stale.
     staleAfterMs: 8 * DAY_MS,
   },
   conferences: {

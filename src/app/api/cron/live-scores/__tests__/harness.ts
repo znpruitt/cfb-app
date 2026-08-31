@@ -86,10 +86,11 @@ export async function seedScoreEntry(
   });
 }
 
-/** Stub CFBD: `/info` usage, `/scoreboard`, `/games`; records requested URLs. */
+/** Stub CFBD: `/info`, `/scoreboard`, `/games`, `/records`; records requested URLs. */
 export function stubProvider(opts: {
   scoreboard?: unknown;
   games?: unknown;
+  records?: unknown;
   remainingCalls?: number;
 }): { urls: string[] } {
   const urls: string[] = [];
@@ -100,6 +101,7 @@ export function stubProvider(opts: {
     if (url.includes('/info'))
       body = { patronLevel: 1, remainingCalls: opts.remainingCalls ?? 4000 };
     else if (url.includes('/scoreboard')) body = opts.scoreboard ?? [];
+    else if (url.includes('/records')) body = opts.records ?? [];
     else if (url.includes('/games')) body = opts.games ?? [];
     else throw new Error(`unexpected url ${url}`);
     return new Response(JSON.stringify(body), {

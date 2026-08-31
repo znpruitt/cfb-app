@@ -22,6 +22,13 @@ export function buildCfbdConferencesUrl(): URL {
   return new URL('https://api.collegefootballdata.com/conferences');
 }
 
+/** CFBD `GET /records` — one unfiltered, year-wide team-record snapshot. */
+export function buildCfbdRecordsUrl(params: { year: number }): URL {
+  const url = new URL('https://api.collegefootballdata.com/records');
+  url.searchParams.set('year', String(params.year));
+  return url;
+}
+
 /**
  * CFBD `GET /games/media` (PLATFORM-086E1C1 schedule presentation). Deliberately
  * year-wide with NO classification filter: the response is filtered afterward

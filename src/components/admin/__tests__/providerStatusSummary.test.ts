@@ -16,6 +16,7 @@ import { yearScope } from '../../../lib/providerRefreshScope.ts';
 const NOW = Date.parse('2026-10-15T12:00:00.000Z');
 const scores = getProviderDatasetDescriptor('scores');
 const gameStats = getProviderDatasetDescriptor('game-stats');
+const records = getProviderDatasetDescriptor('records');
 const conferences = getProviderDatasetDescriptor('conferences');
 
 function status(overrides: Partial<ProviderRefreshStatus> = {}): ProviderRefreshStatus {
@@ -221,6 +222,21 @@ test('the stale window is per-dataset: a 5-day-old success is stale for scores b
   assert.deepEqual(summarize(s, { descriptor: conferences }), {
     label: 'Successfully refreshed',
     tone: 'ok',
+  });
+});
+
+test('records reaches its eight-day stale ceiling when no finalisation opens a newer attempt', () => {
+  const olderThanCeiling = new Date(NOW - 8 * 86_400_000 - 1).toISOString();
+  const s = {
+    ...emptyProviderRefreshStatus('records', yearScope(2026)),
+    lastAttemptAt: olderThanCeiling,
+    latestAttemptOutcome: 'succeeded' as const,
+    lastSuccessAt: olderThanCeiling,
+  };
+
+  assert.deepEqual(summarize(s, { descriptor: records, cacheState: 'available' }), {
+    label: 'Successfully refreshed but now stale',
+    tone: 'warn',
   });
 });
 

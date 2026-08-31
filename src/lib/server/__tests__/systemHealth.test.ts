@@ -90,15 +90,15 @@ function allAvailable() {
   return states;
 }
 
-// Case 1 — seven scheduler jobs + six datasets remain separate collections.
-test('model exposes exactly seven scheduler jobs and six datasets', async () => {
+// Case 1 — seven scheduler jobs + seven datasets remain separate collections.
+test('model exposes exactly seven scheduler jobs and seven datasets', async () => {
   const model = await buildSystemHealthViewModel({
     year: YEAR,
     nowMs: NOW,
     loaders: healthyLoaders(),
   });
   assert.equal(model.schedulerJobs.length, 7);
-  assert.equal(model.datasets.length, 6);
+  assert.equal(model.datasets.length, 7);
   assert.deepEqual(
     model.schedulerJobs.map((j) => j.job),
     [...EXTERNAL_SCHEDULER_JOBS]
@@ -161,7 +161,7 @@ test('scheduler scope-read failure → seven unavailable rows, one global issue'
 });
 
 // Case 12 — provider-status scope-read failure degrades without throwing the model.
-test('provider-status scope-read failure → unavailable facts, six datasets, model still builds', async () => {
+test('provider-status scope-read failure → unavailable facts, seven datasets, model still builds', async () => {
   const model = await buildSystemHealthViewModel({
     year: YEAR,
     nowMs: NOW,
@@ -173,7 +173,7 @@ test('provider-status scope-read failure → unavailable facts, six datasets, mo
         }),
     }),
   });
-  assert.equal(model.datasets.length, 6);
+  assert.equal(model.datasets.length, 7);
   assert.ok(model.datasets.every((d) => d.canonicalStatus.state === 'unavailable'));
   assert.equal(model.issues.filter((i) => i.code === 'provider-status-unavailable').length, 1);
 });

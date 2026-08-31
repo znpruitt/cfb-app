@@ -22,6 +22,10 @@ import { getAppState, getAppStateEntries } from './appStateStore.ts';
 import { listCachedGameStats } from '../gameStats/cache.ts';
 import { usableGameStatsGameIds } from '../gameStats/coverage.ts';
 import { PROVIDER_DATASETS, type ProviderDataset } from '../providerDatasets.ts';
+import {
+  normalizeTeamRecordsCacheEntry,
+  TEAM_RECORDS_STATE_SCOPE,
+} from '../teamRecords/teamRecordsCache.ts';
 
 export type ProviderCacheAvailability = 'available' | 'absent' | 'unknown';
 
@@ -43,7 +47,7 @@ async function probe(fn: () => Promise<boolean>): Promise<ProviderCacheAvailabil
  * rule).
  */
 export async function getProviderCacheStates(year: number): Promise<ProviderCacheStates> {
-  const [scores, schedule, odds, rankings, conferences, gameStats] = await Promise.all([
+  const [scores, schedule, odds, rankings, records, conferences, gameStats] = await Promise.all([
     probe(async () => {
       const entries = await getAppStateEntries<ScoresCacheEntry>('scores', `${year}-`);
       return entries.some((entry) => (entry.value.items?.length ?? 0) > 0);
@@ -65,6 +69,10 @@ export async function getProviderCacheStates(year: number): Promise<ProviderCach
       return Array.isArray(weeks) && weeks.length > 0;
     }),
     probe(async () => {
+      const rec = await getAppState<unknown>(TEAM_RECORDS_STATE_SCOPE, String(year));
+      return (normalizeTeamRecordsCacheEntry(rec?.value, year)?.items.length ?? 0) > 0;
+    }),
+    probe(async () => {
       const rec = await getAppState<{ items?: unknown[] }>('conferences', 'snapshot');
       return (rec?.value?.items?.length ?? 0) > 0;
     }),
@@ -81,6 +89,7 @@ export async function getProviderCacheStates(year: number): Promise<ProviderCach
     schedule,
     odds,
     rankings,
+    records,
     conferences,
     'game-stats': gameStats,
   };
