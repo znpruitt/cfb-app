@@ -247,10 +247,12 @@ against the REAL schedule?"* cannot be answered there. The `cfb-audit-read-repli
   ROLE rather than the endpoint: `SELECT` returned rows; `INSERT`, `UPDATE`, `DELETE` and
   `CREATE TABLE` were all refused. Re-run that probe rather than assuming it, since the safety of
   handing this to tooling rests on it.
-- **`audit_ro` is created by SQL, not by the Neon console**, so it is not a member of
-  `neon_superuser` and does not appear in the console's managed-roles list. Rotate it with
-  `ALTER ROLE audit_ro WITH PASSWORD ...` through `DATABASE_URL`. **Rotating it never touches the
-  application credential** — which is the point: on 2026-08-31 a `neondb_owner` rotation took
+- **`audit_ro` was created by SQL rather than the console**, which matters for privileges, not
+  visibility — it DOES appear under Branches → `main` → Roles. Verified 2026-08-31: it is **not** a
+  member of `neon_superuser` (unlike `neondb_owner`), owns nothing, and carries no `SUPERUSER`,
+  `CREATEROLE`, `CREATEDB`, `BYPASSRLS` or `REPLICATION` attribute. Rotate it from the console or
+  with `ALTER ROLE audit_ro WITH PASSWORD ...` through `DATABASE_URL`. **Rotating it never touches
+  the application credential** — which is the point: on 2026-08-31 a `neondb_owner` rotation took
   production's DB routes down until a redeploy, and that class of outage should never be the price
   of rotating an operator credential.
 
