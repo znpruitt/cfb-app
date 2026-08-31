@@ -30,9 +30,9 @@ export type LiveGameDelta = {
 /**
  * Per-owner pending diff aggregated from in-progress games only. `pendingWins`
  * counts in-progress games where the owner is currently leading; a tied game
- * contributes a zero-decision delta so consumers can still render `+0–0`.
- * Final games are intentionally excluded — those are already reflected in the
- * canonical snapshot.
+ * or a live score awaiting numeric points contributes a zero-decision delta so
+ * consumers can still render `+0–0`. Final games are intentionally excluded —
+ * those are already reflected in the canonical snapshot.
  */
 export type LivePendingOwnerDelta = {
   owner: string;
@@ -116,11 +116,17 @@ export function selectLiveDelta(input: SelectLiveDeltaInput): LiveDelta {
 
     if (status !== 'inprogress' || !score) continue;
 
+    const { awayOwner, homeOwner } = getGameOwners(game, rosterByTeam);
+    if (awayOwner && awayOwner !== NO_CLAIM_OWNER) {
+      ensurePendingOwner(byOwner, awayOwner);
+    }
+    if (homeOwner && homeOwner !== NO_CLAIM_OWNER) {
+      ensurePendingOwner(byOwner, homeOwner);
+    }
+
     const awayScore = score.away.score;
     const homeScore = score.home.score;
     if (awayScore == null || homeScore == null) continue;
-
-    const { awayOwner, homeOwner } = getGameOwners(game, rosterByTeam);
 
     if (awayOwner && awayOwner !== NO_CLAIM_OWNER) {
       const isLeading = awayScore > homeScore;
@@ -168,13 +174,7 @@ function accumulatePending(
   owner: string,
   contribution: { win: number; loss: number; pointsFor: number; pointsAgainst: number }
 ): void {
-  const existing = byOwner[owner] ?? {
-    owner,
-    pendingWins: 0,
-    pendingLosses: 0,
-    pendingPointsFor: 0,
-    pendingPointsAgainst: 0,
-  };
+  const existing = ensurePendingOwner(byOwner, owner);
   byOwner[owner] = {
     owner,
     pendingWins: existing.pendingWins + contribution.win,
@@ -182,6 +182,24 @@ function accumulatePending(
     pendingPointsFor: existing.pendingPointsFor + contribution.pointsFor,
     pendingPointsAgainst: existing.pendingPointsAgainst + contribution.pointsAgainst,
   };
+}
+
+function ensurePendingOwner(
+  byOwner: Record<string, LivePendingOwnerDelta>,
+  owner: string
+): LivePendingOwnerDelta {
+  const existing = byOwner[owner];
+  if (existing) return existing;
+
+  const pending = {
+    owner,
+    pendingWins: 0,
+    pendingLosses: 0,
+    pendingPointsFor: 0,
+    pendingPointsAgainst: 0,
+  };
+  byOwner[owner] = pending;
+  return pending;
 }
 
 function deriveIsStale(lastFetchedAt: string | null, now: number, thresholdMs: number): boolean {
@@ -194,7 +212,7 @@ function deriveIsStale(lastFetchedAt: string | null, now: number, thresholdMs: n
 /**
  * Resolves the last-known pending delta for one owner without making a
  * freshness claim. A zero-decision delta is meaningful here: it represents an
- * in-progress game that is currently tied.
+ * in-progress game that is currently tied or awaiting numeric scores.
  *
  * Consumers must pair this accessor with their own current game-state gate.
  * That keeps stale-score policy honest: the delta decides what a badge says,
@@ -239,8 +257,8 @@ export function selectOwnersWithInProgressGames(input: {
  *  - stale overlays are suppressed (`liveDelta.isStale`),
  *  - a missing owner / missing delta yields `null`,
  *  - `NoClaim` is never annotated,
- *  - a zero-decision delta (no pending wins or losses — e.g. only tied
- *    in-progress games) yields `null`.
+ *  - a zero-decision delta (no pending wins or losses — e.g. only tied or
+ *    score-unavailable in-progress games) yields `null`.
  *
  * This is a pure read of the overlay; it never mutates canonical rows and does
  * not compute projected rank/record/win%/differential.

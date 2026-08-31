@@ -8,7 +8,7 @@ import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../.
 import { deriveLeagueInsights, deriveOverviewInsights } from '../../lib/selectors/insights';
 import { TREND_EMPTY_MESSAGE } from '../../lib/trendEmptyState';
 import { selectSeasonContext, type SeasonContext } from '../../lib/selectors/seasonContext';
-import type { LiveDelta } from '../../lib/selectors/liveDelta';
+import { selectLiveDelta, type LiveDelta } from '../../lib/selectors/liveDelta';
 import { deriveStandingsCoverage } from '../../lib/standings';
 import type { OwnerStandingsRow, StandingsCoverage } from '../../lib/standings';
 import type { StandingsHistory } from '../../lib/standingsHistory';
@@ -2337,6 +2337,31 @@ test('overview top-N badge renders +0–0 for a tied live game', () => {
   });
   assert.match(html, /data-overview-live-pending="0-0"/);
   assert.match(html, /\+0–0/);
+});
+
+test('overview top-N badge renders +0–0 when a live score is temporarily unavailable', () => {
+  const unavailableScores: Record<string, ScorePack> = {
+    'overview-pending': {
+      status: 'In Progress',
+      away: { team: 'Texas', score: null },
+      home: { team: 'Rice', score: null },
+      time: 'Start delayed',
+    },
+  };
+  const liveDelta = selectLiveDelta({
+    canonical: null,
+    scoresByKey: unavailableScores,
+    games: [overviewPendingGame],
+    rosterByTeam: overviewPendingRoster,
+    weekKey: '2026:3',
+    lastFetchedAt: '2026-10-01T00:00:00.000Z',
+    now: Date.parse('2026-10-01T00:01:00.000Z'),
+  });
+  const html = renderOverview({ liveDelta, scoresByKey: unavailableScores });
+
+  assert.match(html, /data-overview-live-pending="0-0"/);
+  assert.match(html, /\+0–0/);
+  assert.doesNotMatch(html, /\d+ live/);
 });
 
 test('overview top-N badge clears on final while holding the same stale delta', () => {

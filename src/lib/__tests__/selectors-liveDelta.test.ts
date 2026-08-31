@@ -193,6 +193,39 @@ test('selectLiveDelta does not credit pending W/L for tied in-progress scores bu
   assert.equal(result.byOwner.Bob?.pendingPointsAgainst, 14);
 });
 
+test('selectLiveDelta preserves a zero-decision owner delta when an in-progress score is unavailable', () => {
+  const g = game({ key: 'gu', csvAway: 'Texas', csvHome: 'Rice' });
+  const roster = new Map<string, string>([
+    ['Texas', 'Alice'],
+    ['Rice', 'Bob'],
+  ]);
+
+  const result = selectLiveDelta({
+    canonical: null,
+    scoresByKey: { gu: score('In Progress', null, null) },
+    games: [g],
+    rosterByTeam: roster,
+    weekKey: '2026:3',
+    lastFetchedAt: new Date(FIXED_NOW).toISOString(),
+    now: FIXED_NOW,
+  });
+
+  assert.deepEqual(result.byOwner.Alice, {
+    owner: 'Alice',
+    pendingWins: 0,
+    pendingLosses: 0,
+    pendingPointsFor: 0,
+    pendingPointsAgainst: 0,
+  });
+  assert.deepEqual(result.byOwner.Bob, {
+    owner: 'Bob',
+    pendingWins: 0,
+    pendingLosses: 0,
+    pendingPointsFor: 0,
+    pendingPointsAgainst: 0,
+  });
+});
+
 test('selectLiveDelta records final games as final and emits no pending owner stats for them', () => {
   const g = game({ key: 'gf', csvAway: 'Texas', csvHome: 'Rice' });
   const roster = new Map<string, string>([
