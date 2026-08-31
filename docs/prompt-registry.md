@@ -1,7 +1,7 @@
 # Prompt Registry
 
 Status: Current ledger
-Last verified: 2026-08-30
+Last verified: 2026-08-31
 Owner: Project documentation
 Canonical for: prompt ledger / historical implementation record (not an active backlog)
 Supersedes: (none)
@@ -50,6 +50,24 @@ Rules:
 ---
 
 ## Prompt ledger (most recent first)
+
+### POLISH-018-LIVE-STATUS-TREATMENT-v1
+
+- Purpose: replace the partial green-live/amber-live conversion with one shared status-label
+  treatment and re-cut final status from green to neutral.
+- Scope: `gameUi.ts`, `CompactGameScoreboard`, Matchups, Members, Overview, and focused coverage.
+  Schedule and recap stayed unchanged; Item 87 slice 5 owns the accepted Schedule residual.
+- Outcome: one borderless uppercase label now supplies live emerald plus a static dot, neutral final,
+  sky scheduled, and dimmer accessible unknown tones. Matchups consumes the same shape with its
+  neutral freshness-gated pulse. The dead `statusClasses` and all three bespoke consumer class
+  helpers were deleted.
+- Review / verification: exact code commit `db147036` passed `npm run lint`, TypeScript, and the
+  4,476-test full suite. Four test declarations were added relative to `main`; existing render
+  assertions were retargeted without removing coverage. Reverting unknown to zinc-500 failed on
+  `unknown label must use dimmer accessible zinc`. Independent Codex and Claude reviews found the
+  same contrast gap; one remediation closed it, and confirmation left no credible in-scope
+  P0/P1/P2 after the settled Matchups and source-token requirements were applied.
+- Status: Implemented — PR #541 open; merge pending.
 
 ### PLATFORM-116-STANDINGS-LIVE-SIGNAL-v1
 

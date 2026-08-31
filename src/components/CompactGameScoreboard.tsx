@@ -1,5 +1,6 @@
 import React from 'react';
 
+import { gameStatusLabelPresentation } from '../lib/gameUi';
 import { rankSourceLabel, type RankSource } from '../lib/rankings';
 
 export type CompactScoreboardParticipant = {
@@ -47,6 +48,7 @@ export default function CompactGameScoreboard({
     { side: 'home' as const, participant: home },
   ];
   const clockLabel = clock?.trim() ?? '';
+  const statusLabel = gameStatusLabelPresentation(state);
 
   return (
     <article
@@ -64,13 +66,9 @@ export default function CompactGameScoreboard({
         className="mb-1.5 flex items-center gap-2 overflow-hidden whitespace-nowrap text-xs dark:text-zinc-500"
         data-scoreboard-header
       >
-        <span
-          className={`inline-flex shrink-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${
-            state === 'live' ? 'dark:text-emerald-400' : 'dark:text-zinc-400'
-          }`}
-        >
-          {state === 'live' ? (
-            <span className="size-1.5 rounded-full bg-current" aria-hidden="true" />
+        <span className={statusLabel.className}>
+          {statusLabel.dotClassName ? (
+            <span className={statusLabel.dotClassName} aria-hidden="true" />
           ) : null}
           {state === 'live' ? 'Live' : 'Final'}
         </span>

@@ -1,5 +1,6 @@
 import React from 'react';
 
+import { gameStatusLabelPresentation, type GameStatusLabelTone } from '../lib/gameUi';
 import type { OwnerRosterRow, OwnerViewSnapshot } from '../lib/ownerView';
 import type { TeamRankingEnrichment } from '../lib/rankings';
 import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
@@ -31,17 +32,28 @@ function formatKickoff(date: string | null, timeZone: string): string {
   });
 }
 
-function toneClasses(status: OwnerRosterRow['currentStatus']): string {
-  if (status === 'Live') {
-    return 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300';
-  }
-  if (status === 'Final') {
-    return 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300';
-  }
-  if (status === 'Awaiting score') {
-    return 'border-gray-300 bg-gray-100 text-gray-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200';
-  }
-  return 'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300';
+function ownerStatusTone(status: OwnerRosterRow['currentStatus']): GameStatusLabelTone {
+  if (status === 'Live') return 'live';
+  if (status === 'Final') return 'final';
+  if (status === 'Awaiting score') return 'unknown';
+  return 'scheduled';
+}
+
+function OwnerStatusLabel({
+  status,
+}: {
+  status: OwnerRosterRow['currentStatus'];
+}): React.ReactElement {
+  const presentation = gameStatusLabelPresentation(ownerStatusTone(status));
+
+  return (
+    <span className={presentation.className}>
+      {presentation.dotClassName ? (
+        <span className={presentation.dotClassName} aria-hidden="true" />
+      ) : null}
+      {status}
+    </span>
+  );
 }
 
 function SectionCard({
@@ -166,11 +178,7 @@ function OwnerRosterTable({
                   {renderNextGameCell(row, timeZone, rankingsByTeamId)}
                 </td>
                 <td className="border-b border-gray-100 px-2 py-2 sm:px-3 dark:border-zinc-800">
-                  <span
-                    className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${toneClasses(row.currentStatus)}`}
-                  >
-                    {row.currentStatus}
-                  </span>
+                  <OwnerStatusLabel status={row.currentStatus} />
                 </td>
               </tr>
             ))}
@@ -194,11 +202,7 @@ function OwnerRosterTable({
                 </h3>
                 <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">Record {row.record}</p>
               </div>
-              <span
-                className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${toneClasses(row.currentStatus)}`}
-              >
-                {row.currentStatus}
-              </span>
+              <OwnerStatusLabel status={row.currentStatus} />
             </div>
             <div className="mt-3 rounded-md border border-gray-200 bg-gray-50/80 px-3 py-2 text-sm text-gray-700 dark:border-zinc-800 dark:bg-zinc-900/70 dark:text-zinc-200">
               {renderNextGameCell(row, timeZone, rankingsByTeamId)}

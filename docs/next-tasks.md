@@ -38,9 +38,8 @@ campaign straight through.
 4. **Item 87 slice 4** — Watchlist, consuming records.
 
 Runnable at any point, no dependency on the above: **Item 42 portion 1** (notable-result
-scoreboards, now unblocked by POLISH-017's final variant), **Item 90** (live-amber sweep, now
-unblocked by PLATFORM-116), **Item 84** (provider-classification diagnostic), and **Item 86**
-(archive audit integrity check).
+scoreboards, now unblocked by POLISH-017's final variant), **Item 84** (provider-classification
+diagnostic), and **Item 86** (archive audit integrity check).
 
 Gated: **Item 85** after 86, which is how the repair gets verified.
 **INSIGHTS-017-PALETTE** before precedence-reason hues matter; Item 87 renders them neutral until
@@ -899,39 +898,6 @@ Acceptance boundary:
   scoring stopping — proven by suppressing the writer in a test, not by reasoning about thresholds.
 - Outside the kickoff window, a multi-day gap does not raise an issue.
 - The row never reads healthy while an active issue names that same dataset.
-
-### Item 90 — shared status label and the `final` re-cut (narrowed 2026-08-30)
-
-Spun off from Item 87 so an information-architecture rework is not folded into a presentation fix
-(`AGENTS.md`). Extract Overview's live treatment (`CompactGameScoreboard.tsx:66-77` — borderless
-uppercase text carrying the hue, `size-1.5` dot for live) into one shared status label in
-`src/lib/gameUi.ts`, adopt it on the surfaces with no rework planned, and re-cut `final` from
-emerald to neutral.
-
-**Narrowed when Item 87 slice 5 was filed.** Schedule's colour is absorbed by that rework, so this
-item no longer touches `GameScoreboard.tsx` or `GameWeekPanel.tsx` — converting a pill slice 5
-deletes is throwaway work. Accepted residual: Schedule keeps green-`final` and amber-live until
-slice 5 lands.
-
-Sites: `OwnerPanel.tsx` `toneClasses:34-44` (rendered `:170`, `:198`); `MatchupsWeekPanel.tsx`
-status text `:266` + dot `:271`, `performanceClasses:80-93`, `ownerCardSurfaceClasses:125-129`, and
-the `inprogress` branch of `ownerOutcomeRowClasses` (`:110-111`) **only**; `OverviewPanel.tsx`
-`stateBadgeClasses:176-182` (rendered `:816`); `CompactGameScoreboard.tsx:66-77` becomes a consumer
-of the extracted label. `gameUi.ts:70-87` `statusClasses` is dead — delete it; the shared label
-takes its place.
-
-`MatchupsWeekPanel` keeps a **neutral** live label with its existing pulse: that component spends
-green on `finalWin` (`:113`, against `finalLoss`:115 rose), so an emerald live label would put green
-on two meanings in one component (`DESIGN.md:139-141`). `DESIGN.md:321` already scopes green to the
-compact-scoreboard family, so this is not an exception.
-
-**Two corrections to the earlier entry.** POLISH-016/017 removed Overview's live-amber and
-`stateBadgeClasses` green-final from the Live and Featured sections only — the _Upcoming watchlist_
-still calls `stateBadgeClasses` at `OverviewPanel.tsx:816`, so Overview **is** in scope. And
-`GameWeekPanel.tsx:42` was listed as a live site when that line is `cardEmphasisClasses` `upset`,
-alongside `upset_watch`→orange and `top_25_matchup`→indigo. It is emphasis, not state.
-
-- Backlog slug: `POLISH-LIVE-STATUS-TREATMENT-v1`
 
 ### Item 92 — CFBD team-records integration
 

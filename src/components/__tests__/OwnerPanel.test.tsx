@@ -190,6 +190,15 @@ test('owner panel shows live, final, and upcoming week-row detail correctly', ()
   assert.match(html, /Texas 20 - 17 Georgia/);
   assert.match(html, /Oregon 24 - 20 Washington/);
   assert.match(html, /Thu, Sep 3, 5:00 PM/);
+  assert.match(
+    html,
+    /dark:text-emerald-400"><span class="size-1\.5 rounded-full bg-current" aria-hidden="true"><\/span>Live<\/span>/,
+    'live owner status must use the shared emerald label and dot'
+  );
+  assert.match(html, /dark:text-zinc-300">Final<\/span>/);
+  assert.match(html, /dark:text-sky-400">Upcoming<\/span>/);
+  assert.match(html, /dark:text-zinc-400">Awaiting score<\/span>/);
+  assert.doesNotMatch(html, /amber/);
 });
 
 test('owner panel renders season-complete messaging without week rows', () => {
