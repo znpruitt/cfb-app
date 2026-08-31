@@ -67,7 +67,7 @@ Rules:
   `unknown label must use dimmer accessible zinc`. Independent Codex and Claude reviews found the
   same contrast gap; one remediation closed it, and confirmation left no credible in-scope
   P0/P1/P2 after the settled Matchups and source-token requirements were applied.
-- Status: Implemented — PR #541 open; merge pending.
+- Status: Merged via PR #541 (merge commit `9a45e1f3`), 2026-08-31.
 
 ### PLATFORM-116-STANDINGS-LIVE-SIGNAL-v1
 
