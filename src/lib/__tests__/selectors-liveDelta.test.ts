@@ -5,6 +5,8 @@ import {
   DEFAULT_LIVE_DELTA_STALE_THRESHOLD_MS,
   selectFreshOwnerPendingDelta,
   selectLiveDelta,
+  selectOwnerPendingDelta,
+  selectOwnersWithInProgressGames,
 } from '../selectors/liveDelta.ts';
 import type { LiveDelta } from '../selectors/liveDelta.ts';
 import type { AppGame } from '../schedule.ts';
@@ -191,6 +193,39 @@ test('selectLiveDelta does not credit pending W/L for tied in-progress scores bu
   assert.equal(result.byOwner.Bob?.pendingPointsAgainst, 14);
 });
 
+test('selectLiveDelta preserves a zero-decision owner delta when an in-progress score is unavailable', () => {
+  const g = game({ key: 'gu', csvAway: 'Texas', csvHome: 'Rice' });
+  const roster = new Map<string, string>([
+    ['Texas', 'Alice'],
+    ['Rice', 'Bob'],
+  ]);
+
+  const result = selectLiveDelta({
+    canonical: null,
+    scoresByKey: { gu: score('In Progress', null, null) },
+    games: [g],
+    rosterByTeam: roster,
+    weekKey: '2026:3',
+    lastFetchedAt: new Date(FIXED_NOW).toISOString(),
+    now: FIXED_NOW,
+  });
+
+  assert.deepEqual(result.byOwner.Alice, {
+    owner: 'Alice',
+    pendingWins: 0,
+    pendingLosses: 0,
+    pendingPointsFor: 0,
+    pendingPointsAgainst: 0,
+  });
+  assert.deepEqual(result.byOwner.Bob, {
+    owner: 'Bob',
+    pendingWins: 0,
+    pendingLosses: 0,
+    pendingPointsFor: 0,
+    pendingPointsAgainst: 0,
+  });
+});
+
 test('selectLiveDelta records final games as final and emits no pending owner stats for them', () => {
   const g = game({ key: 'gf', csvAway: 'Texas', csvHome: 'Rice' });
   const roster = new Map<string, string>([
@@ -317,6 +352,26 @@ test('selectLiveDelta marks isStale=false when lastFetchedAt is within the thres
   assert.equal(result.isStale, false);
 });
 
+test('selectOwnersWithInProgressGames follows current score state and canonical ownership', () => {
+  const liveGame = game({ key: 'live', csvAway: 'Texas', csvHome: 'Rice' });
+  const finalGame = game({ key: 'final', csvAway: 'Baylor', csvHome: 'TCU' });
+  const owners = selectOwnersWithInProgressGames({
+    games: [liveGame, finalGame],
+    scoresByKey: {
+      live: score('In Q3', 21, 21),
+      final: score('Final', 28, 14, { awayTeam: 'Baylor', homeTeam: 'TCU' }),
+    },
+    rosterByTeam: new Map([
+      ['Texas', 'Alice'],
+      ['Rice', 'NoClaim'],
+      ['Baylor', 'Bob'],
+      ['TCU', 'Carol'],
+    ]),
+  });
+
+  assert.deepEqual([...owners], ['Alice']);
+});
+
 // ---------------------------------------------------------------------------
 // PLATFORM-046 — selectFreshOwnerPendingDelta: the shared "Live this week"
 // pending-badge selector used by both Standings and the Members owner header.
@@ -339,6 +394,31 @@ function liveDelta(
     isStale: opts.isStale ?? false,
   };
 }
+
+test('selectOwnerPendingDelta returns a stale last-known delta', () => {
+  const delta = selectOwnerPendingDelta(
+    liveDelta({ Alice: { pendingWins: 1, pendingLosses: 0 } }, { isStale: true }),
+    'Alice'
+  );
+  assert.equal(delta?.pendingWins, 1);
+  assert.equal(delta?.pendingLosses, 0);
+});
+
+test('selectOwnerPendingDelta preserves a tied game as a zero-decision delta', () => {
+  const delta = selectOwnerPendingDelta(
+    liveDelta({ Alice: { pendingWins: 0, pendingLosses: 0 } }),
+    'Alice'
+  );
+  assert.equal(delta?.pendingWins, 0);
+  assert.equal(delta?.pendingLosses, 0);
+});
+
+test('selectOwnerPendingDelta rejects missing owners and NoClaim', () => {
+  const delta = liveDelta({ NoClaim: { pendingWins: 1, pendingLosses: 0 } });
+  assert.equal(selectOwnerPendingDelta(delta, 'Alice'), null);
+  assert.equal(selectOwnerPendingDelta(delta, 'NoClaim'), null);
+  assert.equal(selectOwnerPendingDelta(null, 'Alice'), null);
+});
 
 test('selectFreshOwnerPendingDelta returns a fresh, nonzero pending delta for the owner', () => {
   const delta = selectFreshOwnerPendingDelta(

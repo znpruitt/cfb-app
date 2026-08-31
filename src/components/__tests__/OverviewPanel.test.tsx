@@ -8,7 +8,7 @@ import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../.
 import { deriveLeagueInsights, deriveOverviewInsights } from '../../lib/selectors/insights';
 import { TREND_EMPTY_MESSAGE } from '../../lib/trendEmptyState';
 import { selectSeasonContext, type SeasonContext } from '../../lib/selectors/seasonContext';
-import type { LiveDelta } from '../../lib/selectors/liveDelta';
+import { selectLiveDelta, type LiveDelta } from '../../lib/selectors/liveDelta';
 import { deriveStandingsCoverage } from '../../lib/standings';
 import type { OwnerStandingsRow, StandingsCoverage } from '../../lib/standings';
 import type { StandingsHistory } from '../../lib/standingsHistory';
@@ -482,7 +482,7 @@ test('overview panel renders league highlights and standings without matrix tabl
   assert.doesNotMatch(html, /League snapshot/);
 });
 
-test('overview standings emphasize leader row and show live count when available', () => {
+test('overview standings emphasize leader row and use the pending badge as the only live signal', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
       games={[game({ key: 'live-1', csvAway: 'Texas', csvHome: 'Rice' })]}
@@ -520,13 +520,19 @@ test('overview standings emphasize leader row and show live count when available
       keyMatchups={[]}
       context={defaultContext}
       displayTimeZone="UTC"
+      liveDelta={overviewLiveDelta({
+        Alice: { pendingWins: 1, pendingLosses: 0 },
+        Bob: { pendingWins: 0, pendingLosses: 1 },
+      })}
     />
   );
 
   // The leader is surfaced as the rank-1 podium card and the top standings row;
-  // the live count badge appears for owners with in-progress games.
+  // the pending badge is the row's one live signal (the count pill is gone).
   assert.match(html, /#1[\s\S]*?Alice/);
-  assert.match(html, /1 live/);
+  assert.match(html, /data-overview-live-pending="1-0"/);
+  assert.match(html, /data-overview-live-pending="0-1"/);
+  assert.doesNotMatch(html, /1 live/);
 });
 
 test('overview panel summary shows in-season leader, record, and win percentage', () => {
@@ -2188,10 +2194,10 @@ test('overview panel renders trends detail link in League Trends section', () =>
 });
 
 // ---------------------------------------------------------------------------
-// PLATFORM-051 — Overview Top-N standings rows show a presentation-only
-// liveDelta pending W–L badge (same helper/copy as Standings/Members). It never
-// changes canonical row values or order; the existing "{n} live" pill is a
-// separate signal and stays.
+// PLATFORM-051 / PLATFORM-116 — Overview Top-N standings rows show a
+// presentation-only liveDelta pending W–L badge. Current game state decides
+// whether it renders; the delta decides what it says. Canonical row values and
+// order stay untouched.
 // ---------------------------------------------------------------------------
 
 function overviewLiveDelta(
@@ -2212,12 +2218,38 @@ function overviewLiveDelta(
   };
 }
 
+const overviewPendingGame = game({
+  key: 'overview-pending',
+  csvAway: 'Texas',
+  csvHome: 'Rice',
+});
+
+const overviewPendingScores: Record<string, ScorePack> = {
+  'overview-pending': {
+    status: 'In Progress',
+    away: { team: 'Texas', score: 14 },
+    home: { team: 'Rice', score: 10 },
+    time: '07:11',
+  },
+};
+
+const overviewPendingRoster = new Map([
+  ['Texas', 'Alice'],
+  ['Rice', 'Bob'],
+]);
+
 function renderOverview(props: {
   liveDelta?: LiveDelta | null;
   standingsLeaders?: OwnerStandingsRow[];
+  games?: AppGame[];
+  scoresByKey?: Record<string, ScorePack>;
+  rosterByTeam?: Map<string, string>;
 }): string {
   return renderToStaticMarkup(
     <OverviewPanel
+      games={props.games ?? [overviewPendingGame]}
+      scoresByKey={props.scoresByKey ?? overviewPendingScores}
+      rosterByTeam={props.rosterByTeam ?? overviewPendingRoster}
       standingsLeaders={props.standingsLeaders ?? standingsLeaders}
       standingsCoverage={coverage}
       matchupMatrix={matchupMatrix}
@@ -2265,15 +2297,31 @@ test('overview top-N badge aggregates multiple live games into one badge', () =>
   assert.match(html, /data-overview-live-pending="2-1"/);
 });
 
-test('overview top-N badge is suppressed for stale liveDelta', () => {
+test('overview top-N badge holds the last-known delta while the current game remains live', () => {
   const html = renderOverview({
     liveDelta: overviewLiveDelta(
       { Alice: { pendingWins: 1, pendingLosses: 0 } },
       { isStale: true }
     ),
   });
-  assert.doesNotMatch(html, /data-overview-live-pending/);
+  assert.match(html, /data-overview-live-pending="1-0"/);
   assert.match(html, /4–1/);
+});
+
+test('overview top-N badge replaces the held delta on the next clean read', () => {
+  const stale = renderOverview({
+    liveDelta: overviewLiveDelta(
+      { Alice: { pendingWins: 1, pendingLosses: 0 } },
+      { isStale: true }
+    ),
+  });
+  const refreshed = renderOverview({
+    liveDelta: overviewLiveDelta({ Alice: { pendingWins: 0, pendingLosses: 1 } }),
+  });
+
+  assert.match(stale, /data-overview-live-pending="1-0"/);
+  assert.match(refreshed, /data-overview-live-pending="0-1"/);
+  assert.doesNotMatch(refreshed, /data-overview-live-pending="1-0"/);
 });
 
 test('overview top-N badge is absent when the delta lacks the rendered row owner', () => {
@@ -2283,11 +2331,63 @@ test('overview top-N badge is absent when the delta lacks the rendered row owner
   assert.doesNotMatch(html, /data-overview-live-pending/);
 });
 
-test('overview top-N badge is absent for a zero-decision (tied) delta', () => {
+test('overview top-N badge renders +0–0 for a tied live game', () => {
   const html = renderOverview({
     liveDelta: overviewLiveDelta({ Alice: { pendingWins: 0, pendingLosses: 0 } }),
   });
-  assert.doesNotMatch(html, /data-overview-live-pending/);
+  assert.match(html, /data-overview-live-pending="0-0"/);
+  assert.match(html, /\+0–0/);
+});
+
+test('overview top-N badge renders +0–0 when a live score is temporarily unavailable', () => {
+  const unavailableScores: Record<string, ScorePack> = {
+    'overview-pending': {
+      status: 'In Progress',
+      away: { team: 'Texas', score: null },
+      home: { team: 'Rice', score: null },
+      time: 'Start delayed',
+    },
+  };
+  const liveDelta = selectLiveDelta({
+    canonical: null,
+    scoresByKey: unavailableScores,
+    games: [overviewPendingGame],
+    rosterByTeam: overviewPendingRoster,
+    weekKey: '2026:3',
+    lastFetchedAt: '2026-10-01T00:00:00.000Z',
+    now: Date.parse('2026-10-01T00:01:00.000Z'),
+  });
+  const html = renderOverview({ liveDelta, scoresByKey: unavailableScores });
+
+  assert.match(html, /data-overview-live-pending="0-0"/);
+  assert.match(html, /\+0–0/);
+  assert.doesNotMatch(html, /\d+ live/);
+});
+
+test('overview top-N badge clears on final while holding the same stale delta', () => {
+  const staleDelta = overviewLiveDelta(
+    { Alice: { pendingWins: 1, pendingLosses: 0 } },
+    { isStale: true }
+  );
+  const whileLive = renderOverview({ liveDelta: staleDelta });
+  assert.match(
+    whileLive,
+    /data-overview-live-pending="1-0"/,
+    'positive control: the stale delta renders while current game state is live'
+  );
+
+  const afterFinal = renderOverview({
+    liveDelta: staleDelta,
+    scoresByKey: {
+      'overview-pending': {
+        status: 'Final',
+        away: { team: 'Texas', score: 24 },
+        home: { team: 'Rice', score: 17 },
+        time: null,
+      },
+    },
+  });
+  assert.doesNotMatch(afterFinal, /data-overview-live-pending/);
 });
 
 test('overview top-N badge never renders for NoClaim', () => {
