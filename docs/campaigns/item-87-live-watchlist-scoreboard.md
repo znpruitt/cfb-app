@@ -25,6 +25,17 @@ Replaces sentence-style game rows in all three states. Shared with the recap's n
 - **Row order is always away → home** in every state including Final. Ordering and emphasis are separable: position is fixed by home/away, weight marks the leader (live) or winner (final).
 - Unowned opponents render team-only. An owner holding both sides renders correctly with no special handling.
 
+#### State variants — widened for Schedule (slice 5), 2026-08-30
+
+Slice 5 makes Schedule the component's third consumer. Its surface carries states Overview never shows, so the contract is widened **now**, before slice 3 implements against it, rather than being re-widened later — the failure *Adjacent surface* warned about.
+
+- **`disrupted`** — postponed / canceled / suspended / delayed. Currently `GameScoreboard:54-78` matches these by regex on `score.status` ahead of the state switch. Rose.
+- **`placeholder`** — an unfilled bracket slot with no resolved teams. Violet.
+- **Disclosure.** Schedule rows are `<details>`/`<summary>` with a collapsed summary and an expanded body (`GameWeekPanel:268` uses `group-open:hidden`). The row must support an optional expanded region without the collapsed form changing shape. Overview and recap pass no expanded content and render exactly as they do today.
+- **Slot passthrough.** Schedule attaches odds, a debug affordance, byes, postseason grouping, and an admin postseason-override control. These are Schedule's, not the row's: the row exposes slots, and does not learn about any of them.
+
+`disrupted` and `placeholder` are **states, not emphasis** — distinct from `cardEmphasisClasses` (`GameWeekPanel:39-50`), where amber means `upset` alongside `upset_watch`→orange and `top_25_matchup`→indigo. That function is emphasis and is out of scope for every slice here.
+
 ### Promotion model
 
 A game occupies exactly one section: **Scheduled → Live on kickoff → Recent finals on completion.** Sections hide when empty. The finals block clears when the week becomes recap-eligible (06:00 ET the day after the week's last game-date), reusing the `INSIGHTS-026b` rule, so the recap hands off cleanly.
@@ -134,15 +145,32 @@ and precedence remain selector-owned. **Must not be forked.**
 
 ## Spun-off work — items to file
 
-Four bodies of work surfaced during this design that are **not** Item 87's surface. Filing them explicitly so none is lost in a scope note, and so Item 87's boundary stays clean.
+Five bodies of work surfaced during this design that are **not** Item 87's surface. Filing them explicitly so none is lost in a scope note, and so Item 87's boundary stays clean.
 
-### A → Item 90. Live-amber colour sweep + `final` chip re-cut
+### A → Item 90. Shared status label + `final` re-cut — **narrowed 2026-08-30**
 
-**Scope:** replace live-amber with the agreed live treatment across the components Item 87 does *not* replace (`GameScoreboard:72`, `GameWeekPanel:27/42/151/212`, `MatchupsWeekPanel:87/111/128/271`, `OwnerPanel:36`, `PostseasonPanel:78`), and re-cut `GameScoreboard:68-71` `final` from emerald to neutral. The `final` and `inprogress` cases share one code block, so they move together.
-**Leave alone:** legitimate champion amber at `OverviewPanel:469` (`#BA7517`) and `:475`.
-**Why separate:** reaches Matchups, Owner, GameWeek and Postseason; folding in would widen Item 87's scope against `AGENTS.md`. Overview's live-amber (`:253`, `:677`, `:734`) and its `stateBadgeClasses` green-final are *not* here — Item 87 removes both directly as part of replacing those components.
-**Blocks nothing.** Item 87 removes the live-amber and green-final on its own surface directly; Item 90 sweeps the remaining components. Cross-reference so they land close together.
-**Item number: 90.** Cross-reference Item 87 (blocked by this) and Item 92.
+**Narrowed when slice 5 was filed.** The original scope covered every surface Item 87 does not replace, Schedule included. Schedule's colour is now absorbed by slice 5, so this item drops `GameScoreboard` and `GameWeekPanel` entirely: converting a pill slice 5 deletes is throwaway work.
+
+**Scope, as narrowed.** Extract Overview's live treatment (`CompactGameScoreboard:66-77` — borderless uppercase text, hue-carrying, `size-1.5` dot for live) into one shared status label in `src/lib/gameUi.ts`, and adopt it on the surfaces with no rework planned:
+
+- `OwnerPanel` — `toneClasses:34-44`, rendered at `:170` and `:198`.
+- `MatchupsWeekPanel` — status text `:266` + dot `:271`; `performanceClasses:80-93`; `ownerCardSurfaceClasses:125-129`; and the `inprogress` branch of `ownerOutcomeRowClasses` (`:110-111`) **only**.
+- `OverviewPanel` — `stateBadgeClasses:176-182`, rendered at `:816`. Slice 4 replaces this row, but the change is one line through the shared helper and the watchlist is the highest-traffic surface, so it is taken now rather than waiting on Item 92.
+- `CompactGameScoreboard:66-77` becomes a consumer of the extracted label. Leaving the canonical copy inline is what let this conversion go partial in the first place.
+
+**Also in scope:** `gameUi.ts:70-87` `statusClasses` is **dead** — exported, called nowhere, referenced by no test, carrying both live-amber and final-emerald. Delete it; the shared label takes its place.
+
+**`MatchupsWeekPanel` keeps a neutral live label with its existing pulse.** Same shape as everywhere else, different hue: that component spends green on `finalWin` (`:113`, against `finalLoss`:115 rose), so an emerald live label would put green on two meanings inside one component (`DESIGN.md:139-141`). Not an exception — `DESIGN.md:321` already scopes green to the *compact-scoreboard* family, and this is an outcome family. Elsewhere the dot does not pulse; the pulse appears only where hue cannot carry live.
+
+**Green must end up meaning one thing per component.** `MatchupsWeekPanel` violates this today: `performanceClasses:84` final→emerald, `ownerCardSurfaceClasses:125` final→emerald, `ownerOutcomeRowClasses:113` finalWin→emerald. Once `final` goes neutral, emerald must appear exactly once in that file and rose exactly once. Assert it.
+
+**Leave alone:** champion amber at `OverviewPanel:423`/`:429`; the standings-direction indicator `:593`; coverage-error text `:1583`; `cardEmphasisClasses:39-50` (`upset`, not live); `recap/RecapPrimitives.tsx:277`, which defines its own local `GameScoreboard` and is not a consumer.
+
+**Correction to the filed item.** `docs/next-tasks.md` Item 90 states POLISH-016/017 removed Overview's live-amber and its `stateBadgeClasses` green-final. They removed them from the Live and Featured sections only — the *Upcoming watchlist* still calls `stateBadgeClasses` at `:816`. The item also omits `gameUi.ts` and miscites `GameWeekPanel:42` as a live site when that line is `upset`.
+
+**Accepted residual:** Schedule keeps green-`final` and amber-live until slice 5 lands.
+
+**Item number: 90.** Cross-reference Item 87 slice 5 (absorbs the Schedule half) and Item 92.
 
 ### B → delivered by PLATFORM-116. Standings-panel live-signal derivation
 
@@ -171,9 +199,17 @@ A final scoreboard shows the team's *current* record including the game just pla
 
 **Record the refresh under a scope the Provider data panel reads**, or records join scores and game-stats as a third dataset showing `No refresh history` while working correctly (Item 88).
 
-### Not filed — Schedule page rework
+### E → Item 87 slice 5. Schedule page rework
 
-Flagged in *Adjacent surface* below, but **not filed as an item**: no problem statement, no acceptance boundary, no evidence it is needed yet. Left as a note in Item 90, which is where much of its colour work lives. File it when something forces it rather than creating a queue entry that rots.
+**Filed 2026-08-30**, having previously been left unfiled pending something forcing it. What forced it: scoping Item 90 as a narrow colour correction on Schedule required inventing a shared status label, a six-tone vocabulary, and a dot affordance the surface has never had, plus a decision on whether the live ring survives. That is a presentation rework under a colour sweep's name. The scope grew because the surface is dated, not because the colours are.
+
+**Problem statement.** Schedule renders the same content shape this campaign redesigns — a matchup, an owner pair, a status — as three-line cards with status-coloured borders and pill chips. It is space-inefficient, it is the last surface still using the pre-campaign presentation, and it holds the residual green-`final` and most of the residual live-amber.
+
+**Scope.** Schedule (`GameWeekPanel`, `GameScoreboard`) adopts the scoreboard row, two-column and all, against the widened state contract above. Colour settles as part of the rework; Item 90 no longer touches these files.
+
+**Acceptance boundary.** The collapsed row is the scoreboard row. `disrupted` and `placeholder` render as states, not emphasis. Expand/collapse, byes, postseason grouping, odds, debug and the admin postseason override all survive unchanged — the row exposes slots and learns about none of them. No amber remains for live; no green remains for `final`. `PostseasonPanel:78` inherits via `GameWeekPanel` and is a verification surface only.
+
+**Sequencing.** Implement after slices 3 and 4; its *contract requirements* are folded in above so slice 3 does not lock a three-state row. Wants Item 92 for the scheduled-state record anchor, and degrades to the spread anchor without it, same as slice 4.
 
 ---
 
@@ -187,6 +223,7 @@ Ordered so colour settles once rather than shipping neutral live and flipping it
 | ✅ 2 | Featured conversion + retire its `stateBadgeClasses` call + green-live flip | Merged via POLISH-017 / PR #537 (`e0a7b8ab`), 2026-08-30. Featured now consumes the neutral-final variant, and green-live is unambiguous on Overview. |
 | 3 | Recent finals + promotion model | Needs `unknown` routing and the recap-eligibility clear. |
 | 4 | Watchlist | Riskiest — anchor depends on Item 92. Falls back to the spread anchor if 92 has not landed. |
+| 5 | Schedule rework | Filed 2026-08-30 (was *Not filed*). Schedule adopts the scoreboard row, two-column and all, and its colour settles as part of the rework rather than via Item 90. Needs the widened state variants above. |
 
 **Risk order:** watchlist anchor (external data) > promotion model (state transitions mid-slate, section migration) > two-column grid against the header-nowrap contract. Slices 1–2 are low-risk and independently verifiable.
 
@@ -403,7 +440,9 @@ Two implications:
 1. **The scoreboard component would have a third consumer** — recap notable results, Overview live/watchlist, and Schedule. That strengthens the case for defining the row contract generously now (three state variants, rank prefix, anchor slot, odds footer, reserved title row) rather than narrowly, since a third surface would otherwise widen it again.
 2. **It is where the `final` green and much of the live amber actually live**, so the colour-correction item and a Schedule rework overlap. Worth deciding whether the colour sweep lands first as a narrow correction, or whether Schedule's rework absorbs it.
 
-Not scoped here. Filed as spun-off item D.
+**Decided 2026-08-30: the rework absorbs it.** Implication 1 is why the decision could not wait for slice 5 — Schedule as a third consumer adds two state variants and a disclosure model, and slice 3 would otherwise lock a contract that slice 5 has to re-widen. The contract is widened above instead. Implication 2 is settled by narrowing Item 90 off `GameScoreboard` and `GameWeekPanel` entirely.
+
+Filed as spun-off item E → Item 87 slice 5. (An earlier revision of this line pointed at item D, which is the team-records integration; that was a mis-reference.)
 
 ---
 
