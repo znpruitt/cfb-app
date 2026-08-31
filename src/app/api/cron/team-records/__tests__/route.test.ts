@@ -9,7 +9,7 @@ import {
 import {
   installSchedulerReceiptDeferrer,
   readSchedulerReceipt,
-} from '../../../../../lib/server/__tests__/schedulerReceiptTestHarness.ts';
+} from '../../../../../test/schedulerReceiptTestHarness.ts';
 import { yearScope } from '../../../../../lib/providerRefreshScope.ts';
 import { getProviderRefreshStatus } from '../../../../../lib/server/providerRefreshStatus.ts';
 import { setDatasetAutoRefreshEnabled } from '../../../../../lib/server/providerRefreshSettings.ts';

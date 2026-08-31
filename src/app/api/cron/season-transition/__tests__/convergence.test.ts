@@ -19,7 +19,7 @@ import {
 import {
   installSchedulerReceiptDeferrer,
   readSchedulerReceipt,
-} from '../../../../../lib/server/__tests__/schedulerReceiptTestHarness.ts';
+} from '../../../../../test/schedulerReceiptTestHarness.ts';
 import type { SeasonTransitionCronExecutionEvent } from '../../../../../lib/lifecycleCronExecutionLog.ts';
 
 // ---------------------------------------------------------------------------

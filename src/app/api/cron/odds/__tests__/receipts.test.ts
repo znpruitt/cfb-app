@@ -26,7 +26,7 @@ import {
   installSchedulerReceiptDeferrer,
   readSchedulerReceipt,
   RECEIPT_KEYS,
-} from '../../../../../lib/server/__tests__/schedulerReceiptTestHarness.ts';
+} from '../../../../../test/schedulerReceiptTestHarness.ts';
 import type { OddsCronExecutionEvent } from '../../../../../lib/odds/cronExecutionLog.ts';
 import { GET } from '../route.ts';
 

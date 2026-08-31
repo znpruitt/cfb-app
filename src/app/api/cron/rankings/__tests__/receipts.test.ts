@@ -26,7 +26,7 @@ import {
   installSchedulerReceiptDeferrer,
   readSchedulerReceipt,
   RECEIPT_KEYS,
-} from '../../../../../lib/server/__tests__/schedulerReceiptTestHarness.ts';
+} from '../../../../../test/schedulerReceiptTestHarness.ts';
 import type { RankingsCronExecutionEvent } from '../../../../../lib/rankings/cronExecutionLog.ts';
 
 // PLATFORM-086F2E1 — durable execution receipts for the rankings publication

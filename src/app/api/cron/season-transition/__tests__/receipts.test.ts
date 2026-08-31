@@ -20,7 +20,7 @@ import {
   installSchedulerReceiptDeferrer,
   readSchedulerReceipt,
   RECEIPT_KEYS,
-} from '../../../../../lib/server/__tests__/schedulerReceiptTestHarness.ts';
+} from '../../../../../test/schedulerReceiptTestHarness.ts';
 import {
   buildSchedulerExecutionReceipt,
   recordSchedulerExecutionReceipt,

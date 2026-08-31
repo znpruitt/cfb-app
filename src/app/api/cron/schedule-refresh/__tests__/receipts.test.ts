@@ -29,7 +29,7 @@ import {
   installSchedulerReceiptDeferrer,
   readSchedulerReceipt,
   RECEIPT_KEYS,
-} from '../../../../../lib/server/__tests__/schedulerReceiptTestHarness.ts';
+} from '../../../../../test/schedulerReceiptTestHarness.ts';
 import type { ScheduleRefreshCronExecutionEvent } from '../../../../../lib/schedule/cronExecutionLog.ts';
 
 // PLATFORM-086F2E1 — durable execution receipts for the weekly schedule cron.

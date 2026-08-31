@@ -5,7 +5,7 @@ import {
   installSchedulerReceiptDeferrer,
   readSchedulerReceipt,
   RECEIPT_KEYS,
-} from '@/lib/server/__tests__/schedulerReceiptTestHarness';
+} from '@/test/schedulerReceiptTestHarness';
 import {
   __setAppStateReadFailureForTests,
   __setAppStateWriteFailureForTests,

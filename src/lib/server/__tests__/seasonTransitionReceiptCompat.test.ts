@@ -6,7 +6,7 @@ import {
   parseSchedulerExecutionReceipt,
   seasonTransitionYearsTarget,
 } from '../schedulerExecutionStatus.ts';
-import { RECEIPT_KEYS } from './schedulerReceiptTestHarness.ts';
+import { RECEIPT_KEYS } from '@/test/schedulerReceiptTestHarness';
 
 // ---------------------------------------------------------------------------
 // PLATFORM-086F2H1B — the season-transition receipt gained three disposition

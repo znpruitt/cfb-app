@@ -21,7 +21,7 @@ import {
   installSchedulerReceiptDeferrer,
   readSchedulerReceipt,
   RECEIPT_KEYS,
-} from '../../../../../lib/server/__tests__/schedulerReceiptTestHarness.ts';
+} from '../../../../../test/schedulerReceiptTestHarness.ts';
 import type { GameStatsCronExecutionEvent } from '../../../../../lib/gameStats/cronExecutionLog.ts';
 
 // PLATFORM-086F2E1 — durable execution receipts for the game-stats cron. The

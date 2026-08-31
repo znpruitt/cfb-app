@@ -32,7 +32,7 @@ import {
   installSchedulerReceiptDeferrer,
   RECEIPT_KEYS,
   readSchedulerReceipt,
-} from './schedulerReceiptTestHarness';
+} from '@/test/schedulerReceiptTestHarness';
 
 // PLATFORM-086F2E1 — the shared receipt authority: exact allowlisted schema,
 // all job-compatible target shapes, monotonic latest-only ordering,
