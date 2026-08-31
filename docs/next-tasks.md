@@ -47,6 +47,8 @@ scoreboards, now unblocked by POLISH-017's final variant), **Item 84** (provider
 diagnostic), and **Item 86** (archive audit integrity check).
 
 Gated: **Item 85** after 86, which is how the repair gets verified.
+**Item 94** (CFBD burn-rate measurement) is date-gated to October 2026, after the first full
+in-season month; it is the accumulated observation **Item 63** is waiting on.
 **INSIGHTS-017-PALETTE** before precedence-reason hues matter; Item 87 renders them neutral until
 then.
 
@@ -989,6 +991,38 @@ Acceptance boundary: no CFBD-consuming call site carries a ceiling below the sha
 a recorded reason; billed calls per run are unchanged at each converted site, proven rather than
 assumed; and a repo-wide `timeoutMs` sweep is part of the verification, not the scoping — that
 omission is what produced this item.
+
+### Item 94 — measure the first full in-season month of CFBD burn (October 2026)
+
+**A scheduled measurement, not development work.** Read `GET /info` (which bills 0) after the
+September reset and record the month's actual usage.
+
+Live reading 2026-08-31: **Tier 1, 5,000/month, 395 used (8%), `sharedPool: true` across `cfb` and
+`cbb`, resets 2026-09-01.** That 395 is NOT representative — the season began ~2026-08-29, so almost
+all of August was preseason with no live-score polling, no game-stats archive runs, and minimal odds.
+**September is the first month containing four or five Saturdays of live polling**, plus game-stats,
+odds, rankings, schedule maintenance, and — if PLATFORM-117 has landed — records.
+
+Tier map (`src/lib/api/providerQuota.ts:25-33`): `0→1,000  1→5,000  2→30,000  3→75,000  4→125,000
+5→200,000  6→500,000`. Tier 2 is a 6x jump for a Patreon subscription step, so headroom is cheap to
+buy **once there is evidence it is the binding constraint.**
+
+**What this measurement decides, and what it does not.**
+
+- **Decides:** whether cadence is quota-bound. Item 63's in-season ramp, the live-score interval, and
+  PLATFORM-117's records refresh floor are all "how often can we afford to ask", and a 6x headroom
+  would change those answers. Item 63 is already gated on accumulated observation; this is that
+  observation.
+- **Does NOT decide:** the cron-spends / client-reads split (PLATFORM-086B2B, PLATFORM-075). That
+  boundary is architectural, not budgetary — a client-triggered provider call costs a multiple of
+  how many people have the page open, which is unbounded, and raising the ceiling on an uncontrolled
+  multiplier is not a fix. The quota reserve check is likewise a runaway-loop detector; a bug that
+  burns 5,000 calls burns 30,000 just as happily.
+
+Do not raise the tier pre-emptively as headroom. Raise it in response to a measured constraint,
+because an unexplained jump in burn rate is a signal worth keeping legible.
+
+- Backlog slug: `PLATFORM-CFBD-BURN-RATE-v1`
 
 ## Planned and parked campaigns
 
