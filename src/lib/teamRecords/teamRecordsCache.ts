@@ -28,6 +28,15 @@ export type TeamRecordsCacheEntry = {
   items: TeamRecordItem[];
 };
 
+/**
+ * Consumer-facing cache view. Provider rows that already count a game but do
+ * not yet credit its outcome stay visible as an explicit reliability signal;
+ * they are never repaired from app-owned score data.
+ */
+export type TeamRecordsCacheRead = TeamRecordsCacheEntry & {
+  uncreditableTeamIds: number[];
+};
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -117,7 +126,16 @@ export function normalizeTeamRecordsCacheEntry(
 }
 
 /** Cache-only future-consumer seam. Never calls CFBD. */
-export async function readTeamRecordsCache(year: number): Promise<TeamRecordsCacheEntry | null> {
+export async function readTeamRecordsCache(year: number): Promise<TeamRecordsCacheRead | null> {
   const stored = await getAppState<unknown>(TEAM_RECORDS_STATE_SCOPE, String(year));
-  return normalizeTeamRecordsCacheEntry(stored?.value, year);
+  const entry = normalizeTeamRecordsCacheEntry(stored?.value, year);
+  if (!entry) return null;
+
+  const uncreditableTeamIds: number[] = [];
+  const items = entry.items.filter((item) => {
+    const creditable = item.total.wins + item.total.losses + item.total.ties === item.total.games;
+    if (!creditable) uncreditableTeamIds.push(item.teamId);
+    return creditable;
+  });
+  return { ...entry, items, uncreditableTeamIds };
 }

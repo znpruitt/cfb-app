@@ -63,6 +63,8 @@ function targetFor(job: ExternalSchedulerJob, refusals = 0): SchedulerExecutionT
   switch (job) {
     case 'live-scores':
       return { kind: 'live-scores', year: YEAR, mode: null, targetGames: 0, targetPartitions: 0 };
+    case 'team-records':
+      return { kind: 'team-records', year: YEAR };
     case 'game-stats':
       return { kind: 'game-stats', year: YEAR, week: null, seasonType: null };
     case 'odds':
@@ -99,6 +101,7 @@ function targetFor(job: ExternalSchedulerJob, refusals = 0): SchedulerExecutionT
 
 const REASON_FOR: Record<ExternalSchedulerJob, SchedulerExecutionReceiptInput['reason']> = {
   'live-scores': 'no-polling-target',
+  'team-records': 'fresh-cache',
   'game-stats': 'no-polling-target',
   odds: 'automation-paused-or-disabled',
   'schedule-refresh': 'no-maintenance-target',
@@ -161,7 +164,7 @@ function buildReceipt(
  *
  * "Late" is not a fixed offset: it means the last run predates
  * `previousSlot(now - graceMs)`, and grace runs from six minutes to twenty-four
- * hours across the seven jobs. A test that picks its own offset is guessing at a
+ * hours across the eight jobs. A test that picks its own offset is guessing at a
  * per-job number and will be wrong for most of them — which is how a 30-second-old
  * `live-scores` receipt came to be labelled late in a fixture when production
  * calls it on-time.

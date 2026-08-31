@@ -30,6 +30,7 @@
     "manage:live-scores-schedule": "tsx scripts/manage-live-scores-schedule.ts",
     "manage:odds-schedule": "tsx scripts/manage-odds-schedule.ts",
     "manage:rankings-schedule": "tsx scripts/manage-rankings-schedule.ts",
+    "manage:team-records-schedule": "tsx scripts/manage-team-records-schedule.ts",
     "manage:schedule-refresh-schedule": "tsx scripts/manage-schedule-refresh-schedule.ts",
     "lint:all:eslint": "eslint --cache --cache-strategy content --concurrency auto src scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts",
     "lint:all:format": "prettier --check --cache --cache-strategy content src scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts",

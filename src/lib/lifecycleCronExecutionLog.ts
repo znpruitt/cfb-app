@@ -7,7 +7,7 @@ import type { ScheduleSeasonType } from '@/lib/scheduleSeasonFetch';
  * once per invocation of the two Vercel-native lifecycle crons
  * (`GET /api/cron/season-transition`, `GET /api/cron/season-rollover`).
  *
- * Mirrors the five QStash cron execution logs (PLATFORM-086F1/B1/C2/E1B/E2B):
+ * Mirrors the six QStash cron execution logs (including Team records):
  * this module owns the logging POLICY so neither route absorbs it, and records
  * ONLY the allowlisted operational primitives below — never a request/response
  * object, thrown error, error message, stack, league record, schedule row,

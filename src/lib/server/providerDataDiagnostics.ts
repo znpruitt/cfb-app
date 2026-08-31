@@ -865,18 +865,21 @@ export async function getProviderDataDiagnostics(
   }
 
   // ---- Team records: year-wide cache age, independent of game context. ----
-  // Records can be refreshed directly for any year and have no canonical-game,
-  // active-season, or registry dependency. Their declared eight-day ceiling is
-  // therefore enforced directly from the normalized cache entry's observation
-  // clock, including during a no-final stretch when automation makes no call.
+  // A present-but-uncreditable provider row still proves a snapshot exists and
+  // must not silence age diagnostics merely because the guarded reader excludes
+  // it from the creditable item subset.
   try {
     const records = await readTeamRecordsCache(year);
-    if (records && records.items.length > 0 && now - records.at > STALE_RECORDS_AFTER_MS) {
+    if (
+      records &&
+      records.items.length + records.uncreditableTeamIds.length > 0 &&
+      now - records.at > STALE_RECORDS_AFTER_MS
+    ) {
       push(
         'records',
         'warning',
         'records-cache-stale',
-        `Team records last refreshed ${formatRelativeTimestamp(records.at, now)} — older than the eight-day policy.`,
+        `Team records last refreshed ${formatRelativeTimestamp(records.at, now)} — older than the fourteen-hour policy.`,
         null
       );
     }

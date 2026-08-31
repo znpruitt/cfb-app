@@ -80,7 +80,8 @@ export type ProviderDatasetDescriptor = {
   staleAfterMs: number;
 };
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
 
 export const PROVIDER_DATASET_DESCRIPTORS: Record<ProviderDataset, ProviderDatasetDescriptor> = {
   scores: {
@@ -153,14 +154,15 @@ export const PROVIDER_DATASET_DESCRIPTORS: Record<ProviderDataset, ProviderDatas
     provider: 'CFBD',
     hasActiveAutomation: true,
     currentAutomation:
-      'Triggered only after the live-scores cron durably commits a newly final game. A year-scoped durable cache and six-hour minimum interval cap the refresh at 124 calls in any 31-day month; the global pause + this Team records toggle gate it. Runs with no newly committed final make no records request.',
+      'Triggered immediately when live-scores observes a newly final game and independently by the hourly QStash heartbeat (`turfwar-team-records-hourly`). One shared authority applies a six-hour provider-call floor and a twelve-hour cache-age ceiling; the global pause + this Team records toggle gate both callers. The hourly heartbeat is provider-free while the cache is not due.',
     plannedPolicy:
-      'Active (PLATFORM-117): finalisation-triggered, at most one year-wide /records request per live-scores run, with a fixed six-hour floor and an eight-day staleness ceiling.',
+      'Active (PLATFORM-118): one year-wide /records request at most per invocation, a fixed six-hour call floor, a twelve-hour cache-age ceiling, and a fourteen-hour diagnostic threshold with headroom for the hourly trigger.',
     lifecycleCritical: false,
     autoRefreshSettingConsumed: true,
-    // The provider snapshot normally advances after finals. Eight days gives a
-    // full no-finals week before health marks the dataset stale.
-    staleAfterMs: 8 * DAY_MS,
+    // Two hours of delivery headroom beyond the 12h refresh ceiling. This
+    // assumes the hourly job is unpaused; Item 96 must preserve or replace that
+    // applicability contract when generalized offseason pausing is built.
+    staleAfterMs: 14 * HOUR_MS,
   },
   conferences: {
     dataset: 'conferences',

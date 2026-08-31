@@ -133,9 +133,9 @@ jobs remain exempt, and manual admin refreshes remain available for recovery.
 
 ## Scheduler receipt contract
 
-The seven external jobs are `live-scores`, `game-stats`, `odds`, `schedule-refresh`, `rankings`,
-`season-transition`, and `season-rollover`. The first five are QStash-owned; the two lifecycle jobs
-are Vercel Cron-owned.
+The eight external jobs are `live-scores`, `team-records`, `game-stats`, `odds`,
+`schedule-refresh`, `rankings`, `season-transition`, and `season-rollover`. The first six are
+QStash-owned; the two lifecycle jobs are Vercel Cron-owned.
 
 Each job stores one latest-only receipt under `scheduler-execution-status/<job>`. An allowlisted
 receipt contains an application-generated invocation id, start/completion instants, duration,

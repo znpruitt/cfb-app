@@ -5,6 +5,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { CRON as LIVE_SCORES_CRON } from '../../../../scripts/manage-live-scores-schedule';
+import { CRON as TEAM_RECORDS_CRON } from '../../../../scripts/manage-team-records-schedule';
 import { CRON as GAME_STATS_CRON } from '../../../../scripts/manage-game-stats-schedule';
 import { CRON as ODDS_CRON } from '../../../../scripts/manage-odds-schedule';
 import { CRON as RANKINGS_CRON } from '../../../../scripts/manage-rankings-schedule';
@@ -50,6 +51,8 @@ function targetFor(job: ExternalSchedulerJob): SchedulerExecutionTarget {
   switch (job) {
     case 'live-scores':
       return { kind: 'live-scores', year: 2026, mode: null, targetGames: 0, targetPartitions: 0 };
+    case 'team-records':
+      return { kind: 'team-records', year: 2026 };
     case 'game-stats':
       return { kind: 'game-stats', year: 2026, week: null, seasonType: null };
     case 'odds':
@@ -83,6 +86,7 @@ function targetFor(job: ExternalSchedulerJob): SchedulerExecutionTarget {
 
 const REASON_FOR: Record<ExternalSchedulerJob, SchedulerExecutionReceiptInput['reason']> = {
   'live-scores': 'no-polling-target',
+  'team-records': 'fresh-cache',
   'game-stats': 'no-polling-target',
   odds: 'automation-paused-or-disabled',
   'schedule-refresh': 'no-maintenance-target',
@@ -130,7 +134,7 @@ async function stateOf(
 }
 
 // ── 1. Canonical order + derived source ──────────────────────────────────────
-test('the snapshot has all seven jobs in canonical order with derived source', async () => {
+test('the snapshot has all eight jobs in canonical order with derived source', async () => {
   const snap = await readSchedulerDeliveryHealth({
     nowMs: ms('2026-03-15T12:00:00Z'),
     loadEntries: loaderOf([]),
@@ -152,6 +156,8 @@ test('policies carry the exact fixed cron strings and grace periods', () => {
   const byJob = new Map(schedulerDeliveryPolicies().map((p) => [p.job, p]));
   assert.equal(byJob.get('live-scores')!.cron, '*/3 * * * *');
   assert.equal(byJob.get('live-scores')!.graceMs, 6 * MIN);
+  assert.equal(byJob.get('team-records')!.cron, '0 * * * *');
+  assert.equal(byJob.get('team-records')!.graceMs, 2 * HOUR);
   assert.equal(byJob.get('game-stats')!.cron, '*/15 * * * *');
   assert.equal(byJob.get('game-stats')!.graceMs, 30 * MIN);
   assert.equal(byJob.get('odds')!.cron, '0 * * * *');
@@ -170,6 +176,7 @@ test('policies carry the exact fixed cron strings and grace periods', () => {
 test('policy crons match the management-script CRON exports and vercel.json', () => {
   const byJob = new Map(schedulerDeliveryPolicies().map((p) => [p.job, p]));
   assert.equal(byJob.get('live-scores')!.cron, LIVE_SCORES_CRON);
+  assert.equal(byJob.get('team-records')!.cron, TEAM_RECORDS_CRON);
   assert.equal(byJob.get('game-stats')!.cron, GAME_STATS_CRON);
   assert.equal(byJob.get('odds')!.cron, ODDS_CRON);
   assert.equal(byJob.get('rankings')!.cron, RANKINGS_CRON);
@@ -542,19 +549,19 @@ test('unknown durable keys are ignored', async () => {
       { key: 'live-scores', value: validReceipt('live-scores', ms('2026-03-15T12:06:00Z')) },
     ]),
   });
-  assert.equal(snap.jobs.length, 7);
+  assert.equal(snap.jobs.length, 8);
   assert.ok(!snap.jobs.some((r) => (r.job as string) === 'not-a-job'));
   assert.equal(snap.jobs.find((r) => r.job === 'live-scores')!.deliveryState, 'on-time');
 });
 
-// ── 19. Scope-read failure → seven unavailable rows, no leak ──────────────────
-test('a scope-read failure yields seven unavailable rows without error-detail leakage', async () => {
+// ── 19. Scope-read failure → eight unavailable rows, no leak ─────────────────
+test('a scope-read failure yields eight unavailable rows without error-detail leakage', async () => {
   const now = ms('2026-03-15T12:10:00Z');
   const snap = await readSchedulerDeliveryHealth({
     nowMs: now,
     loadEntries: () => Promise.reject(new Error('durable scope boom-MARKER')),
   });
-  assert.equal(snap.jobs.length, 7);
+  assert.equal(snap.jobs.length, 8);
   for (const row of snap.jobs) {
     assert.equal(row.deliveryState, 'unavailable');
     assert.equal(row.receipt, null);
@@ -618,7 +625,7 @@ test('the default loader reads the real durable scheduler-execution scope', asyn
 
   // No injected loader → the default cache-only scope read runs.
   const snap = await readSchedulerDeliveryHealth({ nowMs: now });
-  assert.equal(snap.jobs.length, 7);
+  assert.equal(snap.jobs.length, 8);
   const live = snap.jobs.find((r) => r.job === 'live-scores')!;
   assert.equal(live.deliveryState, 'on-time');
   assert.ok(live.receipt, 'the durable receipt was read and parsed');
@@ -683,7 +690,7 @@ test('an unusable or absent commit degrades to null instead of reaching storage'
 
 test('a LEGACY receipt still parses — it is a truthful record of a run', () => {
   // Every receipt stored before today omits this field. Rejecting them would
-  // blank the scheduler health surface for all seven jobs until each next fired,
+  // blank the scheduler health surface for all eight jobs until each next fired,
   // which for the two daily lifecycle jobs is up to 24 hours of false "missing".
   const legacy = validReceipt('schedule-refresh', ms('2026-03-15T12:06:00Z')) as Record<
     string,

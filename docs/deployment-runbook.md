@@ -22,7 +22,7 @@ it is historical evidence, not a procedure to replay.
 - CFBD supplies schedules, scores, rankings, conferences, and game statistics. The Odds API supplies
   betting lines.
 - Vercel Cron owns the two daily lifecycle jobs declared in `vercel.json`.
-- QStash runs the five externally scheduled provider jobs in §8.
+- QStash runs the six externally scheduled provider jobs in §8.
 
 | Scheduler | Route | Cadence (UTC) | Owner |
 | --- | --- | --- | --- |
@@ -30,6 +30,7 @@ it is historical evidence, not a procedure to replay.
 | Vercel Cron | `/api/cron/season-rollover` | daily 00:00 | lifecycle |
 | `turfwar-game-stats-15m` | `/api/cron/game-stats` | every 15 minutes | QStash |
 | `turfwar-live-scores-3m` | `/api/cron/live-scores` | every 3 minutes | QStash |
+| `turfwar-team-records-hourly` | `/api/cron/team-records` | hourly | QStash |
 | `turfwar-odds-hourly` | `/api/cron/odds` | hourly | QStash |
 | `turfwar-schedule-weekly` | `/api/cron/schedule-refresh` | Tuesdays 12:00 | QStash |
 | `turfwar-rankings-publication` | `/api/cron/rankings` | 04:00 and 22:00 daily | QStash |
@@ -40,7 +41,7 @@ it is historical evidence, not a procedure to replay.
 > receipts name the promoted production build. Their repository definitions, cadence, and
 > lifecycle-critical policy are unchanged.
 
-All seven routes require the same deployed `CRON_SECRET`. The five QStash schedules are intentionally
+All eight routes require the same deployed `CRON_SECRET`. The six QStash schedules are intentionally
 absent from `vercel.json`.
 
 ## 2) Create or reconnect the hosted project
@@ -75,7 +76,7 @@ using preview-safe credentials and the child database.
 | `ODDS_API_KEY` | Required for odds refreshes. |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Required for Clerk. |
 | `CLERK_SECRET_KEY` | Required for Clerk. |
-| `CRON_SECRET` | Required bearer credential for all seven cron routes. Use a long random value. |
+| `CRON_SECRET` | Required bearer credential for all eight cron routes. Use a long random value. |
 | `LEAGUE_AUTH_SECRET` | Required when any league has a password. Use a long random value. |
 
 `ADMIN_API_TOKEN` is an optional fallback during Clerk migration. It is not the league-password
@@ -85,10 +86,11 @@ Optional variables: `NEXT_PUBLIC_SEASON`, `PGSSLMODE`, `NEXT_PUBLIC_DEBUG`, `DEB
 `DEBUG_UPSTREAM`. Leave debug variables unset in normal production.
 
 `QSTASH_TOKEN` is different from `CRON_SECRET`: it is an operator-held management credential used
-by the five schedule-manager scripts. Never commit it or configure it in Vercel. The deployed
-`CRON_SECRET` is the credential QStash forwards. If `CRON_SECRET` is missing or mismatched, all seven
+by the six schedule-manager scripts. Never commit it or configure it in Vercel. The deployed
+`CRON_SECRET` is the credential QStash forwards. If `CRON_SECRET` is missing or mismatched, all eight
 cron routes fail closed with `401`, stopping lifecycle reconciliation, statistics ingestion,
-live-score polling, odds polling, weekly schedule maintenance, and rankings publication.
+live-score polling, team-record refresh, odds polling, weekly schedule maintenance, and rankings
+publication.
 
 ## 5) Configure authentication
 
@@ -326,7 +328,7 @@ release. For a narrow routine promotion, run the impacted subset plus the first 
 6. Schedule data loads through the API-backed route.
 7. Scores and odds public reads succeed without triggering unauthorized provider fetches.
 8. Owners upload/repair, alias editing, and diagnostics still load where the release touches them.
-9. The two Vercel lifecycle cron definitions remain present and the five QStash routes remain absent
+9. The two Vercel lifecycle cron definitions remain present and the six QStash routes remain absent
    from `vercel.json`.
 10. Each affected scheduler has a recent truthful receipt and **Built from** identifies the promoted
     deployment.
@@ -351,6 +353,7 @@ condition.
 | --- | --- | --- | --- |
 | game stats | `manage:game-stats-schedule` | `game-stats` + global pause | close gates, pause schedule; writer `active -> read-only-safe` only if separately required |
 | scores | `manage:live-scores-schedule` | `scores` + global pause | close gates, pause schedule |
+| records | `manage:team-records-schedule` | `records` + global pause | close gates, pause schedule |
 | odds | `manage:odds-schedule` | `odds` + global pause | close gates, pause schedule |
 | schedule | `manage:schedule-refresh-schedule` | `schedule` + global pause for ordinary work | pause schedule; this is mandatory in a critical window |
 | rankings | `manage:rankings-schedule` | `rankings` + global pause | close gates, pause schedule |
@@ -531,31 +534,69 @@ available. Activation evidence is [archived](archive/operations/provider-activat
 off, a scheduled delivery must return authenticated HTTP 200 `automation-paused-or-disabled`, make
 no quota check or provider attempt, and commit no rows. `401` or provider work is a stop.
 
-### §8k) Rotate `CRON_SECRET` across all five QStash schedules
+### §8k) Team records — provision after merge
 
-All five schedules forward the same secret, so rotation is one coordinated operation:
+Contract: `turfwar-team-records-hourly`, GET `/api/cron/team-records`, `0 * * * *`, retries 0.
+
+```bash
+npm run manage:team-records-schedule
+```
+
+The hourly schedule is only a heartbeat. The shared records authority refreshes immediately when
+live-scores observes a newly final game after the six-hour floor, or whenever cache age reaches the
+independent twelve-hour ceiling. Healthy intervening deliveries are provider-free. A due automatic
+run performs one fresh CFBD `/info` reserve probe and at most one billed `/records` request; `/info`
+is measured as zero billed CFBD calls on this project. A quota refusal records the refusal and the
+next hourly heartbeat probes again—there is intentionally no durable quota-refusal backoff.
+
+The records diagnostic warns after fourteen hours, leaving two hours of delivery headroom beyond
+the ceiling. That threshold assumes this hourly job is unpaused. Item 96 must preserve that
+assumption or add a generalized lifecycle-applicability rule when it introduces offseason pausing;
+this job has no records-only offseason exception today.
+
+Provision after the reviewed implementation is merged and promoted:
+
+1. Run the manager in default inspect mode. Before first provisioning, a clean not-found refusal is
+   expected; any existing divergent contract is a stop.
+2. Enable global pause and disable Team records automation.
+3. Run `npm run manage:team-records-schedule -- upsert --apply` with the operator-held credentials.
+4. Inspect again. Require the exact contract, retries 0, active state, and one provider-redacted
+   forwarded Authorization header.
+5. With both application gates still closed, require one authenticated HTTP 200
+   `automation-paused-or-disabled` delivery, no quota check or provider attempt, and no committed
+   rows. `401` or provider work is a stop.
+6. If the proof is clean, enable Team records automation and clear global pause last. Confirm the
+   next System Health scheduler receipt names the promoted build.
+
+Before step 3, System Health will report the newly known `team-records` delivery as missing; that is
+expected provisioning state, not evidence that another job regressed. For an incident after
+activation: global pause on, Team records automation off, pause and inspect the schedule.
+
+### §8l) Rotate `CRON_SECRET` across all six QStash schedules
+
+All six schedules forward the same secret, so rotation is one coordinated operation:
 
 1. Enable global pause.
-2. Disable automatic game-stats, scores, odds, schedule, and rankings refresh.
-3. Pause all five managers with `pause --apply`; inspect all five and confirm they are paused. In a
+2. Disable automatic game-stats, scores, records, odds, schedule, and rankings refresh.
+3. Pause all six managers with `pause --apply`; inspect all six and confirm they are paused. In a
    postseason-boundary window, this Schedule pause—not its dataset toggle—is the critical stop.
 4. Update `CRON_SECRET` in Vercel Production, trigger a fresh production deployment, wait for it to
    become Ready, and promote it. Environment-variable changes do not alter an already-built runtime.
 5. With the matching new `CRON_SECRET` and operator-held `QSTASH_TOKEN` local, run `upsert --apply`
-   for all five managers. This forwards the new bearer value and reapplies redaction.
-6. Inspect all five. Require the exact contracts, paused state, and one redacted Authorization
+   for all six managers. This forwards the new bearer value and reapplies redaction.
+6. Inspect all six. Require the exact contracts, paused state, and one redacted Authorization
    header. Exit `4` remains indeterminate: inspect and stop.
 7. Resume each schedule only long enough to obtain its gates-closed authentication delivery. Require
-   HTTP 200 and no provider attempt/quota change for the four noncritical jobs and ordinary schedule
+   HTTP 200 and no provider attempt/quota change for the five noncritical jobs and ordinary schedule
    maintenance. If Schedule is in `postseason-boundary`, its application gates are intentionally
    bypassed: keep it paused until one normal provider-backed delivery is authorized, then use that
    HTTP 200 as the authentication proof. A `401` or any policy-divergent activity is a stop condition.
-8. Pause again immediately if any proof fails. Otherwise resume all five, re-enable their datasets,
+8. Pause again immediately if any proof fails. Otherwise resume all six, re-enable their datasets,
    and clear global pause last.
 9. Confirm the two Vercel lifecycle routes also return authenticated results with the new secret at
    their next run or through an authorized operator invocation.
 
-Do not rotate only one external schedule: that leaves the other four forwarding the retired secret.
+Do not rotate only one external schedule: that leaves the other five forwarding the retired secret.
 
 ## 9) Common failure diagnosis
 

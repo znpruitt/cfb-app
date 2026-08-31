@@ -225,13 +225,13 @@ test('the stale window is per-dataset: a 5-day-old success is stale for scores b
   });
 });
 
-test('records reaches its eight-day stale ceiling when no finalisation opens a newer attempt', () => {
-  const olderThanCeiling = new Date(NOW - 8 * 86_400_000 - 1).toISOString();
+test('records reaches its fourteen-hour stale threshold after delivery headroom', () => {
+  const olderThanThreshold = new Date(NOW - 14 * 60 * 60 * 1000 - 1).toISOString();
   const s = {
     ...emptyProviderRefreshStatus('records', yearScope(2026)),
-    lastAttemptAt: olderThanCeiling,
+    lastAttemptAt: olderThanThreshold,
     latestAttemptOutcome: 'succeeded' as const,
-    lastSuccessAt: olderThanCeiling,
+    lastSuccessAt: olderThanThreshold,
   };
 
   assert.deepEqual(summarize(s, { descriptor: records, cacheState: 'available' }), {

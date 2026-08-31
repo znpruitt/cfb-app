@@ -11,6 +11,7 @@ import type { RankingsPublicationWindowKind } from '@/lib/rankings/publicationPo
 import type { RankingsCronExecutionReason } from '@/lib/rankings/cronExecutionLog';
 import type { ScheduleRefreshCronExecutionReason } from '@/lib/schedule/cronExecutionLog';
 import type { WeeklyScheduleRefreshOperation } from '@/lib/schedule/weeklyRefreshOperation';
+import type { TeamRecordsCronExecutionReason } from '@/lib/teamRecords/cronExecutionLog';
 import type {
   SeasonRolloverCronExecutionReason,
   SeasonTransitionCronExecutionReason,
@@ -19,8 +20,8 @@ import { withAppStateKeyTransaction } from '@/lib/server/appStateStore';
 
 /**
  * PLATFORM-086F2E1 / F2E2A — latest-only durable execution receipts for the
- * seven scheduled cron routes (`scheduler-execution-status/<job>`): the five
- * QStash-triggered jobs (F2E1, `source: 'qstash'`) plus the two Vercel-native
+ * eight scheduled cron routes (`scheduler-execution-status/<job>`): the six
+ * QStash-triggered jobs (`source: 'qstash'`) plus the two Vercel-native
  * lifecycle crons — season-transition and season-rollover (F2E2A,
  * `source: 'vercel-cron'`).
  *
@@ -78,6 +79,7 @@ export const MAX_SCHEDULER_TARGET_YEARS = 8;
  */
 export const EXTERNAL_SCHEDULER_JOBS = [
   'live-scores',
+  'team-records',
   'game-stats',
   'odds',
   'schedule-refresh',
@@ -101,6 +103,7 @@ export type SchedulerSource = 'qstash' | 'vercel-cron';
 /** The closed job → source contract. The ONLY place a source is decided. */
 const JOB_SOURCE: Record<ExternalSchedulerJob, SchedulerSource> = {
   'live-scores': 'qstash',
+  'team-records': 'qstash',
   'game-stats': 'qstash',
   odds: 'qstash',
   'schedule-refresh': 'qstash',
@@ -123,12 +126,13 @@ export type SchedulerExecutionResult =
   | 'in-progress';
 
 /**
- * The union of the five routes' existing closed, stable reason vocabularies —
+ * The union of the eight routes' existing closed, stable reason vocabularies —
  * copied verbatim from each route's final execution tracker, never derived from
  * HTTP responses and never a second vocabulary.
  */
 export type SchedulerExecutionReason =
   | LiveScoresCronExecutionReason
+  | TeamRecordsCronExecutionReason
   | GameStatsCronExecutionReason
   | OddsCronExecutionReason
   | ScheduleRefreshCronExecutionReason
@@ -144,6 +148,10 @@ export type SchedulerExecutionTarget =
       mode: LiveScoresPollingMode | null;
       targetGames: number;
       targetPartitions: number;
+    }
+  | {
+      kind: 'team-records';
+      year: number;
     }
   | {
       kind: 'game-stats';
@@ -599,6 +607,7 @@ const PUBLICATION_WINDOWS: ReadonlySet<string> = new Set([
 /** The single target `kind` each job's receipt must carry. */
 const JOB_TARGET_KIND: Record<ExternalSchedulerJob, SchedulerExecutionTarget['kind']> = {
   'live-scores': 'live-scores',
+  'team-records': 'team-records',
   'game-stats': 'game-stats',
   odds: 'odds',
   'schedule-refresh': 'schedule-years',
@@ -629,6 +638,11 @@ function rebuildTarget(target: SchedulerExecutionTarget): SchedulerExecutionTarg
         mode: target.mode,
         targetGames: target.targetGames,
         targetPartitions: target.targetPartitions,
+      };
+    case 'team-records':
+      return {
+        kind: 'team-records',
+        year: target.year,
       };
     case 'game-stats':
       return {
@@ -775,6 +789,8 @@ function isValidStoredTarget(value: unknown, job: ExternalSchedulerJob): boolean
         isNonNegativeInteger(target.targetGames) &&
         isNonNegativeInteger(target.targetPartitions)
       );
+    case 'team-records':
+      return isFiniteNumber(target.year);
     case 'game-stats':
       return (
         isFiniteNumber(target.year) &&

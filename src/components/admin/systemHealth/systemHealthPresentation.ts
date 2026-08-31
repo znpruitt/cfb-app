@@ -102,6 +102,7 @@ export function schedulerSourceLabel(source: SchedulerSource): string {
 /** Human-readable scheduler job names for the primary row line. */
 const SCHEDULER_JOB_LABELS: Record<ExternalSchedulerJob, string> = {
   'live-scores': 'Live scores',
+  'team-records': 'Team records',
   'game-stats': 'Game stats',
   odds: 'Odds polling',
   'schedule-refresh': 'Weekly schedule',
@@ -199,6 +200,8 @@ export function summarizeReceiptTarget(target: SchedulerExecutionReceipt['target
   switch (target.kind) {
     case 'live-scores':
       return `${target.year} · ${target.targetGames} game(s), ${target.targetPartitions} partition(s)${target.mode ? ` · ${target.mode}` : ''}`;
+    case 'team-records':
+      return String(target.year);
     case 'game-stats':
       return `${target.year}${target.week != null ? ` · week ${target.week}` : ''}${target.seasonType ? ` · ${target.seasonType}` : ''}`;
     case 'odds':
