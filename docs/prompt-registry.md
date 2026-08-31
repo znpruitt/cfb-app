@@ -66,7 +66,26 @@ Rules:
   Three tests were added and two were retargeted without weakened assertions; the 64-test focused
   component run passed, including regression checks demonstrated failing before their fixes.
   Independent Codex and Claude reviews confirmed no attributable P0/P1/P2 remained.
-- Status: Implemented locally — not merged.
+- Status: Implemented — not merged.
+
+### POLISH-016-SCOREBOARD-COMPONENT-LIVE-v1
+
+- Purpose: introduce the shared game-scoreboard micro-component and convert the Overview Live
+  section as the first Item 87 implementation slice.
+- Scope: the live-only scoreboard row anatomy, Overview Live rendering and drilldown behavior,
+  neutral live styling, two-column responsive layout, required `DESIGN.md` amendments, and focused
+  component/integration coverage. Featured, recent finals, Watchlist, promotion, and green-live
+  remain outside this slice.
+- Outcome: Overview Live now renders through the shared team-primary scoreboard with fixed
+  away-to-home order, leader weight independent of position, rank prefixes, owner suffixes, and
+  right-anchored scores. Live status is structural and neutral; the section's amber border/tone
+  drift is removed. Its All matchups action targets the displayed game's week and clears filters
+  that could otherwise hide that game.
+- Review / verification: exact PR head `661531a2` passed TypeScript, `lint:all`, the 4,461-test full
+  suite, production build, and two-/one-column browser checks; 11 tests were added relative to
+  `main`. Independent Codex review found no actionable regression. The owner waived the final
+  Claude rerun after the focused test/navigation follow-up.
+- Status: Merged via PR #535 (merge commit `5fd59d39`), 2026-08-30.
 
 ### PLATFORM-115-CFBD-REQUEST-TIMEOUT-v1
 

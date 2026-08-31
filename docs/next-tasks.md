@@ -1,7 +1,7 @@
 # Next Tasks (Active Queue)
 
 Status: Current
-Last verified: 2026-08-29
+Last verified: 2026-08-30
 Owner: Project documentation
 Canonical for: current execution order, planned/parked work, blockers, and the one canonical list of
 unresolved decisions and known deferrals
@@ -793,8 +793,9 @@ fail on corruption is the same defect wearing a passing badge.
 ### Item 87 — rework Overview game listings as a scoreboard
 
 Presentation and information-architecture half of the Overview games region. POLISH-015 delivered
-the interim correctness and empty-copy fixes on this surface; Item 87 now owns the replacement
-scoreboard and promotion model that supersede those state-specific lists.
+the interim correctness and empty-copy fixes on this surface. POLISH-016 / slice 1 then shipped the
+shared scoreboard contract and converted the Live section; POLISH-017 / slice 2 converted Featured
+and settled green-live on Overview. Slices 3–4 retain the recent-finals promotion and Watchlist work.
 
 **Problem observed on `/league/tsc` during the 2026 opening slate (2026-08-29).** One game appeared
 twice on a single screen — in "Upcoming watchlist" and again in the "Live" tile — and the Live card
@@ -804,10 +805,10 @@ as a section eyebrow, and scheduled rows ended in an empty `———` box.
 
 Remaining root cause:
 
-- The same conceptual object has four renderers: `GameSummaryList` and `GameCardList` on Overview,
-  `GameScoreboard` on Matchups, and the recap primitives. The two Overview renderers are the weakest,
-  which is why this surface reads worst. POLISH-015 made the existing scheduled and live selectors
-  disjoint; Item 87 makes that one-place transition structural.
+- The same conceptual object still has multiple renderers. Slices 1–2 moved Overview Live and
+  Featured onto the shared scoreboard anatomy, but `GameSummaryList` remains bespoke alongside
+  `GameScoreboard` on Matchups and the recap primitives. The remaining Item 87 slices complete the
+  Overview transition and make the scheduled/live promotion structural.
 
 **Settled decisions (owner, 2026-08-29).** The governing criterion for any marker is that it be
 TRUE and VALUABLE to the reader; scarcity is not the test, and chips are not capped. See `DESIGN.md`
