@@ -138,11 +138,13 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 - Amber/gold is reserved exclusively for champion/podium signals — not a general accent color
 - A hue carries exactly one meaning **within a component family**; context scopes meaning _across_
   families, never within one. Green can therefore mean a positive delta in a delta family and live
-  status in a game-scoreboard family, but one scoreboard family cannot use green for both live and
-  final states
-- Live game state in the Overview compact scoreboard uses a green dot, green `Live` text, and the
-  game clock. The former amber live treatment on this surface was drift; amber remains reserved for
-  champion/podium signals
+  status in the shared game-status-label family, but one component family cannot use green for both
+  live and final states
+- Shared game-status labels use emerald text plus a `size-1.5` dot for live, neutral zinc for final,
+  sky for scheduled, and a dimmer accessible zinc for unknown. Matchups keeps its live label neutral
+  with the existing freshness-gated pulse because green already means `finalWin` in that component.
+  The Schedule scoreboard is a separate legacy family and deliberately retains amber-live and
+  green-final until Item 87 slice 5 replaces it
 - Blue signals interactivity or active state only — never use blue to mean "featured" or "important"
 - Chart line colors are fixed per owner for the full season — never change with standings position
 - No color for decoration — every color must encode meaning. This stands unamended for every
@@ -318,7 +320,8 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   only so the retirement stays reversible — do not rely on it and do not add new pairs
 - Semantic colors are one-to-one within their component family and off-limits for categories:
   - Amber = champion/podium
-  - Green = positive delta in delta families; live state in the compact-scoreboard family
+  - Green = positive delta in delta families; default live state in the shared game-status-label
+    family (Matchups remains neutral because green means `finalWin` there)
   - Red = negative delta
   - Blue = interactivity/active state
 - Category colors must draw from unassigned palette stops — never reuse a semantic color

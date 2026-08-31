@@ -1,8 +1,8 @@
 # Item 87 — Addendum: Live / Watchlist Scoreboard Treatment
 
 **Status:** Slices 1–2 shipped via POLISH-016 / PR #535 and POLISH-017 / PR #537; Item 91 shipped via
-PLATFORM-116 / PR #539; the pre-agreed reassessment point has been reached, and slices 3–4 remain
-planned.
+PLATFORM-116 / PR #539; Item 90 is implemented via POLISH-018 / PR #541 with merge pending. The
+pre-agreed reassessment point has been reached, and slices 3–4 remain planned.
 **Reference mockup:** `mockups/live-scoreboard-mockup.html`
 **Related:** `INSIGHTS-026b-RECAP-LAYOUT-v1` (dispatched). Shares the scoreboard micro-component — see Sequencing.
 
@@ -147,7 +147,7 @@ and precedence remain selector-owned. **Must not be forked.**
 
 Five bodies of work surfaced during this design that are **not** Item 87's surface. Filing them explicitly so none is lost in a scope note, and so Item 87's boundary stays clean.
 
-### A → Item 90. Shared status label + `final` re-cut — **narrowed 2026-08-30**
+### A → Item 90. Shared status label + `final` re-cut — **implemented via POLISH-018 / PR #541; merge pending**
 
 **Narrowed when slice 5 was filed.** The original scope covered every surface Item 87 does not replace, Schedule included. Schedule's colour is now absorbed by slice 5, so this item drops `GameScoreboard` and `GameWeekPanel` entirely: converting a pill slice 5 deletes is throwaway work.
 
@@ -169,6 +169,11 @@ Five bodies of work surfaced during this design that are **not** Item 87's surfa
 **Correction to the filed item.** `docs/next-tasks.md` Item 90 states POLISH-016/017 removed Overview's live-amber and its `stateBadgeClasses` green-final. They removed them from the Live and Featured sections only — the *Upcoming watchlist* still calls `stateBadgeClasses` at `:816`. The item also omits `gameUi.ts` and miscites `GameWeekPanel:42` as a live site when that line is `upset`.
 
 **Accepted residual:** Schedule keeps green-`final` and amber-live until slice 5 lands.
+
+**Implemented outcome:** POLISH-018 extracted the four-tone label, converted all four narrowed
+consumers, deleted the dead and bespoke status-class helpers, preserved Matchups' neutral
+freshness-gated pulse, and restored accessible contrast by pairing zinc-300 final with the dimmer
+zinc-400 unknown. PR #541 contains the implementation; merge remains pending at this closeout.
 
 **Item number: 90.** Cross-reference Item 87 slice 5 (absorbs the Schedule half) and Item 92.
 
@@ -242,7 +247,7 @@ Ordered so colour settles once rather than shipping neutral live and flipping it
 | Done | **87 slice 2** | Featured + neutral-final consumer merged via PR #537; green-live settled on Overview. |
 | Runnable | **Item 42 wiring pass** | All fact families and the consumed final-row scoreboard variant now exist; no Item 87 dependency remains. |
 | Done | **PLATFORM-116 / Item 91** | Tied/stale/scoreless standings signal and pill removal merged via PR #539. |
-| Runnable | **Item 90** | Remaining amber sweep and the `final` re-cut elsewhere. |
+| Implemented | **Item 90 / POLISH-018** | Shared label and neutral-final re-cut are in PR #541; merge pending. Schedule remains with slice 5. |
 | 5 | **92** → **87 slice 4** | Records integration, then the watchlist anchor. |
 | 6 | **017-PALETTE** | Reason and category hues. |
 
@@ -323,9 +328,9 @@ family; context scopes meaning across families, never within one.* That makes th
 
 **Consequence:** green-as-live is not a second claim on a reserved colour — it is the same meaning the standings badge already carries, applied where nothing else can carry it.
 
-**Residual Item 90 work — re-cut the separate `GameScoreboard` family.** `GameScoreboard.tsx:68-71`
-still renders `final` emerald and `inprogress` amber. Item 90 moves that family's final/live cases
-together; it is not a prerequisite for Overview's distinct compact-scoreboard family.
+**Schedule residual after POLISH-018.** `GameScoreboard.tsx:68-71` still renders `final` emerald and
+`inprogress` amber. Item 90 was narrowed away from that family before implementation; Item 87 slice
+5 owns both colors as part of the Schedule rework.
 
 **Scope correction — the collision was on Item 87's own surface.** `GameScoreboard` still renders on
 Matchups and Postseason, but that is a different component family. On Overview, POLISH-016 removed
@@ -388,10 +393,13 @@ badge consumer remains scheduled/unknown-only until slice 4 removes that rendere
 
 **Correction resolved by PLATFORM-116.** The former `:677` pill lived in
 `CondensedStandingsTable`, not the game lists. PLATFORM-116 fixed the tied/stale badge boundary and
-retired that pill; Item 90 now sweeps only the remaining surfaces: `GameScoreboard`,
-`GameWeekPanel`, `MatchupsWeekPanel`, `OwnerPanel`, `PostseasonPanel`, plus the `final` re-cut.
+retired that pill. POLISH-018 then swept the narrowed shared-label consumers: Compact scoreboard,
+Matchups, Members, and Overview. It deliberately left Schedule to slice 5 and recap to its local
+primitive.
 
-**Residual risk, accepted:** if Item 90 slips, Schedule keeps green-final while Overview has green-live. That is the status quo plus one improvement, not a regression, and it is confined to different pages.
+**Residual risk, accepted:** Schedule keeps green-final while the shared label uses green-live until
+slice 5 replaces that separate family. The mismatch is confined to different pages and remains
+explicitly owned by the filed rework.
 
 **Rationale for neutral `final` still holds:** under the promotion model sections carry state, so a Final chip is redundant reinforcement and neutral is the correct resting treatment.
 
