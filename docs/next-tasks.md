@@ -50,8 +50,9 @@ Gated: **Item 85** after 86, which is how the repair gets verified.
 **Item 94** (CFBD burn-rate measurement) is date-gated to October 2026, after the first full
 in-season month; it is the accumulated observation **Item 63** and **Item 95 portion 2** are waiting
 on. **Item 95 portion 1** is runnable now and is not gated.
-**Item 96**'s preview-retention half is DONE (2026-08-31); its remaining `main`-suspend half is an
-offseason question and must not be sized before Item 94.
+**Item 96** is now an **offseason** item — pause the in-season QStash schedules so Neon can suspend,
+worth ~$114/year with no coverage tradeoff. Its preview-retention half is DONE (2026-08-31). It is
+NOT gated on Item 94: cadence is not a Neon cost.
 **INSIGHTS-017-PALETTE** before precedence-reason hues matter; Item 87 renders them neutral until
 then.
 
@@ -233,56 +234,82 @@ unsynchronized.
 
 - Backlog slug: `PLATFORM-LIVE-SCORE-CADENCE-v1`
 
-### Item 96 — Neon compute cost is wall-clock, not workload (measured 2026-08-31)
+### Item 96 — pause the in-season QStash schedules through the offseason
 
-**$46.03 for Aug 1 - Sep 1, of which compute is $39.03** — `368.21 CU-hrs x $0.106/CU-hr`. Storage
-is `0.05 GB x $0.35 = $0.02`. In a month that was ~90% preseason, so this is a floor.
+**All four billing surfaces measured 2026-08-31. Exposure is one number.**
 
-**The split, measured on `main`'s Monitoring over Aug 28-31:**
+| Surface | Monthly | Character |
+| --- | --- | --- |
+| **Neon compute** | $39.03 (`368.21 CU-hrs x $0.106`) | the entire bill |
+| QStash | **$0.18** (18K messages @ $0.01/1,000) | noise even at 2x cadence |
+| Vercel | $0 | Hobby |
+| CFBD | fixed Patreon tier | 395 / 5,000 used |
 
-| Source | CU-hrs | Approx | Character |
-| --- | --- | --- | --- |
-| `main` never suspending | ~180 (`0.25 CU x 720h`) | ~$19 | pure wall-clock |
-| preview branches | ~188 | ~$20 | wake events, one Neon branch per Vercel deployment |
+Neon storage is `0.05 GB x $0.35 = $0.02`. Everything except Neon compute is under a dollar
+combined, so cost management here is a single-variable problem: **is the Neon compute running.**
 
-`main` is at the **0.25 CU minimum**, autosuspend is the 5-minute default, CPU used is flat at ~0,
-compute cache hit rate is 100%, and the whole database is ~40 MB. `ENDPOINT INACTIVE` never appears
-across a 3-day window: **the `*/3` live-scores cron guarantees the 5-minute idle threshold never
-opens.** Neon bills allocated CU by wall-clock, so this cost is for existing, not for working.
+**Why it is always running.** `main` sits at the **0.25 CU minimum** with the default 5-minute
+autosuspend, CPU flat at ~0, 100% compute cache hit, and a ~40 MB database. `ENDPOINT INACTIVE`
+never appears across a 3-day window. Neon bills allocated CU by wall-clock, so `0.25 CU x 720h`
+= ~180 CU-hrs ~= **$19/month paid for existing, not for working** — and the `*/3` live-scores
+schedule guarantees the 5-minute idle threshold never opens.
 
-**Action taken 2026-08-31: Vercel Deployment Retention, Pre-Production 2 weeks → 1 day.** Neon
-reclaims a preview branch only after the last Vercel deployment referencing that Git branch is
-deleted, and **58 distinct branches merged in the 14 days to 2026-08-31**, so ~48 standing Neon
-branches was the steady state of the velocity, not a leak. At ~4.1 branches/day a 1-day window
-holds ~4. Canceled (1 day), Errored (1 week) and Production (30 days) are unchanged; Production is
-the rollover window and auto-promotion is off.
+**The item: pause the in-season schedules when the season ends.**
 
-Safe because the owner's walkthrough surface is the long-lived `preview` Git branch, force-pushed on
-every commit (`CLAUDE.md`), so it always has a minutes-old deployment. Per-feature preview URLs are
-the occasional case (`deployment-runbook.md` §6c) and regenerate on the next push. Incidental
-benefit: §6c's warning that the long-lived preview branch "can reuse an old Neon branch and become
-increasingly stale" largely self-corrects, since any gap now expires the deployment.
+In-season, ~$19/month is the honest price of an app that has to watch live games. February through
+July there are no games, and the schedules keep firing every three minutes regardless:
 
-**Still open: `main`'s ~$19/month.** The only lever is letting the endpoint suspend, which needs
-**five minutes with no queries from any cron** — the `*/3` live-scores schedule alone forecloses it,
-and query size is irrelevant. In-season the saving is single-digit dollars against real game-coverage
-tradeoffs. The offseason case is different: months of near-total idleness are on the order of
-$100+/year. **Do not size this before Item 94**, and treat it as an offseason question.
+    ~6 offseason months x ~$19  =  ~$114/year for zero work
+
+**This has no coverage tradeoff** — there is no game coverage to lose. That is what distinguishes it
+from narrowing schedules to game windows in-season, which would trade away Tuesday MAC games and
+rescheduled kickoffs and is NOT what this item asks for.
+
+**The mechanism already exists.** Every QStash schedule has a manager
+(`docs/deployment-runbook.md` §"Dataset / Manager" table): `manage:live-scores-schedule`,
+`manage:game-stats-schedule`, `manage:odds-schedule`, plus `manage:rankings-schedule` and
+`manage:schedule-refresh-schedule`. A manual scheduler hold is already an operation this project
+runs (the 2026-08-27 lifecycle pause is recorded in the runbook).
+
+**Scope to decide:**
+
+- **Which schedules pause.** `live-scores`, `game-stats` and `odds` are clearly in-season only.
+  `schedule-refresh` and `rankings` may still be wanted for offseason schedule publication and
+  final polls — decide deliberately rather than pausing all five.
+- **Whether it is manual or lifecycle-driven.** `season-transition` and `season-rollover` already
+  own the boundary and run daily. Automatic pausing is more reliable and also more dangerous — a
+  wrong pause during a season is a live outage of score updates. **Manual first**, with the runbook
+  documenting when to run it, is the safer starting point given lifecycle transitions have no
+  reverse.
+- **Verify the DB actually sleeps.** After pausing, confirm `ENDPOINT INACTIVE` bands appear in
+  Neon's Monitoring for `main`. Anything else touching the database on a <5 minute cadence defeats
+  the whole item, and nothing today proves the crons are the only such caller.
+
+**Done 2026-08-31: the preview-branch half.** Vercel Deployment Retention, Pre-Production 2 weeks →
+1 day, and ~135 stale deployments removed by hand. Neon reclaims a preview branch only after the
+last Vercel deployment for that Git branch is deleted, and **58 branches merged in the 14 days to
+2026-08-31**, so ~48 standing Neon branches was the steady state of the merge rate, not a leak. At
+~4.1 branches/day a 1-day window holds about four. Rationale and procedure are in
+`deployment-runbook.md` §6c. Canceled (1 day), Errored (1 week) and Production (30 days) are
+unchanged; Production is the rollback window and auto-promotion is off.
 
 **Dead ends — recorded so they are not re-derived:**
 
-- **The year-wide prefix scan is NOT the cost driver.** `pg_stat_statements`:
-  `app_state ... key like $2` is **3,268 calls / 8.8s / 5,733 rows** — 1.75 rows per call. Single-key
-  reads are 24,820 calls / 76.2s. The app's entire database work is **~85 seconds**.
+- **The year-wide `app_state` prefix scan is NOT the cost driver.** `pg_stat_statements`:
+  `key like $2` is **3,268 calls / 8.8s / 5,733 rows** — 1.75 rows per call. Single-key reads are
+  24,820 calls / 76.2s. The app's entire database work is **~85 seconds**.
 - **Query load is not the driver at all.** Neon's own telemetry (`pg_stat_activity`,
   `pg_stat_replication`, `neon_perf_counters`, postgres_exporter collectors) runs **401,912 calls**
-  against the app's ~28,000. That is inherent to having an instance running.
-- **A sentinel-gate on the scan would save nothing.** The query it would replace costs 2.7ms, and
-  making a query cheaper cannot create a 5-minute idle gap.
-- **`52.96 GB` of network transfer against `0.05 GB` of storage is not explained by app queries** and
-  was the false lead that produced the prefix-scan theory. Unexplained; not pursued.
+  against the app's ~28,000. Inherent to having an instance running.
+- **A sentinel gate on that scan would save nothing.** The query it replaces costs 2.7ms, and a
+  cheaper query cannot create a 5-minute idle gap. Only the absence of queries can.
+- **Cadence is not a Neon cost.** Doubling the live-scores frequency adds ~$0.18 of QStash and $0
+  of Neon, because the endpoint is already awake. The only cadence cost is CFBD armed runs
+  (Item 95 portion 2, gated on Item 94).
+- **`52.96 GB` network transfer against `0.05 GB` storage** is unexplained by app queries and was
+  the false lead behind the prefix-scan theory. Not pursued.
 
-- Backlog slug: `PLATFORM-NEON-COMPUTE-COST-v1`
+- Backlog slug: `PLATFORM-OFFSEASON-SCHEDULE-PAUSE-v1`
 
 ## Open league-setup, roster, and draft work
 
