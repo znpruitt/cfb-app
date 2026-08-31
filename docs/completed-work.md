@@ -61,8 +61,9 @@ Supersedes: (none)
 - **It also cleared a live defect symptom.** PLATFORM-117 merged after week 1's games finished, and
   its only refresh trigger is a finalisation, so the 2026 cache was empty with the next kickoff ~77
   hours away. System Health correctly showed yellow `no cached data`, and nothing in the automation
-  would have recovered it before 2026-09-03. **The backfill treated the symptom; the cause is
-  Item 97a's missing staleness ceiling and remains open.**
+  would have recovered it before 2026-09-03. **The backfill treated the symptom; the missing
+  staleness ceiling is implemented and reviewed by `PLATFORM-118-TEAM-RECORDS-FRESHNESS-v2`
+  (PR #546 open), but is not yet a merged milestone.**
 
 ### PLATFORM-086H2 — Durable Game-Stats Merge Service (Dormant) — Complete
 

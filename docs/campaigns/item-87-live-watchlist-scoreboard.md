@@ -150,7 +150,8 @@ footer — and no row loses its right-edge anchor.
 
 **State this in the implementation prompt:** a build with records absent or stale will not match the
 mockup, and a reviewer comparing them must read that as a sequenced dependency rather than a defect.
-See Item 97 for two known record-freshness gaps that make this concrete.
+PLATFORM-118 closes the two record-freshness gaps that made this dependency concrete; see its v2
+entry in `docs/prompt-registry.md`.
 
 ### Layout
 
@@ -261,7 +262,7 @@ The work remained separate from Item 90's cross-component color sweep and merged
 
 **Delivered:** the interim selector excludes in-progress games from the watchlist and pins that boundary with regression coverage. Item 87 supersedes the predicate with a structural promotion model; do not reimplement the interim fix as a separate slice.
 
-### D → delivered by PLATFORM-117. CFBD team-records integration
+### D → delivered by PLATFORM-117 and hardened by PLATFORM-118. CFBD team-records integration
 
 **Delivered cache contract:** one normalized year-wide snapshot under `team-records/<year>`, keyed by
 provider `teamId` and carrying `classification`, conference, and the total W-L-T record. The
@@ -269,16 +270,23 @@ cache-only reader and `refreshTeamRecords({ year })` accept any year directly; n
 canonical game ids, an active season, or the season registry. Slice 4 owns the first render and the
 direct numeric-ID join — PLATFORM-117 deliberately shipped no consumer.
 
-**Bounded cadence:** only a newly committed final in the existing `live-scores` cron can invoke the
-records authority, at most once per run. A durable six-hour floor starts at the actual provider call
-and applies even after a failed or unusable response, bounding a 31-day month to
-`ceil(31 × 24 / 6) = 124` calls. Runs with no finalisation never call `/records`; an independent
-eight-day cache-age diagnostic makes no-final staleness visible without creating provider work.
+**Bounded cadence:** a newly committed final in the existing `live-scores` cron still invokes the
+records authority, and an independent hourly QStash heartbeat now invokes it without claiming a
+finalisation. The authority owns both inputs: a durable six-hour provider-call floor permits a
+finalisation-triggered refresh, while an independent twelve-hour ceiling guarantees clock-based
+recovery. The floor bounds a 31-day month to `ceil(31 × 24 / 6) = 124` `/records` calls even though
+744 hourly deliveries can arrive; a healthy quiet slate uses about 62. The cache-age diagnostic is
+fourteen hours and assumes that hourly job remains unpaused. Item 96 owns generalized diagnostic
+applicability and delivery-warning behavior when in-season jobs are paused.
+
+**Reader reliability:** a row is creditable only when `wins + losses + ties == games`. The reader
+withholds an uncreditable W-L-T value while preserving its team id as a distinct reliability signal;
+it never derives or repairs the provider record from app score data.
 
 **Independent health:** records opens its own `records` + `year` provider-refresh attempt and uses
-its own operator toggle. A records failure cannot relabel scores, and the existing `live-scores`
-scheduler receipt remains the only delivery row. The known `No refresh history` display behavior is
-still Item 88; PLATFORM-117 did not design around it.
+its own operator toggle. A records failure cannot relabel scores. The hourly job has its own
+`team-records` execution receipt and scheduler-health row; the finalisation signal inside
+`live-scores` remains valuable and unchanged.
 
 ### E → Item 87 slice 5. Schedule page rework
 

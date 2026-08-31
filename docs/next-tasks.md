@@ -298,6 +298,14 @@ there are no games, and the schedules keep firing every three minutes regardless
 schedules to game windows in-season, which would trade away Tuesday MAC games and rescheduled
 kickoffs and is NOT what this item asks for.
 
+**Settled by PLATFORM-118:** `team-records` pauses with the other in-season jobs; do not exempt it
+merely because the provider call is cheap. A completed season's records are immutable, so a
+twelve-hour refresh buys no recovery while still waking Neon, writing leases and receipts, and
+calling `/records`. Its fourteen-hour cache diagnostic assumes an **unpaused hourly job**. The pause
+implementation must therefore add one generalized lifecycle-applicability rule for every dataset it
+pauses and suppress the corresponding missing-delivery warnings while paused — not a records-only
+exception. Resume must re-arm both delivery and freshness evaluation.
+
 The mechanism exists: every QStash schedule has a manager (`deployment-runbook.md`), and a manual
 hold is already an operation this project runs. **Scope to decide:** which schedules pause
 (`rankings` and `schedule-refresh` may still be wanted); manual vs lifecycle-driven (**manual
@@ -331,117 +339,6 @@ answers all came from a console page or `pg_stat_statements`. Check the **Comput
 before attributing compute cost to anything.
 
 - Backlog slug: `PLATFORM-OFFSEASON-SCHEDULE-PAUSE-v1`
-
-### Item 97 — team records go stale after the last game of a slate, and a counted-but-uncredited record renders as 0-0
-
-Two follow-ups to PLATFORM-117 (PR #543, `9376521e`). Not user-visible yet — no consumer renders
-records until Item 87 slice 3/4 — so both are cheap to fix ahead of them.
-
-**Do fix them ahead of slice 3.** The campaign's resolved record design puts the record on **every**
-scoreboard state, inline on live and final rows, and specifies that _finals carry the post-game
-record including the result being read_. So a stale record no longer surfaces as a slightly-off
-number on next week's matchup — it renders **on the final row itself, contradicting the score
-directly above it**, for a game the member just watched. That is a credibility failure, not a
-freshness nit, and it is the state a member looks at most.
-
-#### 97a — the staleness ceiling, agreed and not shipped
-
-`live-scores/route.ts:474` calls `refreshTeamRecords({ year })` **only** when a run commits a
-finalisation, and `TEAM_RECORDS_MIN_REFRESH_INTERVAL_MS` (`teamRecordsRefresh.ts:46`) is a 6-hour
-floor. There is **no ceiling**: the only exported constants are the floor and the lease.
-
-The floor is deliberate and well-tested (`the six-hour floor suppresses a dense-Saturday
-finalisation call`). The missing ceiling is the defect, and the serious half is not the floor
-blocking mid-slate waves — it is that **the trigger is the event being measured**:
-
-    15:30  first wave finals  -> refresh #1
-    19:00  second wave        -> 3.5h elapsed -> blocked by floor
-    22:30  third wave         -> 7h elapsed   -> refresh #2
-    02:00  LAST wave finals   -> 3.5h elapsed -> blocked
-           ...and nothing else finalises, so there is never a next trigger.
-
-**The final wave of every slate is therefore never captured** until some unrelated game finishes —
-realistically the following Tuesday or Saturday. For most of the week, every team that played a late
-window shows a record missing that game. The documented consumer is the scheduled-state anchor, so
-this surfaces as a 3-1 team rendering as 2-1 on next week's matchup: a wrong number, not a
-freshness nuance.
-
-**Live example, 2026-08-31 — observed, then manually cleared.** PLATFORM-117 merged at 03:17, after
-week 1's games finished. 126 games were complete and 16 FBS teams had results, yet the records cache
-was **empty** and System Health correctly showed a yellow `no cached data`. The next kickoff was
-2026-09-03T21:00Z — ~77 hours out — and **no trigger could fire before it**, so the cache would have
-stayed cold for over three days with slice 3/4 unable to build against real record data.
-
-Cleared by the manual backfill below rather than by the cadence, which is the point: **nothing in
-the automation would have recovered it.** Generalised: **any deploy landing between slates leaves
-the cache cold for the whole inter-slate gap**, which is most deploys, and only a human noticing the
-yellow ends it.
-
-_Two CFBD query traps found while measuring this, both of which produced a wrong answer first._
-**`completed: false` does not mean "future".** 329 of week 1's 455 games are uncompleted with
-kickoffs already 90 hours past — mostly D-II/D-III games CFBD never marks complete, the same
-population as the `w+l+t != games` rows in 97b. Filter on `startDate > now`, not on `completed`.
-**And CFBD week 1 spans week 0 too**, running 2026-08-27 through 2026-09-03+, so "week 1 is over"
-is false while a Thursday game remains. Query the current week for future kickoffs before assuming
-the next one is a week away.
-**Fix:** refresh when the cache is older than a ceiling **regardless of finalisations**, so the
-clock rather than an event drives recovery. A 12-hour ceiling adds at most ~2 calls/day (~60/month
-against 5,000). Test it in a state with **no** finalisations at all — that is the case the floor's
-existing tests cannot reach.
-
-**Provenance:** the ceiling was one of three cadence bullets in
-`PLATFORM-117-TEAM-RECORDS-v1`, the follow-up prompt asked specifically for a no-finalisation test,
-and the reply was _"I'll add the explicit no-finalisation/offseason staleness test."_ The floor and
-both other follow-ups landed; this did not. Gap against the stated acceptance boundary, not a
-judgement call.
-
-#### 97b — guard `wins + losses + ties == games` on the reader
-
-Measured against `/records?year=2026` on 2026-08-31:
-
-| Division | Teams | Played | `w+l+t != games` |
-| --- | --- | --- | --- |
-| fbs | 138 | 16 | **0** |
-| fcs | 128 | 113 | **0** |
-| ii | 171 | 109 | **92** |
-| iii | 247 | 0 | 0 |
-
-A row like `{games: 1, wins: 0, losses: 0, ties: 0}` means the provider has **counted the game and
-not credited the outcome**. Rendering it yields `0-0` for a team that has played — indistinguishable
-from a genuine Week 1 record, which the row contract already says must be a different fact from
-absent.
-
-**Fix:** on the READER, treat a row failing the invariant as unreliable — render no anchor, or fill
-the outcome from our own score data. Filling is safe here and needs no applied-game ledger: it fills
-a hole the provider explicitly left open, and stops on its own once `w+l+t == games`.
-
-**This is load-bearing under the resolved design, not defensive insurance.** `games:1, wins:0,
-losses:0` means "the provider counted the game you just watched and has not credited it" — arriving
-precisely when a final row is rendering that team's record beside its winning score. Rendering
-`0-0` there is the single worst output the surface can produce.
-
-**Unknown, and worth one measurement:** whether FBS records transit this state at all. The snapshot
-found it only in D-II, but the most recent FBS game was 27 hours old and long resolved. **Next
-Saturday, poll an FBS team's record right after their game goes final** and see whether it passes
-through `games:1, 0-0`. Either answer is useful; the guard is correct regardless and simply never
-fires if FBS resolves atomically.
-
-#### Decided, and recorded here because it was lost
-
-**Deriving a record by incrementing a cached value is rejected.** "Add a win" requires tracking
-which games were already applied or a retry double-counts, and `w+l+t == games` does NOT catch it —
-a correct patch and a doubled patch both increment each side and both satisfy the invariant. This
-was decided during Item 92's design and the text was removed with Item 92 at PLATFORM-117's
-closeout, so it had no home; it is restated here to stop it being re-proposed a third time. 97b is
-not this: it fills an explicitly-uncredited outcome and is self-limiting.
-
-**Related, measured, not required by this item:** our completed-game count per FBS team matches
-CFBD's `games` exactly (16/16 on 2026-08-31, via the read replica). That makes a delta-based
-reconciliation viable in principle, but the sample is one week and has not met FCS opponents,
-postseason, or delete-and-recreate reschedules (Item 63). **Re-measure in November before building
-anything on it.**
-
-- Backlog slug: `PLATFORM-TEAM-RECORDS-CADENCE-FOLLOWUP-v1`
 
 ### Item 98 — league page content paint: three measured costs
 
@@ -1520,16 +1417,16 @@ are removed rather than retained with strikethrough; their outcomes live in `doc
   ties resolve by scope key; final-candidate extraction runs for callers that do not request a
   sweep; equal-timestamp aggregate/child finals can make difference logs nondeterministic. Score
   truth is unaffected.
-- **Expected-absence applicability for scores, odds, rankings, and now `records`.** A genuinely cold
+- **Expected-absence applicability for scores, odds, and rankings.** A genuinely cold
   deployment can still show neutral absence as degraded health. `game-stats` is the only dataset
   given a `ProviderDataExpectation` (`providerDataDiagnostics.ts:108-137`); every other dataset is
   `expected` by construction, so its absence reads as an actionable gap. Each needs its own
   applicability authority; do not generalize the game-stats slate rule.
-  **`records` is NOT in this class, and the 2026-08-31 yellow is CORRECT.** 2026 already has 126
-  completed games and 16 FBS teams with results, so any sane applicability rule returns `expected`.
-  Records data genuinely should exist and does not, because PLATFORM-117 deployed _after_ those games
-  finalised and a finalisation is its only trigger. **That is Item 97a, not an applicability gap** —
-  see there. Recorded because the two look identical on the panel and the wrong one is easy to blame.
+- **Team-records provider-refresh faults still route to a non-repairing surface.** Scheduler
+  execution faults correctly offer no repair action, but dataset-axis failed/partial/interrupted
+  records attempts still inherit the generic `Open Data Maintenance & Recovery` link, and that page
+  has no records control. A follow-up should either add a real manual records repair or suppress the
+  generic link for this dataset; do not imply the current link can fix it.
 - **Malformed `CombinedOdds.favorite` producer field.** Recap copy resolves the favorite from side
   spreads, but existing scoreboard and matchup consumers can still render a contradictory stored
   favorite string. Repair the producer or stop those consumers from trusting the field.
