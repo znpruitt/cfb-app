@@ -322,6 +322,41 @@ test('a diagnostics loader failure surfaces a global data-diagnostics-unavailabl
   assert.equal(model.overallState, 'degraded');
 });
 
+test('PLATFORM-117: a stale records diagnostic degrades its row and Provider data panel', async () => {
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders({
+      diagnostics: () =>
+        Promise.resolve({
+          ...healthyDiagnostics(),
+          diagnostics: [
+            {
+              dataset: 'records',
+              severity: 'warning',
+              code: 'records-cache-stale',
+              message: 'must not reach the sanitized model',
+              repair: null,
+            },
+          ],
+        }),
+    }),
+  });
+
+  const records = model.datasets.find((row) => row.dataset === 'records');
+  assert.deepEqual(records?.freshness, {
+    status: 'yellow',
+    label: 'Stale',
+    intentional: false,
+  });
+  assert.equal(
+    model.panels.find((panel) => panel.key === 'provider-data')?.status,
+    'yellow',
+    'stale team records cannot leave the production Provider data panel green'
+  );
+  assert.ok(model.issues.some((issue) => issue.code === 'records-cache-stale'));
+});
+
 // Case 31 — one failed subsystem still returns truthful results from the rest.
 test('one failed subsystem does not erase truthful results from the others', async () => {
   const model = await buildSystemHealthViewModel({

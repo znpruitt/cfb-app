@@ -466,10 +466,7 @@ async function runScoreboard(args: {
   // can trigger the year-wide records authority. Its failure is isolated in the
   // dedicated `records` health row and cannot relabel a committed score run.
   if (totalFinalized > 0) {
-    await refreshTeamRecords({
-      year,
-      now: now.getTime(),
-    });
+    await refreshTeamRecords({ year });
   }
 
   // Invalidate standings once, only when a durable score/status change occurred.

@@ -164,23 +164,32 @@ async function acquireLease(
  * makes this token-safe; a failed write refuses the call, so no billed request
  * can escape the durable six-hour floor.
  */
-async function markProviderCallStarted(year: number, token: string, now: number): Promise<boolean> {
+async function markProviderCallStarted(
+  year: number,
+  token: string,
+  clock: () => number
+): Promise<number | null> {
   try {
     return await withAppStateKeyTransaction(
       TEAM_RECORDS_REFRESH_CONTROL_SCOPE,
       String(year),
       async (txn) => {
         const control = normalizeControl((await txn.read<unknown>())?.value);
-        if (!control.lease || control.lease.token !== token) return false;
+        if (!control.lease || control.lease.token !== token) return null;
+        const now = clock();
+        if (now >= Date.parse(control.lease.expiresAt)) return null;
         await txn.write<RecordsControl>({
-          lease: control.lease,
+          lease: {
+            token,
+            expiresAt: new Date(now + TEAM_RECORDS_LEASE_DURATION_MS).toISOString(),
+          },
           lastProviderCallAt: now,
         });
-        return true;
+        return now;
       }
     );
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -271,9 +280,11 @@ async function commitTeamRecords(params: {
  */
 export async function refreshTeamRecords(params: {
   year: number;
-  now?: number;
+  /** Test-only clock seam; production always reads wall time at each decision point. */
+  clock?: () => number;
 }): Promise<TeamRecordsRefreshResult> {
-  const { year, now = Date.now() } = params;
+  const { year, clock = Date.now } = params;
+  const now = clock();
 
   try {
     if (!(await isAutoRefreshAllowed('records'))) {
@@ -331,7 +342,12 @@ export async function refreshTeamRecords(params: {
       return result('cfbd-api-key-missing');
     }
 
-    if (!(await markProviderCallStarted(year, lease.token, now))) {
+    // Read the wall clock HERE, after settings/cache/status work and immediately
+    // before the durable cadence claim that precedes provider I/O. Anchoring the
+    // six-hour floor to the cron's route-entry time would shorten it by however
+    // long the score request and merge took.
+    const providerCallAt = await markProviderCallStarted(year, lease.token, clock);
+    if (providerCallAt === null) {
       await recordProviderRefreshFailure('records', scope, {
         attempt,
         error: `records ${year}: cadence-control write failed`,
@@ -383,7 +399,11 @@ export async function refreshTeamRecords(params: {
     }
 
     const rowsReceived = normalized.items.length;
-    const commit = await commitTeamRecords({ year, observedAt: now, items: normalized.items });
+    const commit = await commitTeamRecords({
+      year,
+      observedAt: providerCallAt,
+      items: normalized.items,
+    });
     if (commit.kind === 'stale-observation' || commit.kind === 'empty-response') {
       await recordProviderRefreshNoop('records', scope, {
         attempt,

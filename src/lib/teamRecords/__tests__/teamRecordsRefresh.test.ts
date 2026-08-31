@@ -15,7 +15,11 @@ import {
   readTeamRecordsCache,
   type TeamRecordsCacheEntry,
 } from '../teamRecordsCache.ts';
-import { refreshTeamRecords, TEAM_RECORDS_MIN_REFRESH_INTERVAL_MS } from '../teamRecordsRefresh.ts';
+import {
+  refreshTeamRecords,
+  TEAM_RECORDS_MIN_REFRESH_INTERVAL_MS,
+  TEAM_RECORDS_REFRESH_CONTROL_SCOPE,
+} from '../teamRecordsRefresh.ts';
 
 const YEAR = 2026;
 const NOW = Date.parse('2026-09-06T06:00:00.000Z');
@@ -104,7 +108,7 @@ test('a year refresh writes the cache and its independent year status', async ()
 
   const result = await refreshTeamRecords({
     year: YEAR,
-    now: NOW,
+    clock: () => NOW,
   });
 
   assert.equal(result.reason, 'written-clean');
@@ -126,13 +130,49 @@ test('a year refresh writes the cache and its independent year status', async ()
   );
 });
 
+test('the durable floor starts at the actual records call, not the cron entry instant', async () => {
+  const urls = stubRecords([providerRow()]);
+  const providerCallAt = NOW + 40_000;
+  let clockReads = 0;
+
+  const result = await refreshTeamRecords({
+    year: YEAR,
+    // First read models route/refresh entry; the second is immediately before
+    // the durable provider-call claim after upstream score work has completed.
+    clock: () => (clockReads++ === 0 ? NOW : providerCallAt),
+  });
+
+  assert.equal(result.reason, 'written-clean');
+  assert.equal(
+    (await readTeamRecordsCache(YEAR))?.at,
+    providerCallAt,
+    'the cache observation is anchored to the actual /records request'
+  );
+  const control = await getAppState<{ lastProviderCallAt: number }>(
+    TEAM_RECORDS_REFRESH_CONTROL_SCOPE,
+    String(YEAR)
+  );
+  assert.equal(
+    control?.value.lastProviderCallAt,
+    providerCallAt,
+    'the six-hour floor is anchored to the actual /records request'
+  );
+
+  const tooSoon = await refreshTeamRecords({
+    year: YEAR,
+    clock: () => providerCallAt + SIX_HOURS_MS - 1,
+  });
+  assert.equal(tooSoon.reason, 'fresh-cache');
+  assert.equal(urls.length, 1);
+});
+
 test('an arbitrary completed prior year refreshes without canonical schedule or season context', async () => {
   const priorYear = 2024;
   const urls = stubRecords([providerRow({ year: priorYear })]);
 
   const result = await refreshTeamRecords({
     year: priorYear,
-    now: NOW,
+    clock: () => NOW,
   });
 
   assert.equal(result.reason, 'written-clean');
@@ -154,7 +194,7 @@ test('a records failure marks only records unhealthy, never scores', async () =>
 
   const result = await refreshTeamRecords({
     year: YEAR,
-    now: NOW,
+    clock: () => NOW,
   });
 
   assert.equal(result.reason, 'invalid-payload');
@@ -176,7 +216,7 @@ test('the records operator toggle suppresses only the records call', async () =>
 
   const result = await refreshTeamRecords({
     year: YEAR,
-    now: NOW,
+    clock: () => NOW,
   });
 
   assert.equal(result.reason, 'automation-paused-or-disabled');
@@ -204,7 +244,7 @@ test('the durable lease prevents overlapping calls for the same year', async () 
 
   const first = refreshTeamRecords({
     year: YEAR,
-    now: NOW,
+    clock: () => NOW,
   });
   for (let i = 0; i < 50 && urls.length === 0; i += 1) {
     await new Promise<void>((resolve) => setTimeout(resolve, 5));
@@ -213,7 +253,7 @@ test('the durable lease prevents overlapping calls for the same year', async () 
 
   const overlapping = await refreshTeamRecords({
     year: YEAR,
-    now: NOW + 1,
+    clock: () => NOW + 1,
   });
   assert.equal(overlapping.reason, 'refresh-in-progress');
   assert.equal(urls.length, 1, 'the overlapping invocation spent no second provider call');
@@ -238,7 +278,7 @@ test('the six-hour floor suppresses a dense-Saturday finalisation call', async (
 
   const result = await refreshTeamRecords({
     year: YEAR,
-    now: NOW,
+    clock: () => NOW,
   });
 
   assert.equal(result.reason, 'fresh-cache');
@@ -249,8 +289,11 @@ test('the six-hour floor suppresses a dense-Saturday finalisation call', async (
 test('a failed provider call still starts the durable six-hour floor', async () => {
   const urls = stubRecords({ wrong: 'top-level shape' });
 
-  const first = await refreshTeamRecords({ year: YEAR, now: NOW });
-  const second = await refreshTeamRecords({ year: YEAR, now: NOW + 3 * 60 * 1000 });
+  const first = await refreshTeamRecords({ year: YEAR, clock: () => NOW });
+  const second = await refreshTeamRecords({
+    year: YEAR,
+    clock: () => NOW + 3 * 60 * 1000,
+  });
 
   assert.equal(first.reason, 'invalid-payload');
   assert.equal(second.reason, 'fresh-cache');
@@ -275,7 +318,7 @@ test('a zero-row response cannot overwrite a populated prior-good cache', async 
 
   const result = await refreshTeamRecords({
     year: YEAR,
-    now: NOW,
+    clock: () => NOW,
   });
 
   assert.equal(result.reason, 'empty-replacement-rejected');

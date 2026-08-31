@@ -28,11 +28,16 @@ import {
 import { isWithinEarlyOddsPollingHorizon } from '../odds/pollingPolicy.ts';
 import { isDisruptedStatusLabel } from '../gameStatus.ts';
 import { formatRelativeTimestamp } from '../freshness.ts';
-import { PROVIDER_DATASETS, type ProviderDataset } from '../providerDatasets.ts';
+import {
+  getProviderDatasetDescriptor,
+  PROVIDER_DATASETS,
+  type ProviderDataset,
+} from '../providerDatasets.ts';
 import type { CfbdSeasonType } from '../cfbd.ts';
 import { loadLiveScoreContext } from '../liveScores/canonicalContext.ts';
 import type { ProviderDiagnosticGameRef } from './scoreGapDiagnostics.ts';
 import { deriveScoreHealthDiagnostics } from './scoreHealthDiagnostics.ts';
+import { readTeamRecordsCache } from '../teamRecords/teamRecordsCache.ts';
 
 /**
  * Minimal shape of a durable `odds-cache` entry — only its capture times matter
@@ -72,6 +77,8 @@ export type ProviderDiagnosticCode =
   | 'rankings-cache-missing'
   | 'rankings-cache-stale'
   | 'rankings-diagnostics-unavailable'
+  | 'records-cache-stale'
+  | 'records-diagnostics-unavailable'
   | 'odds-cache-missing'
   | 'odds-cache-stale'
   | 'odds-diagnostics-unavailable';
@@ -176,6 +183,7 @@ const DAY_MS = 24 * HOUR_MS;
 const SLATE_COMPLETE_AFTER_MS = 6 * HOUR_MS;
 const STALE_SCHEDULE_AFTER_MS = 8 * DAY_MS;
 const STALE_RANKINGS_AFTER_MS = 8 * DAY_MS;
+const STALE_RECORDS_AFTER_MS = getProviderDatasetDescriptor('records').staleAfterMs;
 const STALE_ODDS_AFTER_MS = 2 * DAY_MS;
 const MAX_LISTED_SLATES = 6;
 const MAX_LISTED_GAME_REFS = 6;
@@ -852,6 +860,32 @@ export async function getProviderDataDiagnostics(
       'warning',
       'rankings-diagnostics-unavailable',
       `Rankings diagnostics unavailable: ${errText(error)}`,
+      null
+    );
+  }
+
+  // ---- Team records: year-wide cache age, independent of game context. ----
+  // Records can be refreshed directly for any year and have no canonical-game,
+  // active-season, or registry dependency. Their declared eight-day ceiling is
+  // therefore enforced directly from the normalized cache entry's observation
+  // clock, including during a no-final stretch when automation makes no call.
+  try {
+    const records = await readTeamRecordsCache(year);
+    if (records && records.items.length > 0 && now - records.at > STALE_RECORDS_AFTER_MS) {
+      push(
+        'records',
+        'warning',
+        'records-cache-stale',
+        `Team records last refreshed ${formatRelativeTimestamp(records.at, now)} — older than the eight-day policy.`,
+        null
+      );
+    }
+  } catch (error) {
+    push(
+      'records',
+      'warning',
+      'records-diagnostics-unavailable',
+      `Team-record diagnostics unavailable: ${errText(error)}`,
       null
     );
   }
