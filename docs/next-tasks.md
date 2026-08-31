@@ -443,6 +443,128 @@ anything on it.**
 
 - Backlog slug: `PLATFORM-TEAM-RECORDS-CADENCE-FOLLOWUP-v1`
 
+### Item 98 — league page content paint: three measured costs
+
+**Measured 2026-08-31.** Three independent costs, each with a number. Everything below was taken
+from production; where a measurement turned out to be an artifact it is recorded as one so it is not
+repeated.
+
+**What the dashboard says, and what it hides.**
+
+| | Mobile | Desktop |
+| --- | --- | --- |
+| Real Experience Score | 95 (Great) | 76 (Needs Improvement) |
+| **First Contentful Paint** | **2.31s (amber)** | **3.50s (poor)** |
+| Largest Contentful Paint | 2.47s green | 3.89s amber |
+| INP / CLS / FID | 88ms / 0.05 / 30ms — all green | 64ms / 0.03 / 4ms — all green |
+| `/league/[slug]` | 93 (137 samples) | 74 (90 samples) |
+| TTFB | 0.31s | — |
+
+**Mobile RES 95 is a composite carried by green INP/CLS/FID. FCP is the only non-green metric on
+either device, and FCP is literally "how long until content appears".** Do not read 95 as "this is
+fine"; read the FCP row.
+
+**Desktop is not representative.** 90 samples over 7 days on a private league is mostly the owner,
+and the window includes a debugging session run with `Disable cache` ticked. Mobile has the larger
+sample and is the better signal.
+
+**And the score cannot see the tab-switch complaint at all.** FCP fires once per page load. Client
+navigations between Overview and History emit **no FCP event**, so that experience is invisible in
+Speed Insights by construction. It was measured directly instead — see cost 3.
+
+#### 98a — cold standings recomputation, ~1.1-1.4s per render
+
+`src/app/api/scores/route.ts:543` calls `invalidateStandingsForYear(year)` on every score write. The
+live-scores cron writes roughly every 3 minutes during a slate, so the `unstable_cache`d
+`getCanonicalStandings` is **cold on most in-season page loads** and each visitor pays the full
+recomputation.
+
+Measured on the document request for `/league/tsc`, DevTools, cache disabled:
+
+    cold:  TTFB 236ms  +  Content Download 1.15s   = 1.39s
+    warm:  TTFB 280ms  +  Content Download   73ms  = 0.35s   (immediate reload)
+
+TTFB barely moves. **The cost is entirely in the streamed body** — the response is held open while
+the server recomputes — so it does not appear in TTFB and is easy to miss. The RSC fetch on a
+return navigation showed the same thing more starkly: `Waiting for server response` **1.41s**,
+`Content Download` **1.75ms**.
+
+This also explains the RES trend: ~88 on 2026-08-24 in preseason, falling to ~72 by 08-29/30. Not a
+regression — the cache stopped being warm once score writes began.
+
+**Fix: warm on write, do not make the reader pay.** Invalidating on a score write is correct; scores
+genuinely change standings. The mistake is leaving the recomputation for whoever loads next. After
+`invalidateStandingsForYear(year)`, recompute and store in the same handler. The cron pays ~1.1s
+once per write instead of every member paying it per visit. Same cron-spends / client-reads split as
+PLATFORM-086B2B, applied to derived data.
+
+#### 98b — 76% of the schedule payload is discarded after parsing
+
+`/api/schedule?year=2026&seasonType=all` returns **2,764,786 bytes** (245 KB gzipped). Of its 3,676
+rows:
+
+| Pairing | Rows |
+| --- | --- |
+| involves an FBS team | **888 (24%)** |
+| iii/iii | 1,158 |
+| ii/ii | 811 |
+| fcs/fcs | 651 |
+
+**The client already discards them** — `src/lib/schedule.ts:758` filters with `isTrackedGame(...)`
+immediately after parsing. So filtering server-side is not a behaviour change; it moves an existing
+filter upstream. Same shape as PLATFORM-114: work at the wrong layer, shipping data that is thrown
+away.
+
+**Fix: filter on provider classification** (no FBS participant → cannot be tracked) in the
+`/api/schedule` response. Use the coarse classification predicate, **not** a server-side
+reproduction of `isTrackedGame`, which needs the resolver and canonical metadata. The coarse filter
+is provably lossless. Expect ~2.76 MB → ~670 KB parsed; parse cost is worst on phones, which is
+exactly where FCP is amber.
+
+#### 98c — no client cache, so every navigation refetches everything
+
+`CFBScheduleApp` holds schedule and scores in `useState` and there is **no client data-cache
+library** (no SWR, no React Query). Navigating away unmounts the component and discards the state;
+navigating back refetches from scratch. Observed on a single Overview → History → Overview round
+trip:
+
+    schedule?year=2026   teams   rankings?year=2026   aliases?scope=effective
+    owners?year=2026     postseason-overrides?year=…  odds-usage   tsc?year=2026
+    → 23 requests, 254 kB, ~12s timeline
+
+**Fix: cache the slow-changing fetches across navigations.** Schedule changes weekly and teams and
+aliases change less than that; scores are the only genuinely live one and already have their own
+3-minute polling. Keep the live path exactly as it is.
+
+#### Deliberately NOT in scope
+
+- **`getLeague` caching and Suspense boundaries.** TTFB is 236-310ms and green on both devices. The
+  server's _first byte_ is not the problem; its streamed body is, and 98a fixes that.
+- **`staleTimes` and `prefetch` tuning.** Second-order. Revisit only if tab switching still feels
+  slow after 98c. Note that broad `prefetch={true}` would make things WORSE here: the History page
+  already fires 10+ viewport RSC prefetches (`matchups`, `members`, `stats`, `rivalries`, `archive`,
+  plus one per owner), all `force-dynamic`. They are shell-only today (8.2 kB across 14 requests),
+  but forcing full prefetch would turn them into 10+ dynamic renders per visit. A return navigation
+  showed DNS 159ms + connect 187ms + SSL 117ms — a _fresh_ connection, because the prefetch burst
+  had exhausted the pool. If anything is done here it is `prefetch={false}` on the owner links.
+- **Flattening History's five-stage waterfall** (`history/page.tsx:50-88`, 7 archives). Real —
+  History's RSC fetch measured TTFB 377ms + Content Download 739ms — but 98a and 98c come first.
+- **Bundle size.** 260 kB First Load JS for `/league/[slug]`, 173 kB for history. Unremarkable and
+  not the bottleneck.
+
+#### Measurement artifacts — recorded so they are not repeated
+
+- **`getCanonicalStandings` is NOT slow.** Timing it at 5.6s from a local `tsx` process was an
+  artifact: outside the Next runtime `unstable_cache` degrades to a passthrough, and the link to
+  Neon carries ~79ms RTT versus ~1-3ms from a Vercel function in the same region. Measure server
+  work in production, via DevTools timings or Observability.
+- **"~1 MB of JS" was wrong.** That came from summing every chunk referenced in the HTML, including
+  non-first-load ones. The build output is authoritative: 260 kB.
+- **Desktop RES is polluted by our own testing.** Prefer mobile, and prefer the FCP row over the
+  composite score.
+
+- Backlog slug: `PLATFORM-LEAGUE-PAGE-PAINT-v1`
+
 ## Open league-setup, roster, and draft work
 
 ### Item 51 — manual assignment is offered but has no completion writer
