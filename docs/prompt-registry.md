@@ -63,14 +63,14 @@ Rules:
   zero-row replacement of prior-good data, and is bounded to one call per qualifying run behind a
   durable six-hour floor (at most 124 calls in 31 days). Cache health has an independent eight-day
   ceiling, and score commits invalidate standings before the optional records request can wait.
-- Review / verification: exact code commit `11c26836` passed lint, TypeScript, and the 4,496-test
-  suite. Mutation checks named the failing assertions for final-transition gating, arbitrary-year
-  refresh, scope isolation, the durable floor, zero-row retention, the eight-day no-final health
-  ceiling, and standings-invalidation ordering. Final `/code-review` found no issue; Codex's repeat
-  suggestions were rejected against the fixed final-only cadence, the specified zero-row drift
-  boundary (there is no authoritative arbitrary-year team roster), and the measured quota-free
-  `/info` behavior used by the 1,002 reserve gate.
-- Status: Implemented and reviewed on `platform/117-team-records` — ready for PR, not merged.
+- Review / verification: exact PR head `021925a3` passed lint, TypeScript, and the 4,496-test suite.
+  Mutation checks named the failing assertions for final-transition gating, arbitrary-year refresh,
+  scope isolation, the durable floor, zero-row retention, the eight-day no-final health ceiling, and
+  standings-invalidation ordering. Final `/code-review` found no issue; Codex's repeat suggestions
+  were rejected against the fixed final-only cadence, the specified zero-row drift boundary (there
+  is no authoritative arbitrary-year team roster), and the measured quota-free `/info` behavior
+  used by the 1,002 reserve gate.
+- Status: Merged via PR #543 (merge commit `9376521e`), 2026-08-31.
 
 ### POLISH-018-LIVE-STATUS-TREATMENT-v1
 
