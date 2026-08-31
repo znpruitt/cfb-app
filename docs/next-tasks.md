@@ -50,6 +50,8 @@ Gated: **Item 85** after 86, which is how the repair gets verified.
 **Item 94** (CFBD burn-rate measurement) is date-gated to October 2026, after the first full
 in-season month; it is the accumulated observation **Item 63** and **Item 95 portion 2** are waiting
 on. **Item 95 portion 1** is runnable now and is not gated.
+**Item 96**'s preview-retention half is DONE (2026-08-31); its remaining `main`-suspend half is an
+offseason question and must not be sized before Item 94.
 **INSIGHTS-017-PALETTE** before precedence-reason hues matter; Item 87 renders them neutral until
 then.
 
@@ -230,6 +232,57 @@ argument attached, and it makes portion 2's benefit easier to judge because only
 unsynchronized.
 
 - Backlog slug: `PLATFORM-LIVE-SCORE-CADENCE-v1`
+
+### Item 96 — Neon compute cost is wall-clock, not workload (measured 2026-08-31)
+
+**$46.03 for Aug 1 - Sep 1, of which compute is $39.03** — `368.21 CU-hrs x $0.106/CU-hr`. Storage
+is `0.05 GB x $0.35 = $0.02`. In a month that was ~90% preseason, so this is a floor.
+
+**The split, measured on `main`'s Monitoring over Aug 28-31:**
+
+| Source | CU-hrs | Approx | Character |
+| --- | --- | --- | --- |
+| `main` never suspending | ~180 (`0.25 CU x 720h`) | ~$19 | pure wall-clock |
+| preview branches | ~188 | ~$20 | wake events, one Neon branch per Vercel deployment |
+
+`main` is at the **0.25 CU minimum**, autosuspend is the 5-minute default, CPU used is flat at ~0,
+compute cache hit rate is 100%, and the whole database is ~40 MB. `ENDPOINT INACTIVE` never appears
+across a 3-day window: **the `*/3` live-scores cron guarantees the 5-minute idle threshold never
+opens.** Neon bills allocated CU by wall-clock, so this cost is for existing, not for working.
+
+**Action taken 2026-08-31: Vercel Deployment Retention, Pre-Production 2 weeks → 1 day.** Neon
+reclaims a preview branch only after the last Vercel deployment referencing that Git branch is
+deleted, and **58 distinct branches merged in the 14 days to 2026-08-31**, so ~48 standing Neon
+branches was the steady state of the velocity, not a leak. At ~4.1 branches/day a 1-day window
+holds ~4. Canceled (1 day), Errored (1 week) and Production (30 days) are unchanged; Production is
+the rollover window and auto-promotion is off.
+
+Safe because the owner's walkthrough surface is the long-lived `preview` Git branch, force-pushed on
+every commit (`CLAUDE.md`), so it always has a minutes-old deployment. Per-feature preview URLs are
+the occasional case (`deployment-runbook.md` §6c) and regenerate on the next push. Incidental
+benefit: §6c's warning that the long-lived preview branch "can reuse an old Neon branch and become
+increasingly stale" largely self-corrects, since any gap now expires the deployment.
+
+**Still open: `main`'s ~$19/month.** The only lever is letting the endpoint suspend, which needs
+**five minutes with no queries from any cron** — the `*/3` live-scores schedule alone forecloses it,
+and query size is irrelevant. In-season the saving is single-digit dollars against real game-coverage
+tradeoffs. The offseason case is different: months of near-total idleness are on the order of
+$100+/year. **Do not size this before Item 94**, and treat it as an offseason question.
+
+**Dead ends — recorded so they are not re-derived:**
+
+- **The year-wide prefix scan is NOT the cost driver.** `pg_stat_statements`:
+  `app_state ... key like $2` is **3,268 calls / 8.8s / 5,733 rows** — 1.75 rows per call. Single-key
+  reads are 24,820 calls / 76.2s. The app's entire database work is **~85 seconds**.
+- **Query load is not the driver at all.** Neon's own telemetry (`pg_stat_activity`,
+  `pg_stat_replication`, `neon_perf_counters`, postgres_exporter collectors) runs **401,912 calls**
+  against the app's ~28,000. That is inherent to having an instance running.
+- **A sentinel-gate on the scan would save nothing.** The query it would replace costs 2.7ms, and
+  making a query cheaper cannot create a 5-minute idle gap.
+- **`52.96 GB` of network transfer against `0.05 GB` of storage is not explained by app queries** and
+  was the false lead that produced the prefix-scan theory. Unexplained; not pursued.
+
+- Backlog slug: `PLATFORM-NEON-COMPUTE-COST-v1`
 
 ## Open league-setup, roster, and draft work
 
