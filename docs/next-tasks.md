@@ -98,9 +98,12 @@ slate and closes Thursday 06:00 ET: a Tuesday sweeper repair lands inside that w
 points, movement, and accolades can shift under a reader who already saw them.
 
 Frequency is UNMEASURED. PLATFORM-112's game-level score-gap diagnostics and PLATFORM-113's
-elapsed-time conclusion diagnostics are the instruments; both are merged but were unpromoted as of
-2026-08-29, so no production rate exists yet. Measure before choosing a cadence — the quota cost of a
-ramp should be justified by an observed repair rate, not by this mechanism's existence.
+elapsed-time conclusion diagnostics are the instruments. **Both are promoted as of 2026-08-30** — the
+earlier "unpromoted" note is stale — so the measurement gate is open, but no rate exists yet: System
+Health reported no score-gap issues through the opening week, which is a thin sample rather than a
+finding. Measure before choosing a cadence — the quota cost of a ramp should be justified by an
+observed repair rate, not by this mechanism's existence. The trigger for revisiting is accumulated
+observation, not promotion.
 
 - Backlog slug: `PLATFORM-RESCHEDULE-DETECTION-v1`
 
@@ -903,16 +906,26 @@ PLATFORM-115 raised the CFBD request ceiling to 40s at four call sites. Its scop
 from three files that happened to be open rather than a repo-wide sweep, so it missed the rest. The
 item shipped what it promised and its acceptance boundary held; the scope was wrong, not the work.
 
-**Evidence it matters, 2026-08-30.** Rankings publication failed at 22:00 UTC with
-`rankings-provider-fetch-failed` on both partitions, `durationMs: 36838`. Prior-good data kept
-serving, but `lastSuccessAt` was 2026-08-23 — so members saw the PRESEASON AP poll on Overview after
-week 1 had been played. A manual `bypassCache=1` refresh at 03:01 UTC recovered it (`rowsCommitted: 1`,
-`durationMs: 9749`).
+**This is a completeness fix, not an urgent one.** Two urgency framings were tried while filing it
+and both were wrong; they are recorded so they are not re-argued.
 
-**That recovery is the argument, not the reassurance.** It took 9.75s against a 12s ceiling — cleared
-by 2.25 seconds, at 3am, on the quietest night of the week. Rankings runs twice daily at 04:00 and
-22:00 UTC; the 22:00 slot on a Saturday is mid-slate, which is exactly when the opening-weekend
-measurements showed CFBD answering in 16-21s.
+- _Rankings staleness_ — rankings runs twice daily against a poll that changes weekly, so roughly
+  fourteen attempts cover each meaningful update. The 2026-08-30 22:00 UTC failure
+  (`rankings-provider-fetch-failed`, both partitions, `durationMs: 36838`) left members on the
+  preseason AP poll for about five hours; a manual `bypassCache=1` refresh recovered it at 03:01 UTC
+  (`rowsCommitted: 1`, `durationMs: 9749`), but the 04:00 run would have done the same unattended.
+  Rankings has the BEST redundancy of the nine sites, so it is the weakest case for the fix even
+  though it is what exposed the gap.
+- _Schedule redundancy_ — the weekly Tuesday 12:00 UTC refresh does have a single shot and the widest
+  blast radius, but **schedule cadence belongs to Item 63**, which already owns the in-season ramp as
+  the main lever on score-repair latency. Borrowing that argument here double-counts it.
+
+What justifies the item on its own terms: the ceiling was judged wrong and changed in four places;
+nine more carry it, and one of them demonstrably failed. That is enough for a small constant swap
+without an urgency claim.
+
+Sequencing: below Item 91, and a natural companion to Item 60's two low-severity follow-ups since
+both touch `rankings/refreshAuthority.ts`.
 
 Still at `timeoutMs: 12_000`:
 
