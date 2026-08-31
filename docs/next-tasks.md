@@ -332,6 +332,87 @@ before attributing compute cost to anything.
 
 - Backlog slug: `PLATFORM-OFFSEASON-SCHEDULE-PAUSE-v1`
 
+### Item 97 — team records go stale after the last game of a slate, and a counted-but-uncredited record renders as 0-0
+
+Two small follow-ups to PLATFORM-117 (PR #543, `9376521e`). Neither is user-visible yet — no
+consumer renders records until Item 87 slice 3/4 — so this is cheap to fix ahead of them.
+
+#### 97a — the staleness ceiling, agreed and not shipped
+
+`live-scores/route.ts:474` calls `refreshTeamRecords({ year })` **only** when a run commits a
+finalisation, and `TEAM_RECORDS_MIN_REFRESH_INTERVAL_MS` (`teamRecordsRefresh.ts:46`) is a 6-hour
+floor. There is **no ceiling**: the only exported constants are the floor and the lease.
+
+The floor is deliberate and well-tested (`the six-hour floor suppresses a dense-Saturday
+finalisation call`). The missing ceiling is the defect, and the serious half is not the floor
+blocking mid-slate waves — it is that **the trigger is the event being measured**:
+
+    15:30  first wave finals  -> refresh #1
+    19:00  second wave        -> 3.5h elapsed -> blocked by floor
+    22:30  third wave         -> 7h elapsed   -> refresh #2
+    02:00  LAST wave finals   -> 3.5h elapsed -> blocked
+           ...and nothing else finalises, so there is never a next trigger.
+
+**The final wave of every slate is therefore never captured** until some unrelated game finishes —
+realistically the following Tuesday or Saturday. For most of the week, every team that played a late
+window shows a record missing that game. The documented consumer is the scheduled-state anchor, so
+this surfaces as a 3-1 team rendering as 2-1 on next week's matchup: a wrong number, not a
+freshness nuance.
+
+**Fix:** refresh when the cache is older than a ceiling **regardless of finalisations**, so the
+clock rather than an event drives recovery. A 12-hour ceiling adds at most ~2 calls/day (~60/month
+against 5,000). Test it in a state with **no** finalisations at all — that is the case the floor's
+existing tests cannot reach.
+
+**Provenance:** the ceiling was one of three cadence bullets in
+`PLATFORM-117-TEAM-RECORDS-v1`, the follow-up prompt asked specifically for a no-finalisation test,
+and the reply was _"I'll add the explicit no-finalisation/offseason staleness test."_ The floor and
+both other follow-ups landed; this did not. Gap against the stated acceptance boundary, not a
+judgement call.
+
+#### 97b — guard `wins + losses + ties == games` on the reader
+
+Measured against `/records?year=2026` on 2026-08-31:
+
+| Division | Teams | Played | `w+l+t != games` |
+| --- | --- | --- | --- |
+| fbs | 138 | 16 | **0** |
+| fcs | 128 | 113 | **0** |
+| ii | 171 | 109 | **92** |
+| iii | 247 | 0 | 0 |
+
+A row like `{games: 1, wins: 0, losses: 0, ties: 0}` means the provider has **counted the game and
+not credited the outcome**. Rendering it yields `0-0` for a team that has played — indistinguishable
+from a genuine Week 1 record, which the row contract already says must be a different fact from
+absent.
+
+**Fix:** on the READER, treat a row failing the invariant as unreliable — render no anchor, or fill
+the outcome from our own score data. Filling is safe here and needs no applied-game ledger: it fills
+a hole the provider explicitly left open, and stops on its own once `w+l+t == games`.
+
+**Unknown, and worth one measurement:** whether FBS records transit this state at all. The snapshot
+found it only in D-II, but the most recent FBS game was 27 hours old and long resolved. **Next
+Saturday, poll an FBS team's record right after their game goes final** and see whether it passes
+through `games:1, 0-0`. Either answer is useful; the guard is correct regardless and simply never
+fires if FBS resolves atomically.
+
+#### Decided, and recorded here because it was lost
+
+**Deriving a record by incrementing a cached value is rejected.** "Add a win" requires tracking
+which games were already applied or a retry double-counts, and `w+l+t == games` does NOT catch it —
+a correct patch and a doubled patch both increment each side and both satisfy the invariant. This
+was decided during Item 92's design and the text was removed with Item 92 at PLATFORM-117's
+closeout, so it had no home; it is restated here to stop it being re-proposed a third time. 97b is
+not this: it fills an explicitly-uncredited outcome and is self-limiting.
+
+**Related, measured, not required by this item:** our completed-game count per FBS team matches
+CFBD's `games` exactly (16/16 on 2026-08-31, via the read replica). That makes a delta-based
+reconciliation viable in principle, but the sample is one week and has not met FCS opponents,
+postseason, or delete-and-recreate reschedules (Item 63). **Re-measure in November before building
+anything on it.**
+
+- Backlog slug: `PLATFORM-TEAM-RECORDS-CADENCE-FOLLOWUP-v1`
+
 ## Open league-setup, roster, and draft work
 
 ### Item 51 — manual assignment is offered but has no completion writer
