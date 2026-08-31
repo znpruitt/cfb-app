@@ -236,7 +236,7 @@ unsynchronized.
 
 **The ask:** stop paying ~$19/month of Neon wall-clock during ~6 months with no games. Worth
 **~$114/year with no coverage tradeoff.** Everything below is the evidence that produced it; the
-open work is the *Scope to decide* list.
+open work is the _Scope to decide_ list.
 
 **All four billing surfaces measured 2026-08-31. Exposure is one variable: how many computes are
 running.**
