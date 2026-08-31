@@ -1304,9 +1304,17 @@ are removed rather than retained with strikethrough; their outcomes live in `doc
   ties resolve by scope key; final-candidate extraction runs for callers that do not request a
   sweep; equal-timestamp aggregate/child finals can make difference logs nondeterministic. Score
   truth is unaffected.
-- **Expected-absence applicability for scores, odds, and rankings.** A genuinely cold deployment can
-  still show neutral absence as degraded health. Each dataset needs its own applicability authority;
-  do not generalize the game-stats slate rule.
+- **Expected-absence applicability for scores, odds, rankings, and now `records`.** A genuinely cold
+  deployment can still show neutral absence as degraded health. `game-stats` is the only dataset
+  given a `ProviderDataExpectation` (`providerDataDiagnostics.ts:108-137`); every other dataset is
+  `expected` by construction, so its absence reads as an actionable gap. Each needs its own
+  applicability authority; do not generalize the game-stats slate rule.
+  **`records` (added by PLATFORM-117) is the sharpest case in this class.** The others look absent
+  only on a cold deployment; records refreshes solely on a finalisation, so its cache is legitimately
+  absent between every slate and is guaranteed absent immediately after any deploy that precedes the
+  next final. It self-resolves at the first final of the next slate. Its applicability rule is also
+  the cheapest of the four and borrows nothing from game-stats: **`not-yet-expected` until the season
+  has at least one completed game, `expected` thereafter.**
 - **Malformed `CombinedOdds.favorite` producer field.** Recap copy resolves the favorite from side
   spreads, but existing scoreboard and matchup consumers can still render a contradictory stored
   favorite string. Repair the producer or stop those consumers from trusting the field.
