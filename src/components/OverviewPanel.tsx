@@ -13,7 +13,6 @@ import {
   selectPositionDeltas,
 } from '../lib/selectors/trends';
 import { buildWeekLabelMap, formatWeekLabel } from '../lib/weekLabel';
-import { getGameOwners } from '../lib/gameOwnership';
 import { formatExpandedKickoff } from '../lib/gameCardPresentation';
 import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
 import { normalizeStatusTokens } from '../lib/gameStatus';
@@ -35,7 +34,10 @@ import {
 } from '../lib/selectors/overview';
 import type { SeasonContext } from '../lib/selectors/seasonContext';
 import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
-import { selectFreshOwnerPendingDelta } from '../lib/selectors/liveDelta';
+import {
+  selectOwnerPendingDelta,
+  selectOwnersWithInProgressGames,
+} from '../lib/selectors/liveDelta';
 import type { LiveDelta } from '../lib/selectors/liveDelta';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../lib/overview';
 import {
@@ -519,7 +521,7 @@ function CondensedStandingsTable({
   rows,
   onOwnerSelect,
   previousRows,
-  liveCountByOwner,
+  ownersWithInProgressGames,
   liveDelta,
   deltaWeeks,
   deltasByOwner,
@@ -528,7 +530,7 @@ function CondensedStandingsTable({
   rows: OwnerStandingsRow[];
   onOwnerSelect?: (owner: string) => void;
   previousRows?: OwnerStandingsRow[] | null;
-  liveCountByOwner?: Map<string, number>;
+  ownersWithInProgressGames?: ReadonlySet<string>;
   liveDelta?: LiveDelta | null;
   deltaWeeks?: number[];
   deltasByOwner?: Map<string, Map<number, number | null>>;
@@ -564,8 +566,9 @@ function CondensedStandingsTable({
           </>
         ) : null}
         {rows.map((row, index) => {
-          const liveCount = liveCountByOwner?.get(row.owner) ?? 0;
-          const livePending = selectFreshOwnerPendingDelta(liveDelta, row.owner);
+          const livePending = ownersWithInProgressGames?.has(row.owner)
+            ? selectOwnerPendingDelta(liveDelta, row.owner)
+            : null;
           const livePendingLabel = livePending
             ? `Live this week: ${livePending.pendingWins}–${livePending.pendingLosses}`
             : null;
@@ -625,11 +628,6 @@ function CondensedStandingsTable({
                   <span className="text-xs tabular-nums text-gray-400 dark:text-zinc-500">
                     {index === 0 ? formatGb(row.gamesBack) : `${formatGb(row.gamesBack)} GB`}
                   </span>
-                  {liveCount > 0 ? (
-                    <span className="rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
-                      {liveCount} live
-                    </span>
-                  ) : null}
                 </div>
                 {/* Secondary line: Win% · Diff */}
                 <div className="mt-0.5 flex items-center gap-x-2 text-xs text-gray-400 dark:text-zinc-500">
@@ -1455,17 +1453,10 @@ export default function OverviewPanel({
     return (week: number) => formatWeekLabel(week, labelMap);
   }, [games]);
   const liveTitle = `Live · ${liveItems.length}`;
-  const liveCountByOwner = React.useMemo(() => {
-    const standings = new Map<string, number>();
-    for (const game of games) {
-      const score = scoresByKey[game.key];
-      if (gameStateFromScore(score) !== 'inprogress') continue;
-      const { awayOwner, homeOwner } = getGameOwners(game, rosterByTeam);
-      if (awayOwner) standings.set(awayOwner, (standings.get(awayOwner) ?? 0) + 1);
-      if (homeOwner) standings.set(homeOwner, (standings.get(homeOwner) ?? 0) + 1);
-    }
-    return standings;
-  }, [games, scoresByKey, rosterByTeam]);
+  const ownersWithInProgressGames = React.useMemo(
+    () => selectOwnersWithInProgressGames({ games, scoresByKey, rosterByTeam }),
+    [games, scoresByKey, rosterByTeam]
+  );
   const viewModel = React.useMemo(
     () =>
       selectOverviewViewModel({
@@ -1610,7 +1601,7 @@ export default function OverviewPanel({
                 rows={viewModel.standingsTopN}
                 onOwnerSelect={onOwnerSelect}
                 previousRows={viewModel.previousStandingsLeaders}
-                liveCountByOwner={liveCountByOwner}
+                ownersWithInProgressGames={ownersWithInProgressGames}
                 liveDelta={liveDelta}
                 deltaWeeks={positionDeltaData?.weeks}
                 deltasByOwner={positionDeltaData?.byOwner}

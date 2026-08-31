@@ -29,9 +29,10 @@ export type LiveGameDelta = {
 
 /**
  * Per-owner pending diff aggregated from in-progress games only. `pendingWins`
- * counts in-progress games where the owner is currently leading; ties produce
- * no pending W/L credit. Final games are intentionally excluded — those are
- * already reflected in the canonical snapshot.
+ * counts in-progress games where the owner is currently leading; a tied game
+ * contributes a zero-decision delta so consumers can still render `+0–0`.
+ * Final games are intentionally excluded — those are already reflected in the
+ * canonical snapshot.
  */
 export type LivePendingOwnerDelta = {
   owner: string;
@@ -191,6 +192,46 @@ function deriveIsStale(lastFetchedAt: string | null, now: number, thresholdMs: n
 }
 
 /**
+ * Resolves the last-known pending delta for one owner without making a
+ * freshness claim. A zero-decision delta is meaningful here: it represents an
+ * in-progress game that is currently tied.
+ *
+ * Consumers must pair this accessor with their own current game-state gate.
+ * That keeps stale-score policy honest: the delta decides what a badge says,
+ * while current game state decides whether the badge still renders.
+ */
+export function selectOwnerPendingDelta(
+  liveDelta: LiveDelta | null | undefined,
+  owner: string | null | undefined
+): LivePendingOwnerDelta | null {
+  if (!liveDelta || !owner || owner === NO_CLAIM_OWNER) return null;
+  return liveDelta.byOwner[owner] ?? null;
+}
+
+/**
+ * Resolves owners whose currently attached score is in progress. This selector
+ * deliberately reads the current score packs rather than `liveDelta.byGame`,
+ * because a held stale delta must stop rendering as soon as a newer score marks
+ * the game final.
+ */
+export function selectOwnersWithInProgressGames(input: {
+  scoresByKey: Record<string, ScorePack>;
+  games: AppGame[];
+  rosterByTeam: Map<string, string>;
+}): Set<string> {
+  const owners = new Set<string>();
+
+  for (const game of input.games) {
+    if (gameStateFromScore(input.scoresByKey[game.key]) !== 'inprogress') continue;
+    const { awayOwner, homeOwner } = getGameOwners(game, input.rosterByTeam);
+    if (awayOwner && awayOwner !== NO_CLAIM_OWNER) owners.add(awayOwner);
+    if (homeOwner && homeOwner !== NO_CLAIM_OWNER) owners.add(homeOwner);
+  }
+
+  return owners;
+}
+
+/**
  * Resolves the fresh, decision-bearing pending delta for a single owner, or
  * `null` when no live badge should render. Centralizes the rules shared by the
  * Standings and Members "Live this week" annotations:
@@ -209,8 +250,7 @@ export function selectFreshOwnerPendingDelta(
   owner: string | null | undefined
 ): LivePendingOwnerDelta | null {
   if (!liveDelta || liveDelta.isStale) return null;
-  if (!owner || owner === NO_CLAIM_OWNER) return null;
-  const pending = liveDelta.byOwner[owner];
+  const pending = selectOwnerPendingDelta(liveDelta, owner);
   if (!pending) return null;
   if (pending.pendingWins + pending.pendingLosses <= 0) return null;
   return pending;
