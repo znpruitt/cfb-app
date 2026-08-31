@@ -277,9 +277,19 @@ the production domain and production store.
 ```sh
 files=$(git diff --name-only HEAD^ HEAD) || exit 1;
 [ -z "$files" ] && exit 1;
-echo "$files" | grep -qvE "^docs/|\.md$" && exit 1;
+echo "$files" | grep -qvE "^docs/|^mockups/|\.md$" && exit 1;
 exit 0
 ```
+
+`^mockups/` was added 2026-08-31. `AGENTS.md:254` puts mockups (HTML/PNG) in `mockups/` and design
+specs (markdown) in `docs/`, so a mockup edit is a docs-only change that the original pattern missed
+— it is at the repo root, not under `docs/`, and not `.md`. Nothing imports from `mockups/` and it is
+not in `public/`, so it cannot affect build output. A commit touching a mockup **and** app code still
+builds.
+
+**Testing this pattern locally can mislead.** `grep` may be shell-aliased to `ugrep`, whose `-q -v`
+combination reports differently and will show a mixed docs+code commit as `skip`. Vercel runs GNU
+grep; test with `/usr/bin/grep` before concluding the gate is wrong.
 
 **Consequence for reviving `preview`:** resetting `preview` to `main` produces a deployment only if
 `main`'s TIP commit touches code. When the tip is a docs closeout — the common case, since closeouts

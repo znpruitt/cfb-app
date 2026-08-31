@@ -9,5 +9,5 @@
       "schedule": "0 0 * * *"
     }
   ],
-  "ignoreCommand": "files=$(git diff --name-only HEAD^ HEAD) || exit 1; [ -z \"$files\" ] && exit 1; echo \"$files\" | grep -qvE \"^docs/|\\.md$\" && exit 1; exit 0"
+  "ignoreCommand": "files=$(git diff --name-only HEAD^ HEAD) || exit 1; [ -z \"$files\" ] && exit 1; echo \"$files\" | grep -qvE \"^docs/|^mockups/|\\.md$\" && exit 1; exit 0"
 }
