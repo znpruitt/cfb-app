@@ -35,7 +35,7 @@ import {
 } from './schedulerReceiptTestHarness';
 
 // PLATFORM-086F2E1 — the shared receipt authority: exact allowlisted schema,
-// all five job-compatible target shapes, monotonic latest-only ordering,
+// all job-compatible target shapes, monotonic latest-only ordering,
 // malformed/mismatched prior replacement, bounded multi-year summaries, and
 // fully-swallowed store/deferrer failures. Route integration lives in each cron
 // suite's receipts.test.ts.
@@ -138,8 +138,8 @@ test('createSchedulerInvocationId returns a UUID-shaped identity', () => {
   assert.ok(id && /^[0-9a-f-]{36}$/.test(id));
 });
 
-// 2 — all five job-compatible target shapes persist with exact target key sets.
-test('all five job target shapes persist with exact allowlisted target keys', async () => {
+// 2 — all six QStash job-compatible target shapes persist with exact target key sets.
+test('all six QStash job target shapes persist with exact allowlisted target keys', async () => {
   const inputs: SchedulerExecutionReceiptInput[] = [
     liveScoresInput({
       result: 'success',
@@ -152,6 +152,12 @@ test('all five job target shapes persist with exact allowlisted target keys', as
         targetGames: 3,
         targetPartitions: 2,
       },
+    }),
+    liveScoresInput({
+      job: 'team-records',
+      result: 'no-op',
+      reason: 'fresh-cache',
+      target: { kind: 'team-records', year: 2026 },
     }),
     liveScoresInput({
       job: 'game-stats',
@@ -218,6 +224,7 @@ test('all five job target shapes persist with exact allowlisted target keys', as
       kind: 'live-scores',
       keys: ['kind', 'mode', 'targetGames', 'targetPartitions', 'year'].sort(),
     },
+    { job: 'team-records', kind: 'team-records', keys: ['kind', 'year'].sort() },
     { job: 'game-stats', kind: 'game-stats', keys: ['kind', 'seasonType', 'week', 'year'].sort() },
     { job: 'odds', kind: 'odds', keys: ['cadence', 'eligibleGames', 'kind', 'year'].sort() },
     {
@@ -275,11 +282,16 @@ test('all five job target shapes persist with exact allowlisted target keys', as
   );
 });
 
-// F2E2A — the five QStash jobs keep source `qstash`; the two lifecycle jobs write
-// `vercel-cron`; all seven job/target/source combinations validate and persist.
-test('all seven jobs derive the correct source and persist their target shape', async () => {
+// The six QStash jobs keep source `qstash`; the two lifecycle jobs write
+// `vercel-cron`; all eight job/target/source combinations validate and persist.
+test('all eight jobs derive the correct source and persist their target shape', async () => {
   const inputs: SchedulerExecutionReceiptInput[] = [
     liveScoresInput(),
+    liveScoresInput({
+      job: 'team-records',
+      reason: 'fresh-cache',
+      target: { kind: 'team-records', year: 2026 },
+    }),
     liveScoresInput({
       job: 'game-stats',
       target: { kind: 'game-stats', year: 2026, week: 3, seasonType: 'regular' },
@@ -340,6 +352,7 @@ test('all seven jobs derive the correct source and persist their target shape', 
     kind: string;
   }> = [
     { job: 'live-scores', source: 'qstash', kind: 'live-scores' },
+    { job: 'team-records', source: 'qstash', kind: 'team-records' },
     { job: 'game-stats', source: 'qstash', kind: 'game-stats' },
     { job: 'odds', source: 'qstash', kind: 'odds' },
     { job: 'schedule-refresh', source: 'qstash', kind: 'schedule-years' },
@@ -757,11 +770,12 @@ test('secret canaries and arbitrary attached properties never reach durable stat
 
 // ── F2E2B — exported job list, source helper, and safe read parser ───────────
 
-test('EXTERNAL_SCHEDULER_JOBS is the canonical seven jobs and derives each source', () => {
+test('EXTERNAL_SCHEDULER_JOBS is the canonical eight jobs and derives each source', () => {
   assert.deepEqual(
     [...EXTERNAL_SCHEDULER_JOBS],
     [
       'live-scores',
+      'team-records',
       'game-stats',
       'odds',
       'schedule-refresh',

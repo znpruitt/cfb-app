@@ -28,6 +28,17 @@ export type TeamRecordsCacheEntry = {
   items: TeamRecordItem[];
 };
 
+/**
+ * Cache-only reader shape. `items` contains only rows whose provider outcome is
+ * fully creditable. A team id in `uncreditableTeamIds` proves a row was present
+ * but the provider counted more games than it credited to W/L/T; consumers can
+ * therefore distinguish that state from a genuinely absent record without
+ * being handed a misleading total to render.
+ */
+export type TeamRecordsCacheRead = TeamRecordsCacheEntry & {
+  uncreditableTeamIds: number[];
+};
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
@@ -116,8 +127,29 @@ export function normalizeTeamRecordsCacheEntry(
   return { at: value.at, year, items };
 }
 
-/** Cache-only future-consumer seam. Never calls CFBD. */
-export async function readTeamRecordsCache(year: number): Promise<TeamRecordsCacheEntry | null> {
+function isCreditableRecord(item: TeamRecordItem): boolean {
+  const { games, wins, losses, ties } = item.total;
+  return wins + losses + ties === games;
+}
+
+/**
+ * Cache-only future-consumer seam. Never calls CFBD.
+ *
+ * The provider may count a completed game before asynchronously crediting its
+ * outcome. Durable normalization intentionally preserves that observation;
+ * this reader is the last safe boundary before display, so it withholds the
+ * unreliable total and exposes the affected team id separately.
+ */
+export async function readTeamRecordsCache(year: number): Promise<TeamRecordsCacheRead | null> {
   const stored = await getAppState<unknown>(TEAM_RECORDS_STATE_SCOPE, String(year));
-  return normalizeTeamRecordsCacheEntry(stored?.value, year);
+  const normalized = normalizeTeamRecordsCacheEntry(stored?.value, year);
+  if (!normalized) return null;
+
+  const items: TeamRecordItem[] = [];
+  const uncreditableTeamIds: number[] = [];
+  for (const item of normalized.items) {
+    if (isCreditableRecord(item)) items.push(item);
+    else uncreditableTeamIds.push(item.teamId);
+  }
+  return { ...normalized, items, uncreditableTeamIds };
 }

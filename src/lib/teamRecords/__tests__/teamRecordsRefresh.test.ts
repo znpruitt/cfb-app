@@ -17,6 +17,7 @@ import {
 } from '../teamRecordsCache.ts';
 import {
   refreshTeamRecords,
+  TEAM_RECORDS_MAX_REFRESH_INTERVAL_MS,
   TEAM_RECORDS_MIN_REFRESH_INTERVAL_MS,
   TEAM_RECORDS_REFRESH_CONTROL_SCOPE,
 } from '../teamRecordsRefresh.ts';
@@ -24,6 +25,7 @@ import {
 const YEAR = 2026;
 const NOW = Date.parse('2026-09-06T06:00:00.000Z');
 const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
+const TWELVE_HOURS_MS = 12 * 60 * 60 * 1000;
 const ORIGINAL_FETCH = globalThis.fetch;
 const ORIGINAL_KEY = process.env.CFBD_API_KEY;
 
@@ -286,6 +288,98 @@ test('the six-hour floor suppresses a dense-Saturday finalisation call', async (
   assert.equal((await readTeamRecordsCache(YEAR))?.at, prior.at);
 });
 
+test('the twelve-hour ceiling refreshes with no finalisation after the floor is satisfied', async () => {
+  assert.equal(
+    TEAM_RECORDS_MAX_REFRESH_INTERVAL_MS,
+    TWELVE_HOURS_MS,
+    'the production staleness ceiling stays fixed at twelve hours'
+  );
+  const prior: TeamRecordsCacheEntry = {
+    at: NOW - TWELVE_HOURS_MS,
+    year: YEAR,
+    items: [normalizedItem()],
+  };
+  await setAppState('team-records', String(YEAR), prior);
+  const urls = stubRecords([providerRow({ total: { games: 3, wins: 3, losses: 0, ties: 0 } })]);
+
+  const result = await refreshTeamRecords({
+    year: YEAR,
+    finalizationObserved: false,
+    clock: () => NOW,
+  });
+
+  assert.equal(
+    result.reason,
+    'written-clean',
+    'the ceiling branch is the only reason a no-finalisation invocation refreshes'
+  );
+  assert.equal(urls.length, 1);
+  assert.equal((await readTeamRecordsCache(YEAR))?.items[0]?.total.games, 3);
+});
+
+test('a clock-driven invocation inside the ceiling does not use the six-hour event floor', async () => {
+  const prior: TeamRecordsCacheEntry = {
+    at: NOW - TEAM_RECORDS_MIN_REFRESH_INTERVAL_MS,
+    year: YEAR,
+    items: [normalizedItem()],
+  };
+  await setAppState('team-records', String(YEAR), prior);
+  const urls = stubRecords([providerRow({ total: { games: 3, wins: 3, losses: 0, ties: 0 } })]);
+
+  const result = await refreshTeamRecords({
+    year: YEAR,
+    finalizationObserved: false,
+    clock: () => NOW,
+  });
+
+  assert.equal(result.reason, 'fresh-cache');
+  assert.deepEqual(urls, []);
+});
+
+test('the reader separates creditable, uncreditable, absent, and tied records', async () => {
+  const normalized = normalizeTeamRecordsPayload(
+    [
+      providerRow(),
+      providerRow({
+        teamId: 334,
+        team: 'Uncredited State',
+        total: { games: 1, wins: 0, losses: 0, ties: 0 },
+      }),
+      providerRow({
+        teamId: 335,
+        team: 'Tie State',
+        total: { games: 1, wins: 0, losses: 0, ties: 1 },
+      }),
+    ],
+    YEAR
+  );
+  assert.equal(normalized.kind, 'rows');
+  if (normalized.kind !== 'rows') return;
+  await setAppState('team-records', String(YEAR), {
+    at: NOW,
+    year: YEAR,
+    items: normalized.items,
+  } satisfies TeamRecordsCacheEntry);
+
+  const cache = await readTeamRecordsCache(YEAR);
+  assert.ok(cache);
+  assert.deepEqual(
+    cache.uncreditableTeamIds,
+    [334],
+    'the counted-but-uncredited row is explicitly flagged and withheld'
+  );
+  assert.deepEqual(
+    cache.items.map((item) => item.teamId),
+    [333, 335],
+    'conforming rows, including ties, remain creditable'
+  );
+  assert.equal(
+    cache.items.some((item) => item.teamId === 999) || cache.uncreditableTeamIds.includes(999),
+    false,
+    'an absent row appears in neither the creditable nor flagged collection'
+  );
+});
+
 test('a failed provider call still starts the durable six-hour floor', async () => {
   const urls = stubRecords({ wrong: 'top-level shape' });
 
@@ -323,7 +417,7 @@ test('a zero-row response cannot overwrite a populated prior-good cache', async 
 
   assert.equal(result.reason, 'empty-replacement-rejected');
   assert.equal(urls.length, 1);
-  assert.deepEqual(await readTeamRecordsCache(YEAR), prior);
+  assert.deepEqual(await readTeamRecordsCache(YEAR), { ...prior, uncreditableTeamIds: [] });
   const status = await getProviderRefreshStatus('records', yearScope(YEAR));
   assert.equal(status.latestAttemptOutcome, 'failed');
   assert.equal(status.lastError?.code, 'records-empty-replacement-rejected');

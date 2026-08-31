@@ -1,12 +1,10 @@
 /**
  * PLATFORM-117 — one year-scoped CFBD team-record cache and refresh authority.
  *
- * The live-scores cron is the only refresh caller. It may invoke this authority
- * only after its scoreboard merge reports at least one newly committed final.
- * A durable six-hour floor then bounds dense-Saturday usage to at most 124
- * `/records` calls in a 31-day month (ceil(31 * 24 / 6)). The eight-day ceiling
- * is a health/future-reader staleness threshold; it does not bypass the
- * finalisation trigger and therefore cannot create a no-final provider call.
+ * The live-scores cron supplies an observed-finalisation signal; the independent
+ * hourly team-records job supplies no such signal. A durable six-hour floor
+ * bounds event-driven calls, while a separate twelve-hour cache-age ceiling
+ * guarantees clock-driven recovery between slates and after a cold deployment.
  *
  * Invariants:
  *   - one unfiltered `GET /records?year=` request at most per invocation;
@@ -44,6 +42,7 @@ import {
 
 export const TEAM_RECORDS_REFRESH_CONTROL_SCOPE = 'team-records-refresh-control';
 export const TEAM_RECORDS_MIN_REFRESH_INTERVAL_MS = 6 * 60 * 60 * 1000;
+export const TEAM_RECORDS_MAX_REFRESH_INTERVAL_MS = 12 * 60 * 60 * 1000;
 const TEAM_RECORDS_LEASE_DURATION_MS = 2 * 60 * 1000;
 
 const RETRY_POLICY = {
@@ -79,6 +78,20 @@ export type TeamRecordsRefreshResult = {
   rowsReceived: number;
   rowsCommitted: number;
 };
+
+function isRefreshDue(params: {
+  prior: TeamRecordsCacheEntry | null;
+  now: number;
+  finalizationObserved: boolean;
+}): boolean {
+  const { prior, now, finalizationObserved } = params;
+  if (!prior) return true;
+  const ageMs = now - prior.at;
+  return (
+    ageMs >= TEAM_RECORDS_MAX_REFRESH_INTERVAL_MS ||
+    (finalizationObserved && ageMs >= TEAM_RECORDS_MIN_REFRESH_INTERVAL_MS)
+  );
+}
 
 function result(
   reason: TeamRecordsRefreshReason,
@@ -280,10 +293,15 @@ async function commitTeamRecords(params: {
  */
 export async function refreshTeamRecords(params: {
   year: number;
+  /**
+   * The existing live-scores call is itself the finalisation observation and
+   * intentionally omits this field. Clock-driven callers must pass `false`.
+   */
+  finalizationObserved?: boolean;
   /** Test-only clock seam; production always reads wall time at each decision point. */
   clock?: () => number;
 }): Promise<TeamRecordsRefreshResult> {
-  const { year, clock = Date.now } = params;
+  const { year, finalizationObserved = true, clock = Date.now } = params;
   const now = clock();
 
   try {
@@ -300,7 +318,7 @@ export async function refreshTeamRecords(params: {
   } catch {
     return result('cache-read-failed');
   }
-  if (prior && now - prior.at < TEAM_RECORDS_MIN_REFRESH_INTERVAL_MS) {
+  if (!isRefreshDue({ prior, now, finalizationObserved })) {
     return result('fresh-cache');
   }
 
@@ -321,7 +339,7 @@ export async function refreshTeamRecords(params: {
     } catch {
       return result('cache-read-failed');
     }
-    if (prior && now - prior.at < TEAM_RECORDS_MIN_REFRESH_INTERVAL_MS) {
+    if (!isRefreshDue({ prior, now, finalizationObserved })) {
       return result('fresh-cache');
     }
 
