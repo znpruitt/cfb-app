@@ -190,6 +190,23 @@ Leave the other retention settings alone. Canceled at 1 day covers the docs-only
 and Production at 30 days is the rollback window — load-bearing because auto-promotion is off and a
 merge does not ship.
 
+### Post-merge cleanup is automatic — do not add it to a checklist
+
+Enabled 2026-08-31, so nothing here is a manual step:
+
+| Stage | Mechanism |
+| --- | --- |
+| Git branch | GitHub `delete_branch_on_merge: true` — the head branch is deleted when the PR merges |
+| Vercel deployments | Pre-Production retention, 1 day |
+| Neon branch | reclaimed once the last deployment for that Git branch is gone |
+
+Verify with `gh api repos/znpruitt/cfb-app --jq .delete_branch_on_merge`. If preview branches start
+accumulating in Neon again, check that flag and the retention window **before** deleting anything by
+hand — the count is downstream of both, and a manual sweep against a broken setting just refills.
+
+This covers only branches merged **through a PR**. Work pushed straight to `main` (post-merge docs
+closeouts, per `AGENTS.md`) creates no branch and needs no cleanup.
+
 ### Removing deployments by hand
 
 Retention sweeps run as a background job, not on save. To clear a backlog, remove deployments
