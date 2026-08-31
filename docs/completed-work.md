@@ -4357,6 +4357,28 @@ Key architectural decisions across Phase 5:
 - **Open follow-ups:** Item 87 slice 5 owns Schedule's accepted green-final/amber-live residual; see
   the remaining Item 87 slices in `docs/next-tasks.md`.
 
+### PLATFORM-117 — CFBD Team-Records Cache — Complete
+
+- **Status:** Merged via PR #543 (merge commit `9376521e`), 2026-08-31.
+- **PROMPT_ID(s):** `PLATFORM-117-TEAM-RECORDS-v1`.
+- **Outcome:** Added one normalized year-wide CFBD records cache keyed by numeric `teamId`, plus an
+  arbitrary-year refresh authority with its own year-scoped provider-health status. The existing
+  live-scores cron may invoke it only after a newly committed final, at most once per run behind a
+  durable six-hour provider-call floor (124 calls maximum in a 31-day month); an independent
+  eight-day cache-age diagnostic covers weeks with no finals. Prior-good data survives zero-row,
+  invalid, failed, and stale-observation outcomes. No route, UI consumer, or scheduler job shipped,
+  and score commits invalidate standings before awaiting the optional records request.
+- **Verification:** Twenty net test declarations were added relative to the pre-PR base for the
+  URL/cache contract, arbitrary-year refresh, final-transition trigger, durable cadence/lease,
+  prior-good retention, status isolation, health ceiling, quota/catalog propagation, and standings
+  invalidation ordering. Six existing dataset-count/control tests were retargeted from six to seven
+  datasets without dropping their assertions. Exact PR head `021925a3` passed `npm run lint`,
+  TypeScript, and the 4,496-test full suite; mutation proof named each fired assertion. Final
+  `/code-review` found no issue, and the remaining Codex suggestions were rejected against the
+  settled cadence, completeness, and measured quota contracts.
+- **Open follow-ups:** Item 87 slice 4 owns the first cache consumer; Item 88 owns the existing
+  provider-row `No refresh history` display behavior. See `docs/next-tasks.md`.
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone (DOCS-012). Entries describe shipped
