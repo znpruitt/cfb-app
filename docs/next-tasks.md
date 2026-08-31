@@ -254,12 +254,28 @@ Neon storage is `0.05 GB x $0.35 = $0.02`. **The attribution, once measured rath
 | --- | --- | --- | --- |
 | `main` primary (`ep-small-lake-ama2wisz`) | ~180 | ~$19 | `*/3` live-scores cron never lets the 5-minute autosuspend threshold open |
 | **`cfb-audit-read-replica`** (`ep-plain-term-amtt3ekz`) | **~180** | **~$19** | **autosuspend was `never`** — ran 24/7 with ZERO connections |
-| preview branches | ~8 | ~$0.85 | wake events only |
+| all non-`main` branches | ~5 | ~$0.6 | wake events only; each preview branch reads 0.02 CU-hrs or 0 |
 | | **368** | **$39.03** | |
 
 Both computes are at the **0.25 CU minimum** with CPU flat at ~0, a 100% cache hit rate, and a
 ~40 MB database. Neon bills allocated CU by wall-clock, so this is money paid for **existing**, not
 for working. Nothing was straining; two instances were simply switched on.
+
+**The ceiling is verified and hard (2026-08-31).** Both computes on the `main` branch have
+autoscaling `min == max == 0.25 CU`, confirmed in the endpoint editor. They physically cannot
+allocate more, whatever the load:
+
+    2 computes x 0.25 CU x 744h x $0.106  =  $39.43/month   ABSOLUTE MAXIMUM
+    August actual                         =  372.26 CU-hrs, $39.03
+
+**August was therefore already the worst possible month.** The bill that prompted this item was the
+ceiling, not a trend. No traffic spike, viral link, runaway query or bug can exceed it; the only
+variable is how many hours the two computes run, which is what this item controls.
+
+Per-branch CU confirms the attribution from a second direction: `main` is **366.81 CU-hrs** while
+every preview branch reads **0.02 or 0**. And 366.81 CU-hrs at 0.25 CU is 1,467 hours, twice what a
+month contains, which is only possible with two computes billing under one branch. Primary plus read
+replica at ~183 each.
 
 **FIXED 2026-08-31: the read replica's autosuspend.** Its delay was `never` while `main`'s is the
 5-minute default. Setting it to 5 minutes suspended the endpoint **within seconds**, independently
@@ -310,6 +326,25 @@ stale deployments removed, GitHub `delete_branch_on_merge` enabled so the whole 
 Neon went **48 → 2 branches**, confirming that Vercel deployment retention — not Git hygiene —
 reclaims them. Worth ~$0.85/month, not the ~$20 first claimed; it was worth doing to stop unbounded
 growth and to fix the stale-child-branch problem (`deployment-runbook.md` §6c), not for the money.
+
+**When would 0.25 CU stop being enough?** Recorded so a future capacity question is answered from
+evidence rather than fear. Today CPU is flat at ~0 through a live game weekend, compute cache hit
+rate is 100%, and the database is ~40 MB. Raising the cap would only be warranted by one of:
+
+- **Working set exceeding RAM.** 0.25 CU is ~1 GB and `neon.max_file_cache_size` is 819 MB against a
+  ~40 MB database. The signal is the **compute cache hit rate falling below ~99%** in Monitoring,
+  meaning reads go to the pageserver instead of local cache. Storage would need to grow ~20x: many
+  more seasons of archives, or per-play data rather than per-game.
+- **Sustained concurrent query load**, not page views. The connection limit is 105 direct / 10,000
+  pooled and the app is nowhere near it. This needs many members loading SIMULTANEOUSLY, which means
+  a public or multi-league deployment (see the conditional-gate section), not a bigger private
+  league. The signal is **CPU sustained above ~70%**, or pooler wait time rising off zero.
+- **A new heavy write or analytical path**: full-season recomputation on demand, cross-season
+  aggregates, or anything scanning every archive per request. Item 98a's standings recomputation is
+  the closest existing candidate at ~1.1s, and it is being moved to write time rather than optimised.
+
+**None of these is member count.** Adding owners or leagues adds rows to a 40 MB database and page
+views to an idle CPU. The trigger is concurrency or data volume, and both are far away.
 
 **Dead ends — recorded so they are not re-derived:**
 
