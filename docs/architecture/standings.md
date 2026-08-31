@@ -1,7 +1,7 @@
 # Standings
 
 Status: Current
-Last verified: 2026-07-09
+Last verified: 2026-08-30
 Owner: Project documentation
 Canonical for: canonical standings authority, selector/LiveDelta boundaries, NoClaim, standings cache invalidation, lifecycle/preseason states
 Supersedes: (none — complements `AGENTS.md` → Standings Ownership Invariants)
@@ -22,6 +22,11 @@ In-progress annotations (per-owner pending W–L badges) live in the client-only
 
 - Never combine the two with a shape-readiness predicate ("if rows exist use X, else Y") inside a render function — that is exactly what caused the original bug.
 - `LiveDelta` **excludes final games** (those are already in the canonical snapshot) and computes no projected rank/record/win%/differential. `canonical` is passed into the selector but not consumed by its computation.
+- `LiveDelta.byOwner` includes a zero-decision entry for an owned in-progress game that is tied or
+  temporarily lacks numeric scores. `selectFreshOwnerPendingDelta` remains the fresh,
+  decision-bearing accessor used by Standings and Members. Overview deliberately uses the sibling
+  `selectOwnerPendingDelta` behind `selectOwnersWithInProgressGames`: the current attached game state
+  decides whether its one live badge renders, while the last-known delta decides what it says.
 
 ## NoClaim is filtered at the source
 

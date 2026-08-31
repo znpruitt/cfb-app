@@ -1,7 +1,8 @@
 # Item 87 — Addendum: Live / Watchlist Scoreboard Treatment
 
-**Status:** Slices 1–2 shipped via POLISH-016 / PR #535 and POLISH-017 / PR #537; the
-pre-agreed reassessment point has been reached, and slices 3–4 remain planned.
+**Status:** Slices 1–2 shipped via POLISH-016 / PR #535 and POLISH-017 / PR #537; Item 91 shipped via
+PLATFORM-116 / PR #539; the pre-agreed reassessment point has been reached, and slices 3–4 remain
+planned.
 **Reference mockup:** `mockups/live-scoreboard-mockup.html`
 **Related:** `INSIGHTS-026b-RECAP-LAYOUT-v1` (dispatched). Shares the scoreboard micro-component — see Sequencing.
 
@@ -43,7 +44,7 @@ first catalogued:
 
 | Location | Use |
 |---|---|
-| `OverviewPanel:677` | `N live` pill |
+| `OverviewPanel:677` | `N live` pill — retired by PLATFORM-116 |
 | `OverviewPanel:253` | SectionCard `tone='live'` gradient |
 | `OverviewPanel:734` | live card borders (also collides with `:195`) |
 | `GameScoreboard:72` | `inprogress` chip |
@@ -143,19 +144,12 @@ Four bodies of work surfaced during this design that are **not** Item 87's surfa
 **Blocks nothing.** Item 87 removes the live-amber and green-final on its own surface directly; Item 90 sweeps the remaining components. Cross-reference so they land close together.
 **Item number: 90.** Cross-reference Item 87 (blocked by this) and Item 92.
 
-### B → Item 91. Standings-panel live-signal derivation
+### B → delivered by PLATFORM-116. Standings-panel live-signal derivation
 
-**Scope:** three linked changes to the pending-delta pipeline —
-
-1. `liveDelta.ts:31-34` — render `+0–0` for tied live games instead of no credit, so the badge does not vanish on a tie.
-2. `selectFreshOwnerPendingDelta:215` — on `isStale`, hold the last valid delta and replace on the next clean read, rather than returning `null`. This is a selector policy change; scores are already cached.
-3. Gate badge rendering on **game state** (`gameStateFromScore`), not delta freshness, so a prolonged outage cannot leave a finished game showing a live badge.
-
-**Then:** the `N live` pill (`OverviewPanel:677`, `liveCountByOwner:1528`) carries no information the badge lacks and can be removed, leaving one green element per row.
-**Confirmed:** `isStale` does not blank. Its own contract (`liveDelta.ts:53-58`) says consumers may *dim or annotate*; the suppression is a consumer choice at `selectFreshOwnerPendingDelta:211`. The 7-minute threshold (`:9-12`) is two missed 3-minute ticks — overlay freshness, not game completion. Preventing post-game live state is game state's job, which change 3 handles directly.
-
-**Acceptance boundary — do not break the `selectFresh…` contract.** Freshness is that function's advertised behaviour; making it return stale data silently misleads every other caller. Add a sibling (`selectOwnerPendingDelta`, last-known) that the badge consumes behind the game-state gate, and leave the original intact. Two accessors with honest names beat one that no longer means what it says.
-**Why separate:** derivation logic in one component, different risk profile and test surface from a colour sweep. Should not ride along with A.
+**Delivered:** tied and temporarily scoreless in-progress games now contribute a zero-decision
+delta, Overview reads the last-known value behind a current-game-state gate, and the `N live` pill
+is gone. `selectFreshOwnerPendingDelta` keeps its fresh-only contract for Standings and Members.
+The work remained separate from Item 90's cross-component color sweep and merged via PR #539.
 
 ### C → delivered by POLISH-015. Overview watchlist/live duplication
 
@@ -210,14 +204,14 @@ Ordered so colour settles once rather than shipping neutral live and flipping it
 | Done | **87 slice 1** | Shared scoreboard contract + Live consumer merged via PR #535. |
 | Done | **87 slice 2** | Featured + neutral-final consumer merged via PR #537; green-live settled on Overview. |
 | Runnable | **Item 42 wiring pass** | All fact families and the consumed final-row scoreboard variant now exist; no Item 87 dependency remains. |
-| 3 | **91** | Standings derivation — unblocks pill removal. |
-| 4 | **90** | Amber sweep, incl. pill removal and the `final` re-cut elsewhere. |
+| Done | **PLATFORM-116 / Item 91** | Tied/stale/scoreless standings signal and pill removal merged via PR #539. |
+| Runnable | **Item 90** | Remaining amber sweep and the `final` re-cut elsewhere. |
 | 5 | **92** → **87 slice 4** | Records integration, then the watchlist anchor. |
 | 6 | **017-PALETTE** | Reason and category hues. |
 
-**Genuine blockers — only two:** Item 91 → pill removal; Item 92 → watchlist anchor. POLISH-017
-removed the notable-results scoreboard blocker. Everything else is preference. Items 87 and 90 are
-independent.
+**Genuine blocker — only one:** Item 92 → watchlist anchor. PLATFORM-116 removed the pill blocker,
+and POLISH-017 removed the notable-results scoreboard blocker. Everything else is preference.
+Items 87 and 90 are independent.
 
 ---
 
@@ -355,7 +349,10 @@ weaker adjacency than the `deltaTextColor` / `gbDeltaColor` pair that already co
 badge consumers, the Live section gradient/card-border drift, and shipped green-live. The watchlist
 badge consumer remains scheduled/unknown-only until slice 4 removes that renderer.
 
-**Correction — the `:677` pill is not reached.** It lives in `CondensedStandingsTable` (`:566`), the standings rows, not the game lists. Item 87 does not touch it, and its removal is gated on **Item 91**, not Item 90: pulling it before ties render `+0–0` and staleness degrades would reintroduce the blind spot. One constraint survives, in a different place than previously recorded. Item 90 sweeps the remaining surfaces: `GameScoreboard`, `GameWeekPanel`, `MatchupsWeekPanel`, `OwnerPanel`, `PostseasonPanel`, plus the `final` re-cut. Cross-reference so the two land close together, but neither blocks the other.
+**Correction resolved by PLATFORM-116.** The former `:677` pill lived in
+`CondensedStandingsTable`, not the game lists. PLATFORM-116 fixed the tied/stale badge boundary and
+retired that pill; Item 90 now sweeps only the remaining surfaces: `GameScoreboard`,
+`GameWeekPanel`, `MatchupsWeekPanel`, `OwnerPanel`, `PostseasonPanel`, plus the `final` re-cut.
 
 **Residual risk, accepted:** if Item 90 slips, Schedule keeps green-final while Overview has green-live. That is the status quo plus one improvement, not a regression, and it is confined to different pages.
 
@@ -377,32 +374,17 @@ The category tokens are both the weakest use and the ones already colliding (8 c
 
 ---
 
-## Existing standings-panel defects — separate from this campaign
+## Standings-panel correction — delivered by PLATFORM-116
 
-Identified by the owner; not this campaign's surface, but they change what the green convention actually is.
-
-**Row anatomy as shipped:** the main record counts *finalised* games; the green `+W–L` badge carries the *provisional* result of in-progress games; the `N live` pill counts them. Jackson renders a clean `1–0` with neither badge nor pill because his game finalised and rolled into the record.
-
-**The badge should render `+0–0` rather than disappear.** `liveDelta.ts:31-34` gives no pending W/L credit for ties, and `selectFreshOwnerPendingDelta:215` returns `null` when `pendingWins + pendingLosses <= 0`. So an owner whose only live game is tied shows nothing. `+0–0` is a true statement — level across live games — and fixes the blind spot at its source, rather than compensating for it downstream. Preferred over keeping a second element alive to cover the gap.
-
-**Staleness — persist last valid rather than blanking.** `selectFreshOwnerPendingDelta:215` also returns `null` when `liveDelta.isStale`, so a failed or timed-out refresh erases the badge even though nothing about the games changed. Preferred behaviour: hold the most recent valid delta and replace it on the next clean read. Note this is a **selector policy change, not a persistence one** — scores are already cached, and the selector is choosing to discard them.
-
-**Guardrail — gate on game state, not on delta freshness.** Persisting a delta unconditionally means a prolonged outage leaves a finished game showing a live badge indefinitely. The two signals have different sources and different failure modes, which is exactly what makes the combination safe:
-
-- **Game state** (`gameStateFromScore`, the same source the pill counts from) decides *whether* a badge renders at all. No games in progress → no badge, regardless of what the delta cache holds.
-- **Delta** decides *what* it says. Stale → show last valid; fresh → update.
-
-Under that rule the badge never disappears while games are genuinely live, never persists past a game ending, and `+0–0` covers ties. The pill then carries no information the badge lacks and can be removed, leaving one green element per row.
-
-**Ask the CLI why `isStale` blanks rather than degrades** before overriding it — the flag was presumably added to prevent showing stale in-progress state after games ended, which is precisely what the game-state gate handles more directly.
-
-**Filed as spun-off item B.**
+The main record counts *finalised* games; the single green `+W–L` badge carries the provisional
+result of in-progress games. Tied or temporarily scoreless live games render `+0–0`, stale reads
+retain the last-known delta, and current attached game state controls whether the badge renders.
+Final games roll into the canonical record and carry no live badge. The redundant `N live` pill is
+retired.
 
 ### Not a colour defect
 
 The green badge is direction-neutral by design — "in progress" has no negative counterpart, so the W–L inside the badge carries valence while the colour carries status. Red would be wrong there.
-
-**Edge case for 017 or the standings work:** an owner whose live game is currently tied, or which has kicked off with no score attached, produces no meaningful `+W–L`. If the badge is the only live signal, that owner shows nothing while a game is genuinely in progress. Confirm how the badge renders at `+0–0` before the pill is removed.
 
 ---
 
