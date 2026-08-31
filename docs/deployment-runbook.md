@@ -167,6 +167,47 @@ continued deployments keep it alive. A feature branch's own deployment normally 
 child branch copied near branch creation. Use a feature deployment when representative shared data
 matters, or deliberately recreate/reset the long-lived preview branch through Neon.
 
+### Preview branches cost money, and Vercel retention is what reclaims them
+
+**Neon deletes a preview branch only after the last Vercel deployment referencing that Git branch is
+deleted.** Deleting the Git branch does nothing on its own. So the standing Neon branch count is
+governed by **Vercel's Deployment Retention Policy**, not by Git hygiene, and it settles at roughly
+`branches-merged-per-day x retention-window`.
+
+Measured 2026-08-31: 58 distinct branches merged in 14 days against a 14-day Pre-Production
+retention held **48 Neon branches**, contributing roughly half of a $46 monthly Neon bill. That was
+the steady state of the merge rate, not a leak. Pre-Production retention was set to **1 day**, which
+holds about four.
+
+This is safe because the owner's walkthrough surface is the long-lived `preview` Git branch, which
+`CLAUDE.md` requires be force-pushed on every commit — it always has a minutes-old deployment, so no
+retention window reaches it. Per-feature preview URLs are the occasional case described above and
+regenerate on the next push. A useful side effect: any gap in pushing now expires the deployment, so
+the next push gets a **fresh** child branch and the staleness described in the paragraph above
+largely self-corrects.
+
+Leave the other retention settings alone. Canceled at 1 day covers the docs-only build skips (§6d),
+and Production at 30 days is the rollback window — load-bearing because auto-promotion is off and a
+merge does not ship.
+
+### Removing deployments by hand
+
+Retention sweeps run as a background job, not on save. To clear a backlog, remove deployments
+explicitly and verify production between batches:
+
+```bash
+vercel remove <deployment-url> ... --yes
+vercel inspect turfwar.games | grep -E "url|status"   # must still name the promoted deployment
+```
+
+`vercel inspect <hostname>` is the only reliable way to ask what is actually being served.
+`vercel inspect <deployment>` lists aliases a deployment has held, and a **superseded** production
+deployment still lists the production aliases it no longer serves — so it cannot answer "is this
+live?"
+
+Deployments carrying an alias for a **deleted** Git branch still pin their Neon branch. Those are the
+ones a retention window has not yet reached and a naive "unaliased only" sweep skips.
+
 Never use preview System Health to judge production scheduler or provider health:
 
 - Vercel and QStash invoke production URLs, so scheduler receipts are not written to Preview.
