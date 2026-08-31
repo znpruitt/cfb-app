@@ -210,9 +210,25 @@ A final scoreboard shows the team's *current* record including the game just pla
 
 **Problem statement.** Schedule renders the same content shape this campaign redesigns — a matchup, an owner pair, a status — as three-line cards with status-coloured borders and pill chips. It is space-inefficient, it is the last surface still using the pre-campaign presentation, and it holds the residual green-`final` and most of the residual live-amber.
 
-**Scope.** Schedule (`GameWeekPanel`, `GameScoreboard`) adopts the scoreboard row, two-column and all, against the widened state contract above. Colour settles as part of the rework; Item 90 no longer touches these files.
+**Scope.** Schedule (`GameWeekPanel`, `GameScoreboard`) adopts the scoreboard row, two-column and all, against the widened state contract above. Colour settles as part of the rework; Item 90 no longer touches these files. Scope also reaches `MatchupsWeekPanel` for the carried-over item below — that file is a different week view mode, not the one being reworked, so it is named here deliberately rather than folded in silently.
 
 **Acceptance boundary.** The collapsed row is the scoreboard row. `disrupted` and `placeholder` render as states, not emphasis. Expand/collapse, byes, postseason grouping, odds, debug and the admin postseason override all survive unchanged — the row exposes slots and learns about none of them. No amber remains for live; no green remains for `final`. `PostseasonPanel:78` inherits via `GameWeekPanel` and is a verification surface only.
+
+**Carried over from POLISH-018 — `ownerOutcomeRowClasses` sibling asymmetry.**
+
+POLISH-018 (PR #541, `9a45e1f3`) excluded `MatchupsWeekPanel`'s outcome branches, but its acceptance criterion was written as a raw occurrence count — *"emerald must appear exactly once in that file"* — and `finalWin` carried emerald **twice**, on the border and on the background. The only way to satisfy the count was to drop one, so the background tints went:
+
+| tone | before | after |
+| --- | --- | --- |
+| `finalWin` | `dark:border-l-emerald-500/70 dark:bg-emerald-950/10` | `dark:bg-zinc-950/10` |
+| `finalLoss` | `dark:border-l-rose-500/70 dark:bg-rose-950/10` | `dark:bg-zinc-950/10` |
+| `finalSelf` | `dark:border-l-violet-500/70 dark:bg-violet-950/10` | unchanged |
+
+The semantic border hues survived and nothing renders wrongly; the `/10` tint is subtle and its loss is arguably cleaner. **The defect is the asymmetry** — three sibling branches now differ with no stated reason, `finalSelf` keeping a tint its two siblings lost.
+
+**Resolve it either way — restore both tints, or drop `finalSelf`'s for symmetry — but resolve it.** Do not leave the three inconsistent. State the reason for whichever is chosen in the closeout, so the next reader is not left re-deriving it.
+
+**The process note is the more useful half:** the criterion was a proxy for "green means one thing in this component", and optimising the proxy changed the thing the exclusion existed to protect. A count over a file is a proxy — write the invariant, not the count.
 
 **Sequencing.** Implement after slices 3 and 4; its *contract requirements* are folded in above so slice 3 does not lock a three-state row. Wants Item 92 for the scheduled-state record anchor, and degrades to the spread anchor without it, same as slice 4.
 

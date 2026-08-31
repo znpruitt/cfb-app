@@ -36,6 +36,11 @@ campaign straight through.
    fallback. Cadence is the live-scores cron, never `handleGamesFinalized`.
 3. **Item 87 slice 3** — Recent finals + promotion model.
 4. **Item 87 slice 4** — Watchlist, consuming records.
+5. **Item 87 slice 5** — Schedule rework. Filed 2026-08-30; Schedule adopts the scoreboard row,
+   two-column and all, and its green-`final` / amber-live is settled there rather than by a
+   separate sweep. Also carries the `ownerOutcomeRowClasses` sibling asymmetry left by POLISH-018,
+   which reaches `MatchupsWeekPanel` — a different week view mode, named deliberately in the
+   campaign doc rather than folded in silently.
 
 Runnable at any point, no dependency on the above: **Item 42 portion 1** (notable-result
 scoreboards, now unblocked by POLISH-017's final variant), **Item 84** (provider-classification
