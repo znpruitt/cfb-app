@@ -37,11 +37,12 @@ campaign straight through.
 3. **Item 87 slice 3** — Recent finals + promotion model.
 4. **Item 87 slice 4** — Watchlist, consuming records.
 
-Runnable at any point, no dependency on the above: **Item 91** (standings live-signal derivation),
-**Item 84** (provider-classification diagnostic), **Item 86** (archive audit integrity check).
+Runnable at any point, no dependency on the above: **Item 42 portion 1** (notable-result
+scoreboards, now unblocked by POLISH-017's final variant), **Item 91** (standings live-signal
+derivation), **Item 84** (provider-classification diagnostic), **Item 86** (archive audit integrity
+check).
 
-Gated: **Item 90** after 91, since it removes the pill 91 makes safe to remove. **Item 42 portion 1**
-(notable results) after whichever Item 87 slice first renders a final row. **Item 85** after 86,
+Gated: **Item 90** after 91, since it removes the pill 91 makes safe to remove. **Item 85** after 86,
 which is how the repair gets verified. **INSIGHTS-017-PALETTE** before precedence-reason hues matter;
 Item 87 renders them neutral until then.
 
@@ -443,12 +444,10 @@ built (portion 1 below) — it is an omission, not a requeue. Three distinct por
    deliberately deferred") — and scheduled for the final wiring pass, which closed without it. The
    underlying facts already exist; only the rendering is missing.
 
-   **Consumes Item 87's scoreboard micro-component rather than defining its own.** Item 87 needs the
-   full contract (three state variants, rank prefix, state-dependent anchor, odds footer) and has
-   three consumers exercising every part; this needs a final-only row. A consumer using less of a
-   component than it offers is safe, widening one after shipping is not, so the campaign that needs
-   the whole contract builds it. Gated on whichever Item 87 slice first renders a final row — not
-   slice 1, which is Live-only. Reference: `mockups/weekly-recap-mockup.html`.
+   **Consumes Item 87's scoreboard micro-component rather than defining its own.** POLISH-017
+   shipped the consumed neutral-final row, fixed away → home order, winner emphasis, and an additive
+   context slot for the qualifying-stat eyebrow/substance. This portion is now runnable without
+   waiting for another Item 87 slice. Reference: `mockups/weekly-recap-mockup.html`.
 
 2. **Stored artifact and event source.** Freeze one immutable recap per league and period so a late
    score cannot silently rewrite what members already saw, and make publication the event source
