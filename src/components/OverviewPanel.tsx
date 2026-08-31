@@ -851,96 +851,51 @@ function FeaturedGamesList({
     return <EmptyState message={emptyMessage} compact />;
   }
 
-  const NO_CLAIM = 'NoClaim';
-
   return (
-    <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+    <div
+      className="grid grid-cols-2 gap-x-10 @max-[760.01px]:grid-cols-1"
+      data-featured-scoreboard-grid
+    >
       {prioritizedItems.map((prioritized) => {
         const item = prioritized.item;
         const game = item.bucket.game;
         const score = item.score;
-        const state = gameStateFromScore(score);
-        const kickoff = formatExpandedKickoff(game.date, timeZone, game.startTimeTBD);
         const gameBadge = deriveFeaturedGameBadge(game);
-        const awayScore = score?.away.score ?? null;
-        const homeScore = score?.home.score ?? null;
-        const awayWon =
-          state === 'final' && awayScore !== null && homeScore !== null && awayScore > homeScore;
-        const homeWon =
-          state === 'final' && awayScore !== null && homeScore !== null && homeScore > awayScore;
-
-        // Strip NoClaim from owner display lines
-        const awayOwner = item.bucket.awayOwner === NO_CLAIM ? null : item.bucket.awayOwner;
-        const homeOwner = item.bucket.homeOwner === NO_CLAIM ? null : item.bucket.homeOwner;
-        const ownerLine =
-          awayOwner && homeOwner
-            ? `${awayOwner} vs ${homeOwner}`
-            : awayOwner
-              ? `${awayOwner}'s game`
-              : homeOwner
-                ? `${homeOwner}'s game`
-                : null;
+        const awayTeamId = getGameParticipantTeamId(game, 'away') ?? game.canAway;
+        const homeTeamId = getGameParticipantTeamId(game, 'home') ?? game.canHome;
+        const awayRanking = getTeamRanking(rankingsByTeamId, awayTeamId);
+        const homeRanking = getTeamRanking(rankingsByTeamId, homeTeamId);
 
         return (
-          <article
+          <CompactGameScoreboard
             key={game.key}
-            className="rounded-lg bg-gray-100/80 p-2.5 sm:p-3 dark:bg-zinc-800/40"
-          >
-            <div className="flex items-start gap-2">
-              <p className="min-w-0 flex-1 text-sm font-semibold leading-snug text-gray-950 dark:text-zinc-50">
-                {renderMatchupLabel(item, rankingsByTeamId)}
-              </p>
-              {gameBadge ? (
+            state="final"
+            clock={formatExpandedKickoff(game.date, timeZone, game.startTimeTBD)}
+            matchupLabel={formatGameMatchupLabel(game)}
+            contextSlot={
+              gameBadge ? (
                 <span
-                  className={`mt-0.5 shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${gameBadge.classes}`}
+                  className={`inline-flex rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${gameBadge.classes}`}
                 >
                   {gameBadge.label}
                 </span>
-              ) : null}
-            </div>
-            {ownerLine ? (
-              <p className="mt-0.5 text-xs text-gray-600 dark:text-zinc-400">{ownerLine}</p>
-            ) : null}
-            <div className="mt-1.5 flex items-center gap-1.5 text-xs">
-              <span
-                className={`rounded-full border px-1.5 py-0.5 font-semibold uppercase tracking-wide ${stateBadgeClasses(state)}`}
-              >
-                {state === 'final' ? 'Final' : (score?.status ?? 'Scheduled')}
-              </span>
-              <span aria-hidden="true" className="text-gray-400 dark:text-zinc-500">
-                •
-              </span>
-              <span className="text-gray-500 dark:text-zinc-400">{kickoff}</span>
-            </div>
-            {awayScore !== null || homeScore !== null ? (
-              <div className="mt-1.5 space-y-0.5 rounded-md bg-white/60 px-2 py-1.5 dark:bg-zinc-900/60">
-                <div className="flex items-center justify-between gap-2 text-xs">
-                  <span
-                    className={`min-w-0 truncate ${awayWon ? 'font-medium text-gray-800 dark:text-zinc-100' : 'text-gray-400 dark:text-zinc-500'}`}
-                  >
-                    {game.csvAway}
-                  </span>
-                  <span
-                    className={`tabular-nums ${awayWon ? 'font-medium text-gray-900 dark:text-zinc-50' : 'font-normal text-gray-400 dark:text-zinc-500'}`}
-                  >
-                    {awayScore}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-2 text-xs">
-                  <span
-                    className={`min-w-0 truncate ${homeWon ? 'font-medium text-gray-800 dark:text-zinc-100' : 'text-gray-400 dark:text-zinc-500'}`}
-                  >
-                    {game.csvHome}
-                  </span>
-                  <span
-                    className={`tabular-nums ${homeWon ? 'font-medium text-gray-900 dark:text-zinc-50' : 'font-normal text-gray-400 dark:text-zinc-500'}`}
-                  >
-                    {homeScore}
-                  </span>
-                </div>
-              </div>
-            ) : null}
-          </article>
+              ) : undefined
+            }
+            away={{
+              teamName: game.csvAway,
+              owner: item.bucket.awayOwner === NO_CLAIM_OWNER ? null : item.bucket.awayOwner,
+              rank: awayRanking.rank,
+              rankSource: awayRanking.rankSource,
+              score: score?.away.score ?? null,
+            }}
+            home={{
+              teamName: game.csvHome,
+              owner: item.bucket.homeOwner === NO_CLAIM_OWNER ? null : item.bucket.homeOwner,
+              rank: homeRanking.rank,
+              rankSource: homeRanking.rankSource,
+              score: score?.home.score ?? null,
+            }}
+          />
         );
       })}
     </div>
@@ -1690,7 +1645,7 @@ export default function OverviewPanel({
       <SectionDivider />
 
       {/* Featured games */}
-      <section>
+      <section className="@container">
         <SectionHeader
           title="Featured games"
           action={

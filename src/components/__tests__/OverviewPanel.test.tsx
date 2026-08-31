@@ -178,7 +178,6 @@ test('overview panel uses neutral wording for neutral-site games', () => {
     neutralDisplay: 'vs',
     stage: 'bowl',
   });
-
   const html = renderToStaticMarkup(
     <OverviewPanel
       standingsLeaders={standingsLeaders}
@@ -331,26 +330,38 @@ test('overview Live section treats STATUS_LIVE as a generic state label', () => 
   assert.doesNotMatch(html, /STATUS_LIVE/);
 });
 
-test('overview highlights keep canonical neutral matchup separator with compact score header', () => {
+test('overview Featured renders a home-won final through the neutral compact scoreboard', () => {
   const neutralGame = game({
     csvAway: 'Texas',
     csvHome: 'Ohio State',
+    date: '2026-12-19T19:00:00.000Z',
     neutral: true,
     neutralDisplay: 'vs',
     stage: 'bowl',
+    postseasonRole: 'playoff',
+    playoffRound: 'quarterfinal',
   });
+  const liveGame = itemWithScore(
+    game({ key: 'green-live-control', csvAway: 'Georgia', csvHome: 'Alabama' }),
+    {
+      status: 'in progress',
+      away: { team: 'Georgia', score: 10 },
+      home: { team: 'Alabama', score: 7 },
+      time: 'Q2 6:14',
+    }
+  );
 
   const html = renderToStaticMarkup(
     <OverviewPanel
       standingsLeaders={standingsLeaders}
       standingsCoverage={coverage}
       matchupMatrix={matchupMatrix}
-      liveItems={[]}
+      liveItems={[liveGame]}
       keyMatchups={[
         itemWithScore(neutralGame, {
           status: 'FINAL',
-          away: { team: 'Texas', score: 24 },
-          home: { team: 'Ohio State', score: 21 },
+          away: { team: 'Texas', score: 21 },
+          home: { team: 'Ohio State', score: 24 },
           time: null,
         }),
       ]}
@@ -359,12 +370,80 @@ test('overview highlights keep canonical neutral matchup separator with compact 
     />
   );
 
-  assert.match(html, /Texas<\/span> vs <span>Ohio State/);
-  // Final games render in the Featured games section, which shows each side's
-  // score on its own line rather than a compact "24–21" header.
   assert.match(html, /Featured games/);
-  assert.match(html, /Texas[\s\S]*?24/);
-  assert.match(html, /Ohio State[\s\S]*?21/);
+  const finalScoreboard = html.match(
+    /<article(?=[^>]*data-scoreboard-state="final")[\s\S]*?<\/article>/
+  )?.[0];
+  assert.ok(finalScoreboard, 'Featured final must render through CompactGameScoreboard');
+  assert.match(finalScoreboard, /aria-label="Texas vs Ohio State"/);
+  assert.match(finalScoreboard, /data-scoreboard-context-slot/);
+  assert.match(finalScoreboard, /CFP Quarterfinal/);
+  assert.match(finalScoreboard, /Sat, Dec 19, 7:00 PM/);
+  assert.match(
+    finalScoreboard,
+    /data-scoreboard-side="away" data-scoreboard-leading="false"[\s\S]*data-scoreboard-team="away">Texas<\/span>[\s\S]*data-scoreboard-value="away">21<\//
+  );
+  assert.match(
+    finalScoreboard,
+    /font-semibold dark:text-zinc-50" data-scoreboard-side="home" data-scoreboard-leading="true"[\s\S]*data-scoreboard-team="home">Ohio State<\/span>[\s\S]*data-scoreboard-value="home">24<\//
+  );
+  assert.doesNotMatch(finalScoreboard, /emerald|green/);
+  const liveScoreboard = html.match(
+    /<article(?=[^>]*data-scoreboard-state="live")[\s\S]*?<\/article>/
+  )?.[0];
+  assert.ok(liveScoreboard, 'positive control must render a live scoreboard');
+  assert.match(liveScoreboard, /dark:text-emerald-400/);
+  assert.match(
+    html,
+    /<section class="@container">[\s\S]*?<div class="grid grid-cols-2 gap-x-10 @max-\[760\.01px\]:grid-cols-1" data-featured-scoreboard-grid="true">/
+  );
+});
+
+test('overview Featured conversion preserves the existing recent-results selection and order', () => {
+  const finals = Array.from({ length: 7 }, (_, index) => {
+    const value = index + 1;
+    return {
+      ...itemWithScore(
+        game({
+          key: `selection-final-${value}`,
+          csvAway: `Final Away ${value}`,
+          csvHome: `Final Home ${value}`,
+        }),
+        {
+          status: 'Final',
+          away: { team: `Final Away ${value}`, score: 14 },
+          home: { team: `Final Home ${value}`, score: 21 },
+          time: null,
+        }
+      ),
+      sortDate: value,
+    };
+  });
+
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={finals}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+  const renderedMatchups = Array.from(
+    html.matchAll(/aria-label="(Final Away \d+ at Final Home \d+)"/g),
+    (match) => match[1]
+  );
+
+  assert.deepEqual(renderedMatchups, [
+    'Final Away 7 at Final Home 7',
+    'Final Away 6 at Final Home 6',
+    'Final Away 5 at Final Home 5',
+    'Final Away 4 at Final Home 4',
+    'Final Away 3 at Final Home 3',
+    'Final Away 2 at Final Home 2',
+  ]);
 });
 
 test('overview panel renders league highlights and standings without matrix table', () => {

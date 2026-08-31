@@ -51,6 +51,23 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### POLISH-017-FEATURED-SCOREBOARD-GREEN-LIVE-v1
+
+- Purpose: convert Overview Featured results to the shared compact scoreboard, remove the last
+  reachable green-final treatment on Overview, and make compact-scoreboard live status green.
+- Scope: Featured row rendering, the compact scoreboard's final variant and additive context slot,
+  Overview live-state color, the two-column container layout, DESIGN.md, and focused component
+  coverage. Watchlist, promotion, Featured selection, and other game surfaces remain unchanged.
+- Outcome: Featured keeps its existing final-only selection/order and expanded kickoff context while
+  rendering neutral final scoreboards in fixed away → home order with winner emphasis. Green now
+  means live within the Overview compact-scoreboard family; the surviving watchlist badge call is
+  unreachable for final/live rows.
+- Review / verification: implementation plus one remediation ended at production commit `806315e9`.
+  Three tests were added and two were retargeted without weakened assertions; the 64-test focused
+  component run passed, including regression checks demonstrated failing before their fixes.
+  Independent Codex and Claude reviews confirmed no attributable P0/P1/P2 remained.
+- Status: Implemented — not merged.
+
 ### POLISH-016-SCOREBOARD-COMPONENT-LIVE-v1
 
 - Purpose: introduce the shared game-scoreboard micro-component and convert the Overview Live

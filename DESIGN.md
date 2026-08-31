@@ -136,9 +136,13 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 ## Color
 
 - Amber/gold is reserved exclusively for champion/podium signals — not a general accent color
-- Live game state is structural: a neutral dot, neutral `Live` text, and the game clock. Amber live
-  badges and amber live-card borders are drift; the champion/podium reservations in this section
-  and `## Podium` admit no live-game exception
+- A hue carries exactly one meaning **within a component family**; context scopes meaning _across_
+  families, never within one. Green can therefore mean a positive delta in a delta family and live
+  status in a game-scoreboard family, but one scoreboard family cannot use green for both live and
+  final states
+- Live game state in the Overview compact scoreboard uses a green dot, green `Live` text, and the
+  game clock. The former amber live treatment on this surface was drift; amber remains reserved for
+  champion/podium signals
 - Blue signals interactivity or active state only — never use blue to mean "featured" or "important"
 - Chart line colors are fixed per owner for the full season — never change with standings position
 - No color for decoration — every color must encode meaning. This stands unamended for every
@@ -161,13 +165,18 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   the primary label, a nullable rank is its prefix, an owner is a tertiary inline suffix, and the
   state-relevant value stays right-anchored. Unowned opponents render team-only; the same owner may
   appear on both lines without special treatment. The team identity begins the row so a future logo
-  slot can be inserted structurally; logos are not part of the current component
+  slot can be inserted structurally; logos are not part of the current component. An optional
+  context slot immediately before the status row reserves additive space for a reason label and
+  substance without changing the scoreboard rows
 - Compact scoreboard order is always away → home. Position communicates home/away; font weight,
   never reordering, marks the live leader or final winner
 - Compact scoreboard state variants share that row anatomy: scheduled uses a single-line kickoff /
-  broadcast header, team-record anchors, and an odds footer; live uses a neutral dot + `Live` + clock
-  status row and score anchors; final uses a neutral final-status row and score anchors. Header rows
-  never wrap and ellipsize when constrained so peer team lines remain aligned
+  broadcast header, team-record anchors, and an odds footer; live uses a green dot + `Live` + clock
+  status row and score anchors; final uses a neutral `Final` status row and score anchors. In the
+  final variant, away → home order remains fixed while the winner receives primary weight and the
+  loser is muted, including when the home team won; existing Featured results keep their expanded
+  kickoff context beside `Final`. Header rows never wrap and ellipsize when constrained so peer team
+  lines remain aligned
 - Rankings display inline with team names — "#4 Oregon vs #2 Indiana"
 - Use W16 CFP rankings for postseason game cards — not Final Poll rankings
 - CFP round badges use full words — "CFP Quarterfinal" not "CFP QF"
@@ -307,9 +316,9 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 - Theme resolution: `isDarkTheme()` (`src/lib/ownerColors.ts`) returns dark unconditionally since
   POLISH-010, so the dark hex is always selected. The light hex in each pair is dead data, kept
   only so the retirement stays reversible — do not rely on it and do not add new pairs
-- Semantic colors are one-to-one and off-limits for categories:
+- Semantic colors are one-to-one within their component family and off-limits for categories:
   - Amber = champion/podium
-  - Green = positive delta
+  - Green = positive delta in delta families; live state in the compact-scoreboard family
   - Red = negative delta
   - Blue = interactivity/active state
 - Category colors must draw from unassigned palette stops — never reuse a semantic color
