@@ -528,7 +528,12 @@ is provably lossless. Expect ~2.76 MB → ~670 KB parsed.
 | all 3,676 rows | **1267 ms** | 1233-1605 |
 | 888 FBS-involving rows | **353 ms** | 316-1369 |
 
-**~915 ms of main-thread work removed**, on laptop-class hardware. `JSON.parse` of 2.76 MB is only
+**~915 ms of main-thread work removed**, on laptop-class hardware.
+
+**Qualified by the Lighthouse trace:** that benchmark timed the function in ISOLATION. In a real
+mobile trace, script evaluation is dominated by React hydration (1,932 ms, see below), and the
+schedule work sits inside `Unattributable` (1,240 ms) or chunk `1255` (943 ms). 98b's saving is real
+but a smaller share of the load than 915 ms suggests on its own. `JSON.parse` of 2.76 MB is only
 tens of ms; essentially all of this is the per-row walk, and it scales with row count
 (3.6x fewer rows → 3.6x less time). On a phone this runs 2-4x slower, so on mobile — where FCP is
 the amber metric — **98b is plausibly a LARGER win than 98a.**
@@ -580,6 +585,32 @@ matters because the whole live-score design is built on a 3-minute freshness cad
 **Verify it is not speculative waste:** after shipping, confirm in DevTools that a prefetched History
 navigation issues no new `history?_rsc=` request, and that the prefetch burst on the History page has
 not grown.
+
+#### 98e — the app icon was 1.2 MB (DONE 2026-08-31)
+
+`src/app/icon.png` was **1024x1024, 1,238 kB**. Next's App Router serves `app/icon.png` verbatim at
+`/icon.png`, so every visitor downloaded a megabyte-plus image to render a favicon. In a Lighthouse
+trace it was the **largest transfer on the page by 7x** over the next item (`/api/schedule` at
+182 kB).
+
+Resized to **512x512, 35 kB** — a 97% reduction, ~1.2 MB off every cold load. 512 exceeds what any
+browser needs for a favicon and still covers PWA install and high-DPI; nothing referenced the 1024
+version, and there is no manifest. Measured alternatives: 256px 9.3 kB, 192px 6.0 kB.
+
+Not render-blocking, so it does not move FCP directly — but on mobile data it competed for bandwidth
+and connections against everything else during load.
+
+#### Known cost, not an action — hydration
+
+Lighthouse (mobile emulation, 4x CPU) attributes **1,932 ms of script evaluation to React DOM, in a
+single 1,698 ms long task**, against 3,503 ms of total script evaluation. That is hydration, and it
+is the largest single main-thread cost on the page — larger than schedule processing.
+
+The cause is structural: `CFBScheduleApp` is one `'use client'` component wrapping the entire app
+surface, so the whole tree hydrates at once. Reducing it means moving parts back to server components
+and splitting the client boundary into islands. **That is an architectural change, not a tweak**, and
+it is recorded here as a known cost rather than filed as work. Revisit only if 98a-98e leave the page
+unsatisfying.
 
 #### Deliberately NOT in scope
 
