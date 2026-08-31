@@ -366,12 +366,16 @@ window shows a record missing that game. The documented consumer is the schedule
 this surfaces as a 3-1 team rendering as 2-1 on next week's matchup: a wrong number, not a
 freshness nuance.
 
-**Live example, 2026-08-31 — this is not theoretical.** PLATFORM-117 merged at 03:17, after week 1
-finished. 126 games are complete and 16 FBS teams have results, but the records cache is **empty**
-and System Health shows a yellow `no cached data`, correctly. The next kickoff is
-2026-09-03T21:00Z — **~77 hours away**, first FBS game Massachusetts @ Rutgers at 22:00Z — and no
-trigger can fire before it. So the cache stays cold for **more than three days**, and slice 3/4
-cannot be built against real record data in the meantime.
+**Live example, 2026-08-31 — observed, then manually cleared.** PLATFORM-117 merged at 03:17, after
+week 1's games finished. 126 games were complete and 16 FBS teams had results, yet the records cache
+was **empty** and System Health correctly showed a yellow `no cached data`. The next kickoff was
+2026-09-03T21:00Z — ~77 hours out — and **no trigger could fire before it**, so the cache would have
+stayed cold for over three days with slice 3/4 unable to build against real record data.
+
+Cleared by the manual backfill below rather than by the cadence, which is the point: **nothing in
+the automation would have recovered it.** Generalised: **any deploy landing between slates leaves
+the cache cold for the whole inter-slate gap**, which is most deploys, and only a human noticing the
+yellow ends it.
 
 _Two CFBD query traps found while measuring this, both of which produced a wrong answer first._
 **`completed: false` does not mean "future".** 329 of week 1's 455 games are uncompleted with
@@ -380,9 +384,6 @@ population as the `w+l+t != games` rows in 97b. Filter on `startDate > now`, not
 **And CFBD week 1 spans week 0 too**, running 2026-08-27 through 2026-09-03+, so "week 1 is over"
 is false while a Thursday game remains. Query the current week for future kickoffs before assuming
 the next one is a week away.
-Generalised: **any deploy landing between slates leaves the cache cold for the whole inter-slate
-gap**, which is most deploys.
-
 **Fix:** refresh when the cache is older than a ceiling **regardless of finalisations**, so the
 clock rather than an event drives recovery. A 12-hour ceiling adds at most ~2 calls/day (~60/month
 against 5,000). Test it in a state with **no** finalisations at all — that is the case the floor's

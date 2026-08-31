@@ -32,6 +32,38 @@ Supersedes: (none)
 > [`docs/ai/game-stats-writer-fence.md`](ai/game-stats-writer-fence.md) (with the superseded
 > original design frozen in [`docs/ai/platform-086h3-contract.md`](ai/platform-086h3-contract.md)).
 
+### Team-records backfill (2018, 2021-2026) — Complete
+
+- **Status:** Complete — executed in production 2026-08-31, no PR. A deliberate one-off, not a
+  feature, following the PLATFORM-086F2H2A precedent that a backfill is "a deliberate one-off, not a
+  standing admin button" and that a one-off repair against tested code is safer than an admin surface
+  because it cannot be reached accidentally.
+- **What ran:** `refreshTeamRecords({ year })` (PLATFORM-117) once per year from a temporary local
+  runner, using `DATABASE_URL` and `CFBD_API_KEY`. No route, no script committed, nothing left behind.
+- **Outcome:** all seven seasons the league has schedule data for, `written-clean`, every row
+  committed, verified through `DATABASE_URL_RO`:
+
+  | Year | Rows | | Year | Rows |
+  | --- | --- | --- | --- | --- |
+  | 2018 | 687 | | 2024 | 679 |
+  | 2021 | 670 | | 2025 | 681 |
+  | 2022 | 672 | | 2026 | 684 |
+  | 2023 | 672 | | | |
+
+  Row counts drift by year with D-I membership; that is expected, not error. Seven CFBD calls total.
+
+- **Why it was possible at all:** PLATFORM-117's authority accepts an arbitrary `year` and has no
+  canonical-schedule or season-registry gate — a constraint added by follow-up prompt specifically so
+  a completed prior season could be refreshed by calling the function directly. Without it this
+  would have been a refactor rather than a loop.
+- **Completed seasons are immutable**, so 2018 and 2021-2025 need no refresh ever again. Only 2026
+  has a live cadence.
+- **It also cleared a live defect symptom.** PLATFORM-117 merged after week 1's games finished, and
+  its only refresh trigger is a finalisation, so the 2026 cache was empty with the next kickoff ~77
+  hours away. System Health correctly showed yellow `no cached data`, and nothing in the automation
+  would have recovered it before 2026-09-03. **The backfill treated the symptom; the cause is
+  Item 97a's missing staleness ceiling and remains open.**
+
 ### PLATFORM-086H2 — Durable Game-Stats Merge Service (Dormant) — Complete
 
 **Status:** Complete. Merged to `main` via PR #397 (`platform/086h2-durable-game-stats-merge-service`, merge commit `c48e1ca`, 2026-07-18). Four implementation commits plus a docs closeout; three folded Codex review-remediation rounds, each re-reviewed to a clean closure verdict; Claude `/verify` passed with byte-identical branch-vs-`main` HTTP behavior and no dormant metadata leakage; full suite 1758/1758 before closeout.
