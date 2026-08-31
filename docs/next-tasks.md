@@ -289,7 +289,10 @@ runs (the 2026-08-27 lifecycle pause is recorded in the runbook).
 1 day, and ~135 stale deployments removed by hand. Neon reclaims a preview branch only after the
 last Vercel deployment for that Git branch is deleted, and **58 branches merged in the 14 days to
 2026-08-31**, so ~48 standing Neon branches was the steady state of the merge rate, not a leak. At
-~4.1 branches/day a 1-day window holds about four. Rationale and procedure are in
+~4.1 branches/day a 1-day window holds about four. **Confirmed same day: Neon went 48 → 2 branches**
+once the deployments were removed, verifying that Vercel deployment retention — not Git hygiene — is
+what reclaims them. Two is the post-sweep floor, not the steady state; expect it to settle around
+four as new branches are created. Rationale and procedure are in
 `deployment-runbook.md` §6c. Canceled (1 day), Errored (1 week) and Production (30 days) are
 unchanged; Production is the rollback window and auto-promotion is off.
 
