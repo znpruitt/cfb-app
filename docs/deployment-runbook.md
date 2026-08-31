@@ -225,6 +225,29 @@ live?"
 Deployments carrying an alias for a **deleted** Git branch still pin their Neon branch. Those are the
 ones a retention window has not yet reached and a naive "unaliased only" sweep skips.
 
+### Read-only production access — `DATABASE_URL_RO`
+
+Because Preview is isolated and can be stale, questions of the form *"does this behave correctly
+against the REAL schedule?"* cannot be answered there. The `cfb-audit-read-replica` compute
+(`ep-plain-term-amtt3ekz`, `main` branch) answers them against production data **read-only**.
+
+- **Operator and agent use only.** The application must NEVER read through it —
+  `src/` contains no reference to it and must not gain one. This is an observability rail, not part
+  of the read path.
+- Connection string lives in `.env.operator.local` as `DATABASE_URL_RO` (gitignored). Use the
+  **direct** host, not `-pooler`: operator diagnostics want a full session.
+- **Autosuspend is 5 minutes** (set 2026-08-31; it was `never`, which cost ~$19/month for a compute
+  with zero connections — see `next-tasks.md` Item 96). It suspends between uses and wakes on
+  connect, so expect a sub-second cold start.
+- **The read-only guarantee comes from the endpoint being `RO`, not from the role.** The string uses
+  `neondb_owner` and still cannot write. Verified 2026-08-31: `pg_is_in_recovery()` returns `true`,
+  and an `INSERT` fails with `cannot execute INSERT in a read-only transaction`. Re-run that probe
+  rather than assuming it, since the safety of handing this to tooling rests on it.
+
+Precedent for why it exists: PLATFORM-105 was verified against the real 3,610-game 2026 production
+schedule and roster through this replica, which is what exposed the season reading as over after
+Week 1 because unplayed weeks were treated as resolved.
+
 Never use preview System Health to judge production scheduler or provider health:
 
 - Vercel and QStash invoke production URLs, so scheduler receipts are not written to Preview.

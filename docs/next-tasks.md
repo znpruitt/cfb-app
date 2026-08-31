@@ -276,13 +276,13 @@ The three endpoints therefore have distinct jobs: **primary** = the application,
 inspection. `never` is the right autosuspend for latency-sensitive production read traffic and the
 wrong one here, where a sub-second cold start before a debugging query costs nothing.
 
-**Worth plumbing in.** There is no read-only connection string in `.env.operator.local` and no
-`READ_REPLICA` reference in `src/` — correct for the application, which must not read through it,
-but it means each use is a manual console step. The 2026-08-31 investigation had to route
-`pg_stat_statements` through the Neon SQL Editor by hand, which is why the compute attribution
-stalled. An operator-scoped read-only URL would make that one query, and a read-only endpoint is the
-right thing to expose to tooling: no path from a bad query to a durable mutation, which matters on
-an app whose archive and lifecycle writes are irreversible.
+**DONE 2026-08-31: plumbed in as `DATABASE_URL_RO`** in `.env.operator.local` (gitignored), direct
+host rather than `-pooler`. Verified: `pg_is_in_recovery()` is `true` and an `INSERT` fails with
+`cannot execute INSERT in a read-only transaction`, so the guarantee is proven, not assumed — and it
+comes from the endpoint being `RO`, not from the role, which is still `neondb_owner`. Procedure is
+in `deployment-runbook.md` §6c. `src/` has no reference and must not gain one: this is an
+observability rail, not part of the application read path. Before this, each use was a manual
+console step, which is why the compute attribution below stalled.
 
 **STILL OPEN: `main`'s ~$19/month, and it is an offseason item.**
 
