@@ -4317,6 +4317,26 @@ Key architectural decisions across Phase 5:
 - **Open follow-ups:** See the remaining Item 87 slices and the now-unblocked Item 42 notable-results
   portion in `docs/next-tasks.md`.
 
+### PLATFORM-116 — Overview Standings Live Signal — Complete
+
+- **Status:** Merged via PR #539 (merge commit `fce338f3`), 2026-08-30; production promotion not yet
+  verified.
+- **PROMPT_ID(s):** `PLATFORM-116-STANDINGS-LIVE-SIGNAL-v1`.
+- **Outcome:** The Overview standings row now keeps one green provisional W–L badge throughout a
+  tied game or stale score read, renders `+0–0` when live scores are tied or temporarily lack
+  numeric points, and removes the redundant amber live-count pill. Current game state controls
+  visibility, while the new last-known accessor controls badge copy; the existing fresh-only
+  accessor and its Standings/Members callers are unchanged.
+- **Verification:** Eight test declarations were added relative to `main` (three Overview, five
+  selector) for stale replacement, final-state gating with a held delta, current ownership, accessor
+  contracts, and numeric-score absence. Existing only-signal, stale, and tied assertions were
+  retargeted without weakening coverage. Exact PR head `772cf4ca` passed TypeScript, `lint:all`, the
+  4,472-test full suite, and production build. One remediation closed the null-score gap shared by
+  the initial independent reviews; the required Codex and Claude confirmation passes ran late,
+  after merge, and left no credible in-scope P0/P1/P2 finding after reachability/scope evaluation.
+- **Open follow-ups:** Item 90's remaining live-amber sweep and neutral-final re-cut are now
+  unblocked in `docs/next-tasks.md`.
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone (DOCS-012). Entries describe shipped

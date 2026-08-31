@@ -51,6 +51,24 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-116-STANDINGS-LIVE-SIGNAL-v1
+
+- Purpose: keep the Overview standings row's live signal visible through tied games and stale score
+  reads, then retire the redundant amber live-count pill.
+- Scope: `liveDelta` pending-delta selectors, the Overview standings badge and count pill, and
+  focused selector/component coverage. Other live surfaces and the broader color sweep stayed out.
+- Outcome: Overview now reads a last-known pending delta behind a current-game-state gate, renders
+  `+0–0` for tied or temporarily scoreless live games, removes the `N live` pill, and leaves the
+  fresh-only accessor unchanged for Standings and Members.
+- Review / verification: exact PR head `772cf4ca` passed TypeScript, `lint:all`, the 4,472-test full
+  suite, and production build. Eight tests were added relative to `main`; existing only-signal,
+  stale, and tied assertions were retargeted without weakening coverage. Initial Codex and Claude
+  reviews agreed on a null-score gap, closed in one remediation. The required confirmation passes
+  were mistakenly delayed until after merge; Codex confirmed the remediation, and Claude's repeated
+  findings were evaluated against the explicit current-state and component-scope contract with no
+  credible in-scope P0/P1/P2 remaining.
+- Status: Merged via PR #539 (merge commit `fce338f3`), 2026-08-30.
+
 ### POLISH-017-FEATURED-SCOREBOARD-GREEN-LIVE-v1
 
 - Purpose: convert Overview Featured results to the shared compact scoreboard, remove the last

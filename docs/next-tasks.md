@@ -38,13 +38,13 @@ campaign straight through.
 4. **Item 87 slice 4** — Watchlist, consuming records.
 
 Runnable at any point, no dependency on the above: **Item 42 portion 1** (notable-result
-scoreboards, now unblocked by POLISH-017's final variant), **Item 91** (standings live-signal
-derivation), **Item 84** (provider-classification diagnostic), **Item 86** (archive audit integrity
-check).
+scoreboards, now unblocked by POLISH-017's final variant), **Item 90** (live-amber sweep, now
+unblocked by PLATFORM-116), **Item 84** (provider-classification diagnostic), and **Item 86**
+(archive audit integrity check).
 
-Gated: **Item 90** after 91, since it removes the pill 91 makes safe to remove. **Item 85** after 86,
-which is how the repair gets verified. **INSIGHTS-017-PALETTE** before precedence-reason hues matter;
-Item 87 renders them neutral until then.
+Gated: **Item 85** after 86, which is how the repair gets verified.
+**INSIGHTS-017-PALETTE** before precedence-reason hues matter; Item 87 renders them neutral until
+then.
 
 Offseason-gated, not now: **Item 83** (identity collision) and **Item 80** (Next 16) — both touch
 systems that are live.
@@ -913,41 +913,7 @@ move together), `GameWeekPanel.tsx:27/42/151/212`, `MatchupsWeekPanel.tsx:87/111
 Overview's live-amber and its `stateBadgeClasses` green-final are **not** here — POLISH-016 and
 POLISH-017 removed them while replacing those components.
 
-**Gated on Item 91.** The `N live` pill is amber and looks like part of this sweep, but removing it
-before 91 lands reintroduces the blind spot 91 exists to close.
-
 - Backlog slug: `POLISH-LIVE-AMBER-SWEEP-v1`
-
-### Item 91 — standings-panel live-signal derivation
-
-An owner whose live game is **tied** currently gets no live signal from the green provisional badge.
-`liveDelta.ts` credits `pendingWins` only to an owner currently leading — ties produce no credit — and
-`selectFreshOwnerPendingDelta` (`:215`) returns `null` when `pendingWins + pendingLosses <= 0`. The
-amber `N live` pill is the only thing covering that case today.
-
-Three linked changes to the pending-delta pipeline:
-
-1. Render `+0–0` for tied live games rather than no credit, so the badge does not vanish on a tie.
-2. On `isStale`, hold the last valid delta and replace it on the next clean read instead of returning
-   `null` (`:211`). A selector policy change; scores are already cached.
-3. Gate badge rendering on **game state** (`gameStateFromScore`), not delta freshness, so a prolonged
-   outage cannot leave a finished game showing a live badge.
-
-`isStale` does not itself blank. Its contract (`liveDelta.ts:53-58`) says consumers may _dim or
-annotate_; the suppression is a consumer choice at `:211`. The 7-minute threshold (`:9-12`) is two
-missed 3-minute ticks — overlay freshness, not game completion. Preventing post-game live state is
-game state's job, which change 3 handles directly.
-
-**Do not break the `selectFresh…` contract.** Freshness is that function's advertised behaviour;
-making it return stale data silently misleads every other caller. Add a sibling
-(`selectOwnerPendingDelta`, last-known) that the badge consumes behind the game-state gate, and leave
-the original intact.
-
-With all three, the badge never disappears while games are live, and the `N live` pill
-(`OverviewPanel.tsx:628-630`, fed by `liveCountByOwner:1458`) becomes genuinely redundant and can be
-removed — leaving one green element per row and unblocking Item 90.
-
-- Backlog slug: `PLATFORM-STANDINGS-LIVE-SIGNAL-v1`
 
 ### Item 92 — CFBD team-records integration
 
@@ -998,8 +964,8 @@ What justifies the item on its own terms: the ceiling was judged wrong and chang
 nine more carry it, and one of them demonstrably failed. That is enough for a small constant swap
 without an urgency claim.
 
-Sequencing: below Item 91, and a natural companion to Item 60's two low-severity follow-ups since
-both touch `rankings/refreshAuthority.ts`.
+Sequencing: a natural companion to Item 60's two low-severity follow-ups since both touch
+`rankings/refreshAuthority.ts`.
 
 Still at `timeoutMs: 12_000`:
 
