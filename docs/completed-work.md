@@ -32,6 +32,25 @@ Supersedes: (none)
 > [`docs/ai/game-stats-writer-fence.md`](ai/game-stats-writer-fence.md) (with the superseded
 > original design frozen in [`docs/ai/platform-086h3-contract.md`](ai/platform-086h3-contract.md)).
 
+### PLATFORM-118 — Team-Records Freshness Authority — Complete
+
+- **Status:** Merged via PR #546 (merge commit `c29801a4`), 2026-08-31.
+- **PROMPT_ID(s):** `PLATFORM-118-TEAM-RECORDS-FRESHNESS-v2`; v1 was stopped and reconstructed
+  from clean `main` after its scope proved unable to supply an idle-time trigger.
+- **Outcome:** The records authority now combines the existing durable six-hour finalisation floor
+  with an independent twelve-hour ceiling, driven by a new authenticated hourly QStash job. The
+  reader withholds provider rows whose W-L-T outcomes do not equal games while preserving a distinct
+  uncreditable-team signal, and records diagnostics use a fourteen-hour threshold that counts those
+  rows as present. The live-scores finalisation call remains unchanged.
+- **Verification:** Exact pre-merge head `089ddfe2` passed TypeScript, `lint:all`, and the full suite.
+  Ceiling, reader-creditability, HTTP-failure, and unsupported-repair mutation checks each fired the
+  named assertion. Independent Codex and `/code-review` confirmation left no credible in-scope
+  P0/P1/P2 after one remediation.
+- **Open follow-ups:** Item 87 owns the first records consumer. Item 96 owns generalized lifecycle
+  applicability and delivery-warning suppression before pausing the hourly job; the fourteen-hour
+  diagnostic assumes it remains unpaused. The generic non-repairing Data Maintenance link for
+  records provider-refresh faults remains tracked in `docs/next-tasks.md`.
+
 ### Team-records backfill (2018, 2021-2026) — Complete
 
 - **Status:** Complete — executed in production 2026-08-31, no PR. A deliberate one-off, not a
@@ -62,8 +81,7 @@ Supersedes: (none)
   its only refresh trigger is a finalisation, so the 2026 cache was empty with the next kickoff ~77
   hours away. System Health correctly showed yellow `no cached data`, and nothing in the automation
   would have recovered it before 2026-09-03. **The backfill treated the symptom; the missing
-  staleness ceiling is implemented and reviewed by `PLATFORM-118-TEAM-RECORDS-FRESHNESS-v2`
-  (PR #546 open), but is not yet a merged milestone.**
+  staleness ceiling shipped in `PLATFORM-118-TEAM-RECORDS-FRESHNESS-v2` via PR #546.**
 
 ### PLATFORM-086H2 — Durable Game-Stats Merge Service (Dormant) — Complete
 

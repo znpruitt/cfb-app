@@ -66,7 +66,7 @@ Rules:
   suite; deleting the ceiling or reader guard fired their named discriminating assertions. Codex and
   `/code-review` confirmations found no credible in-scope P0/P1/P2 after one remediation; the
   fourteen-hour threshold explicitly assumes an unpaused hourly job, inherited by Item 96.
-- Status: Implemented — PR #546 open.
+- Status: Merged via PR #546 (merge commit `c29801a4`), 2026-08-31.
 
 ### PLATFORM-118-TEAM-RECORDS-FRESHNESS-v1
 
