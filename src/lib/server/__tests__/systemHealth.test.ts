@@ -90,15 +90,15 @@ function allAvailable() {
   return states;
 }
 
-// Case 1 — seven scheduler jobs + six datasets remain separate collections.
-test('model exposes exactly seven scheduler jobs and six datasets', async () => {
+// Case 1 — seven scheduler jobs + seven datasets remain separate collections.
+test('model exposes exactly seven scheduler jobs and seven datasets', async () => {
   const model = await buildSystemHealthViewModel({
     year: YEAR,
     nowMs: NOW,
     loaders: healthyLoaders(),
   });
   assert.equal(model.schedulerJobs.length, 7);
-  assert.equal(model.datasets.length, 6);
+  assert.equal(model.datasets.length, 7);
   assert.deepEqual(
     model.schedulerJobs.map((j) => j.job),
     [...EXTERNAL_SCHEDULER_JOBS]
@@ -161,7 +161,7 @@ test('scheduler scope-read failure → seven unavailable rows, one global issue'
 });
 
 // Case 12 — provider-status scope-read failure degrades without throwing the model.
-test('provider-status scope-read failure → unavailable facts, six datasets, model still builds', async () => {
+test('provider-status scope-read failure → unavailable facts, seven datasets, model still builds', async () => {
   const model = await buildSystemHealthViewModel({
     year: YEAR,
     nowMs: NOW,
@@ -173,7 +173,7 @@ test('provider-status scope-read failure → unavailable facts, six datasets, mo
         }),
     }),
   });
-  assert.equal(model.datasets.length, 6);
+  assert.equal(model.datasets.length, 7);
   assert.ok(model.datasets.every((d) => d.canonicalStatus.state === 'unavailable'));
   assert.equal(model.issues.filter((i) => i.code === 'provider-status-unavailable').length, 1);
 });
@@ -320,6 +320,41 @@ test('a diagnostics loader failure surfaces a global data-diagnostics-unavailabl
   });
   assert.ok(model.issues.some((i) => i.code === 'data-diagnostics-unavailable'));
   assert.equal(model.overallState, 'degraded');
+});
+
+test('PLATFORM-117: a stale records diagnostic degrades its row and Provider data panel', async () => {
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders({
+      diagnostics: () =>
+        Promise.resolve({
+          ...healthyDiagnostics(),
+          diagnostics: [
+            {
+              dataset: 'records',
+              severity: 'warning',
+              code: 'records-cache-stale',
+              message: 'must not reach the sanitized model',
+              repair: null,
+            },
+          ],
+        }),
+    }),
+  });
+
+  const records = model.datasets.find((row) => row.dataset === 'records');
+  assert.deepEqual(records?.freshness, {
+    status: 'yellow',
+    label: 'Stale',
+    intentional: false,
+  });
+  assert.equal(
+    model.panels.find((panel) => panel.key === 'provider-data')?.status,
+    'yellow',
+    'stale team records cannot leave the production Provider data panel green'
+  );
+  assert.ok(model.issues.some((issue) => issue.code === 'records-cache-stale'));
 });
 
 // Case 31 — one failed subsystem still returns truthful results from the rest.

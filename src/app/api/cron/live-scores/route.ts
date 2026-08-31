@@ -40,6 +40,7 @@ import {
   createSchedulerInvocationId,
   scheduleSchedulerExecutionReceipt,
 } from '@/lib/server/schedulerExecutionStatus';
+import { refreshTeamRecords } from '@/lib/teamRecords/teamRecordsRefresh';
 
 export const dynamic = 'force-dynamic';
 
@@ -50,16 +51,19 @@ export const dynamic = 'force-dynamic';
  * PLATFORM-086B2 activates the QStash schedule + cache-only browser refresh.
  *
  * One invocation resolves a cache-only canonical context, selects a single
- * deterministic polling plan, and performs AT MOST ONE billed provider request
- * (a global `/scoreboard` OR one partition `/games`) plus one `/info` quota
- * probe. The schedule is the sole game-identity authority; `/scoreboard` only
- * enriches schedule-owned games. Every begun scoped attempt is resolved exactly
- * once, standings invalidate once per run only on a durable change, and the
- * single `finally` emits exactly one secret-safe runtime event.
+ * deterministic polling plan, and performs AT MOST ONE billed score request (a
+ * global `/scoreboard` OR one partition `/games`) plus one `/info` quota probe.
+ * A scoreboard run that durably commits a new final may additionally make one
+ * six-hour-floor-gated `/records` request. The schedule is the sole game-identity
+ * authority; `/scoreboard` only enriches schedule-owned games. Every begun
+ * scoped attempt is resolved exactly once, standings invalidate once per run
+ * only on a durable change, and the single `finally` emits exactly one
+ * secret-safe runtime event.
  */
 
-// ONE provider request per run — no transport retries (recovery across runs is
-// the polling window's job).
+// ONE score request per run — no transport retries (recovery across runs is the
+// polling window's job). PLATFORM-117's optional records request also has one
+// attempt and its own durable cadence floor.
 const RETRY_POLICY = {
   maxAttempts: 1,
   baseDelayMs: 0,
@@ -258,7 +262,7 @@ export async function GET(req: Request) {
       return finalize(exec, 'failure', 'cfbd-api-key-missing', 0);
     }
 
-    // The billed provider request is about to run (exactly one).
+    // The billed score request is about to run (exactly one).
     exec.providerCallAttempted = true;
     return plan.mode === 'scoreboard'
       ? await runScoreboard({
@@ -387,6 +391,7 @@ async function runScoreboard(args: {
   }
 
   let totalCommitted = 0;
+  let totalFinalized = 0;
   let anyDurableFailure = false;
   for (const pa of partitionAttempts) {
     const key = partitionKey(pa.partition);
@@ -408,6 +413,7 @@ async function runScoreboard(args: {
     }
 
     let committed: number;
+    let finalized: number;
     try {
       const result = await mergeScoresIntoPartition({
         year,
@@ -422,6 +428,7 @@ async function runScoreboard(args: {
         now: now.getTime(),
       });
       committed = result.committed;
+      finalized = result.finalized;
     } catch (error) {
       anyDurableFailure = true;
       await recordProviderRefreshFailure('scores', pa.scope, {
@@ -434,6 +441,7 @@ async function runScoreboard(args: {
     }
 
     totalCommitted += committed;
+    totalFinalized += finalized;
     if (committed > 0) {
       await recordProviderRefreshSuccess('scores', pa.scope, {
         attempt: pa.attempt,
@@ -454,8 +462,18 @@ async function runScoreboard(args: {
     }
   }
 
-  // Invalidate standings once, only when a durable score/status change occurred.
+  // Invalidate standings immediately after the durable score writes. The
+  // optional records request below may occupy its full provider timeout; putting
+  // invalidation after that wait lets a browser observe the final score while a
+  // canonical standings refresh still serves its pre-final tagged snapshot.
   if (totalCommitted > 0) await invalidateStandingsForYear(year);
+
+  // PLATFORM-117: only a final transition confirmed by the transaction result
+  // can trigger the year-wide records authority. Its failure is isolated in the
+  // dedicated `records` health row and cannot relabel a committed score run.
+  if (totalFinalized > 0) {
+    await refreshTeamRecords({ year });
+  }
 
   // Overall run classification (secret-safe event).
   if (anyDurableFailure) {

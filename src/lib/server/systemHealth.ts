@@ -5,7 +5,7 @@
  * scheduler DELIVERY, scheduler EXECUTION outcome, canonical DATA health,
  * automation GATES, quota, and storage — then derives a deterministic,
  * prioritized issue list from them. The two axes stay separate: seven scheduler
- * jobs (delivery) and six provider datasets (data), which are NOT one-to-one.
+ * jobs (delivery) and seven provider datasets (data), which are NOT one-to-one.
  *
  * Every external boundary is behind an injectable loader; the default loaders
  * use the real read-only authorities. A failure in one loader degrades only its
@@ -104,7 +104,7 @@ export type SystemHealthViewModel = {
   automation: AutomationHealth;
   /** Delivery axis — exactly seven scheduler jobs. */
   schedulerJobs: SchedulerDeliveryHealthRow[];
-  /** Data axis — exactly six provider datasets. */
+  /** Data axis — exactly seven provider datasets. */
   datasets: ProviderDatasetHealthRow[];
   quota: SystemHealthQuota;
   storage: StorageHealthFact;

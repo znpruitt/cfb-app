@@ -46,7 +46,7 @@ test('builds exactly one dashboard model for the resolved operational season', a
   assert.equal(model.year, 2026);
   // The two axes stay separate and complete.
   assert.equal(model.schedulerJobs.length, 7);
-  assert.equal(model.datasets.length, 6);
+  assert.equal(model.datasets.length, 7);
   assert.equal(model.panels.length, 6);
 });
 
@@ -112,7 +112,7 @@ test('T5 regression: the page builds its one model for the production-resolved y
   );
   // The rest of the model is unchanged by the exclusion.
   assert.equal(model.schedulerJobs.length, 7);
-  assert.equal(model.datasets.length, 6);
+  assert.equal(model.datasets.length, 7);
   assert.equal(model.panels.length, 6);
 });
 

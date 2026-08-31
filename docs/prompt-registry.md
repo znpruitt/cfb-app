@@ -51,6 +51,27 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-117-TEAM-RECORDS-v1
+
+- Purpose: cache CFBD year-wide team records so Item 87 slice 4 can anchor scheduled matchups on
+  each team's W-L record without adding a provider call to any public read.
+- Scope: one `/records?year=` URL builder, normalized year-scoped records/cache-control state, a
+  finalisation-triggered refresh inside the existing live-scores job, an independent `records`
+  provider-health row, cache diagnostics, and tests. No consumer, route, or scheduler job shipped.
+- Outcome: `refreshTeamRecords({ year })` works for any requested year without canonical-season
+  context; it opens its own year-scoped attempt, commits allowlisted rows keyed by `teamId`, rejects
+  zero-row replacement of prior-good data, and is bounded to one call per qualifying run behind a
+  durable six-hour floor (at most 124 calls in 31 days). Cache health has an independent eight-day
+  ceiling, and score commits invalidate standings before the optional records request can wait.
+- Review / verification: exact code commit `11c26836` passed lint, TypeScript, and the 4,496-test
+  suite. Mutation checks named the failing assertions for final-transition gating, arbitrary-year
+  refresh, scope isolation, the durable floor, zero-row retention, the eight-day no-final health
+  ceiling, and standings-invalidation ordering. Final `/code-review` found no issue; Codex's repeat
+  suggestions were rejected against the fixed final-only cadence, the specified zero-row drift
+  boundary (there is no authoritative arbitrary-year team roster), and the measured quota-free
+  `/info` behavior used by the 1,002 reserve gate.
+- Status: Implemented and reviewed on `platform/117-team-records` — ready for PR, not merged.
+
 ### POLISH-018-LIVE-STATUS-TREATMENT-v1
 
 - Purpose: replace the partial green-live/amber-live conversion with one shared status-label

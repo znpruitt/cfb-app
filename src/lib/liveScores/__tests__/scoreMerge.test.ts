@@ -104,6 +104,7 @@ test('a monotonic regression preserves the prior-good durable row and does not w
   });
   assert.equal(result.wrote, false);
   assert.equal(result.committed, 0);
+  assert.equal(result.finalized, 0);
   const entry = await read(3);
   assert.equal(entry!.items[0]!.status, 'Q2 5:00');
   assert.equal(entry!.at, 1000);
@@ -119,6 +120,7 @@ test('unrelated prior-good rows are preserved when another game updates', async 
     now: 2000,
   });
   assert.equal(result.committed, 1);
+  assert.equal(result.finalized, 1);
   const entry = await read(3);
   const byId = new Map(entry!.items.map((i) => [i.id, i]));
   assert.equal(byId.get('a')!.status, 'final');
@@ -150,6 +152,7 @@ test('a scoreboard final is recorded pending /games confirmation', async () => {
     now: 2000,
   });
   assert.equal(result.committed, 1);
+  assert.equal(result.finalized, 1);
   const entry = await read(3);
   assert.deepEqual(entry!.pendingFinalConfirmationIds, ['a']);
 });
@@ -171,6 +174,7 @@ test('a confirmation clear is a metadata-only write: committed 0, entry timestam
   });
   assert.equal(result.wrote, true);
   assert.equal(result.committed, 0); // no score/status change
+  assert.equal(result.finalized, 0); // confirming an existing final is not a new finalisation
   const entry = await read(3);
   assert.equal(entry!.at, 1000); // metadata-only change does NOT advance the entry timestamp
   assert.equal(entry!.itemUpdatedAtById!['a'], 1000); // row timestamp preserved
@@ -374,7 +378,7 @@ test('a gap-fill update cannot replace a final that reached the child after its 
     now: 5000,
   });
 
-  assert.deepEqual(result, { wrote: false, committed: 0 });
+  assert.deepEqual(result, { wrote: false, committed: 0, finalized: 0 });
   const entry = await read(3);
   assert.equal(entry!.items[0]!.home.score, 24);
   assert.equal(entry!.items[0]!.away.score, 17);
@@ -406,7 +410,7 @@ test('a gap-fill update cannot replace a final that reached the aggregate after 
     now: 5000,
   });
 
-  assert.deepEqual(result, { wrote: false, committed: 0 });
+  assert.deepEqual(result, { wrote: false, committed: 0, finalized: 0 });
   assert.equal(await read(3), null, 'no child row can restate the aggregate final');
   const aggregate = await getAppState<CacheEntry>('scores', '2025-all-regular');
   assert.equal(aggregate?.value.items[0]?.home.score, 24);

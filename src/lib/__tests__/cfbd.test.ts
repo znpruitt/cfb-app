@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildCfbdGamesUrl, buildCfbdTeamsUrl } from '../cfbd.ts';
+import { buildCfbdGamesUrl, buildCfbdRecordsUrl, buildCfbdTeamsUrl } from '../cfbd.ts';
 import { seasonStorageKeys } from '../storageKeys.ts';
 
 test('CFBD games URL builder does not include division by default', () => {
@@ -56,4 +56,11 @@ test('CFBD teams URL builder targets the manual team reference endpoint', () => 
   const url = buildCfbdTeamsUrl();
 
   assert.equal(url.toString(), 'https://api.collegefootballdata.com/teams/fbs');
+});
+
+test('CFBD records URL builder is year-wide with no speculative filters', () => {
+  const url = buildCfbdRecordsUrl({ year: 2026 });
+
+  assert.equal(url.toString(), 'https://api.collegefootballdata.com/records?year=2026');
+  assert.deepEqual([...url.searchParams.keys()], ['year']);
 });

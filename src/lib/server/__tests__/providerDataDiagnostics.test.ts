@@ -1213,6 +1213,40 @@ test('F2F: stale rankings → rankings-cache-stale (warning, data-maintenance)',
   assert.equal(d!.repair, 'data-maintenance');
 });
 
+test('PLATFORM-117: records becomes stale after eight days even with no finalisation context', async () => {
+  const item = {
+    year: YEAR,
+    teamId: 333,
+    team: 'Alabama',
+    classification: 'fbs',
+    conference: 'SEC',
+    total: { games: 2, wins: 2, losses: 0, ties: 0 },
+  };
+  const eightDays = 8 * 24 * 60 * 60 * 1000;
+
+  await setAppState('team-records', String(YEAR), {
+    at: NOW - eightDays,
+    year: YEAR,
+    items: [item],
+  });
+  const boundary = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.equal(findByCode(boundary.diagnostics, 'records-cache-stale'), undefined);
+
+  await setAppState('team-records', String(YEAR), {
+    at: NOW - eightDays - 1,
+    year: YEAR,
+    items: [item],
+  });
+  const stale = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  const diagnostic = findByCode(stale.diagnostics, 'records-cache-stale');
+  assert.ok(
+    diagnostic,
+    'the production diagnostics path enforces the records eight-day ceiling without a final'
+  );
+  assert.equal(diagnostic!.severity, 'warning');
+  assert.equal(diagnostic!.repair, null, 'PLATFORM-117 ships no speculative manual consumer');
+});
+
 test('F2F: odds snapshot absent → odds-cache-missing (info); stale canonical → odds-cache-stale (2d boundary)', async () => {
   await seedSchedule();
   const absent = await getProviderDataDiagnostics(YEAR, { now: NOW });

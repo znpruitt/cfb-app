@@ -1,7 +1,8 @@
 # Item 87 — Addendum: Live / Watchlist Scoreboard Treatment
 
 **Status:** Slices 1–2 shipped via POLISH-016 / PR #535 and POLISH-017 / PR #537; Item 91 shipped via
-PLATFORM-116 / PR #539; Item 90 shipped via POLISH-018 / PR #541. The
+PLATFORM-116 / PR #539; Item 90 shipped via POLISH-018 / PR #541; the records prerequisite is
+implemented by PLATFORM-117. The
 pre-agreed reassessment point has been reached, and slices 3–4 remain planned.
 **Reference mockup:** `mockups/live-scoreboard-mockup.html`
 **Related:** `INSIGHTS-026b-RECAP-LAYOUT-v1` (dispatched). Shares the scoreboard micro-component — see Sequencing.
@@ -158,7 +159,7 @@ and precedence remain selector-owned. **Must not be forked.**
    - **Cap: three.** Scarcity is the point. Games that miss the cut still carry their notoriety tags in the watchlist, so nothing is hidden by the cap.
    - **Copy tone: resolved.** "Toilet bowl" is established TSC terminology already used by the insights system, not a phrase this design introduces. Constraint that follows: Featured copy should **inherit league vocabulary from the insight generators** rather than invent parallel phrasing for the same concepts, or the app describes one thing two ways on a single page.
    - **Still open:** reset cadence (weekly, or can a game stay featured across weeks); whether zero qualifying games hides the tile or shows an empty state; which insight categories are pair-anchorable, and whether any new generators are needed.
-2. **Recap notable results — team records: deferred, not rejected.** Records add flavour on the Item 87 scoreboard, so the same likely holds for the recap, but there is no reason to couple the recap's enrichment stage to the records integration (Item 92). Work it in later as an additive change.
+2. **Recap notable results — team records: deferred, not rejected.** Records add flavour on the Item 87 scoreboard, so the same likely holds for the recap, but there is no reason to couple the recap's enrichment stage to PLATFORM-117's cache. Work it in later as an additive change.
 
    *Resolved:* the record shown is always the team's **current** record — not "entering" versus "after". A scheduled game shows the current record, which is pre-game by definition; a final shows the current record, which includes the result just read. Standard CFB scoreboard practice, and a stale post-game record is bad data handling. One rule, no state-dependent branching.
 
@@ -182,7 +183,7 @@ Five bodies of work surfaced during this design that are **not** Item 87's surfa
 
 - `OwnerPanel` — `toneClasses:34-44`, rendered at `:170` and `:198`.
 - `MatchupsWeekPanel` — status text `:266` + dot `:271`; `performanceClasses:80-93`; `ownerCardSurfaceClasses:125-129`; and the `inprogress` branch of `ownerOutcomeRowClasses` (`:110-111`) **only**.
-- `OverviewPanel` — `stateBadgeClasses:176-182`, rendered at `:816`. Slice 4 replaces this row, but the change is one line through the shared helper and the watchlist is the highest-traffic surface, so it is taken now rather than waiting on Item 92.
+- `OverviewPanel` — `stateBadgeClasses:176-182`, rendered at `:816`. Slice 4 replaces this row, but the change is one line through the shared helper and the watchlist is the highest-traffic surface, so it is taken now rather than waiting on the records prerequisite.
 - `CompactGameScoreboard:66-77` becomes a consumer of the extracted label. Leaving the canonical copy inline is what let this conversion go partial in the first place.
 
 **Also in scope:** `gameUi.ts:70-87` `statusClasses` is **dead** — exported, called nowhere, referenced by no test, carrying both live-amber and final-emerald. Delete it; the shared label takes its place.
@@ -202,7 +203,7 @@ consumers, deleted the dead and bespoke status-class helpers, preserved Matchups
 freshness-gated pulse, and restored accessible contrast by pairing zinc-300 final with the dimmer
 zinc-400 unknown. Merged via PR #541 (`9a45e1f3`), 2026-08-31.
 
-**Item number: 90.** Cross-reference Item 87 slice 5 (absorbs the Schedule half) and Item 92.
+**Item number: 90.** Cross-reference Item 87 slice 5 (absorbs the Schedule half) and PLATFORM-117.
 
 ### B → delivered by PLATFORM-116. Standings-panel live-signal derivation
 
@@ -215,21 +216,24 @@ The work remained separate from Item 90's cross-component color sweep and merged
 
 **Delivered:** the interim selector excludes in-progress games from the watchlist and pins that boundary with regression coverage. Item 87 supersedes the predicate with a structural promotion model; do not reimplement the interim fix as a separate slice.
 
-### D → Item 92. CFBD team-records integration
+### D → delivered by PLATFORM-117. CFBD team-records integration
 
-**Scope:** wire `GET /records?year=`, add a year-scoped cache on the existing pattern, set refresh cadence, account for quota. Keyed by `teamId`, carries `classification`.
+**Delivered cache contract:** one normalized year-wide snapshot under `team-records/<year>`, keyed by
+provider `teamId` and carrying `classification`, conference, and the total W-L-T record. The
+cache-only reader and `refreshTeamRecords({ year })` accept any year directly; neither depends on
+canonical game ids, an active season, or the season registry. Slice 4 owns the first render and the
+direct numeric-ID join — PLATFORM-117 deliberately shipped no consumer.
 
-**Cadence requirement — records must be fresh before finals render.**
+**Bounded cadence:** only a newly committed final in the existing `live-scores` cron can invoke the
+records authority, at most once per run. A durable six-hour floor starts at the actual provider call
+and applies even after a failed or unusable response, bounding a 31-day month to
+`ceil(31 × 24 / 6) = 124` calls. Runs with no finalisation never call `/records`; an independent
+eight-day cache-age diagnostic makes no-final staleness visible without creating provider work.
 
-A final scoreboard shows the team's *current* record including the game just played, so a weekly refresh would leave Saturday's finals displaying stale records. But the requirement is **not uniform**: a final needs the post-game record; a scheduled watchlist card is fine with a record refreshed hours earlier. So the real constraint is "fresh before finals render," not "refresh on finalisation."
-
-**Refresh in the live-scores cron**, which already observes non-final → final transitions, already spends quota under a reserve check, and fits the existing `weekPartitionScope` refresh-status pattern. Bounded, server-side call count.
-
-**Do not hook `handleGamesFinalized`.** It is a client callback firing per browser — three members watching a slate means three triggers per finalisation, and quota consumption becomes a function of how many people have the page open. It also inverts the cron-spends / client-reads split established by PLATFORM-086B2B (`browserPolling.ts:12-15`: the client "decides only whether a VISIBLE tab should issue a cache-only score read — never a provider call") and preserved by PLATFORM-075, restated in the comment directly above the callback itself (`CFBScheduleApp.tsx:1060-61`).
-
-**Deriving post-game records** by adding the result to a cached pre-game value is rejected — double-count risk, and the quota (341/5,000) does not justify it.
-
-**Record the refresh under a scope the Provider data panel reads**, or records join scores and game-stats as a third dataset showing `No refresh history` while working correctly (Item 88).
+**Independent health:** records opens its own `records` + `year` provider-refresh attempt and uses
+its own operator toggle. A records failure cannot relabel scores, and the existing `live-scores`
+scheduler receipt remains the only delivery row. The known `No refresh history` display behavior is
+still Item 88; PLATFORM-117 did not design around it.
 
 ### E → Item 87 slice 5. Schedule page rework
 
@@ -257,7 +261,9 @@ The semantic border hues survived and nothing renders wrongly; the `/10` tint is
 
 **The process note is the more useful half:** the criterion was a proxy for "green means one thing in this component", and optimising the proxy changed the thing the exclusion existed to protect. A count over a file is a proxy — write the invariant, not the count.
 
-**Sequencing.** Implement after slices 3 and 4; its *contract requirements* are folded in above so slice 3 does not lock a three-state row. Wants Item 92 for the scheduled-state record anchor, and degrades to the spread anchor without it, same as slice 4.
+**Sequencing.** Implement after slices 3 and 4; its *contract requirements* are folded in above so
+slice 3 does not lock a three-state row. PLATFORM-117 now supplies the scheduled-state record cache;
+the spread remains the normal fallback when a record is unavailable.
 
 ---
 
@@ -270,7 +276,7 @@ Ordered so colour settles once rather than shipping neutral live and flipping it
 | ✅ 1 | Scoreboard component + Live section | Merged via POLISH-016 / PR #535 (`5fd59d39`), 2026-08-30. The component shipped with its first live consumer and no speculative state variants. |
 | ✅ 2 | Featured conversion + retire its `stateBadgeClasses` call + green-live flip | Merged via POLISH-017 / PR #537 (`e0a7b8ab`), 2026-08-30. Featured now consumes the neutral-final variant, and green-live is unambiguous on Overview. |
 | 3 | Recent finals + promotion model | Needs `unknown` routing and the recap-eligibility clear. |
-| 4 | Watchlist | Riskiest — anchor depends on Item 92. Falls back to the spread anchor if 92 has not landed. |
+| 4 | Watchlist | Riskiest — consumes PLATFORM-117's cache by exact `teamId`, with the spread fallback when a record is unavailable. |
 | 5 | Schedule rework | Filed 2026-08-30 (was *Not filed*). Schedule adopts the scoreboard row, two-column and all, and its colour settles as part of the rework rather than via Item 90. Needs the widened state variants above. |
 
 **Risk order:** watchlist anchor (external data) > promotion model (state transitions mid-slate, section migration) > two-column grid against the header-nowrap contract. Slices 1–2 are low-risk and independently verifiable.
@@ -291,12 +297,12 @@ Ordered so colour settles once rather than shipping neutral live and flipping it
 | Runnable | **Item 42 wiring pass** | All fact families and the consumed final-row scoreboard variant now exist; no Item 87 dependency remains. |
 | Done | **PLATFORM-116 / Item 91** | Tied/stale/scoreless standings signal and pill removal merged via PR #539. |
 | Done | **Item 90 / POLISH-018** | Shared label and neutral-final re-cut merged via PR #541. Schedule remains with slice 5. |
-| 5 | **92** → **87 slice 4** | Records integration, then the watchlist anchor. |
+| Done → next | **PLATFORM-117** → **87 slice 4** | Records cache implemented; the watchlist owns the first consumer. |
 | 6 | **017-PALETTE** | Reason and category hues. |
 
-**Genuine blocker — only one:** Item 92 → watchlist anchor. PLATFORM-116 removed the pill blocker,
-and POLISH-017 removed the notable-results scoreboard blocker. Everything else is preference.
-Items 87 and 90 are independent.
+**The former data blocker is resolved:** PLATFORM-117 supplies the watchlist record anchor.
+PLATFORM-116 removed the pill blocker, and POLISH-017 removed the notable-results scoreboard
+blocker. Items 87 and 90 are independent.
 
 ---
 

@@ -28,6 +28,7 @@ test('unseeded year → every dataset is absent (read succeeded, no content)', a
     schedule: 'absent',
     odds: 'absent',
     rankings: 'absent',
+    records: 'absent',
     conferences: 'absent',
     'game-stats': 'absent',
   });
@@ -46,6 +47,20 @@ test('seeded caches with content → available', async () => {
   });
   await setAppState('odds-cache', defaultOddsCacheKey(YEAR), { lastFetch: 1 });
   await setAppState('rankings', String(YEAR), { at: 1, response: { weeks: [{ season: YEAR }] } });
+  await setAppState('team-records', String(YEAR), {
+    at: 1,
+    year: YEAR,
+    items: [
+      {
+        year: YEAR,
+        teamId: 333,
+        team: 'Alabama',
+        classification: 'fbs',
+        conference: 'SEC',
+        total: { games: 1, wins: 1, losses: 0, ties: 0 },
+      },
+    ],
+  });
   await setAppState('conferences', 'snapshot', { at: 1, items: [{ id: 1 }] });
 
   const states = await getProviderCacheStates(YEAR);
@@ -53,6 +68,7 @@ test('seeded caches with content → available', async () => {
   assert.equal(states.scores, 'available');
   assert.equal(states.odds, 'available');
   assert.equal(states.rankings, 'available');
+  assert.equal(states.records, 'available');
   assert.equal(states.conferences, 'available');
 });
 
@@ -65,12 +81,14 @@ test('empty content is absent, not available (measure content, not bare key)', a
     cfbdFallbackReason: null,
   });
   await setAppState('rankings', String(YEAR), { at: 1, response: { weeks: [] } });
+  await setAppState('team-records', String(YEAR), { at: 1, year: YEAR, items: [] });
   await setAppState('conferences', 'snapshot', { at: 1, items: [] });
 
   const states = await getProviderCacheStates(YEAR);
   assert.equal(states.schedule, 'absent');
   assert.equal(states.scores, 'absent');
   assert.equal(states.rankings, 'absent');
+  assert.equal(states.records, 'absent');
   assert.equal(states.conferences, 'absent');
 });
 
@@ -83,12 +101,13 @@ test('a durable read failure degrades to unknown, never a false absent', async (
   assert.equal(states.schedule, 'unknown');
   assert.equal(states.odds, 'unknown');
   assert.equal(states.rankings, 'unknown');
+  assert.equal(states.records, 'unknown');
   assert.equal(states.conferences, 'unknown');
 });
 
 test('unknownProviderCacheStates is an all-unknown map for every dataset', () => {
   const states = unknownProviderCacheStates();
-  assert.equal(Object.keys(states).length, 6);
+  assert.equal(Object.keys(states).length, 7);
   assert.equal(
     Object.values(states).every((s) => s === 'unknown'),
     true

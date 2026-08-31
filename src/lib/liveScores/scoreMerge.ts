@@ -71,6 +71,8 @@ export type PartitionMergeResult = {
   wrote: boolean;
   /** Confirmed durable score/status changes (0 on a no-op or metadata-only write). */
   committed: number;
+  /** Accepted score changes that transitioned a row into `final`. */
+  finalized: number;
 };
 
 /**
@@ -223,6 +225,7 @@ export async function mergeScoresIntoPartition(params: {
     }
 
     let committed = 0;
+    let finalized = 0;
     for (const update of updates) {
       const id = update.pack.id?.trim();
       if (!id) continue;
@@ -264,6 +267,12 @@ export async function mergeScoresIntoPartition(params: {
       if (result.changed) {
         mergedById.set(id, { item: result.row, touched: true });
         committed += 1;
+        if (
+          classifyScorePackStatus(result.row) === 'final' &&
+          (!protectionRef || classifyScorePackStatus(protectionRef) !== 'final')
+        ) {
+          finalized += 1;
+        }
       }
     }
 
@@ -279,7 +288,7 @@ export async function mergeScoresIntoPartition(params: {
     const pendingChanged = !setsEqual(priorPending, nextPending);
 
     if (committed === 0 && !pendingChanged) {
-      return { wrote: false, committed: 0 };
+      return { wrote: false, committed: 0, finalized: 0 };
     }
 
     // Rebuild the entry with per-row effective timestamps: touched rows stamp
@@ -293,7 +302,7 @@ export async function mergeScoresIntoPartition(params: {
     for (const item of unkeyedPrior) items.push(item);
 
     // Never publish an empty replacement.
-    if (items.length === 0) return { wrote: false, committed };
+    if (items.length === 0) return { wrote: false, committed, finalized };
 
     // A live-written row always carries a provider id, so every keyed row above is
     // stamped explicitly in `itemUpdatedAtById`; the entry `at` is then only the
@@ -315,7 +324,7 @@ export async function mergeScoresIntoPartition(params: {
       ...(nextPending.size > 0 ? { pendingFinalConfirmationIds: [...nextPending].sort() } : {}),
     };
     await txn.write(nextEntry);
-    return { wrote: true, committed };
+    return { wrote: true, committed, finalized };
   });
 }
 

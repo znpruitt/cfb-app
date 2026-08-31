@@ -43,6 +43,10 @@ test('scores manual refresh issues ONE ordinary aggregate request with NO client
   assert.doesNotMatch(urls[0], /seasonTypes=/);
 });
 
+test('records ships no speculative manual refresh endpoint', () => {
+  assert.deepEqual(manualRefreshUrls('records', { year: 2026 }), []);
+});
+
 test('scoresAggregateRefreshUrl: ordinary form omits seasonTypes (server derives)', () => {
   const url = scoresAggregateRefreshUrl(2026);
   assert.match(url, /aggregate=1/);
@@ -316,13 +320,20 @@ test('combineOutcomes: any failure makes the whole action a failure', () => {
 
 // ---- Finding #7: controls are interactive only when consumed ----
 
-test('datasetControlMode: consumed datasets are interactive (game-stats, scores, odds, schedule)', () => {
+test('datasetControlMode: consumed datasets are interactive', () => {
   // scores joined game-stats as a consumed dataset via its live-score cron
   // (PLATFORM-086B2B), odds via its Odds cron (PLATFORM-086C2), and schedule via
   // the weekly maintenance cron (PLATFORM-086E1B — its toggle pauses ordinary
   // weekly maintenance; the lifecycle-critical operations stay exempt), so their
   // toggles are now interactive.
-  for (const dataset of ['game-stats', 'scores', 'odds', 'schedule'] as const) {
+  for (const dataset of [
+    'game-stats',
+    'scores',
+    'odds',
+    'schedule',
+    'rankings',
+    'records',
+  ] as const) {
     assert.equal(datasetControlMode(getProviderDatasetDescriptor(dataset)), 'interactive');
   }
 });

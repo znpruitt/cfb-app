@@ -15,10 +15,9 @@
  * fields. Cadence stays fixed in code / `vercel.json`.
  *
  * Defaults preserve current behavior: nothing paused, every dataset's automatic
- * refresh "enabled". The game-stats, live-scores, Odds, and weekly-schedule
- * (ordinary schedule maintenance plus its independently gated Scores backstop)
- * jobs consume these settings; rankings/conferences persist an intent no job
- * reads yet.
+ * refresh "enabled". The game-stats, live-scores (Scores plus the independently
+ * gated Team records refresh), Odds, rankings, and weekly-schedule jobs consume
+ * these settings; conferences persists an intent no job reads yet.
  */
 
 import { getAppState, setAppState } from './appStateStore.ts';

@@ -75,13 +75,38 @@ function rowFor(snapshot: Awaited<ReturnType<typeof read>>, dataset: ProviderDat
   return row!;
 }
 
-test('returns exactly six rows in canonical order', async () => {
+test('returns exactly seven rows in canonical order', async () => {
   const snapshot = await read([]);
   assert.equal(snapshot.subsystem, 'available');
   assert.deepEqual(
     snapshot.rows.map((r) => r.dataset),
     [...PROVIDER_DATASETS]
   );
+});
+
+test('records owns the selected-year canonical scope and accepts year activity', async () => {
+  const snapshot = await read([
+    entry('records', yearScope(YEAR), {
+      latestAttemptOutcome: 'succeeded',
+      lastAttemptAt: iso(NOW),
+    }),
+  ]);
+  const records = rowFor(snapshot, 'records');
+  assert.equal(records.canonicalScopeKey, providerRefreshScopeKey('records', yearScope(YEAR)));
+  assert.equal(records.canonicalStatus.state, 'available');
+  assert.equal(records.latestScopedActivity.state, 'available');
+});
+
+test('records rejects week-partition activity it does not own', async () => {
+  const snapshot = await read([
+    entry('records', weekPartitionScope(YEAR, 3, 'regular'), {
+      latestAttemptOutcome: 'succeeded',
+      lastAttemptAt: iso(NOW),
+    }),
+  ]);
+  const records = rowFor(snapshot, 'records');
+  assert.equal(records.canonicalStatus.state, 'absent');
+  assert.equal(records.latestScopedActivity.state, 'absent');
 });
 
 test('canonical scopes: conferences=global, odds=canonical odds-target, others=year', async () => {
@@ -316,14 +341,14 @@ test('a malformed non-ISO timestamp is dropped (not serialized) and not usable f
   );
 });
 
-// Case 12 (reader) — a failed scope read → subsystem unavailable, six unavailable rows.
-test('a failed scope read → subsystem unavailable with six unavailable rows', async () => {
+// Case 12 (reader) — a failed scope read → subsystem unavailable rows.
+test('a failed scope read → subsystem unavailable with seven unavailable rows', async () => {
   const snapshot = await readProviderRefreshHealth({
     year: YEAR,
     loadEntries: () => Promise.reject(new Error('scope boom')),
   });
   assert.equal(snapshot.subsystem, 'unavailable');
-  assert.equal(snapshot.rows.length, 6);
+  assert.equal(snapshot.rows.length, 7);
   assert.ok(snapshot.rows.every((r) => r.canonicalStatus.state === 'unavailable'));
   assert.ok(snapshot.rows.every((r) => r.latestScopedActivity.state === 'unavailable'));
 });

@@ -110,7 +110,7 @@ export type ProviderRefreshHealthRow = {
 export type ProviderRefreshHealthSnapshot = {
   /** `unavailable` iff the single scope read threw — every row's facts are then `unavailable`. */
   subsystem: 'available' | 'unavailable';
-  /** Exactly six rows in canonical `PROVIDER_DATASETS` order. */
+  /** Exactly one row per dataset in canonical `PROVIDER_DATASETS` order. */
   rows: ProviderRefreshHealthRow[];
 };
 
@@ -296,6 +296,7 @@ const DATASET_ACTIVITY_SCOPE_KINDS: Record<
   ]),
   odds: new Set(['odds-target']),
   rankings: new Set(['year']),
+  records: new Set(['year']),
   conferences: new Set(['global']),
   'game-stats': new Set(['year', 'season-partition', 'week-partition']),
 };
@@ -350,7 +351,7 @@ function selectLatestActivity(
   return best;
 }
 
-/** Six unavailable rows (canonical scope still derivable) for a failed scope read. */
+/** One unavailable row per dataset (canonical scope still derivable) for a failed scope read. */
 function unavailableRows(year: number): ProviderRefreshHealthRow[] {
   return PROVIDER_DATASETS.map((dataset) => {
     const canonicalScope = canonicalScopeFor(dataset, year);
@@ -365,7 +366,7 @@ function unavailableRows(year: number): ProviderRefreshHealthRow[] {
 }
 
 /**
- * The `subsystem: 'unavailable'` snapshot (still six canonical-order rows) used
+ * The `subsystem: 'unavailable'` snapshot (still canonical-order rows) used
  * both by a failed scope read here and by the orchestrator when its injected
  * loader throws.
  */
@@ -374,9 +375,9 @@ export function unavailableProviderRefreshSnapshot(year: number): ProviderRefres
 }
 
 /**
- * Read the `provider-refresh-status` scope ONCE and derive the six dataset rows.
+ * Read the `provider-refresh-status` scope ONCE and derive all dataset rows.
  * Never throws: a failed scope read returns a `subsystem: 'unavailable'`
- * snapshot with six unavailable rows.
+ * snapshot with one unavailable row per dataset.
  */
 export async function readProviderRefreshHealth(params: {
   year: number;

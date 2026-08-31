@@ -1,10 +1,19 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+// Install the Next work store before the route module loads so this file can
+// observe the exact point at which `invalidateStandings` appends its tags.
+import '../../../draft/[slug]/[year]/__tests__/_setup/installAsyncLocalStorage';
+import { workAsyncStorage } from 'next/dist/server/app-render/work-async-storage.external';
+
 import { weekPartitionScope, yearScope } from '@/lib/providerRefreshScope';
 import type { CacheEntry } from '@/lib/scores/cache';
 import type { ScorePack } from '@/lib/scores/types';
-import { __setAppStateWriteFailureForTests, getAppState } from '@/lib/server/appStateStore';
+import {
+  __setAppStateWriteFailureForTests,
+  getAppState,
+  setAppState,
+} from '@/lib/server/appStateStore';
 import { getProviderRefreshStatus } from '@/lib/server/providerRefreshStatus';
 
 import {
@@ -88,6 +97,11 @@ test('a live scoreboard score is written once; exact week-partition status, no y
   assert.equal(event.committedGames, 1);
   assert.equal(event.providerCallAttempted, true);
   assert.equal(urls.filter((u) => u.includes('/scoreboard')).length, 1);
+  assert.equal(
+    urls.filter((u) => u.includes('/records')).length,
+    0,
+    'a committed live score is not a committed finalisation'
+  );
 
   const entry = await readScores(3);
   assert.equal(entry!.items[0]!.status, 'Q2 5:00');
@@ -296,6 +310,121 @@ test('a durable write failure reports durable-commit-failed and preserves prior-
 
 test('a scoreboard completed row is written final and recorded pending /games confirmation', async () => {
   await seedSchedule([{ id: 401001, week: 3, ageHours: 3, homeId: 333, awayId: 61 }]);
+  const { urls } = stubProvider({
+    // /info is quota-free; the 1,002 boundary leaves the 1,000-call reserve
+    // after the maximum one scoreboard + one records request in this run.
+    remainingCalls: 1002,
+    scoreboard: [
+      scoreboardRow({
+        id: 401001,
+        status: 'completed',
+        homeId: 333,
+        awayId: 61,
+        home: 'Alabama',
+        away: 'Georgia',
+        hp: 27,
+        ap: 24,
+      }),
+    ],
+    records: [
+      {
+        year: YEAR,
+        teamId: 333,
+        team: 'Alabama',
+        classification: 'fbs',
+        conference: 'SEC',
+        total: { games: 3, wins: 2, losses: 1, ties: 0 },
+      },
+    ],
+  });
+  const { event } = await runCron();
+  assert.equal(event.result, 'success');
+  assert.equal(event.committedGames, 1);
+  const entry = await readScores(3);
+  assert.equal(entry!.items[0]!.status, 'final');
+  assert.deepEqual(entry!.pendingFinalConfirmationIds, ['401001']);
+  assert.equal(urls.filter((url) => url.includes('/records?year=')).length, 1);
+  const records = await getAppState<{ items: Array<{ teamId: number }> }>(
+    'team-records',
+    String(YEAR)
+  );
+  assert.equal(records?.value.items[0]?.teamId, 333);
+  const recordsStatus = await getProviderRefreshStatus('records', yearScope(YEAR));
+  assert.equal(recordsStatus.latestAttemptOutcome, 'succeeded');
+});
+
+test('standings invalidate before a final-triggered records request can finish', async () => {
+  await seedSchedule([{ id: 401001, week: 3, ageHours: 3, homeId: 333, awayId: 61 }]);
+  await setAppState('leagues', 'registry', [
+    {
+      slug: 'league-a',
+      displayName: 'League A',
+      year: YEAR,
+      status: 'season',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    },
+  ]);
+
+  let releaseRecords!: (payload: unknown) => void;
+  const recordsGate = new Promise<unknown>((resolve) => {
+    releaseRecords = resolve;
+  });
+  const { urls } = stubProvider({
+    scoreboard: [
+      scoreboardRow({
+        id: 401001,
+        status: 'completed',
+        homeId: 333,
+        awayId: 61,
+        home: 'Alabama',
+        away: 'Georgia',
+        hp: 27,
+        ap: 24,
+      }),
+    ],
+    records: recordsGate,
+  });
+  const store = {
+    route: '/api/cron/live-scores',
+    incrementalCache: {},
+    pendingRevalidatedTags: [] as string[],
+    pathWasRevalidated: false,
+  };
+
+  const cron = workAsyncStorage.run(store as never, () => runCron());
+  for (let i = 0; i < 100 && !urls.some((url) => url.includes('/records?year=')); i += 1) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 5));
+  }
+  assert.ok(
+    urls.some((url) => url.includes('/records?year=')),
+    'the test held an in-flight records request'
+  );
+  const invalidatedBeforeRecordsFinished = store.pendingRevalidatedTags.includes(
+    `standings:league-a:${YEAR}`
+  );
+
+  releaseRecords([
+    {
+      year: YEAR,
+      teamId: 333,
+      team: 'Alabama',
+      classification: 'fbs',
+      conference: 'SEC',
+      total: { games: 3, wins: 2, losses: 1, ties: 0 },
+    },
+  ]);
+  const { event } = await cron;
+
+  assert.equal(event.result, 'success');
+  assert.equal(
+    invalidatedBeforeRecordsFinished,
+    true,
+    'standings invalidation must precede the slower /records request'
+  );
+});
+
+test('a records failure does not relabel the shared live-scores run or its score scope', async () => {
+  await seedSchedule([{ id: 401001, week: 3, ageHours: 3, homeId: 333, awayId: 61 }]);
   stubProvider({
     scoreboard: [
       scoreboardRow({
@@ -309,13 +438,19 @@ test('a scoreboard completed row is written final and recorded pending /games co
         ap: 24,
       }),
     ],
+    records: { wrong: 'top-level shape' },
   });
+
   const { event } = await runCron();
-  assert.equal(event.result, 'success');
-  assert.equal(event.committedGames, 1);
-  const entry = await readScores(3);
-  assert.equal(entry!.items[0]!.status, 'final');
-  assert.deepEqual(entry!.pendingFinalConfirmationIds, ['401001']);
+  assert.equal(event.result, 'success', 'records health is not scheduler/score health');
+  assert.equal(
+    (await getProviderRefreshStatus('scores', weekPartitionScope(YEAR, 3, 'regular')))
+      .latestAttemptOutcome,
+    'succeeded'
+  );
+  const recordsStatus = await getProviderRefreshStatus('records', yearScope(YEAR));
+  assert.equal(recordsStatus.latestAttemptOutcome, 'failed');
+  assert.equal(recordsStatus.lastError?.code, 'records-invalid-payload');
 });
 
 // ---- Final reconciliation (prompt case 19) --------------------------------
