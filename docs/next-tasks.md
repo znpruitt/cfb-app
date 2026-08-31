@@ -369,8 +369,17 @@ freshness nuance.
 **Live example, 2026-08-31 — this is not theoretical.** PLATFORM-117 merged at 03:17, after week 1
 finished. 126 games are complete and 16 FBS teams have results, but the records cache is **empty**
 and System Health shows a yellow `no cached data`, correctly. The next kickoff is
-2026-09-10T23:00Z — **246.8 hours away** — and no trigger can fire before it. So the cache stays
-cold for **over ten days**, and slice 3/4 cannot be built against real record data in the meantime.
+2026-09-03T21:00Z — **~77 hours away**, first FBS game Massachusetts @ Rutgers at 22:00Z — and no
+trigger can fire before it. So the cache stays cold for **more than three days**, and slice 3/4
+cannot be built against real record data in the meantime.
+
+_Two CFBD query traps found while measuring this, both of which produced a wrong answer first._
+**`completed: false` does not mean "future".** 329 of week 1's 455 games are uncompleted with
+kickoffs already 90 hours past — mostly D-II/D-III games CFBD never marks complete, the same
+population as the `w+l+t != games` rows in 97b. Filter on `startDate > now`, not on `completed`.
+**And CFBD week 1 spans week 0 too**, running 2026-08-27 through 2026-09-03+, so "week 1 is over"
+is false while a Thursday game remains. Query the current week for future kickoffs before assuming
+the next one is a week away.
 Generalised: **any deploy landing between slates leaves the cache cold for the whole inter-slate
 gap**, which is most deploys.
 
