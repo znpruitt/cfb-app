@@ -24,23 +24,18 @@ Supersedes: (none)
 
 ## Current execution order
 
-`CURRENT`: Item 87 slice 1 — scoreboard component + Live section.
-`NEXT`: Item 87 slice 2 — Featured conversion and green-live state.
+`CURRENT`: Reassess at the pre-agreed split point after Item 87 slice 2.
+`NEXT`: Not selected pending that reassessment.
 
 Owner-selected run order (2026-08-29). In-season work first, then the Overview scoreboard campaign,
 reassessing against the reliability sequence below after Item 87 slice 2 rather than running the
 campaign straight through.
 
-1. **Item 87 slice 1** — scoreboard component + Live section. The prompt carries the full row
-   contract, since three later consumers inherit it. Reference:
-   `mockups/live-scoreboard-mockup.html`, spec in `docs/campaigns/`.
-2. **Item 87 slice 2** — Featured conversion, retire `stateBadgeClasses`, green-live flip. Colour
-   settles in one step. **Pre-agreed split point:** if sizing signals trip, stop and re-slice here.
-3. **Reassess** against the reliability sequence below before continuing.
-4. **Item 92** — CFBD records integration. Must precede slice 4 or slice 4 ships the spread
+1. **Reassess** against the reliability sequence below before continuing.
+2. **Item 92** — CFBD records integration. Must precede slice 4 or slice 4 ships the spread
    fallback. Cadence is the live-scores cron, never `handleGamesFinalized`.
-5. **Item 87 slice 3** — Recent finals + promotion model.
-6. **Item 87 slice 4** — Watchlist, consuming records.
+3. **Item 87 slice 3** — Recent finals + promotion model.
+4. **Item 87 slice 4** — Watchlist, consuming records.
 
 Runnable at any point, no dependency on the above: **Item 91** (standings live-signal derivation),
 **Item 84** (provider-classification diagnostic), **Item 86** (archive audit integrity check).
