@@ -48,7 +48,8 @@ diagnostic), and **Item 86** (archive audit integrity check).
 
 Gated: **Item 85** after 86, which is how the repair gets verified.
 **Item 94** (CFBD burn-rate measurement) is date-gated to October 2026, after the first full
-in-season month; it is the accumulated observation **Item 63** is waiting on.
+in-season month; it is the accumulated observation **Item 63** and **Item 95 portion 2** are waiting
+on. **Item 95 portion 1** is runnable now and is not gated.
 **INSIGHTS-017-PALETTE** before precedence-reason hues matter; Item 87 renders them neutral until
 then.
 
@@ -193,6 +194,42 @@ these confirming-review observations without putting them into the active sequen
   game with `completed: true`; today that contradictory combination deliberately requires a score.
 
 - Backlog slug: `PLATFORM-SCORE-GAP-DIAGNOSTIC-FOLLOWUPS-v1`
+
+### Item 95 — live-score staleness is two unsynchronized 3-minute cycles, and half the fix is free
+
+**Measured, not estimated.** Two independent cadences compound:
+
+| Layer | Interval | Provider cost |
+| --- | --- | --- |
+| Cron `turfwar-live-scores-3m` | `*/3 * * * *` (runbook `:32`, `:316`) | **at most ONE** billed request per run (`live-scores/route.ts:53`, `:261`), and only when armed |
+| Browser | `LIVE_SCORE_POLL_INTERVAL_MS = 3 * 60 * 1000` (`liveScores/browserPolling.ts:19`) | **zero** — cache-only read while the tab is visible |
+
+They are not phase-locked, so a tab that reads the cache just before the cron refreshes it shows a
+score up to **~6 minutes** stale, averaging ~4.5. Halving the cron alone therefore buys less than it
+appears: it addresses only one of the two cycles.
+
+**Portion 1 — browser interval, free, no gate.** Take `LIVE_SCORE_POLL_INTERVAL_MS` from 180s to
+90s. Worst case falls ~6 min → ~4.5, average ~4.5 → ~3.75, for **zero CFBD calls** — the client is
+cache-only by architecture (PLATFORM-086B2B, PLATFORM-075), and this does not weaken that boundary.
+
+Two bounds to respect. More polling means more Vercel function invocations, scaling with concurrent
+_visible_ tabs — far cheaper than provider calls, not free. And below roughly the cron interval the
+extra polls re-read the same cache entry, so ~90s is the useful floor until portion 2 moves the cron.
+
+**Portion 2 — cron cadence, gated on Item 94.** Because the route bills at most one request per run,
+the cost is exactly linear:
+
+    monthly calls = armed hours x runs/hour x 1      (20/hr at 3 min; 40/hr at 90s)
+
+So the price of doubling equals the month's armed-hour count — a number nobody has yet.
+**Item 94 produces it.** Do not size this from an estimate; the whole point of 94 is that August's
+395 calls covers ~2 in-season days and is not a usable baseline.
+
+Ship portion 1 independently. It is a one-constant change with a real latency win and no quota
+argument attached, and it makes portion 2's benefit easier to judge because only one cycle remains
+unsynchronized.
+
+- Backlog slug: `PLATFORM-LIVE-SCORE-CADENCE-v1`
 
 ## Open league-setup, roster, and draft work
 
