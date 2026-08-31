@@ -334,8 +334,15 @@ before attributing compute cost to anything.
 
 ### Item 97 — team records go stale after the last game of a slate, and a counted-but-uncredited record renders as 0-0
 
-Two small follow-ups to PLATFORM-117 (PR #543, `9376521e`). Neither is user-visible yet — no
-consumer renders records until Item 87 slice 3/4 — so this is cheap to fix ahead of them.
+Two follow-ups to PLATFORM-117 (PR #543, `9376521e`). Not user-visible yet — no consumer renders
+records until Item 87 slice 3/4 — so both are cheap to fix ahead of them.
+
+**Do fix them ahead of slice 3.** The campaign's resolved record design puts the record on **every**
+scoreboard state, inline on live and final rows, and specifies that _finals carry the post-game
+record including the result being read_. So a stale record no longer surfaces as a slightly-off
+number on next week's matchup — it renders **on the final row itself, contradicting the score
+directly above it**, for a game the member just watched. That is a credibility failure, not a
+freshness nit, and it is the state a member looks at most.
 
 #### 97a — the staleness ceiling, agreed and not shipped
 
@@ -389,6 +396,11 @@ absent.
 **Fix:** on the READER, treat a row failing the invariant as unreliable — render no anchor, or fill
 the outcome from our own score data. Filling is safe here and needs no applied-game ledger: it fills
 a hole the provider explicitly left open, and stops on its own once `w+l+t == games`.
+
+**This is load-bearing under the resolved design, not defensive insurance.** `games:1, wins:0,
+losses:0` means "the provider counted the game you just watched and has not credited it" — arriving
+precisely when a final row is rendering that team's record beside its winning score. Rendering
+`0-0` there is the single worst output the surface can produce.
 
 **Unknown, and worth one measurement:** whether FBS records transit this state at all. The snapshot
 found it only in D-II, but the most recent FBS game was 27 hours old and long resolved. **Next

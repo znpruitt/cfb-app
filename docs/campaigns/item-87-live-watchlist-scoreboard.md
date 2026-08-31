@@ -107,6 +107,51 @@ Reason title row → date / kickoff / broadcast → team lines anchored by **per
 - **The anchor holds a record, and the record belongs to the line's primary identifier.** Team-primary line (this scoreboard, any state) → *team* record. Owner-primary line (recap week records, standings, movement) → *owner* record. Position stays constant app-wide; context disambiguates, so no label is needed and the team line stays at three elements plus an anchor, matching live and final rows exactly.
 - **Spread and O/U share the odds footer.** Games with no posted line render the reason there instead.
 
+### Records across scoreboard states — resolved
+
+Folded in from `item-87-followon-records.md`; the mockup reflects it.
+
+| State | Anchor | Record position |
+| --- | --- | --- |
+| Scheduled | **team record** | the anchor itself |
+| Live | score | **inline**, parenthetical after the team name |
+| Final | score | **inline**, parenthetical after the team name |
+
+Scheduled rows have no score, so the record takes the anchor and spread + O/U sit on the odds
+footer. Live and final rows have the anchor occupied by the score, so the record moves inline —
+`#14 USC (7–1) · Chamness · 21` — which is standard CFB scoreboard placement. Markup order is
+rank → team → record → owner.
+
+**Finals carry the POST-GAME record, including the result being read.** A stale record on a final is
+bad data handling, and a post-game record is conventional everywhere in the sport.
+
+**One rule, not two.** The record shown is always the team's *current* record — never "entering"
+versus "after". A scheduled row shows the current record, which is pre-game by definition; a final
+shows the current record, which includes the result. No state-dependent branching in the data layer.
+
+**The position shift is accepted.** The record sits in the anchor on scheduled rows and inline on
+live and final rows, so its position varies by state. Weighed and accepted: the watchlist is
+legitimately a different layout, and the anchor consistently holds whatever number matters most in
+that state. *Rejected alternative:* record inline in every state with the scheduled anchor given
+back to per-team spread. That buys a stable record position at the cost of an anchor that no longer
+holds the most relevant number, and it reverses the decision to put spread and O/U together.
+
+**This resolves the apparent tension** between "the anchor holds a record … any state" above and
+Amendment 7's "anchors carry the state-relevant value": both are true, because they describe
+different slots. The anchor always holds the state-relevant value; the record is always present,
+in the anchor or inline.
+
+**Consequence — the records dependency is now campaign-wide, not watchlist-only.** When the CFBD
+integration was split out it fed one section; records now appear in every scoreboard state.
+PLATFORM-117 (PR #543, `9376521e`) has since landed the data and a cache-only reader, so this is a
+wiring dependency rather than a blocker. Degradation stays clean in both directions — live and final
+rows omit the inline parenthetical, scheduled rows anchor on per-team spread with O/U alone on the
+footer — and no row loses its right-edge anchor.
+
+**State this in the implementation prompt:** a build with records absent or stale will not match the
+mockup, and a reviewer comparing them must read that as a sequenced dependency rather than a defect.
+See Item 97 for two known record-freshness gaps that make this concrete.
+
 ### Layout
 
 - **Two-column game grid**, following existing precedent rather than introducing it — `FeaturedGamesList` already ships `grid-cols-1 sm:grid-cols-2` on this surface. Row-major flow, matching `RecapPrimitives.tsx:75`.
