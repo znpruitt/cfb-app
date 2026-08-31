@@ -1,10 +1,19 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+// Install the Next work store before the route module loads so this file can
+// observe the exact point at which `invalidateStandings` appends its tags.
+import '../../../draft/[slug]/[year]/__tests__/_setup/installAsyncLocalStorage';
+import { workAsyncStorage } from 'next/dist/server/app-render/work-async-storage.external';
+
 import { weekPartitionScope, yearScope } from '@/lib/providerRefreshScope';
 import type { CacheEntry } from '@/lib/scores/cache';
 import type { ScorePack } from '@/lib/scores/types';
-import { __setAppStateWriteFailureForTests, getAppState } from '@/lib/server/appStateStore';
+import {
+  __setAppStateWriteFailureForTests,
+  getAppState,
+  setAppState,
+} from '@/lib/server/appStateStore';
 import { getProviderRefreshStatus } from '@/lib/server/providerRefreshStatus';
 
 import {
@@ -342,6 +351,76 @@ test('a scoreboard completed row is written final and recorded pending /games co
   assert.equal(records?.value.items[0]?.teamId, 333);
   const recordsStatus = await getProviderRefreshStatus('records', yearScope(YEAR));
   assert.equal(recordsStatus.latestAttemptOutcome, 'succeeded');
+});
+
+test('standings invalidate before a final-triggered records request can finish', async () => {
+  await seedSchedule([{ id: 401001, week: 3, ageHours: 3, homeId: 333, awayId: 61 }]);
+  await setAppState('leagues', 'registry', [
+    {
+      slug: 'league-a',
+      displayName: 'League A',
+      year: YEAR,
+      status: 'season',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    },
+  ]);
+
+  let releaseRecords!: (payload: unknown) => void;
+  const recordsGate = new Promise<unknown>((resolve) => {
+    releaseRecords = resolve;
+  });
+  const { urls } = stubProvider({
+    scoreboard: [
+      scoreboardRow({
+        id: 401001,
+        status: 'completed',
+        homeId: 333,
+        awayId: 61,
+        home: 'Alabama',
+        away: 'Georgia',
+        hp: 27,
+        ap: 24,
+      }),
+    ],
+    records: recordsGate,
+  });
+  const store = {
+    route: '/api/cron/live-scores',
+    incrementalCache: {},
+    pendingRevalidatedTags: [] as string[],
+    pathWasRevalidated: false,
+  };
+
+  const cron = workAsyncStorage.run(store as never, () => runCron());
+  for (let i = 0; i < 100 && !urls.some((url) => url.includes('/records?year=')); i += 1) {
+    await new Promise<void>((resolve) => setTimeout(resolve, 5));
+  }
+  assert.ok(
+    urls.some((url) => url.includes('/records?year=')),
+    'the test held an in-flight records request'
+  );
+  const invalidatedBeforeRecordsFinished = store.pendingRevalidatedTags.includes(
+    `standings:league-a:${YEAR}`
+  );
+
+  releaseRecords([
+    {
+      year: YEAR,
+      teamId: 333,
+      team: 'Alabama',
+      classification: 'fbs',
+      conference: 'SEC',
+      total: { games: 3, wins: 2, losses: 1, ties: 0 },
+    },
+  ]);
+  const { event } = await cron;
+
+  assert.equal(event.result, 'success');
+  assert.equal(
+    invalidatedBeforeRecordsFinished,
+    true,
+    'standings invalidation must precede the slower /records request'
+  );
 });
 
 test('a records failure does not relabel the shared live-scores run or its score scope', async () => {

@@ -462,15 +462,18 @@ async function runScoreboard(args: {
     }
   }
 
+  // Invalidate standings immediately after the durable score writes. The
+  // optional records request below may occupy its full provider timeout; putting
+  // invalidation after that wait lets a browser observe the final score while a
+  // canonical standings refresh still serves its pre-final tagged snapshot.
+  if (totalCommitted > 0) await invalidateStandingsForYear(year);
+
   // PLATFORM-117: only a final transition confirmed by the transaction result
   // can trigger the year-wide records authority. Its failure is isolated in the
   // dedicated `records` health row and cannot relabel a committed score run.
   if (totalFinalized > 0) {
     await refreshTeamRecords({ year });
   }
-
-  // Invalidate standings once, only when a durable score/status change occurred.
-  if (totalCommitted > 0) await invalidateStandingsForYear(year);
 
   // Overall run classification (secret-safe event).
   if (anyDurableFailure) {

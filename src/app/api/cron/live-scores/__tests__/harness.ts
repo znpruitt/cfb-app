@@ -101,7 +101,7 @@ export function stubProvider(opts: {
     if (url.includes('/info'))
       body = { patronLevel: 1, remainingCalls: opts.remainingCalls ?? 4000 };
     else if (url.includes('/scoreboard')) body = opts.scoreboard ?? [];
-    else if (url.includes('/records')) body = opts.records ?? [];
+    else if (url.includes('/records')) body = await (opts.records ?? []);
     else if (url.includes('/games')) body = opts.games ?? [];
     else throw new Error(`unexpected url ${url}`);
     return new Response(JSON.stringify(body), {
