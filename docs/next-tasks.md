@@ -645,6 +645,15 @@ PLATFORM-114 stopped this reaching eligibility by classifying from the provider'
 new seasons no longer track phantom games. It is forward-only: it does not repair archives, and the
 collision still reaches `buildPairKey`, score attachment, and roster/owner mapping.
 
+**Also in scope: the row primary key falls back to a name.** `ScheduleItem.id` is
+``String(game.id ?? `${week}-${homeTeam}-${awayTeam}`)`` (`src/lib/schedule/cfbdSchedule.ts:730`,
+unchanged since 2026-03-13 and untouched by PLATFORM-114). So a row's identity is
+provider-id-when-available and name-composed otherwise, and two rows differing only by a
+normalization collision would collide in the key space too. It engages only when CFBD omits
+`game.id`, which has not been observed here — latent, not active. Noted because it is the same
+name-derived-identity problem this item owns, and Saturday's fix is easily misremembered as having
+covered it.
+
 **Confirmed historical impact (2025).** The archive audit reports Missouri State at 13-11 — 24 games,
 seven beyond the 17-game FBS ceiling, i.e. Missouri State's real slate merged with Missouri S&T's
 Division II slate.
