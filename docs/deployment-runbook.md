@@ -239,10 +239,20 @@ against the REAL schedule?"* cannot be answered there. The `cfb-audit-read-repli
 - **Autosuspend is 5 minutes** (set 2026-08-31; it was `never`, which cost ~$19/month for a compute
   with zero connections — see `next-tasks.md` Item 96). It suspends between uses and wakes on
   connect, so expect a sub-second cold start.
-- **The read-only guarantee comes from the endpoint being `RO`, not from the role.** The string uses
-  `neondb_owner` and still cannot write. Verified 2026-08-31: `pg_is_in_recovery()` returns `true`,
-  and an `INSERT` fails with `cannot execute INSERT in a read-only transaction`. Re-run that probe
-  rather than assuming it, since the safety of handing this to tooling rests on it.
+- **Two independent guarantees, deliberately.** The **role** `audit_ro` holds only `CONNECT`,
+  `USAGE ON SCHEMA public`, and `SELECT` (plus a default-privileges grant so new tables are covered).
+  The **endpoint** is `RO`. Either alone would do; both means a leaked string pointed at the primary
+  read-write host still cannot write.
+- **Verified 2026-08-31 against the PRIMARY (read-write) endpoint** — the only test that proves the
+  ROLE rather than the endpoint: `SELECT` returned rows; `INSERT`, `UPDATE`, `DELETE` and
+  `CREATE TABLE` were all refused. Re-run that probe rather than assuming it, since the safety of
+  handing this to tooling rests on it.
+- **`audit_ro` is created by SQL, not by the Neon console**, so it is not a member of
+  `neon_superuser` and does not appear in the console's managed-roles list. Rotate it with
+  `ALTER ROLE audit_ro WITH PASSWORD ...` through `DATABASE_URL`. **Rotating it never touches the
+  application credential** — which is the point: on 2026-08-31 a `neondb_owner` rotation took
+  production's DB routes down until a redeploy, and that class of outage should never be the price
+  of rotating an operator credential.
 
 Precedent for why it exists: PLATFORM-105 was verified against the real 3,610-game 2026 production
 schedule and roster through this replica, which is what exposed the season reading as over after
