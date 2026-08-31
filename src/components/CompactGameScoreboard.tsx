@@ -74,9 +74,7 @@ export default function CompactGameScoreboard({
           ) : null}
           {state === 'live' ? 'Live' : 'Final'}
         </span>
-        {state === 'live' && clockLabel ? (
-          <span className="min-w-0 truncate tabular-nums">{clockLabel}</span>
-        ) : null}
+        {clockLabel ? <span className="min-w-0 truncate tabular-nums">{clockLabel}</span> : null}
       </div>
 
       {participants.map(({ side, participant }) => {

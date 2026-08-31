@@ -334,9 +334,12 @@ test('overview Featured renders a home-won final through the neutral compact sco
   const neutralGame = game({
     csvAway: 'Texas',
     csvHome: 'Ohio State',
+    date: '2026-12-19T19:00:00.000Z',
     neutral: true,
     neutralDisplay: 'vs',
     stage: 'bowl',
+    postseasonRole: 'playoff',
+    playoffRound: 'quarterfinal',
   });
   const liveGame = itemWithScore(
     game({ key: 'green-live-control', csvAway: 'Georgia', csvHome: 'Alabama' }),
@@ -373,6 +376,9 @@ test('overview Featured renders a home-won final through the neutral compact sco
   )?.[0];
   assert.ok(finalScoreboard, 'Featured final must render through CompactGameScoreboard');
   assert.match(finalScoreboard, /aria-label="Texas vs Ohio State"/);
+  assert.match(finalScoreboard, /data-scoreboard-context-slot/);
+  assert.match(finalScoreboard, /CFP Quarterfinal/);
+  assert.match(finalScoreboard, /Sat, Dec 19, 7:00 PM/);
   assert.match(
     finalScoreboard,
     /data-scoreboard-side="away" data-scoreboard-leading="false"[\s\S]*data-scoreboard-team="away">Texas<\/span>[\s\S]*data-scoreboard-value="away">21<\//
@@ -387,6 +393,10 @@ test('overview Featured renders a home-won final through the neutral compact sco
   )?.[0];
   assert.ok(liveScoreboard, 'positive control must render a live scoreboard');
   assert.match(liveScoreboard, /dark:text-emerald-400/);
+  assert.match(
+    html,
+    /<section class="@container">[\s\S]*?<div class="grid grid-cols-2 gap-x-10 @max-\[760\.01px\]:grid-cols-1" data-featured-scoreboard-grid="true">/
+  );
 });
 
 test('overview Featured conversion preserves the existing recent-results selection and order', () => {

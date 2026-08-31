@@ -97,7 +97,7 @@ test('live scoreboard expresses live state in green with no amber utility', () =
 test('final scoreboard keeps away above a winning home team and uses neutral final status', () => {
   const html = renderScoreboard({
     state: 'final',
-    clock: '',
+    clock: 'Sat, Dec 19, 7:00 PM',
     away: { teamName: 'Michigan', owner: 'Whited', rank: null, score: 17 },
     home: {
       teamName: 'Ohio State',
@@ -119,6 +119,7 @@ test('final scoreboard keeps away above a winning home team and uses neutral fin
   );
   assert.ok(header, 'scoreboard header must render');
   assert.match(header, />Final<\/span>/);
+  assert.match(header, />Sat, Dec 19, 7:00 PM<\/span>/);
   assert.doesNotMatch(header, /rounded-full bg-current|Live/);
   assert.doesNotMatch(html, /emerald|amber/);
   assert.match(html, /data-scoreboard-state="final"/);

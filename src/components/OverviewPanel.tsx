@@ -839,10 +839,12 @@ function GameSummaryList({
 function FeaturedGamesList({
   prioritizedItems,
   emptyMessage,
+  timeZone,
   rankingsByTeamId,
 }: {
   prioritizedItems: PrioritizedOverviewItem[];
   emptyMessage: string;
+  timeZone: string;
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
 }): React.ReactElement {
   if (prioritizedItems.length === 0) {
@@ -868,6 +870,7 @@ function FeaturedGamesList({
           <CompactGameScoreboard
             key={game.key}
             state="final"
+            clock={formatExpandedKickoff(game.date, timeZone, game.startTimeTBD)}
             matchupLabel={formatGameMatchupLabel(game)}
             contextSlot={
               gameBadge ? (
@@ -1655,6 +1658,7 @@ export default function OverviewPanel({
           <FeaturedGamesList
             prioritizedItems={viewModel.recentResults}
             emptyMessage="No recent results yet."
+            timeZone={timeZone}
             rankingsByTeamId={rankingsByTeamId}
           />
         </div>
