@@ -195,9 +195,9 @@ test('owner panel shows live, final, and upcoming week-row detail correctly', ()
     /dark:text-emerald-400"><span class="size-1\.5 rounded-full bg-current" aria-hidden="true"><\/span>Live<\/span>/,
     'live owner status must use the shared emerald label and dot'
   );
-  assert.match(html, /dark:text-zinc-400">Final<\/span>/);
+  assert.match(html, /dark:text-zinc-300">Final<\/span>/);
   assert.match(html, /dark:text-sky-400">Upcoming<\/span>/);
-  assert.match(html, /dark:text-zinc-500">Awaiting score<\/span>/);
+  assert.match(html, /dark:text-zinc-400">Awaiting score<\/span>/);
   assert.doesNotMatch(html, /amber/);
 });
 

@@ -47,11 +47,15 @@ test('shared game status labels expose the four semantic tones without pill chro
     'size-1.5 rounded-full bg-current',
     'live label must carry the shared static dot'
   );
-  assert.match(final.className, /dark:text-zinc-400/, 'final label must be neutral zinc');
+  assert.match(final.className, /dark:text-zinc-300/, 'final label must be neutral zinc');
   assert.equal(final.dotClassName, null, 'final label must not carry a dot');
   assert.match(scheduled.className, /dark:text-sky-400/, 'scheduled label must carry sky');
   assert.equal(scheduled.dotClassName, null, 'scheduled label must not carry a dot');
-  assert.match(unknown.className, /dark:text-zinc-500/, 'unknown label must use dimmer zinc');
+  assert.match(
+    unknown.className,
+    /dark:text-zinc-400/,
+    'unknown label must use dimmer accessible zinc'
+  );
   assert.equal(unknown.dotClassName, null, 'unknown label must not carry a dot');
 
   for (const presentation of [live, final, scheduled, unknown]) {

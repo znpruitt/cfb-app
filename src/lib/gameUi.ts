@@ -81,9 +81,9 @@ export type GameStatusLabelOptions = {
 
 const STATUS_LABEL_TONE_CLASSES: Record<GameStatusLabelTone, string> = {
   live: 'dark:text-emerald-400',
-  final: 'dark:text-zinc-400',
+  final: 'dark:text-zinc-300',
   scheduled: 'dark:text-sky-400',
-  unknown: 'dark:text-zinc-500',
+  unknown: 'dark:text-zinc-400',
 };
 
 export function gameStatusLabelPresentation(

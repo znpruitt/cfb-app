@@ -12,7 +12,7 @@ const CONSUMERS = [
 test('in-scope game surfaces consume the shared status label with bespoke class helpers deleted', () => {
   for (const file of CONSUMERS) {
     const source = readFileSync(new URL(`../${file}`, import.meta.url), 'utf8');
-    assert.match(source, /gameStatusLabelPresentation/, `${file} must consume the shared label`);
+    assert.match(source, /gameStatusLabelPresentation\(/, `${file} must invoke the shared label`);
   }
 
   const gameUiSource = readFileSync(new URL('../../lib/gameUi.ts', import.meta.url), 'utf8');
