@@ -1,6 +1,7 @@
 # Item 87 — Addendum: Live / Watchlist Scoreboard Treatment
 
-**Status:** Slice 1 shipped via POLISH-016 / PR #535; slices 2–4 remain planned.
+**Status:** Slices 1–2 shipped via POLISH-016 / PR #535 and POLISH-017 / PR #537; the
+pre-agreed reassessment point has been reached, and slices 3–4 remain planned.
 **Reference mockup:** `mockups/live-scoreboard-mockup.html`
 **Related:** `INSIGHTS-026b-RECAP-LAYOUT-v1` (dispatched). Shares the scoreboard micro-component — see Sequencing.
 
@@ -29,11 +30,16 @@ A game occupies exactly one section: **Scheduled → Live on kickoff → Recent 
 
 `gameStateFromScore` (`gameUi.ts:51`) returns a fourth value, `unknown`. **Decided:** a future kickoff routes to the watchlist. A past kickoff with no usable score **stays in Live and reads "Awaiting score"**, moving to Recent finals only when a final score attaches. DESIGN.md `:51-52` prescribes exactly this copy for the bounded post-kickoff gap and forbids both "Upcoming" and an unsupported "Live" claim; routing to Recent finals would assert the game finished, a stronger misstatement than either forbidden string. The Live badge is unaffected elsewhere — those rows carry attached in-progress scores, and the prohibition is on claiming live *without* score evidence. Shown rather than hidden: a visible game with an absent score is more honest than a silently missing one. *Open detail:* "Awaiting score" sits in the status row rather than a per-team anchor, since it describes the game rather than either side — confirm placement.
 
-### Live state — neutral, no amber
+### Live state — green, no amber
 
-Neutral text plus a neutral dot. The authority is the amber reservation itself — DESIGN.md `:135`, `:215`, `:281`, none of which admit a live exception. (POLISH-007 `:45-52` governs the league-header confidence signal and owned-team-row copy, not game-card badges; it is not the basis for this treatment.)
+Slice 1 removed amber and shipped the first consumer with neutral structural status. Slice 2 then
+settled the component family on a green dot and green `Live` text after adding a neutral final
+variant and removing Overview's last reachable green-final treatment. `DESIGN.md` now records the
+governing rule: a hue has one meaning within a component family, while context scopes meaning across
+families. Amber remains reserved for champion/podium signals.
 
-Live-amber drift reaches **seven locations across five components**, not the two originally catalogued:
+The original audit found live-amber drift in **seven locations across five components**, not the two
+first catalogued:
 
 | Location | Use |
 |---|---|
@@ -98,11 +104,12 @@ The original addendum inverted the risk. Corrected:
 
 | Section | Component | Current layout |
 |---|---|---|
-| Upcoming watchlist | `GameSummaryList` (`OverviewPanel.tsx:768`) | `space-y-2.5`, single column |
-| Live | `GameCardList` (`OverviewPanel.tsx:714`) | `space-y-3`, single column, amber borders |
-| Featured games | `FeaturedGamesList` (`OverviewPanel.tsx:864`) | `grid-cols-1 sm:grid-cols-2` |
+| Upcoming watchlist | `GameSummaryList` | Bespoke scheduled/unknown rows; removed by slice 4. |
+| Live | `GameCardList` → `CompactGameScoreboard` | Shared live scoreboard in a responsive two-column grid. |
+| Featured games | `FeaturedGamesList` → `CompactGameScoreboard` | Shared neutral-final scoreboard in the same grid. |
 
-Three components, no shared code today. Precedence sort is `prioritizeOverviewItems` (`selectors/overview.ts:312`), called at `:492` and `:498` off `deriveOverviewHighlightSignals` (`gameTags.ts:310`) — one sort, two call sites. **Must not be forked.**
+Live and Featured now share `CompactGameScoreboard`; only the watchlist remains bespoke. Selection
+and precedence remain selector-owned. **Must not be forked.**
 
 ---
 
@@ -183,7 +190,7 @@ Ordered so colour settles once rather than shipping neutral live and flipping it
 | # | Slice | Notes |
 |---|---|---|
 | ✅ 1 | Scoreboard component + Live section | Merged via POLISH-016 / PR #535 (`5fd59d39`), 2026-08-30. The component shipped with its first live consumer and no speculative state variants. |
-| 2 | Featured conversion + retire `stateBadgeClasses` + green-live flip | Colour settles in one step. **Load-bearing:** if Featured stays on old markup, `:931` survives, green-final survives, and the collision returns. |
+| ✅ 2 | Featured conversion + retire its `stateBadgeClasses` call + green-live flip | Merged via POLISH-017 / PR #537 (`e0a7b8ab`), 2026-08-30. Featured now consumes the neutral-final variant, and green-live is unambiguous on Overview. |
 | 3 | Recent finals + promotion model | Needs `unknown` routing and the recap-eligibility clear. |
 | 4 | Watchlist | Riskiest — anchor depends on Item 92. Falls back to the spread anchor if 92 has not landed. |
 
@@ -201,32 +208,41 @@ Ordered so colour settles once rather than shipping neutral live and flipping it
 |---|---|---|
 | Done | **POLISH-015** | Interim duplication, chronological ordering, and empty-copy correction merged via PR #531; Item 87 supersedes the implementation. |
 | Done | **87 slice 1** | Shared scoreboard contract + Live consumer merged via PR #535. |
-| 1 | **87 slice 2** | Converts Featured, retires `stateBadgeClasses`, and settles green-live. |
-| 2 | **Item 42 wiring pass** (except notable results) | Unblocked — all four fact families shipped. Runs **in parallel** with 87; no dependency. |
+| Done | **87 slice 2** | Featured + neutral-final consumer merged via PR #537; green-live settled on Overview. |
+| Runnable | **Item 42 wiring pass** | All fact families and the consumed final-row scoreboard variant now exist; no Item 87 dependency remains. |
 | 3 | **91** | Standings derivation — unblocks pill removal. |
 | 4 | **90** | Amber sweep, incl. pill removal and the `final` re-cut elsewhere. |
 | 5 | **92** → **87 slice 4** | Records integration, then the watchlist anchor. |
 | 6 | **017-PALETTE** | Reason and category hues. |
 
-**Genuine blockers — only three:** Item 91 → pill removal; Item 87's component → notable-results scoreboards; Item 92 → watchlist anchor. Everything else is preference. Items 87 and 90 are independent.
+**Genuine blockers — only two:** Item 91 → pill removal; Item 92 → watchlist anchor. POLISH-017
+removed the notable-results scoreboard blocker. Everything else is preference. Items 87 and 90 are
+independent.
 
 ---
 
-## DESIGN.md amendments required
+## DESIGN.md amendment tracking through slices 1–2
 
-1. **§Cards and game results** — add the scoreboard micro-component: row anatomy, away→home ordering with weight-not-position emphasis, three state variants.
-2. **§Color** — record that amber live-clock badges and amber live-card borders are drift, and that live state is expressed structurally. Without this, the next reviewer re-flags the neutral treatment.
-3. **§Containerization** — the two-column game grid and per-section progressive disclosure.
-4. **§Responsive column degradation** — declare the game grid's breakpoint mechanism and reconcile 640 / 821.
+1. **Landed — §Cards and game results:** scoreboard anatomy, away→home ordering with
+   weight-not-position emphasis, and the state variants.
+2. **Landed — §Color:** record amber live-clock badges and amber live-card borders as drift, make green the
+   compact-scoreboard live treatment, and record the component-family enforcement clause.
+3. **Partially landed — §Containerization:** the two-column game grid is documented; per-section
+   progressive disclosure remains with the promotion/watchlist slices.
+4. **Landed — §Responsive column degradation:** the game grid's container breakpoint is 760px.
 
-### Proposed amendments — judgment calls, not conformance failures
+### Design-time amendment outcomes
 
-These are cases where the mockup's approach may be better than the documented value. Flagged explicitly as amendment candidates rather than applied silently.
+These began as judgment calls rather than conformance failures. Slices 1–2 settled all but the
+section-title exception:
 
-- **Amendment 5 — §Section headers — game-section title size.** Document 17px/650 as a deliberate game-section exception to `:224` (15px/500). Rationale: at the documented size the boundary sits one step above a team line at 14px and reads weakly against dense two-column content across three stacked sections.
-- **Amendment 6 — §Multi-line row pattern / §List row width discipline (`:77-97`) — exempt the scoreboard.** That pattern is line 1 primary + right-anchored value, line 2 secondary metadata at 12px. The scoreboard is a different shape: a status row plus **two peer lines, each carrying its own anchor**. Document it as a distinct pattern or explicitly exempt it, or a reviewer will flag the team lines for lacking line-2 metadata.
-- **Amendment 7 — §Cards — anchor semantics.** Record the rule that a scoreboard's anchor holds the number relevant to its state (record when scheduled, score when live or final), and that a record always belongs to the line's primary identifier — team-primary lines carry team records, owner-primary lines carry owner records.
-- **Amendment 8 — §Responsive — declare the game-grid breakpoint.** The doc specifies container queries but no value, and 640 / 821 / 760 all exist in code. Rather than inheriting a sibling's value, the amendment should declare the game grid's own, chosen on content width (760).
+- **Still open — Amendment 5 / §Section headers:** decide whether 17px/650 becomes a deliberate
+  game-section exception when the remaining stacked sections ship.
+- **Landed — Amendment 6 / §Multi-line row pattern:** the scoreboard is documented as its own
+  status-row-plus-two-peer-lines pattern.
+- **Landed — Amendment 7 / §Cards:** anchors carry the state-relevant value and belong to the team
+  line's primary identifier.
+- **Landed — Amendment 8 / §Responsive:** the game-grid container breakpoint is 760px.
 
 ---
 
@@ -234,20 +250,27 @@ These are cases where the mockup's approach may be better than the documented va
 
 **Do not read campaign status from this document.** It has been wrong twice; the recap work moved underneath it both times. Verify against the repo at dispatch time.
 
-As of this writing 026a–026e have all merged and the recap campaign is finished apart from its final wiring pass. **The "enrichment stage" this document previously referenced does not exist as pending work.**
+026a–026f have all merged, and the request-time recap campaign is complete. **The "enrichment
+stage" this document previously referenced does not exist as pending work.**
 
 **What survives is the conclusion, for a different reason than originally given.** Notable-results scoreboards were never built — not in any recap slice, and not in 026b v3, whose scope was a data-seam rebuild rather than notable-results UI. `src/components/recap/` holds only `RecapPrimitives`, `RecapTile` and `WeeklyRecapSection`. So Item 87 still defines the scoreboard component, because nothing else has.
 
 **Notable results home — decided.** The alternatives considered were:
 
-- **Item 42's wiring pass absorbs them**, consuming Item 87's component. Correct on surface boundaries — notable results are recap UI, and putting recap UI inside Item 87 would cross surfaces the same way the amber sweep would have. Slice 1 established the shared anatomy but intentionally shipped only the consumed live variant, so this part still waits on whichever Item 87 slice first renders a final row.
+- **Item 42's wiring pass absorbs them**, consuming Item 87's component. Correct on surface
+  boundaries — notable results are recap UI, and putting recap UI inside Item 87 would cross
+  surfaces the same way the amber sweep would have. POLISH-017 supplied the consumed final-row
+  variant and additive context slot, so this portion is now unblocked.
 - **Item 87 takes them as a fourth consumer.** Keeps component and consumers in one campaign, but Item 87 is already large enough to carry a pre-agreed split point, and it would own UI on a surface it otherwise does not touch.
 
-**Decision:** the wiring pass absorbs them, but as its own slice. Everything else in that pass is unblocked and can run in parallel with Item 87; only the notable-results slice waits on the first consumed final-row variant. That keeps surface boundaries clean without blocking the rest of the wiring.
+**Decision:** the wiring pass absorbs them as its own slice. POLISH-017 removed its final-row
+dependency, so every Item 42 portion is now independently runnable. That keeps surface boundaries
+clean without blocking the rest of the wiring.
 
 ## Palette allocation — input to INSIGHTS-017-PALETTE
 
-Two findings from this design that 017 should weigh, neither decided here.
+Two findings from this design fed the palette work. The component-family rule is now decided and
+documented; category hues remain with INSIGHTS-017-PALETTE.
 
 **1. Colour is context-scoped in this app already, and the doc does not say so.** Green appears in at least two shipped meanings, both correct and neither ambiguous in place:
 
@@ -255,39 +278,57 @@ Two findings from this design that 017 should weigh, neither decided here.
 |---|---|---|---|
 | AP Poll | `↑8` beside a rank | moved up | yes — `↓2` |
 | Standings row | `+1–0` beside a record | provisional / in progress | none — `+0–1` is also green |
-| *Proposed:* game scoreboard | `● LIVE` beside a clock | in progress | none |
+| Overview compact scoreboard | `● LIVE` beside a clock | in progress | none |
 
 The standings badge is direction-neutral not because valence is ignored but because *"in progress" has no negative counterpart* — the W–L inside the badge carries the valence, the colour carries the status. Red would be wrong there.
 
 Green ships in at least **six** distinct meanings. The sharpest proof is a single file: `deltaTextColor` (`OverviewPanel.tsx:95-99`) greens a *positive* delta, `gbDeltaColor` (`:298-302`) greens a *negative* one — because gaining ground is good. Same token, opposite numeric signs, disambiguated purely by host element. Also shipped: success confirmations (`FeedbackForm.tsx:49`, `AdminAuthPanel.tsx:63`), win cells (`MatchupMatrixView.tsx:14`), positive point differential (`StandingsPanel.tsx:469`), and the provisional badge.
 
-**Rule for 017 to document:** green reads as *up / active*, its precise meaning fixed by host element and adjacent content, never by the colour alone. Red is its valenced counterpart only where a negative state exists. **Enforcement clause:** *a hue carries exactly one meaning within a component family; context scopes meaning across families, never within one.* That makes the `deltaTextColor` / `gbDeltaColor` pair legal and the live/final pair below illegal — which is the distinction that actually matters, and it is checkable rather than requiring a reviewer to adjudicate whether adjacent text is sufficient.
+**Rule landed in DESIGN.md:** green reads as *up / active*, its precise meaning fixed by host element
+and adjacent content, never by the colour alone. Red is its valenced counterpart only where a
+negative state exists. **Enforcement clause:** *a hue carries exactly one meaning within a component
+family; context scopes meaning across families, never within one.* That makes the `deltaTextColor` /
+`gbDeltaColor` pair legal and a live/final pair inside one scoreboard family illegal.
 
 **Consequence:** green-as-live is not a second claim on a reserved colour — it is the same meaning the standings badge already carries, applied where nothing else can carry it.
 
-**Prerequisite — re-cut the `final` chip to neutral, but not in this campaign.** `GameScoreboard.tsx:68-71` renders `final` emerald and `inprogress` amber. Green-for-live collides with green-for-final inside one component family, which the enforcement clause forbids — and it is the one case context-scoping cannot resolve, since the host element is identical and only adjacent text (a clock versus the word FINAL) differentiates.
+**Residual Item 90 work — re-cut the separate `GameScoreboard` family.** `GameScoreboard.tsx:68-71`
+still renders `final` emerald and `inprogress` amber. Item 90 moves that family's final/live cases
+together; it is not a prerequisite for Overview's distinct compact-scoreboard family.
 
-**Scope correction — the collision is on Item 87's own surface.** `GameScoreboard` does render on Matchups → Schedule (`CFBScheduleApp.tsx:1861-1883`, plus `PostseasonPanel.tsx:78`), but Overview has its own independent green-final: `stateBadgeClasses` (`OverviewPanel.tsx:181`) maps `final → emerald`, called at `:746` (GameCardList/Live), `:843` (GameSummaryList/Watchlist) and `:931` (FeaturedGamesList). The first two are components this campaign replaces.
+**Scope correction — the collision was on Item 87's own surface.** `GameScoreboard` still renders on
+Matchups and Postseason, but that is a different component family. On Overview, POLISH-016 removed
+the Live badge call. POLISH-015 had already made the surviving watchlist call scheduled/unknown-only
+by excluding both final and in-progress games. Featured was therefore the only remaining call that
+could render green-final, and POLISH-017 retired exactly that call.
 
 **Featured is a separate axis from state — resolved.** State moves games between sections; Featured exempts a game from that movement. A featured game enters when selected and stays through scheduled, live and final, so it appears **only** in the Featured tile, never in the state sections — preserving the promotion model's one-game-one-place rule rather than competing with it.
 
 The tile states the reason with substance ("Whited leads Chamness 44–25"), not a bare label: a game earns promotion out of the weekly slate only if the reason is worth reading. **Capped at three** — at five it is another list with a nicer name, and the fourth competing list this campaign exists to remove. Games that do not make the cut still carry their notoriety tags in the watchlist, so nothing is hidden by the cap.
 
-**This retires the third `stateBadgeClasses` call site.** Converting Featured to the scoreboard component covers `:931` alongside `:746` and `:843`, so Overview carries no green-final and the sequencing question below resolves cleanly. The insights work retains ownership of Featured's *selection and labelling*; Item 87 owns only how its rows render.
+**This retires the only remaining `stateBadgeClasses` call site reachable by a final game.** The
+watchlist call remains until slice 4, but its selector can supply only scheduled/unknown rows.
+Overview therefore carries no green-final. The insights work retains ownership of Featured's
+*selection and labelling*; Item 87 owns only how its rows render.
 
 **Featured — what belongs in Item 87 and what does not.**
 
 | Work | Owner | Rationale |
 |---|---|---|
-| Convert Featured's rows to the scoreboard component | **Item 87** | Same component, third call site on the same surface. Leaving it on old card styling while Live and Watchlist convert puts two game-rendering treatments side by side on one page. |
-| Retire `stateBadgeClasses` (`:931` with `:746`, `:843`) | **Item 87** | Falls out of the conversion; unblocks green-live. |
+| Convert Featured's rows to the scoreboard component | **Item 87** | Same component family as Live and the only remaining reachable green-final badge call. Leaving it on old card styling would put two game-rendering treatments side by side on one page. |
+| Retire Featured's `stateBadgeClasses` call | **Item 87** | Falls out of the conversion; removes Overview's last reachable green-final and unblocks green-live. |
 | Reason label + substance line ("Whited leads Chamness 44–25") | **Insights work** | Requires insight-to-game binding that does not exist. Purely additive to the row, not a rework of it. |
 | Selection — which games are featured | **Insights work** | See below. |
 | Count, reset cadence, empty-state | **Insights work** | Follows selection. |
 
-Item 87 therefore ships Featured as a converted list with its **current** selection and no reason line. The mockup shows the **end state**, with out-of-scope elements marked inline in the markup (dashed rule plus a "Not built in Item 87" tag) rather than only in the notes block — an implementer reads the markup, not the annotations. Repeat the boundary in the implementation prompt.
+POLISH-017 shipped Featured as a converted list with its **current** selection and no reason line.
+The mockup shows the **end state**, with out-of-scope elements marked inline in the markup (dashed
+rule plus a "Not built in Item 87" tag) rather than only in the notes block — an implementer reads
+the markup, not the annotations.
 
-**Featured conversion is load-bearing, not optional.** The unblocked colour story *depends* on `:931` dying. If Featured stays on the old markup, `stateBadgeClasses` survives, green-final survives on Overview, and the collision returns — green-live would wait for Item 90 after all. Converting Featured is what buys the independence.
+**Featured conversion was load-bearing, not optional.** The unblocked colour story depended on its
+badge call dying. POLISH-017 completed that conversion; the surviving watchlist call cannot render
+final/live state, so green-live no longer collides on Overview.
 
 The double-touch is acceptable **because it is constrained**: slice 2's conversion must leave a slot the insights work fills, so the second pass is additive rather than a rewrite. This belongs in Item 87's acceptance boundary.
 
@@ -304,9 +345,15 @@ That places selection with the **insights pipeline**, not `prioritizeOverviewIte
 
 **New rule needed — suppress the feed duplicate.** An insight surfaced in Featured should not also appear in the insights feed that week, or the page states the same fact twice. Same one-place principle as the promotion model.
 
-**Green-live ships in Item 87 — no dependency on Item 90.** With `stateBadgeClasses` retired, Overview carries no green-final, so green is unambiguous within this campaign's surface. The residual green-final on Schedule (`GameScoreboard:68-71`) is a *different* surface, which is the cross-family case context-scoping explicitly permits — and a weaker adjacency than the `deltaTextColor` / `gbDeltaColor` pair that already coexists on one page. Sequencing them would also mean changing the same element twice: neutral in 87, green in 90.
+**Green-live shipped in Item 87 — no dependency on Item 90.** With the only Overview badge call
+reachable by a final game retired, Overview carries no green-final, so green is unambiguous within
+this campaign's surface. The residual green-final on Schedule (`GameScoreboard:68-71`) is a
+*different* surface, which is the cross-family case context-scoping explicitly permits — and a
+weaker adjacency than the `deltaTextColor` / `gbDeltaColor` pair that already coexists on one page.
 
-**Item 87 owns its game-list surface.** Within Overview it retires `stateBadgeClasses` (`:746`, `:843`, `:931` — all in components it replaces), removes the `:253` SectionCard `tone='live'` gradient (single consumer at `:1765`) and the `:734` card borders, and ships green-live.
+**Item 87 owns its game-list surface.** Within Overview, slices 1–2 removed the Live and Featured
+badge consumers, the Live section gradient/card-border drift, and shipped green-live. The watchlist
+badge consumer remains scheduled/unknown-only until slice 4 removes that renderer.
 
 **Correction — the `:677` pill is not reached.** It lives in `CondensedStandingsTable` (`:566`), the standings rows, not the game lists. Item 87 does not touch it, and its removal is gated on **Item 91**, not Item 90: pulling it before ties render `+0–0` and staleness degrades would reintroduce the blind spot. One constraint survives, in a different place than previously recorded. Item 90 sweeps the remaining surfaces: `GameScoreboard`, `GameWeekPanel`, `MatchupsWeekPanel`, `OwnerPanel`, `PostseasonPanel`, plus the `final` re-cut. Cross-reference so the two land close together, but neither blocks the other.
 

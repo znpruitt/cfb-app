@@ -62,11 +62,11 @@ Rules:
   rendering neutral final scoreboards in fixed away → home order with winner emphasis. Green now
   means live within the Overview compact-scoreboard family; the surviving watchlist badge call is
   unreachable for final/live rows.
-- Review / verification: implementation plus one remediation ended at production commit `806315e9`.
-  Three tests were added and two were retargeted without weakened assertions; the 64-test focused
-  component run passed, including regression checks demonstrated failing before their fixes.
-  Independent Codex and Claude reviews confirmed no attributable P0/P1/P2 remained.
-- Status: Implemented — not merged.
+- Review / verification: exact PR head `3ec1e766` passed TypeScript, `lint:all`, the 4,464-test full
+  suite, and production build. Three tests were added and two were retargeted without weakened
+  assertions; browser checks confirmed two- and one-column layouts. Independent Codex and Claude
+  reviews confirmed no attributable P0/P1/P2 remained.
+- Status: Merged via PR #537 (merge commit `e0a7b8ab`), 2026-08-30.
 
 ### POLISH-016-SCOREBOARD-COMPONENT-LIVE-v1
 

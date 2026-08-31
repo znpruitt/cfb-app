@@ -4266,8 +4266,9 @@ Key architectural decisions across Phase 5:
   chronology, watchlist/Live exclusion, and bounded recent-result date handling; existing selector
   and empty-copy assertions were retargeted to the approved behavior. Independent Codex and Claude
   confirmation reviews found no credible in-scope P0/P1/P2.
-- **Open follow-ups:** POLISH-016 shipped Item 87's shared scoreboard and Live conversion. The
-  remaining Featured, promotion-model, and Watchlist slices stay in `docs/next-tasks.md`.
+- **Open follow-ups:** POLISH-016 and POLISH-017 shipped Item 87's shared scoreboard plus the Live
+  and Featured conversions. The remaining promotion-model and Watchlist slices stay in
+  `docs/next-tasks.md`.
 
 ### PLATFORM-115 — CFBD Request Timeout — Complete
 
@@ -4297,7 +4298,24 @@ Key architectural decisions across Phase 5:
   production build, and browser checks at the two-column and exact one-column boundary. Eleven tests
   were added relative to the prior `main`; independent Codex review found no actionable regression,
   and the owner waived the final Claude rerun after the focused test/navigation follow-up.
-- **Open follow-ups:** See the remaining Item 87 slices in `docs/next-tasks.md`.
+- **Open follow-ups:** POLISH-017 shipped the Featured/final consumer and green-live treatment. See
+  the remaining Item 87 slices in `docs/next-tasks.md`.
+
+### POLISH-017 — Overview Featured Scoreboard and Green Live — Complete
+
+- **Status:** Merged via PR #537 (merge commit `e0a7b8ab`), 2026-08-30.
+- **PROMPT_ID(s):** `POLISH-017-FEATURED-SCOREBOARD-GREEN-LIVE-v1`.
+- **Outcome:** Featured keeps its existing selection and label while rendering through
+  `CompactGameScoreboard` with fixed away-to-home order, neutral final status, and winner emphasis.
+  The additive context slot preserves the seam for later insights-driven reason/substance work.
+  Green now means live within the Overview compact-scoreboard family; the remaining watchlist badge
+  consumer cannot receive final or in-progress games.
+- **Verification:** Exact PR head `3ec1e766` passed TypeScript, `lint:all`, the 4,464-test full suite,
+  and production build. Three test declarations were added, two existing tests were retargeted
+  without removing coverage, and browser checks confirmed two columns at 1200px and one at 700px.
+  Independent Codex and Claude reviews found no attributable P0/P1/P2 issue.
+- **Open follow-ups:** See the remaining Item 87 slices and the now-unblocked Item 42 notable-results
+  portion in `docs/next-tasks.md`.
 
 ### Template for future entries
 
