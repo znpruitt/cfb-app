@@ -265,12 +265,15 @@ test('a stale response cannot overwrite a newer league request', async () => {
     { initialProps: { leagueSlug: 'alpha' } }
   );
 
+  assert.equal(view.result.current.weeklyRecapResolved, false);
   view.rerender({ leagueSlug: 'beta' });
+  assert.equal(view.result.current.weeklyRecapResolved, false);
   await act(async () => {
     second.resolve(recapResponse(2, 'Beta'));
     await second.promise;
   });
   await waitFor(() => assert.equal(view.result.current.weeklyRecap.status, 'available'));
+  assert.equal(view.result.current.weeklyRecapResolved, true);
   assert.match(
     view.result.current.weeklyRecap.status === 'available'
       ? (view.result.current.weeklyRecap.headline ?? '')
@@ -323,9 +326,10 @@ test('non-Overview surfaces skip the feed request until the Overview is entered'
 
 test('the open page refetches exactly once at 06:00 ET without a usable client schedule', async () => {
   let calls = 0;
+  const boundaryResponse = deferred<Response>();
   globalThis.fetch = (async () => {
     calls += 1;
-    return recapResponse(calls === 1 ? 1 : 2);
+    return calls === 1 ? recapResponse(1) : boundaryResponse.promise;
   }) as typeof fetch;
   const view = renderHook(
     ({ nowTick }) =>
@@ -350,12 +354,21 @@ test('the open page refetches exactly once at 06:00 ET without a usable client s
 
   view.rerender({ nowTick: Date.parse('2026-09-07T10:00:00.000Z') });
   await waitFor(() => {
+    assert.equal(calls, 2);
+    assert.equal(view.result.current.weeklyRecapResolved, false);
+    assert.equal(view.result.current.weeklyRecap.status, 'inactive');
+  });
+  await act(async () => {
+    boundaryResponse.resolve(recapResponse(2));
+    await boundaryResponse.promise;
+  });
+  await waitFor(() => {
+    assert.equal(view.result.current.weeklyRecapResolved, true);
     assert.equal(view.result.current.weeklyRecap.status, 'available');
     if (view.result.current.weeklyRecap.status === 'available') {
       assert.equal(view.result.current.weeklyRecap.week, 2);
     }
   });
-  assert.equal(calls, 2);
 
   view.rerender({ nowTick: Date.parse('2026-09-07T10:01:00.000Z') });
   await act(async () => Promise.resolve());
@@ -395,6 +408,7 @@ test('a failed boundary refresh preserves the healthy standing feed', async () =
   view.rerender({ nowTick: Date.parse('2026-09-07T10:00:00.000Z') });
   await waitFor(() => assert.equal(calls, 2));
   await waitFor(() => assert.equal(view.result.current.weeklyRecap.status, 'unavailable'));
+  assert.equal(view.result.current.weeklyRecapResolved, true);
   assert.equal(calls, 2);
   assert.equal(view.result.current.insights.length, 1);
   assert.equal(view.result.current.lifecycleState, 'mid_season');

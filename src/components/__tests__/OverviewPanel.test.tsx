@@ -142,6 +142,7 @@ const TEST_NOW_MS = Date.parse('2026-09-01T18:00:00.000Z');
 const TEST_GAME_PRESENTATION = {
   phase: 'hidden' as const,
   recapGameKeys: new Set<string>(),
+  pendingRecapWeek: null,
   expiredFinalWeeks: new Set<number>(),
 };
 
@@ -385,6 +386,40 @@ test('overview routes a bounded scoreless kickoff to Live with Awaiting score in
     (scoreboard.match(/data-scoreboard-value="(?:away|home)">—<\/span>/g) ?? []).length,
     2
   );
+});
+
+test('overview backfills Upcoming from the full candidate pool after kickoff routing', () => {
+  const candidates = [
+    ['kicked-off', 'Kicked Off', '2026-09-01T17:00:00.000Z'],
+    ['future-0', 'Future Zero', '2026-09-01T19:00:00.000Z'],
+    ['future-1', 'Future One', '2026-09-01T20:00:00.000Z'],
+    ['future-2', 'Future Two', '2026-09-01T21:00:00.000Z'],
+    ['future-3', 'Future Three', '2026-09-01T22:00:00.000Z'],
+  ].map(([key, away, date]) => {
+    const candidate = item(game({ key, csvAway: away, csvHome: `${away} Home`, date }));
+    candidate.sortDate = Date.parse(date);
+    return candidate;
+  });
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={candidates}
+      sectionItems={candidates}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, />Live · 1</);
+  assert.match(html, />Upcoming watchlist</);
+  for (const team of ['Future Zero', 'Future One', 'Future Two', 'Future Three']) {
+    assert.match(html, new RegExp(team));
+  }
 });
 
 test('overview promotes an attached final to Recent finals and no other state section', () => {

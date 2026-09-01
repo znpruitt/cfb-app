@@ -57,6 +57,7 @@ export type OverviewViewModel = {
   previousStandingsLeaders: OwnerStandingsRow[];
   standingsHasMore: boolean;
   standingsContext: string | null;
+  watchlistCandidates: PrioritizedOverviewItem[];
   featuredMatchups: PrioritizedOverviewItem[];
   shouldShowFeaturedMatchups: boolean;
   recentResults: PrioritizedOverviewItem[];
@@ -546,6 +547,7 @@ export function selectOverviewViewModel(params: {
     previousStandingsLeaders: previousStandings ?? [],
     standingsHasMore: resolvedCurrent.length > standingsLimit,
     standingsContext,
+    watchlistCandidates: prioritizedFeatured,
     featuredMatchups,
     shouldShowFeaturedMatchups: deriveShouldShowFeaturedMatchups({ featuredMatchups }),
     recentResults,

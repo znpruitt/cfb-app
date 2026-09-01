@@ -48,8 +48,12 @@ see the machinery.
   (ordinary maintenance is weekly, with manual repair available). The signal uses neutral text and a
   neutral dot, with motion only while tracking and a persistent accessible polite status region — it
   never exposes provider/cache details or uses success/error color semantics. For a nondisrupted
-  owned-team row in the same bounded post-kickoff gap, say "Awaiting score", never the contradictory
-  "Upcoming" or the unsupported "Live". POLISH-007.
+  owned-team row in the same bounded post-kickoff gap, Overview's temporal section remains `Live`
+  because the known start time has elapsed, and the card says "Awaiting score" in the game-level
+  status row rather than either team anchor. Those rows contribute to the Live count and retain the
+  compact scoreboard's live state; "Awaiting score" is the explicit qualification that provider
+  progress is indeterminate. They never return to the contradictory Upcoming section. POLISH-007,
+  amended by POLISH-019's owner ruling.
 
 Internal issue strings are still produced and available to the app; this boundary governs what
 reaches member JSX. Note what that does NOT currently mean: for the rankings and schedule failures

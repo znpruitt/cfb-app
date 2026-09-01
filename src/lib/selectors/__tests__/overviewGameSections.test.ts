@@ -8,6 +8,7 @@ import type { ScorePack } from '../../scores.ts';
 import { NO_CLAIM_OWNER } from '../../standings.ts';
 import {
   OVERVIEW_LIVE_LIMIT,
+  OVERVIEW_WATCHLIST_LIMIT,
   selectOverviewGamePresentation,
   selectOverviewGameSections,
   type OverviewGamePresentation,
@@ -17,10 +18,11 @@ import {
 const DEFAULT_NOW = new Date('2026-09-06T20:00:00.000Z');
 const HIDDEN_PRESENTATION: Pick<
   OverviewGamePresentation,
-  'phase' | 'recapGameKeys' | 'expiredFinalWeeks'
+  'phase' | 'recapGameKeys' | 'pendingRecapWeek' | 'expiredFinalWeeks'
 > = {
   phase: 'hidden',
   recapGameKeys: new Set<string>(),
+  pendingRecapWeek: null,
   expiredFinalWeeks: new Set<number>(),
 };
 
@@ -121,7 +123,10 @@ function route(
     now?: Date;
     eligibleWatchlistKeys?: ReadonlySet<string>;
     featuredGameKeys?: ReadonlySet<string>;
-    presentation?: Pick<OverviewGamePresentation, 'phase' | 'recapGameKeys' | 'expiredFinalWeeks'>;
+    presentation?: Pick<
+      OverviewGamePresentation,
+      'phase' | 'recapGameKeys' | 'pendingRecapWeek' | 'expiredFinalWeeks'
+    >;
   } = {}
 ): OverviewGameSections {
   return selectOverviewGameSections({
@@ -192,6 +197,31 @@ test('scheduled promotes from watchlist to Live at a confirmed kickoff', () => {
   const after = route([scheduled], { now: new Date('2026-09-06T18:01:00.000Z') });
   assertOnlySection(after, 'scheduled-kickoff', 'live');
   assert.equal(after.live[0]?.routeStatus.label, 'Awaiting score');
+});
+
+test('watchlist routes the full pool before its four-row cap', () => {
+  const now = new Date('2026-09-06T18:00:00.000Z');
+  const kickedOff = item(game({ key: 'kicked-off', date: '2026-09-06T17:00:00.000Z' }));
+  const unowned = item(game({ key: 'unowned', date: '2026-09-06T18:01:00.000Z' }), {
+    awayOwner: NO_CLAIM_OWNER,
+    homeOwner: NO_CLAIM_OWNER,
+  });
+  const future = Array.from({ length: OVERVIEW_WATCHLIST_LIMIT }, (_, index) =>
+    item(
+      game({
+        key: `future-${index}`,
+        date: `2026-09-06T${19 + index}:00:00.000Z`,
+      })
+    )
+  );
+  const sections = route([kickedOff, unowned, ...future], { now });
+
+  assertOnlySection(sections, 'kicked-off', 'live');
+  assert.deepEqual(
+    sections.scheduled.map((entry) => entry.bucket.game.key),
+    future.map((entry) => entry.bucket.game.key)
+  );
+  assert.equal(sections.scheduled.length, OVERVIEW_WATCHLIST_LIMIT);
 });
 
 test('a bounded scoreless Live row promotes to Recent finals when a final score attaches', () => {
@@ -375,6 +405,7 @@ test('recap dedup suppresses only explicit rendered game keys and fails open whe
   const withRecap = selectOverviewGamePresentation({
     scheduleGames: [scheduleGame],
     weeklyRecap: availableRecap(['recapped-final']),
+    weeklyRecapResolved: true,
     activeSeason: true,
     now,
   });
@@ -395,6 +426,7 @@ test('recap dedup suppresses only explicit rendered game keys and fails open whe
   const unavailable = selectOverviewGamePresentation({
     scheduleGames: [scheduleGame],
     weeklyRecap: { status: 'unavailable' },
+    weeklyRecapResolved: true,
     activeSeason: true,
     now,
   });
@@ -403,6 +435,62 @@ test('recap dedup suppresses only explicit rendered game keys and fails open whe
     now,
   });
   assertOnlySection(retained, 'recapped-final', 'recentFinals');
+});
+
+test('an unresolved recap withholds only its target-week finals until ownership resolves', () => {
+  const targetFinal = game({
+    key: 'pending-target-final',
+    date: '2026-09-06T01:00:00.000Z',
+    status: 'final',
+    completed: true,
+  });
+  const otherWeekFinal = game({
+    key: 'other-week-final',
+    week: 2,
+    date: '2026-09-07T01:00:00.000Z',
+    status: 'final',
+    completed: true,
+  });
+  const now = new Date('2026-09-08T16:00:00.000Z');
+  const pending = selectOverviewGamePresentation({
+    scheduleGames: [targetFinal],
+    weeklyRecap: { status: 'inactive' },
+    weeklyRecapResolved: false,
+    activeSeason: true,
+    now,
+  });
+  const whileLoading = route(
+    [
+      item(targetFinal, { score: score('final', 24, 17) }),
+      item(otherWeekFinal, { score: score('final', 31, 28) }),
+    ],
+    { presentation: pending, now }
+  );
+
+  assert.equal(pending.phase, 'recap');
+  assert.equal(pending.pendingRecapWeek, 1);
+  assert.equal(
+    whileLoading.recentFinals.some((entry) => entry.bucket.game.key === 'pending-target-final'),
+    false
+  );
+  assertOnlySection(whileLoading, 'other-week-final', 'recentFinals');
+
+  const unavailable = selectOverviewGamePresentation({
+    scheduleGames: [targetFinal],
+    weeklyRecap: { status: 'unavailable' },
+    weeklyRecapResolved: true,
+    activeSeason: true,
+    now,
+  });
+  assert.equal(unavailable.pendingRecapWeek, null);
+  assertOnlySection(
+    route([item(targetFinal, { score: score('final', 24, 17) })], {
+      presentation: unavailable,
+      now,
+    }),
+    'pending-target-final',
+    'recentFinals'
+  );
 });
 
 test('a mismatched recap owns no final while an available server recap survives missing schedule', () => {
@@ -420,6 +508,7 @@ test('a mismatched recap owns no final while an available server recap survives 
       weekLabel: 'Week 2',
       latestGameDate: '2026-09-06',
     }),
+    weeklyRecapResolved: true,
     activeSeason: true,
     now,
   });
@@ -429,6 +518,7 @@ test('a mismatched recap owns no final while an available server recap survives 
   const scheduleUnavailable = selectOverviewGamePresentation({
     scheduleGames: [],
     weeklyRecap: availableRecap(['schedule-final']),
+    weeklyRecapResolved: true,
     activeSeason: true,
     now,
   });
@@ -449,12 +539,14 @@ test('Recent finals clears exactly at Thursday 06:00 ET and one minute before re
   const beforePresentation = selectOverviewGamePresentation({
     scheduleGames: [finalGame],
     weeklyRecap: { status: 'unavailable' },
+    weeklyRecapResolved: true,
     activeSeason: true,
     now: before,
   });
   const boundaryPresentation = selectOverviewGamePresentation({
     scheduleGames: [finalGame],
     weeklyRecap: { status: 'unavailable' },
+    weeklyRecapResolved: true,
     activeSeason: true,
     now: atBoundary,
   });
@@ -491,6 +583,7 @@ test('a new week final promotes immediately after the prior week Thursday expiry
   const presentation = selectOverviewGamePresentation({
     scheduleGames: [priorFinal, newFinal],
     weeklyRecap: { status: 'unavailable' },
+    weeklyRecapResolved: true,
     activeSeason: true,
     now,
   });
@@ -516,6 +609,7 @@ test('inactive and archived season presentation clears Recent finals', () => {
   const presentation = selectOverviewGamePresentation({
     scheduleGames: [finalGame],
     weeklyRecap: availableRecap([]),
+    weeklyRecapResolved: true,
     activeSeason: false,
     now: DEFAULT_NOW,
   });

@@ -357,7 +357,7 @@ export function selectWeeklyRecapTileState(
   return 'upcoming';
 }
 
-/** Select the latest week past its next-day 06:00 ET cutoff, independent of game status. */
+/** Enumerate schedule-derived week/date targets without applying recap eligibility. */
 export function selectWeeklyRecapWeekTargets(games: AppGame[]): WeeklyRecapTargetWeek[] {
   const latestDateByWeek = new Map<number, string>();
   for (const game of games) {

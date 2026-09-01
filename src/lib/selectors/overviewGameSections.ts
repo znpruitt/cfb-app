@@ -18,6 +18,7 @@ import {
 
 export const OVERVIEW_LIVE_LIMIT = 6;
 export const OVERVIEW_RECENT_FINALS_LIMIT = 6;
+export const OVERVIEW_WATCHLIST_LIMIT = 4;
 
 export type OverviewGameRouteStatus =
   | { kind: 'scheduled'; label: 'Scheduled' }
@@ -45,6 +46,7 @@ export type OverviewGamePresentation = {
   phase: OverviewPresentationPhase;
   recap: AvailableWeeklyRecapViewModel | null;
   recapGameKeys: ReadonlySet<string>;
+  pendingRecapWeek: number | null;
   expiredFinalWeeks: ReadonlySet<number>;
 };
 
@@ -67,15 +69,17 @@ function targetsMatch(left: WeeklyRecapTargetWeek, right: WeeklyRecapTargetWeek)
 export function selectOverviewGamePresentation(params: {
   scheduleGames: AppGame[];
   weeklyRecap: WeeklyRecapViewModel;
+  weeklyRecapResolved: boolean;
   activeSeason: boolean;
   now: Date;
 }): OverviewGamePresentation {
-  const { scheduleGames, weeklyRecap, activeSeason, now } = params;
+  const { scheduleGames, weeklyRecap, weeklyRecapResolved, activeSeason, now } = params;
   if (!activeSeason) {
     return {
       phase: 'inactive',
       recap: null,
       recapGameKeys: new Set<string>(),
+      pendingRecapWeek: null,
       expiredFinalWeeks: new Set<number>(),
     };
   }
@@ -91,13 +95,15 @@ export function selectOverviewGamePresentation(params: {
   const recapGameKeys = new Set(
     recap?.tileHighlights.flatMap((line) => (line.kind === 'game' ? [line.gameKey] : [])) ?? []
   );
+  const pendingRecapWeek =
+    phase === 'recap' && !weeklyRecapResolved ? (scheduleTarget?.week ?? null) : null;
   const expiredFinalWeeks = new Set(
     selectWeeklyRecapWeekTargets(scheduleGames)
       .filter((target) => selectWeeklyRecapTileState(target, now) === 'upcoming')
       .map((target) => target.week)
   );
 
-  return { phase, recap, recapGameKeys, expiredFinalWeeks };
+  return { phase, recap, recapGameKeys, pendingRecapWeek, expiredFinalWeeks };
 }
 
 function isRealOverviewOwner(owner: string | null | undefined, isLeagueTeam: boolean): boolean {
@@ -207,7 +213,10 @@ export function selectOverviewGameSections(params: {
   items: OverviewGameItem[];
   eligibleWatchlistKeys: ReadonlySet<string>;
   featuredGameKeys: ReadonlySet<string>;
-  presentation: Pick<OverviewGamePresentation, 'phase' | 'recapGameKeys' | 'expiredFinalWeeks'>;
+  presentation: Pick<
+    OverviewGamePresentation,
+    'phase' | 'recapGameKeys' | 'pendingRecapWeek' | 'expiredFinalWeeks'
+  >;
   now: Date;
 }): OverviewGameSections {
   const { items, eligibleWatchlistKeys, featuredGameKeys, presentation, now } = params;
@@ -222,6 +231,7 @@ export function selectOverviewGameSections(params: {
     if (
       route.section === 'recentFinals' &&
       (presentation.phase === 'inactive' ||
+        presentation.pendingRecapWeek === item.bucket.game.canonicalWeek ||
         presentation.expiredFinalWeeks.has(item.bucket.game.canonicalWeek) ||
         presentation.recapGameKeys.has(gameKey))
     ) {
@@ -233,6 +243,7 @@ export function selectOverviewGameSections(params: {
   sections.scheduled.sort(compareOverviewWatchlistItems);
   sections.live.sort(compareOverviewLiveItems);
   sections.recentFinals.sort(compareOverviewRecentFinals);
+  sections.scheduled = sections.scheduled.slice(0, OVERVIEW_WATCHLIST_LIMIT);
   sections.live = sections.live.slice(0, OVERVIEW_LIVE_LIMIT);
   sections.recentFinals = sections.recentFinals.slice(0, OVERVIEW_RECENT_FINALS_LIMIT);
   return sections;

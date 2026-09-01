@@ -1321,7 +1321,10 @@ type OverviewPanelProps = {
   keyMatchups: OverviewGameItem[];
   sectionItems?: OverviewGameItem[];
   nowMs: number;
-  gamePresentation: Pick<OverviewGamePresentation, 'phase' | 'recapGameKeys' | 'expiredFinalWeeks'>;
+  gamePresentation: Pick<
+    OverviewGamePresentation,
+    'phase' | 'recapGameKeys' | 'pendingRecapWeek' | 'expiredFinalWeeks'
+  >;
   context: OverviewContext;
   displayTimeZone?: string;
   onOwnerSelect?: (owner: string) => void;
@@ -1516,8 +1519,8 @@ export default function OverviewPanel({
     [keyMatchups, liveItems, sectionItems]
   );
   const eligibleWatchlistKeys = React.useMemo(
-    () => new Set(viewModel.featuredMatchups.map(({ item }) => item.bucket.game.key)),
-    [viewModel.featuredMatchups]
+    () => new Set(viewModel.watchlistCandidates.map(({ item }) => item.bucket.game.key)),
+    [viewModel.watchlistCandidates]
   );
   const featuredGameKeys = React.useMemo(
     () => new Set(viewModel.recentResults.map(({ item }) => item.bucket.game.key)),
@@ -1537,12 +1540,12 @@ export default function OverviewPanel({
   const watchlistByKey = React.useMemo(
     () =>
       new Map(
-        viewModel.featuredMatchups.map((prioritized) => [
+        viewModel.watchlistCandidates.map((prioritized) => [
           prioritized.item.bucket.game.key,
           prioritized,
         ])
       ),
-    [viewModel.featuredMatchups]
+    [viewModel.watchlistCandidates]
   );
   const scheduledItems = React.useMemo(
     () =>

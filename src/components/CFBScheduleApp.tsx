@@ -1069,6 +1069,7 @@ export default function CFBScheduleApp({
     insights: engineInsights,
     lifecycleState: insightsLifecycleState,
     weeklyRecap: weeklyRecapResponse,
+    weeklyRecapResolved,
     refreshInsights,
   } = useInsightsFeed({
     leagueSlug,
@@ -1128,13 +1129,14 @@ export default function CFBScheduleApp({
       selectOverviewGamePresentation({
         scheduleGames: games,
         weeklyRecap: weeklyRecapResponse,
+        weeklyRecapResolved,
         activeSeason: isWeeklyRecapActiveSeason({
           leagueStatus,
           seasonYear: selectedSeason,
         }),
         now: new Date(liveStaleClock),
       }),
-    [games, leagueStatus, liveStaleClock, selectedSeason, weeklyRecapResponse]
+    [games, leagueStatus, liveStaleClock, selectedSeason, weeklyRecapResolved, weeklyRecapResponse]
   );
   const weeklyRecap = overviewGamePresentation.recap;
 

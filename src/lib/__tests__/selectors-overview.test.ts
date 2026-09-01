@@ -187,15 +187,19 @@ test('selectOverviewViewModel orders the watchlist by kickoff, ownership tie, th
       ['later-away-id', { rank: 4, rankSource: 'ap' as const }],
       ['later-home-id', { rank: 9, rankSource: 'ap' as const }],
     ]),
-    featuredLimit: 5,
+    featuredLimit: 4,
   });
 
   assert.deepEqual(
-    model.featuredMatchups.map((entry) => entry.item.bucket.game.key),
+    model.watchlistCandidates.map((entry) => entry.item.bucket.game.key),
     ['earlier-single', 'tied-owned', 'tied-single-a', 'tied-single-z', 'later-top']
   );
+  assert.deepEqual(
+    model.featuredMatchups.map((entry) => entry.item.bucket.game.key),
+    ['earlier-single', 'tied-owned', 'tied-single-a', 'tied-single-z']
+  );
   assert.equal(
-    model.featuredMatchups.find((entry) => entry.item.bucket.game.key === 'later-top')
+    model.watchlistCandidates.find((entry) => entry.item.bucket.game.key === 'later-top')
       ?.highlightLabel,
     'Top matchup'
   );
