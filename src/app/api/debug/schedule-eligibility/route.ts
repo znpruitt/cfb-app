@@ -13,7 +13,6 @@ import {
 } from '@/lib/conferenceSubdivision';
 import { createTeamIdentityResolver, type TeamCatalogItem } from '@/lib/teamIdentity';
 import { requireAdminAuth } from '@/lib/server/adminAuth';
-import { forwardAdminAuthHeaders } from '@/app/api/debug/_lib/loadDebugSeasonContext';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,12 +47,10 @@ export async function GET(req: Request) {
       ? `&seasonType=${seasonTypeParam}`
       : '';
   const weekQuery = week != null ? `&week=${week}` : '';
-  const adminHeaders = forwardAdminAuthHeaders(req);
 
   const [scheduleRes, teamsRes, aliasesRes, conferencesRes] = await Promise.all([
-    fetch(`${origin}/api/schedule?year=${year}${weekQuery}${seasonTypeQuery}&raw=1`, {
+    fetch(`${origin}/api/schedule?year=${year}${weekQuery}${seasonTypeQuery}`, {
       cache: 'no-store',
-      headers: adminHeaders,
     }),
     fetch(`${origin}/api/teams`, { cache: 'no-store' }),
     // Effective alias precedence (stored global > year > SEED) — the same map

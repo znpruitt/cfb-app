@@ -15,7 +15,6 @@ import {
 } from '@/lib/scheduleSeasonFetch';
 import { refreshFullSeasonSchedule } from '@/lib/schedule/fullSeasonScheduleRefresh';
 import type { FullSeasonScheduleRefreshResult } from '@/lib/schedule/fullSeasonScheduleRefreshResult';
-import { annotateCanonicalScheduleWeeks } from '@/lib/regularSeasonWeekCalendar';
 import {
   enrichScheduleItemsWithPresentation,
   type PresentationEnrichedScheduleItem,
@@ -82,57 +81,8 @@ interface ScheduleResponse {
    * display fields filled by exact `venueId` — never persisted back to the
    * durable `schedule/*` records.
    */
-  items: Array<
-    PresentationEnrichedScheduleItem & {
-      providerWeek?: number;
-      canonicalWeek?: number;
-      weekCorrectionReason?: 'derived_week_0_from_opening_cluster' | null;
-    }
-  >;
+  items: PresentationEnrichedScheduleItem[];
   meta: ScheduleMeta;
-}
-
-/**
- * The client tracks any game involving an FBS team and performs the richer
- * resolver-backed eligibility check after parsing. Provider classifications
- * let the route remove only rows that cannot pass that client check: both
- * participants are known and neither is FBS. Missing classifications remain
- * in the response so legacy/provider gaps still reach the canonical resolver.
- *
- * This is a response-only projection. Canonical durable and process-cache
- * entries retain the complete provider schedule.
- */
-function filterScheduleItemsForResponse(items: ScheduleItem[]): ScheduleItem[] {
-  return items.filter(
-    (item) =>
-      !item.homeClassification ||
-      !item.awayClassification ||
-      item.homeClassification === 'fbs' ||
-      item.awayClassification === 'fbs'
-  );
-}
-
-async function responseScheduleItems(params: {
-  year: number;
-  items: ScheduleItem[];
-  includeKnownNonFbs: boolean;
-  hasCompleteYearContext: boolean;
-}): Promise<ScheduleResponse['items']> {
-  // Week identity is derived only when this response contains the COMPLETE
-  // season. Otherwise a postseason-only or week-scoped result would publish a
-  // partial-context canonical week which `buildScheduleFromApi` would preserve
-  // as authoritative. Partial responses retain their legacy unannotated shape.
-  const sourceItems = params.hasCompleteYearContext
-    ? annotateCanonicalScheduleWeeks(params.items)
-    : params.items;
-  const responseItems = params.includeKnownNonFbs
-    ? sourceItems
-    : filterScheduleItemsForResponse(sourceItems);
-  const enriched = await enrichScheduleItemsWithPresentation({
-    year: params.year,
-    items: responseItems,
-  });
-  return enriched as ScheduleResponse['items'];
 }
 
 function isFreshScheduleCacheEntry(
@@ -613,8 +563,7 @@ async function refreshScheduleWeekPartition(params: {
  */
 async function fullSeasonRefreshResponse(
   result: FullSeasonScheduleRefreshResult,
-  now: number,
-  includeKnownNonFbs: boolean
+  now: number
 ): Promise<NextResponse> {
   if (result.status === 'in-progress') {
     return NextResponse.json(
@@ -635,11 +584,9 @@ async function fullSeasonRefreshResponse(
     );
   }
   return NextResponse.json<ScheduleResponse>({
-    items: await responseScheduleItems({
+    items: await enrichScheduleItemsWithPresentation({
       year: result.requestedYear,
       items: result.items,
-      includeKnownNonFbs,
-      hasCompleteYearContext: true,
     }),
     meta: {
       source: 'cfbd',
@@ -658,7 +605,6 @@ export async function GET(req: Request) {
   const weekParam = url.searchParams.get('week');
   const seasonTypeParam = url.searchParams.get('seasonType');
   const bypassCache = parseBooleanQueryParam(url.searchParams.get('bypassCache'));
-  const includeKnownNonFbs = parseBooleanQueryParam(url.searchParams.get('raw'));
   const requestId = req.headers.get('x-request-id');
 
   const currentYear = new Date().getUTCFullYear();
@@ -697,12 +643,10 @@ export async function GET(req: Request) {
         : 'all';
 
   const cacheKey = `${year}-${week ?? 'all'}-${requestedSeasonType}`;
-  const hasCompleteYearContext = week === null && requestedSeasonType === 'all';
   const now = Date.now();
   const adminAuthFailure = await requireAdminRequest(req);
   const isAdmin = !adminAuthFailure;
   if (bypassCache && adminAuthFailure) return adminAuthFailure;
-  if (includeKnownNonFbs && adminAuthFailure) return adminAuthFailure;
 
   // `week + all` (a specific week with no season type) spans two week partitions
   // and has no single authoritative aggregate cache entry. It is served by COMPOSING
@@ -720,12 +664,7 @@ export async function GET(req: Request) {
         if (isFreshScheduleCacheEntry(entry, now)) {
           recordRouteCacheHit('schedule');
           return NextResponse.json<ScheduleResponse>({
-            items: await responseScheduleItems({
-              year,
-              items: entry.items,
-              includeKnownNonFbs,
-              hasCompleteYearContext,
-            }),
+            items: await enrichScheduleItemsWithPresentation({ year, items: entry.items }),
             meta: {
               source: 'cfbd',
               cache: 'hit',
@@ -744,12 +683,7 @@ export async function GET(req: Request) {
         if (!isAdmin) {
           recordRouteCacheHit('schedule');
           return NextResponse.json<ScheduleResponse>({
-            items: await responseScheduleItems({
-              year,
-              items: entry.items,
-              includeKnownNonFbs,
-              hasCompleteYearContext,
-            }),
+            items: await enrichScheduleItemsWithPresentation({ year, items: entry.items }),
             meta: {
               source: 'cfbd',
               cache: 'hit',
@@ -782,12 +716,7 @@ export async function GET(req: Request) {
     if (!bypassCache && isFreshScheduleCacheEntry(hit, now)) {
       recordRouteCacheHit('schedule');
       return NextResponse.json<ScheduleResponse>({
-        items: await responseScheduleItems({
-          year,
-          items: hit.items,
-          includeKnownNonFbs,
-          hasCompleteYearContext,
-        }),
+        items: await enrichScheduleItemsWithPresentation({ year, items: hit.items }),
         meta: {
           source: 'cfbd',
           cache: 'hit',
@@ -807,12 +736,7 @@ export async function GET(req: Request) {
         pruneCache(SCHEDULE_ROUTE_CACHE, 'schedule');
         recordRouteCacheHit('schedule');
         return NextResponse.json<ScheduleResponse>({
-          items: await responseScheduleItems({
-            year,
-            items: storedValue.items,
-            includeKnownNonFbs,
-            hasCompleteYearContext,
-          }),
+          items: await enrichScheduleItemsWithPresentation({ year, items: storedValue.items }),
           meta: {
             source: 'cfbd',
             cache: 'hit',
@@ -832,12 +756,7 @@ export async function GET(req: Request) {
           pruneCache(SCHEDULE_ROUTE_CACHE, 'schedule');
           recordRouteCacheHit('schedule');
           return NextResponse.json<ScheduleResponse>({
-            items: await responseScheduleItems({
-              year,
-              items: storedValue.items,
-              includeKnownNonFbs,
-              hasCompleteYearContext,
-            }),
+            items: await enrichScheduleItemsWithPresentation({ year, items: storedValue.items }),
             meta: {
               source: 'cfbd',
               cache: 'hit',
@@ -937,12 +856,7 @@ export async function GET(req: Request) {
       .sort((a, b) => a.week - b.week || (a.startDate ?? '').localeCompare(b.startDate ?? ''));
 
     return NextResponse.json<ScheduleResponse>({
-      items: await responseScheduleItems({
-        year,
-        items,
-        includeKnownNonFbs,
-        hasCompleteYearContext,
-      }),
+      items: await enrichScheduleItemsWithPresentation({ year, items }),
       meta: {
         source: 'cfbd',
         cache: 'miss',
@@ -995,7 +909,7 @@ export async function GET(req: Request) {
       }
     }
 
-    return fullSeasonRefreshResponse(result, now, includeKnownNonFbs);
+    return fullSeasonRefreshResponse(result, now);
   }
 
   // Provider-refresh observability (PLATFORM-086A): reaching here means an admin
@@ -1322,12 +1236,7 @@ export async function GET(req: Request) {
   }
 
   return NextResponse.json<ScheduleResponse>({
-    items: await responseScheduleItems({
-      year,
-      items,
-      includeKnownNonFbs,
-      hasCompleteYearContext,
-    }),
+    items: await enrichScheduleItemsWithPresentation({ year, items }),
     meta: {
       source: 'cfbd',
       cache: 'miss',

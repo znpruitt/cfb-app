@@ -15,7 +15,7 @@ type CanonicalStandingsInvalidator = (
 ) => Promise<boolean>;
 type DurableLockAttemptObserver = (year: number) => void;
 
-const yearMaintenanceTails = new Map<number, Promise<void>>();
+let standingsMaintenanceTail: Promise<void> = Promise.resolve();
 let observeDurableLockAttempt: DurableLockAttemptObserver | null = null;
 
 let warmCanonicalStandings: CanonicalStandingsWarmer = (slug, year) =>
@@ -68,11 +68,8 @@ function pendingRevalidates(): Record<string, Promise<unknown>> {
   return workAsyncStorage.getStore()?.pendingRevalidates ?? {};
 }
 
-async function withInProcessYearMaintenanceLock<T>(
-  year: number,
-  operation: () => Promise<T>
-): Promise<T> {
-  const previous = yearMaintenanceTails.get(year) ?? Promise.resolve();
+async function withInProcessStandingsMaintenanceLock<T>(operation: () => Promise<T>): Promise<T> {
+  const previous = standingsMaintenanceTail;
   let release!: () => void;
   const held = new Promise<void>((resolve) => {
     release = resolve;
@@ -81,7 +78,7 @@ async function withInProcessYearMaintenanceLock<T>(
     () => held,
     () => held
   );
-  yearMaintenanceTails.set(year, tail);
+  standingsMaintenanceTail = tail;
 
   await previous.then(
     () => undefined,
@@ -91,7 +88,7 @@ async function withInProcessYearMaintenanceLock<T>(
     return await operation();
   } finally {
     release();
-    if (yearMaintenanceTails.get(year) === tail) yearMaintenanceTails.delete(year);
+    if (standingsMaintenanceTail === tail) standingsMaintenanceTail = Promise.resolve();
   }
 }
 
@@ -108,11 +105,14 @@ async function invalidateWithoutDurableLock(
 
 async function maintainStandingsForYear(year: number, warm: boolean): Promise<void> {
   try {
-    // Same-process callers queue BEFORE acquiring a PostgreSQL client. Without
-    // this outer lock, two advisory-lock waiters plus the lock owner can consume
-    // the three-client pool while the owner needs another client for canonical
-    // standings reads, leaving every participant unable to make progress.
-    await withInProcessYearMaintenanceLock(year, async () => {
+    // Every same-process caller queues BEFORE acquiring a PostgreSQL client,
+    // including callers for different years. The pool has three clients, and a
+    // maintenance operation holds one advisory-lock client while canonical
+    // standings reads borrow ordinary clients. Allowing three different-year
+    // operations to enter together would consume the pool and leave all three
+    // waiting indefinitely for a nested read. Cross-instance ordering remains
+    // per-year through the advisory key below; pools are process-local.
+    await withInProcessStandingsMaintenanceLock(async () => {
       const leagues = await getLeagues();
       if (leagues.length === 0) return;
 

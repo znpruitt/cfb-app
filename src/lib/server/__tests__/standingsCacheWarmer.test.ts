@@ -139,21 +139,22 @@ test('the real canonical cache is expired before warming and the next request hi
   );
 });
 
-test('same-year maintenance is serialized until the older cache write settles', async () => {
-  const year = 2026;
+test('different-year maintenance is serialized before either operation borrows a pool client', async () => {
+  const olderYear = 2026;
+  const newerYear = 2025;
   await setAppState('leagues', 'registry', [
     {
       slug: 'serialized',
       displayName: 'Serialized',
-      year,
-      status: { state: 'season', year },
+      year: olderYear,
+      status: { state: 'season', year: olderYear },
       createdAt: '2026-01-01T00:00:00.000Z',
     },
   ]);
   let invalidations = 0;
-  let durableLockAttempts = 0;
-  __setStandingsDurableLockAttemptObserverForTests(() => {
-    durableLockAttempts += 1;
+  const durableLockAttempts: number[] = [];
+  __setStandingsDurableLockAttemptObserverForTests((year) => {
+    durableLockAttempts.push(year);
   });
   __setCanonicalStandingsInvalidatorForTests(async () => {
     invalidations += 1;
@@ -170,34 +171,42 @@ test('same-year maintenance is serialized until the older cache write settles', 
   });
   const order: string[] = [];
   let attempts = 0;
-  __setCanonicalStandingsWarmerForTests(async () => {
+  __setCanonicalStandingsWarmerForTests(async (_slug, year) => {
     attempts += 1;
-    const attempt = attempts;
-    order.push(`start-${attempt}`);
-    if (attempt === 1) {
+    order.push(`start-${year}`);
+    if (year === olderYear) {
       firstStarted();
       await firstBlocked;
     }
-    order.push(`end-${attempt}`);
+    order.push(`end-${year}`);
   });
 
-  const older = invalidateAndWarmStandingsForYear(year);
+  const older = invalidateAndWarmStandingsForYear(olderYear);
   await sawFirst;
-  const newer = invalidateAndWarmStandingsForYear(year);
+  const newer = invalidateAndWarmStandingsForYear(newerYear);
   await new Promise<void>((resolve) => setTimeout(resolve, 50));
-  assert.equal(
+  assert.deepEqual(
     durableLockAttempts,
-    1,
-    'same-process waiters do not consume another database-pool client'
+    [olderYear],
+    'a different-year waiter does not consume another database-pool client'
   );
-  assert.equal(invalidations, 1, 'the later invalidation also waits behind the year lock');
+  assert.equal(invalidations, 1, 'the later invalidation also waits behind process maintenance');
   assert.equal(attempts, 1, 'the later writer cannot enter while the older warm is pending');
   releaseFirst();
   await Promise.all([older, newer]);
 
-  assert.deepEqual(order, ['start-1', 'end-1', 'start-2', 'end-2']);
+  assert.deepEqual(order, [
+    `start-${olderYear}`,
+    `end-${olderYear}`,
+    `start-${newerYear}`,
+    `end-${newerYear}`,
+  ]);
   assert.equal(invalidations, 2, 'the observer detects the later invalidation after release');
-  assert.equal(durableLockAttempts, 2);
+  assert.deepEqual(
+    durableLockAttempts,
+    [olderYear, newerYear],
+    'the positive control observes the waiter borrowing a client after release'
+  );
 });
 
 test('a durable warm-lock failure still attempts post-commit invalidation', async () => {
