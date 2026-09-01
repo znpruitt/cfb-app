@@ -509,6 +509,12 @@ Speed Insights by construction. It was measured directly instead — see cost 3.
 
 #### 98a — cold standings recomputation, ~1.1-1.4s per render
 
+> **IMPLEMENTED 2026-08-31 by `PLATFORM-119-LEAGUE-PAGE-PAINT-v2`; PR #547 is
+> open, not merged.** Score-write handlers now invalidate and synchronously repopulate the same
+> league/year standings keys after the durable score commit. The maintenance path is non-fatal and
+> enters one process-wide queue before taking its year-scoped durable lock, so the three-connection
+> app-state pool cannot be exhausted by concurrent warmers.
+
 `src/app/api/scores/route.ts:543` calls `invalidateStandingsForYear(year)` on every score write. The
 live-scores cron writes roughly every 3 minutes during a slate, so the `unstable_cache`d
 `getCanonicalStandings` is **cold on most in-season page loads** and each visitor pays the full
@@ -538,7 +544,10 @@ PLATFORM-086B2B, applied to derived data.
 > **SUPERSEDED 2026-08-31 by Item 99.** This shaped the API response and deliberately left the
 > durable cache unfiltered, on the stated reason that other consumers might need the full set. That
 > reason was wrong — a survey of every reader found none. Filtering at the WRITE path benefits every
-> consumer instead of one. Do not implement 98b; see Item 99.
+> consumer instead of one. The response-path implementation attempted in PLATFORM-119 was
+> **withdrawn on a correctness finding, not deferred**: removing non-FBS rows changed the full input
+> used by `regularSeasonWeekCalendar` and could change canonical week assignment. Do not implement
+> 98b; see Items 99 and 100.
 
 `/api/schedule?year=2026&seasonType=all` returns **2,764,786 bytes** (245 KB gzipped). Of its 3,676
 rows:
