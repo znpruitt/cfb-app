@@ -70,6 +70,25 @@ A game occupies exactly one section: **Scheduled → Live on kickoff → Recent 
 
 `gameStateFromScore` (`gameUi.ts:51`) returns a fourth value, `unknown`. **Decided:** a future kickoff routes to the watchlist. A past kickoff with no usable score **stays in Live and reads "Awaiting score"**, moving to Recent finals only when a final score attaches. DESIGN.md `:51-52` prescribes exactly this copy for the bounded post-kickoff gap and forbids both "Upcoming" and an unsupported "Live" claim; routing to Recent finals would assert the game finished, a stronger misstatement than either forbidden string. The Live badge is unaffected elsewhere — those rows carry attached in-progress scores, and the prohibition is on claiming live *without* score evidence. Shown rather than hidden: a visible game with an absent score is more honest than a silently missing one. *Open detail:* "Awaiting score" sits in the status row rather than a per-team anchor, since it describes the game rather than either side — confirm placement.
 
+**No per-game recap deduplication — settled 2026-09-01.** Recent finals is **complete**: every recent
+result. The recap is **curated**: the subset worth narrating. A game in both is listed once and
+narrated once — two roles, not duplicated data. The one-place rule governs the three sections of this
+surface, not the boundary between a listing and a summary.
+
+The only recap interaction is the section-level, time-based handoff above. **Do not suppress
+individual finals against recap content, and do not reintroduce a subtler version.**
+
+Attempts to do so produced roughly eight findings across four review rounds of POLISH-019, each fix
+creating the opposite edge (paint-then-remove → withhold → collapse-on-refresh). The structural
+reason: **a selector can only infer what the user sees.** `tileHighlights` sits behind "View full
+recap" and is not rendered at all when `ownerLines` is empty, so suppression removed results from
+BOTH surfaces. Suppressing a complete list against a selective one necessarily leaves holes, because
+the selective one never intended to cover everything.
+
+*If duplication ever proves visually annoying:* surface recap highlights in the collapsed tile so
+visibility becomes a fact rather than an inference, then dedup against what is actually rendered.
+That is a Featured/recap design change with its own review — not slice work.
+
 ### Live state — green, no amber
 
 Slice 1 removed amber and shipped the first consumer with neutral structural status. Slice 2 then
