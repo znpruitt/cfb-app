@@ -348,8 +348,8 @@ rate is 100%, and the database is ~40 MB. Raising the cap would only be warrante
   a public or multi-league deployment (see the conditional-gate section), not a bigger private
   league. The signal is **CPU sustained above ~70%**, or pooler wait time rising off zero.
 - **A new heavy write or analytical path**: full-season recomputation on demand, cross-season
-  aggregates, or anything scanning every archive per request. Item 98a's standings recomputation is
-  the closest existing candidate at ~1.1s, and it is being moved to write time rather than optimised.
+  aggregates, or anything scanning every archive per request. PLATFORM-119 moved the closest
+  existing candidate — standings recomputation at ~1.1s — to write time rather than optimising it.
 
 **None of these is member count.** Adding owners or leagues adds rows to a 40 MB database and page
 views to an idle CPU. The trigger is concurrency or data volume, and both are far away.
@@ -507,37 +507,10 @@ sample and is the better signal.
 navigations between Overview and History emit **no FCP event**, so that experience is invisible in
 Speed Insights by construction. It was measured directly instead — see cost 3.
 
-#### 98a — cold standings recomputation, ~1.1-1.4s per render
+#### 98a — standings warm-on-write — shipped
 
-> **IMPLEMENTED 2026-08-31 by `PLATFORM-119-LEAGUE-PAGE-PAINT-v2`; PR #547 is
-> open, not merged.** Score-write handlers now invalidate and synchronously repopulate the same
-> league/year standings keys after the durable score commit. The maintenance path is non-fatal and
-> enters one process-wide queue before taking its year-scoped durable lock, so the three-connection
-> app-state pool cannot be exhausted by concurrent warmers.
-
-`src/app/api/scores/route.ts:543` calls `invalidateStandingsForYear(year)` on every score write. The
-live-scores cron writes roughly every 3 minutes during a slate, so the `unstable_cache`d
-`getCanonicalStandings` is **cold on most in-season page loads** and each visitor pays the full
-recomputation.
-
-Measured on the document request for `/league/tsc`, DevTools, cache disabled:
-
-    cold:  TTFB 236ms  +  Content Download 1.15s   = 1.39s
-    warm:  TTFB 280ms  +  Content Download   73ms  = 0.35s   (immediate reload)
-
-TTFB barely moves. **The cost is entirely in the streamed body** — the response is held open while
-the server recomputes — so it does not appear in TTFB and is easy to miss. The RSC fetch on a
-return navigation showed the same thing more starkly: `Waiting for server response` **1.41s**,
-`Content Download` **1.75ms**.
-
-This also explains the RES trend: ~88 on 2026-08-24 in preseason, falling to ~72 by 08-29/30. Not a
-regression — the cache stopped being warm once score writes began.
-
-**Fix: warm on write, do not make the reader pay.** Invalidating on a score write is correct; scores
-genuinely change standings. The mistake is leaving the recomputation for whoever loads next. After
-`invalidateStandingsForYear(year)`, recompute and store in the same handler. The cron pays ~1.1s
-once per write instead of every member paying it per visit. Same cron-spends / client-reads split as
-PLATFORM-086B2B, applied to derived data.
+Merged through PLATFORM-119 / PR #547. See `docs/completed-work.md` for the shipped outcome; the
+remaining league-page-paint work begins at 98c.
 
 #### 98b — 76% of the schedule payload is discarded after parsing
 
@@ -607,8 +580,8 @@ aliases change less than that; scores are the only genuinely live one and alread
 
 #### 98d — targeted prefetch of History, paired with `staleTimes`
 
-**Do 98a and 98c first.** This is a follow-on that buys one specific transition; those two help both
-directions and every load.
+**98a is shipped; do 98c first.** This is a follow-on that buys one specific transition; 98c helps
+both directions and every load.
 
 **Scope it to the single Overview → History tab link** (`WeekViewTabs.tsx:79`), not to links
 generally. From Overview there is exactly one History link, so `prefetch={true}` there is **one**
@@ -673,7 +646,8 @@ unsatisfying.
   showed DNS 159ms + connect 187ms + SSL 117ms — a _fresh_ connection, because the prefetch burst
   had exhausted the pool. If anything is done here it is `prefetch={false}` on the owner links.
 - **Flattening History's five-stage waterfall** (`history/page.tsx:50-88`, 7 archives). Real —
-  History's RSC fetch measured TTFB 377ms + Content Download 739ms — but 98a and 98c come first.
+  History's RSC fetch measured TTFB 377ms + Content Download 739ms — but 98c comes first now that
+  98a is shipped.
 - **Bundle size.** 260 kB First Load JS for `/league/[slug]`, 173 kB for history. Unremarkable and
   not the bottleneck.
 

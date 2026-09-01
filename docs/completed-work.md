@@ -32,6 +32,24 @@ Supersedes: (none)
 > [`docs/ai/game-stats-writer-fence.md`](ai/game-stats-writer-fence.md) (with the superseded
 > original design frozen in [`docs/ai/platform-086h3-contract.md`](ai/platform-086h3-contract.md)).
 
+### PLATFORM-119 — Pool-Safe Standings Warm-on-Write — Complete
+
+- **Status:** Merged via PR #547 (merge commit `197bde67`), 2026-08-31.
+- **PROMPT_ID(s):** `PLATFORM-119-LEAGUE-PAGE-PAINT-v2`.
+- **Outcome:** Public and live-cron score writes now synchronously invalidate and repopulate the same
+  registered league/year canonical-standings keys after the durable score commit. Failures remain
+  non-fatal. A process-wide queue is entered before the year-scoped durable transaction, so
+  concurrent different-year warmers cannot consume all three app-state pool clients while nested
+  standings reads wait for another; the durable year lock still preserves cross-instance ordering.
+- **Verification:** Exact pre-merge head `784b3f06` passed TypeScript, `lint:all`, and the 4,515-test
+  full suite (baseline 4,508, net +7). Mutating away the process queue fired the different-year
+  pool-client assertion. The controlled 888-row, one-league fixture measured 26.24 ms without the
+  warm and 195.57 ms with it (+169.34 ms median); independent Codex and `/code-review` left no
+  credible in-scope P0/P1/P2.
+- **Scope boundary:** The 119b response filter was withdrawn on a canonical-week correctness finding
+  rather than shipped or deferred; schedule files remained unchanged. Its replacement work stays in
+  the canonical queue as Items 99 and 100.
+
 ### PLATFORM-118 — Team-Records Freshness Authority — Complete
 
 - **Status:** Merged via PR #546 (merge commit `c29801a4`), 2026-08-31.

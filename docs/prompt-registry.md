@@ -61,12 +61,13 @@ Rules:
   league/year standings keys in the request; failures remain non-fatal. A process-wide queue is
   entered before the year-scoped durable transaction, preventing concurrent warmers from holding all
   pool clients while their nested standings reads wait for another.
-- Review / verification: the production tree at `6495b3bf` is patch-identical to reviewed
-  `e70a2e1a`; Codex and `/code-review` found no credible in-scope P0/P1/P2. The deadlock mutation fired
-  the different-year pool-client assertion, and the final TypeScript, `lint:all`, and full-suite
-  gates are recorded on PR #547.
-- Status: Implemented — PR #547 open. The v1 response filter (119b) was withdrawn on the canonical
-  week correctness finding, not deferred; Items 99 and 100 supersede it.
+- Review / verification: exact pre-merge head `784b3f06` passed TypeScript, `lint:all`, and the
+  4,515-test full suite. Its production tree is patch-identical to reviewed `e70a2e1a`; Codex and
+  `/code-review` found no credible in-scope P0/P1/P2, and the deadlock mutation fired the
+  different-year pool-client assertion.
+- Status: Merged via PR #547 (merge commit `197bde67`), 2026-08-31. The v1 response filter (119b)
+  was withdrawn on the canonical-week correctness finding, not deferred; Items 99 and 100 supersede
+  it.
 
 ### PLATFORM-118-TEAM-RECORDS-FRESHNESS-v2
 
