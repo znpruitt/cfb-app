@@ -113,6 +113,29 @@ finding. Measure before choosing a cadence — the quota cost of a ramp should b
 observed repair rate, not by this mechanism's existence. The trigger for revisiting is accumulated
 observation, not promotion.
 
+**Third driver, 2026-09-01: the app holds provider-deleted records for up to three days.** The
+Overview section router bounds a scoreless post-kickoff game at **8 hours**
+(`hasGameBeenAbandoned`, `standingsHistory.ts:194`). The refresh that removes a record CFBD has
+deleted is **weekly** — `turfwar-schedule-weekly`, Tuesdays 12:00 UTC. A Saturday postponement
+therefore leaves the app holding a deleted row until Tuesday. POLISH-019's abandonment split stops it
+appearing in Live after 8 hours, but week tabs, standings history and matchups still carry the stale
+row until the refresh. **That 8-hour-versus-weekly gap is the specific window a cadence ramp would
+close**, and it is the sizing argument to bring to the measurement.
+
+**The provider has confirmed there is no alternative to polling.** Asked directly whether any
+endpoint or field identifies a canceled or postponed game, the CFBD developer answered:
+
+> Yes, that understanding is correct with regards to statuses. When a game is postponed or
+> re-scheduled, there typically is a brand new game record with a new id and the old game record is
+> deleted. The football API and infra isn't really built to handle postponed or canceled records at
+> this time.
+
+Independently verified: `/games` exposes `completed` only, `/scoreboard` reports just
+`scheduled | in_progress | completed`, and all 3,676 rows in the 2026 schedule cache carry one
+distinct status, `'scheduled'`. **There is no flag to watch for and no prospect of one**, so schedule
+polling is the sole detection mechanism rather than one option among several. That converts this
+item's premise from an inference into a provider statement.
+
 - Backlog slug: `PLATFORM-RESCHEDULE-DETECTION-v1`
 
 ### Item 64 — remaining week-resolution residue
