@@ -100,7 +100,10 @@ function game(overrides: Partial<AppGame> = {}): AppGame {
 
 test('league surface shows compact fatal fallback for schedule bootstrap failures', () => {
   const html = renderWithAppContext(
-    <CFBScheduleApp initialIssues={['CFBD schedule load failed: upstream CFBD returned 503']} />
+    <CFBScheduleApp
+      initialNowMs={0}
+      initialIssues={['CFBD schedule load failed: upstream CFBD returned 503']}
+    />
   );
 
   // POLISH-005 — a member sees IMPACT, not diagnosis. The fixture feeds a raw
@@ -122,7 +125,7 @@ test('league surface shows compact fatal fallback for schedule bootstrap failure
 });
 
 test('league surface keeps admin tooling off the landing page when a schedule can render', () => {
-  const html = renderWithAppContext(<CFBScheduleApp initialGames={[game()]} />);
+  const html = renderWithAppContext(<CFBScheduleApp initialNowMs={0} initialGames={[game()]} />);
 
   assert.match(html, /<h1 class="text-xl font-medium">League<\/h1>/);
   assert.match(html, />Overview</);
@@ -136,7 +139,7 @@ test('league surface keeps admin tooling off the landing page when a schedule ca
 });
 
 test('league surface shows compact orientation and partial data availability copy', () => {
-  const html = renderWithAppContext(<CFBScheduleApp initialGames={[game()]} />);
+  const html = renderWithAppContext(<CFBScheduleApp initialNowMs={0} initialGames={[game()]} />);
 
   assert.match(html, />Overview</);
   assert.match(html, />Featured games</);
@@ -148,6 +151,7 @@ test('league surface shows compact orientation and partial data availability cop
 test('owner surface remains reachable with owner data even when no week is selected', () => {
   const html = renderWithAppContext(
     <CFBScheduleApp
+      initialNowMs={0}
       initialWeekViewMode="owner"
       initialRoster={[{ owner: 'Alice', team: 'Texas' }]}
       initialGames={[]}
@@ -172,6 +176,7 @@ test('owner surface wires liveDelta to OwnerPanel; no live badge without in-prog
   // while the canonical/local header baseline still renders.
   const html = renderWithAppContext(
     <CFBScheduleApp
+      initialNowMs={0}
       initialWeekViewMode="owner"
       initialRoster={[{ owner: 'Alice', team: 'Texas' }]}
       initialGames={[game({ csvAway: 'Texas', csvHome: 'Rice' })]}
@@ -190,6 +195,7 @@ test('PLATFORM-079: Members owner options/selection come from canonical standing
   // — proving the retired client deriveStandings path no longer feeds Members.
   const html = renderWithAppContext(
     <CFBScheduleApp
+      initialNowMs={0}
       initialWeekViewMode="owner"
       initialRoster={[{ owner: 'Zed', team: 'Texas' }]}
       initialGames={[game({ csvAway: 'Texas', csvHome: 'Rice' })]}
@@ -207,14 +213,20 @@ test('active-season league surface uses the league status year, not the global d
   // active-season league fell back to DEFAULT_SEASON; it must now use
   // leagueStatus.year (2099).
   const html = renderWithAppContext(
-    <CFBScheduleApp initialGames={[game()]} leagueStatus={{ state: 'season', year: 2099 }} />
+    <CFBScheduleApp
+      initialNowMs={0}
+      initialGames={[game()]}
+      leagueStatus={{ state: 'season', year: 2099 }}
+    />
   );
 
   assert.match(html, /2099 Season/);
 });
 
 test('league surface admin attention count ignores informational provider rows', () => {
-  const html = renderWithAppContext(<CFBScheduleApp initialGames={[game()]} initialIssues={[]} />);
+  const html = renderWithAppContext(
+    <CFBScheduleApp initialNowMs={0} initialGames={[game()]} initialIssues={[]} />
+  );
 
   assert.doesNotMatch(html, /admin item/);
 });
@@ -222,6 +234,7 @@ test('league surface admin attention count ignores informational provider rows',
 test('overview hides week context controls while still rendering overview content', () => {
   const html = renderWithAppContext(
     <CFBScheduleApp
+      initialNowMs={0}
       initialGames={[
         game({ key: 'week-1', week: 1, csvAway: 'Texas', csvHome: 'Oklahoma' }),
         game({ key: 'week-2', week: 2, csvAway: 'Notre Dame', csvHome: 'USC' }),
@@ -243,6 +256,7 @@ test('overview hides week context controls while still rendering overview conten
 test('schedule keeps week context controls visible', () => {
   const html = renderWithAppContext(
     <CFBScheduleApp
+      initialNowMs={0}
       initialWeekViewMode="schedule"
       initialGames={[game({ week: 1 }), game({ key: 'g-2', week: 2 })]}
     />
@@ -254,6 +268,7 @@ test('schedule keeps week context controls visible', () => {
 test('matchups keeps week context controls visible', () => {
   const html = renderWithAppContext(
     <CFBScheduleApp
+      initialNowMs={0}
       initialWeekViewMode="matchups"
       initialGames={[game({ week: 1 }), game({ key: 'g-2', week: 2 })]}
     />
@@ -265,6 +280,7 @@ test('matchups keeps week context controls visible', () => {
 test('matrix mode renders dedicated matchup matrix surface and not weekly matchups cards', () => {
   const html = renderWithAppContext(
     <CFBScheduleApp
+      initialNowMs={0}
       initialWeekViewMode="matrix"
       initialGames={[
         game({ key: 'g-1', week: 1, csvAway: 'Texas', csvHome: 'Oklahoma' }),
@@ -288,6 +304,7 @@ test('matrix mode renders dedicated matchup matrix surface and not weekly matchu
 test('matrix mode remains available in postseason contexts', () => {
   const html = renderWithAppContext(
     <CFBScheduleApp
+      initialNowMs={0}
       initialWeekViewMode="matrix"
       initialGames={[
         game({
@@ -315,6 +332,7 @@ test('matrix mode remains available in postseason contexts', () => {
 test('standings hides week context controls and keeps season-level framing', () => {
   const html = renderWithAppContext(
     <CFBScheduleApp
+      initialNowMs={0}
       initialWeekViewMode="standings"
       initialGames={[game({ week: 1 }), game({ key: 'g-2', week: 2 })]}
       initialRoster={[
@@ -605,6 +623,7 @@ test('season-start presentation remains active throughout the opening UTC date',
 
   const html = renderWithAppContext(
     <CFBScheduleApp
+      initialNowMs={0}
       leagueStatus={{ state: 'season', year: 2026 }}
       canonicalStandings={snapshot}
       initialGames={[]}
@@ -619,6 +638,7 @@ test('season-start presentation remains active throughout the opening UTC date',
 test('preseason with no current-season roster states the real stage instead of claiming a scheduled draft', () => {
   const html = renderWithAppContext(
     <CFBScheduleApp
+      initialNowMs={0}
       leagueSlug="tsc"
       leagueStatus={{ state: 'preseason', year: 2026 }}
       canonicalStandings={preseasonSnapshot('none')}
@@ -634,6 +654,7 @@ test('preseason with no current-season roster states the real stage instead of c
 test('confirmed preseason owners advance the banner without promising a draft', () => {
   const html = renderWithAppContext(
     <CFBScheduleApp
+      initialNowMs={0}
       leagueSlug="tsc"
       leagueStatus={{ state: 'preseason', year: 2026 }}
       canonicalStandings={preseasonSnapshot('preseason-owners')}
@@ -649,6 +670,7 @@ test('confirmed preseason owners advance the banner without promising a draft', 
 test('a prior season archive roster does not advance the preseason banner', () => {
   const html = renderWithAppContext(
     <CFBScheduleApp
+      initialNowMs={0}
       leagueSlug="tsc"
       leagueStatus={{ state: 'preseason', year: 2026 }}
       canonicalStandings={preseasonSnapshot('archive')}
@@ -666,6 +688,7 @@ test('a current-season source with no real owners does not read as a confirmed r
   // decision, not just the source tag.
   const html = renderWithAppContext(
     <CFBScheduleApp
+      initialNowMs={0}
       leagueSlug="tsc"
       leagueStatus={{ state: 'preseason', year: 2026 }}
       canonicalStandings={preseasonSnapshot('csv', [])}
@@ -683,6 +706,7 @@ test('the members surface does not stack the preseason roster grid on top of Own
   // `leagueStatus` to this route is what made that reachable.
   const html = renderWithAppContext(
     <CFBScheduleApp
+      initialNowMs={0}
       leagueSlug="tsc"
       initialWeekViewMode="owner"
       leagueStatus={{ state: 'preseason', year: 2026 }}
@@ -711,6 +735,7 @@ test('other preseason surfaces keep the roster grid the members fix excludes', (
   // preseason section outright.
   const html = renderWithAppContext(
     <CFBScheduleApp
+      initialNowMs={0}
       leagueSlug="tsc"
       initialWeekViewMode="overview"
       leagueStatus={{ state: 'preseason', year: 2026 }}
@@ -744,6 +769,7 @@ test('POLISH-005: internal issue strings never reach a member surface', () => {
   // produces. None may render.
   const html = renderWithAppContext(
     <CFBScheduleApp
+      initialNowMs={0}
       initialIssues={[
         'CFBD schedule load failed: upstream CFBD returned 503',
         'invalid-schedule-row: week 4 row 12',
@@ -777,6 +803,7 @@ test('POLISH-005: an ADMIN keeps the rebuild path on a fatal schedule failure', 
   // person who could repair a broken league page with nothing to click.
   const admin = renderWithAppContext(
     <CFBScheduleApp
+      initialNowMs={0}
       isAdmin
       initialIssues={['CFBD schedule load failed: upstream CFBD returned 503']}
     />
@@ -790,7 +817,10 @@ test('POLISH-005: an ADMIN keeps the rebuild path on a fatal schedule failure', 
   // Control: the identical failure without `isAdmin` offers nothing to click,
   // so the assertion above is the gate and not an inert fixture.
   const member = renderWithAppContext(
-    <CFBScheduleApp initialIssues={['CFBD schedule load failed: upstream CFBD returned 503']} />
+    <CFBScheduleApp
+      initialNowMs={0}
+      initialIssues={['CFBD schedule load failed: upstream CFBD returned 503']}
+    />
   );
   assert.doesNotMatch(member, /Rebuild schedule/);
 });
@@ -811,6 +841,7 @@ test('POLISH-006: the week summary bar is gone from the matchups, schedule and m
   for (const mode of ['matchups', 'schedule', 'matrix'] as const) {
     const html = renderWithAppContext(
       <CFBScheduleApp
+        initialNowMs={0}
         initialWeekViewMode={mode}
         initialGames={games}
         initialRoster={roster}
@@ -836,6 +867,7 @@ test('POLISH-006: removing the bar keeps the week and its dates on the page', ()
   // exactly, so the bar could never appear without them.
   const html = renderWithAppContext(
     <CFBScheduleApp
+      initialNowMs={0}
       initialWeekViewMode="matchups"
       initialGames={[game({ key: 'week-1', week: 1 }), game({ key: 'week-2', week: 2 })]}
     />
@@ -859,7 +891,10 @@ test('POLISH-005: no admin-only affordance is offered to a member', () => {
   // always fail: `/api/schedule` rejects `bypassCache` without admin, and
   // `/api/postseason-overrides` requires admin on write.
   const html = renderWithAppContext(
-    <CFBScheduleApp initialIssues={['CFBD schedule load failed: upstream CFBD returned 503']} />
+    <CFBScheduleApp
+      initialNowMs={0}
+      initialIssues={['CFBD schedule load failed: upstream CFBD returned 503']}
+    />
   );
   assert.doesNotMatch(html, /Rebuild schedule/);
   assert.doesNotMatch(html, /Open Data Management/);
@@ -900,6 +935,7 @@ function canonicalWithLongPastPendingGame(): CanonicalStandings {
 test('PLATFORM-109: the standings Move column follows the seasonContext prop, not the history', () => {
   const inSeason = renderWithAppContext(
     <CFBScheduleApp
+      initialNowMs={0}
       initialWeekViewMode="standings"
       initialGames={[game({ week: 1 })]}
       canonicalStandings={canonicalWithLongPastPendingGame()}
@@ -910,6 +946,7 @@ test('PLATFORM-109: the standings Move column follows the seasonContext prop, no
 
   const final = renderWithAppContext(
     <CFBScheduleApp
+      initialNowMs={0}
       initialWeekViewMode="standings"
       initialGames={[game({ week: 1 })]}
       canonicalStandings={canonicalWithLongPastPendingGame()}

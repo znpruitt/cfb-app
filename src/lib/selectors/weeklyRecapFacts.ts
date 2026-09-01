@@ -358,13 +358,7 @@ export function selectWeeklyRecapTileState(
 }
 
 /** Select the latest week past its next-day 06:00 ET cutoff, independent of game status. */
-export function selectWeeklyRecapTargetWeek(
-  games: AppGame[],
-  now: Date
-): WeeklyRecapTargetWeek | null {
-  const easternNow = easternDateTime(now);
-  if (!easternNow) return null;
-
+export function selectWeeklyRecapWeekTargets(games: AppGame[]): WeeklyRecapTargetWeek[] {
   const latestDateByWeek = new Map<number, string>();
   for (const game of games) {
     const week = game.canonicalWeek;
@@ -377,12 +371,24 @@ export function selectWeeklyRecapTargetWeek(
     if (!previous || dateKey > previous) latestDateByWeek.set(week, dateKey);
   }
 
-  const eligible = Array.from(latestDateByWeek.entries())
-    .filter(([, latestGameDate]) => isEligible(latestGameDate, easternNow))
-    .sort(([leftWeek], [rightWeek]) => rightWeek - leftWeek);
-  const selected = eligible[0];
+  return Array.from(latestDateByWeek.entries())
+    .sort(([leftWeek], [rightWeek]) => rightWeek - leftWeek)
+    .map(([week, latestGameDate]) => ({ week, latestGameDate }));
+}
 
-  return selected ? { week: selected[0], latestGameDate: selected[1] } : null;
+/** Select the latest week past its next-day 06:00 ET cutoff, independent of game status. */
+export function selectWeeklyRecapTargetWeek(
+  games: AppGame[],
+  now: Date
+): WeeklyRecapTargetWeek | null {
+  const easternNow = easternDateTime(now);
+  if (!easternNow) return null;
+
+  const selected = selectWeeklyRecapWeekTargets(games).find(({ latestGameDate }) =>
+    isEligible(latestGameDate, easternNow)
+  );
+
+  return selected ?? null;
 }
 
 export function selectWeeklyRecapFacts(args: {

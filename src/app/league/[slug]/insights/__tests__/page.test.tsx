@@ -64,6 +64,7 @@ test('full recap qualifies and renders non-compact movement accessibly', () => {
           {
             kind: 'game',
             id: 'game-notable',
+            gameKey: 'notable',
             label: 'Closest game',
             detail: '4-point margin',
             winner: { team: 'Texas', owner: 'Alice', score: '31' },

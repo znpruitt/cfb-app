@@ -97,6 +97,7 @@ const recap: AvailableWeeklyRecapViewModel = {
     {
       kind: 'game',
       id: 'game-upset',
+      gameKey: 'upset',
       label: 'Odds upset',
       detail: 'Beat a 7.5-point favorite',
       winner: { team: 'Texas', owner: 'Alice', score: '31' },

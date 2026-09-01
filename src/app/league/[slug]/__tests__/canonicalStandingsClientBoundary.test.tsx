@@ -38,6 +38,7 @@ const YEAR = 2026;
 type CFBScheduleAppProps = {
   canonicalStandings?: CanonicalStandings;
   seasonContext?: SeasonContext;
+  initialNowMs?: number;
 };
 
 /** The pages return `<main><CFBScheduleApp {...props} /></main>`; read the props. */
@@ -219,6 +220,16 @@ test('every league surface passes the derived season context instead', async () 
       selectSeasonContext({ standingsHistory: unstripped.standingsHistory }),
       `${name} season context must equal the pre-projection answer`
     );
+  }
+});
+
+test('every league surface seeds the client with a finite request-stable clock', async () => {
+  await seedLeagueWithAPendingGame();
+
+  for (const [name, render] of SURFACES) {
+    const initialNowMs = appProps(await render(SLUG)).initialNowMs;
+    assert.equal(typeof initialNowMs, 'number', `${name} must pass an initial clock`);
+    assert.ok(Number.isFinite(initialNowMs), `${name} initial clock must be finite`);
   }
 });
 

@@ -138,6 +138,12 @@ const standingsLeaders: OwnerStandingsRow[] = [
 ];
 
 const coverage: StandingsCoverage = { state: 'complete', message: null };
+const TEST_NOW_MS = Date.parse('2026-09-01T18:00:00.000Z');
+const TEST_GAME_PRESENTATION = {
+  phase: 'hidden' as const,
+  recapGameKeys: new Set<string>(),
+  expiredFinalWeeks: new Set<number>(),
+};
 
 const defaultContext: OverviewContext = {
   scopeLabel: 'League',
@@ -180,6 +186,8 @@ test('overview panel uses neutral wording for neutral-site games', () => {
   });
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={standingsLeaders}
       standingsCoverage={coverage}
       matchupMatrix={matchupMatrix}
@@ -201,10 +209,13 @@ test('overview panel keeps home-away wording for standard games', () => {
     neutral: false,
     neutralDisplay: 'home_away',
     stage: 'regular',
+    date: '2026-09-02T17:00:00.000Z',
   });
 
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={standingsLeaders}
       standingsCoverage={coverage}
       matchupMatrix={matchupMatrix}
@@ -215,7 +226,6 @@ test('overview panel keeps home-away wording for standard games', () => {
     />
   );
 
-  assert.match(html, /aria-label="Texas at Rice"/);
   assert.match(html, /Texas<\/span> @ <span>Rice/);
 });
 
@@ -245,6 +255,8 @@ test('overview Live section consumes the shared scoreboard in a row-major respon
 
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={standingsLeaders}
       standingsCoverage={coverage}
       matchupMatrix={matchupMatrix}
@@ -289,6 +301,8 @@ test('overview Live section suppresses kickoff timestamps when no game clock is 
 
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={standingsLeaders}
       standingsCoverage={coverage}
       matchupMatrix={matchupMatrix}
@@ -316,6 +330,8 @@ test('overview Live section treats STATUS_LIVE as a generic state label', () => 
 
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={standingsLeaders}
       standingsCoverage={coverage}
       matchupMatrix={matchupMatrix}
@@ -328,6 +344,106 @@ test('overview Live section treats STATUS_LIVE as a generic state label', () => 
 
   assert.match(html, />Live<\/span>[\s\S]*>Q2<\/span>/);
   assert.doesNotMatch(html, /STATUS_LIVE/);
+});
+
+test('overview routes a bounded scoreless kickoff to Live with Awaiting score in the status row', () => {
+  const awaiting = item(
+    game({
+      key: 'awaiting-score',
+      csvAway: 'Fresno State',
+      csvHome: 'Nevada',
+      date: '2026-09-01T17:00:00.000Z',
+    })
+  );
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[]}
+      sectionItems={[awaiting]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+  const scoreboard = html.match(
+    /<article(?=[^>]*aria-label="Fresno State at Nevada")[\s\S]*?<\/article>/
+  )?.[0];
+
+  assert.ok(scoreboard, 'the awaiting-score game must remain visible');
+  assert.match(html, />Live · 1</);
+  assert.match(scoreboard, /data-scoreboard-state="live"/);
+  assert.match(
+    scoreboard,
+    /data-scoreboard-header="true">[\s\S]*?>Live<\/span><span[^>]*>Awaiting score<\/span>/,
+    'Awaiting score belongs in the game-level status row'
+  );
+  assert.equal(
+    (scoreboard.match(/data-scoreboard-value="(?:away|home)">—<\/span>/g) ?? []).length,
+    2
+  );
+});
+
+test('overview promotes an attached final to Recent finals and no other state section', () => {
+  const final = itemWithScore(
+    game({
+      key: 'recent-final',
+      csvAway: 'USC',
+      csvHome: 'Notre Dame',
+      date: '2026-09-01T15:00:00.000Z',
+    }),
+    {
+      status: 'Final',
+      away: { team: 'USC', score: 21 },
+      home: { team: 'Notre Dame', score: 24 },
+      time: null,
+    }
+  );
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[]}
+      sectionItems={[final]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, />Recent finals</);
+  assert.match(html, /data-recent-finals-scoreboard-grid="true"/);
+  assert.match(html, /data-scoreboard-state="final"/);
+  assert.equal((html.match(/aria-label="USC at Notre Dame"/g) ?? []).length, 1);
+  assert.doesNotMatch(html, />Live ·/);
+  assert.doesNotMatch(html, />Upcoming watchlist</);
+});
+
+test('overview hides every state section when the router returns no rows', () => {
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[]}
+      sectionItems={[]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.doesNotMatch(html, />Upcoming watchlist</);
+  assert.doesNotMatch(html, />Live ·/);
+  assert.doesNotMatch(html, />Recent finals</);
 });
 
 test('overview Featured renders a home-won final through the neutral compact scoreboard', () => {
@@ -353,6 +469,8 @@ test('overview Featured renders a home-won final through the neutral compact sco
 
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={standingsLeaders}
       standingsCoverage={coverage}
       matchupMatrix={matchupMatrix}
@@ -422,6 +540,8 @@ test('overview Featured conversion preserves the existing recent-results selecti
 
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={standingsLeaders}
       standingsCoverage={coverage}
       matchupMatrix={matchupMatrix}
@@ -431,8 +551,11 @@ test('overview Featured conversion preserves the existing recent-results selecti
       displayTimeZone="UTC"
     />
   );
+  const recentFinalsIndex = html.indexOf('Recent finals');
+  assert.ok(recentFinalsIndex > 0, 'the first final outside Featured promotes to Recent finals');
+  const featuredMarkup = html.slice(0, recentFinalsIndex);
   const renderedMatchups = Array.from(
-    html.matchAll(/aria-label="(Final Away \d+ at Final Home \d+)"/g),
+    featuredMarkup.matchAll(/aria-label="(Final Away \d+ at Final Home \d+)"/g),
     (match) => match[1]
   );
 
@@ -449,6 +572,8 @@ test('overview Featured conversion preserves the existing recent-results selecti
 test('overview panel renders league highlights and standings without matrix table', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={[
         ...standingsLeaders,
         {
@@ -485,6 +610,8 @@ test('overview panel renders league highlights and standings without matrix tabl
 test('overview standings emphasize leader row and use the pending badge as the only live signal', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       games={[game({ key: 'live-1', csvAway: 'Texas', csvHome: 'Rice' })]}
       scoresByKey={{
         'live-1': {
@@ -538,6 +665,8 @@ test('overview standings emphasize leader row and use the pending badge as the o
 test('overview panel summary shows in-season leader, record, and win percentage', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={standingsLeaders}
       standingsCoverage={coverage}
       matchupMatrix={matchupMatrix}
@@ -559,6 +688,8 @@ test('overview panel summary shows in-season leader, record, and win percentage'
 test('overview panel summary uses standings win% gap over #2 during in-season state', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={[
         {
           owner: 'Alice',
@@ -603,6 +734,8 @@ test('overview panel summary uses standings win% gap over #2 during in-season st
 test('overview panel summary shows tie copy when top win percentages match', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={[
         {
           owner: 'Alice',
@@ -646,6 +779,8 @@ test('overview panel summary shows tie copy when top win percentages match', () 
 test('overview panel summary narrative lists all owners in a three-way tie', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={[
         {
           owner: 'Alice',
@@ -707,6 +842,8 @@ test('overview panel summary uses postseason in-progress championship language',
   });
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={standingsLeaders}
       standingsCoverage={coverage}
       matchupMatrix={matchupMatrix}
@@ -736,6 +873,8 @@ test('overview panel summary shows season-complete champion, second, and third',
   const postseasonFinal = game({ stage: 'bowl', status: 'final' });
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={[
         {
           owner: 'Pruitt',
@@ -818,6 +957,8 @@ test('overview panel summary shows season-complete champion, second, and third',
 test('overview shows the notice for partial coverage even with no stored message', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={standingsLeaders}
       standingsCoverage={{ state: 'partial', message: null }}
       matchupMatrix={matchupMatrix}
@@ -840,6 +981,8 @@ test('overview names the subject of an incomplete standings notice', () => {
 
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={standingsLeaders}
       standingsCoverage={partial}
       matchupMatrix={matchupMatrix}
@@ -863,6 +1006,8 @@ test('overview panel summary does not render season-complete framing when standi
   const postseasonFinal = game({ stage: 'bowl', status: 'final' });
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={standingsLeaders}
       standingsCoverage={{ state: 'partial', message: 'Some games are still missing.' }}
       matchupMatrix={matchupMatrix}
@@ -897,6 +1042,8 @@ test('overview panel summary does not render season-complete framing when standi
   const postseasonFinal = game({ stage: 'bowl', status: 'final' });
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={standingsLeaders}
       standingsCoverage={{ state: 'error', message: 'Standings load failed.' }}
       matchupMatrix={matchupMatrix}
@@ -924,11 +1071,13 @@ test('overview panel summary does not render season-complete framing when standi
 test('overview panel keeps league-home ordering with standings and highlights ahead of results', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={standingsLeaders}
       standingsCoverage={coverage}
       matchupMatrix={matchupMatrix}
       liveItems={[]}
-      keyMatchups={[item(game({ key: 'next-up' }))]}
+      keyMatchups={[item(game({ key: 'next-up', date: '2026-09-02T17:00:00.000Z' }))]}
       context={defaultContext}
       displayTimeZone="UTC"
     />
@@ -948,6 +1097,8 @@ test('overview panel keeps league-home ordering with standings and highlights ah
 test('overview panel keeps standings as the only condensed ranking table', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={[
         ...standingsLeaders,
         {
@@ -1021,6 +1172,8 @@ test('overview panel shows watchlist alongside results when highlight cards exis
 
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={standingsLeaders}
       standingsCoverage={coverage}
       matchupMatrix={matchupMatrix}
@@ -1048,6 +1201,8 @@ test('overview panel shows watchlist alongside results when highlight cards exis
 test('overview panel renders subtle standings movement indicator when prior standings exist', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={[
         {
           owner: 'Alice',
@@ -1144,6 +1299,8 @@ test('overview panel renders subtle standings movement indicator when prior stan
 test('overview panel uses compact live empty state copy', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={standingsLeaders}
       standingsCoverage={coverage}
       matchupMatrix={matchupMatrix}
@@ -1166,6 +1323,8 @@ test('overview panel uses compact live empty state copy', () => {
 test('overview panel renders League Trends games back section when history is provided', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={standingsLeaders}
       standingsHistory={standingsHistoryFromSnapshots([
         {
@@ -1248,6 +1407,8 @@ test('overview panel renders League Trends games back section when history is pr
 test('overview panel shows win percent empty-state copy when no resolved standings history exists', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={standingsLeaders}
       standingsHistory={{
         weeks: [3],
@@ -1295,6 +1456,8 @@ test('overview panel shows win percent empty-state copy when no resolved standin
 test('overview panel shows explicit empty states for featured and results when no shared insights exist', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={[]}
       standingsCoverage={coverage}
       matchupMatrix={{ owners: [], rows: [] }}
@@ -1322,6 +1485,8 @@ test('overview panel keeps featured matchups hidden when none are meaningful for
   });
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={standingsLeaders}
       standingsCoverage={coverage}
       matchupMatrix={matchupMatrix}
@@ -1342,6 +1507,8 @@ test('overview panel keeps featured matchups hidden when none are meaningful for
 test('overview panel renders shared selector insights instead of league pulse cards', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={[
         ...standingsLeaders,
         {
@@ -1493,6 +1660,8 @@ test('overview panel renders top 3 shared insights in selector order without dup
 
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={standingsHistory.byWeek[3]?.standings ?? []}
       standingsHistory={standingsHistory}
       // PLATFORM-109: the panel no longer derives this from the history it is
@@ -1533,6 +1702,8 @@ test('overview panel suppresses redundant movement chips in completed-season pod
   const postseasonFinal = game({ key: 'title-game', stage: 'bowl', status: 'final' });
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={[
         {
           owner: 'Pruitt',
@@ -1703,6 +1874,8 @@ test('overview panel game summary badges prefer top-25 and top-matchup over clos
 
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={[
         {
           owner: 'Alice',
@@ -1852,6 +2025,8 @@ test('overview highlights consume shared insights instead of matchup-derived hea
 
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={[
         {
           owner: 'Alice',
@@ -1901,6 +2076,8 @@ test('overview highlights consume shared insights instead of matchup-derived hea
 test('overview standings context suppresses leader-gap duplicate messaging when race is not tight', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={[
         {
           owner: 'Alice',
@@ -1948,6 +2125,8 @@ test('overview standings context suppresses leader-gap duplicate messaging when 
 test('overview highlights show scope context once at section level', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={[
         {
           owner: 'Alice',
@@ -2056,6 +2235,8 @@ test('overview panel renders League Storylines section when selector emits story
 
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={[
         {
           owner: 'Alice',
@@ -2104,6 +2285,8 @@ test('overview panel renders League Storylines section when selector emits story
 test('overview panel omits League Storylines section when no storylines are available', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={standingsLeaders}
       standingsCoverage={coverage}
       matchupMatrix={matchupMatrix}
@@ -2128,6 +2311,8 @@ test('overview panel renders trends detail link in League Trends section', () =>
   // POLISH-013 made untrue.
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={standingsLeaders}
       standingsHistory={standingsHistoryFromSnapshots([
         {
@@ -2252,6 +2437,8 @@ function renderOverview(props: {
 }): string {
   return renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       games={props.games ?? [overviewPendingGame]}
       scoresByKey={props.scoresByKey ?? overviewPendingScores}
       rosterByTeam={props.rosterByTeam ?? overviewPendingRoster}
@@ -2459,6 +2646,8 @@ test('overview panel renders date plus Time TBD instead of the placeholder clock
 
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={standingsLeaders}
       standingsCoverage={coverage}
       matchupMatrix={matchupMatrix}
@@ -2530,6 +2719,8 @@ function unresolvedHistory(): StandingsHistory {
 function renderOverviewWithHistory(history: StandingsHistory): string {
   return renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={standingsLeaders}
       standingsHistory={history}
       standingsCoverage={coverage}
@@ -2622,6 +2813,8 @@ test('POLISH-013: the section renders for a league with owners but no history at
   // nowhere, just at the draft instead of at week one.
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={standingsLeaders}
       standingsCoverage={coverage}
       matchupMatrix={matchupMatrix}
@@ -2642,6 +2835,8 @@ test('POLISH-013: the section stays hidden for a league with no owners', () => {
   // standings panel above already says so.
   const html = renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={[]}
       standingsCoverage={coverage}
       matchupMatrix={{ owners: [], rows: [] }}
@@ -2738,6 +2933,8 @@ function renderCompletedSeasonOverview(seasonContext: SeasonContext): string {
 
   return renderToStaticMarkup(
     <OverviewPanel
+      nowMs={TEST_NOW_MS}
+      gamePresentation={TEST_GAME_PRESENTATION}
       standingsLeaders={standingsHistory.byWeek[2]!.standings.map((row) => ({
         owner: row.owner,
         wins: row.wins,

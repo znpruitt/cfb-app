@@ -577,6 +577,10 @@ test('composer renders an odds upset from resolved sides even when stored favori
   assert.equal(recap.headToHeadLines[0]?.detail, 'Beat a 7.5-point favorite · 14-point margin');
   assert.equal(recap.tileHighlights.length, 1);
   assert.equal(recap.tileHighlights[0]?.kind, 'game');
+  assert.equal(
+    recap.tileHighlights[0]?.kind === 'game' ? recap.tileHighlights[0].gameKey : null,
+    'quiet'
+  );
 });
 
 test('composer emits one truthful notable result for a non-head-to-head game', () => {
@@ -601,6 +605,7 @@ test('composer emits one truthful notable result for a non-head-to-head game', (
   if (recap.status !== 'available') return;
   assert.deepEqual(recap.headToHeadLines, []);
   assert.equal(recap.notableResultLines.length, 1);
+  assert.equal(recap.notableResultLines[0]?.gameKey, 'notable');
   assert.equal(recap.notableResultLines[0]?.label, 'Closest game · Biggest margin');
   assert.equal(recap.notableResultLines[0]?.winner.team, 'Texas');
 });

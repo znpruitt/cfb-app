@@ -25,6 +25,7 @@ export default async function LeagueStandingsPage({
   const { slug } = await params;
   const gate = await renderLeagueGateIfBlocked(slug);
   if (gate) return gate;
+  const initialNowMs = Date.now();
   const sp = await searchParams;
   const initialStandingsSubview = resolveStandingsSubview(sp.view);
   const [league, archiveYears, canonicalStandings, isAdmin] = await Promise.all([
@@ -45,6 +46,7 @@ export default async function LeagueStandingsPage({
   return (
     <main>
       <CFBScheduleApp
+        initialNowMs={initialNowMs}
         leagueSlug={slug}
         leagueDisplayName={league?.displayName}
         initialWeekViewMode="standings"

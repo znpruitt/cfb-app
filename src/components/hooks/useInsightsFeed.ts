@@ -89,6 +89,7 @@ function parseGameLine(value: unknown): WeeklyRecapGameLine | null {
     !isRecord(value) ||
     value.kind !== 'game' ||
     typeof value.id !== 'string' ||
+    typeof value.gameKey !== 'string' ||
     typeof value.label !== 'string' ||
     typeof value.detail !== 'string'
   ) {
@@ -97,7 +98,15 @@ function parseGameLine(value: unknown): WeeklyRecapGameLine | null {
   const winner = parseGameSide(value.winner);
   const loser = parseGameSide(value.loser);
   return winner && loser
-    ? { kind: 'game', id: value.id, label: value.label, detail: value.detail, winner, loser }
+    ? {
+        kind: 'game',
+        id: value.id,
+        gameKey: value.gameKey,
+        label: value.label,
+        detail: value.detail,
+        winner,
+        loser,
+      }
     : null;
 }
 

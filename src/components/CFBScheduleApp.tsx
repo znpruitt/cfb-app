@@ -91,11 +91,8 @@ import type { DraftPhase } from '../lib/draft';
 import type { LeagueStatus } from '../lib/league';
 import { resolveLeagueSeason } from '../lib/leagueSeason';
 import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
-import {
-  isWeeklyRecapActiveSeason,
-  selectWeeklyRecapTileState,
-} from '../lib/selectors/weeklyRecapFacts';
-import type { AvailableWeeklyRecapViewModel } from '../lib/recap/composeWeeklyRecap';
+import { isWeeklyRecapActiveSeason } from '../lib/selectors/weeklyRecapFacts';
+import { selectOverviewGamePresentation } from '../lib/selectors/overviewGameSections';
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
 const EXPLICIT_SEASON = Number.parseInt(process.env.NEXT_PUBLIC_SEASON ?? '', 10);
@@ -138,6 +135,8 @@ type CFBScheduleAppProps = {
   initialPreseasonOwners?: string[];
   initialWeekViewMode?: WeekViewMode;
   initialStandingsSubview?: StandingsSubview;
+  /** Request-stable clock captured by league pages for hydration-safe routing. */
+  initialNowMs: number;
   /**
    * Server-derived platform-admin flag. Routes that render this component
    * compute `await isPlatformAdminSession()` and pass it as a prop so this
@@ -295,8 +294,9 @@ export default function CFBScheduleApp({
   initialPreseasonOwners,
   initialWeekViewMode = 'overview',
   initialStandingsSubview = 'table',
+  initialNowMs,
   isAdmin = false,
-}: CFBScheduleAppProps = {}): React.ReactElement {
+}: CFBScheduleAppProps): React.ReactElement {
   const router = useRouter();
 
   const hasBootstrappedRef = useRef<boolean>(false);
@@ -351,9 +351,10 @@ export default function CFBScheduleApp({
   // Periodically-updated clock so the live overlay's time-based staleness
   // re-evaluates even when scores/inputs are static (e.g. a network outage that
   // leaves `scoresObservedAt` unchanged) — otherwise a fresh overlay would never
-  // flip stale (PLATFORM-086B2B). `0` until the client effect below arms it, which
-  // makes `useLiveDelta` fall back to `Date.now()` (SSR/first-render safe).
-  const [liveStaleClock, setLiveStaleClock] = useState<number>(0);
+  // flip stale (PLATFORM-086B2B). Production pages seed this with their request
+  // clock for hydration-safe Overview routing; isolated tests may keep the `0`
+  // fallback, which makes `useLiveDelta` use `Date.now()` until the effect arms.
+  const [liveStaleClock, setLiveStaleClock] = useState<number>(initialNowMs);
   const [oddsUsage, setOddsUsage] = useState<OddsUsageSnapshot | null>(null);
   // Freshness of the odds cache entry actually SERVED for the selected season
   // (rereview finding #2). Sourced from the odds response's own served-snapshot
@@ -1122,24 +1123,20 @@ export default function CFBScheduleApp({
     onGamesFinalized: handleGamesFinalized,
   });
 
-  const weeklyRecap = useMemo<AvailableWeeklyRecapViewModel | null>(() => {
-    if (
-      liveStaleClock === 0 ||
-      weeklyRecapResponse.status !== 'available' ||
-      !isWeeklyRecapActiveSeason({ leagueStatus, seasonYear: selectedSeason })
-    ) {
-      return null;
-    }
-
-    const state = selectWeeklyRecapTileState(
-      {
-        week: weeklyRecapResponse.week,
-        latestGameDate: weeklyRecapResponse.latestGameDate,
-      },
-      new Date(liveStaleClock)
-    );
-    return state === 'recap' ? weeklyRecapResponse : null;
-  }, [leagueStatus, liveStaleClock, selectedSeason, weeklyRecapResponse]);
+  const overviewGamePresentation = useMemo(
+    () =>
+      selectOverviewGamePresentation({
+        scheduleGames: games,
+        weeklyRecap: weeklyRecapResponse,
+        activeSeason: isWeeklyRecapActiveSeason({
+          leagueStatus,
+          seasonYear: selectedSeason,
+        }),
+        now: new Date(liveStaleClock),
+      }),
+    [games, leagueStatus, liveStaleClock, selectedSeason, weeklyRecapResponse]
+  );
+  const weeklyRecap = overviewGamePresentation.recap;
 
   const gameDayConfidence = useMemo(
     () =>
@@ -1812,6 +1809,9 @@ export default function CFBScheduleApp({
                   matchupMatrix={overviewSnapshot.matchupMatrix}
                   liveItems={overviewSnapshot.liveItems}
                   keyMatchups={overviewSnapshot.keyMatchups}
+                  sectionItems={overviewSnapshot.sectionItems}
+                  nowMs={liveStaleClock}
+                  gamePresentation={overviewGamePresentation}
                   context={overviewSnapshot.context}
                   displayTimeZone={presentationTimeZone}
                   rankingsByTeamId={overviewRankingsByTeamId}

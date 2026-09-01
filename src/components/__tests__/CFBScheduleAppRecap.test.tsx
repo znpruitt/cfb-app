@@ -116,6 +116,7 @@ function installFetch(scheduleItems: unknown[] | null): {
 function renderApp(initialIssues: string[] = []): ReturnType<typeof render> {
   return render(
     <CFBScheduleApp
+      initialNowMs={0}
       leagueSlug="tsc"
       leagueYear={2026}
       leagueStatus={{ state: 'season', year: 2026 }}

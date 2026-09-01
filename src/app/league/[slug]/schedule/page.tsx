@@ -17,6 +17,7 @@ export default async function LeagueSchedulePage({
   const { slug } = await params;
   const gate = await renderLeagueGateIfBlocked(slug);
   if (gate) return gate;
+  const initialNowMs = Date.now();
   // Load the same canonical inputs as the root league route so entering directly
   // through /schedule is a route-specific entry point into the same canonical app
   // state — not a lighter fallback-only entry — when WeekViewTabs switches locally
@@ -33,6 +34,7 @@ export default async function LeagueSchedulePage({
   return (
     <main>
       <CFBScheduleApp
+        initialNowMs={initialNowMs}
         leagueSlug={slug}
         leagueDisplayName={league?.displayName}
         leagueYear={league?.year}

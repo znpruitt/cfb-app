@@ -17,6 +17,7 @@ export default async function LeagueMembersPage({
   const { slug } = await params;
   const gate = await renderLeagueGateIfBlocked(slug);
   if (gate) return gate;
+  const initialNowMs = Date.now();
   const [league, archiveYears, canonicalStandings, isAdmin] = await Promise.all([
     getLeague(slug),
     listSeasonArchives(slug),
@@ -31,6 +32,7 @@ export default async function LeagueMembersPage({
   return (
     <main>
       <CFBScheduleApp
+        initialNowMs={initialNowMs}
         leagueSlug={slug}
         leagueDisplayName={league?.displayName}
         leagueYear={league?.year}

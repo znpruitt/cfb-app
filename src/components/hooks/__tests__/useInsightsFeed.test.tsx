@@ -175,6 +175,53 @@ test('an older recap remains available when additive detail fields are absent', 
   assert.deepEqual(parsed.weeklyRecap.tileHighlights, []);
 });
 
+test('recap game lines preserve canonical game keys for exact Overview deduplication', () => {
+  const recap = {
+    ...availableRecapPayload(1, 'Alice'),
+    tileHighlights: [
+      {
+        kind: 'game',
+        id: 'game-week-one-final',
+        gameKey: 'week-one-final',
+        label: 'Closest game',
+        detail: '3-point margin',
+        winner: { team: 'Texas', owner: 'Alice', score: '24' },
+        loser: { team: 'Georgia', owner: 'Bob', score: '21' },
+      },
+    ],
+  };
+  const parsed = parseInsightsPayload({ insights: [], weeklyRecap: recap });
+
+  assert.equal(parsed.weeklyRecap.status, 'available');
+  if (parsed.weeklyRecap.status !== 'available') return;
+  assert.equal(parsed.weeklyRecap.tileHighlights[0]?.kind, 'game');
+  const line = parsed.weeklyRecap.tileHighlights[0];
+  assert.equal(line?.kind === 'game' ? line.gameKey : null, 'week-one-final');
+});
+
+test('a present recap game line without a canonical game key fails the recap closed', () => {
+  const recap = {
+    ...availableRecapPayload(1, 'Alice'),
+    tileHighlights: [
+      {
+        kind: 'game',
+        id: 'game-week-one-final',
+        label: 'Closest game',
+        detail: '3-point margin',
+        winner: { team: 'Texas', owner: 'Alice', score: '24' },
+        loser: { team: 'Georgia', owner: 'Bob', score: '21' },
+      },
+    ],
+  };
+  const parsed = parseInsightsPayload({
+    insights: [{ id: 'healthy-insight' }],
+    weeklyRecap: recap,
+  });
+
+  assert.equal(parsed.insights.length, 1);
+  assert.deepEqual(parsed.weeklyRecap, { status: 'unavailable' });
+});
+
 test('malformed present detail fields fail only the recap', () => {
   for (const [field, malformed] of [
     ['leaderLines', [{ id: 'best-record' }]],

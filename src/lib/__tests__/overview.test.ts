@@ -143,6 +143,46 @@ test('overview prioritizes owner-vs-owner live games before other owned live gam
   );
 });
 
+test('overview section candidates retain owned games outside the autonomous active slate', () => {
+  const rosterByTeam = new Map([
+    ['Texas', 'Alice'],
+    ['Oklahoma', 'Bob'],
+  ]);
+  const priorWeekWithoutScore = game({
+    key: 'prior-week-awaiting',
+    week: 1,
+    csvAway: 'Texas',
+    csvHome: 'Rice',
+    date: '2026-09-01T17:00:00.000Z',
+  });
+  const activeWeekUpcoming = game({
+    key: 'active-week-upcoming',
+    week: 2,
+    csvAway: 'Oklahoma',
+    csvHome: 'Kansas',
+    date: '2026-09-08T17:00:00.000Z',
+  });
+
+  const snapshot = deriveOverviewSnapshot({
+    standingsRows,
+    standingsCoverage: coverage,
+    weekGames: [activeWeekUpcoming],
+    allGames: [priorWeekWithoutScore, activeWeekUpcoming],
+    rosterByTeam,
+    scoresByKey: {},
+  });
+
+  assert.deepEqual(snapshot.liveItems, []);
+  assert.deepEqual(
+    snapshot.keyMatchups.map((entry) => entry.bucket.game.key),
+    ['active-week-upcoming']
+  );
+  assert.deepEqual(
+    snapshot.sectionItems.map((entry) => entry.bucket.game.key),
+    ['prior-week-awaiting', 'active-week-upcoming']
+  );
+});
+
 test('overview key matchups keep owned-vs-owned games ahead of other owned-team games for the selected week', () => {
   const rosterByTeam = new Map([
     ['Texas', 'Alice'],

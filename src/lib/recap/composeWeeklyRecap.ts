@@ -35,6 +35,7 @@ export type WeeklyRecapMovementLine = {
 export type WeeklyRecapGameLine = {
   kind: 'game';
   id: string;
+  gameKey: string;
   label: string;
   detail: string;
   winner: { team: string; owner: string | null; score: string };
@@ -342,6 +343,7 @@ function finalizeGameLine(line: MutableGameLine): WeeklyRecapGameLine {
   return {
     kind: 'game',
     id: `game-${line.gameKey}`,
+    gameKey: line.gameKey,
     label: qualifiers.map(([label]) => label).join(' · '),
     detail: [...new Set(qualifiers.map(([, detail]) => detail))].join(' · '),
     winner: line.winner,

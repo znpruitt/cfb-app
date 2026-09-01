@@ -36,6 +36,12 @@ import {
   selectOverviewViewModel,
   type PrioritizedOverviewItem,
 } from '../lib/selectors/overview';
+import {
+  selectOverviewGameSections,
+  type OverviewGamePresentation,
+  type OverviewGameRouteStatus,
+  type OverviewSectionItem,
+} from '../lib/selectors/overviewGameSections';
 import type { SeasonContext } from '../lib/selectors/seasonContext';
 import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
 import {
@@ -685,21 +691,24 @@ function liveScoreboardClock(score: ScorePack | null | undefined): string {
 function GameCardList({
   items,
   rankingsByTeamId,
+  timeZone,
 }: {
-  items: OverviewGameItem[];
+  items: OverviewSectionItem[];
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
+  timeZone: string;
 }): React.ReactElement {
-  if (items.length === 0) {
-    return <p className="text-sm text-gray-500 dark:text-zinc-400">No live games.</p>;
-  }
+  const isFinalList = items[0]?.routeStatus.kind === 'final';
 
   return (
     <div
       className="grid grid-cols-2 gap-x-10 @max-[760.01px]:grid-cols-1"
-      data-live-scoreboard-grid
+      data-live-scoreboard-grid={isFinalList ? undefined : true}
+      data-recent-finals-scoreboard-grid={isFinalList ? true : undefined}
     >
       {items.map((item) => {
         const game = item.bucket.game;
+        const isFinal = item.routeStatus.kind === 'final';
+        const isAwaitingScore = item.routeStatus.kind === 'awaiting-score';
         const awayTeamId = getGameParticipantTeamId(game, 'away') ?? game.canAway;
         const homeTeamId = getGameParticipantTeamId(game, 'home') ?? game.canHome;
         const awayRanking = getTeamRanking(rankingsByTeamId, awayTeamId);
@@ -708,22 +717,28 @@ function GameCardList({
         return (
           <CompactGameScoreboard
             key={game.key}
-            state="live"
-            clock={liveScoreboardClock(item.score)}
+            state={isFinal ? 'final' : 'live'}
+            clock={
+              isFinal
+                ? formatExpandedKickoff(game.date, timeZone, game.startTimeTBD)
+                : isAwaitingScore
+                  ? item.routeStatus.label
+                  : liveScoreboardClock(item.score)
+            }
             matchupLabel={formatGameMatchupLabel(game)}
             away={{
               teamName: game.csvAway,
               owner: item.bucket.awayOwner === NO_CLAIM_OWNER ? null : item.bucket.awayOwner,
               rank: awayRanking.rank,
               rankSource: awayRanking.rankSource,
-              score: item.score?.away.score ?? null,
+              score: isAwaitingScore ? null : (item.score?.away.score ?? null),
             }}
             home={{
               teamName: game.csvHome,
               owner: item.bucket.homeOwner === NO_CLAIM_OWNER ? null : item.bucket.homeOwner,
               rank: homeRanking.rank,
               rankSource: homeRanking.rankSource,
-              score: item.score?.home.score ?? null,
+              score: isAwaitingScore ? null : (item.score?.home.score ?? null),
             }}
           />
         );
@@ -737,12 +752,14 @@ function GameSummaryList({
   emptyMessage,
   timeZone,
   rankingsByTeamId,
+  routeStatusByGameKey,
   density = 'compact',
 }: {
   prioritizedItems: PrioritizedOverviewItem[];
   emptyMessage: string;
   timeZone: string;
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
+  routeStatusByGameKey?: ReadonlyMap<string, OverviewGameRouteStatus>;
   density?: 'compact' | 'featured';
 }): React.ReactElement {
   if (prioritizedItems.length === 0) {
@@ -756,8 +773,14 @@ function GameSummaryList({
         const score = item.score;
         const awayScore = score?.away.score ?? '—';
         const homeScore = score?.home.score ?? '—';
-        const status = score?.status ?? 'Scheduled';
-        const state = gameStateFromScore(score);
+        const routeStatus = routeStatusByGameKey?.get(item.bucket.game.key);
+        const status = routeStatus?.label ?? score?.status ?? 'Scheduled';
+        const state =
+          routeStatus?.kind === 'live' || routeStatus?.kind === 'awaiting-score'
+            ? 'inprogress'
+            : routeStatus?.kind === 'final'
+              ? 'final'
+              : gameStateFromScore(score);
         const statusLabel = gameStatusLabelPresentation(state === 'inprogress' ? 'live' : state);
         const kickoff = formatExpandedKickoff(
           item.bucket.game.date,
@@ -1296,6 +1319,9 @@ type OverviewPanelProps = {
   matchupMatrix: OwnerMatchupMatrix;
   liveItems: OverviewGameItem[];
   keyMatchups: OverviewGameItem[];
+  sectionItems?: OverviewGameItem[];
+  nowMs: number;
+  gamePresentation: Pick<OverviewGamePresentation, 'phase' | 'recapGameKeys' | 'expiredFinalWeeks'>;
   context: OverviewContext;
   displayTimeZone?: string;
   onOwnerSelect?: (owner: string) => void;
@@ -1334,6 +1360,9 @@ export default function OverviewPanel({
   matchupMatrix,
   liveItems,
   keyMatchups,
+  sectionItems,
+  nowMs,
+  gamePresentation,
   context,
   displayTimeZone,
   onOwnerSelect,
@@ -1448,7 +1477,6 @@ export default function OverviewPanel({
     const labelMap = buildWeekLabelMap(games);
     return (week: number) => formatWeekLabel(week, labelMap);
   }, [games]);
-  const liveTitle = `Live · ${liveItems.length}`;
   const ownersWithInProgressGames = React.useMemo(
     () => selectOwnersWithInProgressGames({ games, scoresByKey, rosterByTeam }),
     [games, scoresByKey, rosterByTeam]
@@ -1483,6 +1511,52 @@ export default function OverviewPanel({
       seasonContext,
     ]
   );
+  const routedSectionItems = React.useMemo(
+    () => sectionItems ?? [...liveItems, ...keyMatchups],
+    [keyMatchups, liveItems, sectionItems]
+  );
+  const eligibleWatchlistKeys = React.useMemo(
+    () => new Set(viewModel.featuredMatchups.map(({ item }) => item.bucket.game.key)),
+    [viewModel.featuredMatchups]
+  );
+  const featuredGameKeys = React.useMemo(
+    () => new Set(viewModel.recentResults.map(({ item }) => item.bucket.game.key)),
+    [viewModel.recentResults]
+  );
+  const gameSections = React.useMemo(
+    () =>
+      selectOverviewGameSections({
+        items: routedSectionItems,
+        eligibleWatchlistKeys,
+        featuredGameKeys,
+        presentation: gamePresentation,
+        now: new Date(nowMs),
+      }),
+    [eligibleWatchlistKeys, featuredGameKeys, gamePresentation, nowMs, routedSectionItems]
+  );
+  const watchlistByKey = React.useMemo(
+    () =>
+      new Map(
+        viewModel.featuredMatchups.map((prioritized) => [
+          prioritized.item.bucket.game.key,
+          prioritized,
+        ])
+      ),
+    [viewModel.featuredMatchups]
+  );
+  const scheduledItems = React.useMemo(
+    () =>
+      gameSections.scheduled.flatMap((item) => {
+        const prioritized = watchlistByKey.get(item.bucket.game.key);
+        return prioritized ? [prioritized] : [];
+      }),
+    [gameSections.scheduled, watchlistByKey]
+  );
+  const scheduledStatusByKey = React.useMemo(
+    () => new Map(gameSections.scheduled.map((item) => [item.bucket.game.key, item.routeStatus])),
+    [gameSections.scheduled]
+  );
+  const liveTitle = `Live · ${gameSections.live.length}`;
   const sharedInsights = React.useMemo(() => {
     // Insight narratives compare against historyForRender's resolved weeks. If
     // we feed deriveLeagueInsights raw rowsForRender during a partial week, the
@@ -1652,7 +1726,7 @@ export default function OverviewPanel({
       </section>
 
       {/* Upcoming watchlist */}
-      {viewModel.shouldShowFeaturedMatchups ? (
+      {scheduledItems.length > 0 ? (
         <>
           <SectionDivider />
           <section>
@@ -1670,10 +1744,11 @@ export default function OverviewPanel({
             />
             <div className="mt-2.5">
               <GameSummaryList
-                prioritizedItems={viewModel.featuredMatchups}
+                prioritizedItems={scheduledItems}
                 emptyMessage="No featured matchups yet for this slate."
                 timeZone={timeZone}
                 rankingsByTeamId={rankingsByTeamId}
+                routeStatusByGameKey={scheduledStatusByKey}
                 density="featured"
               />
             </div>
@@ -1682,7 +1757,7 @@ export default function OverviewPanel({
       ) : null}
 
       {/* Live games */}
-      {liveItems.length > 0 ? (
+      {gameSections.live.length > 0 ? (
         <>
           <SectionDivider />
           <section className="@container">
@@ -1692,14 +1767,42 @@ export default function OverviewPanel({
                 <button
                   type="button"
                   className={viewMoreLinkClass}
-                  onClick={() => onViewMatchups?.(liveItems[0]?.bucket.game)}
+                  onClick={() => onViewMatchups?.(gameSections.live[0]?.bucket.game)}
                 >
                   All matchups →
                 </button>
               }
             />
             <div className="mt-2.5">
-              <GameCardList items={liveItems} rankingsByTeamId={rankingsByTeamId} />
+              <GameCardList
+                items={gameSections.live}
+                rankingsByTeamId={rankingsByTeamId}
+                timeZone={timeZone}
+              />
+            </div>
+          </section>
+        </>
+      ) : null}
+
+      {/* Recent finals */}
+      {gameSections.recentFinals.length > 0 ? (
+        <>
+          <SectionDivider />
+          <section className="@container">
+            <SectionHeader
+              title="Recent finals"
+              action={
+                <button type="button" className={viewMoreLinkClass} onClick={onViewSchedule}>
+                  All results →
+                </button>
+              }
+            />
+            <div className="mt-2.5">
+              <GameCardList
+                items={gameSections.recentFinals}
+                rankingsByTeamId={rankingsByTeamId}
+                timeZone={timeZone}
+              />
             </div>
           </section>
         </>
