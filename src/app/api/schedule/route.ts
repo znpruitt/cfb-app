@@ -85,6 +85,36 @@ interface ScheduleResponse {
   meta: ScheduleMeta;
 }
 
+/**
+ * The client tracks any game involving an FBS team and performs the richer
+ * resolver-backed eligibility check after parsing. Provider classifications
+ * let the route remove only rows that cannot pass that client check: both
+ * participants are known and neither is FBS. Missing classifications remain
+ * in the response so legacy/provider gaps still reach the canonical resolver.
+ *
+ * This is a response-only projection. Canonical durable and process-cache
+ * entries retain the complete provider schedule.
+ */
+function filterScheduleItemsForResponse(items: ScheduleItem[]): ScheduleItem[] {
+  return items.filter(
+    (item) =>
+      !item.homeClassification ||
+      !item.awayClassification ||
+      item.homeClassification === 'fbs' ||
+      item.awayClassification === 'fbs'
+  );
+}
+
+async function responseScheduleItems(params: {
+  year: number;
+  items: ScheduleItem[];
+}): Promise<PresentationEnrichedScheduleItem[]> {
+  return enrichScheduleItemsWithPresentation({
+    year: params.year,
+    items: filterScheduleItemsForResponse(params.items),
+  });
+}
+
 function isFreshScheduleCacheEntry(
   entry: (typeof SCHEDULE_ROUTE_CACHE)[string] | undefined,
   now: number
@@ -584,10 +614,7 @@ async function fullSeasonRefreshResponse(
     );
   }
   return NextResponse.json<ScheduleResponse>({
-    items: await enrichScheduleItemsWithPresentation({
-      year: result.requestedYear,
-      items: result.items,
-    }),
+    items: await responseScheduleItems({ year: result.requestedYear, items: result.items }),
     meta: {
       source: 'cfbd',
       cache: 'miss',
@@ -664,7 +691,7 @@ export async function GET(req: Request) {
         if (isFreshScheduleCacheEntry(entry, now)) {
           recordRouteCacheHit('schedule');
           return NextResponse.json<ScheduleResponse>({
-            items: await enrichScheduleItemsWithPresentation({ year, items: entry.items }),
+            items: await responseScheduleItems({ year, items: entry.items }),
             meta: {
               source: 'cfbd',
               cache: 'hit',
@@ -683,7 +710,7 @@ export async function GET(req: Request) {
         if (!isAdmin) {
           recordRouteCacheHit('schedule');
           return NextResponse.json<ScheduleResponse>({
-            items: await enrichScheduleItemsWithPresentation({ year, items: entry.items }),
+            items: await responseScheduleItems({ year, items: entry.items }),
             meta: {
               source: 'cfbd',
               cache: 'hit',
@@ -716,7 +743,7 @@ export async function GET(req: Request) {
     if (!bypassCache && isFreshScheduleCacheEntry(hit, now)) {
       recordRouteCacheHit('schedule');
       return NextResponse.json<ScheduleResponse>({
-        items: await enrichScheduleItemsWithPresentation({ year, items: hit.items }),
+        items: await responseScheduleItems({ year, items: hit.items }),
         meta: {
           source: 'cfbd',
           cache: 'hit',
@@ -736,7 +763,7 @@ export async function GET(req: Request) {
         pruneCache(SCHEDULE_ROUTE_CACHE, 'schedule');
         recordRouteCacheHit('schedule');
         return NextResponse.json<ScheduleResponse>({
-          items: await enrichScheduleItemsWithPresentation({ year, items: storedValue.items }),
+          items: await responseScheduleItems({ year, items: storedValue.items }),
           meta: {
             source: 'cfbd',
             cache: 'hit',
@@ -756,7 +783,7 @@ export async function GET(req: Request) {
           pruneCache(SCHEDULE_ROUTE_CACHE, 'schedule');
           recordRouteCacheHit('schedule');
           return NextResponse.json<ScheduleResponse>({
-            items: await enrichScheduleItemsWithPresentation({ year, items: storedValue.items }),
+            items: await responseScheduleItems({ year, items: storedValue.items }),
             meta: {
               source: 'cfbd',
               cache: 'hit',
@@ -856,7 +883,7 @@ export async function GET(req: Request) {
       .sort((a, b) => a.week - b.week || (a.startDate ?? '').localeCompare(b.startDate ?? ''));
 
     return NextResponse.json<ScheduleResponse>({
-      items: await enrichScheduleItemsWithPresentation({ year, items }),
+      items: await responseScheduleItems({ year, items }),
       meta: {
         source: 'cfbd',
         cache: 'miss',
@@ -1236,7 +1263,7 @@ export async function GET(req: Request) {
   }
 
   return NextResponse.json<ScheduleResponse>({
-    items: await enrichScheduleItemsWithPresentation({ year, items }),
+    items: await responseScheduleItems({ year, items }),
     meta: {
       source: 'cfbd',
       cache: 'miss',

@@ -29,8 +29,7 @@ import {
   loadReconciledWeekScores,
 } from '@/lib/server/scoreCacheReader';
 import { getApplicableScoreSeasonTypes } from '@/lib/server/scoreApplicability';
-import { getLeagues } from '@/lib/leagueRegistry';
-import { invalidateStandings } from '@/lib/selectors/leagueStandings';
+import { invalidateAndWarmStandingsForYear } from '@/lib/server/standingsCacheWarmer';
 import {
   newestEffectiveRowTimestamp,
   pruneScoresCache,
@@ -286,24 +285,6 @@ function parseNonNegativeInt(raw: string | null): number | null {
   return parsed >= 0 ? parsed : null;
 }
 
-/**
- * Invalidate canonical standings for every league at the given year. Scores
- * are season-scoped, not league-scoped, so we walk the registry. The set is
- * small; per-tag revalidate is cheap. Failures are swallowed so a registry
- * read error does not roll back a successful score write.
- */
-async function invalidateStandingsForYear(year: number): Promise<void> {
-  try {
-    const leagues = await getLeagues();
-    for (const league of leagues) {
-      invalidateStandings(league.slug, year);
-    }
-  } catch {
-    // Non-fatal — scores already persisted; canonical will refresh on the
-    // next mutation or natural cache turnover.
-  }
-}
-
 function logDebug(params: {
   requestId: string | null;
   event: string;
@@ -540,7 +521,7 @@ async function refreshScorePartition(params: {
     const committedAt = new Date().toISOString();
     const commitSeq = nextProviderCommitSeq();
     SCORES_CACHE[cacheKey] = committedEntry;
-    await invalidateStandingsForYear(year);
+    await invalidateAndWarmStandingsForYear(year);
     pruneScoresCache(SCORES_CACHE, MAX_CACHE_ENTRIES, (evicted, cacheSize) => {
       if (IS_DEBUG) {
         console.log('cfbd cache evicted', {

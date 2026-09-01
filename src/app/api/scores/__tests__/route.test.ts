@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import '../../draft/[slug]/[year]/__tests__/_setup/installAsyncLocalStorage';
+import { workAsyncStorage } from 'next/dist/server/app-render/work-async-storage.external';
+
 import { GET } from '../route';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
   __setAppStateReadFailureForTests,
   __setAppStateWriteFailureForTests,
+  getAppState,
   setAppState,
 } from '../../../../lib/server/appStateStore.ts';
 import {
@@ -21,6 +25,7 @@ import {
   weekPartitionScope,
   yearScope,
 } from '../../../../lib/providerRefreshScope.ts';
+import { __setCanonicalStandingsWarmerForTests } from '../../../../lib/server/standingsCacheWarmer.ts';
 
 type MockFetch = typeof fetch;
 
@@ -31,8 +36,21 @@ function setMockFetch(impl: Parameters<MockFetch>[1] extends never ? never : any
 test.beforeEach(async () => {
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
+  __setCanonicalStandingsWarmerForTests(null);
   process.env.CFBD_API_KEY = 'test-cfbd-token';
 });
+
+async function runWithNextStore<T>(fn: () => Promise<T>): Promise<T> {
+  return workAsyncStorage.run(
+    {
+      route: '/api/scores',
+      incrementalCache: {},
+      pendingRevalidatedTags: [] as string[],
+      pathWasRevalidated: false,
+    } as never,
+    fn
+  );
+}
 
 test('scores route validates seasonType query parameter', async () => {
   let fetchCalls = 0;
@@ -1164,6 +1182,79 @@ function setAggregateMock(spec: {
     );
   });
 }
+
+test('a committed score refresh warms every invalidated league for the written year', async () => {
+  await setAppState('leagues', 'registry', [
+    {
+      slug: 'alpha',
+      displayName: 'Alpha',
+      year: 2026,
+      status: { state: 'season', year: 2026 },
+      createdAt: '2026-01-01T00:00:00.000Z',
+    },
+    {
+      slug: 'beta',
+      displayName: 'Beta',
+      year: 2026,
+      status: { state: 'season', year: 2026 },
+      createdAt: '2026-01-01T00:00:00.000Z',
+    },
+  ]);
+  setMockFetch(
+    async () =>
+      new Response(JSON.stringify(gamePayload('Texas', 'Rice')), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+  );
+  const warmed: Array<{ slug: string; year: number }> = [];
+  __setCanonicalStandingsWarmerForTests(async (slug, year) => {
+    warmed.push({ slug, year });
+  });
+
+  const res = await runWithNextStore(() =>
+    GET(new Request('http://localhost/api/scores?year=2026&week=3&seasonType=regular&refresh=1'))
+  );
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(warmed, [
+    { slug: 'alpha', year: 2026 },
+    { slug: 'beta', year: 2026 },
+  ]);
+});
+
+test('a standings warm failure remains non-fatal after the score commit', async () => {
+  await setAppState('leagues', 'registry', [
+    {
+      slug: 'alpha',
+      displayName: 'Alpha',
+      year: 2026,
+      status: { state: 'season', year: 2026 },
+      createdAt: '2026-01-01T00:00:00.000Z',
+    },
+  ]);
+  setMockFetch(
+    async () =>
+      new Response(JSON.stringify(gamePayload('Texas', 'Rice')), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+  );
+  let warmAttempts = 0;
+  __setCanonicalStandingsWarmerForTests(async () => {
+    warmAttempts += 1;
+    throw new Error('standings warm unavailable');
+  });
+
+  const res = await runWithNextStore(() =>
+    GET(new Request('http://localhost/api/scores?year=2026&week=3&seasonType=regular&refresh=1'))
+  );
+
+  assert.equal(warmAttempts, 1, 'the test observed the rejecting warm attempt');
+  assert.equal(res.status, 200, 'post-commit warming cannot relabel a valid score write');
+  const durable = await getAppState<{ items: unknown[] }>('scores', '2026-3-regular');
+  assert.equal(durable?.value.items.length, 1, 'the committed score remains durable');
+});
 
 test('aggregate scores refresh: both partitions succeed → success, rows summed, one attempt', async () => {
   setAggregateMock({ regular: 'ok', postseason: 'ok' });

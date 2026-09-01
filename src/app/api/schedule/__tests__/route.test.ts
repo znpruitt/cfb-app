@@ -127,6 +127,87 @@ test('schedule route returns mapped items from CFBD upstream', async () => {
   assert.equal(json.meta.source, 'cfbd');
 });
 
+test('schedule responses exclude only games with two known non-FBS classifications', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+
+  const providerRows = [
+    {
+      id: 1,
+      week: 1,
+      home_team: 'FBS Home',
+      away_team: 'FBS Away',
+      home_classification: 'fbs',
+      away_classification: 'fbs',
+    },
+    {
+      id: 2,
+      week: 1,
+      home_team: 'FBS Host',
+      away_team: 'FCS Visitor',
+      home_classification: 'fbs',
+      away_classification: 'fcs',
+    },
+    {
+      id: 3,
+      week: 1,
+      home_team: 'Division II Home',
+      away_team: 'Division II Away',
+      home_classification: 'ii',
+      away_classification: 'ii',
+    },
+    {
+      id: 4,
+      week: 1,
+      home_team: 'Division III Home',
+      away_team: 'Division III Away',
+      home_classification: 'iii',
+      away_classification: 'iii',
+    },
+    {
+      id: 5,
+      week: 1,
+      home_team: 'Unknown Home',
+      away_team: 'Unknown Away',
+    },
+  ];
+
+  setMockFetch(
+    async () =>
+      new Response(JSON.stringify(providerRows), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+  );
+
+  const refreshed = await GET(
+    new Request('http://localhost/api/schedule?year=2027&seasonType=regular&bypassCache=1')
+  );
+  const refreshedJson = await refreshed.json();
+  assert.equal(refreshed.status, 200);
+  assert.deepEqual(
+    refreshedJson.items.map((item: { id: string }) => item.id),
+    ['1', '2', '5'],
+    'FBS/FBS, FBS/FCS, and unknown/unknown rows survive the response filter'
+  );
+
+  const durable = await getAppState<{ items: ScheduleItem[] }>('schedule', '2027-all-regular');
+  assert.deepEqual(
+    durable?.value.items.map((item) => item.id),
+    ['1', '2', '3', '4', '5'],
+    'the durable canonical schedule remains unfiltered'
+  );
+
+  const cached = await GET(
+    new Request('http://localhost/api/schedule?year=2027&seasonType=regular')
+  );
+  const cachedJson = await cached.json();
+  assert.deepEqual(
+    cachedJson.items.map((item: { id: string }) => item.id),
+    ['1', '2', '5'],
+    'process-cache responses apply the same response-only filter'
+  );
+});
+
 test('a full-year manual refresh writes the catalog-backed UTC date to the probe', async () => {
   process.env.CFBD_API_KEY = 'test-cfbd-token';
   process.env.ADMIN_API_TOKEN = 'admin-token';

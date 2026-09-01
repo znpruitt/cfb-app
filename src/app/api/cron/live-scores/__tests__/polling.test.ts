@@ -15,6 +15,7 @@ import {
   setAppState,
 } from '@/lib/server/appStateStore';
 import { getProviderRefreshStatus } from '@/lib/server/providerRefreshStatus';
+import { __setCanonicalStandingsWarmerForTests } from '@/lib/server/standingsCacheWarmer';
 
 import {
   YEAR,
@@ -26,7 +27,11 @@ import {
   stubProvider,
 } from './harness';
 
-test.beforeEach(resetForTest);
+test.beforeEach(async () => {
+  await resetForTest();
+  __setCanonicalStandingsWarmerForTests(null);
+});
+test.afterEach(() => __setCanonicalStandingsWarmerForTests(null));
 test.after(restoreEnv);
 
 function scoreboardRow(o: {
@@ -115,6 +120,53 @@ test('a live scoreboard score is written once; exact week-partition status, no y
   assert.equal(weekStatus.latestAttemptOutcome, 'succeeded');
   const yearStatus = await getProviderRefreshStatus('scores', yearScope(YEAR));
   assert.equal(yearStatus.latestAttemptOutcome, null);
+});
+
+test('the live-score writer warms the invalidated league and isolates a warm failure', async () => {
+  await seedSchedule([{ id: 401001, week: 3, ageHours: 1, homeId: 333, awayId: 61 }]);
+  await setAppState('leagues', 'registry', [
+    {
+      slug: 'league-a',
+      displayName: 'League A',
+      year: YEAR,
+      status: { state: 'season', year: YEAR },
+      createdAt: '2026-01-01T00:00:00.000Z',
+    },
+  ]);
+  stubProvider({
+    scoreboard: [
+      scoreboardRow({
+        id: 401001,
+        status: 'in_progress',
+        period: 2,
+        clock: '05:00',
+        homeId: 333,
+        awayId: 61,
+        home: 'Alabama',
+        away: 'Georgia',
+        hp: 14,
+        ap: 7,
+      }),
+    ],
+  });
+  const warmed: Array<{ slug: string; year: number }> = [];
+  __setCanonicalStandingsWarmerForTests(async (slug, year) => {
+    warmed.push({ slug, year });
+    throw new Error('standings warm unavailable');
+  });
+  const store = {
+    route: '/api/cron/live-scores',
+    incrementalCache: {},
+    pendingRevalidatedTags: [] as string[],
+    pathWasRevalidated: false,
+  };
+
+  const { res, event } = await workAsyncStorage.run(store as never, () => runCron());
+
+  assert.deepEqual(warmed, [{ slug: 'league-a', year: YEAR }]);
+  assert.equal(event.result, 'success', 'warming cannot relabel a committed live-score run');
+  assert.equal(res!.status, 200);
+  assert.equal((await readScores(3))?.items.length, 1, 'the score commit remains durable');
 });
 
 test('one scoreboard request serves targets spanning multiple week partitions', async () => {
