@@ -29,8 +29,10 @@ import {
   loadReconciledWeekScores,
 } from '@/lib/server/scoreCacheReader';
 import { getApplicableScoreSeasonTypes } from '@/lib/server/scoreApplicability';
-import { getLeagues } from '@/lib/leagueRegistry';
-import { invalidateStandings } from '@/lib/selectors/leagueStandings';
+import {
+  invalidateAndWarmStandingsForYear,
+  invalidateStandingsForYear,
+} from '@/lib/server/standingsCacheWarmer';
 import {
   newestEffectiveRowTimestamp,
   pruneScoresCache,
@@ -286,24 +288,6 @@ function parseNonNegativeInt(raw: string | null): number | null {
   return parsed >= 0 ? parsed : null;
 }
 
-/**
- * Invalidate canonical standings for every league at the given year. Scores
- * are season-scoped, not league-scoped, so we walk the registry. The set is
- * small; per-tag revalidate is cheap. Failures are swallowed so a registry
- * read error does not roll back a successful score write.
- */
-async function invalidateStandingsForYear(year: number): Promise<void> {
-  try {
-    const leagues = await getLeagues();
-    for (const league of leagues) {
-      invalidateStandings(league.slug, year);
-    }
-  } catch {
-    // Non-fatal — scores already persisted; canonical will refresh on the
-    // next mutation or natural cache turnover.
-  }
-}
-
 function logDebug(params: {
   requestId: string | null;
   event: string;
@@ -406,8 +390,9 @@ async function refreshScorePartition(params: {
   cfbdApiKey: string;
   now: number;
   requestId: string | null;
+  warmStandings?: boolean;
 }): Promise<ScorePartitionResult> {
-  const { year, week, seasonType, cfbdApiKey, now, requestId } = params;
+  const { year, week, seasonType, cfbdApiKey, now, requestId, warmStandings = true } = params;
   const cacheKey: CacheKey = `${year}-${week ?? 'all'}-${seasonType}`;
   try {
     const cfbdUrl = buildCfbdGamesUrl({ year, seasonType, week });
@@ -540,7 +525,8 @@ async function refreshScorePartition(params: {
     const committedAt = new Date().toISOString();
     const commitSeq = nextProviderCommitSeq();
     SCORES_CACHE[cacheKey] = committedEntry;
-    await invalidateStandingsForYear(year);
+    if (warmStandings) await invalidateAndWarmStandingsForYear(year);
+    else await invalidateStandingsForYear(year);
     pruneScoresCache(SCORES_CACHE, MAX_CACHE_ENTRIES, (evicted, cacheSize) => {
       if (IS_DEBUG) {
         console.log('cfbd cache evicted', {
@@ -674,7 +660,15 @@ async function handleAggregateScoreRefresh(params: {
   // Aggregate refresh is season-wide (week=null) per applicable partition.
   const results = await Promise.all(
     seasonTypes.map((seasonType) =>
-      refreshScorePartition({ year, week: null, seasonType, cfbdApiKey, now, requestId })
+      refreshScorePartition({
+        year,
+        week: null,
+        seasonType,
+        cfbdApiKey,
+        now,
+        requestId,
+        warmStandings: false,
+      })
     )
   );
 
@@ -684,6 +678,10 @@ async function handleAggregateScoreRefresh(params: {
   const failures = results.filter(
     (r): r is Extract<ScorePartitionResult, { kind: 'failure' }> => r.kind === 'failure'
   );
+  // The aggregate owns one complete write set. Warm only after every partition
+  // settles so no intermediate regular-only/postseason-only snapshot can race
+  // the final durable view.
+  if (successes.length > 0) await invalidateAndWarmStandingsForYear(year);
   const rowsCommitted = successes.reduce((n, r) => n + r.items.length, 0);
   const durationMs = Date.now() - now;
 

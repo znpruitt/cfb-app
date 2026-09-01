@@ -25,8 +25,7 @@ import { normalizeScoreboardPayload } from '@/lib/liveScores/scoreboardPayload';
 import { mergeScoresIntoPartition } from '@/lib/liveScores/scoreMerge';
 import { weekPartitionScope, type ProviderRefreshScope } from '@/lib/providerRefreshScope';
 import { seasonYearForToday } from '@/lib/scores/normalizers';
-import { getLeagues } from '@/lib/leagueRegistry';
-import { invalidateStandings } from '@/lib/selectors/leagueStandings';
+import { invalidateAndWarmStandingsForYear } from '@/lib/server/standingsCacheWarmer';
 import {
   beginProviderRefreshAttempt,
   nextProviderCommitSeq,
@@ -148,20 +147,6 @@ async function failAllAttempts(
       recordProviderRefreshFailure('scores', pa.scope, { attempt: pa.attempt, error, code })
     )
   );
-}
-
-/**
- * Invalidate canonical standings for every league at `year`. Scores are
- * season-scoped, not league-scoped, so we walk the registry. Failures are
- * swallowed so a registry read error does not roll back a successful write.
- */
-async function invalidateStandingsForYear(year: number): Promise<void> {
-  try {
-    const leagues = await getLeagues();
-    for (const league of leagues) invalidateStandings(league.slug, year);
-  } catch {
-    // Non-fatal — scores already persisted; canonical refreshes on next turnover.
-  }
 }
 
 export async function GET(req: Request) {
@@ -462,11 +447,11 @@ async function runScoreboard(args: {
     }
   }
 
-  // Invalidate standings immediately after the durable score writes. The
-  // optional records request below may occupy its full provider timeout; putting
-  // invalidation after that wait lets a browser observe the final score while a
-  // canonical standings refresh still serves its pre-final tagged snapshot.
-  if (totalCommitted > 0) await invalidateStandingsForYear(year);
+  // Invalidate and warm standings immediately after the durable score writes.
+  // The optional records request below may occupy its full provider timeout;
+  // putting cache maintenance after that wait lets a browser observe the final
+  // score while canonical standings still serve their pre-final snapshot.
+  if (totalCommitted > 0) await invalidateAndWarmStandingsForYear(year);
 
   // PLATFORM-117: only a final transition confirmed by the transaction result
   // can trigger the year-wide records authority. Its failure is isolated in the
@@ -590,12 +575,12 @@ async function runFinalReconciliation(args: {
   }
 
   // Capture ordering metadata immediately after the durable commit and BEFORE the
-  // slower standings invalidation, so two overlapping commits cannot invert their
-  // last-success ordering (an older commit's slow invalidation must not stamp it
-  // with a later commitSeq than a newer commit).
+  // slower standings invalidation/warm, so two overlapping commits cannot invert
+  // their last-success ordering (an older commit's slow cache maintenance must not
+  // stamp it with a later commitSeq than a newer commit).
   const committedAt = new Date().toISOString();
   const commitSeq = nextProviderCommitSeq();
-  if (mergeResult.committed > 0) await invalidateStandingsForYear(year);
+  if (mergeResult.committed > 0) await invalidateAndWarmStandingsForYear(year);
 
   const { confirmedIds, pendingTargetCount } = parse;
   // A write-free run committed nothing durably (e.g. a concurrent op cleared the

@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import '../../../../test/installAsyncLocalStorage';
+import { workAsyncStorage } from 'next/dist/server/app-render/work-async-storage.external';
+
 import { GET } from '../route';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
   __setAppStateReadFailureForTests,
   __setAppStateWriteFailureForTests,
+  getAppState,
   setAppState,
 } from '../../../../lib/server/appStateStore.ts';
 import {
@@ -21,6 +25,10 @@ import {
   weekPartitionScope,
   yearScope,
 } from '../../../../lib/providerRefreshScope.ts';
+import {
+  __setCanonicalStandingsInvalidatorForTests,
+  __setCanonicalStandingsWarmerForTests,
+} from '../../../../lib/server/standingsCacheWarmer.ts';
 
 type MockFetch = typeof fetch;
 
@@ -31,8 +39,22 @@ function setMockFetch(impl: Parameters<MockFetch>[1] extends never ? never : any
 test.beforeEach(async () => {
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
+  __setCanonicalStandingsInvalidatorForTests(null);
+  __setCanonicalStandingsWarmerForTests(null);
   process.env.CFBD_API_KEY = 'test-cfbd-token';
 });
+
+async function runWithNextStore<T>(fn: () => Promise<T>): Promise<T> {
+  return workAsyncStorage.run(
+    {
+      route: '/api/scores',
+      incrementalCache: { revalidateTag: async () => undefined },
+      pendingRevalidatedTags: [] as string[],
+      pathWasRevalidated: false,
+    } as never,
+    fn
+  );
+}
 
 test('scores route validates seasonType query parameter', async () => {
   let fetchCalls = 0;
@@ -1165,15 +1187,164 @@ function setAggregateMock(spec: {
   });
 }
 
-test('aggregate scores refresh: both partitions succeed → success, rows summed, one attempt', async () => {
+test('a committed score refresh warms every invalidated league for the written year', async () => {
+  await setAppState('leagues', 'registry', [
+    {
+      slug: 'alpha',
+      displayName: 'Alpha',
+      year: 2026,
+      status: { state: 'season', year: 2026 },
+      createdAt: '2026-01-01T00:00:00.000Z',
+    },
+    {
+      slug: 'beta',
+      displayName: 'Beta',
+      year: 2026,
+      status: { state: 'season', year: 2026 },
+      createdAt: '2026-01-01T00:00:00.000Z',
+    },
+  ]);
+  setMockFetch(
+    async () =>
+      new Response(JSON.stringify(gamePayload('Texas', 'Rice')), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+  );
+  const warmed: Array<{ slug: string; year: number }> = [];
+  __setCanonicalStandingsWarmerForTests(async (slug, year) => {
+    warmed.push({ slug, year });
+  });
+
+  const res = await runWithNextStore(() =>
+    GET(new Request('http://localhost/api/scores?year=2026&week=3&seasonType=regular&refresh=1'))
+  );
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(warmed, [
+    { slug: 'alpha', year: 2026 },
+    { slug: 'beta', year: 2026 },
+  ]);
+});
+
+test('a standings warm failure remains non-fatal after the score commit', async () => {
+  await setAppState('leagues', 'registry', [
+    {
+      slug: 'alpha',
+      displayName: 'Alpha',
+      year: 2026,
+      status: { state: 'season', year: 2026 },
+      createdAt: '2026-01-01T00:00:00.000Z',
+    },
+  ]);
+  setMockFetch(
+    async () =>
+      new Response(JSON.stringify(gamePayload('Texas', 'Rice')), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+  );
+  let warmAttempts = 0;
+  __setCanonicalStandingsWarmerForTests(async () => {
+    warmAttempts += 1;
+    throw new Error('standings warm unavailable');
+  });
+
+  const res = await runWithNextStore(() =>
+    GET(new Request('http://localhost/api/scores?year=2026&week=3&seasonType=regular&refresh=1'))
+  );
+
+  assert.equal(warmAttempts, 1, 'the test observed the rejecting warm attempt');
+  assert.equal(res.status, 200, 'post-commit warming cannot relabel a valid score write');
+  const durable = await getAppState<{ items: unknown[] }>('scores', '2026-3-regular');
+  assert.equal(durable?.value.items.length, 1, 'the committed score remains durable');
+});
+
+test('aggregate scores refresh: both partitions commit before one standings warm', async () => {
+  await setAppState('leagues', 'registry', [
+    {
+      slug: 'alpha',
+      displayName: 'Alpha',
+      year: 2026,
+      status: { state: 'season', year: 2026 },
+      createdAt: '2026-01-01T00:00:00.000Z',
+    },
+  ]);
   setAggregateMock({ regular: 'ok', postseason: 'ok' });
-  const res = await GET(new Request(AGGREGATE_URL));
+  let warmAttempts = 0;
+  __setCanonicalStandingsWarmerForTests(async (slug, year) => {
+    warmAttempts += 1;
+    assert.equal(slug, 'alpha');
+    assert.equal(year, 2026);
+    assert.ok(await getAppState('scores', '2026-all-regular'));
+    assert.ok(await getAppState('scores', '2026-all-postseason'));
+  });
+
+  const res = await runWithNextStore(() => GET(new Request(AGGREGATE_URL)));
   assert.equal(res.status, 200);
   const json = await res.json();
   assert.equal(json.items.length, 2, 'both partitions contribute rows to one response');
+  assert.equal(warmAttempts, 1, 'the aggregate publishes no intermediate partition warm');
   const status = await getProviderRefreshStatus('scores', yearScope(2026));
   assert.equal(status.latestAttemptOutcome, 'succeeded');
   assert.equal(status.rowsCommitted, 2);
+});
+
+test('aggregate scores refresh invalidates each commit before a slow sibling settles', async () => {
+  await setAppState('leagues', 'registry', [
+    {
+      slug: 'alpha',
+      displayName: 'Alpha',
+      year: 2026,
+      status: { state: 'season', year: 2026 },
+      createdAt: '2026-01-01T00:00:00.000Z',
+    },
+  ]);
+  let releasePostseason!: () => void;
+  const postseasonBlocked = new Promise<void>((resolve) => {
+    releasePostseason = resolve;
+  });
+  setMockFetch(async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    const postseason = url.searchParams.get('seasonType') === 'postseason';
+    if (postseason) await postseasonBlocked;
+    return new Response(
+      JSON.stringify(postseason ? gamePayload('Georgia', 'Texas') : gamePayload('Texas', 'Rice')),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    );
+  });
+
+  let invalidations = 0;
+  let resolveFirstInvalidation!: () => void;
+  const firstInvalidation = new Promise<void>((resolve) => {
+    resolveFirstInvalidation = resolve;
+  });
+  __setCanonicalStandingsInvalidatorForTests(async () => {
+    invalidations += 1;
+    if (invalidations === 1) resolveFirstInvalidation();
+    return true;
+  });
+  let warmAttempts = 0;
+  __setCanonicalStandingsWarmerForTests(async () => {
+    warmAttempts += 1;
+  });
+
+  const request = runWithNextStore(() => GET(new Request(AGGREGATE_URL)));
+  const invalidatedBeforeSibling = await Promise.race([
+    firstInvalidation.then(() => true),
+    new Promise<false>((resolve) => setTimeout(() => resolve(false), 1_000)),
+  ]);
+  releasePostseason();
+  const response = await request;
+
+  assert.equal(
+    invalidatedBeforeSibling,
+    true,
+    'the regular commit is invalidated while the postseason provider call is still pending'
+  );
+  assert.equal(response.status, 200);
+  assert.equal(invalidations, 3, 'two commit invalidations plus the final invalidate-and-warm');
+  assert.equal(warmAttempts, 1, 'only the complete aggregate view is warmed');
 });
 
 test('aggregate scores refresh: regular success + postseason no-op → success', async () => {

@@ -51,6 +51,23 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-119-LEAGUE-PAGE-PAINT-v2
+
+- Purpose: move canonical standings recomputation from the first post-score reader onto the score
+  writer without risking the three-connection app-state pool.
+- Scope: the public and live-cron score-write paths, one shared standings maintenance authority, and
+  focused route/cache concurrency tests. No schedule, component, UI, or caching-library change.
+- Outcome: each committed score mutation immediately invalidates and repopulates the same registered
+  league/year standings keys in the request; failures remain non-fatal. A process-wide queue is
+  entered before the year-scoped durable transaction, preventing concurrent warmers from holding all
+  pool clients while their nested standings reads wait for another.
+- Review / verification: the production tree at `6495b3bf` is patch-identical to reviewed
+  `e70a2e1a`; Codex and `/code-review` found no credible in-scope P0/P1/P2. The deadlock mutation fired
+  the different-year pool-client assertion, and the final TypeScript, `lint:all`, and full-suite
+  gates are recorded on PR #547.
+- Status: Implemented — PR #547 open. The v1 response filter (119b) was withdrawn on the canonical
+  week correctness finding, not deferred; Items 99 and 100 supersede it.
+
 ### PLATFORM-118-TEAM-RECORDS-FRESHNESS-v2
 
 - Purpose: guarantee clock-based recovery for cached team records and prevent counted-but-uncredited
