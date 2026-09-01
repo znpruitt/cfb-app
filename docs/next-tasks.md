@@ -146,6 +146,24 @@ Only one PLATFORM-105 follow-up remains:
   pending game as abandoned, while `isResolvedWeek` still leaves that week unplayed forever. Apply
   the shared conclusion policy consistently so historical trends do not drop the affected week.
 
+**Four consumers now, updated 2026-09-01.** The shared policy is `hasGameBeenAbandoned`
+(`standingsHistory.ts:194`, `now - kickoff > 8h`):
+
+| Consumer | Applies it? |
+| --- | --- |
+| `selectSeasonContext` | yes |
+| `selectWeeklyRecapFacts` | yes, via `selectPendingGameFinality` (`weeklyRecapFacts.ts:458`) |
+| `isResolvedWeek` | **no — this item's remaining gap** |
+| Overview section router | added by POLISH-019 (slice 3) |
+
+**Per-game versus population is an INTENTIONAL split, not part of the inconsistency this item fixes.**
+`selectPendingGameFinality` is deliberately all-or-nothing across its input population — one
+abandoned game beside a genuinely not-yet-played sibling yields no accepted conclusion — which is
+correct for "can this week be treated as concluded?" The Overview router asks a different question,
+"where does THIS row go", so it calls `hasGameBeenAbandoned` per game and must NOT use the population
+rule; doing so would keep a stale game in Live merely because a sibling had not kicked off. Do not
+"harmonise" these two call shapes when closing this item.
+
 The prior `(a)`, `(b)`, `(d)`, and `(e)` work is complete and recorded in
 `docs/completed-work.md`; do not requeue those slices.
 
