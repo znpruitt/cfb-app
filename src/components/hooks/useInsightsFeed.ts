@@ -266,7 +266,7 @@ export function useInsightsFeed(args: {
     nowTick > 0 ? selectWeeklyRecapEligibilityBoundaryKey(new Date(nowTick)) : null;
   const requestResolutionKey =
     requestScopeKey && eligibilityBoundaryKey
-      ? `${requestScopeKey}:${eligibilityBoundaryKey}`
+      ? `${requestScopeKey}:${eligibilityBoundaryKey}:${refreshRevision}`
       : null;
 
   useEffect(() => {
@@ -283,7 +283,7 @@ export function useInsightsFeed(args: {
     if (eligibilityBoundaryKey === null) return;
 
     const scopeKey = `${leagueSlug}:${seasonYear}:${lifecycleKey}`;
-    const resolutionKey = `${scopeKey}:${eligibilityBoundaryKey}`;
+    const resolutionKey = `${scopeKey}:${eligibilityBoundaryKey}:${refreshRevision}`;
     const requestSequence = ++requestSequenceRef.current;
     const controller = new AbortController();
     void fetch(`/api/insights/${encodeURIComponent(leagueSlug)}?year=${seasonYear}`, {
@@ -316,15 +316,14 @@ export function useInsightsFeed(args: {
     return () => controller.abort();
   }, [eligibilityBoundaryKey, enabled, leagueSlug, lifecycleKey, refreshRevision, seasonYear]);
 
-  const resolvedPayload = enabled && resolvedRequestKey === requestResolutionKey ? payload : null;
+  const scopedPayload = enabled && payloadScopeRef.current === requestScopeKey ? payload : null;
+  const weeklyRecapResolved = scopedPayload !== null && resolvedRequestKey === requestResolutionKey;
 
   return {
-    ...(resolvedPayload ?? {
-      insights: [],
-      lifecycleState: undefined,
-      weeklyRecap: INACTIVE_RECAP,
-    }),
-    weeklyRecapResolved: resolvedPayload !== null,
+    insights: scopedPayload?.insights ?? [],
+    lifecycleState: scopedPayload?.lifecycleState,
+    weeklyRecap: weeklyRecapResolved ? scopedPayload.weeklyRecap : INACTIVE_RECAP,
+    weeklyRecapResolved,
     refreshInsights,
   };
 }

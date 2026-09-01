@@ -357,6 +357,8 @@ test('the open page refetches exactly once at 06:00 ET without a usable client s
     assert.equal(calls, 2);
     assert.equal(view.result.current.weeklyRecapResolved, false);
     assert.equal(view.result.current.weeklyRecap.status, 'inactive');
+    assert.equal(view.result.current.insights[0]?.id, 'insight-1');
+    assert.equal(view.result.current.lifecycleState, 'mid_season');
   });
   await act(async () => {
     boundaryResponse.resolve(recapResponse(2));
@@ -373,6 +375,47 @@ test('the open page refetches exactly once at 06:00 ET without a usable client s
   view.rerender({ nowTick: Date.parse('2026-09-07T10:01:00.000Z') });
   await act(async () => Promise.resolve());
   assert.equal(calls, 2);
+});
+
+test('an explicit same-boundary refresh makes only recap ownership unresolved', async () => {
+  let calls = 0;
+  const refreshedResponse = deferred<Response>();
+  globalThis.fetch = (async () => {
+    calls += 1;
+    return calls === 1 ? recapResponse(1) : refreshedResponse.promise;
+  }) as typeof fetch;
+  const view = renderHook(() =>
+    useInsightsFeed({
+      leagueSlug: 'tsc',
+      seasonYear: 2026,
+      leagueStatus: ACTIVE_STATUS,
+      games: [],
+      scheduleLoaded: false,
+      nowTick: Date.parse('2026-09-07T16:00:00.000Z'),
+    })
+  );
+
+  await waitFor(() => assert.equal(view.result.current.weeklyRecapResolved, true));
+  assert.equal(view.result.current.insights[0]?.id, 'insight-1');
+
+  act(() => view.result.current.refreshInsights());
+  await waitFor(() => {
+    assert.equal(calls, 2);
+    assert.equal(view.result.current.weeklyRecapResolved, false);
+    assert.equal(view.result.current.weeklyRecap.status, 'inactive');
+    assert.equal(view.result.current.insights[0]?.id, 'insight-1');
+    assert.equal(view.result.current.lifecycleState, 'mid_season');
+  });
+
+  await act(async () => {
+    refreshedResponse.resolve(recapResponse(2));
+    await refreshedResponse.promise;
+  });
+  await waitFor(() => {
+    assert.equal(view.result.current.weeklyRecapResolved, true);
+    assert.equal(view.result.current.weeklyRecap.status, 'available');
+    assert.equal(view.result.current.insights[0]?.id, 'insight-2');
+  });
 });
 
 test('a failed boundary refresh preserves the healthy standing feed', async () => {
