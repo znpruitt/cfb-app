@@ -387,8 +387,9 @@ async function refreshScorePartition(params: {
   cfbdApiKey: string;
   now: number;
   requestId: string | null;
+  maintainStandings?: boolean;
 }): Promise<ScorePartitionResult> {
-  const { year, week, seasonType, cfbdApiKey, now, requestId } = params;
+  const { year, week, seasonType, cfbdApiKey, now, requestId, maintainStandings = true } = params;
   const cacheKey: CacheKey = `${year}-${week ?? 'all'}-${seasonType}`;
   try {
     const cfbdUrl = buildCfbdGamesUrl({ year, seasonType, week });
@@ -521,7 +522,7 @@ async function refreshScorePartition(params: {
     const committedAt = new Date().toISOString();
     const commitSeq = nextProviderCommitSeq();
     SCORES_CACHE[cacheKey] = committedEntry;
-    await invalidateAndWarmStandingsForYear(year);
+    if (maintainStandings) await invalidateAndWarmStandingsForYear(year);
     pruneScoresCache(SCORES_CACHE, MAX_CACHE_ENTRIES, (evicted, cacheSize) => {
       if (IS_DEBUG) {
         console.log('cfbd cache evicted', {
@@ -655,7 +656,15 @@ async function handleAggregateScoreRefresh(params: {
   // Aggregate refresh is season-wide (week=null) per applicable partition.
   const results = await Promise.all(
     seasonTypes.map((seasonType) =>
-      refreshScorePartition({ year, week: null, seasonType, cfbdApiKey, now, requestId })
+      refreshScorePartition({
+        year,
+        week: null,
+        seasonType,
+        cfbdApiKey,
+        now,
+        requestId,
+        maintainStandings: false,
+      })
     )
   );
 
@@ -665,6 +674,10 @@ async function handleAggregateScoreRefresh(params: {
   const failures = results.filter(
     (r): r is Extract<ScorePartitionResult, { kind: 'failure' }> => r.kind === 'failure'
   );
+  // The aggregate owns one complete write set. Warm only after every partition
+  // settles so no intermediate regular-only/postseason-only snapshot can race
+  // the final durable view.
+  if (successes.length > 0) await invalidateAndWarmStandingsForYear(year);
   const rowsCommitted = successes.reduce((n, r) => n + r.items.length, 0);
   const durationMs = Date.now() - now;
 

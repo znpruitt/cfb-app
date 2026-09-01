@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import '../../draft/[slug]/[year]/__tests__/_setup/installAsyncLocalStorage';
+import '../../../../test/installAsyncLocalStorage';
 import { workAsyncStorage } from 'next/dist/server/app-render/work-async-storage.external';
 
 import { GET } from '../route';
@@ -25,7 +25,10 @@ import {
   weekPartitionScope,
   yearScope,
 } from '../../../../lib/providerRefreshScope.ts';
-import { __setCanonicalStandingsWarmerForTests } from '../../../../lib/server/standingsCacheWarmer.ts';
+import {
+  __setCanonicalStandingsInvalidatorForTests,
+  __setCanonicalStandingsWarmerForTests,
+} from '../../../../lib/server/standingsCacheWarmer.ts';
 
 type MockFetch = typeof fetch;
 
@@ -36,6 +39,7 @@ function setMockFetch(impl: Parameters<MockFetch>[1] extends never ? never : any
 test.beforeEach(async () => {
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
+  __setCanonicalStandingsInvalidatorForTests(null);
   __setCanonicalStandingsWarmerForTests(null);
   process.env.CFBD_API_KEY = 'test-cfbd-token';
 });
@@ -44,7 +48,7 @@ async function runWithNextStore<T>(fn: () => Promise<T>): Promise<T> {
   return workAsyncStorage.run(
     {
       route: '/api/scores',
-      incrementalCache: {},
+      incrementalCache: { revalidateTag: async () => undefined },
       pendingRevalidatedTags: [] as string[],
       pathWasRevalidated: false,
     } as never,
@@ -1256,12 +1260,31 @@ test('a standings warm failure remains non-fatal after the score commit', async 
   assert.equal(durable?.value.items.length, 1, 'the committed score remains durable');
 });
 
-test('aggregate scores refresh: both partitions succeed → success, rows summed, one attempt', async () => {
+test('aggregate scores refresh: both partitions commit before one standings warm', async () => {
+  await setAppState('leagues', 'registry', [
+    {
+      slug: 'alpha',
+      displayName: 'Alpha',
+      year: 2026,
+      status: { state: 'season', year: 2026 },
+      createdAt: '2026-01-01T00:00:00.000Z',
+    },
+  ]);
   setAggregateMock({ regular: 'ok', postseason: 'ok' });
-  const res = await GET(new Request(AGGREGATE_URL));
+  let warmAttempts = 0;
+  __setCanonicalStandingsWarmerForTests(async (slug, year) => {
+    warmAttempts += 1;
+    assert.equal(slug, 'alpha');
+    assert.equal(year, 2026);
+    assert.ok(await getAppState('scores', '2026-all-regular'));
+    assert.ok(await getAppState('scores', '2026-all-postseason'));
+  });
+
+  const res = await runWithNextStore(() => GET(new Request(AGGREGATE_URL)));
   assert.equal(res.status, 200);
   const json = await res.json();
   assert.equal(json.items.length, 2, 'both partitions contribute rows to one response');
+  assert.equal(warmAttempts, 1, 'the aggregate publishes no intermediate partition warm');
   const status = await getProviderRefreshStatus('scores', yearScope(2026));
   assert.equal(status.latestAttemptOutcome, 'succeeded');
   assert.equal(status.rowsCommitted, 2);

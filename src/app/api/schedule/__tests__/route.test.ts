@@ -29,6 +29,7 @@ import {
   yearScope,
 } from '../../../../lib/providerRefreshScope.ts';
 import { acquireScheduleRefreshLease } from '../../../../lib/schedule/scheduleRefreshLease.ts';
+import { buildScheduleFromApi } from '../../../../lib/schedule.ts';
 
 // Schedule status scope now reflects the ACTUAL refresh target (finding 1): a
 // full-year (seasonType=all) refresh records the year rollup, while a single
@@ -134,6 +135,7 @@ test('schedule responses exclude only games with two known non-FBS classificatio
     {
       id: 1,
       week: 1,
+      start_date: '2027-08-21T18:00:00.000Z',
       home_team: 'FBS Home',
       away_team: 'FBS Away',
       home_classification: 'fbs',
@@ -142,6 +144,7 @@ test('schedule responses exclude only games with two known non-FBS classificatio
     {
       id: 2,
       week: 1,
+      start_date: '2027-08-28T18:00:00.000Z',
       home_team: 'FBS Host',
       away_team: 'FCS Visitor',
       home_classification: 'fbs',
@@ -150,6 +153,7 @@ test('schedule responses exclude only games with two known non-FBS classificatio
     {
       id: 3,
       week: 1,
+      start_date: '2027-08-21T20:00:00.000Z',
       home_team: 'Division II Home',
       away_team: 'Division II Away',
       home_classification: 'ii',
@@ -158,6 +162,7 @@ test('schedule responses exclude only games with two known non-FBS classificatio
     {
       id: 4,
       week: 1,
+      start_date: '2027-08-22T20:00:00.000Z',
       home_team: 'Division III Home',
       away_team: 'Division III Away',
       home_classification: 'iii',
@@ -166,6 +171,7 @@ test('schedule responses exclude only games with two known non-FBS classificatio
     {
       id: 5,
       week: 1,
+      start_date: '2027-08-29T18:00:00.000Z',
       home_team: 'Unknown Home',
       away_team: 'Unknown Away',
     },
@@ -189,10 +195,26 @@ test('schedule responses exclude only games with two known non-FBS classificatio
     ['1', '2', '5'],
     'FBS/FBS, FBS/FCS, and unknown/unknown rows survive the response filter'
   );
+  const builtFromProjectedResponse = buildScheduleFromApi({
+    scheduleItems: refreshedJson.items,
+    teams: [
+      { school: 'FBS Home', level: 'FBS' },
+      { school: 'FBS Away', level: 'FBS' },
+      { school: 'FBS Host', level: 'FBS' },
+      { school: 'FCS Visitor', level: 'FCS' },
+    ],
+    aliasMap: {},
+    season: 2027,
+  });
+  assert.equal(
+    builtFromProjectedResponse.games.find((game) => game.providerGameId === '1')?.canonicalWeek,
+    1,
+    'the projected response preserves the complete-schedule opening-cluster result'
+  );
 
   const durable = await getAppState<{ items: ScheduleItem[] }>('schedule', '2027-all-regular');
   assert.deepEqual(
-    durable?.value.items.map((item) => item.id),
+    durable?.value.items.map((item) => item.id).sort(),
     ['1', '2', '3', '4', '5'],
     'the durable canonical schedule remains unfiltered'
   );
@@ -205,6 +227,23 @@ test('schedule responses exclude only games with two known non-FBS classificatio
     cachedJson.items.map((item: { id: string }) => item.id),
     ['1', '2', '5'],
     'process-cache responses apply the same response-only filter'
+  );
+
+  process.env.ADMIN_API_TOKEN = 'admin-token';
+  const unauthorizedRaw = await GET(
+    new Request('http://localhost/api/schedule?year=2027&seasonType=regular&raw=1')
+  );
+  assert.equal(unauthorizedRaw.status, 401, 'the full diagnostic projection is admin-only');
+  const raw = await GET(
+    new Request('http://localhost/api/schedule?year=2027&seasonType=regular&raw=1', {
+      headers: { 'x-admin-token': 'admin-token' },
+    })
+  );
+  const rawJson = await raw.json();
+  assert.deepEqual(
+    rawJson.items.map((item: { id: string }) => item.id).sort(),
+    ['1', '2', '3', '4', '5'],
+    'the admin diagnostic projection retains known lower-division rows'
   );
 });
 

@@ -15,6 +15,7 @@ import {
 } from '@/lib/scheduleSeasonFetch';
 import { refreshFullSeasonSchedule } from '@/lib/schedule/fullSeasonScheduleRefresh';
 import type { FullSeasonScheduleRefreshResult } from '@/lib/schedule/fullSeasonScheduleRefreshResult';
+import { annotateCanonicalScheduleWeeks } from '@/lib/regularSeasonWeekCalendar';
 import {
   enrichScheduleItemsWithPresentation,
   type PresentationEnrichedScheduleItem,
@@ -81,7 +82,13 @@ interface ScheduleResponse {
    * display fields filled by exact `venueId` — never persisted back to the
    * durable `schedule/*` records.
    */
-  items: PresentationEnrichedScheduleItem[];
+  items: Array<
+    PresentationEnrichedScheduleItem & {
+      providerWeek: number;
+      canonicalWeek: number;
+      weekCorrectionReason: 'derived_week_0_from_opening_cluster' | null;
+    }
+  >;
   meta: ScheduleMeta;
 }
 
@@ -108,11 +115,20 @@ function filterScheduleItemsForResponse(items: ScheduleItem[]): ScheduleItem[] {
 async function responseScheduleItems(params: {
   year: number;
   items: ScheduleItem[];
-}): Promise<PresentationEnrichedScheduleItem[]> {
-  return enrichScheduleItemsWithPresentation({
+  includeKnownNonFbs: boolean;
+}): Promise<ScheduleResponse['items']> {
+  // Week identity is derived from the COMPLETE schedule before the response
+  // projection. Otherwise lower-division rows can change the opening-cluster
+  // count (or postseason offset) that canonical standings derived durably.
+  const annotated = annotateCanonicalScheduleWeeks(params.items);
+  const responseItems = params.includeKnownNonFbs
+    ? annotated
+    : filterScheduleItemsForResponse(annotated);
+  const enriched = await enrichScheduleItemsWithPresentation({
     year: params.year,
-    items: filterScheduleItemsForResponse(params.items),
+    items: responseItems,
   });
+  return enriched as ScheduleResponse['items'];
 }
 
 function isFreshScheduleCacheEntry(
@@ -593,7 +609,8 @@ async function refreshScheduleWeekPartition(params: {
  */
 async function fullSeasonRefreshResponse(
   result: FullSeasonScheduleRefreshResult,
-  now: number
+  now: number,
+  includeKnownNonFbs: boolean
 ): Promise<NextResponse> {
   if (result.status === 'in-progress') {
     return NextResponse.json(
@@ -614,7 +631,11 @@ async function fullSeasonRefreshResponse(
     );
   }
   return NextResponse.json<ScheduleResponse>({
-    items: await responseScheduleItems({ year: result.requestedYear, items: result.items }),
+    items: await responseScheduleItems({
+      year: result.requestedYear,
+      items: result.items,
+      includeKnownNonFbs,
+    }),
     meta: {
       source: 'cfbd',
       cache: 'miss',
@@ -632,6 +653,7 @@ export async function GET(req: Request) {
   const weekParam = url.searchParams.get('week');
   const seasonTypeParam = url.searchParams.get('seasonType');
   const bypassCache = parseBooleanQueryParam(url.searchParams.get('bypassCache'));
+  const includeKnownNonFbs = parseBooleanQueryParam(url.searchParams.get('raw'));
   const requestId = req.headers.get('x-request-id');
 
   const currentYear = new Date().getUTCFullYear();
@@ -674,6 +696,7 @@ export async function GET(req: Request) {
   const adminAuthFailure = await requireAdminRequest(req);
   const isAdmin = !adminAuthFailure;
   if (bypassCache && adminAuthFailure) return adminAuthFailure;
+  if (includeKnownNonFbs && adminAuthFailure) return adminAuthFailure;
 
   // `week + all` (a specific week with no season type) spans two week partitions
   // and has no single authoritative aggregate cache entry. It is served by COMPOSING
@@ -691,7 +714,7 @@ export async function GET(req: Request) {
         if (isFreshScheduleCacheEntry(entry, now)) {
           recordRouteCacheHit('schedule');
           return NextResponse.json<ScheduleResponse>({
-            items: await responseScheduleItems({ year, items: entry.items }),
+            items: await responseScheduleItems({ year, items: entry.items, includeKnownNonFbs }),
             meta: {
               source: 'cfbd',
               cache: 'hit',
@@ -710,7 +733,7 @@ export async function GET(req: Request) {
         if (!isAdmin) {
           recordRouteCacheHit('schedule');
           return NextResponse.json<ScheduleResponse>({
-            items: await responseScheduleItems({ year, items: entry.items }),
+            items: await responseScheduleItems({ year, items: entry.items, includeKnownNonFbs }),
             meta: {
               source: 'cfbd',
               cache: 'hit',
@@ -743,7 +766,7 @@ export async function GET(req: Request) {
     if (!bypassCache && isFreshScheduleCacheEntry(hit, now)) {
       recordRouteCacheHit('schedule');
       return NextResponse.json<ScheduleResponse>({
-        items: await responseScheduleItems({ year, items: hit.items }),
+        items: await responseScheduleItems({ year, items: hit.items, includeKnownNonFbs }),
         meta: {
           source: 'cfbd',
           cache: 'hit',
@@ -763,7 +786,11 @@ export async function GET(req: Request) {
         pruneCache(SCHEDULE_ROUTE_CACHE, 'schedule');
         recordRouteCacheHit('schedule');
         return NextResponse.json<ScheduleResponse>({
-          items: await responseScheduleItems({ year, items: storedValue.items }),
+          items: await responseScheduleItems({
+            year,
+            items: storedValue.items,
+            includeKnownNonFbs,
+          }),
           meta: {
             source: 'cfbd',
             cache: 'hit',
@@ -783,7 +810,11 @@ export async function GET(req: Request) {
           pruneCache(SCHEDULE_ROUTE_CACHE, 'schedule');
           recordRouteCacheHit('schedule');
           return NextResponse.json<ScheduleResponse>({
-            items: await responseScheduleItems({ year, items: storedValue.items }),
+            items: await responseScheduleItems({
+              year,
+              items: storedValue.items,
+              includeKnownNonFbs,
+            }),
             meta: {
               source: 'cfbd',
               cache: 'hit',
@@ -883,7 +914,7 @@ export async function GET(req: Request) {
       .sort((a, b) => a.week - b.week || (a.startDate ?? '').localeCompare(b.startDate ?? ''));
 
     return NextResponse.json<ScheduleResponse>({
-      items: await responseScheduleItems({ year, items }),
+      items: await responseScheduleItems({ year, items, includeKnownNonFbs }),
       meta: {
         source: 'cfbd',
         cache: 'miss',
@@ -936,7 +967,7 @@ export async function GET(req: Request) {
       }
     }
 
-    return fullSeasonRefreshResponse(result, now);
+    return fullSeasonRefreshResponse(result, now, includeKnownNonFbs);
   }
 
   // Provider-refresh observability (PLATFORM-086A): reaching here means an admin
@@ -1263,7 +1294,7 @@ export async function GET(req: Request) {
   }
 
   return NextResponse.json<ScheduleResponse>({
-    items: await responseScheduleItems({ year, items }),
+    items: await responseScheduleItems({ year, items, includeKnownNonFbs }),
     meta: {
       source: 'cfbd',
       cache: 'miss',

@@ -15,7 +15,10 @@ import {
   setAppState,
 } from '@/lib/server/appStateStore';
 import { getProviderRefreshStatus } from '@/lib/server/providerRefreshStatus';
-import { __setCanonicalStandingsWarmerForTests } from '@/lib/server/standingsCacheWarmer';
+import {
+  __setCanonicalStandingsInvalidatorForTests,
+  __setCanonicalStandingsWarmerForTests,
+} from '@/lib/server/standingsCacheWarmer';
 
 import {
   YEAR,
@@ -29,9 +32,13 @@ import {
 
 test.beforeEach(async () => {
   await resetForTest();
+  __setCanonicalStandingsInvalidatorForTests(null);
   __setCanonicalStandingsWarmerForTests(null);
 });
-test.afterEach(() => __setCanonicalStandingsWarmerForTests(null));
+test.afterEach(() => {
+  __setCanonicalStandingsInvalidatorForTests(null);
+  __setCanonicalStandingsWarmerForTests(null);
+});
 test.after(restoreEnv);
 
 function scoreboardRow(o: {
@@ -156,7 +163,7 @@ test('the live-score writer warms the invalidated league and isolates a warm fai
   });
   const store = {
     route: '/api/cron/live-scores',
-    incrementalCache: {},
+    incrementalCache: { revalidateTag: async () => undefined },
     pendingRevalidatedTags: [] as string[],
     pathWasRevalidated: false,
   };

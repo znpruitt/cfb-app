@@ -23,8 +23,7 @@ import { buildByes, isTrackedGame, resolveRegularSeasonRow } from './scheduleTra
 import { isFbsTeam } from './scheduleEligibility.ts';
 import { deriveConferenceOptionsFromTrackedGames } from './selectors/conferences.ts';
 import {
-  buildRegularSeasonWeekCalendar,
-  deriveCanonicalRegularSeasonWeek,
+  annotateCanonicalScheduleWeeks,
   type WeekCorrectionReason,
 } from './regularSeasonWeekCalendar.ts';
 import type { VenueInfo } from './schedule/cfbdSchedule.ts';
@@ -352,6 +351,7 @@ export function buildScheduleFromApi(params: {
   conferenceRecords?: CfbdConferenceRecord[];
 }): BuiltSchedule {
   const { scheduleItems, teams, aliasMap, season } = params;
+  const canonicalScheduleItems = annotateCanonicalScheduleWeeks(scheduleItems);
 
   if (params.conferenceRecords) {
     setConferenceClassificationRecords(params.conferenceRecords);
@@ -361,7 +361,7 @@ export function buildScheduleFromApi(params: {
   const issues: string[] = [];
   const providerNames = Array.from(
     new Set(
-      scheduleItems
+      canonicalScheduleItems
         .flatMap((item) => [item.homeTeam, item.awayTeam])
         .filter((name) => !isLikelyInvalidTeamLabel(name))
     )
@@ -381,43 +381,10 @@ export function buildScheduleFromApi(params: {
 
   const apiRegularGames: AppGame[] = [];
   const apiPostseasonGames: AppGame[] = [];
-  const regularSeasonWeekCalendar = buildRegularSeasonWeekCalendar(scheduleItems);
-
-  // Max regular season canonical week, used below to remap postseason weeks so they
-  // appear AFTER regular season in standingsHistory. CFBD postseason week numbers
-  // restart from 1, which would otherwise collide with regular season week 1, 2, …
-  // in the standings history week buckets (and trend charts would truncate at week 16).
-  //
-  // The remap is only meaningful when this build actually has regular-season context.
-  // For a postseason-only input (archive rebuilds, partial/postseason-only fetches)
-  // there is no regular-season span to append postseason weeks to, so the remap is
-  // skipped and provider weeks are preserved as-is — appending to a phantom span (or,
-  // if stray non-postseason rows were present, an unrelated one) would corrupt the
-  // postseason week buckets. `hasRegularSeasonContext` makes that guard explicit.
-  const regularSeasonItems = scheduleItems.filter((i) => i.seasonType !== 'postseason');
-  const hasRegularSeasonContext = regularSeasonItems.length > 0;
-  const maxRegularSeasonWeek = regularSeasonItems.reduce(
-    (max, i) => Math.max(max, typeof i.week === 'number' ? i.week : 0),
-    0
-  );
-
-  for (const rawItem of scheduleItems) {
-    const regularSeasonWeek = deriveCanonicalRegularSeasonWeek(rawItem, regularSeasonWeekCalendar);
-    const item: ScheduleWireItem = {
-      ...rawItem,
-      providerWeek: regularSeasonWeek.providerWeek,
-      canonicalWeek: regularSeasonWeek.canonicalWeek,
-      weekCorrectionReason: regularSeasonWeek.weekCorrectionReason,
-    };
+  for (const item of canonicalScheduleItems) {
     const canonicalWeek = item.canonicalWeek ?? item.week;
     const providerWeek = item.providerWeek ?? item.week;
-    // Remap postseason canonical week to sit after the regular season in the standings
-    // history timeline. providerWeek is kept as-is so score fetching and attachment
-    // (which index games by both canonicalWeek and providerWeek) still work correctly.
-    const postseasonCanonicalWeek =
-      item.seasonType === 'postseason' && hasRegularSeasonContext && maxRegularSeasonWeek > 0
-        ? maxRegularSeasonWeek + providerWeek
-        : canonicalWeek;
+    const postseasonCanonicalWeek = canonicalWeek;
     const hasConferenceChampionshipMetadata =
       item.seasonType !== 'postseason' &&
       (item.gamePhase === 'conference_championship' ||

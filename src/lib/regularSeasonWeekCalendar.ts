@@ -176,3 +176,67 @@ export function deriveCanonicalRegularSeasonWeek(
 
   return { providerWeek, canonicalWeek: providerWeek, weekCorrectionReason: null };
 }
+
+type CanonicalWeekAnnotatedItem<T extends ScheduleWireItem> = T & {
+  providerWeek: number;
+  canonicalWeek: number;
+  weekCorrectionReason: WeekCorrectionReason | null;
+};
+
+function hasCanonicalWeekAnnotation(game: ScheduleWireItem): boolean {
+  return (
+    Number.isInteger(game.providerWeek) &&
+    game.providerWeek! >= 0 &&
+    Number.isInteger(game.canonicalWeek) &&
+    game.canonicalWeek! >= 0
+  );
+}
+
+/**
+ * Attach the canonical/provider week pair while the complete schedule is still
+ * available. A response projection can then remove known lower-division rows
+ * without changing the opening-cluster or postseason-offset inputs that shaped
+ * the surviving games.
+ *
+ * Existing annotations are preserved. This lets a projected API response carry
+ * the full-schedule result into `buildScheduleFromApi`; durable cache rows that
+ * predate the annotation are derived from their complete input as before.
+ */
+export function annotateCanonicalScheduleWeeks<T extends ScheduleWireItem>(
+  games: T[]
+): Array<CanonicalWeekAnnotatedItem<T>> {
+  const weekCalendar = buildRegularSeasonWeekCalendar(games);
+  const regularSeasonItems = games.filter((game) => game.seasonType !== 'postseason');
+  const hasRegularSeasonContext = regularSeasonItems.length > 0;
+  const maxRegularSeasonWeek = regularSeasonItems.reduce(
+    (max, game) => Math.max(max, typeof game.week === 'number' ? game.week : 0),
+    0
+  );
+
+  return games.map((game) => {
+    if (hasCanonicalWeekAnnotation(game)) {
+      return {
+        ...game,
+        providerWeek: game.providerWeek!,
+        canonicalWeek: game.canonicalWeek!,
+        weekCorrectionReason:
+          game.weekCorrectionReason === 'derived_week_0_from_opening_cluster'
+            ? game.weekCorrectionReason
+            : null,
+      };
+    }
+
+    const derived = deriveCanonicalRegularSeasonWeek(game, weekCalendar);
+    const canonicalWeek =
+      game.seasonType === 'postseason' && hasRegularSeasonContext && maxRegularSeasonWeek > 0
+        ? maxRegularSeasonWeek + derived.providerWeek
+        : derived.canonicalWeek;
+
+    return {
+      ...game,
+      providerWeek: derived.providerWeek,
+      canonicalWeek,
+      weekCorrectionReason: derived.weekCorrectionReason,
+    };
+  });
+}

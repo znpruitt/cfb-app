@@ -19,6 +19,7 @@ test('PLATFORM-086H3C5: upstream participant ids pass through from the cached ro
     const url = typeof input === 'string' ? input : input.toString();
     const req = new URL(url);
     if (req.pathname === '/api/schedule') {
+      assert.equal(req.searchParams.get('raw'), '1');
       return new Response(
         JSON.stringify({
           items: [
@@ -114,6 +115,7 @@ test('provider classification is reported and drives the diagnostic verdict', as
   setMockFetch(async (input: URL | string) => {
     const req = new URL(typeof input === 'string' ? input : input.toString());
     if (req.pathname === '/api/schedule') {
+      assert.equal(req.searchParams.get('raw'), '1');
       return new Response(
         JSON.stringify({
           items: [
