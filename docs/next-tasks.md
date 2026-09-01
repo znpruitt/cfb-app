@@ -375,6 +375,109 @@ before attributing compute cost to anything.
 
 - Backlog slug: `PLATFORM-OFFSEASON-SCHEDULE-PAUSE-v1`
 
+### Item 99 — filter non-FBS games at the schedule WRITE path, not the response
+
+**Measured 2026-08-31.** `/games?year=` persists every division. For 2026 that is **3,676 rows**, of
+which **888 (24%)** involve an FBS team:
+
+| Pairing | Rows |
+| --- | --- |
+| involves an FBS team | **888** |
+| iii/iii | 1,158 |
+| ii/ii | 811 |
+| fcs/fcs | 651 |
+
+**No consumer reads the other 2,788.** Every reader of the durable schedule cache discards them:
+
+| Consumer | Disposition |
+| --- | --- |
+| `/api/schedule` route | serves them; the client runs `isTrackedGame` (`schedule.ts:758`) and discards |
+| draft board `boardData.ts` | `buildScheduleFromApi(...).games` — filtered |
+| `seasonBuild.ts` (archives) | same path — filtered |
+| `schedulePresentationRefresh` | joins media by canonical game id |
+| `providerCacheState` | only checks `items.length > 0` |
+
+They are stored, read, parsed, and thrown away at every single call site.
+
+**So filter at the write path**, when the full-season response is persisted, rather than shaping the
+API response. Benefits multiply across every consumer instead of one: the durable cache shrinks
+(~344 KB → ~80 KB for 2026), and `buildScheduleFromApi` runs on 888 rows everywhere it is called —
+draft board and archive rebuilds included, not just page loads. Measured cost of that function:
+**1,267 ms on 3,676 rows vs 353 ms on 888.**
+
+**Predicate: both sides KNOWN non-FBS.** Drop only when both `homeClassification` and
+`awayClassification` are present and neither is `fbs`. **Rows with absent classification must be
+retained** — PLATFORM-114 is forward-only, and 2018-2024 caches carry no classification at all
+(verified: `fbs=0` rows for every year before 2025). An include-style filter would empty five
+seasons.
+
+**Nothing is lost.** Any game involving an FBS team survives, so every opponent of an ownable team is
+retained. Only games where neither side can ever appear in the league are dropped, and one CFBD call
+re-fetches a year if that is ever wrong.
+
+**It improves week derivation rather than threatening it.** `buildRegularSeasonWeekCalendar`'s week-0
+heuristic is diluted by lower-division games; FBS-only clustering is the version that works for both
+2025 and 2026 (see Item 100).
+
+**Why this is not Item 98b.** 98b shaped the API response and left the durable cache alone, on the
+stated reason that other consumers might need the full set. That reason was wrong — no consumer does.
+Write-path filtering supersedes it. **98b should be closed in favour of this item.**
+
+**Scope care:** this changes what is PERSISTED, and it lands on the full-season refresh authority
+that PLATFORM-086E1A deliberately consolidated. It needs its own review, not a ride-along on a
+performance PR. Existing caches are unaffected; only future writes filter.
+
+- Backlog slug: `PLATFORM-SCHEDULE-WRITE-FILTER-v1`
+
+### Item 100 — canonical week 0 is an undocumented divergence from every other source
+
+`buildRegularSeasonWeekCalendar` derives a canonical **week 0** by splitting CFBD's provider week 1
+into two date clusters. **No source does this:**
+
+- **CFBD** serves no week 0; the opening Saturday is week 1.
+- **ESPN** labels it `WEEK 1 · AUG 22 - SEP 7`, containing both slates.
+- `formatWeekLabel(0, ...)` renders **`W0`**, so it is member-visible, not internal ordering.
+
+**No recorded rationale.** It arrived in one commit, `0c84ac5a` 2026-03-18, _"Add canonical week date
+labels and chronological week views"_, with no stated requirement; nothing in `docs/` mentions week 0.
+
+**It is only invisible today because the heuristic fails.** Detection requires both opening clusters
+to carry provider week 1 only, and lower-division games bleed provider week 2 into the second
+cluster. Measured:
+
+    2025 all: c1 n=8   pw=[1]  |  c2 n=501 pw=[1,2]   -> no week 0
+    2025 fbs: c1 n=5   pw=[1]  |  c2 n=91  pw=[1]     -> week 0 DETECTED
+    2026 all: c1 n=135 pw=[1]  |  c2 n=623 pw=[1,2]   -> no week 0
+    2026 fbs: c1 n=8   pw=[1]  |  c2 n=177 pw=[1,2]   -> no week 0
+
+So the failure is currently keeping the app CORRECT. If it fired, members would see a `W0` tab for
+eight games that CFBD and ESPN both call week 1.
+
+**Owner intent, 2026-08-31:** the only wanted use is a hook to recap or preview that opening slate
+separately. **That argues for a different field, not a different week.** `canonicalWeek` is doing
+double duty as the member-facing label and the internal grouping; splitting them gives both:
+
+- **week** stays provider-authoritative — both slates are W1, matching every other source;
+- **slate** becomes an internal date-cluster marker for recap/preview targeting, never rendered as a
+  week tab.
+
+Recap generation is server-side (`loadInsights.ts`, `selectors/insights.ts`), so slate identification
+happens where the full row set exists and the client never needs it.
+
+**A validated splitting rule, if a slate marker is built** — trust the provider from week 2 onward and
+only disambiguate week 1:
+
+    providerWeek >= 2  -> trust CFBD
+    providerWeek == 1  -> cluster FBS week-1 rows by date, split at the FIRST gap >= 3 days;
+                          first cluster = opening slate
+
+Validated across all seven seasons. Two findings from that validation: **"largest gap" is the wrong
+splitter** (2025 has four games dated 2025-12-13 carrying provider week 1, making the largest gap 102
+days), and **FBS-only rows are required** — with all divisions, 2026's lower-division games fill
+Aug 27-31 continuously and no gap appears until Sept 3.
+
+- Backlog slug: `PLATFORM-WEEK-ZERO-MODEL-v1`
+
 ### Item 98 — league page content paint: three measured costs
 
 **Measured 2026-08-31.** Three independent costs, each with a number. Everything below was taken
@@ -431,6 +534,11 @@ once per write instead of every member paying it per visit. Same cron-spends / c
 PLATFORM-086B2B, applied to derived data.
 
 #### 98b — 76% of the schedule payload is discarded after parsing
+
+> **SUPERSEDED 2026-08-31 by Item 99.** This shaped the API response and deliberately left the
+> durable cache unfiltered, on the stated reason that other consumers might need the full set. That
+> reason was wrong — a survey of every reader found none. Filtering at the WRITE path benefits every
+> consumer instead of one. Do not implement 98b; see Item 99.
 
 `/api/schedule?year=2026&seasonType=all` returns **2,764,786 bytes** (245 KB gzipped). Of its 3,676
 rows:
