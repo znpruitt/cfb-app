@@ -434,6 +434,20 @@ retained** — PLATFORM-114 is forward-only, and 2018-2024 caches carry no class
 (verified: `fbs=0` rows for every year before 2025). An include-style filter would empty five
 seasons.
 
+**Second argument: the dropped rows are not merely unused, they are unreliable.** CFBD's lower-division
+data is materially worse than its FBS data, measured across two endpoints on 2026-08-31/09-01:
+
+- **`/records`** — 92 of 109 played D-II teams report `games: 1, wins: 0, losses: 0`: the game counted,
+  the outcome never credited. **0 of 138 FBS and 0 of 128 FCS rows** have that shape.
+- **`/games`** — nine D-II games from 2026-08-27/30 still carry `completed: false` with no points days
+  later. A fresh CFBD pull matches the durable cache exactly, so this is the provider, not our
+  staleness. (One of them is `Westgate Christian University @ Missouri S&T` — the school from
+  PLATFORM-114's identity collision.)
+
+The provider's football API is built around FBS; lower divisions get best-effort treatment. So these
+rows carry stale completion flags and uncredited outcomes that would be actively misleading to any
+future consumer, not merely surplus. Filtering them removes a liability as well as a cost.
+
 **Nothing is lost.** Any game involving an FBS team survives, so every opponent of an ownable team is
 retained. Only games where neither side can ever appear in the league are dropped, and one CFBD call
 re-fetches a year if that is ever wrong.
