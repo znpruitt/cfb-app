@@ -1290,6 +1290,63 @@ test('aggregate scores refresh: both partitions commit before one standings warm
   assert.equal(status.rowsCommitted, 2);
 });
 
+test('aggregate scores refresh invalidates each commit before a slow sibling settles', async () => {
+  await setAppState('leagues', 'registry', [
+    {
+      slug: 'alpha',
+      displayName: 'Alpha',
+      year: 2026,
+      status: { state: 'season', year: 2026 },
+      createdAt: '2026-01-01T00:00:00.000Z',
+    },
+  ]);
+  let releasePostseason!: () => void;
+  const postseasonBlocked = new Promise<void>((resolve) => {
+    releasePostseason = resolve;
+  });
+  setMockFetch(async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    const postseason = url.searchParams.get('seasonType') === 'postseason';
+    if (postseason) await postseasonBlocked;
+    return new Response(
+      JSON.stringify(postseason ? gamePayload('Georgia', 'Texas') : gamePayload('Texas', 'Rice')),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    );
+  });
+
+  let invalidations = 0;
+  let resolveFirstInvalidation!: () => void;
+  const firstInvalidation = new Promise<void>((resolve) => {
+    resolveFirstInvalidation = resolve;
+  });
+  __setCanonicalStandingsInvalidatorForTests(async () => {
+    invalidations += 1;
+    if (invalidations === 1) resolveFirstInvalidation();
+    return true;
+  });
+  let warmAttempts = 0;
+  __setCanonicalStandingsWarmerForTests(async () => {
+    warmAttempts += 1;
+  });
+
+  const request = runWithNextStore(() => GET(new Request(AGGREGATE_URL)));
+  const invalidatedBeforeSibling = await Promise.race([
+    firstInvalidation.then(() => true),
+    new Promise<false>((resolve) => setTimeout(() => resolve(false), 1_000)),
+  ]);
+  releasePostseason();
+  const response = await request;
+
+  assert.equal(
+    invalidatedBeforeSibling,
+    true,
+    'the regular commit is invalidated while the postseason provider call is still pending'
+  );
+  assert.equal(response.status, 200);
+  assert.equal(invalidations, 3, 'two commit invalidations plus the final invalidate-and-warm');
+  assert.equal(warmAttempts, 1, 'only the complete aggregate view is warmed');
+});
+
 test('aggregate scores refresh: regular success + postseason no-op → success', async () => {
   setAggregateMock({ regular: 'ok', postseason: 'empty' });
   const res = await GET(new Request(AGGREGATE_URL));

@@ -8,11 +8,13 @@ import { getCanonicalStandings } from '../../selectors/leagueStandings.ts';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  __setAppStateKeyLockFailureForTests,
   setAppState,
 } from '../appStateStore.ts';
 import {
   __setCanonicalStandingsInvalidatorForTests,
   __setCanonicalStandingsWarmerForTests,
+  __setStandingsDurableLockAttemptObserverForTests,
   invalidateAndWarmStandingsForYear,
 } from '../standingsCacheWarmer.ts';
 
@@ -66,11 +68,14 @@ test.beforeEach(async () => {
   __resetAppStateForTests();
   __setCanonicalStandingsInvalidatorForTests(null);
   __setCanonicalStandingsWarmerForTests(null);
+  __setStandingsDurableLockAttemptObserverForTests(null);
 });
 
 test.afterEach(() => {
   __setCanonicalStandingsInvalidatorForTests(null);
   __setCanonicalStandingsWarmerForTests(null);
+  __setStandingsDurableLockAttemptObserverForTests(null);
+  __setAppStateKeyLockFailureForTests(null);
 });
 
 test('the real canonical cache is expired before warming and the next request hits it', async () => {
@@ -146,6 +151,10 @@ test('same-year maintenance is serialized until the older cache write settles', 
     },
   ]);
   let invalidations = 0;
+  let durableLockAttempts = 0;
+  __setStandingsDurableLockAttemptObserverForTests(() => {
+    durableLockAttempts += 1;
+  });
   __setCanonicalStandingsInvalidatorForTests(async () => {
     invalidations += 1;
     return true;
@@ -176,6 +185,11 @@ test('same-year maintenance is serialized until the older cache write settles', 
   await sawFirst;
   const newer = invalidateAndWarmStandingsForYear(year);
   await new Promise<void>((resolve) => setTimeout(resolve, 50));
+  assert.equal(
+    durableLockAttempts,
+    1,
+    'same-process waiters do not consume another database-pool client'
+  );
   assert.equal(invalidations, 1, 'the later invalidation also waits behind the year lock');
   assert.equal(attempts, 1, 'the later writer cannot enter while the older warm is pending');
   releaseFirst();
@@ -183,4 +197,36 @@ test('same-year maintenance is serialized until the older cache write settles', 
 
   assert.deepEqual(order, ['start-1', 'end-1', 'start-2', 'end-2']);
   assert.equal(invalidations, 2, 'the observer detects the later invalidation after release');
+  assert.equal(durableLockAttempts, 2);
+});
+
+test('a durable warm-lock failure still attempts post-commit invalidation', async () => {
+  const year = 2026;
+  await setAppState('leagues', 'registry', [
+    {
+      slug: 'fallback',
+      displayName: 'Fallback',
+      year,
+      status: { state: 'season', year },
+      createdAt: '2026-01-01T00:00:00.000Z',
+    },
+  ]);
+  let invalidations = 0;
+  let warmAttempts = 0;
+  __setCanonicalStandingsInvalidatorForTests(async () => {
+    invalidations += 1;
+    return true;
+  });
+  __setCanonicalStandingsWarmerForTests(async () => {
+    warmAttempts += 1;
+  });
+  __setAppStateKeyLockFailureForTests(
+    new Error('database pool unavailable'),
+    'standings-cache-warm'
+  );
+
+  await invalidateAndWarmStandingsForYear(year);
+
+  assert.equal(invalidations, 1, 'the fallback preserves mandatory invalidation');
+  assert.equal(warmAttempts, 0, 'warming is skipped when it cannot be serialized safely');
 });

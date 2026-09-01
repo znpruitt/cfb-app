@@ -29,7 +29,10 @@ import {
   loadReconciledWeekScores,
 } from '@/lib/server/scoreCacheReader';
 import { getApplicableScoreSeasonTypes } from '@/lib/server/scoreApplicability';
-import { invalidateAndWarmStandingsForYear } from '@/lib/server/standingsCacheWarmer';
+import {
+  invalidateAndWarmStandingsForYear,
+  invalidateStandingsForYear,
+} from '@/lib/server/standingsCacheWarmer';
 import {
   newestEffectiveRowTimestamp,
   pruneScoresCache,
@@ -387,9 +390,9 @@ async function refreshScorePartition(params: {
   cfbdApiKey: string;
   now: number;
   requestId: string | null;
-  maintainStandings?: boolean;
+  warmStandings?: boolean;
 }): Promise<ScorePartitionResult> {
-  const { year, week, seasonType, cfbdApiKey, now, requestId, maintainStandings = true } = params;
+  const { year, week, seasonType, cfbdApiKey, now, requestId, warmStandings = true } = params;
   const cacheKey: CacheKey = `${year}-${week ?? 'all'}-${seasonType}`;
   try {
     const cfbdUrl = buildCfbdGamesUrl({ year, seasonType, week });
@@ -522,7 +525,8 @@ async function refreshScorePartition(params: {
     const committedAt = new Date().toISOString();
     const commitSeq = nextProviderCommitSeq();
     SCORES_CACHE[cacheKey] = committedEntry;
-    if (maintainStandings) await invalidateAndWarmStandingsForYear(year);
+    if (warmStandings) await invalidateAndWarmStandingsForYear(year);
+    else await invalidateStandingsForYear(year);
     pruneScoresCache(SCORES_CACHE, MAX_CACHE_ENTRIES, (evicted, cacheSize) => {
       if (IS_DEBUG) {
         console.log('cfbd cache evicted', {
@@ -663,7 +667,7 @@ async function handleAggregateScoreRefresh(params: {
         cfbdApiKey,
         now,
         requestId,
-        maintainStandings: false,
+        warmStandings: false,
       })
     )
   );

@@ -13,6 +13,10 @@ type CanonicalStandingsInvalidator = (
   leagues: Array<{ slug: string }>,
   year: number
 ) => Promise<boolean>;
+type DurableLockAttemptObserver = (year: number) => void;
+
+const yearMaintenanceTails = new Map<number, Promise<void>>();
+let observeDurableLockAttempt: DurableLockAttemptObserver | null = null;
 
 let warmCanonicalStandings: CanonicalStandingsWarmer = (slug, year) =>
   getCanonicalStandings({ slug, year });
@@ -54,8 +58,100 @@ export function __setCanonicalStandingsInvalidatorForTests(
   invalidateCanonicalStandings = invalidator ?? invalidateCanonicalStandingsImmediately;
 }
 
+export function __setStandingsDurableLockAttemptObserverForTests(
+  observer: DurableLockAttemptObserver | null
+): void {
+  observeDurableLockAttempt = observer;
+}
+
 function pendingRevalidates(): Record<string, Promise<unknown>> {
   return workAsyncStorage.getStore()?.pendingRevalidates ?? {};
+}
+
+async function withInProcessYearMaintenanceLock<T>(
+  year: number,
+  operation: () => Promise<T>
+): Promise<T> {
+  const previous = yearMaintenanceTails.get(year) ?? Promise.resolve();
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const tail = previous.then(
+    () => held,
+    () => held
+  );
+  yearMaintenanceTails.set(year, tail);
+
+  await previous.then(
+    () => undefined,
+    () => undefined
+  );
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (yearMaintenanceTails.get(year) === tail) yearMaintenanceTails.delete(year);
+  }
+}
+
+async function invalidateWithoutDurableLock(
+  leagues: Array<{ slug: string }>,
+  year: number
+): Promise<void> {
+  try {
+    await invalidateCanonicalStandings(leagues, year);
+  } catch {
+    // The score write is already durable. Cache maintenance remains best-effort.
+  }
+}
+
+async function maintainStandingsForYear(year: number, warm: boolean): Promise<void> {
+  try {
+    // Same-process callers queue BEFORE acquiring a PostgreSQL client. Without
+    // this outer lock, two advisory-lock waiters plus the lock owner can consume
+    // the three-client pool while the owner needs another client for canonical
+    // standings reads, leaving every participant unable to make progress.
+    await withInProcessYearMaintenanceLock(year, async () => {
+      const leagues = await getLeagues();
+      if (leagues.length === 0) return;
+
+      try {
+        observeDurableLockAttempt?.(year);
+        // The advisory key serializes cache maintenance for this year across
+        // instances. Score commits remain outside this lock; every committing
+        // writer enters it afterwards, so the final holder observes the newest
+        // durable score view.
+        await withAppStateKeyTransaction('standings-cache-warm', String(year), async () => {
+          // Public `revalidateTag` queues work until an App Route finalizes.
+          // Await the request's incremental-cache invalidator directly so the
+          // warm is ordered strictly after expiration.
+          const invalidatedImmediately = await invalidateCanonicalStandings(leagues, year);
+          if (!warm || !invalidatedImmediately) return;
+
+          const pendingBefore = new Map(Object.entries(pendingRevalidates()));
+          await Promise.allSettled(
+            leagues.map((league) => warmCanonicalStandings(league.slug, year))
+          );
+          // `unstable_cache` publishes through `pendingRevalidates` in an App
+          // Route. Hold both locks until these new writes settle so an older
+          // publication cannot land after a newer invalidation.
+          const newWrites = Object.entries(pendingRevalidates())
+            .filter(([key, promise]) => pendingBefore.get(key) !== promise)
+            .map(([, promise]) => promise);
+          await Promise.allSettled(newWrites);
+        });
+      } catch {
+        // A durable-lock/client failure must not erase the established
+        // post-commit invalidation attempt. Retrying without serialization can
+        // leave a cold cache, but it prevents a tag-only snapshot from remaining
+        // valid indefinitely.
+        await invalidateWithoutDurableLock(leagues, year);
+      }
+    });
+  } catch {
+    // Non-fatal — scores already persisted; a later mutation can recover.
+  }
 }
 
 /**
@@ -69,34 +165,10 @@ function pendingRevalidates(): Record<string, Promise<unknown>> {
  * back a valid score write.
  */
 export async function invalidateAndWarmStandingsForYear(year: number): Promise<void> {
-  try {
-    const leagues = await getLeagues();
-    if (leagues.length === 0) return;
+  await maintainStandingsForYear(year, true);
+}
 
-    // The advisory key serializes cache maintenance for this year across
-    // instances. Score commits remain outside this lock; every committing writer
-    // enters it afterwards, so the final holder always recomputes from the newest
-    // durable score view instead of allowing an older warm to publish last.
-    await withAppStateKeyTransaction('standings-cache-warm', String(year), async () => {
-      // `revalidateTag` queues work until an App Route finalizes. Warming before
-      // that queue drains writes a snapshot which the same request then evicts.
-      // Await the request's incremental-cache invalidator directly so the warm
-      // is ordered strictly after expiration.
-      const invalidatedImmediately = await invalidateCanonicalStandings(leagues, year);
-      if (!invalidatedImmediately) return;
-
-      const pendingBefore = new Map(Object.entries(pendingRevalidates()));
-      await Promise.allSettled(leagues.map((league) => warmCanonicalStandings(league.slug, year)));
-      // `unstable_cache` publishes through `pendingRevalidates` in an App Route.
-      // Hold the cross-instance lock until these new writes settle; otherwise a
-      // later writer could invalidate/warm and release before this older write
-      // lands.
-      const newWrites = Object.entries(pendingRevalidates())
-        .filter(([key, promise]) => pendingBefore.get(key) !== promise)
-        .map(([, promise]) => promise);
-      await Promise.allSettled(newWrites);
-    });
-  } catch {
-    // Non-fatal — scores already persisted; the next reader can recompute.
-  }
+/** Invalidate after a durable score commit without publishing an intermediate warm. */
+export async function invalidateStandingsForYear(year: number): Promise<void> {
+  await maintainStandingsForYear(year, false);
 }

@@ -177,16 +177,17 @@ test('schedule responses exclude only games with two known non-FBS classificatio
     },
   ];
 
-  setMockFetch(
-    async () =>
-      new Response(JSON.stringify(providerRows), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      })
-  );
+  setMockFetch(async (input: URL | string) => {
+    const requestUrl = new URL(typeof input === 'string' ? input : input.toString());
+    const rows = requestUrl.searchParams.get('seasonType') === 'postseason' ? [] : providerRows;
+    return new Response(JSON.stringify(rows), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  });
 
   const refreshed = await GET(
-    new Request('http://localhost/api/schedule?year=2027&seasonType=regular&bypassCache=1')
+    new Request('http://localhost/api/schedule?year=2027&seasonType=all')
   );
   const refreshedJson = await refreshed.json();
   assert.equal(refreshed.status, 200);
@@ -212,16 +213,14 @@ test('schedule responses exclude only games with two known non-FBS classificatio
     'the projected response preserves the complete-schedule opening-cluster result'
   );
 
-  const durable = await getAppState<{ items: ScheduleItem[] }>('schedule', '2027-all-regular');
+  const durable = await getAppState<{ items: ScheduleItem[] }>('schedule', '2027-all-all');
   assert.deepEqual(
     durable?.value.items.map((item) => item.id).sort(),
     ['1', '2', '3', '4', '5'],
     'the durable canonical schedule remains unfiltered'
   );
 
-  const cached = await GET(
-    new Request('http://localhost/api/schedule?year=2027&seasonType=regular')
-  );
+  const cached = await GET(new Request('http://localhost/api/schedule?year=2027&seasonType=all'));
   const cachedJson = await cached.json();
   assert.deepEqual(
     cachedJson.items.map((item: { id: string }) => item.id),
@@ -231,11 +230,11 @@ test('schedule responses exclude only games with two known non-FBS classificatio
 
   process.env.ADMIN_API_TOKEN = 'admin-token';
   const unauthorizedRaw = await GET(
-    new Request('http://localhost/api/schedule?year=2027&seasonType=regular&raw=1')
+    new Request('http://localhost/api/schedule?year=2027&seasonType=all&raw=1')
   );
   assert.equal(unauthorizedRaw.status, 401, 'the full diagnostic projection is admin-only');
   const raw = await GET(
-    new Request('http://localhost/api/schedule?year=2027&seasonType=regular&raw=1', {
+    new Request('http://localhost/api/schedule?year=2027&seasonType=all&raw=1', {
       headers: { 'x-admin-token': 'admin-token' },
     })
   );
@@ -245,6 +244,40 @@ test('schedule responses exclude only games with two known non-FBS classificatio
     ['1', '2', '3', '4', '5'],
     'the admin diagnostic projection retains known lower-division rows'
   );
+});
+
+test('partial schedule responses do not publish partial-context canonical weeks', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  setMockFetch(
+    async () =>
+      new Response(
+        JSON.stringify([
+          {
+            id: 99,
+            week: 1,
+            start_date: '2027-12-20T18:00:00.000Z',
+            home_team: 'Postseason Home',
+            away_team: 'Postseason Away',
+            home_classification: 'fbs',
+            away_classification: 'fbs',
+          },
+        ]),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      )
+  );
+
+  const response = await GET(
+    new Request('http://localhost/api/schedule?year=2027&seasonType=postseason&bypassCache=1')
+  );
+  assert.equal(response.status, 200);
+  const json = await response.json();
+  assert.equal(json.items.length, 1);
+  assert.equal(
+    Object.hasOwn(json.items[0], 'canonicalWeek'),
+    false,
+    'a postseason-only response cannot claim a full-season canonical offset'
+  );
+  assert.equal(Object.hasOwn(json.items[0], 'providerWeek'), false);
 });
 
 test('a full-year manual refresh writes the catalog-backed UTC date to the probe', async () => {

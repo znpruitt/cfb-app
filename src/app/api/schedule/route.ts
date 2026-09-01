@@ -84,9 +84,9 @@ interface ScheduleResponse {
    */
   items: Array<
     PresentationEnrichedScheduleItem & {
-      providerWeek: number;
-      canonicalWeek: number;
-      weekCorrectionReason: 'derived_week_0_from_opening_cluster' | null;
+      providerWeek?: number;
+      canonicalWeek?: number;
+      weekCorrectionReason?: 'derived_week_0_from_opening_cluster' | null;
     }
   >;
   meta: ScheduleMeta;
@@ -116,14 +116,18 @@ async function responseScheduleItems(params: {
   year: number;
   items: ScheduleItem[];
   includeKnownNonFbs: boolean;
+  hasCompleteYearContext: boolean;
 }): Promise<ScheduleResponse['items']> {
-  // Week identity is derived from the COMPLETE schedule before the response
-  // projection. Otherwise lower-division rows can change the opening-cluster
-  // count (or postseason offset) that canonical standings derived durably.
-  const annotated = annotateCanonicalScheduleWeeks(params.items);
+  // Week identity is derived only when this response contains the COMPLETE
+  // season. Otherwise a postseason-only or week-scoped result would publish a
+  // partial-context canonical week which `buildScheduleFromApi` would preserve
+  // as authoritative. Partial responses retain their legacy unannotated shape.
+  const sourceItems = params.hasCompleteYearContext
+    ? annotateCanonicalScheduleWeeks(params.items)
+    : params.items;
   const responseItems = params.includeKnownNonFbs
-    ? annotated
-    : filterScheduleItemsForResponse(annotated);
+    ? sourceItems
+    : filterScheduleItemsForResponse(sourceItems);
   const enriched = await enrichScheduleItemsWithPresentation({
     year: params.year,
     items: responseItems,
@@ -635,6 +639,7 @@ async function fullSeasonRefreshResponse(
       year: result.requestedYear,
       items: result.items,
       includeKnownNonFbs,
+      hasCompleteYearContext: true,
     }),
     meta: {
       source: 'cfbd',
@@ -692,6 +697,7 @@ export async function GET(req: Request) {
         : 'all';
 
   const cacheKey = `${year}-${week ?? 'all'}-${requestedSeasonType}`;
+  const hasCompleteYearContext = week === null && requestedSeasonType === 'all';
   const now = Date.now();
   const adminAuthFailure = await requireAdminRequest(req);
   const isAdmin = !adminAuthFailure;
@@ -714,7 +720,12 @@ export async function GET(req: Request) {
         if (isFreshScheduleCacheEntry(entry, now)) {
           recordRouteCacheHit('schedule');
           return NextResponse.json<ScheduleResponse>({
-            items: await responseScheduleItems({ year, items: entry.items, includeKnownNonFbs }),
+            items: await responseScheduleItems({
+              year,
+              items: entry.items,
+              includeKnownNonFbs,
+              hasCompleteYearContext,
+            }),
             meta: {
               source: 'cfbd',
               cache: 'hit',
@@ -733,7 +744,12 @@ export async function GET(req: Request) {
         if (!isAdmin) {
           recordRouteCacheHit('schedule');
           return NextResponse.json<ScheduleResponse>({
-            items: await responseScheduleItems({ year, items: entry.items, includeKnownNonFbs }),
+            items: await responseScheduleItems({
+              year,
+              items: entry.items,
+              includeKnownNonFbs,
+              hasCompleteYearContext,
+            }),
             meta: {
               source: 'cfbd',
               cache: 'hit',
@@ -766,7 +782,12 @@ export async function GET(req: Request) {
     if (!bypassCache && isFreshScheduleCacheEntry(hit, now)) {
       recordRouteCacheHit('schedule');
       return NextResponse.json<ScheduleResponse>({
-        items: await responseScheduleItems({ year, items: hit.items, includeKnownNonFbs }),
+        items: await responseScheduleItems({
+          year,
+          items: hit.items,
+          includeKnownNonFbs,
+          hasCompleteYearContext,
+        }),
         meta: {
           source: 'cfbd',
           cache: 'hit',
@@ -790,6 +811,7 @@ export async function GET(req: Request) {
             year,
             items: storedValue.items,
             includeKnownNonFbs,
+            hasCompleteYearContext,
           }),
           meta: {
             source: 'cfbd',
@@ -814,6 +836,7 @@ export async function GET(req: Request) {
               year,
               items: storedValue.items,
               includeKnownNonFbs,
+              hasCompleteYearContext,
             }),
             meta: {
               source: 'cfbd',
@@ -914,7 +937,12 @@ export async function GET(req: Request) {
       .sort((a, b) => a.week - b.week || (a.startDate ?? '').localeCompare(b.startDate ?? ''));
 
     return NextResponse.json<ScheduleResponse>({
-      items: await responseScheduleItems({ year, items, includeKnownNonFbs }),
+      items: await responseScheduleItems({
+        year,
+        items,
+        includeKnownNonFbs,
+        hasCompleteYearContext,
+      }),
       meta: {
         source: 'cfbd',
         cache: 'miss',
@@ -1294,7 +1322,12 @@ export async function GET(req: Request) {
   }
 
   return NextResponse.json<ScheduleResponse>({
-    items: await responseScheduleItems({ year, items, includeKnownNonFbs }),
+    items: await responseScheduleItems({
+      year,
+      items,
+      includeKnownNonFbs,
+      hasCompleteYearContext,
+    }),
     meta: {
       source: 'cfbd',
       cache: 'miss',
