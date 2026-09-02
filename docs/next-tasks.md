@@ -1868,6 +1868,33 @@ These are valid future campaigns but are not activated implementation work:
   trade is that the filter must then be correct at every consumer, where separate files get it for
   free by not holding the data. **That is a design decision for this campaign, not a cleanup.**
   Item 107c is the symptom that surfaced it.
+
+  **Owner direction, 2026-09-02 — prefer CFBD provider ids over derived internal identity wherever a
+  join makes sense.** This is the sharper framing, and it may REDUCE the campaign rather than widen
+  it. Three failures in one day all came from name- or catalog-mediated joins, not from having three
+  snapshots:
+
+  - Item 106 — odds matching went canonical name → catalog metadata, and the FBS-only catalog could
+    not strip a non-FBS mascot. 48 events discarded.
+  - Item 87 slice 4 — the records join was specified as canonical name → catalog `providerId` →
+    record, and could not reach an FCS opponent for the same reason.
+  - Both were unblocked by using a CFBD pid directly.
+
+  **The pid path is measurably complete where it matters.** Records join pid-to-pid —
+  `ScheduleWireItem.homeId`/`awayId` against `TeamRecordItem.teamId`, the same id space — at
+  **1,776 of 1,776 team lines across every FBS-involving 2026 game, zero misses**, reaching FCS
+  opponents because CFBD assigns pids below FBS. Game ids are universal: **22,760 of 22,760 rows**
+  across seven cached seasons carry a numeric, safe-integer `id`.
+
+  **The consequence for scope:** the catalog's FBS-only boundary is only a problem because it is being
+  used as a BRIDGE. If joins key on pids, the catalog can stay FBS-only as the identity authority —
+  which is what PLATFORM-114's collision history requires — without blocking any consumer. That
+  argues for converting joins before, or instead of, merging snapshots.
+
+  **Known coverage limit:** participant ids (`homeId`/`awayId`) are absent for 2018 (0 of 1,556 rows)
+  and complete from 2021 (100%). 2019-2020 are uncached. A pid-keyed join reaching into history hits
+  that wall; a current-season one does not. See Item 105 for the deferred backfill and why it was not
+  taken.
 - **Server Fetch Architecture** — scoped low-priority fixes for internal HTTP context loaders; do not
   perform a broad rewrite.
 - **League State vs Season State** — deliberate product/architecture fork, not a 2026 blocker.
