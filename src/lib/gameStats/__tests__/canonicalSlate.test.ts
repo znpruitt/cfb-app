@@ -37,6 +37,19 @@ function build(items: ReturnType<typeof scheduleItem>[]) {
   });
 }
 
+function observeWeekReads<T extends { week: number }>(item: T, onRead: () => void): T {
+  const week = item.week;
+  const observed = { ...item };
+  return Object.defineProperty(observed, 'week', {
+    configurable: true,
+    enumerable: true,
+    get() {
+      onRead();
+      return week;
+    },
+  });
+}
+
 test('canonical slate: expected / pending / disrupted / placeholder / excluded classify correctly', () => {
   const slate = build([
     // completed FBS-vs-FBS: kickoff well past → expected
@@ -409,6 +422,117 @@ test('loadCanonicalGameStatsSlate: aggregate and partition-only layouts produce 
   assert.equal(bySlateId(aggregate.slate.games, 4102)?.awayId, 404);
 
   // Leave the shared stores clean for any non-isolated runner.
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+  __resetTeamDatabaseStoreForTests();
+  await __deleteTeamDatabaseStoreFileForTests();
+});
+
+test('loadCanonicalGameStatsSlate filters non-colliding irrelevant rows before its canonical build', async () => {
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+  __resetTeamDatabaseStoreForTests();
+  await __deleteTeamDatabaseStoreFileForTests();
+  await setTeamDatabaseFile({ items: C1_TEAMS } as never);
+
+  const excluded = {
+    ...scheduleItem({
+      id: '4151',
+      week: 5,
+      home: 'Epsilon College',
+      away: 'Zeta State',
+      status: 'final',
+    }),
+    homeClassification: 'fcs' as const,
+    awayClassification: 'fcs' as const,
+  };
+  const included = {
+    ...scheduleItem({
+      id: '4150',
+      week: 5,
+      home: 'Alpha State',
+      away: 'Beta Tech',
+      status: 'final',
+    }),
+    homeClassification: 'fbs' as const,
+    awayClassification: 'fbs' as const,
+  };
+
+  let excludedWeekReads = 0;
+  let includedWeekReads = 0;
+  const observedExcluded = observeWeekReads(excluded, () => {
+    excludedWeekReads += 1;
+  });
+  const observedIncluded = observeWeekReads(included, () => {
+    includedWeekReads += 1;
+  });
+
+  const result = await loadCanonicalGameStatsSlate({
+    year: 2025,
+    now: NOW,
+    scheduleItems: [observedExcluded, observedIncluded],
+  });
+
+  assert.equal(result.status, 'available');
+  if (result.status === 'available') {
+    assert.deepEqual(
+      result.slate.games.map((game) => game.providerGameId),
+      [4150]
+    );
+  }
+  // Positive control: this observer fires when a row reaches buildScheduleFromApi.
+  assert.ok(includedWeekReads > 0);
+  // The irrelevant row remains available to raw-id validation, which never reads
+  // its week, but it must not reach the expensive canonical build.
+  assert.equal(excludedWeekReads, 0);
+
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+  __resetTeamDatabaseStoreForTests();
+  await __deleteTeamDatabaseStoreFileForTests();
+});
+
+test('loadCanonicalGameStatsSlate rejects an id shared by retained and filtered rows', async () => {
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+  __resetTeamDatabaseStoreForTests();
+  await __deleteTeamDatabaseStoreFileForTests();
+  await setTeamDatabaseFile({ items: C1_TEAMS } as never);
+
+  const excluded = {
+    ...scheduleItem({
+      id: '4150',
+      week: 5,
+      home: 'Epsilon College',
+      away: 'Zeta State',
+      status: 'final',
+    }),
+    homeClassification: 'fcs' as const,
+    awayClassification: 'fcs' as const,
+  };
+  const included = {
+    ...scheduleItem({
+      id: '4150',
+      week: 5,
+      home: 'Alpha State',
+      away: 'Beta Tech',
+      status: 'final',
+    }),
+    homeClassification: 'fbs' as const,
+    awayClassification: 'fbs' as const,
+  };
+
+  const result = await loadCanonicalGameStatsSlate({
+    year: 2025,
+    now: NOW,
+    scheduleItems: [excluded, included],
+  });
+
+  assert.deepEqual(result, {
+    status: 'unavailable',
+    reason: 'canonical-build-failed',
+  });
+
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
   __resetTeamDatabaseStoreForTests();

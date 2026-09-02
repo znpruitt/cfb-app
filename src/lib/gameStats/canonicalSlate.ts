@@ -2,6 +2,7 @@ import type { CfbdSeasonType } from '../cfbd.ts';
 import { isDisruptedStatusLabel } from '../gameStatus.ts';
 import type { AppGame, ScheduleWireItem } from '../schedule.ts';
 import { buildScheduleFromApi } from '../schedule.ts';
+import { isFbsRelevantScheduleBuildRow } from '../scheduleRelevance.ts';
 import { loadCachedScheduleItems } from '../server/canonicalScheduleCache.ts';
 import { getScopedAliasMap } from '../server/globalAliasStore.ts';
 import { getTeamDatabaseItems } from '../server/teamDatabaseStore.ts';
@@ -278,19 +279,23 @@ export function buildCanonicalGameStatsSlate(input: {
  * PLATFORM-086H3E1 — derive the canonical game-stat slate from an EXACT prior
  * canonical schedule build instead of an internal rebuild. `games` MUST be the
  * unmodified output of ONE `buildScheduleFromApi` invocation and
- * `scheduleItems` the exact wire rows fed to that same invocation: the slate
- * then inherits that build's keys, aliases, overrides, and exclusions, so a
- * consumer pairing it with scores attached to the SAME build can never mix
- * provenance across builds. Its production callers are the archive snapshot
- * seam (`slateSnapshot.ts`) and the analytics provenance assembler
- * (`analyticsProvenance.ts`) — each pairs the slate with scores from the SAME
- * build, per the activation-invariant guard's provenance rule.
+ * `scheduleItems` the raw snapshot containing the wire rows fed to that build.
+ * It may also contain rows deliberately omitted from an FBS-focused build: this
+ * function uses the raw rows only for per-id metadata lookup and duplicate-id
+ * rejection, so the superset restores collision detection without creating a
+ * canonical game. The slate still inherits the exact build's keys, aliases,
+ * overrides, and exclusions, so a consumer pairing it with scores attached to
+ * the SAME build can never mix provenance across builds. Its production callers
+ * are the live-score context, the archive snapshot seam (`slateSnapshot.ts`),
+ * and the analytics provenance assembler (`analyticsProvenance.ts`) — each pairs
+ * the slate with scores from the SAME build, per the activation-invariant
+ * guard's provenance rule.
  */
 export function deriveCanonicalGameStatsSlateFromBuild(input: {
   year: number;
   /** The exact `buildScheduleFromApi(...).games` output of one build. */
   games: AppGame[];
-  /** The exact wire rows fed to that same build. */
+  /** The raw snapshot containing every wire row fed to the build. */
   scheduleItems: ScheduleWireItem[];
   teams: TeamCatalogItem[];
   aliasMap: AliasMap;
@@ -400,21 +405,27 @@ export function deriveCanonicalGameStatsSlateFromBuild(input: {
 
 /**
  * Cache-only, provider-free async wrapper. Any loader or build FAILURE is
- * reported as unavailable context (never valid absence); a genuinely empty
- * schedule cache yields an available, empty slate. `now` is injected for
- * determinism.
+ * reported as unavailable context (never valid absence); an empty or wholly
+ * FBS-irrelevant schedule cache yields an available, empty slate. `now` is
+ * injected for determinism.
  */
 export async function loadCanonicalGameStatsSlate(input: {
   year: number;
   now: Date;
+  /** Optional caller-owned cache snapshot; avoids a second durable read. */
+  scheduleItems?: ScheduleWireItem[];
 }): Promise<CanonicalSlateResult> {
   const { year, now } = input;
 
   let scheduleItems: ScheduleWireItem[];
-  try {
-    scheduleItems = await loadCachedScheduleItems(year);
-  } catch {
-    return { status: 'unavailable', reason: 'schedule-load-failed' };
+  if (input.scheduleItems !== undefined) {
+    scheduleItems = input.scheduleItems;
+  } else {
+    try {
+      scheduleItems = await loadCachedScheduleItems(year);
+    } catch {
+      return { status: 'unavailable', reason: 'schedule-load-failed' };
+    }
   }
 
   let teams: TeamCatalogItem[];
@@ -442,7 +453,23 @@ export async function loadCanonicalGameStatsSlate(input: {
   }
 
   try {
-    const slate = buildCanonicalGameStatsSlate({ year, scheduleItems, teams, aliasMap, now });
+    const relevantScheduleItems = scheduleItems.filter(isFbsRelevantScheduleBuildRow);
+    const { games } = buildScheduleFromApi({
+      scheduleItems: relevantScheduleItems,
+      teams,
+      aliasMap,
+      season: year,
+    });
+    const slate = deriveCanonicalGameStatsSlateFromBuild({
+      year,
+      games,
+      // Preserve the full raw snapshot for provider-id collision detection and
+      // per-id metadata lookup. Only the expensive canonical build is filtered.
+      scheduleItems,
+      teams,
+      aliasMap,
+      now,
+    });
     return { status: 'available', slate };
   } catch {
     return { status: 'unavailable', reason: 'canonical-build-failed' };
