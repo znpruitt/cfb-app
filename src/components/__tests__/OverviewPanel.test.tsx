@@ -223,6 +223,7 @@ test('overview panel keeps home-away wording for standard games', () => {
     neutralDisplay: 'home_away',
     stage: 'regular',
   });
+  const homeAwayScheduled = item(homeAwayGame);
   const homeAwayLive = itemWithScore(homeAwayGame, {
     status: 'In Progress',
     away: { team: 'Texas', score: 7 },
@@ -230,19 +231,34 @@ test('overview panel keeps home-away wording for standard games', () => {
     time: 'Q1',
   });
 
-  const html = renderToStaticMarkup(
+  const liveHtml = renderToStaticMarkup(
     <OverviewPanel
       standingsLeaders={standingsLeaders}
       standingsCoverage={coverage}
       matchupMatrix={matchupMatrix}
       liveItems={[homeAwayLive]}
       keyMatchups={[]}
+      sectionItems={[homeAwayLive]}
       context={defaultContext}
       displayTimeZone="UTC"
     />
   );
 
-  assert.match(html, /aria-label="Texas at Rice"/);
+  const scheduledHtml = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[homeAwayScheduled]}
+      sectionItems={[homeAwayScheduled]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(liveHtml, /aria-label="Texas at Rice"/);
+  assert.match(scheduledHtml, /Texas<\/span> @ <span>Rice/);
 });
 
 test('overview Live section consumes the shared scoreboard in a row-major responsive grid', () => {

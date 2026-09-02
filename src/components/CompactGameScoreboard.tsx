@@ -12,7 +12,7 @@ export type CompactScoreboardParticipant = {
 };
 
 export type CompactGameScoreboardProps = {
-  state: 'live' | 'final';
+  state: 'live' | 'final' | 'awaiting';
   clock?: string;
   matchupLabel: string;
   away: CompactScoreboardParticipant;
@@ -48,7 +48,8 @@ export default function CompactGameScoreboard({
     { side: 'home' as const, participant: home },
   ];
   const clockLabel = clock?.trim() ?? '';
-  const statusLabel = gameStatusLabelPresentation(state);
+  const statusLabel = gameStatusLabelPresentation(state === 'awaiting' ? 'unknown' : state);
+  const statusText = state === 'live' ? 'Live' : state === 'final' ? 'Final' : 'Awaiting score';
 
   return (
     <article
@@ -70,7 +71,7 @@ export default function CompactGameScoreboard({
           {statusLabel.dotClassName ? (
             <span className={statusLabel.dotClassName} aria-hidden="true" />
           ) : null}
-          {state === 'live' ? 'Live' : 'Final'}
+          {statusText}
         </span>
         {clockLabel ? <span className="min-w-0 truncate tabular-nums">{clockLabel}</span> : null}
       </div>

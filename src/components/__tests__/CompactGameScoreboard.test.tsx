@@ -94,6 +94,22 @@ test('live scoreboard expresses live state in green with no amber utility', () =
   assert.match(html, /data-scoreboard-state="live"/);
 });
 
+test('awaiting scoreboard uses a neutral status row without claiming the game is live', () => {
+  const html = renderScoreboard({
+    state: 'awaiting',
+    clock: undefined,
+    away: { teamName: 'Michigan', owner: 'Whited', rank: null, score: null },
+    home: { teamName: 'Ohio State', owner: 'Chamness', rank: null, score: null },
+  });
+  const header = html.match(/<div[^>]+data-scoreboard-header[^>]*>([\s\S]*?)<\/div>/)?.[1];
+
+  assert.ok(header, 'scoreboard header must render');
+  assert.match(html, /data-scoreboard-state="awaiting"/);
+  assert.match(header, />Awaiting score<\/span>/);
+  assert.match(header, /dark:text-zinc-400/);
+  assert.doesNotMatch(header, />Live<\/span>|dark:text-emerald-400|rounded-full bg-current/);
+});
+
 test('final scoreboard keeps away above a winning home team and uses neutral final status', () => {
   const html = renderScoreboard({
     state: 'final',

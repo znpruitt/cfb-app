@@ -703,6 +703,7 @@ function GameCardList({
     >
       {items.map((item) => {
         const game = item.bucket.game;
+        const isAwaitingScore = state === 'live' && item.routeStatus.kind === 'awaiting-score';
         const awayTeamId = getGameParticipantTeamId(game, 'away') ?? game.canAway;
         const homeTeamId = getGameParticipantTeamId(game, 'home') ?? game.canHome;
         const awayRanking = getTeamRanking(rankingsByTeamId, awayTeamId);
@@ -711,13 +712,9 @@ function GameCardList({
         return (
           <CompactGameScoreboard
             key={game.key}
-            state={state}
+            state={isAwaitingScore ? 'awaiting' : state}
             clock={
-              state === 'live'
-                ? item.routeStatus.kind === 'awaiting-score'
-                  ? item.routeStatus.label
-                  : liveScoreboardClock(item.score)
-                : undefined
+              state === 'live' && !isAwaitingScore ? liveScoreboardClock(item.score) : undefined
             }
             matchupLabel={formatGameMatchupLabel(game)}
             away={{

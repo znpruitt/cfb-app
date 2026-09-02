@@ -113,21 +113,23 @@ function renderPanel(args: {
   );
 }
 
-test('Awaiting score renders in the status row while retaining the Live badge and DOM state', () => {
+test('Awaiting score renders neutrally inside the Live section without claiming the game is live', () => {
   const awaiting = item(game({ key: 'awaiting-score' }));
   const html = renderPanel({
     games: [awaiting.bucket.game],
     sectionItems: [awaiting],
     now: '2026-09-01T17:30:00.000Z',
   });
+  const scoreboard = html.match(
+    /<article(?=[^>]*aria-label="Away at Home")[\s\S]*?<\/article>/
+  )?.[0];
 
   assert.match(html, /Live · 1/);
-  assert.match(html, /data-scoreboard-state="live"/);
-  assert.match(
-    html,
-    /data-scoreboard-header[^>]*>[\s\S]*>Live<\/span>[\s\S]*>Awaiting score<\/span>[\s\S]*data-scoreboard-side="away"/
-  );
-  assert.doesNotMatch(html, />Scheduled<\/span>[\s\S]*Awaiting score/);
+  assert.ok(scoreboard, 'the awaiting-score game must remain visible in the Live section');
+  assert.match(scoreboard, /data-scoreboard-state="awaiting"/);
+  assert.match(scoreboard, /data-scoreboard-header[^>]*>[\s\S]*>Awaiting score<\/span>/);
+  assert.doesNotMatch(scoreboard, />Live<\/span>|dark:text-emerald-400|rounded-full bg-current/);
+  assert.doesNotMatch(scoreboard, />Scheduled<\/span>/);
 });
 
 test('Recent finals renders score anchors and no records join', () => {
