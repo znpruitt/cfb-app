@@ -605,6 +605,11 @@ which **888 (24%)** involve an FBS team:
 | ii/ii | 811 |
 | fcs/fcs | 651 |
 
+**CORRECTION 2026-09-02: that survey was incomplete, and the claim below is false.** A reader
+inventory run during PLATFORM-120's review found consumers that DO read the dropped rows, and the
+write-path filter drew six review findings because of them. The original table follows for the
+record; the audit that supersedes it is below it.
+
 **No consumer reads the other 2,788.** Every reader of the durable schedule cache discards them:
 
 | Consumer | Disposition |
@@ -616,6 +621,44 @@ which **888 (24%)** involve an FBS team:
 | `providerCacheState` | only checks `items.length > 0` |
 
 They are stored, read, parsed, and thrown away at every single call site.
+
+#### Reader inventory (measured 2026-09-02) — the schedule row set is an expectation oracle
+
+Ten non-test consumers of `loadCachedScheduleItems`. Six are unaffected by dropping both-known
+non-FBS rows because they only feed `buildScheduleFromApi`, which already excludes those rows via
+`exclude_both_non_fbs`:
+
+| Safe consumer | Why |
+| --- | --- |
+| `liveScores/canonicalContext.ts:158` | build only; `pendingGames` derives from built games |
+| `gameStats/canonicalSlate.ts:415` | build, plus an id index whose extra entries yield no canonical game |
+| `odds/canonicalOddsContext.ts:88` | build, plus `rawStatusById` read only for canonical games |
+| `selectors/leagueStandings.ts:867` | build, plus resolver name-seeding non-FBS labels cannot match |
+| `insights/loadInsights.ts:281` | passes straight to the build |
+| `schedule/nationalChampionshipRollover.ts:144` | the championship game is FBS by construction |
+
+**Four are affected, and they all break the same way:**
+
+| Affected consumer | What raw rows do there |
+| --- | --- |
+| `api/scores/route.ts:344` | `classifyEmptyScoresResponse` counts started, non-disrupted games |
+| `api/admin/cache-historical-scores/route.ts:260` | the same classifier |
+| `odds/oddsRefreshExecutor.ts:145` | `expectationEvidenceAvailable` — any kickoff inside the horizon? |
+| `server/providerDataDiagnostics.ts:305` | `hasPollableOddsTarget`, `isSeasonActive` |
+
+**Each uses the schedule row set as an EXPECTATION ORACLE** — "was anything supposed to happen
+here?" — and each becomes MORE PERMISSIVE when rows disappear: an empty provider response is
+accepted as valid absence instead of rejected as suspicious, and health checks find fewer targets to
+expect. **Any filter that removes rows from that oracle loosens a data-protection guard**, whether it
+sits at the write path or the read path. That single pattern is the root of all six PLATFORM-120
+review findings, and it is the thing to check before touching the row set again.
+
+Consequence for this item: **the durable write path is the wrong place for this filter.** It is a
+relevance filter, not a correctness filter — the rows are accurate, merely unwanted by most readers —
+and deleting them removes evidence four consumers depend on, plus the
+`/api/debug/schedule-eligibility` diagnostic that exists to explain those exclusions
+(`AGENTS.md` core rule 4: diagnostics are required). PLATFORM-120 v2 applies the predicate at the two
+SAFE hot call sites instead, which is 87% of measured Active CPU with zero affected consumers.
 
 **So filter at the write path**, when the full-season response is persisted, rather than shaping the
 API response. Benefits multiply across every consumer instead of one: the durable cache shrinks
