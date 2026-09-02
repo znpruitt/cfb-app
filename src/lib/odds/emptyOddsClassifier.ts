@@ -47,6 +47,10 @@
 
 import { attachOddsEventsToSchedule, type OddsAttachmentDiagnostic } from '../oddsAttachment.ts';
 import type { ScheduleAttachmentGame } from '../gameAttachment.ts';
+import {
+  createOddsTeamLabelNormalizer,
+  type OddsTeamLabelNormalizer,
+} from '../oddsTeamLabelNormalization.ts';
 import type { TeamIdentityResolver } from '../teamIdentity.ts';
 import { buildPlaceholderParticipant } from '../schedulePostseasonHelpers.ts';
 import { isDisruptedStatusLabel } from '../gameStatus.ts';
@@ -123,10 +127,12 @@ function classifyPriorRow(params: {
   game: OddsScheduleEvidenceItem | null;
   reason: OddsAttachmentDiagnostic['reason'] | undefined;
   resolver: TeamIdentityResolver;
+  teamLabelNormalizer: OddsTeamLabelNormalizer;
   slateParticipantsConfident: boolean;
   now: number;
 }): PriorOddsRowState {
-  const { event, game, reason, resolver, slateParticipantsConfident, now } = params;
+  const { event, game, reason, resolver, teamLabelNormalizer, slateParticipantsConfident, now } =
+    params;
   const commenceMs = event.commenceTime === null ? Number.NaN : Date.parse(event.commenceTime);
   const commenceExpired = Number.isFinite(commenceMs) && commenceMs <= now;
 
@@ -141,8 +147,8 @@ function classifyPriorRow(params: {
   if (commenceExpired) return 'expired';
   if (reason === 'unmatched_pair') {
     const eventIdentitiesResolved =
-      resolver.resolveName(event.homeTeam).status === 'resolved' &&
-      resolver.resolveName(event.awayTeam).status === 'resolved';
+      resolver.resolveName(teamLabelNormalizer.normalize(event.homeTeam)).status === 'resolved' &&
+      resolver.resolveName(teamLabelNormalizer.normalize(event.awayTeam)).status === 'resolved';
     return eventIdentitiesResolved && slateParticipantsConfident
       ? 'confidently-absent'
       : 'identity-unresolved';
@@ -267,10 +273,12 @@ export function classifyEmptyOddsResponse(params: {
       scheduleItems.map((item, index) => [`evidence-${index}`, item])
     );
     const diagnostics: OddsAttachmentDiagnostic[] = [];
+    const teamLabelNormalizer = createOddsTeamLabelNormalizer({ games, resolver });
     const attached = attachOddsEventsToSchedule({
       games,
       events: priorEvents as PriorOddsEventEvidence[],
       resolver,
+      teamLabelNormalizer,
       diagnostics,
     });
     const gameKeyByEvent = new Map<PriorOddsEventEvidence, string>(
@@ -307,6 +315,7 @@ export function classifyEmptyOddsResponse(params: {
         })(),
         reason: reasonByEventKey.get(diagnosticKey(event)),
         resolver,
+        teamLabelNormalizer,
         slateParticipantsConfident,
         now,
       });

@@ -304,11 +304,11 @@ export function buildDurableOddsSnapshot(params: {
   const book = event.book;
   if (!book) return null;
 
-  const teamNamesAreEquivalent = (left: string, right: string): boolean =>
+  const teamNamesAreEquivalent = (providerLabel: string, canonicalScheduleLabel: string): boolean =>
     areTeamNamesEquivalent(
       resolver,
-      teamLabelNormalizer?.normalize(left) ?? left,
-      teamLabelNormalizer?.normalize(right) ?? right
+      teamLabelNormalizer?.normalize(providerLabel) ?? providerLabel,
+      canonicalScheduleLabel
     );
 
   const markets = book.markets ?? [];

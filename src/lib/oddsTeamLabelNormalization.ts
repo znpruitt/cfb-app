@@ -4,7 +4,7 @@ import { CFBD_ODDS_TEAM_MASCOTS } from '@/data/odds-team-mascots.ts';
 import { hasTeamParticipants, type ScheduleAttachmentGame } from './gameAttachment.ts';
 import { toTeamIdentityKey, type TeamIdentityResolver } from './teamIdentity.ts';
 
-type OddsTeamLabelAlias = {
+export type OddsTeamLabelAlias = {
   provider: string;
   schedule: string;
 };
@@ -13,7 +13,30 @@ export type OddsTeamLabelNormalizer = {
   normalize: (providerLabel: string) => string;
 };
 
-const aliases = oddsTeamLabelAliases.aliases as OddsTeamLabelAlias[];
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Validate the small hand-maintained residual table at its data boundary. A
+ * malformed row is ignored rather than reaching `toTeamIdentityKey` and
+ * turning an odds read into a runtime error.
+ */
+export function parseOddsTeamLabelAliases(value: unknown): OddsTeamLabelAlias[] {
+  if (!isRecord(value) || !Array.isArray(value.aliases)) return [];
+
+  const parsed: OddsTeamLabelAlias[] = [];
+  for (const alias of value.aliases) {
+    if (!isRecord(alias)) continue;
+    const provider = typeof alias.provider === 'string' ? alias.provider.trim() : '';
+    const schedule = typeof alias.schedule === 'string' ? alias.schedule.trim() : '';
+    if (!provider || !schedule) continue;
+    parsed.push({ provider, schedule });
+  }
+  return parsed;
+}
+
+const aliases = parseOddsTeamLabelAliases(oddsTeamLabelAliases);
 
 function labelVariants(school: string, alternateNames: readonly string[]): string[] {
   const variants = new Set([school, ...alternateNames]);
@@ -102,7 +125,17 @@ export function createOddsTeamLabelNormalizer(params: {
   }
 
   return {
-    normalize: (providerLabel) =>
-      replacements.get(toTeamIdentityKey(providerLabel)) ?? providerLabel,
+    normalize: (providerLabel) => {
+      // Persisted/manual aliases are part of the identity resolver and take
+      // precedence over this static provider-label aid. Only preserve an
+      // existing resolution when it points at a participant in this schedule;
+      // observed provider strings outside the slate must not suppress mascot
+      // normalization.
+      const existingIdentity = resolver.resolveName(providerLabel).identityKey;
+      if (existingIdentity && scheduledLabelsByIdentity.has(existingIdentity)) {
+        return providerLabel;
+      }
+      return replacements.get(toTeamIdentityKey(providerLabel)) ?? providerLabel;
+    },
   };
 }
