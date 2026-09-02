@@ -497,6 +497,57 @@ only if Item 87 slice 4's record join reaches historical seasons.
 
 - Backlog slug: `PLATFORM-OVERRIDE-PAYLOAD-VALIDATION-v1`
 
+### Item 106 — a third of fetched odds are discarded: mascot-suffixed non-FBS names never resolve
+
+**Measured 2026-09-02 against production.** We fetch odds for games we then fail to attach, so
+members see no line on games the books have priced.
+
+    raw provider events cached : 146
+    attached + stored          : 110
+    dropped in attachment      :  36
+
+Reproduced locally against the exact cached events, the live catalog, and the durable alias map:
+
+    events=146  attached=98  dropped=48
+    drop reasons: { unmatched_pair: 48 }
+
+**Every drop is `unmatched_pair`, and every one has a non-FBS team on one side.** The FBS side always
+resolves; the other side never does:
+
+    [unmatched_pair] "Bethune-Cookman Wildcats"         @ "UCF Knights"
+    [unmatched_pair] "Merrimack Warriors"               @ "Delaware Blue Hens"
+    [unmatched_pair] "Arkansas Pine Bluff Golden Lions" @ "Missouri Tigers"
+    [unmatched_pair] "LIU Sharks"                       @ "Kansas Jayhawks"
+
+**Mechanism.** `attachOddsEventsToSchedule` gates on `resolver.buildPairKey(homeTeam, awayTeam)`
+(`oddsAttachment.ts:88`); a miss reports `unmatched_pair` and the event is dropped. The provider sends
+mascot-suffixed names, and stripping a mascot requires catalog metadata — **the team catalog holds
+only the 138 FBS teams**. The schedule does carry "Bethune-Cookman" as a canonical name, so it reaches
+`observedNames`, but that is the bare school; `"Bethune-Cookman Wildcats"` never normalizes onto it.
+
+**Member impact.** 51 of 99 week-1 FBS games have no line displayed; **47 of those are `fbs/fcs`**
+pairings whose odds we already hold. Confirmed independently by the owner finding a FanDuel line for
+Bethune-Cookman @ UCF.
+
+**Not the causes that were considered and ruled out.** The Odds API request carries no date filter and
+no limit (`oddsRefreshExecutor.ts:83-89`) — only seven bookmakers and three markets — so this is not a
+provider-coverage or configuration gap. Not diacritics either: San José State's catalog alts already
+include `"san jose state spartans"`, and that game attaches.
+
+**Fix direction — a matching aid, not an identity authority.** The catalog must remain the FBS
+identity authority; do not mint canonical identities for non-FBS schools from it. Prefer a
+mascot/alias lookup used ONLY to normalize provider strings before `buildPairKey`, sourced from CFBD
+`/teams` (which returns all divisions with mascots). Sizing note: this touches the odds attachment
+seam that PLATFORM-086C1/C2 consolidated, so it needs its own review.
+
+**Second, unresolved observation.** UMass @ Rutgers has a line per a public sportsbook but does NOT
+appear in our raw cached events at all — so it is a different failure from the 48 above (fetch scope
+or timing, not matching). Our request is unfiltered, so the candidates are a post-16:00Z posting or a
+bookmaker outside our seven. Establish which with a fresh pull; it costs provider credits, so fold it
+into this item rather than probing separately.
+
+- Backlog slug: `PLATFORM-ODDS-NONFBS-MATCHING-v1`
+
 ### Item 104 — `canonicalWeek` compresses `(seasonType, week)` into one integer and derives the offset from data
 
 **The provider is not ambiguous; we make it ambiguous.** CFBD sends `seasonType` on every row —
