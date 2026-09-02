@@ -51,6 +51,36 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-121-ODDS-FIXTURE-EXPIRY-v2
+
+- Purpose: replace odds-route fixtures whose fixed kickoffs made correct production closing-line
+  behavior turn the test suite red as the wall clock advanced.
+- Scope: `src/app/api/odds/__tests__/route.test.ts` and its local timing helper only; no production
+  route, odds-library, or durable-store behavior changed.
+- Outcome: all pregame, post-kickoff, delayed-kickoff, and same-pair-rematch fixtures now state their
+  temporal relationship relative to execution time. Repeated meetings stay 30 days apart, safely
+  outside the 24-hour attachment tolerance, and the remaining durable snapshot captures are relative.
+- Review / verification: exact pre-merge head `5d49f400` passed TypeScript, `lint:all`, and the
+  4,552-test suite with no test additions, removals, skips, or weakened assertions. The 21-test route
+  file passed at ten clock offsets through +700 days across four time zones; the same harness
+  reproduced `main`'s growing failure count (4 at +0, 5 at +60, 6 at +365), proving the non-expiry
+  check was not vacuous. Four assertion mutations failed as intended, and a temporary 36-hour
+  attachment tolerance remained 21/21 green after the rematch-fixture remediation. Codex and
+  `/code-review` left no credible in-scope P0/P1/P2.
+- Status: Merged via PR #553 (merge commit `e952a657`), 2026-09-02.
+
+### PLATFORM-121-ODDS-TEST-HARNESS-v1
+
+- Purpose: restore four failing odds-route tests under the initial theory that their schedule fetch
+  mocks were inert after a server-side cache-reader migration.
+- Scope: the odds route test harness only; production changes were explicitly forbidden.
+- Outcome: stopped at the diagnosis gate. The route still self-fetches its schedule, both mock styles
+  fire, and durable seeding was the wrong repair; the actual defect was wall-clock fixture expiry.
+- Review / verification: the first test's observed schedule year proved the mock executed. Re-running
+  historical commits under the current clock was rejected as an invalid regression-bisection method;
+  the corrected analysis and deterministic proof moved to v2.
+- Status: Superseded/unimplemented; replaced by `PLATFORM-121-ODDS-FIXTURE-EXPIRY-v2` / PR #553.
+
 ### PLATFORM-120-SCHEDULE-FBS-FILTER-v3
 
 - Purpose: reduce canonical schedule-build cost at the two highest-frequency readers while deleting
@@ -62,8 +92,8 @@ Rules:
   classifications are known non-FBS, retain every postseason row, and keep the full raw game-stats
   snapshot for metadata and duplicate-CFBD-id rejection. Provider week 1 is always canonical week 1.
 - Review / verification: exact pre-merge head `9259ea9e` passed TypeScript and `lint:all`; the
-  4,552-test suite added nine passing tests and retained only the four Item 103 odds failures
-  reproduced on `main`. Mutations proved both reader filters, duplicate-id rejection, postseason
+  4,552-test suite added nine passing tests and retained the four then-expired PLATFORM-121 odds
+  failures reproduced on `main`. Mutations proved both reader filters, duplicate-id rejection, postseason
   offset containment, and week-0 deletion. Codex and `/code-review` left no credible in-scope
   P0/P1/P2.
 - Status: Merged via PR #551 (merge commit `ce176ccd`), 2026-09-02. Item 104 remains the
@@ -174,8 +204,8 @@ Rules:
   unusable score evidence renders neutral `Awaiting score` for at most eight hours; usable finals
   promote immediately; abandonment and ownership exclusion are per-game and precede state routing.
 - Review / verification: exact code commit `5d83e035` passed TypeScript, `lint:all`, and 74/74
-  focused tests, with one net test added. The full suite retained four odds-route failures also
-  reproduced on `main`; one unchanged diagnostics file timed out under aggregate host load and then
+  focused tests, with one net test added. The full suite retained four odds-route failures later
+  completed under PLATFORM-121; one unchanged diagnostics file timed out under aggregate host load and then
   passed 89/89 directly. Routing mutations fired their named transition/exclusivity assertions.
   Independent Codex and Claude confirmation left no credible in-scope P0/P1/P2; the remaining LOW
   findings share the currently unreachable disruption-label seam tracked beside Item 63.
@@ -200,8 +230,9 @@ Rules:
   once the wall clock passes it. Re-running an old commit TODAY therefore fails for today's date, not
   for that commit's code. On 2026-08-31 the kickoff was still in the future and the suite genuinely
   passed. POLISH-018 reported accurately; the retracted correction is left visible so the faulty
-  method is not repeated. See Item 103. Four test declarations were added relative to `main`; existing render
-  assertions were retargeted without removing coverage. Reverting unknown to zinc-500 failed on
+  method is not repeated. See `PLATFORM-121-ODDS-FIXTURE-EXPIRY-v2`. Four test declarations were
+  added relative to `main`; existing render assertions were retargeted without removing coverage.
+  Reverting unknown to zinc-500 failed on
   `unknown label must use dimmer accessible zinc`. Independent Codex and Claude reviews found the
   same contrast gap; one remediation closed it, and confirmation left no credible in-scope
   P0/P1/P2 after the settled Matchups and source-token requirements were applied.

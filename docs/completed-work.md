@@ -32,6 +32,24 @@ Supersedes: (none)
 > [`docs/ai/game-stats-writer-fence.md`](ai/game-stats-writer-fence.md) (with the superseded
 > original design frozen in [`docs/ai/platform-086h3-contract.md`](ai/platform-086h3-contract.md)).
 
+### PLATFORM-121 — Deterministic Odds Route Fixtures — Complete
+
+- **Status:** Merged via PR #553 (merge commit `e952a657`), 2026-09-02.
+- **PROMPT_ID(s):** `PLATFORM-121-ODDS-FIXTURE-EXPIRY-v2`; the incorrect durable-seeding diagnosis in
+  `PLATFORM-121-ODDS-TEST-HARNESS-v1` was stopped before implementation.
+- **Outcome:** Odds-route fixtures now express pregame, post-kickoff, delayed-kickoff, and rematch
+  timing relative to execution instead of hard-coded calendar instants. Same-pair meetings remain
+  weeks apart, and no production odds behavior changed. This removed at least six latent time bombs:
+  four had expired first, while shifted-clock verification exposed two more with longer fuses.
+- **Verification:** Exact pre-merge head `5d49f400` passed TypeScript, `lint:all`, and all 4,552
+  tests. The 21-test odds route file passed at ten future-clock offsets through +700 days across four
+  time zones, while the same harness reproduced the growing failures on pre-fix `main`. Four
+  assertion mutations failed as intended, and the rematch fixture remained green with the attachment
+  tolerance temporarily raised from 24 to 36 hours. Independent Codex and `/code-review` found no
+  credible in-scope P0/P1/P2.
+- **Test delta:** No tests were added, removed, skipped, or weakened; existing temporal fixtures were
+  retargeted so their original assertions remain meaningful as the real clock advances.
+
 ### PLATFORM-120 — Hot Schedule-Build Relevance Filter and Week-0 Deletion — Complete
 
 - **Status:** Merged via PR #551 (merge commit `ce176ccd`), 2026-09-02.
@@ -43,13 +61,14 @@ Supersedes: (none)
   consumers, and game-stats keeps the raw snapshot for metadata and duplicate-id rejection. Provider
   week 1 can no longer become canonical week 0.
 - **Verification:** Exact pre-merge head `9259ea9e` passed TypeScript and `lint:all`; the 4,552-test
-  suite added nine passing tests and retained only the four Item 103 odds failures reproduced on
-  `main`. Mutations proved both reader filters, duplicate-id rejection, postseason offset
+  suite added nine passing tests and retained the four then-expired PLATFORM-121 odds failures
+  reproduced on `main`. Mutations proved both reader filters, duplicate-id rejection, postseason offset
   containment, and the week-0 deletion. Independent Codex and `/code-review` left no credible
   in-scope P0/P1/P2.
 - **Open follow-ups:** Item 102 still owns the schedule-derived QStash planner and Item 88 its health
   model. Item 100b remains date-gated before the 2027 opening slate. Item 104 owns replacement of the
-  scalar canonical-week model; Item 103 owns the unrelated odds test-harness failures.
+  scalar canonical-week model. The unrelated odds test-harness failures were completed under
+  PLATFORM-121.
 
 ### POLISH-019 — Overview Recent Finals Promotion — Complete
 
