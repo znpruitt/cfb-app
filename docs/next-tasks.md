@@ -24,9 +24,8 @@ Supersedes: (none)
 
 ## Current execution order
 
-`CURRENT`: **Item 87 slice 4** — Watchlist. **Gated on Item 105** (GitHub #548): the record
-join slice 4 needs is the one POLISH-019 held back until participant labels and provider team ids are
-realigned.
+`CURRENT`: **Item 87 slice 4** — Watchlist. **Not gated** — the Item 105 blocker was withdrawn
+2026-09-02 after a full trace found the defect unreachable; see Item 105.
 `NEXT`: **Item 102 + Item 88** — polling planner and its health model.
 
 Owner-selected run order (2026-09-02), replacing the 2026-08-29 order. Reprioritised after the Vercel
@@ -444,47 +443,59 @@ Neon one. Keep this item for the read-replica autosuspend and the non-cadence fi
 
 - Backlog slug: `PLATFORM-OFFSEASON-SCHEDULE-PAUSE-v1`
 
-### Item 105 — schedule merge leaves participant labels and provider team ids on opposite sides
+### Item 105 — the postseason override endpoint writes an unvalidated `Partial<AppGame>`
 
-**BLOCKS Item 87 slice 4.** Tracked as GitHub issue #548, filed 2026-09-01; this entry exists because
-the queue is canonical for blockers and the issue alone left slice 4's prerequisite invisible.
+**LOW severity hardening. Rewritten 2026-09-02 — the defect this item was originally filed for does
+not exist.** It was filed from GitHub issue #548's framing without tracing the mechanism, and a
+`CURRENT` gate was placed on Item 87 slice 4 on that basis. Both were wrong; the gate is removed
+and issue #548 is closed. The trace is recorded below so the question is not reopened from scratch.
 
-**The defect.** `buildAuthoritativeGameCollection` merges two rows for one game identity and replaces
-`participants`, `csvHome`/`csvAway`, and `canHome`/`canAway` — but never realigns `homeId`/`awayId`
-to the chosen orientation. Verified 2026-09-02 still present: `schedulePostseasonHelpers.ts:250`
-returns `{ ...existing, ...preferred, providerGameId, participants: mergedParticipants }`, so the ids
-come from `preferred` while the labels come from `mergedParticipants`. Nothing maintains the
-invariant that both describe the same sides.
+**What is actually open.** `PUT /api/postseason-overrides` (`route.ts:45`) requires admin auth and
+validates only that the body's `map` is a non-array object — then writes it straight to durable state
+via `setAppState(scope, 'map', map)`. No field allowlist. `applyManualOverride`
+(`schedulePostseasonHelpers.ts:14`) then spreads it over a real game and explicitly honors
+`participants.home` / `participants.away`.
 
-Given two compatible neutral-site rows for the same regular-season identity and the same numeric
-provider game id — row A Texas home / Oklahoma away (`homeId: 251`, `awayId: 201`), row B inverted —
-`mergedParticipants` keeps row A's orientation because both slots are already resolved, while the
-spread can select row B as `preferred`. The merged row then displays Texas home / Oklahoma away while
-identifying the home side by Oklahoma's provider id.
+That matters because `canonicalSlate.ts:392-395` pairs `home`/`away` taken from the BUILT game with
+`homeId`/`awayId` read from the WIRE row by provider id. An override that changes participants moves
+the labels and leaves the numeric ids where they were, so a consumer joining by team id can credit
+the wrong team. This is the same unvalidated-spread hazard `scheduleEligibility.ts:110-125` already
+warns about, now with a second consequence attached.
 
-**Why it matters now.** Any consumer joining by provider team id can attach data to the wrong
-displayed team. **POLISH-019 deliberately left the finals record join out until this is repaired**,
-and that join is exactly what Item 87 slice 4 builds: scheduled matchups anchored on each team's W-L
-record, keyed by team id, fed by PLATFORM-117 and PLATFORM-118. Slice 4 either waits for this or
-ships a join that can silently credit the wrong team.
+**Reachability: hand-crafted request only.** The product cannot produce such an override. There is
+exactly ONE call site in the UI (`GameWeekPanel.tsx:330`), it is gated on `isAdmin` AND
+`card.isPlaceholder`, it opens a `window.prompt`, and it emits `{ label: nextLabel.trim() }` —
+nothing else. No control anywhere changes which team is home.
 
-**Severity is calibrated, not assumed.** The reproduction is a HAND-BUILT fixture, not two observed
-CFBD rows. Cached rows were compared against a fresh pull across six seasons — **20,828 games, 0
-home/away inversions, 0 changes of any kind** — with provider-id assignment stable across pulls up to
-five years apart. Rematches are separately protected: collection identity includes `{home, away, pid}`
-and distinct non-null numeric provider ids are always different provider games. A conflicting pair
-would have to arrive through a manual override, an archive rebuild, a legacy durable hybrid, or
-another synthetic/corrupt input.
+**Fix:** constrain the override payload to the fields the product actually emits, rejecting the rest
+at the route. Closes this and the pre-existing eligibility hazard together.
 
-**That class is documented as real, which is why this is not dismissed.** The comment above the
-collision guard records `PLATFORM-086H3E4 — the 2024 archive hybrid combined one game's provider id
-with another game's participants`.
+#### The trace that closed the original defect (measured 2026-09-02)
 
-**Likely fix — field alignment, not a redesign.** Carry or swap `homeId`/`awayId` from the same
-orientation chosen for the merged participants, with a regression fixture for the inverted duplicate.
-Assert the invariant directly (ids and labels describe the same sides), not a proxy.
+Every path to a label/id misalignment, each checked rather than argued:
 
-- Backlog slug: `PLATFORM-MERGE-ID-ORIENTATION-v1`
+| Path | Result |
+| --- | --- |
+| Provider inverts home/away | 20,828 games over six seasons: **0 inversions, 0 changes**; pid assignment stable across pulls five years apart |
+| Provider omits a game id | **0 of 22,760 rows** across seven seasons — no missing, non-numeric, or beyond-safe-integer ids |
+| Provider sends duplicate ids | postseason sets are fully distinct: 139/139, 54/54, 86/86 |
+| Provider sends placeholders | **0** placeholder-looking rows in three postseason slates; CFBD publishes a game only once the matchup is settled |
+| Two rows share an id | rejected at `canonicalSlate.ts:345` BEFORE source-item metadata is read |
+| Two rows have different ids | never merged — `isIncompatibleCollision` rule 1, the guard PLATFORM-086H3E4 produced |
+| The app's own `cfp-*` placeholder shells | participants unresolved, so `mergedParticipants` never takes their orientation |
+| An override creates a row | it cannot — `applyManualOverride` patches an existing candidate |
+
+**`AppGame` has no `homeId`/`awayId` fields at all**, so issue #548's proposed fix — swap them in the
+merge return — could not be written as described. The numeric ids live on `CanonicalGame`, stamped
+from the wire row, which is why the seam is the slate rather than the merger.
+
+**Participant ids are absent only for 2018** (0 of 1,556 rows; 2021-2026 are 100% covered; 2019-2020
+are not cached). A backfill was considered and deferred: it would not reduce this risk — it would
+make 2018 _eligible_ for a misalignment it currently cannot have — and a refreshed 2018 would newly
+carry provider classification, changing what PLATFORM-120's filter does to an archived season. Revisit
+only if Item 87 slice 4's record join reaches historical seasons.
+
+- Backlog slug: `PLATFORM-OVERRIDE-PAYLOAD-VALIDATION-v1`
 
 ### Item 104 — `canonicalWeek` compresses `(seasonType, week)` into one integer and derives the offset from data
 
