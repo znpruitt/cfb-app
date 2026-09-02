@@ -1,7 +1,7 @@
 # Prompt Registry
 
 Status: Current ledger
-Last verified: 2026-09-01
+Last verified: 2026-09-02
 Owner: Project documentation
 Canonical for: prompt ledger / historical implementation record (not an active backlog)
 Supersedes: (none)
@@ -50,6 +50,49 @@ Rules:
 ---
 
 ## Prompt ledger (most recent first)
+
+### PLATFORM-120-SCHEDULE-FBS-FILTER-v3
+
+- Purpose: reduce canonical schedule-build cost at the two highest-frequency readers while deleting
+  the unsupported member-visible week-0 derivation.
+- Scope: the live-score and game-stats canonical build contexts, a shared FBS-relevance predicate,
+  the regular-season span used for postseason offsets, and focused regression coverage. Durable
+  schedule writers and the `/api/schedule` response remain unchanged.
+- Outcome: both hot contexts now omit only regular-season rows whose two normalized provider
+  classifications are known non-FBS, retain every postseason row, and keep the full raw game-stats
+  snapshot for metadata and duplicate-CFBD-id rejection. Provider week 1 is always canonical week 1.
+- Review / verification: exact pre-closeout code commit `22ee85d4` passed TypeScript and `lint:all`;
+  the 4,552-test suite added nine passing tests and retained only the four Item 103 odds failures
+  reproduced on `main`. Mutations proved both reader filters, duplicate-id rejection, postseason
+  offset containment, and week-0 deletion. Codex and `/code-review` left no credible in-scope
+  P0/P1/P2.
+- Status: Implemented — PR #551 open. Item 104 remains the architectural follow-up for replacing the
+  scalar canonical-week model; Item 100b remains date-gated before the 2027 opening slate.
+
+### PLATFORM-120-SCHEDULE-FBS-FILTER-v2
+
+- Purpose: relocate the v1 write-path predicate to the live-score and game-stats canonical readers.
+- Scope: the same two readers, a neutral relevance predicate, and tests; write-path changes were
+  reverted.
+- Outcome: stopped after the reader filter exposed three raw-row dependencies: the postseason offset
+  moved with the filtered regular-season span, game-stats lost duplicate-provider-id evidence, and
+  the live-score test did not prove rows were absent from the build.
+- Review / verification: the stop established the complete raw-row dependency inventory and the
+  acceptance tests carried by v3; no v2 behavior was merged.
+- Status: Superseded/unimplemented; replaced by v3 / PR #551.
+
+### PLATFORM-120-SCHEDULE-FBS-FILTER-v1
+
+- Purpose: filter both-known-non-FBS rows when full-season CFBD schedules were persisted and remove
+  canonical week 0.
+- Scope: both durable schedule writers, schedule normalization, canonical-week derivation, and tests.
+- Outcome: stopped. The predicate was sound, but deleting accurate rows made deliberately filtered
+  empties indistinguishable from provider empties, created false vanished-game diagnostics, blinded
+  schedule-eligibility diagnostics, and weakened raw schedule expectation-oracle guards.
+- Review / verification: review findings were reproduced and attributed to the write boundary;
+  durable writes and `/api/schedule` were restored before v2/v3 work proceeded. The independently
+  mutation-proven week-0 deletion was retained.
+- Status: Superseded/unimplemented; replaced by v2 and then v3 / PR #551.
 
 ### PLATFORM-119-LEAGUE-PAGE-PAINT-v2
 
