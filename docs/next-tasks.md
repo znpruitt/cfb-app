@@ -540,11 +540,34 @@ mascot/alias lookup used ONLY to normalize provider strings before `buildPairKey
 `/teams` (which returns all divisions with mascots). Sizing note: this touches the odds attachment
 seam that PLATFORM-086C1/C2 consolidated, so it needs its own review.
 
-**Second, unresolved observation.** UMass @ Rutgers has a line per a public sportsbook but does NOT
-appear in our raw cached events at all — so it is a different failure from the 48 above (fetch scope
-or timing, not matching). Our request is unfiltered, so the candidates are a post-16:00Z posting or a
-bookmaker outside our seven. Establish which with a fresh pull; it costs provider credits, so fold it
-into this item rather than probing separately.
+**Second failure, now isolated: the aggregator does not carry every game the books price.** UMass @
+Rutgers has a live DraftKings line, and DraftKings is FIRST in our seven bookmakers
+(`routeInternals.ts:220`), yet the game is absent from our raw events under every spelling tried
+(Rutgers, Scarlet, Massachusetts, UMass, Minutemen).
+
+Two candidate explanations were ruled out by measurement rather than argument:
+
+- **Not bookmaker scope** — DraftKings is queried, and the line is on DraftKings.
+- **Not staleness.** A forced `GET /api/odds?year=2026&refresh=1` at 2026-09-02T20:06:29Z returned
+  `cache: miss` with usage 18 → 21, i.e. a genuine live fetch 26 hours before kickoff. It returned
+  **the same 146 events**, still no Rutgers, still 5 of the 6 scheduled Sep-3 games. An earlier
+  hypothesis that our 4-hour-old cache explained the absence was a plausible mechanism that turned out
+  to be wrong; the cadence policy is behaving correctly (verified: `pregame` arms at
+  2026-09-03T16:00Z, exactly six hours before the 22:00Z opener, refreshing every 2h through kickoff).
+
+So this is **provider coverage** — The Odds API's feed is not what the books post. Nothing on our side
+recovers it.
+
+**The size of that coverage bucket is NOT measured, deliberately.** A hand-rolled schedule↔feed
+matcher produced false negatives (it missed "UAlbany"/"Albany" and mangled "San José State" on the
+accent), and a season-wide "absent" count is meaningless anyway because books post late — 737 of 880
+future games have no line simply because it is September. Measuring this properly means running the
+app's own resolver in REVERSE, schedule games → feed events, which is its own piece of work. Do not
+quote a number until then.
+
+**It does not change this item's scope.** The 48 dropped events are ones we ALREADY HOLD; fixing the
+match recovers all of them regardless of what the feed omits. Coverage is a separate, smaller,
+unquantified residual.
 
 - Backlog slug: `PLATFORM-ODDS-NONFBS-MATCHING-v1`
 
