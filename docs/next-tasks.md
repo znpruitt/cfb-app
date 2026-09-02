@@ -422,7 +422,54 @@ views to an idle CPU. The trigger is concurrency or data volume, and both are fa
 answers all came from a console page or `pg_stat_statements`. Check the **Computes** list per branch
 before attributing compute cost to anything.
 
+**Item 102 subsumes the manual half.** A schedule-derived polling planner pauses these schedules
+through the offseason without an operator, and is driven by a Vercel Active CPU finding rather than a
+Neon one. Keep this item for the read-replica autosuspend and the non-cadence findings.
+
 - Backlog slug: `PLATFORM-OFFSEASON-SCHEDULE-PAUSE-v1`
+
+### Item 102 — derive the QStash polling cron from the schedule
+
+**The ask:** stop live-scores and game-stats from firing outside game windows. Once a day, read the
+canonical schedule, derive the polling windows, and rewrite the two QStash cron expressions to cover
+only those windows.
+
+**The value, measured 2026-09-01:** `/api/cron/live-scores` is **75% of all Vercel Active CPU** and
+live-scores plus game-stats is **87%**, at 1.20 s and 0.95 s per invocation across a 12-hour window.
+The Hobby 4-hour Fluid allowance is exhausted at ~7h15m/30d. **66.7% of invocations are cold starts**,
+so removing an invocation saves its floor as well as its work — which a cheaper handler cannot.
+Full evidence, including the rejected alternatives, in
+[`docs/campaigns/vercel-active-cpu.md`](campaigns/vercel-active-cpu.md).
+
+**Pairs with Item 99, does not replace it.** Item 99 cuts the cost of every invocation; this cuts
+their number. Projected together: ~1.1 CPU-h/30d against ~2.8 h for Item 99 alone. An in-route gate
+before the context load was proposed and dropped as redundant against the pair — recorded in the
+campaign doc so it is not re-derived.
+
+**Four things it collides with, all located:**
+
+1. `scripts/lib/qstashSchedule.ts:342` treats the cron as a FIXED contract constant and reports
+   divergence; a planner-written cron makes `inspect` refuse permanently. The cron must become
+   planner-owned for these two jobs.
+2. `src/lib/server/schedulerDeliveryHealth.ts:82,88` hardcodes `*/3` / `*/15` with 6- and 30-minute
+   grace. Narrow the cron and both jobs read `late` forever — the two rows that matter most on a game
+   day. Delivery expectations must derive from the planner's window.
+3. `QSTASH_TOKEN` is operator-CLI-only today (`qstashSchedule.ts:644`); nothing in `src/` calls the
+   QStash management API. A runtime planner needs it in the Vercel environment.
+4. One schedule holds one cron expression, so windows over-approximate as hour ranges. Safe — the
+   handler guards still block the CFBD call — and it lets the planner stay coarse.
+
+**Existing handler guards stay.** They are the defence for kickoff changes, postponements, stale
+QStash state, and planner mistakes. The planner reduces wakeups; it must not become the only
+correctness or quota protection.
+
+**Blocker:** none technical. Until it ships the schedules are managed by hand per game window, which
+is what makes the `kickoff + 24h` reconciliation deadline an operational hazard — see the campaign
+doc's operator notes.
+
+**Supersedes the manual half of Item 96.** A working planner pauses through the offseason on its own.
+
+- Backlog slug: `PLATFORM-POLLING-WINDOW-PLANNER-v1`
 
 ### Item 101 — Recent finals can empty out at season boundaries
 
@@ -518,6 +565,22 @@ Write-path filtering supersedes it. **98b should be closed in favour of this ite
 **Scope care:** this changes what is PERSISTED, and it lands on the full-season refresh authority
 that PLATFORM-086E1A deliberately consolidated. It needs its own review, not a ride-along on a
 performance PR. Existing caches are unaffected; only future writes filter.
+
+**Third argument, measured 2026-09-01: this is now the largest single lever on Vercel Active CPU.**
+Both high-frequency crons rebuild the full season before deciding they have nothing to do, and
+`buildScheduleFromApi` is **98.6% of that context load**. The filter therefore cuts the cost of every
+invocation — idle and working alike — by the measured **3.55x**, which a scheduling change cannot do.
+See [`docs/campaigns/vercel-active-cpu.md`](campaigns/vercel-active-cpu.md); Item 102 is the paired
+change.
+
+**Two corrections from that measurement.** The predicate keeps **1,003 rows for 2026, not 888** — 888
+is the FBS-involving count, and the filter deliberately retains 115 more rows where one side's
+classification is absent. And the **week-0 concern does not apply to this predicate**: built through
+`buildScheduleFromApi` and read on `canonicalWeek`, 2026 and 2025 both yield **no canonical week 0,
+filtered or unfiltered, with identical canonical game counts** (888 and 934). Item 100's "2025 fbs →
+week 0 DETECTED" used a strict FBS-only row set; the classification-absent rows this predicate keeps
+are what hold the heuristic dormant. That is emergent, not guaranteed — **pin it with a test** for
+both seasons.
 
 - Backlog slug: `PLATFORM-SCHEDULE-WRITE-FILTER-v1`
 
