@@ -288,7 +288,7 @@ test('filtered odds requests do not overwrite the shared durable store with part
     '1-georgia-clemson-H': {
       canonicalGameId: '1-georgia-clemson-H',
       latestSnapshot: {
-        capturedAt: '2026-09-01T18:00:00.000Z',
+        capturedAt: testTimeFromNow(-2),
         bookmakerKey: 'draftkings',
         favorite: 'Georgia',
         source: 'DraftKings',
@@ -394,7 +394,7 @@ test('PLATFORM-075: filtered odds request never leaks the unfiltered durable sna
     '1-georgia-clemson-H': {
       canonicalGameId: '1-georgia-clemson-H',
       latestSnapshot: {
-        capturedAt: '2026-09-01T18:00:00.000Z',
+        capturedAt: testTimeFromNow(-2),
         bookmakerKey: 'draftkings',
         favorite: 'Georgia',
         source: 'DraftKings',
@@ -1056,7 +1056,7 @@ test('repeat matchup odds persist independently for regular season and conferenc
   const priorObservationAt = testTimeFromNow(-2);
   const regularKickoff = testTimeFromNow(-1);
   const priorFrozenAt = testTimeFromNow(-0.5);
-  const championshipKickoff = testTimeFromNow(24);
+  const championshipKickoff = testTimeFromNow(30 * 24);
 
   await setDurableOddsStore(DURABLE_ODDS_TEST_SEASON, {
     '1-georgia-clemson-H': {
