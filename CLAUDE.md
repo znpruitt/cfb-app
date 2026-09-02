@@ -101,6 +101,26 @@ Before any UI work, read `DESIGN.md`.
 
 No Vitest/Jest. No CI workflow is checked in; `npm run lint:all` is the intended pre-merge gate.
 
+## Reading production data
+
+**Use the read-only replica. Do not `vercel env pull`.** Read-only production queries go through
+`DATABASE_URL_RO` in `.env.operator.local` (gitignored) — an `audit_ro` role limited to
+CONNECT/USAGE/SELECT on a read-only endpoint, using the DIRECT host rather than `-pooler`.
+
+```bash
+# the connection string is never printed; read it from the file
+node -e "…new pg.Client({ connectionString: env.DATABASE_URL_RO })…"
+```
+
+There is deliberately **no `DATABASE_URL` in `.env.local`**: Next.js auto-loads that file, so one
+there would point `npm run dev` at production. The rail exists so an agent never needs the
+production secret set to answer a question about live data — reaching for `vercel env pull` instead
+puts every credential on disk to do a job a `SELECT` already does.
+
+`docs/deployment-runbook.md` is canonical for the contract, the autosuspend behaviour, and the
+privilege probe. The application must never read through this rail; `src/` contains no reference to
+it and must not gain one.
+
 ---
 
 ## Debugging order
