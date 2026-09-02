@@ -365,6 +365,15 @@ export function selectWeeklyRecapTargetWeek(
   const easternNow = easternDateTime(now);
   if (!easternNow) return null;
 
+  const eligible = selectWeeklyRecapWeekTargets(games)
+    .filter(({ latestGameDate }) => isEligible(latestGameDate, easternNow))
+    .sort((left, right) => right.week - left.week);
+
+  return eligible[0] ?? null;
+}
+
+/** Return every canonical week with its latest scheduled game-date. */
+export function selectWeeklyRecapWeekTargets(games: AppGame[]): WeeklyRecapTargetWeek[] {
   const latestDateByWeek = new Map<number, string>();
   for (const game of games) {
     const week = game.canonicalWeek;
@@ -377,12 +386,9 @@ export function selectWeeklyRecapTargetWeek(
     if (!previous || dateKey > previous) latestDateByWeek.set(week, dateKey);
   }
 
-  const eligible = Array.from(latestDateByWeek.entries())
-    .filter(([, latestGameDate]) => isEligible(latestGameDate, easternNow))
-    .sort(([leftWeek], [rightWeek]) => rightWeek - leftWeek);
-  const selected = eligible[0];
-
-  return selected ? { week: selected[0], latestGameDate: selected[1] } : null;
+  return Array.from(latestDateByWeek, ([week, latestGameDate]) => ({ week, latestGameDate })).sort(
+    (left, right) => left.week - right.week
+  );
 }
 
 export function selectWeeklyRecapFacts(args: {

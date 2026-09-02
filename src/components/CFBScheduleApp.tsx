@@ -136,6 +136,7 @@ type CFBScheduleAppProps = {
   initialIssues?: string[];
   initialRoster?: OwnerRow[];
   initialPreseasonOwners?: string[];
+  initialNowMs?: number;
   initialWeekViewMode?: WeekViewMode;
   initialStandingsSubview?: StandingsSubview;
   /**
@@ -293,6 +294,7 @@ export default function CFBScheduleApp({
   initialIssues = [],
   initialRoster = [],
   initialPreseasonOwners,
+  initialNowMs,
   initialWeekViewMode = 'overview',
   initialStandingsSubview = 'table',
   isAdmin = false,
@@ -353,7 +355,7 @@ export default function CFBScheduleApp({
   // leaves `scoresObservedAt` unchanged) — otherwise a fresh overlay would never
   // flip stale (PLATFORM-086B2B). `0` until the client effect below arms it, which
   // makes `useLiveDelta` fall back to `Date.now()` (SSR/first-render safe).
-  const [liveStaleClock, setLiveStaleClock] = useState<number>(0);
+  const [liveStaleClock, setLiveStaleClock] = useState<number>(initialNowMs ?? 0);
   const [oddsUsage, setOddsUsage] = useState<OddsUsageSnapshot | null>(null);
   // Freshness of the odds cache entry actually SERVED for the selected season
   // (rereview finding #2). Sourced from the odds response's own served-snapshot
@@ -1812,6 +1814,8 @@ export default function CFBScheduleApp({
                   matchupMatrix={overviewSnapshot.matchupMatrix}
                   liveItems={overviewSnapshot.liveItems}
                   keyMatchups={overviewSnapshot.keyMatchups}
+                  sectionItems={overviewSnapshot.sectionItems}
+                  nowMs={liveStaleClock}
                   context={overviewSnapshot.context}
                   displayTimeZone={presentationTimeZone}
                   rankingsByTeamId={overviewRankingsByTeamId}

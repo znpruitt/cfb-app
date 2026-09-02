@@ -92,6 +92,15 @@ export function classifyScorePackStatus(score?: ScorePack): GameStatusBucket {
   return classifyStatusLabel(score.status);
 }
 
+/** A final status is displayable as a result only when both team scores exist. */
+export function hasUsableFinalScore(score?: ScorePack): boolean {
+  return (
+    classifyScorePackStatus(score) === 'final' &&
+    score?.away.score != null &&
+    score.home.score != null
+  );
+}
+
 /**
  * Classify positive game-conclusion evidence once for both standings progress
  * and standings coverage.

@@ -1,7 +1,7 @@
 # Next Tasks (Active Queue)
 
 Status: Current
-Last verified: 2026-08-31
+Last verified: 2026-09-01
 Owner: Project documentation
 Canonical for: current execution order, planned/parked work, blockers, and the one canonical list of
 unresolved decisions and known deferrals
@@ -24,17 +24,17 @@ Supersedes: (none)
 
 ## Current execution order
 
-`CURRENT`: Reassess at the pre-agreed split point after Item 87 slice 2.
-`NEXT`: Not selected pending that reassessment.
+`CURRENT`: POLISH-019 / Item 87 slice 3 is implemented and review-resolved at `5d83e035`; its PR is
+not yet opened.
+`NEXT`: Not selected. Item 87 slice 4 remains the next step in the prior owner-selected run order
+if the owner continues the campaign after POLISH-019 merges.
 
 Owner-selected run order (2026-08-29). In-season work first, then the Overview scoreboard campaign,
 reassessing against the reliability sequence below after Item 87 slice 2 rather than running the
 campaign straight through.
 
-1. **Reassess** against the reliability sequence below before continuing.
-2. **Item 87 slice 3** — Recent finals + promotion model.
-3. **Item 87 slice 4** — Watchlist, consuming the PLATFORM-117 records cache.
-4. **Item 87 slice 5** — Schedule rework. Filed 2026-08-30; Schedule adopts the scoreboard row,
+1. **Item 87 slice 4** — Watchlist, consuming the PLATFORM-117 records cache.
+2. **Item 87 slice 5** — Schedule rework. Filed 2026-08-30; Schedule adopts the scoreboard row,
    two-column and all, and its green-`final` / amber-live is settled there rather than by a
    separate sweep. Also carries the `ownerOutcomeRowClasses` sibling asymmetry left by POLISH-018,
    which reaches `MatchupsWeekPanel` — a different week view mode, named deliberately in the
@@ -135,6 +135,15 @@ Independently verified: `/games` exposes `completed` only, `/scoreboard` reports
 distinct status, `'scheduled'`. **There is no flag to watch for and no prospect of one**, so schedule
 polling is the sole detection mechanism rather than one option among several. That converts this
 item's premise from an inference into a provider statement.
+
+**Latent defensive disruption seam, recorded by POLISH-019.** Legacy/defensive disruption labels
+are unreachable on the current CFBD-only production path, but three behaviors should be considered
+together if a future provider or repair path makes them reachable: the Overview router checks the
+label before excluding unresolved bracket shells; the shared pending-game authority deliberately
+sets a disrupted game's kickoff to `null`, so the abandonment clock does not expire it; and the
+Overview watchlist presents the exact disruption label with the scheduled tone. Do not build a
+parallel disruption lifecycle around these dormant branches. Resolve them with the vanished-id /
+replacement-id policy here if Item 63 introduces reachable disruption evidence.
 
 - Backlog slug: `PLATFORM-RESCHEDULE-DETECTION-v1`
 

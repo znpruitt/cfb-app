@@ -3,7 +3,7 @@ import test from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import OverviewPanel from '../OverviewPanel';
+import OverviewPanelImpl from '../OverviewPanel';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../../lib/overview';
 import { deriveLeagueInsights, deriveOverviewInsights } from '../../lib/selectors/insights';
 import { TREND_EMPTY_MESSAGE } from '../../lib/trendEmptyState';
@@ -14,6 +14,21 @@ import type { OwnerStandingsRow, StandingsCoverage } from '../../lib/standings';
 import type { StandingsHistory } from '../../lib/standingsHistory';
 import type { AppGame } from '../../lib/schedule';
 import type { ScorePack } from '../../lib/scores';
+
+type OverviewPanelProps = React.ComponentProps<typeof OverviewPanelImpl>;
+type OverviewPanelTestProps = Omit<OverviewPanelProps, 'sectionItems' | 'nowMs'> &
+  Partial<Pick<OverviewPanelProps, 'sectionItems' | 'nowMs'>>;
+
+function OverviewPanel(props: OverviewPanelTestProps): React.ReactElement {
+  const { sectionItems, nowMs, liveItems, keyMatchups } = props;
+  return (
+    <OverviewPanelImpl
+      {...props}
+      sectionItems={sectionItems ?? [...liveItems, ...keyMatchups]}
+      nowMs={nowMs ?? Date.parse('2026-09-01T16:30:00.000Z')}
+    />
+  );
+}
 
 function game(overrides: Partial<AppGame>): AppGame {
   return {
@@ -178,12 +193,18 @@ test('overview panel uses neutral wording for neutral-site games', () => {
     neutralDisplay: 'vs',
     stage: 'bowl',
   });
+  const neutralLive = itemWithScore(neutralGame, {
+    status: 'In Progress',
+    away: { team: 'Texas', score: 7 },
+    home: { team: 'Ohio State', score: 3 },
+    time: 'Q1',
+  });
   const html = renderToStaticMarkup(
     <OverviewPanel
       standingsLeaders={standingsLeaders}
       standingsCoverage={coverage}
       matchupMatrix={matchupMatrix}
-      liveItems={[item(neutralGame)]}
+      liveItems={[neutralLive]}
       keyMatchups={[]}
       context={defaultContext}
       displayTimeZone="UTC"
@@ -202,21 +223,42 @@ test('overview panel keeps home-away wording for standard games', () => {
     neutralDisplay: 'home_away',
     stage: 'regular',
   });
+  const homeAwayScheduled = item(homeAwayGame);
+  const homeAwayLive = itemWithScore(homeAwayGame, {
+    status: 'In Progress',
+    away: { team: 'Texas', score: 7 },
+    home: { team: 'Rice', score: 3 },
+    time: 'Q1',
+  });
 
-  const html = renderToStaticMarkup(
+  const liveHtml = renderToStaticMarkup(
     <OverviewPanel
       standingsLeaders={standingsLeaders}
       standingsCoverage={coverage}
       matchupMatrix={matchupMatrix}
-      liveItems={[item(homeAwayGame)]}
-      keyMatchups={[item(homeAwayGame)]}
+      liveItems={[homeAwayLive]}
+      keyMatchups={[]}
+      sectionItems={[homeAwayLive]}
       context={defaultContext}
       displayTimeZone="UTC"
     />
   );
 
-  assert.match(html, /aria-label="Texas at Rice"/);
-  assert.match(html, /Texas<\/span> @ <span>Rice/);
+  const scheduledHtml = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[homeAwayScheduled]}
+      sectionItems={[homeAwayScheduled]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(liveHtml, /aria-label="Texas at Rice"/);
+  assert.match(scheduledHtml, /Texas<\/span> @ <span>Rice/);
 });
 
 test('overview Live section consumes the shared scoreboard in a row-major responsive grid', () => {
@@ -431,8 +473,13 @@ test('overview Featured conversion preserves the existing recent-results selecti
       displayTimeZone="UTC"
     />
   );
+  const recentFinalsStart = html.indexOf('>Recent finals</h2>');
+  const featuredRegion = html.slice(
+    html.indexOf('data-featured-scoreboard-grid="true"'),
+    recentFinalsStart === -1 ? html.length : recentFinalsStart
+  );
   const renderedMatchups = Array.from(
-    html.matchAll(/aria-label="(Final Away \d+ at Final Home \d+)"/g),
+    featuredRegion.matchAll(/aria-label="(Final Away \d+ at Final Home \d+)"/g),
     (match) => match[1]
   );
 
@@ -2464,6 +2511,7 @@ test('overview panel renders date plus Time TBD instead of the placeholder clock
       matchupMatrix={matchupMatrix}
       liveItems={[item(tbdGame)]}
       keyMatchups={[item(tbdGame)]}
+      sectionItems={[item(tbdGame)]}
       context={defaultContext}
       displayTimeZone="UTC"
     />

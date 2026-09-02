@@ -3,6 +3,7 @@ import {
   deriveOverviewHighlightSignals,
   type OverviewHighlightSignals,
 } from '../gameTags';
+import { hasUsableFinalScore } from '../gameStatus';
 import { gameStateFromScore } from '../gameUi';
 import { isTruePostseasonGame } from '../postseason-display';
 import type { TeamRankingEnrichment } from '../rankings';
@@ -57,8 +58,7 @@ export type OverviewViewModel = {
   previousStandingsLeaders: OwnerStandingsRow[];
   standingsHasMore: boolean;
   standingsContext: string | null;
-  featuredMatchups: PrioritizedOverviewItem[];
-  shouldShowFeaturedMatchups: boolean;
+  watchlistCandidates: PrioritizedOverviewItem[];
   recentResults: PrioritizedOverviewItem[];
   gamesBackTrend: GamesBackSeries[];
   winPctTrend: WinPctSeries[];
@@ -66,27 +66,7 @@ export type OverviewViewModel = {
   storylines: LeagueStoryline[];
 };
 
-/**
- * The Upcoming watchlist shows whenever it has matchups.
- *
- * This previously also required `leagueHighlights.length === 0`, an either/or
- * with a highlights section that rendered above it. That section no longer
- * exists — `leagueHighlights` is not on the view model and no component reads
- * it — so the condition suppressed the watchlist in favour of nothing. The
- * visible effect was an Overview whose entire games region was one empty
- * "No recent results yet" box while a full slate sat minutes from kickoff.
- *
- * The retired `leagueHighlights` gate and pulse derivation no longer participate
- * in this decision; the request-time weekly recap owns timely recap presentation.
- */
-function deriveShouldShowFeaturedMatchups(params: {
-  featuredMatchups: PrioritizedOverviewItem[];
-}): boolean {
-  return params.featuredMatchups.length > 0;
-}
-
 export const OVERVIEW_STANDINGS_LIMIT = 5;
-export const OVERVIEW_FEATURED_MATCHUPS_LIMIT = 4;
 export const OVERVIEW_RESULTS_LIMIT = 6;
 
 /**
@@ -358,6 +338,24 @@ function compareWatchlistItems(a: OverviewGameItem, b: OverviewGameItem): number
   return a.bucket.game.key.localeCompare(b.bucket.game.key);
 }
 
+function watchlistPriority(item: PrioritizedOverviewItem): number {
+  return Math.max(
+    item.highlightTags[0]?.priority ?? 0,
+    item.isUpsetWatch ? 95 : 0,
+    item.isTopMatchup ? 90 : 0,
+    item.isRankedSpotlight ? 70 : 0
+  );
+}
+
+function comparePrioritizedWatchlistItems(
+  a: PrioritizedOverviewItem,
+  b: PrioritizedOverviewItem
+): number {
+  const priorityDifference = watchlistPriority(b) - watchlistPriority(a);
+  if (priorityDifference !== 0) return priorityDifference;
+  return compareWatchlistItems(a.item, b.item);
+}
+
 function compareRecentResultItems(a: OverviewGameItem, b: OverviewGameItem): number {
   const aHasKickoff = Number.isFinite(a.sortDate);
   const bHasKickoff = Number.isFinite(b.sortDate);
@@ -449,7 +447,6 @@ export function selectOverviewViewModel(params: {
    */
   seasonContext?: SeasonContext;
   standingsLimit?: number;
-  featuredLimit?: number;
   resultsLimit?: number;
 }): OverviewViewModel {
   const {
@@ -462,7 +459,6 @@ export function selectOverviewViewModel(params: {
     rankingsByTeamId,
     seasonContext: seasonContextOverride,
     standingsLimit = OVERVIEW_STANDINGS_LIMIT,
-    featuredLimit = OVERVIEW_FEATURED_MATCHUPS_LIMIT,
     resultsLimit = OVERVIEW_RESULTS_LIMIT,
   } = params;
   const resolvedMovement = deriveResolvedMovementStandings(standingsHistory);
@@ -478,32 +474,29 @@ export function selectOverviewViewModel(params: {
   const previousStandings = resolvedMovement.previous;
   const topOwnerNames = new Set(standingsLeaders.slice(0, 3).map((row) => row.owner));
   const overviewMatchupCandidates = keyMatchups;
-  const featuredCandidates = overviewMatchupCandidates
-    .filter((item) => {
-      const gameState = gameStateFromScore(item.score);
-      return gameState !== 'final' && gameState !== 'inprogress';
-    })
-    .sort(compareWatchlistItems);
+  const featuredCandidates = overviewMatchupCandidates.filter((item) => {
+    const gameState = gameStateFromScore(item.score);
+    return gameState !== 'final' && gameState !== 'inprogress';
+  });
   const resultCandidates = overviewMatchupCandidates
-    .filter((item) => gameStateFromScore(item.score) === 'final')
+    .filter((item) => hasUsableFinalScore(item.score))
     .sort(compareRecentResultItems);
   const highlightSignals = deriveOverviewHighlightSignals({
     keyMatchups: overviewMatchupCandidates,
     rankingsByTeamId,
   });
-  const prioritizedFeatured = prioritizeOverviewItems({
+  const watchlistCandidates = prioritizeOverviewItems({
     items: featuredCandidates,
     highlightSignals,
     rankingsByTeamId,
     topOwnerNames,
-  });
+  }).sort(comparePrioritizedWatchlistItems);
   const prioritizedResults = prioritizeOverviewItems({
     items: resultCandidates,
     highlightSignals,
     rankingsByTeamId,
     topOwnerNames,
   });
-  const featuredMatchups = prioritizedFeatured.slice(0, featuredLimit);
   const recentResults = selectFeaturedGames(prioritizedResults, resultsLimit);
   const gamesBackTrend = standingsHistory ? selectGamesBackTrend({ standingsHistory }) : [];
   const winPctTrend = standingsHistory ? selectWinPctTrend({ standingsHistory }) : [];
@@ -546,8 +539,7 @@ export function selectOverviewViewModel(params: {
     previousStandingsLeaders: previousStandings ?? [],
     standingsHasMore: resolvedCurrent.length > standingsLimit,
     standingsContext,
-    featuredMatchups,
-    shouldShowFeaturedMatchups: deriveShouldShowFeaturedMatchups({ featuredMatchups }),
+    watchlistCandidates,
     recentResults,
     gamesBackTrend,
     winPctTrend,

@@ -12,6 +12,7 @@ import {
   selectWeeklyRecapLeaders,
   selectWeeklyRecapTargetWeek,
   selectWeeklyRecapTileState,
+  selectWeeklyRecapWeekTargets,
   type WeeklyOwnerResult,
 } from '../weeklyRecapFacts.ts';
 
@@ -186,6 +187,20 @@ test('target week stays on the previous slate after an early current-week final'
     week: 1,
     latestGameDate: '2026-08-30',
   });
+});
+
+test('week targets retain every canonical week and its latest Eastern game date', () => {
+  const games = [
+    game({ key: 'w3-early', week: 3, date: '2026-09-12T23:30:00.000Z' }),
+    game({ key: 'w1', week: 1, date: '2026-08-30T03:00:00.000Z' }),
+    game({ key: 'w3-late', week: 3, date: '2026-09-13T04:30:00.000Z' }),
+    game({ key: 'undated', week: 2, date: null }),
+  ];
+
+  assert.deepEqual(selectWeeklyRecapWeekTargets(games), [
+    { week: 1, latestGameDate: '2026-08-29' },
+    { week: 3, latestGameDate: '2026-09-13' },
+  ]);
 });
 
 test('06:00 ET cutoff clears a 23:00 ET kickoff on the final game-date', () => {

@@ -46,6 +46,7 @@ export type OverviewSnapshot = {
   matchupMatrix: OwnerMatchupMatrix;
   liveItems: OverviewGameItem[];
   keyMatchups: OverviewGameItem[];
+  sectionItems: OverviewGameItem[];
   context: OverviewContext;
 };
 
@@ -421,9 +422,12 @@ export function deriveOverviewSnapshot(params: {
   const allSections = deriveWeekMatchupSections(allGames, rosterByTeam);
   const weekSections = deriveWeekMatchupSections(weekGames, rosterByTeam);
 
-  const liveItems = [...allSections.ownerMatchups, ...allSections.secondaryGames]
-    .filter((bucket) => isLiveScore(scoresByKey[bucket.game.key]))
-    .map((bucket) => toOverviewItem(bucket, scoresByKey[bucket.game.key]))
+  const sectionItems = [...allSections.ownerMatchups, ...allSections.secondaryGames].map((bucket) =>
+    toOverviewItem(bucket, scoresByKey[bucket.game.key])
+  );
+
+  const liveItems = sectionItems
+    .filter((item) => isLiveScore(item.score))
     .sort(compareOverviewItems)
     .slice(0, options?.liveItemsLimit ?? DEFAULT_LIVE_ITEM_COUNT);
 
@@ -457,6 +461,7 @@ export function deriveOverviewSnapshot(params: {
     }),
     liveItems,
     keyMatchups,
+    sectionItems,
     context,
   };
 }

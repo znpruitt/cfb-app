@@ -174,11 +174,12 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   never reordering, marks the live leader or final winner
 - Compact scoreboard state variants share that row anatomy: scheduled uses a single-line kickoff /
   broadcast header, team-record anchors, and an odds footer; live uses a green dot + `Live` + clock
-  status row and score anchors; final uses a neutral `Final` status row and score anchors. In the
-  final variant, away → home order remains fixed while the winner receives primary weight and the
-  loser is muted, including when the home team won; existing Featured results keep their expanded
-  kickoff context beside `Final`. Header rows never wrap and ellipsize when constrained so peer team
-  lines remain aligned
+  status row and score anchors; awaiting uses a neutral `Awaiting score` status row with no live dot
+  or live DOM state; final uses a neutral `Final` status row and score anchors. In the final variant,
+  away → home order remains fixed while the winner receives primary weight and the loser is muted,
+  including when the home team won; existing Featured results keep their expanded kickoff context
+  beside `Final`. Header rows never wrap and ellipsize when constrained so peer team lines remain
+  aligned
 - Rankings display inline with team names — "#4 Oregon vs #2 Indiana"
 - Use W16 CFP rankings for postseason game cards — not Final Poll rankings
 - CFP round badges use full words — "CFP Quarterfinal" not "CFP QF"
