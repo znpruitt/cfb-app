@@ -59,7 +59,9 @@ on. **Item 95 portion 1** was gated on PLATFORM-120 because it doubles `/api/sco
 invocations; that merge has now cleared the gate, without changing its position in the selected
 order.
 **Item 100b** (slate marker) is date-gated to before the 2027 opening slate; **Item 101** matters at
-the 2026-11-29 to 2026-12-12 gap, so fix it before late November.
+the 2026-11-29 to 2026-12-12 gap, so fix it before late November. **Item 108** is a dated
+OBSERVATION, not development work — read one provider-status row on 2026-09-04, the morning after the
+first FBS-vs-FCS slate, and either close it or promote it.
 **Item 96** is now an **offseason** item — pause the in-season QStash schedules so Neon can suspend,
 worth ~$114/year with no coverage tradeoff. Its preview-retention half is DONE (2026-08-31). It is
 NOT gated on Item 94: cadence is not a Neon cost.
@@ -496,6 +498,49 @@ carry provider classification, changing what PLATFORM-120's filter does to an ar
 only if Item 87 slice 4's record join reaches historical seasons.
 
 - Backlog slug: `PLATFORM-OVERRIDE-PAYLOAD-VALIDATION-v1`
+
+### Item 108 — VERIFY: do live scores tick for FBS-vs-FCS games? (dated observation, 2026-09-04)
+
+**A verification, not a fix — the defect may not exist.** Filed 2026-09-02 from a deliberate pass over
+narrowing decisions, because the first FBS-vs-FCS games under the current live-score engine kick off
+**2026-09-03 19:00 ET** (six of them: Bethune-Cookman @ UCF, Merrimack @ Delaware, West Georgia @
+Kennesaw State, Arkansas-Pine Bluff @ Missouri, Eastern Illinois @ Minnesota, UAlbany @ Buffalo).
+
+**The question.** `live-scores/route.ts:312` calls `buildCfbdScoreboardUrl({ classification: 'fbs' })`.
+Two assumptions must both hold for those games to update DURING play, and neither has been exercised:
+
+1. **Does `/scoreboard?classification=fbs` return a game where one side is FCS?** CFBD's `/games`
+   treats `fbs` as the FBS slate — all **126** FBS-vs-FCS games in the 2025 schedule carry scores — but
+   `/scoreboard` is a different endpoint and could read the parameter as "both teams FBS".
+2. **If the rows return, do they match?** `matchScoreboardRows` resolves each row's labels through the
+   identity resolver. That is the exact step that failed for odds (Item 106). It should hold here —
+   CFBD sends plain school names, not the mascot-suffixed labels The Odds API sends, and
+   "Bethune-Cookman" already reaches `observedNames` from the schedule — but "should hold" is what was
+   assumed about odds.
+
+**Why 2025 does not answer it.** The live-scores job uses `/scoreboard` for in-progress games and
+`/games` for final reconciliation, and **both write the same durable store**. So 2025 proves finals
+arrive, not that live updates do. 2026 cannot answer it either: all eight games played so far are
+`fbs/fbs`.
+
+**The system already records the answer — do not watch the UI.** If targeted games are missing from
+the scoreboard response, `runScoreboard` records `scores-scoreboard-targets-missing` and resolves the
+run `partial`. Read `provider-refresh-status` for `scores:week:2026:2:regular` (read-replica query,
+free) on the morning of **2026-09-04**:
+
+- clean successes, no `targets-missing` → both assumptions hold, **close this item**;
+- `targets-missing` on a week containing FBS-vs-FCS games → confirmed.
+
+**Scope if confirmed.** Widen the scoreboard request, or fall back to the `/games` partition path for
+unmatched targets. Both are contained — the route already has a final-reconciliation mode that reads
+`/games`.
+
+**Why it was worth filing rather than remembering.** This is the same shape as Item 106: a scope
+decision pinned at the provider boundary, correct when made, invisible until a new case needs the
+excluded thing. If it is broken it breaks on opening night, silently, on the surface members watch.
+The check costs one query.
+
+- Backlog slug: `PLATFORM-SCOREBOARD-FCS-COVERAGE-v1`
 
 ### Item 107 — PLATFORM-122 deferred review findings (three, all small)
 
