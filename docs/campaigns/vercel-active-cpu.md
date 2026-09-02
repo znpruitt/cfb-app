@@ -1,9 +1,8 @@
 # Vercel Fluid Active CPU — finding, validation, and remediation
 
-**Status:** Open. Diagnosis complete; the two-reader build filter and week-0 deletion are implemented
-in PR #551 and awaiting merge. Both high-frequency QStash schedules are manually paused as of
-2026-09-01 ~18:00 UTC and will be resumed by hand for each game window until the planner (Item 102)
-lands.
+**Status:** Open. Diagnosis complete; the two-reader build filter and week-0 deletion shipped through
+PR #551 on 2026-09-02. Both high-frequency QStash schedules are manually paused as of 2026-09-01
+~18:00 UTC and will be resumed by hand for each game window until the planner (Item 102) lands.
 
 **Owner decision, revised 2026-09-02 after the complete reader audit:** remediate with an
 FBS-relevance filter at the live-score and game-stats canonical builds (Item 99) plus a
@@ -12,7 +11,7 @@ consumers use it as an expectation oracle and schedule-eligibility diagnostics r
 rows. A third option — a cheap in-route gate before the canonical context load — was proposed and
 **dropped** once measurement showed it redundant against the selected changes.
 
-This document carries the evidence. The queue entries are Items 99 and 102 in `docs/next-tasks.md`.
+This document carries the evidence. Item 99 is complete; Item 102 remains in `docs/next-tasks.md`.
 
 ---
 
@@ -313,7 +312,8 @@ provider data as stale. Correct, not a regression.
 
 - **`/api/insights/[slug]` costs 3.33 s per invocation** — the most expensive route in the app,
   roughly 3x a live-scores run. Three hits in 12 hours, so ~10 seconds total and not a problem today.
-  Same disease; Item 99 plausibly helps it. Revisit if insights usage grows.
+  Same disease, but PLATFORM-120 deliberately left this lower-volume reader unfiltered. Revisit if
+  insights usage grows.
 - **`loadLiveScoreContext` issues the same season-wide `scores` prefix scan twice per invocation**
   (`scoreCacheReader.ts:310`, `canonicalContext.ts:126`). Small against the schedule build, and
   provably duplicate work. Fold into whichever slice touches that file.

@@ -61,13 +61,14 @@ Rules:
 - Outcome: both hot contexts now omit only regular-season rows whose two normalized provider
   classifications are known non-FBS, retain every postseason row, and keep the full raw game-stats
   snapshot for metadata and duplicate-CFBD-id rejection. Provider week 1 is always canonical week 1.
-- Review / verification: exact pre-closeout code commit `22ee85d4` passed TypeScript and `lint:all`;
-  the 4,552-test suite added nine passing tests and retained only the four Item 103 odds failures
+- Review / verification: exact pre-merge head `9259ea9e` passed TypeScript and `lint:all`; the
+  4,552-test suite added nine passing tests and retained only the four Item 103 odds failures
   reproduced on `main`. Mutations proved both reader filters, duplicate-id rejection, postseason
   offset containment, and week-0 deletion. Codex and `/code-review` left no credible in-scope
   P0/P1/P2.
-- Status: Implemented — PR #551 open. Item 104 remains the architectural follow-up for replacing the
-  scalar canonical-week model; Item 100b remains date-gated before the 2027 opening slate.
+- Status: Merged via PR #551 (merge commit `ce176ccd`), 2026-09-02. Item 104 remains the
+  architectural follow-up for replacing the scalar canonical-week model; Item 100b remains
+  date-gated before the 2027 opening slate.
 
 ### PLATFORM-120-SCHEDULE-FBS-FILTER-v2
 
