@@ -487,11 +487,19 @@ robustness once v3's containment lands.
 
 - Backlog slug: `PLATFORM-WEEK-AXIS-SEASONTYPE-v1`
 
-### Item 103 — four odds-route tests are time bombs that expired on 2026-09-01
+### Item 103 — at least six odds-route tests are time bombs; four expired first on 2026-09-01
 
 **Corrected 2026-09-02.** An earlier version of this item gave the wrong root cause, the wrong
 origin, and a wrong accusation against POLISH-018. All three came from one bad method, recorded
 below so it is not repeated.
+
+**Count corrected 2026-09-02 (second correction).** The four that failed were not the whole set. A
+`Date`-shifting probe over `route.test.ts` on `main` reports **4 failures at +0 days, 5 at +60, and 6
+at +365** — so at least six tests were clock-dependent and the four simply expired first. The item
+originally said four because that is all today's clock revealed; the rest had longer fuses, two of
+them inside this season. The fix caught all of them: the branch passes 21/21 at every offset tested
+(+0 through +700 days, four timezones), and the same probe reproduces `main`'s failures, so it is not
+vacuous.
 
 **The actual cause: fixture expiry.** Four tests in `src/app/api/odds/__tests__/route.test.ts`
 (`:118`, `:279`, `:520`, `:1395`) pin a kickoff of `2026-09-01T19:30:00.000Z`
@@ -527,6 +535,9 @@ a false claim that POLISH-018's clean-suite report was inaccurate. **POLISH-018 
 `docs/prompt-registry.md`.
 
 **When a test's outcome may depend on the wall clock, bisect by pinning the clock, not the commit.**
+The same instrument that would have dated this correctly is the one that finds the fixtures that have
+not expired yet — run the suite under a shifted clock, with a positive control proving the probe can
+see a failure.
 
 - Backlog slug: `PLATFORM-ODDS-FIXTURE-EXPIRY-v1`
 
