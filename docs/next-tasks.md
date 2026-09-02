@@ -456,6 +456,28 @@ Neon one. Keep this item for the read-replica autosuspend and the non-cadence fi
     not ok 18 - odds resolves an odds-provider label to a canonical game via a STORED GLOBAL alias
     # tests 42  # pass 38  # fail 4
 
+**PRODUCTION IS NOT BROKEN — this is a test-harness defect.** Checked 2026-09-02:
+`GET /api/odds?year=2026` returns **110 items, all 110 carrying a spread**, with canonical game ids
+resolved (`1-northcarolina-tcu-N`), `cache: hit`, `fallbackUsed: false`. The exact behavior the
+headline test calls broken — "attaches odds to canonical schedule games" — works at scale in
+production.
+
+**Root cause: the mocks are inert.** All four tests mock `global.fetch` and branch on
+`url.includes('/api/schedule')`. The route no longer makes that HTTP call —
+`odds/canonicalOddsContext.ts:88` reads `loadCachedScheduleItems(year)` from the durable store, a
+server-side read introduced with PLATFORM-086C2 (`c257ffec`, 2026-07-28) per PLATFORM-075's
+no-self-fetch rule. So the mock never fires, the test's durable schedule cache is empty, zero
+canonical games are built, and the route truthfully returns zero items. **The fix is to seed the
+durable schedule cache** (`setAppState('schedule', '<year>-all-all', { items: [...] })`) in setup
+instead of mocking `fetch` for `/api/schedule`. This is the "fixture that cannot reach the failure"
+pattern, not a code regression.
+
+**Calibration — do not over-read the production check.** It directly disproves failure 10 only.
+Failures 3, 7 and 18 (request-year authority, partial-market overwrite of the shared durable store,
+stored-global-alias resolution) are not exercised by one healthy read, and **failure 7 guards a
+data-integrity property whose breach would not show in a healthy read at all**. Re-assert each
+against real behavior once the fixtures can reach the code.
+
 **These are real assertions, not an environment problem.** Failure 10 is `AssertionError: 0 !== 1`
 (`route.test.ts:2:13944`) — odds attach to zero canonical games where one is expected. Three of the
 four concern odds reaching canonical schedule games or the durable store, which points at the
@@ -463,17 +485,35 @@ attachment or canonical-context seam rather than at the route's request parsing.
 
 **Not caused by recent work.** Reproduced at `main~60` and at `a540dc0c` — the commit BEFORE
 PLATFORM-114's provider-classification eligibility change (`c5b0e8bf`, 2026-08-29). So PLATFORM-114,
-PLATFORM-119, and POLISH-019 are all cleared. The origin commit is NOT yet identified: a probe at
-`main~200` returned `npm error Missing script: "test:file"` rather than a test result, so it proved
-nothing and the bound stops at 2026-08-29. Bisect with a script that survives the missing script —
+PLATFORM-119, and POLISH-019 are all cleared, and the documentary evidence above independently puts
+it red on 2026-08-31. The origin commit is NOT yet identified: a probe at `main~200` returned
+`npm error Missing script: "test:file"` rather than a test result, so it proved nothing and the
+bound stops at 2026-08-29. Bisect with a script that survives the missing script —
 run the file through `node --test` directly, or add the `test:file` shim to the probe.
 
-**Why this matters now, and why it is not merely tidiness.** `AGENTS.md` → Verification makes the
-full suite a required gate, and it cannot pass on any branch while it does not pass on `main`.
-PLATFORM-120 hit exactly this: the implementer correctly stopped rather than claim convergence, with
-its own work green and these four red. Until this is fixed every branch inherits an unexplainable
-red gate, and "four known failures" degrades into a number nobody reads — which is how a real
-regression would slip through.
+**This was SEEN before it was filed, and the process had no way to promote it.** Corrected
+2026-09-02 — an earlier draft of this item asked why nothing had surfaced it. Something had, twice:
+
+- **POLISH-019 recorded it accurately.** `docs/prompt-registry.md:133` — "The full suite retained
+  four odds-route failures also reproduced on `main`." It ran the full suite, confirmed the failures
+  were pre-existing, wrote it down, and merged. That is exactly what `AGENTS.md` → Reporting
+  expectations contemplates for a known unrelated failure.
+- **POLISH-018 reported a clean suite over them.** Its entry claims commit `db147036` "passed
+  `npm run lint`, TypeScript, and the 4,476-test full suite." Running
+  `src/app/api/odds/__tests__/route.test.ts` at that exact commit gives `# pass 17 # fail 4` — the
+  same four. The claim was inaccurate; the registry entry now records that.
+
+**So the gap is not detection — it is that a recorded known-failure has no promotion path.** A
+per-PR "reproduced on main" note is a legitimate escape hatch for one PR and becomes permanent
+background noise when nothing converts it into an item. Consider whether the closeout checklist
+should require filing an item the first time a prompt reports a failure it attributes to `main`.
+
+**Why this matters now.** `AGENTS.md` → Verification makes the full suite a required gate, and it
+cannot pass on any branch while it does not pass on `main`. PLATFORM-120 hit exactly this: the
+implementer correctly stopped rather than claim convergence, with its own work green and these four
+red. Until this is fixed every branch inherits an unexplainable red gate, and "four known failures"
+degrades into a number nobody reads — which is how a real regression slips through, and how
+POLISH-018's inaccurate claim went unchallenged.
 
 **Do not fix by deleting or skipping the tests.** Establish first whether the tests or the behavior
 regressed; three of them assert odds actually reaching canonical games, which is member-visible if

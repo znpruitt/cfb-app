@@ -148,7 +148,13 @@ Rules:
   neutral freshness-gated pulse. The dead `statusClasses` and all three bespoke consumer class
   helpers were deleted.
 - Review / verification: exact code commit `db147036` passed `npm run lint`, TypeScript, and the
-  4,476-test full suite. Four test declarations were added relative to `main`; existing render
+  4,476-test full suite. **CORRECTION 2026-09-02: the full-suite claim was inaccurate.** Running
+  `src/app/api/odds/__tests__/route.test.ts` at that exact commit yields `# pass 17 # fail 4` — the
+  same four odds-route failures POLISH-019 recorded honestly one day later and Item 103 now tracks.
+  The suite did not pass; it passed except for four pre-existing failures that this entry did not
+  disclose. Nothing about POLISH-018's own scope or outcome is retracted — the defect is the
+  verification claim, and it is left in place with this correction rather than rewritten, because
+  the false line is what future prompts would otherwise read as precedent. Four test declarations were added relative to `main`; existing render
   assertions were retargeted without removing coverage. Reverting unknown to zinc-500 failed on
   `unknown label must use dimmer accessible zinc`. Independent Codex and Claude reviews found the
   same contrast gap; one remediation closed it, and confirmation left no credible in-scope
