@@ -445,6 +445,51 @@ Neon one. Keep this item for the read-replica autosuspend and the non-cadence fi
 
 - Backlog slug: `PLATFORM-OFFSEASON-SCHEDULE-PAUSE-v1`
 
+### Item 104 — `canonicalWeek` compresses `(seasonType, week)` into one integer and derives the offset from data
+
+**The provider is not ambiguous; we make it ambiguous.** CFBD sends `seasonType` on every row —
+measured 2026-09-02, **0 rows missing or out-of-vocabulary** across 2023-2025 — so `(seasonType,
+week)` is already a unique key. The compression is visible in the counts:
+
+    2023  rows=3734  distinct (seasonType,week)=21  distinct week alone=15
+    2024  rows=3801  distinct (seasonType,week)=17  distinct week alone=16
+    2025  rows=3831  distinct (seasonType,week)=19  distinct week alone=16
+
+Six postseason weeks collapse onto regular-season weeks 1-6 in 2023 alone.
+
+**Why the app compresses.** `standingsHistory.ts:65` models the season as `weeks: number[]` — a plain
+ordered integer axis. To place postseason games on it, `buildScheduleFromApi` discards `seasonType`
+and manufactures an ordering: `schedule.ts:399` reduces `maxRegularSeasonWeek` over the raw rows and
+`:419` computes `postseasonCanonicalWeek = maxRegularSeasonWeek + providerWeek`.
+
+**The consequence, found the hard way during PLATFORM-120.** That offset is derived from the RAW row
+set, so removing rows moves postseason games. A non-FBS regular-season week-16 row is enough to shift
+every bowl and CFP game by one canonical week, and because `PendingGame.week` copies the canonical
+game week (`standingsHistory.ts:181`), the change propagates into pending-game state. It is
+member-visible: `canonicalWeek` is the rendered week label.
+
+**Latent, not live.** Measured across every cached season, `maxRegularSeasonWeek` is IDENTICAL whether
+reduced over all rows or over FBS-relevant rows only — 2018/2021/2022/2023 = 15, 2024/2025 = 16,
+2026 = 15 — because an FBS game always occupies the final regular-season week. PLATFORM-120 v3
+therefore derives the offset from FBS-relevant rows, which is a provable no-op today and makes the
+value invariant under filtering. **That is a containment, not a fix.**
+
+**The actual fix is to stop compressing.** Carry `seasonType` on the week axis so ordering comes from
+the pair rather than from a data-derived scalar. This removes the whole fragility class rather than
+making one derivation insensitive to one filter.
+
+**Scope care — this is a real refactor, not a cleanup.** `weeks: number[]` reaches trend charts, week
+tabs, `PendingGame`, and recap targeting. It is the same underlying defect [[Item 100b]] names from
+the other side: `canonicalWeek` is doing double duty as the member-facing label AND the internal
+grouping key. Settle them together, or at least in the same design pass.
+
+**Rejected middle option, recorded so it is not re-derived:** making the offset a constant
+(`20 + providerWeek`) kills the data dependency in one line, but renumbers existing postseason week
+buckets across every archived season and leaves a 16→21 gap in trend charts. Not worth it purely for
+robustness once v3's containment lands.
+
+- Backlog slug: `PLATFORM-WEEK-AXIS-SEASONTYPE-v1`
+
 ### Item 103 — `main` is red: four odds-route tests fail, blocking the `npm test` gate
 
 **Measured 2026-09-02 on clean `main` (`d6184c28`), no branch involved.** Four tests in
