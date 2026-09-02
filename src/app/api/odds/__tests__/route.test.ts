@@ -24,6 +24,11 @@ import { GET } from '../route.ts';
 import { __resetOddsRouteCacheForTests, resolveDefaultSeason } from '../routeInternals.ts';
 
 const DURABLE_ODDS_TEST_SEASON = 2026;
+const HOUR_MS = 60 * 60 * 1000;
+
+function testTimeFromNow(hours: number): string {
+  return new Date(Date.now() + hours * HOUR_MS).toISOString();
+}
 
 test.beforeEach(async () => {
   await __deleteAppStateFileForTests();
@@ -40,7 +45,7 @@ function buildScheduleItem(overrides: Partial<Record<string, unknown>> = {}) {
   return {
     id: 'game-1',
     week: 1,
-    startDate: '2026-09-01T19:30:00.000Z',
+    startDate: testTimeFromNow(24),
     neutralSite: false,
     conferenceGame: false,
     homeTeam: 'Georgia',
@@ -530,7 +535,7 @@ test('successful fetch attaches odds to canonical schedule games and persists la
             {
               id: 'game-1',
               week: 1,
-              startDate: '2026-09-01T19:30:00.000Z',
+              startDate: testTimeFromNow(24),
               neutralSite: false,
               conferenceGame: false,
               homeTeam: 'Georgia',
@@ -638,7 +643,7 @@ test('odds canonicalization uses conference records so tracked games match sched
             buildScheduleItem({
               id: 'reg-aac-vs-fcs',
               week: 2,
-              startDate: '2026-09-06T20:00:00Z',
+              startDate: testTimeFromNow(24),
               homeTeam: 'Navy',
               awayTeam: 'UC Davis',
               homeConference: 'AAC',
@@ -707,13 +712,14 @@ test('post-kickoff refresh freezes closingSnapshot and later refreshes do not ov
 
   let oddsSpread = -3.5;
   const scheduleStatus = 'final';
-  const scheduleKickoff = '2026-03-01T19:30:00.000Z';
+  const scheduleKickoff = testTimeFromNow(-1);
+  const priorObservationAt = testTimeFromNow(-2);
 
   await setDurableOddsStore(DURABLE_ODDS_TEST_SEASON, {
     '1-georgia-clemson-H': {
       canonicalGameId: '1-georgia-clemson-H',
       latestSnapshot: {
-        capturedAt: '2026-03-01T19:00:00.000Z',
+        capturedAt: priorObservationAt,
         bookmakerKey: 'draftkings',
         favorite: 'Georgia',
         source: 'DraftKings',
@@ -845,7 +851,7 @@ test('first seen after kickoff does not persist a closing snapshot fallback', as
             {
               id: 'game-1',
               week: 1,
-              startDate: '2000-09-01T19:30:00.000Z',
+              startDate: testTimeFromNow(-1),
               neutralSite: false,
               conferenceGame: false,
               homeTeam: 'Georgia',
@@ -916,14 +922,16 @@ test('first seen after kickoff does not persist a closing snapshot fallback', as
 test('kickoff delays reopen an early frozen line and allow a later pre-kickoff refresh to replace latestSnapshot', async () => {
   const originalFetch = global.fetch;
 
-  let scheduleKickoff = '2026-09-01T19:30:00.000Z';
+  const scheduleKickoff = testTimeFromNow(24);
+  const priorObservationAt = testTimeFromNow(-2);
+  const priorFrozenAt = testTimeFromNow(-1);
   let oddsSpread = -3.5;
 
   await setDurableOddsStore(DURABLE_ODDS_TEST_SEASON, {
     '1-georgia-clemson-H': {
       canonicalGameId: '1-georgia-clemson-H',
       latestSnapshot: {
-        capturedAt: '2026-03-01T19:00:00.000Z',
+        capturedAt: priorObservationAt,
         bookmakerKey: 'draftkings',
         favorite: 'Georgia',
         source: 'DraftKings',
@@ -939,7 +947,7 @@ test('kickoff delays reopen an early frozen line and allow a later pre-kickoff r
         underPrice: -112,
       },
       closingSnapshot: {
-        capturedAt: '2026-03-01T19:00:00.000Z',
+        capturedAt: priorObservationAt,
         bookmakerKey: 'draftkings',
         favorite: 'Georgia',
         source: 'DraftKings',
@@ -954,7 +962,7 @@ test('kickoff delays reopen an early frozen line and allow a later pre-kickoff r
         overPrice: -108,
         underPrice: -112,
       },
-      closingFrozenAt: '2026-03-01T19:31:00.000Z',
+      closingFrozenAt: priorFrozenAt,
     },
   });
 
@@ -1028,7 +1036,6 @@ test('kickoff delays reopen an early frozen line and allow a later pre-kickoff r
   }) as typeof fetch;
 
   try {
-    scheduleKickoff = '2999-09-01T21:00:00.000Z';
     oddsSpread = -7.5;
 
     const res = await GET(
@@ -1046,12 +1053,16 @@ test('kickoff delays reopen an early frozen line and allow a later pre-kickoff r
 
 test('repeat matchup odds persist independently for regular season and conference championship identities', async () => {
   const originalFetch = global.fetch;
+  const priorObservationAt = testTimeFromNow(-2);
+  const regularKickoff = testTimeFromNow(-1);
+  const priorFrozenAt = testTimeFromNow(-0.5);
+  const championshipKickoff = testTimeFromNow(24);
 
   await setDurableOddsStore(DURABLE_ODDS_TEST_SEASON, {
     '1-georgia-clemson-H': {
       canonicalGameId: '1-georgia-clemson-H',
       latestSnapshot: {
-        capturedAt: '2026-03-01T19:00:00.000Z',
+        capturedAt: priorObservationAt,
         bookmakerKey: 'draftkings',
         favorite: 'Georgia',
         source: 'DraftKings',
@@ -1067,7 +1078,7 @@ test('repeat matchup odds persist independently for regular season and conferenc
         underPrice: -112,
       },
       closingSnapshot: {
-        capturedAt: '2026-03-01T19:00:00.000Z',
+        capturedAt: priorObservationAt,
         bookmakerKey: 'draftkings',
         favorite: 'Georgia',
         source: 'DraftKings',
@@ -1082,7 +1093,7 @@ test('repeat matchup odds persist independently for regular season and conferenc
         overPrice: -108,
         underPrice: -112,
       },
-      closingFrozenAt: '2026-03-01T19:31:00.000Z',
+      closingFrozenAt: priorFrozenAt,
     },
   });
 
@@ -1096,7 +1107,7 @@ test('repeat matchup odds persist independently for regular season and conferenc
             {
               id: 'regular-1',
               week: 1,
-              startDate: '2026-03-01T19:30:00.000Z',
+              startDate: regularKickoff,
               neutralSite: false,
               conferenceGame: false,
               homeTeam: 'Georgia',
@@ -1110,7 +1121,7 @@ test('repeat matchup odds persist independently for regular season and conferenc
             {
               id: 'ccg-1',
               week: 14,
-              startDate: '2999-12-05T20:00:00.000Z',
+              startDate: championshipKickoff,
               neutralSite: true,
               conferenceGame: true,
               homeTeam: 'Georgia',
@@ -1140,7 +1151,7 @@ test('repeat matchup odds persist independently for regular season and conferenc
           // Date-aligned to the championship kickoff so event-centric attachment
           // (PLATFORM-031) routes this line to the championship identity, not the
           // already-final regular-season meeting of the same pair.
-          commence_time: '2999-12-05T20:00:00.000Z',
+          commence_time: championshipKickoff,
           bookmakers: [
             {
               key: 'draftkings',
@@ -1219,6 +1230,8 @@ test('repeat matchup odds persist independently for regular season and conferenc
 
 test('dated upstream odds attach to the date-aligned canonical game, not the first same-pair game', async () => {
   const originalFetch = global.fetch;
+  const firstKickoff = testTimeFromNow(24);
+  const rematchKickoff = testTimeFromNow(30 * 24);
 
   global.fetch = (async (input: RequestInfo | URL) => {
     const url = typeof input === 'string' ? input : input.toString();
@@ -1230,7 +1243,7 @@ test('dated upstream odds attach to the date-aligned canonical game, not the fir
             {
               id: 'reg-1',
               week: 1,
-              startDate: '2026-09-06T20:00:00.000Z',
+              startDate: firstKickoff,
               neutralSite: false,
               conferenceGame: false,
               homeTeam: 'Georgia',
@@ -1244,7 +1257,7 @@ test('dated upstream odds attach to the date-aligned canonical game, not the fir
             {
               id: 'rematch-1',
               week: 14,
-              startDate: '2026-12-06T20:00:00.000Z',
+              startDate: rematchKickoff,
               neutralSite: false,
               conferenceGame: false,
               homeTeam: 'Georgia',
@@ -1273,7 +1286,7 @@ test('dated upstream odds attach to the date-aligned canonical game, not the fir
         {
           home_team: 'Georgia',
           away_team: 'Clemson',
-          commence_time: '2026-12-06T20:00:00.000Z', // aligns to the WEEK 14 rematch
+          commence_time: rematchKickoff, // aligns to the WEEK 14 rematch
           bookmakers: [
             {
               key: 'draftkings',
@@ -1409,7 +1422,7 @@ test('odds resolves an odds-provider label to a canonical game via a STORED GLOB
             {
               id: 'game-1',
               week: 1,
-              startDate: '2026-09-01T19:30:00.000Z',
+              startDate: testTimeFromNow(24),
               neutralSite: false,
               conferenceGame: false,
               homeTeam: 'Georgia',
