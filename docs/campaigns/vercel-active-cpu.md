@@ -69,6 +69,61 @@ both.
 
 ---
 
+## The two inventories, in full
+
+These took three review rounds to assemble and are the reusable part of this campaign. Item 99's
+original survey claimed "no consumer reads the other 2,788"; that was false, and building the filter
+on it cost two abandoned implementations.
+
+### Inventory 1 — what `buildScheduleFromApi` derives from the RAW row set
+
+Season-level facts computed from every row regardless of eligibility. **This list is complete** — a
+whole-file grep for `scheduleItems` in `schedule.ts`, plus the slate derivation, not a sample.
+
+| Site | Derives | Behavior under a filter |
+| --- | --- | --- |
+| `schedule.ts:364` | `providerNames` → resolver seeding | Safe: the canonical registry only ADDS ids, and every retained row supplies its own names |
+| `schedule.ts:384` | week-0 calendar | Deleted by Item 100a; the derivation no longer exists |
+| `schedule.ts:399` | `maxRegularSeasonWeek` → postseason offset | **Moves postseason weeks.** Now reduced over FBS-relevant regular rows so it is invariant (Item 104 owns the real fix) |
+| `schedule.ts:404` | the per-row loop | Eligibility applies to REGULAR rows only — `getRegularSeasonEligibilityDecision` is reached solely via `scheduleTracking.ts:118`, so postseason rows must never be filtered |
+| `gameStats/canonicalSlate.ts:321` | `duplicateProviderScheduleIds` | **Blinds the id-collision guard.** The derivation now receives UNFILTERED rows while the build receives filtered ones |
+
+**Non-FBS rows are excluded from the game LIST but still vote on these derived facts.** That single
+sentence is why "they're discarded anyway, so removing them is a no-op" was wrong three times.
+
+### Inventory 2 — consumers of `loadCachedScheduleItems`
+
+Six are unaffected by dropping both-known non-FBS rows because they only feed
+`buildScheduleFromApi`, which already excludes those rows via `exclude_both_non_fbs`:
+
+| Safe consumer | Why |
+| --- | --- |
+| `liveScores/canonicalContext.ts:158` | build only; `pendingGames` derives from built games |
+| `gameStats/canonicalSlate.ts:415` | build, plus an id index whose extra entries yield no canonical game |
+| `odds/canonicalOddsContext.ts:88` | build, plus `rawStatusById` read only for canonical games |
+| `selectors/leagueStandings.ts:867` | build, plus resolver name-seeding non-FBS labels cannot match |
+| `insights/loadInsights.ts:281` | passes straight to the build |
+| `schedule/nationalChampionshipRollover.ts:144` | the championship game is FBS by construction |
+
+Four are affected, and all four break the same way:
+
+| Affected consumer | What raw rows do there |
+| --- | --- |
+| `api/scores/route.ts:344` | `classifyEmptyScoresResponse` counts started, non-disrupted games |
+| `api/admin/cache-historical-scores/route.ts:260` | the same classifier |
+| `odds/oddsRefreshExecutor.ts:145` | `expectationEvidenceAvailable` — any kickoff inside the horizon? |
+| `server/providerDataDiagnostics.ts:305` | `hasPollableOddsTarget`, `isSeasonActive` |
+
+**Each uses the row set as an EXPECTATION ORACLE** — "was anything supposed to happen here?" — and
+each becomes MORE PERMISSIVE as rows disappear: an empty provider response reads as valid absence
+rather than something suspicious. Any filter that removes rows from that oracle loosens a
+data-protection guard, at the write path or the read path. Add
+`/api/debug/schedule-eligibility` (`route.ts:52`, sole input `/api/schedule`) to the list of readers
+that need the excluded rows — `AGENTS.md` core rule 4 forbids removing diagnostic surfaces.
+
+**Before changing what enters or leaves the schedule row set, re-run both greps.** They cost thirty
+seconds and would have prevented every round of this campaign.
+
 ## Measured: production attribution
 
 From Vercel Observability → Functions, 2026-09-01, 12-hour window. Active CPU totals are rounded by
