@@ -1,7 +1,7 @@
 # Completed Work Log
 
 Status: Historical (append-only ledger)
-Last verified: 2026-09-01
+Last verified: 2026-09-02
 Owner: Project documentation
 Canonical for: append-only record of shipped phases/milestones (outcomes) — historical, not current implementation authority
 Supersedes: (none)
@@ -31,6 +31,25 @@ Supersedes: (none)
 > superseded prerequisite B), and the architecture record in
 > [`docs/ai/game-stats-writer-fence.md`](ai/game-stats-writer-fence.md) (with the superseded
 > original design frozen in [`docs/ai/platform-086h3-contract.md`](ai/platform-086h3-contract.md)).
+
+### PLATFORM-120 — Hot Schedule-Build Relevance Filter and Week-0 Deletion — Complete
+
+- **Status:** Merged via PR #551 (merge commit `ce176ccd`), 2026-09-02.
+- **PROMPT_ID(s):** `PLATFORM-120-SCHEDULE-FBS-FILTER-v3`; v1 and v2 were stopped as the reader
+  inventory and raw-row dependency audit corrected the implementation boundary.
+- **Outcome:** Live-score and game-stats canonical builds now omit only regular-season rows whose
+  normalized classifications are both known non-FBS, while retaining every postseason row. Durable
+  schedule storage and `/api/schedule` remain complete for expectation-oracle and diagnostic
+  consumers, and game-stats keeps the raw snapshot for metadata and duplicate-id rejection. Provider
+  week 1 can no longer become canonical week 0.
+- **Verification:** Exact pre-merge head `9259ea9e` passed TypeScript and `lint:all`; the 4,552-test
+  suite added nine passing tests and retained only the four Item 103 odds failures reproduced on
+  `main`. Mutations proved both reader filters, duplicate-id rejection, postseason offset
+  containment, and the week-0 deletion. Independent Codex and `/code-review` left no credible
+  in-scope P0/P1/P2.
+- **Open follow-ups:** Item 102 still owns the schedule-derived QStash planner and Item 88 its health
+  model. Item 100b remains date-gated before the 2027 opening slate. Item 104 owns replacement of the
+  scalar canonical-week model; Item 103 owns the unrelated odds test-harness failures.
 
 ### POLISH-019 — Overview Recent Finals Promotion — Complete
 

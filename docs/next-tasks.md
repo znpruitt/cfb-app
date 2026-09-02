@@ -24,9 +24,8 @@ Supersedes: (none)
 
 ## Current execution order
 
-`CURRENT`: **Item 99 + Item 100a** — two-reader schedule-build filter and week-0 deletion, one slice
-(implemented in PR #551; awaiting merge).
-`NEXT`: **Item 87 slice 4** — Watchlist.
+`CURRENT`: **Item 87 slice 4** — Watchlist.
+`NEXT`: **Item 102 + Item 88** — polling planner and its health model.
 
 Owner-selected run order (2026-09-02), replacing the 2026-08-29 order. Reprioritised after the Vercel
 Fluid Active CPU finding (`docs/campaigns/vercel-active-cpu.md`): the Hobby allowance is exhausted,
@@ -34,22 +33,19 @@ both high-frequency QStash schedules are manually switched per game window, and 
 strands finals permanently because `kickoff + 24h` reconciliation cannot be re-entered. That is a
 weekly operator burden with a data-loss mode, and it did not exist when the prior order was set.
 
-1. **Item 99 + Item 100a** — filter the two hot canonical builds plus delete the week-0 derivation.
-   The two readers account for 87% of measured Active CPU and their build cost drops by 3.55x; the
-   durable schedule remains complete for expectation-oracle and diagnostic consumers. 100a ships in
-   the same slice because filtering those builds removes what suppressed the week-0 heuristic.
-2. **Item 87 slice 4** — Watchlist, consuming the PLATFORM-117 records cache. Overview is
+1. **Item 87 slice 4** — Watchlist, consuming the PLATFORM-117 records cache. Overview is
    internally inconsistent until this lands: Live, Featured, and Recent finals are scoreboard rows
    while Watchlist and Schedule are still bespoke.
-3. **Item 102 + Item 88** — polling planner and the health model, together. 102 narrows the cron and
+2. **Item 102 + Item 88** — polling planner and the health model, together. 102 narrows the cron and
    88 is the reason that is safe: `schedulerDeliveryHealth.ts:82,88` hardcodes the cadence, so a
    planner shipped alone makes both jobs read `late` forever. This is what retires the manual switch.
-4. **Item 87 slice 5** — Schedule rework. Filed 2026-08-30; Schedule adopts the scoreboard row,
+3. **Item 87 slice 5** — Schedule rework. Filed 2026-08-30; Schedule adopts the scoreboard row,
    two-column and all, and its green-`final` / amber-live is settled there rather than by a
    separate sweep. Also carries the `ownerOutcomeRowClasses` sibling asymmetry left by POLISH-018,
    which reaches `MatchupsWeekPanel` — a different week view mode, named deliberately in the
    campaign doc rather than folded in silently.
-5. **Item 95 portion 1** — browser poll 180s -> 90s, now gated behind Item 99 (see below).
+4. **Item 95 portion 1** — browser poll 180s -> 90s. PLATFORM-120 cleared its Active CPU gate; it
+   retains this owner-selected position after the higher-priority UI and planner work.
 
 Runnable at any point, no dependency on the above: **Item 42 portion 1** (notable-result
 scoreboards, now unblocked by POLISH-017's final variant), **Item 84** (provider-classification
@@ -58,9 +54,9 @@ diagnostic), and **Item 86** (archive audit integrity check).
 Gated: **Item 85** after 86, which is how the repair gets verified.
 **Item 94** (CFBD burn-rate measurement) is date-gated to October 2026, after the first full
 in-season month; it is the accumulated observation **Item 63** and **Item 95 portion 2** are waiting
-on. **Item 95 portion 1** is **no longer ungated** (revised 2026-09-02): it doubles browser polls, and
-each one is an `/api/scores` function invocation — free in CFBD quota, NOT free in Vercel Active CPU,
-which is now the binding constraint. It was sized when CPU was unconstrained. Gate it behind Item 99.
+on. **Item 95 portion 1** was gated on PLATFORM-120 because it doubles `/api/scores` function
+invocations; that merge has now cleared the gate, without changing its position in the selected
+order.
 **Item 100b** (slate marker) is date-gated to before the 2027 opening slate; **Item 101** matters at
 the 2026-11-29 to 2026-12-12 gap, so fix it before late November.
 **Item 96** is now an **offseason** item — pause the in-season QStash schedules so Neon can suspend,
@@ -580,10 +576,10 @@ so removing an invocation saves its floor as well as its work — which a cheape
 Full evidence, including the rejected alternatives, in
 [`docs/campaigns/vercel-active-cpu.md`](campaigns/vercel-active-cpu.md).
 
-**Pairs with Item 99, does not replace it.** Item 99 cuts the canonical-build cost of every
-live-score and game-stats invocation; this cuts their number. Projected together: ~1.1 CPU-h/30d
-against ~2.8 h for Item 99 alone. An in-route gate before the context load was proposed and dropped
-as redundant against the pair — recorded in the campaign doc so it is not re-derived.
+**Pairs with shipped PLATFORM-120.** That change cuts the canonical-build cost of every live-score
+and game-stats invocation; this cuts their number. Projected together: ~1.1 CPU-h/30d against ~2.8 h
+for PLATFORM-120 alone. An in-route gate before the context load was proposed and dropped as
+redundant against the pair — recorded in the campaign doc so it is not re-derived.
 
 **Four things it collides with, all located:**
 
@@ -639,205 +635,16 @@ and which is worse is a judgement call.
 
 - Backlog slug: `PLATFORM-FINALS-EXPIRY-BOUNDARY-v1`
 
-### Item 99 — filter non-FBS rows at the two hot canonical schedule builds
+### Item 100b — internal opening-slate marker for recap and look-ahead
 
-> **IMPLEMENTED 2026-09-02 by `PLATFORM-120-SCHEDULE-FBS-FILTER-v3`; PR #551 is open, not
-> merged.** The durable schedule and `/api/schedule` remain complete. Only the live-score and
-> game-stats canonical builds filter both-known-non-FBS regular-season rows; postseason rows and the
-> raw game-stats metadata/collision snapshot remain intact. The investigation below preserves why
-> the original write-path proposal was rejected.
-
-**Measured 2026-08-31.** `/games?year=` persists every division. For 2026 that is **3,676 rows**, of
-which **888 (24%)** involve an FBS team:
-
-| Pairing | Rows |
-| --- | --- |
-| involves an FBS team | **888** |
-| iii/iii | 1,158 |
-| ii/ii | 811 |
-| fcs/fcs | 651 |
-
-**CORRECTION 2026-09-02: that survey was incomplete, and the claim below is false.** A reader
-inventory run during PLATFORM-120's review found consumers that DO read the dropped rows, and the
-write-path filter drew six review findings because of them. The original table follows for the
-record; the audit that supersedes it is below it.
-
-**No consumer reads the other 2,788.** Every reader of the durable schedule cache discards them:
-
-| Consumer | Disposition |
-| --- | --- |
-| `/api/schedule` route | serves them; the client runs `isTrackedGame` (`schedule.ts:758`) and discards |
-| draft board `boardData.ts` | `buildScheduleFromApi(...).games` — filtered |
-| `seasonBuild.ts` (archives) | same path — filtered |
-| `schedulePresentationRefresh` | joins media by canonical game id |
-| `providerCacheState` | only checks `items.length > 0` |
-
-They are stored, read, parsed, and thrown away at every single call site.
-
-#### Reader inventory (measured 2026-09-02) — the schedule row set is an expectation oracle
-
-Ten non-test consumers of `loadCachedScheduleItems`. Six are unaffected by dropping both-known
-non-FBS rows because they only feed `buildScheduleFromApi`, which already excludes those rows via
-`exclude_both_non_fbs`:
-
-| Safe consumer | Why |
-| --- | --- |
-| `liveScores/canonicalContext.ts:158` | build only; `pendingGames` derives from built games |
-| `gameStats/canonicalSlate.ts:415` | build, plus an id index whose extra entries yield no canonical game |
-| `odds/canonicalOddsContext.ts:88` | build, plus `rawStatusById` read only for canonical games |
-| `selectors/leagueStandings.ts:867` | build, plus resolver name-seeding non-FBS labels cannot match |
-| `insights/loadInsights.ts:281` | passes straight to the build |
-| `schedule/nationalChampionshipRollover.ts:144` | the championship game is FBS by construction |
-
-**Four are affected, and they all break the same way:**
-
-| Affected consumer | What raw rows do there |
-| --- | --- |
-| `api/scores/route.ts:344` | `classifyEmptyScoresResponse` counts started, non-disrupted games |
-| `api/admin/cache-historical-scores/route.ts:260` | the same classifier |
-| `odds/oddsRefreshExecutor.ts:145` | `expectationEvidenceAvailable` — any kickoff inside the horizon? |
-| `server/providerDataDiagnostics.ts:305` | `hasPollableOddsTarget`, `isSeasonActive` |
-
-**Each uses the schedule row set as an EXPECTATION ORACLE** — "was anything supposed to happen
-here?" — and each becomes MORE PERMISSIVE when rows disappear: an empty provider response is
-accepted as valid absence instead of rejected as suspicious, and health checks find fewer targets to
-expect. **Any filter that removes rows from that oracle loosens a data-protection guard**, whether it
-sits at the write path or the read path. That single pattern is the root of all six PLATFORM-120
-review findings, and it is the thing to check before touching the row set again.
-
-Consequence for this item: **the durable write path is the wrong place for this filter.** It is a
-relevance filter, not a correctness filter — the rows are accurate, merely unwanted by most readers —
-and deleting them removes evidence four consumers depend on, plus the
-`/api/debug/schedule-eligibility` diagnostic that exists to explain those exclusions
-(`AGENTS.md` core rule 4: diagnostics are required). PLATFORM-120 v2 applies the predicate at the two
-SAFE hot call sites instead, which is 87% of measured Active CPU with zero affected consumers.
-
-**Final implementation: filter at the two measured hot readers, not at storage or the API
-response.** `liveScores/canonicalContext.ts` and `gameStats/canonicalSlate.ts` account for 87% of
-measured Active CPU. Their `buildScheduleFromApi` inputs shrink while the complete durable row set
-continues to protect expectation-oracle and diagnostic consumers. Measured cost of that function:
-**1,267 ms on 3,676 rows vs 353 ms on the relevance-filtered set.**
-
-**Predicate: both sides KNOWN non-FBS.** Drop only when both `homeClassification` and
-`awayClassification` are present and neither is `fbs`. **Rows with absent classification must be
-retained** — PLATFORM-114 is forward-only, and 2018-2024 caches carry no classification at all
-(verified: `fbs=0` rows for every year before 2025). An include-style filter would empty five
-seasons.
-
-**Second argument: the dropped rows are not merely unused, they are unreliable.** CFBD's lower-division
-data is materially worse than its FBS data, measured across two endpoints on 2026-08-31/09-01:
-
-- **`/records`** — 92 of 109 played D-II teams report `games: 1, wins: 0, losses: 0`: the game counted,
-  the outcome never credited. **0 of 138 FBS and 0 of 128 FCS rows** have that shape.
-- **`/games`** — nine D-II games from 2026-08-27/30 still carry `completed: false` with no points days
-  later. A fresh CFBD pull matches the durable cache exactly, so this is the provider, not our
-  staleness. (One of them is `Westgate Christian University @ Missouri S&T` — the school from
-  PLATFORM-114's identity collision.)
-
-The provider's football API is built around FBS; lower divisions get best-effort treatment. These
-rows are therefore excluded from the two FBS-focused canonical builds, but retained durably because
-their presence is still evidence for provider-response guards and reconciliation diagnostics.
-
-**Nothing is lost.** Any game involving an FBS team survives the reader filter, absent
-classification is retained, and postseason is never filtered. Rows excluded from those builds
-remain available in the durable schedule and `/api/schedule` response.
-
-**Week derivation is explicit rather than emergent.** Item 100a deletes the week-0 heuristic, and the
-postseason offset reduces over the same FBS-relevant regular-season span at every caller, so omitting
-irrelevant rows cannot move the two hot builds relative to an unfiltered build.
-
-**Why this is not Item 98b.** 98b shaped the API response globally. The complete reader inventory
-proved that several consumers need the full set as an expectation oracle and one diagnostic needs it
-to explain exclusions. Item 99 therefore narrows only the two measured safe consumers.
-
-**Ships with Item 100a.** This filter removes from the two hot builds exactly the lower-division rows
-whose presence keeps the canonical week-0 heuristic dormant. Deleting the derivation is part of this
-slice, not a follow-on; a regression test can pin only the seasons that exist. See Item 100a for the
-seven-season sweep.
-
-**Scope care:** this is a relevance filter at exactly two consumers, not a correctness filter or a
-storage policy. The durable write authorities, `/api/schedule`, diagnostics, expectation-oracle
-readers, and the other lower-volume safe consumers are unchanged.
-
-**Third argument, measured 2026-09-01: this is now the largest single lever on Vercel Active CPU.**
-Both high-frequency crons rebuild the full season before deciding they have nothing to do, and
-`buildScheduleFromApi` is **98.6% of that context load**. The filter therefore cuts the build cost of
-every invocation of those two readers — idle and working alike — by the measured **3.55x**, which a
-scheduling change cannot do.
-See [`docs/campaigns/vercel-active-cpu.md`](campaigns/vercel-active-cpu.md); Item 102 is the paired
-change.
-
-**Two corrections from that measurement.** The predicate keeps **1,003 rows for 2026, not 888** — 888
-is the FBS-involving count, and the filter deliberately retains 115 more rows where one side's
-classification is absent. And the **week-0 concern does not apply to this predicate**: built through
-`buildScheduleFromApi` and read on `canonicalWeek`, 2026 and 2025 both yield **no canonical week 0,
-filtered or unfiltered, with identical canonical game counts** (888 and 934). Item 100's "2025 fbs →
-week 0 DETECTED" used a strict FBS-only row set; the classification-absent rows this predicate keeps
-are what hold the heuristic dormant. That is emergent, not guaranteed — **pin it with a test** for
-both seasons.
-
-- Backlog slug: `PLATFORM-SCHEDULE-WRITE-FILTER-v1`
-
-### Item 100 — canonical week 0: delete the derivation now, build the slate marker next season
-
-`buildRegularSeasonWeekCalendar` derives a canonical **week 0** by splitting CFBD's provider week 1
-into two date clusters. **No source does this:**
-
-- **CFBD** serves no week 0; the opening Saturday is week 1.
-- **ESPN** labels it `WEEK 1 · AUG 22 - SEP 7`, containing both slates.
-- `formatWeekLabel(0, ...)` renders **`W0`**, so it is member-visible, not internal ordering.
-
-**No recorded rationale.** It arrived in one commit, `0c84ac5a` 2026-03-18, _"Add canonical week date
-labels and chronological week views"_, with no stated requirement; nothing in `docs/` mentions week 0.
-
-**Owner decision, 2026-09-02.** There is to be **no member-visible week 0, ever** — the industry
-convention, ESPN included, groups the opening slate into week 1 and the app should match it. The only
-wanted capability is a hook to recap or preview that opening slate separately, and **the 2026 opener
-has already passed, so that capability is a next-season concern.** This splits the item: the deletion
-is wanted now, the marker is not.
-
-#### 100a — delete the canonical week-0 derivation (ship with Item 99)
-
-**Measured 2026-09-02 across every cached season.** No season the app holds renders a canonical week 0
-today, filtered or unfiltered, so removing the derivation changes zero member-visible labels:
-
-    2018  rows=1556 (fbs-classified    0)  games=885  week0=absent
-    2021  rows=2454 (fbs-classified    0)  games=918  week0=absent
-    2022  rows=3705 (fbs-classified    0)  games=933  week0=absent
-    2023  rows=3734 (fbs-classified    0)  games=921  week0=absent
-    2024  rows=3801 (fbs-classified    0)  games=931  week0=absent
-    2025  rows=3831 (fbs-classified  934)  games=934  week0=absent
-    2026  rows=3679 (fbs-classified  888)  games=888  week0=absent
-
-2019 and 2020 are not cached (503 — the anonymous read path refuses a cache miss rather than fetching,
-`api/schedule/route.ts:706`, so the sweep spent no CFBD quota).
-
-**Item 99 is what makes this necessary, which is why they ship together.** The heuristic is dormant
-only because lower-division games bleed provider week 2 into the second opening cluster — and Item 99
-filters precisely those rows out of the two hot builds. The filter does not preserve the dormancy;
-it removes what was causing it. Measured:
-
-    2025 all: c1 n=8   pw=[1]  |  c2 n=501 pw=[1,2]   -> no week 0
-    2025 fbs: c1 n=5   pw=[1]  |  c2 n=91  pw=[1]     -> week 0 DETECTED
-    2026 all: c1 n=135 pw=[1]  |  c2 n=623 pw=[1,2]   -> no week 0
-    2026 fbs: c1 n=8   pw=[1]  |  c2 n=177 pw=[1,2]   -> no week 0
-
-2026 happens not to fire under Item 99's exact predicate, but a strict-FBS 2025 does, and 2027's
-opening slate is unknown data. **A regression test pins the seasons that exist; it cannot pin next
-August.** Shipping Item 99 without this deletion takes a fresh data-dependent bet every preseason on
-the one surface the owner has ruled out. Delete the derivation instead and the guarantee is
-structural.
-
-Acceptance boundary: `canonicalWeek` is provider-authoritative for week 1; no build of any cached
-season produces a canonical week 0; no member-visible week label changes on any season.
-
-#### 100b — internal slate marker for recap and look-ahead (next season)
+PLATFORM-120 deleted the member-visible week-0 derivation; this future marker must not restore it.
+Provider week 1 remains the rendered label, while the marker supplies only internal grouping.
 
 **Date-gated: before the 2027 opening slate.** The 2026 opener is in the past, so nothing consumes
 this until then.
 
-`canonicalWeek` is doing double duty as the member-facing label and the internal grouping. 100a
-settles the label; this adds the grouping back where it belongs:
+`canonicalWeek` was doing double duty as the member-facing label and the internal grouping.
+PLATFORM-120 settled the label; this adds the grouping back where it belongs:
 
 - **week** stays provider-authoritative — both slates are W1, matching every other source;
 - **slate** becomes an internal date-cluster marker for recap/preview targeting, never rendered as a
@@ -848,7 +655,8 @@ happens where the full row set exists and the client never needs it.
 
 **The clustering implementation this rule needs was DELETED by PLATFORM-120** — `buildRegularSeasonDateClusters`,
 `buildRegularSeasonDateBuckets`, `normalizeRegularSeasonDateKey`, `diffDays`, and
-`REGULAR_SEASON_CLUSTER_GAP_DAYS = 3` all went with 100a, correctly (nothing else consumed them).
+`REGULAR_SEASON_CLUSTER_GAP_DAYS = 3` all went with PLATFORM-120, correctly (nothing else consumed
+them).
 Recover them from `d6184c28:src/lib/regularSeasonWeekCalendar.ts` rather than rewriting ~100 lines
 from the rule statement below; that code already implements this exact 3-day-gap clustering.
 
@@ -862,8 +670,8 @@ Validated across all seven seasons. Two findings from that validation: **"larges
 splitter** (2025 has four games dated 2025-12-13 carrying provider week 1, making the largest gap 102
 days), and **FBS-relevant rows are required** — with all divisions, 2026's lower-division games fill
 Aug 27-31 continuously and no gap appears until Sept 3. The durable schedule intentionally remains
-complete after Item 99, so Item 100b must apply the shared relevance predicate at consumption rather
-than assume storage was filtered.
+complete after PLATFORM-120, so Item 100b must apply the shared relevance predicate at consumption
+rather than assume storage was filtered.
 
 - Backlog slug: `PLATFORM-WEEK-ZERO-MODEL-v1`
 
@@ -903,11 +711,11 @@ remaining league-page-paint work begins at 98c.
 
 #### 98b — 76% of the schedule payload is discarded after parsing
 
-> **SUPERSEDED by Item 99 / PLATFORM-120.** This proposed shaping the API response, but the complete
+> **SUPERSEDED by PLATFORM-120.** This proposed shaping the API response, but the complete
 > reader audit found expectation-oracle and diagnostic consumers that require the full row set.
 > PLATFORM-120 instead filters only the live-score and game-stats canonical builds, keeps durable
 > storage and `/api/schedule` complete, and makes week derivation invariant to that filter. Do not
-> implement 98b; see Item 99 and the PLATFORM-120 registry record.
+> implement 98b; see the PLATFORM-120 registry and completed-work records.
 
 `/api/schedule?year=2026&seasonType=all` returns **2,764,786 bytes** (245 KB gzipped). Of its 3,676
 rows:
