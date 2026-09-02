@@ -445,6 +445,42 @@ Neon one. Keep this item for the read-replica autosuspend and the non-cadence fi
 
 - Backlog slug: `PLATFORM-OFFSEASON-SCHEDULE-PAUSE-v1`
 
+### Item 103 — `main` is red: four odds-route tests fail, blocking the `npm test` gate
+
+**Measured 2026-09-02 on clean `main` (`d6184c28`), no branch involved.** Four tests in
+`src/app/api/odds/__tests__/route.test.ts` fail:
+
+    not ok 3  - explicit request year stays authoritative when filters are combined
+    not ok 7  - filtered odds requests do not overwrite the shared durable store with partial markets
+    not ok 10 - successful fetch attaches odds to canonical schedule games and persists latestSnapshot
+    not ok 18 - odds resolves an odds-provider label to a canonical game via a STORED GLOBAL alias
+    # tests 42  # pass 38  # fail 4
+
+**These are real assertions, not an environment problem.** Failure 10 is `AssertionError: 0 !== 1`
+(`route.test.ts:2:13944`) — odds attach to zero canonical games where one is expected. Three of the
+four concern odds reaching canonical schedule games or the durable store, which points at the
+attachment or canonical-context seam rather than at the route's request parsing.
+
+**Not caused by recent work.** Reproduced at `main~60` and at `a540dc0c` — the commit BEFORE
+PLATFORM-114's provider-classification eligibility change (`c5b0e8bf`, 2026-08-29). So PLATFORM-114,
+PLATFORM-119, and POLISH-019 are all cleared. The origin commit is NOT yet identified: a probe at
+`main~200` returned `npm error Missing script: "test:file"` rather than a test result, so it proved
+nothing and the bound stops at 2026-08-29. Bisect with a script that survives the missing script —
+run the file through `node --test` directly, or add the `test:file` shim to the probe.
+
+**Why this matters now, and why it is not merely tidiness.** `AGENTS.md` → Verification makes the
+full suite a required gate, and it cannot pass on any branch while it does not pass on `main`.
+PLATFORM-120 hit exactly this: the implementer correctly stopped rather than claim convergence, with
+its own work green and these four red. Until this is fixed every branch inherits an unexplainable
+red gate, and "four known failures" degrades into a number nobody reads — which is how a real
+regression would slip through.
+
+**Do not fix by deleting or skipping the tests.** Establish first whether the tests or the behavior
+regressed; three of them assert odds actually reaching canonical games, which is member-visible if
+genuinely broken in production. Check the live odds surface before assuming this is test-only.
+
+- Backlog slug: `PLATFORM-ODDS-SUITE-RED-v1`
+
 ### Item 102 — derive the QStash polling cron from the schedule
 
 **The ask:** stop live-scores and game-stats from firing outside game windows. Once a day, read the
@@ -673,6 +709,12 @@ settles the label; this adds the grouping back where it belongs:
 
 Recap generation is server-side (`loadInsights.ts`, `selectors/insights.ts`), so slate identification
 happens where the full row set exists and the client never needs it.
+
+**The clustering implementation this rule needs was DELETED by PLATFORM-120** — `buildRegularSeasonDateClusters`,
+`buildRegularSeasonDateBuckets`, `normalizeRegularSeasonDateKey`, `diffDays`, and
+`REGULAR_SEASON_CLUSTER_GAP_DAYS = 3` all went with 100a, correctly (nothing else consumed them).
+Recover them from `d6184c28:src/lib/regularSeasonWeekCalendar.ts` rather than rewriting ~100 lines
+from the rule statement below; that code already implements this exact 3-day-gap clustering.
 
 **A validated splitting rule** — trust the provider from week 2 onward and only disambiguate week 1:
 
