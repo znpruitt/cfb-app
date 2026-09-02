@@ -2,8 +2,8 @@
 
 **Status:** Slices 1–2 shipped via POLISH-016 / PR #535 and POLISH-017 / PR #537; Item 91 shipped via
 PLATFORM-116 / PR #539; Item 90 shipped via POLISH-018 / PR #541; the records prerequisite is
-implemented by PLATFORM-117. The
-pre-agreed reassessment point has been reached, and slices 3–4 remain planned.
+implemented by PLATFORM-117. Slice 3 is implemented and review-resolved via POLISH-019 at
+`5d83e035` (PR not yet opened); slices 4–5 remain planned.
 **Reference mockup:** `mockups/live-scoreboard-mockup.html`
 **Related:** `INSIGHTS-026b-RECAP-LAYOUT-v1` (dispatched). Shares the scoreboard micro-component — see Sequencing.
 
@@ -113,11 +113,13 @@ the selective one never intended to cover everything.
 visibility becomes a fact rather than an inference, then dedup against what is actually rendered.
 That is a Featured/recap design change with its own review — not slice work.
 
-**Separate follow-ups, not reconstruction scope:** make `CFBScheduleApp.initialNowMs` compile-time
-safe for any future Overview-capable caller, and restore direct visible-markup coverage for the
-`renderMatchupLabel` home/away separator (`Texas @ Rice`). The current Overview route supplies the
-clock, and no production rendering defect was demonstrated for the label; neither changes the
-promotion model.
+**Closeout of two review follow-ups.** Direct visible-markup coverage for the
+`renderMatchupLabel` home/away separator (`Texas @ Rice`) was restored in POLISH-019. The proposed
+`CFBScheduleApp.initialNowMs` production follow-up was retired after a route audit confirmed that
+the only route defaulting to Overview supplies `Date.now()`, sibling routes select non-Overview
+modes, and the unconditional mount effect advances the client clock before a later Overview switch.
+Making the prop compile-time-required remains possible future hardening, not an open production
+defect from this slice.
 
 ### Live state — green, no amber
 
@@ -377,7 +379,7 @@ Ordered so colour settles once rather than shipping neutral live and flipping it
 |---|---|---|
 | ✅ 1 | Scoreboard component + Live section | Merged via POLISH-016 / PR #535 (`5fd59d39`), 2026-08-30. The component shipped with its first live consumer and no speculative state variants. |
 | ✅ 2 | Featured conversion + retire its `stateBadgeClasses` call + green-live flip | Merged via POLISH-017 / PR #537 (`e0a7b8ab`), 2026-08-30. Featured now consumes the neutral-final variant, and green-live is unambiguous on Overview. |
-| 3 | Recent finals + promotion model | Needs `unknown` routing and the recap-eligibility clear. |
+| ✅ 3 | Recent finals + promotion model | Implemented and review-resolved via POLISH-019 at `5d83e035`; PR not yet opened. |
 | 4 | Watchlist | Riskiest — consumes PLATFORM-117's cache by exact `teamId`, with the spread fallback when a record is unavailable. |
 | 5 | Schedule rework | Filed 2026-08-30 (was *Not filed*). Schedule adopts the scoreboard row, two-column and all, and its colour settles as part of the rework rather than via Item 90. Needs the widened state variants above. |
 
@@ -396,6 +398,7 @@ Ordered so colour settles once rather than shipping neutral live and flipping it
 | Done | **POLISH-015** | Interim duplication, chronological ordering, and empty-copy correction merged via PR #531; Item 87 supersedes the implementation. |
 | Done | **87 slice 1** | Shared scoreboard contract + Live consumer merged via PR #535. |
 | Done | **87 slice 2** | Featured + neutral-final consumer merged via PR #537; green-live settled on Overview. |
+| Implemented | **87 slice 3** | Recent finals, mutually exclusive routing, bounded abandonment, and neutral Awaiting score presentation are review-resolved at `5d83e035`; PR not yet opened. |
 | Runnable | **Item 42 wiring pass** | All fact families and the consumed final-row scoreboard variant now exist; no Item 87 dependency remains. |
 | Done | **PLATFORM-116 / Item 91** | Tied/stale/scoreless standings signal and pill removal merged via PR #539. |
 | Done | **Item 90 / POLISH-018** | Shared label and neutral-final re-cut merged via PR #541. Schedule remains with slice 5. |

@@ -1,7 +1,7 @@
 # Prompt Registry
 
 Status: Current ledger
-Last verified: 2026-08-31
+Last verified: 2026-09-01
 Owner: Project documentation
 Canonical for: prompt ledger / historical implementation record (not an active backlog)
 Supersedes: (none)
@@ -117,6 +117,25 @@ Rules:
   is no authoritative arbitrary-year team roster), and the measured quota-free `/info` behavior
   used by the 1,002 reserve gate.
 - Status: Merged via PR #543 (merge commit `9376521e`), 2026-08-31.
+
+### POLISH-019-RECENT-FINALS-PROMOTION-v1
+
+- Purpose: add Recent finals to Overview and make each owned game move through exactly one of the
+  watchlist, Live, or Recent finals sections as kickoff and score evidence change.
+- Scope: `OverviewPanel`, the Overview section-routing selectors, the compact scoreboard's neutral
+  awaiting state, the Item 87 campaign/design contract, and focused selector/component coverage.
+  Watchlist records, Schedule rework, and the postseason team-id merger remained out of scope.
+- Outcome: Recent finals is a complete newest-first list with no recap-content deduplication and a
+  shared Thursday 06:00 ET expiry boundary. Confirmed kickoff promotes a game to Live; missing or
+  unusable score evidence renders neutral `Awaiting score` for at most eight hours; usable finals
+  promote immediately; abandonment and ownership exclusion are per-game and precede state routing.
+- Review / verification: exact code commit `5d83e035` passed TypeScript, `lint:all`, and 74/74
+  focused tests, with one net test added. The full suite retained four odds-route failures also
+  reproduced on `main`; one unchanged diagnostics file timed out under aggregate host load and then
+  passed 89/89 directly. Routing mutations fired their named transition/exclusivity assertions.
+  Independent Codex and Claude confirmation left no credible in-scope P0/P1/P2; the remaining LOW
+  findings share the currently unreachable disruption-label seam tracked beside Item 63.
+- Status: Implemented and review-resolved at `5d83e035`; PR not yet opened or merged.
 
 ### POLISH-018-LIVE-STATUS-TREATMENT-v1
 
