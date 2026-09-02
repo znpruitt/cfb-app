@@ -132,23 +132,6 @@ export function isPlannedGame(game: AppGame): boolean {
   return isRealGame(game) && Boolean(game.date) && game.startTimeTBD !== true;
 }
 
-/**
- * Has this game reached a terminal state on POSITIVE EVIDENCE alone?
- *
- * TIME-INVARIANT by construction, which is the point: `AGENTS.md` invariant 3
- * requires `unstable_cache`-wrapped selectors to return time-invariant facts,
- * and earlier rounds of this slice cached a clock-dependent verdict instead.
- * Both reviewers raised it three times before I checked the rule.
- *
- * Evidence in order of authority. `game.status` is effectively never `final` for
- * production schedule data — CFBD supplies no status string — and `rawStatus` is
- * always `scheduled`, so the labels are read from the SCORE, where `toStatus`
- * preserves an unrecognized provider value verbatim.
- */
-export function isConcludedByEvidence(game: AppGame, score: ScorePack | undefined): boolean {
-  return classifyGameConclusionEvidence(game, score) !== 'unresolved';
-}
-
 /** Postponed / suspended / delayed: still coming, so never abandoned. */
 export function isDisruptedGame(game: AppGame, score: ScorePack | undefined): boolean {
   return isDisruptedStatusLabel(game.rawStatus) || isDisruptedStatusLabel(score?.status);

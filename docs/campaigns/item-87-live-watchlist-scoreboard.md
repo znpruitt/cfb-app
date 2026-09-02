@@ -66,7 +66,12 @@ Slice 5 makes Schedule the component's third consumer. Its surface carries state
 
 ### Promotion model
 
-A game occupies exactly one section: **Scheduled → Live on kickoff → Recent finals on completion.** Sections hide when empty. The finals block clears when the week becomes recap-eligible (06:00 ET the day after the week's last game-date), reusing the `INSIGHTS-026b` rule, so the recap hands off cleanly.
+A game occupies exactly one section: **Scheduled → Live on kickoff → Recent finals on completion.**
+Sections hide when empty. Two `INSIGHTS-026b` boundaries must not be conflated: recap eligibility
+begins at 06:00 ET the day after the week's last game-date, while Recent finals clears only when the
+shared `selectWeeklyRecapTileState` flips to `upcoming` at **Thursday 06:00 ET**. Item 101 in
+[`docs/next-tasks.md`](../next-tasks.md) tracks the non-blocking season-boundary gap created by that
+Thursday expiry; the boundary itself is settled for slice 3.
 
 **Reconstruction decision — abandonment is a gate, not a score-state cell.** `Live` means kickoff
 has been established and the game has not been abandoned. Before the router switches on score
@@ -78,7 +83,7 @@ concluded?", while the Overview router asks where one row belongs. Positive in-p
 evidence continues to outrank a contradictory future schedule timestamp; the abandonment gate
 applies whenever the confirmed kickoff itself has passed.
 
-`gameStateFromScore` (`gameUi.ts:51`) returns a fourth value, `unknown`. **Decided:** a future kickoff routes to the watchlist. A past kickoff with no usable score **stays in Live and reads "Awaiting score" for the bounded eight-hour gap**, moving to Recent finals only when a final score attaches and becoming excluded if the gap outlives the abandonment gate. This awaiting-score-as-Live treatment is accepted and closed. DESIGN.md `:51-52` prescribes exactly this copy for the bounded post-kickoff gap and forbids both "Upcoming" and an unsupported "Live" claim; routing to Recent finals would assert the game finished, a stronger misstatement than either forbidden string. The Live badge is unaffected elsewhere — those rows carry attached in-progress scores, and the prohibition is on claiming live *without* score evidence. Shown rather than hidden: a visible game with an absent score is more honest than a silently missing one. *Open detail:* "Awaiting score" sits in the status row rather than a per-team anchor, since it describes the game rather than either side — confirm placement.
+`gameStateFromScore` (`gameUi.ts:51`) returns a fourth value, `unknown`. **Decided:** a future kickoff routes to the watchlist. A past kickoff with no usable score — **including a score pack labelled `Final` that is missing either numeric team score** — stays in Live and reads "Awaiting score" for the bounded eight-hour gap, moving to Recent finals only when a usable final score attaches and becoming excluded if the gap outlives the abandonment gate. This awaiting-score-as-Live treatment is accepted and closed. DESIGN.md `:51-52` prescribes exactly this copy for the bounded post-kickoff gap and forbids both "Upcoming" and an unsupported "Live" claim; routing to Recent finals would assert the game finished, a stronger misstatement than either forbidden string. The Live badge is unaffected elsewhere — those rows carry attached in-progress scores, and the prohibition is on claiming live *without* score evidence. Shown rather than hidden: a visible game with an absent score is more honest than a silently missing one. *Open detail:* "Awaiting score" sits in the status row rather than a per-team anchor, since it describes the game rather than either side — confirm placement.
 
 Provider disruption labels remain an unreachable sub-case of scheduled under the current CFBD-only
 production path. Keep the cheap defensive guard, preserve the exact label if one ever appears, and

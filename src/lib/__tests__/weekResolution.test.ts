@@ -5,7 +5,6 @@ import {
   derivePendingGame,
   deriveStandingsHistory,
   hasGameBeenAbandoned,
-  isConcludedByEvidence,
   isPlannedGame,
   isRealGame,
 } from '../standingsHistory';
@@ -73,12 +72,12 @@ test('a result concludes a game, whatever the schedule says', () => {
   // cache. `game.status` is effectively never `final` for CFBD data.
   const g = game({ key: 'g', week: 1, date: '2026-09-12T16:00:00.000Z' });
   assert.equal(g.status, 'scheduled', 'the fixture must reach the production shape');
-  assert.equal(isConcludedByEvidence(g, finalScore as unknown as ScorePack), true);
+  assert.equal(derivePendingGame(g, finalScore as unknown as ScorePack), null);
 });
 
 test("the provider's completed flag concludes a game", () => {
   const g = game({ key: 'g', week: 1, completed: true });
-  assert.equal(isConcludedByEvidence(g, undefined), true);
+  assert.equal(derivePendingGame(g, undefined), null);
 });
 
 test('Overview can keep score-required evidence pending without rebuilding the game shape', () => {
@@ -100,12 +99,16 @@ test('Overview can keep score-required evidence pending without rebuilding the g
 test('a CANCELLED game is terminal, and the label comes from the score', () => {
   const g = game({ key: 'g', week: 1, date: '2026-09-19T18:00:00.000Z' });
   const canceled = { status: 'Canceled', home: { score: null }, away: { score: null } };
-  assert.equal(isConcludedByEvidence(g, canceled as unknown as ScorePack), true);
+  assert.equal(derivePendingGame(g, canceled as unknown as ScorePack), null);
 });
 
 test('nothing else is concluded by evidence', () => {
   const g = game({ key: 'g', week: 1, date: '2026-09-05T18:00:00.000Z' });
-  assert.equal(isConcludedByEvidence(g, undefined), false);
+  assert.deepEqual(derivePendingGame(g, undefined), {
+    key: 'g',
+    week: 1,
+    kickoff: '2026-09-05T18:00:00.000Z',
+  });
 });
 
 // A REAL game has both teams known; a PLANNED game also has a determined time.
