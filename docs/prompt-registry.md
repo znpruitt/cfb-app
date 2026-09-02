@@ -135,7 +135,7 @@ Rules:
   passed 89/89 directly. Routing mutations fired their named transition/exclusivity assertions.
   Independent Codex and Claude confirmation left no credible in-scope P0/P1/P2; the remaining LOW
   findings share the currently unreachable disruption-label seam tracked beside Item 63.
-- Status: Implemented and review-resolved at `5d83e035`; PR not yet opened or merged.
+- Status: Merged via PR #549 (merge commit `751a86b4`), 2026-09-01.
 
 ### POLISH-018-LIVE-STATUS-TREATMENT-v1
 
