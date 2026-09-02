@@ -158,6 +158,31 @@ Reason title row → date / kickoff / broadcast → team lines anchored by **per
 - **The anchor holds a record, and the record belongs to the line's primary identifier.** Team-primary line (this scoreboard, any state) → *team* record. Owner-primary line (recap week records, standings, movement) → *owner* record. Position stays constant app-wide; context disambiguates, so no label is needed and the team line stays at three elements plus an anchor, matching live and final rows exactly.
 - **Spread and O/U share the odds footer.** Games with no posted line render the reason there instead.
 
+#### Owner decision, 2026-09-02 — the record anchors, and a missing line is simply empty
+
+Settles the slice-4 gating question ("what do the team-line anchors show when both record and spread
+are absent?"). **That intersection does not exist**, because the two live on different rows:
+
+- **The team-line anchor is the RECORD, always.** `0-0` is factually accurate for an unplayed team and
+  is what renders. Do not substitute the spread, and do not suppress it as uninformative — the mockups
+  called for records and they stay.
+- **The odds footer is a separate row.** A game with no posted line renders **an empty row** — no
+  invented fallback, no `———`, no promotion of another value into the anchor slot.
+
+So there is no third rung and no ladder: the record cannot be absent in practice, and the odds footer
+is allowed to be empty because it is not an anchor.
+
+Measured the same day: the record side is complete — **all 138 FBS teams carry a record** (zero
+withheld by the cache), and 122 of 138 read `0-0` on opening weekend, which is correct rather than a
+gap. The odds side was NOT complete when the question was asked — half of week 1 was missing a line
+because of the matching defect in Item 106 — and after PLATFORM-122 shipped, **98 of 99 week-1 games
+carry a line**. The empty-odds row is therefore rare, not the common case it appeared to be. The one
+remaining gap (UMass @ Rutgers) is aggregator coverage we cannot recover.
+
+The earlier reading of a record → spread → fallback LADDER was a misreading of the card spec above:
+the spread substitutes for the anchor only when a record is genuinely unavailable, which the
+measurement shows does not occur for FBS teams.
+
 ### Records across scoreboard states — resolved
 
 Folded in from `item-87-followon-records.md`; the mockup reflects it.
