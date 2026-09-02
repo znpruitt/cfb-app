@@ -487,81 +487,48 @@ robustness once v3's containment lands.
 
 - Backlog slug: `PLATFORM-WEEK-AXIS-SEASONTYPE-v1`
 
-### Item 103 — `main` is red: four odds-route tests fail, blocking the `npm test` gate
+### Item 103 — four odds-route tests are time bombs that expired on 2026-09-01
 
-**Measured 2026-09-02 on clean `main` (`d6184c28`), no branch involved.** Four tests in
-`src/app/api/odds/__tests__/route.test.ts` fail:
+**Corrected 2026-09-02.** An earlier version of this item gave the wrong root cause, the wrong
+origin, and a wrong accusation against POLISH-018. All three came from one bad method, recorded
+below so it is not repeated.
 
-    not ok 3  - explicit request year stays authoritative when filters are combined
-    not ok 7  - filtered odds requests do not overwrite the shared durable store with partial markets
-    not ok 10 - successful fetch attaches odds to canonical schedule games and persists latestSnapshot
-    not ok 18 - odds resolves an odds-provider label to a canonical game via a STORED GLOBAL alias
-    # tests 42  # pass 38  # fail 4
+**The actual cause: fixture expiry.** Four tests in `src/app/api/odds/__tests__/route.test.ts`
+(`:118`, `:279`, `:520`, `:1395`) pin a kickoff of `2026-09-01T19:30:00.000Z`
+(`route.test.ts:43`, `:533`, `:919`, `:1412`). `applyPregameOddsSnapshot` (`src/lib/odds.ts:225`)
+refuses to create a first-seen pregame snapshot once `isAtOrPastKickoff(kickoff, now)`, with `now`
+defaulting to the real clock. Once the wall clock passed that kickoff the tests began failing —
+**correctly**. The production rule is right; the fixtures rotted.
 
-**PRODUCTION IS NOT BROKEN — this is a test-harness defect.** Checked 2026-09-02:
-`GET /api/odds?year=2026` returns **110 items, all 110 carrying a spread**, with canonical game ids
-resolved (`1-northcarolina-tcu-N`), `cache: hit`, `fallbackUsed: false`. The exact behavior the
-headline test calls broken — "attaches odds to canonical schedule games" — works at scale in
-production.
+**Production is healthy.** `GET /api/odds?year=2026` returns 110 items, all carrying a spread,
+canonical ids resolved, `cache: hit`, `fallbackUsed: false`.
 
-**Root cause: the mocks are inert.** All four tests mock `global.fetch` and branch on
-`url.includes('/api/schedule')`. The route no longer makes that HTTP call —
-`odds/canonicalOddsContext.ts:88` reads `loadCachedScheduleItems(year)` from the durable store, a
-server-side read introduced with PLATFORM-086C2 (`c257ffec`, 2026-07-28) per PLATFORM-075's
-no-self-fetch rule. So the mock never fires, the test's durable schedule cache is empty, zero
-canonical games are built, and the route truthfully returns zero items. **The fix is to seed the
-durable schedule cache** (`setAppState('schedule', '<year>-all-all', { items: [...] })`) in setup
-instead of mocking `fetch` for `/api/schedule`. This is the "fixture that cannot reach the failure"
-pattern, not a code regression.
+**Nine sibling tests keep passing** because they tolerate or assert empty attachment, seed prior
+odds, deliberately exercise post-kickoff behavior, or use future kickoffs. Thirteen tests in the file
+mock `/api/schedule` — six via `url.pathname`, seven via `url.includes` — and both styles work.
 
-**Calibration — do not over-read the production check.** It directly disproves failure 10 only.
-Failures 3, 7 and 18 (request-year authority, partial-market overwrite of the shared durable store,
-stored-global-alias resolution) are not exercised by one healthy read, and **failure 7 guards a
-data-integrity property whose breach would not show in a healthy read at all**. Re-assert each
-against real behavior once the fixtures can reach the code.
+**Fix: deterministic time, not durable seeding.** Inject a fixed `now` (the helpers already accept
+one) or move the fixtures to kickoffs that cannot expire. Do not weaken assertions, and do not touch
+production — the refusal being tested is correct behavior.
 
-**These are real assertions, not an environment problem.** Failure 10 is `AssertionError: 0 !== 1`
-(`route.test.ts:2:13944`) — odds attach to zero canonical games where one is expected. Three of the
-four concern odds reaching canonical schedule games or the durable store, which points at the
-attachment or canonical-context seam rather than at the route's request parsing.
+#### The retracted diagnosis, and the method error that produced it
 
-**Not caused by recent work.** Reproduced at `main~60` and at `a540dc0c` — the commit BEFORE
-PLATFORM-114's provider-classification eligibility change (`c5b0e8bf`, 2026-08-29). So PLATFORM-114,
-PLATFORM-119, and POLISH-019 are all cleared, and the documentary evidence above independently puts
-it red on 2026-08-31. The origin commit is NOT yet identified: a probe at `main~200` returned
-`npm error Missing script: "test:file"` rather than a test result, so it proved nothing and the
-bound stops at 2026-08-29. Bisect with a script that survives the missing script —
-run the file through `node --test` directly, or add the `test:file` shim to the probe.
+The earlier version claimed the mocks were inert because the route had migrated to
+`loadCachedScheduleItems`. **Wrong function.** `/api/odds` still self-fetches via
+`fetchCanonicalSchedule` (`api/odds/route.ts:239`, called at `:283`);
+`loadCanonicalOddsContext` is used only by `/api/cron/odds:204`. The mocks fire; the first failing
+test proves it by passing its `seenScheduleYears === [2025]` assertion before failing later.
 
-**This was SEEN before it was filed, and the process had no way to promote it.** Corrected
-2026-09-02 — an earlier draft of this item asked why nothing had surfaced it. Something had, twice:
+**The method error:** the failures were bisected by checking out old commits and running the tests
+TODAY. That cannot distinguish a code regression from a date-dependent fixture — every commit fails
+under a clock past the fixture kickoff. It produced a confident "red since at least 2026-08-29" and
+a false claim that POLISH-018's clean-suite report was inaccurate. **POLISH-018 was accurate**: on
+2026-08-31 the kickoff was still in the future. That accusation is retracted in
+`docs/prompt-registry.md`.
 
-- **POLISH-019 recorded it accurately.** `docs/prompt-registry.md:133` — "The full suite retained
-  four odds-route failures also reproduced on `main`." It ran the full suite, confirmed the failures
-  were pre-existing, wrote it down, and merged. That is exactly what `AGENTS.md` → Reporting
-  expectations contemplates for a known unrelated failure.
-- **POLISH-018 reported a clean suite over them.** Its entry claims commit `db147036` "passed
-  `npm run lint`, TypeScript, and the 4,476-test full suite." Running
-  `src/app/api/odds/__tests__/route.test.ts` at that exact commit gives `# pass 17 # fail 4` — the
-  same four. The claim was inaccurate; the registry entry now records that.
+**When a test's outcome may depend on the wall clock, bisect by pinning the clock, not the commit.**
 
-**So the gap is not detection — it is that a recorded known-failure has no promotion path.** A
-per-PR "reproduced on main" note is a legitimate escape hatch for one PR and becomes permanent
-background noise when nothing converts it into an item. Consider whether the closeout checklist
-should require filing an item the first time a prompt reports a failure it attributes to `main`.
-
-**Why this matters now.** `AGENTS.md` → Verification makes the full suite a required gate, and it
-cannot pass on any branch while it does not pass on `main`. PLATFORM-120 hit exactly this: the
-implementer correctly stopped rather than claim convergence, with its own work green and these four
-red. Until this is fixed every branch inherits an unexplainable red gate, and "four known failures"
-degrades into a number nobody reads — which is how a real regression slips through, and how
-POLISH-018's inaccurate claim went unchallenged.
-
-**Do not fix by deleting or skipping the tests.** Establish first whether the tests or the behavior
-regressed; three of them assert odds actually reaching canonical games, which is member-visible if
-genuinely broken in production. Check the live odds surface before assuming this is test-only.
-
-- Backlog slug: `PLATFORM-ODDS-SUITE-RED-v1`
+- Backlog slug: `PLATFORM-ODDS-FIXTURE-EXPIRY-v1`
 
 ### Item 102 — derive the QStash polling cron from the schedule
 
