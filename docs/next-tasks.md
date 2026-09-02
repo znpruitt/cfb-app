@@ -24,10 +24,9 @@ Supersedes: (none)
 
 ## Current execution order
 
-`CURRENT`: POLISH-019 / Item 87 slice 3 is implemented and review-resolved at `5d83e035`; its PR is
-not yet opened.
+`CURRENT`: Not selected.
 `NEXT`: Not selected. Item 87 slice 4 remains the next step in the prior owner-selected run order
-if the owner continues the campaign after POLISH-019 merges.
+if the owner continues the campaign.
 
 Owner-selected run order (2026-08-29). In-season work first, then the Overview scoreboard campaign,
 reassessing against the reliability sequence below after Item 87 slice 2 rather than running the
@@ -1375,7 +1374,8 @@ fail on corruption is the same defect wearing a passing badge.
 Presentation and information-architecture half of the Overview games region. POLISH-015 delivered
 the interim correctness and empty-copy fixes on this surface. POLISH-016 / slice 1 then shipped the
 shared scoreboard contract and converted the Live section; POLISH-017 / slice 2 converted Featured
-and settled green-live on Overview. Slices 3–4 retain the recent-finals promotion and Watchlist work.
+and settled green-live on Overview; POLISH-019 / slice 3 added Recent finals and structural
+promotion. Slices 4–5 retain the Watchlist and Schedule work.
 
 **Problem observed on `/league/tsc` during the 2026 opening slate (2026-08-29).** One game appeared
 twice on a single screen — in "Upcoming watchlist" and again in the "Live" tile — and the Live card
@@ -1385,10 +1385,10 @@ as a section eyebrow, and scheduled rows ended in an empty `———` box.
 
 Remaining root cause:
 
-- The same conceptual object still has multiple renderers. Slices 1–2 moved Overview Live and
-  Featured onto the shared scoreboard anatomy, but `GameSummaryList` remains bespoke alongside
-  `GameScoreboard` on Matchups and the recap primitives. The remaining Item 87 slices complete the
-  Overview transition and make the scheduled/live promotion structural.
+- The same conceptual object still has multiple renderers. Slices 1–3 moved Overview Live,
+  Featured, and Recent finals onto the shared scoreboard anatomy, but `GameSummaryList` remains
+  bespoke alongside `GameScoreboard` on Matchups and the recap primitives. The remaining Item 87
+  slices complete the Watchlist and Schedule transition.
 
 **Settled decisions (owner, 2026-08-29).** The governing criterion for any marker is that it be
 TRUE and VALUABLE to the reader; scarcity is not the test, and chips are not capped. See `DESIGN.md`

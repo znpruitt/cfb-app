@@ -1,7 +1,7 @@
 # Completed Work Log
 
 Status: Historical (append-only ledger)
-Last verified: 2026-08-31
+Last verified: 2026-09-01
 Owner: Project documentation
 Canonical for: append-only record of shipped phases/milestones (outcomes) — historical, not current implementation authority
 Supersedes: (none)
@@ -31,6 +31,25 @@ Supersedes: (none)
 > superseded prerequisite B), and the architecture record in
 > [`docs/ai/game-stats-writer-fence.md`](ai/game-stats-writer-fence.md) (with the superseded
 > original design frozen in [`docs/ai/platform-086h3-contract.md`](ai/platform-086h3-contract.md)).
+
+### POLISH-019 — Overview Recent Finals Promotion — Complete
+
+- **Status:** Merged via PR #549 (merge commit `751a86b4`), 2026-09-01.
+- **PROMPT_ID(s):** `POLISH-019-RECENT-FINALS-PROMOTION-v1`.
+- **Outcome:** Overview now carries a complete Recent finals section and routes each non-Featured
+  owned game through one mutually exclusive Watchlist → Live → Recent finals model. Missing or
+  unusable post-kickoff scores remain neutrally `Awaiting score` for the shared eight-hour per-game
+  abandonment window; usable finals promote immediately. The complete list does not deduplicate
+  against the curated recap, and completed weeks expire at the shared Thursday 06:00 ET tile
+  transition.
+- **Verification:** Exact code commit `5d83e035` passed TypeScript, `lint:all`, and 74/74 focused
+  tests, with one net test added. Routing mutations fired the named transition, abandonment, and
+  section-exclusivity assertions. Independent Codex and Claude confirmation left no credible
+  in-scope P0/P1/P2; the remaining LOW findings share the currently unreachable disruption-label
+  seam tracked beside Item 63.
+- **Open follow-ups:** Item 87 slices 4–5 remain in `docs/next-tasks.md`. Item 101 owns the
+  season-boundary expiry gap; Item 63 owns vanished/replacement-id disruption reconciliation and
+  the dormant defensive disruption seam. Issue #548 blocks the finals record join.
 
 ### PLATFORM-119 — Pool-Safe Standings Warm-on-Write — Complete
 
@@ -4335,8 +4354,8 @@ Key architectural decisions across Phase 5:
   chronology, watchlist/Live exclusion, and bounded recent-result date handling; existing selector
   and empty-copy assertions were retargeted to the approved behavior. Independent Codex and Claude
   confirmation reviews found no credible in-scope P0/P1/P2.
-- **Open follow-ups:** POLISH-016 and POLISH-017 shipped Item 87's shared scoreboard plus the Live
-  and Featured conversions. The remaining promotion-model and Watchlist slices stay in
+- **Open follow-ups:** POLISH-016, POLISH-017, and POLISH-019 shipped Item 87's shared scoreboard,
+  Live, Featured, and Recent-finals promotion work. Item 87 slices 4–5 remain in
   `docs/next-tasks.md`.
 
 ### PLATFORM-115 — CFBD Request Timeout — Complete
@@ -4367,8 +4386,8 @@ Key architectural decisions across Phase 5:
   production build, and browser checks at the two-column and exact one-column boundary. Eleven tests
   were added relative to the prior `main`; independent Codex review found no actionable regression,
   and the owner waived the final Claude rerun after the focused test/navigation follow-up.
-- **Open follow-ups:** POLISH-017 shipped the Featured/final consumer and green-live treatment. See
-  the remaining Item 87 slices in `docs/next-tasks.md`.
+- **Open follow-ups:** POLISH-017 and POLISH-019 shipped the Featured/final and Recent-finals
+  promotion consumers. Item 87 slices 4–5 remain in `docs/next-tasks.md`.
 
 ### POLISH-017 — Overview Featured Scoreboard and Green Live — Complete
 
@@ -4383,8 +4402,8 @@ Key architectural decisions across Phase 5:
   and production build. Three test declarations were added, two existing tests were retargeted
   without removing coverage, and browser checks confirmed two columns at 1200px and one at 700px.
   Independent Codex and Claude reviews found no attributable P0/P1/P2 issue.
-- **Open follow-ups:** See the remaining Item 87 slices and the now-unblocked Item 42 notable-results
-  portion in `docs/next-tasks.md`.
+- **Open follow-ups:** POLISH-019 shipped the promotion model. Item 87 slices 4–5 and the
+  now-unblocked Item 42 notable-results portion remain in `docs/next-tasks.md`.
 
 ### PLATFORM-116 — Overview Standings Live Signal — Complete
 
@@ -4423,8 +4442,8 @@ Key architectural decisions across Phase 5:
   focused tone assertion is non-vacuous. Independent Codex and Claude reviews found the same
   contrast gap; one remediation closed it, and confirmation left no credible in-scope P0/P1/P2
   after applying the settled Matchups and source-token requirements.
-- **Open follow-ups:** Item 87 slice 5 owns Schedule's accepted green-final/amber-live residual; see
-  the remaining Item 87 slices in `docs/next-tasks.md`.
+- **Open follow-ups:** Item 87 slice 5 owns Schedule's accepted green-final/amber-live residual;
+  slices 4–5 remain in `docs/next-tasks.md`.
 
 ### PLATFORM-117 — CFBD Team-Records Cache — Complete
 
