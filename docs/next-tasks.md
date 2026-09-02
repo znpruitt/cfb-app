@@ -497,6 +497,52 @@ only if Item 87 slice 4's record join reaches historical seasons.
 
 - Backlog slug: `PLATFORM-OVERRIDE-PAYLOAD-VALIDATION-v1`
 
+### Item 107 — PLATFORM-122 deferred review findings (three, all small)
+
+Accepted `/code-review` findings on PLATFORM-122 that were deliberately NOT taken in its remediation
+round, so the round stayed cohesive. None is a correctness defect; each removes a way the odds
+matching can quietly degrade later. Verified present on `c24950b9` 2026-09-02.
+
+#### 107a — the label normalizer is rebuilt on every call, on a public read path
+
+`oddsAttachment.ts:73` constructs `createOddsTeamLabelNormalizer` per call. Reviewer-measured
+**10.28 ms per build** (1,035 games, 138 teams, 928 mascot rows, averaged over 20 builds). It is built
+once per `buildNextOddsStore` — which `maintainCanonicalClosingLines` invokes on PUBLIC odds reads —
+once per `buildOddsByGame`, and once per `emptyOddsClassifier` reconciliation.
+
+The result is a pure function of `(games, resolver)` and nothing mutates it, so it memoizes cleanly;
+the resolver already caches its own registry by a `JSON.stringify` key for exactly this reason. Small
+against what PLATFORM-120 removed, but it is per-request CPU on a read path, which is the category
+this project just spent a campaign reducing.
+
+#### 107b — `buildDurableOddsSnapshot`'s normalizer parameter is optional, defaulting to pre-fix behavior
+
+`odds.ts:293`. `attachOddsEventsToSchedule` builds a normalizer when none is passed;
+`buildDurableOddsSnapshot` silently does not. A caller that attaches (getting the new matching) but
+omits the parameter here writes a snapshot whose `moneylineHome` / `homeSpread` / `awaySpread` are all
+`null` — **a durable row that exists but carries no line, which is harder to notice than no row at
+all.** Both current callers pass it, so this is prophylactic: make the parameter required, or default
+it the way the attachment layer does.
+
+#### 107c — the generated mascot table has no refresh hook and no staleness signal
+
+`scripts/fetch-cfbd-odds-team-mascots.ts`. Verified 2026-09-02:
+
+- **No `package.json` script.** Every other generator in the repo has one (`fetch:teams`,
+  `manage:odds-schedule`, …). Wire `npm run fetch:odds-team-mascots`.
+- **`CFBD_ODDS_TEAM_MASCOTS_SOURCE` and `CFBD_ODDS_TEAM_MASCOTS_GENERATED_AT` are emitted but read by
+  nothing** — confirmed by grep across `src`, `scripts`, and `docs`. Nothing surfaces the table's age.
+- **`npm run fetch:teams` regenerates `teams.json` without touching the mascot table**, so the two
+  snapshots drift silently.
+- **Line 134 stamps `new Date().toISOString()` unconditionally**, so every regeneration produces a
+  diff even when the data is identical — which trains a reviewer to ignore the diff.
+
+Failure it allows: an FCS school renames or changes mascot next offseason, its provider label stops
+normalizing, its odds silently stop attaching, and the only symptom is an `unmatched_pair` diagnostic
+no surface reports on. Having System Health or the odds diagnostics read `GENERATED_AT` closes it.
+
+- Backlog slug: `PLATFORM-ODDS-MASCOT-FOLLOWUPS-v1`
+
 ### Item 106 — a third of fetched odds are discarded: mascot-suffixed non-FBS names never resolve
 
 **Measured 2026-09-02 against production.** We fetch odds for games we then fail to attach, so
