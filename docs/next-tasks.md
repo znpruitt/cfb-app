@@ -24,20 +24,31 @@ Supersedes: (none)
 
 ## Current execution order
 
-`CURRENT`: Not selected.
-`NEXT`: Not selected. Item 87 slice 4 remains the next step in the prior owner-selected run order
-if the owner continues the campaign.
+`CURRENT`: **Item 99 + Item 100a** — schedule write-path filter and week-0 deletion, one slice.
+`NEXT`: **Item 87 slice 4** — Watchlist.
 
-Owner-selected run order (2026-08-29). In-season work first, then the Overview scoreboard campaign,
-reassessing against the reliability sequence below after Item 87 slice 2 rather than running the
-campaign straight through.
+Owner-selected run order (2026-09-02), replacing the 2026-08-29 order. Reprioritised after the Vercel
+Fluid Active CPU finding (`docs/campaigns/vercel-active-cpu.md`): the Hobby allowance is exhausted,
+both high-frequency QStash schedules are manually switched per game window, and a mistimed pause
+strands finals permanently because `kickoff + 24h` reconciliation cannot be re-entered. That is a
+weekly operator burden with a data-loss mode, and it did not exist when the prior order was set.
 
-1. **Item 87 slice 4** — Watchlist, consuming the PLATFORM-117 records cache.
-2. **Item 87 slice 5** — Schedule rework. Filed 2026-08-30; Schedule adopts the scoreboard row,
+1. **Item 99 + Item 100a** — write-path filter plus week-0 deletion. 3.55x off EVERY cron invocation
+   (measured), which alone projects under the 4-hour allowance, and it pays out in the draft board,
+   archive rebuilds, and page paint regardless of what follows. 100a is in scope because the filter
+   removes what currently suppresses the week-0 heuristic.
+2. **Item 87 slice 4** — Watchlist, consuming the PLATFORM-117 records cache. Overview is
+   internally inconsistent until this lands: Live, Featured, and Recent finals are scoreboard rows
+   while Watchlist and Schedule are still bespoke.
+3. **Item 102 + Item 88** — polling planner and the health model, together. 102 narrows the cron and
+   88 is the reason that is safe: `schedulerDeliveryHealth.ts:82,88` hardcodes the cadence, so a
+   planner shipped alone makes both jobs read `late` forever. This is what retires the manual switch.
+4. **Item 87 slice 5** — Schedule rework. Filed 2026-08-30; Schedule adopts the scoreboard row,
    two-column and all, and its green-`final` / amber-live is settled there rather than by a
    separate sweep. Also carries the `ownerOutcomeRowClasses` sibling asymmetry left by POLISH-018,
    which reaches `MatchupsWeekPanel` — a different week view mode, named deliberately in the
    campaign doc rather than folded in silently.
+5. **Item 95 portion 1** — browser poll 180s -> 90s, now gated behind Item 99 (see below).
 
 Runnable at any point, no dependency on the above: **Item 42 portion 1** (notable-result
 scoreboards, now unblocked by POLISH-017's final variant), **Item 84** (provider-classification
@@ -46,7 +57,11 @@ diagnostic), and **Item 86** (archive audit integrity check).
 Gated: **Item 85** after 86, which is how the repair gets verified.
 **Item 94** (CFBD burn-rate measurement) is date-gated to October 2026, after the first full
 in-season month; it is the accumulated observation **Item 63** and **Item 95 portion 2** are waiting
-on. **Item 95 portion 1** is runnable now and is not gated.
+on. **Item 95 portion 1** is **no longer ungated** (revised 2026-09-02): it doubles browser polls, and
+each one is an `/api/scores` function invocation — free in CFBD quota, NOT free in Vercel Active CPU,
+which is now the binding constraint. It was sized when CPU was unconstrained. Gate it behind Item 99.
+**Item 100b** (slate marker) is date-gated to before the 2027 opening slate; **Item 101** matters at
+the 2026-11-29 to 2026-12-12 gap, so fix it before late November.
 **Item 96** is now an **offseason** item — pause the in-season QStash schedules so Neon can suspend,
 worth ~$114/year with no coverage tradeoff. Its preview-retention half is DONE (2026-08-31). It is
 NOT gated on Item 94: cadence is not a Neon cost.
@@ -57,8 +72,10 @@ Offseason-gated, not now: **Item 83** (identity collision) and **Item 80** (Next
 systems that are live.
 
 The 2026-08-26 roadmap audit recommends this season-reliability sequence; it is proposed ordering,
-not an owner-selected `NEXT` designation, and the reassessment after Item 87 slice 2 is the point to
-weigh it:
+not an owner-selected `NEXT` designation. Its reassessment gate (after Item 87 slice 2) has passed —
+POLISH-019 shipped slice 3 — and the 2026-09-02 order above supersedes it. Weigh this sequence again
+once Item 102 retires the manual schedule switch; **Item 63 and Item 95 portion 2 additionally wait on
+Item 94's October measurement**:
 
 1. Item 64(c) — align abandonment handling in resolved-week selection.
 2. Item 63 — design delete-and-recreate reschedule reconciliation; also the main lever on
@@ -562,6 +579,11 @@ heuristic is diluted by lower-division games; FBS-only clustering is the version
 stated reason that other consumers might need the full set. That reason was wrong — no consumer does.
 Write-path filtering supersedes it. **98b should be closed in favour of this item.**
 
+**Ships with Item 100a.** This filter removes exactly the lower-division rows whose presence keeps the
+canonical week-0 heuristic dormant, so it does not preserve today's no-`W0` result — it removes the
+cause of it. Deleting the derivation is part of this slice, not a follow-on; a regression test would
+pin only the seasons that exist. See Item 100a for the seven-season sweep.
+
 **Scope care:** this changes what is PERSISTED, and it lands on the full-season refresh authority
 that PLATFORM-086E1A deliberately consolidated. It needs its own review, not a ride-along on a
 performance PR. Existing caches are unaffected; only future writes filter.
@@ -584,7 +606,7 @@ both seasons.
 
 - Backlog slug: `PLATFORM-SCHEDULE-WRITE-FILTER-v1`
 
-### Item 100 — canonical week 0 is an undocumented divergence from every other source
+### Item 100 — canonical week 0: delete the derivation now, build the slate marker next season
 
 `buildRegularSeasonWeekCalendar` derives a canonical **week 0** by splitting CFBD's provider week 1
 into two date clusters. **No source does this:**
@@ -596,21 +618,54 @@ into two date clusters. **No source does this:**
 **No recorded rationale.** It arrived in one commit, `0c84ac5a` 2026-03-18, _"Add canonical week date
 labels and chronological week views"_, with no stated requirement; nothing in `docs/` mentions week 0.
 
-**It is only invisible today because the heuristic fails.** Detection requires both opening clusters
-to carry provider week 1 only, and lower-division games bleed provider week 2 into the second
-cluster. Measured:
+**Owner decision, 2026-09-02.** There is to be **no member-visible week 0, ever** — the industry
+convention, ESPN included, groups the opening slate into week 1 and the app should match it. The only
+wanted capability is a hook to recap or preview that opening slate separately, and **the 2026 opener
+has already passed, so that capability is a next-season concern.** This splits the item: the deletion
+is wanted now, the marker is not.
+
+#### 100a — delete the canonical week-0 derivation (ship with Item 99)
+
+**Measured 2026-09-02 across every cached season.** No season the app holds renders a canonical week 0
+today, filtered or unfiltered, so removing the derivation changes zero member-visible labels:
+
+    2018  rows=1556 (fbs-classified    0)  games=885  week0=absent
+    2021  rows=2454 (fbs-classified    0)  games=918  week0=absent
+    2022  rows=3705 (fbs-classified    0)  games=933  week0=absent
+    2023  rows=3734 (fbs-classified    0)  games=921  week0=absent
+    2024  rows=3801 (fbs-classified    0)  games=931  week0=absent
+    2025  rows=3831 (fbs-classified  934)  games=934  week0=absent
+    2026  rows=3679 (fbs-classified  888)  games=888  week0=absent
+
+2019 and 2020 are not cached (503 — the anonymous read path refuses a cache miss rather than fetching,
+`api/schedule/route.ts:706`, so the sweep spent no CFBD quota).
+
+**Item 99 is what makes this necessary, which is why they ship together.** The heuristic is dormant
+only because lower-division games bleed provider week 2 into the second opening cluster — and Item 99
+deletes precisely those rows. The filter does not preserve the dormancy; it removes what was causing
+it. Measured:
 
     2025 all: c1 n=8   pw=[1]  |  c2 n=501 pw=[1,2]   -> no week 0
     2025 fbs: c1 n=5   pw=[1]  |  c2 n=91  pw=[1]     -> week 0 DETECTED
     2026 all: c1 n=135 pw=[1]  |  c2 n=623 pw=[1,2]   -> no week 0
     2026 fbs: c1 n=8   pw=[1]  |  c2 n=177 pw=[1,2]   -> no week 0
 
-So the failure is currently keeping the app CORRECT. If it fired, members would see a `W0` tab for
-eight games that CFBD and ESPN both call week 1.
+2026 happens not to fire under Item 99's exact predicate, but a strict-FBS 2025 does, and 2027's
+opening slate is unknown data. **A regression test pins the seasons that exist; it cannot pin next
+August.** Shipping Item 99 without this deletion takes a fresh data-dependent bet every preseason on
+the one surface the owner has ruled out. Delete the derivation instead and the guarantee is
+structural.
 
-**Owner intent, 2026-08-31:** the only wanted use is a hook to recap or preview that opening slate
-separately. **That argues for a different field, not a different week.** `canonicalWeek` is doing
-double duty as the member-facing label and the internal grouping; splitting them gives both:
+Acceptance boundary: `canonicalWeek` is provider-authoritative for week 1; no build of any cached
+season produces a canonical week 0; no member-visible week label changes on any season.
+
+#### 100b — internal slate marker for recap and look-ahead (next season)
+
+**Date-gated: before the 2027 opening slate.** The 2026 opener is in the past, so nothing consumes
+this until then.
+
+`canonicalWeek` is doing double duty as the member-facing label and the internal grouping. 100a
+settles the label; this adds the grouping back where it belongs:
 
 - **week** stays provider-authoritative — both slates are W1, matching every other source;
 - **slate** becomes an internal date-cluster marker for recap/preview targeting, never rendered as a
@@ -619,8 +674,7 @@ double duty as the member-facing label and the internal grouping; splitting them
 Recap generation is server-side (`loadInsights.ts`, `selectors/insights.ts`), so slate identification
 happens where the full row set exists and the client never needs it.
 
-**A validated splitting rule, if a slate marker is built** — trust the provider from week 2 onward and
-only disambiguate week 1:
+**A validated splitting rule** — trust the provider from week 2 onward and only disambiguate week 1:
 
     providerWeek >= 2  -> trust CFBD
     providerWeek == 1  -> cluster FBS week-1 rows by date, split at the FIRST gap >= 3 days;
@@ -629,7 +683,8 @@ only disambiguate week 1:
 Validated across all seven seasons. Two findings from that validation: **"largest gap" is the wrong
 splitter** (2025 has four games dated 2025-12-13 carrying provider week 1, making the largest gap 102
 days), and **FBS-only rows are required** — with all divisions, 2026's lower-division games fill
-Aug 27-31 continuously and no gap appears until Sept 3.
+Aug 27-31 continuously and no gap appears until Sept 3. Note that after Item 99 the persisted rows are
+already FBS-involving, which satisfies that second condition at the source.
 
 - Backlog slug: `PLATFORM-WEEK-ZERO-MODEL-v1`
 
