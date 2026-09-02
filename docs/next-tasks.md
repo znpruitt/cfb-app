@@ -24,7 +24,9 @@ Supersedes: (none)
 
 ## Current execution order
 
-`CURRENT`: **Item 87 slice 4** — Watchlist.
+`CURRENT`: **Item 87 slice 4** — Watchlist. **Gated on Item 105** (GitHub #548): the record
+join slice 4 needs is the one POLISH-019 held back until participant labels and provider team ids are
+realigned.
 `NEXT`: **Item 102 + Item 88** — polling planner and its health model.
 
 Owner-selected run order (2026-09-02), replacing the 2026-08-29 order. Reprioritised after the Vercel
@@ -441,6 +443,48 @@ through the offseason without an operator, and is driven by a Vercel Active CPU 
 Neon one. Keep this item for the read-replica autosuspend and the non-cadence findings.
 
 - Backlog slug: `PLATFORM-OFFSEASON-SCHEDULE-PAUSE-v1`
+
+### Item 105 — schedule merge leaves participant labels and provider team ids on opposite sides
+
+**BLOCKS Item 87 slice 4.** Tracked as GitHub issue #548, filed 2026-09-01; this entry exists because
+the queue is canonical for blockers and the issue alone left slice 4's prerequisite invisible.
+
+**The defect.** `buildAuthoritativeGameCollection` merges two rows for one game identity and replaces
+`participants`, `csvHome`/`csvAway`, and `canHome`/`canAway` — but never realigns `homeId`/`awayId`
+to the chosen orientation. Verified 2026-09-02 still present: `schedulePostseasonHelpers.ts:250`
+returns `{ ...existing, ...preferred, providerGameId, participants: mergedParticipants }`, so the ids
+come from `preferred` while the labels come from `mergedParticipants`. Nothing maintains the
+invariant that both describe the same sides.
+
+Given two compatible neutral-site rows for the same regular-season identity and the same numeric
+provider game id — row A Texas home / Oklahoma away (`homeId: 251`, `awayId: 201`), row B inverted —
+`mergedParticipants` keeps row A's orientation because both slots are already resolved, while the
+spread can select row B as `preferred`. The merged row then displays Texas home / Oklahoma away while
+identifying the home side by Oklahoma's provider id.
+
+**Why it matters now.** Any consumer joining by provider team id can attach data to the wrong
+displayed team. **POLISH-019 deliberately left the finals record join out until this is repaired**,
+and that join is exactly what Item 87 slice 4 builds: scheduled matchups anchored on each team's W-L
+record, keyed by team id, fed by PLATFORM-117 and PLATFORM-118. Slice 4 either waits for this or
+ships a join that can silently credit the wrong team.
+
+**Severity is calibrated, not assumed.** The reproduction is a HAND-BUILT fixture, not two observed
+CFBD rows. Cached rows were compared against a fresh pull across six seasons — **20,828 games, 0
+home/away inversions, 0 changes of any kind** — with provider-id assignment stable across pulls up to
+five years apart. Rematches are separately protected: collection identity includes `{home, away, pid}`
+and distinct non-null numeric provider ids are always different provider games. A conflicting pair
+would have to arrive through a manual override, an archive rebuild, a legacy durable hybrid, or
+another synthetic/corrupt input.
+
+**That class is documented as real, which is why this is not dismissed.** The comment above the
+collision guard records `PLATFORM-086H3E4 — the 2024 archive hybrid combined one game's provider id
+with another game's participants`.
+
+**Likely fix — field alignment, not a redesign.** Carry or swap `homeId`/`awayId` from the same
+orientation chosen for the merged participants, with a regression fixture for the inverted duplicate.
+Assert the invariant directly (ids and labels describe the same sides), not a proxy.
+
+- Backlog slug: `PLATFORM-MERGE-ID-ORIENTATION-v1`
 
 ### Item 104 — `canonicalWeek` compresses `(seasonType, week)` into one integer and derives the offset from data
 
