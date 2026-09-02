@@ -96,6 +96,81 @@ function scheduleGame(key: string, week: number, canHome: string, canAway: strin
   return { key, week, canHome, canAway, csvHome: canHome, csvAway: canAway };
 }
 
+function nonFbsOddsResolver(observedNames: string[]) {
+  return createTeamIdentityResolver({
+    aliasMap: {},
+    teams: [
+      { school: 'UCF', level: 'FBS', alts: ['ucf knights'] },
+      { school: 'Missouri', level: 'FBS', alts: ['missouri tigers'] },
+    ],
+    observedNames,
+  });
+}
+
+test('PLATFORM-122 — real mascot-suffixed non-FBS provider labels attach to scheduled identities', () => {
+  const games = [
+    scheduleGame('bethune-ucf', 1, 'UCF', 'Bethune-Cookman'),
+    scheduleGame('apb-mizzou', 1, 'Missouri', 'Arkansas-Pine Bluff'),
+  ];
+  const resolver = nonFbsOddsResolver(games.flatMap((game) => [game.canHome, game.canAway]));
+  const diagnostics: OddsAttachmentDiagnostic[] = [];
+
+  const attached = attachOddsEventsToSchedule({
+    games,
+    events: [
+      { homeTeam: 'UCF Knights', awayTeam: 'Bethune-Cookman Wildcats' },
+      { homeTeam: 'Missouri Tigers', awayTeam: 'Arkansas Pine Bluff Golden Lions' },
+    ],
+    resolver,
+    diagnostics,
+  });
+
+  assert.deepEqual(diagnostics, []);
+  assert.deepEqual(
+    attached.map((match) => match.gameKey),
+    ['bethune-ucf', 'apb-mizzou']
+  );
+});
+
+test('PLATFORM-122 — a provider alias cannot introduce a team absent from the schedule', () => {
+  const games = [scheduleGame('ucf-mizzou', 1, 'UCF', 'Missouri')];
+  const resolver = nonFbsOddsResolver(games.flatMap((game) => [game.canHome, game.canAway]));
+  const diagnostics: OddsAttachmentDiagnostic[] = [];
+
+  const attached = attachOddsEventsToSchedule({
+    games,
+    events: [{ homeTeam: 'UCF Knights', awayTeam: 'Bethune-Cookman Wildcats' }],
+    resolver,
+    diagnostics,
+  });
+
+  assert.deepEqual(attached, []);
+  assert.equal(diagnostics[0]?.reason, 'unmatched_pair');
+});
+
+test('PLATFORM-122 — mascot normalization preserves the multi-candidate refusal', () => {
+  const games = [
+    scheduleGame('bethune-ucf-regular', 1, 'UCF', 'Bethune-Cookman'),
+    scheduleGame('bethune-ucf-rematch', 14, 'Bethune-Cookman', 'UCF'),
+  ];
+  const resolver = nonFbsOddsResolver(games.flatMap((game) => [game.canHome, game.canAway]));
+  const diagnostics: OddsAttachmentDiagnostic[] = [];
+
+  const attached = attachOddsEventsToSchedule({
+    games,
+    events: [{ homeTeam: 'UCF Knights', awayTeam: 'Bethune-Cookman Wildcats' }],
+    resolver,
+    diagnostics,
+  });
+
+  assert.deepEqual(attached, []);
+  assert.equal(diagnostics[0]?.reason, 'ambiguous_pair');
+  assert.deepEqual(diagnostics[0]?.candidateGameKeys, [
+    'bethune-ucf-regular',
+    'bethune-ucf-rematch',
+  ]);
+});
+
 test('odds attachment ignores upstream events with no canonical schedule game', () => {
   const resolver = rematchResolver();
   const attached = attachOddsEventsToSchedule({

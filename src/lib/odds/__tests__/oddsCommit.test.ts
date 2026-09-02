@@ -26,11 +26,13 @@ import { getScopedAliasMap } from '../../server/globalAliasStore.ts';
 import { buildScheduleFromApi, type AppGame } from '../../schedule.ts';
 import {
   applyPregameOddsSnapshot,
+  buildDurableOddsSnapshot,
   emptyDurableOddsRecord,
   type DurableOddsSnapshot,
 } from '../../odds.ts';
 import { createTeamIdentityResolver, type TeamIdentityResolver } from '../../teamIdentity.ts';
 import {
+  buildNextOddsStore,
   commitCanonicalOddsRefresh,
   commitFilteredOddsRefresh,
   maintainCanonicalClosingLines,
@@ -119,6 +121,119 @@ function oddsEvent(homeSpread: number): NormalizedOddsEvent {
 function rawEntry(observedAt: string, events: NormalizedOddsEvent[]): SharedOddsCacheEntry {
   return { data: events, lastFetch: Date.parse(observedAt), usage: null, observedAt };
 }
+
+test('PLATFORM-122 — attached non-FBS mascot outcomes populate the durable line', () => {
+  const teams = [{ school: 'UCF', level: 'FBS', alts: ['ucf knights'] }];
+  const scheduleItems = [
+    {
+      id: 'bethune-ucf',
+      week: 1,
+      startDate: KICKOFF,
+      neutralSite: false,
+      conferenceGame: false,
+      homeTeam: 'UCF',
+      awayTeam: 'Bethune-Cookman',
+      homeConference: 'Big 12',
+      awayConference: 'MEAC',
+      status: 'scheduled',
+      seasonType: 'regular',
+      gamePhase: 'regular',
+    },
+  ];
+  const games = buildScheduleFromApi({
+    scheduleItems,
+    teams,
+    aliasMap: {},
+    season: SEASON,
+  }).games;
+  const resolver = createTeamIdentityResolver({
+    aliasMap: {},
+    teams,
+    observedNames: games.flatMap((game) => [game.canHome, game.canAway]),
+  });
+  const oddsEvents: NormalizedOddsEvent[] = [
+    {
+      homeTeam: 'UCF Knights',
+      awayTeam: 'Bethune-Cookman Wildcats',
+      commenceTime: KICKOFF,
+      bookmakers: [
+        {
+          key: 'draftkings',
+          title: 'DraftKings',
+          markets: [
+            {
+              key: 'h2h',
+              outcomes: [
+                { name: 'UCF Knights', price: -10_000 },
+                { name: 'Bethune-Cookman Wildcats', price: 2_500 },
+              ],
+            },
+            {
+              key: 'spreads',
+              outcomes: [
+                { name: 'UCF Knights', point: -35, price: -110 },
+                { name: 'Bethune-Cookman Wildcats', point: 35, price: -110 },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  ];
+
+  const result = buildNextOddsStore(
+    {},
+    { games, oddsEvents, resolver, observationAt: T1, now: NOW_ISO }
+  );
+  const snapshot = result.store[games[0]!.key]?.latestSnapshot;
+
+  assert.equal(snapshot?.homeSpread, -35);
+  assert.equal(snapshot?.awaySpread, 35);
+  assert.equal(snapshot?.moneylineHome, -10_000);
+  assert.equal(snapshot?.moneylineAway, 2_500);
+});
+
+test('PLATFORM-122 — durable outcomes normalize only provider labels, never schedule labels', () => {
+  const resolver = createTeamIdentityResolver({
+    aliasMap: {},
+    teams: [{ school: 'Canonical Home' }, { school: 'Canonical Away' }],
+  });
+  const normalizedInputs: string[] = [];
+  const snapshot = buildDurableOddsSnapshot({
+    game: { canHome: 'Canonical Home', canAway: 'Canonical Away' },
+    event: {
+      homeTeam: 'Provider Home',
+      awayTeam: 'Provider Away',
+      commenceTime: KICKOFF,
+      book: {
+        key: 'draftkings',
+        markets: [
+          {
+            key: 'spreads',
+            outcomes: [
+              { name: 'Provider Home', point: -7, price: -110 },
+              { name: 'Provider Away', point: 7, price: -110 },
+            ],
+          },
+        ],
+      },
+    },
+    resolver,
+    teamLabelNormalizer: {
+      normalize: (providerLabel) => {
+        normalizedInputs.push(providerLabel);
+        if (providerLabel === 'Provider Home') return 'Canonical Home';
+        if (providerLabel === 'Provider Away') return 'Canonical Away';
+        throw new Error(`schedule label passed to provider normalizer: ${providerLabel}`);
+      },
+    },
+    capturedAt: T1,
+  });
+
+  assert.equal(snapshot?.homeSpread, -7);
+  assert.equal(snapshot?.awaySpread, 7);
+  assert.deepEqual([...new Set(normalizedInputs)], ['Provider Home', 'Provider Away']);
+});
 
 // --- Per-game snapshot observation ordering (writer convergence #1/#2/#3) ---
 

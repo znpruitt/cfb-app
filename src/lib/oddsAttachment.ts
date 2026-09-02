@@ -1,4 +1,8 @@
 import { buildSchedulePairIndex, type ScheduleAttachmentGame } from './gameAttachment.ts';
+import {
+  createOddsTeamLabelNormalizer,
+  type OddsTeamLabelNormalizer,
+} from './oddsTeamLabelNormalization.ts';
 import type { TeamIdentityResolver } from './teamIdentity.ts';
 
 export type OddsAttachmentEventBase = {
@@ -62,9 +66,12 @@ export function attachOddsEventsToSchedule<TEvent extends OddsAttachmentEventBas
   games: ScheduleAttachmentGame[];
   events: TEvent[];
   resolver: TeamIdentityResolver;
+  teamLabelNormalizer?: OddsTeamLabelNormalizer;
   diagnostics?: OddsAttachmentDiagnostic[];
 }): AttachedOddsEvent<TEvent>[] {
   const { games, events, resolver, diagnostics } = params;
+  const teamLabelNormalizer =
+    params.teamLabelNormalizer ?? createOddsTeamLabelNormalizer({ games, resolver });
 
   const schedulePairIndex = buildSchedulePairIndex({ games, resolver });
   const attached: AttachedOddsEvent<TEvent>[] = [];
@@ -85,7 +92,10 @@ export function attachOddsEventsToSchedule<TEvent extends OddsAttachmentEventBas
   };
 
   for (const event of events) {
-    const pairKey = resolver.buildPairKey(event.homeTeam, event.awayTeam);
+    const pairKey = resolver.buildPairKey(
+      teamLabelNormalizer.normalize(event.homeTeam),
+      teamLabelNormalizer.normalize(event.awayTeam)
+    );
     const indexed = schedulePairIndex.get(pairKey) ?? [];
 
     // A game can be indexed under more than one pair key (canonical + csv);

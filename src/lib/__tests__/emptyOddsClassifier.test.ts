@@ -367,6 +367,36 @@ test('an unresolved provider spelling is identity-unresolved: retained, never pr
   assert.deepEqual(result, VALID_ABSENCE, 'identity failure must not read as confident absence');
 });
 
+test('PLATFORM-122 — mascot-normalized non-FBS labels can prove a stale prior pair absent', () => {
+  const resolver = createTeamIdentityResolver({
+    aliasMap: {},
+    teams: [
+      { school: 'UCF', alts: ['UCF Knights'] },
+      { school: 'Georgia' },
+      { school: 'Missouri' },
+    ],
+    observedNames: ['Bethune-Cookman'],
+  });
+  const result = classifyEmptyOddsResponse({
+    priorEvents: [
+      {
+        homeTeam: 'UCF Knights',
+        awayTeam: 'Bethune-Cookman Wildcats',
+        commenceTime: IN_10_DAYS,
+      },
+    ],
+    scheduleItems: [
+      scheduleItem({ homeTeam: 'Bethune-Cookman', awayTeam: 'Missouri', startDate: IN_30_DAYS }),
+      scheduleItem({ homeTeam: 'UCF', awayTeam: 'Georgia', startDate: IN_30_DAYS }),
+    ],
+    resolver,
+    includeScheduleExpectation: false,
+    now: NOW,
+  });
+
+  assert.deepEqual(result, VALID_ABSENCE_OBSOLETE);
+});
+
 test('placeholder slate rows conceal games: a resolved unmatched event is NOT confidently absent', () => {
   const result = classify({
     priorEvents: [priorEvent({ commenceTime: IN_10_DAYS })], // Georgia/Auburn, resolved

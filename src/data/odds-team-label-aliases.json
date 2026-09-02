@@ -1,0 +1,10 @@
+{
+  "source": "2026-09-02 cached Odds API events reconciled to the canonical CFBD schedule; residuals absent from CFBD /teams aliases",
+  "aliases": [
+    { "provider": "Nicholls State Colonels", "schedule": "Nicholls" },
+    {
+      "provider": "Southeastern Louisiana Lions",
+      "schedule": "se louisiana"
+    }
+  ]
+}
