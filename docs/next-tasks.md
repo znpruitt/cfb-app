@@ -524,9 +524,20 @@ omits the parameter here writes a snapshot whose `moneylineHome` / `homeSpread` 
 all.** Both current callers pass it, so this is prophylactic: make the parameter required, or default
 it the way the attachment layer does.
 
-#### 107c — the generated mascot table has no refresh hook and no staleness signal
+#### 107c — the mascot table is a THIRD ungoverned team snapshot
 
-`scripts/fetch-cfbd-odds-team-mascots.ts`. Verified 2026-09-02:
+**Reframed 2026-09-02.** This was first filed as "add a refresh hook", which would institutionalise
+the problem rather than fix it. The table is a third CFBD-derived team snapshot alongside
+`src/data/teams.json` and the durable catalog, and **the right home for it is the Team-catalog source
+unification campaign** (see Planned and parked campaigns), which was scoped for two snapshots before
+PLATFORM-122 added this one.
+
+Do NOT simply wire `npm run fetch:odds-team-mascots` and call it closed — that makes three
+independently-refreshed sources permanent. Decide the sourcing question first; if unification is
+deferred, a refresh script plus a staleness signal is an acceptable INTERIM, recorded as such.
+
+The concrete defects below are real either way, and are what a divergence guard would have to catch.
+`scripts/fetch-cfbd-odds-team-mascots.ts`, verified 2026-09-02:
 
 - **No `package.json` script.** Every other generator in the repo has one (`fetch:teams`,
   `manage:odds-schedule`, …). Wire `npm run fetch:odds-team-mascots`.
@@ -540,6 +551,15 @@ it the way the attachment layer does.
 Failure it allows: an FCS school renames or changes mascot next offseason, its provider label stops
 normalizing, its odds silently stop attaching, and the only symptom is an `unmatched_pair` diagnostic
 no surface reports on. Having System Health or the odds diagnostics read `GENERATED_AT` closes it.
+
+**Coverage is complete today, so drift is the ONLY way this breaks.** Measured 2026-09-02 against the
+2026 schedule: all **238** teams appearing in FBS-involving games resolve — every
+`"{School} {Mascot}"` provider label reaches the correct team identity, zero unresolved, zero
+wrong-identity. The table holds 928 rows (fbs 138, fcs 128, ii 171, iii 246, unclassified 245). Note
+this is a point-in-time answer: postseason opponents are not in the 2026 schedule yet, so bowl season
+introduces teams this check has not seen. The residual risk is naming drift, not missing rows —
+Nicholls and SE Louisiana both HAD rows and still needed static aliases because CFBD's school name
+differs from the schedule's.
 
 - Backlog slug: `PLATFORM-ODDS-MASCOT-FOLLOWUPS-v1`
 
@@ -1784,7 +1804,25 @@ These are valid future campaigns but are not activated implementation work:
 - **Server Action Auth Hardening** — future commissioner-role enforcement and removal of public
   token fallbacks; platform-admin action guards already belong to completed work.
 - **Team-catalog source unification** — move draft/runtime consumers to the durable catalog, with a
-  visible seed-vs-durable divergence guard as an optional interim step. Draft writes are first.
+  visible divergence guard as an optional interim step. Draft writes are first. **Scope widened
+  2026-09-02: there are now THREE CFBD-derived team snapshots, not two**, and none reports drift
+  against the others:
+
+  | Snapshot | Scope | Contents | Refresh |
+  | --- | --- | --- | --- |
+  | `src/data/teams.json` | 138 FBS | stripped seed — no `providerId`, no `id` | `npm run fetch:teams` |
+  | durable `team-database` | 138 FBS | full: `providerId`, mascot, classification, colours, logos, alts | admin sync |
+  | `src/data/odds-team-mascots.ts` | **928, all divisions** | school, mascot, classification, alts | **no script at all** |
+
+  The third arrived with PLATFORM-122 and is the least governed of them. It was kept separate for a
+  real reason — the catalog is the FBS IDENTITY AUTHORITY, `buildScheduleFromApi` treats an empty
+  catalog as unavailable rather than "no teams", and a non-FBS entry could mint a canonical identity
+  (PLATFORM-114's Westgate Christian / Missouri S&T collision). But that argues for how the boundary
+  is EXPRESSED, not for a third file: `TeamCatalogItem` already carries `classification` and `level`,
+  so one all-divisions snapshot whose identity consumers filter to `fbs` is representable today. The
+  trade is that the filter must then be correct at every consumer, where separate files get it for
+  free by not holding the data. **That is a design decision for this campaign, not a cleanup.**
+  Item 107c is the symptom that surfaced it.
 - **Server Fetch Architecture** — scoped low-priority fixes for internal HTTP context loaders; do not
   perform a broad rewrite.
 - **League State vs Season State** — deliberate product/architecture fork, not a 2026 blocker.
