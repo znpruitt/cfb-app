@@ -68,15 +68,34 @@ Slice 5 makes Schedule the component's third consumer. Its surface carries state
 
 A game occupies exactly one section: **Scheduled → Live on kickoff → Recent finals on completion.** Sections hide when empty. The finals block clears when the week becomes recap-eligible (06:00 ET the day after the week's last game-date), reusing the `INSIGHTS-026b` rule, so the recap hands off cleanly.
 
-`gameStateFromScore` (`gameUi.ts:51`) returns a fourth value, `unknown`. **Decided:** a future kickoff routes to the watchlist. A past kickoff with no usable score **stays in Live and reads "Awaiting score"**, moving to Recent finals only when a final score attaches. DESIGN.md `:51-52` prescribes exactly this copy for the bounded post-kickoff gap and forbids both "Upcoming" and an unsupported "Live" claim; routing to Recent finals would assert the game finished, a stronger misstatement than either forbidden string. The Live badge is unaffected elsewhere — those rows carry attached in-progress scores, and the prohibition is on claiming live *without* score evidence. Shown rather than hidden: a visible game with an absent score is more honest than a silently missing one. *Open detail:* "Awaiting score" sits in the status row rather than a per-team anchor, since it describes the game rather than either side — confirm placement.
+**Reconstruction decision — abandonment is a gate, not a score-state cell.** `Live` means kickoff
+has been established and the game has not been abandoned. Before the router switches on score
+state, it derives the authoritative per-game pending shape and calls `hasGameBeenAbandoned`
+directly. Any unresolved row whose confirmed kickoff is more than eight hours old is excluded,
+including a score pack stranded on an in-progress label. Do not use `selectPendingGameFinality`:
+that selector deliberately answers the population-level question "can this whole week be treated as
+concluded?", while the Overview router asks where one row belongs. Positive in-progress score
+evidence continues to outrank a contradictory future schedule timestamp; the abandonment gate
+applies whenever the confirmed kickoff itself has passed.
+
+`gameStateFromScore` (`gameUi.ts:51`) returns a fourth value, `unknown`. **Decided:** a future kickoff routes to the watchlist. A past kickoff with no usable score **stays in Live and reads "Awaiting score" for the bounded eight-hour gap**, moving to Recent finals only when a final score attaches and becoming excluded if the gap outlives the abandonment gate. This awaiting-score-as-Live treatment is accepted and closed. DESIGN.md `:51-52` prescribes exactly this copy for the bounded post-kickoff gap and forbids both "Upcoming" and an unsupported "Live" claim; routing to Recent finals would assert the game finished, a stronger misstatement than either forbidden string. The Live badge is unaffected elsewhere — those rows carry attached in-progress scores, and the prohibition is on claiming live *without* score evidence. Shown rather than hidden: a visible game with an absent score is more honest than a silently missing one. *Open detail:* "Awaiting score" sits in the status row rather than a per-team anchor, since it describes the game rather than either side — confirm placement.
+
+Provider disruption labels remain an unreachable sub-case of scheduled under the current CFBD-only
+production path. Keep the cheap defensive guard, preserve the exact label if one ever appears, and
+build no special tone, ordering, or lifecycle around it. The normal provider disruption path is a
+deleted schedule id plus a replacement id; Item 63 owns that reconciliation.
 
 **No per-game recap deduplication — settled 2026-09-01.** Recent finals is **complete**: every recent
 result. The recap is **curated**: the subset worth narrating. A game in both is listed once and
 narrated once — two roles, not duplicated data. The one-place rule governs the three sections of this
 surface, not the boundary between a listing and a summary.
 
-The only recap interaction is the section-level, time-based handoff above. **Do not suppress
-individual finals against recap content, and do not reintroduce a subtler version.**
+The only recap interaction is the section-level, time-based handoff above. The shared
+`selectWeeklyRecapTileState` use is a **time predicate**, not recap-data coupling: one Thursday
+boundary is intentionally reused so two definitions cannot drift. This is distinct from the deleted
+per-game deduplication. **Do not suppress individual finals against recap content, and do not
+reintroduce a subtler version.** Item 101 owns the non-blocking season-boundary gap that can follow
+expiry; it does not change slice 3's cutoff.
 
 Attempts to do so produced roughly eight findings across four review rounds of POLISH-019, each fix
 creating the opposite edge (paint-then-remove → withhold → collapse-on-refresh). The structural
@@ -88,6 +107,12 @@ the selective one never intended to cover everything.
 *If duplication ever proves visually annoying:* surface recap highlights in the collapsed tile so
 visibility becomes a fact rather than an inference, then dedup against what is actually rendered.
 That is a Featured/recap design change with its own review — not slice work.
+
+**Separate follow-ups, not reconstruction scope:** make `CFBScheduleApp.initialNowMs` compile-time
+safe for any future Overview-capable caller, and restore direct visible-markup coverage for the
+`renderMatchupLabel` home/away separator (`Texas @ Rice`). The current Overview route supplies the
+clock, and no production rendering defect was demonstrated for the label; neither changes the
+promotion model.
 
 ### Live state — green, no amber
 
