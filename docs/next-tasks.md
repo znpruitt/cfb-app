@@ -416,6 +416,35 @@ before attributing compute cost to anything.
 
 - Backlog slug: `PLATFORM-OFFSEASON-SCHEDULE-PAUSE-v1`
 
+### Item 101 — Recent finals can empty out at season boundaries
+
+Recent finals expires when the recap tile stops showing that week. `expiredFinalWeeks`
+(`overviewGameSections.ts:145`) filters on `selectWeeklyRecapTileState(target, now) === 'upcoming'`,
+and the tile returns `'recap'` only up to **Thursday 06:00 ET** (`weeklyRecapFacts.ts:350-357`).
+Both surfaces therefore release week N at the same instant rather than handing off.
+
+**In-season this is nearly harmless.** Midweek football fills the gap: 2026's FBS regular season has
+61 distinct game days including Thursday, Friday, Wednesday and Tuesday slates, so new games usually
+kick off the same evening that finals expire. The empty window is hours, on a weekday morning.
+
+**At season boundaries it is not.** The largest gap between consecutive FBS regular-season game days
+in 2026 is **13 days — 2026-11-29 to 2026-12-12** — the run from the last regular-season Saturday
+through conference-championship week and Army-Navy. Finals expire on the Thursday after Nov 29 and
+nothing replaces them, so Overview carries no results for over a week at the most-watched point of
+the season. The same shape recurs into bowl season.
+
+**Do not decouple from the recap predicate.** Sharing one definition of the Thursday boundary is
+correct and was defended on review; duplicating it would be worse. The defect is _when_ finals
+expire, not _what_ computes the date. Candidate fix: hold the most recent completed slate until a
+newer slate produces finals, so the two surfaces hand off instead of both letting go.
+
+**Not a POLISH-019 blocker.** Slice 3's routing is correct; this is the expiry rule, it predates the
+slice, and it is an edge case rather than the weekly defect first reported. Verify against a real
+season boundary before changing anything — the fix trades an empty region for stale-looking results,
+and which is worse is a judgement call.
+
+- Backlog slug: `PLATFORM-FINALS-EXPIRY-BOUNDARY-v1`
+
 ### Item 99 — filter non-FBS games at the schedule WRITE path, not the response
 
 **Measured 2026-08-31.** `/games?year=` persists every division. For 2026 that is **3,676 rows**, of
