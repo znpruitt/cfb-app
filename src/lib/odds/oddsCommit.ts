@@ -36,6 +36,7 @@ import {
 } from '@/app/api/odds/routeInternals';
 
 import { attachOddsEventsToSchedule } from '../oddsAttachment.ts';
+import { createOddsTeamLabelNormalizer } from '../oddsTeamLabelNormalization.ts';
 import {
   applyPregameOddsSnapshot,
   buildDurableOddsSnapshot,
@@ -121,7 +122,13 @@ export function buildNextOddsStore(
     commenceTime: event.commenceTime,
     book: pickPreferredBook(event),
   }));
-  const attached = attachOddsEventsToSchedule({ games, events: preparedEvents, resolver });
+  const teamLabelNormalizer = createOddsTeamLabelNormalizer({ games, resolver });
+  const attached = attachOddsEventsToSchedule({
+    games,
+    events: preparedEvents,
+    resolver,
+    teamLabelNormalizer,
+  });
   const gameByKey = new Map(games.map((game) => [game.key, game]));
 
   const nextStore: OddsStore = { ...prior };
@@ -159,6 +166,7 @@ export function buildNextOddsStore(
       game,
       event: match.event,
       resolver,
+      teamLabelNormalizer,
       capturedAt: observationAt,
     });
     if (!snapshot) continue;

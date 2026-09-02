@@ -31,6 +31,7 @@ import {
 } from '../../odds.ts';
 import { createTeamIdentityResolver, type TeamIdentityResolver } from '../../teamIdentity.ts';
 import {
+  buildNextOddsStore,
   commitCanonicalOddsRefresh,
   commitFilteredOddsRefresh,
   maintainCanonicalClosingLines,
@@ -119,6 +120,77 @@ function oddsEvent(homeSpread: number): NormalizedOddsEvent {
 function rawEntry(observedAt: string, events: NormalizedOddsEvent[]): SharedOddsCacheEntry {
   return { data: events, lastFetch: Date.parse(observedAt), usage: null, observedAt };
 }
+
+test('PLATFORM-122 — attached non-FBS mascot outcomes populate the durable line', () => {
+  const teams = [{ school: 'UCF', level: 'FBS', alts: ['ucf knights'] }];
+  const scheduleItems = [
+    {
+      id: 'bethune-ucf',
+      week: 1,
+      startDate: KICKOFF,
+      neutralSite: false,
+      conferenceGame: false,
+      homeTeam: 'UCF',
+      awayTeam: 'Bethune-Cookman',
+      homeConference: 'Big 12',
+      awayConference: 'MEAC',
+      status: 'scheduled',
+      seasonType: 'regular',
+      gamePhase: 'regular',
+    },
+  ];
+  const games = buildScheduleFromApi({
+    scheduleItems,
+    teams,
+    aliasMap: {},
+    season: SEASON,
+  }).games;
+  const resolver = createTeamIdentityResolver({
+    aliasMap: {},
+    teams,
+    observedNames: games.flatMap((game) => [game.canHome, game.canAway]),
+  });
+  const oddsEvents: NormalizedOddsEvent[] = [
+    {
+      homeTeam: 'UCF Knights',
+      awayTeam: 'Bethune-Cookman Wildcats',
+      commenceTime: KICKOFF,
+      bookmakers: [
+        {
+          key: 'draftkings',
+          title: 'DraftKings',
+          markets: [
+            {
+              key: 'h2h',
+              outcomes: [
+                { name: 'UCF Knights', price: -10_000 },
+                { name: 'Bethune-Cookman Wildcats', price: 2_500 },
+              ],
+            },
+            {
+              key: 'spreads',
+              outcomes: [
+                { name: 'UCF Knights', point: -35, price: -110 },
+                { name: 'Bethune-Cookman Wildcats', point: 35, price: -110 },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+  ];
+
+  const result = buildNextOddsStore(
+    {},
+    { games, oddsEvents, resolver, observationAt: T1, now: NOW_ISO }
+  );
+  const snapshot = result.store[games[0]!.key]?.latestSnapshot;
+
+  assert.equal(snapshot?.homeSpread, -35);
+  assert.equal(snapshot?.awaySpread, 35);
+  assert.equal(snapshot?.moneylineHome, -10_000);
+  assert.equal(snapshot?.moneylineAway, 2_500);
+});
 
 // --- Per-game snapshot observation ordering (writer convergence #1/#2/#3) ---
 
