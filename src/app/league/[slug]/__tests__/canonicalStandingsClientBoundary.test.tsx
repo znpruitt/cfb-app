@@ -38,6 +38,7 @@ const YEAR = 2026;
 type CFBScheduleAppProps = {
   canonicalStandings?: CanonicalStandings;
   seasonContext?: SeasonContext;
+  initialNowMs?: number;
 };
 
 /** The pages return `<main><CFBScheduleApp {...props} /></main>`; read the props. */
@@ -238,4 +239,21 @@ test('a finished season reaches the client as `final`, not the default', async (
     const props = appProps(await render(SLUG));
     assert.equal(props.seasonContext, 'final', `${name} must report the finished season`);
   }
+});
+
+test('only the Overview route seeds the request-time promotion clock', async () => {
+  await seedLeagueWithAPendingGame();
+
+  const overviewProps = appProps(await LeagueRootPage({ params: Promise.resolve({ slug: SLUG }) }));
+  const memberProps = appProps(
+    await LeagueMembersPage({ params: Promise.resolve({ slug: SLUG }) })
+  );
+
+  assert.equal(typeof overviewProps.initialNowMs, 'number');
+  assert.equal(Number.isFinite(overviewProps.initialNowMs), true);
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(memberProps, 'initialNowMs'),
+    false,
+    'Members must not inherit the Overview request-time context'
+  );
 });

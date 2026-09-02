@@ -129,7 +129,7 @@ test('prioritizeOverviewItems retains quality labels without changing caller-pro
   assert.equal(ordered[2]?.highlightLabel, 'Top matchup');
 });
 
-test('selectOverviewViewModel orders the watchlist by kickoff, ownership tie, then game key', () => {
+test('selectOverviewViewModel prioritises marquee watchlist games before kickoff tie-breaks', () => {
   const earlierBase = item('earlier-single', '2026-09-01T17:00:00.000Z');
   const earlierSingle = {
     ...earlierBase,
@@ -187,15 +187,14 @@ test('selectOverviewViewModel orders the watchlist by kickoff, ownership tie, th
       ['later-away-id', { rank: 4, rankSource: 'ap' as const }],
       ['later-home-id', { rank: 9, rankSource: 'ap' as const }],
     ]),
-    featuredLimit: 5,
   });
 
   assert.deepEqual(
-    model.featuredMatchups.map((entry) => entry.item.bucket.game.key),
-    ['earlier-single', 'tied-owned', 'tied-single-a', 'tied-single-z', 'later-top']
+    model.watchlistCandidates.map((entry) => entry.item.bucket.game.key),
+    ['later-top', 'earlier-single', 'tied-owned', 'tied-single-a', 'tied-single-z']
   );
   assert.equal(
-    model.featuredMatchups.find((entry) => entry.item.bucket.game.key === 'later-top')
+    model.watchlistCandidates.find((entry) => entry.item.bucket.game.key === 'later-top')
       ?.highlightLabel,
     'Top matchup'
   );
@@ -483,9 +482,8 @@ test('selectOverviewViewModel truncates standings and splits featured vs recent'
 
   assert.equal(model.standingsTopN.length, 5);
   assert.equal(model.standingsHasMore, true);
-  assert.equal(model.featuredMatchups.length, 1);
-  assert.equal(model.shouldShowFeaturedMatchups, true);
-  assert.equal(model.featuredMatchups[0]?.item.bucket.game.key, 'scheduled');
+  assert.equal(model.watchlistCandidates.length, 1);
+  assert.equal(model.watchlistCandidates[0]?.item.bucket.game.key, 'scheduled');
   assert.equal(model.recentResults.length, 1);
   assert.equal(model.recentResults[0]?.item.bucket.game.key, 'final');
   assert.equal(typeof model.heroNarrative, 'string');
@@ -537,8 +535,7 @@ test('selectOverviewViewModel shows featured matchups when no highlight cards ar
     rankingsByTeamId: new Map(),
   });
 
-  assert.equal(model.featuredMatchups.length, 1);
-  assert.equal(model.shouldShowFeaturedMatchups, true);
+  assert.equal(model.watchlistCandidates.length, 1);
 });
 
 test('selectOverviewViewModel shows featured matchups even when highlight cards exist', () => {
@@ -597,8 +594,7 @@ test('selectOverviewViewModel shows featured matchups even when highlight cards 
   // The watchlist now shows whenever it has matchups — the presence of
   // highlights must NOT hide it. Both original assertions are preserved; only
   // the expected visibility flipped, which is the behavior change itself.
-  assert.equal(model.featuredMatchups.length, 1);
-  assert.equal(model.shouldShowFeaturedMatchups, true);
+  assert.equal(model.watchlistCandidates.length, 1);
 });
 
 test('selectOverviewViewModel hides featured matchups when slate only has finals', () => {
@@ -642,8 +638,7 @@ test('selectOverviewViewModel hides featured matchups when slate only has finals
     rankingsByTeamId: new Map(),
   });
 
-  assert.equal(model.featuredMatchups.length, 0);
-  assert.equal(model.shouldShowFeaturedMatchups, false);
+  assert.equal(model.watchlistCandidates.length, 0);
 });
 
 test('selectOverviewViewModel switches hero to podium for complete season with top three', () => {
@@ -1072,7 +1067,7 @@ test('selectOverviewViewModel ignores retired matrix highlights when showing sch
     rankingsByTeamId: new Map(),
   });
 
-  assert.equal(model.shouldShowFeaturedMatchups, true);
+  assert.equal(model.watchlistCandidates.length > 0, true);
 });
 
 test('selectOverviewViewModel keeps a final-only slate outside the upcoming watchlist', () => {
@@ -1103,7 +1098,7 @@ test('selectOverviewViewModel keeps a final-only slate outside the upcoming watc
     rankingsByTeamId: new Map(),
   });
 
-  assert.equal(model.shouldShowFeaturedMatchups, false);
+  assert.equal(model.watchlistCandidates.length > 0, false);
 });
 
 test('selectOverviewViewModel never places an in-progress game in both the watchlist and Live', () => {
@@ -1144,7 +1139,7 @@ test('selectOverviewViewModel never places an in-progress game in both the watch
     rankingsByTeamId: new Map(),
   });
   const liveKeys = new Set(liveItems.map((entry) => entry.bucket.game.key));
-  const watchlistKeys = model.featuredMatchups.map((entry) => entry.item.bucket.game.key);
+  const watchlistKeys = model.watchlistCandidates.map((entry) => entry.item.bucket.game.key);
 
   assert.deepEqual(watchlistKeys, ['scheduled-game']);
   assert.deepEqual(
@@ -1190,7 +1185,7 @@ test('selectOverviewViewModel keeps an empty slate hidden regardless of noisy ma
     rankingsByTeamId: new Map(),
   });
 
-  assert.equal(model.shouldShowFeaturedMatchups, false);
+  assert.equal(model.watchlistCandidates.length > 0, false);
 });
 
 test('selectOverviewViewModel keeps retired pulse output absent for scoped history', () => {
@@ -1358,7 +1353,7 @@ test('selectOverviewViewModel keeps featured games when finals dominate early ca
   });
 
   assert.ok(
-    model.featuredMatchups.some((entry) => entry.item.bucket.game.key === 'scheduled-late')
+    model.watchlistCandidates.some((entry) => entry.item.bucket.game.key === 'scheduled-late')
   );
   assert.equal(model.recentResults.length, 4);
 });

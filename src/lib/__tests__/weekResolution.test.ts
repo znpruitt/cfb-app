@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  derivePendingGame,
   deriveStandingsHistory,
   hasGameBeenAbandoned,
   isConcludedByEvidence,
@@ -78,6 +79,22 @@ test('a result concludes a game, whatever the schedule says', () => {
 test("the provider's completed flag concludes a game", () => {
   const g = game({ key: 'g', week: 1, completed: true });
   assert.equal(isConcludedByEvidence(g, undefined), true);
+});
+
+test('Overview can keep score-required evidence pending without rebuilding the game shape', () => {
+  const g = game({
+    key: 'completed-score-gap',
+    week: 1,
+    completed: true,
+    date: '2026-09-12T16:00:00.000Z',
+  });
+
+  assert.equal(derivePendingGame(g, undefined), null, 'weekly evidence semantics stay unchanged');
+  assert.deepEqual(derivePendingGame(g, undefined, { requireUsableFinalScore: true }), {
+    key: 'completed-score-gap',
+    week: 1,
+    kickoff: '2026-09-12T16:00:00.000Z',
+  });
 });
 
 test('a CANCELLED game is terminal, and the label comes from the score', () => {

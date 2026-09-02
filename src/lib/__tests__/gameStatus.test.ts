@@ -8,6 +8,7 @@ import {
   formatCompactGameStatus,
   formatScheduleStatusLabel,
   formatScoreSummaryLabel,
+  hasUsableFinalScore,
   isCanceledOrPostponedStatusLabel,
   isCanceledStatusLabel,
   isDisruptedStatusLabel,
@@ -47,6 +48,15 @@ test('classifies final statuses consistently', () => {
     }),
     'FINAL'
   );
+});
+
+test('a usable final requires a final status and both team scores', () => {
+  assert.equal(hasUsableFinalScore(finalScore), true);
+  assert.equal(
+    hasUsableFinalScore({ ...finalScore, home: { ...finalScore.home, score: null } }),
+    false
+  );
+  assert.equal(hasUsableFinalScore({ ...finalScore, status: 'Scheduled' }), false);
 });
 
 test('a final score outranks a conflicting canceled schedule label', () => {

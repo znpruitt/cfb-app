@@ -138,6 +138,10 @@ test('overview prioritizes owner-vs-owner live games before other owned live gam
     ['ou-tex', 'nd-usc']
   );
   assert.deepEqual(
+    snapshot.sectionItems.map((item) => item.bucket.game.key),
+    ['ou-tex', 'nd-usc']
+  );
+  assert.deepEqual(
     snapshot.standingsLeaders.map((row) => row.owner),
     ['Alice', 'Bob', 'Cory']
   );

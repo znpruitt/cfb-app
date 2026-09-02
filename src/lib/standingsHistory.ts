@@ -1,6 +1,10 @@
 import type { ScorePack } from './scores.ts';
 import type { AppGame } from './schedule.ts';
-import { classifyGameConclusionEvidence, isDisruptedStatusLabel } from './gameStatus.ts';
+import {
+  classifyGameConclusionEvidence,
+  hasUsableFinalScore,
+  isDisruptedStatusLabel,
+} from './gameStatus.ts';
 import {
   deriveStandings,
   deriveStandingsCoverage,
@@ -170,9 +174,24 @@ export type PendingGame = {
  * a request-time abandonment candidate. Consumers may decide WHEN to apply the
  * clock, but they must not re-derive which games are real, concluded,
  * disrupted, or planned.
+ *
+ * `requireUsableFinalScore` is the Overview row policy: score-required progress
+ * evidence (`completed: true`, or an incomplete final pack) remains pending
+ * until a final pack carries both scores. The default preserves weekly finality,
+ * where positive completion evidence and score coverage are separate facts.
  */
-export function derivePendingGame(game: AppGame, score: ScorePack | undefined): PendingGame | null {
-  if (!isRealGame(game) || isConcludedByEvidence(game, score)) return null;
+export function derivePendingGame(
+  game: AppGame,
+  score: ScorePack | undefined,
+  options: { requireUsableFinalScore?: boolean } = {}
+): PendingGame | null {
+  if (!isRealGame(game)) return null;
+
+  const conclusion = classifyGameConclusionEvidence(game, score);
+  const isConcluded = options.requireUsableFinalScore
+    ? conclusion === 'scoreless-terminal' || hasUsableFinalScore(score)
+    : conclusion !== 'unresolved';
+  if (isConcluded) return null;
 
   return {
     key: game.key,

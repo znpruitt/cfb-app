@@ -1,0 +1,207 @@
+import { hasUsableFinalScore, isDisruptedStatusLabel, normalizeStatusTokens } from '../gameStatus';
+import { gameStateFromScore } from '../gameUi';
+import type { OverviewGameItem } from '../overview';
+import type { AppGame } from '../schedule';
+import { NO_CLAIM_OWNER } from '../standings';
+import { derivePendingGame, hasGameBeenAbandoned } from '../standingsHistory';
+import type { PrioritizedOverviewItem } from './overview';
+import { selectWeeklyRecapTileState, selectWeeklyRecapWeekTargets } from './weeklyRecapFacts';
+
+export const OVERVIEW_LIVE_LIMIT = 6;
+export const OVERVIEW_RECENT_FINALS_LIMIT = 6;
+export const OVERVIEW_WATCHLIST_LIMIT = 4;
+
+export type OverviewGameRouteStatus =
+  | { kind: 'scheduled'; label: 'Scheduled' }
+  | { kind: 'live'; label: 'Live' }
+  | { kind: 'awaiting-score'; label: 'Awaiting score' }
+  | { kind: 'final'; label: 'Final' }
+  | {
+      kind: 'disrupted';
+      label: 'Delayed' | 'Canceled' | 'Postponed' | 'Suspended';
+    };
+
+export type OverviewSectionItem = OverviewGameItem & {
+  routeStatus: OverviewGameRouteStatus;
+};
+
+export type PrioritizedOverviewSectionItem = PrioritizedOverviewItem & {
+  routeStatus: OverviewGameRouteStatus;
+};
+
+export type OverviewGameSections = {
+  scheduled: PrioritizedOverviewSectionItem[];
+  live: OverviewSectionItem[];
+  recentFinals: OverviewSectionItem[];
+};
+
+type OverviewStateSection = 'scheduled' | 'live' | 'recentFinals';
+
+function isRealOverviewOwner(owner: string | null | undefined, isLeagueTeam: boolean): boolean {
+  if (!isLeagueTeam) return false;
+  const normalized = owner?.trim();
+  return Boolean(normalized && normalized !== NO_CLAIM_OWNER);
+}
+
+function realOwnerCount(item: OverviewGameItem): number {
+  return (
+    Number(isRealOverviewOwner(item.bucket.awayOwner, item.bucket.awayIsLeagueTeam)) +
+    Number(isRealOverviewOwner(item.bucket.homeOwner, item.bucket.homeIsLeagueTeam))
+  );
+}
+
+function disruptedStatus(item: OverviewGameItem): OverviewGameRouteStatus | null {
+  const rawLabel = isDisruptedStatusLabel(item.score?.status)
+    ? item.score?.status
+    : isDisruptedStatusLabel(item.bucket.game.rawStatus)
+      ? item.bucket.game.rawStatus
+      : null;
+  const tokens = normalizeStatusTokens(rawLabel);
+  if (tokens.includes('delayed')) return { kind: 'disrupted', label: 'Delayed' };
+  if (tokens.includes('canceled') || tokens.includes('cancelled')) {
+    return { kind: 'disrupted', label: 'Canceled' };
+  }
+  if (tokens.includes('postponed')) return { kind: 'disrupted', label: 'Postponed' };
+  if (tokens.includes('suspended')) return { kind: 'disrupted', label: 'Suspended' };
+  return null;
+}
+
+function routeForItem(
+  item: OverviewGameItem,
+  now: Date
+): { section: OverviewStateSection; status: OverviewGameRouteStatus } | null {
+  if (realOwnerCount(item) === 0) return null;
+
+  const pending = derivePendingGame(item.bucket.game, item.score, {
+    requireUsableFinalScore: true,
+  });
+
+  // Abandonment is a gate over every unresolved real game, not a branch of
+  // scheduled/unknown routing. This makes a stranded in-progress pack obey the
+  // same per-game eight-hour bound without duplicating the threshold or shape.
+  if (pending && hasGameBeenAbandoned(pending, now)) return null;
+
+  if (hasUsableFinalScore(item.score)) {
+    return { section: 'recentFinals', status: { kind: 'final', label: 'Final' } };
+  }
+
+  // CFBD cannot currently emit these labels. Retain the legacy-safe guard, but
+  // do not build a separate ordering or lifecycle around an unreachable input.
+  const disruption = disruptedStatus(item);
+  if (disruption) return { section: 'scheduled', status: disruption };
+
+  // `derivePendingGame` is also the authority for real/planned games. Requiring
+  // it before the score-state switch keeps unresolved CFP participant shells
+  // out even if an inconsistent score row claims in-progress.
+  if (!pending) return null;
+
+  const scoreState = gameStateFromScore(item.score);
+  if (scoreState === 'inprogress') {
+    return { section: 'live', status: { kind: 'live', label: 'Live' } };
+  }
+
+  const kickoffMs = pending.kickoff ? Date.parse(pending.kickoff) : Number.NaN;
+  if (!Number.isFinite(kickoffMs) || kickoffMs > now.getTime()) {
+    return { section: 'scheduled', status: { kind: 'scheduled', label: 'Scheduled' } };
+  }
+
+  return {
+    section: 'live',
+    status: { kind: 'awaiting-score', label: 'Awaiting score' },
+  };
+}
+
+function compareOverviewRecentFinals(a: OverviewGameItem, b: OverviewGameItem): number {
+  const aHasKickoff = Number.isFinite(a.sortDate);
+  const bHasKickoff = Number.isFinite(b.sortDate);
+  if (aHasKickoff !== bHasKickoff) return aHasKickoff ? -1 : 1;
+  if (aHasKickoff && a.sortDate !== b.sortDate) return b.sortDate - a.sortDate;
+  const ownerCountDifference = realOwnerCount(b) - realOwnerCount(a);
+  if (ownerCountDifference !== 0) return ownerCountDifference;
+  return a.bucket.game.key.localeCompare(b.bucket.game.key);
+}
+
+function compareOverviewLiveItems(a: OverviewGameItem, b: OverviewGameItem): number {
+  const aHasLiveScore = gameStateFromScore(a.score) === 'inprogress';
+  const bHasLiveScore = gameStateFromScore(b.score) === 'inprogress';
+  if (aHasLiveScore !== bHasLiveScore) return aHasLiveScore ? -1 : 1;
+  const ownerCountDifference = realOwnerCount(b) - realOwnerCount(a);
+  if (ownerCountDifference !== 0) return ownerCountDifference;
+  const aHasKickoff = Number.isFinite(a.sortDate);
+  const bHasKickoff = Number.isFinite(b.sortDate);
+  if (aHasKickoff !== bHasKickoff) return aHasKickoff ? -1 : 1;
+  if (aHasKickoff && a.sortDate !== b.sortDate) return a.sortDate - b.sortDate;
+  return a.bucket.game.key.localeCompare(b.bucket.game.key);
+}
+
+function uniqueOverviewItems(items: OverviewGameItem[]): OverviewGameItem[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = item.bucket.game.key;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function expiredFinalWeeks(scheduleGames: AppGame[], now: Date): ReadonlySet<number> {
+  return new Set(
+    selectWeeklyRecapWeekTargets(scheduleGames)
+      .filter((target) => selectWeeklyRecapTileState(target, now) === 'upcoming')
+      .map((target) => target.week)
+  );
+}
+
+/** Route every non-Featured game from the approved score × kickoff × ownership table. */
+export function selectOverviewGameSections(params: {
+  sectionItems: OverviewGameItem[];
+  scheduleGames: AppGame[];
+  watchlistCandidates: PrioritizedOverviewItem[];
+  featuredGameKeys: ReadonlySet<string>;
+  now: Date;
+}): OverviewGameSections {
+  const { sectionItems, scheduleGames, watchlistCandidates, featuredGameKeys, now } = params;
+  const routesByKey = new Map<
+    string,
+    { item: OverviewGameItem; section: OverviewStateSection; status: OverviewGameRouteStatus }
+  >();
+  const expiredWeeks = expiredFinalWeeks(scheduleGames, now);
+
+  for (const item of uniqueOverviewItems(sectionItems)) {
+    const gameKey = item.bucket.game.key;
+    if (featuredGameKeys.has(gameKey)) continue;
+    const route = routeForItem(item, now);
+    if (!route) continue;
+    if (route.section === 'recentFinals' && expiredWeeks.has(item.bucket.game.canonicalWeek)) {
+      continue;
+    }
+    routesByKey.set(gameKey, { item, ...route });
+  }
+
+  const scheduled: PrioritizedOverviewSectionItem[] = [];
+  const scheduledKeys = new Set<string>();
+  for (const candidate of watchlistCandidates) {
+    const gameKey = candidate.item.bucket.game.key;
+    const route = routesByKey.get(gameKey);
+    if (scheduledKeys.has(gameKey) || route?.section !== 'scheduled') continue;
+    scheduledKeys.add(gameKey);
+    scheduled.push({ ...candidate, routeStatus: route.status });
+    if (scheduled.length === OVERVIEW_WATCHLIST_LIMIT) break;
+  }
+
+  const live: OverviewSectionItem[] = [];
+  const recentFinals: OverviewSectionItem[] = [];
+  for (const { item, section, status } of routesByKey.values()) {
+    if (section === 'live') live.push({ ...item, routeStatus: status });
+    if (section === 'recentFinals') recentFinals.push({ ...item, routeStatus: status });
+  }
+
+  live.sort(compareOverviewLiveItems);
+  recentFinals.sort(compareOverviewRecentFinals);
+
+  return {
+    scheduled,
+    live: live.slice(0, OVERVIEW_LIVE_LIMIT),
+    recentFinals: recentFinals.slice(0, OVERVIEW_RECENT_FINALS_LIMIT),
+  };
+}

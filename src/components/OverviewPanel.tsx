@@ -14,11 +14,7 @@ import {
 } from '../lib/selectors/trends';
 import { buildWeekLabelMap, formatWeekLabel } from '../lib/weekLabel';
 import { formatExpandedKickoff } from '../lib/gameCardPresentation';
-import {
-  formatGameMatchupLabel,
-  gameStateFromScore,
-  gameStatusLabelPresentation,
-} from '../lib/gameUi';
+import { formatGameMatchupLabel, gameStatusLabelPresentation } from '../lib/gameUi';
 import { normalizeStatusTokens } from '../lib/gameStatus';
 import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import {
@@ -36,6 +32,11 @@ import {
   selectOverviewViewModel,
   type PrioritizedOverviewItem,
 } from '../lib/selectors/overview';
+import {
+  selectOverviewGameSections,
+  type OverviewSectionItem,
+  type PrioritizedOverviewSectionItem,
+} from '../lib/selectors/overviewGameSections';
 import type { SeasonContext } from '../lib/selectors/seasonContext';
 import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
 import {
@@ -685,12 +686,14 @@ function liveScoreboardClock(score: ScorePack | null | undefined): string {
 function GameCardList({
   items,
   rankingsByTeamId,
+  state,
 }: {
-  items: OverviewGameItem[];
+  items: OverviewSectionItem[];
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
+  state: 'live' | 'final';
 }): React.ReactElement {
   if (items.length === 0) {
-    return <p className="text-sm text-gray-500 dark:text-zinc-400">No live games.</p>;
+    return <p className="text-sm text-gray-500 dark:text-zinc-400">No games.</p>;
   }
 
   return (
@@ -708,8 +711,14 @@ function GameCardList({
         return (
           <CompactGameScoreboard
             key={game.key}
-            state="live"
-            clock={liveScoreboardClock(item.score)}
+            state={state}
+            clock={
+              state === 'live'
+                ? item.routeStatus.kind === 'awaiting-score'
+                  ? item.routeStatus.label
+                  : liveScoreboardClock(item.score)
+                : undefined
+            }
             matchupLabel={formatGameMatchupLabel(game)}
             away={{
               teamName: game.csvAway,
@@ -739,7 +748,7 @@ function GameSummaryList({
   rankingsByTeamId,
   density = 'compact',
 }: {
-  prioritizedItems: PrioritizedOverviewItem[];
+  prioritizedItems: PrioritizedOverviewSectionItem[];
   emptyMessage: string;
   timeZone: string;
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
@@ -756,9 +765,8 @@ function GameSummaryList({
         const score = item.score;
         const awayScore = score?.away.score ?? '—';
         const homeScore = score?.home.score ?? '—';
-        const status = score?.status ?? 'Scheduled';
-        const state = gameStateFromScore(score);
-        const statusLabel = gameStatusLabelPresentation(state === 'inprogress' ? 'live' : state);
+        const status = prioritized.routeStatus.label;
+        const statusLabel = gameStatusLabelPresentation('scheduled');
         const kickoff = formatExpandedKickoff(
           item.bucket.game.date,
           timeZone,
@@ -1296,6 +1304,8 @@ type OverviewPanelProps = {
   matchupMatrix: OwnerMatchupMatrix;
   liveItems: OverviewGameItem[];
   keyMatchups: OverviewGameItem[];
+  sectionItems: OverviewGameItem[];
+  nowMs: number;
   context: OverviewContext;
   displayTimeZone?: string;
   onOwnerSelect?: (owner: string) => void;
@@ -1334,6 +1344,8 @@ export default function OverviewPanel({
   matchupMatrix,
   liveItems,
   keyMatchups,
+  sectionItems,
+  nowMs,
   context,
   displayTimeZone,
   onOwnerSelect,
@@ -1448,7 +1460,6 @@ export default function OverviewPanel({
     const labelMap = buildWeekLabelMap(games);
     return (week: number) => formatWeekLabel(week, labelMap);
   }, [games]);
-  const liveTitle = `Live · ${liveItems.length}`;
   const ownersWithInProgressGames = React.useMemo(
     () => selectOwnersWithInProgressGames({ games, scoresByKey, rosterByTeam }),
     [games, scoresByKey, rosterByTeam]
@@ -1483,6 +1494,22 @@ export default function OverviewPanel({
       seasonContext,
     ]
   );
+  const featuredGameKeys = React.useMemo(
+    () => new Set(viewModel.recentResults.map(({ item }) => item.bucket.game.key)),
+    [viewModel.recentResults]
+  );
+  const gameSections = React.useMemo(
+    () =>
+      selectOverviewGameSections({
+        sectionItems,
+        scheduleGames: games,
+        watchlistCandidates: viewModel.watchlistCandidates,
+        featuredGameKeys,
+        now: new Date(nowMs),
+      }),
+    [featuredGameKeys, games, nowMs, sectionItems, viewModel.watchlistCandidates]
+  );
+  const liveTitle = `Live · ${gameSections.live.length}`;
   const sharedInsights = React.useMemo(() => {
     // Insight narratives compare against historyForRender's resolved weeks. If
     // we feed deriveLeagueInsights raw rowsForRender during a partial week, the
@@ -1629,30 +1656,33 @@ export default function OverviewPanel({
         )}
       </section>
 
-      <SectionDivider />
-
       {/* Featured games */}
-      <section className="@container">
-        <SectionHeader
-          title="Featured games"
-          action={
-            <button type="button" className={viewMoreLinkClass} onClick={onViewSchedule}>
-              All results →
-            </button>
-          }
-        />
-        <div className="mt-2.5">
-          <FeaturedGamesList
-            prioritizedItems={viewModel.recentResults}
-            emptyMessage="No recent results yet."
-            timeZone={timeZone}
-            rankingsByTeamId={rankingsByTeamId}
-          />
-        </div>
-      </section>
+      {viewModel.recentResults.length > 0 || gameSections.recentFinals.length === 0 ? (
+        <>
+          <SectionDivider />
+          <section className="@container">
+            <SectionHeader
+              title="Featured games"
+              action={
+                <button type="button" className={viewMoreLinkClass} onClick={onViewSchedule}>
+                  All results →
+                </button>
+              }
+            />
+            <div className="mt-2.5">
+              <FeaturedGamesList
+                prioritizedItems={viewModel.recentResults}
+                emptyMessage="No recent results yet."
+                timeZone={timeZone}
+                rankingsByTeamId={rankingsByTeamId}
+              />
+            </div>
+          </section>
+        </>
+      ) : null}
 
       {/* Upcoming watchlist */}
-      {viewModel.shouldShowFeaturedMatchups ? (
+      {gameSections.scheduled.length > 0 ? (
         <>
           <SectionDivider />
           <section>
@@ -1670,7 +1700,7 @@ export default function OverviewPanel({
             />
             <div className="mt-2.5">
               <GameSummaryList
-                prioritizedItems={viewModel.featuredMatchups}
+                prioritizedItems={gameSections.scheduled}
                 emptyMessage="No featured matchups yet for this slate."
                 timeZone={timeZone}
                 rankingsByTeamId={rankingsByTeamId}
@@ -1682,7 +1712,7 @@ export default function OverviewPanel({
       ) : null}
 
       {/* Live games */}
-      {liveItems.length > 0 ? (
+      {gameSections.live.length > 0 ? (
         <>
           <SectionDivider />
           <section className="@container">
@@ -1692,14 +1722,42 @@ export default function OverviewPanel({
                 <button
                   type="button"
                   className={viewMoreLinkClass}
-                  onClick={() => onViewMatchups?.(liveItems[0]?.bucket.game)}
+                  onClick={() => onViewMatchups?.(gameSections.live[0]?.bucket.game)}
                 >
                   All matchups →
                 </button>
               }
             />
             <div className="mt-2.5">
-              <GameCardList items={liveItems} rankingsByTeamId={rankingsByTeamId} />
+              <GameCardList
+                items={gameSections.live}
+                rankingsByTeamId={rankingsByTeamId}
+                state="live"
+              />
+            </div>
+          </section>
+        </>
+      ) : null}
+
+      {/* Recent finals */}
+      {gameSections.recentFinals.length > 0 ? (
+        <>
+          <SectionDivider />
+          <section className="@container">
+            <SectionHeader
+              title="Recent finals"
+              action={
+                <button type="button" className={viewMoreLinkClass} onClick={onViewSchedule}>
+                  All results →
+                </button>
+              }
+            />
+            <div className="mt-2.5">
+              <GameCardList
+                items={gameSections.recentFinals}
+                rankingsByTeamId={rankingsByTeamId}
+                state="final"
+              />
             </div>
           </section>
         </>
