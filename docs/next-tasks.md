@@ -1,7 +1,7 @@
 # Next Tasks (Active Queue)
 
 Status: Current
-Last verified: 2026-09-01
+Last verified: 2026-09-02
 Owner: Project documentation
 Canonical for: current execution order, planned/parked work, blockers, and the one canonical list of
 unresolved decisions and known deferrals
@@ -24,7 +24,8 @@ Supersedes: (none)
 
 ## Current execution order
 
-`CURRENT`: **Item 99 + Item 100a** — schedule write-path filter and week-0 deletion, one slice.
+`CURRENT`: **Item 99 + Item 100a** — two-reader schedule-build filter and week-0 deletion, one slice
+(implemented in PR #551; awaiting merge).
 `NEXT`: **Item 87 slice 4** — Watchlist.
 
 Owner-selected run order (2026-09-02), replacing the 2026-08-29 order. Reprioritised after the Vercel
@@ -33,10 +34,10 @@ both high-frequency QStash schedules are manually switched per game window, and 
 strands finals permanently because `kickoff + 24h` reconciliation cannot be re-entered. That is a
 weekly operator burden with a data-loss mode, and it did not exist when the prior order was set.
 
-1. **Item 99 + Item 100a** — write-path filter plus week-0 deletion. 3.55x off EVERY cron invocation
-   (measured), which alone projects under the 4-hour allowance, and it pays out in the draft board,
-   archive rebuilds, and page paint regardless of what follows. 100a is in scope because the filter
-   removes what currently suppresses the week-0 heuristic.
+1. **Item 99 + Item 100a** — filter the two hot canonical builds plus delete the week-0 derivation.
+   The two readers account for 87% of measured Active CPU and their build cost drops by 3.55x; the
+   durable schedule remains complete for expectation-oracle and diagnostic consumers. 100a ships in
+   the same slice because filtering those builds removes what suppressed the week-0 heuristic.
 2. **Item 87 slice 4** — Watchlist, consuming the PLATFORM-117 records cache. Overview is
    internally inconsistent until this lands: Live, Featured, and Recent finals are scoreboard rows
    while Watchlist and Schedule are still bespoke.
@@ -579,10 +580,10 @@ so removing an invocation saves its floor as well as its work — which a cheape
 Full evidence, including the rejected alternatives, in
 [`docs/campaigns/vercel-active-cpu.md`](campaigns/vercel-active-cpu.md).
 
-**Pairs with Item 99, does not replace it.** Item 99 cuts the cost of every invocation; this cuts
-their number. Projected together: ~1.1 CPU-h/30d against ~2.8 h for Item 99 alone. An in-route gate
-before the context load was proposed and dropped as redundant against the pair — recorded in the
-campaign doc so it is not re-derived.
+**Pairs with Item 99, does not replace it.** Item 99 cuts the canonical-build cost of every
+live-score and game-stats invocation; this cuts their number. Projected together: ~1.1 CPU-h/30d
+against ~2.8 h for Item 99 alone. An in-route gate before the context load was proposed and dropped
+as redundant against the pair — recorded in the campaign doc so it is not re-derived.
 
 **Four things it collides with, all located:**
 
@@ -638,7 +639,13 @@ and which is worse is a judgement call.
 
 - Backlog slug: `PLATFORM-FINALS-EXPIRY-BOUNDARY-v1`
 
-### Item 99 — filter non-FBS games at the schedule WRITE path, not the response
+### Item 99 — filter non-FBS rows at the two hot canonical schedule builds
+
+> **IMPLEMENTED 2026-09-02 by `PLATFORM-120-SCHEDULE-FBS-FILTER-v3`; PR #551 is open, not
+> merged.** The durable schedule and `/api/schedule` remain complete. Only the live-score and
+> game-stats canonical builds filter both-known-non-FBS regular-season rows; postseason rows and the
+> raw game-stats metadata/collision snapshot remain intact. The investigation below preserves why
+> the original write-path proposal was rejected.
 
 **Measured 2026-08-31.** `/games?year=` persists every division. For 2026 that is **3,676 rows**, of
 which **888 (24%)** involve an FBS team:
@@ -705,11 +712,11 @@ and deleting them removes evidence four consumers depend on, plus the
 (`AGENTS.md` core rule 4: diagnostics are required). PLATFORM-120 v2 applies the predicate at the two
 SAFE hot call sites instead, which is 87% of measured Active CPU with zero affected consumers.
 
-**So filter at the write path**, when the full-season response is persisted, rather than shaping the
-API response. Benefits multiply across every consumer instead of one: the durable cache shrinks
-(~344 KB → ~80 KB for 2026), and `buildScheduleFromApi` runs on 888 rows everywhere it is called —
-draft board and archive rebuilds included, not just page loads. Measured cost of that function:
-**1,267 ms on 3,676 rows vs 353 ms on 888.**
+**Final implementation: filter at the two measured hot readers, not at storage or the API
+response.** `liveScores/canonicalContext.ts` and `gameStats/canonicalSlate.ts` account for 87% of
+measured Active CPU. Their `buildScheduleFromApi` inputs shrink while the complete durable row set
+continues to protect expectation-oracle and diagnostic consumers. Measured cost of that function:
+**1,267 ms on 3,676 rows vs 353 ms on the relevance-filtered set.**
 
 **Predicate: both sides KNOWN non-FBS.** Drop only when both `homeClassification` and
 `awayClassification` are present and neither is `fbs`. **Rows with absent classification must be
@@ -727,35 +734,36 @@ data is materially worse than its FBS data, measured across two endpoints on 202
   staleness. (One of them is `Westgate Christian University @ Missouri S&T` — the school from
   PLATFORM-114's identity collision.)
 
-The provider's football API is built around FBS; lower divisions get best-effort treatment. So these
-rows carry stale completion flags and uncredited outcomes that would be actively misleading to any
-future consumer, not merely surplus. Filtering them removes a liability as well as a cost.
+The provider's football API is built around FBS; lower divisions get best-effort treatment. These
+rows are therefore excluded from the two FBS-focused canonical builds, but retained durably because
+their presence is still evidence for provider-response guards and reconciliation diagnostics.
 
-**Nothing is lost.** Any game involving an FBS team survives, so every opponent of an ownable team is
-retained. Only games where neither side can ever appear in the league are dropped, and one CFBD call
-re-fetches a year if that is ever wrong.
+**Nothing is lost.** Any game involving an FBS team survives the reader filter, absent
+classification is retained, and postseason is never filtered. Rows excluded from those builds
+remain available in the durable schedule and `/api/schedule` response.
 
-**It improves week derivation rather than threatening it.** `buildRegularSeasonWeekCalendar`'s week-0
-heuristic is diluted by lower-division games; FBS-only clustering is the version that works for both
-2025 and 2026 (see Item 100).
+**Week derivation is explicit rather than emergent.** Item 100a deletes the week-0 heuristic, and the
+postseason offset reduces over the same FBS-relevant regular-season span at every caller, so omitting
+irrelevant rows cannot move the two hot builds relative to an unfiltered build.
 
-**Why this is not Item 98b.** 98b shaped the API response and left the durable cache alone, on the
-stated reason that other consumers might need the full set. That reason was wrong — no consumer does.
-Write-path filtering supersedes it. **98b should be closed in favour of this item.**
+**Why this is not Item 98b.** 98b shaped the API response globally. The complete reader inventory
+proved that several consumers need the full set as an expectation oracle and one diagnostic needs it
+to explain exclusions. Item 99 therefore narrows only the two measured safe consumers.
 
-**Ships with Item 100a.** This filter removes exactly the lower-division rows whose presence keeps the
-canonical week-0 heuristic dormant, so it does not preserve today's no-`W0` result — it removes the
-cause of it. Deleting the derivation is part of this slice, not a follow-on; a regression test would
-pin only the seasons that exist. See Item 100a for the seven-season sweep.
+**Ships with Item 100a.** This filter removes from the two hot builds exactly the lower-division rows
+whose presence keeps the canonical week-0 heuristic dormant. Deleting the derivation is part of this
+slice, not a follow-on; a regression test can pin only the seasons that exist. See Item 100a for the
+seven-season sweep.
 
-**Scope care:** this changes what is PERSISTED, and it lands on the full-season refresh authority
-that PLATFORM-086E1A deliberately consolidated. It needs its own review, not a ride-along on a
-performance PR. Existing caches are unaffected; only future writes filter.
+**Scope care:** this is a relevance filter at exactly two consumers, not a correctness filter or a
+storage policy. The durable write authorities, `/api/schedule`, diagnostics, expectation-oracle
+readers, and the other lower-volume safe consumers are unchanged.
 
 **Third argument, measured 2026-09-01: this is now the largest single lever on Vercel Active CPU.**
 Both high-frequency crons rebuild the full season before deciding they have nothing to do, and
-`buildScheduleFromApi` is **98.6% of that context load**. The filter therefore cuts the cost of every
-invocation — idle and working alike — by the measured **3.55x**, which a scheduling change cannot do.
+`buildScheduleFromApi` is **98.6% of that context load**. The filter therefore cuts the build cost of
+every invocation of those two readers — idle and working alike — by the measured **3.55x**, which a
+scheduling change cannot do.
 See [`docs/campaigns/vercel-active-cpu.md`](campaigns/vercel-active-cpu.md); Item 102 is the paired
 change.
 
@@ -806,8 +814,8 @@ today, filtered or unfiltered, so removing the derivation changes zero member-vi
 
 **Item 99 is what makes this necessary, which is why they ship together.** The heuristic is dormant
 only because lower-division games bleed provider week 2 into the second opening cluster — and Item 99
-deletes precisely those rows. The filter does not preserve the dormancy; it removes what was causing
-it. Measured:
+filters precisely those rows out of the two hot builds. The filter does not preserve the dormancy;
+it removes what was causing it. Measured:
 
     2025 all: c1 n=8   pw=[1]  |  c2 n=501 pw=[1,2]   -> no week 0
     2025 fbs: c1 n=5   pw=[1]  |  c2 n=91  pw=[1]     -> week 0 DETECTED
@@ -852,9 +860,10 @@ from the rule statement below; that code already implements this exact 3-day-gap
 
 Validated across all seven seasons. Two findings from that validation: **"largest gap" is the wrong
 splitter** (2025 has four games dated 2025-12-13 carrying provider week 1, making the largest gap 102
-days), and **FBS-only rows are required** — with all divisions, 2026's lower-division games fill
-Aug 27-31 continuously and no gap appears until Sept 3. Note that after Item 99 the persisted rows are
-already FBS-involving, which satisfies that second condition at the source.
+days), and **FBS-relevant rows are required** — with all divisions, 2026's lower-division games fill
+Aug 27-31 continuously and no gap appears until Sept 3. The durable schedule intentionally remains
+complete after Item 99, so Item 100b must apply the shared relevance predicate at consumption rather
+than assume storage was filtered.
 
 - Backlog slug: `PLATFORM-WEEK-ZERO-MODEL-v1`
 
@@ -894,13 +903,11 @@ remaining league-page-paint work begins at 98c.
 
 #### 98b — 76% of the schedule payload is discarded after parsing
 
-> **SUPERSEDED 2026-08-31 by Item 99.** This shaped the API response and deliberately left the
-> durable cache unfiltered, on the stated reason that other consumers might need the full set. That
-> reason was wrong — a survey of every reader found none. Filtering at the WRITE path benefits every
-> consumer instead of one. The response-path implementation attempted in PLATFORM-119 was
-> **withdrawn on a correctness finding, not deferred**: removing non-FBS rows changed the full input
-> used by `regularSeasonWeekCalendar` and could change canonical week assignment. Do not implement
-> 98b; see Items 99 and 100.
+> **SUPERSEDED by Item 99 / PLATFORM-120.** This proposed shaping the API response, but the complete
+> reader audit found expectation-oracle and diagnostic consumers that require the full row set.
+> PLATFORM-120 instead filters only the live-score and game-stats canonical builds, keeps durable
+> storage and `/api/schedule` complete, and makes week derivation invariant to that filter. Do not
+> implement 98b; see Item 99 and the PLATFORM-120 registry record.
 
 `/api/schedule?year=2026&seasonType=all` returns **2,764,786 bytes** (245 KB gzipped). Of its 3,676
 rows:

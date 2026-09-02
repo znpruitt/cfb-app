@@ -21,12 +21,9 @@ import {
 } from './schedulePostseasonHelpers.ts';
 import { buildByes, isTrackedGame, resolveRegularSeasonRow } from './scheduleTracking.ts';
 import { isFbsTeam } from './scheduleEligibility.ts';
+import { isFbsRelevantScheduleRow } from './scheduleRelevance.ts';
 import { deriveConferenceOptionsFromTrackedGames } from './selectors/conferences.ts';
-import {
-  buildRegularSeasonWeekCalendar,
-  deriveCanonicalRegularSeasonWeek,
-  type WeekCorrectionReason,
-} from './regularSeasonWeekCalendar.ts';
+import { deriveCanonicalRegularSeasonWeek } from './regularSeasonWeekCalendar.ts';
 import type { VenueInfo } from './schedule/cfbdSchedule.ts';
 import type { ScheduleMediaItem } from './schedule/schedulePresentation.ts';
 import { requireAdminAuthHeaders } from './adminAuth.ts';
@@ -78,7 +75,6 @@ export type ScheduleWireItem = {
   week: number;
   providerWeek?: number;
   canonicalWeek?: number;
-  weekCorrectionReason?: WeekCorrectionReason | null;
   startDate: string | null;
   neutralSite: boolean;
   conferenceGame: boolean;
@@ -154,7 +150,6 @@ export type AppGame = {
   week: number;
   providerWeek: number;
   canonicalWeek: number;
-  weekCorrectionReason?: WeekCorrectionReason | null;
   date: string | null;
   stage: GameStage;
   status: GameStatus;
@@ -381,7 +376,6 @@ export function buildScheduleFromApi(params: {
 
   const apiRegularGames: AppGame[] = [];
   const apiPostseasonGames: AppGame[] = [];
-  const regularSeasonWeekCalendar = buildRegularSeasonWeekCalendar(scheduleItems);
 
   // Max regular season canonical week, used below to remap postseason weeks so they
   // appear AFTER regular season in standingsHistory. CFBD postseason week numbers
@@ -394,7 +388,12 @@ export function buildScheduleFromApi(params: {
   // skipped and provider weeks are preserved as-is — appending to a phantom span (or,
   // if stray non-postseason rows were present, an unrelated one) would corrupt the
   // postseason week buckets. `hasRegularSeasonContext` makes that guard explicit.
-  const regularSeasonItems = scheduleItems.filter((i) => i.seasonType !== 'postseason');
+  // Derive the season span from the same regular-season population that can
+  // survive the canonical FBS build. This keeps the postseason offset invariant
+  // when a caller omits known both-non-FBS regular rows before the per-row loop.
+  const regularSeasonItems = scheduleItems.filter(
+    (item) => item.seasonType !== 'postseason' && isFbsRelevantScheduleRow(item)
+  );
   const hasRegularSeasonContext = regularSeasonItems.length > 0;
   const maxRegularSeasonWeek = regularSeasonItems.reduce(
     (max, i) => Math.max(max, typeof i.week === 'number' ? i.week : 0),
@@ -402,12 +401,11 @@ export function buildScheduleFromApi(params: {
   );
 
   for (const rawItem of scheduleItems) {
-    const regularSeasonWeek = deriveCanonicalRegularSeasonWeek(rawItem, regularSeasonWeekCalendar);
+    const regularSeasonWeek = deriveCanonicalRegularSeasonWeek(rawItem);
     const item: ScheduleWireItem = {
       ...rawItem,
       providerWeek: regularSeasonWeek.providerWeek,
       canonicalWeek: regularSeasonWeek.canonicalWeek,
-      weekCorrectionReason: regularSeasonWeek.weekCorrectionReason,
     };
     const canonicalWeek = item.canonicalWeek ?? item.week;
     const providerWeek = item.providerWeek ?? item.week;
@@ -445,7 +443,6 @@ export function buildScheduleFromApi(params: {
         week: canonicalWeek,
         providerWeek,
         canonicalWeek,
-        weekCorrectionReason: item.weekCorrectionReason ?? null,
         date: item.startDate,
         stage: 'conference_championship',
         status: mapStatus(item.status, !hasKnownTeams),
@@ -509,7 +506,6 @@ export function buildScheduleFromApi(params: {
         week: postseasonCanonicalWeek,
         providerWeek,
         canonicalWeek: postseasonCanonicalWeek,
-        weekCorrectionReason: item.weekCorrectionReason ?? null,
         date: item.startDate,
         stage,
         status: hasKnownTeams ? 'matchup_set' : 'placeholder',
@@ -605,7 +601,6 @@ export function buildScheduleFromApi(params: {
         week: postseasonCanonicalWeek,
         providerWeek,
         canonicalWeek: postseasonCanonicalWeek,
-        weekCorrectionReason: item.weekCorrectionReason ?? null,
         date: item.startDate,
         stage: classified.stage,
         status: hasKnownTeams ? 'matchup_set' : 'placeholder',
@@ -684,7 +679,6 @@ export function buildScheduleFromApi(params: {
       week: canonicalWeek,
       providerWeek,
       canonicalWeek,
-      weekCorrectionReason: item.weekCorrectionReason ?? null,
       date: item.startDate,
       stage: 'regular',
       status: mapStatus(item.status, false),

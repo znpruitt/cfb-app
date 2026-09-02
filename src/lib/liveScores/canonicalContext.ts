@@ -5,6 +5,7 @@ import {
 import { classifyScorePackStatus, type GameStatusBucket } from '@/lib/gameStatus';
 import type { ScheduleWireItem } from '@/lib/schedule';
 import { buildScheduleFromApi } from '@/lib/schedule';
+import { isFbsRelevantScheduleBuildRow } from '@/lib/scheduleRelevance';
 import {
   attachScoresToSchedule,
   buildScheduleIndex,
@@ -138,10 +139,11 @@ async function loadPendingFinalConfirmationIds(year: number): Promise<Set<string
 /**
  * Load the cache-only canonical context. `now` is injected for deterministic
  * slate derivation. A caller that already owns a canonical schedule snapshot may
- * supply `scheduleItems`; that exact snapshot then feeds both the canonical game
- * list and score attachment, with no second schedule read. Loader/build failures
- * map to `unavailable`; a genuinely empty schedule yields an available, empty
- * context.
+ * supply `scheduleItems`; the FBS-relevant regular rows plus every postseason
+ * row feed the canonical build, while the full snapshot remains available for
+ * raw provider-id collision validation. There is no second schedule read.
+ * Loader/build failures map to `unavailable`; an empty or wholly irrelevant
+ * regular-season schedule yields an available, possibly postseason-only context.
  */
 export async function loadLiveScoreContext(input: {
   year: number;
@@ -210,13 +212,21 @@ export async function loadLiveScoreContext(input: {
   // ONE canonical schedule build feeds BOTH the addressable canonical game list
   // and the score-attachment index, so scores and identity can never mix
   // provenance across two builds.
+  const relevantScheduleItems = scheduleItems.filter(isFbsRelevantScheduleBuildRow);
   let games;
   let canonicalGames: CanonicalGame[];
   try {
-    games = buildScheduleFromApi({ scheduleItems, teams, aliasMap, season: year }).games;
+    games = buildScheduleFromApi({
+      scheduleItems: relevantScheduleItems,
+      teams,
+      aliasMap,
+      season: year,
+    }).games;
     canonicalGames = deriveCanonicalGameStatsSlateFromBuild({
       year,
       games,
+      // Preserve the full raw snapshot for provider-id collision detection and
+      // per-id metadata lookup. Only the expensive canonical build is filtered.
       scheduleItems,
       teams,
       aliasMap,

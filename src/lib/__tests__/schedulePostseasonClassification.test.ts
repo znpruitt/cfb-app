@@ -375,7 +375,6 @@ function e4AppGame(overrides: Partial<AppGame>): AppGame {
     week: overrides.week ?? 15,
     providerWeek: overrides.providerWeek ?? 15,
     canonicalWeek: overrides.canonicalWeek ?? 15,
-    weekCorrectionReason: null,
     date: overrides.date ?? '2024-12-07T21:00:00.000Z',
     stage: overrides.stage ?? 'conference_championship',
     status: overrides.status ?? 'final',

@@ -12,7 +12,6 @@ function bowlGame(overrides: Partial<AppGame>): AppGame {
     week: overrides.week ?? 17,
     providerWeek: overrides.providerWeek ?? overrides.week ?? 17,
     canonicalWeek: overrides.canonicalWeek ?? overrides.week ?? 17,
-    weekCorrectionReason: overrides.weekCorrectionReason ?? null,
     date: overrides.date ?? '2025-12-31T22:00:00.000Z',
     stage: overrides.stage ?? 'bowl',
     status: overrides.status ?? 'placeholder',

@@ -1,12 +1,16 @@
 # Vercel Fluid Active CPU — finding, validation, and remediation
 
-**Status:** Open. Diagnosis complete and measured; no code written. Both high-frequency QStash
-schedules are manually paused as of 2026-09-01 ~18:00 UTC and will be resumed by hand for each game
-window until the planner (Item 102) lands.
+**Status:** Open. Diagnosis complete; the two-reader build filter and week-0 deletion are implemented
+in PR #551 and awaiting merge. Both high-frequency QStash schedules are manually paused as of
+2026-09-01 ~18:00 UTC and will be resumed by hand for each game window until the planner (Item 102)
+lands.
 
-**Owner decision, 2026-09-01:** remediate with the write-path filter (Item 99) plus a schedule-derived
-QStash planner (Item 102). A third option — a cheap in-route gate before the canonical context load —
-was proposed and **dropped** once measurement showed it redundant against those two.
+**Owner decision, revised 2026-09-02 after the complete reader audit:** remediate with an
+FBS-relevance filter at the live-score and game-stats canonical builds (Item 99) plus a
+schedule-derived QStash planner (Item 102). The durable schedule remains complete because four
+consumers use it as an expectation oracle and schedule-eligibility diagnostics require excluded
+rows. A third option — a cheap in-route gate before the canonical context load — was proposed and
+**dropped** once measurement showed it redundant against the selected changes.
 
 This document carries the evidence. The queue entries are Items 99 and 102 in `docs/next-tasks.md`.
 
@@ -130,7 +134,7 @@ production figures.
 
 ---
 
-## Measured: the Item 99 filter is lossless on both filterable seasons
+## Measured: the Item 99 base predicate is lossless on both filterable seasons
 
 Applying Item 99's exact predicate (drop only when both `homeClassification` and `awayClassification`
 are present and neither is `fbs`) and building through `buildScheduleFromApi`, reading
@@ -143,6 +147,11 @@ are present and neither is `fbs`) and building through `buildScheduleFromApi`, r
 2025 filtered  rows= 996  games=934   WEEK 0: absent
 ```
 
+This experiment applied the base predicate to every row. The shipped build predicate additionally
+retains every postseason row, so these filtered row totals are not the final build-input totals when
+a season contains a both-known-non-FBS postseason row. The canonical-count conclusion is unchanged;
+the final predicate and postseason weeks were separately swept across all seven cached seasons.
+
 Two results:
 
 1. **The filter removes 2,673 rows from 2026 and 2,835 from 2025 and changes zero canonical games.**
@@ -154,9 +163,10 @@ table records "2025 fbs → week 0 DETECTED", but that experiment used a **stric
 Item 99's predicate deliberately retains rows whose classification is absent, and those retained rows
 are what keep the heuristic dormant. The two filters are not the same filter.
 
-**This is emergent, not guaranteed** — it depends on which rows happen to lack classification. If
-Item 99 ships, pin it with a test asserting no canonical week 0 for both seasons. Seasons before 2025
-carry no classification at all, so the filter is a no-op there and cannot move their weeks.
+This no-week-0 result was emergent before implementation — it depended on which rows happened to lack
+classification. PLATFORM-120 therefore deleted the derivation rather than pinning today's data: week
+1 is now provider-authoritative for every season, while Item 100b separately owns any future internal
+opening-slate marker.
 
 Also corrected: **Item 99's predicate keeps 1,003 rows for 2026, not 888.** The 888 figure is the
 FBS-involving count; the filter retains 115 more rows where one side's classification is absent. The
@@ -168,11 +178,12 @@ saving is real but slightly smaller than the ledger projects.
 
 Two changes, both justified by the measurements above.
 
-### 1. Item 99 — filter at the schedule write path
+### 1. Item 99 — filter the two hot canonical builds
 
-Cuts the term that is 98.6% of every invocation by 3.55x — idle runs and working runs alike. Already
-specced in `docs/next-tasks.md` Item 99 with its own consumer survey and data-quality argument; this
-finding adds a second, independent driver and the losslessness measurement above.
+Cuts the term that is 98.6% of each live-score and game-stats context load by 3.55x — idle runs and
+working runs alike. Those two readers account for 87% of the measured Active CPU. The full raw
+snapshot remains durable and visible to expectation-oracle and diagnostic consumers; game-stats
+also retains it for per-id metadata and duplicate-id rejection after the filtered canonical build.
 
 ### 2. Item 102 — schedule-derived QStash polling planner
 
@@ -202,12 +213,13 @@ Projections, not measurements — built on the one measured ratio and a 12-hour 
 | Scenario | Projected CPU / 30d | Headroom vs 4h |
 | --- | --- | --- |
 | Today, both crons live | ~6.2–7.2 h | over |
-| Item 99 only | ~2.8 h | ~30% |
+| Item 99 hot-reader filter only | ~2.8 h | ~30% |
 | Item 99 + Item 102 (~20% duty cycle) | ~1.1 h | ~72% |
 | Both crons paused (today's residual) | ~0.7 h | — |
 
-**Item 99 alone gets under the line, thinly. Both together give a season's margin.** Seasonal Vercel
-Pro (~$20/month) remains an operational option for headroom, not a substitute for either change.
+**Item 99 alone is projected under the line, thinly; production measurement after merge must confirm
+that projection. Both changes together give a season's margin.** Seasonal Vercel Pro (~$20/month)
+remains an operational option for headroom, not a substitute for either change.
 
 ---
 
