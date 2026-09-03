@@ -445,6 +445,66 @@ Neon one. Keep this item for the read-replica autosuspend and the non-cadence fi
 
 - Backlog slug: `PLATFORM-OFFSEASON-SCHEDULE-PAUSE-v1`
 
+### Item 111 — `/api/odds` fetches its own origin, costing two extra invocations per request
+
+**Filed 2026-09-03 from a preview symptom that turned out to be an architecture finding.** Odds
+rendered nowhere on preview — not the Overview watchlist, not the full Schedule page — while
+production served all 168 attached entries with correct favorites.
+
+**What it is.** `loadCanonicalScheduleInputs` (`src/app/api/odds/route.ts:278`) resolves its inputs
+with a `Promise.all` in which two of the four legs are **HTTP requests back to the route's own
+origin**:
+
+- `fetchCanonicalSchedule` (`:239`) → `new URL('/api/schedule?year=${season}', reqUrl.origin)`
+- `readConferenceRecords` (`:220`) → `new URL('/api/conferences', reqUrl.origin)`
+
+This is the only route under `src/app/api` that self-fetches; every other consumer of the canonical
+schedule reads it in-process.
+
+**How it fails on preview.** Vercel deployment protection intercepts the self-fetch and returns the
+SSO login page with a **200**, so the `!response.ok` guards at `:224` and `:245` pass. `.json()` then
+hits `<!DOCTYPE` and throws, and the catch at `:679` returns HTTP 500 with the parse error as its
+body. Observed at `cfb-app-preview.vercel.app/api/odds?year=2026`:
+
+    {"error":"Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"}
+
+The 200-with-HTML reading is an inference from the error text, not from an observed status line: had
+SSO answered 401/403, the guard would have thrown `conferences 401 …` instead of a parse error.
+
+**Consequence on preview: odds can never be validated there.** `useOddsHydration`
+(`src/components/hooks/useOddsHydration.ts:56`) is gated only on `scheduleLoaded && hasGames`, so it
+fires for every visitor, sees `!res.ok`, and installs no lookup. Records still render because they
+arrive as a server prop. This is structural while deployment protection is on, and it silently
+removes odds from every preview walkthrough — which is why it went unnoticed until an owner
+walkthrough of the Item 87 slice-4 watchlist asked why no spread appeared.
+
+**The production question, UNMEASURED.** Production has no SSO, so the self-fetch succeeds and the
+route works. But each odds request still spawns **two additional function invocations**, one of them
+`/api/schedule` — the route the Active CPU campaign measured rebuilding thousands of rows. The client
+hydration is ungated, so this runs per visitor per page load.
+
+**This is a hypothesis, not a finding.** The campaign's residual non-cron cost of ~220 s/day is
+currently unattributed, and this is a plausible contributor — but nothing here has been measured
+against the Vercel Observability function breakdown. Do that measurement BEFORE scoping a fix; the
+mistake this campaign has already made five times is fitting arithmetic to a story.
+
+**Scope if it lands.** Replace both self-fetches with the in-process reads the rest of the codebase
+uses. That removes two invocations and two cold starts per odds request and fixes preview as a side
+effect. Contained to one file, but it crosses a shared schedule-read boundary, so it needs the full
+suite rather than a focused slice.
+
+**One open sub-question.** `ODDS_HYDRATION_ISSUE` (`src/lib/cfbScheduleAppHelpers.ts:34`, "Odds fetch
+failed: unable to load current odds.") is set on `!res.ok` and is classified live-visible by
+`isLiveOddsIssue`. Whether it actually renders was not confirmed during the preview walkthrough. If
+it does not, the surfacing is broken independently of this item and IS member-visible in production
+whenever an odds fetch genuinely fails — file that separately rather than folding it in.
+
+**Adjacent, do not fold in.** `readTeamsCatalog` (`:233`) reads the checked-in `src/data/teams.json`
+seed from disk rather than the durable catalog — the same two-sources-of-truth split the
+catalog-unification campaign owns. Noted here only because it sits in the same `Promise.all`.
+
+- Backlog slug: `PLATFORM-ODDS-SELF-FETCH-v1`
+
 ### Item 105 — the postseason override endpoint writes an unvalidated `Partial<AppGame>`
 
 **LOW severity hardening. Rewritten 2026-09-02 — the defect this item was originally filed for does
