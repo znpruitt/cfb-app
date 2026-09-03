@@ -48,7 +48,7 @@ committed `c9f76081`) surfaced four new items and one split, all placed below.
    117 and Item 119 build on one reviewed component change instead of each re-deriving it. Overview
    must render identically before and after — prove it by mutation, not by inspection.
 4. **Item 87 slice 5 + Item 112** — Schedule adopts the scoreboard row with no one-line collapse and
-   tier-2 behind "More" (which *is* Item 112's disclosure model, landing on Schedule first); kickoff
+   tier-2 behind "More" (which _is_ Item 112's disclosure model, landing on Schedule first); kickoff
    sort; deletes `GameWeekPanel`'s collapse and `cardEmphasisClasses`. Carries the
    `ownerOutcomeRowClasses` sibling asymmetry into `MatchupsWeekPanel`. **Owner decision needed
    before build:** the amber `upset` border (`GameWeekPanel.tsx:42`) is a reserved-colour violation
@@ -495,8 +495,8 @@ follow-on assume `#161616`. One constant, before (1) ships.
 
 ### Item 118 — Schedule status filter with counts
 
-**Filed 2026-09-03.** Design: `docs/campaigns/item-87-followon-matchups-schedule-design.md` → *The
-status key becomes a real filter*. Replaces the FINAL / IN PROGRESS / SCHEDULED colour key, which was
+**Filed 2026-09-03.** Design: `docs/campaigns/item-87-followon-matchups-schedule-design.md` → _The
+status key becomes a real filter_. Replaces the FINAL / IN PROGRESS / SCHEDULED colour key, which was
 a legend for card colours the Schedule rework deletes. Single-select; counts on each chip; zero-count
 states dim rather than disappear; chips neutral, never status-coloured; empty date groups hide under
 a filter. Additive functionality — scoped after **Item 87 slice 5**, not inside it.
@@ -506,7 +506,7 @@ a filter. Additive functionality — scoped after **Item 87 slice 5**, not insid
 ### Item 117 — Matchups adopts the shared scoreboard
 
 **Filed 2026-09-03.** Design: `docs/campaigns/item-87-followon-matchups-schedule-design.md` →
-*Matchups — design decisions*, and `mockups/matchups-schedule-mockup.html`. `MatchupsWeekPanel`'s
+_Matchups — design decisions_, and `mockups/matchups-schedule-mockup.html`. `MatchupsWeekPanel`'s
 bespoke `GameRow` (`:140`) becomes `CompactGameScoreboard`, rendered expanded inline with no collapse
 and the odds footer on. **Carries a correctness fix, not only a restyle:** the shipped row reads
 `Colorado @ Georgia Tech` over `vs BHooper` and never says which team belongs to which owner — the
@@ -521,7 +521,7 @@ scoreboard; the mockup toggles full weight against dimmed. Decide before impleme
 ### Item 116 — `NoClaim` renders to members as an owner; canonical-id slugs leak into Schedule
 
 **Filed 2026-09-03. Bug, member-visible today, self-contained — dispatch first.** Evidence and the
-three-unowned-states rule: `docs/campaigns/item-87-followon-matchups-schedule-design.md` → *Defects*.
+three-unowned-states rule: `docs/campaigns/item-87-followon-matchups-schedule-design.md` → _Defects_.
 
 **The sentinel path, traced.** `draft.ts:181`/`:240` write `NoClaim` as the owner of every unowned
 FBS team — deliberately; the bucket supports analysis. `rosterByTeam` (`CFBScheduleApp.tsx:637`)
