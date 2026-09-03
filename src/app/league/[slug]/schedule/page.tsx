@@ -4,7 +4,10 @@ import { listSeasonArchives } from '../../../../lib/seasonArchive';
 import { canonicalStandingsClientProps } from '../../../../lib/selectors/canonicalStandingsClient';
 import { getCanonicalStandings } from '../../../../lib/selectors/leagueStandings';
 import { resolveDisplayLeagueStatus } from '../../../../lib/selectors/leagueLifecycle';
+import { teamRecordsClientProps } from '../../../../lib/selectors/teamRecordsClient';
 import { isPlatformAdminSession } from '../../../../lib/server/adminAuth';
+import { loadCachedScheduleItems } from '../../../../lib/server/canonicalScheduleCache';
+import { readTeamRecordsCache } from '../../../../lib/teamRecords/teamRecordsCache';
 import { renderLeagueGateIfBlocked } from '../leagueGate';
 
 export const dynamic = 'force-dynamic';
@@ -21,12 +24,20 @@ export default async function LeagueSchedulePage({
   // through /schedule is a route-specific entry point into the same canonical app
   // state — not a lighter fallback-only entry — when WeekViewTabs switches locally
   // to Standings/Overview/Matchups/Members. Component fallbacks remain intact.
-  const [league, archiveYears, canonicalStandings, isAdmin] = await Promise.all([
-    getLeague(slug),
-    listSeasonArchives(slug),
-    getCanonicalStandings({ slug }),
-    isPlatformAdminSession(),
-  ]);
+  const leaguePromise = getLeague(slug);
+  const [league, archiveYears, canonicalStandings, isAdmin, scheduleItems, teamRecords] =
+    await Promise.all([
+      leaguePromise,
+      listSeasonArchives(slug),
+      getCanonicalStandings({ slug }),
+      isPlatformAdminSession(),
+      leaguePromise.then((league) =>
+        league ? loadCachedScheduleItems(league.year) : Promise.resolve([])
+      ),
+      leaguePromise.then((league) =>
+        league ? readTeamRecordsCache(league.year) : Promise.resolve(null)
+      ),
+    ]);
   const leagueStatus = resolveDisplayLeagueStatus(league);
   const mostRecentArchivedYear =
     archiveYears.length > 0 ? [...archiveYears].sort((a, b) => b - a)[0] : undefined;
@@ -40,6 +51,7 @@ export default async function LeagueSchedulePage({
         assignmentMethod={league?.assignmentMethod}
         mostRecentArchivedYear={mostRecentArchivedYear}
         {...canonicalStandingsClientProps(canonicalStandings)}
+        {...teamRecordsClientProps(scheduleItems, teamRecords)}
         initialWeekViewMode="schedule"
         isAdmin={isAdmin}
       />

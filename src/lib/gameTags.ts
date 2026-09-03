@@ -15,13 +15,13 @@ export type Insight = {
 };
 
 export type GameHighlightTag = {
-  id: 'top25' | 'topMatchup' | 'close' | 'ranked';
+  id: 'top25' | 'contenderWatch' | 'close' | 'ranked';
   text: string;
   priority: number;
 };
 
 export type OverviewHighlightSignals = {
-  topMatchupKey: string | null;
+  gameOfSlateKey: string | null;
   upsetWatchKeys: string[];
   rankedHighlightKey: string | null;
 };
@@ -318,7 +318,7 @@ export function deriveOverviewHighlightSignals(params: {
   });
   const displayedItems = Array.from(dedupedByKey.values());
 
-  const topMatchup = displayedItems
+  const gameOfSlate = displayedItems
     .filter((item) =>
       Boolean(
         item.bucket.awayOwner &&
@@ -407,7 +407,7 @@ export function deriveOverviewHighlightSignals(params: {
     })[0];
 
   return {
-    topMatchupKey: topMatchup?.item.bucket.game.key ?? null,
+    gameOfSlateKey: gameOfSlate?.item.bucket.game.key ?? null,
     upsetWatchKeys: upsetWatch,
     rankedHighlightKey: rankedHighlight?.item.bucket.game.key ?? null,
   };
@@ -427,21 +427,21 @@ export function deriveGameHighlightTags(params: {
   if (awayRank != null && homeRank != null) {
     tags.push({
       id: 'top25',
-      text: `#${awayRank} vs #${homeRank}`,
+      text: 'Top 25 Matchup',
       priority: 100,
     });
   } else if (awayRank != null || homeRank != null) {
     tags.push({
       id: 'ranked',
-      text: `#${awayRank ?? homeRank}`,
+      text: 'Ranked Team',
       priority: 70,
     });
   }
 
   if (isTopOwnerGame(item, topOwners)) {
     tags.push({
-      id: 'topMatchup',
-      text: 'Top matchup',
+      id: 'contenderWatch',
+      text: 'Contender Watch',
       priority: 90,
     });
   }

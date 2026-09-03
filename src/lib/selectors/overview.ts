@@ -39,7 +39,7 @@ export type LeagueSummaryViewModel = {
 
 export type PrioritizedOverviewItem = {
   item: OverviewGameItem;
-  isTopMatchup: boolean;
+  isGameOfSlate: boolean;
   isUpsetWatch: boolean;
   isRankedSpotlight: boolean;
   hasPriorityHighlight: boolean;
@@ -304,30 +304,23 @@ export function prioritizeOverviewItems(params: {
       rankingsByTeamId,
       topOwners: topOwnerNames,
     });
-    const isTopMatchup = highlightSignals.topMatchupKey === item.bucket.game.key;
+    const isGameOfSlate = highlightSignals.gameOfSlateKey === item.bucket.game.key;
     const isUpsetWatch = upsetWatchSet.has(item.bucket.game.key);
     const isRankedSpotlight =
       highlightSignals.rankedHighlightKey === item.bucket.game.key &&
-      !isTopMatchup &&
+      !isGameOfSlate &&
       !isUpsetWatch;
-    const hasTopMatchupTag = highlightTags.some((tag) => tag.id === 'topMatchup');
 
     return {
       item,
-      isTopMatchup,
+      isGameOfSlate,
       isUpsetWatch,
       isRankedSpotlight,
       hasPriorityHighlight: highlightTags.some(
-        (tag) => tag.id === 'top25' || tag.id === 'topMatchup'
+        (tag) => tag.id === 'top25' || tag.id === 'contenderWatch'
       ),
       highlightTags,
-      highlightLabel: isUpsetWatch
-        ? 'Upset watch'
-        : isRankedSpotlight
-          ? 'Ranked spotlight'
-          : isTopMatchup && !hasTopMatchupTag
-            ? 'Top matchup'
-            : null,
+      highlightLabel: isUpsetWatch ? 'Upset watch' : isGameOfSlate ? 'Game of the slate' : null,
     };
   });
 }
@@ -342,7 +335,7 @@ function watchlistPriority(item: PrioritizedOverviewItem): number {
   return Math.max(
     item.highlightTags[0]?.priority ?? 0,
     item.isUpsetWatch ? 95 : 0,
-    item.isTopMatchup ? 90 : 0,
+    item.isGameOfSlate ? 90 : 0,
     item.isRankedSpotlight ? 70 : 0
   );
 }

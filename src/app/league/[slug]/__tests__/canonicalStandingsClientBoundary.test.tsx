@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readdir, readFile } from 'node:fs/promises';
+import path from 'node:path';
 import test, { beforeEach } from 'node:test';
 import type { ReactElement } from 'react';
 
@@ -11,6 +13,12 @@ import {
 import { getCanonicalStandings, type CanonicalStandings } from '@/lib/selectors/leagueStandings';
 import { selectSeasonContext, type SeasonContext } from '@/lib/selectors/seasonContext';
 import type { StandingsHistoryWeekSnapshot } from '@/lib/standingsHistory';
+import {
+  teamRecordsClientProps,
+  type TeamRecordsByProviderGameId,
+} from '@/lib/selectors/teamRecordsClient';
+import type { ScheduleWireItem } from '@/lib/schedule';
+import type { TeamRecordItem, TeamRecordsCacheRead } from '@/lib/teamRecords/teamRecordsCache';
 
 import LeagueRootPage from '../page';
 import LeagueMatchupsPage from '../matchups/page';
@@ -35,10 +43,51 @@ import LeagueStandingsPage from '../standings/page';
 const SLUG = 'tsc';
 const YEAR = 2026;
 
+function record(teamId: number, team: string, wins: number, losses: number): TeamRecordItem {
+  return {
+    year: YEAR,
+    teamId,
+    team,
+    classification: teamId === 399 ? 'fcs' : 'fbs',
+    conference: null,
+    total: { games: wins + losses, wins, losses, ties: 0 },
+  };
+}
+
+function scheduleItem(
+  id: string,
+  awayId: number | null | undefined,
+  homeId: number | null | undefined
+): ScheduleWireItem {
+  return {
+    id,
+    week: 1,
+    startDate: '2026-09-03T22:00:00.000Z',
+    neutralSite: false,
+    conferenceGame: false,
+    awayTeam: 'UAlbany',
+    homeTeam: 'Buffalo',
+    awayId,
+    homeId,
+    awayConference: 'CAA',
+    homeConference: 'Mid-American',
+    status: 'scheduled',
+    seasonType: 'regular',
+  };
+}
+
+function recordCache(
+  items: TeamRecordItem[],
+  uncreditableTeamIds: number[] = []
+): TeamRecordsCacheRead {
+  return { at: Date.UTC(YEAR, 8, 2), year: YEAR, items, uncreditableTeamIds };
+}
+
 type CFBScheduleAppProps = {
   canonicalStandings?: CanonicalStandings;
   seasonContext?: SeasonContext;
   initialNowMs?: number;
+  teamRecordsByProviderGameId?: TeamRecordsByProviderGameId;
 };
 
 /** The pages return `<main><CFBScheduleApp {...props} /></main>`; read the props. */
@@ -144,6 +193,71 @@ async function seedLeagueWithAFinishedSeason(): Promise<void> {
   });
 }
 
+async function seedLeagueWithFcsOpponentRecords(): Promise<void> {
+  await addLeague({
+    slug: SLUG,
+    displayName: 'Turf War',
+    year: YEAR,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    status: { state: 'season', year: YEAR },
+  });
+  await setAppState(`owners:${SLUG}:${YEAR}`, 'csv', 'team,owner\nBuffalo,Alice\n');
+  await setAppState('schedule', `${YEAR}-all-all`, {
+    items: [
+      {
+        id: '401868946',
+        week: 1,
+        startDate: `${YEAR}-09-03T22:00:00.000Z`,
+        neutralSite: false,
+        conferenceGame: false,
+        homeTeam: 'Buffalo',
+        awayTeam: 'UAlbany',
+        homeId: 2084,
+        awayId: 399,
+        homeConference: 'Mid-American',
+        awayConference: 'CAA',
+        homeClassification: 'fbs',
+        awayClassification: 'fcs',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+    ],
+  });
+  await setAppState('team-records', String(YEAR), {
+    at: Date.UTC(YEAR, 8, 2),
+    year: YEAR,
+    items: [
+      {
+        year: YEAR,
+        teamId: 399,
+        team: 'UAlbany',
+        classification: 'fcs',
+        conference: 'CAA',
+        total: { games: 1, wins: 1, losses: 0, ties: 0 },
+      },
+      {
+        year: YEAR,
+        teamId: 2084,
+        team: 'Buffalo',
+        classification: 'fbs',
+        conference: 'Mid-American',
+        total: { games: 0, wins: 0, losses: 0, ties: 0 },
+      },
+    ],
+  });
+}
+
+async function findPageFiles(directory: string): Promise<string[]> {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    const entryPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) files.push(...(await findPageFiles(entryPath)));
+    if (entry.isFile() && entry.name === 'page.tsx') files.push(entryPath);
+  }
+  return files;
+}
+
 beforeEach(async () => {
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
@@ -221,6 +335,63 @@ test('every league surface passes the derived season context instead', async () 
       `${name} season context must equal the pre-projection answer`
     );
   }
+});
+
+test('every league surface passes pid-native FCS and FBS team records', async () => {
+  await seedLeagueWithFcsOpponentRecords();
+
+  for (const [name, render] of SURFACES) {
+    const props = appProps(await render(SLUG));
+    assert.deepEqual(
+      props.teamRecordsByProviderGameId?.['401868946'],
+      {
+        away: { wins: 1, losses: 0 },
+        home: { wins: 0, losses: 0 },
+      },
+      `${name} must pass UAlbany and Buffalo records by their CFBD participant ids`
+    );
+  }
+});
+
+test('the client projection uses participant ids only and preserves withheld absence', () => {
+  const missingIds = teamRecordsClientProps(
+    [scheduleItem('2018-row', undefined, undefined)],
+    recordCache([record(399, 'UAlbany', 1, 0), record(2084, 'Buffalo', 0, 0)])
+  );
+  assert.deepEqual(
+    missingIds.teamRecordsByProviderGameId,
+    {},
+    'the 2018-style row must not fall back from missing participant ids to matching names'
+  );
+
+  const withheld = teamRecordsClientProps(
+    [scheduleItem('withheld', 399, 2084)],
+    recordCache([record(399, 'UAlbany', 1, 0), record(2084, 'Buffalo', 0, 0)], [399])
+  );
+  assert.deepEqual(
+    withheld.teamRecordsByProviderGameId.withheld,
+    { away: null, home: { wins: 0, losses: 0 } },
+    'a deliberately withheld outcome must stay absent rather than render as 0-0'
+  );
+});
+
+test('every league route mounting CFBScheduleApp supplies team-record props', async () => {
+  const routeRoot = path.join(process.cwd(), 'src', 'app', 'league', '[slug]');
+  const pageFiles = await findPageFiles(routeRoot);
+  const mountingPages: string[] = [];
+
+  for (const pageFile of pageFiles) {
+    const source = await readFile(pageFile, 'utf8');
+    if (!/<CFBScheduleApp\b/.test(source)) continue;
+    mountingPages.push(path.relative(routeRoot, pageFile));
+    assert.match(
+      source,
+      /\{\.\.\.teamRecordsClientProps\(scheduleItems, teamRecords\)\}/,
+      `${path.relative(routeRoot, pageFile)} must project records at the CFBScheduleApp boundary`
+    );
+  }
+
+  assert.ok(mountingPages.length > 0, 'fixture must discover a CFBScheduleApp route mount');
 });
 
 test('a finished season reaches the client as `final`, not the default', async () => {

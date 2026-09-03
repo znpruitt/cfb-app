@@ -101,12 +101,12 @@ function item(
 function prioritized(itemValue: OverviewGameItem, priority = 0): PrioritizedOverviewItem {
   return {
     item: itemValue,
-    isTopMatchup: priority >= 90,
+    isGameOfSlate: priority >= 90,
     isUpsetWatch: false,
     isRankedSpotlight: priority >= 70 && priority < 90,
     hasPriorityHighlight: priority > 0,
-    highlightLabel: priority > 0 ? 'Ranked spotlight' : null,
-    highlightTags: priority > 0 ? [{ id: 'top25', text: 'Top 25', priority }] : [],
+    highlightLabel: priority >= 90 ? 'Game of the slate' : null,
+    highlightTags: priority > 0 ? [{ id: 'top25', text: 'Top 25 Matchup', priority }] : [],
   };
 }
 
