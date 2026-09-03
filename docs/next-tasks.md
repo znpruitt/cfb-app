@@ -499,6 +499,61 @@ only if Item 87 slice 4's record join reaches historical seasons.
 
 - Backlog slug: `PLATFORM-OVERRIDE-PAYLOAD-VALIDATION-v1`
 
+### Item 109 — LIVE DEFECT: the odds display names the wrong team as favorite
+
+**Shipping now, on every surface that shows a spread.** Found by the POLISH-020 review, but it
+predates that work — `GameScoreboard.tsx:103` already renders `Spread: ${odds.favorite} ${odds.spread}`.
+
+**Mechanism.** `odds.ts:359-368` chooses the pair by ABSOLUTE VALUE:
+
+    if (homeAbs <= awayAbs) {
+      spread = homeSpread;
+      favorite = homeAbs < awayAbs ? game.canHome : game.canAway;   // equal -> AWAY
+    }
+
+A normal book line is symmetric (`-38.5` / `+38.5`), so `homeAbs <= awayAbs` takes the HOME team's
+number while `homeAbs < awayAbs` is false and selects the AWAY team's name. The favorite is whoever
+carries the NEGATIVE spread; absolute value cannot tell them apart.
+
+**Measured against production, 2026-09-02:**
+
+| Surface | Symmetric lines | Wrong pair |
+| --- | --- | --- |
+| Live `/api/odds` response | 158 | **155** |
+| Stored `latestSnapshot` | 168 | **165** |
+| Stored `closingSnapshot` (frozen) | 8 | **7** |
+
+Example: `1-usc-sanjosestate-H` renders **"San José State -38.5"**. USC was home and favoured by 38.5;
+San José State lost 42-26 as the underdog.
+
+**A producer-only fix is insufficient.** Closing snapshots are frozen at kickoff by
+`applyPregameOddsSnapshot` and never rewritten, so completed games stay wrong forever. The correction
+must be ONE canonical derivation applied both when producing a snapshot and when projecting a stored
+one into `CombinedOdds` — **without rewriting the cache**.
+
+**It must also be idempotent.** Three of 168 stored latest snapshots are already correctly paired
+(asymmetric lines where the absolute-value comparison happened to land right). Derive from the sign of
+`homeSpread`/`awaySpread`; do not invert what is stored.
+
+**Owner decisions, 2026-09-02:**
+
+- **Correct completed games on read.** Frozen closing snapshots project through the same corrected
+  derivation, so a game already played will display a different favourite than it did before. That is
+  wanted — the archive was wrong.
+- **Pick'em: show the reported spread anyway.** A `0` line has no favourite; render the spread the
+  book reported rather than suppressing it. The existing favourite-less branch
+  (`GameScoreboard.tsx:104`) already does this. Zero pick'em lines exist in production today.
+
+**Why this is NOT part of POLISH-020.** That slice carries a "naming only; no qualification change"
+requirement for the `Top matchup` rename, and correcting favourite identity can legitimately change
+upset-related qualification. It also blocks POLISH-020: a watchlist-only workaround currently sits in
+`OverviewPanel.tsx:143` and must be removed once this lands.
+
+**Its reach grew tonight.** PLATFORM-122 took week 1 from 50 games showing a line to 98, roughly
+doubling the surface area of this defect before it was known.
+
+- Backlog slug: `PLATFORM-ODDS-FAVORITE-PAIRING-v1`
+
 ### Item 108 — VERIFY: do live scores tick for FBS-vs-FCS games? (dated observation, 2026-09-04)
 
 **A verification, not a fix — the defect may not exist.** Filed 2026-09-02 from a deliberate pass over

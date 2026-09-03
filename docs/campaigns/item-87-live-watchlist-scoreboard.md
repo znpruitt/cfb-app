@@ -179,6 +179,14 @@ because of the matching defect in Item 106 — and after PLATFORM-122 shipped, *
 carry a line**. The empty-odds row is therefore rare, not the common case it appeared to be. The one
 remaining gap (UMass @ Rutgers) is aggregator coverage we cannot recover.
 
+**Follow-up decision, 2026-09-02 — if the records read FAILS ENTIRELY, leave the anchor blank.** Not
+"this team has no record" (which does not occur; all 138 FBS teams are covered) but the whole durable
+read failing or the prop being absent. In that state the team line renders with **no anchor — a blank
+hole** — rather than falling back to the spread. This is a deliberate owner exception to
+`DESIGN.md:95` ("every row needs a right-edge anchor") for a rare failure state; it is not an
+oversight and should not be "fixed" by a later reviewer. Records must degrade, never take a page
+down.
+
 The earlier reading of a record → spread → fallback LADDER was a misreading of the card spec above:
 the spread substitutes for the anchor only when a record is genuinely unavailable, which the
 measurement shows does not occur for FBS teams.
