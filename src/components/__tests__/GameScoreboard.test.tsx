@@ -164,6 +164,18 @@ test('conference and owner render under the correct team rows', () => {
   );
 });
 
+test('expanded scoreboard hides NoClaim while preserving a sibling owner name', () => {
+  const html = renderScoreboard({
+    awayConference: 'Big 12',
+    awayOwner: 'NoClaim',
+    homeConference: 'SEC',
+    homeOwner: 'Morgan',
+  });
+
+  assert.doesNotMatch(html, /NoClaim/);
+  assert.match(html, /data-scoreboard-team-context="home">SEC · Morgan<\//);
+});
+
 test('status stays subtle inside the expanded scoreboard', () => {
   const html = renderScoreboard({
     score: {

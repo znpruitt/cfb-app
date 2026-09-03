@@ -14,6 +14,7 @@ import {
 } from '../lib/selectors/trends';
 import { buildWeekLabelMap, formatWeekLabel } from '../lib/weekLabel';
 import { formatExpandedKickoff, formatPrimaryBroadcastLabel } from '../lib/gameCardPresentation';
+import { displayOwner } from '../lib/gameOwnership';
 import { formatGameMatchupLabel } from '../lib/gameUi';
 import { normalizeStatusTokens } from '../lib/gameStatus';
 import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
@@ -56,7 +57,7 @@ import {
 } from '../lib/rankings';
 import { getGameParticipantTeamId, type AppGame } from '../lib/schedule';
 import type { ScorePack } from '../lib/scores';
-import { NO_CLAIM_OWNER, standingsCoverageNoticeWithSubject } from '../lib/standings';
+import { standingsCoverageNoticeWithSubject } from '../lib/standings';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
 import type { StandingsHistory } from '../lib/standingsHistory';
 import type {
@@ -698,7 +699,7 @@ function GameCardList({
             matchupLabel={formatGameMatchupLabel(game)}
             away={{
               teamName: game.csvAway,
-              owner: item.bucket.awayOwner === NO_CLAIM_OWNER ? null : item.bucket.awayOwner,
+              owner: displayOwner(item.bucket.awayOwner),
               rank: awayRanking.rank,
               rankSource: awayRanking.rankSource,
               record: teamRecords?.away,
@@ -706,7 +707,7 @@ function GameCardList({
             }}
             home={{
               teamName: game.csvHome,
-              owner: item.bucket.homeOwner === NO_CLAIM_OWNER ? null : item.bucket.homeOwner,
+              owner: displayOwner(item.bucket.homeOwner),
               rank: homeRanking.rank,
               rankSource: homeRanking.rankSource,
               record: teamRecords?.home,
@@ -791,7 +792,7 @@ function WatchlistScoreboardList({
             }
             away={{
               teamName: game.csvAway,
-              owner: item.bucket.awayOwner === NO_CLAIM_OWNER ? null : item.bucket.awayOwner,
+              owner: displayOwner(item.bucket.awayOwner),
               rank: awayRanking.rank,
               rankSource: awayRanking.rankSource,
               record: teamRecords?.away,
@@ -799,7 +800,7 @@ function WatchlistScoreboardList({
             }}
             home={{
               teamName: game.csvHome,
-              owner: item.bucket.homeOwner === NO_CLAIM_OWNER ? null : item.bucket.homeOwner,
+              owner: displayOwner(item.bucket.homeOwner),
               rank: homeRanking.rank,
               rankSource: homeRanking.rankSource,
               record: teamRecords?.home,
@@ -863,7 +864,7 @@ function FeaturedGamesList({
             }
             away={{
               teamName: game.csvAway,
-              owner: item.bucket.awayOwner === NO_CLAIM_OWNER ? null : item.bucket.awayOwner,
+              owner: displayOwner(item.bucket.awayOwner),
               rank: awayRanking.rank,
               rankSource: awayRanking.rankSource,
               record: teamRecords?.away,
@@ -871,7 +872,7 @@ function FeaturedGamesList({
             }}
             home={{
               teamName: game.csvHome,
-              owner: item.bucket.homeOwner === NO_CLAIM_OWNER ? null : item.bucket.homeOwner,
+              owner: displayOwner(item.bucket.homeOwner),
               rank: homeRanking.rank,
               rankSource: homeRanking.rankSource,
               record: teamRecords?.home,

@@ -3,11 +3,19 @@ import test from 'node:test';
 
 import type { AppGame, ParticipantSlot } from '../schedule';
 import {
+  displayOwner,
   getGameOwners,
   getGameSideForTeam,
   getOwnerForGameSide,
   sideIdentityCandidates,
 } from '../gameOwnership.ts';
+
+test('displayOwner hides the unowned-team sentinel and preserves real owners', () => {
+  assert.equal(displayOwner('NoClaim'), null);
+  assert.equal(displayOwner('Alice'), 'Alice');
+  assert.equal(displayOwner(null), null);
+  assert.equal(displayOwner(undefined), null);
+});
 
 function teamParticipant(overrides: Partial<Extract<ParticipantSlot, { kind: 'team' }>>) {
   return {
