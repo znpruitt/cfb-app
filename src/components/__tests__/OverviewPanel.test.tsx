@@ -14,6 +14,7 @@ import type { OwnerStandingsRow, StandingsCoverage } from '../../lib/standings';
 import type { StandingsHistory } from '../../lib/standingsHistory';
 import type { AppGame } from '../../lib/schedule';
 import type { ScorePack } from '../../lib/scores';
+import { buildOddsByGame } from '../../lib/odds';
 
 type OverviewPanelProps = React.ComponentProps<typeof OverviewPanelImpl>;
 type OverviewPanelTestProps = Omit<OverviewPanelProps, 'sectionItems' | 'nowMs'> &
@@ -40,6 +41,7 @@ function game(overrides: Partial<AppGame>): AppGame {
     date: overrides.date ?? '2026-09-01T17:00:00.000Z',
     stage: overrides.stage ?? 'regular',
     status: overrides.status ?? 'scheduled',
+    rawStatus: overrides.rawStatus,
     stageOrder: overrides.stageOrder ?? 1,
     slotOrder: overrides.slotOrder ?? 1,
     eventKey: overrides.eventKey ?? 'event',
@@ -288,6 +290,7 @@ test('overview watchlist uses the shared scoreboard with records and one odds fo
         rawName: 'Buffalo',
       },
     },
+    rawStatus: 'postponed',
   });
 
   const html = renderToStaticMarkup(
@@ -306,25 +309,40 @@ test('overview watchlist uses the shared scoreboard with records and one odds fo
           home: { wins: 0, losses: 0 },
         },
       }}
-      oddsByKey={{
-        'fcs-watchlist': {
-          favorite: 'Buffalo',
-          spread: -20.5,
-          homeSpread: -20.5,
-          awaySpread: 20.5,
-          spreadPriceHome: -110,
-          spreadPriceAway: -110,
-          total: 55.5,
-          mlHome: null,
-          mlAway: null,
-          overPrice: -110,
-          underPrice: -110,
-          source: 'ESPN BET',
-          bookmakerKey: 'espnbet',
-          capturedAt: '2026-09-02T12:00:00.000Z',
-          lineSourceStatus: 'latest',
-        },
-      }}
+      oddsByKey={buildOddsByGame({
+        games: [watchlistGame],
+        oddsEvents: [
+          {
+            away_team: 'UAlbany',
+            home_team: 'Buffalo',
+            commence_time: '2026-09-03T22:00:00.000Z',
+            bookmakers: [
+              {
+                key: 'espnbet',
+                title: 'ESPN BET',
+                markets: [
+                  {
+                    key: 'spreads',
+                    outcomes: [
+                      { name: 'UAlbany', point: 20.5, price: -110 },
+                      { name: 'Buffalo', point: -20.5, price: -110 },
+                    ],
+                  },
+                  {
+                    key: 'totals',
+                    outcomes: [
+                      { name: 'Over', point: 55.5, price: -110 },
+                      { name: 'Under', point: 55.5, price: -110 },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+        aliasMap: {},
+        teams: [],
+      })}
     />
   );
 
@@ -332,11 +350,16 @@ test('overview watchlist uses the shared scoreboard with records and one odds fo
     /<article(?=[^>]*aria-label="UAlbany at Buffalo")(?=[^>]*data-scoreboard-state="scheduled")[\s\S]*?<\/article>/
   )?.[0];
   assert.ok(scoreboard, 'the FCS matchup must render through CompactGameScoreboard');
+  assert.match(
+    html,
+    /<section class="@container">[\s\S]*Upcoming watchlist[\s\S]*data-watchlist-scoreboard-grid/
+  );
   assert.match(scoreboard, /data-watchlist-reason-row/);
   assert.match(scoreboard, /Game of the slate/);
   assert.match(scoreboard, /Contender Watch/);
   assert.match(scoreboard, /Thu, Sep 3, 10:00 PM/);
   assert.match(scoreboard, /ESPN/);
+  assert.match(scoreboard, />Postponed<\/span>/);
   assert.match(
     scoreboard,
     /data-scoreboard-side="away"[\s\S]*data-scoreboard-team="away">UAlbany<\/span>[\s\S]*data-scoreboard-owner="away">Alice<\/span>[\s\S]*data-scoreboard-value-kind="record" data-scoreboard-value="away">1–0<\//

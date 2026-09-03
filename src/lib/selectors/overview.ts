@@ -42,7 +42,6 @@ export type PrioritizedOverviewItem = {
   isGameOfSlate: boolean;
   isUpsetWatch: boolean;
   isRankedSpotlight: boolean;
-  hasPriorityHighlight: boolean;
   highlightLabel: string | null;
   highlightTags: ReturnType<typeof deriveGameHighlightTags>;
 };
@@ -316,9 +315,6 @@ export function prioritizeOverviewItems(params: {
       isGameOfSlate,
       isUpsetWatch,
       isRankedSpotlight,
-      hasPriorityHighlight: highlightTags.some(
-        (tag) => tag.id === 'top25' || tag.id === 'contenderWatch'
-      ),
       highlightTags,
       highlightLabel: isUpsetWatch ? 'Upset watch' : isGameOfSlate ? 'Game of the slate' : null,
     };

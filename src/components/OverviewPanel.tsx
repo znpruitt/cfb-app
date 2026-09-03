@@ -140,10 +140,23 @@ function signedOddsValue(value: number): string {
   return value > 0 ? `+${value}` : String(value);
 }
 
-function watchlistOddsFooter(odds: CombinedOdds | undefined): string | null {
+function watchlistOddsFooter(game: AppGame, odds: CombinedOdds | undefined): string | null {
   if (!odds) return null;
   const parts: string[] = [];
-  if (odds.spread != null) {
+
+  if (odds.homeSpread != null && odds.awaySpread != null) {
+    if (odds.homeSpread < odds.awaySpread) {
+      parts.push(`${game.csvHome} ${signedOddsValue(odds.homeSpread)}`);
+    } else if (odds.awaySpread < odds.homeSpread) {
+      parts.push(`${game.csvAway} ${signedOddsValue(odds.awaySpread)}`);
+    } else {
+      parts.push(`Spread ${signedOddsValue(odds.spread ?? odds.homeSpread)}`);
+    }
+  } else if (odds.homeSpread != null) {
+    parts.push(`${game.csvHome} ${signedOddsValue(odds.homeSpread)}`);
+  } else if (odds.awaySpread != null) {
+    parts.push(`${game.csvAway} ${signedOddsValue(odds.awaySpread)}`);
+  } else if (odds.spread != null) {
     parts.push(
       odds.favorite
         ? `${odds.favorite} ${signedOddsValue(odds.spread)}`
@@ -805,7 +818,7 @@ function WatchlistScoreboardList({
               record: teamRecords?.home,
               score: null,
             }}
-            footerSlot={watchlistOddsFooter(oddsByKey[game.key])}
+            footerSlot={watchlistOddsFooter(game, oddsByKey[game.key])}
           />
         );
       })}
@@ -1670,7 +1683,7 @@ export default function OverviewPanel({
       {gameSections.scheduled.length > 0 ? (
         <>
           <SectionDivider />
-          <section>
+          <section className="@container">
             <SectionHeader
               title="Upcoming watchlist"
               action={
