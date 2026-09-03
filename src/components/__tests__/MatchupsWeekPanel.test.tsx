@@ -159,7 +159,7 @@ test('matchups panel keeps scheduled fallback zero-zero scores out of tie messag
   assert.doesNotMatch(html, /Tied 0-0/);
 });
 
-test('matchups panel omits unowned-vs-unowned from owner cards and summarizes exclusion', () => {
+test('matchups panel keeps an owner-only empty state without an excluded-games summary', () => {
   const html = renderToStaticMarkup(
     <MatchupsWeekPanel
       games={[game({ key: 'g3', csvAway: 'UCLA', csvHome: 'USC' })]}
@@ -171,8 +171,8 @@ test('matchups panel omits unowned-vs-unowned from owner cards and summarizes ex
   );
 
   assert.match(html, /No owner-relevant games for this week/);
-  assert.match(html, /Excluded games/);
-  assert.match(html, /1 excluded game/);
+  assert.doesNotMatch(html, /Excluded games/);
+  assert.doesNotMatch(html, /1 excluded game/);
 });
 
 test('matchups panel summarizes self-matchups as Self', () => {

@@ -18,13 +18,11 @@ import {
 } from '../lib/gameTags';
 import {
   deriveOwnerWeekSlates,
-  deriveWeekMatchupSections,
   type OwnerSlateGame,
   type OwnerWeekSlate,
   type WeekMatchupSections,
 } from '../lib/matchups';
 import {
-  deriveExcludedGamesSummary,
   deriveOpponentDescriptor,
   deriveOwnerOutcome,
   getDefaultVisibleOpponentsCount,
@@ -411,14 +409,12 @@ export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.
     scoresByKey,
     rosterByTeam,
     displayTimeZone = getPresentationTimeZone(),
-    sections,
     rankingsByTeamId = new Map(),
     focusedOwner = null,
     focusedOwnerPair = null,
     canonicalStandings = null,
     liveDelta = null,
   } = props;
-  const derivedSections = sections ?? deriveWeekMatchupSections(games, rosterByTeam);
   const rawOwnerSlates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey);
   const visibleOwnerSlates = rawOwnerSlates.filter((slate) => displayOwner(slate.owner) !== null);
   // Reorder owner cards to match canonical owner identity when canonical is
@@ -496,13 +492,6 @@ export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.
         ) : (
           <EmptyState />
         )}
-      </section>
-
-      <section className="rounded-xl border border-dashed border-gray-300 bg-gray-50 px-3 py-2.5 sm:px-4 dark:border-zinc-700 dark:bg-zinc-900">
-        <h2 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">Excluded games</h2>
-        <p className="mt-1 text-xs text-gray-600 dark:text-zinc-400">
-          {deriveExcludedGamesSummary(derivedSections)}{' '}
-        </p>
       </section>
     </div>
   );
