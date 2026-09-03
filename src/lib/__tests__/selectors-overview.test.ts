@@ -1304,7 +1304,7 @@ test('selectOverviewViewModel keeps retired pulse output absent for scoped histo
 });
 
 test('selectOverviewViewModel keeps featured games when finals dominate early candidates', () => {
-  const finals = [1, 2, 3, 4].map((value) => ({
+  const finals = [1, 2, 3, 4, 5, 6].map((value) => ({
     ...item(`final-${value}`),
     score: {
       status: 'Final',
@@ -1357,7 +1357,7 @@ test('selectOverviewViewModel keeps featured games when finals dominate early ca
   assert.ok(
     model.watchlistCandidates.some((entry) => entry.item.bucket.game.key === 'scheduled-late')
   );
-  assert.equal(model.recentResults.length, 3);
+  assert.equal(model.recentResults.length, 4);
 });
 
 test('selectOverviewViewModel is deterministic for identical highlight inputs', () => {
