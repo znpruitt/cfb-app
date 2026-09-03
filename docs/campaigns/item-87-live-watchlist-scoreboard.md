@@ -285,8 +285,8 @@ and precedence remain selector-owned. **Must not be forked.**
 
 ## Open decisions
 
-1. **Featured selection — partially decided; the rest belongs with the insights pipeline.**
-   - **Cap: three.** Scarcity is the point. Games that miss the cut still carry their notoriety tags in the watchlist, so nothing is hidden by the cap.
+1. **Featured selection — partially decided; the rest belongs with the insights pipeline. Filed as Item 113, not built.**
+   - **Cap: three — shipped 2026-09-03**, independently of the rest of this reframe. Scarcity is the point. Games that miss the cut still carry their notoriety tags in the watchlist, so nothing is hidden by the cap.
    - **Copy tone: resolved.** "Toilet bowl" is established TSC terminology already used by the insights system, not a phrase this design introduces. Constraint that follows: Featured copy should **inherit league vocabulary from the insight generators** rather than invent parallel phrasing for the same concepts, or the app describes one thing two ways on a single page.
    - **Still open:** reset cadence (weekly, or can a game stay featured across weeks); whether zero qualifying games hides the tile or shows an empty state; which insight categories are pair-anchorable, and whether any new generators are needed.
 2. **Recap notable results — team records: deferred, not rejected.** Records add flavour on the Item 87 scoreboard, so the same likely holds for the recap, but there is no reason to couple the recap's enrichment stage to PLATFORM-117's cache. Work it in later as an additive change.
@@ -528,6 +528,8 @@ by excluding both final and in-progress games. Featured was therefore the only r
 could render green-final, and POLISH-017 retired exactly that call.
 
 **Featured is a separate axis from state — resolved.** State moves games between sections; Featured exempts a game from that movement. A featured game enters when selected and stays through scheduled, live and final, so it appears **only** in the Featured tile, never in the state sections — preserving the promotion model's one-game-one-place rule rather than competing with it.
+
+**"Resolved" names the decision, not the delivery.** Nothing below this point is built: today's Featured is a plain finals-only selector with no insight involvement. Filed as **Item 113** in `docs/next-tasks.md`, 2026-09-03.
 
 The tile states the reason with substance ("Whited leads Chamness 44–25"), not a bare label: a game earns promotion out of the weekly slate only if the reason is worth reading. **Capped at three** — at five it is another list with a nicer name, and the fourth competing list this campaign exists to remove. Games that do not make the cut still carry their notoriety tags in the watchlist, so nothing is hidden by the cap.
 

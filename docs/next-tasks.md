@@ -455,6 +455,69 @@ Neon one. Keep this item for the read-replica autosuspend and the non-cadence fi
 
 - Backlog slug: `PLATFORM-OFFSEASON-SCHEDULE-PAUSE-v1`
 
+### Item 113 — Featured games is a plain finals list; the insights-hook reframe was decided but never built
+
+**Filed 2026-09-03 from an audit of `docs/campaigns/item-87-live-watchlist-scoreboard.md` against
+current code, prompted by the owner asking whether Featured was state-agnostic.** It is not, and the
+gap between the doc and the shipped behavior is the reason that question had a wrong-sounding answer.
+
+**What ships today.** `selectFeaturedGames` (`src/lib/selectors/overview.ts:376`) is a plain selector:
+drop games where both sides are `NoClaim`, sort postseason games by round tier, slice to a limit.
+`deriveFeaturedGameBadge` (`OverviewPanel.tsx:157`) renders a badge only for CFP round labels
+(`CFP Semifinal`, `CFP Championship`, ...) — every other featured game carries no reason at all.
+Selection is finals-only: `resultCandidates` filters to `hasUsableFinalScore` (`overview.ts:470`), so
+a game is invisible to Featured while scheduled or live and only enters once it is final.
+
+**What the campaign doc decided, and marked "resolved" (`item-87-live-watchlist-scoreboard.md:530-571`),
+none of it built:**
+
+- **State-agnostic, one place for the whole cycle (`:530`).** "A featured game enters when selected
+  and stays through scheduled, live and final, so it appears only in the Featured tile, never in the
+  state sections." Today a featured game is an ordinary Watchlist or Live row until it finishes, with
+  no distinct treatment, then moves to Featured only at the end.
+- **Selection ownership moves to the insights pipeline (`:557-568`).** Featured stops asking "which
+  games are worth watching" (football criteria) and starts asking "which games activate a fact the
+  league already knows" — reusing the existing insight taxonomy and `INSIGHTS-018`'s priority/
+  suppression machinery rather than a parallel calibration.
+- **Filter — pair-anchored insights only (`:569`).** Only insights whose subject is a pair of owners
+  who happen to be meeting qualify; "longest active title drought" has no game to attach to.
+- **Feed-duplicate suppression (`:571`).** An insight surfaced in Featured must not also appear in
+  the regular insights feed that week — the same one-place principle as the section promotion model,
+  applied to the insights feed instead of the game sections.
+- **Copy and colour inherit from the insight (`:566-567`).** Reason text generates from the insight,
+  not a game-specific template; colour takes whatever `INSIGHTS-017-PALETTE` assigns to that insight
+  category. `INSIGHTS-017-PALETTE` itself is tracked only as a prose bullet under "Unresolved
+  decisions," not a numbered item — decide whether this dependency needs one before scoping colour.
+- **Cap of three — already fixed, separately from this item.** Shipped at 6 (the shared default);
+  corrected 2026-09-03 to the decided value of 3, which is Featured-specific
+  (`OVERVIEW_RESULTS_LIMIT`, `overview.ts:69`) and does not touch Live/Watchlist/Recent finals.
+
+**One architectural question the original design didn't address.** Today's postseason-round sort
+(`hasPostseasonGames` branch, `overview.ts:388-395`) is a second, independent selection path with no
+insight involved. Reframing selection around pair-anchored insights needs an explicit answer for
+whether postseason significance becomes its own insight category feeding the same pipeline, or
+remains a separate override layered ahead of it — the campaign doc's design was written for
+regular-season rivalry-shaped insights and never considered this case.
+
+**Still open, inherited from the original design record (`:291`) — do not re-decide, just don't
+lose them:** reset cadence (weekly, or can a game stay featured across weeks); whether zero
+qualifying games hides the tile or renders an empty state; which insight categories are
+pair-anchorable, and whether any new generators are needed.
+
+**Re-verify the mockup against current Overview before building.** The design predates POLISH-020
+(Watchlist converted to the shared scoreboard, 2026-09-03) and Item 112 (row disclosure, filed the
+same day). Both change what "the rest of Overview" looks like around the Featured tile; confirm the
+mockup's assumptions still hold rather than trusting it as current.
+
+**Acceptance boundary:** a featured game is selected once and renders in exactly one place —
+Featured — for its entire scheduled→live→final lifecycle, never duplicated into Live, Watchlist, or
+Recent finals. Selection reads from the insight taxonomy via pair-anchored matching, not from
+`prioritizeOverviewItems`'s football criteria. An insight consumed by Featured does not also render
+in that week's insights feed. Reason copy and colour come from the insight, not a game-specific
+template.
+
+- Backlog slug: `INSIGHTS-FEATURED-GAME-HOOK-v1`
+
 ### Item 112 — rows do not expand: a settled Item 87 decision that no slice implemented
 
 **Filed 2026-09-03 at the close of Item 87 slice 4.** The shared scoreboard is now the row type on
