@@ -499,13 +499,42 @@ only if Item 87 slice 4's record join reaches historical seasons.
 
 - Backlog slug: `PLATFORM-OVERRIDE-PAYLOAD-VALIDATION-v1`
 
-### Item 110 — provider score corrections are detected, declined, and only whispered
+### Item 110 — game stats have no correction path, and nothing detects that they diverged
 
-**The provider says it revises data.** CFBD's admin, 2026-09-02: _"game data can change up to several
-hours afterward. I will always do a 'final' data reconciliation on Sundays for that week's games."_
-So post-hoc correction is routine scheduled provider behaviour, not an edge case.
+**Reframed 2026-09-02.** First filed about SCORES. The owner's observation — that a provider revising
+"game data" is far more likely to mean box-score stats than final scores — is supported by the one
+measurement available, and it inverts the severity. Scores are unambiguous and settle at the whistle;
+stats are what conference crews revise for days.
 
-**We detect the correction and deliberately do not apply it.**
+**The provider revises on a schedule.** CFBD's admin, 2026-09-02: _"game data can change up to
+several hours afterward. I will always do a 'final' data reconciliation on Sundays for that week's
+games."_
+
+| | scores | game stats |
+| --- | --- | --- |
+| Divergence detected? | yes — `differenceCount` | **no** |
+| Correction applied? | no, deliberately | no |
+| Surfaced anywhere? | weakly, as receipt detail | **not at all** |
+| Observed in production | **0 differences** | unmeasurable — nothing counts it |
+
+#### The stats gap — the primary concern
+
+`gameStats/pollingTarget.ts:41-43`: a game becomes pollable exactly 3 hours after kickoff and leaves
+the window exactly **24 hours** after kickoff. A partition also stops being a candidate once its
+evidence is satisfied, which in the normal case happens the same night. There is no re-ingest path —
+no revisit of a satisfied partition, and the Tuesday sweeper handles SCORES only.
+
+So a Saturday noon game's stats window closes Sunday noon, CFBD reconciles "on Sundays", and whatever
+we ingested is permanent. **Nothing detects the divergence and nothing reports it.** The only
+correction is an operator forcing `bypassCache=1` on `/api/game-stats`.
+
+**This is unsized on purpose.** We cannot say how often stats change after satisfaction, because
+nothing compares. Sizing it is one CFBD call: re-fetch a played week's `/games/teams` and diff against
+the stored partition. **Do that before designing anything** — if the diff is empty, this closes; if it
+is not, the size of the diff picks the fix.
+
+#### The score finding — recorded, measured rare
+
 `finalScoreSweep.ts:305-313`, inside the weekly Tuesday refresh:
 
     if (cachedGame?.final) {
@@ -516,37 +545,34 @@ So post-hoc correction is routine scheduled provider behaviour, not an edge case
       continue;                    // records the divergence, writes nothing
     }
 
-The sweeper fills genuinely MISSING finals only — the name is accurate. A confirmed final is never
-overwritten.
+Live polling cannot pick it up either — `resolveWindowState` marks a confirmed final `resolved` and
+`selectPollingPlan` never targets it again. So no path applies a score correction to a confirmed
+final.
 
-**And no other path reaches it.** Live polling drops a game once it resolves
-(`liveScores/pollingTarget.ts` — `resolveWindowState` returns `resolved`, and `selectPollingPlan`
-targets only `unresolved-open` / `pending-confirmation`), so a corrected score is never re-fetched
-there either. **No path currently applies a provider correction to a confirmed final.**
+**The refusal is probably right** — the same conservatism that rejects an empty provider response, and
+reversing it would let a blip overwrite a good final. **Measured 2026-09-02: `scoreDifferences=0`** on
+the schedule-refresh receipt dated 2026-09-01T12:00, the first Tuesday after CFBD's opening-weekend
+reconciliation, across the 8 games played. One observation, latest-only receipt, small sample — but it
+is the only evidence there is, and it points away from scores.
 
-**The refusal is probably right; the silence is not.** Declining to overwrite a good final on a
-provider blip is the same conservatism as the empty-response rejection and should not be casually
-reversed. The reporting is the defect: `scoreDifferences` renders only as a fragment of the
-schedule-refresh receipt's DETAIL STRING (`systemHealthPresentation.ts:232`, appended after year
-counts alongside repairs, sweep failures and kickoff changes) and **raises no issue** —
-`systemHealthIssues.ts` has no score-difference code, so the row still reads healthy.
+What remains wrong on the score side is legibility, not correctness: `scoreDifferences` renders only
+as a fragment of the schedule-refresh receipt's detail string (`systemHealthPresentation.ts:232`,
+appended after year counts beside repairs, sweep failures and kickoff changes) and raises no issue —
+`systemHealthIssues.ts` has no score-difference code, so the row reads healthy.
 
-Once a week we observe that the provider disagrees with our stored result, and the only trace is a
-clause in one line on a green row.
+#### What to decide, once the stats diff is measured
 
-**What to decide (not obvious — do not assume):**
+- Should a detected divergence — of either kind — raise a health issue so a human adjudicates?
+- Is CFBD's own Sunday reconciliation a class safe to apply automatically, unlike a mid-game blip, and
+  can either path distinguish them?
+- What does an operator DO once told? There is no per-game repair affordance today, only a
+  partition-wide admin `bypassCache`.
 
-- Should a detected difference raise a health issue so a human adjudicates? Smallest change, probably
-  the right one.
-- Is any class of difference safe to apply automatically? CFBD's own Sunday reconciliation is
-  authoritative by construction, unlike a mid-game blip — can the sweeper distinguish them?
-- What does an operator DO once told? There is no per-game repair affordance today.
+**Do not fold this into cadence work.** Item 102's tail-cadence design is separate; shortening the
+polling tail neither helps nor hurts this, because live polling was never the correction path for
+either dataset.
 
-**Do not fold this into cadence work.** Item 102's tail-cadence design is a separate question. This is
-about the correctness of stored finals, and shortening the polling tail neither helps nor hurts it,
-because live polling was never the correction path.
-
-- Backlog slug: `PLATFORM-SCORE-CORRECTION-VISIBILITY-v1`
+- Backlog slug: `PLATFORM-STATS-CORRECTION-DETECTION-v1`
 
 ### Item 108 — VERIFY: do live scores tick for FBS-vs-FCS games? (dated observation, 2026-09-04)
 
