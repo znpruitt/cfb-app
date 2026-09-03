@@ -36,19 +36,27 @@ both high-frequency QStash schedules are manually switched per game window, and 
 strands finals permanently because `kickoff + 24h` reconciliation cannot be re-entered. That is a
 weekly operator burden with a data-loss mode, and it did not exist when the prior order was set.
 
-1. **Item 87 slice 4** — Watchlist, consuming the PLATFORM-117 records cache. Overview is
-   internally inconsistent until this lands: Live, Featured, and Recent finals are scoreboard rows
-   while Watchlist and Schedule are still bespoke.
-2. **Item 102 + Item 88** — polling planner and the health model, together. 102 narrows the cron and
+1. **Item 102 + Item 88** — polling planner and the health model, together. 102 narrows the cron and
    88 is the reason that is safe: `schedulerDeliveryHealth.ts:82,88` hardcodes the cadence, so a
    planner shipped alone makes both jobs read `late` forever. This is what retires the manual switch.
-3. **Item 87 slice 5** — Schedule rework. Filed 2026-08-30; Schedule adopts the scoreboard row,
-   two-column and all, and its green-`final` / amber-live is settled there rather than by a
-   separate sweep. Also carries the `ownerOutcomeRowClasses` sibling asymmetry left by POLISH-018,
-   which reaches `MatchupsWeekPanel` — a different week view mode, named deliberately in the
-   campaign doc rather than folded in silently.
-4. **Item 95 portion 1** — browser poll 180s -> 90s. PLATFORM-120 cleared its Active CPU gate; it
-   retains this owner-selected position after the higher-priority UI and planner work.
+   Not a close call: the campaign's own projection puts Item 99 alone (shipped) at ~2.8h/30d against
+   the 4h Hobby allowance — thin — where Item 102 reaches ~1.1h, a season's margin. It also retires
+   the manual QStash pause/resume, which carries a real data-loss mode at the `kickoff + 24h`
+   reconciliation boundary.
+2. **Item 87 slice 5 + Item 112** — Schedule rework and row disclosure, taken together. Slice 5 was
+   filed 2026-08-30; Schedule adopts the scoreboard row, two-column and all, and its green-`final` /
+   amber-live is settled there rather than by a separate sweep. Also carries the
+   `ownerOutcomeRowClasses` sibling asymmetry left by POLISH-018, which reaches `MatchupsWeekPanel` —
+   a different week view mode, named deliberately in the campaign doc rather than folded in silently.
+   Item 112 (row disclosure, filed 2026-09-03 when slice 4 shipped without it) belongs alongside
+   rather than before it: same component, same surface, and bundling avoids threading `media`/venue/
+   head-to-head props onto `CompactGameScoreboard` twice.
+3. **Item 95 portion 1** — browser poll 180s -> 90s. PLATFORM-120 cleared its Active CPU gate; it
+   retains this owner-selected position after the higher-priority planner and UI work.
+
+**Interstitial, no dedicated slot:** Item 111 is a ~5-minute Observability-console check ("measure
+before scoping," per the item itself), not an implementation task. It does not compete with the above
+for engineering time and can run any time this week.
 
 Runnable at any point, no dependency on the above: **Item 42 portion 1** (notable-result
 scoreboards, now unblocked by POLISH-017's final variant), **Item 84** (provider-classification
@@ -1833,7 +1841,8 @@ Presentation and information-architecture half of the Overview games region. POL
 the interim correctness and empty-copy fixes on this surface. POLISH-016 / slice 1 then shipped the
 shared scoreboard contract and converted the Live section; POLISH-017 / slice 2 converted Featured
 and settled green-live on Overview; POLISH-019 / slice 3 added Recent finals and structural
-promotion. Slices 4–5 retain the Watchlist and Schedule work.
+promotion. **POLISH-020 / slice 4 converted the Watchlist**, merged 2026-09-03 via PR #558
+(`c730b4d0`). Slice 5 retains the Schedule work.
 
 **Problem observed on `/league/tsc` during the 2026 opening slate (2026-08-29).** One game appeared
 twice on a single screen — in "Upcoming watchlist" and again in the "Live" tile — and the Live card
@@ -1843,10 +1852,10 @@ as a section eyebrow, and scheduled rows ended in an empty `———` box.
 
 Remaining root cause:
 
-- The same conceptual object still has multiple renderers. Slices 1–3 moved Overview Live,
-  Featured, and Recent finals onto the shared scoreboard anatomy, but `GameSummaryList` remains
-  bespoke alongside `GameScoreboard` on Matchups and the recap primitives. The remaining Item 87
-  slices complete the Watchlist and Schedule transition.
+- The same conceptual object still has multiple renderers. Slices 1–4 moved Overview Live,
+  Featured, Recent finals, and Watchlist onto the shared scoreboard anatomy, but `GameSummaryList`
+  remains bespoke alongside `GameScoreboard` on Matchups and the recap primitives. The remaining
+  Item 87 slice (5) completes the Schedule transition.
 
 **Settled decisions (owner, 2026-08-29).** The governing criterion for any marker is that it be
 TRUE and VALUABLE to the reader; scarcity is not the test, and chips are not capped. See `DESIGN.md`
@@ -1857,27 +1866,28 @@ TRUE and VALUABLE to the reader; scarcity is not the test, and chips are not cap
   interim state-specific ordering and exclusion rules.
 - Right-edge anchor is the score, or the kickoff time when there is no score. The `———` placeholder
   violates the trailing-whitespace rule and carries no information.
-- Rows expand in place; tapping discloses rather than navigating.
+- Rows expand in place; tapping discloses rather than navigating. **Not delivered by any slice** —
+  `CompactGameScoreboard` has no disclosure mechanism; tracked as [[Item 112]], not restated here.
 - Chips get category names ("Top 25 Matchup"), which also resolves the overload below.
 
-**The `Top matchup` label is currently false, and that is the substantive defect here, not density.**
-`gameTags.ts:441` fires the chip from `isTopOwnerGame`, true when EITHER participant's owner is in the
-top three — it means "a contender is playing," not matchup quality. Separately,
-`deriveOverviewHighlightSignals` picks ONE game per slate by a composite of owned-vs-owned, margin,
-live state, and rank bonus, and renders the same words as an eyebrow. The two disagree in production:
-the game designated `TOP MATCHUP` by eyebrow carried no chip (neither owner was top-three), while a
-game carrying the `Top matchup` chip was designated `RANKED SPOTLIGHT`. Fixing this means renaming
-both to what each measures, not restyling either.
+**RESOLVED by slice 4.** The `Top matchup` label was false — `gameTags.ts:441` fired the chip from
+`isTopOwnerGame`, true when EITHER participant's owner is in the top three (meaning "a contender is
+playing," not matchup quality), while `deriveOverviewHighlightSignals` picked a DIFFERENT game per
+slate by a composite score and rendered the same words as an eyebrow. The two disagreed in production.
+Slice 4 renamed both to what each measures — the chip is now `Contender Watch`, the eyebrow is now
+`Game of the Week` — in the shared `gameTags.ts`/`overview.ts`, so this applies everywhere the chip
+renders, not just Overview.
 
 L1 disclosure content already flows to this surface and is currently discarded: schedule rows carry
 `media` (broadcast outlet) and full venue, `CombinedOdds` is already threaded into `GameScoreboard`,
-and `historySelectors` computes owner head-to-head records.
+and `historySelectors` computes owner head-to-head records. Delivering it is [[Item 112]]'s scope, not
+restated here.
 
 Acceptance boundary:
 
 - No game appears in more than one place on Overview, enforced structurally rather than by a filter.
-- Every chip rendered is true by its own definition, and opening its row shows the detail that
-  justifies it.
+- Every chip rendered is true by its own definition.
+- Opening a row shows the detail that justifies it — delivered by [[Item 112]], not this item.
 - No scheduled row terminates in an empty value.
 - Ranked information appears once as inline detail and once as a scannable category chip — not three
   times.
