@@ -32,6 +32,23 @@ Supersedes: (none)
 > [`docs/ai/game-stats-writer-fence.md`](ai/game-stats-writer-fence.md) (with the superseded
 > original design frozen in [`docs/ai/platform-086h3-contract.md`](ai/platform-086h3-contract.md)).
 
+### POLISH-021 — NoClaim Presentation and Schedule Participant Naming — Complete
+
+- **Status:** Merged via PR #560 (merge commit `0b95aeca`), 2026-09-03.
+- **PROMPT_ID(s):** `POLISH-021-NOCLAIM-PRESENTATION-v1`.
+- **Outcome:** Schedule, Postseason, and Matchups no longer present the internal `NoClaim` sentinel
+  as a member. Matchups stays owner-only, with no sentinel owner card, sentinel opponent badge, or
+  count-only excluded-games section. Expanded Schedule rows use provider casing for non-catalog
+  teams while preserving catalog scoreboard labels; roster and ownership data remain unchanged.
+- **Verification:** Exact pre-merge head `5fd15a07` passed TypeScript, `lint:all`, and all 4,585
+  tests. Mutation checks covered every render seam, explicit post-draft sentinel mappings, the
+  both-unowned Schedule row, and the non-catalog naming fallback. Final Codex confirmation was clean;
+  final `/code-review` confirmation remained unavailable because its local client was unauthenticated.
+- **Test delta:** Four tests were added for the helper, expanded scoreboard, collapsed Schedule, and
+  participant-name paths. Existing Matchups assertions were retargeted to production-shaped literal
+  sentinel mappings; no test was removed.
+- **Open follow-up:** Item 117 retains the dormant opponent-grouping/count cleanup.
+
 ### PLATFORM-123 — Correct Odds Favorite Pairing — Complete
 
 - **Status:** Merged via PR #556 (merge commit `bbd40a47`), 2026-09-03.
