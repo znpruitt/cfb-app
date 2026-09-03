@@ -68,7 +68,9 @@ in-season month; it is the accumulated observation **Item 63** and **Item 95 por
 on. **Item 95 portion 1** was gated on PLATFORM-120 because it doubles `/api/scores` function
 invocations; that merge has now cleared the gate, without changing its position in the selected
 order.
-**Item 100b** (slate marker) is date-gated to before the 2027 opening slate; **Item 101** matters at
+**Item 100b** (slate marker) is **no longer date-gated** — its gate was removed 2026-09-03 after
+production showed a live 2026 consequence: Featured games renders nothing from 2026-08-27 through
+2026-09-07, because CFBD buckets week 0 into a 455-game, twelve-day week 1. **Item 101** matters at
 the 2026-11-29 to 2026-12-12 gap, so fix it before late November. **Item 108** is a dated
 OBSERVATION, not development work — read one provider-status row on 2026-09-04, the morning after the
 first FBS-vs-FCS slate, and either close it or promote it.
@@ -493,40 +495,37 @@ truncation.
 
 - Backlog slug: `POLISH-OVERVIEW-SECTION-DISCLOSURE-v1`
 
-### Item 114 — Featured games does not expire at the Thursday boundary, Recent finals does
+### Item 114 — CLOSED, MISDIAGNOSED. Featured empties early; expiry was never involved
 
-**Filed 2026-09-03. Owner decision, same day: the two should expire together.** A live defect on
-`main`, not introduced by PR #559 — that PR only widens its consequence.
+**Filed and closed 2026-09-03.** Kept as a record because the wrong diagnosis survived a code review
+and a doc entry before production data disproved it.
 
-**The divergence.** Recent finals drops a week's results once the recap tile flips to `upcoming`:
-`expiredFinalWeeks` (`overviewGameSections.ts:147`) applied at `:175`, keyed to the shared Thursday
-06:00 ET boundary in `weeklyRecapFacts.ts:350-357`. Featured has no equivalent filter and keeps
-showing the same finals past that instant. Observed under review: at the boundary, Recent finals
-empties while Featured still renders the full week.
+**What it claimed:** Featured lingers past the Thursday 06:00 ET boundary while Recent finals
+releases, leaving stale results on the page. Owner decision at filing: the two should expire
+together.
 
-**Why it cannot be fixed where Featured is built.** `selectFeaturedGames` is called from
-`selectOverviewViewModel` (`overview.ts:489`), which receives neither `now` nor `scheduleGames`, so
-the predicate is structurally unreachable there. `OverviewPanel` holds both already — it passes
-`now: new Date(nowMs)` and `scheduleGames: games` into `selectOverviewGameSections` at `:1487-1492`.
-Filtering `viewModel.recentResults` through the same predicate **before** `featuredGameKeys` is built
-at `:1481` keeps one definition of the boundary and also stops expired games from sitting in the
-exclusion set and suppressing live ones.
+**Why it is wrong, in two independent ways.**
 
-**Keep one boundary definition.** The campaign doc defends the shared `selectWeeklyRecapTileState`
-use as a deliberate single time predicate (`:99-103`); do not duplicate the Thursday rule into a
-second place. `expiredFinalWeeks` is currently module-private and would need exporting, or the
-Featured selection needs to move into the same routing pass.
+1. **Featured empties EARLY, not late** — the opposite failure. It is scoped to the active slate, and
+   `keyMatchups` drops finals whenever that slate still holds upcoming games. Building the fix this
+   item specified (running `recentResults` through the expiry predicate) would have emptied Featured
+   sooner still, in exactly the wrong direction.
+2. **The boundary is not a fixed Thursday.** It floats with a week's last game — see the correction
+   in [[Item 101]]. Week 1's last game is 2026-09-07, so Recent finals does not release it until
+   2026-09-10. Nothing was stale; Recent finals was correct the whole time.
 
-**Interaction with [[Item 101]].** That item weighs the empty window the shared expiry creates at
-season boundaries — worst case 13 days, 2026-11-29 to 2026-12-12. Aligning Featured makes that
-window empty _both_ sections rather than one, which strengthens Item 101 rather than changing it.
-Fixing 101 fixes both; do not use 101 as a reason to leave the two surfaces inconsistent.
+**The real cause is [[Item 100b]]**, whose date gate has been removed. Provider week 1 spans
+2026-08-27 to 2026-09-07 (455 games, twelve days) because CFBD buckets week 0 into week 1, so the
+active slate carries finals and upcoming games simultaneously and Featured renders nothing for the
+whole stretch. The internal slate marker is the fix.
 
-**Acceptance boundary:** at one minute past the Thursday 06:00 ET boundary, Featured and Recent
-finals release the same week together — proven by a test that observes both sections across the
-instant, not by reasoning about the shared predicate.
+**Process note worth keeping.** The review scenario that produced this item assumed the selected week
+still pointed at the old week. It does not — `chooseDefaultWeek` advances to the latest week whose
+first kickoff has passed. The item was written from a plausible mechanism instead of an observation,
+and a single production screenshot overturned it. Two ledger entries and a code-review finding
+carried the error forward before anyone looked at the page.
 
-- Backlog slug: `PLATFORM-FEATURED-EXPIRY-ALIGNMENT-v1`
+- Backlog slug: none — superseded by `PLATFORM-WEEK-ZERO-MODEL-v1` ([[Item 100b]]).
 
 ### Item 113 — Featured games is a plain finals list; the insights-hook reframe was decided but never built
 
@@ -1117,8 +1116,14 @@ doc's operator notes.
 ### Item 101 — Recent finals can empty out at season boundaries
 
 Recent finals expires when the recap tile stops showing that week. `expiredFinalWeeks`
-(`overviewGameSections.ts:145`) filters on `selectWeeklyRecapTileState(target, now) === 'upcoming'`,
-and the tile returns `'recap'` only up to **Thursday 06:00 ET** (`weeklyRecapFacts.ts:350-357`).
+(`overviewGameSections.ts:147`) filters on `selectWeeklyRecapTileState(target, now) === 'upcoming'`.
+**Corrected 2026-09-03 — the cutoff is not a fixed Thursday.** `selectWeeklyRecapTileState`
+(`selectors/weeklyRecapFacts.ts:329`, cutoff computed at `:349`) takes the day AFTER that week's
+LAST game and advances to the first Thursday 06:00 ET on or after it. The expiry therefore FLOATS
+with the week's last game: a week ending Sunday releases the Thursday four days later, while a week
+whose last game falls on a Thursday does not release for a further seven days. Verified live —
+week 1 (last game 2026-09-07) does not expire until **2026-09-10**, which is why last weekend's
+finals were still rendering on Thursday 2026-09-03 afternoon.
 Both surfaces therefore release week N at the same instant rather than handing off.
 
 **In-season this is nearly harmless.** Midweek football fills the gap: 2026's FBS regular season has
@@ -1127,9 +1132,16 @@ kick off the same evening that finals expire. The empty window is hours, on a we
 
 **At season boundaries it is not.** The largest gap between consecutive FBS regular-season game days
 in 2026 is **13 days — 2026-11-29 to 2026-12-12** — the run from the last regular-season Saturday
-through conference-championship week and Army-Navy. Finals expire on the Thursday after Nov 29 and
-nothing replaces them, so Overview carries no results for over a week at the most-watched point of
-the season. The same shape recurs into bowl season.
+through conference-championship week and Army-Navy. Finals expire and nothing replaces them, so
+Overview carries no results at the most-watched point of the season. The same shape recurs into bowl
+season.
+
+**Re-derive the empty window before sizing this — 2026-09-03.** The figures above were computed
+against the fixed-Thursday reading corrected above. With the real floating cutoff, the empty window
+is the span from that week's own cutoff (first Thursday 06:00 ET after its last game) to the next
+slate's first final, which is NOT the same as the 13-day game-day gap and may be materially shorter.
+The 13-day gap between game days is measured and stands; the length of the resulting empty window is
+NOT, and no number for it should be quoted until it is recomputed.
 
 **Do not decouple from the recap predicate.** Sharing one definition of the Thursday boundary is
 correct and was defended on review; duplicating it would be worse. The defect is _when_ finals
@@ -1148,8 +1160,23 @@ and which is worse is a judgement call.
 PLATFORM-120 deleted the member-visible week-0 derivation; this future marker must not restore it.
 Provider week 1 remains the rendered label, while the marker supplies only internal grouping.
 
-**Date-gated: before the 2027 opening slate.** The 2026 opener is in the past, so nothing consumes
-this until then.
+**DATE GATE REMOVED 2026-09-03 — this has a live 2026 consequence.** The earlier text read "the 2026
+opener is in the past, so nothing consumes this until then." That was wrong, and the defect is
+visible in production today: **Featured games renders nothing from 2026-08-27 through 2026-09-07.**
+
+Measured from the production replica: provider week 1 spans **2026-08-27 to 2026-09-07 with 455
+games**, against ~3 days and ~300 games for every other week (week 2: 09-10 to 09-13). Because that
+one bucket holds finished and upcoming games at the same time for twelve days,
+`deriveActiveSlateStatus` (`overview.ts`) reports `hasUpcoming: true` throughout, so
+`includeFinalWeekGames` is false, so `keyMatchups` filters through `isKeyMatchupState` — which admits
+only `inprogress`/`scheduled`/`unknown` and **excludes finals**. `resultCandidates` needs
+`hasUsableFinalScore`, gets nothing, and Featured is empty; `OverviewPanel.tsx:1644` then suppresses
+the section entirely. (The emptiness also proves standings coverage is `complete`; otherwise
+`includeFinalWeekGames` would be true and the finals would render.)
+
+The internal slate marker fixes exactly this: week 0 becomes its own cluster — all final, nothing
+upcoming — and Featured populates from it, which is the Week 0 recap card this marker was designed
+for. Not a 2027 nicety.
 
 `canonicalWeek` was doing double duty as the member-facing label and the internal grouping.
 PLATFORM-120 settled the label; this adds the grouping back where it belongs:
