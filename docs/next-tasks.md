@@ -516,6 +516,16 @@ this file only for the `ownerOutcomeRowClasses` carry-over. Depends on **Item 87
 **Open — owner decision:** card-owner treatment. The card owner's name repeats on one line of every
 scoreboard; the mockup toggles full weight against dimmed. Decide before implementation.
 
+**Dead code that would leak the sentinel if wired up — added 2026-09-03 from Item 116.**
+`formatSlateSummaryText` (`selectors/matchups.ts`) builds an opponent summary line —
+`"3 games · vs Bob, FCS, NoClaim (FBS) (x2)"` — from `summarizeSlateOpponents`, whose grouping key
+is the literal `'NoClaim (FBS)'`. It has **no production caller**; `MatchupsWeekPanel.tsx:331-333`
+consumes the entries for `.length` only. Item 116 therefore preserves the key and suppresses only the
+pill. If this rework wires the summary line (or anything else that prints `entry.label`), it must
+route the label through `displayOwner()` first, or the sentinel reaches members through the door
+Item 116 did not need to close. Same seam, second consumer — decide whether to render it or delete
+it; do not leave it dormant.
+
 - Backlog slug: `POLISH-MATCHUPS-SCOREBOARD-v1`
 
 ### Item 116 — `NoClaim` renders to members as an owner; canonical-id slugs leak into Schedule
