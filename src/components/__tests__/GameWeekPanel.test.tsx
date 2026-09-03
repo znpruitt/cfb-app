@@ -902,6 +902,11 @@ test('collapsed owner matchup hides NoClaim while preserving the sibling owner',
           csvAway: 'Massachusetts',
           csvHome: 'Rutgers',
         }),
+        game({
+          key: 'both-unowned-fbs-collapsed',
+          csvAway: 'Connecticut',
+          csvHome: 'Temple',
+        }),
       ]}
       byes={[]}
       oddsByKey={{}}
@@ -910,6 +915,8 @@ test('collapsed owner matchup hides NoClaim while preserving the sibling owner',
         new Map([
           ['Massachusetts', 'NoClaim'],
           ['Rutgers', 'LHooper'],
+          ['Connecticut', 'NoClaim'],
+          ['Temple', 'NoClaim'],
         ])
       }
       isDebug={false}
@@ -920,6 +927,10 @@ test('collapsed owner matchup hides NoClaim while preserving the sibling owner',
 
   assert.doesNotMatch(html, /NoClaim/);
   assert.match(html, /vs LHooper/);
+  assert.doesNotMatch(
+    html,
+    /<div class="text-xs font-semibold text-indigo-700 dark:text-indigo-300">\s*vs\s*<\/div>/
+  );
 });
 
 test('card edge accents are attached to the outer card with away/home mapping', () => {

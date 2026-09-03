@@ -98,6 +98,7 @@ test('matchups panel renders owner-centric cards and duplicates owner-vs-owner g
         new Map([
           ['Alabama', 'Alice'],
           ['Georgia', 'Bob'],
+          ['Akron', 'NoClaim'],
         ])
       }
       displayTimeZone="America/New_York"
@@ -395,6 +396,7 @@ test('owner slates count final owned-vs-owned, NoClaim, and FCS results from own
     ['Alabama', 'Avery'],
     ['Georgia', 'Blair'],
     ['Florida State', 'Avery'],
+    ['Tulane', 'NoClaim'],
     ['Kansas State', 'Avery'],
   ]);
   const scoresByKey = {
@@ -438,6 +440,7 @@ test('owner slates count final owned-vs-owned, NoClaim, and FCS results from own
   );
 
   assert.match(html, /data-owner-card="Avery"/);
+  assert.doesNotMatch(html, /data-owner-card="NoClaim"/);
   assert.match(html, /2–1/);
   // Avery's three owned participations surface FCS and the owner-vs-owner
   // "vs Blair" badge; the unowned FBS game has no owner badge.

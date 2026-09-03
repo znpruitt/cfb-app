@@ -179,6 +179,10 @@ export default function GameWeekPanel({
             <div className="grid gap-1.5">
               {group.games.map((card) => {
                 const g = card.game;
+                const awayDisplayOwner = displayOwner(card.awayOwner);
+                const homeDisplayOwner = displayOwner(card.homeOwner);
+                const showDisplayOwnerMatchup =
+                  card.showOwnerMatchup && Boolean(awayDisplayOwner || homeDisplayOwner);
 
                 const useNeutralSemantics = usesNeutralSiteSemantics(g);
                 const matchupLabel = formatGameMatchupLabel(g, {
@@ -233,9 +237,9 @@ export default function GameWeekPanel({
                     <summary className="cursor-pointer list-none px-2.5 py-1.5">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex flex-col gap-1">
-                          {card.showOwnerMatchup && (
+                          {showDisplayOwnerMatchup && (
                             <div className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">
-                              {displayOwner(card.awayOwner)} vs {displayOwner(card.homeOwner)}
+                              {awayDisplayOwner} vs {homeDisplayOwner}
                             </div>
                           )}
                           {card.showCollapsedCanonicalLabel && (

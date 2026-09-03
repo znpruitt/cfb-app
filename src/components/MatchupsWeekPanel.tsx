@@ -2,6 +2,7 @@ import React from 'react';
 
 import { formatExpandedKickoff } from '../lib/gameCardPresentation';
 import { classifyScorePackStatus } from '../lib/gameStatus';
+import { displayOwner } from '../lib/gameOwnership';
 import type { CombinedOdds } from '../lib/odds';
 import {
   gameStatusLabelPresentation,
@@ -191,9 +192,12 @@ function GameRow({
     liveHue: 'neutral',
     liveDot: showLiveIndicator ? 'pulse' : 'none',
   });
+  const hideOpponentDescriptor =
+    opponentDescriptor === 'NoClaim (FBS)' ||
+    (slateGame.opponentOwner != null && displayOwner(slateGame.opponentOwner) === null);
   const metadataEntries: string[] = [];
   if (statusTone === 'inprogress' && liveClockLabel) metadataEntries.push(liveClockLabel);
-  if (opponentDescriptor !== 'NoClaim (FBS)') metadataEntries.push(opponentDescriptor);
+  if (!hideOpponentDescriptor) metadataEntries.push(opponentDescriptor);
   if (statusTone === 'scheduled') {
     metadataEntries.push(
       `Kickoff ${formatExpandedKickoff(slateGame.game.date, displayTimeZone, slateGame.game.startTimeTBD)}`
@@ -416,14 +420,15 @@ export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.
   } = props;
   const derivedSections = sections ?? deriveWeekMatchupSections(games, rosterByTeam);
   const rawOwnerSlates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey);
+  const visibleOwnerSlates = rawOwnerSlates.filter((slate) => displayOwner(slate.owner) !== null);
   // Reorder owner cards to match canonical owner identity when canonical is
   // present so Matchups shares the alphabetical ordering used by Standings/
   // Overview. Owner slates with no canonical entry (unrecognized rosters) are
   // appended after the canonical block in their original order so they remain
   // visible.
   const ownerSlates = React.useMemo(() => {
-    if (!canonicalStandings) return rawOwnerSlates;
-    const slatesByOwner = new Map(rawOwnerSlates.map((slate) => [slate.owner, slate] as const));
+    if (!canonicalStandings) return visibleOwnerSlates;
+    const slatesByOwner = new Map(visibleOwnerSlates.map((slate) => [slate.owner, slate] as const));
     const ordered: OwnerWeekSlate[] = [];
     for (const owner of canonicalStandings.ownerColorOrder) {
       const slate = slatesByOwner.get(owner);
@@ -432,14 +437,14 @@ export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.
         slatesByOwner.delete(owner);
       }
     }
-    for (const slate of rawOwnerSlates) {
+    for (const slate of visibleOwnerSlates) {
       if (slatesByOwner.has(slate.owner)) {
         ordered.push(slate);
         slatesByOwner.delete(slate.owner);
       }
     }
     return ordered;
-  }, [canonicalStandings, rawOwnerSlates]);
+  }, [canonicalStandings, visibleOwnerSlates]);
   const standingsByOwner = React.useMemo(
     () =>
       new Map(
