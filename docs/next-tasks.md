@@ -528,6 +528,19 @@ So a Saturday noon game's stats window closes Sunday noon, CFBD reconciles "on S
 we ingested is permanent. **Nothing detects the divergence and nothing reports it.** The only
 correction is an operator forcing `bypassCache=1` on `/api/game-stats`.
 
+**The blast radius is small, which caps the item's priority.** Consumer inventory, measured
+2026-09-02 — stored game stats are read ONLY by:
+
+- `insights/context.ts` — insight generation;
+- admin surfaces (`GameStatsCachePanel.tsx`, `manualRefresh.ts`);
+- diagnostics (`archive-integrity`, `providerCacheState`, `providerDataDiagnostics`).
+
+**No member-facing component fetches `/api/game-stats`**, and `seasonBuild.ts` contains no reference
+to game stats, so the season archive does not embed them. A missed correction therefore produces
+slightly-wrong generated insight copy — never a wrong scoreboard, and nothing a member sees during a
+game. Combined with `scoreDifferences=0` on the score side, this item sits below everything currently
+ahead of it in the run order.
+
 **This is unsized on purpose.** We cannot say how often stats change after satisfaction, because
 nothing compares. Sizing it is one CFBD call: re-fetch a played week's `/games/teams` and diff against
 the stored partition. **Do that before designing anything** — if the diff is empty, this closes; if it
