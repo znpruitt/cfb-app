@@ -1,7 +1,7 @@
 # Completed Work Log
 
 Status: Historical (append-only ledger)
-Last verified: 2026-09-02
+Last verified: 2026-09-03
 Owner: Project documentation
 Canonical for: append-only record of shipped phases/milestones (outcomes) — historical, not current implementation authority
 Supersedes: (none)
@@ -31,6 +31,23 @@ Supersedes: (none)
 > superseded prerequisite B), and the architecture record in
 > [`docs/ai/game-stats-writer-fence.md`](ai/game-stats-writer-fence.md) (with the superseded
 > original design frozen in [`docs/ai/platform-086h3-contract.md`](ai/platform-086h3-contract.md)).
+
+### PLATFORM-123 — Correct Odds Favorite Pairing — Complete
+
+- **Status:** Merged via PR #556 (merge commit `bbd40a47`), 2026-09-03.
+- **PROMPT_ID(s):** `PLATFORM-123-ODDS-FAVORITE-PAIRING-v1`.
+- **Outcome:** New and stored Odds snapshots now derive the favorite from the signed home and away
+  spreads through the same helper used by upset qualification. Frozen closing lines are corrected
+  when projected for display without rewriting durable state, already-correct rows remain correct,
+  and pick'em displays the reported spread without naming a favorite. The read projection preserves
+  the existing malformed-row validation boundary.
+- **Verification:** Exact pre-merge head `b7685e10` passed TypeScript, `lint:all`, and all 4,570
+  tests. Reverting the helper to the prior absolute-value rule failed five tests, with the
+  provider-shaped symmetric fixture observing `Clemson` instead of `Georgia`. Independent Codex and
+  `/code-review` confirmations found no credible in-scope P0/P1/P2 after one remediation.
+- **Test delta:** Six tests were added for symmetric home/away favorites, incorrect and already-correct
+  stored projections, pick'em derivation, and pick'em rendering. Two assertions were added to the
+  existing non-FBS producer test; no test or assertion was removed or weakened.
 
 ### PLATFORM-121 — Deterministic Odds Route Fixtures — Complete
 

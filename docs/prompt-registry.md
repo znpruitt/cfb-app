@@ -1,7 +1,7 @@
 # Prompt Registry
 
 Status: Current ledger
-Last verified: 2026-09-02
+Last verified: 2026-09-03
 Owner: Project documentation
 Canonical for: prompt ledger / historical implementation record (not an active backlog)
 Supersedes: (none)
@@ -50,6 +50,25 @@ Rules:
 ---
 
 ## Prompt ledger (most recent first)
+
+### PLATFORM-123-ODDS-FAVORITE-PAIRING-v1
+
+- Purpose: correct the live Odds display defect that paired one participant's name with the other
+  participant's spread on normal symmetric book lines, including frozen historical closing lines.
+- Scope: the shared spread/favorite derivation, new-snapshot production, stored-snapshot projection,
+  upset-policy consumption, and focused producer/projection/render tests. Fetching, attachment,
+  cadence, cache schema, and durable writes were unchanged.
+- Outcome: one signed-side-spread helper now selects the favorite for all three consumers. Valid
+  stored snapshots are corrected non-mutatively on read; already-correct rows remain correct;
+  pick'em keeps the reported spread with no favorite; malformed durable rows remain visible to the
+  recap validation boundary instead of being silently repaired.
+- Review / verification: exact pre-merge head `b7685e10` passed TypeScript, `lint:all`, and all 4,570
+  tests. Six tests were added and one producer test gained two assertions; none were removed or
+  weakened. Reverting to the absolute-value comparison failed five tests, including the real
+  provider-shaped symmetric fixture (`Clemson` observed instead of `Georgia`). One remediation
+  preserved malformed-row validation; Codex and `/code-review` confirmations then found no credible
+  in-scope P0/P1/P2.
+- Status: Merged via PR #556 (merge commit `bbd40a47`), 2026-09-03.
 
 ### PLATFORM-121-ODDS-FIXTURE-EXPIRY-v2
 
