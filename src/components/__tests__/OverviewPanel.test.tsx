@@ -763,8 +763,6 @@ test('overview Featured conversion preserves the existing recent-results selecti
     'Final Away 6 at Final Home 6',
     'Final Away 5 at Final Home 5',
     'Final Away 4 at Final Home 4',
-    'Final Away 3 at Final Home 3',
-    'Final Away 2 at Final Home 2',
   ]);
 });
 

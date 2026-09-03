@@ -66,7 +66,7 @@ export type OverviewViewModel = {
 };
 
 export const OVERVIEW_STANDINGS_LIMIT = 5;
-export const OVERVIEW_RESULTS_LIMIT = 6;
+export const OVERVIEW_RESULTS_LIMIT = 4;
 
 /**
  * Conservative coverage returned when a canonical snapshot is supplied but its
