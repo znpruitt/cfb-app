@@ -179,7 +179,16 @@ function snapshotFromStored(
   snapshot: DurableOddsSnapshot,
   lineSourceStatus: OddsLineSourceStatus
 ): CombinedOdds {
-  const pair = deriveFavoriteSpreadPair(snapshot.homeSpread, snapshot.awaySpread);
+  // Correct only structurally valid stored derived fields. Leaving malformed
+  // values intact preserves the downstream validation boundary instead of
+  // silently healing a corrupt durable row with otherwise valid side spreads.
+  const storedDerivedPairIsValid =
+    (snapshot.favorite === null || typeof snapshot.favorite === 'string') &&
+    (snapshot.spread === null ||
+      (typeof snapshot.spread === 'number' && Number.isFinite(snapshot.spread)));
+  const pair = storedDerivedPairIsValid
+    ? deriveFavoriteSpreadPair(snapshot.homeSpread, snapshot.awaySpread)
+    : null;
   return {
     favorite: pair ? favoriteNameForSide(game, pair.favoriteSide) : snapshot.favorite,
     spread: pair?.spread ?? snapshot.spread,
