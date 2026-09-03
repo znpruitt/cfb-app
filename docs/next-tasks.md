@@ -445,6 +445,47 @@ Neon one. Keep this item for the read-replica autosuspend and the non-cadence fi
 
 - Backlog slug: `PLATFORM-OFFSEASON-SCHEDULE-PAUSE-v1`
 
+### Item 112 — rows do not expand: a settled Item 87 decision that no slice implemented
+
+**Filed 2026-09-03 at the close of Item 87 slice 4.** The shared scoreboard is now the row type on
+every Overview section, which means the gap is uniform rather than per-section — this is the moment
+it becomes tractable, and also the moment it stops being invisible.
+
+**The decision.** Owner, 2026-08-29, recorded in Item 87's settled decisions: _"Rows expand in place;
+tapping discloses rather than navigating."_ Slices 1-4 converted Live, Featured, Recent finals, and
+the watchlist to the shared anatomy and delivered none of it.
+
+**The gap, measured.** `src/components/CompactGameScoreboard.tsx` contains no `useState`, no
+`onClick`, no `aria-expanded`, no `<details>`, and no collapse affordance of any kind. It is a pure
+presentational row. Three call sites in `OverviewPanel` render it, so one implementation covers every
+Overview section at once.
+
+**Why the content half is already paid for.** Item 87 records that L1 disclosure content reaches this
+surface and is discarded today: schedule rows carry `media` (broadcast outlet) and full venue,
+`CombinedOdds` is already threaded into `GameScoreboard`, and `historySelectors` computes owner
+head-to-head records. Confirmed here that `CompactGameScoreboard` currently receives neither `media`
+nor `venue` — the props stop short of the row. So the work is a disclosure mechanism plus prop
+threading, not new data derivation. That claim is inherited from Item 87 and re-verified only for the
+component boundary; verify the four sources independently before scoping.
+
+**Why it was not folded into slice 4.** That branch reached 18 files against the AGENTS.md:306
+>15-file signal before this was considered. Adding an interactive affordance and its accessibility
+coverage to an already-oversized branch would have been the wrong trade the night before a slate.
+
+**Scope.** One disclosure mechanism on the shared component, its keyboard and screen-reader contract,
+and the prop threading for whichever L1 facts survive an owner content decision. Every Overview
+section inherits it; Matchups and the recap primitives still use `GameSummaryList` and
+`GameScoreboard`, so they do not.
+
+**Open owner question, do not assume an answer.** Section-level expansion — a "show more" that
+lengthens a capped section — is a DIFFERENT affordance and is **not** in the settled decisions. It
+came up during the slice-4 walkthrough and was never decided. Watchlist, Live, and Recent finals are
+each capped at six. Ask before building either one, because "tapping a row discloses detail" and
+"tapping a section reveals more rows" can easily be conflated into one ticket and they are not the
+same feature.
+
+- Backlog slug: `POLISH-SCOREBOARD-ROW-DISCLOSURE-v1`
+
 ### Item 111 — `/api/odds` fetches its own origin, costing two extra invocations per request
 
 **Filed 2026-09-03 from a preview symptom that turned out to be an architecture finding.** Odds
