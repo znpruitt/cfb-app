@@ -145,6 +145,56 @@ test('completed games prefer closingSnapshot in selection logic', () => {
   assert.equal(selected?.lineSourceStatus, 'closing');
 });
 
+test('stored incorrect closing pair projects correctly without rewriting the frozen snapshot', () => {
+  const closingSnapshot = {
+    ...buildSnapshot('2026-09-01T19:10:00.000Z', -3),
+    favorite: 'Clemson',
+  };
+  const record = {
+    ...emptyDurableOddsRecord('1-georgia-clemson-H'),
+    latestSnapshot: buildSnapshot('2026-09-01T19:00:00.000Z', -4),
+    closingSnapshot,
+    closingFrozenAt: '2026-09-01T19:31:00.000Z',
+  };
+
+  const selected = selectOddsForGame({
+    game: buildGame({ status: 'final' }),
+    record,
+    now: '2026-09-01T23:00:00.000Z',
+  });
+
+  assert.equal(selected?.favorite, 'Georgia');
+  assert.equal(selected?.spread, -3);
+  assert.equal(selected?.lineSourceStatus, 'closing');
+  assert.equal(
+    record.closingSnapshot.favorite,
+    'Clemson',
+    'projection must not rewrite durable data'
+  );
+  assert.equal(record.closingSnapshot.spread, -3);
+});
+
+test('stored already-correct pair projects unchanged', () => {
+  const latestSnapshot = {
+    ...buildSnapshot('2026-09-01T18:00:00.000Z', 6),
+    favorite: 'Clemson',
+    spread: -6,
+  };
+
+  const selected = selectOddsForGame({
+    game: buildGame({ status: 'scheduled', date: '2026-09-01T20:30:00.000Z' }),
+    record: {
+      ...emptyDurableOddsRecord('1-georgia-clemson-H'),
+      latestSnapshot,
+    },
+    now: '2026-09-01T18:30:00.000Z',
+  });
+
+  assert.equal(selected?.favorite, latestSnapshot.favorite);
+  assert.equal(selected?.spread, latestSnapshot.spread);
+  assert.equal(selected?.lineSourceStatus, 'latest');
+});
+
 test('completed games fall back to latestSnapshot when closingSnapshot is missing', () => {
   const selected = selectOddsForGame({
     game: buildGame({ status: 'final' }),
@@ -239,6 +289,67 @@ const SPREAD_BOOK = [
     ],
   },
 ];
+
+function buildProviderShapedSpread(homeSpread: number, awaySpread: number) {
+  const game = {
+    key: 'provider-shaped',
+    week: 1,
+    canHome: 'Georgia',
+    canAway: 'Clemson',
+    csvHome: 'Georgia',
+    csvAway: 'Clemson',
+    date: '2026-09-06T20:00:00.000Z',
+  };
+
+  return buildOddsByGame({
+    games: [game],
+    oddsEvents: [
+      {
+        home_team: 'Georgia',
+        away_team: 'Clemson',
+        commence_time: game.date,
+        bookmakers: [
+          {
+            key: 'draftkings',
+            title: 'DraftKings',
+            markets: [
+              {
+                key: 'spreads',
+                outcomes: [
+                  { name: 'Georgia', point: homeSpread, price: -110 },
+                  { name: 'Clemson', point: awaySpread, price: -110 },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+    aliasMap: {},
+    teams: [],
+  })[game.key];
+}
+
+test('provider-shaped symmetric market pairs a home favorite with its negative spread', () => {
+  const odds = buildProviderShapedSpread(-38.5, 38.5);
+
+  assert.equal(odds?.favorite, 'Georgia');
+  assert.equal(odds?.spread, -38.5);
+});
+
+test('provider-shaped symmetric market pairs an away favorite with its negative spread', () => {
+  const odds = buildProviderShapedSpread(6.5, -6.5);
+
+  assert.equal(odds?.favorite, 'Clemson');
+  assert.equal(odds?.spread, -6.5);
+});
+
+test("provider-shaped pick'em keeps the reported spread with no favorite", () => {
+  const odds = buildProviderShapedSpread(0, 0);
+
+  assert.equal(odds?.favorite, null);
+  assert.equal(odds?.spread, 0);
+});
 
 test('buildOddsByGame uses date-aware attachment (snake_case commence_time) — no same-pair fan-out', () => {
   const result = buildOddsByGame({
