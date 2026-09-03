@@ -458,10 +458,11 @@ blocker. Items 87 and 90 are independent.
 ### Design-time amendment outcomes
 
 These began as judgment calls rather than conformance failures. Slices 1–2 settled all but the
-section-title exception:
+section-title exception, closed below once slice 4 shipped the remaining stacked sections.
 
-- **Still open — Amendment 5 / §Section headers:** decide whether 17px/650 becomes a deliberate
-  game-section exception when the remaining stacked sections ship.
+- **Landed — Amendment 5 / §Section headers.** Owner decision 2026-09-03, evaluated against the
+  mockups after slice 4 shipped: 17px/650 is the deliberate game-section exception, recorded in
+  `DESIGN.md` → Section Headers. This closes the trigger this amendment was waiting on.
 - **Landed — Amendment 6 / §Multi-line row pattern:** the scoreboard is documented as its own
   status-row-plus-two-peer-lines pattern.
 - **Landed — Amendment 7 / §Cards:** anchors carry the state-relevant value and belong to the team

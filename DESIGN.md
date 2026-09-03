@@ -1,7 +1,7 @@
 # CFB App Design Principles
 
 Status: Current
-Last verified: 2026-07-09
+Last verified: 2026-09-03
 Owner: Project documentation
 Canonical for: durable UI/UX and design-system principles — layout, tables, cards, color, typography, component presentation
 Supersedes: (none)
@@ -266,6 +266,10 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 - Plain text section title, 15px, font-weight 500
 - CTAs are plain text → aligned right in the same header row
 - No card chrome around section headers
+- **Game-section exception (17px, weight 650):** owner decision, 2026-09-03, evaluated directly
+  against the mockups — the 15px/500 default reads weakly as a section boundary against dense
+  two-column scoreboard content stacked three sections deep. Applies to Overview's Live, Featured
+  games, Watchlist, and Recent finals headers; not a new default elsewhere.
 
 ## Trends / GB Race
 
