@@ -499,6 +499,55 @@ only if Item 87 slice 4's record join reaches historical seasons.
 
 - Backlog slug: `PLATFORM-OVERRIDE-PAYLOAD-VALIDATION-v1`
 
+### Item 110 — provider score corrections are detected, declined, and only whispered
+
+**The provider says it revises data.** CFBD's admin, 2026-09-02: *"game data can change up to several
+hours afterward. I will always do a 'final' data reconciliation on Sundays for that week's games."*
+So post-hoc correction is routine scheduled provider behaviour, not an edge case.
+
+**We detect the correction and deliberately do not apply it.**
+`finalScoreSweep.ts:305-313`, inside the weekly Tuesday refresh:
+
+    if (cachedGame?.final) {
+      if (scorePair(cachedGame.final.pack) !== scorePair(candidate.pack)) {
+        differenceCount += 1;
+        differences.push(candidate.identity);
+      }
+      continue;                    // records the divergence, writes nothing
+    }
+
+The sweeper fills genuinely MISSING finals only — the name is accurate. A confirmed final is never
+overwritten.
+
+**And no other path reaches it.** Live polling drops a game once it resolves
+(`liveScores/pollingTarget.ts` — `resolveWindowState` returns `resolved`, and `selectPollingPlan`
+targets only `unresolved-open` / `pending-confirmation`), so a corrected score is never re-fetched
+there either. **No path currently applies a provider correction to a confirmed final.**
+
+**The refusal is probably right; the silence is not.** Declining to overwrite a good final on a
+provider blip is the same conservatism as the empty-response rejection and should not be casually
+reversed. The reporting is the defect: `scoreDifferences` renders only as a fragment of the
+schedule-refresh receipt's DETAIL STRING (`systemHealthPresentation.ts:232`, appended after year
+counts alongside repairs, sweep failures and kickoff changes) and **raises no issue** —
+`systemHealthIssues.ts` has no score-difference code, so the row still reads healthy.
+
+Once a week we observe that the provider disagrees with our stored result, and the only trace is a
+clause in one line on a green row.
+
+**What to decide (not obvious — do not assume):**
+
+- Should a detected difference raise a health issue so a human adjudicates? Smallest change, probably
+  the right one.
+- Is any class of difference safe to apply automatically? CFBD's own Sunday reconciliation is
+  authoritative by construction, unlike a mid-game blip — can the sweeper distinguish them?
+- What does an operator DO once told? There is no per-game repair affordance today.
+
+**Do not fold this into cadence work.** Item 102's tail-cadence design is a separate question. This is
+about the correctness of stored finals, and shortening the polling tail neither helps nor hurts it,
+because live polling was never the correction path.
+
+- Backlog slug: `PLATFORM-SCORE-CORRECTION-VISIBILITY-v1`
+
 ### Item 108 — VERIFY: do live scores tick for FBS-vs-FCS games? (dated observation, 2026-09-04)
 
 **A verification, not a fix — the defect may not exist.** Filed 2026-09-02 from a deliberate pass over
