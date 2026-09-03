@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Matchups / Schedule — Scoreboard Transition Mockup</title>
+<style>
+  :root {
+    --bg: #161616; --tile: #1e1e1e; --text: #ececec; --text-secondary: #8f8f8f;
+    --text-tertiary: #6b6b6b; --hairline: rgba(255,255,255,0.09);
+    --green: #4ade80; --blue: #60a5fa;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased; line-height: 1.4;
+  }
+  .page { max-width: 1120px; margin: 0 auto; padding: 48px 32px 96px; container-type: inline-size; }
+  .num { font-variant-numeric: tabular-nums; }
+  a { color: var(--blue); text-decoration: none; font-size: 13px; }
+  .linkbtn {
+    color: var(--blue); background: none; border: none; padding: 0; cursor: pointer;
+    font-family: inherit; font-size: 13px;
+  }
+  .linkbtn:hover { text-decoration: underline; }
+
+  /* ---------- Shared scoreboard component (as shipped in Item 87) ---------- */
+  .scoreboard { padding: 11px 0; border-bottom: 0.5px solid var(--hairline); }
+  .scoreboard:last-child { border-bottom: none; }
+  .sb-status {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+    font-size: 12px; color: var(--text-tertiary);
+    white-space: nowrap; overflow: hidden;
+  }
+  .sb-status .state {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--text-secondary);
+  }
+  .sb-status .eyebrow {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+    color: #93c5fd; /* matches shipped eyebrow (text-blue-300); gold is champion-reserved */
+  }
+  .live-badge {
+    display: flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 600;
+    letter-spacing: 0.08em; text-transform: uppercase; color: var(--green);
+  }
+  .live-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+
+  /* ---------- Team colour: identity, not semantics ----------
+     Occupies the line-start slot reserved for future logos. Colours are
+     luminance-normalised for a dark background — several team primaries
+     (navy, forest) are near-invisible at source values. */
+  .sb-line { position: relative; }
+  .sb-line .tc { display: none; }
+
+  /* A — left accent rule at line start */
+  body.tc-rule .sb-line { padding-left: 10px; }
+  body.tc-rule .sb-line .tc {
+    display: block; position: absolute; left: 0; top: 3px; bottom: 3px;
+    width: 3px; border-radius: 2px; background: var(--tcol);
+  }
+  /* B — wider solid bar at line start, muted */
+  body.tc-bar .sb-line { padding-left: 16px; }
+  body.tc-bar .sb-line .tc {
+    display: block; position: absolute; left: 0; top: 2px; bottom: 2px;
+    width: 8px; border-radius: 2px; background: var(--tcol); opacity: 0.72;
+  }
+
+
+  .sb-line { display: flex; align-items: baseline; justify-content: space-between; font-size: 14px; padding: 2px 0; }
+  .sb-line .who {
+    display: flex; align-items: baseline; gap: 6px;
+    overflow: hidden; white-space: nowrap; margin-right: 12px;
+  }
+  .sb-line .who > span { overflow: hidden; text-overflow: ellipsis; }
+  .sb-line .rank { color: var(--text-tertiary); font-size: 12px; }
+  .sb-line .cls {
+    color: var(--text-tertiary); font-size: 9.5px; font-weight: 600; letter-spacing: 0.06em;
+    border: 1px solid var(--hairline); border-radius: 3px; padding: 0 3px;
+  }
+  .sb-line .rec { color: var(--text-tertiary); font-size: 12px; }
+  .sb-line .owner { color: var(--text-tertiary); font-size: 12.5px; }
+  body.dim-self .sb-line .owner.self { color: #4a4a4a; }
+  .sb-line .score { font-weight: 600; }
+  .sb-line.trailing, .sb-line.loser { color: var(--text-secondary); }
+  .sb-line.trailing .score, .sb-line.loser .score { font-weight: 500; }
+  .sb-line .score.pending { color: var(--text-tertiary); font-weight: 500; }
+  .sb-line .anchor-soft { color: var(--text-secondary); font-weight: 500; font-size: 13px; }
+  .sb-odds {
+    margin-top: 5px; font-size: 12px; color: var(--text-tertiary);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  /* ---------- Page chrome ---------- */
+  .subnav { display: flex; gap: 24px; margin-bottom: 22px; border-bottom: 0.5px solid var(--hairline); }
+  .subnav span { font-size: 14px; color: var(--text-tertiary); padding-bottom: 8px; }
+  .subnav span.active { color: var(--text); border-bottom: 1px solid var(--text); }
+
+  .section-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }
+  .section-head h2 { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; }
+  .section-head .count { color: var(--text-tertiary); font-weight: 500; }
+
+  /* ---------- Matchups: owner cards ---------- */
+  .owner-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @container (max-width: 760px) { .owner-grid { display: block; } }
+  /* Demo-only overrides so narrow preview panes can see both layouts. The container
+     queries above/below are the real production rules; these force them for previewing
+     and would not exist in the implementation. */
+  body.demo-2col .owner-grid { display: grid !important; grid-template-columns: 1fr 1fr !important; }
+  body.demo-1col .owner-grid { display: block !important; }
+  .owner-card { background: var(--tile); border-radius: 8px; padding: 20px 22px; margin-bottom: 20px; }
+  .owner-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
+  .owner-head .name { font-size: 17px; font-weight: 650; letter-spacing: -0.01em; }
+  .owner-head .rec { font-size: 14px; color: var(--text-secondary); }
+  .stat-strip {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+    padding: 12px 0 14px; border-top: 0.5px solid var(--hairline); border-bottom: 0.5px solid var(--hairline);
+    margin-bottom: 6px;
+  }
+  .stat-strip .stat { text-align: left; }
+  .stat-strip .v { font-size: 18px; font-weight: 650; }
+  .stat-strip .l {
+    font-size: 9.5px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--text-tertiary); margin-top: 2px;
+  }
+  .card-footer { margin-top: 12px; }
+
+  /* ---------- Schedule: date groups ---------- */
+  /* ---------- Schedule filter ---------- */
+  .filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+  .filters .chip {
+    font-size: 11px; font-weight: 500; color: var(--text-tertiary);
+    border: 0.5px solid var(--hairline); border-radius: 999px; padding: 5px 12px;
+    cursor: pointer; background: none; font-family: inherit;
+  }
+  .filters .chip .n { color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+  .filters .chip:hover { color: var(--text-secondary); }
+  .filters .chip.on { color: var(--text); border-color: var(--text-secondary); }
+  .filters .chip.on .n { color: var(--text-secondary); }
+  .filters .chip.empty { opacity: 0.35; cursor: default; }
+
+  /* Single-select filtering, driven by a class on body */
+  body.f-live .grow:not([data-state="live"]),
+  body.f-final .grow:not([data-state="final"]),
+  body.f-sched .grow:not([data-state="sched"]) { display: none; }
+  /* Hide date groups left with nothing */
+  body.f-live .date-group:not(:has(.grow[data-state="live"])),
+  body.f-final .date-group:not(:has(.grow[data-state="final"])),
+  body.f-sched .date-group:not(:has(.grow[data-state="sched"])) { display: none; }
+
+  /* ---------- Schedule rows: scoreboard is the default row; expansion reveals
+     only tier-2 metadata (venue, moneyline, conference). ---------- */
+  .grow { border-bottom: 0.5px solid var(--hairline); }
+  .grow:last-child { border-bottom: none; }
+  .grow-head {
+    display: block; width: 100%; padding: 11px 0 4px; background: none; border: none;
+    cursor: pointer; font-family: inherit; color: inherit; text-align: left;
+  }
+  .grow-head .scoreboard { padding: 0; border-bottom: none; }
+  .grow-more {
+    font-size: 11px; color: var(--text-tertiary); padding: 2px 0 10px;
+  }
+  .grow-more::before { content: "More \2193"; }
+  .grow.open .grow-more::before { content: "Less \2191"; }
+  .grow-body { display: none; padding: 0 0 12px; }
+  .grow.open .grow-body { display: block; }
+  .grow-meta { font-size: 12px; color: var(--text-tertiary); }
+  .grow-meta .tv { color: var(--text-secondary); }
+  .grow-conf { margin-top: 3px; font-size: 12px; color: var(--text-tertiary); }
+  .grow-odds { margin-top: 3px; font-size: 12px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+
+  .date-head {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--text-tertiary); margin: 26px 0 8px;
+  }
+  .sched-grid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 40px; }
+  @container (max-width: 760px) { .sched-grid { display: block; } }
+  body.demo-2col .sched-grid { display: grid !important; grid-template-columns: 1fr 1fr !important; }
+  body.demo-1col .sched-grid { display: block !important; }
+
+  /* ---------- Mockup scaffolding (not part of design) ---------- */
+  .variant-label {
+    margin: 0 0 12px; padding-bottom: 8px; border-bottom: 1px dashed #4a4a4a;
+    font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #7a7a7a;
+  }
+  .option-note { font-size: 11px; color: #6a6a6a; font-style: italic; margin-bottom: 16px; }
+  .before {
+    margin-bottom: 22px; padding: 14px 16px; border: 1px dashed #3d3d3d; border-radius: 8px;
+    font-size: 13px; color: #8a8a8a;
+  }
+  .before .lbl { font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: #6a6a6a; margin-bottom: 6px; }
+  .divider { height: 1px; background: var(--hairline); margin: 44px 0; }
+  .mockup-notes {
+    margin-top: 60px; padding: 24px; border: 1px dashed #4a4a4a; border-radius: 6px;
+    font-size: 13px; color: #a8a8a8; line-height: 1.7;
+  }
+  .mockup-notes strong { color: #d8d8d8; }
+  .mockup-notes ul { margin: 8px 0 0 18px; }
+</style>
+</head>
+<body class="demo-2col tc-bar" data-tc="0">
+<div class="page">
+
+<!-- ================= MATCHUPS ================= -->
+<div class="variant-label">Matchups &mdash; owner cards using the shared scoreboard</div>
+
+<div class="before">
+  <div class="lbl">Shipped pattern, for comparison</div>
+  Colorado @ Georgia Tech &nbsp;<span style="color:#6a6a6a;">SCH</span> &nbsp;|&nbsp; vs BHooper &middot; Kickoff Thu, Sep 3, 7:00 PM<br>
+  <span style="color:#6a6a6a;">On Ballard's card. Does not say which team is Ballard's and which is BHooper's &mdash; the same owner&rarr;team mapping defect the Overview redesign fixed.</span>
+</div>
+
+<div class="subnav"><span class="active">Matchups</span><span>Schedule</span><span>Matrix</span></div>
+
+<div style="margin-bottom:16px;">
+  <button class="linkbtn" style="border:1px dashed #4a4a4a; border-radius:6px; padding:6px 12px; color:#a8a8a8;"
+    onclick="var b=document.body; b.classList.toggle('dim-self'); this.textContent = b.classList.contains('dim-self') ? 'Card owner: dimmed (click to swap)' : 'Card owner: full weight (click to swap)';">
+    Card owner: full weight (click to swap)</button>
+  <button class="linkbtn" style="border:1px dashed #4a4a4a; border-radius:6px; padding:6px 12px; color:#a8a8a8; margin-left:8px;"
+    onclick="var b=document.body; var two=b.classList.contains('demo-2col'); b.classList.remove('demo-2col','demo-1col'); b.classList.add(two ? 'demo-1col' : 'demo-2col'); this.textContent = two ? 'Layout: one column (click to swap)' : 'Layout: two columns (click to swap)';">
+    Layout: two columns (click to swap)</button>
+  <button class="linkbtn" style="border:1px dashed #4a4a4a; border-radius:6px; padding:6px 12px; color:#a8a8a8; margin-left:8px;"
+    onclick="var b=document.body,T=['tc-bar','tc-rule',''],L=['Team colour: solid bar (click)','Team colour: thin rule (click)','Team colour: off (click)'];var i=(parseInt(b.dataset.tc||'0')+1)%3;b.dataset.tc=i;b.classList.remove('tc-bar','tc-rule');if(T[i])b.classList.add(T[i]);this.textContent=L[i];">
+    Team colour: solid bar (click)</button>
+</div>
+
+<div class="owner-grid">
+
+  <div class="owner-card">
+    <div class="owner-head"><span class="name">Ballard</span><span class="rec num">0&ndash;0</span></div>
+    <div class="stat-strip">
+      <div class="stat"><div class="v num">9</div><div class="l">Games</div></div>
+      <div class="stat"><div class="v num">0</div><div class="l">Wins</div></div>
+      <div class="stat"><div class="v num">&mdash;</div><div class="l">Win%</div></div>
+      <div class="stat"><div class="v num">0</div><div class="l">Live</div></div>
+    </div>
+
+    <div class="scoreboard">
+      <div class="sb-status"><span class="state">Scheduled</span><span>Thu, Sep 3 &middot; 7:00 PM</span></div>
+      <div class="sb-line" style="--tcol:#D8C68C"><span class="who"><span class="tc"></span><span class="team">Colorado</span><span class="owner self">Ballard</span></span><span class="anchor-soft num">3&ndash;5</span></div>
+      <div class="sb-line" style="--tcol:#C9BC8A"><span class="who"><span class="tc"></span><span class="team">Georgia Tech</span><span class="owner">BHooper</span></span><span class="anchor-soft num">6&ndash;2</span></div>
+      <div class="sb-odds num">Georgia Tech &minus;7.5 &middot; O/U 48.5</div>
+    </div>
+
+    <div class="scoreboard">
+      <div class="sb-status"><span class="state">Scheduled</span><span>Sat, Sep 5 &middot; 11:30 AM</span></div>
+      <div class="sb-line"><span class="who"><span class="team">Ball State</span><span class="owner self">Ballard</span></span><span class="anchor-soft num">2&ndash;6</span></div>
+      <div class="sb-line"><span class="who"><span class="rank">#1</span><span class="team">Ohio State</span><span class="owner">Gladney</span></span><span class="anchor-soft num">8&ndash;0</span></div>
+      <div class="sb-odds num">Ohio State &minus;38.5 &middot; O/U 52.5</div>
+    </div>
+
+    <div class="scoreboard">
+      <div class="sb-status"><span class="state">Scheduled</span><span>Sat, Sep 5 &middot; 5:00 PM</span></div>
+      <div class="sb-line"><span class="who"><span class="cls">FCS</span><span class="team">Norfolk State</span></span><span class="anchor-soft num">1&ndash;7</span></div>
+      <div class="sb-line"><span class="who"><span class="team">Old Dominion</span><span class="owner self">Ballard</span></span><span class="anchor-soft num">4&ndash;4</span></div>
+      <div class="sb-odds num">Line not posted</div>
+    </div>
+
+    <div class="card-footer"><button class="linkbtn">Show 6 more games &darr;</button></div>
+  </div>
+
+  <div class="owner-card">
+    <div class="owner-head"><span class="name">BHooper</span><span class="rec num">1&ndash;1</span></div>
+    <div class="stat-strip">
+      <div class="stat"><div class="v num">10</div><div class="l">Games</div></div>
+      <div class="stat"><div class="v num">1</div><div class="l">Wins</div></div>
+      <div class="stat"><div class="v num">50.0%</div><div class="l">Win%</div></div>
+      <div class="stat"><div class="v num">1</div><div class="l">Live</div></div>
+    </div>
+
+    <div class="scoreboard">
+      <div class="sb-status"><span class="live-badge">Live</span><span>Q3 8:12</span><span>&middot; <span class="tv">ESPN2</span></span></div>
+      <div class="sb-line trailing" style="--tcol:#E0546B"><span class="who"><span class="tc"></span><span class="team">Arkansas State</span><span class="owner">Pruitt</span></span><span class="score num">10</span></div>
+      <div class="sb-line" style="--tcol:#4A78C4"><span class="who"><span class="tc"></span><span class="team">Memphis</span><span class="rec num">(4&ndash;4)</span><span class="owner self">BHooper</span></span><span class="score num">24</span></div>
+    </div>
+
+    <div class="scoreboard">
+      <div class="sb-status"><span class="state">Final</span><span>Sat, Aug 29</span></div>
+      <div class="sb-line loser" style="--tcol:#E04545"><span class="who"><span class="tc"></span><span class="team">NC State</span><span class="rec num">(4&ndash;4)</span><span class="owner self">BHooper</span></span><span class="score num">8</span></div>
+      <div class="sb-line" style="--tcol:#6E7CB8"><span class="who"><span class="tc"></span><span class="team">Virginia</span><span class="rec num">(6&ndash;2)</span><span class="owner">Chamness</span></span><span class="score num">34</span></div>
+    </div>
+
+    <div class="scoreboard">
+      <div class="sb-status"><span class="eyebrow">Ranked spotlight</span><span>Sun, Sep 6 &middot; 6:30 PM &middot; Neutral site</span></div>
+      <div class="sb-line"><span class="who"><span class="rank">#24</span><span class="team">Louisville</span><span class="owner">Stevens</span></span><span class="anchor-soft num">5&ndash;1</span></div>
+      <div class="sb-line"><span class="who"><span class="rank">#9</span><span class="team">Ole Miss</span><span class="owner self">BHooper</span></span><span class="anchor-soft num">6&ndash;1</span></div>
+      <div class="sb-odds num">Ole Miss &minus;6.5 &middot; O/U 49.5</div>
+    </div>
+
+    <div class="scoreboard">
+      <div class="sb-status"><span class="state">Scheduled</span><span>Fri, Sep 4 &middot; 7:00 PM</span></div>
+      <div class="sb-line"><span class="who"><span class="cls">FCS</span><span class="team">Long Island</span></span><span class="anchor-soft num">1&ndash;5</span></div>
+      <div class="sb-line"><span class="who"><span class="team">Kansas</span><span class="owner self">BHooper</span></span><span class="anchor-soft num">3&ndash;5</span></div>
+      <div class="sb-odds num">Line not posted</div>
+    </div>
+
+    <div class="card-footer"><button class="linkbtn">Show 6 more games &darr;</button></div>
+  </div>
+
+</div>
+
+<div class="divider"></div>
+
+<!-- ================= SCHEDULE ================= -->
+<div class="variant-label">Schedule &mdash; chronological, two columns</div>
+<div class="option-note">Status chips and status-coloured borders are gone: the scoreboard carries state in its own status row, and section/date grouping carries the rest. The status key is removed &mdash; see notes.</div>
+
+<div class="subnav"><span>Matchups</span><span class="active">Schedule</span><span>Matrix</span></div>
+
+<div class="filters" id="filters">
+  <button class="chip on" data-f="">All <span class="n">13</span></button>
+  <button class="chip" data-f="live">Live <span class="n">2</span></button>
+  <button class="chip" data-f="final">Final <span class="n">8</span></button>
+  <button class="chip" data-f="sched">Scheduled <span class="n">3</span></button>
+</div>
+
+<div class="date-group">
+  <div class="date-head">Saturday, Aug 29</div>
+  <div class="sched-grid">
+    <div class="grow" data-state="final">
+      <button class="grow-head">
+        <div class="scoreboard">
+          <div class="sb-status"><span class="state">Final</span><span>12:00 PM</span><span class="eyebrow">&middot; Upset</span></div>
+          <div class="sb-line" style="--tcol:#7BB8E0"><span class="who"><span class="tc"></span><span class="team">North Carolina</span><span class="rec num">(3&ndash;5)</span><span class="owner">Jackson</span></span><span class="score num">31</span></div>
+          <div class="sb-line loser" style="--tcol:#8F5FBF"><span class="who"><span class="tc"></span><span class="team">TCU</span><span class="rec num">(5&ndash;3)</span><span class="owner">Gladney</span></span><span class="score num">24</span></div>
+        </div>
+        <div class="grow-more"></div>
+      </button>
+      <div class="grow-body">
+        <div class="grow-meta">Amon G. Carter Stadium, Fort Worth TX</div>
+        <div class="grow-odds">ML: UNC +215 / TCU &minus;265</div>
+        <div class="grow-conf">ACC vs Big 12</div>
+      </div>
+    </div>
+    <div class="grow" data-state="final">
+      <button class="grow-head">
+        <div class="scoreboard">
+          <div class="sb-status"><span class="state">Final</span><span>2:00 PM</span></div>
+          <div class="sb-line loser"><span class="who"><span class="team">San Jos&eacute; State</span><span class="rec num">(2&ndash;5)</span><span class="owner">Whited</span></span><span class="score num">0</span></div>
+          <div class="sb-line" style="--tcol:#E04A4A"><span class="who"><span class="tc"></span><span class="rank">#14</span><span class="team">USC</span><span class="rec num">(7&ndash;1)</span><span class="owner">Chamness</span></span><span class="score num">21</span></div>
+        </div>
+        <div class="grow-more"></div>
+      </button>
+      <div class="grow-body">
+        <div class="grow-meta">Los Angeles Memorial Coliseum, Los Angeles CA</div>
+        <div class="grow-odds">ML: SJSU +1400 / USC &minus;3500</div>
+        <div class="grow-conf">Mountain West vs Big Ten</div>
+      </div>
+    </div>
+    <div class="grow" data-state="final">
+      <button class="grow-head">
+        <div class="scoreboard">
+          <div class="sb-status"><span class="state">Final</span><span>2:30 PM</span></div>
+          <div class="sb-line loser" style="--tcol:#E04545"><span class="who"><span class="tc"></span><span class="team">NC State</span><span class="rec num">(4&ndash;4)</span><span class="owner">BHooper</span></span><span class="score num">8</span></div>
+          <div class="sb-line" style="--tcol:#6E7CB8"><span class="who"><span class="tc"></span><span class="team">Virginia</span><span class="rec num">(6&ndash;2)</span><span class="owner">Chamness</span></span><span class="score num">34</span></div>
+        </div>
+        <div class="grow-more"></div>
+      </button>
+      <div class="grow-body">
+        <div class="grow-meta">Scott Stadium, Charlottesville VA</div>
+        <div class="grow-odds">ML: NCST +125 / UVA &minus;145</div>
+        <div class="grow-conf">ACC matchup</div>
+      </div>
+    </div>
+    <div class="grow" data-state="final">
+      <button class="grow-head">
+        <div class="scoreboard">
+          <div class="sb-status"><span class="state">Final</span><span>4:00 PM</span></div>
+          <div class="sb-line loser"><span class="who"><span class="cls">FCS</span><span class="team">Abilene Christian</span><span class="rec num">(4&ndash;4)</span></span><span class="score num">10</span></div>
+          <div class="sb-line" style="--tcol:#E04545"><span class="who"><span class="tc"></span><span class="rank">#12</span><span class="team">Texas Tech</span><span class="rec num">(7&ndash;1)</span><span class="owner">Surowiec</span></span><span class="score num">45</span></div>
+        </div>
+        <div class="grow-more"></div>
+      </button>
+      <div class="grow-body">
+        <div class="grow-meta">Jones AT&amp;T Stadium, Lubbock TX</div>
+        <div class="grow-odds">Line not posted</div>
+        <div class="grow-conf">United Athletic vs Big 12</div>
+      </div>
+    </div>
+    <div class="grow" data-state="final">
+      <button class="grow-head">
+        <div class="scoreboard">
+          <div class="sb-status"><span class="state">Final</span><span>4:00 PM</span></div>
+          <div class="sb-line loser"><span class="who"><span class="cls">FCS</span><span class="team">UAlbany</span><span class="rec num">(5&ndash;3)</span></span><span class="score num">17</span></div>
+          <div class="sb-line" style="--tcol:#4A8FE0"><span class="who"><span class="tc"></span><span class="team">Buffalo</span><span class="rec num">(3&ndash;5)</span><span class="owner">Jackson</span></span><span class="score num">24</span></div>
+        </div>
+        <div class="grow-more"></div>
+      </button>
+      <div class="grow-body">
+        <div class="grow-meta">UB Stadium, Amherst NY</div>
+        <div class="grow-odds">ML: UAlbany +750 / BUF &minus;1200</div>
+        <div class="grow-conf">Coastal Athletic vs Mid-American</div>
+      </div>
+    </div>
+    <div class="grow" data-state="final">
+      <button class="grow-head">
+        <div class="scoreboard">
+          <div class="sb-status"><span class="state">Final</span><span>6:00 PM</span></div>
+          <div class="sb-line loser" style="--tcol:#D8C08A"><span class="who"><span class="tc"></span><span class="team">Purdue</span><span class="rec num">(1&ndash;7)</span></span><span class="score num">6</span></div>
+          <div class="sb-line" style="--tcol:#5E7BB5"><span class="who"><span class="tc"></span><span class="rank">#7</span><span class="team">Penn State</span><span class="rec num">(7&ndash;1)</span><span class="owner">Chamness</span></span><span class="score num">45</span></div>
+        </div>
+        <div class="grow-more"></div>
+      </button>
+      <div class="grow-body">
+        <div class="grow-meta">Beaver Stadium, University Park PA</div>
+        <div class="grow-odds">ML: PUR +2200 / PSU &minus;6000</div>
+        <div class="grow-conf">Big Ten matchup</div>
+      </div>
+    </div>
+    <div class="grow" data-state="final">
+      <button class="grow-head">
+        <div class="scoreboard">
+          <div class="sb-status"><span class="state">Final</span><span>7:00 PM</span></div>
+          <div class="sb-line loser"><span class="who"><span class="cls">FCS</span><span class="team">Sacramento State</span><span class="rec num">(2&ndash;6)</span></span><span class="score num">13</span></div>
+          <div class="sb-line" style="--tcol:#3FA36B"><span class="who"><span class="tc"></span><span class="team">Eastern Michigan</span><span class="rec num">(4&ndash;4)</span><span class="owner">Jackson</span></span><span class="score num">30</span></div>
+        </div>
+        <div class="grow-more"></div>
+      </button>
+      <div class="grow-body">
+        <div class="grow-meta">Rynearson Stadium, Ypsilanti MI</div>
+        <div class="grow-odds">Line not posted</div>
+        <div class="grow-conf">Big Sky vs Mid-American</div>
+      </div>
+    </div>
+    <div class="grow" data-state="final">
+      <button class="grow-head">
+        <div class="scoreboard">
+          <div class="sb-status"><span class="state">Final</span><span>7:30 PM</span></div>
+          <div class="sb-line"><span class="who"><span class="team">Hawai&#699;i</span><span class="rec num">(4&ndash;4)</span><span class="owner">Ciprys</span></span><span class="score num">35</span></div>
+          <div class="sb-line loser" style="--tcol:#C25050"><span class="who"><span class="tc"></span><span class="team">Stanford</span><span class="rec num">(2&ndash;6)</span><span class="owner">Maleski</span></span><span class="score num">31</span></div>
+        </div>
+        <div class="grow-more"></div>
+      </button>
+      <div class="grow-body">
+        <div class="grow-meta">Stanford Stadium, Stanford CA</div>
+        <div class="grow-odds">ML: HAW +145 / STAN &minus;170</div>
+        <div class="grow-conf">Mountain West vs ACC</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="date-group">
+  <div class="date-head">Today</div>
+  <div class="sched-grid">
+    <div class="grow open" data-state="live">
+      <button class="grow-head">
+        <div class="scoreboard">
+          <div class="sb-status"><span class="live-badge">Live</span><span>Q3 8:12</span><span>&middot; <span class="tv">ESPN2</span></span></div>
+          <div class="sb-line loser" style="--tcol:#E0546B"><span class="who"><span class="tc"></span><span class="team">Arkansas State</span><span class="rec num">(3&ndash;5)</span><span class="owner">Pruitt</span></span><span class="score num">10</span></div>
+          <div class="sb-line" style="--tcol:#4A78C4"><span class="who"><span class="tc"></span><span class="team">Memphis</span><span class="rec num">(4&ndash;4)</span><span class="owner">BHooper</span></span><span class="score num">24</span></div>
+        </div>
+        <div class="grow-more"></div>
+      </button>
+      <div class="grow-body">
+        <div class="grow-meta">Simmons Bank Liberty Stadium, Memphis TN</div>
+        <div class="grow-odds">ML: ARST +340 / MEM &minus;430</div>
+        <div class="grow-conf">Sun Belt vs American</div>
+      </div>
+    </div>
+    <div class="grow" data-state="live">
+      <button class="grow-head">
+        <div class="scoreboard">
+          <div class="sb-status"><span class="live-badge">Live</span><span>Q1 2:37</span></div>
+          <div class="sb-line loser" style="--tcol:#C4506B"><span class="who"><span class="tc"></span><span class="team">Boston College</span><span class="rec num">(2&ndash;6)</span><span class="owner">Surowiec</span></span><span class="score num">3</span></div>
+          <div class="sb-line" style="--tcol:#E85050"><span class="who"><span class="tc"></span><span class="team">Cincinnati</span><span class="rec num">(5&ndash;3)</span><span class="owner">Ballard</span></span><span class="score num">10</span></div>
+        </div>
+        <div class="grow-more"></div>
+      </button>
+      <div class="grow-body">
+        <div class="grow-meta">Nippert Stadium, Cincinnati OH</div>
+        <div class="grow-odds">ML: BC +255 / CIN &minus;310</div>
+        <div class="grow-conf">ACC vs Big 12</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="date-group">
+  <div class="date-head">Thursday, Sep 3</div>
+  <div class="sched-grid">
+    <div class="grow" data-state="sched">
+      <button class="grow-head">
+        <div class="scoreboard">
+          <div class="sb-status"><span class="state">Scheduled</span><span>5:00 PM &middot; <span class="tv">BTN</span></span></div>
+          <div class="sb-line" style="--tcol:#C46060"><span class="who"><span class="tc"></span><span class="team">Massachusetts</span></span><span class="anchor-soft num">1&ndash;7</span></div>
+          <div class="sb-line" style="--tcol:#E05070"><span class="who"><span class="tc"></span><span class="team">Rutgers</span><span class="owner">LHooper</span></span><span class="anchor-soft num">4&ndash;4</span></div>
+        </div>
+        <div class="grow-more"></div>
+      </button>
+      <div class="grow-body">
+        <div class="grow-meta">SHI Stadium, Piscataway NJ</div>
+        <div class="grow-odds">Spread: Rutgers &minus;29.5 &middot; O/U 51.5 &middot; ML: MASS +2000 / RUTG &minus;6500</div>
+        <div class="grow-conf">Mid-American vs Big Ten</div>
+      </div>
+    </div>
+    <div class="grow" data-state="sched">
+      <button class="grow-head">
+        <div class="scoreboard">
+          <div class="sb-status"><span class="state">Scheduled</span><span>6:00 PM</span></div>
+          <div class="sb-line"><span class="who"><span class="cls">FCS</span><span class="team">Merrimack</span></span><span class="anchor-soft num">2&ndash;6</span></div>
+          <div class="sb-line" style="--tcol:#4A8FD6"><span class="who"><span class="tc"></span><span class="team">Delaware</span><span class="owner">Maleski</span></span><span class="anchor-soft num">4&ndash;4</span></div>
+        </div>
+        <div class="grow-more"></div>
+      </button>
+      <div class="grow-body">
+        <div class="grow-meta">Delaware Stadium, Newark DE</div>
+        <div class="grow-odds">Line not posted</div>
+        <div class="grow-conf">Northeast vs Conference USA</div>
+      </div>
+    </div>
+    <div class="grow" data-state="sched">
+      <button class="grow-head">
+        <div class="scoreboard">
+          <div class="sb-status"><span class="state">Scheduled</span><span>7:00 PM &middot; <span class="tv">ESPN</span></span></div>
+          <div class="sb-line" style="--tcol:#D8C68C"><span class="who"><span class="tc"></span><span class="team">Colorado</span><span class="owner">Ballard</span></span><span class="anchor-soft num">3&ndash;5</span></div>
+          <div class="sb-line" style="--tcol:#C9BC8A"><span class="who"><span class="tc"></span><span class="team">Georgia Tech</span><span class="owner">BHooper</span></span><span class="anchor-soft num">6&ndash;2</span></div>
+        </div>
+        <div class="grow-more"></div>
+      </button>
+      <div class="grow-body">
+        <div class="grow-meta">Bobby Dodd Stadium, Atlanta GA</div>
+        <div class="grow-odds">Spread: Georgia Tech &minus;7.5 &middot; O/U 48.5 &middot; ML: COLO +255 / GT &minus;310</div>
+        <div class="grow-conf">Big 12 vs ACC</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  document.getElementById('filters').addEventListener('click', function(e){
+    var btn = e.target.closest('.chip');
+    if (!btn || btn.classList.contains('empty')) return;
+    var b = document.body;
+    b.classList.remove('f-live','f-final','f-sched');
+    if (btn.dataset.f) b.classList.add('f-' + btn.dataset.f);
+    this.querySelectorAll('.chip').forEach(function(c){ c.classList.remove('on'); });
+    btn.classList.add('on');
+  });
+  document.querySelectorAll('.grow-head').forEach(function(h){
+    h.addEventListener('click', function(){ this.parentElement.classList.toggle('open'); });
+  });
+</script>
+
+<div class="mockup-notes">
+  <strong>Mockup notes (not part of the design)</strong>
+  <ul>
+    <li><strong>Same component, no fork.</strong> Both views consume the scoreboard shipped in Item 87 slices 1&ndash;4. Nothing here is a new row shape &mdash; the additions are the two contract widenings recorded separately: the prefix slot accepting an FCS marker as well as a rank, and a neutral-site marker on the meta line.</li>
+    <li><strong>Matchups gains a correctness fix, not just a restyle.</strong> The shipped row reads <code>Colorado @ Georgia Tech</code> with <code>vs BHooper</code> beneath it, which never says which team belongs to which owner. Team-primary with an owner suffix resolves it structurally &mdash; the same defect and the same fix as the Overview redesign.</li>
+    <li><strong>Open &mdash; card-owner treatment.</strong> On an owner-scoped card the card owner's name repeats on one line of every scoreboard. The toggle compares full weight against dimmed. Dimming reduces noise and makes the opponent easier to scan; full weight keeps the component identical to every other surface. This is the only place the component meets a pre-scoped container.</li>
+    <li><strong>The scoreboard is the default Schedule row &mdash; no one-line collapse.</strong> The shipped collapse hides the wrong tier. Tier 1 is teams, owners, records and score, which is what a schedule is <em>for</em>; tier 2 is venue, moneyline and conference, which genuinely is secondary. Collapsing to one line hid tier 1 to protect against tier 2. Now the scoreboard always renders and only tier 2 sits behind "More". Scores and owner mapping are visible without interaction, and the row treatment matches Matchups and Overview exactly.</li>
+    <li><strong>The cost is roughly double the scroll</strong> &mdash; two columns and around 60 games a week puts a full slate near 2,000px. That is acceptable given the filter cuts it to the live handful in one click, and given the alternative was hiding scores behind a click on a results view. Judge the density here against a real slate before accepting it.</li>
+    <li><strong>Broadcast network is tier 1 on a schedule.</strong> "Can I watch this" is the question the view answers, so the network sits in the status row beside the kickoff time rather than behind an expand. It renders on <em>scheduled</em> and <em>live</em> rows only &mdash; a final's broadcast is dead information, since the row's job at that point is the result. Same principle as the anchor: the status row carries what is actionable for that state.</li>
+    <li><strong>Games without a listed broadcast</strong> simply omit it rather than rendering a placeholder; several FCS matchups have none.</li>
+    <li><strong>Conference sits in tier 2 on its own line, not appended to the odds.</strong> It is context rather than something a member acts on, and the page already carries a conference <em>filter</em>, so the dimension is handled at page level &mdash; the row only needs to state it. Appending it to the odds string made it read as an afterthought and coupled two unrelated facts.</li>
+    <li><strong>Same-conference games collapse.</strong> "ACC vs ACC" is nonsense; those render "ACC matchup". Conference is strictly a team attribute, so the "X vs Y" form is a game-level summary of two facts and needs this special case.</li>
+    <li><strong>Alternative if conference proves tier 1:</strong> abbreviate it (ACC, B1G, MW) and place it inline on the team line. Rejected for now &mdash; that line already carries a colour bar, rank or FCS marker, team, record and owner, and conference would be the sixth element. If the page-level filter makes conference prominent enough that members expect it per row, the inline form is the fallback and something else has to give way.</li>
+    <li><strong>Expansion may not survive.</strong> With the network promoted, what remains behind it is venue and city, moneyline, and conference matchup &mdash; mildly useful, niche, and inferable respectively. If tier 2 goes unused it can be dropped entirely and the row becomes a plain scoreboard with no interaction. Retained for now because removing information that exists today should be a decision, not an assumption.</li>
+    <li><strong>The status pills become a real filter.</strong> They were previously a colour key for the status-coloured cards &mdash; useless even before this transition, and meaningless after it, since the colours they explained are gone. Replaced with single-select state filtering. Additive functionality rather than part of the transition proper, and should be scoped as such.</li>
+    <li><strong>Counts are the point.</strong> Sixty-plus games a week and the problem is finding the two live ones. Counts on the chips answer "is anything live" without a click. Zero-count states render dimmed and unclickable so the absence is stated rather than implied.</li>
+    <li><strong>Filter chips are neutral, not status-coloured</strong> &mdash; colouring them would reintroduce exactly what the transition removes, and spend palette on a persistent control. Active state is full-weight text and a brighter border.</li>
+    <li><strong>Empty date groups hide under a filter</strong> rather than leaving orphaned headings. Implemented with <code>:has()</code>; production may prefer computing group visibility.</li>
+    <li><strong>Matchups differs deliberately.</strong> An owner card holds roughly nine games, so scoreboards render expanded inline with no collapse &mdash; the volume does not justify hiding them, and the whole point of that view is reading a slate at once. Same component, different consumption. Odds show there for the same reason and are suppressed on Schedule's collapsed rows.</li>
+    <li><strong>Preserved metadata:</strong> FCS marker (prefix slot), rank prefix, Top-25 / Ranked-spotlight eyebrow, neutral site, kickoff time, per-owner stat strip. The stat strip sits outside the scoreboard and is unchanged.</li>
+    <li><strong>Sorted strictly by kickoff time, ascending, within each date group.</strong> A schedule's contract is time order, so live games are <em>not</em> floated to the top the way the Overview promotion model does &mdash; the filter covers "show me what's live" without breaking the one guarantee the view makes. Kickoff times therefore render on every row including finals: with the sort keyed to a value, hiding that value on two-thirds of the rows makes the order look arbitrary.</li>
+    <li><strong>Open &mdash; landing position.</strong> Ascending order means a mid-Saturday visit opens on the morning's finals with live games below the fold. That is a scroll-position question rather than a sort question: options are to leave it, scroll to the first non-final game on load, or anchor the current date group. Worth deciding separately from the sort.</li>
+    <li><strong>Two-column Schedule</strong> matches the Overview grid, row-major, container query at 760px. Matchups keeps its two-column owner-card grid.</li>
+    <li><strong>Records shown throughout</strong> &mdash; anchor on scheduled rows, inline parenthetical on live and final rows, per the records follow-on. These depend on the CFBD records integration; until it lands, scheduled rows anchor on the spread and live/final rows omit the parenthetical.</li>
+    <li><strong>FCS teams are never owned</strong> &mdash; they appear only as the unowned opponent in an FBS-vs-FCS game, so an FCS line renders team-only with no owner suffix, exactly like the unowned-FBS case. FCS-vs-FCS games cannot exist in the league and are not drawn.</li>
+    <li><strong>The FCS marker is not redundant with "no owner".</strong> A 14-owner league holds fewer teams than the FBS contains, so unowned FBS opponents exist too &mdash; Purdue in the Schedule list is one. The marker distinguishes an FCS opponent from a merely-unowned FBS opponent, which matters because a win over each means something different. Both render without an owner suffix; only one carries the marker.</li>
+    <li><strong>Defect &mdash; the sentinel <code>NoClaim</code> is rendered to members as an owner.</strong> The shipped Schedule shows "NoClaim vs LHooper" on the Massachusetts&ndash;Rutgers row. <code>NoClaim</code> is the league's internal convention for an unowned team, not a person; displayed as an owner name it reads as a fourteenth member. <strong>Rule: a <code>NoClaim</code> owner renders no owner suffix at all</strong> &mdash; the absence is the signal, exactly as it is for FCS opponents. Corrected throughout here (Massachusetts, Purdue).</li>
+    <li><strong>The <code>NoClaim</code> bucket stays in the data model.</strong> It supports analysis and future insights over unowned teams, so this is a presentation rule only: never map the sentinel into the owner slot. The value is real; it just is not an owner.</li>
+    <li><strong>Unowned FBS teams therefore exist</strong> &mdash; answering an earlier open question. Three unowned states now render distinctly: an <em>FCS opponent</em> (FCS marker, no owner), an <em>unowned FBS team</em> (no marker, no owner), and an <em>owned team</em> (owner suffix). Purdue and Massachusetts show the middle case; Abilene Christian and UAlbany the first.</li>
+    <li><strong>Not addressed here:</strong> selection and ordering within either view, the Matrix sub-view, week-tab chrome, and the conference/team filters above the tabs.</li>
+  </ul>
+</div>
+
+</div>
+</body>
+</html>
