@@ -104,7 +104,7 @@ function prioritized(itemValue: OverviewGameItem, priority = 0): PrioritizedOver
     isGameOfSlate: priority >= 90,
     isUpsetWatch: false,
     isRankedSpotlight: priority >= 70 && priority < 90,
-    highlightLabel: priority >= 90 ? 'Game of the slate' : null,
+    highlightLabel: priority >= 90 ? 'Game of the Week' : null,
     highlightTags: priority > 0 ? [{ id: 'top25', text: 'Top 25 Matchup', priority }] : [],
   };
 }
@@ -323,9 +323,9 @@ test('undated live rows retain a deterministic key order under the six-row cap',
   );
 });
 
-test('watchlist routes the full prioritised pool and caps four survivors', () => {
+test('watchlist routes the full prioritised pool and caps six survivors', () => {
   const kickedOff = item(game({ key: 'promoted', date: KICKOFF }));
-  const future = Array.from({ length: 5 }, (_, index) =>
+  const future = Array.from({ length: 8 }, (_, index) =>
     item(game({ key: `future-${index}`, date: `2026-09-12T${16 + index}:00:00.000Z` }))
   );
   const candidates = [
@@ -336,7 +336,7 @@ test('watchlist routes the full prioritised pool and caps four survivors', () =>
 
   assert.deepEqual(
     sections.scheduled.map((entry) => entry.item.bucket.game.key),
-    ['future-0', 'future-1', 'future-2', 'future-3']
+    ['future-0', 'future-1', 'future-2', 'future-3', 'future-4', 'future-5']
   );
   assert.deepEqual(memberships(sections, kickedOff.bucket.game.key), ['live']);
 });

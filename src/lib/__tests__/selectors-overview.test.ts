@@ -127,7 +127,7 @@ test('prioritizeOverviewItems retains quality labels without changing caller-pro
   assert.equal(ordered[0]?.highlightLabel, null);
   assert.equal(ordered[1]?.highlightLabel, null);
   assert.equal(ordered[1]?.isRankedSpotlight, true);
-  assert.equal(ordered[2]?.highlightLabel, 'Game of the slate');
+  assert.equal(ordered[2]?.highlightLabel, 'Game of the Week');
   assert.equal(ordered[2]?.isGameOfSlate, true);
 });
 
@@ -198,7 +198,7 @@ test('selectOverviewViewModel prioritises marquee watchlist games before kickoff
   assert.equal(
     model.watchlistCandidates.find((entry) => entry.item.bucket.game.key === 'later-top')
       ?.highlightLabel,
-    'Game of the slate'
+    'Game of the Week'
   );
 });
 

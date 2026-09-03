@@ -316,7 +316,7 @@ export function prioritizeOverviewItems(params: {
       isUpsetWatch,
       isRankedSpotlight,
       highlightTags,
-      highlightLabel: isUpsetWatch ? 'Upset watch' : isGameOfSlate ? 'Game of the slate' : null,
+      highlightLabel: isUpsetWatch ? 'Upset watch' : isGameOfSlate ? 'Game of the Week' : null,
     };
   });
 }
