@@ -2,6 +2,7 @@ import React from 'react';
 
 import { deriveDisplayEventName } from '../lib/gameEventName';
 import { deriveExpandedMetadataLines } from '../lib/gameCardPresentation';
+import { displayOwner } from '../lib/gameOwnership';
 import type { CombinedOdds } from '../lib/odds';
 import { formatGameMatchupLabel, usesNeutralSiteSemantics } from '../lib/gameUi';
 import { LEAGUE_TAG_LABELS } from '../lib/gameTags';
@@ -59,10 +60,15 @@ function participantDisplayInfo(game: AppGame, side: 'home' | 'away'): TeamDispl
     return participant.labels;
   }
 
+  const fallbackName =
+    participant.kind === 'team'
+      ? participant.rawName.trim() || participant.displayName
+      : participant.displayName;
+
   return {
-    displayName: participant.displayName,
-    shortDisplayName: participant.displayName,
-    scoreboardName: participant.displayName,
+    displayName: fallbackName,
+    shortDisplayName: fallbackName,
+    scoreboardName: fallbackName,
   };
 }
 
@@ -229,7 +235,7 @@ export default function GameWeekPanel({
                         <div className="min-w-0 flex flex-col gap-1">
                           {card.showOwnerMatchup && (
                             <div className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">
-                              {card.awayOwner} vs {card.homeOwner}
+                              {displayOwner(card.awayOwner)} vs {displayOwner(card.homeOwner)}
                             </div>
                           )}
                           {card.showCollapsedCanonicalLabel && (

@@ -599,6 +599,56 @@ test('score block renders stacked scoreboard rows with rankings and final status
   assert.doesNotMatch(html, /Ole Miss 38 at Mississippi State 19 \(Final\)<\/div>/);
 });
 
+test('expanded scoreboard uses provider casing for non-catalog teams and catalog scoreboard labels', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'provider-casing',
+          csvAway: 'UAlbany',
+          csvHome: 'Buffalo',
+          canAway: 'ualbany',
+          canHome: 'buffalo',
+          participants: {
+            away: {
+              kind: 'team',
+              teamId: 'ualbany',
+              displayName: 'ualbany',
+              canonicalName: 'ualbany',
+              rawName: 'UAlbany',
+            },
+            home: {
+              kind: 'team',
+              teamId: 'buffalo',
+              displayName: 'Buffalo',
+              canonicalName: 'Buffalo',
+              rawName: 'Buffalo',
+              labels: {
+                displayName: 'Buffalo',
+                shortDisplayName: 'Buffalo',
+                scoreboardName: 'BUF',
+              },
+            },
+          },
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  const awayRow = html.match(/data-scoreboard-row="away"[\s\S]*?data-scoreboard-row="home"/)?.[0];
+  assert.ok(awayRow);
+  assert.match(awayRow, />UAlbany<\//);
+  assert.doesNotMatch(awayRow, />ualbany<\//);
+  assert.match(html, /data-scoreboard-row="home"[\s\S]*>BUF<\//);
+});
+
 test('score block preserves live and pregame status labels', () => {
   const liveHtml = renderToStaticMarkup(
     <GameWeekPanel
@@ -841,6 +891,35 @@ test('collapsed summary removes duplicate chips and keeps owner matchup plus sta
   assert.doesNotMatch(html, />SEC<\/span>/);
   assert.doesNotMatch(html, />Big 12<\/span>/);
   assert.doesNotMatch(html, /Neutral Site/);
+});
+
+test('collapsed owner matchup hides NoClaim while preserving the sibling owner', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'unowned-fbs-collapsed',
+          csvAway: 'Massachusetts',
+          csvHome: 'Rutgers',
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={
+        new Map([
+          ['Massachusetts', 'NoClaim'],
+          ['Rutgers', 'LHooper'],
+        ])
+      }
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.doesNotMatch(html, /NoClaim/);
+  assert.match(html, /vs LHooper/);
 });
 
 test('card edge accents are attached to the outer card with away/home mapping', () => {

@@ -1,6 +1,7 @@
 import React from 'react';
 
 import { deriveScoreOutcomePresentation } from '../lib/gameCardPresentation';
+import { displayOwner } from '../lib/gameOwnership';
 import { gameStateFromScore } from '../lib/gameUi';
 import type { CombinedOdds } from '../lib/odds';
 import type { TeamRankingEnrichment } from '../lib/rankings';
@@ -126,7 +127,7 @@ function buildOddsSummary(params: {
 }
 
 function buildTeamContext(conference?: string | null, owner?: string): string | null {
-  const parts = [conference?.trim(), owner?.trim()].filter(Boolean);
+  const parts = [conference?.trim(), displayOwner(owner)?.trim()].filter(Boolean);
   return parts.length ? parts.join(' · ') : null;
 }
 

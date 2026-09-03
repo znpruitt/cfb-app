@@ -110,9 +110,9 @@ test('matchups panel renders owner-centric cards and duplicates owner-vs-owner g
   assert.match(html, /Bob/);
   assert.match(html, /0–0 · 1 live/);
   // Owner-vs-owner game is duplicated into both slates: Alice's card carries a
-  // "vs Bob" opponent badge while the unowned FBS game shows "NoClaim (FBS)".
+  // "vs Bob" opponent badge while the unowned FBS game has no owner badge.
   assert.match(html, /vs Bob/);
-  assert.match(html, /NoClaim \(FBS\)/);
+  assert.doesNotMatch(html, /NoClaim/);
   assert.match(html, /Alabama[\s\S]*24[\s\S]*–[\s\S]*17[\s\S]*Georgia/);
   assert.match(html, /05:00/);
   assert.doesNotMatch(html, /Leading 24-17/);
@@ -439,11 +439,11 @@ test('owner slates count final owned-vs-owned, NoClaim, and FCS results from own
 
   assert.match(html, /data-owner-card="Avery"/);
   assert.match(html, /2–1/);
-  // Avery's three owned participations surface FCS, NoClaim (FBS), and an
-  // owner-vs-owner "vs Blair" opponent badge on the individual game rows.
+  // Avery's three owned participations surface FCS and the owner-vs-owner
+  // "vs Blair" badge; the unowned FBS game has no owner badge.
   const averyCard = html.match(/data-owner-card="Avery"[\s\S]*?<\/article>/)?.[0] ?? '';
   assert.match(averyCard, /FCS/);
-  assert.match(averyCard, /NoClaim \(FBS\)/);
+  assert.doesNotMatch(averyCard, /NoClaim/);
   assert.match(averyCard, /vs Blair/);
   assert.match(
     html,
@@ -511,7 +511,7 @@ test('scheduled and live games do not change owner final record summaries', () =
   // only the final game contributes to the record summary above.
   const caseyCard = html.match(/data-owner-card="Casey"[\s\S]*?<\/article>/)?.[0] ?? '';
   assert.match(caseyCard, /vs Evan/);
-  assert.match(caseyCard, /NoClaim \(FBS\)/);
+  assert.doesNotMatch(caseyCard, /NoClaim/);
   assert.match(caseyCard, /vs Dana/);
 });
 
@@ -584,7 +584,7 @@ test('matchups panel distinguishes unowned fbs opponents from fcs opponents', ()
     />
   );
 
-  assert.match(html, /NoClaim \(FBS\)/);
+  assert.doesNotMatch(html, /NoClaim/);
   assert.match(html, /FCS/);
   assert.doesNotMatch(html, /Unowned \/ Non-league/);
 });

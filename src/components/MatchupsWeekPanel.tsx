@@ -193,7 +193,7 @@ function GameRow({
   });
   const metadataEntries: string[] = [];
   if (statusTone === 'inprogress' && liveClockLabel) metadataEntries.push(liveClockLabel);
-  metadataEntries.push(opponentDescriptor);
+  if (opponentDescriptor !== 'NoClaim (FBS)') metadataEntries.push(opponentDescriptor);
   if (statusTone === 'scheduled') {
     metadataEntries.push(
       `Kickoff ${formatExpandedKickoff(slateGame.game.date, displayTimeZone, slateGame.game.startTimeTBD)}`

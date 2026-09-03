@@ -1,4 +1,5 @@
 import { getGameParticipantTeamId, type AppGame } from './schedule.ts';
+import { NO_CLAIM_OWNER } from './standings.ts';
 
 // ---------------------------------------------------------------------------
 // Shared, resolver-free current-season game ownership resolution.
@@ -17,6 +18,11 @@ import { getGameParticipantTeamId, type AppGame } from './schedule.ts';
 // Exact-match lookup only (no normalized index) — that remains a deferred
 // decision because normalizing stored labels can collide.
 // ---------------------------------------------------------------------------
+
+/** Hide the internal unowned-team sentinel at member-facing render seams. */
+export function displayOwner(owner: string | null | undefined): string | null {
+  return owner === NO_CLAIM_OWNER ? null : (owner ?? null);
+}
 
 /**
  * Ordered, deduped identity candidates for one side of a game.
