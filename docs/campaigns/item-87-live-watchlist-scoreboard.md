@@ -414,6 +414,7 @@ Ordered so colour settles once rather than shipping neutral live and flipping it
 | ✅ 2 | Featured conversion + retire its `stateBadgeClasses` call + green-live flip | Merged via POLISH-017 / PR #537 (`e0a7b8ab`), 2026-08-30. Featured now consumes the neutral-final variant, and green-live is unambiguous on Overview. |
 | ✅ 3 | Recent finals + promotion model | Merged via POLISH-019 / PR #549 (`751a86b4`), 2026-09-01. |
 | 4 | Watchlist | Riskiest — consumes PLATFORM-117's cache by exact `teamId`, with the spread fallback when a record is unavailable. |
+| 5a | Shared-component contract widening | **Split from slice 5 by owner decision 2026-09-03.** `CompactGameScoreboard` gains a classification marker in the prefix slot (rank \| FCS \| empty), a neutral-site marker, broadcast on live rows, and a tier-2 expansion slot — the four widenings recorded in `item-87-followon-matchups-schedule-design.md` §1–4, which no earlier document held. Consumers: slice 5, Item 117, Item 119. Overview must render identically before and after, proven by mutation. |
 | 5 | Schedule rework | Filed 2026-08-30 (was *Not filed*). Schedule adopts the scoreboard row, two-column and all, and its colour settles as part of the rework rather than via Item 90. Needs the widened state variants above. |
 
 **Risk order:** watchlist anchor (external data) > promotion model (state transitions mid-slate, section migration) > two-column grid against the header-nowrap contract. Slices 1–2 are low-risk and independently verifiable.

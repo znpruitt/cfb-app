@@ -24,39 +24,57 @@ Supersedes: (none)
 
 ## Current execution order
 
-`CURRENT`: **Item 102 + Item 88** — polling planner and its health model. Item 87 slice 4 merged
-2026-09-03 via PR #558 (`c730b4d0`); slice 5 (Schedule) remains, and the settled row-disclosure
-decision it did not implement is now Item 112.
-`NEXT`: **Item 111** — measure the `/api/odds` self-fetch against the Active CPU residual before
-scoping it.
+`CURRENT`: **Item 116** — `NoClaim` presentation fix. An hour of work, member-visible today; it
+precedes the planner rather than displacing it.
+`NEXT`: **Item 102 + Item 88** — polling planner and its health model.
 
-Owner-selected run order (2026-09-02), replacing the 2026-08-29 order. Reprioritised after the Vercel
-Fluid Active CPU finding (`docs/campaigns/vercel-active-cpu.md`): the Hobby allowance is exhausted,
-both high-frequency QStash schedules are manually switched per game window, and a mistimed pause
-strands finals permanently because `kickoff + 24h` reconciliation cannot be re-entered. That is a
-weekly operator burden with a data-loss mode, and it did not exist when the prior order was set.
+Owner-selected run order (2026-09-03), replacing the 2026-09-02 order. Ordering values, stated by the
+owner: **user-facing improvements, data correction, and bug fixes first; prerequisites persisted in
+place rather than deferred.** The Item 87 follow-on inputs (`docs/campaigns/item-87-followon-*.md`,
+committed `c9f76081`) surfaced four new items and one split, all placed below.
 
-1. **Item 102 + Item 88** — polling planner and the health model, together. 102 narrows the cron and
+1. **Item 116** — `NoClaim` rendered as an owner on Schedule, Postseason and Matchups, plus the
+   lowercase canonical-id leak. Bug, tiny, visible today.
+2. **Item 102 + Item 88** — polling planner and the health model, together. 102 narrows the cron and
    88 is the reason that is safe: `schedulerDeliveryHealth.ts:82,88` hardcodes the cadence, so a
-   planner shipped alone makes both jobs read `late` forever. This is what retires the manual switch.
-   Not a close call: the campaign's own projection puts Item 99 alone (shipped) at ~2.8h/30d against
-   the 4h Hobby allowance — thin — where Item 102 reaches ~1.1h, a season's margin. It also retires
-   the manual QStash pause/resume, which carries a real data-loss mode at the `kickoff + 24h`
-   reconciliation boundary.
-2. **Item 87 slice 5 + Item 112** — Schedule rework and row disclosure, taken together. Slice 5 was
-   filed 2026-08-30; Schedule adopts the scoreboard row, two-column and all, and its green-`final` /
-   amber-live is settled there rather than by a separate sweep. Also carries the
-   `ownerOutcomeRowClasses` sibling asymmetry left by POLISH-018, which reaches `MatchupsWeekPanel` —
-   a different week view mode, named deliberately in the campaign doc rather than folded in silently.
-   Item 112 (row disclosure, filed 2026-09-03 when slice 4 shipped without it) belongs alongside
-   rather than before it: same component, same surface, and bundling avoids threading `media`/venue/
-   head-to-head props onto `CompactGameScoreboard` twice.
-3. **Item 95 portion 1** — browser poll 180s -> 90s. PLATFORM-120 cleared its Active CPU gate; it
-   retains this owner-selected position after the higher-priority planner and UI work.
+   planner shipped alone makes both jobs read `late` forever. Held at the top of the large work
+   because it is a **data-correction** item as much as a cost one: the manual pause it retires can
+   strand a game's final permanently at the `kickoff + 24h` boundary. The campaign's projection puts
+   Item 99 alone at ~2.8h/30d against the 4h allowance; Item 102 reaches ~1.1h.
+3. **Item 87 slice 5a** — `CompactGameScoreboard` contract widening: classification marker in the
+   prefix slot (rank | FCS | empty, mutually exclusive by `rankings.ts` exact-match), neutral-site
+   marker, broadcast on live rows (`CompactGameScoreboard.tsx:16-19` is scheduled-only today), and a
+   tier-2 expansion slot. **Split from slice 5 by owner decision 2026-09-03** so that slice 5, Item
+   117 and Item 119 build on one reviewed component change instead of each re-deriving it. Overview
+   must render identically before and after — prove it by mutation, not by inspection.
+4. **Item 87 slice 5 + Item 112** — Schedule adopts the scoreboard row with no one-line collapse and
+   tier-2 behind "More" (which *is* Item 112's disclosure model, landing on Schedule first); kickoff
+   sort; deletes `GameWeekPanel`'s collapse and `cardEmphasisClasses`. Carries the
+   `ownerOutcomeRowClasses` sibling asymmetry into `MatchupsWeekPanel`. **Owner decision needed
+   before build:** the amber `upset` border (`GameWeekPanel.tsx:42`) is a reserved-colour violation
+   the base addendum explicitly exempted; confirm it dies with the card chrome.
+5. **Item 117** — Matchups adopts the shared scoreboard. User-facing and a correctness fix (the
+   shipped row never says which team is which owner). Needs the card-owner-treatment decision.
+6. **Item 115** — Overview section expansion. Recent finals is documented as complete and truncates
+   at six today; this reuses the disclosure pattern slice 5 settles rather than inventing one.
+7. **Item 119** — team-colour bar on the existing normaliser, with no accent for teams that have no
+   colour — which also removes the green fallback every FCS row carries today. OKLCH only if measured.
+8. **Item 118** — Schedule status filter with counts. Purely additive; after the rework it filters.
+9. **Item 95 portion 1** — browser poll 180s → 90s. Small, user-facing, gate already cleared.
+10. **Item 100b** — internal slate marker. Date gate removed 2026-09-03; its 2026 consequence
+    (Featured empty through 2026-09-07) closes on its own, but the recap and look-ahead targeting it
+    exists for recur next August. Cheap: the clustering code is recoverable from `d6184c28`.
+11. **Item 113** — Featured as insight-selected, state-agnostic. Largest, and gated on a decision
+    about `INSIGHTS-017-PALETTE` (a prose bullet today, not an item).
+12. **Item 101** — season-boundary finals gap. Re-derive the empty window against the floating cutoff
+    first; fix before late November.
 
-**Interstitial, no dedicated slot:** Item 111 is a ~5-minute Observability-console check ("measure
-before scoping," per the item itself), not an implementation task. It does not compete with the above
-for engineering time and can run any time this week.
+**Interstitial, no dedicated slot:** **Item 111** (~5-minute Observability check, any time this
+week) and **Item 108** (one read of `provider-refresh-status` for `scores:week:2026:2:regular` on
+the morning of 2026-09-04 — then close it or promote it).
+
+**Decisions parked, with the item that consumes each:** amber `upset` border → slice 5;
+normalisation target `#0A0A0A` vs `#161616` → Item 119; card-owner treatment → Item 117.
 
 Runnable at any point, no dependency on the above: **Item 42 portion 1** (notable-result
 scoreboards, now unblocked by POLISH-017's final variant), **Item 84** (provider-classification
@@ -456,6 +474,79 @@ through the offseason without an operator, and is driven by a Vercel Active CPU 
 Neon one. Keep this item for the read-replica autosuspend and the non-cadence findings.
 
 - Backlog slug: `PLATFORM-OFFSEASON-SCHEDULE-PAUSE-v1`
+
+### Item 119 — team-colour bar on the shared scoreboard, and no accent for teams with no colour
+
+**Filed 2026-09-03.** Design and evidence: `docs/campaigns/item-87-followon-team-colour.md`. Depends on
+**Item 87 slice 5a** (the bar lands in the shared component). Two separately shippable pieces:
+
+1. **The bar, on the existing normaliser.** An 8px muted bar at the line-start slot reserved for logos,
+   using `teamColors.ts` as it ships today (HSL, contrast-lifted to ≥3:1). Teams with no catalog
+   colour render **no accent**. That last clause is a bug fix as well as a rule: every FCS row today
+   receives the fallback `#059669` (`teamColors.ts:24`, `:267`), a green on a surface where green
+   already means live within the scoreboard family (`DESIGN.md` → Color).
+2. **OKLCH port — only if (1) measures badly** at 8px, with the reserved-hue guard the follow-on
+   specifies. Not a dependency of (1).
+
+**Decision parked:** the normalisation target — the incumbent is tuned to `#0A0A0A`, the mockup and
+follow-on assume `#161616`. One constant, before (1) ships.
+
+- Backlog slug: `POLISH-TEAM-COLOUR-BAR-v1`
+
+### Item 118 — Schedule status filter with counts
+
+**Filed 2026-09-03.** Design: `docs/campaigns/item-87-followon-matchups-schedule-design.md` → *The
+status key becomes a real filter*. Replaces the FINAL / IN PROGRESS / SCHEDULED colour key, which was
+a legend for card colours the Schedule rework deletes. Single-select; counts on each chip; zero-count
+states dim rather than disappear; chips neutral, never status-coloured; empty date groups hide under
+a filter. Additive functionality — scoped after **Item 87 slice 5**, not inside it.
+
+- Backlog slug: `POLISH-SCHEDULE-STATUS-FILTER-v1`
+
+### Item 117 — Matchups adopts the shared scoreboard
+
+**Filed 2026-09-03.** Design: `docs/campaigns/item-87-followon-matchups-schedule-design.md` →
+*Matchups — design decisions*, and `mockups/matchups-schedule-mockup.html`. `MatchupsWeekPanel`'s
+bespoke `GameRow` (`:140`) becomes `CompactGameScoreboard`, rendered expanded inline with no collapse
+and the odds footer on. **Carries a correctness fix, not only a restyle:** the shipped row reads
+`Colorado @ Georgia Tech` over `vs BHooper` and never says which team belongs to which owner — the
+same owner→team mapping defect the Overview redesign fixed. Not in slice 5's scope, which touches
+this file only for the `ownerOutcomeRowClasses` carry-over. Depends on **Item 87 slice 5a**.
+
+**Open — owner decision:** card-owner treatment. The card owner's name repeats on one line of every
+scoreboard; the mockup toggles full weight against dimmed. Decide before implementation.
+
+- Backlog slug: `POLISH-MATCHUPS-SCOREBOARD-v1`
+
+### Item 116 — `NoClaim` renders to members as an owner; canonical-id slugs leak into Schedule
+
+**Filed 2026-09-03. Bug, member-visible today, self-contained — dispatch first.** Evidence and the
+three-unowned-states rule: `docs/campaigns/item-87-followon-matchups-schedule-design.md` → *Defects*.
+
+**The sentinel path, traced.** `draft.ts:181`/`:240` write `NoClaim` as the owner of every unowned
+FBS team — deliberately; the bucket supports analysis. `rosterByTeam` (`CFBScheduleApp.tsx:637`)
+carries it, `getOwnerForGameSide` (`gameOwnership.ts:58`) returns it, and nothing before the DOM
+guards it. It reaches members at three seams: the Schedule collapsed line (`GameWeekPanel.tsx:232`,
+because `Boolean('NoClaim')` satisfies `gameWeek.ts:152`), the Schedule and Postseason expanded rows
+(`GameScoreboard.buildTeamContext`, `:128`), and a literal `NoClaim (FBS)` badge on Matchups
+(`selectors/matchups.ts:42` → `MatchupsWeekPanel.tsx:285`). Overview already guards it six times
+(`=== NO_CLAIM_OWNER ? null`).
+
+**Fix at presentation, not in the data path.** One `displayOwner()` helper returning `null` for the
+sentinel, applied at the three seams and replacing Overview's six inline guards. Do **not** make
+`getOwnerForGameSide` return `undefined` — `standings.ts:91` and `insights/context.ts` read the
+roster and the sentinel is load-bearing there.
+
+**Second defect, same item.** `GameWeekPanel.participantDisplayInfo` (`:57-68`) falls back to
+`participant.displayName` — the canonical id (`schedule.ts:706`) — when a non-catalog team has no
+`labels`, which is how `ualbany` renders lowercase beside `BUF`. Fall back to the provider name
+(`csvAway`/`rawName`) instead.
+
+**Acceptance boundary:** no member surface prints the sentinel; an unowned FBS team renders with no
+owner suffix, exactly as an FCS opponent does; non-catalog teams render in provider casing in every
+Schedule view.
+
+- Backlog slug: `POLISH-NOCLAIM-PRESENTATION-v1`
 
 ### Item 115 — Overview sections truncate with no expansion, though "bounded default" was decided
 
@@ -2014,7 +2105,8 @@ the interim correctness and empty-copy fixes on this surface. POLISH-016 / slice
 shared scoreboard contract and converted the Live section; POLISH-017 / slice 2 converted Featured
 and settled green-live on Overview; POLISH-019 / slice 3 added Recent finals and structural
 promotion. **POLISH-020 / slice 4 converted the Watchlist**, merged 2026-09-03 via PR #558
-(`c730b4d0`). Slice 5 retains the Schedule work.
+(`c730b4d0`). **Slice 5a** (shared-component contract widening, split out 2026-09-03) and
+**slice 5** (Schedule) remain; Matchups is Item 117, not a slice.
 
 **Problem observed on `/league/tsc` during the 2026 opening slate (2026-08-29).** One game appeared
 twice on a single screen — in "Upcoming watchlist" and again in the "Live" tile — and the Live card
