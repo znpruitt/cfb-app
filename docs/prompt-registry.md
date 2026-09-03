@@ -236,7 +236,9 @@ Rules:
   carries no review outcome. Diffstat 18 files / +986 −209 crosses the AGENTS.md:306 >15-file signal;
   the expansion is the five-route records threading (~140 lines) and a 265-line server/client
   boundary test added during remediation, with approval requested in the PR rather than assumed.
-- Status: PR #558 open, unmerged.
+- Status: Merged via PR #558 (merge commit `c730b4d0`), 2026-09-03. The owner approved the
+  18-file diffstat and accepted the unreviewed `2bf34d9c` delta by inspection at merge; both were
+  requested in the PR rather than assumed.
 
 ### POLISH-019-RECENT-FINALS-PROMOTION-v1
 

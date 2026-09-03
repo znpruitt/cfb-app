@@ -24,9 +24,11 @@ Supersedes: (none)
 
 ## Current execution order
 
-`CURRENT`: **Item 87 slice 4** — Watchlist. **Not gated** — the Item 105 blocker was withdrawn
-2026-09-02 after a full trace found the defect unreachable; see Item 105.
-`NEXT`: **Item 102 + Item 88** — polling planner and its health model.
+`CURRENT`: **Item 102 + Item 88** — polling planner and its health model. Item 87 slice 4 merged
+2026-09-03 via PR #558 (`c730b4d0`); slice 5 (Schedule) remains, and the settled row-disclosure
+decision it did not implement is now Item 112.
+`NEXT`: **Item 111** — measure the `/api/odds` self-fetch against the Active CPU residual before
+scoping it.
 
 Owner-selected run order (2026-09-02), replacing the 2026-08-29 order. Reprioritised after the Vercel
 Fluid Active CPU finding (`docs/campaigns/vercel-active-cpu.md`): the Hobby allowance is exhausted,
