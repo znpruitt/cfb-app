@@ -45,6 +45,7 @@ export function teamRecordsClientProps(
   const teamRecordsByProviderGameId: TeamRecordsByProviderGameId = {};
 
   for (const item of scheduleItems) {
+    if (!item || typeof item !== 'object') continue;
     const providerGameId = typeof item.id === 'string' ? item.id.trim() : '';
     if (!providerGameId) continue;
     const away = recordForParticipant(item.awayId, recordsByTeamId, withheldTeamIds);

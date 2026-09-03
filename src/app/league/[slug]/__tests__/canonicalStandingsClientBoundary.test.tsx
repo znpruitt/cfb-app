@@ -376,13 +376,17 @@ test('the client projection uses participant ids only and preserves withheld abs
   );
 });
 
-test('the client projection trims provider game ids and skips a malformed missing id', () => {
+test('the client projection trims game ids and skips malformed schedule rows', () => {
   const malformedMissingId = {
     ...scheduleItem('ignored', 399, 2084),
     id: undefined,
   } as unknown as ScheduleWireItem;
   const projected = teamRecordsClientProps(
-    [scheduleItem('  padded-id  ', 399, 2084), malformedMissingId],
+    [
+      scheduleItem('  padded-id  ', 399, 2084),
+      malformedMissingId,
+      null as unknown as ScheduleWireItem,
+    ],
     recordCache([record(399, 'UAlbany', 1, 0), record(2084, 'Buffalo', 0, 0)])
   );
 

@@ -362,6 +362,7 @@ test('overview watchlist uses the shared scoreboard with records and one odds fo
     'the watchlist section itself must establish the scoreboard container query'
   );
   assert.match(scoreboard, /data-watchlist-reason-row/);
+  assert.match(scoreboard, /<div(?=[^>]*data-watchlist-reason-row)(?=[^>]*min-h-\[22px\])[^>]*>/);
   assert.match(scoreboard, /Game of the slate/);
   assert.match(scoreboard, /Contender Watch/);
   assert.match(scoreboard, /Thu, Sep 3, 10:00 PM/);

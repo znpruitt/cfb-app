@@ -770,7 +770,7 @@ function WatchlistScoreboardList({
             matchupLabel={formatGameMatchupLabel(game)}
             contextSlot={
               <div
-                className="flex min-h-5 min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap"
+                className="flex min-h-[22px] min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap"
                 aria-hidden={hasReason ? undefined : true}
                 data-watchlist-reason-row
               >
