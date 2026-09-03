@@ -9,7 +9,7 @@ import { selectWeeklyRecapTileState, selectWeeklyRecapWeekTargets } from './week
 
 export const OVERVIEW_LIVE_LIMIT = 6;
 export const OVERVIEW_RECENT_FINALS_LIMIT = 6;
-export const OVERVIEW_WATCHLIST_LIMIT = 4;
+export const OVERVIEW_WATCHLIST_LIMIT = 6;
 
 export type OverviewGameRouteStatus =
   | { kind: 'scheduled'; label: 'Scheduled' }

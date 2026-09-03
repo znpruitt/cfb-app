@@ -422,9 +422,9 @@ test('deriveGameMovementInsights uses previous standings snapshot for top-rank m
   assert.ok(insights.some((insight) => insight.id === 'rank-movement-Alex'));
 });
 
-test('deriveOverviewHighlightSignals picks deterministic top matchup and upset watch', () => {
-  const topMatchup = item(game({ key: 'top-matchup' }), 'Alex', 'Blair');
-  topMatchup.score = {
+test('deriveOverviewHighlightSignals picks deterministic game of the slate and upset watch', () => {
+  const gameOfSlate = item(game({ key: 'game-of-slate' }), 'Alex', 'Blair');
+  gameOfSlate.score = {
     status: 'In Progress',
     away: { team: 'Away', score: 24 },
     home: { team: 'Home', score: 20 },
@@ -459,9 +459,9 @@ test('deriveOverviewHighlightSignals picks deterministic top matchup and upset w
     home: { team: 'Home Underdog', score: 24 },
     time: '07:44',
   };
-  const rankedSpotlight = item(
+  const rankedHighlight = item(
     game({
-      key: 'ranked-spotlight',
+      key: 'ranked-highlight',
       participants: {
         away: {
           kind: 'team',
@@ -484,19 +484,19 @@ test('deriveOverviewHighlightSignals picks deterministic top matchup and upset w
   );
 
   const signals = deriveOverviewHighlightSignals({
-    keyMatchups: [rankedSpotlight, topMatchup, upsetWatch],
+    keyMatchups: [rankedHighlight, gameOfSlate, upsetWatch],
     rankingsByTeamId: new Map([
       ['favorite-away', { rank: 20, rankSource: 'ap' }],
       ['ranked-away', { rank: 7, rankSource: 'ap' }],
     ]),
   });
 
-  assert.equal(signals.topMatchupKey, 'top-matchup');
+  assert.equal(signals.gameOfSlateKey, 'game-of-slate');
   assert.deepEqual(signals.upsetWatchKeys, ['upset-watch']);
-  assert.equal(signals.rankedHighlightKey, 'ranked-spotlight');
+  assert.equal(signals.rankedHighlightKey, 'ranked-highlight');
 });
 
-test('deriveOverviewHighlightSignals returns null top matchup when no distinct owner-vs-owner games exist', () => {
+test('deriveOverviewHighlightSignals returns no game of the slate without distinct owners', () => {
   const sameOwner = item(game({ key: 'same-owner' }), 'Alex', 'Alex');
   const singleOwned = item(game({ key: 'single-owned' }), 'Alex', 'Placeholder');
   singleOwned.bucket.homeOwner = undefined;
@@ -509,7 +509,7 @@ test('deriveOverviewHighlightSignals returns null top matchup when no distinct o
     rankingsByTeamId: new Map(),
   });
 
-  assert.equal(signals.topMatchupKey, null);
+  assert.equal(signals.gameOfSlateKey, null);
 });
 
 test('deriveOverviewHighlightSignals ignores non-rendered live items for top/ranked selection', () => {
@@ -552,7 +552,7 @@ test('deriveOverviewHighlightSignals ignores non-rendered live items for top/ran
     ]),
   });
 
-  assert.equal(signals.topMatchupKey, 'displayed-matchup');
+  assert.equal(signals.gameOfSlateKey, 'displayed-matchup');
   assert.equal(signals.rankedHighlightKey, 'displayed-matchup');
 });
 
@@ -938,7 +938,7 @@ test('prioritizeGameTags applies upset > upset_watch > top_25_matchup ordering w
   assert.deepEqual(prioritized.secondary, ['upset_watch', 'top_25_matchup']);
 });
 
-test('deriveGameHighlightTags prioritizes top-25 then top-matchup badges and caps tag count', () => {
+test('deriveGameHighlightTags prioritizes Top 25 Matchup then Contender Watch and caps tags', () => {
   const rankedCloseGame = item(
     game({
       key: 'badge-game',
@@ -979,8 +979,11 @@ test('deriveGameHighlightTags prioritizes top-25 then top-matchup badges and cap
   });
 
   assert.deepEqual(
-    tags.map((tag) => tag.text),
-    ['#6 vs #11', 'Top matchup']
+    tags.map(({ id, text }) => ({ id, text })),
+    [
+      { id: 'top25', text: 'Top 25 Matchup' },
+      { id: 'contenderWatch', text: 'Contender Watch' },
+    ]
   );
 });
 

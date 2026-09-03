@@ -14,6 +14,7 @@ import type { OwnerStandingsRow, StandingsCoverage } from '../../lib/standings';
 import type { StandingsHistory } from '../../lib/standingsHistory';
 import type { AppGame } from '../../lib/schedule';
 import type { ScorePack } from '../../lib/scores';
+import { buildOddsByGame } from '../../lib/odds';
 
 type OverviewPanelProps = React.ComponentProps<typeof OverviewPanelImpl>;
 type OverviewPanelTestProps = Omit<OverviewPanelProps, 'sectionItems' | 'nowMs'> &
@@ -40,6 +41,7 @@ function game(overrides: Partial<AppGame>): AppGame {
     date: overrides.date ?? '2026-09-01T17:00:00.000Z',
     stage: overrides.stage ?? 'regular',
     status: overrides.status ?? 'scheduled',
+    rawStatus: overrides.rawStatus,
     stageOrder: overrides.stageOrder ?? 1,
     slotOrder: overrides.slotOrder ?? 1,
     eventKey: overrides.eventKey ?? 'event',
@@ -75,6 +77,7 @@ function game(overrides: Partial<AppGame>): AppGame {
     canHome: overrides.canHome ?? overrides.csvHome ?? 'Home',
     awayConf: overrides.awayConf ?? 'SEC',
     homeConf: overrides.homeConf ?? 'Big Ten',
+    media: overrides.media,
     sources: overrides.sources,
     startTimeTBD: overrides.startTimeTBD,
   };
@@ -258,7 +261,279 @@ test('overview panel keeps home-away wording for standard games', () => {
   );
 
   assert.match(liveHtml, /aria-label="Texas at Rice"/);
-  assert.match(scheduledHtml, /Texas<\/span> @ <span>Rice/);
+  assert.match(scheduledHtml, /aria-label="Texas at Rice"/);
+});
+
+test('overview watchlist uses the shared scoreboard with records and one odds footer', () => {
+  const watchlistGame = game({
+    key: 'fcs-watchlist',
+    providerGameId: ' 401868946 ',
+    date: '2026-09-03T22:00:00.000Z',
+    csvAway: 'UAlbany',
+    csvHome: 'Buffalo',
+    canAway: 'UAlbany',
+    canHome: 'Buffalo',
+    media: [{ gameId: '401868946', mediaType: 'tv', outlet: 'ESPN' }],
+    participants: {
+      away: {
+        kind: 'team',
+        teamId: 'ualbany',
+        displayName: 'UAlbany',
+        canonicalName: 'UAlbany',
+        rawName: 'UAlbany',
+      },
+      home: {
+        kind: 'team',
+        teamId: 'buffalo',
+        displayName: 'Buffalo',
+        canonicalName: 'Buffalo',
+        rawName: 'Buffalo',
+      },
+    },
+    rawStatus: 'postponed',
+  });
+
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[item(watchlistGame)]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+      rankingsByTeamId={new Map([['buffalo', { rank: 24, rankSource: 'ap' }]])}
+      teamRecordsByProviderGameId={{
+        '401868946': {
+          away: { wins: 1, losses: 0 },
+          home: { wins: 0, losses: 0 },
+        },
+      }}
+      oddsByKey={buildOddsByGame({
+        games: [watchlistGame],
+        oddsEvents: [
+          {
+            away_team: 'UAlbany',
+            home_team: 'Buffalo',
+            commence_time: '2026-09-03T22:00:00.000Z',
+            bookmakers: [
+              {
+                key: 'espnbet',
+                title: 'ESPN BET',
+                markets: [
+                  {
+                    key: 'spreads',
+                    outcomes: [
+                      { name: 'UAlbany', point: 20.5, price: -110 },
+                      { name: 'Buffalo', point: -20.5, price: -110 },
+                    ],
+                  },
+                  {
+                    key: 'totals',
+                    outcomes: [
+                      { name: 'Over', point: 55.5, price: -110 },
+                      { name: 'Under', point: 55.5, price: -110 },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+        aliasMap: {},
+        teams: [],
+      })}
+    />
+  );
+
+  const scoreboard = html.match(
+    /<article(?=[^>]*aria-label="UAlbany at Buffalo")(?=[^>]*data-scoreboard-state="scheduled")[\s\S]*?<\/article>/
+  )?.[0];
+  assert.ok(scoreboard, 'the FCS matchup must render through CompactGameScoreboard');
+  const watchlistHeadingIndex = html.indexOf('Upcoming watchlist');
+  assert.notEqual(watchlistHeadingIndex, -1, 'the watchlist heading must render');
+  const watchlistSectionIndex = html.lastIndexOf('<section', watchlistHeadingIndex);
+  assert.notEqual(watchlistSectionIndex, -1, 'the watchlist must have a section ancestor');
+  const watchlistSectionTagEnd = html.indexOf('>', watchlistSectionIndex);
+  assert.notEqual(watchlistSectionTagEnd, -1, 'the watchlist section tag must close');
+  assert.equal(
+    html.slice(watchlistSectionIndex, watchlistSectionTagEnd + 1),
+    '<section class="@container">',
+    'the watchlist section itself must establish the scoreboard container query'
+  );
+  assert.match(scoreboard, /data-watchlist-reason-row/);
+  assert.match(scoreboard, /<div(?=[^>]*data-watchlist-reason-row)(?=[^>]*min-h-\[22px\])[^>]*>/);
+  assert.match(scoreboard, /Game of the Week/);
+  assert.match(scoreboard, /Contender Watch/);
+  assert.match(scoreboard, /Thu, Sep 3, 10:00 PM/);
+  assert.match(scoreboard, /ESPN/);
+  assert.match(scoreboard, />Postponed<\/span>/);
+  assert.match(
+    scoreboard,
+    /data-scoreboard-side="away"[\s\S]*data-scoreboard-team="away">UAlbany<\/span>[\s\S]*data-scoreboard-owner="away">Alice<\/span>[\s\S]*data-scoreboard-value-kind="record" data-scoreboard-value="away">1–0<\//
+  );
+  assert.match(
+    scoreboard,
+    /data-scoreboard-side="home"[\s\S]*#24[\s\S]*data-scoreboard-team="home">Buffalo<\/span>[\s\S]*data-scoreboard-owner="home">Bob<\/span>[\s\S]*data-scoreboard-value-kind="record" data-scoreboard-value="home">0–0<\//
+  );
+  assert.match(scoreboard, /data-scoreboard-odds-footer[^>]*>Buffalo -20\.5 · O\/U 55\.5<\/div>/);
+  assert.doesNotMatch(scoreboard, />Scheduled<\/span>|———/);
+});
+
+test('overview watchlist leaves record anchors blank when record enrichment is absent', () => {
+  const watchlistGame = game({
+    key: 'records-unavailable',
+    providerGameId: 'records-unavailable-pid',
+    csvAway: 'UAlbany',
+    csvHome: 'Buffalo',
+  });
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[item(watchlistGame)]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+      oddsByKey={{
+        'records-unavailable': {
+          favorite: 'Buffalo',
+          spread: -20.5,
+          homeSpread: -20.5,
+          awaySpread: 20.5,
+          spreadPriceHome: -110,
+          spreadPriceAway: -110,
+          total: 55.5,
+          mlHome: null,
+          mlAway: null,
+          overPrice: -110,
+          underPrice: -110,
+          source: 'ESPN BET',
+          bookmakerKey: 'espnbet',
+          capturedAt: '2026-09-02T12:00:00.000Z',
+          lineSourceStatus: 'latest',
+        },
+      }}
+    />
+  );
+
+  const scoreboard = html.match(
+    /<article(?=[^>]*aria-label="UAlbany at Buffalo")(?=[^>]*data-scoreboard-state="scheduled")[\s\S]*?<\/article>/
+  )?.[0];
+  assert.ok(scoreboard, 'the absent-record fixture must reach the scheduled scoreboard');
+  assert.doesNotMatch(scoreboard, /data-scoreboard-value-kind="record"/);
+  assert.match(scoreboard, /data-scoreboard-odds-footer[^>]*>Buffalo -20\.5 · O\/U 55\.5<\/div>/);
+});
+
+test('overview scoreboards keep current records across scheduled, live, and final states', () => {
+  const scheduled = item(
+    game({
+      key: 'scheduled-record',
+      providerGameId: 'schedule-pid',
+      csvAway: 'Army',
+      csvHome: 'Navy',
+    })
+  );
+  const live = itemWithScore(
+    game({
+      key: 'live-record',
+      providerGameId: 'live-pid',
+      csvAway: 'Georgia',
+      csvHome: 'Clemson',
+      date: '2026-09-01T16:00:00.000Z',
+    }),
+    {
+      status: 'In Progress',
+      away: { team: 'Georgia', score: 7 },
+      home: { team: 'Clemson', score: 3 },
+      time: 'Q1 4:12',
+    }
+  );
+  const final = itemWithScore(
+    game({
+      key: 'final-record',
+      providerGameId: 'final-pid',
+      csvAway: 'Texas',
+      csvHome: 'Rice',
+      date: '2026-09-01T15:00:00.000Z',
+    }),
+    {
+      status: 'Final',
+      away: { team: 'Texas', score: 31 },
+      home: { team: 'Rice', score: 14 },
+      time: null,
+    }
+  );
+
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[live]}
+      keyMatchups={[scheduled]}
+      sectionItems={[scheduled, live, final]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+      teamRecordsByProviderGameId={{
+        'schedule-pid': { away: { wins: 0, losses: 0 }, home: { wins: 1, losses: 0 } },
+        'live-pid': { away: { wins: 2, losses: 0 }, home: { wins: 1, losses: 1 } },
+        'final-pid': { away: { wins: 3, losses: 0 }, home: { wins: 1, losses: 2 } },
+      }}
+    />
+  );
+
+  assert.match(
+    html,
+    /data-scoreboard-state="scheduled"[\s\S]*data-scoreboard-value-kind="record" data-scoreboard-value="away">0–0<\//
+  );
+  assert.match(
+    html,
+    /data-scoreboard-state="live"[\s\S]*data-scoreboard-team="away">Georgia<\/span><span[^>]*data-scoreboard-record="away">\(2–0\)<\/span><span[^>]*data-scoreboard-owner="away">Alice<\/span>[\s\S]*data-scoreboard-value-kind="score" data-scoreboard-value="away">7<\//
+  );
+  assert.match(
+    html,
+    /data-scoreboard-state="final"[\s\S]*data-scoreboard-team="away">Texas<\/span><span[^>]*data-scoreboard-record="away">\(3–0\)<\/span><span[^>]*data-scoreboard-owner="away">Alice<\/span>[\s\S]*data-scoreboard-value-kind="score" data-scoreboard-value="away">31<\//
+  );
+});
+
+test('overview watchlist renders withheld records as absent and preserves an empty odds row', () => {
+  const withheldGame = game({
+    key: 'withheld-record',
+    providerGameId: 'withheld-pid',
+    csvAway: 'UAlbany',
+    csvHome: 'Buffalo',
+  });
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[item(withheldGame)]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+      teamRecordsByProviderGameId={{
+        'withheld-pid': { away: null, home: { wins: 0, losses: 0 } },
+      }}
+    />
+  );
+
+  const scoreboard = html.match(
+    /<article(?=[^>]*aria-label="UAlbany at Buffalo")(?=[^>]*data-scoreboard-state="scheduled")[\s\S]*?<\/article>/
+  )?.[0];
+  assert.ok(scoreboard, 'the withheld-record fixture must reach the scheduled scoreboard');
+  const awayRow = scoreboard.match(
+    /<div(?=[^>]*data-scoreboard-side="away")[^>]*>[\s\S]*?<\/div>/
+  )?.[0];
+  assert.ok(awayRow, 'the withheld away-team line must render');
+  assert.doesNotMatch(awayRow, /data-scoreboard-value="away"|>0–0<|———/);
+  assert.match(
+    scoreboard,
+    /data-scoreboard-value-kind="record" data-scoreboard-value="home">0–0<\//
+  );
+  assert.match(scoreboard, /data-scoreboard-odds-footer[^>]*><\/div>/);
 });
 
 test('overview Live section consumes the shared scoreboard in a row-major responsive grid', () => {
@@ -1085,10 +1360,11 @@ test('overview panel shows watchlist alongside results when highlight cards exis
   // the scheduled one in the watchlist.
   assert.match(html, /Upcoming watchlist/);
   assert.match(html, /Featured games/);
-  assert.match(
+  assert.match(html, /data-scoreboard-state="scheduled"/);
+  assert.doesNotMatch(
     html,
-    /dark:text-sky-400">Scheduled<\/span>/,
-    'Overview watchlist must use the shared scheduled status label'
+    />Scheduled<\/span>/,
+    'the Upcoming section and kickoff already communicate scheduled state'
   );
 });
 
@@ -1715,7 +1991,7 @@ test('overview panel suppresses redundant movement chips in completed-season pod
   assert.doesNotMatch(html, /\(\+\d+ wins\)|Biggest drop:/);
 });
 
-test('overview panel game summary badges prefer top-25 and top-matchup over close and ranked', () => {
+test('overview watchlist prefers Top 25 Matchup and Contender Watch chips over lower categories', () => {
   const rankedCloseTopGame = itemWithScore(
     game({
       key: 'badge-priority',
@@ -1802,9 +2078,8 @@ test('overview panel game summary badges prefer top-25 and top-matchup over clos
 
   // After the redesign, a completed ranked game renders in the Featured games
   // section with both teams' rankings inlined on their names (#6 Ohio State,
-  // #11 Oregon). The compact highlight-tag badges ("Top matchup", "Close") now
-  // belong to the Upcoming watchlist (GameSummaryList) and are not emitted for
-  // a final result here, so no spurious "Close" badge appears.
+  // #11 Oregon). Watchlist category chips are not emitted for a final result,
+  // so no spurious "Close" chip appears.
   assert.match(html, /#6/);
   assert.match(html, /#11/);
   assert.match(html, /Ohio State/);

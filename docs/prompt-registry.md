@@ -211,6 +211,33 @@ Rules:
   used by the 1,002 reserve gate.
 - Status: Merged via PR #543 (merge commit `9376521e`), 2026-08-31.
 
+### POLISH-020-OVERVIEW-WATCHLIST-SCOREBOARD-v1
+
+- Purpose: convert the Overview watchlist to the shared compact scoreboard with team records and a
+  single odds footer, completing slice 4 of Item 87 and removing the last Overview surface with a
+  bespoke row type.
+- Scope: `OverviewPanel`'s watchlist renderer, `CompactGameScoreboard`, `teamRecordsClient`, the
+  `canonicalStandingsClientProps` server-prop threading across all five `league/[slug]` routes, the
+  Overview highlight/chip labels, the watchlist depth constant, and focused component/selector
+  coverage. Slice 5 (Schedule), row disclosure, and section-level expansion remained out of scope.
+- Outcome: watchlist rows use the shared scoreboard anatomy; records arrive as a server prop rather
+  than a client fetch; one odds footer per row; the section renders single-column on mobile via an
+  `@container` ancestor. The highlight eyebrow and the owner-proximity chip were renamed to what each
+  measures (`Game of the Week`, `Contender Watch`) — they previously rendered the same words for
+  different signals. Watchlist depth raised 4 → 6 to match Live and Recent finals.
+- Review / verification: exact pre-merge head `2bf34d9c` passed TypeScript, `lint:all`, and all 4,581
+  tests, each gate its own command and exit code against a clean tree. Two mutations were observed
+  failing rather than assumed: removing the watchlist `@container` fires the shared-scoreboard
+  assertion, and widening `OVERVIEW_WATCHLIST_LIMIT` to 8 fires the cap assertion. The cap test was
+  rebuilt from a five-game pool to eight, because a cap of six would otherwise have left the original
+  assertion passing while exercising no truncation. The owner verified both late adjustments on
+  preview. **Review state is incomplete and deliberately recorded as such:** review and remediation
+  ran against `086c0d1c`, and the `2bf34d9c` delta (one string, one integer, four test assertions)
+  carries no review outcome. Diffstat 18 files / +986 −209 crosses the AGENTS.md:306 >15-file signal;
+  the expansion is the five-route records threading (~140 lines) and a 265-line server/client
+  boundary test added during remediation, with approval requested in the PR rather than assumed.
+- Status: PR #558 open, unmerged.
+
 ### POLISH-019-RECENT-FINALS-PROMOTION-v1
 
 - Purpose: add Recent finals to Overview and make each owned game move through exactly one of the

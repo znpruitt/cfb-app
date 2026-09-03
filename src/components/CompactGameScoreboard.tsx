@@ -2,22 +2,27 @@ import React from 'react';
 
 import { gameStatusLabelPresentation } from '../lib/gameUi';
 import { rankSourceLabel, type RankSource } from '../lib/rankings';
+import type { TeamRecordClient } from '../lib/selectors/teamRecordsClient';
 
 export type CompactScoreboardParticipant = {
   teamName: string;
   owner?: string | null;
   rank?: number | null;
   rankSource?: RankSource | null;
+  record?: TeamRecordClient | null;
   score: number | null;
 };
 
 export type CompactGameScoreboardProps = {
-  state: 'live' | 'final' | 'awaiting';
+  state: 'scheduled' | 'live' | 'final' | 'awaiting';
   clock?: string;
+  broadcast?: string | null;
+  scheduleNotice?: string | null;
   matchupLabel: string;
   away: CompactScoreboardParticipant;
   home: CompactScoreboardParticipant;
   contextSlot?: React.ReactNode;
+  footerSlot?: React.ReactNode;
 };
 
 function leadingSide(
@@ -34,13 +39,20 @@ function participantRowClasses(isLeading: boolean, hasLeader: boolean): string {
   return 'font-medium dark:text-zinc-100';
 }
 
+function recordLabel(record: TeamRecordClient | null | undefined): string | null {
+  return record ? `${record.wins}–${record.losses}` : null;
+}
+
 export default function CompactGameScoreboard({
   state,
   clock,
+  broadcast,
+  scheduleNotice,
   matchupLabel,
   away,
   home,
   contextSlot,
+  footerSlot,
 }: CompactGameScoreboardProps): React.ReactElement {
   const leader = leadingSide(away, home);
   const participants = [
@@ -48,7 +60,12 @@ export default function CompactGameScoreboard({
     { side: 'home' as const, participant: home },
   ];
   const clockLabel = clock?.trim() ?? '';
-  const statusLabel = gameStatusLabelPresentation(state === 'awaiting' ? 'unknown' : state);
+  const broadcastLabel = broadcast?.trim() ?? '';
+  const scheduleNoticeLabel = scheduleNotice?.trim() ?? '';
+  const statusLabel =
+    state === 'scheduled'
+      ? null
+      : gameStatusLabelPresentation(state === 'awaiting' ? 'unknown' : state);
   const statusText = state === 'live' ? 'Live' : state === 'final' ? 'Final' : 'Awaiting score';
 
   return (
@@ -67,18 +84,32 @@ export default function CompactGameScoreboard({
         className="mb-1.5 flex items-center gap-2 overflow-hidden whitespace-nowrap text-xs dark:text-zinc-500"
         data-scoreboard-header
       >
-        <span className={statusLabel.className}>
-          {statusLabel.dotClassName ? (
-            <span className={statusLabel.dotClassName} aria-hidden="true" />
-          ) : null}
-          {statusText}
-        </span>
+        {statusLabel ? (
+          <span className={statusLabel.className}>
+            {statusLabel.dotClassName ? (
+              <span className={statusLabel.dotClassName} aria-hidden="true" />
+            ) : null}
+            {statusText}
+          </span>
+        ) : null}
+        {state === 'scheduled' && scheduleNoticeLabel ? (
+          <span className={gameStatusLabelPresentation('scheduled').className}>
+            {scheduleNoticeLabel}
+          </span>
+        ) : null}
         {clockLabel ? <span className="min-w-0 truncate tabular-nums">{clockLabel}</span> : null}
+        {state === 'scheduled' && broadcastLabel ? (
+          <>
+            <span aria-hidden="true">•</span>
+            <span className="min-w-0 truncate">{broadcastLabel}</span>
+          </>
+        ) : null}
       </div>
 
       {participants.map(({ side, participant }) => {
         const isLeading = leader === side;
         const owner = participant.owner?.trim() || null;
+        const teamRecord = recordLabel(participant.record);
         const rankTitle =
           participant.rank != null && participant.rankSource
             ? `${rankSourceLabel(participant.rankSource)} rank #${participant.rank}`
@@ -103,6 +134,14 @@ export default function CompactGameScoreboard({
               ) : null}
               <span className="min-w-0 truncate">
                 <span data-scoreboard-team={side}>{participant.teamName}</span>
+                {state !== 'scheduled' && teamRecord ? (
+                  <span
+                    className="ml-1.5 text-[12.5px] font-normal tabular-nums dark:text-zinc-500"
+                    data-scoreboard-record={side}
+                  >
+                    ({teamRecord})
+                  </span>
+                ) : null}
                 {owner ? (
                   <span
                     className="ml-1.5 text-[12.5px] font-normal dark:text-zinc-500"
@@ -113,15 +152,36 @@ export default function CompactGameScoreboard({
                 ) : null}
               </span>
             </span>
-            <span
-              className={`shrink-0 tabular-nums ${isLeading ? 'font-semibold' : 'font-medium'}`}
-              data-scoreboard-value={side}
-            >
-              {participant.score ?? '—'}
-            </span>
+            {state === 'scheduled' ? (
+              teamRecord ? (
+                <span
+                  className="shrink-0 font-medium tabular-nums"
+                  data-scoreboard-value-kind="record"
+                  data-scoreboard-value={side}
+                >
+                  {teamRecord}
+                </span>
+              ) : null
+            ) : (
+              <span
+                className={`shrink-0 tabular-nums ${isLeading ? 'font-semibold' : 'font-medium'}`}
+                data-scoreboard-value-kind="score"
+                data-scoreboard-value={side}
+              >
+                {participant.score ?? '—'}
+              </span>
+            )}
           </div>
         );
       })}
+      {state === 'scheduled' ? (
+        <div
+          className="mt-1.5 min-h-4 overflow-hidden whitespace-nowrap text-xs text-gray-500 dark:text-zinc-400"
+          data-scoreboard-odds-footer
+        >
+          {footerSlot}
+        </div>
+      ) : null}
     </article>
   );
 }

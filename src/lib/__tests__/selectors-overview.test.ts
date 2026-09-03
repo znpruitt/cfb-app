@@ -112,7 +112,7 @@ test('prioritizeOverviewItems retains quality labels without changing caller-pro
   const ordered = prioritizeOverviewItems({
     items,
     highlightSignals: {
-      topMatchupKey: 'later-top',
+      gameOfSlateKey: 'later-top',
       upsetWatchKeys: [],
       rankedHighlightKey: 'middle-ranked',
     },
@@ -125,8 +125,10 @@ test('prioritizeOverviewItems retains quality labels without changing caller-pro
     ['earlier', 'middle-ranked', 'later-top']
   );
   assert.equal(ordered[0]?.highlightLabel, null);
-  assert.equal(ordered[1]?.highlightLabel, 'Ranked spotlight');
-  assert.equal(ordered[2]?.highlightLabel, 'Top matchup');
+  assert.equal(ordered[1]?.highlightLabel, null);
+  assert.equal(ordered[1]?.isRankedSpotlight, true);
+  assert.equal(ordered[2]?.highlightLabel, 'Game of the Week');
+  assert.equal(ordered[2]?.isGameOfSlate, true);
 });
 
 test('selectOverviewViewModel prioritises marquee watchlist games before kickoff tie-breaks', () => {
@@ -196,7 +198,7 @@ test('selectOverviewViewModel prioritises marquee watchlist games before kickoff
   assert.equal(
     model.watchlistCandidates.find((entry) => entry.item.bucket.game.key === 'later-top')
       ?.highlightLabel,
-    'Top matchup'
+    'Game of the Week'
   );
 });
 

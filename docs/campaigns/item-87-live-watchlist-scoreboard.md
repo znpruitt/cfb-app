@@ -432,6 +432,7 @@ Ordered so colour settles once rather than shipping neutral live and flipping it
 | Done | **87 slice 1** | Shared scoreboard contract + Live consumer merged via PR #535. |
 | Done | **87 slice 2** | Featured + neutral-final consumer merged via PR #537; green-live settled on Overview. |
 | Done | **87 slice 3** | Recent finals, mutually exclusive routing, bounded abandonment, and neutral Awaiting score presentation merged via PR #549 (`751a86b4`). |
+| In review | **87 slice 4** | Watchlist converted to the shared scoreboard with server-prop records, one odds footer, single-column mobile, and renamed highlight/chip labels. PR #558 open at `2bf34d9c`; NOT merged. Row disclosure is a settled decision that this slice does not implement. |
 | Runnable | **Item 42 wiring pass** | All fact families and the consumed final-row scoreboard variant now exist; no Item 87 dependency remains. |
 | Done | **PLATFORM-116 / Item 91** | Tied/stale/scoreless standings signal and pill removal merged via PR #539. |
 | Done | **Item 90 / POLISH-018** | Shared label and neutral-final re-cut merged via PR #541. Schedule remains with slice 5. |

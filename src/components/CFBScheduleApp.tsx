@@ -91,6 +91,7 @@ import type { DraftPhase } from '../lib/draft';
 import type { LeagueStatus } from '../lib/league';
 import { resolveLeagueSeason } from '../lib/leagueSeason';
 import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
+import type { TeamRecordsByProviderGameId } from '../lib/selectors/teamRecordsClient';
 import {
   isWeeklyRecapActiveSeason,
   selectWeeklyRecapTileState,
@@ -102,6 +103,7 @@ const EXPLICIT_SEASON = Number.parseInt(process.env.NEXT_PUBLIC_SEASON ?? '', 10
 const DEFAULT_SEASON = getDefaultRankingsSeason(
   Number.isFinite(EXPLICIT_SEASON) ? EXPLICIT_SEASON : null
 );
+const EMPTY_TEAM_RECORDS_BY_PROVIDER_GAME_ID: TeamRecordsByProviderGameId = {};
 
 type CFBScheduleAppProps = {
   leagueSlug?: string;
@@ -117,6 +119,7 @@ type CFBScheduleAppProps = {
   assignmentMethod?: 'draft' | 'manual' | null;
   mostRecentArchivedYear?: number;
   canonicalStandings?: CanonicalStandings;
+  teamRecordsByProviderGameId?: TeamRecordsByProviderGameId;
   /**
    * PLATFORM-109 — derived on the server by `canonicalStandingsClientProps`,
    * which the league pages spread alongside `canonicalStandings`. The clock is
@@ -289,6 +292,7 @@ export default function CFBScheduleApp({
   assignmentMethod,
   mostRecentArchivedYear,
   canonicalStandings,
+  teamRecordsByProviderGameId = EMPTY_TEAM_RECORDS_BY_PROVIDER_GAME_ID,
   seasonContext = 'in-season',
   initialGames = [],
   initialIssues = [],
@@ -1803,6 +1807,8 @@ export default function CFBScheduleApp({
                 <OverviewPanel
                   games={games}
                   scoresByKey={scoresByKey}
+                  oddsByKey={oddsByKey}
+                  teamRecordsByProviderGameId={teamRecordsByProviderGameId}
                   rosterByTeam={rosterByTeam}
                   ownerColorMap={ownerColorMap}
                   canonicalStandings={canonicalStandings}

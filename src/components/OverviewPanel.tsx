@@ -13,8 +13,8 @@ import {
   selectPositionDeltas,
 } from '../lib/selectors/trends';
 import { buildWeekLabelMap, formatWeekLabel } from '../lib/weekLabel';
-import { formatExpandedKickoff } from '../lib/gameCardPresentation';
-import { formatGameMatchupLabel, gameStatusLabelPresentation } from '../lib/gameUi';
+import { formatExpandedKickoff, formatPrimaryBroadcastLabel } from '../lib/gameCardPresentation';
+import { formatGameMatchupLabel } from '../lib/gameUi';
 import { normalizeStatusTokens } from '../lib/gameStatus';
 import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import {
@@ -45,6 +45,7 @@ import {
 } from '../lib/selectors/liveDelta';
 import type { LiveDelta } from '../lib/selectors/liveDelta';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../lib/overview';
+import type { CombinedOdds } from '../lib/odds';
 import {
   getTeamRanking,
   type TeamRankingEnrichment,
@@ -58,8 +59,14 @@ import type { ScorePack } from '../lib/scores';
 import { NO_CLAIM_OWNER, standingsCoverageNoticeWithSubject } from '../lib/standings';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
 import type { StandingsHistory } from '../lib/standingsHistory';
+import type {
+  GameTeamRecordsClient,
+  TeamRecordsByProviderGameId,
+} from '../lib/selectors/teamRecordsClient';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
-import RankedTeamName from './RankedTeamName';
+
+const EMPTY_TEAM_RECORDS_BY_PROVIDER_GAME_ID: TeamRecordsByProviderGameId = {};
+const EMPTY_OVERVIEW_ODDS_BY_KEY: Record<string, CombinedOdds> = {};
 
 /**
  * The last `n` weeks that are RESOLVED — played, with a usable snapshot.
@@ -121,61 +128,30 @@ function formatDiff(value: number): string {
   return value > 0 ? `+${value}` : String(value);
 }
 
-function renderMatchupLabel(
-  item: OverviewGameItem,
-  rankingsByTeamId: Map<string, TeamRankingEnrichment>
-): React.ReactElement {
-  const game = item.bucket.game;
-  const plainLabel = formatGameMatchupLabel(game, { homeAwaySeparator: '@' });
-  const separator = plainLabel.slice(game.csvAway.length, plainLabel.length - game.csvHome.length);
-  const awayTeamId = getGameParticipantTeamId(game, 'away') ?? game.canAway;
-  const homeTeamId = getGameParticipantTeamId(game, 'home') ?? game.canHome;
-
-  return (
-    <>
-      <RankedTeamName
-        teamName={game.csvAway}
-        ranking={getTeamRanking(rankingsByTeamId, awayTeamId)}
-      />
-      {separator}
-      <RankedTeamName
-        teamName={game.csvHome}
-        ranking={getTeamRanking(rankingsByTeamId, homeTeamId)}
-      />
-    </>
-  );
+function teamRecordsForGame(
+  game: AppGame,
+  teamRecordsByProviderGameId: TeamRecordsByProviderGameId
+): GameTeamRecordsClient | null {
+  if (!game.providerGameId) return null;
+  return teamRecordsByProviderGameId[String(game.providerGameId).trim()] ?? null;
 }
 
-function summarizeLeagueAngle(
-  item: OverviewGameItem,
-  rankingsByTeamId: Map<string, TeamRankingEnrichment>
-): React.ReactNode {
-  const { awayOwner, homeOwner, game } = item.bucket;
-  const awayTeamId = getGameParticipantTeamId(game, 'away') ?? game.canAway;
-  const homeTeamId = getGameParticipantTeamId(game, 'home') ?? game.canHome;
-  if (awayOwner && homeOwner) {
-    return `${awayOwner} vs ${homeOwner}`;
-  }
+function signedOddsValue(value: number): string {
+  return value > 0 ? `+${value}` : String(value);
+}
 
-  if (awayOwner) {
-    return (
-      <>
-        {awayOwner}:{' '}
-        <RankedTeamName teamName={game.csvAway} ranking={rankingsByTeamId.get(awayTeamId)} />
-      </>
+function watchlistOddsFooter(odds: CombinedOdds | undefined): string | null {
+  if (!odds) return null;
+  const parts: string[] = [];
+  if (odds.spread != null) {
+    parts.push(
+      odds.favorite
+        ? `${odds.favorite} ${signedOddsValue(odds.spread)}`
+        : `Spread ${signedOddsValue(odds.spread)}`
     );
   }
-
-  if (homeOwner) {
-    return (
-      <>
-        {homeOwner}:{' '}
-        <RankedTeamName teamName={game.csvHome} ranking={rankingsByTeamId.get(homeTeamId)} />
-      </>
-    );
-  }
-
-  return renderMatchupLabel(item, rankingsByTeamId);
+  if (odds.total != null) parts.push(`O/U ${odds.total}`);
+  return parts.length > 0 ? parts.join(' · ') : null;
 }
 
 function deriveFeaturedGameBadge(game: AppGame): { label: string; classes: string } | null {
@@ -686,10 +662,12 @@ function liveScoreboardClock(score: ScorePack | null | undefined): string {
 function GameCardList({
   items,
   rankingsByTeamId,
+  teamRecordsByProviderGameId,
   state,
 }: {
   items: OverviewSectionItem[];
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
+  teamRecordsByProviderGameId: TeamRecordsByProviderGameId;
   state: 'live' | 'final';
 }): React.ReactElement {
   if (items.length === 0) {
@@ -708,6 +686,7 @@ function GameCardList({
         const homeTeamId = getGameParticipantTeamId(game, 'home') ?? game.canHome;
         const awayRanking = getTeamRanking(rankingsByTeamId, awayTeamId);
         const homeRanking = getTeamRanking(rankingsByTeamId, homeTeamId);
+        const teamRecords = teamRecordsForGame(game, teamRecordsByProviderGameId);
 
         return (
           <CompactGameScoreboard
@@ -722,6 +701,7 @@ function GameCardList({
               owner: item.bucket.awayOwner === NO_CLAIM_OWNER ? null : item.bucket.awayOwner,
               rank: awayRanking.rank,
               rankSource: awayRanking.rankSource,
+              record: teamRecords?.away,
               score: item.score?.away.score ?? null,
             }}
             home={{
@@ -729,6 +709,7 @@ function GameCardList({
               owner: item.bucket.homeOwner === NO_CLAIM_OWNER ? null : item.bucket.homeOwner,
               rank: homeRanking.rank,
               rankSource: homeRanking.rankSource,
+              record: teamRecords?.home,
               score: item.score?.home.score ?? null,
             }}
           />
@@ -738,97 +719,94 @@ function GameCardList({
   );
 }
 
-function GameSummaryList({
+function WatchlistScoreboardList({
   prioritizedItems,
   emptyMessage,
   timeZone,
   rankingsByTeamId,
-  density = 'compact',
+  teamRecordsByProviderGameId,
+  oddsByKey,
 }: {
   prioritizedItems: PrioritizedOverviewSectionItem[];
   emptyMessage: string;
   timeZone: string;
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
-  density?: 'compact' | 'featured';
+  teamRecordsByProviderGameId: TeamRecordsByProviderGameId;
+  oddsByKey: Record<string, CombinedOdds>;
 }): React.ReactElement {
   if (prioritizedItems.length === 0) {
     return <EmptyState message={emptyMessage} compact />;
   }
 
   return (
-    <div className={density === 'featured' ? 'space-y-2.5' : 'space-y-1.5'}>
+    <div
+      className="grid grid-cols-2 gap-x-10 @max-[760.01px]:grid-cols-1"
+      data-watchlist-scoreboard-grid
+    >
       {prioritizedItems.map((prioritized) => {
         const item = prioritized.item;
-        const score = item.score;
-        const awayScore = score?.away.score ?? '—';
-        const homeScore = score?.home.score ?? '—';
-        const status = prioritized.routeStatus.label;
-        const statusLabel = gameStatusLabelPresentation('scheduled');
-        const kickoff = formatExpandedKickoff(
-          item.bucket.game.date,
-          timeZone,
-          item.bucket.game.startTimeTBD
-        );
-        const ownerLabel =
-          item.bucket.awayOwner && item.bucket.homeOwner
-            ? `${item.bucket.awayOwner} vs ${item.bucket.homeOwner}`
-            : summarizeLeagueAngle(item, rankingsByTeamId);
+        const game = item.bucket.game;
+        const kickoff = formatExpandedKickoff(game.date, timeZone, game.startTimeTBD);
+        const broadcast = formatPrimaryBroadcastLabel(game.media);
+        const awayTeamId = getGameParticipantTeamId(game, 'away') ?? game.canAway;
+        const homeTeamId = getGameParticipantTeamId(game, 'home') ?? game.canHome;
+        const awayRanking = getTeamRanking(rankingsByTeamId, awayTeamId);
+        const homeRanking = getTeamRanking(rankingsByTeamId, homeTeamId);
+        const teamRecords = teamRecordsForGame(game, teamRecordsByProviderGameId);
         const highlightTags = prioritized.highlightTags;
+        const hasReason = Boolean(prioritized.highlightLabel || highlightTags.length > 0);
 
         return (
-          <article
-            key={item.bucket.game.key}
-            className={`rounded-lg border ${
-              prioritized.hasPriorityHighlight
-                ? 'border-blue-300/80 bg-blue-50/40 dark:border-blue-900/70 dark:bg-blue-950/15'
-                : 'border-gray-300 bg-gray-50/80 dark:border-zinc-800 dark:bg-zinc-950/70'
-            } ${density === 'featured' ? 'p-3.5 sm:p-4' : 'p-2.5 sm:p-3'}`}
-          >
-            <div className="grid grid-cols-[minmax(0,1fr)_3.8rem] gap-x-2 sm:grid-cols-[minmax(0,1fr)_4rem]">
-              <div className="min-w-0 space-y-1 leading-tight">
-                <div className="inline-flex min-w-0 items-center gap-1.5">
-                  <p className="min-w-0 truncate text-sm font-semibold text-gray-950 dark:text-zinc-50">
-                    {renderMatchupLabel(item, rankingsByTeamId)}
-                  </p>
-                  {highlightTags.length > 0 ? (
-                    <div className="inline-flex flex-wrap items-center gap-1">
-                      {highlightTags.map((tag) => (
-                        <span
-                          key={tag.id}
-                          className="inline-flex rounded-full border border-gray-300 bg-white px-1.5 py-0.5 text-xs font-semibold text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
-                        >
-                          {tag.text}
-                        </span>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-                <p className="text-xs leading-snug text-gray-600 dark:text-zinc-300">
-                  {ownerLabel}
-                </p>
+          <CompactGameScoreboard
+            key={game.key}
+            state="scheduled"
+            clock={kickoff}
+            broadcast={broadcast}
+            scheduleNotice={
+              prioritized.routeStatus.kind === 'disrupted'
+                ? prioritized.routeStatus.label
+                : undefined
+            }
+            matchupLabel={formatGameMatchupLabel(game)}
+            contextSlot={
+              <div
+                className="flex min-h-[22px] min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap"
+                aria-hidden={hasReason ? undefined : true}
+                data-watchlist-reason-row
+              >
                 {prioritized.highlightLabel ? (
-                  <p className="text-xs font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">
+                  <span className="min-w-0 truncate text-xs font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">
                     {prioritized.highlightLabel}
-                  </p>
-                ) : null}
-                <div className="mt-0.5 flex items-center gap-2 text-xs text-gray-500 dark:text-zinc-400">
-                  <span className={statusLabel.className}>
-                    {statusLabel.dotClassName ? (
-                      <span className={statusLabel.dotClassName} aria-hidden="true" />
-                    ) : null}
-                    {status}
                   </span>
-                  <span aria-hidden="true">•</span>
-                  <span>{kickoff}</span>
-                </div>
+                ) : null}
+                {highlightTags.map((tag) => (
+                  <span
+                    key={tag.id}
+                    className="inline-flex shrink-0 rounded-full border border-gray-300 bg-white px-1.5 py-0.5 text-xs font-semibold text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+                  >
+                    {tag.text}
+                  </span>
+                ))}
               </div>
-              <div className="flex items-start justify-end pt-0.5">
-                <span className="w-[3.7rem] rounded-md border border-gray-300 bg-white px-1 py-1 text-center text-sm font-semibold tabular-nums text-gray-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 sm:w-[4rem]">
-                  {awayScore}–{homeScore}
-                </span>
-              </div>
-            </div>
-          </article>
+            }
+            away={{
+              teamName: game.csvAway,
+              owner: item.bucket.awayOwner === NO_CLAIM_OWNER ? null : item.bucket.awayOwner,
+              rank: awayRanking.rank,
+              rankSource: awayRanking.rankSource,
+              record: teamRecords?.away,
+              score: null,
+            }}
+            home={{
+              teamName: game.csvHome,
+              owner: item.bucket.homeOwner === NO_CLAIM_OWNER ? null : item.bucket.homeOwner,
+              rank: homeRanking.rank,
+              rankSource: homeRanking.rankSource,
+              record: teamRecords?.home,
+              score: null,
+            }}
+            footerSlot={watchlistOddsFooter(oddsByKey[game.key])}
+          />
         );
       })}
     </div>
@@ -840,11 +818,13 @@ function FeaturedGamesList({
   emptyMessage,
   timeZone,
   rankingsByTeamId,
+  teamRecordsByProviderGameId,
 }: {
   prioritizedItems: PrioritizedOverviewItem[];
   emptyMessage: string;
   timeZone: string;
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
+  teamRecordsByProviderGameId: TeamRecordsByProviderGameId;
 }): React.ReactElement {
   if (prioritizedItems.length === 0) {
     return <EmptyState message={emptyMessage} compact />;
@@ -864,6 +844,7 @@ function FeaturedGamesList({
         const homeTeamId = getGameParticipantTeamId(game, 'home') ?? game.canHome;
         const awayRanking = getTeamRanking(rankingsByTeamId, awayTeamId);
         const homeRanking = getTeamRanking(rankingsByTeamId, homeTeamId);
+        const teamRecords = teamRecordsForGame(game, teamRecordsByProviderGameId);
 
         return (
           <CompactGameScoreboard
@@ -885,6 +866,7 @@ function FeaturedGamesList({
               owner: item.bucket.awayOwner === NO_CLAIM_OWNER ? null : item.bucket.awayOwner,
               rank: awayRanking.rank,
               rankSource: awayRanking.rankSource,
+              record: teamRecords?.away,
               score: score?.away.score ?? null,
             }}
             home={{
@@ -892,6 +874,7 @@ function FeaturedGamesList({
               owner: item.bucket.homeOwner === NO_CLAIM_OWNER ? null : item.bucket.homeOwner,
               rank: homeRanking.rank,
               rankSource: homeRanking.rankSource,
+              record: teamRecords?.home,
               score: score?.home.score ?? null,
             }}
           />
@@ -1287,6 +1270,8 @@ function PollSnapshotColumn({
 type OverviewPanelProps = {
   games?: AppGame[];
   scoresByKey?: Record<string, ScorePack>;
+  oddsByKey?: Record<string, CombinedOdds>;
+  teamRecordsByProviderGameId?: TeamRecordsByProviderGameId;
   rosterByTeam?: Map<string, string>;
   ownerColorMap?: Record<string, string>;
   canonicalStandings?: CanonicalStandings;
@@ -1332,6 +1317,8 @@ type OverviewPanelProps = {
 export default function OverviewPanel({
   games = [],
   scoresByKey = {},
+  oddsByKey = EMPTY_OVERVIEW_ODDS_BY_KEY,
+  teamRecordsByProviderGameId = EMPTY_TEAM_RECORDS_BY_PROVIDER_GAME_ID,
   rosterByTeam = new Map(),
   ownerColorMap = {},
   canonicalStandings,
@@ -1672,6 +1659,7 @@ export default function OverviewPanel({
                 emptyMessage="No recent results yet."
                 timeZone={timeZone}
                 rankingsByTeamId={rankingsByTeamId}
+                teamRecordsByProviderGameId={teamRecordsByProviderGameId}
               />
             </div>
           </section>
@@ -1682,7 +1670,7 @@ export default function OverviewPanel({
       {gameSections.scheduled.length > 0 ? (
         <>
           <SectionDivider />
-          <section>
+          <section className="@container">
             <SectionHeader
               title="Upcoming watchlist"
               action={
@@ -1696,12 +1684,13 @@ export default function OverviewPanel({
               }
             />
             <div className="mt-2.5">
-              <GameSummaryList
+              <WatchlistScoreboardList
                 prioritizedItems={gameSections.scheduled}
                 emptyMessage="No featured matchups yet for this slate."
                 timeZone={timeZone}
                 rankingsByTeamId={rankingsByTeamId}
-                density="featured"
+                teamRecordsByProviderGameId={teamRecordsByProviderGameId}
+                oddsByKey={oddsByKey}
               />
             </div>
           </section>
@@ -1729,6 +1718,7 @@ export default function OverviewPanel({
               <GameCardList
                 items={gameSections.live}
                 rankingsByTeamId={rankingsByTeamId}
+                teamRecordsByProviderGameId={teamRecordsByProviderGameId}
                 state="live"
               />
             </div>
@@ -1753,6 +1743,7 @@ export default function OverviewPanel({
               <GameCardList
                 items={gameSections.recentFinals}
                 rankingsByTeamId={rankingsByTeamId}
+                teamRecordsByProviderGameId={teamRecordsByProviderGameId}
                 state="final"
               />
             </div>
