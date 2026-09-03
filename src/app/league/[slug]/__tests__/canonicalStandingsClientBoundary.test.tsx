@@ -8,6 +8,7 @@ import { addLeague } from '@/lib/leagueRegistry';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  __setAppStateReadFailureForTests,
   setAppState,
 } from '@/lib/server/appStateStore';
 import { getCanonicalStandings, type CanonicalStandings } from '@/lib/selectors/leagueStandings';
@@ -197,7 +198,7 @@ async function seedLeagueWithFcsOpponentRecords(): Promise<void> {
   await addLeague({
     slug: SLUG,
     displayName: 'Turf War',
-    year: YEAR,
+    year: YEAR - 1,
     createdAt: '2026-01-01T00:00:00.000Z',
     status: { state: 'season', year: YEAR },
   });
@@ -337,7 +338,7 @@ test('every league surface passes the derived season context instead', async () 
   }
 });
 
-test('every league surface passes pid-native FCS and FBS team records', async () => {
+test('every league surface resolves pid-native records from the authoritative status year', async () => {
   await seedLeagueWithFcsOpponentRecords();
 
   for (const [name, render] of SURFACES) {
@@ -348,7 +349,7 @@ test('every league surface passes pid-native FCS and FBS team records', async ()
         away: { wins: 1, losses: 0 },
         home: { wins: 0, losses: 0 },
       },
-      `${name} must pass UAlbany and Buffalo records by their CFBD participant ids`
+      `${name} must use status.year and pass both records by their CFBD participant ids`
     );
   }
 });
@@ -375,6 +376,85 @@ test('the client projection uses participant ids only and preserves withheld abs
   );
 });
 
+test('the client projection trims provider game ids and skips a malformed missing id', () => {
+  const malformedMissingId = {
+    ...scheduleItem('ignored', 399, 2084),
+    id: undefined,
+  } as unknown as ScheduleWireItem;
+  const projected = teamRecordsClientProps(
+    [scheduleItem('  padded-id  ', 399, 2084), malformedMissingId],
+    recordCache([record(399, 'UAlbany', 1, 0), record(2084, 'Buffalo', 0, 0)])
+  );
+
+  assert.deepEqual(projected.teamRecordsByProviderGameId, {
+    'padded-id': {
+      away: { wins: 1, losses: 0 },
+      home: { wins: 0, losses: 0 },
+    },
+  });
+});
+
+test('every league surface degrades a records-cache rejection to empty record props', async () => {
+  await seedLeagueWithFcsOpponentRecords();
+  __setAppStateReadFailureForTests(new Error('records read failed'), 'team-records');
+
+  for (const [name, render] of SURFACES) {
+    const props = appProps(await render(SLUG));
+    assert.deepEqual(
+      props.teamRecordsByProviderGameId,
+      {},
+      `${name} must render with empty record props when the optional records read rejects`
+    );
+  }
+});
+
+test('every league surface degrades an optional schedule rejection to empty record props', async () => {
+  const slug = 'schedule-enrichment-failure';
+  await addLeague({
+    slug,
+    displayName: 'Schedule Enrichment Failure',
+    year: YEAR,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    status: { state: 'season', year: YEAR },
+  });
+  // No roster means canonical standings has no reason to read the schedule;
+  // only the optional team-record projection reaches the injected failure.
+  __setAppStateReadFailureForTests(new Error('schedule enrichment read failed'), 'schedule');
+
+  for (const [name, render] of SURFACES) {
+    const props = appProps(await render(slug));
+    assert.deepEqual(
+      props.teamRecordsByProviderGameId,
+      {},
+      `${name} must render with empty record props when the optional schedule read rejects`
+    );
+  }
+});
+
+test('league surfaces do not swallow a canonical-standings rejection', async () => {
+  const slug = 'canonical-standings-failure';
+  await addLeague({
+    slug,
+    displayName: 'Canonical Standings Failure',
+    year: YEAR,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    status: { state: 'season', year: YEAR },
+  });
+  await setAppState(`owners:${slug}:${YEAR}`, 'csv', 'team,owner\nTexas,Alice\n');
+  __setAppStateReadFailureForTests(
+    new Error('canonical standings read failed'),
+    `owners:${slug}:${YEAR}`
+  );
+
+  for (const [name, render] of SURFACES) {
+    await assert.rejects(
+      render(slug),
+      /canonical standings read failed/,
+      `${name} must propagate the critical canonical-standings rejection`
+    );
+  }
+});
+
 test('every league route mounting CFBScheduleApp supplies team-record props', async () => {
   const routeRoot = path.join(process.cwd(), 'src', 'app', 'league', '[slug]');
   const pageFiles = await findPageFiles(routeRoot);
@@ -388,6 +468,16 @@ test('every league route mounting CFBScheduleApp supplies team-record props', as
       source,
       /\{\.\.\.teamRecordsClientProps\(scheduleItems, teamRecords\)\}/,
       `${path.relative(routeRoot, pageFile)} must project records at the CFBScheduleApp boundary`
+    );
+    assert.match(
+      source,
+      /Promise\.allSettled\(\[\s*loadCachedScheduleItems\(enrichmentYear\),\s*readTeamRecordsCache\(enrichmentYear\),?\s*\]\)/,
+      `${path.relative(routeRoot, pageFile)} must isolate only the optional enrichment reads`
+    );
+    assert.match(
+      source,
+      /const enrichmentYear = resolveLeagueSeason\(\{[\s\S]*?leagueStatus:[\s\S]*?leagueYear:/,
+      `${path.relative(routeRoot, pageFile)} must resolve enrichment from lifecycle status`
     );
   }
 

@@ -133,30 +133,17 @@ function teamRecordsForGame(
   teamRecordsByProviderGameId: TeamRecordsByProviderGameId
 ): GameTeamRecordsClient | null {
   if (!game.providerGameId) return null;
-  return teamRecordsByProviderGameId[String(game.providerGameId)] ?? null;
+  return teamRecordsByProviderGameId[String(game.providerGameId).trim()] ?? null;
 }
 
 function signedOddsValue(value: number): string {
   return value > 0 ? `+${value}` : String(value);
 }
 
-function watchlistOddsFooter(game: AppGame, odds: CombinedOdds | undefined): string | null {
+function watchlistOddsFooter(odds: CombinedOdds | undefined): string | null {
   if (!odds) return null;
   const parts: string[] = [];
-
-  if (odds.homeSpread != null && odds.awaySpread != null) {
-    if (odds.homeSpread < odds.awaySpread) {
-      parts.push(`${game.csvHome} ${signedOddsValue(odds.homeSpread)}`);
-    } else if (odds.awaySpread < odds.homeSpread) {
-      parts.push(`${game.csvAway} ${signedOddsValue(odds.awaySpread)}`);
-    } else {
-      parts.push(`Spread ${signedOddsValue(odds.spread ?? odds.homeSpread)}`);
-    }
-  } else if (odds.homeSpread != null) {
-    parts.push(`${game.csvHome} ${signedOddsValue(odds.homeSpread)}`);
-  } else if (odds.awaySpread != null) {
-    parts.push(`${game.csvAway} ${signedOddsValue(odds.awaySpread)}`);
-  } else if (odds.spread != null) {
+  if (odds.spread != null) {
     parts.push(
       odds.favorite
         ? `${odds.favorite} ${signedOddsValue(odds.spread)}`
@@ -818,7 +805,7 @@ function WatchlistScoreboardList({
               record: teamRecords?.home,
               score: null,
             }}
-            footerSlot={watchlistOddsFooter(game, oddsByKey[game.key])}
+            footerSlot={watchlistOddsFooter(oddsByKey[game.key])}
           />
         );
       })}

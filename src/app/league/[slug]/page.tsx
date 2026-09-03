@@ -1,5 +1,6 @@
 import CFBScheduleApp from 'components/CFBScheduleApp';
 import { getLeague } from '../../../lib/leagueRegistry';
+import { resolveLeagueSeason } from '../../../lib/leagueSeason';
 import { listSeasonArchives } from '../../../lib/seasonArchive';
 import { canonicalStandingsClientProps } from '../../../lib/selectors/canonicalStandingsClient';
 import { getCanonicalStandings } from '../../../lib/selectors/leagueStandings';
@@ -21,19 +22,30 @@ export default async function LeaguePage({
   const gate = await renderLeagueGateIfBlocked(slug);
   if (gate) return gate;
   const leaguePromise = getLeague(slug);
-  const [league, archiveYears, canonicalStandings, isAdmin, scheduleItems, teamRecords] =
-    await Promise.all([
-      leaguePromise,
-      listSeasonArchives(slug),
-      getCanonicalStandings({ slug }),
-      isPlatformAdminSession(),
-      leaguePromise.then((league) =>
-        league ? loadCachedScheduleItems(league.year) : Promise.resolve([])
-      ),
-      leaguePromise.then((league) =>
-        league ? readTeamRecordsCache(league.year) : Promise.resolve(null)
-      ),
+  const teamRecordInputsPromise = leaguePromise.then(async (league) => {
+    if (!league) return { scheduleItems: [], teamRecords: null };
+    const enrichmentYear = resolveLeagueSeason({
+      leagueStatus: resolveDisplayLeagueStatus(league),
+      leagueYear: league.year,
+      defaultSeason: league.year,
+    });
+    const [scheduleItems, teamRecords] = await Promise.allSettled([
+      loadCachedScheduleItems(enrichmentYear),
+      readTeamRecordsCache(enrichmentYear),
     ]);
+    return {
+      scheduleItems: scheduleItems.status === 'fulfilled' ? scheduleItems.value : [],
+      teamRecords: teamRecords.status === 'fulfilled' ? teamRecords.value : null,
+    };
+  });
+  const [league, archiveYears, canonicalStandings, isAdmin, teamRecordInputs] = await Promise.all([
+    leaguePromise,
+    listSeasonArchives(slug),
+    getCanonicalStandings({ slug }),
+    isPlatformAdminSession(),
+    teamRecordInputsPromise,
+  ]);
+  const { scheduleItems, teamRecords } = teamRecordInputs;
   const leagueStatus = resolveDisplayLeagueStatus(league);
   const mostRecentArchivedYear =
     archiveYears.length > 0 ? [...archiveYears].sort((a, b) => b - a)[0] : undefined;

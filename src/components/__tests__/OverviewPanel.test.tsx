@@ -267,7 +267,7 @@ test('overview panel keeps home-away wording for standard games', () => {
 test('overview watchlist uses the shared scoreboard with records and one odds footer', () => {
   const watchlistGame = game({
     key: 'fcs-watchlist',
-    providerGameId: '401868946',
+    providerGameId: ' 401868946 ',
     date: '2026-09-03T22:00:00.000Z',
     csvAway: 'UAlbany',
     csvHome: 'Buffalo',
@@ -350,9 +350,16 @@ test('overview watchlist uses the shared scoreboard with records and one odds fo
     /<article(?=[^>]*aria-label="UAlbany at Buffalo")(?=[^>]*data-scoreboard-state="scheduled")[\s\S]*?<\/article>/
   )?.[0];
   assert.ok(scoreboard, 'the FCS matchup must render through CompactGameScoreboard');
-  assert.match(
-    html,
-    /<section class="@container">[\s\S]*Upcoming watchlist[\s\S]*data-watchlist-scoreboard-grid/
+  const watchlistHeadingIndex = html.indexOf('Upcoming watchlist');
+  assert.notEqual(watchlistHeadingIndex, -1, 'the watchlist heading must render');
+  const watchlistSectionIndex = html.lastIndexOf('<section', watchlistHeadingIndex);
+  assert.notEqual(watchlistSectionIndex, -1, 'the watchlist must have a section ancestor');
+  const watchlistSectionTagEnd = html.indexOf('>', watchlistSectionIndex);
+  assert.notEqual(watchlistSectionTagEnd, -1, 'the watchlist section tag must close');
+  assert.equal(
+    html.slice(watchlistSectionIndex, watchlistSectionTagEnd + 1),
+    '<section class="@container">',
+    'the watchlist section itself must establish the scoreboard container query'
   );
   assert.match(scoreboard, /data-watchlist-reason-row/);
   assert.match(scoreboard, /Game of the slate/);
@@ -370,6 +377,52 @@ test('overview watchlist uses the shared scoreboard with records and one odds fo
   );
   assert.match(scoreboard, /data-scoreboard-odds-footer[^>]*>Buffalo -20\.5 · O\/U 55\.5<\/div>/);
   assert.doesNotMatch(scoreboard, />Scheduled<\/span>|———/);
+});
+
+test('overview watchlist leaves record anchors blank when record enrichment is absent', () => {
+  const watchlistGame = game({
+    key: 'records-unavailable',
+    providerGameId: 'records-unavailable-pid',
+    csvAway: 'UAlbany',
+    csvHome: 'Buffalo',
+  });
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[item(watchlistGame)]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+      oddsByKey={{
+        'records-unavailable': {
+          favorite: 'Buffalo',
+          spread: -20.5,
+          homeSpread: -20.5,
+          awaySpread: 20.5,
+          spreadPriceHome: -110,
+          spreadPriceAway: -110,
+          total: 55.5,
+          mlHome: null,
+          mlAway: null,
+          overPrice: -110,
+          underPrice: -110,
+          source: 'ESPN BET',
+          bookmakerKey: 'espnbet',
+          capturedAt: '2026-09-02T12:00:00.000Z',
+          lineSourceStatus: 'latest',
+        },
+      }}
+    />
+  );
+
+  const scoreboard = html.match(
+    /<article(?=[^>]*aria-label="UAlbany at Buffalo")(?=[^>]*data-scoreboard-state="scheduled")[\s\S]*?<\/article>/
+  )?.[0];
+  assert.ok(scoreboard, 'the absent-record fixture must reach the scheduled scoreboard');
+  assert.doesNotMatch(scoreboard, /data-scoreboard-value-kind="record"/);
+  assert.match(scoreboard, /data-scoreboard-odds-footer[^>]*>Buffalo -20\.5 · O\/U 55\.5<\/div>/);
 });
 
 test('overview scoreboards keep current records across scheduled, live, and final states', () => {
