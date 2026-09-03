@@ -69,6 +69,28 @@ export type CombinedOdds = {
   lineSourceStatus: OddsLineSourceStatus;
 };
 
+export type FavoriteSpreadSide = 'home' | 'away';
+
+export type FavoriteSpreadPair = {
+  favoriteSide: FavoriteSpreadSide | null;
+  spread: number;
+};
+
+/**
+ * Resolve the favorite from the signed side spreads supplied by the book.
+ * The lower signed value is the favorite's line; equal values are a pick'em
+ * with a reported spread but no favorite. Missing side data cannot be derived.
+ */
+export function deriveFavoriteSpreadPair(
+  homeSpread: number | null | undefined,
+  awaySpread: number | null | undefined
+): FavoriteSpreadPair | null {
+  if (homeSpread == null || awaySpread == null) return null;
+  if (homeSpread < awaySpread) return { favoriteSide: 'home', spread: homeSpread };
+  if (awaySpread < homeSpread) return { favoriteSide: 'away', spread: awaySpread };
+  return { favoriteSide: null, spread: homeSpread };
+}
+
 export type CanonicalOddsItem = {
   canonicalGameId: string;
   odds: CombinedOdds;
@@ -143,13 +165,33 @@ function isCompletedGame(game: Pick<AppGame, 'status'>): boolean {
   return game.status === 'final';
 }
 
+function favoriteNameForSide(
+  game: Pick<GameLike, 'canHome' | 'canAway'>,
+  side: FavoriteSpreadSide | null
+): string | null {
+  if (side === 'home') return game.canHome;
+  if (side === 'away') return game.canAway;
+  return null;
+}
+
 function snapshotFromStored(
+  game: Pick<GameLike, 'canHome' | 'canAway'>,
   snapshot: DurableOddsSnapshot,
   lineSourceStatus: OddsLineSourceStatus
 ): CombinedOdds {
+  // Correct only structurally valid stored derived fields. Leaving malformed
+  // values intact preserves the downstream validation boundary instead of
+  // silently healing a corrupt durable row with otherwise valid side spreads.
+  const storedDerivedPairIsValid =
+    (snapshot.favorite === null || typeof snapshot.favorite === 'string') &&
+    (snapshot.spread === null ||
+      (typeof snapshot.spread === 'number' && Number.isFinite(snapshot.spread)));
+  const pair = storedDerivedPairIsValid
+    ? deriveFavoriteSpreadPair(snapshot.homeSpread, snapshot.awaySpread)
+    : null;
   return {
-    favorite: snapshot.favorite,
-    spread: snapshot.spread,
+    favorite: pair ? favoriteNameForSide(game, pair.favoriteSide) : snapshot.favorite,
+    spread: pair?.spread ?? snapshot.spread,
     homeSpread: snapshot.homeSpread,
     awaySpread: snapshot.awaySpread,
     spreadPriceHome: snapshot.spreadPriceHome,
@@ -253,7 +295,7 @@ export function applyPregameOddsSnapshot(params: {
 }
 
 export function selectOddsForGame(params: {
-  game: Pick<AppGame, 'status' | 'date'>;
+  game: Pick<AppGame, 'status' | 'date' | 'canHome' | 'canAway'>;
   record: DurableOddsRecord | null | undefined;
   now?: string | Date;
 }): CombinedOdds | null {
@@ -264,15 +306,15 @@ export function selectOddsForGame(params: {
   const started = isAtOrPastKickoff(game.date, now);
 
   if ((completed || started) && record.closingSnapshot) {
-    return snapshotFromStored(record.closingSnapshot, 'closing');
+    return snapshotFromStored(game, record.closingSnapshot, 'closing');
   }
 
   if (completed && record.latestSnapshot) {
-    return snapshotFromStored(record.latestSnapshot, 'fallback-latest-for-completed');
+    return snapshotFromStored(game, record.latestSnapshot, 'fallback-latest-for-completed');
   }
 
   if (record.latestSnapshot) {
-    return snapshotFromStored(record.latestSnapshot, 'latest');
+    return snapshotFromStored(game, record.latestSnapshot, 'latest');
   }
 
   return null;
@@ -356,16 +398,10 @@ export function buildDurableOddsSnapshot(params: {
     spreadPriceHome = typeof homeOutcome?.price === 'number' ? homeOutcome.price : null;
     spreadPriceAway = typeof awayOutcome?.price === 'number' ? awayOutcome.price : null;
 
-    if (homeSpread != null && awaySpread != null) {
-      const homeAbs = Math.abs(homeSpread);
-      const awayAbs = Math.abs(awaySpread);
-      if (homeAbs <= awayAbs) {
-        spread = homeSpread;
-        favorite = homeAbs < awayAbs ? game.canHome : game.canAway;
-      } else {
-        spread = awaySpread;
-        favorite = awayAbs < homeAbs ? game.canAway : game.canHome;
-      }
+    const pair = deriveFavoriteSpreadPair(homeSpread, awaySpread);
+    if (pair) {
+      spread = pair.spread;
+      favorite = favoriteNameForSide(game, pair.favoriteSide);
     }
   }
 
@@ -453,7 +489,7 @@ export function buildOddsByGame(params: {
     });
     if (!snapshot) continue;
 
-    next[game.key] = snapshotFromStored(snapshot, 'latest');
+    next[game.key] = snapshotFromStored(game, snapshot, 'latest');
   }
 
   return next;

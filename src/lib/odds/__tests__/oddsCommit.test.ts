@@ -187,6 +187,8 @@ test('PLATFORM-122 — attached non-FBS mascot outcomes populate the durable lin
   );
   const snapshot = result.store[games[0]!.key]?.latestSnapshot;
 
+  assert.equal(snapshot?.favorite, 'UCF');
+  assert.equal(snapshot?.spread, -35);
   assert.equal(snapshot?.homeSpread, -35);
   assert.equal(snapshot?.awaySpread, 35);
   assert.equal(snapshot?.moneylineHome, -10_000);

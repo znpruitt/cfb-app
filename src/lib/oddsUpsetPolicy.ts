@@ -1,5 +1,5 @@
 import { sideIdentityCandidates } from './gameOwnership.ts';
-import type { CombinedOdds } from './odds.ts';
+import { deriveFavoriteSpreadPair, type CombinedOdds } from './odds.ts';
 import type { AppGame } from './schedule.ts';
 import { hasEquivalentTeamName } from './teamIdentity.ts';
 
@@ -40,11 +40,8 @@ function spreadMagnitudeForFavorite(
 function favoriteSideFromOdds(game: AppGame, odds?: CombinedOdds): OddsUpsetSide | null {
   if (!odds) return null;
 
-  if (typeof odds.homeSpread === 'number' && typeof odds.awaySpread === 'number') {
-    if (odds.homeSpread < odds.awaySpread) return 'home';
-    if (odds.awaySpread < odds.homeSpread) return 'away';
-    return null;
-  }
+  const pair = deriveFavoriteSpreadPair(odds.homeSpread, odds.awaySpread);
+  if (pair) return pair.favoriteSide;
 
   if (odds.favorite) {
     if (hasEquivalentTeamName(odds.favorite, sideIdentityCandidates(game, 'home'))) return 'home';

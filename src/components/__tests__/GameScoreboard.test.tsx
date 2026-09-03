@@ -216,6 +216,31 @@ test('odds row stays hidden only when no displayable odds markets exist', () => 
   assert.doesNotMatch(html, /border-t border-gray-200\/60/);
 });
 
+test("pick'em renders the reported zero spread without naming a favorite", () => {
+  const html = renderScoreboard({
+    odds: {
+      favorite: null,
+      spread: 0,
+      homeSpread: 0,
+      awaySpread: 0,
+      spreadPriceHome: -110,
+      spreadPriceAway: -110,
+      total: null,
+      mlHome: null,
+      mlAway: null,
+      overPrice: null,
+      underPrice: null,
+      source: 'DraftKings',
+      bookmakerKey: 'draftkings',
+      capturedAt: '2026-09-02T12:00:00.000Z',
+      lineSourceStatus: 'latest',
+    },
+  });
+
+  assert.match(html, /Spread: 0/);
+  assert.doesNotMatch(html, /Spread: (?:Texas Tech|Baylor) 0/);
+});
+
 test('expanded scoreboard status uses chip-only state color treatment', () => {
   const html = renderScoreboard({
     score: {
