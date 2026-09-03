@@ -162,7 +162,7 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 
 ## Cards and game results
 
-- Game cards sit on a dark surface tint with a light border — discrete, bordered objects (see Containerization), carrying team-color accent bars on the top and bottom edges
+- Game cards sit on a dark surface tint with a light border — discrete, bordered objects (see Containerization), with a per-line team-colour accent at the start of each team row, normalised for contrast against the dark surface via `teamColors.ts`. A team with no catalog colour currently receives the fallback accent (`#059669`, `teamColors.ts:24`); rendering no accent for those rows is proposed in `docs/campaigns/item-87-followon-team-colour.md` and not yet shipped
 - The shared compact scoreboard uses a status row followed by away and home team lines. Each team is
   the primary label, a nullable rank is its prefix, an owner is a tertiary inline suffix, and the
   state-relevant value stays right-anchored. Unowned opponents render team-only; the same owner may
