@@ -501,8 +501,8 @@ only if Item 87 slice 4's record join reaches historical seasons.
 
 ### Item 110 — provider score corrections are detected, declined, and only whispered
 
-**The provider says it revises data.** CFBD's admin, 2026-09-02: *"game data can change up to several
-hours afterward. I will always do a 'final' data reconciliation on Sundays for that week's games."*
+**The provider says it revises data.** CFBD's admin, 2026-09-02: _"game data can change up to several
+hours afterward. I will always do a 'final' data reconciliation on Sundays for that week's games."_
 So post-hoc correction is routine scheduled provider behaviour, not an edge case.
 
 **We detect the correction and deliberately do not apply it.**
