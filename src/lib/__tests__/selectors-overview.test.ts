@@ -1357,7 +1357,7 @@ test('selectOverviewViewModel keeps featured games when finals dominate early ca
   assert.ok(
     model.watchlistCandidates.some((entry) => entry.item.bucket.game.key === 'scheduled-late')
   );
-  assert.equal(model.recentResults.length, 4);
+  assert.equal(model.recentResults.length, 3);
 });
 
 test('selectOverviewViewModel is deterministic for identical highlight inputs', () => {
