@@ -455,6 +455,79 @@ Neon one. Keep this item for the read-replica autosuspend and the non-cadence fi
 
 - Backlog slug: `PLATFORM-OFFSEASON-SCHEDULE-PAUSE-v1`
 
+### Item 115 — Overview sections truncate with no expansion, though "bounded default" was decided
+
+**Filed 2026-09-03. Owner decision already exists — this is unbuilt work, not an open question.**
+`item-87-live-watchlist-scoreboard.md:244` settles it: _"Progressive disclosure per section: bounded
+default, expands in place. Header link → Matchups tab; footer control expands this week's slate."_
+The cap was designed as a **default view you open past**, not a ceiling.
+
+**Nothing expands.** Verified across `OverviewPanel.tsx`, `CompactGameScoreboard.tsx`, and
+`navigation/ViewMoreLink.tsx`: no `useState`, no `aria-expanded`, no show-more control anywhere. All
+four sections truncate hard — Live, Watchlist, and Recent finals at 6
+(`overviewGameSections.ts:10-12`), Featured at 4 (`overview.ts:69`). The only route to more games is
+the `All results →` header link (`OverviewPanel.tsx:1651`, `:1737`), which navigates to Schedule
+rather than expanding in place.
+
+**The coverage consequence, and why it is Recent finals' problem specifically.** The campaign doc
+calls Recent finals **complete** — _"every recent result"_ (`:95`, settled 2026-09-01, in the context
+of refusing recap deduplication). It is not: it caps at six. Featured's picks are removed from the
+routing pool first (`featuredGameKeys` → `overviewGameSections.ts:172`), and Recent finals then takes
+up to six of the remainder without growing to compensate. Measured at PR #559's head on a 12-final
+slate: Featured 6 + Recent finals 6 = 12 visible; Featured 4 + Recent finals 6 = 10 visible. **This
+predates PR #559** — any slate over twelve finals already hides games on `main` today.
+
+**Do not fix this by raising caps.** The decided design is expansion, and raising a cap trades one
+arbitrary number for another while leaving the same failure at the next boundary. Featured is exempt
+from the coverage argument — it is a curated subset by design (owner, 2026-09-03) and a small cap is
+its point; this item is about the sections that claim completeness.
+
+**Distinct from [[Item 112]].** Row disclosure (tapping a row reveals detail about that game) and
+section expansion (revealing more rows) are different affordances. They share a surface and should
+probably be sequenced together, but they are not one ticket.
+
+**Acceptance boundary:** a section whose pool exceeds its default shows an in-place control that
+lengthens it, and no game reachable in the current slate is absent from Overview without an
+affordance that reveals it. The `All results →` navigation may remain, but it is not the answer to
+truncation.
+
+- Backlog slug: `POLISH-OVERVIEW-SECTION-DISCLOSURE-v1`
+
+### Item 114 — Featured games does not expire at the Thursday boundary, Recent finals does
+
+**Filed 2026-09-03. Owner decision, same day: the two should expire together.** A live defect on
+`main`, not introduced by PR #559 — that PR only widens its consequence.
+
+**The divergence.** Recent finals drops a week's results once the recap tile flips to `upcoming`:
+`expiredFinalWeeks` (`overviewGameSections.ts:147`) applied at `:175`, keyed to the shared Thursday
+06:00 ET boundary in `weeklyRecapFacts.ts:350-357`. Featured has no equivalent filter and keeps
+showing the same finals past that instant. Observed under review: at the boundary, Recent finals
+empties while Featured still renders the full week.
+
+**Why it cannot be fixed where Featured is built.** `selectFeaturedGames` is called from
+`selectOverviewViewModel` (`overview.ts:489`), which receives neither `now` nor `scheduleGames`, so
+the predicate is structurally unreachable there. `OverviewPanel` holds both already — it passes
+`now: new Date(nowMs)` and `scheduleGames: games` into `selectOverviewGameSections` at `:1487-1492`.
+Filtering `viewModel.recentResults` through the same predicate **before** `featuredGameKeys` is built
+at `:1481` keeps one definition of the boundary and also stops expired games from sitting in the
+exclusion set and suppressing live ones.
+
+**Keep one boundary definition.** The campaign doc defends the shared `selectWeeklyRecapTileState`
+use as a deliberate single time predicate (`:99-103`); do not duplicate the Thursday rule into a
+second place. `expiredFinalWeeks` is currently module-private and would need exporting, or the
+Featured selection needs to move into the same routing pass.
+
+**Interaction with [[Item 101]].** That item weighs the empty window the shared expiry creates at
+season boundaries — worst case 13 days, 2026-11-29 to 2026-12-12. Aligning Featured makes that
+window empty _both_ sections rather than one, which strengthens Item 101 rather than changing it.
+Fixing 101 fixes both; do not use 101 as a reason to leave the two surfaces inconsistent.
+
+**Acceptance boundary:** at one minute past the Thursday 06:00 ET boundary, Featured and Recent
+finals release the same week together — proven by a test that observes both sections across the
+instant, not by reasoning about the shared predicate.
+
+- Backlog slug: `PLATFORM-FEATURED-EXPIRY-ALIGNMENT-v1`
+
 ### Item 113 — Featured games is a plain finals list; the insights-hook reframe was decided but never built
 
 **Filed 2026-09-03 from an audit of `docs/campaigns/item-87-live-watchlist-scoreboard.md` against
@@ -488,9 +561,16 @@ none of it built:**
   not a game-specific template; colour takes whatever `INSIGHTS-017-PALETTE` assigns to that insight
   category. `INSIGHTS-017-PALETTE` itself is tracked only as a prose bullet under "Unresolved
   decisions," not a numbered item — decide whether this dependency needs one before scoping colour.
-- **Cap of three — already fixed, separately from this item.** Shipped at 6 (the shared default);
-  corrected 2026-09-03 to the decided value of 3, which is Featured-specific
-  (`OVERVIEW_RESULTS_LIMIT`, `overview.ts:69`) and does not touch Live/Watchlist/Recent finals.
+- **Cap — settled at FOUR, merged 2026-09-03 via PR #559 (`ce75380b`), separately from this item.**
+  It shipped at 6 by inheriting a default; the doc had argued three. Four rather than three because a
+  CFP first round and quarterfinal are four games each, and at three one game of a round is demoted
+  into Recent finals, which renders it without its round badge or kickoff line.
+  **Correction — an earlier version of this entry claimed the cap "does not touch
+  Live/Watchlist/Recent finals." That was false**, and review disproved it by measurement:
+  `recentResults` feeds `featuredGameKeys` (`OverviewPanel.tsx:1481`), used as an exclusion set at
+  `overviewGameSections.ts:172` before routing, so Featured's cap does move how many finals reach
+  Recent finals. Accepted rather than fixed: Featured is a curated subset by design. The coverage
+  question belongs to Recent finals — see [[Item 115]].
 
 **One architectural question the original design didn't address.** Today's postseason-round sort
 (`hasPostseasonGames` branch, `overview.ts:388-395`) is a second, independent selection path with no
@@ -550,12 +630,14 @@ and the prop threading for whichever L1 facts survive an owner content decision.
 section inherits it; Matchups and the recap primitives still use `GameSummaryList` and
 `GameScoreboard`, so they do not.
 
-**Open owner question, do not assume an answer.** Section-level expansion — a "show more" that
-lengthens a capped section — is a DIFFERENT affordance and is **not** in the settled decisions. It
-came up during the slice-4 walkthrough and was never decided. Watchlist, Live, and Recent finals are
-each capped at six. Ask before building either one, because "tapping a row discloses detail" and
-"tapping a section reveals more rows" can easily be conflated into one ticket and they are not the
-same feature.
+**Still a different affordance — corrected 2026-09-03.** Section-level expansion — a "show more"
+that lengthens a capped section — is a DIFFERENT feature from row disclosure, and the two must not be
+conflated into one ticket: "tapping a row discloses detail" and "tapping a section reveals more rows"
+are not the same thing. **An earlier version of this entry claimed section expansion was "not in the
+settled decisions" and "never decided." That was wrong.** The campaign doc settles it at
+`item-87-live-watchlist-scoreboard.md:244` — "Progressive disclosure per section: bounded default,
+expands in place" — and it was simply never built, the same failure mode as this item. Tracked
+separately as [[Item 115]].
 
 - Backlog slug: `POLISH-SCOREBOARD-ROW-DISCLOSURE-v1`
 
