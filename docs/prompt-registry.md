@@ -51,6 +51,24 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### POLISH-024-RETIRE-OVERVIEW-SECTION-ORDER-v1
+
+- Purpose: Item 124 — retire `OverviewContext` fields that are declared, populated, and read by
+  nothing, one of which had begun contradicting the section order POLISH-022 shipped.
+- Scope: `src/lib/overview.ts` and the four Overview test fixtures. No component, selector or
+  data-layer change; no user-visible change.
+- Outcome: `OverviewContext` reduced to `{ scopeDetail, emphasis }`. Removed `sectionOrder`,
+  `scopeLabel`, `highlightsTitle`, `highlightsDescription`, `liveDescription`, the now-orphaned
+  `OverviewSectionKind` type, and `weekGames` from `deriveOverviewContext`'s parameters. 256 lines
+  removed, 36 added.
+- Notes: the filed item's own scope note claimed `highlightsTitle` was read and the deletion partial.
+  It was not — the Featured heading is a literal string in `OverviewPanel.tsx`. One test was deleted
+  rather than gutted, its subject having been `scopeLabel`; a comment records why.
+- Review / verification: exact head TBD at merge. `npx tsc --noEmit` exit 0, `npm run lint:all`
+  exit 0, `npm test` exit 0 with 4,590 passing (−1, the deleted test), `npm run build` exit 0 —
+  added as a gate because an exported type's surface changed.
+- Status: PR #564 open — **not merged**. Flip this line at merge.
+
 ### POLISH-023-OVERVIEW-ORDERING-REMAINDER-v1
 
 - Purpose: Item 125 portions 1 and 2 — Live sorts by kickoff alone, and a Featured final carries no

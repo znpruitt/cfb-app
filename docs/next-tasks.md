@@ -542,8 +542,26 @@ Item 123 documents in the postseason template.
 touches the type, four construction sites and four test files, which would make a presentation-only
 change into a data-model one.
 
-**Scope note:** check `highlightsTitle` in the same pass — it IS read (`context.highlightsTitle`
-supplies the Featured heading), so this is a partial deletion, not a whole-type one.
+**DONE — POLISH-024, PR #564.** Five fields removed, not three: `sectionOrder`, `scopeLabel`,
+`highlightsTitle`, `highlightsDescription` and `liveDescription`. `OverviewContext` is now
+`{ scopeDetail, emphasis }`.
+
+**Correcting this item's own scope note.** It said `highlightsTitle` "IS read
+(`context.highlightsTitle` supplies the Featured heading), so this is a partial deletion". That was
+wrong and unchecked — the Featured heading is the literal string `"Featured games"` in
+`OverviewPanel.tsx`, and `highlightsTitle` has no reader outside `overview.ts` and test fixtures.
+`scopeLabel` was dead the same way. Only `scopeDetail` (read by `selectors/overview.ts` for the week
+label) and `emphasis` (five components branch on it) survive.
+
+**One test deleted rather than gutted.** `overview uses postseason context when the active slate is
+postseason-driven` had `scopeLabel` as its entire subject; with the field gone,
+`deriveOverviewContext` has no postseason-specific output left, so keeping it meant an `emphasis`
+assertion other tests already make. Deleted with a comment in place saying why. `weekGames` also
+left `deriveOverviewContext`'s parameters — it existed only to run `isTruePostseasonGame` for that
+label.
+
+**Net: 256 lines removed, 36 added.** `npm run build` was run as a gate alongside the usual three,
+since the change alters an exported type's surface.
 
 - Backlog slug: `POLISH-RETIRE-OVERVIEW-SECTION-ORDER-v1`
 
