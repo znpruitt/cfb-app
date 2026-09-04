@@ -4,6 +4,7 @@ import { JSDOM } from 'jsdom';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 
 import type { AppGame } from '../../../lib/schedule';
+import type { ScorePack } from '../../../lib/scores';
 import type { TeamCatalogItem } from '../../../lib/teamIdentity';
 import { EMPTY_SCORE_HYDRATION_STATE } from '../../../lib/scoreHydration';
 import { useLiveRefresh } from '../useLiveRefresh';
@@ -29,6 +30,8 @@ Object.defineProperty(globalThis, 'navigator', {
 });
 
 const originalFetch = globalThis.fetch;
+const originalDateNow = Date.now;
+const originalVisibilityDescriptor = Object.getOwnPropertyDescriptor(document, 'visibilityState');
 let fetchUrls: string[];
 let scorePayload: unknown;
 
@@ -152,6 +155,12 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   globalThis.fetch = originalFetch;
+  Date.now = originalDateNow;
+  if (originalVisibilityDescriptor) {
+    Object.defineProperty(document, 'visibilityState', originalVisibilityDescriptor);
+  } else {
+    Reflect.deleteProperty(document, 'visibilityState');
+  }
 });
 
 function oddsUrls(): string[] {
@@ -347,5 +356,155 @@ test('a catalog replaced after mount is used on the NEXT poll, not the mount-tim
     fetchUrls.filter((url) => url.includes('/api/scores')).length,
     2,
     'and it genuinely polled — two score reads, one per refresh'
+  );
+});
+
+test('a just-kicked-off game with no score pack polls every full eligible partition at 90 seconds', async () => {
+  const nowBase = Date.parse('2026-09-05T17:00:00.000Z');
+  let nowMs = nowBase;
+  Date.now = () => nowMs;
+  Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+
+  const regularFinal: AppGame = {
+    ...game({ key: 'regular-final', date: new Date(nowBase).toISOString() }),
+    eventKey: 'regular-final',
+    week: 16,
+    canonicalWeek: 16,
+    providerWeek: 16,
+    rawStatus: 'STATUS_FINAL',
+  };
+  const postseasonJustKickedOff: AppGame = {
+    ...game({ key: 'postseason-live', date: new Date(nowBase).toISOString() }),
+    eventKey: 'postseason-live',
+    stage: 'bowl',
+    week: 17,
+    canonicalWeek: 17,
+    providerWeek: 1,
+    rawStatus: 'scheduled',
+  };
+  const games = [regularFinal, postseasonJustKickedOff];
+  const scoresByKey: Record<string, ScorePack> = {
+    'regular-final': {
+      status: 'final',
+      home: { team: 'Home', score: 24 },
+      away: { team: 'Away', score: 17 },
+      time: null,
+    },
+    // Intentionally no postseason-live pack: kickoff alone must select 90s.
+  };
+  let loading = false;
+  const loadingWrites: boolean[] = [];
+  const params = makeParams({
+    scheduleLoaded: true,
+    selectedTab: 16,
+    selectedWeek: 16,
+    weeks: [16],
+    games,
+    visibleGames: games,
+    scoreScopeGames: games,
+    scoresByKey,
+    setLoadingLive: (action) => {
+      loading = typeof action === 'function' ? action(loading) : action;
+      loadingWrites.push(loading);
+    },
+  });
+  renderHook(() => useLiveRefresh(params));
+
+  // The season-wide bootstrap completes at t=0 and seeds the shared poll clock.
+  await waitFor(() => assert.deepEqual(loadingWrites, [true, false]));
+  fetchUrls = [];
+  loadingWrites.length = 0;
+
+  nowMs = nowBase + 90 * 1000;
+  act(() => {
+    window.dispatchEvent(new dom.window.Event('focus'));
+  });
+  await waitFor(() => assert.deepEqual(loadingWrites, [true, false]));
+
+  assert.deepEqual(
+    fetchUrls.filter((url) => url.includes('/api/scores')),
+    [
+      '/api/scores?week=16&year=2026&seasonType=regular&live=1',
+      '/api/scores?week=1&year=2026&seasonType=postseason&live=1',
+    ],
+    'the fast tier changes only timing and retains every main-branch eligible partition'
+  );
+});
+
+test('a final-only window waits 180 seconds and requests the same full partition set', async () => {
+  const nowBase = Date.parse('2026-09-05T17:00:00.000Z');
+  let nowMs = nowBase;
+  Date.now = () => nowMs;
+  Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+
+  const regularFinal: AppGame = {
+    ...game({ key: 'regular-final', date: new Date(nowBase).toISOString() }),
+    eventKey: 'regular-final',
+    week: 16,
+    canonicalWeek: 16,
+    providerWeek: 16,
+    rawStatus: 'STATUS_FINAL',
+  };
+  const postseasonFinal: AppGame = {
+    ...game({ key: 'postseason-final', date: new Date(nowBase).toISOString() }),
+    eventKey: 'postseason-final',
+    stage: 'bowl',
+    week: 17,
+    canonicalWeek: 17,
+    providerWeek: 1,
+    rawStatus: 'STATUS_FINAL',
+  };
+  const games = [regularFinal, postseasonFinal];
+  const finalPack: ScorePack = {
+    status: 'final',
+    home: { team: 'Home', score: 24 },
+    away: { team: 'Away', score: 17 },
+    time: null,
+  };
+  let loading = false;
+  const loadingWrites: boolean[] = [];
+  const params = makeParams({
+    scheduleLoaded: true,
+    selectedTab: 16,
+    selectedWeek: 16,
+    weeks: [16],
+    games,
+    visibleGames: games,
+    scoreScopeGames: games,
+    scoresByKey: { 'regular-final': finalPack, 'postseason-final': finalPack },
+    setLoadingLive: (action) => {
+      loading = typeof action === 'function' ? action(loading) : action;
+      loadingWrites.push(loading);
+    },
+  });
+  renderHook(() => useLiveRefresh(params));
+
+  await waitFor(() => assert.deepEqual(loadingWrites, [true, false]));
+  fetchUrls = [];
+  loadingWrites.length = 0;
+
+  nowMs = nowBase + 90 * 1000;
+  act(() => {
+    window.dispatchEvent(new dom.window.Event('focus'));
+  });
+  assert.deepEqual(
+    fetchUrls.filter((url) => url.includes('/api/scores')),
+    [],
+    'the completed bootstrap clock suppresses the abandoned extra t+90s read'
+  );
+
+  nowMs = nowBase + 180 * 1000;
+  act(() => {
+    window.dispatchEvent(new dom.window.Event('focus'));
+  });
+  await waitFor(() => assert.deepEqual(loadingWrites, [true, false]));
+
+  assert.deepEqual(
+    fetchUrls.filter((url) => url.includes('/api/scores')),
+    [
+      '/api/scores?week=16&year=2026&seasonType=regular&live=1',
+      '/api/scores?week=1&year=2026&seasonType=postseason&live=1',
+    ],
+    'the normal tier retains the same complete eligible partition set as the fast tier'
   );
 });

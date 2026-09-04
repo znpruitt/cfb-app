@@ -1,4 +1,8 @@
-import { classifyScorePackStatus, isCanceledOrPostponedStatusLabel } from '@/lib/gameStatus';
+import {
+  classifyScorePackStatus,
+  classifyStatusLabel,
+  isCanceledOrPostponedStatusLabel,
+} from '@/lib/gameStatus';
 import type { AppGame } from '@/lib/schedule';
 import type { ScorePack } from '@/lib/scores';
 import { seasonYearForToday } from '@/lib/scores/normalizers';
@@ -7,16 +11,19 @@ import { seasonYearForToday } from '@/lib/scores/normalizers';
  * PLATFORM-086B2B — client-safe eligibility for BROWSER live-score polling.
  *
  * Pure and dependency-light (no server imports) so `useLiveRefresh` can re-evaluate
- * it on every 3-minute tick and on focus/visibility changes. It mirrors the B1
+ * it on every browser heartbeat and on focus/visibility changes. It mirrors the B1
  * cron's schedule-armed `[kickoff − 15 min, kickoff + 24 h]` window and its
  * disruption rules, but decides only whether a VISIBLE tab should issue a
- * cache-only score read — never a provider call. The server cron remains the
- * authoritative, quota-spending eligibility (it also has pending-confirmation
- * metadata); a slightly looser browser decision only costs a free cache read.
+ * cache-only score read — never a provider call. Browser reads are provider-free,
+ * but still invoke the dynamic route and durable score reconciliation. The server
+ * cron remains the authoritative, quota-spending eligibility (it also has
+ * pending-confirmation metadata).
  */
 
-/** Browser live-score poll cadence: every 3 minutes while a tab is visible. */
+/** Browser live-score cadence when the eligible window has no game in progress. */
 export const LIVE_SCORE_POLL_INTERVAL_MS = 3 * 60 * 1000;
+/** Browser live-score cadence while at least one eligible game is in progress. */
+export const LIVE_SCORE_IN_PROGRESS_POLL_INTERVAL_MS = 90 * 1000;
 /** Inclusive window: 15 minutes before kickoff through 24 hours after (== B1). */
 export const LIVE_SCORE_WINDOW_BEFORE_MS = 15 * 60 * 1000;
 export const LIVE_SCORE_WINDOW_AFTER_MS = 24 * 60 * 60 * 1000;
@@ -51,12 +58,12 @@ function partitionOf(game: AppGame): LiveScorePartition {
  * `completed` row as `final` BEFORE its later `/games` reconciliation, which can
  * correct the score (and invalidate standings). The browser cannot cheaply tell a
  * provisional final from a `/games`-confirmed one (the client response carries no
- * pending-confirmation set), so it keeps polling in-window finals cache-only — the
- * only cost is a free cache read, bounded by the `+24 h` window — so a
- * reconciliation correction still reaches an open page. A truly resolved final
- * simply ages out of the window. Canceled/postponed are TERMINAL (never corrected)
- * and DO end eligibility. The provider schedule status is preserved on
- * `AppGame.rawStatus`, so a game with no score row can still be excluded.
+ * pending-confirmation set), so it keeps polling in-window finals cache-only at
+ * the three-minute cadence. That bounded read is provider-free, not cost-free: it
+ * still invokes the scores route and durable reconciliation. A truly resolved
+ * final simply ages out of the window. Canceled/postponed are TERMINAL (never
+ * corrected) and DO end eligibility. The provider schedule status is preserved
+ * on `AppGame.rawStatus`, so a game with no score row can still be excluded.
  */
 export function isLiveScoreEligibleGame(
   game: AppGame,
@@ -97,6 +104,36 @@ export function selectLiveScorePollGames(params: {
   const { games, scoresByKey, season, now = new Date() } = params;
   if (!isCurrentLiveScoreSeason(season, now)) return [];
   return games.filter((game) => isLiveScoreEligibleGame(game, scoresByKey[game.key], now));
+}
+
+/**
+ * Whether at least one already-eligible game has reached kickoff and is not final.
+ *
+ * Kickoff time is deliberately sufficient to enter the fast tier: the first cron
+ * write may not have produced a score pack yet, and waiting for one would delay
+ * the 90-second cadence at the moment it matters. Once a score pack exists its
+ * status is the freshest finality signal; before then, the schedule's raw status
+ * prevents an already-final game from being treated as live.
+ */
+export function hasInProgressLiveScoreGame(params: {
+  eligibleGames: AppGame[];
+  scoresByKey: Record<string, ScorePack>;
+  now?: Date;
+}): boolean {
+  const { eligibleGames, scoresByKey, now = new Date() } = params;
+  const nowMs = now.getTime();
+
+  return eligibleGames.some((game) => {
+    if (!game.date) return false;
+    const kickoffMs = Date.parse(game.date);
+    if (!Number.isFinite(kickoffMs) || kickoffMs > nowMs) return false;
+
+    const score = scoresByKey[game.key];
+    const status = score
+      ? classifyScorePackStatus(score)
+      : classifyStatusLabel(game.rawStatus ?? game.status);
+    return status !== 'final';
+  });
 }
 
 /** Deduped `(providerWeek, seasonType)` partitions for the exact-partition read. */

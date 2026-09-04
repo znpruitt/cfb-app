@@ -4,10 +4,12 @@ import test from 'node:test';
 import type { AppGame } from '../../schedule.ts';
 import type { ScorePack } from '../../scores.ts';
 import {
+  LIVE_SCORE_IN_PROGRESS_POLL_INTERVAL_MS,
   LIVE_SCORE_POLL_INTERVAL_MS,
   LIVE_SCORE_WINDOW_AFTER_MS,
   LIVE_SCORE_WINDOW_BEFORE_MS,
   deriveLiveScorePartitions,
+  hasInProgressLiveScoreGame,
   isCurrentLiveScoreSeason,
   isLiveScoreEligibleGame,
   selectLiveScorePollGames,
@@ -16,7 +18,7 @@ import {
 // PLATFORM-086B2B — browser live-poll eligibility. Pure/deterministic (a fixed
 // `now`), it decides whether a VISIBLE tab should issue a cache-only score read:
 // current season + a schedule-owned kickoff inside `[−15 min, +24 h]`, excluding
-// resolved finals and canceled/postponed, keeping delayed/suspended.
+// canceled/postponed while keeping correctable finals and delayed/suspended.
 
 // A November 2025 anchor → canonical current season 2025 (seasonYearForToday).
 const NOW = new Date('2025-11-01T18:00:00.000Z');
@@ -212,6 +214,65 @@ test('deriveLiveScorePartitions dedupes (providerWeek, seasonType) and maps stag
   );
 });
 
-test('the poll cadence constant is 3 minutes', () => {
+test('the browser cadence constants retain 3 minutes normally and use 90 seconds in progress', () => {
   assert.equal(LIVE_SCORE_POLL_INTERVAL_MS, 3 * 60 * 1000);
+  assert.equal(LIVE_SCORE_IN_PROGRESS_POLL_INTERVAL_MS, 90 * 1000);
+});
+
+test('a just-kicked-off eligible game selects the fast tier without a score pack', () => {
+  const justKickedOff = makeGame({ key: 'no-score', date: NOW.toISOString() });
+
+  assert.equal(
+    hasInProgressLiveScoreGame({
+      eligibleGames: [justKickedOff],
+      scoresByKey: {},
+      now: NOW,
+    }),
+    true
+  );
+});
+
+test('the fast-tier predicate waits for kickoff even when a cached status says live', () => {
+  const upcoming = makeGame({
+    key: 'upcoming',
+    date: new Date(NOW_MS + LIVE_SCORE_WINDOW_BEFORE_MS).toISOString(),
+  });
+
+  assert.equal(
+    hasInProgressLiveScoreGame({
+      eligibleGames: [upcoming],
+      scoresByKey: { upcoming: scorePack('Q1 15:00') },
+      now: NOW,
+    }),
+    false
+  );
+});
+
+test('final evidence stays on the normal tier, with an attached score taking precedence', () => {
+  const rawFinal = makeGame({ key: 'raw-final', rawStatus: 'STATUS_FINAL' });
+  const scoreFinal = makeGame({ key: 'score-final', rawStatus: 'STATUS_IN_PROGRESS' });
+
+  assert.equal(
+    hasInProgressLiveScoreGame({ eligibleGames: [rawFinal], scoresByKey: {}, now: NOW }),
+    false,
+    'schedule finality applies before a score pack exists'
+  );
+  assert.equal(
+    hasInProgressLiveScoreGame({
+      eligibleGames: [scoreFinal],
+      scoresByKey: { 'score-final': scorePack('Final') },
+      now: NOW,
+    }),
+    false,
+    'an attached final score applies even when the schedule still says live'
+  );
+  assert.equal(
+    hasInProgressLiveScoreGame({
+      eligibleGames: [rawFinal],
+      scoresByKey: { 'raw-final': scorePack('Q4 02:00') },
+      now: NOW,
+    }),
+    true,
+    'a newer attached non-final score overrides stale schedule finality'
+  );
 });

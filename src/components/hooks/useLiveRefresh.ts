@@ -17,8 +17,10 @@ import {
 import { decideRefresh } from '../../lib/refreshDecision';
 import { LIVE_MANUAL_COOLDOWN_MS } from '../../lib/refreshPolicy';
 import {
+  LIVE_SCORE_IN_PROGRESS_POLL_INTERVAL_MS,
   LIVE_SCORE_POLL_INTERVAL_MS,
   deriveLiveScorePartitions,
+  hasInProgressLiveScoreGame,
   selectLiveScorePollGames,
   type LiveScorePartition,
 } from '../../lib/liveScores/browserPolling';
@@ -46,9 +48,9 @@ type UseLiveRefreshParams = {
   scoreScopeGames: AppGame[];
   /**
    * Current per-game score cache (PLATFORM-086B2B). Read only to re-evaluate
-   * browser live-poll eligibility each tick — a resolved-final or canceled game
-   * drops out of the poll set. Not a write path; the hook still owns updates via
-   * `setScoresByKey`.
+   * browser live-poll eligibility and cadence each heartbeat. Canceled/postponed
+   * games drop out; in-window finals remain eligible at the normal cadence. Not a
+   * write path; the hook still owns updates via `setScoresByKey`.
    */
   scoresByKey: Record<string, ScorePack>;
   /**
@@ -297,6 +299,7 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
       if (liveRefreshInFlightRef.current) return;
 
       const nowMs = Date.now();
+      const stampAutoPollOnCompletion = !manual && options?.scorePartitions === undefined;
       // Odds are NOT fetched automatically here anymore — cache-only Odds display is
       // owned by `useOddsHydration` (PLATFORM-086C3), decoupled from the kickoff
       // window. This path fetches odds ONLY when a caller explicitly opts in
@@ -334,13 +337,11 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
       setLoadingLive(true);
       if (manual) {
         lastManualLiveRefreshMsRef.current = nowMs;
-      } else {
+      } else if (!stampAutoPollOnCompletion) {
         // Stamp the auto-poll throttle at poll INITIATION, not completion. The
-        // 3-minute timer's throttle threshold equals its interval, so stamping at
-        // completion would offset the mark by the fetch latency and make every
-        // other tick fall a few ms short of the threshold — silently halving the
-        // cadence to ~6 minutes. Anchoring to `nowMs` keeps consecutive ticks
-        // exactly one interval apart.
+        // scheduler's heartbeat is shorter than or equal to its selected cadence,
+        // so anchoring to `nowMs` keeps consecutive exact-partition polls the
+        // intended interval apart without adding fetch latency.
         lastAutoScoresRefreshMsRef.current = nowMs;
       }
 
@@ -530,13 +531,17 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
               setScoreHydrationState((prev) => markScoreHydrationLoaded(prev, loadedSeasonTypes));
             }
           }
-          // The auto-poll throttle was stamped at poll initiation (above), not here,
-          // so the timer's cadence is not offset by fetch latency.
+          // Exact-partition polls stamp at initiation above. Season-wide automatic
+          // hydration stamps on completion below so the first heartbeat cannot
+          // immediately repeat a bootstrap that was still in flight.
         } catch (err) {
           if (options?.scorePartitions) setLiveScoreObservation(null);
           setIssues((p) => [...p, `Scores fetch failed: ${(err as Error).message}`]);
         }
       } finally {
+        if (stampAutoPollOnCompletion) {
+          lastAutoScoresRefreshMsRef.current = Date.now();
+        }
         liveRefreshInFlightRef.current = false;
         setLoadingLive(false);
       }
@@ -567,7 +572,7 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
 
   // Latest `refreshLiveData` for the visible-tab timer (PLATFORM-086B2B). The
   // callback's identity changes on every navigation (games/visibleGames/tab/week/
-  // season are in its deps); reading it through a ref keeps the 3-minute interval
+  // season are in its deps); reading it through a ref keeps the heartbeat
   // effect stable so navigation cannot tear down and re-arm the interval — which
   // would restart its countdown and starve the auto-poll under active clicking.
   const refreshLiveDataRef = useRef(refreshLiveData);
@@ -595,18 +600,21 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
     });
   }, [games, refreshLiveData, scheduleLoaded, selectedTab]);
 
-  // Visible-tab live-score polling (PLATFORM-086B2B): a self-rescheduling 3-minute
-  // timer that re-evaluates eligibility every tick AND whenever the tab gains
+  // Visible-tab live-score polling (PLATFORM-BROWSER-POLL-CADENCE-v2): a
+  // self-rescheduling 90-second heartbeat that re-evaluates eligibility and
+  // cadence every tick AND whenever the tab gains
   // focus/becomes visible, so a page opened before kickoff arms itself as the
-  // window opens without any re-render. Eligible games are read cache-only from
-  // just their `(providerWeek, seasonType)` partitions.
+  // window opens without any re-render. When at least one eligible game's kickoff
+  // has passed and it is not final, reads run every 90 seconds; otherwise they
+  // retain the three-minute cadence. BOTH tiers always read the complete eligible
+  // `(providerWeek, seasonType)` partition set — cadence changes when, never what.
   //
-  // The next tick is always scheduled ONE interval after the LAST attempt rather
-  // than on a fixed wall-clock grid: a `setInterval` grid desyncs from the
-  // last-poll throttle, so an off-grid focus/visibility poll would leave the next
-  // grid tick throttled out and stretch the effective cadence to ~2 intervals. A
-  // rescheduling timeout keeps every gap between polls at ~one interval. Polls
-  // fire only while visible; the throttle dedupes rapid focus/visibility events.
+  // The next heartbeat is always scheduled 90 seconds after the LAST attempt
+  // rather than on a fixed wall-clock grid: a `setInterval` grid desyncs from the
+  // last-poll throttle, so an off-grid focus/visibility poll could stretch the
+  // effective cadence. A rescheduling timeout plus the selected-tier throttle
+  // keeps actual reads at 90 or 180 seconds. Polls fire only while visible; the
+  // throttle dedupes rapid focus/visibility events.
   useEffect(() => {
     if (!scheduleLoaded) return;
 
@@ -614,7 +622,8 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
 
     const attemptPoll = (): void => {
       if (document.visibilityState !== 'visible') return;
-      if (Date.now() - lastAutoScoresRefreshMsRef.current < LIVE_SCORE_POLL_INTERVAL_MS) return;
+      const nowMs = Date.now();
+      const now = new Date(nowMs);
       const {
         games: currentGames,
         scoresByKey: currentScores,
@@ -624,11 +633,21 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
         games: currentGames,
         scoresByKey: currentScores,
         season: currentSeason,
+        now,
       });
       if (eligibleGames.length === 0) return;
+      const pollIntervalMs = hasInProgressLiveScoreGame({
+        eligibleGames,
+        scoresByKey: currentScores,
+        now,
+      })
+        ? LIVE_SCORE_IN_PROGRESS_POLL_INTERVAL_MS
+        : LIVE_SCORE_POLL_INTERVAL_MS;
+      if (nowMs - lastAutoScoresRefreshMsRef.current < pollIntervalMs) return;
+
       // `lastAutoScoresRefreshMsRef` is stamped at poll initiation inside
-      // refreshLiveData, so `reschedule()` below lands the next tick one interval
-      // after this poll starts.
+      // refreshLiveData. The request scope stays identical across both cadence
+      // tiers: every eligible game's partition is included.
       void refreshLiveDataRef.current({
         manual: false,
         includeOdds: false,
@@ -637,21 +656,22 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
       });
     };
 
-    // Always re-arm one interval out; the throttle inside attemptPoll bounds the
-    // real poll rate, and re-arming after event polls keeps the cadence steady.
+    // Always re-arm one FAST interval out. The throttle inside attemptPoll selects
+    // 90 or 180 seconds; the 90-second heartbeat is what notices a kickoff even
+    // before a score pack exists, without a render or a premature read.
     const reschedule = (): void => {
       if (timeoutId !== undefined) clearTimeout(timeoutId);
       timeoutId = setTimeout(() => {
         attemptPoll();
         reschedule();
-      }, LIVE_SCORE_POLL_INTERVAL_MS);
+      }, LIVE_SCORE_IN_PROGRESS_POLL_INTERVAL_MS);
     };
 
     const onVisible = (): void => {
       const before = lastAutoScoresRefreshMsRef.current;
       attemptPoll();
       // If this event actually polled, restart the countdown from it so the next
-      // tick is one interval away (not left on the previous, now-stale schedule).
+      // heartbeat is 90 seconds away (not left on the previous schedule).
       if (lastAutoScoresRefreshMsRef.current !== before) reschedule();
     };
 
