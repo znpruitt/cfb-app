@@ -39,7 +39,7 @@
     "lint:fix:all": "npm run lint:fix:all:eslint && npm run lint:fix:all:format",
     "lint:fix:all:eslint": "eslint --cache --cache-strategy content --concurrency auto src scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts --fix",
     "lint:fix:all:format": "prettier --write src scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts",
-    "lint:markdown": "markdownlint-cli2 \"**/*.md\" \"#node_modules\" \"#.next\" \"#docs/archive/**\"",
+    "lint:markdown": "markdownlint-cli2 \"**/*.md\" \"#node_modules\" \"#.next\" \"#docs/archive/**\" \"#docs/prompts/*-v*.md\"",
     "lint:markdown:fix": "markdownlint-cli2 --fix \"**/*.md\" \"#node_modules\" \"#.next\" \"#docs/archive/**\""
   },
   "dependencies": {
