@@ -115,8 +115,9 @@ scoreboards, now unblocked by POLISH-017's final variant), **Item 84** (provider
 diagnostic), and **Item 86** (archive audit integrity check).
 
 Gated: **Item 85** after 86, which is how the repair gets verified.
-**Item 94** (CFBD burn-rate measurement) is date-gated to October 2026, after the first full
-in-season month; it is the accumulated observation **Item 63** and **Item 95 portion 2** are waiting
+**Item 94** (CFBD burn-rate measurement) must be READ ON 2026-09-30, not in October — `/info`
+reports the current period only and the counter resets 1 October, so a later read loses September
+entirely; it is the accumulated observation **Item 63** and **Item 95 portion 2** are waiting
 on. **Item 95 portion 1** was gated on PLATFORM-120 because it doubles `/api/scores` function
 invocations; that merge has now cleared the gate, without changing its position in the selected
 order.
@@ -139,7 +140,7 @@ The 2026-08-26 roadmap audit recommends this season-reliability sequence; it is 
 not an owner-selected `NEXT` designation. Its reassessment gate (after Item 87 slice 2) has passed —
 POLISH-019 shipped slice 3 — and the 2026-09-02 order above supersedes it. Weigh this sequence again
 once Item 102 retires the manual schedule switch; **Item 63 and Item 95 portion 2 additionally wait on
-Item 94's October measurement**:
+Item 94's 2026-09-30 measurement**:
 
 1. Item 64(c) — align abandonment handling in resolved-week selection.
 2. Item 63 — design delete-and-recreate reschedule reconciliation; also the main lever on
@@ -2827,7 +2828,27 @@ time are deliberate and proven to fit its explicit route/runtime budget; no conv
 provider spend merely by multiplying longer timeouts; and a repo-wide `timeoutMs` sweep is part of
 verification, not scoping — that omission is what produced this item.
 
-### Item 94 — measure the first full in-season month of CFBD burn (October 2026)
+### Item 94 — measure the first full in-season month of CFBD burn (READ 2026-09-30)
+
+**TIMING IS THE WHOLE ITEM — corrected 2026-09-04, and the title was wrong.** `/info` reports
+`used`/`remaining` **for the current period only** (`providerQuota.ts:41-43`), the period is calendar
+monthly (the 2026-08-31 reading recorded `resets 2026-09-01`), and CFBD exposes **no history**. So a
+call made in October returns October-to-date and **September's total is unrecoverable** — the counter
+reset and nothing else in this system can reconstruct it. `provider-refresh-status` is latest-only
+(Item 126 layer 3) and the app does not durably count provider calls, so an in-period `/info` read is
+the ONLY source.
+
+**Read it on 2026-09-30, as late in the day as practical.** The body of this item already says
+September — "the first month containing four or five Saturdays of live polling" — while the heading
+said October; the heading was the error. Miss the date and the answer slips a full month, silently,
+with nothing indicating the number was lost.
+
+**Better than one reading: sample it.** `/info` bills 0, so a small durable daily sample costs
+nothing and yields both the monthly total and its SHAPE — which days burn, and how much a Saturday
+actually costs versus a Tuesday. That shape is what Item 95 portion 2 and Item 63 actually need,
+since both are asking "how often can we afford to ask" during specific windows rather than across a
+month. A single end-of-month scalar answers neither well. Not built; recorded as the better form of
+this measurement if anyone touches it before 2026-09-30.
 
 **Gates TWO decisions, not one — noted 2026-09-04.** Item 95 portion 2 has always been gated on this
 for its quota cost. After Item 102 ships, the armed-hour count this produces is _also_ the input for
