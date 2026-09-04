@@ -1,6 +1,6 @@
 # Item 87 — Follow-on input: section ordering, resolutions
 
-> **Status:** §1, §2 and §3 are implemented — POLISH-023, PR #563. §3 is landed on Overview only and
+> **Status:** §1, §2 and §3 are shipped — POLISH-023, merged via PR #563 (`1546bbc8`), 2026-09-04. §3 is landed on Overview only and
 > is now recorded in `DESIGN.md`, which previously said the opposite. §4 (Matchups slate ordering) and
 > §5 (counts, deferred to Item 115) remain unbuilt. The sort rules below were added on 2026-09-04.
 

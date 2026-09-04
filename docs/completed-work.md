@@ -32,6 +32,28 @@ Supersedes: (none)
 > [`docs/ai/game-stats-writer-fence.md`](ai/game-stats-writer-fence.md) (with the superseded
 > original design frozen in [`docs/ai/platform-086h3-contract.md`](ai/platform-086h3-contract.md)).
 
+### POLISH-023 — Overview Sort Rules — Complete
+
+- **Status:** Merged via PR #563 (merge commit `1546bbc8`), 2026-09-04.
+- **PROMPT_ID(s):** `POLISH-023-OVERVIEW-ORDERING-REMAINDER-v1`.
+- **Outcome:** kickoff time is the discriminator in every Overview game section. Live sorts kickoff
+  ascending; Recent finals and Featured sort kickoff descending; the watchlist keeps its curation
+  score above kickoff and lost only its owner-count tiebreak. A Featured final no longer carries a
+  date or time.
+- **What was actually removed:** the in-progress-before-awaiting partition, and four separate
+  owner-count keys — `compareOverviewLiveItems`, `compareOverviewRecentFinals`,
+  `compareWatchlistItems` (`item.priority`), and `compareRecentResultItems`. The last mattered most:
+  `selectFeaturedGames` slices without re-sorting, so it decided which games appeared, and `NoClaim`
+  being truthy meant it scored an unowned team as an owner.
+- **Verification:** exact pre-merge head `c0cba813`. `npx tsc --noEmit` exit 0, `npm run lint:all`
+  exit 0, `npm test` exit 0 with 4,591 passing (+5). Every new assertion mutation-proven.
+- **Documentation:** `DESIGN.md` required Featured finals to keep a kickoff and was amended to the
+  owner's rule. The sort rules for all four sections are now written down in
+  `docs/campaigns/item-87-followon-section-ordering-resolutions.md`; they previously existed only in
+  code and in how the mockups happened to render.
+- **Open follow-ups:** Item 125 portions 3 and 4 (counts → Item 115; "Today" → slice 5), the two
+  surfaces still printing kickoffs on final rows (Matchups, Schedule), and Item 124.
+
 ### POLISH-022 — Overview Section Order — Complete
 
 - **Status:** Merged via PR #562 (merge commit `f4e13ad0`), 2026-09-04.

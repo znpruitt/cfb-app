@@ -51,6 +51,26 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### POLISH-023-OVERVIEW-ORDERING-REMAINDER-v1
+
+- Purpose: Item 125 portions 1 and 2 — Live sorts by kickoff alone, and a Featured final carries no
+  date or time. Extended at review to every Overview game section.
+- Scope: `src/lib/selectors/overviewGameSections.ts`, `src/lib/selectors/overview.ts`,
+  `src/components/OverviewPanel.tsx`, `DESIGN.md`, and the nearest tests. No data-layer change.
+- Outcome: every owner-count sort key on Overview is gone — Live, Recent finals, the watchlist
+  tiebreak, and Featured — leaving `watchlistPriority` as the sole deliberate non-kickoff key.
+  `compareOverviewLiveItems` also lost the in-progress-before-awaiting partition. Featured stops
+  passing `clock`, and `DESIGN.md` was amended, since it required the opposite.
+- Review / verification: two rounds. Codex clean in round 2. Round 1 found the `DESIGN.md` conflict
+  and a cap test whose date template produced `T110:00:00`, so a row was undated and sliced for the
+  wrong reason. Round 2 found three false exhaustiveness claims of mine — Featured still held the
+  key I had scoped out — a `DESIGN.md` rationale citing containers Overview does not have, and a
+  test coupled to a fixture's literal kickoff. The owner then ruled the Featured key out.
+  Exact head `c0cba813`: `npx tsc --noEmit` exit 0, `npm run lint:all` exit 0, `npm test` exit 0
+  with 4,591 passing (+5). Every new assertion mutation-proven; two drafts of the watchlist test
+  were vacuous and the mutation caught both.
+- Status: Merged via PR #563 (merge commit `1546bbc8`), 2026-09-04.
+
 ### POLISH-022-OVERVIEW-SECTION-ORDER-v1
 
 - Purpose: render Overview's game sections in the owner-decided order — Featured → Live → Recent

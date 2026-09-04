@@ -490,7 +490,7 @@ Neon one. Keep this item for the read-replica autosuspend and the non-cadence fi
 order) shipped as POLISH-022; decision 4 was documentation only. This item is the queue home for the
 rest, so the document is not the only place they live.
 
-1. **DONE — Live sorts by kickoff alone.** POLISH-023, PR #563. `compareOverviewLiveItems` reduced
+1. **DONE — Live sorts by kickoff alone.** POLISH-023, merged via PR #563 (`1546bbc8`). `compareOverviewLiveItems` reduced
    to kickoff ascending; the in-progress partition and the owner-count key both removed. §2 was
    scoped by the owner on 2026-09-04 to the **three state sections**, so the same key also came out
    of `compareOverviewRecentFinals` and out of the watchlist's `compareWatchlistItems` — the
@@ -502,7 +502,7 @@ rest, so the document is not the only place they live.
    re-sorting, so at the cap it decided which games appeared, and `NoClaim` being truthy meant it
    was not measuring what it claimed to. **Every owner-count key is now gone**; the watchlist's
    `watchlistPriority` is the sole surviving non-kickoff key, deliberately.
-2. **DONE — no date or time on a Featured final.** POLISH-023, PR #563. `DESIGN.md` said the
+2. **DONE — no date or time on a Featured final.** POLISH-023, merged via PR #563 (`1546bbc8`). `DESIGN.md` said the
    opposite and was amended. **Still outstanding, and the rule is repo-wide:** Matchups
    (`MatchupsWeekPanel.tsx`, the non-scheduled metadata branch) and Schedule
    (`deriveExpandedMetadataLines`, `gameCardPresentation.ts:125`) both still print a kickoff on final
