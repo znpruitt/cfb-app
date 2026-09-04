@@ -161,7 +161,7 @@ test('an unreachable provider still records a truthful all-null observation', as
 });
 
 test('a later failed probe cannot destroy an earlier usable reading for the same day', async () => {
-  // The end-to-end form of preferSample: six-hourly sampling means several
+  // The end-to-end form of the merge's usability ranking: six-hourly sampling means several
   // observations land on one day, and one bad one must not erase a good one.
   await reset();
   stubInfo({ patronLevel: 1, remainingCalls: 4600 });
@@ -198,11 +198,16 @@ test('an authenticated run files a scheduler receipt like every other cron', asy
     false,
     '/info is unbilled — this job never claims provider work'
   );
+  // Asserted against the response body's day, NOT against the receipt's own field
+  // — an earlier version compared `target.day` with itself, so a route that filed
+  // `day: null` on a successful run passed.
+  const body = (await (await GET(authed())).json()) as { day: string | null };
   assert.deepEqual(receipt.target, {
     kind: 'usage-sample',
-    day: receipt.target.kind === 'usage-sample' ? receipt.target.day : null,
+    day: body.day,
     recorded: true,
   });
+  assert.ok(body.day, 'and the day is a real value, not null');
 });
 
 test('an unauthenticated run files NO receipt', async () => {
@@ -232,7 +237,7 @@ test('a failed durable write is a no-op with a stable reason, not a failure', as
 
   assert.equal(res.status, 200, 'observation-only: a lost sample is not a cron failure');
   const receipt = await readUsageSampleReceipt();
-  assert.equal(receipt?.result, 'no-op');
+  assert.equal(receipt?.result, 'partial', 'visible to System Health, which ignores no-op');
   assert.equal(receipt?.reason, 'sample-write-failed');
 });
 

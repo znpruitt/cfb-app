@@ -21,7 +21,7 @@ import { withAppStateKeyTransaction } from '@/lib/server/appStateStore';
 
 /**
  * PLATFORM-086F2E1 / F2E2A — latest-only durable execution receipts for the
- * eight scheduled cron routes (`scheduler-execution-status/<job>`): the six
+ * scheduled cron routes (`scheduler-execution-status/<job>`): the seven
  * QStash-triggered jobs (`source: 'qstash'`) plus the two Vercel-native
  * lifecycle crons — season-transition and season-rollover (F2E2A,
  * `source: 'vercel-cron'`).
@@ -129,7 +129,7 @@ export type SchedulerExecutionResult =
   | 'in-progress';
 
 /**
- * The union of the eight routes' existing closed, stable reason vocabularies —
+ * The union of every scheduled route's closed, stable reason vocabulary —
  * copied verbatim from each route's final execution tracker, never derived from
  * HTTP responses and never a second vocabulary.
  */

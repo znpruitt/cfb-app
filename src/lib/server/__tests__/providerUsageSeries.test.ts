@@ -62,6 +62,67 @@ test('a reset inside a UTC day SPLITS it, keeping both the closing and opening t
   );
 });
 
+test('clock skew between the two producers cannot invent a period', () => {
+  // The 15-minute and 6-hourly crons both fire at :00 of 00/06/12/18, so two
+  // /info probes run in the same minute on different instances with unsynchronised
+  // clocks. A few calls of apparent decrease must NOT read as a monthly reset — the
+  // phantom period would then absorb the day's real readings and a consumer would
+  // see a mid-month boundary.
+  const higher = sample({
+    observedAt: '2026-09-04T12:00:00.000Z',
+    usedMax: 4801,
+    usedLatest: 4801,
+  });
+  const skewed = sample({
+    observedAt: '2026-09-04T12:00:30.000Z',
+    usedMax: 4795,
+    usedLatest: 4795,
+  });
+
+  const merged = mergeProviderUsageSample({ samples: [higher] }, skewed);
+
+  assert.equal(merged.samples.length, 1, 'a single-digit decrease is skew, not a reset');
+  assert.equal(merged.samples[0]?.usedMax, 4801, 'the high-water mark holds');
+
+  // Positive control: a REAL reset from the same baseline still splits.
+  const real = mergeProviderUsageSample(
+    { samples: [higher] },
+    sample({ observedAt: '2026-09-04T12:00:30.000Z', usedMax: 3, usedLatest: 3 })
+  );
+  assert.equal(real.samples.length, 2, 'a drop to near zero is still a reset');
+});
+
+test('a delayed PRE-reset observation still opens its own earlier period', () => {
+  // The mirror of the straggler case: the post-reset reading commits first and the
+  // pre-reset one lands after. Without an explicit branch the high count folds into
+  // the post-reset entry, producing ONE record with the old period's usedMax and the
+  // new period's usedLatest — the two months become unattributable.
+  const postReset = sample({
+    day: '2026-10-01',
+    observedAt: '2026-10-01T06:00:00.000Z',
+    usedMax: 3,
+    usedLatest: 3,
+  });
+  const delayedPreReset = sample({
+    day: '2026-10-01',
+    observedAt: '2026-10-01T00:00:00.000Z',
+    usedMax: 4800,
+    usedLatest: 4800,
+  });
+
+  const merged = mergeProviderUsageSample({ samples: [postReset] }, delayedPreReset);
+
+  assert.equal(merged.samples.length, 2, 'the boundary survives the reversed commit order');
+  assert.deepEqual(
+    merged.samples.map((entry) => [entry.periodSequence, entry.usedMax]),
+    [
+      [0, 4800],
+      [1, 3],
+    ],
+    'the closing period is first and the opening period follows, correctly renumbered'
+  );
+});
+
 test('an out-of-order write does not invent a reset', () => {
   // The producers overlap by design and the game-stats sample is deferred, so a
   // NEWER observation can commit before an older one. Comparing the older

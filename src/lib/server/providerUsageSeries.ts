@@ -160,17 +160,27 @@ function usabilityRank(sample: ProviderUsageSample): number {
  * Requires both counts to be complete: a degraded observation reports `null`, and
  * `null` is not a drop.
  *
- * ANY drop counts, with no magnitude threshold. That direction is deliberate: a
- * spurious split is harmless — both readings are kept and the day is capped at two
- * entries — while a MISSED split overwrites a period's final burn, which is the
- * one number this series exists to preserve. Fail toward keeping data.
+ * A drop must be MATERIAL — at least a halving. An earlier version fired on any
+ * decrease, with the claim that a spurious split is harmless. It is not, and the
+ * mechanism is routine: the 15-minute and 6-hourly crons both fire at :00 of
+ * 00/06/12/18, so
+ * four times a day two `/info` probes run within the same minute on different
+ * instances, each stamping `observedAt` from its own unsynchronised clock. If the
+ * instance that probed FIRST stamps the later time, `used` appears to fall by a
+ * few calls and a phantom period is appended — which then absorbs the rest of the
+ * day's still-rising readings, so a consumer reconstructing periods sees a
+ * mid-month boundary and reads a partial month as a completed one.
+ *
+ * A halving keeps the "fail toward keeping data" intent while making skew
+ * unreachable: a real monthly reset drops `used` from a month's accumulation to
+ * near zero, and clock skew moves it by single digits.
  */
 export function observedPeriodReset(
   existing: ProviderUsageSample,
   candidate: ProviderUsageSample
 ): boolean {
   if (existing.usedMax === null || candidate.usedLatest === null) return false;
-  return candidate.usedLatest < existing.usedMax;
+  return candidate.usedLatest * 2 < existing.usedMax;
 }
 
 /**
@@ -273,8 +283,27 @@ export function mergeProviderUsageSample(
     // when the candidate is genuinely the newest thing seen that day.
     const isNewest = observedAtMs >= Date.parse(latest.observedAt);
 
+    const earliest = sameDay[0]!;
+    const isOldest = observedAtMs <= Date.parse(earliest.firstObservedAt);
+
     if (isNewest && observedPeriodReset(latest, sample) && sameDay.length < MAX_PERIODS_PER_DAY) {
       dayEntries = [...sameDay, { ...sample, periodSequence: latest.periodSequence + 1 }];
+    } else if (
+      isOldest &&
+      observedPeriodReset(sample, earliest) &&
+      sameDay.length < MAX_PERIODS_PER_DAY
+    ) {
+      // The MIRROR case: a delayed PRE-reset observation commits after the first
+      // post-reset one. `isNewest` is false, so without this the high count folds
+      // into the post-reset entry and produces a single record carrying the old
+      // period's `usedMax` and the new period's `usedLatest` — the two months
+      // become impossible to attribute, which is the exact boundary this series
+      // exists to preserve. The straggler opens its own earlier period and the
+      // existing entries shift up.
+      dayEntries = [
+        { ...sample, periodSequence: 0 },
+        ...sameDay.map((entry) => ({ ...entry, periodSequence: entry.periodSequence + 1 })),
+      ];
     } else {
       // Fold into the entry whose period the observation belongs to: the last one
       // that had already begun when it was taken.

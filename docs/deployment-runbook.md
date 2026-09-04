@@ -601,9 +601,7 @@ All seven schedules forward the same secret, so rotation is one coordinated oper
 9. Confirm the two Vercel lifecycle routes also return authenticated results with the new secret at
    their next run or through an authorized operator invocation.
 
-Do not rotate only one external schedule: that leaves the other five forwarding the retired secret.
-
-## 9) Common failure diagnosis
+Do not rotate only one external schedule: that leaves the other six forwarding the retired secret.
 
 ### §8m) CFBD usage sampler (Item 127)
 
@@ -680,6 +678,8 @@ write actually succeeded.
   policy reason.
 - For any job, read the latest structured cron event, outcome, scope, provider-call flag, rows
   received/committed, and **Built from** before retrying.
+
+## 9) Common failure diagnosis
 
 ## 10) Backup, rollback, and incident record
 

@@ -299,11 +299,11 @@ export async function GET(req: Request) {
       // `fresh: true` to keep current, and could time out an otherwise valid run.
       // Same hazard and same mechanism as the scheduler receipts.
       //
-      // Wrapped in its OWN try. This block's catch sets `remainingCalls: null`,
-      // which the quota gate reads as unavailable usage — so an `after()` that
-      // throws outside a request scope would refuse a perfectly good run on
-      // bookkeeping grounds. Caught by the receipts suite; the isolation is the
-      // point of deferring in the first place.
+      // `deferProviderUsageSample` swallows its own failures INTERNALLY — that is
+      // where the isolation lives, not here. It matters: this block's catch sets
+      // `remainingCalls: null`, which the quota gate reads as unavailable usage,
+      // so an `after()` throwing outside a request scope would otherwise refuse a
+      // perfectly good run on bookkeeping grounds. Do not inline the call.
       // Stamped when `/info` RETURNED, not when the deferred callback runs.
       // Defaulting to `new Date()` inside the callback would date an older
       // observation later than a sampler write that landed in between, and a

@@ -11,7 +11,7 @@ import {
 
 /**
  * PLATFORM-086F2E2B — the cache-only server reader + schedule-slot-aware delivery
- * classifier over the eight durable scheduler-execution receipts.
+ * classifier over every durable scheduler-execution receipt.
  *
  * It answers exactly ONE question per job: has this configured job produced a
  * sufficiently recent AUTHENTICATED application execution, given its actual fixed
@@ -132,7 +132,7 @@ export function schedulerDeliveryPolicy(job: ExternalSchedulerJob): SchedulerDel
   };
 }
 
-/** All eight delivery policies in canonical order. */
+/** Every delivery policy, one per scheduled job, in canonical order. */
 export function schedulerDeliveryPolicies(): SchedulerDeliveryPolicy[] {
   return EXTERNAL_SCHEDULER_JOBS.map((job) => schedulerDeliveryPolicy(job));
 }
@@ -259,11 +259,11 @@ function defaultLoadEntries(): Promise<ReadonlyArray<{ key: string; value: unkno
 }
 
 /**
- * Read all eight durable receipts through ONE cache-only scope read and classify
- * each job's delivery. Always returns exactly eight state-bearing rows in
+ * Read every durable receipt through ONE cache-only scope read and classify
+ * each job's delivery. Always returns one per scheduled job state-bearing rows in
  * canonical order — a missing key is `missing`, an unparseable row is `invalid`
  * (never contaminating siblings), a valid row is `on-time`/`late`, and a scope
- * read failure makes ALL eight `unavailable` (never leaking the storage error).
+ * read failure makes EVERY row `unavailable` (never leaking the storage error).
  * No provider call, internal HTTP request, quota probe, or write occurs.
  */
 export async function readSchedulerDeliveryHealth(

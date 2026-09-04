@@ -87,13 +87,10 @@ export async function GET(req: Request): Promise<NextResponse<UsageSampleResult>
     // unauthenticated request must not create or advance a receipt.
     receiptInvocationId = createSchedulerInvocationId();
 
-    const now = new Date();
-    exec.day = utcDayOf(now);
-
     // An unreachable or malformed `/info` is a truthful all-null observation, not
     // a failure: "we looked and got nothing" is a fact worth keeping, and
-    // `preferSample` guarantees it can never displace a usable reading already
-    // recorded for the same day.
+    // `usabilityRank` in the merge guarantees it can never displace a usable
+    // reading already recorded for the same day.
     let usage: CfbdUsage;
     try {
       usage = await fetchCfbdUsage({ fresh: true });
@@ -105,14 +102,26 @@ export async function GET(req: Request): Promise<NextResponse<UsageSampleResult>
     // null — and `used` is the field the burn question reads. Calling that
     // "available" would file a green success receipt over a sample that cannot
     // answer what a day cost. Same criterion the series itself ranks by.
+    // Stamped AFTER the probe settles, not before it. Capturing `now` ahead of the
+    // await dates the observation earlier than it was taken, which — with the
+    // other producer probing in the same minute at 00/06/12/18 — can reverse the
+    // apparent order of two readings and make a rising counter look like a reset.
+    const now = new Date();
+    exec.day = utcDayOf(now);
+
     exec.usageAvailable = usage.remaining !== null && usage.used !== null && usage.limit !== null;
 
     exec.recorded = await recordProviderUsageSample(usage, now);
     if (!exec.recorded) {
-      // The observation is lost, but the run did what it could. `no-op` rather
-      // than `failure`: nothing downstream depends on this write, and a failure
-      // here would make the noisiest System Health row the least important one.
-      exec.result = 'no-op';
+      // `partial`, for the SAME reason the unavailable case above is partial:
+      // `schedulerExecutionIssues` raises an issue only for `failure` and
+      // `partial`, so `no-op` here would let a persistently broken durable write
+      // — storage error, lock contention, a corrupt row — produce an unbroken run
+      // of green rows while the series silently stops growing. An earlier version
+      // chose `no-op` on the grounds that nothing downstream depends on the write;
+      // that reasoning holds for a transient failure and fails for a persistent
+      // one, which is the case worth seeing.
+      exec.result = 'partial';
       exec.reason = 'sample-write-failed';
     } else {
       // An unavailable probe is recorded but is NOT a success. `schedulerExecutionIssues`
