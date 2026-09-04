@@ -801,6 +801,17 @@ function isValidYearEntries(
 }
 
 /** True when a stored target is shape-valid for `job`. */
+/**
+ * A canonical `YYYY-MM-DD` UTC day — the shape `new Date().toISOString().slice(0, 10)`
+ * produces. Checked for real calendar validity, so `2026-13-40` is rejected rather
+ * than merely pattern-matched.
+ */
+function isUtcCalendarDay(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
 function isValidStoredTarget(value: unknown, job: ExternalSchedulerJob): boolean {
   if (typeof value !== 'object' || value === null) return false;
   const target = value as Record<string, unknown>;
@@ -817,9 +828,17 @@ function isValidStoredTarget(value: unknown, job: ExternalSchedulerJob): boolean
     case 'team-records':
       return isFiniteNumber(target.year);
     case 'usage-sample':
+      // A present `day` must be a real UTC calendar date, not merely a string:
+      // `''` or arbitrary text would otherwise be rendered as scheduler health
+      // metadata instead of reporting the record `invalid`. `recorded` also
+      // implies a day — the writer sets `day` before it ever attempts the write,
+      // so `recorded: true` with no day is a record no writer in this codebase
+      // can produce.
       return (
-        (target.day === null || typeof target.day === 'string') &&
-        typeof target.recorded === 'boolean'
+        typeof target.recorded === 'boolean' &&
+        (target.day === null
+          ? !target.recorded
+          : typeof target.day === 'string' && isUtcCalendarDay(target.day))
       );
     case 'game-stats':
       return (

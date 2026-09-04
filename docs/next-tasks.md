@@ -104,9 +104,10 @@ the UI spine do not touch each other, so they can run concurrently:
   (`schedule/cfbdSchedule.ts`, `schedule.ts`, `schedulePostseasonHelpers.ts` — pipeline, not
   components), and Items 84, 86, 111. **Item 123 shipped 2026-09-04** via PR #565.
 - **Dated, and it beats a deadline:** **Item 127** (retain the CFBD usage already probed) supersedes
-  Item 94's manual 2026-09-30 read if it ships first. It touches the game-stats and season-transition
-  cron routes, so it is NOT parallel-safe against the server track once Item 102 starts narrowing
-  those crons — take it before 102, or accept the conflict.
+  Item 94's manual 2026-09-30 read if it ships first. As shipped it is a STANDALONE cron route: it
+  touches `game-stats/route.ts` with a comment only and does not touch `season-transition` at all, so
+  it is parallel-safe against the server track. An earlier plan had it riding those two crons, which
+  is where the "take it before 102" warning came from; that conflict no longer exists.
 
 **Two collision risks are NOT in source.** `preview` is Claude's alone (`AGENTS.md` → Preview branch),
 so a parallel agent must never push it — that decision exists because parallel worktrees made a single

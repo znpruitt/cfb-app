@@ -188,7 +188,7 @@ test('an authenticated run files a scheduler receipt like every other cron', asy
   stubInfo({ patronLevel: 1, remainingCalls: 4600 });
 
   const receipts = installReceiptDeferrer();
-  await GET(authed());
+  const res = await GET(authed());
   await receipts.flush();
   receipts.restore();
 
@@ -203,8 +203,10 @@ test('an authenticated run files a scheduler receipt like every other cron', asy
   );
   // Asserted against the response body's day, NOT against the receipt's own field
   // — an earlier version compared `target.day` with itself, so a route that filed
-  // `day: null` on a successful run passed.
-  const body = (await (await GET(authed())).json()) as { day: string | null };
+  // `day: null` on a successful run passed. The body comes from THIS run's own
+  // response rather than a second GET: two calls straddling 00:00 UTC would have
+  // failed the comparison for a reason unrelated to the code under test.
+  const body = (await res.json()) as { day: string | null };
   assert.deepEqual(receipt.target, {
     kind: 'usage-sample',
     day: body.day,
@@ -251,4 +253,46 @@ test('teardown restores globals', () => {
   if (ORIGINAL_KEY === undefined) delete process.env.CFBD_API_KEY;
   else process.env.CFBD_API_KEY = ORIGINAL_KEY;
   assert.ok(true);
+});
+
+test('a usable reading with no patronLevel files SUCCESS, not a standing warning', async () => {
+  // Review finding (MEDIUM). `usageAvailable` gated on `used`, which
+  // `resolveCfbdUsage` DERIVES as `limit − remaining` and returns null whenever
+  // `patronLevel` is absent or outside the known tiers. The series exists to store
+  // `remaining`, and records it fine here — but the receipt said `partial`, so
+  // `schedulerExecutionIssues` raised `scheduler-execution-partial` every six
+  // hours forever, burning the alarm reserved for a rotated key or a real outage.
+  await reset();
+  stubInfo({ remainingCalls: 4600 });
+
+  const receipts = installReceiptDeferrer();
+  await GET(authed());
+  await receipts.flush();
+  receipts.restore();
+
+  const series = await readProviderUsageSeries();
+  assert.equal(series.observations[0]?.remaining, 4600, 'the observation is usable and recorded');
+  assert.equal(series.observations[0]?.limit, null, 'with no tier there is no limit to record');
+
+  const receipt = await readUsageSampleReceipt();
+  assert.equal(receipt?.result, 'success', 'a usable observation is not a partial run');
+  assert.equal(receipt?.reason, 'sample-recorded');
+});
+
+test('a limit BELOW remaining is untrustworthy and still reports partial', async () => {
+  // The other half of the gate, and the positive control for the test above: the
+  // relaxation must not swallow a genuinely incoherent pair. `remaining > limit`
+  // cannot be true of one account, so the reading is refused exactly as
+  // `quotaPolicy.resolveRemaining` refuses it.
+  await reset();
+  stubInfo({ patronLevel: 1, remainingCalls: 999_999 });
+
+  const receipts = installReceiptDeferrer();
+  await GET(authed());
+  await receipts.flush();
+  receipts.restore();
+
+  const receipt = await readUsageSampleReceipt();
+  assert.equal(receipt?.result, 'partial', 'remaining above the tier limit is not a usable pair');
+  assert.equal(receipt?.reason, 'sample-recorded-unavailable');
 });

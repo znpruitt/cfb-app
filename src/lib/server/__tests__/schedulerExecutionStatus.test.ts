@@ -892,3 +892,40 @@ test('PLATFORM-089: the odds cadence set admits `early` and still rejects anythi
     );
   }
 });
+
+test('a usage-sample receipt REJECTS a malformed day and a recorded run with no day', () => {
+  // Codex review (P2). The validator accepted any string, so `day: ''` or
+  // arbitrary text was rendered as scheduler health metadata instead of the
+  // record reporting `invalid` — while every sibling case in the switch checks
+  // enum membership or numeric shape. `recorded: true` also implies a day: the
+  // writer sets `day` before it ever attempts the write.
+  const now = Date.now();
+  const built = receiptOf(
+    liveScoresInput({
+      job: 'usage-sample',
+      result: 'success',
+      reason: 'sample-recorded',
+      providerCallAttempted: false,
+      startedAtMs: now - 60_000,
+      target: { kind: 'usage-sample', day: '2026-09-04', recorded: true },
+    })
+  );
+  const parse = (target: unknown): unknown =>
+    parseSchedulerExecutionReceipt({ ...built, target }, 'usage-sample', now);
+
+  // Positive control FIRST: a canonical record parses, so the rejections below
+  // cannot be passing because the parser refuses every usage-sample receipt.
+  assert.ok(parse({ kind: 'usage-sample', day: '2026-09-04', recorded: true }), 'canonical day');
+  assert.ok(parse({ kind: 'usage-sample', day: null, recorded: false }), 'un-recorded, no day');
+
+  for (const target of [
+    { kind: 'usage-sample', day: '', recorded: true },
+    { kind: 'usage-sample', day: 'yesterday', recorded: true },
+    { kind: 'usage-sample', day: '2026-9-4', recorded: true },
+    { kind: 'usage-sample', day: '2026-13-40', recorded: true },
+    { kind: 'usage-sample', day: '2026-09-04T00:00:00.000Z', recorded: true },
+    { kind: 'usage-sample', day: null, recorded: true },
+  ]) {
+    assert.equal(parse(target), null, `rejected: ${JSON.stringify(target)}`);
+  }
+});

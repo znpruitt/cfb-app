@@ -158,3 +158,24 @@ test('a stored row is sorted and bounded on READ as well as on write', () => {
     ['2026-09-04T06:00:00.000Z', '2026-09-04T12:00:00.000Z']
   );
 });
+
+test('a non-canonical timestamp is normalized so lexicographic ordering stays chronological', () => {
+  // Review finding: the parser accepts anything `Date.parse` accepts, but ordering
+  // is `localeCompare`, which is only chronological for the `toISOString()` shape.
+  // An offset row sorted after a LATER `Z` row and was then trimmed from the wrong
+  // end by the bound.
+  const parsed = parseProviderUsageSeries({
+    observations: [
+      { at: '2026-09-04T09:00:00.000Z', remaining: 4000, limit: 5000 },
+      // 08:00Z — genuinely EARLIER than the row above, but sorts after it as text.
+      { at: '2026-09-04T10:00:00+02:00', remaining: 4300, limit: 5000 },
+    ],
+  });
+
+  assert.deepEqual(
+    parsed.observations.map((entry) => entry.at),
+    ['2026-09-04T08:00:00.000Z', '2026-09-04T09:00:00.000Z'],
+    'the offset row is rewritten to UTC and sorts into its true position'
+  );
+  assert.equal(parsed.observations[0]?.remaining, 4300, 'and carries its own values');
+});

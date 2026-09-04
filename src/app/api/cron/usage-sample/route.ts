@@ -88,24 +88,18 @@ export async function GET(req: Request): Promise<NextResponse<UsageSampleResult>
     receiptInvocationId = createSchedulerInvocationId();
 
     // An unreachable or malformed `/info` is a truthful all-null observation, not
-    // a failure: "we looked and got nothing" is a fact worth keeping, and
-    // `usabilityRank` in the merge guarantees it can never displace a usable
-    // reading already recorded for the same day.
+    // a failure: "we looked and got nothing" is a fact worth keeping, and the log
+    // is append-only, so recording it cannot displace an earlier usable reading.
     let usage: CfbdUsage;
     try {
       usage = await fetchCfbdUsage({ fresh: true });
     } catch {
       usage = { patronLevel: null, used: null, remaining: null, limit: null };
     }
-    // COMPLETE, not merely non-null. `used` and `limit` derive from `patronLevel`,
-    // so a response carrying `remainingCalls` with an unusable tier yields both as
-    // null — and `used` is the field the burn question reads. Calling that
-    // "available" would file a green success receipt over a sample that cannot
-    // answer what a day cost. Same criterion the series itself ranks by.
     // Stamped AFTER the probe settles, not before it. Capturing `now` ahead of the
-    // await dates the observation earlier than it was taken, which — with the
-    // other producer probing in the same minute at 00/06/12/18 — can reverse the
-    // apparent order of two readings and make a rising counter look like a reset.
+    // await dates the observation earlier than it was taken, and `at` is the log's
+    // only ordering key — a reading stamped early can sort before one taken before
+    // it, which is what makes a falling counter appear to rise.
     const now = new Date();
     // Receipt metadata: which UTC day this run happened on. The series itself is
     // no longer bucketed by day — it stores raw observations — so this is the
@@ -118,8 +112,20 @@ export async function GET(req: Request): Promise<NextResponse<UsageSampleResult>
     // gate itself refuses as untrustworthy.
     const trustworthy = (value: number | null): boolean =>
       value !== null && Number.isSafeInteger(value) && value >= 0;
+    // Keyed on `remaining` — the only field this log stores as an answer — and
+    // NEVER on `used`. `used` is DERIVED (`limit − remaining`) and comes back null
+    // whenever `patronLevel` is absent or outside the known tiers, so gating on it
+    // filed `partial` over a perfectly usable `remaining`, raising a System Health
+    // warning every six hours forever and burning the alarm reserved for a rotated
+    // key or a real outage. Deriving from `limit` is the exact mistake the storage
+    // rewrite removed; it had survived here.
+    //
+    // `limit` is validated only WHEN PRESENT, matching `quotaPolicy.resolveRemaining`:
+    // a null limit is context we simply do not have, not an unusable reading, while
+    // a present limit below `remaining` means the pair cannot both be right.
     exec.usageAvailable =
-      trustworthy(usage.remaining) && trustworthy(usage.used) && trustworthy(usage.limit);
+      trustworthy(usage.remaining) &&
+      (usage.limit === null || (trustworthy(usage.limit) && usage.remaining! <= usage.limit));
 
     exec.recorded = await recordProviderUsageSample(usage, now);
     if (!exec.recorded) {

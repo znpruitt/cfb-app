@@ -72,10 +72,18 @@ function trustworthyCount(value: unknown): number | null {
 function parseObservation(value: unknown): ProviderUsageObservation | null {
   if (typeof value !== 'object' || value === null) return null;
   const record = value as Record<string, unknown>;
-  const at = typeof record.at === 'string' ? record.at : '';
-  if (!at || Number.isNaN(Date.parse(at))) return null;
+  const raw = typeof record.at === 'string' ? record.at : '';
+  if (!raw) return null;
+  const parsed = Date.parse(raw);
+  if (Number.isNaN(parsed)) return null;
+  // NORMALIZED to the canonical UTC form, not stored verbatim. Ordering is
+  // lexicographic (`localeCompare`), which is chronological only for that shape —
+  // so a row written by an older build or edited by hand as `2026-09-04T06:00+02:00`
+  // or `2026-09-04` would sort into the wrong place and then be trimmed from the
+  // wrong end by the bound. Parsing already accepts those forms; this makes the
+  // claim that they are "normalized on the way in" actually true.
   return {
-    at,
+    at: new Date(parsed).toISOString(),
     remaining: trustworthyCount(record.remaining),
     limit: trustworthyCount(record.limit),
   };

@@ -51,6 +51,37 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-127-RETAIN-PROVIDER-USAGE-SERIES-v1
+
+- Purpose: retain the CFBD quota figures the app already probes, because `/info` reports the CURRENT
+  PERIOD only and CFBD exposes no history — so a calendar-month rollover destroys the prior month's
+  burn permanently, and no second source counts provider calls.
+- Scope: a new ungated QStash cron (`turfwar-usage-sample-6h` → `GET /api/cron/usage-sample`, every
+  6 hours) plus its schedule manager, a durable observation log at `app_state` scope `provider-usage`
+  key `cfbd-observations`, a scheduler receipt and cron execution log matching the sibling jobs, and
+  `usage-sample` added to the closed `EXTERNAL_SCHEDULER_JOBS` contract. Observation-only: nothing in
+  `src/` reads the log, and it must never become an input to the game-stats quota gate, which needs a
+  FRESH reading.
+- Outcome: the store holds raw observations — `{ at, remaining, limit }` per probe, sorted, bounded at
+  1,700 entries — and derives nothing at write time. An earlier accumulating design (one entry per UTC
+  day carrying `usedMax`/`usedLatest`/`periodSequence`) was rewritten after five review rounds each
+  found a defect in the same write-time decisions; the rewrite removed 767 lines. `limit` is context
+  only, never subtracted, because `used` is `limit − remaining` and a patron-tier change therefore
+  moves it with no calls made. A quota-period boundary is now read off the series, where `remaining`
+  rises. A second opportunistic producer on the game-stats probe was built and then removed: one
+  durable row with two writers produced lost updates, clock skew reading as a reset, and out-of-order
+  commits.
+- Review / verification: exact commit reviewed by both reviewers, `c057eee6`. `/code-review` returned
+  one MEDIUM and five LOW; Codex returned one P2. The MEDIUM was real and load-bearing — the receipt's
+  availability gate still keyed on the derived `used`, so a usable `remaining` with no `patronLevel`
+  filed `partial` and would have raised a System Health warning every six hours indefinitely. All
+  seven findings were remediated. Codex's reported gate failures were environmental (stale
+  `.next/types`, an unquoted glob) and did not reproduce: `npm test` exit 0 at 4,613 tests, `npx tsc
+  --noEmit` exit 0, `npm run lint:all` exit 0, each run separately with its own exit code.
+- Status: Complete and reviewed; NOT yet merged, and the QStash schedule is NOT yet provisioned —
+  `manage:usage-sample-schedule upsert --apply` requires the owner's `QSTASH_TOKEN`. Until it runs,
+  System Health correctly reports `usage-sample` with a scheduler-delivery warning.
+
 ### PLATFORM-128-LIVE-POLL-TEAM-CATALOG-v1
 
 - Purpose: stop every browser live-score poll from refetching the full team catalog it already holds
