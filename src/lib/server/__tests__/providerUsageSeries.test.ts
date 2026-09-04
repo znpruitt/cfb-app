@@ -173,6 +173,65 @@ test('an out-of-order write still folds into the right period after a real split
   assert.equal(series.samples[1]?.usedMax, 3, 'the opening period is untouched');
 });
 
+test('a DELAYED post-reset observation joins the new period, not the old one', () => {
+  // t0 pre-reset opens period 0; t2 post-reset opens period 1; then t1 — also
+  // post-reset, but older than t2 — commits last. Only period 0 had "started"
+  // before t1, so a purely temporal rule folds new-period counters into the
+  // previous period's row and makes both months unattributable.
+  const t0 = sample({
+    day: '2026-10-01',
+    observedAt: '2026-10-01T00:00:00.000Z',
+    usedMax: 4800,
+    usedLatest: 4800,
+  });
+  const t2 = sample({
+    day: '2026-10-01',
+    observedAt: '2026-10-01T18:00:00.000Z',
+    usedMax: 40,
+    usedLatest: 40,
+  });
+  let series = mergeProviderUsageSample({ samples: [t0] }, t2);
+  assert.equal(series.samples.length, 2, 'precondition: the split exists');
+
+  const t1 = sample({
+    day: '2026-10-01',
+    observedAt: '2026-10-01T12:00:00.000Z',
+    usedMax: 25,
+    usedLatest: 25,
+  });
+  series = mergeProviderUsageSample(series, t1);
+
+  assert.equal(series.samples.length, 2, 'still two periods');
+  assert.equal(series.samples[0]?.usedMax, 4800, 'the closing period keeps its final burn');
+  assert.equal(series.samples[1]?.usedMax, 40, 'and the new period keeps its own high-water mark');
+  assert.equal(
+    series.samples[1]?.firstObservedAt,
+    '2026-10-01T12:00:00.000Z',
+    "the new period's span is pulled back to include the delayed observation"
+  );
+});
+
+test('a fractional count is not a complete observation', () => {
+  // `resolveCfbdUsage` accepts any finite non-negative number, but the quota gate
+  // refuses non-integers as untrustworthy. Storing one as complete would pollute
+  // the series while System Health reports green.
+  const complete = sample({
+    observedAt: '2026-09-04T00:00:00.000Z',
+    usedMax: 400,
+    usedLatest: 400,
+  });
+  const fractional = sample({
+    observedAt: '2026-09-04T18:00:00.000Z',
+    usedMax: 399.5,
+    usedLatest: 399.5,
+    remaining: 4600.5,
+  });
+
+  const merged = mergeIntoSample(complete, fractional);
+  assert.equal(merged.usedLatest, 400, 'the integer observation is not displaced');
+  assert.equal(merged.remaining, 4600);
+});
+
 test('a third apparent reset in one day folds in rather than growing the row', () => {
   // Two periods cannot both end inside one day. A further drop is a provider
   // anomaly, and an unbounded row is a worse outcome than a lost anomaly.
@@ -225,6 +284,69 @@ test('usedMax and usedLatest diverge once the per-day split cap is reached', () 
   const second = series.samples[1]!;
   assert.equal(second.usedMax, 120, 'the high-water mark of the folded entry holds');
   assert.equal(second.usedLatest, 90, 'and the latest reading is still reported');
+});
+
+test('a quiet month still splits on the 1st, where a halving would miss it', () => {
+  // An offseason month can end at used = 40 and reset to 25 — no halving, but a
+  // real boundary. The period is calendar monthly, so the 1st is the only day a
+  // reset can occur and any drop there counts.
+  const endOfQuietMonth = sample({
+    day: '2026-07-01',
+    observedAt: '2026-07-01T00:00:00.000Z',
+    usedMax: 40,
+    usedLatest: 40,
+    remaining: 4960,
+  });
+  const afterReset = sample({
+    day: '2026-07-01',
+    observedAt: '2026-07-01T06:00:00.000Z',
+    usedMax: 25,
+    usedLatest: 25,
+    remaining: 4975,
+  });
+
+  const merged = mergeProviderUsageSample({ samples: [endOfQuietMonth] }, afterReset);
+  assert.equal(merged.samples.length, 2, 'the boundary is preserved without a halving');
+
+  // Control: the SAME small drop mid-month is skew, not a reset.
+  const midMonth = mergeProviderUsageSample(
+    {
+      samples: [{ ...endOfQuietMonth, day: '2026-07-15', observedAt: '2026-07-15T00:00:00.000Z' }],
+    },
+    { ...afterReset, day: '2026-07-15', observedAt: '2026-07-15T06:00:00.000Z' }
+  );
+  assert.equal(midMonth.samples.length, 1, 'mid-month, a small drop is skew');
+});
+
+test('a patron-tier change is not a reset, however far `used` falls', () => {
+  // `used` is derived as limit − remaining, so a tier change moves it with no calls
+  // made. Tier 2 → 1 at remaining 600 takes used from 29,400 to 4,400 — a halving
+  // that would otherwise append a phantom period mid-month.
+  const tier2 = sample({
+    day: '2026-09-15',
+    observedAt: '2026-09-15T00:00:00.000Z',
+    usedMax: 29400,
+    usedLatest: 29400,
+    remaining: 600,
+    limit: 30000,
+    patronLevel: 2,
+  });
+  const tier1 = sample({
+    day: '2026-09-15',
+    observedAt: '2026-09-15T06:00:00.000Z',
+    usedMax: 4400,
+    usedLatest: 4400,
+    remaining: 600,
+    limit: 5000,
+    patronLevel: 1,
+  });
+
+  assert.equal(observedPeriodReset(tier2, tier1), false, 'differing limits are not comparable');
+  assert.equal(
+    mergeProviderUsageSample({ samples: [tier2] }, tier1).samples.length,
+    1,
+    'and no phantom period is appended'
+  );
 });
 
 test('observedPeriodReset needs two complete counts — a null is not a drop', () => {

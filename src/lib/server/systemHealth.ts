@@ -102,7 +102,7 @@ export type SystemHealthViewModel = {
   /** Section-level "stoplight" status panels, server-derived (fixed order). */
   panels: SystemHealthPanel[];
   automation: AutomationHealth;
-  /** Delivery axis — exactly nine scheduler jobs. */
+  /** Delivery axis — one row per scheduled job. */
   schedulerJobs: SchedulerDeliveryHealthRow[];
   /** Data axis — exactly seven provider datasets. */
   datasets: ProviderDatasetHealthRow[];

@@ -260,7 +260,7 @@ function defaultLoadEntries(): Promise<ReadonlyArray<{ key: string; value: unkno
 
 /**
  * Read every durable receipt through ONE cache-only scope read and classify
- * each job's delivery. Always returns one per scheduled job state-bearing rows in
+ * each job's delivery. Always returns one state-bearing row per scheduled job, in
  * canonical order — a missing key is `missing`, an unparseable row is `invalid`
  * (never contaminating siblings), a valid row is `on-time`/`late`, and a scope
  * read failure makes EVERY row `unavailable` (never leaking the storage error).

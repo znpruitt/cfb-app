@@ -90,8 +90,8 @@ Optional variables: `NEXT_PUBLIC_SEASON`, `PGSSLMODE`, `NEXT_PUBLIC_DEBUG`, `DEB
 by the seven schedule-manager scripts. Never commit it or configure it in Vercel. The deployed
 `CRON_SECRET` is the credential QStash forwards. If `CRON_SECRET` is missing or mismatched, all nine
 cron routes fail closed with `401`, stopping lifecycle reconciliation, statistics ingestion,
-live-score polling, team-record refresh, odds polling, weekly schedule maintenance, and rankings
-publication.
+live-score polling, team-record refresh, odds polling, weekly schedule maintenance, rankings
+publication, and CFBD usage sampling.
 
 ## 5) Configure authentication
 
@@ -592,7 +592,7 @@ All seven schedules forward the same secret, so rotation is one coordinated oper
 6. Inspect all seven. Require the exact contracts, paused state, and one redacted Authorization
    header. Exit `4` remains indeterminate: inspect and stop.
 7. Resume each schedule only long enough to obtain its gates-closed authentication delivery. Require
-   HTTP 200 and no provider attempt/quota change for the five noncritical jobs and ordinary schedule
+   HTTP 200 and no provider attempt/quota change for the six noncritical jobs and ordinary schedule
    maintenance. If Schedule is in `postseason-boundary`, its application gates are intentionally
    bypassed: keep it paused until one normal provider-backed delivery is authorized, then use that
    HTTP 200 as the authentication proof. A `401` or any policy-divergent activity is a stop condition.
@@ -626,6 +626,8 @@ other job.
 > Health reports `usage-sample` with a scheduler-delivery warning. That is the correct reading of an
 > unprovisioned schedule, not evidence that another job regressed — the same case the `team-records`
 > note above pre-empts.
+
+## 9) Common failure diagnosis
 
 ### A merge is Ready but the site still shows old behavior
 
@@ -678,8 +680,6 @@ write actually succeeded.
   policy reason.
 - For any job, read the latest structured cron event, outcome, scope, provider-call flag, rows
   received/committed, and **Built from** before retrying.
-
-## 9) Common failure diagnosis
 
 ## 10) Backup, rollback, and incident record
 

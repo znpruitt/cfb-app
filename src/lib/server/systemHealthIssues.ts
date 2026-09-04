@@ -332,7 +332,7 @@ function schedulerDeliveryIssues(
   const allUnavailable =
     jobs.length > 0 && jobs.every((row) => row.deliveryState === 'unavailable');
   if (allUnavailable) {
-    // One scope-read failure → ONE global issue, never seven duplicates.
+    // One scope-read failure → ONE global issue, never one duplicate per dataset.
     return [
       {
         code: 'scheduler-delivery-unavailable',

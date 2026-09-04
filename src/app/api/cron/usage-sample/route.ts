@@ -109,7 +109,14 @@ export async function GET(req: Request): Promise<NextResponse<UsageSampleResult>
     const now = new Date();
     exec.day = utcDayOf(now);
 
-    exec.usageAvailable = usage.remaining !== null && usage.used !== null && usage.limit !== null;
+    // Trustworthy means SAFE INTEGER, not merely non-null. `resolveCfbdUsage`
+    // accepts any finite non-negative number, so a fractional `remainingCalls`
+    // would otherwise file a green success receipt over an observation the quota
+    // gate itself refuses as untrustworthy.
+    const trustworthy = (value: number | null): boolean =>
+      value !== null && Number.isSafeInteger(value) && value >= 0;
+    exec.usageAvailable =
+      trustworthy(usage.remaining) && trustworthy(usage.used) && trustworthy(usage.limit);
 
     exec.recorded = await recordProviderUsageSample(usage, now);
     if (!exec.recorded) {

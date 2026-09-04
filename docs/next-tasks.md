@@ -597,11 +597,13 @@ request rather than two.
 
 - Backlog slug: `PLATFORM-POLL-REUSE-TEAM-CATALOG-v1`
 
-### Item 127 — retain the CFBD usage the app already probes, and sample it daily
+### Item 127 — sample CFBD usage on its own schedule and retain a daily series
 
-**Filed 2026-09-04. Small, free, and it supersedes Item 94's manual read if it ships before
-2026-09-30.** Owner question: "why not just daily logging? it's a free call." Checked — it is cheaper
-than that, because **there is no new call**.
+**Filed 2026-09-04. Supersedes Item 94's manual read if it ships before 2026-09-30.** Owner question:
+"why not just daily logging? it's a free call." `/info` is indeed unbilled, so the sampling costs no
+CFBD quota — but it is a dedicated route on its own six-hourly QStash schedule, not a free ride on an
+existing job. Retaining the observation the game-stats probe already makes was built and removed: one
+durable row with two writers cost more than the resolution it bought.
 
 **The observation is already being made and discarded.** `src/app/api/cron/game-stats/route.ts:284`
 calls `fetchCfbdUsage({ fresh: true })` — the `/info` quota probe, explicitly not a billed provider
@@ -2956,8 +2958,7 @@ with nothing indicating the number was lost.
 **Better than one reading: sample it — now filed as Item 127.** The app already probes `/info` on the
 game-stats cron for its spend gate and discards the result. Item 127 does not retain that one — a
 second writer on one durable row proved to cost more than the resolution it bought — and instead adds
-an unconditional sample
-on `season-transition`, which needs no new cron and one unbilled request per day. **If Item 127 ships before 2026-09-30 it supersedes this manual read**, and
+an unconditional sample on its own six-hourly QStash schedule, four unbilled `/info` requests a day. **If Item 127 ships before 2026-09-30 it supersedes this manual read**, and
 removes the cliff where missing one date costs a month. Until then this item stands as the fallback.
 
 **Gates TWO decisions, not one — noted 2026-09-04.** Item 95 portion 2 has always been gated on this

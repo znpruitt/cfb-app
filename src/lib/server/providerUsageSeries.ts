@@ -139,14 +139,26 @@ export function parseProviderUsageSeries(value: unknown): ProviderUsageSeries {
   return { samples };
 }
 
+/**
+ * The canonical trustworthy-count rule, matching `quotaPolicy.isTrustworthyCount`.
+ * `resolveCfbdUsage` accepts any finite non-negative number, so `/info` returning
+ * `remainingCalls: 1500.5` yields non-null fractional counts — which the quota gate
+ * REFUSES as untrustworthy while this series would have stored them as a complete
+ * observation. Same input, two verdicts, with the series polluted and System Health
+ * green.
+ */
+function isTrustworthyCount(value: number | null): value is number {
+  return value !== null && Number.isSafeInteger(value) && value >= 0;
+}
+
 /** A fully usable observation carries `remaining` AND the tier-derived `used`/`limit`. */
 function usabilityRank(sample: ProviderUsageSample): number {
-  if (sample.remaining === null) return 0;
+  if (!isTrustworthyCount(sample.remaining)) return 0;
   // `used` and `limit` derive from `patronLevel` (`cfbdUsage.ts`): a response with
   // `remainingCalls` but no usable `patronLevel` yields BOTH as null. That is the
   // weaker observation — and `used` is the field the burn question reads — so it
   // must not displace a complete one.
-  return sample.usedLatest !== null && sample.limit !== null ? 2 : 1;
+  return isTrustworthyCount(sample.usedLatest) && isTrustworthyCount(sample.limit) ? 2 : 1;
 }
 
 /**
@@ -160,7 +172,20 @@ function usabilityRank(sample: ProviderUsageSample): number {
  * Requires both counts to be complete: a degraded observation reports `null`, and
  * `null` is not a drop.
  *
- * A drop must be MATERIAL — at least a halving. An earlier version fired on any
+ * Two guards, because `used` can move for reasons that are not calls.
+ *
+ * FIRST, differing `limit`s disqualify the comparison outright: `used` is derived
+ * as `limit − remaining`, so a patron-tier change moves it with no calls made.
+ *
+ * SECOND, the drop must be material — at least a halving — EXCEPT on the first of
+ * a month, where any drop counts. The period is calendar monthly, so that is the
+ * only day a reset can occur; requiring a halving there would miss a quiet
+ * offseason month ending at `used = 40` and resetting to 25. Mid-month the
+ * halving is what separates a reset from skew. A spurious split on the 1st is
+ * possible and accepted: it is bounded at two entries, and on that specific day a
+ * drop is far more likely to be genuine than not.
+ *
+ * An earlier version fired on any
  * decrease, with the claim that a spurious split is harmless. It is not, and the
  * mechanism is routine: the 15-minute and 6-hourly crons both fire at :00 of
  * 00/06/12/18, so
@@ -180,7 +205,23 @@ export function observedPeriodReset(
   candidate: ProviderUsageSample
 ): boolean {
   if (existing.usedMax === null || candidate.usedLatest === null) return false;
-  return candidate.usedLatest * 2 < existing.usedMax;
+
+  // A patron-tier change moves `used` with no calls made: it is derived as
+  // `limit − remaining` (`cfbdUsage.ts`) and `limit` comes from the tier. Tier 2 → 1
+  // at `remaining = 600` takes `used` from 29,400 to 4,400 — a halving, and a
+  // phantom period. Differing limits mean the two counts are not comparable at all.
+  if (existing.limit !== null && candidate.limit !== null && existing.limit !== candidate.limit) {
+    return false;
+  }
+
+  if (candidate.usedLatest >= existing.usedMax) return false;
+
+  // A quota period is CALENDAR MONTHLY, so a reset can only occur on the 1st. On
+  // that day any drop is a boundary; a halving would miss a quiet offseason month
+  // that ends at `used = 40` and resets to 25. Mid-month, only a material drop
+  // outranks clock skew between the instances that write this row.
+  const isPeriodBoundaryDay = candidate.day.endsWith('-01');
+  return isPeriodBoundaryDay || candidate.usedLatest * 2 < existing.usedMax;
 }
 
 /**
@@ -305,12 +346,21 @@ export function mergeProviderUsageSample(
         ...sameDay.map((entry) => ({ ...entry, periodSequence: entry.periodSequence + 1 })),
       ];
     } else {
-      // Fold into the entry whose period the observation belongs to: the last one
-      // that had already begun when it was taken.
-      const targetIndex = Math.max(
+      // Fold into the entry whose period the observation belongs to.
+      //
+      // Time alone is not enough. With a split already present, a DELAYED
+      // post-reset observation (t0 < t1 < t2, where t2 opened period 1) has
+      // started-before-it only period 0 — so a purely temporal rule folds
+      // new-period counters into the previous period's row and makes both months
+      // unattributable. Its own reset evidence relative to period 0 is what places
+      // it, and period 1's span is pulled back to include it.
+      const byTime = Math.max(
         0,
         sameDay.filter((entry) => Date.parse(entry.firstObservedAt) <= observedAtMs).length - 1
       );
+      const belongsToLaterPeriod =
+        byTime < sameDay.length - 1 && observedPeriodReset(sameDay[byTime]!, sample);
+      const targetIndex = belongsToLaterPeriod ? byTime + 1 : byTime;
       dayEntries = sameDay.map((entry, index) =>
         index === targetIndex ? mergeIntoSample(entry, sample) : entry
       );
