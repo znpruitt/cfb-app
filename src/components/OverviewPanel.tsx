@@ -817,13 +817,11 @@ function WatchlistScoreboardList({
 function FeaturedGamesList({
   prioritizedItems,
   emptyMessage,
-  timeZone,
   rankingsByTeamId,
   teamRecordsByProviderGameId,
 }: {
   prioritizedItems: PrioritizedOverviewItem[];
   emptyMessage: string;
-  timeZone: string;
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
   teamRecordsByProviderGameId: TeamRecordsByProviderGameId;
 }): React.ReactElement {
@@ -851,7 +849,9 @@ function FeaturedGamesList({
           <CompactGameScoreboard
             key={game.key}
             state="final"
-            clock={formatExpandedKickoff(game.date, timeZone, game.startTimeTBD)}
+            // No date or time on a final row: for a completed game the result is the
+            // information. Owner decision 2026-09-04, section-ordering resolutions §3.
+            // Recent finals already complies; Featured was the one surface that did not.
             matchupLabel={formatGameMatchupLabel(game)}
             contextSlot={
               gameBadge ? (
@@ -1658,7 +1658,6 @@ export default function OverviewPanel({
               <FeaturedGamesList
                 prioritizedItems={viewModel.recentResults}
                 emptyMessage="No recent results yet."
-                timeZone={timeZone}
                 rankingsByTeamId={rankingsByTeamId}
                 teamRecordsByProviderGameId={teamRecordsByProviderGameId}
               />

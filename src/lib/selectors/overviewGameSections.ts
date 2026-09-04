@@ -121,12 +121,22 @@ function compareOverviewRecentFinals(a: OverviewGameItem, b: OverviewGameItem): 
   return a.bucket.game.key.localeCompare(b.bucket.game.key);
 }
 
+/**
+ * Live rows sort by kickoff, ascending, and by nothing else.
+ *
+ * Owner decision 2026-09-04, recorded in
+ * `docs/campaigns/item-87-followon-section-ordering-resolutions.md` §1 and §2. Game progress is
+ * explicitly NOT a sort input. An in-progress-before-awaiting partition kept scoreless rows at the
+ * bottom; it was proposed and withdrawn, because under it a row jumps from the bottom of the
+ * section to its kickoff position the moment a score attaches — a reposition on a polling surface,
+ * with the member having touched nothing. The cost of pure kickoff order is a scoreless row sitting
+ * among scored ones for the bounded post-kickoff gap, which is the cheaper trade.
+ *
+ * The owner-count key went with it (§2): relevance promotion belongs to Featured, which exists to
+ * pull games out of chronological order. Sorting here is a legibility tool, not a ranking one — a
+ * member can tell why one row sits above another only if the answer is "it kicked off first".
+ */
 function compareOverviewLiveItems(a: OverviewGameItem, b: OverviewGameItem): number {
-  const aHasLiveScore = gameStateFromScore(a.score) === 'inprogress';
-  const bHasLiveScore = gameStateFromScore(b.score) === 'inprogress';
-  if (aHasLiveScore !== bHasLiveScore) return aHasLiveScore ? -1 : 1;
-  const ownerCountDifference = realOwnerCount(b) - realOwnerCount(a);
-  if (ownerCountDifference !== 0) return ownerCountDifference;
   const aHasKickoff = Number.isFinite(a.sortDate);
   const bHasKickoff = Number.isFinite(b.sortDate);
   if (aHasKickoff !== bHasKickoff) return aHasKickoff ? -1 : 1;

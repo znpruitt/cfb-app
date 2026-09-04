@@ -289,20 +289,55 @@ test('known disruption never enters Live or claims Awaiting score', () => {
   });
 });
 
-test('attached in-progress scores sort ahead of awaiting rows before the six-row cap', () => {
-  const awaiting = Array.from({ length: 6 }, (_, index) =>
-    item(game({ key: `awaiting-${index}`, date: KICKOFF }))
-  );
-  const scored = item(game({ key: 'scored-live', date: KICKOFF }), {
-    score: score('In Progress', 0, 0),
+test('live rows sort by kickoff, and an attached score does not promote a row', () => {
+  // Owner decision 2026-09-04, section-ordering resolutions §1: game progress is NOT
+  // a sort input. This replaces the superseded rule that hoisted scored rows above
+  // awaiting ones — under it a row jumped to its kickoff position the moment a score
+  // attached, repositioning under a member who had touched nothing.
+  const earlyAwaiting = item(game({ key: 'awaiting-early', date: '2026-09-05T15:00:00.000Z' }));
+  const lateScored = item(game({ key: 'scored-late', date: '2026-09-05T16:30:00.000Z' }), {
+    score: score('In Progress', 14, 10),
   });
-  const sections = select([...awaiting, scored], '2026-09-05T17:00:00.000Z');
+  const sections = select([lateScored, earlyAwaiting], '2026-09-05T17:00:00.000Z');
 
-  assert.equal(sections.live.length, 6);
-  assert.equal(sections.live[0]?.bucket.game.key, 'scored-live');
+  assert.equal(sections.live.length, 2, 'both rows must reach the Live section');
   assert.equal(
-    sections.live.filter((entry) => entry.routeStatus.kind === 'awaiting-score').length,
-    5
+    sections.live.find((entry) => entry.bucket.game.key === 'awaiting-early')?.routeStatus.kind,
+    'awaiting-score',
+    'the earlier row must genuinely be awaiting a score'
+  );
+  assert.deepEqual(
+    sections.live.map((entry) => entry.bucket.game.key),
+    ['awaiting-early', 'scored-late'],
+    'the scoreless earlier kickoff stays above the scored later one'
+  );
+});
+
+test('live rows ignore owner count and keep the six-row cap on kickoff order', () => {
+  // Section-ordering resolutions §2: relevance promotion belongs to Featured, not a
+  // hidden sort key. A no-owner game kicking off first still leads the section.
+  // One real owner, not zero: routeForItem drops a game with no real owners before
+  // sorting ever runs (overviewGameSections.ts:73), so zero would prove nothing.
+  const oneOwner = item(game({ key: 'one-owner-first', date: '2026-09-05T14:00:00.000Z' }), {
+    homeOwner: undefined,
+  });
+  const twoOwner = Array.from({ length: 6 }, (_, index) =>
+    item(game({ key: `owned-${index}`, date: `2026-09-05T1${5 + index}:00:00.000Z` }), {
+      score: score('In Progress', 7, 3),
+    })
+  );
+  const sections = select([...twoOwner, oneOwner], '2026-09-05T21:00:00.000Z');
+
+  assert.equal(sections.live.length, 6, 'the cap still holds at six');
+  assert.equal(
+    sections.live[0]?.bucket.game.key,
+    'one-owner-first',
+    'the earliest kickoff leads even with fewer real owners on it'
+  );
+  assert.equal(
+    sections.live.at(-1)?.bucket.game.key,
+    'owned-4',
+    'the cap drops the latest kickoff, not the least relevant game'
   );
 });
 
