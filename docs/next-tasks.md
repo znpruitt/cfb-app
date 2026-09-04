@@ -532,18 +532,24 @@ Neon one. Keep this item for the read-replica autosuspend and the non-cadence fi
 
 - Backlog slug: `PLATFORM-OFFSEASON-SCHEDULE-PAUSE-v1`
 
-### Item 127 — retain the CFBD usage the app already probes 96 times a day
+### Item 127 — retain the CFBD usage the app already probes, and sample it daily
 
 **Filed 2026-09-04. Small, free, and it supersedes Item 94's manual read if it ships before
 2026-09-30.** Owner question: "why not just daily logging? it's a free call." Checked — it is cheaper
 than that, because **there is no new call**.
 
 **The observation is already being made and discarded.** `src/app/api/cron/game-stats/route.ts:284`
-calls `fetchCfbdUsage({ fresh: true })` on every invocation — the `/info` quota probe, explicitly not
-a billed provider call — reads `remaining` and `limit` for the quota-reserve gate, and keeps nothing.
-game-stats runs `*/15`, so that is up to **96 probes a day, every one thrown away**.
+calls `fetchCfbdUsage({ fresh: true })` — the `/info` quota probe, explicitly not a billed provider
+call — reads `remaining` and `limit` for the quota-reserve gate, and keeps nothing.
 `systemHealth.ts:208` and `/api/admin/usage` normalize quota too, but on demand for display, not as a
 record. This is Item 126's shape in a different place: an observation made, not retained.
+
+**CORRECTION 2026-09-04 — an earlier draft of this item said "96 probes a day". That is false.** It
+was `*/15 × 24h`, a ceiling computed without reading the gate. The probe sits behind THREE early
+returns (`route.ts:240-262`): paused-or-disabled, context-unavailable, and — decisively —
+`resolution.target === null`, commented "No exact target → no scoped attempt, **no usage check**, no
+provider call". **The probe fires only when a polling target exists inside the window.** On a quiet
+Tuesday there is no target, no probe, and no sample.
 
 **What to keep.** One bounded durable record per calendar day — `used`, `remaining`, `limit`,
 `patronLevel`, `observedAt` — overwriting within the day so the store holds at most one row per day,
@@ -557,11 +563,23 @@ the consumers actually have: Item 95 portion 2 and Item 63 both ask "how often c
 _during these windows_", which needs to know what a Saturday costs versus a Tuesday. A single
 end-of-month total cannot say.
 
-**One coverage caveat.** Sampling only on the game-stats probe means the series stops when game-stats
-stops — and **Item 102 narrows exactly that cron**, so the planner would thin the sample at the same
-time it thins the job. The daily `season-transition` cron (`0 0 * * *`, `vercel.json`) is the
-guaranteed heartbeat; take the floor there and opportunistic samples from game-stats, or the series
-develops holes precisely when the planner lands.
+**So the sampler must be `season-transition`, not game-stats.** `season-transition` runs
+`0 0 * * *` in `vercel.json`, unconditionally, every day of the year — that is the daily series. It
+does not currently call `/info`, so this adds one unbilled request to one daily invocation.
+game-stats stays an opportunistic bonus that tightens resolution during game windows, never the
+primary.
+
+**Why the inversion matters, not just the coverage.** A game-stats-only series would sample exactly
+the expensive days and none of the quiet ones — biased toward the busiest hours, and unable to answer
+"what does a Tuesday cost", which is the question this item exists for. **Item 102 makes it worse**:
+narrowing that cron thins the sample at the same moment it thins the job.
+
+**One property makes gaps survivable.** `used` is cumulative within the period, so ANY two samples
+give the burn between them — cadence sets resolution, not correctness. But two hazards remain, and
+both are why the unconditional daily sample is required: a quiet-day gap cannot be interpolated
+(cumulative says nothing about which day inside the gap spent it), and if the last sample before a
+month reset falls on a game day, the tail is lost — reintroducing exactly the Item 94 cliff this item
+removes.
 
 **Acceptance boundary:** after a month of running, the store alone answers "what did we burn in
 September, and on which days" without a manual read, and its size is bounded by a stated rule rather
@@ -2894,9 +2912,9 @@ September — "the first month containing four or five Saturdays of live polling
 said October; the heading was the error. Miss the date and the answer slips a full month, silently,
 with nothing indicating the number was lost.
 
-**Better than one reading: sample it — now filed as Item 127.** The app ALREADY probes `/info` up to
-96 times a day on the game-stats cron and discards every result, so retaining it needs no new call,
-cron, or invocation. **If Item 127 ships before 2026-09-30 it supersedes this manual read**, and
+**Better than one reading: sample it — now filed as Item 127.** The app already probes `/info` on the
+game-stats cron and discards the result; Item 127 retains it and adds an unconditional daily sample
+on `season-transition`, which needs no new cron and one unbilled request per day. **If Item 127 ships before 2026-09-30 it supersedes this manual read**, and
 removes the cliff where missing one date costs a month. Until then this item stands as the fallback.
 
 **Gates TWO decisions, not one — noted 2026-09-04.** Item 95 portion 2 has always been gated on this
