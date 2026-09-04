@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { fetchCfbdUsage } from '@/lib/api/cfbdUsage';
+import { recordProviderUsageSample } from '@/lib/server/providerUsageSeries';
 import { CFBD_PEAK_LATENCY_TIMEOUT_MS } from '@/lib/api/cfbdRequestPolicy';
 import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
 import { buildCfbdGameTeamStatsUrl, type CfbdSeasonType } from '@/lib/cfbd';
@@ -283,6 +284,14 @@ export async function GET(req: Request) {
       // burst of refreshes reuse pre-spend remaining counts.
       const usage = await fetchCfbdUsage({ fresh: true });
       usageSnapshot = { remainingCalls: usage.remaining, monthlyLimit: usage.limit };
+      // Item 127 — retain the observation this probe already made. No new call:
+      // `usage` is the value the quota gate is about to read. This tightens the
+      // daily series' resolution during game windows, where burn actually
+      // happens; the unconditional floor sample lives on `season-transition`,
+      // because this path is gated on an exact target and yields nothing on a
+      // quiet day. Bookkeeping only — `recordProviderUsageSample` never throws
+      // and its outcome cannot affect the quota decision below.
+      await recordProviderUsageSample(usage);
     } catch {
       usageSnapshot = { remainingCalls: null };
     }

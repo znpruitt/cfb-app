@@ -628,11 +628,26 @@ the consumers actually have: Item 95 portion 2 and Item 63 both ask "how often c
 _during these windows_", which needs to know what a Saturday costs versus a Tuesday. A single
 end-of-month total cannot say.
 
-**So the sampler must be `season-transition`, not game-stats.** `season-transition` runs
-`0 0 * * *` in `vercel.json`, unconditionally, every day of the year — that is the daily series. It
-does not currently call `/info`, so this adds one unbilled request to one daily invocation.
-game-stats stays an opportunistic bonus that tightens resolution during game windows, never the
-primary.
+**The daily floor needs a DEDICATED job — established by attempting the cheap route and failing,
+2026-09-04.** The obvious move was to hang the sample on `season-transition` (`0 0 * * *`,
+unconditional, every day of the year). It was tried and reverted: that route holds a deliberate
+guarantee that a refused run makes **zero** outbound provider requests, asserted at
+`convergence.test.ts:1427` (`run.providerCalls === 0`, "no billed provider work") and pinned again in
+`route.test.ts`, which asserts the exact partition set of every fetch the route makes. An
+unconditional `/info` probe breaks both — 24 tests failed on placement alone, and 3 more on the
+invariant itself once placement was fixed.
+
+Those tests are correct. `/info` is unbilled, but the property season-transition holds is about
+_outbound requests_, not billing, and weakening a lifecycle route's guarantee to carry someone else's
+bookkeeping is the wrong trade. The owner proposed a dedicated daily job first; the scaffolding
+objection to it was mine and it was wrong — the cost lands on the other side.
+
+**So the daily floor is a dedicated route.** Its own contract is "one unbilled probe per run", which
+violates nothing. Cost, measured rather than assumed: the 2 Vercel crons in `vercel.json` may be a
+Hobby cap (worth confirming), in which case it is a 7th QStash schedule — a route, a
+`cronExecutionLog` module, a `manage-*-schedule.ts`, a contract, and a name added to the
+`CRON_SECRET` rotation that runbook §8l enumerates as "all six" in three places. A dedicated job can
+also sample MORE than daily, which bounds the month-boundary tail loss that daily sampling cannot.
 
 **Why the inversion matters, not just the coverage.** A game-stats-only series would sample exactly
 the expensive days and none of the quiet ones — biased toward the busiest hours, and unable to answer
