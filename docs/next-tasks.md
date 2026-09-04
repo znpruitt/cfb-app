@@ -482,6 +482,72 @@ Neon one. Keep this item for the read-replica autosuspend and the non-cadence fi
 
 - Backlog slug: `PLATFORM-OFFSEASON-SCHEDULE-PAUSE-v1`
 
+### Item 126 — schedule-refresh incident evidence is not durable enough to explain the failure
+
+**Filed 2026-09-03 from `SCHEDULE-REFRESH-FAILURE-DIAG`.** The September 1, 2026 12:00 UTC weekly
+schedule refresh is the production proof of the gap. QStash successfully delivered the request and
+received HTTP 200, while TurfWar durably recorded invocation
+`d563a545-3204-4cd2-8530-55de43149c46` as `failure / year-results`, with
+`providerCallAttempted: true`, target `2026 / ordinary-maintenance`, and `durationMs: 37124`.
+Controlled application failures intentionally return 200; do not collapse scheduler delivery and
+application execution into one success/failure bit or change that contract incidentally.
+
+The detailed incident record and evidence classification live in
+`docs/operations/diagnostics.md`. Its high-confidence—but not definitive—diagnosis is a transient
+CFBD schedule-partition timeout exhausting the current three 12-second attempts. The 37.1-second
+duration and a same-day explicit rankings provider failure after 36,917 ms support that conclusion;
+a later 4,249 ms manual schedule success through the unchanged shared authority argues against a
+deterministic schedule, normalization, credential, or persistence defect. The exact failed season
+type and timeout/network/HTTP/parse category are no longer provable. The September 3 QStash manual
+run's `401 invalid cron authorization` is a separate pre-authentication configuration issue, not an
+explanation for this authenticated provider-attempting invocation.
+
+The loss occurs at four layers:
+
+1. `scheduleYearsTarget` persists only year/operation per target. It drops the per-year `result`,
+   `reason`, `providerCallAttempted`, `failedSeasonTypes`, `rowsReceived`, `rowsCommitted`, and
+   `dataChanged` that could distinguish provider, completeness, commit, and score-sweep paths.
+2. `schedule-refresh-cron` carries more per-year detail but lacks `invocationId` and failed season
+   types, and Vercel runtime logs expire too quickly to serve as incident history.
+3. `provider-refresh-status` is latest-only; a successful manual repair can replace the failed
+   attempt whose details are needed for the postmortem.
+4. `fetchFullSeasonSchedulePartition` reduces timeout, network, HTTP, and JSON-parse exceptions to
+   `fetch-failed`, so even the provider status does not retain the underlying safe transport class.
+
+Future implementation should:
+
+- extend each durable schedule receipt year entry with the exact allowlisted per-year `result`,
+  `reason`, `failedSeasonTypes`, `providerCallAttempted`, `rowsReceived`, `rowsCommitted`, and
+  `dataChanged` values already produced by the authority;
+- add the application-generated `invocationId` to the structured schedule-refresh runtime event so
+  it can be correlated directly with the receipt;
+- preserve a closed, secret-safe upstream class (`timeout`, `network`, `http` with numeric status,
+  or `parse`) where practical—never raw errors, response bodies, URLs, headers, or payloads;
+- consider a small bounded provider-attempt history per canonical target rather than relying only
+  on the mutable latest-status record; define count/age bounds and retain attempt/commit ordering;
+- let System Health expose the retained stable reason/partition evidence instead of only the generic
+  “execution failed” copy, without treating observability metadata as canonical data truth.
+
+Keep timeout reliability separate in Item 93. This item must not change the provider timeout/retry
+policy, scheduler HTTP semantics, QStash configuration, or canonical schedule behavior.
+
+Acceptance boundary:
+
+- Given an authenticated single-year schedule invocation that reaches provider work and fails at
+  each controlled post-provider boundary, its durable receipt alone identifies the year result,
+  stable reason, attempted/failed season types, provider-attempt flag, row counts, and data-change
+  state after runtime logs expire and after a later manual refresh succeeds.
+- Runtime and durable records share the same invocation id, and no scheduler- or provider-supplied
+  identifier is trusted as that identity.
+- A timeout can be distinguished from network, HTTP-status, and parse failure without persisting
+  credentials or arbitrary provider/error content.
+- History is explicitly bounded, observation-only, and cannot affect response status, provider
+  outcome, canonical data, or the best-effort receipt contract.
+- HTTP 200 remains the response for controlled operational failures unless a separate task
+  intentionally redesigns QStash retries, quota consequences, and idempotency together.
+
+- Backlog slug: `PLATFORM-SCHEDULE-REFRESH-FORENSICS-v1`
+
 ### Item 125 — four Overview section-ordering decisions are decided but unbuilt
 
 **Filed 2026-09-04.** The decisions and their evidence:
@@ -2549,10 +2615,20 @@ and both were wrong; they are recorded so they are not re-argued.
 - _Schedule redundancy_ — the weekly Tuesday 12:00 UTC refresh does have a single shot and the widest
   blast radius, but **schedule cadence belongs to Item 63**, which already owns the in-season ramp as
   the main lever on score-repair latency. Borrowing that argument here double-counts it.
+- _Schedule timeout evidence_ — the 2026-09-01 12:00 UTC weekly invocation reached provider work and
+  returned `failure / year-results` after 37,124 ms. That duration closely matches three 12-second
+  attempts plus retry backoff/pacing. A same-day rankings attempt explicitly failed both CFBD
+  partitions after 36,917 ms, and a later manual full-season schedule refresh succeeded in 4,249 ms
+  through the unchanged shared authority. This strongly supports a transient schedule-partition
+  timeout, but does not prove the failed partition or rule out every transient transport/store
+  alternative. The durable-evidence defect exposed by the incident belongs to Item 126. The separate
+  2026-09-03 `401 invalid cron authorization` stopped before provider work and is not timeout
+  evidence.
 
 What justifies the item on its own terms: the ceiling was judged wrong and changed in four places;
-nine more carry it, and one of them demonstrably failed. That is enough for a small constant swap
-without an urgency claim.
+nine more carry it, and both rankings and full-season schedule production paths now have matching
+failure evidence. That is enough to review the remaining call sites without borrowing a cadence
+argument.
 
 Sequencing: a natural companion to Item 60's two low-severity follow-ups since both touch
 `rankings/refreshAuthority.ts`.
@@ -2563,7 +2639,7 @@ Still at `timeoutMs: 12_000`:
 |---|---|
 | `src/lib/rankings/refreshAuthority.ts:105` | **Worst configured.** `maxAttempts: 3`, and `fetchUpstream.ts:158` retries timeouts regardless of `retryOnHttpStatuses`, so each failure burns THREE billed calls. 3 x 12s matches the observed 36838ms almost exactly. |
 | `src/app/api/schedule/route.ts:345` | |
-| `src/lib/schedule/fullSeasonScheduleFetch.ts:61` | |
+| `src/lib/schedule/fullSeasonScheduleFetch.ts:61` | September 1's 37,124 ms weekly failure is the production signal; exact timeout/partition remains an inference because Item 126's evidence was not retained. |
 | `src/lib/schedule/schedulePresentationRefresh.ts:275`, `:516` | |
 | `src/app/api/conferences/route.ts:166` | |
 | `src/app/api/game-stats/route.ts:325` | non-cron path |
@@ -2572,15 +2648,21 @@ Still at `timeoutMs: 12_000`:
 
 `src/app/api/admin/team-database/route.ts:33` sits at 15s — same question, different value.
 
-**Reuse `CFBD_PEAK_LATENCY_TIMEOUT_MS`** (`src/lib/api/cfbdRequestPolicy.ts:7`) rather than introducing
-a second constant. A timed-out request bills (measured: `/info` costs 0, a completed call 1, an
-aborted call 1), so any site retrying timeouts multiplies spend during exactly the conditions that
-cause them — rankings is the live example.
+Use `CFBD_PEAK_LATENCY_TIMEOUT_MS` (`src/lib/api/cfbdRequestPolicy.ts:7`) for any deliberately
+more-patient attempt rather than introducing a second peak-latency constant. **Do not mechanically
+turn all three 12-second attempts into three 40-second attempts.** A timed-out request bills
+(measured: `/info` costs 0, a completed call 1, an aborted call 1), so retries multiply spend during
+exactly the condition that causes them; they also multiply worst-case wall time. Evaluate fewer,
+more-patient attempts and the total route budget together. The weekly schedule-refresh route still
+relies on the platform's default duration, so give it an explicit envelope before increasing the
+single-attempt ceiling and retain enough margin for completeness, durable commit, score sweep,
+status, and response work.
 
 Acceptance boundary: no CFBD-consuming call site carries a ceiling below the shared constant without
-a recorded reason; billed calls per run are unchanged at each converted site, proven rather than
-assumed; and a repo-wide `timeoutMs` sweep is part of the verification, not the scoping — that
-omission is what produced this item.
+a recorded reason; each converted site's attempt count, maximum billed calls, and worst-case wall
+time are deliberate and proven to fit its explicit route/runtime budget; no conversion increases
+provider spend merely by multiplying longer timeouts; and a repo-wide `timeoutMs` sweep is part of
+verification, not scoping — that omission is what produced this item.
 
 ### Item 94 — measure the first full in-season month of CFBD burn (October 2026)
 

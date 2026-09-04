@@ -51,6 +51,37 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### SCHEDULE-REFRESH-DIAGNOSTIC-DOCUMENTATION
+
+- Purpose: preserve the September 1 weekly schedule-refresh investigation as repository-owned
+  evidence and future implementation planning without changing runtime behavior.
+- Scope: documentation only — the diagnostics operating guide, scheduler-receipt contract, active
+  queue Items 93/126, and prompt ledger; no application code, scheduler, provider, receipt, System
+  Health, or QStash mutation.
+- Outcome: recorded confirmed delivery/application evidence, the high-confidence but unproven
+  three-by-12-second CFBD timeout inference, the later successful manual recovery, the separate
+  September 3 authorization failure, and the exact evidence-loss boundaries. Filed bounded receipt,
+  event-correlation, upstream-classification/history, dashboard, and timeout-budget follow-ups.
+- Review / verification: documentation diff inspected for authority boundaries and evidence versus
+  inference language; Markdown and diff-integrity checks recorded with the task handoff.
+- Status: Complete — documentation-only; published directly to `main`, 2026-09-04.
+
+### SCHEDULE-REFRESH-FAILURE-DIAG
+
+- Purpose: read-only production investigation of the September 1, 2026 weekly schedule-refresh
+  delivery that QStash considered successful while TurfWar recorded an application failure.
+- Scope: traced cron authentication, target selection, `refreshFullSeasonSchedule`, CFBD partition
+  fetching/completeness, reconciliation, score sweep, durable persistence, provider status, runtime
+  logging, scheduler receipts, and the later manual recovery; no mutations.
+- Outcome: the 37,124 ms invocation and same-day 36,917 ms rankings provider failure strongly support
+  a transient CFBD partition timeout exhausting three 12-second attempts. The precise season type
+  and transport category are not provable; the September 3 401 is a separate pre-authentication
+  issue. Full evidence classification is retained in `docs/operations/diagnostics.md`.
+- Review / verification: inspected the exact receipt deployment (`197bde6725c37fc2f0857e0a7438fba7eaca9fdd`),
+  read-only production receipt/provider state, retained Vercel/QStash logs, relevant source/history,
+  and the later successful provider status; no code or production state changed.
+- Status: Complete — read-only diagnostic, no implementation.
+
 ### POLISH-024-RETIRE-OVERVIEW-SECTION-ORDER-v1
 
 - Purpose: Item 124 — retire `OverviewContext` fields that are declared, populated, and read by

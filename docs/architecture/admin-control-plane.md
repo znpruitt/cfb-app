@@ -150,6 +150,15 @@ are best-effort and deferred after the response: they cannot change cron behavio
 status. Receipts remain separate from `provider-refresh-status` and contain no history or heartbeat
 table.
 
+The current `schedule-refresh` target is intentionally bounded but is too lossy for historical
+failure diagnosis: it retains each year and operation plus aggregate score-sweep/kickoff counts, not
+the per-year result, reason, provider-attempt flag, failed season types, row counts, or data-change
+state. Runtime events carry some of that detail but are short-lived, while provider-refresh status
+is latest-only and can be replaced by a later successful manual refresh. This is a documented
+current limitation, not evidence that the missing fields were zero. The implementation follow-up is
+tracked only in
+[`../next-tasks.md`](../next-tasks.md#item-126--schedule-refresh-incident-evidence-is-not-durable-enough-to-explain-the-failure).
+
 ## Automated transition convergence
 
 Season transition and season rollover are automatic, lifecycle-critical jobs. They are not gated by

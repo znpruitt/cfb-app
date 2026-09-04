@@ -1,7 +1,7 @@
 # Diagnostics & Debugging
 
 Status: Current
-Last verified: 2026-08-27
+Last verified: 2026-09-04
 Owner: Project documentation
 Canonical for: diagnostic surfaces, debug auth, structured observability, and upstream-first debugging order
 Supersedes: the PLATFORM-086 per-slice implementation narrative formerly maintained in this file
@@ -164,6 +164,50 @@ the full receipt contract in
 Schedule presentation enrichment separately emits `schedule-presentation-refresh` from its shared
 authority. That event reports the bounded media/venue cache operation and remains distinct from the
 weekly schedule job's top-level receipt and provider-refresh status.
+
+### September 1, 2026 schedule-refresh incident
+
+This incident is the concrete example of why scheduler delivery and application execution must stay
+separate:
+
+- **Confirmed evidence:** QStash delivered the Tuesday 12:00 UTC `turfwar-schedule-weekly` request
+  successfully and received HTTP 200. TurfWar's durable receipt for invocation
+  `d563a545-3204-4cd2-8530-55de43149c46` records `result: failure`, aggregate
+  `reason: year-results`, `providerCallAttempted: true`, target `2026 / ordinary-maintenance`, and a
+  37,124 ms duration. Controlled operational failures intentionally return HTTP 200 because the
+  scheduler delivered the request and the application completed its classification; only cron
+  authentication failures return 401.
+- **High-confidence inference, not proof:** the most likely per-year result was
+  `partition-fetch-failed` after a transient CFBD schedule-partition timeout exhausted the existing
+  three 12-second attempts. Three timeouts plus retry backoff/pacing closely fit the 37.1-second
+  duration. A same-day rankings attempt independently recorded an explicit provider-fetch failure
+  for both CFBD partitions after 36,917 ms under the same three-by-12-second pattern.
+- **Corroborating recovery:** a later manual full-season schedule refresh succeeded through the same
+  shared provider, normalization, completeness, and durable-commit authority, committing 3,679 rows
+  in 4,249 ms. The relevant implementation had not changed. This makes a transient provider/network
+  condition more likely than a deterministic schedule, normalization, credential, or persistence
+  defect, but does not rule out every transient alternative.
+- **Unresolved uncertainty:** the failed season type and the underlying timeout/network/HTTP/parse
+  category cannot now be proven. The schedule provider-status record was replaced by the later
+  success, the detailed runtime event aged out, and the durable receipt retained only the aggregate
+  reason. An all-empty replacement, transient store failure, or defensive `unexpected-error`
+  remains possible, though the duration evidence weighs against those explanations. The receipt's
+  zero score-sweep failure and cannot-tell counts rule out the controlled score-sweep failure paths.
+- **Separate September 3 issue:** a manual QStash schedule run returned
+  `401 {"error":"invalid cron authorization"}`. That request stopped before invocation-id creation
+  and provider work, so it must not be used to explain the authenticated September 1 incident unless
+  new evidence establishes a configuration change between the two executions.
+
+The diagnostic limitation is structural. The runtime event carries per-year result/reason and row
+counts but is retained only for the platform's short runtime-log window; it does not carry the
+invocation id or failed season types. The durable scheduler receipt carries the invocation id but
+its schedule-year target drops per-year result/reason, provider-attempt, row, data-change, and failed
+partition detail. Provider-refresh status is latest-only, and the schedule partition adapter
+collapses secret-safe timeout/network/HTTP/parse errors into `fetch-failed`. A historical invocation
+can therefore remain known to have failed without retaining enough evidence to establish why.
+
+Future implementation scope and acceptance criteria are maintained only in
+[`../next-tasks.md`](../next-tasks.md#item-126--schedule-refresh-incident-evidence-is-not-durable-enough-to-explain-the-failure).
 
 ## Vanished CFBD schedule records
 
