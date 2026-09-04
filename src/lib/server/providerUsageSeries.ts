@@ -1,0 +1,264 @@
+import type { CfbdUsage } from '../api/cfbdUsage.ts';
+import {
+  AppStateTxnCleanupError,
+  AppStateTxnFinalizeError,
+  getAppState,
+  withAppStateKeyTransaction,
+} from './appStateStore.ts';
+
+/**
+ * PLATFORM-RETAIN-PROVIDER-USAGE-SERIES (Item 127) — a bounded log of raw CFBD
+ * quota observations.
+ *
+ * WHY THIS EXISTS. `/info` reports `remaining` for the CURRENT PERIOD ONLY, the
+ * period is calendar-monthly, and CFBD exposes no history — so the moment a month
+ * rolls over the previous month's burn is unrecoverable. There is no second
+ * source: `provider-refresh-status` is latest-only and nothing else counts
+ * provider calls.
+ *
+ * WHY RAW OBSERVATIONS RATHER THAN A DAILY SUMMARY. An earlier design stored
+ * derived state — one accumulated entry per UTC day, carrying a period number, a
+ * high-water mark and a latest value. Every write then had to decide, from partial
+ * state and in whatever order writes happened to arrive, whether a reading opened
+ * a new quota period and which period it belonged to. Five review rounds found
+ * defects in those decisions and each fix enabled the next. Storing what was
+ * observed removes the decision: writes append, and every question is answered at
+ * read time from a sorted list, where arrival order cannot matter.
+ *
+ * WHY `remaining` AND NOT `used`. `used` is derived (`limit − remaining`), so a
+ * patron-tier change moves it with no calls made — which the previous design read
+ * as a quota reset. `remaining` is what the provider actually reports. Within a
+ * period it only falls; it rises exactly once, when the period rolls. That single
+ * fact replaces a magnitude threshold, a calendar-boundary exception, and two
+ * ordering branches.
+ *
+ * OBSERVATION-ONLY. Nothing in `src/` reads this. It must never become an input to
+ * a decision — in particular not to the game-stats quota gate, which needs a FRESH
+ * reading and would be wrong to trust a stored one.
+ */
+
+export const PROVIDER_USAGE_SERIES_SCOPE = 'provider-usage';
+export const PROVIDER_USAGE_SERIES_KEY = 'cfbd-observations';
+
+/**
+ * ~14 months at four samples a day: a full season plus the same month a year
+ * earlier, which is the comparison that actually gets asked. ~106 KB, trimmed on
+ * every write — so the bound is structural and there is no cleanup job to forget.
+ */
+export const PROVIDER_USAGE_MAX_OBSERVATIONS = 1700;
+
+export type ProviderUsageObservation = {
+  /** When the probe returned. The only ordering key. */
+  at: string;
+  /**
+   * The tier CFBD reported, recorded so a reader can tell a GENUINE Tier 0 from
+   * the fabricated fallback. `cfbdCanonicalLimitForTier` returns Tier 0's 1,000
+   * for any tier outside its table, so without this an unrecognised tier writes
+   * `limit: 1000` beside a true `remaining` and nothing distinguishes it — and
+   * this series is the only record. Absent on rows written before this field.
+   */
+  patronLevel: number | null;
+  /** Provider-reported calls remaining this period, or null when nothing usable came back. */
+  remaining: number | null;
+  /**
+   * The tier's monthly limit, recorded as CONTEXT only. Never subtracted, never
+   * compared — deriving from it is what let a tier change look like a reset.
+   */
+  limit: number | null;
+};
+
+export type ProviderUsageSeries = {
+  observations: ProviderUsageObservation[];
+};
+
+/**
+ * The canonical trustworthy-count rule, matching `quotaPolicy.isTrustworthyCount`.
+ * `resolveCfbdUsage` accepts any finite non-negative number, so `/info` returning
+ * `remainingCalls: 1500.5` yields a fractional count the quota gate REFUSES as
+ * untrustworthy. Storing it would put a value in the log that the rest of the
+ * system considers unusable.
+ */
+function trustworthyCount(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+function parseObservation(value: unknown): ProviderUsageObservation | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const record = value as Record<string, unknown>;
+  const raw = typeof record.at === 'string' ? record.at : '';
+  if (!raw) return null;
+  const parsed = Date.parse(raw);
+  if (Number.isNaN(parsed)) return null;
+  // NORMALIZED to the canonical UTC form, not stored verbatim. Ordering is
+  // lexicographic (`localeCompare`), which is chronological only for that shape —
+  // so a row written by an older build or edited by hand as `2026-09-04T06:00+02:00`
+  // or `2026-09-04` would sort into the wrong place and then be trimmed from the
+  // wrong end by the bound. Parsing already accepts those forms; this makes the
+  // claim that they are "normalized on the way in" actually true.
+  return {
+    at: new Date(parsed).toISOString(),
+    patronLevel: trustworthyCount(record.patronLevel),
+    remaining: trustworthyCount(record.remaining),
+    limit: trustworthyCount(record.limit),
+  };
+}
+
+/**
+ * Tolerant of anything: a malformed stored row yields an EMPTY series rather than
+ * throwing. Losing history is bad; taking the cron down over it is worse.
+ */
+export function parseProviderUsageSeries(value: unknown): ProviderUsageSeries {
+  if (typeof value !== 'object' || value === null) return { observations: [] };
+  const raw = (value as { observations?: unknown }).observations;
+  if (!Array.isArray(raw)) return { observations: [] };
+  const observations: ProviderUsageObservation[] = [];
+  for (const entry of raw) {
+    const parsed = parseObservation(entry);
+    if (parsed) observations.push(parsed);
+  }
+  return observations.length > 0 ? sortAndBound(observations) : { observations: [] };
+}
+
+/**
+ * Sort by time and enforce the bound. Deliberately NOT deduplicated: an earlier
+ * version dropped entries sharing an `at`, which was wrong in both directions. A
+ * QStash redelivery re-probes `/info` and stamps a fresh timestamp, so it never
+ * collided in the first place; two genuine probes landing in the same millisecond
+ * did, and one was silently lost. A duplicate row in an observation-only log is
+ * harmless — `/info` is unbilled, so it distorts no count — while a dropped
+ * observation is exactly the write-time decision this module exists to avoid.
+ *
+ * `sort` is stable, so entries sharing an `at` keep insertion order.
+ */
+function sortAndBound(observations: ProviderUsageObservation[]): ProviderUsageSeries {
+  const sorted = [...observations].sort((a, b) => a.at.localeCompare(b.at));
+  return { observations: sorted.slice(-PROVIDER_USAGE_MAX_OBSERVATIONS) };
+}
+
+/** Append one observation. Sorting and the bound are applied to the whole set. */
+export function appendProviderUsageObservation(
+  series: ProviderUsageSeries,
+  observation: ProviderUsageObservation
+): ProviderUsageSeries {
+  return sortAndBound([...series.observations, observation]);
+}
+
+/**
+ * The ONE place a raw `/info` reading becomes a stored observation, so the value
+ * the receipt reports available and the value written down cannot disagree.
+ *
+ * `limit` is recorded and NOTHING is derived from it — not even a sanity check.
+ * An earlier version refused a reading whose `remaining` exceeded `limit`, on the
+ * theory that an impossible pair should not manufacture a period boundary. But
+ * `limit` is FABRICATED for an unrecognised tier: `cfbdCanonicalLimitForTier`
+ * falls back to Tier 0 (1,000) for any `patronLevel` outside its table, so a new
+ * or renumbered CFBD tier turned a true `remaining: 4600` into "impossible" and
+ * discarded it — filing `partial` every six hours forever, which is the exact
+ * failure that check was added one round after fixing. A rule that consults a
+ * fabricated input inherits the fabrication, so the rule is gone rather than
+ * guarded.
+ */
+export function buildProviderUsageObservation(
+  usage: CfbdUsage,
+  now: Date
+): ProviderUsageObservation {
+  return {
+    at: now.toISOString(),
+    patronLevel: trustworthyCount(usage.patronLevel),
+    remaining: trustworthyCount(usage.remaining),
+    limit: trustworthyCount(usage.limit),
+  };
+}
+
+/**
+ * `recorded` — durably stored. `not-recorded` — durably absent. `indeterminate` —
+ * genuinely unknown, and nothing downstream may round it to either.
+ */
+export type ProviderUsageWriteOutcome =
+  | 'recorded'
+  | 'not-recorded'
+  | 'indeterminate'
+  | 'unreadable';
+
+/** Thrown inside the write transaction to abort it without clobbering the row. */
+class ProviderUsageSeriesUnreadableError extends Error {
+  constructor() {
+    super('provider usage series is present but unreadable');
+    this.name = 'ProviderUsageSeriesUnreadableError';
+  }
+}
+
+/**
+ * The WRITE-path read, which — unlike `parseProviderUsageSeries` — refuses to
+ * treat an unusable stored value as an empty one.
+ *
+ * The tolerant reader returns `{observations: []}` for anything it cannot
+ * understand. On a read that is right: degrade rather than take the cron down. On
+ * a WRITE it is catastrophic: the append would then write a one-entry array over
+ * a fourteen-month log and report success, destroying the only copy of data CFBD
+ * cannot reproduce. `recordSchedulerExecutionReceipt` already refuses to treat an
+ * unusable prior as absent; this matches it.
+ *
+ * ABSENT is still fine — that is a first write. Individual unparseable ROWS are
+ * still dropped tolerantly, because they are bounded and independently validated,
+ * and failing closed on one bad row would stop the sampler permanently to protect
+ * the rest. Only a value that is PRESENT and yields nothing is refused.
+ */
+export function readProviderUsageSeriesForWrite(
+  value: unknown
+): { ok: true; series: ProviderUsageSeries } | { ok: false } {
+  if (value === null || value === undefined) return { ok: true, series: { observations: [] } };
+  if (typeof value !== 'object') return { ok: false };
+  const raw = (value as { observations?: unknown }).observations;
+  if (!Array.isArray(raw)) return { ok: false };
+  const parsed = parseProviderUsageSeries(value);
+  if (raw.length > 0 && parsed.observations.length === 0) return { ok: false };
+  return { ok: true, series: parsed };
+}
+
+export async function recordProviderUsageObservation(
+  observation: ProviderUsageObservation
+): Promise<ProviderUsageWriteOutcome> {
+  try {
+    // Read, append and write inside one key transaction. There is a single
+    // producer, but QStash can redeliver, and read-modify-write outside a lock is
+    // last-write-wins: Postgres upserts do not compare, and the file store's lock
+    // begins inside the write, after the read.
+    await withAppStateKeyTransaction(
+      PROVIDER_USAGE_SERIES_SCOPE,
+      PROVIDER_USAGE_SERIES_KEY,
+      async (txn) => {
+        const record = await txn.read<unknown>();
+        const prior = readProviderUsageSeriesForWrite(record?.value);
+        // Abort rather than append onto an empty stand-in for a row we could not
+        // read. The throw rolls the transaction back, so the stored value is left
+        // exactly as found for an operator to inspect.
+        if (!prior.ok) throw new ProviderUsageSeriesUnreadableError();
+        await txn.write(appendProviderUsageObservation(prior.series, observation));
+      }
+    );
+    return 'recorded';
+  } catch (error) {
+    // A COMMIT or ROLLBACK failing AFTER mutation SQL was submitted leaves
+    // durability genuinely unknown — `appStateStore` sets the threshold at
+    // `writeAttempted` precisely because a submitted mutation may have executed
+    // server-side. That uncertainty is REPORTED, not guessed at.
+    //
+    // An earlier version tried to resolve it by rereading and asking whether an
+    // observation with this `at` existed. That was wrong: this module deliberately
+    // permits two observations to share a timestamp, so the reread could find an
+    // EARLIER row and confirm a commit that never happened. Verifying would need a
+    // unique identity per observation, which is more machinery than the honest
+    // answer costs.
+    if (error instanceof ProviderUsageSeriesUnreadableError) return 'unreadable';
+    const uncertain =
+      (error instanceof AppStateTxnFinalizeError || error instanceof AppStateTxnCleanupError) &&
+      error.writeAttempted;
+    return uncertain ? 'indeterminate' : 'not-recorded';
+  }
+}
+
+export async function readProviderUsageSeries(): Promise<ProviderUsageSeries> {
+  const record = await getAppState<unknown>(PROVIDER_USAGE_SERIES_SCOPE, PROVIDER_USAGE_SERIES_KEY);
+  return parseProviderUsageSeries(record?.value);
+}

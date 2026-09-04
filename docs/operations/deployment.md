@@ -31,7 +31,7 @@ Configure secrets in the hosting platform; never commit values.
 | `CFBD_API_KEY` | Required for authorized CFBD schedule, score, rankings, teams/conferences, and game-stats refreshes. |
 | `ODDS_API_KEY` | Required for authorized The Odds API refreshes. |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` | Clerk identity and the platform-admin role. |
-| `CRON_SECRET` | Shared bearer secret for all eight `/api/cron/*` routes. A missing/mismatched value returns `401` before lifecycle or provider work. |
+| `CRON_SECRET` | Shared bearer secret for all nine `/api/cron/*` routes. A missing/mismatched value returns `401` before lifecycle or provider work. |
 | `LEAGUE_AUTH_SECRET` | Required whenever any league uses the private-link password gate; grants no admin role. |
 | `ADMIN_API_TOKEN` | Transitional optional fallback for approved machine/admin API callers. Do not build new flows around it; planned removal belongs to the reviewed commissioner/member authorization work after replacement Clerk scoping exists. |
 
@@ -56,15 +56,16 @@ System Health receipts against the promoted build.
 | Odds | QStash `turfwar-odds-hourly` | Hourly |
 | Schedule maintenance | QStash `turfwar-schedule-weekly` | Tuesdays 12:00 UTC |
 | Rankings | QStash `turfwar-rankings-publication` | 04:00 and 22:00 UTC |
+| CFBD usage sample | QStash `turfwar-usage-sample-6h` | Every 6 hours |
 | Season transition | Vercel Cron | Daily 00:00 UTC |
 | Season rollover | Vercel Cron | Daily 00:00 UTC |
 
-The six QStash jobs are intentionally absent from `vercel.json`; versioned manager scripts own
-their external schedule definitions. All eight routes authenticate with `Bearer ${CRON_SECRET}`.
+The seven QStash jobs are intentionally absent from `vercel.json`; versioned manager scripts own
+their external schedule definitions. All nine routes authenticate with `Bearer ${CRON_SECRET}`.
 The fixed trigger is a delivery ceiling: application policy decides whether an invocation has an
 eligible target and whether provider work is due. Provider-free skips are normal.
 
-Rotate `CRON_SECRET` as one coordinated operation across the Vercel environment and all six QStash
+Rotate `CRON_SECRET` as one coordinated operation across the Vercel environment and all seven QStash
 schedules. Follow runbook §8l; a partially rotated set silently disables whichever jobs still carry
 the old value.
 
@@ -107,7 +108,7 @@ available when automatic jobs are paused.
 - Confirm `getAppStateStorageStatus()` resolves to Postgres and the production database is reachable.
 - Confirm platform-admin pages open for the authorized Clerk account; wrong-role/signed-out access
   fails closed; admin/debug APIs reject unauthenticated requests.
-- Inspect all six QStash schedules and both Vercel Cron entries. Verify their exact URLs, methods,
+- Inspect all seven QStash schedules and both Vercel Cron entries. Verify their exact URLs, methods,
   cadence, retry policy, and shared bearer-secret wiring.
 - Confirm each job's System Health receipt reports the promoted build after its next fixed slot.
 - Verify public data routes serve durable caches without provider calls; run provider-spending checks

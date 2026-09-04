@@ -23,8 +23,8 @@ const detailTriggerClass =
   'shrink-0 whitespace-nowrap text-[11px] text-gray-400 group-open:text-gray-600 dark:text-zinc-500 dark:group-open:text-zinc-300';
 
 /**
- * PLATFORM-086F2G — scheduler delivery + execution: eight ALWAYS-VISIBLE compact
- * rows. Each row is a <details> whose <summary> IS the compact status line
+ * PLATFORM-086F2G — scheduler delivery + execution: one ALWAYS-VISIBLE compact
+ * row per scheduled job. Each row is a <details> whose <summary> IS the compact status line
  * (delivery stoplight + label, execution result, latest invocation time) and a
  * fixed right-aligned "Details" trigger; the forensic <dl> opens as a full-width
  * block beneath without moving the trigger. Delivery and execution stay separate.

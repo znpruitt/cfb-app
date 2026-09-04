@@ -282,9 +282,9 @@ test('all job target shapes persist with exact allowlisted target keys', async (
   );
 });
 
-// The six QStash jobs keep source `qstash`; the two lifecycle jobs write
-// `vercel-cron`; all eight job/target/source combinations validate and persist.
-test('all eight jobs derive the correct source and persist their target shape', async () => {
+// The seven QStash jobs keep source `qstash`; the two lifecycle jobs write
+// `vercel-cron`; all nine job/target/source combinations validate and persist.
+test('all nine jobs derive the correct source and persist their target shape', async () => {
   const inputs: SchedulerExecutionReceiptInput[] = [
     liveScoresInput(),
     liveScoresInput({
@@ -322,6 +322,12 @@ test('all eight jobs derive the correct source and persist their target shape', 
       target: rankingsYearsTarget([{ year: 2026, publicationWindow: null }], 0),
     }),
     liveScoresInput({
+      job: 'usage-sample',
+      result: 'success',
+      reason: 'sample-recorded',
+      target: { kind: 'usage-sample', day: '2026-09-04', recorded: true },
+    }),
+    liveScoresInput({
       job: 'season-transition',
       result: 'success',
       reason: 'season-transitioned',
@@ -357,6 +363,7 @@ test('all eight jobs derive the correct source and persist their target shape', 
     { job: 'odds', source: 'qstash', kind: 'odds' },
     { job: 'schedule-refresh', source: 'qstash', kind: 'schedule-years' },
     { job: 'rankings', source: 'qstash', kind: 'rankings-years' },
+    { job: 'usage-sample', source: 'qstash', kind: 'usage-sample' },
     { job: 'season-transition', source: 'vercel-cron', kind: 'season-transition-years' },
     { job: 'season-rollover', source: 'vercel-cron', kind: 'season-rollover-years' },
   ];
@@ -770,7 +777,7 @@ test('secret canaries and arbitrary attached properties never reach durable stat
 
 // ── F2E2B — exported job list, source helper, and safe read parser ───────────
 
-test('EXTERNAL_SCHEDULER_JOBS is the canonical eight jobs and derives each source', () => {
+test('EXTERNAL_SCHEDULER_JOBS is the canonical nine jobs and derives each source', () => {
   assert.deepEqual(
     [...EXTERNAL_SCHEDULER_JOBS],
     [
@@ -782,6 +789,7 @@ test('EXTERNAL_SCHEDULER_JOBS is the canonical eight jobs and derives each sourc
       'rankings',
       'season-transition',
       'season-rollover',
+      'usage-sample',
     ]
   );
   for (const job of EXTERNAL_SCHEDULER_JOBS) {
@@ -889,5 +897,47 @@ test('PLATFORM-089: the odds cadence set admits `early` and still rejects anythi
       null,
       `cadence ${JSON.stringify(cadence)} must be rejected`
     );
+  }
+});
+
+test('a usage-sample receipt REJECTS a malformed day and a recorded run with no day', () => {
+  // Codex review (P2). The validator accepted any string, so `day: ''` or
+  // arbitrary text was rendered as scheduler health metadata instead of the
+  // record reporting `invalid` — while every sibling case in the switch checks
+  // enum membership or numeric shape. `recorded: true` also implies a day: the
+  // writer sets `day` before it ever attempts the write.
+  const now = Date.now();
+  const built = receiptOf(
+    liveScoresInput({
+      job: 'usage-sample',
+      result: 'success',
+      reason: 'sample-recorded',
+      providerCallAttempted: false,
+      startedAtMs: now - 60_000,
+      target: { kind: 'usage-sample', day: '2026-09-04', recorded: true },
+    })
+  );
+  const parse = (target: unknown): unknown =>
+    parseSchedulerExecutionReceipt({ ...built, target }, 'usage-sample', now);
+
+  // Positive control FIRST: a canonical record parses, so the rejections below
+  // cannot be passing because the parser refuses every usage-sample receipt.
+  assert.ok(parse({ kind: 'usage-sample', day: '2026-09-04', recorded: true }), 'canonical day');
+  assert.ok(parse({ kind: 'usage-sample', day: null, recorded: false }), 'un-recorded, no day');
+
+  // Tri-state: `null` is durability-unknown and must parse, because rounding it to
+  // `false` is the very claim the write path refuses to make.
+  assert.ok(parse({ kind: 'usage-sample', day: '2026-09-04', recorded: null }), 'unknown parses');
+
+  for (const target of [
+    { kind: 'usage-sample', day: '', recorded: true },
+    { kind: 'usage-sample', day: null, recorded: null },
+    { kind: 'usage-sample', day: 'yesterday', recorded: true },
+    { kind: 'usage-sample', day: '2026-9-4', recorded: true },
+    { kind: 'usage-sample', day: '2026-13-40', recorded: true },
+    { kind: 'usage-sample', day: '2026-09-04T00:00:00.000Z', recorded: true },
+    { kind: 'usage-sample', day: null, recorded: true },
+  ]) {
+    assert.equal(parse(target), null, `rejected: ${JSON.stringify(target)}`);
   }
 });

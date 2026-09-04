@@ -51,6 +51,67 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-127-RETAIN-PROVIDER-USAGE-SERIES-v1
+
+- Purpose: retain the CFBD quota figures the app already probes, because `/info` reports the CURRENT
+  PERIOD only and CFBD exposes no history — so a calendar-month rollover destroys the prior month's
+  burn permanently, and no second source counts provider calls.
+- Scope: a new ungated QStash cron (`turfwar-usage-sample-6h` → `GET /api/cron/usage-sample`, every
+  6 hours) plus its schedule manager, a durable observation log at `app_state` scope `provider-usage`
+  key `cfbd-observations`, a scheduler receipt and cron execution log matching the sibling jobs, and
+  `usage-sample` added to the closed `EXTERNAL_SCHEDULER_JOBS` contract. Observation-only: nothing in
+  `src/` reads the log, and it must never become an input to the game-stats quota gate, which needs a
+  FRESH reading.
+- Outcome: the store holds raw observations — `{ at, remaining, limit }` per probe, sorted, bounded at
+  1,700 entries — and derives nothing at write time. An earlier accumulating design (one entry per UTC
+  day carrying `usedMax`/`usedLatest`/`periodSequence`) was rewritten after five review rounds each
+  found a defect in the same write-time decisions; the rewrite removed 767 lines. `limit` is context
+  only, never subtracted, because `used` is `limit − remaining` and a patron-tier change therefore
+  moves it with no calls made. A quota-period boundary is now read off the series, where `remaining`
+  rises. A second opportunistic producer on the game-stats probe was built and then removed: one
+  durable row with two writers produced lost updates, clock skew reading as a reset, and out-of-order
+  commits.
+- Review / verification: FOUR paired review rounds. Earlier rounds were reviewed at `c057eee6`,
+  `26638026` and `0ceb2121`; `c057eee6` is no longer an ancestor of this branch — the rebase onto
+  `main` after Item 128 rewrote it as `cda2bc88` — so it is recorded as history, not as the verified
+  commit. The FINAL reviewed commit is the one that merges. Findings across the rounds: an
+  availability gate keyed on the derived `used`; a receipt asserting a definite loss on an uncertain
+  commit; a coherence check that reintroduced the first defect through a fabricated Tier 0 limit; a
+  reread that could confirm a commit that never happened; and a tolerant reader on the WRITE path
+  that would have destroyed the whole log on one unparseable row. Each was remediated and
+  mutation-proven. Gate evidence is stated against the merged commit below, each command run
+  separately with its own exit code.
+- Second remediation round (owner-authorized): the confirming passes returned two Codex P2s and one
+  `/code-review` finding, none caused by the first round — a receipt that asserted a definite loss
+  when a lost COMMIT acknowledgement left durability unknown, a rotation-checklist step demanding
+  "no provider attempt" from a deliberately ungated job, and a writer that ignored the coherence
+  verdict the route computed three lines above it. The write now resolves the uncertainty with a
+  reread rather than reporting it, `buildProviderUsageObservation` is the single place a reading
+  becomes an observation (so gate and stored value cannot disagree), and runbook step 7 exempts
+  `usage-sample` with §8m's proof in its place.
+- Re-derivation round (owner-authorized, after the second confirming pass): that pass showed the
+  previous round had been net-negative — its coherence check REINTRODUCED the availability defect it
+  followed, because `cfbdCanonicalLimitForTier` fabricates Tier 0's 1,000 for any unrecognised tier,
+  so a true `remaining` was discarded and `partial` filed indefinitely; and its reread could confirm
+  a commit that never happened, since this module deliberately permits two observations to share a
+  timestamp. Both were DELETED rather than guarded: nothing derives from `limit`, and an uncertain
+  write is reported rather than resolved. The tri-state now reaches the reader — `recorded: boolean |
+  null` through response, receipt target, validator and UI, which renders a third distinct
+  "durability unknown". Stale eight/six-job counts corrected in `operations/deployment.md`,
+  `architecture/admin-control-plane.md` and `lifecycleCronExecutionLog.ts`, and two ninth-job
+  coverage gaps closed (`sections.test.tsx` asserted eight labels; the receipt enumeration skipped
+  `usage-sample`).
+- `/info` billing: CFBD's developer confirmed on 2026-09-04 that `/info` and `/info/usage` do not
+  count against the allowance. Every place this branch asserted it now cites that source.
+  `quotaPolicy.ts`'s "verified empirically during the operator manual proof" parenthetical is stale
+  as a result — left untouched as out of scope, and filed.
+- Open follow-ups, deliberately NOT folded in: the route has no outer `catch`, diverging from sibling
+  cron routes (no reachable throw today); and `usage-sample`'s delivery grace equals exactly one cron
+  period where every sibling uses two or more, so clock skew could file a spurious `late`.
+- Status: Complete and reviewed; NOT yet merged, and the QStash schedule is NOT yet provisioned —
+  `manage:usage-sample-schedule upsert --apply` requires the owner's `QSTASH_TOKEN`. Until it runs,
+  System Health correctly reports `usage-sample` with a scheduler-delivery warning.
+
 ### PLATFORM-128-LIVE-POLL-TEAM-CATALOG-v1
 
 - Purpose: stop every browser live-score poll from refetching the full team catalog it already holds

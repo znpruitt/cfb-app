@@ -1,0 +1,349 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import {
+  __resetAppStateForTests,
+  __setAppStateWriteFailureForTests,
+  getAppState,
+  setAppState,
+} from '@/lib/server/appStateStore';
+import {
+  PROVIDER_USAGE_SERIES_KEY,
+  PROVIDER_USAGE_SERIES_SCOPE,
+  readProviderUsageSeries,
+} from '@/lib/server/providerUsageSeries';
+import {
+  __setSchedulerReceiptDeferrerForTests,
+  SCHEDULER_EXECUTION_STATUS_SCOPE,
+  type SchedulerExecutionReceipt,
+} from '@/lib/server/schedulerExecutionStatus';
+
+import { GET } from '../route';
+
+const ORIGINAL_FETCH = globalThis.fetch;
+const ORIGINAL_SECRET = process.env.CRON_SECRET;
+const ORIGINAL_KEY = process.env.CFBD_API_KEY;
+
+// `__resetAppStateForTests` clears pools and test seams but NOT the backing
+// file, so durable rows survive between tests in this file. Clear the series
+// explicitly or each test inherits the previous one's observations.
+async function reset(): Promise<void> {
+  globalThis.fetch = ORIGINAL_FETCH;
+  process.env.CRON_SECRET = 'test-secret';
+  process.env.CFBD_API_KEY = 'test-key';
+  __resetAppStateForTests();
+  await setAppState(PROVIDER_USAGE_SERIES_SCOPE, PROVIDER_USAGE_SERIES_KEY, { observations: [] });
+  // The receipt key persists the same way; a stale one from the previous test
+  // would make "an unauthenticated run files NO receipt" pass or fail for the
+  // wrong reason.
+  await setAppState(SCHEDULER_EXECUTION_STATUS_SCOPE, 'usage-sample', null);
+}
+
+// The receipt is persisted through Next.js `after`; the deferrer seam is how
+// every other cron route's tests drive it synchronously.
+function installReceiptDeferrer(): { flush: () => Promise<void>; restore: () => void } {
+  const callbacks: Array<() => Promise<void>> = [];
+  __setSchedulerReceiptDeferrerForTests((callback) => callbacks.push(callback));
+  return {
+    flush: async () => {
+      while (callbacks.length > 0) await callbacks.shift()!();
+    },
+    restore: () => __setSchedulerReceiptDeferrerForTests(null),
+  };
+}
+
+async function readUsageSampleReceipt(): Promise<SchedulerExecutionReceipt | null> {
+  return (
+    (await getAppState<SchedulerExecutionReceipt>(SCHEDULER_EXECUTION_STATUS_SCOPE, 'usage-sample'))
+      ?.value ?? null
+  );
+}
+
+function authed(): Request {
+  return new Request('https://turfwar.games/api/cron/usage-sample', {
+    headers: { authorization: 'Bearer test-secret' },
+  });
+}
+
+function stubInfo(body: unknown, seen?: string[]): void {
+  globalThis.fetch = (async (input: URL | string) => {
+    seen?.push(typeof input === 'string' ? input : input.toString());
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+}
+
+test('an authenticated run records one sample from /info', async () => {
+  await reset();
+  const seen: string[] = [];
+  stubInfo({ patronLevel: 1, remainingCalls: 4600 }, seen);
+
+  const res = await GET(authed());
+  const body = (await res.json()) as { recorded: boolean; day: string | null };
+
+  assert.equal(res.status, 200);
+  assert.equal(body.recorded, true);
+  assert.equal(seen.length, 1, 'exactly one outbound request — the unbilled /info probe');
+  assert.match(seen[0]!, /\/info/, 'and it is the info endpoint, not a billed dataset call');
+
+  const series = await readProviderUsageSeries();
+  assert.equal(series.observations.length, 1);
+  assert.equal(series.observations[0]?.remaining, 4600, 'the raw provider-reported count');
+  assert.equal(series.observations[0]?.limit, 5000, 'Tier 1 resolves the canonical limit');
+  // NOT `startsWith(body.day ?? '')` — the reviewer mutation-proved that vacuous:
+  // with `day: null` it becomes `startsWith('')`, which is unconditionally true.
+  // Assert the day exists FIRST, then that the observation actually falls on it.
+  assert.match(body.day ?? '', /^\d{4}-\d{2}-\d{2}$/, 'the response reports a real day');
+  assert.ok(
+    series.observations[0]?.at.startsWith(body.day!),
+    'and the observation falls on the day the receipt reports'
+  );
+});
+
+test('it is UNGATED — no season, target, or league state can suppress the sample', async () => {
+  // The whole reason this route exists rather than riding an existing cron. The
+  // durable store is empty: no leagues, no schedule, no polling target, no
+  // season context. Every other observation point in the app would produce
+  // nothing here.
+  await reset();
+  stubInfo({ patronLevel: 1, remainingCalls: 123 });
+
+  const res = await GET(authed());
+
+  assert.equal(res.status, 200);
+  assert.equal((await res.json()).recorded, true, 'a sample is taken with no app state at all');
+  assert.equal((await readProviderUsageSeries()).observations[0]?.remaining, 123);
+});
+
+test('an unauthenticated request records nothing and never calls the provider', async () => {
+  await reset();
+  const seen: string[] = [];
+  stubInfo({ patronLevel: 1, remainingCalls: 4600 }, seen);
+
+  const res = await GET(new Request('https://turfwar.games/api/cron/usage-sample'));
+
+  assert.equal(res.status, 401);
+  assert.equal(seen.length, 0, 'no outbound request before authentication');
+  assert.equal((await readProviderUsageSeries()).observations.length, 0);
+});
+
+test('an unavailable probe reports PARTIAL, so a silent outage is visible', async () => {
+  // System Health raises issues only for failure and partial. Reporting success
+  // here would let a rotated-away CFBD_API_KEY or a multi-day provider outage
+  // produce an unbroken run of all-null samples behind a green row.
+  await reset();
+  globalThis.fetch = (async () => {
+    throw new Error('network down');
+  }) as typeof fetch;
+
+  const receipts = installReceiptDeferrer();
+  await GET(authed());
+  await receipts.flush();
+  receipts.restore();
+
+  const receipt = await readUsageSampleReceipt();
+  assert.equal(receipt?.result, 'partial', 'not success — the observation is empty');
+  assert.equal(receipt?.reason, 'sample-recorded-unavailable');
+});
+
+test('an unreachable provider still records a truthful all-null observation', async () => {
+  // "We looked and got nothing" is a fact worth keeping — a GAP and a NULL are
+  // different claims, and only one of them says the sampler ran.
+  await reset();
+  globalThis.fetch = (async () => {
+    throw new Error('network down');
+  }) as typeof fetch;
+
+  const res = await GET(authed());
+
+  assert.equal(res.status, 200, 'observation-only: a provider outage is not a cron failure');
+  const series = await readProviderUsageSeries();
+  assert.equal(series.observations.length, 1, 'the attempt is still recorded');
+  assert.equal(series.observations[0]?.remaining, null, 'and it is null, never coerced to 0');
+});
+
+test('a later failed probe cannot destroy an earlier usable reading', async () => {
+  // Under the previous accumulating design this needed a usability ranking to
+  // decide which reading "won" the day. An append-only log has no such decision:
+  // both are kept, and a reader sees a good reading followed by a failed probe —
+  // which is more information than either the ranking or an overwrite preserved.
+  await reset();
+  stubInfo({ patronLevel: 1, remainingCalls: 4600 });
+  await GET(authed());
+
+  globalThis.fetch = (async () => {
+    throw new Error('network down');
+  }) as typeof fetch;
+  await GET(authed());
+
+  const series = await readProviderUsageSeries();
+  assert.equal(series.observations.length, 2, 'both the reading and the failure are recorded');
+  assert.equal(series.observations[0]?.remaining, 4600, 'the usable reading survived intact');
+  assert.equal(series.observations[1]?.remaining, null, 'and the failed probe is visible as such');
+});
+
+test('an authenticated run files a scheduler receipt like every other cron', async () => {
+  // Item 126's gap, closed at creation rather than filed as a follow-up: without
+  // this, "did the sampler run" would be unanswerable from System Health after
+  // Vercel's runtime logs expire.
+  await reset();
+  stubInfo({ patronLevel: 1, remainingCalls: 4600 });
+
+  const receipts = installReceiptDeferrer();
+  const res = await GET(authed());
+  await receipts.flush();
+  receipts.restore();
+
+  const receipt = await readUsageSampleReceipt();
+  assert.ok(receipt, 'a receipt is filed for an authenticated run');
+  assert.equal(receipt.result, 'success');
+  assert.equal(receipt.reason, 'sample-recorded');
+  assert.equal(
+    receipt.providerCallAttempted,
+    false,
+    '/info is unbilled — this job never claims provider work'
+  );
+  // Asserted against the response body's day, NOT against the receipt's own field
+  // — an earlier version compared `target.day` with itself, so a route that filed
+  // `day: null` on a successful run passed. The body comes from THIS run's own
+  // response rather than a second GET: two calls straddling 00:00 UTC would have
+  // failed the comparison for a reason unrelated to the code under test.
+  const body = (await res.json()) as { day: string | null };
+  assert.deepEqual(receipt.target, {
+    kind: 'usage-sample',
+    day: body.day,
+    recorded: true,
+  });
+  assert.ok(body.day, 'and the day is a real value, not null');
+});
+
+test('an unauthenticated run files NO receipt', async () => {
+  // Identity is created only after authentication, so a rejected caller cannot
+  // create or advance a receipt.
+  await reset();
+  stubInfo({ patronLevel: 1, remainingCalls: 4600 });
+
+  const receipts = installReceiptDeferrer();
+  await GET(new Request('https://turfwar.games/api/cron/usage-sample'));
+  await receipts.flush();
+  receipts.restore();
+
+  assert.equal(await readUsageSampleReceipt(), null);
+});
+
+test('a failed durable write is a no-op with a stable reason, not a failure', async () => {
+  await reset();
+  stubInfo({ patronLevel: 1, remainingCalls: 4600 });
+  __setAppStateWriteFailureForTests(new Error('durable down'), PROVIDER_USAGE_SERIES_SCOPE);
+
+  const receipts = installReceiptDeferrer();
+  const res = await GET(authed());
+  __setAppStateWriteFailureForTests(null);
+  await receipts.flush();
+  receipts.restore();
+
+  assert.equal(res.status, 200, 'observation-only: a lost sample is not a cron failure');
+  const receipt = await readUsageSampleReceipt();
+  assert.equal(receipt?.result, 'partial', 'visible to System Health, which ignores no-op');
+  assert.equal(receipt?.reason, 'sample-write-failed');
+});
+
+test('a usable reading with no patronLevel files SUCCESS, not a standing warning', async () => {
+  // Review finding (MEDIUM). `usageAvailable` gated on `used`, which
+  // `resolveCfbdUsage` DERIVES as `limit − remaining` and returns null whenever
+  // `patronLevel` is absent or outside the known tiers. The series exists to store
+  // `remaining`, and records it fine here — but the receipt said `partial`, so
+  // `schedulerExecutionIssues` raised `scheduler-execution-partial` every six
+  // hours forever, burning the alarm reserved for a rotated key or a real outage.
+  await reset();
+  stubInfo({ remainingCalls: 4600 });
+
+  const receipts = installReceiptDeferrer();
+  await GET(authed());
+  await receipts.flush();
+  receipts.restore();
+
+  const series = await readProviderUsageSeries();
+  assert.equal(series.observations[0]?.remaining, 4600, 'the observation is usable and recorded');
+  assert.equal(series.observations[0]?.limit, null, 'with no tier there is no limit to record');
+
+  const receipt = await readUsageSampleReceipt();
+  assert.equal(receipt?.result, 'success', 'a usable observation is not a partial run');
+  assert.equal(receipt?.reason, 'sample-recorded');
+});
+
+test('an UNKNOWN patron tier files SUCCESS and keeps the count', async () => {
+  // REGRESSION, end to end. Tier 7 is outside `CFBD_LIMIT_BY_TIER`, so
+  // `cfbdCanonicalLimitForTier` fabricates Tier 0's 1,000. A coherence check
+  // against that invented ceiling discarded a true 4,600 and filed `partial`
+  // every six hours indefinitely.
+  await reset();
+  stubInfo({ patronLevel: 7, remainingCalls: 4600 });
+
+  const receipts = installReceiptDeferrer();
+  await GET(authed());
+  await receipts.flush();
+  receipts.restore();
+
+  const series = await readProviderUsageSeries();
+  assert.equal(series.observations[0]?.remaining, 4600, 'the reading survives an unknown tier');
+
+  const receipt = await readUsageSampleReceipt();
+  assert.equal(receipt?.result, 'success', 'and it is a success, not a standing warning');
+  assert.equal(receipt?.reason, 'sample-recorded');
+});
+
+test('a corrupt series is left INTACT and the run reports it, rather than wiping it', async () => {
+  // End to end, because the unit guard only matters if the write path uses it.
+  // Fourteen months of readings sit behind one durable row that CFBD cannot
+  // reproduce; the tolerant reader would have handed the append an empty series
+  // and the run would have reported success over the wreckage.
+  await reset();
+  const corrupt = { observations: 'not an array' };
+  await setAppState(PROVIDER_USAGE_SERIES_SCOPE, PROVIDER_USAGE_SERIES_KEY, corrupt);
+  stubInfo({ patronLevel: 1, remainingCalls: 4600 });
+
+  const receipts = installReceiptDeferrer();
+  const res = await GET(authed());
+  await receipts.flush();
+  receipts.restore();
+
+  assert.equal(res.status, 200, 'observation-only: a corrupt row is not a cron failure');
+  const stored = await getAppState<unknown>(PROVIDER_USAGE_SERIES_SCOPE, PROVIDER_USAGE_SERIES_KEY);
+  assert.deepEqual(stored?.value, corrupt, 'the stored row is byte-for-byte as it was found');
+
+  const receipt = await readUsageSampleReceipt();
+  assert.equal(receipt?.result, 'partial', 'and the refusal is visible to System Health');
+  assert.equal(receipt?.reason, 'series-unreadable');
+  assert.equal(receipt?.target.kind === 'usage-sample' && receipt.target.recorded, false);
+});
+
+test('POSITIVE CONTROL: a VALID prior series is appended to, not refused', async () => {
+  // Proves the guard is not simply refusing everything — which would stop the
+  // sampler permanently and look identical from the receipt alone.
+  await reset();
+  await setAppState(PROVIDER_USAGE_SERIES_SCOPE, PROVIDER_USAGE_SERIES_KEY, {
+    observations: [
+      { at: '2026-09-01T00:00:00.000Z', patronLevel: 1, remaining: 4900, limit: 5000 },
+    ],
+  });
+  stubInfo({ patronLevel: 1, remainingCalls: 4600 });
+
+  await GET(authed());
+
+  const series = await readProviderUsageSeries();
+  assert.equal(series.observations.length, 2, 'the prior reading survives and the new one lands');
+  assert.equal(series.observations[0]?.remaining, 4900);
+  assert.equal(series.observations[1]?.remaining, 4600);
+});
+
+test('teardown restores globals', () => {
+  globalThis.fetch = ORIGINAL_FETCH;
+  if (ORIGINAL_SECRET === undefined) delete process.env.CRON_SECRET;
+  else process.env.CRON_SECRET = ORIGINAL_SECRET;
+  if (ORIGINAL_KEY === undefined) delete process.env.CFBD_API_KEY;
+  else process.env.CFBD_API_KEY = ORIGINAL_KEY;
+  assert.ok(true);
+});

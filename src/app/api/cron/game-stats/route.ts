@@ -283,6 +283,16 @@ export async function GET(req: Request) {
       // burst of refreshes reuse pre-spend remaining counts.
       const usage = await fetchCfbdUsage({ fresh: true });
       usageSnapshot = { remainingCalls: usage.remaining, monthlyLimit: usage.limit };
+      // Item 127 deliberately does NOT retain this observation. The probe stays —
+      // `evaluateAutomationQuota` below is a spend gate and needs a FRESH reading,
+      // and the series is observation-only and must never become a gate input.
+      // But persisting from here made a second writer of one durable row, and that
+      // alone produced lost updates, cross-instance clock skew reading as a quota
+      // reset, and out-of-order commits in both directions — four fixes across two
+      // review rounds, all defending a hazard that exists only because a second
+      // producer exists. `/api/cron/usage-sample` samples every six hours
+      // unconditionally, which answers what a day cost; 15-minute resolution
+      // inside game windows was resolution no consumer asked for.
     } catch {
       usageSnapshot = { remainingCalls: null };
     }

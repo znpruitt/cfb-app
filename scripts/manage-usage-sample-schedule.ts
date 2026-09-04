@@ -1,34 +1,38 @@
-// Operator CLI for the EXTERNAL Odds trigger schedule (PLATFORM-086C2).
+// Operator CLI for the EXTERNAL CFBD usage-sample schedule (Item 127).
 //
-// The hourly Odds poll runs from an external QStash schedule (Vercel's Hobby plan
-// rejects sub-daily cron expressions at deploy time, and the Odds cadence is
-// application-owned regardless) that calls the route
+// Runs from an external QStash schedule — Vercel's Hobby plan rejects sub-daily
+// cron expressions at deploy time, and this sampler is deliberately sub-daily —
+// calling the route
 //
-//   GET https://turfwar.games/api/cron/odds
+//   GET https://turfwar.games/api/cron/usage-sample
 //     Authorization: Bearer <CRON_SECRET>   (forwarded by QStash)
 //
-// every hour. The application's pure polling policy — not the schedule — owns the
-// 6-hour baseline / 2-hour America/Chicago pregame cadence; the hourly trigger is
-// only the heartbeat that lets the policy decide whether a provider request is due.
+// every six hours. The route reads CFBD `/info` and appends one bounded daily
+// entry to the durable usage series. `/info` is NOT a billed CFBD call.
 //
-// All schedule policy — the fixed message contract, inspect-first/apply-gated
-// safety, fail-closed behavior, provider-side Authorization redaction, exit codes,
-// and the guarantee that only QStash management endpoints are ever hit — lives in
-// the shared, contract-parameterized `scripts/lib/qstashSchedule.ts`; this file
-// only binds the Odds CONTRACT into it. It carries NO QStash runtime dependency
-// (plain fetch), NEVER deletes, and treats the schedule's identity/destination/
-// message contract as FIXED constants.
+// WHY IT EXISTS AND WHY IT IS ITS OWN SCHEDULE. `/info` reports usage for the
+// CURRENT PERIOD only, the period is calendar-monthly, and CFBD exposes no
+// history — so a month boundary destroys the previous month's burn permanently.
+// Every OTHER observation point in the app is conditional: the game-stats probe
+// sits behind an exact-target gate and yields nothing on a quiet day, and
+// System Health only reads on an admin page view. A series built from those
+// samples the expensive days and misses the cheap ones, which is exactly
+// backwards for a question of the form "what does a Saturday cost by
+// comparison".
 //
-// This CLI PROVISIONS/controls the schedule; it does NOT itself activate Odds
-// automation. Activation (creating the schedule against production + opening the
-// gates) is the separate, operator-run post-merge step in the deployment runbook
-// (§8g); until then the route stays dormant and no schedule exists.
+// Attaching it to `season-transition` was tried and reverted: that route holds a
+// deliberate guarantee that a refused run makes ZERO outbound provider requests,
+// pinned by its own tests. This schedule exists so that guarantee survives.
 //
-// Usage:
-//   tsx scripts/manage-odds-schedule.ts [inspect]        # READ-ONLY: read back + verify the contract
-//   tsx scripts/manage-odds-schedule.ts upsert --apply   # create/overwrite the fixed schedule
-//   tsx scripts/manage-odds-schedule.ts pause  --apply   # pause deliveries
-//   tsx scripts/manage-odds-schedule.ts resume --apply   # resume deliveries
+// WHY SIX-HOURLY. `used` is cumulative within the period, so the reading that
+// matters most is the last one before a reset, and whatever is missed there is
+// gone. Daily sampling bounds that tail loss at 24 hours; six-hourly bounds it
+// at six, for an unbilled call.
+//
+//   tsx scripts/manage-usage-sample-schedule.ts [inspect]        # READ-ONLY: read back + verify the contract
+//   tsx scripts/manage-usage-sample-schedule.ts upsert --apply   # create/overwrite the fixed schedule
+//   tsx scripts/manage-usage-sample-schedule.ts pause  --apply   # pause deliveries
+//   tsx scripts/manage-usage-sample-schedule.ts resume --apply   # resume deliveries
 //
 // Default execution (and any action WITHOUT `--apply`) is read-only.
 //
@@ -36,8 +40,8 @@
 // forwards to the route) are read from the environment and are NEVER printed.
 // `QSTASH_TOKEN` is management-only and must live outside Vercel and the repo.
 // Rotating `CRON_SECRET` requires pausing then re-upserting ALL SEVEN schedules
-// (game-stats, live-scores, Team records, Odds, weekly schedule, rankings,
-// usage sample) before the new
+// (game-stats, live-scores, Team records, Odds, weekly schedule, rankings, usage sample)
+// before the new
 // secret is re-enabled on the routes.
 
 import { pathToFileURL } from 'node:url';
@@ -63,17 +67,17 @@ import {
 } from './lib/qstashSchedule.ts';
 
 // === The FIXED schedule contract (never operator-tunable) ===
-export const SCHEDULE_ID = 'turfwar-odds-hourly';
-export const DESTINATION = 'https://turfwar.games/api/cron/odds';
-export const CRON = '0 * * * *';
+export const SCHEDULE_ID = 'turfwar-usage-sample-6h';
+export const DESTINATION = 'https://turfwar.games/api/cron/usage-sample';
+export const CRON = '0 */6 * * *';
 export const METHOD = 'GET';
 export const RETRIES = 0;
 export { DEFAULT_QSTASH_BASE };
 export type { FetchLike, RunDeps, ScheduleReadback } from './lib/qstashSchedule.ts';
 
 const USAGE =
-  'usage: tsx scripts/manage-odds-schedule.ts [inspect]\n' +
-  '       tsx scripts/manage-odds-schedule.ts <upsert|pause|resume> --apply';
+  'usage: tsx scripts/manage-usage-sample-schedule.ts [inspect]\n' +
+  '       tsx scripts/manage-usage-sample-schedule.ts <upsert|pause|resume> --apply';
 
 const CONTRACT: ScheduleContract = {
   scheduleId: SCHEDULE_ID,
@@ -82,15 +86,15 @@ const CONTRACT: ScheduleContract = {
   method: METHOD,
   retries: RETRIES,
   usage: USAGE,
-  debugEnvVar: 'MANAGE_ODDS_SCHEDULE_DEBUG',
-  failureTag: 'manage-odds-schedule-failed',
-  authProofRef: '§8g step 5',
+  debugEnvVar: 'MANAGE_USAGE_SAMPLE_SCHEDULE_DEBUG',
+  failureTag: 'manage-usage-sample-schedule-failed',
+  authProofRef: '§8m',
 };
 
 // Contract-independent policy is re-exported straight through.
 export { parseScheduleArgs, redactHeaderNames, resolveQstashBase, scrubSecrets };
 
-// Contract-dependent helpers, bound to the Odds contract.
+// Contract-dependent helpers, bound to the usage-sample contract.
 export const buildUpsertRequest = (params: {
   base: string;
   qstashToken: string;

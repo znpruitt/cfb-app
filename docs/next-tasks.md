@@ -104,9 +104,10 @@ the UI spine do not touch each other, so they can run concurrently:
   (`schedule/cfbdSchedule.ts`, `schedule.ts`, `schedulePostseasonHelpers.ts` — pipeline, not
   components), and Items 84, 86, 111. **Item 123 shipped 2026-09-04** via PR #565.
 - **Dated, and it beats a deadline:** **Item 127** (retain the CFBD usage already probed) supersedes
-  Item 94's manual 2026-09-30 read if it ships first. It touches the game-stats and season-transition
-  cron routes, so it is NOT parallel-safe against the server track once Item 102 starts narrowing
-  those crons — take it before 102, or accept the conflict.
+  Item 94's manual 2026-09-30 read if it ships first. As shipped it is a STANDALONE cron route: it
+  touches `game-stats/route.ts` with a comment only and does not touch `season-transition` at all, so
+  it is parallel-safe against the server track. An earlier plan had it riding those two crons, which
+  is where the "take it before 102" warning came from; that conflict no longer exists.
 
 **Two collision risks are NOT in source.** `preview` is Claude's alone (`AGENTS.md` → Preview branch),
 so a parallel agent must never push it — that decision exists because parallel worktrees made a single
@@ -597,11 +598,13 @@ request rather than two.
 
 - Backlog slug: `PLATFORM-POLL-REUSE-TEAM-CATALOG-v1`
 
-### Item 127 — retain the CFBD usage the app already probes, and sample it daily
+### Item 127 — sample CFBD usage on its own schedule and retain a daily series
 
-**Filed 2026-09-04. Small, free, and it supersedes Item 94's manual read if it ships before
-2026-09-30.** Owner question: "why not just daily logging? it's a free call." Checked — it is cheaper
-than that, because **there is no new call**.
+**Filed 2026-09-04. Supersedes Item 94's manual read if it ships before 2026-09-30.** Owner question:
+"why not just daily logging? it's a free call." `/info` is unbilled — confirmed by CFBD's developer 2026-09-04, so the sampling costs no
+CFBD quota — but it is a dedicated route on its own six-hourly QStash schedule, not a free ride on an
+existing job. Retaining the observation the game-stats probe already makes was built and removed: one
+durable row with two writers cost more than the resolution it bought.
 
 **The observation is already being made and discarded.** `src/app/api/cron/game-stats/route.ts:284`
 calls `fetchCfbdUsage({ fresh: true })` — the `/info` quota probe, explicitly not a billed provider
@@ -609,42 +612,18 @@ call — reads `remaining` and `limit` for the quota-reserve gate, and keeps not
 `systemHealth.ts:208` and `/api/admin/usage` normalize quota too, but on demand for display, not as a
 record. This is Item 126's shape in a different place: an observation made, not retained.
 
-**CORRECTION 2026-09-04 — an earlier draft of this item said "96 probes a day". That is false.** It
-was `*/15 × 24h`, a ceiling computed without reading the gate. The probe sits behind THREE early
-returns (`route.ts:240-262`): paused-or-disabled, context-unavailable, and — decisively —
-`resolution.target === null`, commented "No exact target → no scoped attempt, **no usage check**, no
-provider call". **The probe fires only when a polling target exists inside the window.** On a quiet
-Tuesday there is no target, no probe, and no sample.
+**The probe is gated, so it is not a daily source.** It sits behind three early returns
+(`route.ts:240-262`), the decisive one being `resolution.target === null`, commented "No exact target
+→ no scoped attempt, **no usage check**, no provider call". It fires only when a polling target
+exists inside the window, so a quiet Tuesday produces no sample — which is precisely the day the
+series needs in order to say what a Saturday costs by comparison.
 
-**What to keep.** One bounded durable record per calendar day — `used`, `remaining`, `limit`,
-`patronLevel`, `observedAt` — overwriting within the day so the store holds at most one row per day,
-with an explicit age or count bound. Zero provider cost, no new cron, no new invocation: a durable
-write on a code path that already runs.
-
-**Why daily shape beats a monthly scalar.** `/info` reports the current period only and CFBD exposes
-no history (`providerQuota.ts:41-43`), which is why Item 94 has a hard 2026-09-30 deadline and loses
-September entirely if missed. A retained daily series removes that cliff **and** answers the question
-the consumers actually have: Item 95 portion 2 and Item 63 both ask "how often can we afford to ask
-_during these windows_", which needs to know what a Saturday costs versus a Tuesday. A single
-end-of-month total cannot say.
-
-**So the sampler must be `season-transition`, not game-stats.** `season-transition` runs
-`0 0 * * *` in `vercel.json`, unconditionally, every day of the year — that is the daily series. It
-does not currently call `/info`, so this adds one unbilled request to one daily invocation.
-game-stats stays an opportunistic bonus that tightens resolution during game windows, never the
-primary.
-
-**Why the inversion matters, not just the coverage.** A game-stats-only series would sample exactly
-the expensive days and none of the quiet ones — biased toward the busiest hours, and unable to answer
-"what does a Tuesday cost", which is the question this item exists for. **Item 102 makes it worse**:
-narrowing that cron thins the sample at the same moment it thins the job.
-
-**One property makes gaps survivable.** `used` is cumulative within the period, so ANY two samples
-give the burn between them — cadence sets resolution, not correctness. But two hazards remain, and
-both are why the unconditional daily sample is required: a quiet-day gap cannot be interpolated
-(cumulative says nothing about which day inside the gap spent it), and if the last sample before a
-month reset falls on a game day, the tail is lost — reintroducing exactly the Item 94 cliff this item
-removes.
+**Why a dedicated route rather than an existing cron.** `season-transition` is the only cron that
+runs unconditionally every day, but it holds a deliberate guarantee that a refused run makes ZERO
+outbound provider requests, pinned by its own tests. Carrying an unconditional probe there would
+weaken a lifecycle route's guarantee to serve another concern's bookkeeping. A route whose only
+contract is "one unbilled probe per run" violates nothing, and can also sample more often than daily
+— which bounds the month-boundary tail loss that daily sampling cannot.
 
 **Acceptance boundary:** after a month of running, the store alone answers "what did we burn in
 September, and on which days" without a manual read, and its size is bounded by a stated rule rather
@@ -2978,8 +2957,9 @@ said October; the heading was the error. Miss the date and the answer slips a fu
 with nothing indicating the number was lost.
 
 **Better than one reading: sample it — now filed as Item 127.** The app already probes `/info` on the
-game-stats cron and discards the result; Item 127 retains it and adds an unconditional daily sample
-on `season-transition`, which needs no new cron and one unbilled request per day. **If Item 127 ships before 2026-09-30 it supersedes this manual read**, and
+game-stats cron for its spend gate and discards the result. Item 127 does not retain that one — a
+second writer on one durable row proved to cost more than the resolution it bought — and instead adds
+an unconditional sample on its own six-hourly QStash schedule, four unbilled `/info` requests a day. **If Item 127 ships before 2026-09-30 it supersedes this manual read**, and
 removes the cliff where missing one date costs a month. Until then this item stands as the fallback.
 
 **Gates TWO decisions, not one — noted 2026-09-04.** Item 95 portion 2 has always been gated on this

@@ -108,6 +108,7 @@ const SCHEDULER_JOB_LABELS: Record<ExternalSchedulerJob, string> = {
   'schedule-refresh': 'Weekly schedule',
   rankings: 'Rankings publication',
   'season-transition': 'Season transition',
+  'usage-sample': 'CFBD usage sample',
   'season-rollover': 'Season rollover',
 };
 
@@ -202,6 +203,14 @@ export function summarizeReceiptTarget(target: SchedulerExecutionReceipt['target
       return `${target.year} · ${target.targetGames} game(s), ${target.targetPartitions} partition(s)${target.mode ? ` · ${target.mode}` : ''}`;
     case 'team-records':
       return String(target.year);
+    case 'usage-sample':
+      return `${target.day ?? 'no day'} · ${
+        target.recorded === null
+          ? 'durability unknown'
+          : target.recorded
+            ? 'recorded'
+            : 'not recorded'
+      }`;
     case 'game-stats':
       return `${target.year}${target.week != null ? ` · week ${target.week}` : ''}${target.seasonType ? ` · ${target.seasonType}` : ''}`;
     case 'odds':

@@ -9,6 +9,7 @@ import { CRON as TEAM_RECORDS_CRON } from '../../../../scripts/manage-team-recor
 import { CRON as GAME_STATS_CRON } from '../../../../scripts/manage-game-stats-schedule';
 import { CRON as ODDS_CRON } from '../../../../scripts/manage-odds-schedule';
 import { CRON as RANKINGS_CRON } from '../../../../scripts/manage-rankings-schedule';
+import { CRON as USAGE_SAMPLE_CRON } from '../../../../scripts/manage-usage-sample-schedule.ts';
 import { CRON as SCHEDULE_REFRESH_CRON } from '../../../../scripts/manage-schedule-refresh-schedule';
 import {
   __deleteAppStateFileForTests,
@@ -53,6 +54,8 @@ function targetFor(job: ExternalSchedulerJob): SchedulerExecutionTarget {
       return { kind: 'live-scores', year: 2026, mode: null, targetGames: 0, targetPartitions: 0 };
     case 'team-records':
       return { kind: 'team-records', year: 2026 };
+    case 'usage-sample':
+      return { kind: 'usage-sample', day: '2026-10-15', recorded: true };
     case 'game-stats':
       return { kind: 'game-stats', year: 2026, week: null, seasonType: null };
     case 'odds':
@@ -93,6 +96,7 @@ const REASON_FOR: Record<ExternalSchedulerJob, SchedulerExecutionReceiptInput['r
   rankings: 'no-ranking-target',
   'season-transition': 'no-preseason-leagues',
   'season-rollover': 'no-season-leagues',
+  'usage-sample': 'sample-recorded',
 };
 
 /** Build a valid STORED receipt for `job` started at `startedAtMs`. */
@@ -170,6 +174,8 @@ test('policies carry the exact fixed cron strings and grace periods', () => {
   assert.equal(byJob.get('season-transition')!.graceMs, 65 * MIN);
   assert.equal(byJob.get('season-rollover')!.cron, '0 0 * * *');
   assert.equal(byJob.get('season-rollover')!.graceMs, 65 * MIN);
+  assert.equal(byJob.get('usage-sample')!.cron, '0 */6 * * *');
+  assert.equal(byJob.get('usage-sample')!.graceMs, 6 * HOUR);
 });
 
 // ── 3. Policy parity vs management scripts + vercel.json ─────────────────────
@@ -180,6 +186,10 @@ test('policy crons match the management-script CRON exports and vercel.json', ()
   assert.equal(byJob.get('game-stats')!.cron, GAME_STATS_CRON);
   assert.equal(byJob.get('odds')!.cron, ODDS_CRON);
   assert.equal(byJob.get('rankings')!.cron, RANKINGS_CRON);
+  // Item 127 — without this the sampler is the only QStash policy free to drift
+  // from its manager script, and System Health would compute requiredStartedAt
+  // from the wrong schedule with no test failing.
+  assert.equal(byJob.get('usage-sample')!.cron, USAGE_SAMPLE_CRON);
   assert.equal(byJob.get('schedule-refresh')!.cron, SCHEDULE_REFRESH_CRON);
 
   const vercelPath = path.resolve(
@@ -549,19 +559,19 @@ test('unknown durable keys are ignored', async () => {
       { key: 'live-scores', value: validReceipt('live-scores', ms('2026-03-15T12:06:00Z')) },
     ]),
   });
-  assert.equal(snap.jobs.length, 8);
+  assert.equal(snap.jobs.length, EXTERNAL_SCHEDULER_JOBS.length);
   assert.ok(!snap.jobs.some((r) => (r.job as string) === 'not-a-job'));
   assert.equal(snap.jobs.find((r) => r.job === 'live-scores')!.deliveryState, 'on-time');
 });
 
-// ── 19. Scope-read failure → eight unavailable rows, no leak ─────────────────
-test('a scope-read failure yields eight unavailable rows without error-detail leakage', async () => {
+// ── 19. Scope-read failure → one unavailable row PER JOB, no leak ───────────
+test('a scope-read failure yields one unavailable row per job without error-detail leakage', async () => {
   const now = ms('2026-03-15T12:10:00Z');
   const snap = await readSchedulerDeliveryHealth({
     nowMs: now,
     loadEntries: () => Promise.reject(new Error('durable scope boom-MARKER')),
   });
-  assert.equal(snap.jobs.length, 8);
+  assert.equal(snap.jobs.length, EXTERNAL_SCHEDULER_JOBS.length);
   for (const row of snap.jobs) {
     assert.equal(row.deliveryState, 'unavailable');
     assert.equal(row.receipt, null);
@@ -625,7 +635,7 @@ test('the default loader reads the real durable scheduler-execution scope', asyn
 
   // No injected loader → the default cache-only scope read runs.
   const snap = await readSchedulerDeliveryHealth({ nowMs: now });
-  assert.equal(snap.jobs.length, 8);
+  assert.equal(snap.jobs.length, EXTERNAL_SCHEDULER_JOBS.length);
   const live = snap.jobs.find((r) => r.job === 'live-scores')!;
   assert.equal(live.deliveryState, 'on-time');
   assert.ok(live.receipt, 'the durable receipt was read and parsed');

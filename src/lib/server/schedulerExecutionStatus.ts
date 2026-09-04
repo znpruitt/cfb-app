@@ -16,11 +16,12 @@ import type {
   SeasonRolloverCronExecutionReason,
   SeasonTransitionCronExecutionReason,
 } from '@/lib/lifecycleCronExecutionLog';
+import type { UsageSampleCronExecutionReason } from '../providerUsage/cronExecutionLog.ts';
 import { withAppStateKeyTransaction } from '@/lib/server/appStateStore';
 
 /**
  * PLATFORM-086F2E1 / F2E2A — latest-only durable execution receipts for the
- * eight scheduled cron routes (`scheduler-execution-status/<job>`): the six
+ * scheduled cron routes (`scheduler-execution-status/<job>`): the seven
  * QStash-triggered jobs (`source: 'qstash'`) plus the two Vercel-native
  * lifecycle crons — season-transition and season-rollover (F2E2A,
  * `source: 'vercel-cron'`).
@@ -86,6 +87,7 @@ export const EXTERNAL_SCHEDULER_JOBS = [
   'rankings',
   'season-transition',
   'season-rollover',
+  'usage-sample',
 ] as const;
 
 export type ExternalSchedulerJob = (typeof EXTERNAL_SCHEDULER_JOBS)[number];
@@ -110,6 +112,7 @@ const JOB_SOURCE: Record<ExternalSchedulerJob, SchedulerSource> = {
   rankings: 'qstash',
   'season-transition': 'vercel-cron',
   'season-rollover': 'vercel-cron',
+  'usage-sample': 'qstash',
 };
 
 /** The configured scheduler owner for a job — the single derivation of `source`. */
@@ -126,7 +129,7 @@ export type SchedulerExecutionResult =
   | 'in-progress';
 
 /**
- * The union of the eight routes' existing closed, stable reason vocabularies —
+ * The union of every scheduled route's closed, stable reason vocabulary —
  * copied verbatim from each route's final execution tracker, never derived from
  * HTTP responses and never a second vocabulary.
  */
@@ -138,7 +141,8 @@ export type SchedulerExecutionReason =
   | ScheduleRefreshCronExecutionReason
   | RankingsCronExecutionReason
   | SeasonTransitionCronExecutionReason
-  | SeasonRolloverCronExecutionReason;
+  | SeasonRolloverCronExecutionReason
+  | UsageSampleCronExecutionReason;
 
 /** The allowlisted, bounded per-job target summary variants. */
 export type SchedulerExecutionTarget =
@@ -152,6 +156,20 @@ export type SchedulerExecutionTarget =
   | {
       kind: 'team-records';
       year: number;
+    }
+  /**
+   * Item 127 — the unconditional CFBD usage sampler. It has no year, week, or
+   * partition: its target IS the calendar day it sampled. `recorded` says whether
+   * the durable write landed, which is the only outcome this job can partially
+   * fail at — the probe itself never fails the run, because an unreachable
+   * provider is a truthful all-null observation rather than an error.
+   */
+  | {
+      kind: 'usage-sample';
+      /** UTC day the sample was filed under, or null when the run never got that far. */
+      day: string | null;
+      /** Whether the durable series write succeeded. */
+      recorded: boolean | null;
     }
   | {
       kind: 'game-stats';
@@ -614,6 +632,7 @@ const JOB_TARGET_KIND: Record<ExternalSchedulerJob, SchedulerExecutionTarget['ki
   rankings: 'rankings-years',
   'season-transition': 'season-transition-years',
   'season-rollover': 'season-rollover-years',
+  'usage-sample': 'usage-sample',
 };
 
 function isFiniteNumber(value: unknown): value is number {
@@ -643,6 +662,12 @@ function rebuildTarget(target: SchedulerExecutionTarget): SchedulerExecutionTarg
       return {
         kind: 'team-records',
         year: target.year,
+      };
+    case 'usage-sample':
+      return {
+        kind: 'usage-sample',
+        day: target.day,
+        recorded: target.recorded,
       };
     case 'game-stats':
       return {
@@ -776,6 +801,17 @@ function isValidYearEntries(
 }
 
 /** True when a stored target is shape-valid for `job`. */
+/**
+ * A canonical `YYYY-MM-DD` UTC day — the shape `new Date().toISOString().slice(0, 10)`
+ * produces. Checked for real calendar validity, so `2026-13-40` is rejected rather
+ * than merely pattern-matched.
+ */
+function isUtcCalendarDay(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
 function isValidStoredTarget(value: unknown, job: ExternalSchedulerJob): boolean {
   if (typeof value !== 'object' || value === null) return false;
   const target = value as Record<string, unknown>;
@@ -791,6 +827,24 @@ function isValidStoredTarget(value: unknown, job: ExternalSchedulerJob): boolean
       );
     case 'team-records':
       return isFiniteNumber(target.year);
+    case 'usage-sample':
+      // A present `day` must be a real UTC calendar date, not merely a string:
+      // `''` or arbitrary text would otherwise be rendered as scheduler health
+      // metadata instead of reporting the record `invalid`. `recorded` also
+      // implies a day — the writer sets `day` before it ever attempts the write,
+      // so `recorded: true` with no day is a record no writer in this codebase
+      // can produce.
+      // `recorded` is TRI-STATE: `null` means a write whose durability is genuinely
+      // unknown, and rounding it to `false` would assert a loss the run cannot
+      // know about. A present `day` must be a real UTC calendar date; `recorded`
+      // other than `false` implies a day, since the writer sets `day` before it
+      // ever attempts the write.
+      return (
+        (typeof target.recorded === 'boolean' || target.recorded === null) &&
+        (target.day === null
+          ? target.recorded === false
+          : typeof target.day === 'string' && isUtcCalendarDay(target.day))
+      );
     case 'game-stats':
       return (
         isFiniteNumber(target.year) &&

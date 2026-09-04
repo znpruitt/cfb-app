@@ -90,14 +90,16 @@ function allAvailable() {
   return states;
 }
 
-// Case 1 — eight scheduler jobs + seven datasets remain separate collections.
-test('model exposes exactly eight scheduler jobs and seven datasets', async () => {
+// Case 1 — every scheduler job + seven datasets remain separate collections.
+// The job count is DERIVED from the registry: hardcoding it meant a ninth job
+// broke this test rather than being covered by it (Item 127).
+test('model exposes every scheduler job and seven datasets as separate collections', async () => {
   const model = await buildSystemHealthViewModel({
     year: YEAR,
     nowMs: NOW,
     loaders: healthyLoaders(),
   });
-  assert.equal(model.schedulerJobs.length, 8);
+  assert.equal(model.schedulerJobs.length, EXTERNAL_SCHEDULER_JOBS.length);
   assert.equal(model.datasets.length, 7);
   assert.deepEqual(
     model.schedulerJobs.map((j) => j.job),
@@ -140,8 +142,8 @@ test('CFBD usage loader is invoked exactly once per build', async () => {
   assert.equal(model.quota.cfbd.state, 'available');
 });
 
-// Case 7 — a scheduler scope-read failure yields eight unavailable rows + one global issue.
-test('scheduler scope-read failure → eight unavailable rows, one global issue', async () => {
+// Case 7 — a scheduler scope-read failure yields one unavailable row PER JOB + one global issue.
+test('scheduler scope-read failure → one unavailable row per job, one global issue', async () => {
   const model = await buildSystemHealthViewModel({
     year: YEAR,
     nowMs: NOW,
@@ -153,7 +155,7 @@ test('scheduler scope-read failure → eight unavailable rows, one global issue'
         }),
     }),
   });
-  assert.equal(model.schedulerJobs.length, 8);
+  assert.equal(model.schedulerJobs.length, EXTERNAL_SCHEDULER_JOBS.length);
   assert.ok(model.schedulerJobs.every((j) => j.deliveryState === 'unavailable'));
   const global = model.issues.filter((i) => i.code === 'scheduler-delivery-unavailable');
   assert.equal(global.length, 1);
@@ -366,7 +368,7 @@ test('one failed subsystem does not erase truthful results from the others', asy
   });
   assert.equal(model.quota.cfbd.state, 'unavailable');
   // Everything else stays truthful.
-  assert.equal(model.schedulerJobs.length, 8);
+  assert.equal(model.schedulerJobs.length, EXTERNAL_SCHEDULER_JOBS.length);
   assert.ok(model.schedulerJobs.every((j) => j.deliveryState === 'on-time'));
   assert.equal(model.storage.state, 'available');
   assert.equal(model.automation.state, 'available');
