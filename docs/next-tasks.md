@@ -490,13 +490,17 @@ Neon one. Keep this item for the read-replica autosuspend and the non-cadence fi
 order) shipped as POLISH-022; decision 4 was documentation only. This item is the queue home for the
 rest, so the document is not the only place they live.
 
-1. **Live sorts by kickoff alone.** `compareOverviewLiveItems` (`overviewGameSections.ts:124`) sorts
-   in-progress before awaiting-score FIRST, then real-owner count descending, then kickoff. Both
-   leading keys are removed; the resolutions doc withdrew the awaiting-score partition because a row
-   would reposition on a polling surface the moment a score arrived. Small and standalone.
-2. **Final rows carry no date or time — scoped to Featured.** Recent finals already passes
-   `clock: undefined`; `FeaturedGamesList` passes `clock={formatExpandedKickoff(...)}` with
-   `state="final"`, which is the shipped `Final · 4:47 PM` row. One prop. Standalone.
+1. **DONE — Live sorts by kickoff alone.** POLISH-023, PR #563. `compareOverviewLiveItems` reduced
+   to kickoff ascending; the in-progress partition and the owner-count key both removed. §2 was
+   scoped by the owner on 2026-09-04 to **every** section, so the same key also came out of
+   `compareOverviewRecentFinals` and out of the watchlist's `compareWatchlistItems` — the watchlist
+   keeps `watchlistPriority`, its curation score, which is not an owner-count key. Sort rules for
+   all three sections are now written down in the resolutions doc.
+2. **DONE — no date or time on a Featured final.** POLISH-023, PR #563. `DESIGN.md` said the
+   opposite and was amended. **Still outstanding, and the rule is repo-wide:** Matchups
+   (`MatchupsWeekPanel.tsx`, the non-scheduled metadata branch) and Schedule
+   (`deriveExpandedMetadataLines`, `gameCardPresentation.ts:125`) both still print a kickoff on final
+   rows. Those two surfaces are unbuilt work under this item, not closed by PR #563.
 3. **Counts are totals, not visible counts** — belongs to **Item 115**, not here. `liveTitle` reads
    `.length` after `.slice(0, OVERVIEW_LIVE_LIMIT)`, so it is a visible count, and today the surplus
    is dropped with no expand control at all. A total before Item 115 exists would promise games the

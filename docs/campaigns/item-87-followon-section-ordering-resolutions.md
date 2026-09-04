@@ -1,6 +1,8 @@
 # Item 87 — Follow-on input: section ordering, resolutions
 
-> **Status:** input for review, not applied. Nothing here is recorded in the base addendum or `DESIGN.md` until stated otherwise.
+> **Status:** §1, §2 and §3 are implemented — POLISH-023, PR #563. §3 is landed on Overview only and
+> is now recorded in `DESIGN.md`, which previously said the opposite. §4 (Matchups slate ordering) and
+> §5 (counts, deferred to Item 115) remain unbuilt. The sort rules below were added on 2026-09-04.
 
 **Child of `item-87-followon-section-ordering.md`** — that document recorded six decisions found living only in mockup markup and left four items open. This one answers those four, plus the sequencing question on section counts. Read the parent first. Written after CLI verification established that five of the six section-ordering decisions were change requests against shipped behaviour, not documentation.
 
@@ -63,6 +65,55 @@ The current state is already a truth defect: `liveTitle` reads `.length` after `
 **The real defect is upstream of the label.** Sections hard-cap at six and drop the surplus silently — that is silent data loss, and the count is only how it becomes visible. Fixing the count without fixing the cap fixes nothing.
 
 **Recommend:** counts become totals as part of Item 115, in the same change that makes the surplus reachable.
+
+---
+
+## Sort rules, all three sections
+
+Added 2026-09-04. None of these directions were written down anywhere before — they existed only in
+code and in how the mockups happened to render, which is the same gap that produced the
+section-ordering findings in the first place.
+
+| Section | Order | Tiebreak |
+| --- | --- | --- |
+| **Live** | kickoff **ascending** | game key |
+| **Upcoming watchlist** | `watchlistPriority` (curation), then kickoff **ascending** | game key |
+| **Recent finals** | kickoff **descending** — newest first | game key |
+
+**Live is unselected, so time is the only legible order.** It holds every in-progress game with no
+curation applied; ordering by anything else leaves a member unable to tell why one row sits above
+another. No awaiting-score partition (§1) and no owner count (§2).
+
+**The watchlist keeps its curation score, and this is the one place §2 does NOT reach.** The
+watchlist is already a selected list — something decided those games were worth showing — so
+ordering by the reason they were chosen is the visible logic of the section rather than a hidden key.
+It also matters structurally: with Featured capped at four, the watchlist is where notable games that
+miss the cut land. Going chronological would let *Upset watch* and *Game of the Week* mark a game
+without surfacing it, and the near-misses would sit wherever their kickoff put them, defeating the
+tags. What was removed is the `item.priority` tiebreak BELOW kickoff — `awayOwner && homeOwner ? 2 : 1`
+(`overview.ts:77`), an owner-count key by another name.
+
+**Recent finals sorts by kickoff, not completion time — deliberately.** Completion is more literally
+accurate about "recent": an overtime noon game genuinely finishes after a 3:30 game. But completion
+reintroduces movement — rows reshuffle as games end, and an overtime game can jump above a row a
+member is reading. Kickoff fixes a game's position the moment it starts, which is the same reasoning
+that rejected the awaiting-score partition on Live. **Accepted cost:** a long noon game stays below a
+3:30 game despite finishing later.
+
+**Direction is pinned by test.** An ascending/descending flip is the entire behaviour of a section,
+trivial to introduce, and invisible in review — nothing else distinguishes correct from exactly
+backwards.
+
+---
+
+## Noted while removing the owner-count keys — `NoClaim` counts as an owner
+
+`item.priority` was `awayOwner && homeOwner ? 2 : 1`, and `NoClaim` is a truthy string, so an unowned
+FBS team counted as an owner for that key. Deleting the key removes the symptom, not the pattern:
+this is the **third** place the sentinel is read as a real owner, after `showOwnerMatchup`
+(`gameWeek.ts:152`) and the render seams POLISH-021 fixed. Three instances argue that `displayOwner()`
+— or an equivalent guard — belongs at the data seam rather than only at render seams. Not built here;
+recorded so the next occurrence is the fourth data point rather than a fresh discovery.
 
 ---
 

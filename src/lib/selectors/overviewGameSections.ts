@@ -111,13 +111,24 @@ function routeForItem(
   };
 }
 
+/**
+ * Recent finals sort by kickoff, descending — most recent first — and by nothing
+ * else. Section-ordering resolutions §2, scoped by the owner on 2026-09-04 to every
+ * game section rather than to Live alone: kickoff time is the discriminator, and
+ * owner count is not a sort input anywhere.
+ *
+ * This matters here more than the identical rule does in Live, because CFBD kickoffs
+ * cluster on shared hour and half-hour timestamps, so a slate routinely holds several
+ * finals with the same `sortDate`. Under the old tiebreak two adjacent rows reordered
+ * by how many league owners the game involved, with nothing on either row explaining
+ * why. The game key decides ties now — arbitrary, but visibly arbitrary rather than
+ * a hidden relevance ranking.
+ */
 function compareOverviewRecentFinals(a: OverviewGameItem, b: OverviewGameItem): number {
   const aHasKickoff = Number.isFinite(a.sortDate);
   const bHasKickoff = Number.isFinite(b.sortDate);
   if (aHasKickoff !== bHasKickoff) return aHasKickoff ? -1 : 1;
   if (aHasKickoff && a.sortDate !== b.sortDate) return b.sortDate - a.sortDate;
-  const ownerCountDifference = realOwnerCount(b) - realOwnerCount(a);
-  if (ownerCountDifference !== 0) return ownerCountDifference;
   return a.bucket.game.key.localeCompare(b.bucket.game.key);
 }
 

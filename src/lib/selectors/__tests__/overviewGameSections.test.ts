@@ -322,7 +322,7 @@ test('live rows ignore owner count and keep the six-row cap on kickoff order', (
     homeOwner: undefined,
   });
   const twoOwner = Array.from({ length: 6 }, (_, index) =>
-    item(game({ key: `owned-${index}`, date: `2026-09-05T1${5 + index}:00:00.000Z` }), {
+    item(game({ key: `owned-${index}`, date: `2026-09-05T${15 + index}:00:00.000Z` }), {
       score: score('In Progress', 7, 3),
     })
   );
@@ -337,7 +337,56 @@ test('live rows ignore owner count and keep the six-row cap on kickoff order', (
   assert.equal(
     sections.live.at(-1)?.bucket.game.key,
     'owned-4',
-    'the cap drops the latest kickoff, not the least relevant game'
+    // owned-5 kicks off at 20:00 and is the row the cap drops. An earlier version of
+    // this template produced `T110:00:00` for that index, so the row was undated and
+    // was sliced for the WRONG reason — the assertion passed without proving the cap
+    // works on kickoff order at all.
+    'the cap drops the latest kickoff (owned-5, 20:00), not the least relevant game'
+  );
+});
+
+test('Recent finals sorts by kickoff DESCENDING, newest first', () => {
+  // Section-ordering sort rules, owner 2026-09-04. Direction is the whole behaviour of
+  // this section and an ascending/descending flip is invisible in review, so it is
+  // pinned explicitly. Kickoff rather than completion time is deliberate: completion
+  // would reshuffle rows as games end, and an overtime game could jump above a row a
+  // member is reading. Kickoff fixes a game's position the moment it starts.
+  const early = item(game({ key: 'a-early-final', date: '2026-09-05T16:00:00.000Z' }), {
+    score: score('Final', 17, 24),
+  });
+  const late = item(game({ key: 'z-late-final', date: '2026-09-05T19:30:00.000Z' }), {
+    score: score('Final', 21, 14),
+  });
+  const sections = select([early, late], '2026-09-05T23:00:00.000Z');
+
+  assert.equal(sections.recentFinals.length, 2, 'both finals must reach the section');
+  assert.deepEqual(
+    sections.recentFinals.map((entry) => entry.bucket.game.key),
+    ['z-late-final', 'a-early-final'],
+    'the later kickoff leads — and the key tiebreak would have produced the reverse, so ' +
+      'this cannot pass on alphabetical order'
+  );
+});
+
+test('Recent finals ignores owner count when two games share a kickoff', () => {
+  // Section-ordering resolutions §2, scoped to every section by the owner 2026-09-04.
+  // Reachable rather than theoretical: CFBD kickoffs cluster on shared hour and
+  // half-hour timestamps, so a slate routinely holds finals with an identical sortDate.
+  const SHARED = '2026-09-05T18:00:00.000Z';
+  const twoOwners = item(game({ key: 'z-two-owners', date: SHARED }), {
+    score: score('Final', 28, 10),
+  });
+  const oneOwner = item(game({ key: 'a-one-owner', date: SHARED }), {
+    score: score('Final', 14, 13),
+    homeOwner: undefined,
+  });
+  const sections = select([twoOwners, oneOwner], '2026-09-05T23:00:00.000Z');
+
+  assert.equal(sections.recentFinals.length, 2, 'both finals must reach the section');
+  assert.deepEqual(
+    sections.recentFinals.map((entry) => entry.bucket.game.key),
+    ['a-one-owner', 'z-two-owners'],
+    'the game key decides the tie, not the two-owner game floating above the one-owner one'
   );
 });
 

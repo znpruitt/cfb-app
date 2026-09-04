@@ -177,9 +177,15 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   status row and score anchors; awaiting uses a neutral `Awaiting score` status row with no live dot
   or live DOM state; final uses a neutral `Final` status row and score anchors. In the final variant,
   away → home order remains fixed while the winner receives primary weight and the loser is muted,
-  including when the home team won; existing Featured results keep their expanded kickoff context
-  beside `Final`. Header rows never wrap and ellipsize when constrained so peer team lines remain
-  aligned
+  including when the home team won. **A final row carries no date and no time** — for a completed
+  game the result is the information, and the container supplies temporal context (week tabs on
+  Matchups, date-group headings on Schedule). Owner decision 2026-09-04, reversing the earlier rule
+  that Featured results keep an expanded kickoff beside `Final`; the reasoning is in
+  `docs/campaigns/item-87-followon-section-ordering-resolutions.md` §3. **Implemented on Overview
+  only so far** — Matchups (`MatchupsWeekPanel.tsx`, the non-scheduled metadata branch) and Schedule
+  (`deriveExpandedMetadataLines`) still print a kickoff on final rows, and the postseason tab has no
+  temporal container at all, which Item 87's postseason follow-on answers. Header rows never wrap and
+  ellipsize when constrained so peer team lines remain aligned
 - Rankings display inline with team names — "#4 Oregon vs #2 Indiana"
 - Use W16 CFP rankings for postseason game cards — not Final Poll rankings
 - CFP round badges use full words — "CFP Quarterfinal" not "CFP QF"

@@ -202,6 +202,60 @@ test('selectOverviewViewModel prioritises marquee watchlist games before kickoff
   );
 });
 
+test('watchlist ties break on the game key, not on how many owners a game involves', () => {
+  // Section-ordering resolutions §2, scoped to every section by the owner 2026-09-04.
+  // The pre-existing ordering test above cannot catch this: there the two-owner game
+  // also wins alphabetically, so it passes either way. Here the two keys DISAGREE —
+  // the lower-priority game sorts first by key and last by `item.priority`, which is
+  // `awayOwner && homeOwner ? 2 : 1` at overview.ts:77. `watchlistPriority` — the
+  // curation score above this — deliberately stays; only the owner-count key goes.
+  // THREE candidates, not two. `deriveOverviewHighlightSignals` names exactly one
+  // game of the slate, so with two entries the curation score always separates them
+  // and `compareWatchlistItems` is never reached — a two-entry version of this test
+  // passes with the deleted key restored. The decoy absorbs that promotion (it wins
+  // the game-of-slate key tiebreak alphabetically), leaving the other two tied at a
+  // curation score of zero so the comparator under test actually runs.
+  const SHARED = '2026-09-01T17:00:00.000Z';
+  const decoy = item('a-game-of-slate', SHARED);
+  const lowPriority = item('m-low-priority', SHARED);
+  lowPriority.priority = 1;
+  const highPriority = item('z-high-priority', SHARED);
+  highPriority.priority = 2;
+
+  const model = selectOverviewViewModel({
+    standingsLeaders: [],
+    standingsCoverage: { state: 'partial', message: null },
+    context: {
+      scopeLabel: 'League',
+      scopeDetail: 'Week 1',
+      emphasis: 'upcoming',
+      highlightsTitle: '',
+      highlightsDescription: '',
+      liveDescription: '',
+      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+    },
+    liveItems: [],
+    // Producer order puts the higher-priority game first, so a stable sort alone would
+    // keep it ahead — the assertion below only holds if the comparator reorders.
+    keyMatchups: [decoy, highPriority, lowPriority],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.equal(model.watchlistCandidates.length, 3, 'all three games must reach the watchlist');
+  assert.equal(
+    model.watchlistCandidates[0]?.highlightLabel,
+    'Game of the Week',
+    'positive control: the decoy really did absorb the curation promotion, so the two ' +
+      'rows below it are tied on watchlistPriority and reach the tiebreak'
+  );
+  assert.deepEqual(
+    model.watchlistCandidates.map((entry) => entry.item.bucket.game.key),
+    ['a-game-of-slate', 'm-low-priority', 'z-high-priority'],
+    'the key decides the tie; item.priority no longer floats the two-owner game'
+  );
+});
+
 test('selectOverviewViewModel keeps dated recent results newest-first ahead of undated finals', () => {
   const older = {
     ...item('older-final', '2026-09-01T17:00:00.000Z'),

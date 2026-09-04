@@ -850,8 +850,10 @@ function FeaturedGamesList({
             key={game.key}
             state="final"
             // No date or time on a final row: for a completed game the result is the
-            // information. Owner decision 2026-09-04, section-ordering resolutions §3.
-            // Recent finals already complies; Featured was the one surface that did not.
+            // information. Owner decision 2026-09-04, section-ordering resolutions §3;
+            // DESIGN.md carries the rule. Within OVERVIEW, Recent finals already complied
+            // and Featured was the holdout — the rule is repo-wide, but Matchups and
+            // Schedule still print a kickoff on final rows and are not changed here.
             matchupLabel={formatGameMatchupLabel(game)}
             contextSlot={
               gameBadge ? (

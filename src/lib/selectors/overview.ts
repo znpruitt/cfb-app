@@ -321,9 +321,22 @@ export function prioritizeOverviewItems(params: {
   });
 }
 
+/**
+ * Watchlist ordering BELOW the curation score: kickoff ascending, then the game key.
+ *
+ * `watchlistPriority` above this is deliberate and stays — the watchlist is a curated
+ * list, so ordering it by the reason its games were chosen is the visible logic of the
+ * section rather than a hidden key. With Featured capped, this is also where notable
+ * games that miss the cut land; going chronological would let Upset watch and Game of
+ * the Week mark a game without surfacing it.
+ *
+ * The `item.priority` tiebreak that sat here is gone (section-ordering resolutions §2,
+ * scoped by the owner on 2026-09-04 to every section). It was `awayOwner && homeOwner
+ * ? 2 : 1` (`overview.ts:77`) — an owner-count key by another name, and the exact
+ * thing §2 targets regardless of its position in the chain.
+ */
 function compareWatchlistItems(a: OverviewGameItem, b: OverviewGameItem): number {
   if (a.sortDate !== b.sortDate) return a.sortDate - b.sortDate;
-  if (a.priority !== b.priority) return b.priority - a.priority;
   return a.bucket.game.key.localeCompare(b.bucket.game.key);
 }
 
