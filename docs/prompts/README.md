@@ -27,6 +27,24 @@ case while it is mid-task.
   plus the task, completeness contract, gating, verification loop, and output contract.
 - Nothing else. This is not a ledger.
 
+## Rules a kickoff must not re-derive
+
+Two get written wrong from first principles because they look like ordinary practice. Both are in
+`AGENTS.md` → **Preview branch**; read it rather than inferring:
+
+- **`preview` belongs to Claude alone. Codex does not push it, or any other preview branch.** Decided
+  2026-08-18, when parallel worktrees made a single force-pushed branch ambiguous — it shows whichever
+  agent committed last and changes under the owner mid-review. A dispatched prompt must say this
+  explicitly, because the repo's normal cadence rule ("push the branch and `preview` together on
+  every commit") is Claude's, and copying it into a Codex prompt inverts a decision.
+- **The Codex worktree's dev server runs on port 3010**, not 3000. Both worktrees default to 3000, and
+  killing a dev server can orphan the `next-server` child, which then serves stale code from that port.
+
+That section also records a live trigger: **the no-preview decision is due for review if Codex takes
+a slice with a user-visible surface**, since a deployed URL is how the owner has caught defects that
+reviews did not. Check that trigger before dispatching UI work, and raise it rather than deciding it
+inside a prompt.
+
 ## What does NOT belong here
 
 `docs/prompt-registry.md` remains canonical for **which prompt IDs exist** and their outcomes, and

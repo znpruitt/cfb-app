@@ -69,10 +69,14 @@ the expected result here; say so explicitly rather than leaving it unstated.
 
 <action_safety>
 - Branch `platform/retire-postseason-template` off current `main`. Do not commit to `main`.
-- Push the branch and `preview` together on EVERY commit, per `AGENTS.md` → Preview branch:
-  `git push origin HEAD` then `git push origin HEAD:preview --force`.
-  **Coordination note:** `preview` is a single force-push target and another agent may be working in
-  parallel. If `preview` moves under you, do not re-force it repeatedly — report the contention.
+- **Do NOT push `preview`, or any other preview branch.** `AGENTS.md` → Preview branch: `preview`
+  belongs to Claude alone, decided 2026-08-18 precisely because parallel worktrees made a single
+  force-pushed branch ambiguous — it shows whichever agent committed last and changes under the owner
+  mid-review with no indication of which branch is on screen. Push your feature branch only
+  (`git push origin HEAD`). Your work reaches the owner as a branch to pull and run, not as a URL.
+- Verify locally instead. If you run a dev server, **use port 3010** — both worktrees default to 3000,
+  and killing a dev server can orphan the `next-server` child, which then serves stale code from that
+  port.
 - No opportunistic refactoring. Item 121 (the CFP first-round `eventKey` collision) is adjacent and
   explicitly NOT in scope, even though this module's slot-numbered keys are the convention that fixes
   it. Leave that observation to Item 121.
