@@ -608,10 +608,16 @@ Do not rotate only one external schedule: that leaves the other six forwarding t
 `GET /api/cron/usage-sample`, driven by the QStash schedule `turfwar-usage-sample-6h` at
 `0 */6 * * *`. Manage it with `tsx scripts/manage-usage-sample-schedule.ts`; `inspect` is read-only.
 
-**It spends no quota.** The route reads CFBD `/info`, which is not a billed call, and writes one
-bounded entry per UTC day to `app_state` scope `provider-usage`, key `cfbd-daily`. It touches no
-canonical data, has no dataset toggle, and returns HTTP 200 even when the durable write fails —
-retrying a sample would produce a different observation, not repair the missed one.
+**It spends no quota.** The route reads CFBD `/info`, which is not a billed call, and appends one
+observation to `app_state` scope `provider-usage`, key `cfbd-observations`. It touches no canonical
+data, has no dataset toggle, and returns HTTP 200 even when the durable write fails — retrying a
+sample would produce a different observation, not repair the missed one.
+
+**What a row holds.** `{ at, remaining, limit }` per probe and nothing derived: the timestamp, the
+provider-reported calls remaining, and the tier limit as context only. The log is sorted by time and
+bounded at 1,700 entries — about 14 months at four samples a day, ~106 KB — trimmed on every write,
+so there is no cleanup job to forget. A quota period boundary is read off the series, not stored: it
+is the one point where `remaining` rises.
 
 **Why it exists.** `/info` reports usage for the current period only and CFBD exposes no history, so
 a month boundary destroys the prior month's burn permanently. Every other observation point is
@@ -619,8 +625,8 @@ conditional — the game-stats probe sits behind an exact-target gate, System He
 admin page view — so a series built from them samples expensive days and misses cheap ones.
 
 **Authentication proof:** resume the schedule, confirm one HTTP 200 delivery, and verify a new entry
-appears for today under `provider-usage / cfbd-daily`. A `401` is the same stop condition as every
-other job.
+appears under `provider-usage / cfbd-observations` bearing today's timestamp. A `401` is the same
+stop condition as every other job.
 
 > **Expected until provisioned:** from the moment this ships until `upsert --apply` runs, System
 > Health reports `usage-sample` with a scheduler-delivery warning. That is the correct reading of an
