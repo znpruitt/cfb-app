@@ -755,6 +755,32 @@ not be read as a requirement on the other.**
 
 - Backlog slug: `PLATFORM-SCHEDULE-REFRESH-FORENSICS-v1`
 
+### Item 129 — two `usage-sample` follow-ups deferred out of PLATFORM-127
+
+**Filed 2026-09-04, post-merge.** Both were found by review, judged real, and deliberately NOT folded
+into a round that was already about something else. Evidence:
+`docs/prompt-registry.md` → `PLATFORM-127-RETAIN-PROVIDER-USAGE-SERIES-v1`.
+
+**The route has no outer `catch`.** All eight sibling cron routes wrap the handler and return their
+`{result, reason}` shape with a 500; `usage-sample` has only `try`/`finally`, so an unexpected throw
+escapes to Next.js and the declared `NextResponse<UsageSampleResult>` contract is not honoured. The
+sharper half is the receipt: `finally` still files one, and `exec.result` would hold whatever it was
+last set to — so a crash could file a receipt claiming `success`. **Not currently reachable**:
+`fetchCfbdUsage` is wrapped and `recordProviderUsageObservation` never throws. Fix is the sibling
+shape plus setting `exec.result = 'failure'` in the catch, so the receipt cannot outlive the truth.
+
+**Its delivery grace equals exactly one cron period.** `DELIVERY_POLICIES` gives `usage-sample`
+`graceMs = 6h` against `0 */6 * * *`; every sibling QStash policy uses two periods or more
+(live-scores 3m/6m, game-stats 15m/30m, team-records and odds 1h/2h). `requiredStartedAt` therefore
+lands exactly on the previous slot, so a receipt preceding its own slot by any margin reads `late` —
+and the codebase already acknowledges cross-instance clock skew. Low probability, but it would put a
+spurious warning on the job whose whole design goal is a quiet row.
+
+**Value:** both are contract-consistency defects on a job that is now live and unattended. Neither
+changes what the sampler records.
+
+- Backlog slug: `PLATFORM-USAGE-SAMPLE-CONTRACT-PARITY-v1`
+
 ### Item 125 — four Overview section-ordering decisions are decided but unbuilt
 
 **Filed 2026-09-04.** The decisions and their evidence:
