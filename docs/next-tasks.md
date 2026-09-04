@@ -38,32 +38,41 @@ committed `c9f76081`) surfaced four new items and one split; the remaining open 
    because it is a **data-correction** item as much as a cost one: the manual pause it retires can
    strand a game's final permanently at the `kickoff + 24h` boundary. The campaign's projection puts
    Item 99 alone at ~2.8h/30d against the 4h allowance; Item 102 reaches ~1.1h.
-2. **Item 87 slice 5a** — `CompactGameScoreboard` contract widening: classification marker in the
+2. **Item 126** — schedule-refresh forensics. Placed here, immediately after 102 + 88, because it is
+   the **same code layer, not merely adjacent**: `schedulerDeliveryHealth.ts` (Item 88) imports
+   `schedulerExecutionStatus.ts` (Item 126's core file, home of `scheduleYearsTarget`), and
+   `systemHealthIssues.ts` consumes both. Running 126 concurrently with 102 + 88 means two agents
+   editing one receipt contract. Doing them adjacent also avoids reworking System Health twice —
+   88 changes what a receipt *means* to that surface, and 126 changes what a receipt *contains*.
+   **Operationally independent, though:** 126's incident is the weekly `schedule-refresh` job, while
+   102 narrows `live-scores` and `game-stats`. Neither blocks the other; the conflict is in files.
+   Observation-only by its own acceptance boundary, so it is the lower-risk half of the pair.
+3. **Item 87 slice 5a** — `CompactGameScoreboard` contract widening: classification marker in the
    prefix slot (rank | FCS | empty, mutually exclusive by `rankings.ts` exact-match), neutral-site
    marker, broadcast on live rows (`CompactGameScoreboard.tsx:16-19` is scheduled-only today), and a
    tier-2 expansion slot. **Split from slice 5 by owner decision 2026-09-03** so that slice 5, Item
    117 and Item 119 build on one reviewed component change instead of each re-deriving it. Overview
    must render identically before and after — prove it by mutation, not by inspection.
-3. **Item 87 slice 5 + Item 112** — Schedule adopts the scoreboard row with no one-line collapse and
+4. **Item 87 slice 5 + Item 112** — Schedule adopts the scoreboard row with no one-line collapse and
    tier-2 behind "More" (which _is_ Item 112's disclosure model, landing on Schedule first); kickoff
    sort; deletes `GameWeekPanel`'s collapse and `cardEmphasisClasses`. Carries the
    `ownerOutcomeRowClasses` sibling asymmetry into `MatchupsWeekPanel`. **Owner decision needed
    before build:** the amber `upset` border (`GameWeekPanel.tsx:42`) is a reserved-colour violation
    the base addendum explicitly exempted; confirm it dies with the card chrome.
-4. **Item 117** — Matchups adopts the shared scoreboard. User-facing and a correctness fix (the
+5. **Item 117** — Matchups adopts the shared scoreboard. User-facing and a correctness fix (the
    shipped row never says which team is which owner). Needs the card-owner-treatment decision.
-5. **Item 115** — Overview section expansion. Recent finals is documented as complete and truncates
+6. **Item 115** — Overview section expansion. Recent finals is documented as complete and truncates
    at six today; this reuses the disclosure pattern slice 5 settles rather than inventing one.
-6. **Item 119** — team-colour bar on the existing normaliser, with no accent for teams that have no
+7. **Item 119** — team-colour bar on the existing normaliser, with no accent for teams that have no
    colour — which also removes the green fallback every FCS row carries today. OKLCH only if measured.
-7. **Item 118** — Schedule status filter with counts. Purely additive; after the rework it filters.
-8. **Item 95 portion 1** — browser poll 180s → 90s. Small, user-facing, gate already cleared.
-9. **Item 100b** — internal slate marker. Date gate removed 2026-09-03; its 2026 consequence
+8. **Item 118** — Schedule status filter with counts. Purely additive; after the rework it filters.
+9. **Item 95 portion 1** — browser poll 180s → 90s. Small, user-facing, gate already cleared.
+10. **Item 100b** — internal slate marker. Date gate removed 2026-09-03; its 2026 consequence
     (Featured empty through 2026-09-07) closes on its own, but the recap and look-ahead targeting it
     exists for recur next August. Cheap: the clustering code is recoverable from `d6184c28`.
-10. **Item 113** — Featured as insight-selected, state-agnostic. Largest, and gated on a decision
+11. **Item 113** — Featured as insight-selected, state-agnostic. Largest, and gated on a decision
     about `INSIGHTS-017-PALETTE` (a prose bullet today, not an item).
-11. **Item 101** — season-boundary finals gap. Re-derive the empty window against the floating cutoff
+12. **Item 101** — season-boundary finals gap. Re-derive the empty window against the floating cutoff
     first; fix before late November.
 
 **Interstitial, no dedicated slot:** **Item 111** (~5-minute Observability check, any time this
@@ -82,6 +91,24 @@ DONE — POLISH-024, merged via PR #564 (`cac6dab9`).
 
 **Decisions parked, with the item that consumes each:** amber `upset` border → slice 5;
 normalisation target `#0A0A0A` vs `#161616` → Item 119; card-owner treatment → Item 117.
+
+**Parallel tracks (added 2026-09-04).** File surfaces verified, not inferred. The server track and
+the UI spine do not touch each other, so they can run concurrently:
+
+- **Server track, strictly serial with itself:** Item 102 + 88, then Item 126. All three converge on
+  `schedulerExecutionStatus.ts` / `schedulerDeliveryHealth.ts` / `systemHealthIssues.ts`.
+- **UI spine, strictly serial with itself:** slice 5a → slice 5 + 112 → 117 → 115 → 119 → 118. Every
+  one consumes the component 5a widens; that is what the split was for.
+- **Independent, parallel-safe against both:** Item 123 (`postseason-template.ts`, zero importers —
+  pure deletion), Item 122 (`admin/HistoricalCachePanel.tsx`), Item 95 portion 1 (one constant in
+  `liveScores/browserPolling.ts:19`), Item 121 (`schedule/cfbdSchedule.ts`, `schedule.ts`,
+  `schedulePostseasonHelpers.ts` — pipeline, not components), and Items 84, 86, 111.
+
+**Two collision risks are NOT in source.** `preview` is Claude's alone (`AGENTS.md` → Preview branch),
+so a parallel agent must never push it — that decision exists because parallel worktrees made a single
+force-pushed branch ambiguous. And **this file** is touched by every closeout: a concurrent write
+already happened on 2026-09-04, when Item 126 landed on `main` mid-edit. Sequence closeouts or expect
+to rebase.
 
 Runnable at any point, no dependency on the above: **Item 42 portion 1** (notable-result
 scoreboards, now unblocked by POLISH-017's final variant), **Item 84** (provider-classification
