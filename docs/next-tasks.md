@@ -555,6 +555,26 @@ Future implementation should:
 - let System Health expose the retained stable reason/partition evidence instead of only the generic
   “execution failed” copy, without treating observability metadata as canonical data truth.
 
+**Scope note added 2026-09-04 — the gap is not schedule-only, and the shape matters for how this is
+built.** Owner observation, then checked per layer against all seven cron jobs:
+
+| Loss layer | Actually scoped to |
+| --- | --- |
+| 1. Per-unit `result`/`reason` dropped from the target | **schedule-refresh AND rankings.** Both carry `years: Array<{ year, operation }>` and drop the rest. The single-target jobs (`live-scores`, `game-stats`, `odds`, `team-records`) have one unit per run, so the run-level `result`/`reason` covers them — but their targets record only what was ATTEMPTED (`targetGames`, `eligibleGames`, `week`), never an outcome. |
+| 2. Runtime event lacks `invocationId` | **All seven.** There are seven separate `cronExecutionLog` modules (`schedule`, `rankings`, `odds`, `liveScores`, `gameStats`, `teamRecords`, `lifecycle`) and `invocationId` appears in none of them. The receipt carries it (`schedulerExecutionStatus.ts:289`); the event does not, so no job's runtime log can be correlated with its durable receipt. |
+| 3. `provider-refresh-status` is latest-only | **Universal.** One shared store keyed by dataset scope. A successful manual repair replaces the failed attempt for any dataset, not just schedule. |
+| 4. Upstream class collapsed to `fetch-failed` | **schedule AND rankings**, identically: `schedule/fullSeasonScheduleFetch.ts:67` and `rankings/refreshAuthority.ts:111`. Both discard timeout vs network vs HTTP-status vs parse. |
+
+**Consequence for scoping.** Layers 2 and 3 are platform-wide, so fixing them inside a
+schedule-shaped item either leaves six jobs uncorrelatable or gets rebuilt six more times. Layer 2 in
+particular is a one-field change repeated across seven modules — cheap once, expensive seven times.
+Layers 1 and 4 are a matched pair shared with rankings, which is the second multi-year job and uses
+the same `fetch-failed` shape.
+
+Decide before building whether this item ships the receipt/event contract **once for every job** with
+schedule as its first consumer, or stays schedule-only and accepts the repetition. The acceptance
+boundary below is written for schedule; it generalises unchanged if the contract is made shared.
+
 Keep timeout reliability separate in Item 93. This item must not change the provider timeout/retry
 policy, scheduler HTTP semantics, QStash configuration, or canonical schedule behavior.
 
