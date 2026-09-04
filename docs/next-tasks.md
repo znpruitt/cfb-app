@@ -71,9 +71,10 @@ week) and **Item 108** (one read of `provider-refresh-status` for `scores:week:2
 the morning of 2026-09-04 — then close it or promote it).
 
 **Postseason, before December:** **Item 121** (CFP first-round `eventKey` collision — dormant until
-the 2026 first round is ingested, then live on the surface it breaks) and **Item 120** (the 2023/2024
-caches predate two normalizer fields; may be a refresh rather than an item). Both were measured while
-verifying Item 87's postseason grouping input; neither blocks it.
+the 2026 first round is ingested, then live on the surface it breaks). Measured while verifying
+Item 87's postseason grouping input; it does not block that work. **Item 120** closed at its scoping
+gate, no action. **Item 122** (the historical-cache button cannot re-cache) is an operator defect with
+no seasonal deadline.
 
 **Decisions parked, with the item that consumes each:** amber `upset` border → slice 5;
 normalisation target `#0A0A0A` vs `#161616` → Item 119; card-owner treatment → Item 117.
@@ -477,6 +478,30 @@ Neon one. Keep this item for the read-replica autosuspend and the non-cadence fi
 
 - Backlog slug: `PLATFORM-OFFSEASON-SCHEDULE-PAUSE-v1`
 
+### Item 122 — the historical-cache buttons cannot re-cache anything
+
+**Filed 2026-09-04. Operator defect, no seasonal deadline.** Surfaced while answering whether the 2024
+schedule cache could be refreshed.
+
+**`HistoricalCachePanel.tsx:47` and `:70` hardcode `force: false`.** `POST /api/admin/cache-historical-schedule`
+treats an already-cached year as a no-provider-call short-circuit unless `force` is set, and
+`cache-historical-scores` mirrors it. So for any year that already has a cache — which is every year
+the panel is useful for — the button returns `{ alreadyCached: true }`, makes no provider call, and
+changes nothing.
+
+**The panel looks functional while being unable to do the thing a re-cache exists for.** The
+short-circuit is correct behaviour for the endpoint (it exists so a repair does not re-spend a fetch
+on data already held); the defect is that the only UI never offers the other half. The sole way to
+refresh a cached season today is a hand-written authenticated `POST` from a browser console.
+
+**Acceptance boundary:** an operator can refresh an already-cached historical year from `/admin/data`
+without a console, and the destructive half is distinguishable from the idempotent one — a re-cache
+overwrites a durable season, so it should read as a deliberate action rather than a second identical
+button. The active-season protection at the route (`computeProtectedActiveYears`, which `force` cannot
+bypass) already prevents the dangerous case, so the UI does not need to re-derive it.
+
+- Backlog slug: `PLATFORM-HISTORICAL-CACHE-FORCE-AFFORDANCE-v1`
+
 ### Item 121 — every CFP first-round game shares one `eventKey`, and it is the React list key
 
 **Filed 2026-09-04. Data-identity defect, measured not inferred.** Evidence and the grouping work it
@@ -501,53 +526,61 @@ label edit would hit all four games. The placeholder participant slot ids (`sche
 2026 cache holds **zero** postseason rows, so nothing renders these keys yet. It goes live when the
 2026 first round is ingested, which is exactly when the postseason tab matters.
 
-**Acceptance boundary:** first-round games get distinct `eventKey` values, and a test renders more
-than one first-round game in the same list. End-to-end confirmation of the override and render paths
-is the first step, not a prerequisite for filing.
+**This is our key scheme, not a provider gap.** `playoffEventKey` composes `cfp-${round}` and appends
+a bowl slug that first-round games do not have, because they are campus-hosted rather than bowls. The
+distinguishing data is present: CFBD supplies a per-game `id`, **unique across all 3,801 rows of 2024
+and all 3,831 of 2025, never null**, and `AppGame` already carries it as `providerGameId`
+(`schedule.ts:180`, set at four construction sites including the postseason one at `:526`). The
+`eventKey` fallback at `schedule.ts:485` already trusts it — `${item.week}-${item.id}`.
+
+**But it cannot be a blanket swap, and this is the design constraint.** `eventKey` is doing two jobs.
+For a resolved game it is an identity; for a postseason **placeholder** it is a SLOT key —
+`postseason-classify.ts:340-341` mints `eventKey: roundKey` for a Team-TBD row before either team is
+known, and a placeholder has no provider id to key on. `slotOrder` has the same collapse
+(`:325-333`: `20 + slot` when the provider gives an explicit slot, a single `29` when it does not).
+So the fix is to stop resolved games inheriting the slot key, not to abolish it: prefer
+`providerGameId` for identity where a real game exists, keep the round key for the TBD slot.
+
+**Acceptance boundary:** first-round games get distinct `eventKey` values, a test renders more than
+one first-round game in the same list, and the placeholder path still resolves a TBD slot to its game.
+End-to-end confirmation of the override and render paths is the first step, not a prerequisite for
+filing.
 
 **Separable from round grouping** — that work keys on `playoffRound` and `playoffCompetition`, not
 `eventId`, so it is not blocked.
 
 - Backlog slug: `PLATFORM-CFP-EVENT-KEY-COLLISION-v1`
 
-### Item 120 — the 2023 and 2024 schedule caches predate two normalizer fields
+### Item 120 — CLOSED, no action: the 2023/2024 field gap is unread and fails open
 
-**Filed 2026-09-04. Rewritten same day — the original filing was wrong.** It claimed the 2024 cache
-held zero CFP rows and was a stale pre-playoff snapshot. Both claims came from a filter on
-`homeClassification === 'fbs'`, a field the 2023/2024 caches do not carry, so the filter returned an
-empty set and its emptiness was read as a finding. **2024 holds the complete bracket**: of 54
-postseason rows, `postseasonSubtype` is `{bowl: 43, playoff: 11}` and `playoffRound` is
-`{first-round: 4, quarterfinal: 4, semifinal: 2, national_championship: 1}` — the same shape as 2025.
+**Filed 2026-09-04, closed the same day at its own scoping gate.** It was filed twice wrongly first —
+originally as "the 2024 cache holds zero CFP rows" (an artifact of filtering on
+`homeClassification === 'fbs'`, a field those caches do not carry, and reading the empty result as
+data), then narrowed to a field gap. The consumer audit closes it.
 
-**What is actually true.** Measured on the read-only replica, `app_state` `scope='schedule'`:
+**The gap is real but narrow.** `2023-all-all` (written 2026-07-26) and `2024-all-all` (2026-07-26)
+carry neither `completed` nor the team classifications; `2025-all-all` (2026-09-03) carries both. All
+three record `partialFailure: false`, and `status: 'scheduled'` is the value on every row of every
+season (3,734 / 3,801 / 3,831), so it is not a staleness signal.
 
-| Key | Written | Items | `completed` on postseason | `homeClassification` |
-| --- | --- | --- | --- | --- |
-| `2023-all-all` | 2026-07-26T00:49Z | 3,734 | absent | absent |
-| `2024-all-all` | 2026-07-26T00:51Z | 3,801 | absent | absent |
-| `2025-all-all` | 2026-09-03T23:15Z | 3,831 | `true` on all 86 | present |
+**`completed` is unreachable for a past season.** Its only behavioural consumer is
+`classifyGameConclusionEvidence` (`gameStatus.ts:115-121`), a three-way OR whose FIRST branch is a
+final score pack. The 2024 score caches hold **3,745 of 3,747** regular packs and **54 of 54**
+postseason packs as `final`, so that branch fires and `completed` is never consulted. Confirmed
+against the outcome rather than the code path: the durable `standings-archive:tsc / 2024` reports
+coverage **`complete` for all 17 weeks**.
 
-All three record `partialFailure: false`. The two older caches were written six weeks ago, after those
-seasons finished — they are not pre-season snapshots. They simply predate a normalizer change made
-between 2026-07-26 and 2026-09-03 that began persisting `completed` and the team classifications.
+**The classifications fail open by design.** `scheduleRelevance.ts:17-26` retains a row when either
+classification is missing — its own comment says "Missing or unrecognized classifications fail open
+for legacy durable rows" — and `isFbsRelevantScheduleBuildRow` retains every postseason row
+regardless. Absence keeps rows; it cannot drop a game.
 
-**`status: 'scheduled'` is not evidence of anything.** It is the value on _every_ row of _every_
-season — 3,734 / 3,801 / 3,831 of them. The original filing cited it as a staleness signal; it is not.
+**Therefore no refresh.** It would spend a CFBD call to populate two fields no path reads for a past
+season, and the 2024 archive it would notionally improve is already durable and already complete.
+Reopen only if a consumer starts reading `completed` or a classification for a historical year.
 
-**Consequence.** Any consumer reading `completed` or `homeClassification` for 2023 or 2024 gets
-`undefined` rather than a value. Members cannot reach those seasons — the season is league-resolved
-and fixed (`CFBScheduleApp.tsx:313`, no setter in `src/`) — so this is archive integrity, not
-member-facing.
-
-**The fix is a refresh, and the admin UI cannot perform it.** `POST /api/admin/cache-historical-schedule`
-short-circuits on an already-cached year unless `force: true`, and `HistoricalCachePanel.tsx:47`
-hardcodes `force: false`. Clicking the button for 2024 returns `alreadyCached` and makes no provider
-call. Either the panel gains a force affordance or the refresh is a direct authenticated POST.
-
-**Scope before building anything:** confirm which consumers read `completed` and the classifications
-for a historical season at all. If none do, this is a refresh, not an item.
-
-- Backlog slug: `PLATFORM-HISTORICAL-CACHE-FIELD-DRIFT-v1`
+_Not chased: 2 of the 3,747 2024 regular score packs read `scheduled` rather than `final`. Coverage
+is complete regardless, so they are noted, not investigated._
 
 ### Item 119 — team-colour bar on the shared scoreboard, and no accent for teams with no colour
 
