@@ -541,19 +541,46 @@ The loss occurs at four layers:
 4. `fetchFullSeasonSchedulePartition` reduces timeout, network, HTTP, and JSON-parse exceptions to
    `fetch-failed`, so even the provider status does not retain the underlying safe transport class.
 
-Future implementation should:
+Implementation boundary, in two tiers. **The tiers are deliberate and must not be collapsed** —
+one is platform infrastructure, the other is multi-year diagnostics, and they have different
+blast radii.
 
-- extend each durable schedule receipt year entry with the exact allowlisted per-year `result`,
-  `reason`, `failedSeasonTypes`, `providerCallAttempted`, `rowsReceived`, `rowsCommitted`, and
-  `dataChanged` values already produced by the authority;
-- add the application-generated `invocationId` to the structured schedule-refresh runtime event so
-  it can be correlated directly with the receipt;
-- preserve a closed, secret-safe upstream class (`timeout`, `network`, `http` with numeric status,
-  or `parse`) where practical—never raw errors, response bodies, URLs, headers, or payloads;
-- consider a small bounded provider-attempt history per canonical target rather than relying only
-  on the mutable latest-status record; define count/age bounds and retain attempt/commit ordering;
-- let System Health expose the retained stable reason/partition evidence instead of only the generic
-  “execution failed” copy, without treating observability metadata as canonical data truth.
+**Tier A — universal, all seven cron jobs.**
+
+- Add the application-generated `invocationId` to every structured cron runtime event, so a runtime
+  log correlates directly with its durable receipt. This is `schedule`, `rankings`, `odds`,
+  `liveScores`, `gameStats`, `teamRecords` and `lifecycle` — seven separate `cronExecutionLog`
+  modules, none of which carries the field today. Done once here rather than six more times later.
+
+**Tier B — `schedule-refresh` and `rankings` only. These are the two multi-year jobs.**
+
+- Extend each durable receipt year entry with the exact allowlisted per-year `result`, `reason`,
+  `failedSeasonTypes`, `providerCallAttempted`, `rowsReceived`, `rowsCommitted` and `dataChanged`
+  values the authority already produces. A run-level result cannot say _which year_ failed when a
+  run spans several.
+- Preserve a closed, secret-safe upstream class (`timeout`, `network`, `http` with numeric status,
+  or `parse`) in place of the `fetch-failed` collapse — never raw errors, response bodies, URLs,
+  headers, or payloads. The collapse exists identically in both jobs
+  (`schedule/fullSeasonScheduleFetch.ts:67`, `rankings/refreshAuthority.ts:111`).
+- Let System Health expose the retained stable reason/partition evidence instead of only the generic
+  "execution failed" copy, without treating observability metadata as canonical data truth.
+
+**Explicitly NOT in scope: do not generalise per-target outcome structures into the single-unit
+jobs.** `live-scores`, `game-stats`, `odds` and `team-records` process one unit per run, so the
+run-level `result`/`reason` already identifies what failed. Their targets record only what was
+attempted (`targetGames`, `eligibleGames`, `week`) and that is sufficient for a single-unit run.
+Widening them for symmetry would grow the receipt contract for every job to solve a problem two jobs
+have. Owner decision 2026-09-04.
+
+**Split out of this item: `provider-refresh-status` is latest-only.** That is a real and _universal_
+observability limitation — one shared store keyed by dataset scope, where a successful manual repair
+replaces the failed attempt whose details the postmortem needs, for any dataset. It is recorded here
+as a future recommendation and is **not** part of this item's boundary. A small bounded
+provider-attempt history per canonical target is the candidate fix, with defined count/age bounds and
+retained attempt/commit ordering. **Condition to fold it back in:** planning shows the bounded history
+can be added without materially expanding storage or retention scope. Until that is shown, it stays
+separate — retention is a different kind of change from a receipt field, and pulling it in silently is
+how an observability item becomes a storage item.
 
 **Scope note added 2026-09-04 — the gap is not schedule-only, and the shape matters for how this is
 built.** Owner observation, then checked per layer against all seven cron jobs:
@@ -565,31 +592,41 @@ built.** Owner observation, then checked per layer against all seven cron jobs:
 | 3. `provider-refresh-status` is latest-only | **Universal.** One shared store keyed by dataset scope. A successful manual repair replaces the failed attempt for any dataset, not just schedule. |
 | 4. Upstream class collapsed to `fetch-failed` | **schedule AND rankings**, identically: `schedule/fullSeasonScheduleFetch.ts:67` and `rankings/refreshAuthority.ts:111`. Both discard timeout vs network vs HTTP-status vs parse. |
 
-**Consequence for scoping.** Layers 2 and 3 are platform-wide, so fixing them inside a
-schedule-shaped item either leaves six jobs uncorrelatable or gets rebuilt six more times. Layer 2 in
-particular is a one-field change repeated across seven modules — cheap once, expensive seven times.
-Layers 1 and 4 are a matched pair shared with rankings, which is the second multi-year job and uses
-the same `fetch-failed` shape.
-
-Decide before building whether this item ships the receipt/event contract **once for every job** with
-schedule as its first consumer, or stays schedule-only and accepts the repetition. The acceptance
-boundary below is written for schedule; it generalises unchanged if the contract is made shared.
+**Resolved by the owner 2026-09-04, and reflected in the boundary above.** Layer 2 goes platform-wide
+because it is a one-field change repeated across seven modules — cheap once, expensive seven times.
+Layers 1 and 4 cover schedule and rankings, the two multi-year jobs, which share both the
+`years: Array<{ year, operation }>` target shape and the `fetch-failed` collapse. Layer 3 leaves this
+item. The single-unit jobs get nothing beyond Tier A.
 
 Keep timeout reliability separate in Item 93. This item must not change the provider timeout/retry
 policy, scheduler HTTP semantics, QStash configuration, or canonical schedule behavior.
 
-Acceptance boundary:
+Acceptance boundary. **Tiered to match the implementation boundary — a criterion in one tier must
+not be read as a requirement on the other.**
 
-- Given an authenticated single-year schedule invocation that reaches provider work and fails at
-  each controlled post-provider boundary, its durable receipt alone identifies the year result,
-  stable reason, attempted/failed season types, provider-attempt flag, row counts, and data-change
-  state after runtime logs expire and after a later manual refresh succeeds.
-- Runtime and durable records share the same invocation id, and no scheduler- or provider-supplied
-  identifier is trusted as that identity.
-- A timeout can be distinguished from network, HTTP-status, and parse failure without persisting
+**Universal (Tier A), verified against all seven jobs:**
+
+- For every cron job, the runtime event and the durable receipt share the same invocation id, and no
+  scheduler- or provider-supplied identifier is trusted as that identity. A test names the jobs it
+  covers; "the schedule job correlates" does not satisfy this.
+- The id is observability-only: failing to generate one skips the receipt without any behaviour
+  change, as today.
+
+**Multi-year diagnostics (Tier B), `schedule-refresh` and `rankings` only:**
+
+- Given an authenticated invocation that reaches provider work and fails at each controlled
+  post-provider boundary, its durable receipt _alone_ identifies the per-year result, stable reason,
+  attempted/failed season types, provider-attempt flag, row counts and data-change state — after
+  runtime logs expire, and after a later manual refresh succeeds.
+- A timeout can be distinguished from network, HTTP-status and parse failure without persisting
   credentials or arbitrary provider/error content.
-- History is explicitly bounded, observation-only, and cannot affect response status, provider
-  outcome, canonical data, or the best-effort receipt contract.
+- The single-unit jobs are unchanged by this tier. A diff touching `live-scores`, `game-stats`,
+  `odds` or `team-records` targets is out of scope and should be reported rather than shipped.
+
+**Both tiers:**
+
+- Everything added is observation-only and cannot affect response status, provider outcome, canonical
+  data, or the best-effort receipt contract.
 - HTTP 200 remains the response for controlled operational failures unless a separate task
   intentionally redesigns QStash retries, quota consequences, and idempotency together.
 
