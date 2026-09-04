@@ -333,6 +333,11 @@ these confirming-review observations without putting them into the active sequen
 
 ### Item 95 — live-score staleness is two unsynchronized 3-minute cycles, and half the fix is free
 
+**Portion 1 interacts with Item 128 — order them.** Halving the poll doubles browser-driven Vercel
+invocations, and each tick currently makes TWO: `/api/scores` and an entirely avoidable
+`/api/teams`. Item 128 removes the second by reusing the catalog the bootstrap already holds. Land
+128 before or with portion 1 in production, or portion 1 doubles a cost that need not exist.
+
 **Filed from the portion-1 gate, 2026-09-04 — retune the client staleness threshold.**
 `DEFAULT_LIVE_DELTA_STALE_THRESHOLD_MS` (`selectors/liveDelta.ts`) is 7 minutes, justified in its own
 docblock as "two missed ticks plus request-latency slack" against a 3-minute visible-tab cadence.
@@ -547,6 +552,47 @@ through the offseason without an operator, and is driven by a Vercel Active CPU 
 Neon one. Keep this item for the read-replica autosuspend and the non-cadence findings.
 
 - Backlog slug: `PLATFORM-OFFSEASON-SCHEDULE-PAUSE-v1`
+
+### Item 128 — every browser poll refetches the whole team catalog it already has
+
+**Filed 2026-09-04, found by Codex while implementing Item 95 portion 1. Verified independently.**
+
+**The path.** `useLiveRefresh.ts:321` calls `await fetchTeamsCatalog()` unconditionally on every
+tick. That hits `/api/teams`, which defaults to `level=ALL`, reads one durable `app_state` record
+holding the entire catalog, normalizes every item, applies aliases, maps and sorts every item, and
+serializes the full array — which the browser then parses. 138 teams today, every tick, per visible
+tab.
+
+**The catalog is already in memory.** `CFBScheduleApp.tsx:474` loads and retains it during schedule
+bootstrap, and `fetchScoresByGame` already accepts a supplied catalog (`scores.ts:429`,
+`teams: providedTeams`). Passing the existing array into `useLiveRefresh` removes **one whole function
+invocation, durable read, serialization and client parse per tick** — no new endpoint, no new cache.
+
+**A team-ID-filtered endpoint is the worse fix**, and worth recording so it is not reached for: it
+shrinks transfer but still decodes the full durable record server-side, which is the expensive half.
+
+**Sequencing matters — this interacts with Item 95 portion 1.** Portion 1 halves the browser poll to
+90s, which DOUBLES the frequency of this. Item 95's own text already concedes the cost axis: "more
+polling means more Vercel function invocations, scaling with concurrent _visible_ tabs — far cheaper
+than provider calls, not free." Each tick is currently two invocations, and one of them is entirely
+avoidable. **Land this before or with portion 1 reaching production**, or portion 1 doubles a cost
+that did not need to exist. Together they are roughly neutral on invocations while halving latency,
+which is a better trade than either alone.
+
+**Two adjacent inefficiencies found in the same pass, not part of this item's fix:**
+
+- `loadReconciledWeekScores` (`server/scoreCacheReader.ts:246`) narrowed its HTTP response to one
+  week, but still reads every `${year}-` score entry and reconciles the whole season type before
+  filtering. The comment at `:255` states this deliberately — provider-week and canonical-week alias
+  children must both contribute — so it is a known trade, not an oversight. Recorded so a future
+  reader does not re-derive it.
+- Game-stats canonical context also loads the full team catalog.
+
+**Acceptance boundary:** an auto-poll tick issues no `/api/teams` request, and the catalog used for
+score attachment is the same array the bootstrap already resolved. A test proves the tick makes one
+request rather than two.
+
+- Backlog slug: `PLATFORM-POLL-REUSE-TEAM-CATALOG-v1`
 
 ### Item 127 — retain the CFBD usage the app already probes, and sample it daily
 
