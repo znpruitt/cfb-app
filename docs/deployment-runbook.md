@@ -22,7 +22,7 @@ it is historical evidence, not a procedure to replay.
 - CFBD supplies schedules, scores, rankings, conferences, and game statistics. The Odds API supplies
   betting lines.
 - Vercel Cron owns the two daily lifecycle jobs declared in `vercel.json`.
-- QStash runs the six externally scheduled provider jobs in §8.
+- QStash runs the seven externally scheduled provider jobs in §8.
 
 | Scheduler | Route | Cadence (UTC) | Owner |
 | --- | --- | --- | --- |
@@ -76,7 +76,7 @@ using preview-safe credentials and the child database.
 | `ODDS_API_KEY` | Required for odds refreshes. |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Required for Clerk. |
 | `CLERK_SECRET_KEY` | Required for Clerk. |
-| `CRON_SECRET` | Required bearer credential for all eight cron routes. Use a long random value. |
+| `CRON_SECRET` | Required bearer credential for all nine cron routes. Use a long random value. |
 | `LEAGUE_AUTH_SECRET` | Required when any league has a password. Use a long random value. |
 
 `ADMIN_API_TOKEN` is an optional fallback during Clerk migration. It is not the league-password
@@ -86,8 +86,8 @@ Optional variables: `NEXT_PUBLIC_SEASON`, `PGSSLMODE`, `NEXT_PUBLIC_DEBUG`, `DEB
 `DEBUG_UPSTREAM`. Leave debug variables unset in normal production.
 
 `QSTASH_TOKEN` is different from `CRON_SECRET`: it is an operator-held management credential used
-by the six schedule-manager scripts. Never commit it or configure it in Vercel. The deployed
-`CRON_SECRET` is the credential QStash forwards. If `CRON_SECRET` is missing or mismatched, all eight
+by the seven schedule-manager scripts. Never commit it or configure it in Vercel. The deployed
+`CRON_SECRET` is the credential QStash forwards. If `CRON_SECRET` is missing or mismatched, all nine
 cron routes fail closed with `401`, stopping lifecycle reconciliation, statistics ingestion,
 live-score polling, team-record refresh, odds polling, weekly schedule maintenance, and rankings
 publication.
@@ -638,7 +638,7 @@ receipts (§6c); inspect production before diagnosing a production outage.
 
 1. Confirm `CRON_SECRET` is present in the promoted Vercel Production deployment.
 2. For QStash, inspect the relevant schedule and require exactly one redacted Authorization header.
-3. If the secret was rotated, follow the complete six-schedule procedure in §8l.
+3. If the secret was rotated, follow the complete seven-schedule procedure in §8l.
 4. Keep gates closed until an HTTP 200 provider-free authentication proof succeeds.
 
 ### Clerk sign-in fails or redirects repeatedly

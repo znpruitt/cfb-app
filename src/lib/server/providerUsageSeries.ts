@@ -1,5 +1,5 @@
 import type { CfbdUsage } from '../api/cfbdUsage.ts';
-import { getAppState, setAppState } from './appStateStore.ts';
+import { getAppState, withAppStateKeyTransaction } from './appStateStore.ts';
 
 /**
  * PLATFORM-RETAIN-PROVIDER-USAGE-SERIES (Item 127) — a bounded daily record of
@@ -179,9 +179,22 @@ export async function recordProviderUsageSample(
   now: Date = new Date()
 ): Promise<boolean> {
   try {
-    const series = await readProviderUsageSeries();
-    const merged = mergeProviderUsageSample(series, buildProviderUsageSample(usage, now));
-    await setAppState(PROVIDER_USAGE_SERIES_SCOPE, PROVIDER_USAGE_SERIES_KEY, merged);
+    // Read, merge and write INSIDE one key transaction. Two producers write this
+    // row — the six-hourly sampler and the 15-minute game-stats probe — so they
+    // overlap by construction. Read-modify-write outside a lock is last-write-wins:
+    // Postgres upserts do not compare, and the file store's lock begins inside the
+    // write, after the read. One invocation would silently discard the other's
+    // newer observation, or a whole day at a boundary. Flagged independently by
+    // both reviewers.
+    await withAppStateKeyTransaction(
+      PROVIDER_USAGE_SERIES_SCOPE,
+      PROVIDER_USAGE_SERIES_KEY,
+      async (txn) => {
+        const record = await txn.read<unknown>();
+        const series = parseProviderUsageSeries(record?.value);
+        await txn.write(mergeProviderUsageSample(series, buildProviderUsageSample(usage, now)));
+      }
+    );
     return true;
   } catch {
     return false;

@@ -192,6 +192,12 @@ const JOBS_WITHOUT_EXECUTION_REPAIR: ReadonlySet<ExternalSchedulerJob> = new Set
   'team-records',
   'season-transition',
   'season-rollover',
+  // Item 127 — the usage sampler reports `partial` when `/info` is unavailable,
+  // which raises an issue by design. But Data Maintenance & Recovery has no
+  // sampler repair action, so linking there would send an operator to a page that
+  // cannot help. The remediation is a provider or credential problem, not a
+  // dataset repair.
+  'usage-sample',
 ]);
 
 function repairFor(surface: ProviderDiagnosticRepairSurface | null): SystemHealthRepair {

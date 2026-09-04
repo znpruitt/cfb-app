@@ -59,12 +59,12 @@ System Health receipts against the promoted build.
 | Season transition | Vercel Cron | Daily 00:00 UTC |
 | Season rollover | Vercel Cron | Daily 00:00 UTC |
 
-The six QStash jobs are intentionally absent from `vercel.json`; versioned manager scripts own
-their external schedule definitions. All eight routes authenticate with `Bearer ${CRON_SECRET}`.
+The seven QStash jobs are intentionally absent from `vercel.json`; versioned manager scripts own
+their external schedule definitions. All nine routes authenticate with `Bearer ${CRON_SECRET}`.
 The fixed trigger is a delivery ceiling: application policy decides whether an invocation has an
 eligible target and whether provider work is due. Provider-free skips are normal.
 
-Rotate `CRON_SECRET` as one coordinated operation across the Vercel environment and all six QStash
+Rotate `CRON_SECRET` as one coordinated operation across the Vercel environment and all seven QStash
 schedules. Follow runbook §8l; a partially rotated set silently disables whichever jobs still carry
 the old value.
 
@@ -107,7 +107,7 @@ available when automatic jobs are paused.
 - Confirm `getAppStateStorageStatus()` resolves to Postgres and the production database is reachable.
 - Confirm platform-admin pages open for the authorized Clerk account; wrong-role/signed-out access
   fails closed; admin/debug APIs reject unauthenticated requests.
-- Inspect all six QStash schedules and both Vercel Cron entries. Verify their exact URLs, methods,
+- Inspect all seven QStash schedules and both Vercel Cron entries. Verify their exact URLs, methods,
   cadence, retry policy, and shared bearer-secret wiring.
 - Confirm each job's System Health receipt reports the promoted build after its next fixed slot.
 - Verify public data routes serve durable caches without provider calls; run provider-spending checks

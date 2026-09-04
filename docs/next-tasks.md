@@ -652,7 +652,9 @@ objection to it was mine and it was wrong — the cost lands on the other side.
 violates nothing. Cost, measured rather than assumed: the 2 Vercel crons in `vercel.json` may be a
 Hobby cap (worth confirming), in which case it is a 7th QStash schedule — a route, a
 `cronExecutionLog` module, a `manage-*-schedule.ts`, a contract, and a name added to the
-`CRON_SECRET` rotation that runbook §8l enumerates as "all six" in three places. A dedicated job can
+`CRON_SECRET` rotation — done, and it reached further than three places: the runbook, four sibling
+manager script headers, `docs/operations/deployment.md`, and the storage-architecture table all
+enumerated six. A dedicated job can
 also sample MORE than daily, which bounds the month-boundary tail loss that daily sampling cannot.
 
 **Why the inversion matters, not just the coverage.** A game-stats-only series would sample exactly

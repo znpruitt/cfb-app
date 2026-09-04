@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server';
+import { after, NextResponse } from 'next/server';
 
 import { fetchCfbdUsage } from '@/lib/api/cfbdUsage';
 import { recordProviderUsageSample } from '@/lib/server/providerUsageSeries';
@@ -289,10 +289,25 @@ export async function GET(req: Request) {
       // daily series' resolution during game windows, where burn actually
       // happens. The UNCONDITIONAL sampler is its own route, `/api/cron/usage-sample`
       // — this path is gated on an exact target and yields nothing on a quiet day,
-      // which is the day the series most needs. Bookkeeping only —
-      // `recordProviderUsageSample` never throws
-      // and its outcome cannot affect the quota decision below.
-      await recordProviderUsageSample(usage);
+      // which is the day the series most needs.
+      //
+      // DEFERRED past the response, not awaited. Swallowing a rejection protects
+      // against errors but NOT against latency: awaiting a slow or blocked
+      // app-state write here would postpone `evaluateAutomationQuota` and the
+      // billed fetch below, ageing the very quota snapshot this route passed
+      // `fresh: true` to keep current, and could time out an otherwise valid run.
+      // Same hazard and same mechanism as the scheduler receipts.
+      //
+      // Wrapped in its OWN try. This block's catch sets `remainingCalls: null`,
+      // which the quota gate reads as unavailable usage — so an `after()` that
+      // throws outside a request scope would refuse a perfectly good run on
+      // bookkeeping grounds. Caught by the receipts suite; the isolation is the
+      // point of deferring in the first place.
+      try {
+        after(() => recordProviderUsageSample(usage));
+      } catch {
+        // Deferral unavailable — drop the sample, never the run.
+      }
     } catch {
       usageSnapshot = { remainingCalls: null };
     }

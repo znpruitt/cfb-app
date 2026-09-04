@@ -100,7 +100,12 @@ export async function GET(req: Request): Promise<NextResponse<UsageSampleResult>
     } catch {
       usage = { patronLevel: null, used: null, remaining: null, limit: null };
     }
-    exec.usageAvailable = usage.remaining !== null;
+    // COMPLETE, not merely non-null. `used` and `limit` derive from `patronLevel`,
+    // so a response carrying `remainingCalls` with an unusable tier yields both as
+    // null — and `used` is the field the burn question reads. Calling that
+    // "available" would file a green success receipt over a sample that cannot
+    // answer what a day cost. Same criterion the series itself ranks by.
+    exec.usageAvailable = usage.remaining !== null && usage.used !== null && usage.limit !== null;
 
     exec.recorded = await recordProviderUsageSample(usage, now);
     if (!exec.recorded) {
