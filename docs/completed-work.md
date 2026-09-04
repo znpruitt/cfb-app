@@ -32,6 +32,28 @@ Supersedes: (none)
 > [`docs/ai/game-stats-writer-fence.md`](ai/game-stats-writer-fence.md) (with the superseded
 > original design frozen in [`docs/ai/platform-086h3-contract.md`](ai/platform-086h3-contract.md)).
 
+### PLATFORM-RETIRE-POSTSEASON-TEMPLATE — Complete
+
+- **Status:** Merged via PR #565 (merge commit `7e505437`), 2026-09-04.
+- **PROMPT_ID(s):** `PLATFORM-RETIRE-POSTSEASON-TEMPLATE-v1`.
+- **Outcome:** deleted `src/lib/postseason-template.ts`, 183 lines, one file, nothing else. It had
+  zero callers anywhere in `src/` or `scripts/` and no test.
+- **Why it was deleted rather than revived:** it hardcoded provider week numbers — conference
+  championships at `week: 15`, bowls and playoff at `17` — which matched 2024 and 2025 but had
+  already gone wrong for 2026, where CFBD puts Army–Navy at week 15 so championships land at 14. It
+  also had no first-round slots at all (the 12-team bracket missing its first round) and a four-bowl
+  set the 12-team format made ambiguous. The live classifier is provider-driven and handles
+  placeholders today; this was a second, unmaintained model of the same structure.
+- **Verification:** implementation commit `12da576e`. TypeScript, `lint:all`, `npm test` at 4,590
+  passing with a delta of 0, and `npm run build` — the last required because a module deletion is
+  where a stale import surfaces. Re-confirmed against merged `main` (`fd4cc1e2`): all four exit 0.
+- **Notes:** first task dispatched through `docs/prompts/`, the worktree-readable kickoff directory.
+  Codex delivered exactly the contract's scope — one file, no collateral edits. Codex review and
+  `/code-review` both returned no findings.
+- **Carried forward:** the module's slot-numbered playoff keys (`cfp-quarterfinal-1`…`-4`) are the
+  naming convention Item 121 needs for the CFP first-round `eventKey` collision; that observation is
+  recorded in Item 121, not lost with the file.
+
 ### POLISH-024 — Retire the Dead OverviewContext Fields — Complete
 
 - **Status:** Merged via PR #564 (merge commit `cac6dab9`), 2026-09-04.

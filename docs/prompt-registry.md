@@ -61,8 +61,7 @@ Rules:
   no test file existed, and no second static template generator was found.
 - Review / verification: exact implementation commit `12da576e`; Codex and `/code-review` returned no
   findings. TypeScript, `lint:all`, all 4,590 tests (delta 0), and the production build passed.
-- Status: Implemented — review complete, awaiting merge on
-  `platform/retire-postseason-template`.
+- Status: Merged via PR #565 (merge commit `7e505437`), 2026-09-04.
 
 ### SCHEDULE-REFRESH-DIAGNOSTIC-DOCUMENTATION
 

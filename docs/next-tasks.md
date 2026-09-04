@@ -799,7 +799,11 @@ since the change alters an exported type's surface.
 
 - Backlog slug: `POLISH-RETIRE-OVERVIEW-SECTION-ORDER-v1`
 
-### Item 123 — `buildPostseasonTemplate` is dead, and stale in three ways if revived
+### Item 123 — DONE: `buildPostseasonTemplate` retired
+
+**Shipped 2026-09-04** — `PLATFORM-RETIRE-POSTSEASON-TEMPLATE-v1`, merged via PR #565 (`7e505437`).
+183 lines, one file, no collateral edits. The slot-numbered playoff keys it carried are recorded in
+Item 121 as the convention that fixes the first-round `eventKey` collision.
 
 **Filed 2026-09-04. Dead code with a wrong model inside it.** Surfaced while answering why the 2026
 week list ends at 15 with no week 14.
