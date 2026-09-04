@@ -339,4 +339,13 @@ test('a catalog replaced after mount is used on the NEXT poll, not the mount-tim
     1,
     'the second poll sees the NEW catalog and issues no further request'
   );
+  // Pin that the second poll actually RAN. Without this, "no further /api/teams
+  // request" is also satisfied by the refresh never happening at all, so a future
+  // early-return on the auto path would make this test vacuous again while the
+  // defect it guards quietly returned.
+  assert.equal(
+    fetchUrls.filter((url) => url.includes('/api/scores')).length,
+    2,
+    'and it genuinely polled — two score reads, one per refresh'
+  );
 });

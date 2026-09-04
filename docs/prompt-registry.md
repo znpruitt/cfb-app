@@ -51,6 +51,30 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-128-LIVE-POLL-TEAM-CATALOG-v1
+
+- Purpose: stop every browser live-score poll from refetching the full team catalog it already holds
+  in memory, so halving the poll interval (Item 95 portion 1) does not double an avoidable cost.
+- Scope: pass `CFBScheduleApp`'s existing `teamCatalog` state into `useLiveRefresh` instead of calling
+  `fetchTeamsCatalog()` inside `refreshLiveData`; no new endpoint, no new cache, no change to score
+  attachment, provider calls, or the poll cadence itself.
+- Outcome: removed one `/api/teams` function invocation, durable catalog read, server-side
+  normalize/filter/sort/serialize and client parse per tick, per visible tab. `fetchTeamsCatalog` sets
+  `cache: 'no-store'`, so the removed call was never browser-cached. An empty catalog forwards as
+  `undefined`, which makes `fetchScoresByGame` fetch one itself — a deliberate improvement over the
+  old `[]`, which `??` does not treat as absent and which therefore attached scores against an empty
+  catalog with no retry. Accepted trade recorded in the param doc: polls are now pinned to the
+  bootstrap catalog until a full schedule reload, where the old per-tick fetch picked up an operator
+  re-sync within one tick.
+- Review / verification: exact commit reviewed by both reviewers, `9f98315c` — Codex no findings,
+  `/code-review` three LOW, all remediated in `62dd1843`. The load-bearing one was a stale closure:
+  `teamCatalog` was read inside `refreshLiveData` but omitted from its `useCallback` deps, and this
+  repo does not enable `react-hooks/exhaustive-deps`. Confirming pass on `62dd1843`: Codex no
+  findings, `/code-review` two LOW and no correctness defect, both folded in here. `npx tsc --noEmit`
+  exit 0; `npm test` exit 0 at 4,593 tests; `npm run lint:all` exit 0, each run separately.
+- Status: Merged to `main`, 2026-09-04. Should reach production together with Item 95 portion 1,
+  which halves the browser poll interval and would otherwise double this cost.
+
 ### PLATFORM-RETIRE-POSTSEASON-TEMPLATE-v1
 
 - Purpose: retire the unreferenced postseason template before its hardcoded, incomplete bracket and

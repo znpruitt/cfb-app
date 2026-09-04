@@ -555,6 +555,9 @@ Neon one. Keep this item for the read-replica autosuspend and the non-cadence fi
 
 ### Item 128 — every browser poll refetches the whole team catalog it already has
 
+**SHIPPED 2026-09-04** (`PLATFORM-128-LIVE-POLL-TEAM-CATALOG-v1`). Retained below as the record of
+what was found and why it was sequenced with Item 95 portion 1.
+
 **Filed 2026-09-04, found by Codex while implementing Item 95 portion 1. Verified independently.**
 
 **The path.** `useLiveRefresh.ts:321` calls `await fetchTeamsCatalog()` unconditionally on every

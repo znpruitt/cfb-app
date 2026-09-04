@@ -68,6 +68,13 @@ type UseLiveRefreshParams = {
    * path retries instead. Production cannot reach it either way, because
    * `scheduleLoaded` is only set after a successful catalog fetch, but the
    * degraded behaviour is better and the claim that it is unchanged was wrong.
+   *
+   * ACCEPTED TRADE: polls are now pinned to the catalog held at bootstrap. The
+   * team database behind `/api/teams` can be re-synced at runtime, and the old
+   * per-tick fetch picked such a change up within one tick; identity resolution
+   * now keeps using the bootstrap copy until a full schedule reload. That is
+   * deliberate — the catalog changes only on an operator re-sync, while the fetch
+   * it replaces ran on every poll in every visible tab.
    */
   teamCatalog: TeamCatalogItem[];
   aliasMap: AliasMap;
