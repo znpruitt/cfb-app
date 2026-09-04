@@ -253,6 +253,7 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
   const liveRefreshInFlightRef = useRef<boolean>(false);
   const lastManualLiveRefreshMsRef = useRef<number>(0);
   const lastAutoScoresRefreshMsRef = useRef<number>(0);
+  const resetAutoPollHeartbeatRef = useRef<(() => void) | null>(null);
   const hasAutoBootstrappedLiveRef = useRef<boolean>(false);
   const hasAttemptedLazyPostseasonHydrationRef = useRef<boolean>(false);
   // PLATFORM-080: memory of game keys observed across polls and those already
@@ -541,6 +542,7 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
       } finally {
         if (stampAutoPollOnCompletion) {
           lastAutoScoresRefreshMsRef.current = Date.now();
+          resetAutoPollHeartbeatRef.current?.();
         }
         liveRefreshInFlightRef.current = false;
         setLoadingLive(false);
@@ -675,11 +677,15 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
       if (lastAutoScoresRefreshMsRef.current !== before) reschedule();
     };
 
+    resetAutoPollHeartbeatRef.current = reschedule;
     reschedule();
     window.addEventListener('focus', onVisible);
     document.addEventListener('visibilitychange', onVisible);
     return () => {
       if (timeoutId !== undefined) clearTimeout(timeoutId);
+      if (resetAutoPollHeartbeatRef.current === reschedule) {
+        resetAutoPollHeartbeatRef.current = null;
+      }
       window.removeEventListener('focus', onVisible);
       document.removeEventListener('visibilitychange', onVisible);
     };

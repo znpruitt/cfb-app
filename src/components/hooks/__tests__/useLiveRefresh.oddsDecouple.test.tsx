@@ -31,9 +31,11 @@ Object.defineProperty(globalThis, 'navigator', {
 
 const originalFetch = globalThis.fetch;
 const originalDateNow = Date.now;
+const originalSetTimeout = globalThis.setTimeout;
 const originalVisibilityDescriptor = Object.getOwnPropertyDescriptor(document, 'visibilityState');
 let fetchUrls: string[];
 let scorePayload: unknown;
+let scoreFetchGate: Promise<void> | null;
 
 function game(overrides: Partial<AppGame> = {}): AppGame {
   return {
@@ -129,6 +131,7 @@ function makeParams(
 beforeEach(() => {
   fetchUrls = [];
   scorePayload = { items: [], meta: {} };
+  scoreFetchGate = null;
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = typeof input === 'string' ? input : input.toString();
     fetchUrls.push(url);
@@ -140,6 +143,7 @@ beforeEach(() => {
       });
     }
     if (url.includes('/api/scores')) {
+      if (scoreFetchGate) await scoreFetchGate;
       return new Response(JSON.stringify(scorePayload), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
@@ -156,6 +160,7 @@ afterEach(() => {
   cleanup();
   globalThis.fetch = originalFetch;
   Date.now = originalDateNow;
+  globalThis.setTimeout = originalSetTimeout;
   if (originalVisibilityDescriptor) {
     Object.defineProperty(document, 'visibilityState', originalVisibilityDescriptor);
   } else {
@@ -506,5 +511,62 @@ test('a final-only window waits 180 seconds and requests the same full partition
       '/api/scores?week=1&year=2026&seasonType=postseason&live=1',
     ],
     'the normal tier retains the same complete eligible partition set as the fast tier'
+  );
+});
+
+test('bootstrap completion re-anchors the heartbeat after nonzero fetch latency', async () => {
+  const nowBase = Date.parse('2026-09-05T17:00:00.000Z');
+  let nowMs = nowBase;
+  Date.now = () => nowMs;
+  Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+
+  const heartbeatDelays: number[] = [];
+  const observingSetTimeout = (
+    ...parameters: Parameters<typeof setTimeout>
+  ): ReturnType<typeof setTimeout> => {
+    if (parameters[1] === 90 * 1000) heartbeatDelays.push(parameters[1]);
+    return originalSetTimeout(...parameters);
+  };
+  globalThis.setTimeout = observingSetTimeout as typeof setTimeout;
+
+  let releaseBootstrap!: () => void;
+  scoreFetchGate = new Promise<void>((resolve) => {
+    releaseBootstrap = () => {
+      scoreFetchGate = null;
+      resolve();
+    };
+  });
+
+  let loading = false;
+  const loadingWrites: boolean[] = [];
+  const kickoff = game({ key: 'kickoff', date: new Date(nowBase).toISOString() });
+  renderHook(() =>
+    useLiveRefresh(
+      makeParams({
+        scheduleLoaded: true,
+        games: [kickoff],
+        visibleGames: [kickoff],
+        scoreScopeGames: [kickoff],
+        setLoadingLive: (action) => {
+          loading = typeof action === 'function' ? action(loading) : action;
+          loadingWrites.push(loading);
+        },
+      })
+    )
+  );
+
+  await waitFor(() => assert.deepEqual(loadingWrites, [true]));
+  assert.equal(heartbeatDelays.length, 1, 'mount arms the initial heartbeat');
+
+  nowMs = nowBase + 1_500;
+  await act(async () => {
+    releaseBootstrap();
+  });
+  await waitFor(() => assert.deepEqual(loadingWrites, [true, false]));
+
+  assert.equal(
+    heartbeatDelays.length,
+    2,
+    'completion clears the mount-aligned heartbeat and re-arms 90 seconds from the stamped clock'
   );
 });

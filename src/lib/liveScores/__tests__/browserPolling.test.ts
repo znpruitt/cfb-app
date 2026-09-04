@@ -249,13 +249,18 @@ test('the fast-tier predicate waits for kickoff even when a cached status says l
 });
 
 test('final evidence stays on the normal tier, with an attached score taking precedence', () => {
-  const rawFinal = makeGame({ key: 'raw-final', rawStatus: 'STATUS_FINAL' });
+  const scheduleFinal = makeGame({
+    key: 'schedule-final',
+    rawStatus: 'completed',
+    status: 'matchup_set',
+    completed: true,
+  });
   const scoreFinal = makeGame({ key: 'score-final', rawStatus: 'STATUS_IN_PROGRESS' });
 
   assert.equal(
-    hasInProgressLiveScoreGame({ eligibleGames: [rawFinal], scoresByKey: {}, now: NOW }),
+    hasInProgressLiveScoreGame({ eligibleGames: [scheduleFinal], scoresByKey: {}, now: NOW }),
     false,
-    'schedule finality applies before a score pack exists'
+    'CFBD completed=true applies before a score pack exists'
   );
   assert.equal(
     hasInProgressLiveScoreGame({
@@ -268,8 +273,8 @@ test('final evidence stays on the normal tier, with an attached score taking pre
   );
   assert.equal(
     hasInProgressLiveScoreGame({
-      eligibleGames: [rawFinal],
-      scoresByKey: { 'raw-final': scorePack('Q4 02:00') },
+      eligibleGames: [scheduleFinal],
+      scoresByKey: { 'schedule-final': scorePack('Q4 02:00') },
       now: NOW,
     }),
     true,

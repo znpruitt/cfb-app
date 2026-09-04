@@ -112,8 +112,9 @@ export function selectLiveScorePollGames(params: {
  * Kickoff time is deliberately sufficient to enter the fast tier: the first cron
  * write may not have produced a score pack yet, and waiting for one would delay
  * the 90-second cadence at the moment it matters. Once a score pack exists its
- * status is the freshest finality signal; before then, the schedule's raw status
- * prevents an already-final game from being treated as live.
+ * status is the freshest finality signal; before then, the schedule's retained
+ * `completed` flag, mapped status, and raw status prevent an already-final game
+ * from being treated as live.
  */
 export function hasInProgressLiveScoreGame(params: {
   eligibleGames: AppGame[];
@@ -129,10 +130,12 @@ export function hasInProgressLiveScoreGame(params: {
     if (!Number.isFinite(kickoffMs) || kickoffMs > nowMs) return false;
 
     const score = scoresByKey[game.key];
-    const status = score
-      ? classifyScorePackStatus(score)
-      : classifyStatusLabel(game.rawStatus ?? game.status);
-    return status !== 'final';
+    const isFinal = score
+      ? classifyScorePackStatus(score) === 'final'
+      : game.completed === true ||
+        game.status === 'final' ||
+        classifyStatusLabel(game.rawStatus) === 'final';
+    return !isFinal;
   });
 }
 
