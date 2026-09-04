@@ -16,6 +16,7 @@ import type {
   SeasonRolloverCronExecutionReason,
   SeasonTransitionCronExecutionReason,
 } from '@/lib/lifecycleCronExecutionLog';
+import type { UsageSampleCronExecutionReason } from '../providerUsage/cronExecutionLog.ts';
 import { withAppStateKeyTransaction } from '@/lib/server/appStateStore';
 
 /**
@@ -86,6 +87,7 @@ export const EXTERNAL_SCHEDULER_JOBS = [
   'rankings',
   'season-transition',
   'season-rollover',
+  'usage-sample',
 ] as const;
 
 export type ExternalSchedulerJob = (typeof EXTERNAL_SCHEDULER_JOBS)[number];
@@ -110,6 +112,7 @@ const JOB_SOURCE: Record<ExternalSchedulerJob, SchedulerSource> = {
   rankings: 'qstash',
   'season-transition': 'vercel-cron',
   'season-rollover': 'vercel-cron',
+  'usage-sample': 'qstash',
 };
 
 /** The configured scheduler owner for a job — the single derivation of `source`. */
@@ -138,7 +141,8 @@ export type SchedulerExecutionReason =
   | ScheduleRefreshCronExecutionReason
   | RankingsCronExecutionReason
   | SeasonTransitionCronExecutionReason
-  | SeasonRolloverCronExecutionReason;
+  | SeasonRolloverCronExecutionReason
+  | UsageSampleCronExecutionReason;
 
 /** The allowlisted, bounded per-job target summary variants. */
 export type SchedulerExecutionTarget =
@@ -152,6 +156,20 @@ export type SchedulerExecutionTarget =
   | {
       kind: 'team-records';
       year: number;
+    }
+  /**
+   * Item 127 — the unconditional CFBD usage sampler. It has no year, week, or
+   * partition: its target IS the calendar day it sampled. `recorded` says whether
+   * the durable write landed, which is the only outcome this job can partially
+   * fail at — the probe itself never fails the run, because an unreachable
+   * provider is a truthful all-null observation rather than an error.
+   */
+  | {
+      kind: 'usage-sample';
+      /** UTC day the sample was filed under, or null when the run never got that far. */
+      day: string | null;
+      /** Whether the durable series write succeeded. */
+      recorded: boolean;
     }
   | {
       kind: 'game-stats';
@@ -614,6 +632,7 @@ const JOB_TARGET_KIND: Record<ExternalSchedulerJob, SchedulerExecutionTarget['ki
   rankings: 'rankings-years',
   'season-transition': 'season-transition-years',
   'season-rollover': 'season-rollover-years',
+  'usage-sample': 'usage-sample',
 };
 
 function isFiniteNumber(value: unknown): value is number {
@@ -643,6 +662,12 @@ function rebuildTarget(target: SchedulerExecutionTarget): SchedulerExecutionTarg
       return {
         kind: 'team-records',
         year: target.year,
+      };
+    case 'usage-sample':
+      return {
+        kind: 'usage-sample',
+        day: target.day,
+        recorded: target.recorded,
       };
     case 'game-stats':
       return {
@@ -791,6 +816,11 @@ function isValidStoredTarget(value: unknown, job: ExternalSchedulerJob): boolean
       );
     case 'team-records':
       return isFiniteNumber(target.year);
+    case 'usage-sample':
+      return (
+        (target.day === null || typeof target.day === 'string') &&
+        typeof target.recorded === 'boolean'
+      );
     case 'game-stats':
       return (
         isFiniteNumber(target.year) &&

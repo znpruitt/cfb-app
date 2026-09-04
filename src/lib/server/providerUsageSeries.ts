@@ -91,25 +91,47 @@ export function parseProviderUsageSeries(value: unknown): ProviderUsageSeries {
   return { samples };
 }
 
+/** A fully usable observation carries `remaining` AND the tier-derived `used`/`limit`. */
+function usabilityRank(sample: ProviderUsageSample): number {
+  if (sample.remaining === null) return 0;
+  // `used` and `limit` derive from `patronLevel` (`cfbdUsage.ts`): a response with
+  // `remainingCalls` but no usable `patronLevel` yields BOTH as null. That is the
+  // weaker observation — and `used` is the field the "what does a Saturday cost"
+  // consumer actually reads — so it must not displace a complete one.
+  return sample.used !== null && sample.limit !== null ? 2 : 1;
+}
+
 /**
  * Which of two same-day observations to keep.
  *
- * A USABLE observation always beats an unusable one, REGARDLESS of time. This is
- * the rule that matters: the 00:00 floor sample runs unconditionally, while the
- * opportunistic game-stats sample runs later in the day and can fail (network,
- * an unusable `remainingCalls`). Without this, one failed evening probe would
- * destroy a good morning reading for that day and leave a null where a number
- * had been. Among two observations of equal usability, the later one wins,
- * because `used` is cumulative within the period and a later read is strictly
- * more complete.
+ * MORE COMPLETE WINS FIRST, regardless of time. The unconditional sampler and the
+ * opportunistic game-stats probe both write, and either can come back degraded —
+ * unreachable, or usable-but-tierless. Without this, one bad later probe would
+ * replace a good earlier reading with a null, or silently drop that day's `used`
+ * and `limit`.
+ *
+ * Among EQUALLY complete observations, the greater `used` wins — NOT the later
+ * one. That distinction is load-bearing across a month boundary: CFBD's reset
+ * hour is not verified to be 00:00 UTC, so a reset at, say, 06:00 on the 1st puts
+ * a pre-reset reading (`used` high) and a post-reset reading (`used` ≈ 0) on the
+ * SAME UTC day. Preferring the later would overwrite the previous month's final
+ * burn with a fresh zero — destroying precisely the number this series exists to
+ * preserve. `used` only rises within a period, so "greater" is "later" everywhere
+ * except the one case that matters. `observedAt` breaks a true tie.
  */
 export function preferSample(
   existing: ProviderUsageSample,
   candidate: ProviderUsageSample
 ): ProviderUsageSample {
-  const existingUsable = existing.remaining !== null;
-  const candidateUsable = candidate.remaining !== null;
-  if (existingUsable !== candidateUsable) return existingUsable ? existing : candidate;
+  const existingRank = usabilityRank(existing);
+  const candidateRank = usabilityRank(candidate);
+  if (existingRank !== candidateRank) return existingRank > candidateRank ? existing : candidate;
+
+  const existingUsed = existing.used;
+  const candidateUsed = candidate.used;
+  if (existingUsed !== null && candidateUsed !== null && existingUsed !== candidateUsed) {
+    return candidateUsed > existingUsed ? candidate : existing;
+  }
   return Date.parse(candidate.observedAt) >= Date.parse(existing.observedAt) ? candidate : existing;
 }
 

@@ -53,6 +53,8 @@ function targetFor(job: ExternalSchedulerJob): SchedulerExecutionTarget {
       return { kind: 'live-scores', year: 2026, mode: null, targetGames: 0, targetPartitions: 0 };
     case 'team-records':
       return { kind: 'team-records', year: 2026 };
+    case 'usage-sample':
+      return { kind: 'usage-sample', day: '2026-10-15', recorded: true };
     case 'game-stats':
       return { kind: 'game-stats', year: 2026, week: null, seasonType: null };
     case 'odds':
@@ -93,6 +95,7 @@ const REASON_FOR: Record<ExternalSchedulerJob, SchedulerExecutionReceiptInput['r
   rankings: 'no-ranking-target',
   'season-transition': 'no-preseason-leagues',
   'season-rollover': 'no-season-leagues',
+  'usage-sample': 'sample-recorded',
 };
 
 /** Build a valid STORED receipt for `job` started at `startedAtMs`. */
@@ -549,19 +552,19 @@ test('unknown durable keys are ignored', async () => {
       { key: 'live-scores', value: validReceipt('live-scores', ms('2026-03-15T12:06:00Z')) },
     ]),
   });
-  assert.equal(snap.jobs.length, 8);
+  assert.equal(snap.jobs.length, EXTERNAL_SCHEDULER_JOBS.length);
   assert.ok(!snap.jobs.some((r) => (r.job as string) === 'not-a-job'));
   assert.equal(snap.jobs.find((r) => r.job === 'live-scores')!.deliveryState, 'on-time');
 });
 
-// ── 19. Scope-read failure → eight unavailable rows, no leak ─────────────────
-test('a scope-read failure yields eight unavailable rows without error-detail leakage', async () => {
+// ── 19. Scope-read failure → one unavailable row PER JOB, no leak ───────────
+test('a scope-read failure yields one unavailable row per job without error-detail leakage', async () => {
   const now = ms('2026-03-15T12:10:00Z');
   const snap = await readSchedulerDeliveryHealth({
     nowMs: now,
     loadEntries: () => Promise.reject(new Error('durable scope boom-MARKER')),
   });
-  assert.equal(snap.jobs.length, 8);
+  assert.equal(snap.jobs.length, EXTERNAL_SCHEDULER_JOBS.length);
   for (const row of snap.jobs) {
     assert.equal(row.deliveryState, 'unavailable');
     assert.equal(row.receipt, null);
@@ -625,7 +628,7 @@ test('the default loader reads the real durable scheduler-execution scope', asyn
 
   // No injected loader → the default cache-only scope read runs.
   const snap = await readSchedulerDeliveryHealth({ nowMs: now });
-  assert.equal(snap.jobs.length, 8);
+  assert.equal(snap.jobs.length, EXTERNAL_SCHEDULER_JOBS.length);
   const live = snap.jobs.find((r) => r.job === 'live-scores')!;
   assert.equal(live.deliveryState, 'on-time');
   assert.ok(live.receipt, 'the durable receipt was read and parsed');

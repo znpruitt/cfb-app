@@ -287,9 +287,10 @@ export async function GET(req: Request) {
       // Item 127 — retain the observation this probe already made. No new call:
       // `usage` is the value the quota gate is about to read. This tightens the
       // daily series' resolution during game windows, where burn actually
-      // happens; the unconditional floor sample lives on `season-transition`,
-      // because this path is gated on an exact target and yields nothing on a
-      // quiet day. Bookkeeping only — `recordProviderUsageSample` never throws
+      // happens. The UNCONDITIONAL sampler is its own route, `/api/cron/usage-sample`
+      // — this path is gated on an exact target and yields nothing on a quiet day,
+      // which is the day the series most needs. Bookkeeping only —
+      // `recordProviderUsageSample` never throws
       // and its outcome cannot affect the quota decision below.
       await recordProviderUsageSample(usage);
     } catch {

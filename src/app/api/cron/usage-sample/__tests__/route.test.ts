@@ -1,12 +1,22 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { __resetAppStateForTests, setAppState } from '@/lib/server/appStateStore';
+import {
+  __resetAppStateForTests,
+  __setAppStateWriteFailureForTests,
+  getAppState,
+  setAppState,
+} from '@/lib/server/appStateStore';
 import {
   PROVIDER_USAGE_SERIES_KEY,
   PROVIDER_USAGE_SERIES_SCOPE,
   readProviderUsageSeries,
 } from '@/lib/server/providerUsageSeries';
+import {
+  __setSchedulerReceiptDeferrerForTests,
+  SCHEDULER_EXECUTION_STATUS_SCOPE,
+  type SchedulerExecutionReceipt,
+} from '@/lib/server/schedulerExecutionStatus';
 
 import { GET } from '../route';
 
@@ -23,6 +33,30 @@ async function reset(): Promise<void> {
   process.env.CFBD_API_KEY = 'test-key';
   __resetAppStateForTests();
   await setAppState(PROVIDER_USAGE_SERIES_SCOPE, PROVIDER_USAGE_SERIES_KEY, { samples: [] });
+  // The receipt key persists the same way; a stale one from the previous test
+  // would make "an unauthenticated run files NO receipt" pass or fail for the
+  // wrong reason.
+  await setAppState(SCHEDULER_EXECUTION_STATUS_SCOPE, 'usage-sample', null);
+}
+
+// The receipt is persisted through Next.js `after`; the deferrer seam is how
+// every other cron route's tests drive it synchronously.
+function installReceiptDeferrer(): { flush: () => Promise<void>; restore: () => void } {
+  const callbacks: Array<() => Promise<void>> = [];
+  __setSchedulerReceiptDeferrerForTests((callback) => callbacks.push(callback));
+  return {
+    flush: async () => {
+      while (callbacks.length > 0) await callbacks.shift()!();
+    },
+    restore: () => __setSchedulerReceiptDeferrerForTests(null),
+  };
+}
+
+async function readUsageSampleReceipt(): Promise<SchedulerExecutionReceipt | null> {
+  return (
+    (await getAppState<SchedulerExecutionReceipt>(SCHEDULER_EXECUTION_STATUS_SCOPE, 'usage-sample'))
+      ?.value ?? null
+  );
 }
 
 function authed(): Request {
@@ -89,6 +123,25 @@ test('an unauthenticated request records nothing and never calls the provider', 
   assert.equal((await readProviderUsageSeries()).samples.length, 0);
 });
 
+test('an unavailable probe reports PARTIAL, so a silent outage is visible', async () => {
+  // System Health raises issues only for failure and partial. Reporting success
+  // here would let a rotated-away CFBD_API_KEY or a multi-day provider outage
+  // produce an unbroken run of all-null samples behind a green row.
+  await reset();
+  globalThis.fetch = (async () => {
+    throw new Error('network down');
+  }) as typeof fetch;
+
+  const receipts = installReceiptDeferrer();
+  await GET(authed());
+  await receipts.flush();
+  receipts.restore();
+
+  const receipt = await readUsageSampleReceipt();
+  assert.equal(receipt?.result, 'partial', 'not success — the observation is empty');
+  assert.equal(receipt?.reason, 'sample-recorded-unavailable');
+});
+
 test('an unreachable provider still records a truthful all-null observation', async () => {
   // "We looked and got nothing" is a fact worth keeping — a GAP and a NULL are
   // different claims, and only one of them says the sampler ran.
@@ -120,6 +173,65 @@ test('a later failed probe cannot destroy an earlier usable reading for the same
   const series = await readProviderUsageSeries();
   assert.equal(series.samples.length, 1, 'still one entry for the day');
   assert.equal(series.samples[0]?.remaining, 4600, 'the usable reading survived');
+});
+
+test('an authenticated run files a scheduler receipt like every other cron', async () => {
+  // Item 126's gap, closed at creation rather than filed as a follow-up: without
+  // this, "did the sampler run" would be unanswerable from System Health after
+  // Vercel's runtime logs expire.
+  await reset();
+  stubInfo({ patronLevel: 1, remainingCalls: 4600 });
+
+  const receipts = installReceiptDeferrer();
+  await GET(authed());
+  await receipts.flush();
+  receipts.restore();
+
+  const receipt = await readUsageSampleReceipt();
+  assert.ok(receipt, 'a receipt is filed for an authenticated run');
+  assert.equal(receipt.result, 'success');
+  assert.equal(receipt.reason, 'sample-recorded');
+  assert.equal(
+    receipt.providerCallAttempted,
+    false,
+    '/info is unbilled — this job never claims provider work'
+  );
+  assert.deepEqual(receipt.target, {
+    kind: 'usage-sample',
+    day: receipt.target.kind === 'usage-sample' ? receipt.target.day : null,
+    recorded: true,
+  });
+});
+
+test('an unauthenticated run files NO receipt', async () => {
+  // Identity is created only after authentication, so a rejected caller cannot
+  // create or advance a receipt.
+  await reset();
+  stubInfo({ patronLevel: 1, remainingCalls: 4600 });
+
+  const receipts = installReceiptDeferrer();
+  await GET(new Request('https://turfwar.games/api/cron/usage-sample'));
+  await receipts.flush();
+  receipts.restore();
+
+  assert.equal(await readUsageSampleReceipt(), null);
+});
+
+test('a failed durable write is a no-op with a stable reason, not a failure', async () => {
+  await reset();
+  stubInfo({ patronLevel: 1, remainingCalls: 4600 });
+  __setAppStateWriteFailureForTests(new Error('durable down'), PROVIDER_USAGE_SERIES_SCOPE);
+
+  const receipts = installReceiptDeferrer();
+  const res = await GET(authed());
+  __setAppStateWriteFailureForTests(null);
+  await receipts.flush();
+  receipts.restore();
+
+  assert.equal(res.status, 200, 'observation-only: a lost sample is not a cron failure');
+  const receipt = await readUsageSampleReceipt();
+  assert.equal(receipt?.result, 'no-op');
+  assert.equal(receipt?.reason, 'sample-write-failed');
 });
 
 test('teardown restores globals', () => {

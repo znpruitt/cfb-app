@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { EXTERNAL_SCHEDULER_JOBS } from '@/lib/server/schedulerExecutionStatus';
 import test from 'node:test';
 
 import AdminSystemHealthPage from '../page';
@@ -45,7 +46,7 @@ test('builds exactly one dashboard model for the resolved operational season', a
   // Operational season from active-league status.year (never top-level league.year 2019).
   assert.equal(model.year, 2026);
   // The two axes stay separate and complete.
-  assert.equal(model.schedulerJobs.length, 8);
+  assert.equal(model.schedulerJobs.length, EXTERNAL_SCHEDULER_JOBS.length);
   assert.equal(model.datasets.length, 7);
   assert.equal(model.panels.length, 6);
 });
@@ -111,7 +112,7 @@ test('T5 regression: the page builds its one model for the production-resolved y
     'the demo league does not select the operational season'
   );
   // The rest of the model is unchanged by the exclusion.
-  assert.equal(model.schedulerJobs.length, 8);
+  assert.equal(model.schedulerJobs.length, EXTERNAL_SCHEDULER_JOBS.length);
   assert.equal(model.datasets.length, 7);
   assert.equal(model.panels.length, 6);
 });

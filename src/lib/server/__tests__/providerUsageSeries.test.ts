@@ -40,12 +40,42 @@ test('a usable observation is never displaced by an unusable one from the same d
   assert.equal(preferSample(failedLater, good).remaining, 4600, 'order must not matter');
 });
 
-test('between two usable observations the later one wins, because used is cumulative', () => {
+test('between two complete observations the GREATER used wins, not the later', () => {
   const morning = sample({ observedAt: '2026-09-04T00:00:00.000Z', used: 400, remaining: 4600 });
   const evening = sample({ observedAt: '2026-09-04T22:00:00.000Z', used: 460, remaining: 4540 });
 
   assert.equal(preferSample(morning, evening).used, 460);
   assert.equal(preferSample(evening, morning).used, 460, 'order must not matter');
+});
+
+test('a post-reset reading cannot erase the previous period final on the same UTC day', () => {
+  // The case that makes "greater used" load-bearing rather than equivalent to
+  // "later". CFBD's reset HOUR is not verified to be 00:00 UTC. A reset at 06:00
+  // on the 1st puts a pre-reset reading and a post-reset one on the same UTC day;
+  // preferring the later would overwrite the month's final burn with a fresh
+  // zero — destroying exactly the number this series exists to preserve.
+  const preReset = sample({ observedAt: '2026-10-01T00:00:00.000Z', used: 4800, remaining: 200 });
+  const postReset = sample({ observedAt: '2026-10-01T06:00:00.000Z', used: 3, remaining: 4997 });
+
+  assert.equal(preferSample(preReset, postReset).used, 4800, 'the final burn survives');
+  assert.equal(preferSample(postReset, preReset).used, 4800, 'order must not matter');
+});
+
+test('a tierless observation never displaces a complete one, even when later', () => {
+  // `used` and `limit` derive from patronLevel, so a response with remainingCalls
+  // and no usable tier yields both as null — and `used` is the field the
+  // "what does a Saturday cost" consumer reads.
+  const complete = sample({ observedAt: '2026-09-04T00:00:00.000Z', used: 400, remaining: 4600 });
+  const tierless = sample({
+    observedAt: '2026-09-04T20:00:00.000Z',
+    used: null,
+    limit: null,
+    patronLevel: null,
+    remaining: 4540,
+  });
+
+  assert.equal(preferSample(complete, tierless).used, 400);
+  assert.equal(preferSample(tierless, complete).used, 400, 'order must not matter');
 });
 
 test('merging replaces the same day and keeps other days untouched', () => {

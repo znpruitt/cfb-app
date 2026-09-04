@@ -35,8 +35,9 @@
 // Secrets: `QSTASH_TOKEN` (management auth) and `CRON_SECRET` (the value QStash
 // forwards to the route) are read from the environment and are NEVER printed.
 // `QSTASH_TOKEN` is management-only and must live outside Vercel and the repo.
-// Rotating `CRON_SECRET` requires pausing then re-upserting ALL SIX schedules
-// (game-stats, live-scores, Team records, Odds, weekly schedule, rankings) before the new
+// Rotating `CRON_SECRET` requires pausing then re-upserting ALL SEVEN schedules
+// (game-stats, live-scores, Team records, Odds, weekly schedule, rankings,
+// usage sample) before the new
 // secret is re-enabled on the routes.
 
 import { pathToFileURL } from 'node:url';

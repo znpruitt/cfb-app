@@ -107,6 +107,17 @@ const DELIVERY_POLICIES: Record<
     cadenceLabel: 'daily (00:00 UTC)',
     graceMs: 65 * MINUTE_MS,
   },
+  /**
+   * Item 127 — the unconditional usage sampler. Six-hourly, and its grace is a
+   * full extra interval: this job writes no canonical data, so a late delivery
+   * costs sampling resolution rather than correctness, and paging on a narrow
+   * window would make the noisiest row the least important one.
+   */
+  'usage-sample': {
+    cron: '0 */6 * * *',
+    cadenceLabel: 'every 6 hours',
+    graceMs: 6 * HOUR_MS,
+  },
 };
 
 /** The full delivery policy for one job (source derived, never a second map). */

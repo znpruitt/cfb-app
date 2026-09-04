@@ -770,7 +770,7 @@ test('secret canaries and arbitrary attached properties never reach durable stat
 
 // ── F2E2B — exported job list, source helper, and safe read parser ───────────
 
-test('EXTERNAL_SCHEDULER_JOBS is the canonical eight jobs and derives each source', () => {
+test('EXTERNAL_SCHEDULER_JOBS is the canonical nine jobs and derives each source', () => {
   assert.deepEqual(
     [...EXTERNAL_SCHEDULER_JOBS],
     [
@@ -782,6 +782,7 @@ test('EXTERNAL_SCHEDULER_JOBS is the canonical eight jobs and derives each sourc
       'rankings',
       'season-transition',
       'season-rollover',
+      'usage-sample',
     ]
   );
   for (const job of EXTERNAL_SCHEDULER_JOBS) {
