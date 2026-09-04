@@ -433,8 +433,8 @@ npm run manage:live-scores-schedule
 
 Server-side provider polling is bounded by the canonical kickoff-window target and handles at most
 one applicable partition per run. A visible current-season browser tab performs a cache-only score
-read on the same three-minute cadence; it never calls CFBD and is intentionally not gated by the
-provider automation settings. For an incident: global pause on, Scores automation off, pause and
+read on a 90-second cadence; it never calls CFBD and is intentionally not gated by the provider
+automation settings. For an incident: global pause on, Scores automation off, pause and
 inspect the schedule. Activation evidence is [archived](archive/operations/provider-activation-2026.md#live-score-automation).
 
 **§8f step 5 (CLI authentication-proof reference):** with global pause on and Scores automation
