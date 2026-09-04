@@ -1254,9 +1254,11 @@ test('overview panel keeps league-home ordering with standings and highlights ah
     />
   );
 
-  // Section order after the redesign: hero/podium (leader card) → Standings →
-  // Featured games (results) → Upcoming watchlist. Live games, when present,
-  // come after the watchlist.
+  // Section order: hero/podium (leader card) → Standings → Featured games. The
+  // game sections that follow are Featured → Live → Recent finals → Upcoming
+  // watchlist (owner decision 2026-09-03); this render has no live items, so it
+  // pins only the league-home half. The full order is pinned in
+  // OverviewPanelPromotion.test.tsx.
   assert.ok(html.indexOf('Alice') < html.indexOf('Standings'));
   assert.ok(html.indexOf('Standings') < html.indexOf('Featured games'));
   assert.ok(html.indexOf('Featured games') < html.indexOf('Upcoming watchlist'));

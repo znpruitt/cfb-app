@@ -1667,37 +1667,6 @@ export default function OverviewPanel({
         </>
       ) : null}
 
-      {/* Upcoming watchlist */}
-      {gameSections.scheduled.length > 0 ? (
-        <>
-          <SectionDivider />
-          <section className="@container">
-            <SectionHeader
-              title="Upcoming watchlist"
-              action={
-                <button
-                  type="button"
-                  className={viewMoreLinkClass}
-                  onClick={() => onViewMatchups?.()}
-                >
-                  All matchups →
-                </button>
-              }
-            />
-            <div className="mt-2.5">
-              <WatchlistScoreboardList
-                prioritizedItems={gameSections.scheduled}
-                emptyMessage="No featured matchups yet for this slate."
-                timeZone={timeZone}
-                rankingsByTeamId={rankingsByTeamId}
-                teamRecordsByProviderGameId={teamRecordsByProviderGameId}
-                oddsByKey={oddsByKey}
-              />
-            </div>
-          </section>
-        </>
-      ) : null}
-
       {/* Live games */}
       {gameSections.live.length > 0 ? (
         <>
@@ -1746,6 +1715,37 @@ export default function OverviewPanel({
                 rankingsByTeamId={rankingsByTeamId}
                 teamRecordsByProviderGameId={teamRecordsByProviderGameId}
                 state="final"
+              />
+            </div>
+          </section>
+        </>
+      ) : null}
+
+      {/* Upcoming watchlist */}
+      {gameSections.scheduled.length > 0 ? (
+        <>
+          <SectionDivider />
+          <section className="@container">
+            <SectionHeader
+              title="Upcoming watchlist"
+              action={
+                <button
+                  type="button"
+                  className={viewMoreLinkClass}
+                  onClick={() => onViewMatchups?.()}
+                >
+                  All matchups →
+                </button>
+              }
+            />
+            <div className="mt-2.5">
+              <WatchlistScoreboardList
+                prioritizedItems={gameSections.scheduled}
+                emptyMessage="No featured matchups yet for this slate."
+                timeZone={timeZone}
+                rankingsByTeamId={rankingsByTeamId}
+                teamRecordsByProviderGameId={teamRecordsByProviderGameId}
+                oddsByKey={oddsByKey}
               />
             </div>
           </section>

@@ -254,6 +254,55 @@ test('an incomplete Featured final stays in Live with Awaiting score until both 
   assert.doesNotMatch(html, /data-scoreboard-state="final"/);
 });
 
+test('overview sections render Featured, Live, Recent finals, then the watchlist', () => {
+  // Owner decision 2026-09-03, recorded in
+  // docs/campaigns/item-87-followon-section-ordering.md: ordered by temporal
+  // distance from now — happening, just happened, coming up. Live sits above the
+  // watchlist because it is the only content with a deadline.
+  const featured = item(
+    game({ key: 'featured-final', csvAway: 'Ohio State', date: '2026-09-05T16:00:00.000Z' }),
+    {
+      status: 'Final',
+      away: { team: 'Ohio State', score: 28 },
+      home: { team: 'Home', score: 14 },
+      time: null,
+    }
+  );
+  const live = item(game({ key: 'live-now', date: '2026-09-05T20:00:00.000Z' }));
+  const recentFinal = item(game({ key: 'plain-final', date: '2026-09-05T18:00:00.000Z' }), {
+    status: 'Final',
+    away: { team: 'Away', score: 21 },
+    home: { team: 'Home', score: 24 },
+    time: null,
+  });
+  const upcoming = item(game({ key: 'later-game', date: '2026-09-06T20:00:00.000Z' }));
+
+  const html = renderPanel({
+    games: [featured, live, recentFinal, upcoming].map((entry) => entry.bucket.game),
+    // A watchlist row needs BOTH: keyMatchups supplies the candidate, sectionItems
+    // supplies the route it is matched against (overviewGameSections.ts:184).
+    sectionItems: [live, recentFinal, upcoming],
+    keyMatchups: [featured, upcoming],
+    now: '2026-09-05T21:00:00.000Z',
+  });
+
+  const featuredAt = html.indexOf('>Featured games</h2>');
+  const liveAt = html.indexOf('>Live · 1</h2>');
+  const finalsAt = html.indexOf('>Recent finals</h2>');
+  const watchlistAt = html.indexOf('>Upcoming watchlist</h2>');
+
+  // Positive control: assert every section is actually present before ordering
+  // them. Four -1 indices would satisfy a naive ordering assertion.
+  assert.notEqual(featuredAt, -1, 'Featured games must render');
+  assert.notEqual(liveAt, -1, 'Live must render');
+  assert.notEqual(finalsAt, -1, 'Recent finals must render');
+  assert.notEqual(watchlistAt, -1, 'Upcoming watchlist must render');
+
+  assert.ok(featuredAt < liveAt, 'Featured must precede Live');
+  assert.ok(liveAt < finalsAt, 'Live must precede Recent finals');
+  assert.ok(finalsAt < watchlistAt, 'Recent finals must precede the watchlist');
+});
+
 test('empty promotion sections hide without placeholder rows', () => {
   const html = renderPanel({ games: [], sectionItems: [], now: '2026-09-01T17:30:00.000Z' });
 
