@@ -41,9 +41,20 @@ export type OwnerMatchupMatrix = {
  * behaviour the page does not have. A second, unread model of a fact the JSX already
  * owns is exactly what let those two drift without anyone noticing.
  *
- * `scopeDetail` and `emphasis` survive because they are genuinely read —
- * `selectors/overview.ts` derives a week label from the first, five components branch on
- * the second.
+ * `scopeDetail` survives because it is genuinely read: `selectors/overview.ts:237` derives
+ * the week label from it.
+ *
+ * `emphasis` is RETAINED BUT UNREAD, and that is a deliberate pause, not a claim that it
+ * is used. An earlier draft of this comment said "five components branch on the second".
+ * That was false — it came from grepping the bare word `emphasis`, which matches
+ * `cardEmphasisClasses`, `data-leader-emphasis`, and an unrelated prop on
+ * `CareerSummaryCard`. Nothing anywhere in `src/` reads `context.emphasis`; proved by
+ * renaming the field, which errors in four test files and zero production files.
+ *
+ * So `emphasis` meets the exact criterion the five deleted fields failed. It is left in
+ * place only until the owner rules on it, because deleting it collapses this function's
+ * slate branching entirely and Item 113 may want the signal. Do not read its presence as
+ * evidence that anything consumes it.
  */
 export type OverviewContext = {
   scopeDetail: string | null;

@@ -79,7 +79,7 @@ gate, no action. **Item 122** (the historical-cache button cannot re-cache) and 
 **Overview ordering:** **Item 125** portions 1 and 2 — the Live kickoff sort
 and the Featured final-row time — are each an hour and user-facing, so they belong near the top of
 the run order rather than in the interstitials. **Item 124** (retire the dead `sectionOrder`) is
-undated cleanup.
+DONE — POLISH-024, PR #564.
 
 **Decisions parked, with the item that consumes each:** amber `upset` border → slice 5;
 normalisation target `#0A0A0A` vs `#161616` → Item 119; card-owner treatment → Item 117.
@@ -550,8 +550,18 @@ change into a data-model one.
 (`context.highlightsTitle` supplies the Featured heading), so this is a partial deletion". That was
 wrong and unchecked — the Featured heading is the literal string `"Featured games"` in
 `OverviewPanel.tsx`, and `highlightsTitle` has no reader outside `overview.ts` and test fixtures.
-`scopeLabel` was dead the same way. Only `scopeDetail` (read by `selectors/overview.ts` for the week
-label) and `emphasis` (five components branch on it) survive.
+`scopeLabel` was dead the same way. Only `scopeDetail` (read by
+`selectors/overview.ts:237` for the week label) is genuinely read.
+
+**And the same error, one sentence later — caught by `/code-review` on PR #564.** The paragraph
+above originally continued "and `emphasis` (five components branch on it) survive", inside the very
+correction it was making. That claim was also false and also unchecked: it came from grepping the
+bare word `emphasis`, which matches `cardEmphasisClasses`, `data-leader-emphasis` and an unrelated
+`CareerSummaryCard` prop. **Nothing in `src/` reads `context.emphasis`** — proved by renaming the
+field, which errors in four test files and zero production files. `emphasis` therefore meets the
+exact criterion the five deleted fields failed. It is retained-but-unread pending an owner ruling,
+because deleting it collapses `deriveOverviewContext`'s slate branching entirely and Item 113 may
+want the signal.
 
 **One test deleted rather than gutted.** `overview uses postseason context when the active slate is
 postseason-driven` had `scopeLabel` as its entire subject; with the field gone,
