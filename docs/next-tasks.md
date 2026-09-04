@@ -102,7 +102,11 @@ the UI spine do not touch each other, so they can run concurrently:
 - **Independent, parallel-safe against both:** Item 122 (`admin/HistoricalCachePanel.tsx`), Item 95
   portion 1 (one constant in `liveScores/browserPolling.ts:19`), Item 121
   (`schedule/cfbdSchedule.ts`, `schedule.ts`, `schedulePostseasonHelpers.ts` — pipeline, not
-  components), and Items 84, 86, 111.
+  components), and Items 84, 86, 111. **Item 123 shipped 2026-09-04** via PR #565.
+- **Dated, and it beats a deadline:** **Item 127** (retain the CFBD usage already probed) supersedes
+  Item 94's manual 2026-09-30 read if it ships first. It touches the game-stats and season-transition
+  cron routes, so it is NOT parallel-safe against the server track once Item 102 starts narrowing
+  those crons — take it before 102, or accept the conflict.
 
 **Two collision risks are NOT in source.** `preview` is Claude's alone (`AGENTS.md` → Preview branch),
 so a parallel agent must never push it — that decision exists because parallel worktrees made a single
@@ -527,6 +531,44 @@ through the offseason without an operator, and is driven by a Vercel Active CPU 
 Neon one. Keep this item for the read-replica autosuspend and the non-cadence findings.
 
 - Backlog slug: `PLATFORM-OFFSEASON-SCHEDULE-PAUSE-v1`
+
+### Item 127 — retain the CFBD usage the app already probes 96 times a day
+
+**Filed 2026-09-04. Small, free, and it supersedes Item 94's manual read if it ships before
+2026-09-30.** Owner question: "why not just daily logging? it's a free call." Checked — it is cheaper
+than that, because **there is no new call**.
+
+**The observation is already being made and discarded.** `src/app/api/cron/game-stats/route.ts:284`
+calls `fetchCfbdUsage({ fresh: true })` on every invocation — the `/info` quota probe, explicitly not
+a billed provider call — reads `remaining` and `limit` for the quota-reserve gate, and keeps nothing.
+game-stats runs `*/15`, so that is up to **96 probes a day, every one thrown away**.
+`systemHealth.ts:208` and `/api/admin/usage` normalize quota too, but on demand for display, not as a
+record. This is Item 126's shape in a different place: an observation made, not retained.
+
+**What to keep.** One bounded durable record per calendar day — `used`, `remaining`, `limit`,
+`patronLevel`, `observedAt` — overwriting within the day so the store holds at most one row per day,
+with an explicit age or count bound. Zero provider cost, no new cron, no new invocation: a durable
+write on a code path that already runs.
+
+**Why daily shape beats a monthly scalar.** `/info` reports the current period only and CFBD exposes
+no history (`providerQuota.ts:41-43`), which is why Item 94 has a hard 2026-09-30 deadline and loses
+September entirely if missed. A retained daily series removes that cliff **and** answers the question
+the consumers actually have: Item 95 portion 2 and Item 63 both ask "how often can we afford to ask
+_during these windows_", which needs to know what a Saturday costs versus a Tuesday. A single
+end-of-month total cannot say.
+
+**One coverage caveat.** Sampling only on the game-stats probe means the series stops when game-stats
+stops — and **Item 102 narrows exactly that cron**, so the planner would thin the sample at the same
+time it thins the job. The daily `season-transition` cron (`0 0 * * *`, `vercel.json`) is the
+guaranteed heartbeat; take the floor there and opportunistic samples from game-stats, or the series
+develops holes precisely when the planner lands.
+
+**Acceptance boundary:** after a month of running, the store alone answers "what did we burn in
+September, and on which days" without a manual read, and its size is bounded by a stated rule rather
+than growing per probe. Observation-only — it must not affect the quota gate, the refusal path, or
+any provider outcome.
+
+- Backlog slug: `PLATFORM-RETAIN-PROVIDER-USAGE-SERIES-v1`
 
 ### Item 126 — schedule-refresh incident evidence is not durable enough to explain the failure
 
@@ -2848,12 +2890,10 @@ September — "the first month containing four or five Saturdays of live polling
 said October; the heading was the error. Miss the date and the answer slips a full month, silently,
 with nothing indicating the number was lost.
 
-**Better than one reading: sample it.** `/info` bills 0, so a small durable daily sample costs
-nothing and yields both the monthly total and its SHAPE — which days burn, and how much a Saturday
-actually costs versus a Tuesday. That shape is what Item 95 portion 2 and Item 63 actually need,
-since both are asking "how often can we afford to ask" during specific windows rather than across a
-month. A single end-of-month scalar answers neither well. Not built; recorded as the better form of
-this measurement if anyone touches it before 2026-09-30.
+**Better than one reading: sample it — now filed as Item 127.** The app ALREADY probes `/info` up to
+96 times a day on the game-stats cron and discards every result, so retaining it needs no new call,
+cron, or invocation. **If Item 127 ships before 2026-09-30 it supersedes this manual read**, and
+removes the cliff where missing one date costs a month. Until then this item stands as the fallback.
 
 **Gates TWO decisions, not one — noted 2026-09-04.** Item 95 portion 2 has always been gated on this
 for its quota cost. After Item 102 ships, the armed-hour count this produces is _also_ the input for
