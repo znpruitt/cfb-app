@@ -1,7 +1,6 @@
-import { after, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 
 import { fetchCfbdUsage } from '@/lib/api/cfbdUsage';
-import { deferProviderUsageSample } from '@/lib/server/providerUsageSeries';
 import { CFBD_PEAK_LATENCY_TIMEOUT_MS } from '@/lib/api/cfbdRequestPolicy';
 import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
 import { buildCfbdGameTeamStatsUrl, type CfbdSeasonType } from '@/lib/cfbd';
@@ -283,32 +282,17 @@ export async function GET(req: Request) {
       // FRESH usage for the quota gate — a cached snapshot must never let a
       // burst of refreshes reuse pre-spend remaining counts.
       const usage = await fetchCfbdUsage({ fresh: true });
-      const observedAt = new Date();
       usageSnapshot = { remainingCalls: usage.remaining, monthlyLimit: usage.limit };
-      // Item 127 — retain the observation this probe already made. No new call:
-      // `usage` is the value the quota gate is about to read. This tightens the
-      // daily series' resolution during game windows, where burn actually
-      // happens. The UNCONDITIONAL sampler is its own route, `/api/cron/usage-sample`
-      // — this path is gated on an exact target and yields nothing on a quiet day,
-      // which is the day the series most needs.
-      //
-      // DEFERRED past the response, not awaited. Swallowing a rejection protects
-      // against errors but NOT against latency: awaiting a slow or blocked
-      // app-state write here would postpone `evaluateAutomationQuota` and the
-      // billed fetch below, ageing the very quota snapshot this route passed
-      // `fresh: true` to keep current, and could time out an otherwise valid run.
-      // Same hazard and same mechanism as the scheduler receipts.
-      //
-      // `deferProviderUsageSample` swallows its own failures INTERNALLY — that is
-      // where the isolation lives, not here. It matters: this block's catch sets
-      // `remainingCalls: null`, which the quota gate reads as unavailable usage,
-      // so an `after()` throwing outside a request scope would otherwise refuse a
-      // perfectly good run on bookkeeping grounds. Do not inline the call.
-      // Stamped when `/info` RETURNED, not when the deferred callback runs.
-      // Defaulting to `new Date()` inside the callback would date an older
-      // observation later than a sampler write that landed in between, and a
-      // callback crossing UTC midnight would file it under the wrong day.
-      deferProviderUsageSample(usage, after, observedAt);
+      // Item 127 deliberately does NOT retain this observation. The probe stays —
+      // `evaluateAutomationQuota` below is a spend gate and needs a FRESH reading,
+      // and the series is observation-only and must never become a gate input.
+      // But persisting from here made a second writer of one durable row, and that
+      // alone produced lost updates, cross-instance clock skew reading as a quota
+      // reset, and out-of-order commits in both directions — four fixes across two
+      // review rounds, all defending a hazard that exists only because a second
+      // producer exists. `/api/cron/usage-sample` samples every six hours
+      // unconditionally, which answers what a day cost; 15-minute resolution
+      // inside game windows was resolution no consumer asked for.
     } catch {
       usageSnapshot = { remainingCalls: null };
     }

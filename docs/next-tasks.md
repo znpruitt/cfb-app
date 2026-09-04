@@ -2954,7 +2954,9 @@ said October; the heading was the error. Miss the date and the answer slips a fu
 with nothing indicating the number was lost.
 
 **Better than one reading: sample it — now filed as Item 127.** The app already probes `/info` on the
-game-stats cron and discards the result; Item 127 retains it and adds an unconditional daily sample
+game-stats cron for its spend gate and discards the result. Item 127 does not retain that one — a
+second writer on one durable row proved to cost more than the resolution it bought — and instead adds
+an unconditional sample
 on `season-transition`, which needs no new cron and one unbilled request per day. **If Item 127 ships before 2026-09-30 it supersedes this manual read**, and
 removes the cliff where missing one date costs a month. Until then this item stands as the fallback.
 

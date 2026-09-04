@@ -334,58 +334,21 @@ export async function readProviderUsageSeries(): Promise<ProviderUsageSeries> {
  * Returns whether the write happened, for tests and for a caller that wants to
  * log it; callers are free to ignore it.
  */
-type UsageSampleDeferrer = (persist: () => Promise<void>) => void;
-
-let __usageSampleDeferrerForTests: UsageSampleDeferrer | null = null;
-
-/**
- * Test seam mirroring `__setSchedulerReceiptDeferrerForTests`. `after()` throws
- * outside a request scope, and the game-stats call site swallows that — so
- * without an injectable deferrer, every test of that route exercises only the
- * "deferral unavailable, drop the sample" branch, and deleting the call entirely
- * leaves the suite green.
- */
-export function __setUsageSampleDeferrerForTests(deferrer: UsageSampleDeferrer | null): void {
-  __usageSampleDeferrerForTests = deferrer;
-}
-
-/**
- * Defer a sample write past the caller's response. Returns whether deferral was
- * registered — NOT whether the write succeeded, which happens later.
- */
-export function deferProviderUsageSample(
-  usage: CfbdUsage,
-  defer: UsageSampleDeferrer,
-  now: Date = new Date()
-): boolean {
-  try {
-    const persist = async (): Promise<void> => {
-      await recordProviderUsageSample(usage, now);
-    };
-    if (__usageSampleDeferrerForTests) {
-      __usageSampleDeferrerForTests(persist);
-      return true;
-    }
-    defer(persist);
-    return true;
-  } catch {
-    // Deferral unavailable — drop the sample, never the caller's run.
-    return false;
-  }
-}
-
 export async function recordProviderUsageSample(
   usage: CfbdUsage,
   now: Date = new Date()
 ): Promise<boolean> {
   try {
-    // Read, merge and write INSIDE one key transaction. Two producers write this
-    // row — the six-hourly sampler and the 15-minute game-stats probe — so they
-    // overlap by construction. Read-modify-write outside a lock is last-write-wins:
-    // Postgres upserts do not compare, and the file store's lock begins inside the
-    // write, after the read. One invocation would silently discard the other's
-    // newer observation, or a whole day at a boundary. Flagged independently by
-    // both reviewers.
+    // Read, merge and write INSIDE one key transaction. There is one producer now
+    // — the six-hourly sampler — but a lock is still correct: QStash can redeliver,
+    // and read-modify-write outside one is last-write-wins, because Postgres upserts
+    // do not compare and the file store's lock begins inside the write, after the
+    // read. Cheap insurance on a 4-writes-per-day path.
+    //
+    // It was NOT insurance while the game-stats probe also wrote here. That second
+    // producer caused lost updates, cross-instance clock skew reading as a quota
+    // reset, and out-of-order commits in both directions — and was removed by owner
+    // decision once it was clear the whole class existed only because of it.
     await withAppStateKeyTransaction(
       PROVIDER_USAGE_SERIES_SCOPE,
       PROVIDER_USAGE_SERIES_KEY,

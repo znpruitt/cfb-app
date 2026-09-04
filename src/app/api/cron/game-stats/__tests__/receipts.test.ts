@@ -9,10 +9,6 @@ import {
   __setAppStateWriteFailureForTests,
   setAppState,
 } from '../../../../../lib/server/appStateStore.ts';
-import {
-  __setUsageSampleDeferrerForTests,
-  readProviderUsageSeries,
-} from '../../../../../lib/server/providerUsageSeries.ts';
 import { getGameStatsKey } from '../../../../../lib/gameStats/cache.ts';
 import { seedActiveWriterControl } from '../../../../../lib/gameStats/__tests__/writerControlSeed.ts';
 import { wireGame } from '../../../../../lib/gameStats/__tests__/fixtures.ts';
@@ -258,37 +254,6 @@ test('a no-target invocation writes a healthy provider-free skip receipt', async
     week: null,
     seasonType: null,
   });
-});
-
-test('the quota probe observation is deferred into the usage series (Item 127)', async () => {
-  // Without an injectable deferrer this path was unreachable: `after()` throws
-  // outside a request scope and the call site swallows it, so every test here
-  // exercised only the "deferral unavailable" branch and DELETING the call left
-  // the suite green.
-  const deferred: Array<() => Promise<void>> = [];
-  __setUsageSampleDeferrerForTests((persist) => deferred.push(persist));
-  try {
-    await seedWindowGame(3, 'regular');
-    await seedEmptyPartitionRecord(3, 'regular');
-    stubProvider([persistableRow()]);
-
-    const { res } = await runCron();
-    assert.equal(res!.status, 200);
-    assert.equal(deferred.length, 1, 'the sample is deferred, not awaited on the quota path');
-
-    assert.equal(
-      (await readProviderUsageSeries()).samples.length,
-      0,
-      'and nothing is written before the deferred callback runs'
-    );
-    await deferred[0]!();
-
-    const series = await readProviderUsageSeries();
-    assert.equal(series.samples.length, 1, 'the observation the quota gate read is retained');
-    assert.equal(series.samples[0]?.remaining, 4000, 'and it is the value /info returned');
-  } finally {
-    __setUsageSampleDeferrerForTests(null);
-  }
 });
 
 test('a provider-attempted clean write records the success receipt with the exact target', async () => {
