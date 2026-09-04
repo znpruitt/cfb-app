@@ -361,6 +361,22 @@ gap, while both records had sat in the registry since 2026-07-24; and `seasonOri
 for three successive wrong proxies for "has football been played" while
 `insights/generators/existing.ts` already carried the correct pairing, with a comment explaining why.
 
+**Verify against the thing, not a proxy for it.** A proxy can only return what it is capable of
+seeing, so its silence proves nothing about the subject — only about the instrument. Before reporting
+a proxy's result as fact, ask what else would produce that same result.
+
+- A claim that something IS READ requires a mutation, not a grep. Rename or delete the symbol and
+  report which files fail to compile.
+- A claim about current behaviour requires reading the code, not a document describing it. Documents
+  go stale; the code is the behaviour.
+- A claim that data is ABSENT requires checking the query, not just its result. An empty result set
+  can mean the data is missing or that the filter cannot see it. **Cheap test:** when a query returns
+  empty, re-run it without the narrowest predicate. If it fills, the filter was the finding, not the
+  data.
+
+The failure is never a skipped check. In each case below a check ran, returned something, and the
+something felt like evidence. What they share is that a proxy stood in for the subject.
+
 **A claim that something IS READ requires a mutation, not a grep.** Before writing that a field,
 export, flag, or helper is consumed — "five components branch on it", "this is read by X", "still in
 use, do not delete" — rename or delete the symbol and report which files fail to compile. A grep is
@@ -370,13 +386,22 @@ the result. This is the mirror of the absence rule above — that one guards cla
 exists, this one guards claims that something is used — and it is cheaper than either, because the
 compiler answers in one command.
 
-Named failure cases (2026-09-04, all three in one branch, POLISH-024): `highlightsTitle` was
-described in `docs/next-tasks.md` as supplying the Featured heading, which is a literal string in
-`OverviewPanel.tsx`; `context.emphasis` was described in both a JSDoc and the ledger as having "five
-components branch on it", from grepping the bare word `emphasis`, which matches
-`cardEmphasisClasses`, `data-leader-emphasis`, and an unrelated `CareerSummaryCard` prop — nothing
-reads it; and the second of those was written one sentence after the paragraph correcting the first.
-All three fields were dead. A review found them by renaming the symbol.
+Named failure cases, all 2026-09-04, one per instrument:
+
+- **Grep for a read.** POLISH-024, three times in one branch. `highlightsTitle` was described in
+  `docs/next-tasks.md` as supplying the Featured heading, which is a literal string in
+  `OverviewPanel.tsx`. `context.emphasis` was described in both a JSDoc and the ledger as having
+  "five components branch on it", from grepping the bare word `emphasis` — which matches
+  `cardEmphasisClasses`, `data-leader-emphasis`, and an unrelated `CareerSummaryCard` prop. Nothing
+  read it. The second claim was written **one sentence after** the paragraph correcting the first.
+  All the fields were dead; a review found them by renaming the symbol.
+- **Document for current behaviour.** A comparison of card-border colour treatments was built on
+  "shipped uses top/bottom borders", read from `DESIGN.md:163`, which was stale — that treatment had
+  never shipped.
+- **Filter emptiness for data absence.** "The 2024 schedule cache holds zero CFP rows" was filed as
+  an item off a filter keyed on `homeClassification === 'fbs'`, a field the 2024 cache does not
+  carry. The filter returned an empty set and its emptiness was reported as a fact about the
+  bracket. 2024 holds the complete bracket; re-running without that predicate showed it at once.
 
 **A measurement carries the scope it was taken at.** Name the fixture, the year, or the commit a
 figure came from, and do not generalise one probe into a property. Gate results attach to the commit
