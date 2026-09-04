@@ -558,10 +558,24 @@ above originally continued "and `emphasis` (five components branch on it) surviv
 correction it was making. That claim was also false and also unchecked: it came from grepping the
 bare word `emphasis`, which matches `cardEmphasisClasses`, `data-leader-emphasis` and an unrelated
 `CareerSummaryCard` prop. **Nothing in `src/` reads `context.emphasis`** — proved by renaming the
-field, which errors in four test files and zero production files. `emphasis` therefore meets the
-exact criterion the five deleted fields failed. It is retained-but-unread pending an owner ruling,
-because deleting it collapses `deriveOverviewContext`'s slate branching entirely and Item 113 may
-want the signal.
+field, which errors in four test files and zero production files. `emphasis` therefore met the
+exact criterion the five deleted fields failed, and the owner ruled it out too: **`OverviewContext`
+is now `{ scopeDetail }`.** The Item 113 argument did not survive contact with what 113 needs —
+`emphasis` is a slate-level fact, and Featured selection is per-game, so a slate signal cannot say
+which game to promote; if 113 wants slate context it will derive it in the shape its selector needs.
+And "a future item might want this" is the weakest reason to retain code — it is the reason that
+produced both false claims, because a field kept for a hypothetical consumer accumulates a story
+about being used until someone writes that story down as fact.
+
+**The collapse was an argument for deleting, not against.** With `emphasis` gone,
+`deriveOverviewContext`'s four slate branches all returned the same object, so the function reduces
+to `{ scopeDetail: selectedWeekLabel ?? null }`. It was never deriving context; it was deriving one
+field with ceremony around it. `activeSlateStatus` left its parameters and is still used elsewhere
+for `includeFinalWeekGames` and `recentMode`.
+
+**Rule written into `AGENTS.md` → Verification (binding):** a claim that something IS READ requires a
+mutation, not a grep. All three of this branch's false claims came from greps that returned matches
+on near-namesakes; a rename answers in one command and cannot return a false positive.
 
 **One test deleted rather than gutted.** `overview uses postseason context when the active slate is
 postseason-driven` had `scopeLabel` as its entire subject; with the field gone,

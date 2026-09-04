@@ -41,24 +41,18 @@ export type OwnerMatchupMatrix = {
  * behaviour the page does not have. A second, unread model of a fact the JSX already
  * owns is exactly what let those two drift without anyone noticing.
  *
- * `scopeDetail` survives because it is genuinely read: `selectors/overview.ts:237` derives
- * the week label from it.
+ * `emphasis` went with them, one round later. An earlier draft of this comment exempted it
+ * — "five components branch on the second" — which was false, and came from grepping the
+ * bare word `emphasis`: that matches `cardEmphasisClasses`, `data-leader-emphasis` and an
+ * unrelated prop on `CareerSummaryCard`. Renaming the field errors in four test files and
+ * zero production files. A grep returning matches feels like verification; only a mutation
+ * is one.
  *
- * `emphasis` is RETAINED BUT UNREAD, and that is a deliberate pause, not a claim that it
- * is used. An earlier draft of this comment said "five components branch on the second".
- * That was false — it came from grepping the bare word `emphasis`, which matches
- * `cardEmphasisClasses`, `data-leader-emphasis`, and an unrelated prop on
- * `CareerSummaryCard`. Nothing anywhere in `src/` reads `context.emphasis`; proved by
- * renaming the field, which errors in four test files and zero production files.
- *
- * So `emphasis` meets the exact criterion the five deleted fields failed. It is left in
- * place only until the owner rules on it, because deleting it collapses this function's
- * slate branching entirely and Item 113 may want the signal. Do not read its presence as
- * evidence that anything consumes it.
+ * `scopeDetail` is the one survivor, and it is genuinely read: `selectors/overview.ts:237`
+ * derives the week label from it.
  */
 export type OverviewContext = {
   scopeDetail: string | null;
-  emphasis: 'live' | 'upcoming' | 'recent' | 'standings';
 };
 
 export type OverviewSnapshot = {
@@ -138,28 +132,15 @@ function deriveActiveSlateStatus(items: OverviewGameItem[]): ActiveSlateStatus {
   );
 }
 
-// `weekGames` was dropped from the parameters with `scopeLabel` (Item 124): it existed
-// solely to run `isTruePostseasonGame` over the slate for that unread label.
-function deriveOverviewContext(params: {
-  activeSlateStatus: ActiveSlateStatus;
-  selectedWeekLabel?: string;
-}): OverviewContext {
-  const { activeSlateStatus, selectedWeekLabel } = params;
-  const scopeDetail = selectedWeekLabel ?? null;
-
-  if (activeSlateStatus.hasLive) {
-    return { scopeDetail, emphasis: 'live' };
-  }
-
-  if (activeSlateStatus.hasUpcoming) {
-    return { scopeDetail, emphasis: 'upcoming' };
-  }
-
-  if (activeSlateStatus.hasFinal) {
-    return { scopeDetail, emphasis: 'recent' };
-  }
-
-  return { scopeDetail, emphasis: 'standings' };
+// Reduced to one field in Item 124. `weekGames` and `activeSlateStatus` both left the
+// parameters with the fields that used them — `weekGames` ran `isTruePostseasonGame` for
+// `scopeLabel`, and `activeSlateStatus` chose between four `emphasis` values. With both
+// unread fields gone the four slate branches all returned the same object, which is the
+// tell: this was never deriving context, it was deriving one field with ceremony around
+// it. `activeSlateStatus` itself is still very much alive — `deriveOverviewSnapshot` uses
+// it for `includeFinalWeekGames` and `recentMode`.
+function deriveOverviewContext(params: { selectedWeekLabel?: string }): OverviewContext {
+  return { scopeDetail: params.selectedWeekLabel ?? null };
 }
 
 export type AutonomousOverviewScope = {
@@ -427,7 +408,7 @@ export function deriveOverviewSnapshot(params: {
     .filter((item) => (includeFinalWeekGames ? true : isKeyMatchupState(item.score)))
     .sort(recentMode ? compareRecentOverviewItems : compareOverviewItems);
 
-  const context = deriveOverviewContext({ activeSlateStatus, selectedWeekLabel });
+  const context = deriveOverviewContext({ selectedWeekLabel });
 
   return {
     standingsLeaders,

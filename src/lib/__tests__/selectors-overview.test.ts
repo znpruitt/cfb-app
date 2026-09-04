@@ -174,7 +174,6 @@ test('selectOverviewViewModel prioritises marquee watchlist games before kickoff
     standingsCoverage: { state: 'partial', message: null },
     context: {
       scopeDetail: 'Weeks 0–1',
-      emphasis: 'upcoming',
     },
     liveItems: [],
     // This is the real producer shape: owned-vs-owned games precede single-owned games.
@@ -221,7 +220,6 @@ test('Featured ties break on the game key, and owner count cannot displace at th
     standingsCoverage: { state: 'partial', message: null },
     context: {
       scopeDetail: 'Week 1',
-      emphasis: 'recent',
     },
     liveItems: [],
     // Producer order puts the higher-priority game first, so a stable sort alone would
@@ -243,7 +241,6 @@ test('Featured ties break on the game key, and owner count cannot displace at th
     standingsCoverage: { state: 'partial', message: null },
     context: {
       scopeDetail: 'Week 1',
-      emphasis: 'recent',
     },
     liveItems: [],
     keyMatchups: [highPriority, lowPriority],
@@ -284,7 +281,6 @@ test('watchlist ties break on the game key, not on how many owners a game involv
     standingsCoverage: { state: 'partial', message: null },
     context: {
       scopeDetail: 'Week 1',
-      emphasis: 'upcoming',
     },
     liveItems: [],
     // Producer order puts the higher-priority game first, so a stable sort alone would
@@ -350,7 +346,6 @@ test('selectOverviewViewModel keeps dated recent results newest-first ahead of u
     standingsCoverage: { state: 'partial', message: null },
     context: {
       scopeDetail: 'Week 1',
-      emphasis: 'live',
     },
     liveItems: [],
     keyMatchups: [older, newer, undated],
@@ -394,7 +389,6 @@ test('deriveLeagueSummaryViewModel reports complete season champion copy', () =>
     ],
     context: {
       scopeDetail: 'the postseason',
-      emphasis: 'recent',
     },
     liveItems: [],
     keyMatchups: [
@@ -528,7 +522,6 @@ test('selectOverviewViewModel truncates standings and splits featured vs recent'
     standingsCoverage: { state: 'complete', message: null },
     context: {
       scopeDetail: 'Week 1',
-      emphasis: 'upcoming',
     },
     liveItems: [],
     keyMatchups: [
@@ -605,7 +598,6 @@ test('selectOverviewViewModel shows featured matchups when no highlight cards ar
     standingsCoverage: { state: 'partial', message: null },
     context: {
       scopeDetail: 'Week 1',
-      emphasis: 'upcoming',
     },
     liveItems: [],
     keyMatchups: [
@@ -644,7 +636,6 @@ test('selectOverviewViewModel shows featured matchups even when highlight cards 
     standingsCoverage: { state: 'complete', message: null },
     context: {
       scopeDetail: 'Week 1',
-      emphasis: 'recent',
     },
     liveItems: [],
     keyMatchups: [
@@ -698,7 +689,6 @@ test('selectOverviewViewModel hides featured matchups when slate only has finals
     standingsCoverage: { state: 'complete', message: null },
     context: {
       scopeDetail: 'Week 1',
-      emphasis: 'recent',
     },
     liveItems: [],
     keyMatchups: [
@@ -759,7 +749,6 @@ test('selectOverviewViewModel switches hero to podium for complete season with t
     standingsCoverage: { state: 'complete', message: null },
     context: {
       scopeDetail: 'Postseason',
-      emphasis: 'recent',
     },
     liveItems: [],
     keyMatchups: [
@@ -826,7 +815,6 @@ test('selectOverviewViewModel hero narrative handles two-way top tie', () => {
     standingsCoverage: { state: 'complete', message: null },
     context: {
       scopeDetail: 'Week 10',
-      emphasis: 'recent',
     },
     liveItems: [],
     keyMatchups: [],
@@ -883,7 +871,6 @@ test('selectOverviewViewModel hero narrative handles three-way top tie in comple
     standingsCoverage: { state: 'complete', message: null },
     context: {
       scopeDetail: 'Postseason',
-      emphasis: 'recent',
     },
     liveItems: [],
     keyMatchups: [
@@ -939,7 +926,6 @@ test('selectOverviewViewModel hero narrative keeps non-tie winner phrasing', () 
     standingsCoverage: { state: 'complete', message: null },
     context: {
       scopeDetail: 'Postseason',
-      emphasis: 'recent',
     },
     liveItems: [],
     keyMatchups: [
@@ -984,7 +970,6 @@ test('selectOverviewViewModel is stable for identical inputs', () => {
     standingsCoverage: { state: 'complete', message: null } as const,
     context: {
       scopeDetail: 'Week 1',
-      emphasis: 'upcoming',
     } satisfies OverviewContext,
     liveItems: [] as OverviewGameItem[],
     keyMatchups: [] as OverviewGameItem[],
@@ -1079,7 +1064,6 @@ test('selectOverviewViewModel ignores retired matrix highlights when showing sch
     ]),
     context: {
       scopeDetail: 'Week 1',
-      emphasis: 'upcoming',
     },
     liveItems: [],
     keyMatchups: [item('scheduled-with-matrix-history')],
@@ -1133,7 +1117,6 @@ test('selectOverviewViewModel keeps a final-only slate outside the upcoming watc
     standingsCoverage: { state: 'partial', message: null },
     context: {
       scopeDetail: 'Week 9',
-      emphasis: 'recent',
     },
     liveItems: [],
     keyMatchups: [final],
@@ -1169,7 +1152,6 @@ test('selectOverviewViewModel never places an in-progress game in both the watch
     standingsCoverage: { state: 'partial', message: null },
     context: {
       scopeDetail: 'Week 1',
-      emphasis: 'upcoming',
     },
     liveItems,
     keyMatchups: [scheduled, live],
@@ -1192,7 +1174,6 @@ test('selectOverviewViewModel keeps an empty slate hidden regardless of noisy ma
     standingsCoverage: { state: 'partial', message: null },
     context: {
       scopeDetail: 'Week 1',
-      emphasis: 'upcoming',
     },
     liveItems: [],
     keyMatchups: [],
@@ -1318,7 +1299,6 @@ test('selectOverviewViewModel keeps retired pulse output absent for scoped histo
     standingsCoverage: { state: 'partial', message: null },
     context: {
       scopeDetail: 'This postseason slate',
-      emphasis: 'recent',
     },
     liveItems: [],
     keyMatchups: [final],
@@ -1367,7 +1347,6 @@ test('selectOverviewViewModel keeps featured games when finals dominate early ca
     standingsCoverage: { state: 'complete', message: null },
     context: {
       scopeDetail: 'Week 8',
-      emphasis: 'upcoming',
     },
     liveItems: [],
     keyMatchups: [...finals, featuredLater],
@@ -1387,7 +1366,6 @@ test('selectOverviewViewModel is deterministic for identical highlight inputs', 
     standingsCoverage: { state: 'partial', message: null } as const,
     context: {
       scopeDetail: 'Week 2',
-      emphasis: 'recent',
     } satisfies OverviewContext,
     liveItems: [] as OverviewGameItem[],
     keyMatchups: [
@@ -1437,7 +1415,6 @@ test('selectOverviewViewModel keeps retired pulse fields absent during active se
     standingsCoverage: { state: 'partial', message: null },
     context: {
       scopeDetail: 'Week 9',
-      emphasis: 'upcoming',
     },
     liveItems: [],
     keyMatchups: [item('active-pulse')],
@@ -1581,7 +1558,6 @@ test('selectOverviewViewModel keeps retired pulse fields absent after season com
     standingsCoverage: { state: 'complete', message: null },
     context: {
       scopeDetail: 'Postseason',
-      emphasis: 'recent',
     },
     liveItems: [],
     keyMatchups: [postseasonFinal],
@@ -1647,7 +1623,6 @@ test('selectOverviewViewModel does not recreate retired pulse filler for a compl
     standingsCoverage: { state: 'complete', message: null },
     context: {
       scopeDetail: 'Postseason',
-      emphasis: 'recent',
     },
     liveItems: [],
     keyMatchups: [postseasonFinal],
@@ -1699,7 +1674,6 @@ test('selectOverviewViewModel keeps retired movement output absent with active-s
     standingsCoverage: { state: 'partial', message: null },
     context: {
       scopeDetail: 'Week 9',
-      emphasis: 'upcoming',
     },
     liveItems: [],
     keyMatchups: [
@@ -1966,7 +1940,6 @@ test('selectOverviewViewModel keeps retired movement output absent with unresolv
     standingsCoverage: { state: 'partial', message: null },
     context: {
       scopeDetail: 'Week 4',
-      emphasis: 'upcoming',
     },
     liveItems: [],
     keyMatchups: [],
@@ -2140,7 +2113,6 @@ test('selectOverviewViewModel includes winPctTrend derived from resolved standin
     standingsCoverage: { state: 'complete', message: null },
     context: {
       scopeDetail: 'Week 2',
-      emphasis: 'recent',
     },
     liveItems: [],
     keyMatchups: [],
@@ -2339,7 +2311,6 @@ test('selectOverviewViewModel emits capped storylines sorted by priority', () =>
     standingsCoverage: { state: 'complete', message: null },
     context: {
       scopeDetail: 'Week 6',
-      emphasis: 'recent',
     },
     liveItems: [],
     keyMatchups: [],
@@ -2504,7 +2475,6 @@ test('selectOverviewViewModel applies final-season storyline phrasing and suppre
     standingsCoverage: { state: 'complete', message: null },
     context: {
       scopeDetail: 'Final',
-      emphasis: 'recent',
     },
     liveItems: [],
     keyMatchups: [],
@@ -2532,7 +2502,6 @@ test('selectOverviewViewModel applies final-season storyline phrasing and suppre
 
 const baseContext: OverviewContext = {
   scopeDetail: 'Week 2',
-  emphasis: 'upcoming',
 };
 
 function liveHistoryWithAnUnplayedWeek(): StandingsHistory {

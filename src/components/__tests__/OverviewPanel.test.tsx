@@ -159,7 +159,6 @@ const coverage: StandingsCoverage = { state: 'complete', message: null };
 
 const defaultContext: OverviewContext = {
   scopeDetail: 'Week 1',
-  emphasis: 'upcoming',
 };
 
 const matchupMatrix: OwnerMatchupMatrix = {
@@ -1112,7 +1111,7 @@ test('overview panel summary shows season-complete champion, second, and third',
           time: null,
         }),
       ]}
-      context={{ ...defaultContext, emphasis: 'recent' }}
+      context={{ ...defaultContext }}
       displayTimeZone="UTC"
     />
   );
@@ -1205,7 +1204,7 @@ test('overview panel summary does not render season-complete framing when standi
           time: null,
         }),
       ]}
-      context={{ ...defaultContext, emphasis: 'recent' }}
+      context={{ ...defaultContext }}
       displayTimeZone="UTC"
     />
   );
@@ -1239,7 +1238,7 @@ test('overview panel summary does not render season-complete framing when standi
           time: null,
         }),
       ]}
-      context={{ ...defaultContext, emphasis: 'recent' }}
+      context={{ ...defaultContext }}
       displayTimeZone="UTC"
     />
   );
@@ -1990,7 +1989,7 @@ test('overview panel suppresses redundant movement chips in completed-season pod
           time: null,
         }),
       ]}
-      context={{ ...defaultContext, emphasis: 'recent' }}
+      context={{ ...defaultContext }}
       displayTimeZone="UTC"
     />
   );

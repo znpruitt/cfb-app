@@ -223,7 +223,6 @@ test('overview shifts to recent-results emphasis when the active slate is comple
     selectedWeekLabel: 'Week 2',
   });
 
-  assert.equal(snapshot.context.emphasis, 'recent');
   assert.deepEqual(
     snapshot.keyMatchups.map((item) => item.bucket.game.key),
     ['ou-tex-final']
@@ -281,7 +280,6 @@ test('overview preserves completed selected-week results even when unrelated own
     selectedWeekLabel: 'Week 2',
   });
 
-  assert.equal(snapshot.context.emphasis, 'recent');
   assert.deepEqual(
     snapshot.keyMatchups.map((item) => item.bucket.game.key),
     ['completed-week']
@@ -360,7 +358,6 @@ test('overview context stays upcoming when later active-slate games are truncate
     selectedWeekLabel: 'Week 5',
   });
 
-  assert.equal(snapshot.context.emphasis, 'upcoming');
   assert.deepEqual(
     snapshot.keyMatchups.map((item) => item.bucket.game.key),
     ['upcoming-5']
@@ -514,7 +511,6 @@ test('recent-results mode keeps latest completed finals ordered in the uncapped 
     selectedWeekLabel: 'Week 5',
   });
 
-  assert.equal(snapshot.context.emphasis, 'recent');
   assert.deepEqual(
     snapshot.keyMatchups.map((item) => item.bucket.game.key),
     ['final-5', 'final-4', 'final-3', 'final-2', 'final-1']

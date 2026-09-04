@@ -15,7 +15,6 @@ const coverage: StandingsCoverage = { state: 'complete', message: null };
 const matchupMatrix: OwnerMatchupMatrix = { owners: [], rows: [] };
 const context: OverviewContext = {
   scopeDetail: 'Week 1',
-  emphasis: 'upcoming',
 };
 
 function game(overrides: Partial<AppGame> = {}): AppGame {

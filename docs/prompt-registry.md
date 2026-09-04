@@ -57,13 +57,16 @@ Rules:
   nothing, one of which had begun contradicting the section order POLISH-022 shipped.
 - Scope: `src/lib/overview.ts` and the four Overview test fixtures. No component, selector or
   data-layer change; no user-visible change.
-- Outcome: `OverviewContext` reduced to `{ scopeDetail, emphasis }`. Removed `sectionOrder`,
-  `scopeLabel`, `highlightsTitle`, `highlightsDescription`, `liveDescription`, the now-orphaned
-  `OverviewSectionKind` type, and `weekGames` from `deriveOverviewContext`'s parameters. 256 lines
-  removed, 36 added.
-- Notes: the filed item's own scope note claimed `highlightsTitle` was read and the deletion partial.
-  It was not — the Featured heading is a literal string in `OverviewPanel.tsx`. One test was deleted
-  rather than gutted, its subject having been `scopeLabel`; a comment records why.
+- Outcome: `OverviewContext` reduced to `{ scopeDetail }` — the single field anything reads. Removed
+  `sectionOrder`, `scopeLabel`, `highlightsTitle`, `highlightsDescription`, `liveDescription` and
+  `emphasis`, plus the orphaned `OverviewSectionKind` type; `deriveOverviewContext` lost both
+  parameters that only fed deleted fields and collapsed from four slate branches to one line.
+- Notes: THREE false reader claims were made and corrected on this branch, all from greps that
+  matched near-namesakes — `highlightsTitle` (the Featured heading is a literal string),
+  `context.emphasis` "five components branch on it" (nothing reads it), and the second written one
+  sentence after correcting the first. `AGENTS.md` → Verification gained a binding rule as a result:
+  a claim that something IS READ requires a mutation, not a grep. One test was deleted rather than
+  gutted, its subject having been `scopeLabel`; a comment records why.
 - Review / verification: exact head TBD at merge. `npx tsc --noEmit` exit 0, `npm run lint:all`
   exit 0, `npm test` exit 0 with 4,590 passing (−1, the deleted test), `npm run build` exit 0 —
   added as a gate because an exported type's surface changed.
