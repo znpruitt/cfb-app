@@ -41,7 +41,7 @@ it is historical evidence, not a procedure to replay.
 > receipts name the promoted production build. Their repository definitions, cadence, and
 > lifecycle-critical policy are unchanged.
 
-All eight routes require the same deployed `CRON_SECRET`. The six QStash schedules are intentionally
+All nine routes require the same deployed `CRON_SECRET`. The seven QStash schedules are intentionally
 absent from `vercel.json`.
 
 ## 2) Create or reconnect the hosted project
@@ -328,7 +328,7 @@ release. For a narrow routine promotion, run the impacted subset plus the first 
 6. Schedule data loads through the API-backed route.
 7. Scores and odds public reads succeed without triggering unauthorized provider fetches.
 8. Owners upload/repair, alias editing, and diagnostics still load where the release touches them.
-9. The two Vercel lifecycle cron definitions remain present and the six QStash routes remain absent
+9. The two Vercel lifecycle cron definitions remain present and the seven QStash routes remain absent
    from `vercel.json`.
 10. Each affected scheduler has a recent truthful receipt and **Built from** identifies the promoted
     deployment.
@@ -575,26 +575,46 @@ Before step 3, System Health will report the newly known `team-records` delivery
 expected provisioning state, not evidence that another job regressed. For an incident after
 activation: global pause on, Team records automation off, pause and inspect the schedule.
 
-### §8l) Rotate `CRON_SECRET` across all six QStash schedules
+### §8m) CFBD usage sampler (Item 127)
 
-All six schedules forward the same secret, so rotation is one coordinated operation:
+`GET /api/cron/usage-sample`, driven by the QStash schedule `turfwar-usage-sample-6h` at
+`0 */6 * * *`. Manage it with `tsx scripts/manage-usage-sample-schedule.ts`; `inspect` is read-only.
+
+**It spends no quota.** The route reads CFBD `/info`, which is not a billed call, and writes one
+bounded entry per UTC day to `app_state` scope `provider-usage`, key `cfbd-daily`. It touches no
+canonical data, has no dataset toggle, and returns HTTP 200 even when the durable write fails —
+retrying a sample would produce a different observation, not repair the missed one.
+
+**Why it exists.** `/info` reports usage for the current period only and CFBD exposes no history, so
+a month boundary destroys the prior month's burn permanently. Every other observation point is
+conditional — the game-stats probe sits behind an exact-target gate, System Health only reads on an
+admin page view — so a series built from them samples expensive days and misses cheap ones.
+
+**Authentication proof:** resume the schedule, confirm one HTTP 200 delivery, and verify a new entry
+appears for today under `provider-usage / cfbd-daily`. A `401` is the same stop condition as every
+other job.
+
+### §8l) Rotate `CRON_SECRET` across all seven QStash schedules
+
+All seven schedules forward the same secret, so rotation is one coordinated operation:
 
 1. Enable global pause.
-2. Disable automatic game-stats, scores, records, odds, schedule, and rankings refresh.
-3. Pause all six managers with `pause --apply`; inspect all six and confirm they are paused. In a
+2. Disable automatic game-stats, scores, records, odds, schedule, and rankings refresh. The usage
+   sampler has no dataset toggle — it reads `/info` only and writes no canonical data.
+3. Pause all seven managers with `pause --apply`; inspect all seven and confirm they are paused. In a
    postseason-boundary window, this Schedule pause—not its dataset toggle—is the critical stop.
 4. Update `CRON_SECRET` in Vercel Production, trigger a fresh production deployment, wait for it to
    become Ready, and promote it. Environment-variable changes do not alter an already-built runtime.
 5. With the matching new `CRON_SECRET` and operator-held `QSTASH_TOKEN` local, run `upsert --apply`
-   for all six managers. This forwards the new bearer value and reapplies redaction.
-6. Inspect all six. Require the exact contracts, paused state, and one redacted Authorization
+   for all seven managers. This forwards the new bearer value and reapplies redaction.
+6. Inspect all seven. Require the exact contracts, paused state, and one redacted Authorization
    header. Exit `4` remains indeterminate: inspect and stop.
 7. Resume each schedule only long enough to obtain its gates-closed authentication delivery. Require
    HTTP 200 and no provider attempt/quota change for the five noncritical jobs and ordinary schedule
    maintenance. If Schedule is in `postseason-boundary`, its application gates are intentionally
    bypassed: keep it paused until one normal provider-backed delivery is authorized, then use that
    HTTP 200 as the authentication proof. A `401` or any policy-divergent activity is a stop condition.
-8. Pause again immediately if any proof fails. Otherwise resume all six, re-enable their datasets,
+8. Pause again immediately if any proof fails. Otherwise resume all seven, re-enable their datasets,
    and clear global pause last.
 9. Confirm the two Vercel lifecycle routes also return authenticated results with the new secret at
    their next run or through an authorized operator invocation.

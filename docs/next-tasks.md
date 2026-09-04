@@ -628,6 +628,12 @@ the consumers actually have: Item 95 portion 2 and Item 63 both ask "how often c
 _during these windows_", which needs to know what a Saturday costs versus a Tuesday. A single
 end-of-month total cannot say.
 
+**BUILT 2026-09-04 — `PLATFORM-RETAIN-PROVIDER-USAGE-SERIES-v1`, branch
+`platform/retain-provider-usage-series`.** A dedicated ungated route
+(`/api/cron/usage-sample`) reading `/info` every six hours via its own QStash schedule, plus the
+opportunistic game-stats sample and a bounded daily series. The `season-transition` attempt below is
+retained as the record of why the dedicated route was required.
+
 **The daily floor needs a DEDICATED job — established by attempting the cheap route and failing,
 2026-09-04.** The obvious move was to hang the sample on `season-transition` (`0 0 * * *`,
 unconditional, every day of the year). It was tried and reverted: that route holds a deliberate
