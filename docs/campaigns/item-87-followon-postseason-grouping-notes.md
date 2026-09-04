@@ -74,24 +74,46 @@ The two cases, verbatim from the 2025 cache:
 
 **That strengthens §3's rule from a policy to a data guarantee.** A playoff row whose round fails to parse still carries `postseasonSubtype: 'playoff'` and `playoffCompetition: 'cfp'`, so it cannot fall through into non-CFP Bowls even by accident. `playoffCompetition` reaches the component layer (`schedule.ts:171`), so the generic-CFP group can be keyed on it rather than on a parse failure.
 
-### 2. 2024 cannot answer the question — but 2021–2023 can, and answer it better
+### 2. 2024 answers the question, and answers it best — correcting an error
 
-**The 2024 cache is a stale partial snapshot, not a second season of evidence.** It holds 54 postseason rows, **all** `postseasonSubtype: 'bowl'` with `playoffRound: null` — **zero CFP rows** — every one still `status: 'scheduled'` against December dates, and it predates the provenance work entirely: `playoffRoundSource`, `playoffCompetition` and `homeClassification` are absent as fields. It was cached before the playoff was populated and never refreshed. That absence is itself worth knowing: an operator reading the 2024 postseason tab today would see bowls and no bracket at all.
+**A first pass reported that 2024 held zero CFP rows. That was wrong, and the mistake is worth
+recording.** The check filtered postseason rows on `homeClassification === 'fbs'`; the 2024 cache does
+not carry that field, so the filter returned an empty set and every tally over it printed empty. The
+emptiness of a filter was read as a fact about the data. A filter that cannot reach its subject
+proves nothing, exactly as a fixture that cannot reach a failure proves nothing.
 
-**2021, 2022 and 2023 do carry CFP rows** — three each, the four-team era's two semifinals plus the championship — and they use a **different phrasing** from 2025:
+**2024 holds the complete bracket**: of 54 postseason rows, `postseasonSubtype` is
+`{bowl: 43, playoff: 11}` and `playoffRound` is
+`{first-round: 4, quarterfinal: 4, semifinal: 2, national_championship: 1}` — the same shape as 2025.
+So there are **two full seasons of the 12-team format**, and they answer the robustness question
+better than one:
 
-| Season | `notes` | `bowlName` |
+| Season | `notes` | Parsed |
 |---|---|---|
-| 2021 | `CFP Semifinal at the Goodyear Cotton Bowl Classic` | Goodyear Cotton Bowl |
-| 2022 | `CFP Semifinal at the Vrbo Fiesta Bowl` | Vrbo Fiesta Bowl |
-| 2023 | `CFP Semifinal at the Rose Bowl Game Pres. by Prudential` | Rose Bowl |
-| 2021–23 | `CFP National Championship pres./Pres. by AT&T` | none |
-| 2025 | `College Football Playoff First Round Game` | none |
-| 2025 | `College Football Playoff National Championship Presented by AT&T` | none |
+| 2024 | `College Football Playoff First Round Game Presented by Allstate` | `first-round` |
+| 2025 | `College Football Playoff First Round Game` | `first-round` |
+| 2024 | `College Football Playoff Quarterfinal at the Vrbo Fiesta Bowl` | `quarterfinal` |
+| 2024 | `College Football Playoff Quarterfinal at the Allstate Sugar Bowl - Rescheduled from Jan 1` | `quarterfinal` |
+| 2024 | `College Football Playoff Semifinal at the Capital One Orange Bowl` | `semifinal` |
+| 2021 | `CFP Semifinal at the Goodyear Cotton Bowl Classic` | `semifinal` |
+| 2022 | `CFP Semifinal at the Vrbo Fiesta Bowl` | `semifinal` |
+| 2023 | `CFP Semifinal at the Rose Bowl Game Pres. by Prudential` | `semifinal` |
+| 2021–23 | `CFP National Championship pres./Pres. by AT&T` | `national_championship` |
+| 2025 | `College Football Playoff National Championship Presented by AT&T` | `national_championship` |
 
-Running today's `playoffRoundFromText` regexes (`cfbdSchedule.ts:358-364`) against all seven strings classifies all seven correctly. **The parser already handles both the short `CFP …` form and the long `College Football Playoff …` form**, across three capitalisations of "presented by", because every pattern is a case-insensitive substring on the round word alone.
+Today's `playoffRoundFromText` regexes (`cfbdSchedule.ts:358-364`) classify **all eleven** correctly.
+The parse survives the short `CFP …` form, the long `College Football Playoff …` form, a trailing
+sponsor clause present in 2024 and dropped in 2025, three capitalisations of "presented by", and an
+appended `- Rescheduled from Jan 1`. Every pattern is a case-insensitive substring on the round word
+alone, which is why none of that reaches it.
 
-**Answer to the question behind the ask:** the inference is matching a stable phrase, not something incidental — and it has already survived one provider wording change, between 2023 and 2025. The generic-CFP fallback is a safety net rather than something to expect in practice, but it earns its place precisely because the wording did change once. *Caveat: the 2021–2023 caches predate `playoffRoundSource`, so their stored round values were written by an older normalizer; the check above is today's regexes against the provider's own `notes` strings, which is the test that matters.*
+**Answering the original question:** a stable phrase, and now demonstrably stable across five seasons
+and four phrasing variants rather than inferred from one. The generic-CFP fallback stays a safety net,
+not an expectation.
+
+*Caveat: the 2021–2024 caches predate `playoffRoundSource`, so their stored round values were written
+by an older normalizer; the check above is today's regexes against the provider's own `notes`
+strings, which is the test that matters.*
 
 ---
 

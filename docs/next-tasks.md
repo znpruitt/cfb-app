@@ -71,9 +71,9 @@ week) and **Item 108** (one read of `provider-refresh-status` for `scores:week:2
 the morning of 2026-09-04 — then close it or promote it).
 
 **Postseason, before December:** **Item 121** (CFP first-round `eventKey` collision — dormant until
-the 2026 first round is ingested, then live on the surface it breaks) and **Item 120** (the 2024
-schedule cache holds no CFP rows). Both were measured while verifying Item 87's postseason grouping
-input; neither blocks it.
+the 2026 first round is ingested, then live on the surface it breaks) and **Item 120** (the 2023/2024
+caches predate two normalizer fields; may be a refresh rather than an item). Both were measured while
+verifying Item 87's postseason grouping input; neither blocks it.
 
 **Decisions parked, with the item that consumes each:** amber `upset` border → slice 5;
 normalisation target `#0A0A0A` vs `#161616` → Item 119; card-owner treatment → Item 117.
@@ -485,8 +485,9 @@ touches: `docs/campaigns/item-87-followon-postseason-refinements.md` §3.
 **The collision.** `playoffEventKey` (`cfbdSchedule.ts:366-370`) returns `cfp-${round}` when a playoff
 row has no bowl name to disambiguate. Quarterfinals and semifinals carry bowl names and are safe; the
 championship is singular. **First round is the one round the scheme cannot separate, and the 12-team
-format made it four games.** Measured on the read-only replica: all four 2025 first-round rows carry
-`eventKey: "cfp-first-round"`, so `schedule.ts:485-486` gives all four `eventId: "2025-cfp-first-round"`.
+format made it four games.** Measured on the read-only replica in **both** seasons that used the 12-team
+format: all four 2025 first-round rows carry `eventKey: "cfp-first-round"`, and so do all four 2024
+rows, so `schedule.ts:485-486` gives each season four games sharing one `eventId`.
 
 **Two consumers, both reachable.** `schedule.ts:503` sets `key: eventId` for postseason games and
 `GameWeekPanel.tsx:213` renders `key={g.key}` — four identical React keys in one list. The operator
@@ -509,26 +510,44 @@ is the first step, not a prerequisite for filing.
 
 - Backlog slug: `PLATFORM-CFP-EVENT-KEY-COLLISION-v1`
 
-### Item 120 — the 2024 schedule cache is a stale partial snapshot with no CFP rows
+### Item 120 — the 2023 and 2024 schedule caches predate two normalizer fields
 
-**Filed 2026-09-04. Data-freshness defect, unrelated to Item 87** — surfaced while verifying postseason
-round derivation.
+**Filed 2026-09-04. Rewritten same day — the original filing was wrong.** It claimed the 2024 cache
+held zero CFP rows and was a stale pre-playoff snapshot. Both claims came from a filter on
+`homeClassification === 'fbs'`, a field the 2023/2024 caches do not carry, so the filter returned an
+empty set and its emptiness was read as a finding. **2024 holds the complete bracket**: of 54
+postseason rows, `postseasonSubtype` is `{bowl: 43, playoff: 11}` and `playoffRound` is
+`{first-round: 4, quarterfinal: 4, semifinal: 2, national_championship: 1}` — the same shape as 2025.
 
-**Measured on the read-only replica**, `app_state` `scope='schedule'`, `key='2024-all-all'`: 54
-postseason rows, **all** `postseasonSubtype: 'bowl'` with `playoffRound: null` — **zero CFP rows** —
-every one still `status: 'scheduled'` against December dates. The row shape predates the provenance
-work entirely: `playoffRoundSource`, `playoffCompetition` and `homeClassification` are absent as
-fields, not null. The cache was written before the playoff was populated and never refreshed.
+**What is actually true.** Measured on the read-only replica, `app_state` `scope='schedule'`:
 
-**Consequence:** anything reading the 2024 postseason sees bowls and no bracket, and no completed
-statuses. Members cannot reach it — the season is league-resolved and fixed (`CFBScheduleApp.tsx:313`)
-— so this is an archive-integrity and operator-read problem rather than a member-facing one.
+| Key | Written | Items | `completed` on postseason | `homeClassification` |
+| --- | --- | --- | --- | --- |
+| `2023-all-all` | 2026-07-26T00:49Z | 3,734 | absent | absent |
+| `2024-all-all` | 2026-07-26T00:51Z | 3,801 | absent | absent |
+| `2025-all-all` | 2026-09-03T23:15Z | 3,831 | `true` on all 86 | present |
 
-**Open before scoping:** whether the other historical caches are equally stale, and whether any
-consumer reads a prior season's postseason at all. 2021–2023 do carry CFP rows, so 2024 may be
-singular. Check that first — the fix could be one refresh rather than a mechanism.
+All three record `partialFailure: false`. The two older caches were written six weeks ago, after those
+seasons finished — they are not pre-season snapshots. They simply predate a normalizer change made
+between 2026-07-26 and 2026-09-03 that began persisting `completed` and the team classifications.
 
-- Backlog slug: `PLATFORM-2024-SCHEDULE-CACHE-STALE-v1`
+**`status: 'scheduled'` is not evidence of anything.** It is the value on _every_ row of _every_
+season — 3,734 / 3,801 / 3,831 of them. The original filing cited it as a staleness signal; it is not.
+
+**Consequence.** Any consumer reading `completed` or `homeClassification` for 2023 or 2024 gets
+`undefined` rather than a value. Members cannot reach those seasons — the season is league-resolved
+and fixed (`CFBScheduleApp.tsx:313`, no setter in `src/`) — so this is archive integrity, not
+member-facing.
+
+**The fix is a refresh, and the admin UI cannot perform it.** `POST /api/admin/cache-historical-schedule`
+short-circuits on an already-cached year unless `force: true`, and `HistoricalCachePanel.tsx:47`
+hardcodes `force: false`. Clicking the button for 2024 returns `alreadyCached` and makes no provider
+call. Either the panel gains a force affordance or the refresh is a direct authenticated POST.
+
+**Scope before building anything:** confirm which consumers read `completed` and the classifications
+for a historical season at all. If none do, this is a refresh, not an item.
+
+- Backlog slug: `PLATFORM-HISTORICAL-CACHE-FIELD-DRIFT-v1`
 
 ### Item 119 — team-colour bar on the shared scoreboard, and no accent for teams with no colour
 

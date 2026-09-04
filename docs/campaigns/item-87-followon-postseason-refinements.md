@@ -60,8 +60,27 @@ All four 2025 first-round rows share `eventKey: "cfp-first-round"`, and therefor
 
 ---
 
-## Also found — the 2024 cache is a stale partial snapshot
+## Correction — the "2024 has no CFP rows" finding was wrong
 
-54 postseason rows, all `postseasonSubtype: 'bowl'` with `playoffRound: null`, **zero CFP rows**, every one still `status: 'scheduled'` against December dates, and predating the provenance fields entirely. Cached before the playoff was populated and never refreshed.
+The parent document reported the 2024 cache as a stale partial snapshot with zero CFP rows. **It is
+not.** The check filtered postseason rows on `homeClassification === 'fbs'`, a field the 2024 cache
+does not carry, so the filter returned an empty set and its emptiness was reported as a fact about the
+data. 2024 holds the complete bracket — 54 postseason rows, `{bowl: 43, playoff: 11}`, with 4
+first-round, 4 quarterfinal, 2 semifinal and 1 national championship, the same shape as 2025.
 
-**Anything reading the 2024 postseason sees bowls and no bracket**, and no completed statuses. Members cannot reach it — season selection is league-resolved and fixed — so it is an archive-integrity and operator-read problem rather than a member-facing one. Filed as **Item 120**, with one thing to settle before scoping: whether the other historical caches are equally stale. 2021–2023 do carry CFP rows, so 2024 may be singular and the fix may be one refresh rather than a mechanism.
+**Two things that were cited as staleness are not.** `status: 'scheduled'` is the value on every row
+of every season (3,734 / 3,801 / 3,831), not a 2024 anomaly. And the caches are recent: 2023 and 2024
+were written 2026-07-26, 2025 on 2026-09-03, all with `partialFailure: false`.
+
+**What survives is narrower.** The 2023 and 2024 caches lack `completed` and the team classifications;
+the 2025 cache carries `completed: true` on all 86 postseason rows and the classifications throughout.
+They predate a normalizer change made between those two write dates. Refiled that way as **Item 120**
+(`PLATFORM-HISTORICAL-CACHE-FIELD-DRIFT-v1`), with the scoping question of whether any consumer reads
+those fields for a historical season at all — if none does, it is a refresh rather than an item.
+
+**Two things this correction strengthens.** The provider-string evidence is now five seasons and four
+phrasing variants rather than three seasons and two, including a 2024 first-round note carrying a
+sponsor clause (`Presented by Allstate`) that 2025 drops, and a quarterfinal note with
+`- Rescheduled from Jan 1` appended; today's regexes classify all of them. And the `eventKey`
+collision is confirmed in **both** 12-team seasons — 2024 has four rows keyed `cfp-first-round` too,
+not just 2025.
