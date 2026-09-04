@@ -1,6 +1,10 @@
 # Item 87 — Follow-on input: decisions that existed only in mockup markup
 
-> **Status:** input for review, not applied. Nothing here is recorded in the base addendum or `DESIGN.md` until stated otherwise.
+> **Status:** partly shipped. Decision 1 (section order) merged as POLISH-022, PR #562 (`f4e13ad0`);
+> decisions 2, 3 and 6 merged as POLISH-023, PR #563 (`1546bbc8`), with 6 landed on Overview only and
+> now recorded in `DESIGN.md`. Decision 4 was documentation only. Decision 5 ("Today" as the sole
+> relative label) is unbuilt and constrains Item 87 slice 5. The four questions this document left
+> open are answered in `item-87-followon-section-ordering-resolutions.md`.
 
 Records six decisions that existed only in mockup markup, never in any document. Filed in response to a CLI report that Live's placement above the watchlist was never dictated by the plan; an audit of both mockups against the doc set found five more.
 
