@@ -92,7 +92,9 @@ test('an authenticated run records one sample from /info', async () => {
   assert.equal(series.samples.length, 1);
   assert.equal(series.samples[0]?.remaining, 4600);
   assert.equal(series.samples[0]?.limit, 5000, 'Tier 1 resolves the canonical limit');
-  assert.equal(series.samples[0]?.used, 400, 'used is derived as limit − remaining');
+  assert.equal(series.samples[0]?.usedLatest, 400, 'used is derived as limit − remaining');
+  assert.equal(series.samples[0]?.usedMax, 400);
+  assert.equal(series.samples[0]?.periodSequence, 0);
   assert.equal(series.samples[0]?.day, body.day);
 });
 
