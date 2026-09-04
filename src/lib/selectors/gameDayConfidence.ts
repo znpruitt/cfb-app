@@ -3,7 +3,7 @@ import { isCurrentLiveScoreSeason, isLiveScoreEligibleGame } from '../liveScores
 import type { AppGame } from '../schedule.ts';
 import type { ScorePack } from '../scores.ts';
 
-/** Covers two 3-minute poll cycles, then expires before a third interval elapses. */
+/** Covers two 3-minute server provider-refresh cycles, then expires before a third. */
 export const LIVE_SCORE_OBSERVATION_MAX_AGE_MS = 7 * 60 * 1000;
 
 export type LiveScoreObservation = {

@@ -90,9 +90,9 @@ export const PROVIDER_DATASET_DESCRIPTORS: Record<ProviderDataset, ProviderDatas
     provider: 'CFBD',
     hasActiveAutomation: true,
     currentAutomation:
-      'Every 3 minutes (QStash `turfwar-live-scores-3m` → GET /api/cron/live-scores): schedule-armed, polling only kickoff-window games (~15 min before kickoff through 24 h after) while they remain unresolved — at most ONE billed CFBD /scoreboard or /games score request per run, above the 1,000-call monthly reserve, honoring the global pause and the Scores auto-refresh toggle. A newly committed final can additionally trigger the separately tracked, six-hour-floor-gated Team records refresh. Visible browser tabs refresh scores cache-only on the same 3-minute cadence while a live game is in window.',
+      'Every 3 minutes (QStash `turfwar-live-scores-3m` → GET /api/cron/live-scores): schedule-armed, polling only kickoff-window games (~15 min before kickoff through 24 h after) while they remain unresolved — at most ONE billed CFBD /scoreboard or /games score request per run, above the 1,000-call monthly reserve, honoring the global pause and the Scores auto-refresh toggle. A newly committed final can additionally trigger the separately tracked, six-hour-floor-gated Team records refresh. Visible browser tabs refresh scores cache-only on a 90-second cadence while a live game is in window.',
     plannedPolicy:
-      'Active (PLATFORM-086B2B): fixed 3-minute schedule-armed cadence — the QStash schedule + browser refresh are version-controlled, not admin-editable; the auto-refresh toggle pauses/resumes the polling.',
+      'Active (PLATFORM-086B2B): fixed 3-minute schedule-armed cadence — the QStash schedule + 90-second browser refresh are version-controlled, not admin-editable; the auto-refresh toggle pauses/resumes the polling.',
     lifecycleCritical: false,
     autoRefreshSettingConsumed: true,
     // Near-live during a slate; 2 days tolerates the offseason gap without holding

@@ -239,7 +239,7 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
   );
 
   // Latest eligibility inputs for the visible-tab live-score timer
-  // (PLATFORM-086B2B). Held in a ref so the 3-minute interval reads fresh
+  // (PLATFORM-086B2B). Held in a ref so the 90-second browser interval reads fresh
   // games/scores/season on each tick without the timer resetting on every score
   // update (the effect depends only on the memoized refreshLiveData).
   const liveScoreInputsRef = useRef({ games, scoresByKey, selectedSeason });
@@ -309,11 +309,11 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
         lastManualLiveRefreshMsRef.current = nowMs;
       } else {
         // Stamp the auto-poll throttle at poll INITIATION, not completion. The
-        // 3-minute timer's throttle threshold equals its interval, so stamping at
-        // completion would offset the mark by the fetch latency and make every
-        // other tick fall a few ms short of the threshold — silently halving the
-        // cadence to ~6 minutes. Anchoring to `nowMs` keeps consecutive ticks
-        // exactly one interval apart.
+        // 90-second browser timer's throttle threshold equals its interval, so
+        // stamping at completion would offset the mark by the fetch latency and
+        // make every other tick fall a few ms short of the threshold — silently
+        // halving the browser cadence to ~3 minutes. Anchoring to `nowMs` keeps
+        // consecutive ticks exactly one interval apart.
         lastAutoScoresRefreshMsRef.current = nowMs;
       }
 
@@ -535,9 +535,9 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
 
   // Latest `refreshLiveData` for the visible-tab timer (PLATFORM-086B2B). The
   // callback's identity changes on every navigation (games/visibleGames/tab/week/
-  // season are in its deps); reading it through a ref keeps the 3-minute interval
-  // effect stable so navigation cannot tear down and re-arm the interval — which
-  // would restart its countdown and starve the auto-poll under active clicking.
+  // season are in its deps); reading it through a ref keeps the 90-second browser
+  // interval effect stable so navigation cannot tear down and re-arm the interval
+  // — which would restart its countdown and starve the auto-poll under active clicking.
   const refreshLiveDataRef = useRef(refreshLiveData);
   refreshLiveDataRef.current = refreshLiveData;
 
@@ -563,11 +563,11 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
     });
   }, [games, refreshLiveData, scheduleLoaded, selectedTab]);
 
-  // Visible-tab live-score polling (PLATFORM-086B2B): a self-rescheduling 3-minute
-  // timer that re-evaluates eligibility every tick AND whenever the tab gains
-  // focus/becomes visible, so a page opened before kickoff arms itself as the
-  // window opens without any re-render. Eligible games are read cache-only from
-  // just their `(providerWeek, seasonType)` partitions.
+  // Visible-tab live-score polling (PLATFORM-086B2B): a self-rescheduling
+  // 90-second browser timer that re-evaluates eligibility every tick AND whenever
+  // the tab gains focus/becomes visible, so a page opened before kickoff arms
+  // itself as the window opens without any re-render. Eligible games are read
+  // cache-only from just their `(providerWeek, seasonType)` partitions.
   //
   // The next tick is always scheduled ONE interval after the LAST attempt rather
   // than on a fixed wall-clock grid: a `setInterval` grid desyncs from the

@@ -239,8 +239,8 @@ async function fetchScoreRows(params: {
       // `live=1` is a cache-only hint (NOT a refresh): it tells the route to
       // consult DURABLE app-state rather than serve a per-instance in-process
       // copy that can lag a cross-instance cron write by up to its TTL — so a
-      // 3-minute poll actually reflects the latest merged scores. No provider
-      // call, no credentials, no `refresh=1`.
+      // 90-second browser poll actually reflects the latest merged scores. No
+      // provider call, no credentials, no `refresh=1`.
       const url = buildApiUrl(
         `/api/scores?week=${providerWeek}&year=${season}&seasonType=${seasonType}&live=1`,
         apiBaseUrl
