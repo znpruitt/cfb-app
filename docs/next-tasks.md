@@ -1666,6 +1666,50 @@ redundant against the pair — recorded in the campaign doc so it is not re-deri
 QStash state, and planner mistakes. The planner reduces wakeups; it must not become the only
 correctness or quota protection.
 
+**`QSTASH_TOKEN` in Vercel — decided 2026-09-04, and the rationale recorded because none existed.**
+Collision 3 above says a runtime planner needs the token in the Vercel environment. Five places say
+the opposite — `docs/deployment-runbook.md:88` ("Never commit it or configure it in Vercel") and four
+`scripts/manage-*-schedule.ts` headers — and **not one of them records a reason**. The owner's
+reasoning, which survives scrutiny: it is lower risk than the database credential the app already
+holds, and the precise form of that is **reconstructibility**. `DATABASE_URL` permits exfiltration,
+destruction and silent corruption of canonical data, with no source to rebuild from.
+`QSTASH_TOKEN` permits schedules to be stopped, retimed or deleted — observable through System Health
+delivery health, and restorable from the repo, because `scripts/lib/qstashSchedule.ts:43` holds the
+schedule contract as FIXED constants and `upsert --apply` rewrites it. Bounded denial-of-availability
+with a documented recovery path, against unbounded data loss with none.
+
+**Conditions on that decision.** Check first whether QStash offers a scoped management token limited
+to the two schedules the planner touches; if it does, use it. And update all five statements in the
+same PR that adds the variable — leaving them makes the repo lie about its own security posture.
+
+**This item erodes the property that justifies the decision, and must replace it.** Reconstructibility
+holds because the cron is a fixed constant that `qstashSchedule.ts:342` diffs against. Making the cron
+planner-owned for `live-scores` and `game-stats` — which collision 1 requires, or `inspect` refuses
+forever — turns "reconstructible from a declared constant" into "reconstructible by re-running the
+planner", and costs `inspect` its ability to say those two crons are _correct_ rather than merely
+_current_. The job that most needs a tampering signal becomes the one without one.
+
+**The replacement is a durable planner-output record — owner direction 2026-09-04.** Every planner
+run writes what it derived and what it sent: the input windows, the generated cron, the previous
+cron, whether an upsert was applied or skipped, and the outcome. That serves three purposes at once —
+debugging a bad cron, future error correction, and restoring the divergence check, because `inspect`
+can then diff live QStash state against the planner's last recorded intent instead of against a
+constant that no longer exists.
+
+Three constraints on it:
+
+- **Durable, not a runtime log.** Vercel runtime logs expire too quickly to serve as incident
+  history — that is Item 126's layer 2, and repeating it here would rebuild the same defect in a new
+  place.
+- **Never log the request.** `buildUpsertRequest` headers carry TWO secrets:
+  `Authorization: Bearer <QSTASH_TOKEN>` and `Upstash-Forward-Authorization: Bearer <CRON_SECRET>`.
+  Record an allowlisted projection — cron, `scheduleId`, destination, method, retries, derived
+  windows — and never `headers`, a raw request, or a response body. The code already shows the right
+  instinct: `Upstash-Redact-Fields` keeps the forwarded route credential out of QStash's own readable
+  state.
+- **Carry the invocation id**, so this correlates with the receipt like everything else under
+  Item 126 Tier A.
+
 **Blocker:** none technical. Until it ships the schedules are managed by hand per game window, which
 is what makes the `kickoff + 24h` reconciliation deadline an operational hazard — see the campaign
 doc's operator notes.
