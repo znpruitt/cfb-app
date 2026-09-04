@@ -73,8 +73,8 @@ the morning of 2026-09-04 — then close it or promote it).
 **Postseason, before December:** **Item 121** (CFP first-round `eventKey` collision — dormant until
 the 2026 first round is ingested, then live on the surface it breaks). Measured while verifying
 Item 87's postseason grouping input; it does not block that work. **Item 120** closed at its scoping
-gate, no action. **Item 122** (the historical-cache button cannot re-cache) is an operator defect with
-no seasonal deadline.
+gate, no action. **Item 122** (the historical-cache button cannot re-cache) and **Item 123**
+(retire the dead postseason template) are both undated; 123 is small and adjacent to 121.
 
 **Decisions parked, with the item that consumes each:** amber `upset` border → slice 5;
 normalisation target `#0A0A0A` vs `#161616` → Item 119; card-owner treatment → Item 117.
@@ -477,6 +477,44 @@ through the offseason without an operator, and is driven by a Vercel Active CPU 
 Neon one. Keep this item for the read-replica autosuspend and the non-cadence findings.
 
 - Backlog slug: `PLATFORM-OFFSEASON-SCHEDULE-PAUSE-v1`
+
+### Item 123 — `buildPostseasonTemplate` is dead, and stale in three ways if revived
+
+**Filed 2026-09-04. Dead code with a wrong model inside it.** Surfaced while answering why the 2026
+week list ends at 15 with no week 14.
+
+**It has no callers.** `buildPostseasonTemplate` (`src/lib/postseason-template.ts:29`, 183 lines)
+appears exactly once in the repository — its own definition. No consumer in `src/`, none in
+`scripts/`, and no test file references it. It exists to mint postseason placeholders: one
+conference-championship slot per conference, four bowl slots, and a playoff bracket.
+
+**Three things are wrong with it, all of which only matter if someone wires it:**
+
+1. **It hardcodes provider week numbers, which drift.** Conference championships are pinned to
+   `week: 15` and the bowls and playoff to `week: 17`. That matched 2024 and 2025, where CFBD filed
+   the nine championship games at week 15 and Army–Navy at 16. **2026 has already shifted**: CFBD
+   places Army–Navy at week 15 (Dec 12, MetLife), so the championships will land at 14. A template
+   asserting a week number that must agree with the provider's own numbering is the same defect shape
+   as inferring a CFP round from a postseason week — it looks stable until the calendar moves.
+2. **It has no first-round slots.** Four quarterfinals, two semifinals, one championship — the
+   12-team bracket missing its first round entirely. Any surface built on it would be short four
+   games in the round that Item 121 is also about.
+3. **Its bowl set is four.** Rose, Sugar, Orange, Cotton — a fragment of a bowl season, and a
+   structure the 12-team format made ambiguous, since a quarterfinal _is_ a bowl.
+
+**One thing in it is right, and Item 121 should copy it.** The template's playoff keys are
+slot-numbered — `cfp-quarterfinal-1` … `-4`, `cfp-semifinal-1`, `-2` — so it never collides the way
+the live path does. `postseason-classify.ts:340-341` mints the unnumbered `cfp-first-round` for every
+first-round slot, which is Item 121's bug. The template already demonstrates the convention that fixes
+it.
+
+**Recommendation: delete it.** The live classifier is provider-driven and handles placeholders today;
+a hardcoded template is a second, unmaintained model of the same structure, and a dead one has been
+silently wrong about 2026 for as long as 2026 has existed. If a placeholder surface is ever wanted,
+rebuild it from the classifier rather than reviving this. **`npm run build` is the gate for the
+deletion** — the same gate that caught the last retired-module claim.
+
+- Backlog slug: `PLATFORM-RETIRE-POSTSEASON-TEMPLATE-v1`
 
 ### Item 122 — the historical-cache buttons cannot re-cache anything
 
