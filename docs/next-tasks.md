@@ -541,10 +541,27 @@ known, and a placeholder has no provider id to key on. `slotOrder` has the same 
 So the fix is to stop resolved games inheriting the slot key, not to abolish it: prefer
 `providerGameId` for identity where a real game exists, keep the round key for the TBD slot.
 
-**Acceptance boundary:** first-round games get distinct `eventKey` values, a test renders more than
-one first-round game in the same list, and the placeholder path still resolves a TBD slot to its game.
-End-to-end confirmation of the override and render paths is the first step, not a prerequisite for
-filing.
+**The fix introduces a mid-lifecycle key change, and that is the part to specify first.** If a
+resolved game takes `providerGameId` while a placeholder keeps the round key, then a game's key
+CHANGES at the moment the slot resolves and teams are assigned — which for the first round happens
+days before kickoff, in December, on the surface this item exists to protect. Everything holding the
+old key across that boundary must survive or migrate it. Known holders, all reachable:
+
+- **An operator label override** saved against the slot key. `schedulePostseasonHelpers.ts:372-377`
+  matches `candidate.eventId === eventId`, so an override written before resolution silently stops
+  applying after it — the failure is a label quietly disappearing, not an error.
+- **A React list key** on a list spanning the change (`GameWeekPanel.tsx:213`, `key={g.key}`, and
+  `key: eventId` at `schedule.ts:503`). A key that changes remounts the row; four keys collapsing to
+  one is today's bug, and one key becoming four is its mirror.
+- **Any cached or memoised selector keyed on `key`/`eventId`**, and the placeholder participant slot
+  ids at `schedule.ts:492`/`:498` (`${eventId}-home` / `-away`), which feed identity resolution.
+
+**Acceptance boundary:** first-round games get distinct `eventKey` values; a test renders more than one
+first-round game in the same list; the placeholder path still resolves a TBD slot to its game; and a
+test drives the transition itself — a placeholder with a saved override, resolved to a real game,
+still carrying that override afterwards. The transition test is the one that cannot be deferred, since
+it is the failure the fix creates rather than the one it removes. End-to-end confirmation of the
+override and render paths is the first step, not a prerequisite for filing.
 
 **Separable from round grouping** — that work keys on `playoffRound` and `playoffCompetition`, not
 `eventId`, so it is not blocked.
@@ -579,8 +596,18 @@ regardless. Absence keeps rows; it cannot drop a game.
 season, and the 2024 archive it would notionally improve is already durable and already complete.
 Reopen only if a consumer starts reading `completed` or a classification for a historical year.
 
-_Not chased: 2 of the 3,747 2024 regular score packs read `scheduled` rather than `final`. Coverage
-is complete regardless, so they are noted, not investigated._
+**The two non-final 2024 packs, identified so nobody rediscovers them.** 2 of the 3,747 regular score
+packs read `scheduled` rather than `final`, and both are explained:
+
+- `401640992` — **Liberty at App State**, week 5, 2024-09-28. The Hurricane Helene cancellation, which
+  the codebase already documents by name: `standingsHistory.ts:191-194` cites this exact game as the
+  genuine never-resolves case, still returning `completed: false` from CFBD nearly two years on, and
+  `hasGameBeenAbandoned` is the escape hatch built for it.
+- `401677463` — **Defiance College at Taylor**, week 10, 2024-11-02. Division III versus NAIA; not an
+  FBS game, so it never enters a standings derivation at all.
+
+Neither is a defect and neither affects the complete coverage above. Recorded here rather than left as
+"not chased", because a closed item takes its context with it.
 
 ### Item 119 — team-colour bar on the shared scoreboard, and no accent for teams with no colour
 
