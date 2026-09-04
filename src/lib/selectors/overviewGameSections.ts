@@ -113,15 +113,14 @@ function routeForItem(
 
 /**
  * Recent finals sort by kickoff, descending — most recent first — and by nothing
- * else. Section-ordering resolutions §2, scoped by the owner on 2026-09-04 to the
- * three state sections rather than to Live alone: kickoff time is the discriminator
- * here, in Live, and below the watchlist's curation score.
+ * else. Section-ordering resolutions §2, scoped by the owner on 2026-09-04 to every
+ * Overview game section rather than to Live alone: kickoff time is the discriminator
+ * here, in Live, in Featured, and below the watchlist's curation score.
  *
- * TWO deliberate exceptions, neither of them this comparator, so do not read the rule
- * as repo-wide. The watchlist keeps `watchlistPriority` because it is a curated list
- * and the curation IS the order. Featured still keys on `item.priority` in
- * `compareRecentResultItems` (`selectors/overview.ts`) — an open decision recorded in
- * Item 125, not an oversight.
+ * ONE deliberate exception, and it is not a comparator: the watchlist keeps
+ * `watchlistPriority` above kickoff, because it is a curated list and the curation IS
+ * the order. Every owner-count key is gone — Live, Recent finals, the watchlist's
+ * tiebreak, and Featured's `compareRecentResultItems` (`selectors/overview.ts`).
  *
  * This matters here more than the identical rule does in Live, because CFBD kickoffs
  * cluster on shared hour and half-hour timestamps, so a slate routinely holds several

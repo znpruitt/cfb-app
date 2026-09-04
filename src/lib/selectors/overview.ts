@@ -358,12 +358,31 @@ function comparePrioritizedWatchlistItems(
   return compareWatchlistItems(a.item, b.item);
 }
 
+/**
+ * Featured results order by kickoff, descending — most recent first — then the game
+ * key. Section-ordering resolutions §2, extended to Featured by the owner 2026-09-04.
+ *
+ * The owner-count key that sat here (`item.priority`, `awayOwner && homeOwner ? 2 : 1`
+ * at `overview.ts:77`) is gone. The case for keeping it was that Featured is the
+ * relevance surface, so a relevance key belongs here — but that holds only for signals
+ * someone CHOSE as relevance. Owner count was never chosen; it is the same tiebreak
+ * that had leaked into the three state sections, arriving here by inheritance.
+ *
+ * It was also worse than a sort key. `selectFeaturedGames` slices this order without
+ * re-sorting, so at the cap a two-owner game DISPLACED a one-owner game sharing its
+ * kickoff — an unchosen signal deciding what appears at all, not merely where. And
+ * `NO_CLAIM_OWNER` is a truthy string, so a NoClaim-vs-real-owner final scored 2 and
+ * was indistinguishable from a genuine two-owner game: the signal did not measure what
+ * it claimed to.
+ *
+ * Featured's real relevance selection is Item 113's insight-anchored work. Ordering by
+ * kickoff until then is legible, and honest that the selection logic is not built yet.
+ */
 function compareRecentResultItems(a: OverviewGameItem, b: OverviewGameItem): number {
   const aHasKickoff = Number.isFinite(a.sortDate);
   const bHasKickoff = Number.isFinite(b.sortDate);
   if (aHasKickoff !== bHasKickoff) return aHasKickoff ? -1 : 1;
   if (aHasKickoff && a.sortDate !== b.sortDate) return b.sortDate - a.sortDate;
-  if (a.priority !== b.priority) return b.priority - a.priority;
   return a.bucket.game.key.localeCompare(b.bucket.game.key);
 }
 

@@ -79,21 +79,30 @@ section-ordering findings in the first place.
 | **Live** | kickoff **ascending** | game key |
 | **Upcoming watchlist** | `watchlistPriority` (curation), then kickoff **ascending** | game key |
 | **Recent finals** | kickoff **descending** — newest first | game key |
+| **Featured** | kickoff **descending** — newest first | game key |
 
 **Live is unselected, so time is the only legible order.** It holds every in-progress game with no
 curation applied; ordering by anything else leaves a member unable to tell why one row sits above
 another. No awaiting-score partition (§1) and no owner count (§2).
 
-**Two places §2 does NOT reach.** The watchlist keeps its curation score, deliberately. **Featured
-also still keys on owner count** — `compareRecentResultItems` (`selectors/overview.ts`) sorts
-`resultCandidates` by kickoff descending and then by `item.priority`, and `selectFeaturedGames`
-slices without re-sorting. So on Overview the Featured section still orders *and selects* by owner
-count: two finals sharing a kickoff put the two-owner game first, and at the cap that displaces the
-one-owner game from the section entirely. That is an **open decision, not an oversight** — Featured
-is the relevance surface, so a relevance key there is arguable in a way it is not in Live. But it
-carries the `NoClaim` defect below (a `NoClaim`-vs-real-owner final scores `priority: 2`,
-indistinguishable from a genuine two-owner game), and nobody chose owner count as Featured's
-relevance signal. Recorded in Item 125 for a decision.
+**One place §2 does not reach, and it is not a sort key.** The watchlist keeps `watchlistPriority`
+above kickoff. Every owner-count key is gone: Live, Recent finals, the watchlist's `item.priority`
+tiebreak, and **Featured** — `compareRecentResultItems` (`selectors/overview.ts`), removed by owner
+ruling 2026-09-04.
+
+**Why Featured lost it too, after being argued for.** The case for keeping it was that Featured is
+the relevance surface, so a relevance key belongs there. That holds only for signals someone *chose*
+as relevance. Owner count was never chosen — it is the same tiebreak that had leaked into three other
+sections, arriving in Featured by inheritance. It was also worse than a sort key: `selectFeaturedGames`
+slices the order without re-sorting, so at the cap a two-owner game displaced a one-owner game sharing
+its kickoff, letting an unchosen signal decide what appears at all rather than merely where. And with
+`NoClaim` truthy, a NoClaim-vs-real-owner final scored `priority: 2`, indistinguishable from a genuine
+two-owner game — the signal was not measuring what it claimed to. Featured's real selection is
+Item 113's insight-anchored work; leaving owner count until then meant a placeholder quietly doing
+that job with nobody's endorsement.
+
+**Carry into Item 113:** specify what *does* promote rather than leaving a vacuum. An unclaimed slot
+in a selection pipeline is how owner count got there in the first place.
 
 **Why the watchlist keeps its score.** The
 watchlist is already a selected list — something decided those games were worth showing — so

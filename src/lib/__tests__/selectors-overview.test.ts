@@ -202,6 +202,78 @@ test('selectOverviewViewModel prioritises marquee watchlist games before kickoff
   );
 });
 
+test('Featured ties break on the game key, and owner count cannot displace at the cap', () => {
+  // Section-ordering resolutions §2, extended to Featured by the owner 2026-09-04.
+  // `selectFeaturedGames` slices this order without re-sorting, so the removed
+  // `item.priority` key did not merely order Featured — at the cap it decided which
+  // games appeared. This asserts both halves: order AND survival of the cap.
+  const SHARED = '2026-09-05T18:00:00.000Z';
+  const finalScore = {
+    status: 'Final',
+    time: null,
+    away: { team: 'Away', score: 21 },
+    home: { team: 'Home', score: 17 },
+  };
+  const lowPriority = item('a-low-priority', SHARED);
+  lowPriority.score = finalScore;
+  lowPriority.priority = 1;
+  const highPriority = item('z-high-priority', SHARED);
+  highPriority.score = finalScore;
+  highPriority.priority = 2;
+
+  const model = selectOverviewViewModel({
+    standingsLeaders: [],
+    standingsCoverage: { state: 'partial', message: null },
+    context: {
+      scopeLabel: 'League',
+      scopeDetail: 'Week 1',
+      emphasis: 'recent',
+      highlightsTitle: '',
+      highlightsDescription: '',
+      liveDescription: '',
+      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+    },
+    liveItems: [],
+    // Producer order puts the higher-priority game first, so a stable sort alone would
+    // keep it ahead — the assertion below only holds if the comparator reorders.
+    keyMatchups: [highPriority, lowPriority],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.equal(model.recentResults.length, 2, 'both finals must reach Featured');
+  assert.deepEqual(
+    model.recentResults.map((entry) => entry.item.bucket.game.key),
+    ['a-low-priority', 'z-high-priority'],
+    'the key decides the tie; the two-owner game no longer leads'
+  );
+
+  const capped = selectOverviewViewModel({
+    standingsLeaders: [],
+    standingsCoverage: { state: 'partial', message: null },
+    context: {
+      scopeLabel: 'League',
+      scopeDetail: 'Week 1',
+      emphasis: 'recent',
+      highlightsTitle: '',
+      highlightsDescription: '',
+      liveDescription: '',
+      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+    },
+    liveItems: [],
+    keyMatchups: [highPriority, lowPriority],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map(),
+    resultsLimit: 1,
+  });
+
+  assert.deepEqual(
+    capped.recentResults.map((entry) => entry.item.bucket.game.key),
+    ['a-low-priority'],
+    'at the cap the one-owner game survives — owner count no longer decides what appears'
+  );
+});
+
 test('watchlist ties break on the game key, not on how many owners a game involves', () => {
   // Section-ordering resolutions §2, scoped to every section by the owner 2026-09-04.
   // The pre-existing ordering test above cannot catch this: there the two-owner game
