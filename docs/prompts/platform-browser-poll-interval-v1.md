@@ -1,6 +1,6 @@
 PROMPT_ID: PLATFORM-BROWSER-POLL-INTERVAL-v1
 PURPOSE: Halve the browser live-score poll cadence from 180s to 90s. One exported constant, zero provider cost, a measured latency win. This is Item 95 **portion 1 only**.
-SCOPE (WIDENED 2026-09-04 — see *Gate resolution*): `src/lib/liveScores/browserPolling.ts`, `src/lib/liveScores/__tests__/browserPolling.test.ts`, plus COMMENT-ONLY corrections in `src/components/hooks/useLiveRefresh.ts`, `src/lib/selectors/gameDayConfidence.ts`, and `src/lib/selectors/liveDelta.ts`. No behavioural change outside the one constant. No change to any cron cadence, no change to any TTL VALUE, no change to the client's cache-only boundary.
+SCOPE (WIDENED TWICE, 2026-09-04 — see *Gate resolution* and *Second gate*): `src/lib/liveScores/browserPolling.ts`, `src/lib/liveScores/__tests__/browserPolling.test.ts`; COMMENT-ONLY corrections in `src/components/hooks/useLiveRefresh.ts`, `src/lib/selectors/gameDayConfidence.ts`, `src/lib/selectors/liveDelta.ts`, `src/app/api/scores/route.ts`, `src/lib/scores.ts`; and TWO OPERATOR-FACING STRINGS in `src/lib/providerDatasets.ts`. No behavioural change outside the one constant. No change to any cron cadence, no change to any TTL VALUE, no change to the client's cache-only boundary.
 
 Read `AGENTS.md` first. It is canonical for scope/sizing, verification, review limits and reporting;
 this prompt does not restate or override those rules. Queue context and the measurement are in
@@ -31,6 +31,33 @@ test at `:210` alone.
 **The general defect you surfaced:** the codebase's prose conflates the BROWSER poll cadence with the
 CRON cadence, and both are called "the 3-minute cycle". That is why the gate fired on a module this
 change cannot affect. Where you correct a comment, name which cadence it means.
+
+## Second gate (2026-09-04) — the criterion was mine to fix, not yours
+
+You stopped again, correctly. The completeness item required
+`grep -rn "3-minute" src/` to return nothing describing the BROWSER poll — but four such sites sit
+outside the scope that item was attached to, so it was unachievable as written. A defect in this
+prompt, not in your run. Your comment pass on the three permitted files stands; keep it.
+
+**Two of the four are comments and are now in scope.** `src/app/api/scores/route.ts:195` and
+`src/lib/scores.ts:242` both say "a 3-minute poll" meaning the browser read. Correct them.
+
+**The other two are NOT comments, and this is the part to be careful with.**
+`src/lib/providerDatasets.ts` `currentAutomation` (`:93`) and `plannedPolicy` (`:95`) are strings
+served to operators through `/api/admin/provider-status`. They read "Visible browser tabs refresh
+scores cache-only on the same 3-minute cadence" and "fixed 3-minute schedule-armed cadence — the
+QStash schedule + browser refresh". After this change both are FALSE.
+
+Correcting them is in scope because they are **factual statements the change invalidates**, not a
+copy decision: the browser cadence moved and the strings assert it. But correct ONLY the
+browser-cadence clause. Both strings also describe the QStash cron, which is unchanged at `*/3` —
+leave every cron clause exactly as written. **No test pins this wording**, so the compiler will not
+catch a mistake; read each string in full before editing it.
+
+**Replacement criterion.** The absence-grep is withdrawn. Instead: after the pass, run
+`grep -rn "3-minute" src/` and report EVERY remaining hit with a one-word classification, `cron` or
+`browser`. Every hit must be `cron`. That is checkable, and unlike the old wording it cannot be
+blocked by something outside your scope.
 
 <task>
 On branch `platform/browser-poll-interval`, change `LIVE_SCORE_POLL_INTERVAL_MS`
@@ -69,8 +96,11 @@ All of it, or stop and report which part you could not meet:
 - No TTL VALUE changes. `LIVE_SCORE_OBSERVATION_MAX_AGE_MS` and
   `DEFAULT_LIVE_DELTA_STALE_THRESHOLD_MS` both stay at `7 * 60 * 1000`. Only their prose changes.
   A diff touching either number is out of scope — report it rather than shipping it.
-- After the comment pass, `grep -rn "3-minute" src/` returns nothing that describes the BROWSER poll
-  as three minutes. Run it and report the output; remaining hits about the CRON are correct and stay.
+- After the pass, run `grep -rn "3-minute" src/` and report EVERY remaining hit with a one-word
+  classification, `cron` or `browser`. Every hit must be `cron`. Do NOT try to reach zero hits — the
+  cron genuinely runs every three minutes and those statements are correct.
+- The two `providerDatasets.ts` strings keep their cron clauses verbatim; only the browser-cadence
+  clause in each changes. Quote both strings before and after in your report.
 </completeness_contract>
 
 <missing_context_gating>
