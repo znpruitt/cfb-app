@@ -24,49 +24,46 @@ Supersedes: (none)
 
 ## Current execution order
 
-`CURRENT`: **Item 116** — `NoClaim` presentation fix. An hour of work, member-visible today; it
-precedes the planner rather than displacing it.
-`NEXT`: **Item 102 + Item 88** — polling planner and its health model.
+`CURRENT`: **Item 102 + Item 88** — polling planner and its health model.
+`NEXT`: **Item 87 slice 5a** — shared scoreboard contract widening.
 
 Owner-selected run order (2026-09-03), replacing the 2026-09-02 order. Ordering values, stated by the
 owner: **user-facing improvements, data correction, and bug fixes first; prerequisites persisted in
 place rather than deferred.** The Item 87 follow-on inputs (`docs/campaigns/item-87-followon-*.md`,
-committed `c9f76081`) surfaced four new items and one split, all placed below.
+committed `c9f76081`) surfaced four new items and one split; the remaining open work is placed below.
 
-1. **Item 116** — `NoClaim` rendered as an owner on Schedule, Postseason and Matchups, plus the
-   lowercase canonical-id leak. Bug, tiny, visible today.
-2. **Item 102 + Item 88** — polling planner and the health model, together. 102 narrows the cron and
+1. **Item 102 + Item 88** — polling planner and the health model, together. 102 narrows the cron and
    88 is the reason that is safe: `schedulerDeliveryHealth.ts:82,88` hardcodes the cadence, so a
    planner shipped alone makes both jobs read `late` forever. Held at the top of the large work
    because it is a **data-correction** item as much as a cost one: the manual pause it retires can
    strand a game's final permanently at the `kickoff + 24h` boundary. The campaign's projection puts
    Item 99 alone at ~2.8h/30d against the 4h allowance; Item 102 reaches ~1.1h.
-3. **Item 87 slice 5a** — `CompactGameScoreboard` contract widening: classification marker in the
+2. **Item 87 slice 5a** — `CompactGameScoreboard` contract widening: classification marker in the
    prefix slot (rank | FCS | empty, mutually exclusive by `rankings.ts` exact-match), neutral-site
    marker, broadcast on live rows (`CompactGameScoreboard.tsx:16-19` is scheduled-only today), and a
    tier-2 expansion slot. **Split from slice 5 by owner decision 2026-09-03** so that slice 5, Item
    117 and Item 119 build on one reviewed component change instead of each re-deriving it. Overview
    must render identically before and after — prove it by mutation, not by inspection.
-4. **Item 87 slice 5 + Item 112** — Schedule adopts the scoreboard row with no one-line collapse and
+3. **Item 87 slice 5 + Item 112** — Schedule adopts the scoreboard row with no one-line collapse and
    tier-2 behind "More" (which _is_ Item 112's disclosure model, landing on Schedule first); kickoff
    sort; deletes `GameWeekPanel`'s collapse and `cardEmphasisClasses`. Carries the
    `ownerOutcomeRowClasses` sibling asymmetry into `MatchupsWeekPanel`. **Owner decision needed
    before build:** the amber `upset` border (`GameWeekPanel.tsx:42`) is a reserved-colour violation
    the base addendum explicitly exempted; confirm it dies with the card chrome.
-5. **Item 117** — Matchups adopts the shared scoreboard. User-facing and a correctness fix (the
+4. **Item 117** — Matchups adopts the shared scoreboard. User-facing and a correctness fix (the
    shipped row never says which team is which owner). Needs the card-owner-treatment decision.
-6. **Item 115** — Overview section expansion. Recent finals is documented as complete and truncates
+5. **Item 115** — Overview section expansion. Recent finals is documented as complete and truncates
    at six today; this reuses the disclosure pattern slice 5 settles rather than inventing one.
-7. **Item 119** — team-colour bar on the existing normaliser, with no accent for teams that have no
+6. **Item 119** — team-colour bar on the existing normaliser, with no accent for teams that have no
    colour — which also removes the green fallback every FCS row carries today. OKLCH only if measured.
-8. **Item 118** — Schedule status filter with counts. Purely additive; after the rework it filters.
-9. **Item 95 portion 1** — browser poll 180s → 90s. Small, user-facing, gate already cleared.
-10. **Item 100b** — internal slate marker. Date gate removed 2026-09-03; its 2026 consequence
+7. **Item 118** — Schedule status filter with counts. Purely additive; after the rework it filters.
+8. **Item 95 portion 1** — browser poll 180s → 90s. Small, user-facing, gate already cleared.
+9. **Item 100b** — internal slate marker. Date gate removed 2026-09-03; its 2026 consequence
     (Featured empty through 2026-09-07) closes on its own, but the recap and look-ahead targeting it
     exists for recur next August. Cheap: the clustering code is recoverable from `d6184c28`.
-11. **Item 113** — Featured as insight-selected, state-agnostic. Largest, and gated on a decision
+10. **Item 113** — Featured as insight-selected, state-agnostic. Largest, and gated on a decision
     about `INSIGHTS-017-PALETTE` (a prose bullet today, not an item).
-12. **Item 101** — season-boundary finals gap. Re-derive the empty window against the floating cutoff
+11. **Item 101** — season-boundary finals gap. Re-derive the empty window against the floating cutoff
     first; fix before late November.
 
 **Interstitial, no dedicated slot:** **Item 111** (~5-minute Observability check, any time this
@@ -516,47 +513,15 @@ this file only for the `ownerOutcomeRowClasses` carry-over. Depends on **Item 87
 **Open — owner decision:** card-owner treatment. The card owner's name repeats on one line of every
 scoreboard; the mockup toggles full weight against dimmed. Decide before implementation.
 
-**Dead code that would leak the sentinel if wired up — added 2026-09-03 from Item 116.**
-`formatSlateSummaryText` (`selectors/matchups.ts`) builds an opponent summary line —
-`"3 games · vs Bob, FCS, NoClaim (FBS) (x2)"` — from `summarizeSlateOpponents`, whose grouping key
-is the literal `'NoClaim (FBS)'`. It has **no production caller**; `MatchupsWeekPanel.tsx:331-333`
-consumes the entries for `.length` only. Item 116 therefore preserves the key and suppresses only the
-pill. If this rework wires the summary line (or anything else that prints `entry.label`), it must
-route the label through `displayOwner()` first, or the sentinel reaches members through the door
-Item 116 did not need to close. Same seam, second consumer — decide whether to render it or delete
-it; do not leave it dormant.
+**Dormant summary and grouping cleanup — retained from Item 116.** `formatSlateSummaryText`
+(`selectors/matchups.ts`) has no production caller; `MatchupsWeekPanel` consumes
+`summarizeSlateOpponents` entries only for `.length`, which drives the "Show N more opponents"
+control. The preserved internal `NoClaim` / `NoClaim (FBS)` grouping keys collapse distinct unowned
+FBS opponents, so that count can understate the number of opponent teams even though every owner
+game row still renders. If this rework wires `entry.label` into JSX, it must suppress the sentinel
+at the presentation seam; otherwise decide whether to re-key or delete the dormant summary path.
 
 - Backlog slug: `POLISH-MATCHUPS-SCOREBOARD-v1`
-
-### Item 116 — `NoClaim` renders to members as an owner; canonical-id slugs leak into Schedule
-
-**Filed 2026-09-03. Bug, member-visible today, self-contained — dispatch first.** Evidence and the
-three-unowned-states rule: `docs/campaigns/item-87-followon-matchups-schedule-design.md` → _Defects_.
-
-**The sentinel path, traced.** `draft.ts:181`/`:240` write `NoClaim` as the owner of every unowned
-FBS team — deliberately; the bucket supports analysis. `rosterByTeam` (`CFBScheduleApp.tsx:637`)
-carries it, `getOwnerForGameSide` (`gameOwnership.ts:58`) returns it, and nothing before the DOM
-guards it. It reaches members at three seams: the Schedule collapsed line (`GameWeekPanel.tsx:232`,
-because `Boolean('NoClaim')` satisfies `gameWeek.ts:152`), the Schedule and Postseason expanded rows
-(`GameScoreboard.buildTeamContext`, `:128`), and a literal `NoClaim (FBS)` badge on Matchups
-(`selectors/matchups.ts:42` → `MatchupsWeekPanel.tsx:285`). Overview already guards it six times
-(`=== NO_CLAIM_OWNER ? null`).
-
-**Fix at presentation, not in the data path.** One `displayOwner()` helper returning `null` for the
-sentinel, applied at the three seams and replacing Overview's six inline guards. Do **not** make
-`getOwnerForGameSide` return `undefined` — `standings.ts:91` and `insights/context.ts` read the
-roster and the sentinel is load-bearing there.
-
-**Second defect, same item.** `GameWeekPanel.participantDisplayInfo` (`:57-68`) falls back to
-`participant.displayName` — the canonical id (`schedule.ts:706`) — when a non-catalog team has no
-`labels`, which is how `ualbany` renders lowercase beside `BUF`. Fall back to the provider name
-(`csvAway`/`rawName`) instead.
-
-**Acceptance boundary:** no member surface prints the sentinel; an unowned FBS team renders with no
-owner suffix, exactly as an FCS opponent does; non-catalog teams render in provider casing in every
-Schedule view.
-
-- Backlog slug: `POLISH-NOCLAIM-PRESENTATION-v1`
 
 ### Item 115 — Overview sections truncate with no expansion, though "bounded default" was decided
 

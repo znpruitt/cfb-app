@@ -51,6 +51,24 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### POLISH-021-NOCLAIM-PRESENTATION-v1
+
+- Purpose: stop the internal `NoClaim` roster sentinel from rendering as a member name on Schedule,
+  Postseason, and Matchups, and stop canonical-id slugs from leaking into expanded Schedule rows.
+- Scope: shared ownership presentation, Schedule and expanded scoreboards, Matchups owner cards,
+  Overview guard convergence, and the nearest component/library tests. Ownership attribution,
+  roster contents, draft behavior, and scoreboard contracts were unchanged.
+- Outcome: `displayOwner` now hides the sentinel at member seams; Matchups suppresses sentinel
+  opponent metadata and owner cards and remains owner-only with no count-only excluded-games block.
+  Non-catalog teams use provider casing while catalog scoreboard labels remain authoritative.
+- Review / verification: exact pre-merge head `5fd15a07` passed TypeScript, `lint:all`, and all 4,585
+  tests (net +4). Seam, explicit-roster, empty-owner-row, and participant-name mutations failed the
+  intended assertions. Reviews caught the explicit-sentinel Matchups path, the bare `vs` row, and an
+  inconsistent excluded summary; the approved remediations addressed each, and final Codex review
+  was clean. Final `/code-review` confirmation was unavailable because its local client was not
+  authenticated.
+- Status: Merged via PR #560 (merge commit `0b95aeca`), 2026-09-03.
+
 ### PLATFORM-123-ODDS-FAVORITE-PAIRING-v1
 
 - Purpose: correct the live Odds display defect that paired one participant's name with the other
