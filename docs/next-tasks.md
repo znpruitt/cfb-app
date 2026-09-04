@@ -99,10 +99,10 @@ the UI spine do not touch each other, so they can run concurrently:
   `schedulerExecutionStatus.ts` / `schedulerDeliveryHealth.ts` / `systemHealthIssues.ts`.
 - **UI spine, strictly serial with itself:** slice 5a → slice 5 + 112 → 117 → 115 → 119 → 118. Every
   one consumes the component 5a widens; that is what the split was for.
-- **Independent, parallel-safe against both:** Item 123 (`postseason-template.ts`, zero importers —
-  pure deletion), Item 122 (`admin/HistoricalCachePanel.tsx`), Item 95 portion 1 (one constant in
-  `liveScores/browserPolling.ts:19`), Item 121 (`schedule/cfbdSchedule.ts`, `schedule.ts`,
-  `schedulePostseasonHelpers.ts` — pipeline, not components), and Items 84, 86, 111.
+- **Independent, parallel-safe against both:** Item 122 (`admin/HistoricalCachePanel.tsx`), Item 95
+  portion 1 (one constant in `liveScores/browserPolling.ts:19`), Item 121
+  (`schedule/cfbdSchedule.ts`, `schedule.ts`, `schedulePostseasonHelpers.ts` — pipeline, not
+  components), and Items 84, 86, 111.
 
 **Two collision risks are NOT in source.** `preview` is Claude's alone (`AGENTS.md` → Preview branch),
 so a parallel agent must never push it — that decision exists because parallel worktrees made a single
@@ -742,6 +742,11 @@ since the change alters an exported type's surface.
 
 **Filed 2026-09-04. Dead code with a wrong model inside it.** Surfaced while answering why the 2026
 week list ends at 15 with no week 14.
+
+**IMPLEMENTED — review complete, awaiting merge.** `src/lib/postseason-template.ts` was deleted on
+`platform/retire-postseason-template` at `12da576e`. No caller, test, replacement module, or runtime
+behavior changed. Codex and `/code-review` both returned no findings against that exact commit; all
+four required gates passed with the test suite unchanged at 4,590.
 
 **It has no callers.** `buildPostseasonTemplate` (`src/lib/postseason-template.ts:29`, 183 lines)
 appears exactly once in the repository — its own definition. No consumer in `src/`, none in
