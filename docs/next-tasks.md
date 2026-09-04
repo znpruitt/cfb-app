@@ -43,7 +43,7 @@ committed `c9f76081`) surfaced four new items and one split; the remaining open 
    `schedulerExecutionStatus.ts` (Item 126's core file, home of `scheduleYearsTarget`), and
    `systemHealthIssues.ts` consumes both. Running 126 concurrently with 102 + 88 means two agents
    editing one receipt contract. Doing them adjacent also avoids reworking System Health twice —
-   88 changes what a receipt *means* to that surface, and 126 changes what a receipt *contains*.
+   88 changes what a receipt _means_ to that surface, and 126 changes what a receipt _contains_.
    **Operationally independent, though:** 126's incident is the weekly `schedule-refresh` job, while
    102 narrows `live-scores` and `game-stats`. Neither blocks the other; the conflict is in files.
    Observation-only by its own acceptance boundary, so it is the lower-risk half of the pair.
