@@ -66,7 +66,17 @@ committed `c9f76081`) surfaced four new items and one split; the remaining open 
 7. **Item 119** — team-colour bar on the existing normaliser, with no accent for teams that have no
    colour — which also removes the green fallback every FCS row carries today. OKLCH only if measured.
 8. **Item 118** — Schedule status filter with counts. Purely additive; after the rework it filters.
-9. **Item 95 portion 1** — browser poll 180s → 90s. Small, user-facing, gate already cleared.
+9. **Item 95 portion 1 → `PLATFORM-BROWSER-POLL-CADENCE-v2`** — dispatched to Codex 2026-09-04;
+   kickoff at `docs/prompts/platform-browser-poll-cadence-v2.md`. **Both earlier branches are
+   abandoned** (`platform/browser-poll-interval` `205d1030`, and the unpushed
+   `platform/browser-poll-interval-v2` `fafe4074`). Codex's own analysis showed partition SELECTION
+   is a no-op on a normal slate — `LiveScorePartition` is `{providerWeek, seasonType}`, so every
+   Saturday game is one partition and "live only" emits the identical request — and that partial
+   polling does not compose with global health metadata. The shipped design is cadence tiering only:
+   90s while a game is in progress, 180s otherwise, always the full eligible partition set. **The
+   benefit is ~45s, a 25% improvement — not 2×**, because the cron is the only writer at 3 minutes;
+   the earlier framing was wrong. What justifies it is the 24h finals tail: polling it at 90s doubles
+   cost for zero freshness, and tiering keeps it at today's rate.
 10. **Item 100b** — internal slate marker. Date gate removed 2026-09-03; its 2026 consequence
     (Featured empty through 2026-09-07) closes on its own, but the recap and look-ahead targeting it
     exists for recur next August. Cheap: the clustering code is recoverable from `d6184c28`.
@@ -84,9 +94,10 @@ Item 87's postseason grouping input; it does not block that work. **Item 120** c
 gate, no action. **Item 122** (the historical-cache button cannot re-cache) and **Item 123**
 (retire the dead postseason template) are both undated; 123 is small and adjacent to 121.
 
-**Overview ordering:** **Item 125** portions 1 and 2 — the Live kickoff sort
-and the Featured final-row time — are each an hour and user-facing, so they belong near the top of
-the run order rather than in the interstitials. **Item 124** (retire the dead `sectionOrder`) is
+**Overview ordering:** **Item 125** portions 1 and 2 are DONE — POLISH-023, merged via PR #563
+(`1546bbc8`). What remains under that item is portion 2's repo-wide half: Matchups
+(`MatchupsWeekPanel.tsx`) and Schedule (`gameCardPresentation.ts:125`) still print a kickoff on final
+rows, which the shipped rule forbids. Small and user-facing. **Item 124** (retire the dead `sectionOrder`) is
 DONE — POLISH-024, merged via PR #564 (`cac6dab9`).
 
 **Decisions parked, with the item that consumes each:** amber `upset` border → slice 5;
