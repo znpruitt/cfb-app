@@ -333,6 +333,22 @@ these confirming-review observations without putting them into the active sequen
 
 ### Item 95 — live-score staleness is two unsynchronized 3-minute cycles, and half the fix is free
 
+**Filed from the portion-1 gate, 2026-09-04 — retune the client staleness threshold.**
+`DEFAULT_LIVE_DELTA_STALE_THRESHOLD_MS` (`selectors/liveDelta.ts`) is 7 minutes, justified in its own
+docblock as "two missed ticks plus request-latency slack" against a 3-minute visible-tab cadence.
+Portion 1 halves that cadence to 90s, so 7 minutes stops being a two-tick bound and becomes ~4.7. The
+value is deliberately NOT changed by portion 1, because that threshold detects a **wedged client
+poll** rather than stale data — data freshness is bounded by the cron, which portion 1 leaves alone —
+so retuning it changes when a member sees a stale overlay. Options: ~4 minutes to restore the
+two-tick property and catch a wedged tab faster, or keep 7 minutes as a deliberate wall-clock bound.
+Needs an owner call, not a mechanical follow-on.
+
+**Also surfaced: the prose conflates two cadences.** `gameDayConfidence.ts` describes its TTL as
+"two 3-minute poll cycles" when it is compared against a **provider-refresh** timestamp — a cron
+event, not a browser poll. That ambiguity is why the portion-1 gate fired on a module the change
+cannot affect. Portion 1 corrects the wording repo-wide; the lesson is that "the 3-minute cycle"
+names two different things in this codebase.
+
 **Measured, not estimated.** Two independent cadences compound:
 
 | Layer | Interval | Provider cost |
