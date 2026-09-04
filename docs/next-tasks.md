@@ -67,8 +67,7 @@ committed `c9f76081`) surfaced four new items and one split; the remaining open 
     first; fix before late November.
 
 **Interstitial, no dedicated slot:** **Item 111** (~5-minute Observability check, any time this
-week) and **Item 108** (one read of `provider-refresh-status` for `scores:week:2026:2:regular` on
-the morning of 2026-09-04 — then close it or promote it).
+week). **Item 108** is CLOSED — verified 2026-09-04, live scores do tick for FBS-vs-FCS games.
 
 **Postseason, before December:** **Item 121** (CFP first-round `eventKey` collision — dormant until
 the 2026 first round is ingested, then live on the surface it breaks). Measured while verifying
@@ -1218,7 +1217,43 @@ either dataset.
 
 - Backlog slug: `PLATFORM-STATS-CORRECTION-DETECTION-v1`
 
-### Item 108 — VERIFY: do live scores tick for FBS-vs-FCS games? (dated observation, 2026-09-04)
+### Item 108 — CLOSED, VERIFIED: live scores DO tick for FBS-vs-FCS games
+
+**Answered 2026-09-04 05:21–05:24Z against the read-only replica. No defect; both assumptions hold.**
+
+**The proof is a clock that moved.** `401866409` (UAlbany FCS @ Buffalo FBS, kickoff
+2026-09-03T23:00Z) sat in `scores/2026-1-regular` reading `status: "Q4 4:53"`, and on a second read
+three minutes later read `"Q4 1:02"`, with `itemUpdatedAtById` stamped at the moment of the query.
+Only `/scoreboard` produces an in-progress clock — `/games` returns finals — so both open questions
+are answered at once:
+
+1. **`/scoreboard?classification=fbs` DOES return a game with an FCS side.** The row is present.
+2. **`matchScoreboardRows` DOES match it.** The row reached the durable store with a live clock, and
+   kept being updated on the `*/3` cadence.
+
+The other five reconciled to `final` at kickoff **+3.40h to +4.75h** (Bethune-Cookman @ UCF, West
+Georgia @ Kennesaw State, Merrimack @ Delaware, Arkansas-Pine Bluff @ Missouri, Eastern Illinois @
+Minnesota). The Buffalo game was still in progress at 6.4h after kickoff — a long weather delay is
+the likely explanation, and it is why the live evidence was still visible at all.
+
+**Correction to this item's own dispatch note.** It said to read
+`provider-refresh-status / scores:week:2026:2:regular`. That key does not exist. All six games are
+**week 1** — CFBD buckets weeks 0 and 1 together, so the 2026-09-03 slate is week 1 — and the receipt
+is `scores:week:2026:1:regular` (`lastSuccessAt` 05:06:02Z, `rowsCommitted: 1`, outcome `no-op` on the
+following attempt).
+
+**Process note: the evidence was perishable.** Holding for the filed "morning of 2026-09-04" read
+would have found all six games reconciled to `final`, which proves reconciliation and not live
+ticking — the exact ambiguity that made 2025 unable to answer this. The discriminating evidence
+existed only while a game was still on the clock.
+
+**One observation, not a finding — mechanism unconfirmed.** The live row carries
+`away.team: "ualbany"`, the canonical id, where all five final rows carry provider-cased names
+("West Georgia", "Bethune-Cookman"). That is the same slug shape POLISH-021 fixed on the Schedule
+participant path. But there was exactly **one** non-final row in the cache, so this cannot distinguish
+"the live path writes canonical ids" from "UAlbany specifically resolves to a slug" — n=1 for both.
+Re-check when the next FCS-vs-FBS game is live; the next is West Georgia @ Arkansas State, week 2,
+2026-09-12T23:00Z.
 
 **A verification, not a fix — the defect may not exist.** Filed 2026-09-02 from a deliberate pass over
 narrowing decisions, because the first FBS-vs-FCS games under the current live-score engine kick off
