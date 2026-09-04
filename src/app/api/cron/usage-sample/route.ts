@@ -5,7 +5,7 @@ import {
   createUsageSampleCronExecutionState,
   emitUsageSampleCronExecutionEvent,
 } from '@/lib/providerUsage/cronExecutionLog';
-import { recordProviderUsageSample, utcDayOf } from '@/lib/server/providerUsageSeries';
+import { recordProviderUsageSample } from '@/lib/server/providerUsageSeries';
 import {
   createSchedulerInvocationId,
   scheduleSchedulerExecutionReceipt,
@@ -107,7 +107,10 @@ export async function GET(req: Request): Promise<NextResponse<UsageSampleResult>
     // other producer probing in the same minute at 00/06/12/18 — can reverse the
     // apparent order of two readings and make a rising counter look like a reset.
     const now = new Date();
-    exec.day = utcDayOf(now);
+    // Receipt metadata: which UTC day this run happened on. The series itself is
+    // no longer bucketed by day — it stores raw observations — so this is the
+    // receipt's own field, not a key into anything.
+    exec.day = now.toISOString().slice(0, 10);
 
     // Trustworthy means SAFE INTEGER, not merely non-null. `resolveCfbdUsage`
     // accepts any finite non-negative number, so a fractional `remainingCalls`

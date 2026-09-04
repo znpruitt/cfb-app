@@ -26,13 +26,13 @@ const ORIGINAL_KEY = process.env.CFBD_API_KEY;
 
 // `__resetAppStateForTests` clears pools and test seams but NOT the backing
 // file, so durable rows survive between tests in this file. Clear the series
-// explicitly or each test inherits the previous one's samples.
+// explicitly or each test inherits the previous one's observations.
 async function reset(): Promise<void> {
   globalThis.fetch = ORIGINAL_FETCH;
   process.env.CRON_SECRET = 'test-secret';
   process.env.CFBD_API_KEY = 'test-key';
   __resetAppStateForTests();
-  await setAppState(PROVIDER_USAGE_SERIES_SCOPE, PROVIDER_USAGE_SERIES_KEY, { samples: [] });
+  await setAppState(PROVIDER_USAGE_SERIES_SCOPE, PROVIDER_USAGE_SERIES_KEY, { observations: [] });
   // The receipt key persists the same way; a stale one from the previous test
   // would make "an unauthenticated run files NO receipt" pass or fail for the
   // wrong reason.
@@ -89,13 +89,13 @@ test('an authenticated run records one sample from /info', async () => {
   assert.match(seen[0]!, /\/info/, 'and it is the info endpoint, not a billed dataset call');
 
   const series = await readProviderUsageSeries();
-  assert.equal(series.samples.length, 1);
-  assert.equal(series.samples[0]?.remaining, 4600);
-  assert.equal(series.samples[0]?.limit, 5000, 'Tier 1 resolves the canonical limit');
-  assert.equal(series.samples[0]?.usedLatest, 400, 'used is derived as limit − remaining');
-  assert.equal(series.samples[0]?.usedMax, 400);
-  assert.equal(series.samples[0]?.periodSequence, 0);
-  assert.equal(series.samples[0]?.day, body.day);
+  assert.equal(series.observations.length, 1);
+  assert.equal(series.observations[0]?.remaining, 4600, 'the raw provider-reported count');
+  assert.equal(series.observations[0]?.limit, 5000, 'Tier 1 resolves the canonical limit');
+  assert.ok(
+    series.observations[0]?.at.startsWith(body.day ?? ''),
+    'and the observation falls on the day the receipt reports'
+  );
 });
 
 test('it is UNGATED — no season, target, or league state can suppress the sample', async () => {
@@ -110,7 +110,7 @@ test('it is UNGATED — no season, target, or league state can suppress the samp
 
   assert.equal(res.status, 200);
   assert.equal((await res.json()).recorded, true, 'a sample is taken with no app state at all');
-  assert.equal((await readProviderUsageSeries()).samples[0]?.remaining, 123);
+  assert.equal((await readProviderUsageSeries()).observations[0]?.remaining, 123);
 });
 
 test('an unauthenticated request records nothing and never calls the provider', async () => {
@@ -122,7 +122,7 @@ test('an unauthenticated request records nothing and never calls the provider', 
 
   assert.equal(res.status, 401);
   assert.equal(seen.length, 0, 'no outbound request before authentication');
-  assert.equal((await readProviderUsageSeries()).samples.length, 0);
+  assert.equal((await readProviderUsageSeries()).observations.length, 0);
 });
 
 test('an unavailable probe reports PARTIAL, so a silent outage is visible', async () => {
@@ -156,13 +156,15 @@ test('an unreachable provider still records a truthful all-null observation', as
 
   assert.equal(res.status, 200, 'observation-only: a provider outage is not a cron failure');
   const series = await readProviderUsageSeries();
-  assert.equal(series.samples.length, 1, 'the attempt is still recorded');
-  assert.equal(series.samples[0]?.remaining, null, 'and it is null, never coerced to 0');
+  assert.equal(series.observations.length, 1, 'the attempt is still recorded');
+  assert.equal(series.observations[0]?.remaining, null, 'and it is null, never coerced to 0');
 });
 
-test('a later failed probe cannot destroy an earlier usable reading for the same day', async () => {
-  // The end-to-end form of the merge's usability ranking: six-hourly sampling means several
-  // observations land on one day, and one bad one must not erase a good one.
+test('a later failed probe cannot destroy an earlier usable reading', async () => {
+  // Under the previous accumulating design this needed a usability ranking to
+  // decide which reading "won" the day. An append-only log has no such decision:
+  // both are kept, and a reader sees a good reading followed by a failed probe —
+  // which is more information than either the ranking or an overwrite preserved.
   await reset();
   stubInfo({ patronLevel: 1, remainingCalls: 4600 });
   await GET(authed());
@@ -173,8 +175,9 @@ test('a later failed probe cannot destroy an earlier usable reading for the same
   await GET(authed());
 
   const series = await readProviderUsageSeries();
-  assert.equal(series.samples.length, 1, 'still one entry for the day');
-  assert.equal(series.samples[0]?.remaining, 4600, 'the usable reading survived');
+  assert.equal(series.observations.length, 2, 'both the reading and the failure are recorded');
+  assert.equal(series.observations[0]?.remaining, 4600, 'the usable reading survived intact');
+  assert.equal(series.observations[1]?.remaining, null, 'and the failed probe is visible as such');
 });
 
 test('an authenticated run files a scheduler receipt like every other cron', async () => {
