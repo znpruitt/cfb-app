@@ -25,6 +25,7 @@ export type UsageSampleCronExecutionReason =
   | 'sample-recorded-unavailable'
   /** The durable write failed. The observation is lost; the run is not an error. */
   | 'sample-write-failed'
+  | 'sample-write-indeterminate'
   | 'unexpected-error';
 
 export type UsageSampleCronExecutionState = {

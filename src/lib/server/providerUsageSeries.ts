@@ -1,5 +1,10 @@
 import type { CfbdUsage } from '../api/cfbdUsage.ts';
-import { getAppState, withAppStateKeyTransaction } from './appStateStore.ts';
+import {
+  AppStateTxnCleanupError,
+  AppStateTxnFinalizeError,
+  getAppState,
+  withAppStateKeyTransaction,
+} from './appStateStore.ts';
 
 /**
  * PLATFORM-RETAIN-PROVIDER-USAGE-SERIES (Item 127) — a bounded log of raw CFBD
@@ -129,15 +134,25 @@ export function appendProviderUsageObservation(
   return sortAndBound([...series.observations, observation]);
 }
 
+/**
+ * The ONE place a raw `/info` reading becomes a stored observation, so the value
+ * the receipt reports available and the value written down cannot disagree. An
+ * earlier version let the route decide availability with its own copy of this
+ * rule; the route said "unusable" while the writer stored the reading anyway.
+ */
 export function buildProviderUsageObservation(
   usage: CfbdUsage,
   now: Date
 ): ProviderUsageObservation {
-  return {
-    at: now.toISOString(),
-    remaining: trustworthyCount(usage.remaining),
-    limit: trustworthyCount(usage.limit),
-  };
+  const limit = trustworthyCount(usage.limit);
+  let remaining = trustworthyCount(usage.remaining);
+  // An incoherent PAIR is not a usable reading, and it is worse than merely
+  // useless here: a rise in `remaining` is the ONE signal that marks a quota
+  // period boundary, so storing a reading above the account ceiling manufactures
+  // a boundary that never happened. Which half is wrong is unknowable, so the
+  // count is dropped and the limit kept as the context it already was.
+  if (remaining !== null && limit !== null && remaining > limit) remaining = null;
+  return { at: now.toISOString(), remaining, limit };
 }
 
 export async function readProviderUsageSeries(): Promise<ProviderUsageSeries> {
@@ -150,10 +165,16 @@ export async function readProviderUsageSeries(): Promise<ProviderUsageSeries> {
  * bookkeeping must not be able to fail the job carrying it. Returns whether the
  * write happened, for tests and for a caller that wants to log it.
  */
-export async function recordProviderUsageSample(
-  usage: CfbdUsage,
-  now: Date = new Date()
-): Promise<boolean> {
+/**
+ * `recorded` — the observation is durably stored. `not-recorded` — it is durably
+ * absent. `indeterminate` — genuinely unknown, and the receipt must not claim
+ * otherwise.
+ */
+export type ProviderUsageWriteOutcome = 'recorded' | 'not-recorded' | 'indeterminate';
+
+export async function recordProviderUsageObservation(
+  observation: ProviderUsageObservation
+): Promise<ProviderUsageWriteOutcome> {
   try {
     // Read, append and write inside one key transaction. There is a single
     // producer, but QStash can redeliver, and read-modify-write outside a lock is
@@ -165,13 +186,31 @@ export async function recordProviderUsageSample(
       async (txn) => {
         const record = await txn.read<unknown>();
         const series = parseProviderUsageSeries(record?.value);
-        await txn.write(
-          appendProviderUsageObservation(series, buildProviderUsageObservation(usage, now))
-        );
+        await txn.write(appendProviderUsageObservation(series, observation));
       }
     );
-    return true;
-  } catch {
-    return false;
+    return 'recorded';
+  } catch (error) {
+    // A COMMIT or ROLLBACK that fails AFTER mutation SQL was submitted leaves
+    // durability genuinely unknown — `appStateStore` states the threshold
+    // explicitly: a caller may claim untouched state only when no mutation was
+    // submitted at all. Collapsing that into `false` made the receipt assert data
+    // was lost when it may well have committed.
+    //
+    // The uncertainty is resolvable, so resolve it rather than report it: `at` is
+    // unique to this probe, so a fresh read answers whether the row landed. Only a
+    // reread that ALSO fails leaves a genuinely indeterminate outcome.
+    const uncertain =
+      (error instanceof AppStateTxnFinalizeError || error instanceof AppStateTxnCleanupError) &&
+      error.writeAttempted;
+    if (!uncertain) return 'not-recorded';
+    try {
+      const series = await readProviderUsageSeries();
+      return series.observations.some((entry) => entry.at === observation.at)
+        ? 'recorded'
+        : 'not-recorded';
+    } catch {
+      return 'indeterminate';
+    }
   }
 }

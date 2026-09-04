@@ -78,6 +78,14 @@ Rules:
   seven findings were remediated. Codex's reported gate failures were environmental (stale
   `.next/types`, an unquoted glob) and did not reproduce: `npm test` exit 0 at 4,613 tests, `npx tsc
   --noEmit` exit 0, `npm run lint:all` exit 0, each run separately with its own exit code.
+- Second remediation round (owner-authorized): the confirming passes returned two Codex P2s and one
+  `/code-review` finding, none caused by the first round — a receipt that asserted a definite loss
+  when a lost COMMIT acknowledgement left durability unknown, a rotation-checklist step demanding
+  "no provider attempt" from a deliberately ungated job, and a writer that ignored the coherence
+  verdict the route computed three lines above it. The write now resolves the uncertainty with a
+  reread rather than reporting it, `buildProviderUsageObservation` is the single place a reading
+  becomes an observation (so gate and stored value cannot disagree), and runbook step 7 exempts
+  `usage-sample` with §8m's proof in its place.
 - Status: Complete and reviewed; NOT yet merged, and the QStash schedule is NOT yet provisioned —
   `manage:usage-sample-schedule upsert --apply` requires the owner's `QSTASH_TOKEN`. Until it runs,
   System Health correctly reports `usage-sample` with a scheduler-delivery warning.

@@ -279,6 +279,22 @@ test('a usable reading with no patronLevel files SUCCESS, not a standing warning
   assert.equal(receipt?.reason, 'sample-recorded');
 });
 
+test('an incoherent reading is stored WITHOUT the count, so it cannot fake a boundary', async () => {
+  // The gate and the writer now agree by construction — the route reads
+  // availability off the observation it is about to store, rather than keeping a
+  // third copy of the rule. Previously the route called this unusable and the
+  // writer stored 999,999 anyway, inventing a quota-period boundary.
+  await reset();
+  stubInfo({ patronLevel: 1, remainingCalls: 999_999 });
+
+  await GET(authed());
+
+  const series = await readProviderUsageSeries();
+  assert.equal(series.observations.length, 1, 'the attempt is still recorded');
+  assert.equal(series.observations[0]?.remaining, null, 'but not as a usable count');
+  assert.equal(series.observations[0]?.limit, 5000, 'the limit stays as context');
+});
+
 test('a limit BELOW remaining is untrustworthy and still reports partial', async () => {
   // The other half of the gate, and the positive control for the test above: the
   // relaxation must not swallow a genuinely incoherent pair. `remaining > limit`

@@ -592,10 +592,15 @@ All seven schedules forward the same secret, so rotation is one coordinated oper
 6. Inspect all seven. Require the exact contracts, paused state, and one redacted Authorization
    header. Exit `4` remains indeterminate: inspect and stop.
 7. Resume each schedule only long enough to obtain its gates-closed authentication delivery. Require
-   HTTP 200 and no provider attempt/quota change for the six noncritical jobs and ordinary schedule
-   maintenance. If Schedule is in `postseason-boundary`, its application gates are intentionally
-   bypassed: keep it paused until one normal provider-backed delivery is authorized, then use that
-   HTTP 200 as the authentication proof. A `401` or any policy-divergent activity is a stop condition.
+   HTTP 200 and no provider attempt/quota change for the five noncritical gated jobs and ordinary
+   schedule maintenance. If Schedule is in `postseason-boundary`, its application gates are
+   intentionally bypassed: keep it paused until one normal provider-backed delivery is authorized,
+   then use that HTTP 200 as the authentication proof. **`usage-sample` is EXEMPT from the
+   no-provider-attempt half of this proof**: it is ungated by design, so every authenticated
+   invocation reads CFBD `/info` and appends an observation — expected activity, not divergence. Use
+   §8m's proof instead (HTTP 200 plus a new entry under `provider-usage / cfbd-observations`); `/info`
+   is unbilled, so quota must still not move. A `401` or any policy-divergent activity is a stop
+   condition.
 8. Pause again immediately if any proof fails. Otherwise resume all seven, re-enable their datasets,
    and clear global pause last.
 9. Confirm the two Vercel lifecycle routes also return authenticated results with the new secret at

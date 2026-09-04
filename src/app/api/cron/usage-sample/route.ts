@@ -5,7 +5,10 @@ import {
   createUsageSampleCronExecutionState,
   emitUsageSampleCronExecutionEvent,
 } from '@/lib/providerUsage/cronExecutionLog';
-import { recordProviderUsageSample } from '@/lib/server/providerUsageSeries';
+import {
+  buildProviderUsageObservation,
+  recordProviderUsageObservation,
+} from '@/lib/server/providerUsageSeries';
 import {
   createSchedulerInvocationId,
   scheduleSchedulerExecutionReceipt,
@@ -106,30 +109,31 @@ export async function GET(req: Request): Promise<NextResponse<UsageSampleResult>
     // receipt's own field, not a key into anything.
     exec.day = now.toISOString().slice(0, 10);
 
-    // Trustworthy means SAFE INTEGER, not merely non-null. `resolveCfbdUsage`
-    // accepts any finite non-negative number, so a fractional `remainingCalls`
-    // would otherwise file a green success receipt over an observation the quota
-    // gate itself refuses as untrustworthy.
-    const trustworthy = (value: number | null): boolean =>
-      value !== null && Number.isSafeInteger(value) && value >= 0;
-    // Keyed on `remaining` — the only field this log stores as an answer — and
-    // NEVER on `used`. `used` is DERIVED (`limit − remaining`) and comes back null
-    // whenever `patronLevel` is absent or outside the known tiers, so gating on it
-    // filed `partial` over a perfectly usable `remaining`, raising a System Health
-    // warning every six hours forever and burning the alarm reserved for a rotated
-    // key or a real outage. Deriving from `limit` is the exact mistake the storage
-    // rewrite removed; it had survived here.
+    // Build the observation FIRST, then read availability off it. The gate and
+    // the stored value are now the same object by construction: an earlier version
+    // kept a third copy of the trustworthiness rule here, and it drifted from the
+    // writer's — the route reported a reading unusable while the writer stored it.
     //
-    // `limit` is validated only WHEN PRESENT, matching `quotaPolicy.resolveRemaining`:
-    // a null limit is context we simply do not have, not an unusable reading, while
-    // a present limit below `remaining` means the pair cannot both be right.
-    exec.usageAvailable =
-      trustworthy(usage.remaining) &&
-      (usage.limit === null || (trustworthy(usage.limit) && usage.remaining! <= usage.limit));
+    // `buildProviderUsageObservation` nulls `remaining` when it is not a safe
+    // integer, or when it exceeds a known `limit`. Note what is NOT consulted:
+    // `used`. It is DERIVED (`limit − remaining`) and comes back null whenever
+    // `patronLevel` is absent or outside the known tiers, so gating on it filed
+    // `partial` over a perfectly usable `remaining`, raising a System Health
+    // warning every six hours forever and burning the alarm reserved for a rotated
+    // key or a real outage.
+    const observation = buildProviderUsageObservation(usage, now);
+    exec.usageAvailable = observation.remaining !== null;
 
-    exec.recorded = await recordProviderUsageSample(usage, now);
-    if (!exec.recorded) {
-      // `partial`, for the SAME reason the unavailable case above is partial:
+    const outcome = await recordProviderUsageObservation(observation);
+    exec.recorded = outcome === 'recorded';
+    if (outcome === 'indeterminate') {
+      // The write may or may not have landed and a reread could not settle it.
+      // `partial` with its own reason, NOT `sample-write-failed`: claiming the
+      // observation was lost would assert a certainty this run does not have.
+      exec.result = 'partial';
+      exec.reason = 'sample-write-indeterminate';
+    } else if (outcome === 'not-recorded') {
+      // `partial`, for the SAME reason the unavailable case is partial:
       // `schedulerExecutionIssues` raises an issue only for `failure` and
       // `partial`, so `no-op` here would let a persistently broken durable write
       // — storage error, lock contention, a corrupt row — produce an unbroken run
@@ -140,12 +144,11 @@ export async function GET(req: Request): Promise<NextResponse<UsageSampleResult>
       exec.result = 'partial';
       exec.reason = 'sample-write-failed';
     } else {
-      // An unavailable probe is recorded but is NOT a success. `schedulerExecutionIssues`
-      // (`systemHealthIssues.ts:442`) raises an issue only for `failure` and `partial`,
-      // so reporting success here would let a rotated-away CFBD_API_KEY or a multi-day
-      // provider outage produce an unbroken run of all-null samples behind a green
-      // System Health row, with nothing to notice it. `partial` is the honest label:
-      // the run did its job, the observation is empty.
+      // An unavailable probe is recorded but is NOT a success. Reporting success
+      // here would let a rotated-away CFBD_API_KEY or a multi-day provider outage
+      // produce an unbroken run of all-null samples behind a green System Health
+      // row, with nothing to notice it. `partial` is the honest label: the run did
+      // its job, the observation is empty.
       exec.result = exec.usageAvailable ? 'success' : 'partial';
       exec.reason = exec.usageAvailable ? 'sample-recorded' : 'sample-recorded-unavailable';
     }
