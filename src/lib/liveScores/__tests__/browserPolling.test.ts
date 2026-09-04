@@ -212,6 +212,6 @@ test('deriveLiveScorePartitions dedupes (providerWeek, seasonType) and maps stag
   );
 });
 
-test('the poll cadence constant is 3 minutes', () => {
-  assert.equal(LIVE_SCORE_POLL_INTERVAL_MS, 3 * 60 * 1000);
+test('the poll cadence constant is 90 seconds', () => {
+  assert.equal(LIVE_SCORE_POLL_INTERVAL_MS, 90 * 1000);
 });

@@ -7,7 +7,7 @@ import { seasonYearForToday } from '@/lib/scores/normalizers';
  * PLATFORM-086B2B — client-safe eligibility for BROWSER live-score polling.
  *
  * Pure and dependency-light (no server imports) so `useLiveRefresh` can re-evaluate
- * it on every 3-minute tick and on focus/visibility changes. It mirrors the B1
+ * it on every 90-second tick and on focus/visibility changes. It mirrors the B1
  * cron's schedule-armed `[kickoff − 15 min, kickoff + 24 h]` window and its
  * disruption rules, but decides only whether a VISIBLE tab should issue a
  * cache-only score read — never a provider call. The server cron remains the
@@ -15,8 +15,8 @@ import { seasonYearForToday } from '@/lib/scores/normalizers';
  * metadata); a slightly looser browser decision only costs a free cache read.
  */
 
-/** Browser live-score poll cadence: every 3 minutes while a tab is visible. */
-export const LIVE_SCORE_POLL_INTERVAL_MS = 3 * 60 * 1000;
+/** Browser live-score poll cadence: every 90 seconds while a tab is visible. */
+export const LIVE_SCORE_POLL_INTERVAL_MS = 90 * 1000;
 /** Inclusive window: 15 minutes before kickoff through 24 hours after (== B1). */
 export const LIVE_SCORE_WINDOW_BEFORE_MS = 15 * 60 * 1000;
 export const LIVE_SCORE_WINDOW_AFTER_MS = 24 * 60 * 60 * 1000;
