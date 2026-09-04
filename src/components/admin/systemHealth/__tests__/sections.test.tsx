@@ -159,7 +159,7 @@ test('scheduler renders 8 human-named rows keeping delivery and execution separa
   const html = renderToStaticMarkup(
     <SchedulerHealthSection jobs={model.schedulerJobs} nowMs={NOW} />
   );
-  // Human names, all eight.
+  // Human names, all nine.
   for (const label of [
     'Live scores',
     'Team records',
@@ -167,6 +167,7 @@ test('scheduler renders 8 human-named rows keeping delivery and execution separa
     'Odds polling',
     'Weekly schedule',
     'Rankings publication',
+    'CFBD usage sample',
     'Season transition',
     'Season rollover',
   ]) {

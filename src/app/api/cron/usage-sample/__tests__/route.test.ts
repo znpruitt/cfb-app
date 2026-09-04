@@ -246,15 +246,6 @@ test('a failed durable write is a no-op with a stable reason, not a failure', as
   assert.equal(receipt?.reason, 'sample-write-failed');
 });
 
-test('teardown restores globals', () => {
-  globalThis.fetch = ORIGINAL_FETCH;
-  if (ORIGINAL_SECRET === undefined) delete process.env.CRON_SECRET;
-  else process.env.CRON_SECRET = ORIGINAL_SECRET;
-  if (ORIGINAL_KEY === undefined) delete process.env.CFBD_API_KEY;
-  else process.env.CFBD_API_KEY = ORIGINAL_KEY;
-  assert.ok(true);
-});
-
 test('a usable reading with no patronLevel files SUCCESS, not a standing warning', async () => {
   // Review finding (MEDIUM). `usageAvailable` gated on `used`, which
   // `resolveCfbdUsage` DERIVES as `limit − remaining` and returns null whenever
@@ -279,36 +270,32 @@ test('a usable reading with no patronLevel files SUCCESS, not a standing warning
   assert.equal(receipt?.reason, 'sample-recorded');
 });
 
-test('an incoherent reading is stored WITHOUT the count, so it cannot fake a boundary', async () => {
-  // The gate and the writer now agree by construction — the route reads
-  // availability off the observation it is about to store, rather than keeping a
-  // third copy of the rule. Previously the route called this unusable and the
-  // writer stored 999,999 anyway, inventing a quota-period boundary.
+test('an UNKNOWN patron tier files SUCCESS and keeps the count', async () => {
+  // REGRESSION, end to end. Tier 7 is outside `CFBD_LIMIT_BY_TIER`, so
+  // `cfbdCanonicalLimitForTier` fabricates Tier 0's 1,000. A coherence check
+  // against that invented ceiling discarded a true 4,600 and filed `partial`
+  // every six hours indefinitely.
   await reset();
-  stubInfo({ patronLevel: 1, remainingCalls: 999_999 });
-
-  await GET(authed());
-
-  const series = await readProviderUsageSeries();
-  assert.equal(series.observations.length, 1, 'the attempt is still recorded');
-  assert.equal(series.observations[0]?.remaining, null, 'but not as a usable count');
-  assert.equal(series.observations[0]?.limit, 5000, 'the limit stays as context');
-});
-
-test('a limit BELOW remaining is untrustworthy and still reports partial', async () => {
-  // The other half of the gate, and the positive control for the test above: the
-  // relaxation must not swallow a genuinely incoherent pair. `remaining > limit`
-  // cannot be true of one account, so the reading is refused exactly as
-  // `quotaPolicy.resolveRemaining` refuses it.
-  await reset();
-  stubInfo({ patronLevel: 1, remainingCalls: 999_999 });
+  stubInfo({ patronLevel: 7, remainingCalls: 4600 });
 
   const receipts = installReceiptDeferrer();
   await GET(authed());
   await receipts.flush();
   receipts.restore();
 
+  const series = await readProviderUsageSeries();
+  assert.equal(series.observations[0]?.remaining, 4600, 'the reading survives an unknown tier');
+
   const receipt = await readUsageSampleReceipt();
-  assert.equal(receipt?.result, 'partial', 'remaining above the tier limit is not a usable pair');
-  assert.equal(receipt?.reason, 'sample-recorded-unavailable');
+  assert.equal(receipt?.result, 'success', 'and it is a success, not a standing warning');
+  assert.equal(receipt?.reason, 'sample-recorded');
+});
+
+test('teardown restores globals', () => {
+  globalThis.fetch = ORIGINAL_FETCH;
+  if (ORIGINAL_SECRET === undefined) delete process.env.CRON_SECRET;
+  else process.env.CRON_SECRET = ORIGINAL_SECRET;
+  if (ORIGINAL_KEY === undefined) delete process.env.CFBD_API_KEY;
+  else process.env.CFBD_API_KEY = ORIGINAL_KEY;
+  assert.ok(true);
 });

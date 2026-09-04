@@ -169,7 +169,7 @@ export type SchedulerExecutionTarget =
       /** UTC day the sample was filed under, or null when the run never got that far. */
       day: string | null;
       /** Whether the durable series write succeeded. */
-      recorded: boolean;
+      recorded: boolean | null;
     }
   | {
       kind: 'game-stats';
@@ -834,10 +834,15 @@ function isValidStoredTarget(value: unknown, job: ExternalSchedulerJob): boolean
       // implies a day — the writer sets `day` before it ever attempts the write,
       // so `recorded: true` with no day is a record no writer in this codebase
       // can produce.
+      // `recorded` is TRI-STATE: `null` means a write whose durability is genuinely
+      // unknown, and rounding it to `false` would assert a loss the run cannot
+      // know about. A present `day` must be a real UTC calendar date; `recorded`
+      // other than `false` implies a day, since the writer sets `day` before it
+      // ever attempts the write.
       return (
-        typeof target.recorded === 'boolean' &&
+        (typeof target.recorded === 'boolean' || target.recorded === null) &&
         (target.day === null
-          ? !target.recorded
+          ? target.recorded === false
           : typeof target.day === 'string' && isUtcCalendarDay(target.day))
       );
     case 'game-stats':

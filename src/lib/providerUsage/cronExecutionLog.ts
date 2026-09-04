@@ -33,14 +33,33 @@ export type UsageSampleCronExecutionState = {
   reason: UsageSampleCronExecutionReason;
   /** UTC day the sample was filed under, or null when the run never got that far. */
   day: string | null;
-  /** Whether the durable series write succeeded. */
-  recorded: boolean;
   /**
-   * Whether the probe returned a usable `remaining`. NOT a provider spend —
-   * `/info` is unbilled, which is why this job never sets `providerCallAttempted`.
+   * Whether the durable series write succeeded — `null` when a COMMIT or ROLLBACK
+   * failed after the mutation was submitted, leaving durability genuinely unknown.
+   * `false` means durably ABSENT and must never stand in for "we cannot tell".
+   */
+  recorded: boolean | null;
+  /**
+   * Whether the probe returned a usable `remaining`. NOT a provider spend: CFBD's
+   * developer confirmed (2026-09-04) that `/info` and `/info/usage` do not count
+   * against the quota, which is why this job never sets `providerCallAttempted`.
+   * `quotaPolicy`'s parenthetical still calls this unverified and is now stale.
    */
   usageAvailable: boolean;
 };
+
+/**
+ * The write outcome as the receipt records it. `indeterminate` becomes `null`, NOT
+ * `false`: both reviewers independently found that rounding it down made System
+ * Health render "not recorded" for a write whose durability is genuinely unknown —
+ * asserting the loss the write path had just refused to assert.
+ */
+export function recordedFromWriteOutcome(
+  outcome: 'recorded' | 'not-recorded' | 'indeterminate'
+): boolean | null {
+  if (outcome === 'indeterminate') return null;
+  return outcome === 'recorded';
+}
 
 export function createUsageSampleCronExecutionState(): UsageSampleCronExecutionState {
   return {

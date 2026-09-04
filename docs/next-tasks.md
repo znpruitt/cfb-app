@@ -601,7 +601,7 @@ request rather than two.
 ### Item 127 — sample CFBD usage on its own schedule and retain a daily series
 
 **Filed 2026-09-04. Supersedes Item 94's manual read if it ships before 2026-09-30.** Owner question:
-"why not just daily logging? it's a free call." `/info` is indeed unbilled, so the sampling costs no
+"why not just daily logging? it's a free call." `/info` is unbilled — confirmed by CFBD's developer 2026-09-04, so the sampling costs no
 CFBD quota — but it is a dedicated route on its own six-hourly QStash schedule, not a free ride on an
 existing job. Retaining the observation the game-stats probe already makes was built and removed: one
 durable row with two writers cost more than the resolution it bought.

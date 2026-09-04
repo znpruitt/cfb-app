@@ -31,7 +31,7 @@ Configure secrets in the hosting platform; never commit values.
 | `CFBD_API_KEY` | Required for authorized CFBD schedule, score, rankings, teams/conferences, and game-stats refreshes. |
 | `ODDS_API_KEY` | Required for authorized The Odds API refreshes. |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` | Clerk identity and the platform-admin role. |
-| `CRON_SECRET` | Shared bearer secret for all eight `/api/cron/*` routes. A missing/mismatched value returns `401` before lifecycle or provider work. |
+| `CRON_SECRET` | Shared bearer secret for all nine `/api/cron/*` routes. A missing/mismatched value returns `401` before lifecycle or provider work. |
 | `LEAGUE_AUTH_SECRET` | Required whenever any league uses the private-link password gate; grants no admin role. |
 | `ADMIN_API_TOKEN` | Transitional optional fallback for approved machine/admin API callers. Do not build new flows around it; planned removal belongs to the reviewed commissioner/member authorization work after replacement Clerk scoping exists. |
 

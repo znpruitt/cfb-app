@@ -613,7 +613,8 @@ Do not rotate only one external schedule: that leaves the other six forwarding t
 `GET /api/cron/usage-sample`, driven by the QStash schedule `turfwar-usage-sample-6h` at
 `0 */6 * * *`. Manage it with `tsx scripts/manage-usage-sample-schedule.ts`; `inspect` is read-only.
 
-**It spends no quota.** The route reads CFBD `/info`, which is not a billed call, and appends one
+**It spends no quota.** CFBD's developer confirmed on 2026-09-04 that `/info` and `/info/usage`
+calls do not count against the account's monthly allowance. The route reads `/info` and appends one
 observation to `app_state` scope `provider-usage`, key `cfbd-observations`. It touches no canonical
 data, has no dataset toggle, and returns HTTP 200 even when the durable write fails — retrying a
 sample would produce a different observation, not repair the missed one.

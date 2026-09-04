@@ -86,6 +86,25 @@ Rules:
   reread rather than reporting it, `buildProviderUsageObservation` is the single place a reading
   becomes an observation (so gate and stored value cannot disagree), and runbook step 7 exempts
   `usage-sample` with §8m's proof in its place.
+- Re-derivation round (owner-authorized, after the second confirming pass): that pass showed the
+  previous round had been net-negative — its coherence check REINTRODUCED the availability defect it
+  followed, because `cfbdCanonicalLimitForTier` fabricates Tier 0's 1,000 for any unrecognised tier,
+  so a true `remaining` was discarded and `partial` filed indefinitely; and its reread could confirm
+  a commit that never happened, since this module deliberately permits two observations to share a
+  timestamp. Both were DELETED rather than guarded: nothing derives from `limit`, and an uncertain
+  write is reported rather than resolved. The tri-state now reaches the reader — `recorded: boolean |
+  null` through response, receipt target, validator and UI, which renders a third distinct
+  "durability unknown". Stale eight/six-job counts corrected in `operations/deployment.md`,
+  `architecture/admin-control-plane.md` and `lifecycleCronExecutionLog.ts`, and two ninth-job
+  coverage gaps closed (`sections.test.tsx` asserted eight labels; the receipt enumeration skipped
+  `usage-sample`).
+- `/info` billing: CFBD's developer confirmed on 2026-09-04 that `/info` and `/info/usage` do not
+  count against the allowance. Every place this branch asserted it now cites that source.
+  `quotaPolicy.ts`'s "verified empirically during the operator manual proof" parenthetical is stale
+  as a result — left untouched as out of scope, and filed.
+- Open follow-ups, deliberately NOT folded in: the route has no outer `catch`, diverging from sibling
+  cron routes (no reachable throw today); and `usage-sample`'s delivery grace equals exactly one cron
+  period where every sibling uses two or more, so clock skew could file a spurious `late`.
 - Status: Complete and reviewed; NOT yet merged, and the QStash schedule is NOT yet provisioned —
   `manage:usage-sample-schedule upsert --apply` requires the owner's `QSTASH_TOKEN`. Until it runs,
   System Health correctly reports `usage-sample` with a scheduler-delivery warning.

@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { fetchCfbdUsage, type CfbdUsage } from '@/lib/api/cfbdUsage';
 import {
   createUsageSampleCronExecutionState,
+  recordedFromWriteOutcome,
   emitUsageSampleCronExecutionEvent,
 } from '@/lib/providerUsage/cronExecutionLog';
 import {
@@ -47,7 +48,12 @@ export const dynamic = 'force-dynamic';
  */
 
 type UsageSampleResult = {
-  recorded: boolean;
+  /**
+   * `null` when a COMMIT or ROLLBACK failed after the mutation was submitted, so
+   * durability is genuinely unknown. Never rounded to `false`, which asserts the
+   * observation is durably absent.
+   */
+  recorded: boolean | null;
   day: string | null;
   usage: CfbdUsage | null;
   error?: string;
@@ -109,46 +115,37 @@ export async function GET(req: Request): Promise<NextResponse<UsageSampleResult>
     // receipt's own field, not a key into anything.
     exec.day = now.toISOString().slice(0, 10);
 
-    // Build the observation FIRST, then read availability off it. The gate and
-    // the stored value are now the same object by construction: an earlier version
-    // kept a third copy of the trustworthiness rule here, and it drifted from the
-    // writer's — the route reported a reading unusable while the writer stored it.
-    //
-    // `buildProviderUsageObservation` nulls `remaining` when it is not a safe
-    // integer, or when it exceeds a known `limit`. Note what is NOT consulted:
-    // `used`. It is DERIVED (`limit − remaining`) and comes back null whenever
-    // `patronLevel` is absent or outside the known tiers, so gating on it filed
-    // `partial` over a perfectly usable `remaining`, raising a System Health
-    // warning every six hours forever and burning the alarm reserved for a rotated
-    // key or a real outage.
+    // Build the observation FIRST, then read availability off it, so the gate and
+    // the stored value are the same object by construction. Note what is NOT
+    // consulted: `used`, which is DERIVED (`limit − remaining`) and null whenever
+    // the tier is unknown — gating on it filed `partial` over a perfectly usable
+    // `remaining`. Nor `limit`, which is FABRICATED for an unrecognised tier and
+    // caused the same failure a round later. Usable means the provider reported a
+    // trustworthy count, and nothing else.
     const observation = buildProviderUsageObservation(usage, now);
     exec.usageAvailable = observation.remaining !== null;
 
     const outcome = await recordProviderUsageObservation(observation);
-    exec.recorded = outcome === 'recorded';
+    // TRI-STATE, carried intact to the response and the receipt. `null` is not a
+    // decorative distinction: `false` renders as "not recorded" on System Health,
+    // and an uncertain COMMIT must not produce that claim.
+    exec.recorded = recordedFromWriteOutcome(outcome);
     if (outcome === 'indeterminate') {
-      // The write may or may not have landed and a reread could not settle it.
-      // `partial` with its own reason, NOT `sample-write-failed`: claiming the
-      // observation was lost would assert a certainty this run does not have.
       exec.result = 'partial';
       exec.reason = 'sample-write-indeterminate';
     } else if (outcome === 'not-recorded') {
       // `partial`, for the SAME reason the unavailable case is partial:
       // `schedulerExecutionIssues` raises an issue only for `failure` and
       // `partial`, so `no-op` here would let a persistently broken durable write
-      // — storage error, lock contention, a corrupt row — produce an unbroken run
-      // of green rows while the series silently stops growing. An earlier version
-      // chose `no-op` on the grounds that nothing downstream depends on the write;
-      // that reasoning holds for a transient failure and fails for a persistent
-      // one, which is the case worth seeing.
+      // produce an unbroken run of green rows while the series silently stops
+      // growing. That reasoning holds for a transient failure and fails for a
+      // persistent one, which is the case worth seeing.
       exec.result = 'partial';
       exec.reason = 'sample-write-failed';
     } else {
       // An unavailable probe is recorded but is NOT a success. Reporting success
-      // here would let a rotated-away CFBD_API_KEY or a multi-day provider outage
-      // produce an unbroken run of all-null samples behind a green System Health
-      // row, with nothing to notice it. `partial` is the honest label: the run did
-      // its job, the observation is empty.
+      // would let a rotated-away CFBD_API_KEY or a multi-day provider outage
+      // produce an unbroken run of all-null samples behind a green row.
       exec.result = exec.usageAvailable ? 'success' : 'partial';
       exec.reason = exec.usageAvailable ? 'sample-recorded' : 'sample-recorded-unavailable';
     }

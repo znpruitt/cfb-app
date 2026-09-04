@@ -136,39 +136,33 @@ export function appendProviderUsageObservation(
 
 /**
  * The ONE place a raw `/info` reading becomes a stored observation, so the value
- * the receipt reports available and the value written down cannot disagree. An
- * earlier version let the route decide availability with its own copy of this
- * rule; the route said "unusable" while the writer stored the reading anyway.
+ * the receipt reports available and the value written down cannot disagree.
+ *
+ * `limit` is recorded and NOTHING is derived from it — not even a sanity check.
+ * An earlier version refused a reading whose `remaining` exceeded `limit`, on the
+ * theory that an impossible pair should not manufacture a period boundary. But
+ * `limit` is FABRICATED for an unrecognised tier: `cfbdCanonicalLimitForTier`
+ * falls back to Tier 0 (1,000) for any `patronLevel` outside its table, so a new
+ * or renumbered CFBD tier turned a true `remaining: 4600` into "impossible" and
+ * discarded it — filing `partial` every six hours forever, which is the exact
+ * failure that check was added one round after fixing. A rule that consults a
+ * fabricated input inherits the fabrication, so the rule is gone rather than
+ * guarded.
  */
 export function buildProviderUsageObservation(
   usage: CfbdUsage,
   now: Date
 ): ProviderUsageObservation {
-  const limit = trustworthyCount(usage.limit);
-  let remaining = trustworthyCount(usage.remaining);
-  // An incoherent PAIR is not a usable reading, and it is worse than merely
-  // useless here: a rise in `remaining` is the ONE signal that marks a quota
-  // period boundary, so storing a reading above the account ceiling manufactures
-  // a boundary that never happened. Which half is wrong is unknowable, so the
-  // count is dropped and the limit kept as the context it already was.
-  if (remaining !== null && limit !== null && remaining > limit) remaining = null;
-  return { at: now.toISOString(), remaining, limit };
-}
-
-export async function readProviderUsageSeries(): Promise<ProviderUsageSeries> {
-  const record = await getAppState<unknown>(PROVIDER_USAGE_SERIES_SCOPE, PROVIDER_USAGE_SERIES_KEY);
-  return parseProviderUsageSeries(record?.value);
+  return {
+    at: now.toISOString(),
+    remaining: trustworthyCount(usage.remaining),
+    limit: trustworthyCount(usage.limit),
+  };
 }
 
 /**
- * Record one observation. NEVER throws and never reports failure to the caller —
- * bookkeeping must not be able to fail the job carrying it. Returns whether the
- * write happened, for tests and for a caller that wants to log it.
- */
-/**
- * `recorded` — the observation is durably stored. `not-recorded` — it is durably
- * absent. `indeterminate` — genuinely unknown, and the receipt must not claim
- * otherwise.
+ * `recorded` — durably stored. `not-recorded` — durably absent. `indeterminate` —
+ * genuinely unknown, and nothing downstream may round it to either.
  */
 export type ProviderUsageWriteOutcome = 'recorded' | 'not-recorded' | 'indeterminate';
 
@@ -191,26 +185,25 @@ export async function recordProviderUsageObservation(
     );
     return 'recorded';
   } catch (error) {
-    // A COMMIT or ROLLBACK that fails AFTER mutation SQL was submitted leaves
-    // durability genuinely unknown — `appStateStore` states the threshold
-    // explicitly: a caller may claim untouched state only when no mutation was
-    // submitted at all. Collapsing that into `false` made the receipt assert data
-    // was lost when it may well have committed.
+    // A COMMIT or ROLLBACK failing AFTER mutation SQL was submitted leaves
+    // durability genuinely unknown — `appStateStore` sets the threshold at
+    // `writeAttempted` precisely because a submitted mutation may have executed
+    // server-side. That uncertainty is REPORTED, not guessed at.
     //
-    // The uncertainty is resolvable, so resolve it rather than report it: `at` is
-    // unique to this probe, so a fresh read answers whether the row landed. Only a
-    // reread that ALSO fails leaves a genuinely indeterminate outcome.
+    // An earlier version tried to resolve it by rereading and asking whether an
+    // observation with this `at` existed. That was wrong: this module deliberately
+    // permits two observations to share a timestamp, so the reread could find an
+    // EARLIER row and confirm a commit that never happened. Verifying would need a
+    // unique identity per observation, which is more machinery than the honest
+    // answer costs.
     const uncertain =
       (error instanceof AppStateTxnFinalizeError || error instanceof AppStateTxnCleanupError) &&
       error.writeAttempted;
-    if (!uncertain) return 'not-recorded';
-    try {
-      const series = await readProviderUsageSeries();
-      return series.observations.some((entry) => entry.at === observation.at)
-        ? 'recorded'
-        : 'not-recorded';
-    } catch {
-      return 'indeterminate';
-    }
+    return uncertain ? 'indeterminate' : 'not-recorded';
   }
+}
+
+export async function readProviderUsageSeries(): Promise<ProviderUsageSeries> {
+  const record = await getAppState<unknown>(PROVIDER_USAGE_SERIES_SCOPE, PROVIDER_USAGE_SERIES_KEY);
+  return parseProviderUsageSeries(record?.value);
 }

@@ -282,9 +282,9 @@ test('all job target shapes persist with exact allowlisted target keys', async (
   );
 });
 
-// The six QStash jobs keep source `qstash`; the two lifecycle jobs write
-// `vercel-cron`; all eight job/target/source combinations validate and persist.
-test('all eight jobs derive the correct source and persist their target shape', async () => {
+// The seven QStash jobs keep source `qstash`; the two lifecycle jobs write
+// `vercel-cron`; all nine job/target/source combinations validate and persist.
+test('all nine jobs derive the correct source and persist their target shape', async () => {
   const inputs: SchedulerExecutionReceiptInput[] = [
     liveScoresInput(),
     liveScoresInput({
@@ -322,6 +322,12 @@ test('all eight jobs derive the correct source and persist their target shape', 
       target: rankingsYearsTarget([{ year: 2026, publicationWindow: null }], 0),
     }),
     liveScoresInput({
+      job: 'usage-sample',
+      result: 'success',
+      reason: 'sample-recorded',
+      target: { kind: 'usage-sample', day: '2026-09-04', recorded: true },
+    }),
+    liveScoresInput({
       job: 'season-transition',
       result: 'success',
       reason: 'season-transitioned',
@@ -357,6 +363,7 @@ test('all eight jobs derive the correct source and persist their target shape', 
     { job: 'odds', source: 'qstash', kind: 'odds' },
     { job: 'schedule-refresh', source: 'qstash', kind: 'schedule-years' },
     { job: 'rankings', source: 'qstash', kind: 'rankings-years' },
+    { job: 'usage-sample', source: 'qstash', kind: 'usage-sample' },
     { job: 'season-transition', source: 'vercel-cron', kind: 'season-transition-years' },
     { job: 'season-rollover', source: 'vercel-cron', kind: 'season-rollover-years' },
   ];
@@ -918,8 +925,13 @@ test('a usage-sample receipt REJECTS a malformed day and a recorded run with no 
   assert.ok(parse({ kind: 'usage-sample', day: '2026-09-04', recorded: true }), 'canonical day');
   assert.ok(parse({ kind: 'usage-sample', day: null, recorded: false }), 'un-recorded, no day');
 
+  // Tri-state: `null` is durability-unknown and must parse, because rounding it to
+  // `false` is the very claim the write path refuses to make.
+  assert.ok(parse({ kind: 'usage-sample', day: '2026-09-04', recorded: null }), 'unknown parses');
+
   for (const target of [
     { kind: 'usage-sample', day: '', recorded: true },
+    { kind: 'usage-sample', day: null, recorded: null },
     { kind: 'usage-sample', day: 'yesterday', recorded: true },
     { kind: 'usage-sample', day: '2026-9-4', recorded: true },
     { kind: 'usage-sample', day: '2026-13-40', recorded: true },

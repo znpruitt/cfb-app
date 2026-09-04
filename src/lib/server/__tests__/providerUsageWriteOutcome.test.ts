@@ -3,6 +3,7 @@ import test from 'node:test';
 import type { Pool } from 'pg';
 
 import { __resetAppStateForTests, __setAppStatePoolForTests } from '../appStateStore';
+import { recordedFromWriteOutcome } from '../../providerUsage/cronExecutionLog';
 import {
   buildProviderUsageObservation,
   recordProviderUsageObservation,
@@ -80,45 +81,63 @@ async function withLostCommit(state: StoreState): Promise<string> {
   }
 }
 
-test('a lost COMMIT that DID land is reported as recorded, not as a loss', async () => {
-  // The whole point: the reread settles the uncertainty into a fact.
-  const outcome = await withLostCommit({
-    row: { observations: [OBSERVATION] },
-    readThrows: false,
-  });
-  assert.equal(outcome, 'recorded');
-});
-
-test('a lost COMMIT that did NOT land is reported as not-recorded', async () => {
-  // Positive control for the test above: the reread must be capable of BOTH
-  // answers, or "recorded" proves nothing.
+test('an uncertain COMMIT is reported as INDETERMINATE, never as a loss', async () => {
+  // Codex P2. A COMMIT failing after the mutation was submitted leaves durability
+  // unknown; `appStateStore` sets the threshold at `writeAttempted` precisely
+  // because a submitted mutation may have executed server-side. The outcome is
+  // reported, not guessed.
   const outcome = await withLostCommit({ row: { observations: [] }, readThrows: false });
-  assert.equal(outcome, 'not-recorded');
-});
-
-test('a lost COMMIT whose reread ALSO fails stays indeterminate', async () => {
-  // The only genuinely unknown case, and the one the receipt must not dress up
-  // as a definite loss.
-  const outcome = await withLostCommit({ row: undefined, readThrows: true });
   assert.equal(outcome, 'indeterminate');
 });
 
-test('an incoherent reading is not stored as a count, so it cannot fake a period boundary', () => {
-  // /code-review finding: the route computed this verdict and the writer ignored
-  // it. A rise in `remaining` is the ONE signal marking a quota period, so a
-  // reading above the account ceiling invented a boundary that never happened.
+test('the outcome does NOT depend on rereading the row', async () => {
+  // Positive control AND a regression guard. An earlier version resolved the
+  // uncertainty by rereading and asking whether an observation with this `at`
+  // existed — but this module deliberately permits two observations to share a
+  // timestamp, so the reread could find an EARLIER row and confirm a commit that
+  // never happened. Whatever the store contains, the answer is the same.
+  const withRow = await withLostCommit({
+    row: { observations: [OBSERVATION] },
+    readThrows: false,
+  });
+  const withoutRow = await withLostCommit({ row: undefined, readThrows: false });
+
+  assert.equal(withRow, 'indeterminate', 'a colliding row cannot manufacture a confirmation');
+  assert.equal(withoutRow, 'indeterminate');
+});
+
+test('an UNKNOWN patron tier still yields a usable reading', () => {
+  // REGRESSION. `cfbdCanonicalLimitForTier` falls back to Tier 0 (1,000) for any
+  // tier outside its table, so a coherence check comparing `remaining` against
+  // `limit` turned a true 4,600 into "impossible" and discarded it — filing
+  // `partial` every six hours forever, the exact failure the round before had
+  // fixed. Nothing derives from `limit` now.
   const built = buildProviderUsageObservation(
-    { patronLevel: 1, used: null, remaining: 999_999, limit: 5000 },
+    { patronLevel: 7, used: null, remaining: 4600, limit: 1000 },
     new Date('2026-09-04T18:00:00.000Z')
   );
 
-  assert.equal(built.remaining, null, 'remaining above the limit is not a usable count');
-  assert.equal(built.limit, 5000, 'the limit is kept as the context it already was');
+  assert.equal(built.remaining, 4600, 'the provider-reported count survives an unknown tier');
+  assert.equal(built.limit, 1000, 'the fallback limit is recorded as context and used for nothing');
+});
 
-  // Positive control: a coherent pair on the same path is stored intact.
-  const ok = buildProviderUsageObservation(
-    { patronLevel: 1, used: 400, remaining: 4600, limit: 5000 },
+test('an untrustworthy count is still refused', () => {
+  // Positive control for the test above: dropping the limit comparison must not
+  // also drop the one check that remains.
+  const fractional = buildProviderUsageObservation(
+    { patronLevel: 1, used: null, remaining: 1500.5, limit: 5000 },
     new Date('2026-09-04T18:00:00.000Z')
   );
-  assert.equal(ok.remaining, 4600);
+  assert.equal(fractional.remaining, null, 'a fractional count is not a count');
+});
+
+test('the receipt maps indeterminate to NULL, never to a definite loss', () => {
+  // The link both reviewers flagged, and the one a mutation showed no test
+  // reached: the write path returned a tri-state and the receipt flattened it.
+  assert.equal(recordedFromWriteOutcome('recorded'), true);
+  assert.equal(recordedFromWriteOutcome('not-recorded'), false);
+  assert.equal(recordedFromWriteOutcome('indeterminate'), null);
+  // `null` and `false` must stay distinguishable — `??` and truthiness both
+  // collapse them, which is how the flattening happened in the first place.
+  assert.notEqual(recordedFromWriteOutcome('indeterminate'), false);
 });
