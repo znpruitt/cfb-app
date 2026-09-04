@@ -23,7 +23,6 @@ import {
   type LiveScorePartition,
 } from '../../lib/liveScores/browserPolling';
 import { getOddsQuotaGuardState } from '../../lib/api/oddsUsage';
-import { fetchTeamsCatalog } from '../../lib/teamsCatalog';
 import { requireAdminAuthHeaders } from '../../lib/adminAuth';
 import { type CombinedOdds } from '../../lib/odds';
 import { applyOddsResponse, type OddsClientResponse } from '../../lib/oddsClientPayload';
@@ -32,6 +31,7 @@ import { classifyScorePackStatus } from '../../lib/gameStatus';
 import type { LiveScoreObservation } from '../../lib/selectors/gameDayConfidence';
 import { isLiveIssue, isLiveOddsIssue } from '../../lib/cfbScheduleAppHelpers';
 import type { AliasMap } from '../../lib/teamNames';
+import type { TeamCatalogItem } from '../../lib/teamIdentity';
 import type { AppGame } from '../../lib/schedule';
 import type { OddsUsageSnapshot } from '../../lib/apiUsage';
 
@@ -51,6 +51,18 @@ type UseLiveRefreshParams = {
    * `setScoresByKey`.
    */
   scoresByKey: Record<string, ScorePack>;
+  /**
+   * The team catalog the schedule bootstrap already loaded and retains (Item 128).
+   * Passed in rather than refetched: `fetchTeamsCatalog` sets `cache: 'no-store'`,
+   * so calling it per tick was a real `/api/teams` function invocation that read
+   * the whole durable catalog record, normalized, filtered, sorted and serialized
+   * every team — for data the client had in memory the whole time. Every caller of
+   * `refreshLiveData` is gated on `scheduleLoaded`, which is only set after that
+   * bootstrap succeeds, so this is populated whenever a refresh runs. An empty
+   * array is forwarded as `undefined`, which makes `fetchScoresByGame` fetch the
+   * catalog itself exactly as before.
+   */
+  teamCatalog: TeamCatalogItem[];
   aliasMap: AliasMap;
   oddsUsage: OddsUsageSnapshot | null;
   scoreHydrationState: ScoreHydrationState;
@@ -204,6 +216,7 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
     visibleGames,
     scoreScopeGames,
     scoresByKey,
+    teamCatalog,
     aliasMap,
     oddsUsage,
     scoreHydrationState,
@@ -318,7 +331,10 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
       }
 
       try {
-        const teams = await fetchTeamsCatalog().catch(() => []);
+        // Reuse the bootstrap's catalog instead of refetching it every tick. Empty
+        // becomes `undefined` so `fetchScoresByGame` falls back to its own fetch —
+        // the identical path this line used to take.
+        const teams = teamCatalog.length > 0 ? teamCatalog : undefined;
 
         if (refreshDecision.reason === 'odds-disabled-by-quota') {
           setIssues((p) => [

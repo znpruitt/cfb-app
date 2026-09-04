@@ -1105,6 +1105,10 @@ export default function CFBScheduleApp({
     visibleGames,
     scoreScopeGames,
     scoresByKey,
+    // Item 128: hand the hook the catalog this component already loaded during
+    // schedule bootstrap, so a live poll no longer refetches `/api/teams` on
+    // every tick for data it is holding.
+    teamCatalog,
     // Effective resolver map so live score/odds attachment matches server
     // canonical identity (the stored league map drives the editor only).
     aliasMap: effectiveAliasMap,

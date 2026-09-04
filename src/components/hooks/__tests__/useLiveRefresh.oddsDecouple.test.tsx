@@ -82,7 +82,9 @@ function game(overrides: Partial<AppGame> = {}): AppGame {
 
 function noop(): void {}
 
-function makeParams(): Parameters<typeof useLiveRefresh>[0] {
+function makeParams(
+  overrides: Partial<Parameters<typeof useLiveRefresh>[0]> = {}
+): Parameters<typeof useLiveRefresh>[0] {
   const g = game();
   return {
     selectedSeason: 2026,
@@ -96,6 +98,9 @@ function makeParams(): Parameters<typeof useLiveRefresh>[0] {
     visibleGames: [g],
     scoreScopeGames: [g],
     scoresByKey: {},
+    // Item 128: the catalog the schedule bootstrap already holds. Non-empty here
+    // so the hook takes the reuse path; the positive control below overrides it.
+    teamCatalog: [{ teamId: 'h', school: 'Home' } as never],
     aliasMap: {},
     oddsUsage: null,
     scoreHydrationState: EMPTY_SCORE_HYDRATION_STATE,
@@ -110,6 +115,7 @@ function makeParams(): Parameters<typeof useLiveRefresh>[0] {
     loadingLive: false,
     setLoadingLive: noop,
     isDebug: false,
+    ...overrides,
   };
 }
 
@@ -231,4 +237,51 @@ test('POLISH-007: exact polls retain only same-poll provider observation evidenc
     });
   });
   assert.equal(result.current.liveScoreObservation, null);
+});
+
+test('a live refresh reuses the supplied team catalog instead of refetching it', async () => {
+  // Item 128. `fetchTeamsCatalog` sets `cache: 'no-store'`, so the old
+  // unconditional call was a real `/api/teams` function invocation on EVERY tick
+  // — reading the whole durable catalog record, then normalizing, filtering,
+  // sorting and serializing every team the client already had in memory. At the
+  // 90-second cadence of Item 95 portion 1 that doubles, which is why the two
+  // are sequenced together.
+  const { result } = renderHook(() => useLiveRefresh(makeParams()));
+
+  await act(async () => {
+    await result.current.refreshLiveData({
+      manual: false,
+      scoreScopeGamesOverride: [game()],
+    });
+  });
+
+  assert.equal(
+    fetchUrls.filter((url) => url.includes('/api/teams')).length,
+    0,
+    'no team-catalog request is issued when the caller supplies one'
+  );
+  assert.ok(
+    fetchUrls.some((url) => url.includes('/api/scores')),
+    'and the refresh genuinely ran — the scores read still happened'
+  );
+});
+
+test('POSITIVE CONTROL: an empty catalog still falls back to fetching it', async () => {
+  // Proves the assertion above can actually observe an `/api/teams` request, and
+  // pins the degenerate path: an empty array is forwarded as `undefined`, so
+  // `fetchScoresByGame` fetches the catalog itself exactly as it did before.
+  const { result } = renderHook(() => useLiveRefresh(makeParams({ teamCatalog: [] })));
+
+  await act(async () => {
+    await result.current.refreshLiveData({
+      manual: false,
+      scoreScopeGamesOverride: [game()],
+    });
+  });
+
+  assert.equal(
+    fetchUrls.filter((url) => url.includes('/api/teams')).length,
+    1,
+    'the fallback still reaches /api/teams, so the harness can see such a request'
+  );
 });
