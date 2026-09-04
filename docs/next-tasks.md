@@ -79,7 +79,7 @@ gate, no action. **Item 122** (the historical-cache button cannot re-cache) and 
 **Overview ordering:** **Item 125** portions 1 and 2 — the Live kickoff sort
 and the Featured final-row time — are each an hour and user-facing, so they belong near the top of
 the run order rather than in the interstitials. **Item 124** (retire the dead `sectionOrder`) is
-DONE — POLISH-024, PR #564.
+DONE — POLISH-024, merged via PR #564 (`cac6dab9`).
 
 **Decisions parked, with the item that consumes each:** amber `upset` border → slice 5;
 normalisation target `#0A0A0A` vs `#161616` → Item 119; card-owner treatment → Item 117.
@@ -542,7 +542,7 @@ Item 123 documents in the postseason template.
 touches the type, four construction sites and four test files, which would make a presentation-only
 change into a data-model one.
 
-**DONE — POLISH-024, PR #564.** Five fields removed, not three: `sectionOrder`, `scopeLabel`,
+**DONE — POLISH-024, merged via PR #564 (`cac6dab9`).** Six fields removed, not three: `sectionOrder`, `scopeLabel`,
 `highlightsTitle`, `highlightsDescription` and `liveDescription`. `OverviewContext` is now
 `{ scopeDetail, emphasis }`.
 

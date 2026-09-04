@@ -32,6 +32,27 @@ Supersedes: (none)
 > [`docs/ai/game-stats-writer-fence.md`](ai/game-stats-writer-fence.md) (with the superseded
 > original design frozen in [`docs/ai/platform-086h3-contract.md`](ai/platform-086h3-contract.md)).
 
+### POLISH-024 — Retire the Dead OverviewContext Fields — Complete
+
+- **Status:** Merged via PR #564 (merge commit `cac6dab9`), 2026-09-04.
+- **PROMPT_ID(s):** `POLISH-024-RETIRE-OVERVIEW-SECTION-ORDER-v1`.
+- **Outcome:** `OverviewContext` reduced from seven fields to one, `{ scopeDetail }` — the only field
+  anything reads. Removed `sectionOrder`, `scopeLabel`, `highlightsTitle`, `highlightsDescription`,
+  `liveDescription` and `emphasis`, plus the orphaned `OverviewSectionKind`.
+  `deriveOverviewContext` lost both parameters that fed only deleted fields and collapsed from four
+  slate branches to a single line. No user-visible change.
+- **Why it mattered:** two of the fields had begun contradicting shipped behaviour.
+  `sectionOrder`'s live value asserted Live leads above Standings, which POLISH-022 disproved, and
+  `liveDescription` carried copy describing behaviour the page does not have. An unread second model
+  of a fact the JSX owns is what let both drift unnoticed.
+- **Verification:** exact pre-merge head `8742d6dd`. `npx tsc --noEmit` exit 0, `npm run lint:all`
+  exit 0, `npm test` exit 0 with 4,590 passing, `npm run build` exit 0.
+- **The branch's own lesson, now binding:** three false reader claims were made and corrected here,
+  every one from a grep that matched near-namesakes, and the second was written one sentence after
+  correcting the first. `AGENTS.md` → Verification gained a rule as a result — a claim that
+  something IS READ requires a mutation, not a grep — placed as the mirror of the existing
+  absence-requires-a-search rule.
+
 ### POLISH-023 — Overview Sort Rules — Complete
 
 - **Status:** Merged via PR #563 (merge commit `1546bbc8`), 2026-09-04.

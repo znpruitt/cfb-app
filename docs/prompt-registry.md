@@ -67,10 +67,11 @@ Rules:
   sentence after correcting the first. `AGENTS.md` → Verification gained a binding rule as a result:
   a claim that something IS READ requires a mutation, not a grep. One test was deleted rather than
   gutted, its subject having been `scopeLabel`; a comment records why.
-- Review / verification: exact head TBD at merge. `npx tsc --noEmit` exit 0, `npm run lint:all`
-  exit 0, `npm test` exit 0 with 4,590 passing (−1, the deleted test), `npm run build` exit 0 —
-  added as a gate because an exported type's surface changed.
-- Status: PR #564 open — **not merged**. Flip this line at merge.
+- Review / verification: exact pre-merge head `8742d6dd`. `npx tsc --noEmit` exit 0,
+  `npm run lint:all` exit 0, `npm test` exit 0 with 4,590 passing (−1, the deleted test),
+  `npm run build` exit 0 — added as a gate because an exported type's surface changed. Codex clean
+  in both rounds; `/code-review` found the `emphasis` claim in round 2.
+- Status: Merged via PR #564 (merge commit `cac6dab9`), 2026-09-04.
 
 ### POLISH-023-OVERVIEW-ORDERING-REMAINDER-v1
 
