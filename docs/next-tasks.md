@@ -490,13 +490,23 @@ Neon one. Keep this item for the read-replica autosuspend and the non-cadence fi
 order) shipped as POLISH-022; decision 4 was documentation only. This item is the queue home for the
 rest, so the document is not the only place they live.
 
-1. **Live sorts by kickoff alone.** `compareOverviewLiveItems` (`overviewGameSections.ts:124`) sorts
-   in-progress before awaiting-score FIRST, then real-owner count descending, then kickoff. Both
-   leading keys are removed; the resolutions doc withdrew the awaiting-score partition because a row
-   would reposition on a polling surface the moment a score arrived. Small and standalone.
-2. **Final rows carry no date or time — scoped to Featured.** Recent finals already passes
-   `clock: undefined`; `FeaturedGamesList` passes `clock={formatExpandedKickoff(...)}` with
-   `state="final"`, which is the shipped `Final · 4:47 PM` row. One prop. Standalone.
+1. **DONE — Live sorts by kickoff alone.** POLISH-023, PR #563. `compareOverviewLiveItems` reduced
+   to kickoff ascending; the in-progress partition and the owner-count key both removed. §2 was
+   scoped by the owner on 2026-09-04 to the **three state sections**, so the same key also came out
+   of `compareOverviewRecentFinals` and out of the watchlist's `compareWatchlistItems` — the
+   watchlist keeps `watchlistPriority`, its curation score, which is not an owner-count key. Sort
+   rules for all three are now written down in the resolutions doc.
+   **Featured too, by owner ruling 2026-09-04** — `compareRecentResultItems` lost the same key.
+   The relevance-surface argument for keeping it holds only for signals someone chose; owner count
+   arrived by inheritance. It was worse than a sort key because `selectFeaturedGames` slices without
+   re-sorting, so at the cap it decided which games appeared, and `NoClaim` being truthy meant it
+   was not measuring what it claimed to. **Every owner-count key is now gone**; the watchlist's
+   `watchlistPriority` is the sole surviving non-kickoff key, deliberately.
+2. **DONE — no date or time on a Featured final.** POLISH-023, PR #563. `DESIGN.md` said the
+   opposite and was amended. **Still outstanding, and the rule is repo-wide:** Matchups
+   (`MatchupsWeekPanel.tsx`, the non-scheduled metadata branch) and Schedule
+   (`deriveExpandedMetadataLines`, `gameCardPresentation.ts:125`) both still print a kickoff on final
+   rows. Those two surfaces are unbuilt work under this item, not closed by PR #563.
 3. **Counts are totals, not visible counts** — belongs to **Item 115**, not here. `liveTitle` reads
    `.length` after `.slice(0, OVERVIEW_LIVE_LIMIT)`, so it is a visible count, and today the surplus
    is dropped with no expand control at all. A total before Item 115 exists would promise games the
@@ -759,6 +769,24 @@ at the presentation seam; otherwise decide whether to re-key or delete the dorma
 
 ### Item 115 — Overview sections truncate with no expansion, though "bounded default" was decided
 
+**Sharpened 2026-09-04 by a `/code-review` finding on PR #563.** POLISH-023 made Live sort by
+kickoff alone, which changes the cap from "scored rows win the slots" to "earliest kickoffs win the
+slots". A provider gap across one kickoff window — the PLATFORM-105A failure mode — routes those
+games to `awaiting-score`, and `routeForItem`'s abandonment gate keeps them there for up to
+`GAME_MAX_DURATION_MS` (8h from kickoff, `standingsHistory.ts:109`). Six such rows hold the earliest
+`sortDate`s, fill Live, and every later game carrying a real score is sliced off: **the Live section
+can show six "Awaiting score" rows and zero scores during a live slate, for hours.** That is not a
+defect of the sort — the rows are in the decided order — it is the hard cap with no expand control,
+which is this item. It is the sharpest argument yet for the expansion, sharper than the count.
+**Owner note 2026-09-04:** this makes the cap fix a scoreless-row problem, not purely a volume one.
+"Brief gap" was the load-bearing assumption behind rejecting the awaiting-score partition, and eight
+hours is not a brief gap. It does not reopen that decision — repositioning on a polling surface is
+still worse — but six blank rows and zero scores for an afternoon is a different failure than the one
+priced, and this item has to handle it specifically.
+**Also a test gap to close here:** `live rows ignore owner count and keep the six-row cap on kickoff
+order` uses one unscored row plus six scored ones, so it never exercises the direction where
+unscored rows consume the cap.
+
 **Filed 2026-09-03. Owner decision already exists — this is unbuilt work, not an open question.**
 `item-87-live-watchlist-scoreboard.md:244` settles it: _"Progressive disclosure per section: bounded
 default, expands in place. Header link → Matchups tab; footer control expands this week's slate."_
@@ -828,6 +856,12 @@ carried the error forward before anyone looked at the page.
 - Backlog slug: none — superseded by `PLATFORM-WEEK-ZERO-MODEL-v1` ([[Item 100b]]).
 
 ### Item 113 — Featured games is a plain finals list; the insights-hook reframe was decided but never built
+
+**Carried in from POLISH-023, 2026-09-04.** Specify what _does_ promote a game into Featured, rather
+than leaving the slot unfilled. Featured spent this whole campaign ordering and selecting by an
+owner-count key nobody chose — it arrived by inheritance from a shared tiebreak and quietly did the
+relevance job until a review found it. An unclaimed slot in a selection pipeline is how that happens,
+so this item's output must name its signals rather than only removing the wrong one.
 
 **Filed 2026-09-03 from an audit of `docs/campaigns/item-87-live-watchlist-scoreboard.md` against
 current code, prompted by the owner asking whether Featured was state-agnostic.** It is not, and the

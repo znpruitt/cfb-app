@@ -695,7 +695,20 @@ test('overview Featured renders a home-won final through the neutral compact sco
   assert.match(finalScoreboard, /aria-label="Texas vs Ohio State"/);
   assert.match(finalScoreboard, /data-scoreboard-context-slot/);
   assert.match(finalScoreboard, /CFP Quarterfinal/);
-  assert.match(finalScoreboard, /Sat, Dec 19, 7:00 PM/);
+  // Owner decision 2026-09-04, section-ordering resolutions §3: a final row carries no
+  // date and no time — for a completed game the result is the information.
+  //
+  // Asserted structurally rather than against this fixture's literal kickoff. A
+  // `doesNotMatch(/Dec 19|7:00 PM/)` would pass with `clock` restored the moment the
+  // fixture's date changed, so the regression it exists to catch would go invisible.
+  const finalHeader = finalScoreboard.match(/<div[^>]*data-scoreboard-header[\s\S]*?<\/div>/)?.[0];
+  assert.ok(finalHeader, 'the final row must still render a status header');
+  assert.match(finalHeader, />Final</, 'positive control: the header carries the Final status');
+  assert.equal(
+    (finalHeader.match(/<span/g) ?? []).length,
+    1,
+    'the header holds the Final status span and nothing else — no kickoff, no clock'
+  );
   assert.match(
     finalScoreboard,
     /data-scoreboard-side="away" data-scoreboard-leading="false"[\s\S]*data-scoreboard-team="away">Texas<\/span>[\s\S]*data-scoreboard-value="away">21<\//
@@ -710,6 +723,9 @@ test('overview Featured renders a home-won final through the neutral compact sco
   )?.[0];
   assert.ok(liveScoreboard, 'positive control must render a live scoreboard');
   assert.match(liveScoreboard, /dark:text-emerald-400/);
+  // Sibling control for the rule above: the time is removed from FINAL rows only. A
+  // live row still carries its clock.
+  assert.match(liveScoreboard, /Q2 6:14/);
   assert.match(
     html,
     /<section class="@container">[\s\S]*?<div class="grid grid-cols-2 gap-x-10 @max-\[760\.01px\]:grid-cols-1" data-featured-scoreboard-grid="true">/
