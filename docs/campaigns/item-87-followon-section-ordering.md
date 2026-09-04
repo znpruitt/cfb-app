@@ -83,6 +83,8 @@ The CLI report was about **shipped behaviour**, read from `OverviewPanel.tsx` ra
 
 ## Open
 
+> **All four answered** in `item-87-followon-section-ordering-resolutions.md`, together with the counts sequencing question. Kept here as the record of what was asked.
+
 **Does the awaiting-score row keep a floor in Live?** Decision 2 deletes the in-progress-before-awaiting key that puts awaiting-score rows at the bottom of Live today. Under a pure kickoff sort an awaiting-score game with an early kickoff sorts to the TOP of the section, above games with live scores. The base addendum (`:86`) settled that awaiting-score rows stay in Live and read "Awaiting score"; it did not settle where in Live. The live mockup places the awaiting row last, which is consistent with kickoff order only because its kickoff happens to be the latest. Decide: pure kickoff, or kickoff within a scored-first partition.
 
 **Is dropping owner-count ordering from Live intended?** The second shipped key ranks games by how many real owners they involve, floating league-relevant games. Decision 2 removes it without naming it. That may be correct — the section is a scoreboard, not a curation surface, and Featured already carries relevance — but it should be an explicit trade rather than a side effect.
