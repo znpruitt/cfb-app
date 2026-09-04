@@ -360,6 +360,24 @@ Ship portion 1 independently. It is a one-constant change with a real latency wi
 argument attached, and it makes portion 2's benefit easier to judge because only one cycle remains
 unsynchronized.
 
+**Item 102 changes what portion 2 is asking — recorded 2026-09-04.** The planner does not create quota
+headroom: dead-day runs already bill zero provider calls, since the route bills only when armed. What
+it creates is **Active CPU headroom** — roughly 2.9 h of the 4 h allowance, from ~1.1 h/30d projected
+against a budget live-scores currently consumes 75% of. So after the planner, a faster in-window
+cadence becomes affordable on the axis that previously blocked it, while its cost on the quota axis is
+completely unchanged.
+
+**Both axes now scale with the same unknown: armed hours.** Quota is `armed hours × runs/hour`, and
+the added CPU is likewise proportional to how many hours the windows actually cover. So **Item 94
+gates both halves of portion 2**, not just the quota half — which upgrades 94 from a passive
+measurement into the input for two decisions. It bills 0 (`GET /info`) and reports after the
+September reset, so the answer arrives at the start of October on its own.
+
+**Consequence for sequencing:** ship portion 1 now, ship Item 102 for the CPU win it already
+justifies, and let the cadence decision land when 94 reports — with the headroom banked and the quota
+cost finally measured rather than estimated. Do not size portion 2 before then; that is the whole
+reason 94 exists.
+
 - Backlog slug: `PLATFORM-LIVE-SCORE-CADENCE-v1`
 
 ### Item 96 — pause the in-season QStash schedules through the offseason
@@ -1666,6 +1684,23 @@ redundant against the pair — recorded in the campaign doc so it is not re-deri
 QStash state, and planner mistakes. The planner reduces wakeups; it must not become the only
 correctness or quota protection.
 
+**What the planner actually buys, and what it does not — recorded 2026-09-04.** It frees **Active CPU
+only**. Dead-day runs already cost **zero CFBD quota**: the route bills at most one request per run
+_and only when armed_, because the handler guards block the provider call outside game windows, so
+Item 95's `monthly calls = armed hours × runs/hour` is already independent of what the cron does on a
+Tuesday in July. What those runs do cost is a Vercel invocation, and that is the budget under
+pressure — live-scores is 75% of all Active CPU and rebuilds 3,676 rows before deciding to do
+nothing. This item's ~1.1 h/30d against the 4 h allowance therefore banks roughly **2.9 h of headroom
+that does not exist today**.
+
+**That headroom is the case for polling FASTER inside game windows** — the owner's observation, and
+the mechanism is right: stop spending on dead days and there is budget for the hours that matter.
+**But a faster in-window cadence spends both budgets.** More invocations (CPU, now funded by this
+item) _and_ more provider calls (quota, NOT funded by it, because dead days were never spending any).
+Doubling the in-window rate doubles the quota line exactly — `armed hours × 40/hr` instead of
+`× 20/hr`. Keep the two separable: ship this item for the CPU win it already justifies, and treat the
+cadence increase as **Item 95 portion 2**, which is gated on **Item 94**.
+
 **`QSTASH_TOKEN` in Vercel — decided 2026-09-04, and the rationale recorded because none existed.**
 Collision 3 above says a runtime planner needs the token in the Vercel environment. Five places say
 the opposite — `docs/deployment-runbook.md:88` ("Never commit it or configure it in Vercel") and four
@@ -2793,6 +2828,12 @@ provider spend merely by multiplying longer timeouts; and a repo-wide `timeoutMs
 verification, not scoping — that omission is what produced this item.
 
 ### Item 94 — measure the first full in-season month of CFBD burn (October 2026)
+
+**Gates TWO decisions, not one — noted 2026-09-04.** Item 95 portion 2 has always been gated on this
+for its quota cost. After Item 102 ships, the armed-hour count this produces is _also_ the input for
+whether the planner's freed Active CPU covers a faster in-window cadence: both axes scale with armed
+hours, so one number answers both. That raises this item's leverage well above its effort — it bills
+0 and requires no development.
 
 **A scheduled measurement, not development work.** Read `GET /info` (which bills 0) after the
 September reset and record the month's actual usage.
