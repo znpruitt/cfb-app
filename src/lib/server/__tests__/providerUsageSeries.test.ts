@@ -62,6 +62,56 @@ test('a reset inside a UTC day SPLITS it, keeping both the closing and opening t
   );
 });
 
+test('an out-of-order write does not invent a reset', () => {
+  // The producers overlap by design and the game-stats sample is deferred, so a
+  // NEWER observation can commit before an older one. Comparing the older
+  // candidate against the newest entry would read `used` as falling and split the
+  // day — inventing a monthly reset and corrupting every total derived from it.
+  const newer = sample({ observedAt: '2026-09-04T12:00:00.000Z', usedMax: 401, usedLatest: 401 });
+  const older = sample({ observedAt: '2026-09-04T11:00:00.000Z', usedMax: 400, usedLatest: 400 });
+
+  const merged = mergeProviderUsageSample({ samples: [newer] }, older);
+
+  assert.equal(merged.samples.length, 1, 'one entry — no invented period boundary');
+  assert.equal(merged.samples[0]?.usedMax, 401, 'the high-water mark is unaffected');
+  assert.equal(
+    merged.samples[0]?.observedAt,
+    '2026-09-04T12:00:00.000Z',
+    'and the newer observation still owns the timestamp'
+  );
+});
+
+test('an out-of-order write still folds into the right period after a real split', () => {
+  const preReset = sample({
+    day: '2026-10-01',
+    observedAt: '2026-10-01T00:00:00.000Z',
+    usedMax: 4800,
+    usedLatest: 4800,
+  });
+  const postReset = sample({
+    day: '2026-10-01',
+    observedAt: '2026-10-01T06:00:00.000Z',
+    usedMax: 3,
+    usedLatest: 3,
+  });
+  let series = mergeProviderUsageSample({ samples: [preReset] }, postReset);
+
+  // A straggler from BEFORE the reset arrives after the split already exists.
+  series = mergeProviderUsageSample(
+    series,
+    sample({
+      day: '2026-10-01',
+      observedAt: '2026-10-01T00:30:00.000Z',
+      usedMax: 4810,
+      usedLatest: 4810,
+    })
+  );
+
+  assert.equal(series.samples.length, 2, 'no third period');
+  assert.equal(series.samples[0]?.usedMax, 4810, 'it lands in the CLOSING period, raising its max');
+  assert.equal(series.samples[1]?.usedMax, 3, 'the opening period is untouched');
+});
+
 test('a third apparent reset in one day folds in rather than growing the row', () => {
   // Two periods cannot both end inside one day. A further drop is a provider
   // anomaly, and an unbounded row is a worse outcome than a lost anomaly.
@@ -145,6 +195,11 @@ test('a degraded observation never blanks a complete one', () => {
   assert.equal(merged.usedLatest, 400, 'used survives');
   assert.equal(merged.limit, 5000, 'limit survives');
   assert.equal(merged.usedMax, 400);
+  assert.equal(
+    merged.observedAt,
+    '2026-09-04T00:00:00.000Z',
+    'and the timestamp stays with the values it describes — a rejected observation must not stamp them fresh'
+  );
 });
 
 test('the series is bounded by entry count and drops the OLDEST', () => {
@@ -185,7 +240,10 @@ test('a legacy row without the new fields normalizes instead of being rejected',
       {
         day: '2026-09-04',
         observedAt: '2026-09-04T00:00:00.000Z',
-        usedLatest: 400,
+        // The PRE-SPLIT field name. An earlier version of this test used
+        // `usedLatest` here, so it exercised the new shape and passed without
+        // ever reaching the case its own title names.
+        used: 400,
         remaining: 4600,
         limit: 5000,
         patronLevel: 1,
@@ -195,7 +253,8 @@ test('a legacy row without the new fields normalizes instead of being rejected',
 
   assert.equal(parsed.samples.length, 1);
   assert.equal(parsed.samples[0]?.periodSequence, 0);
-  assert.equal(parsed.samples[0]?.usedMax, 400, 'usedMax falls back to the known latest');
+  assert.equal(parsed.samples[0]?.usedLatest, 400, 'the legacy `used` is read, not dropped');
+  assert.equal(parsed.samples[0]?.usedMax, 400, 'and it seeds the high-water mark');
   assert.equal(parsed.samples[0]?.firstObservedAt, '2026-09-04T00:00:00.000Z');
 });
 

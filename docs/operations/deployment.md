@@ -56,6 +56,7 @@ System Health receipts against the promoted build.
 | Odds | QStash `turfwar-odds-hourly` | Hourly |
 | Schedule maintenance | QStash `turfwar-schedule-weekly` | Tuesdays 12:00 UTC |
 | Rankings | QStash `turfwar-rankings-publication` | 04:00 and 22:00 UTC |
+| CFBD usage sample | QStash `turfwar-usage-sample-6h` | Every 6 hours |
 | Season transition | Vercel Cron | Daily 00:00 UTC |
 | Season rollover | Vercel Cron | Daily 00:00 UTC |
 

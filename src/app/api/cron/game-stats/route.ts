@@ -1,7 +1,7 @@
 import { after, NextResponse } from 'next/server';
 
 import { fetchCfbdUsage } from '@/lib/api/cfbdUsage';
-import { recordProviderUsageSample } from '@/lib/server/providerUsageSeries';
+import { deferProviderUsageSample } from '@/lib/server/providerUsageSeries';
 import { CFBD_PEAK_LATENCY_TIMEOUT_MS } from '@/lib/api/cfbdRequestPolicy';
 import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
 import { buildCfbdGameTeamStatsUrl, type CfbdSeasonType } from '@/lib/cfbd';
@@ -283,6 +283,7 @@ export async function GET(req: Request) {
       // FRESH usage for the quota gate — a cached snapshot must never let a
       // burst of refreshes reuse pre-spend remaining counts.
       const usage = await fetchCfbdUsage({ fresh: true });
+      const observedAt = new Date();
       usageSnapshot = { remainingCalls: usage.remaining, monthlyLimit: usage.limit };
       // Item 127 — retain the observation this probe already made. No new call:
       // `usage` is the value the quota gate is about to read. This tightens the
@@ -303,11 +304,11 @@ export async function GET(req: Request) {
       // throws outside a request scope would refuse a perfectly good run on
       // bookkeeping grounds. Caught by the receipts suite; the isolation is the
       // point of deferring in the first place.
-      try {
-        after(() => recordProviderUsageSample(usage));
-      } catch {
-        // Deferral unavailable — drop the sample, never the run.
-      }
+      // Stamped when `/info` RETURNED, not when the deferred callback runs.
+      // Defaulting to `new Date()` inside the callback would date an older
+      // observation later than a sampler write that landed in between, and a
+      // callback crossing UTC midnight would file it under the wrong day.
+      deferProviderUsageSample(usage, after, observedAt);
     } catch {
       usageSnapshot = { remainingCalls: null };
     }

@@ -9,6 +9,7 @@ import { CRON as TEAM_RECORDS_CRON } from '../../../../scripts/manage-team-recor
 import { CRON as GAME_STATS_CRON } from '../../../../scripts/manage-game-stats-schedule';
 import { CRON as ODDS_CRON } from '../../../../scripts/manage-odds-schedule';
 import { CRON as RANKINGS_CRON } from '../../../../scripts/manage-rankings-schedule';
+import { CRON as USAGE_SAMPLE_CRON } from '../../../../scripts/manage-usage-sample-schedule.ts';
 import { CRON as SCHEDULE_REFRESH_CRON } from '../../../../scripts/manage-schedule-refresh-schedule';
 import {
   __deleteAppStateFileForTests,
@@ -173,6 +174,8 @@ test('policies carry the exact fixed cron strings and grace periods', () => {
   assert.equal(byJob.get('season-transition')!.graceMs, 65 * MIN);
   assert.equal(byJob.get('season-rollover')!.cron, '0 0 * * *');
   assert.equal(byJob.get('season-rollover')!.graceMs, 65 * MIN);
+  assert.equal(byJob.get('usage-sample')!.cron, '0 */6 * * *');
+  assert.equal(byJob.get('usage-sample')!.graceMs, 6 * HOUR);
 });
 
 // ── 3. Policy parity vs management scripts + vercel.json ─────────────────────
@@ -183,6 +186,10 @@ test('policy crons match the management-script CRON exports and vercel.json', ()
   assert.equal(byJob.get('game-stats')!.cron, GAME_STATS_CRON);
   assert.equal(byJob.get('odds')!.cron, ODDS_CRON);
   assert.equal(byJob.get('rankings')!.cron, RANKINGS_CRON);
+  // Item 127 — without this the sampler is the only QStash policy free to drift
+  // from its manager script, and System Health would compute requiredStartedAt
+  // from the wrong schedule with no test failing.
+  assert.equal(byJob.get('usage-sample')!.cron, USAGE_SAMPLE_CRON);
   assert.equal(byJob.get('schedule-refresh')!.cron, SCHEDULE_REFRESH_CRON);
 
   const vercelPath = path.resolve(

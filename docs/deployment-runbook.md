@@ -34,6 +34,7 @@ it is historical evidence, not a procedure to replay.
 | `turfwar-odds-hourly` | `/api/cron/odds` | hourly | QStash |
 | `turfwar-schedule-weekly` | `/api/cron/schedule-refresh` | Tuesdays 12:00 | QStash |
 | `turfwar-rankings-publication` | `/api/cron/rankings` | 04:00 and 22:00 daily | QStash |
+| `turfwar-usage-sample-6h` | `/api/cron/usage-sample` | every 6 hours | QStash |
 
 > **Temporary production hold (owner-confirmed 2026-08-27):** both Vercel lifecycle schedules are
 > disabled pending the planned 2026 roster publication on 2026-08-27. Re-enable both afterwards,
@@ -575,25 +576,6 @@ Before step 3, System Health will report the newly known `team-records` delivery
 expected provisioning state, not evidence that another job regressed. For an incident after
 activation: global pause on, Team records automation off, pause and inspect the schedule.
 
-### §8m) CFBD usage sampler (Item 127)
-
-`GET /api/cron/usage-sample`, driven by the QStash schedule `turfwar-usage-sample-6h` at
-`0 */6 * * *`. Manage it with `tsx scripts/manage-usage-sample-schedule.ts`; `inspect` is read-only.
-
-**It spends no quota.** The route reads CFBD `/info`, which is not a billed call, and writes one
-bounded entry per UTC day to `app_state` scope `provider-usage`, key `cfbd-daily`. It touches no
-canonical data, has no dataset toggle, and returns HTTP 200 even when the durable write fails —
-retrying a sample would produce a different observation, not repair the missed one.
-
-**Why it exists.** `/info` reports usage for the current period only and CFBD exposes no history, so
-a month boundary destroys the prior month's burn permanently. Every other observation point is
-conditional — the game-stats probe sits behind an exact-target gate, System Health only reads on an
-admin page view — so a series built from them samples expensive days and misses cheap ones.
-
-**Authentication proof:** resume the schedule, confirm one HTTP 200 delivery, and verify a new entry
-appears for today under `provider-usage / cfbd-daily`. A `401` is the same stop condition as every
-other job.
-
 ### §8l) Rotate `CRON_SECRET` across all seven QStash schedules
 
 All seven schedules forward the same secret, so rotation is one coordinated operation:
@@ -622,6 +604,30 @@ All seven schedules forward the same secret, so rotation is one coordinated oper
 Do not rotate only one external schedule: that leaves the other five forwarding the retired secret.
 
 ## 9) Common failure diagnosis
+
+### §8m) CFBD usage sampler (Item 127)
+
+`GET /api/cron/usage-sample`, driven by the QStash schedule `turfwar-usage-sample-6h` at
+`0 */6 * * *`. Manage it with `tsx scripts/manage-usage-sample-schedule.ts`; `inspect` is read-only.
+
+**It spends no quota.** The route reads CFBD `/info`, which is not a billed call, and writes one
+bounded entry per UTC day to `app_state` scope `provider-usage`, key `cfbd-daily`. It touches no
+canonical data, has no dataset toggle, and returns HTTP 200 even when the durable write fails —
+retrying a sample would produce a different observation, not repair the missed one.
+
+**Why it exists.** `/info` reports usage for the current period only and CFBD exposes no history, so
+a month boundary destroys the prior month's burn permanently. Every other observation point is
+conditional — the game-stats probe sits behind an exact-target gate, System Health only reads on an
+admin page view — so a series built from them samples expensive days and misses cheap ones.
+
+**Authentication proof:** resume the schedule, confirm one HTTP 200 delivery, and verify a new entry
+appears for today under `provider-usage / cfbd-daily`. A `401` is the same stop condition as every
+other job.
+
+> **Expected until provisioned:** from the moment this ships until `upsert --apply` runs, System
+> Health reports `usage-sample` with a scheduler-delivery warning. That is the correct reading of an
+> unprovisioned schedule, not evidence that another job regressed — the same case the `team-records`
+> note above pre-empts.
 
 ### A merge is Ready but the site still shows old behavior
 

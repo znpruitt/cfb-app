@@ -96,7 +96,13 @@ function parseSample(value: unknown): ProviderUsageSample | null {
   if (!DAY_PATTERN.test(day)) return null;
   const observedAt = typeof record.observedAt === 'string' ? record.observedAt : '';
   if (!observedAt || Number.isNaN(Date.parse(observedAt))) return null;
-  const usedLatest = usableNumberOrNull(record.usedLatest);
+  // `used` was this field's name before the reset split (commit 0df9ce4e) renamed
+  // it to usedMax/usedLatest. Read it as a fallback: without this a legacy row
+  // PASSES validation and comes back with both counts null — retained, but with
+  // the one number the series exists to preserve silently dropped, and
+  // `observedPeriodReset` then unable to fire against it.
+  const legacyUsed = usableNumberOrNull(record.used);
+  const usedLatest = usableNumberOrNull(record.usedLatest) ?? legacyUsed;
   const firstObservedAt =
     typeof record.firstObservedAt === 'string' && !Number.isNaN(Date.parse(record.firstObservedAt))
       ? record.firstObservedAt
@@ -197,7 +203,12 @@ export function mergeIntoSample(
       Date.parse(candidate.observedAt) < Date.parse(existing.firstObservedAt)
         ? candidate.observedAt
         : existing.firstObservedAt,
-    observedAt: candidateIsNewer ? candidate.observedAt : existing.observedAt,
+    // Advances ONLY with the values it stamps. Gating this on time alone would
+    // let a tierless or failed 18:00 probe leave the 00:00 numbers in place while
+    // reporting `observedAt: 18:00` — so `usedLatest`, documented as "the most
+    // recent complete observation", would carry an 18-hour-stale figure stamped
+    // fresh, and firstObservedAt→observedAt would no longer bound the data held.
+    observedAt: takeCandidateFields ? candidate.observedAt : existing.observedAt,
     usedMax,
     usedLatest: takeCandidateFields ? candidate.usedLatest : existing.usedLatest,
     remaining: takeCandidateFields ? candidate.remaining : existing.remaining,
@@ -251,10 +262,30 @@ export function mergeProviderUsageSample(
     dayEntries = [sample];
   } else {
     const latest = sameDay[sameDay.length - 1]!;
-    dayEntries =
-      observedPeriodReset(latest, sample) && sameDay.length < MAX_PERIODS_PER_DAY
-        ? [...sameDay, { ...sample, periodSequence: latest.periodSequence + 1 }]
-        : [...sameDay.slice(0, -1), mergeIntoSample(latest, sample)];
+    const observedAtMs = Date.parse(sample.observedAt);
+
+    // Classify by OBSERVATION TIME, not by array position. The two producers
+    // overlap by design and the game-stats sample is deferred, so writes can
+    // commit out of order: a newer observation (used 401) can land before an
+    // older one (used 400). Comparing an older candidate against the newest entry
+    // would read that as `used` falling and invent a monthly reset, splitting the
+    // day and corrupting every total derived from it. A reset is only considered
+    // when the candidate is genuinely the newest thing seen that day.
+    const isNewest = observedAtMs >= Date.parse(latest.observedAt);
+
+    if (isNewest && observedPeriodReset(latest, sample) && sameDay.length < MAX_PERIODS_PER_DAY) {
+      dayEntries = [...sameDay, { ...sample, periodSequence: latest.periodSequence + 1 }];
+    } else {
+      // Fold into the entry whose period the observation belongs to: the last one
+      // that had already begun when it was taken.
+      const targetIndex = Math.max(
+        0,
+        sameDay.filter((entry) => Date.parse(entry.firstObservedAt) <= observedAtMs).length - 1
+      );
+      dayEntries = sameDay.map((entry, index) =>
+        index === targetIndex ? mergeIntoSample(entry, sample) : entry
+      );
+    }
   }
 
   const all = [...others, ...dayEntries].sort(
@@ -274,6 +305,46 @@ export async function readProviderUsageSeries(): Promise<ProviderUsageSeries> {
  * Returns whether the write happened, for tests and for a caller that wants to
  * log it; callers are free to ignore it.
  */
+type UsageSampleDeferrer = (persist: () => Promise<void>) => void;
+
+let __usageSampleDeferrerForTests: UsageSampleDeferrer | null = null;
+
+/**
+ * Test seam mirroring `__setSchedulerReceiptDeferrerForTests`. `after()` throws
+ * outside a request scope, and the game-stats call site swallows that — so
+ * without an injectable deferrer, every test of that route exercises only the
+ * "deferral unavailable, drop the sample" branch, and deleting the call entirely
+ * leaves the suite green.
+ */
+export function __setUsageSampleDeferrerForTests(deferrer: UsageSampleDeferrer | null): void {
+  __usageSampleDeferrerForTests = deferrer;
+}
+
+/**
+ * Defer a sample write past the caller's response. Returns whether deferral was
+ * registered — NOT whether the write succeeded, which happens later.
+ */
+export function deferProviderUsageSample(
+  usage: CfbdUsage,
+  defer: UsageSampleDeferrer,
+  now: Date = new Date()
+): boolean {
+  try {
+    const persist = async (): Promise<void> => {
+      await recordProviderUsageSample(usage, now);
+    };
+    if (__usageSampleDeferrerForTests) {
+      __usageSampleDeferrerForTests(persist);
+      return true;
+    }
+    defer(persist);
+    return true;
+  } catch {
+    // Deferral unavailable — drop the sample, never the caller's run.
+    return false;
+  }
+}
+
 export async function recordProviderUsageSample(
   usage: CfbdUsage,
   now: Date = new Date()

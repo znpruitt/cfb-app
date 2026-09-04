@@ -609,65 +609,18 @@ call — reads `remaining` and `limit` for the quota-reserve gate, and keeps not
 `systemHealth.ts:208` and `/api/admin/usage` normalize quota too, but on demand for display, not as a
 record. This is Item 126's shape in a different place: an observation made, not retained.
 
-**CORRECTION 2026-09-04 — an earlier draft of this item said "96 probes a day". That is false.** It
-was `*/15 × 24h`, a ceiling computed without reading the gate. The probe sits behind THREE early
-returns (`route.ts:240-262`): paused-or-disabled, context-unavailable, and — decisively —
-`resolution.target === null`, commented "No exact target → no scoped attempt, **no usage check**, no
-provider call". **The probe fires only when a polling target exists inside the window.** On a quiet
-Tuesday there is no target, no probe, and no sample.
+**The probe is gated, so it is not a daily source.** It sits behind three early returns
+(`route.ts:240-262`), the decisive one being `resolution.target === null`, commented "No exact target
+→ no scoped attempt, **no usage check**, no provider call". It fires only when a polling target
+exists inside the window, so a quiet Tuesday produces no sample — which is precisely the day the
+series needs in order to say what a Saturday costs by comparison.
 
-**What to keep.** One bounded durable record per calendar day — `used`, `remaining`, `limit`,
-`patronLevel`, `observedAt` — overwriting within the day so the store holds at most one row per day,
-with an explicit age or count bound. Zero provider cost, no new cron, no new invocation: a durable
-write on a code path that already runs.
-
-**Why daily shape beats a monthly scalar.** `/info` reports the current period only and CFBD exposes
-no history (`providerQuota.ts:41-43`), which is why Item 94 has a hard 2026-09-30 deadline and loses
-September entirely if missed. A retained daily series removes that cliff **and** answers the question
-the consumers actually have: Item 95 portion 2 and Item 63 both ask "how often can we afford to ask
-_during these windows_", which needs to know what a Saturday costs versus a Tuesday. A single
-end-of-month total cannot say.
-
-**BUILT 2026-09-04 — `PLATFORM-RETAIN-PROVIDER-USAGE-SERIES-v1`, branch
-`platform/retain-provider-usage-series`.** A dedicated ungated route
-(`/api/cron/usage-sample`) reading `/info` every six hours via its own QStash schedule, plus the
-opportunistic game-stats sample and a bounded daily series. The `season-transition` attempt below is
-retained as the record of why the dedicated route was required.
-
-**The daily floor needs a DEDICATED job — established by attempting the cheap route and failing,
-2026-09-04.** The obvious move was to hang the sample on `season-transition` (`0 0 * * *`,
-unconditional, every day of the year). It was tried and reverted: that route holds a deliberate
-guarantee that a refused run makes **zero** outbound provider requests, asserted at
-`convergence.test.ts:1427` (`run.providerCalls === 0`, "no billed provider work") and pinned again in
-`route.test.ts`, which asserts the exact partition set of every fetch the route makes. An
-unconditional `/info` probe breaks both — 24 tests failed on placement alone, and 3 more on the
-invariant itself once placement was fixed.
-
-Those tests are correct. `/info` is unbilled, but the property season-transition holds is about
-_outbound requests_, not billing, and weakening a lifecycle route's guarantee to carry someone else's
-bookkeeping is the wrong trade. The owner proposed a dedicated daily job first; the scaffolding
-objection to it was mine and it was wrong — the cost lands on the other side.
-
-**So the daily floor is a dedicated route.** Its own contract is "one unbilled probe per run", which
-violates nothing. Cost, measured rather than assumed: the 2 Vercel crons in `vercel.json` may be a
-Hobby cap (worth confirming), in which case it is a 7th QStash schedule — a route, a
-`cronExecutionLog` module, a `manage-*-schedule.ts`, a contract, and a name added to the
-`CRON_SECRET` rotation — done, and it reached further than three places: the runbook, four sibling
-manager script headers, `docs/operations/deployment.md`, and the storage-architecture table all
-enumerated six. A dedicated job can
-also sample MORE than daily, which bounds the month-boundary tail loss that daily sampling cannot.
-
-**Why the inversion matters, not just the coverage.** A game-stats-only series would sample exactly
-the expensive days and none of the quiet ones — biased toward the busiest hours, and unable to answer
-"what does a Tuesday cost", which is the question this item exists for. **Item 102 makes it worse**:
-narrowing that cron thins the sample at the same moment it thins the job.
-
-**One property makes gaps survivable.** `used` is cumulative within the period, so ANY two samples
-give the burn between them — cadence sets resolution, not correctness. But two hazards remain, and
-both are why the unconditional daily sample is required: a quiet-day gap cannot be interpolated
-(cumulative says nothing about which day inside the gap spent it), and if the last sample before a
-month reset falls on a game day, the tail is lost — reintroducing exactly the Item 94 cliff this item
-removes.
+**Why a dedicated route rather than an existing cron.** `season-transition` is the only cron that
+runs unconditionally every day, but it holds a deliberate guarantee that a refused run makes ZERO
+outbound provider requests, pinned by its own tests. Carrying an unconditional probe there would
+weaken a lifecycle route's guarantee to serve another concern's bookkeeping. A route whose only
+contract is "one unbilled probe per run" violates nothing, and can also sample more often than daily
+— which bounds the month-boundary tail loss that daily sampling cannot.
 
 **Acceptance boundary:** after a month of running, the store alone answers "what did we burn in
 September, and on which days" without a manual read, and its size is bounded by a stated rule rather
