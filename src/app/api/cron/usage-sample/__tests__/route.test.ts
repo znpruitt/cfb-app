@@ -92,8 +92,12 @@ test('an authenticated run records one sample from /info', async () => {
   assert.equal(series.observations.length, 1);
   assert.equal(series.observations[0]?.remaining, 4600, 'the raw provider-reported count');
   assert.equal(series.observations[0]?.limit, 5000, 'Tier 1 resolves the canonical limit');
+  // NOT `startsWith(body.day ?? '')` — the reviewer mutation-proved that vacuous:
+  // with `day: null` it becomes `startsWith('')`, which is unconditionally true.
+  // Assert the day exists FIRST, then that the observation actually falls on it.
+  assert.match(body.day ?? '', /^\d{4}-\d{2}-\d{2}$/, 'the response reports a real day');
   assert.ok(
-    series.observations[0]?.at.startsWith(body.day ?? ''),
+    series.observations[0]?.at.startsWith(body.day!),
     'and the observation falls on the day the receipt reports'
   );
 });
@@ -289,6 +293,50 @@ test('an UNKNOWN patron tier files SUCCESS and keeps the count', async () => {
   const receipt = await readUsageSampleReceipt();
   assert.equal(receipt?.result, 'success', 'and it is a success, not a standing warning');
   assert.equal(receipt?.reason, 'sample-recorded');
+});
+
+test('a corrupt series is left INTACT and the run reports it, rather than wiping it', async () => {
+  // End to end, because the unit guard only matters if the write path uses it.
+  // Fourteen months of readings sit behind one durable row that CFBD cannot
+  // reproduce; the tolerant reader would have handed the append an empty series
+  // and the run would have reported success over the wreckage.
+  await reset();
+  const corrupt = { observations: 'not an array' };
+  await setAppState(PROVIDER_USAGE_SERIES_SCOPE, PROVIDER_USAGE_SERIES_KEY, corrupt);
+  stubInfo({ patronLevel: 1, remainingCalls: 4600 });
+
+  const receipts = installReceiptDeferrer();
+  const res = await GET(authed());
+  await receipts.flush();
+  receipts.restore();
+
+  assert.equal(res.status, 200, 'observation-only: a corrupt row is not a cron failure');
+  const stored = await getAppState<unknown>(PROVIDER_USAGE_SERIES_SCOPE, PROVIDER_USAGE_SERIES_KEY);
+  assert.deepEqual(stored?.value, corrupt, 'the stored row is byte-for-byte as it was found');
+
+  const receipt = await readUsageSampleReceipt();
+  assert.equal(receipt?.result, 'partial', 'and the refusal is visible to System Health');
+  assert.equal(receipt?.reason, 'series-unreadable');
+  assert.equal(receipt?.target.kind === 'usage-sample' && receipt.target.recorded, false);
+});
+
+test('POSITIVE CONTROL: a VALID prior series is appended to, not refused', async () => {
+  // Proves the guard is not simply refusing everything — which would stop the
+  // sampler permanently and look identical from the receipt alone.
+  await reset();
+  await setAppState(PROVIDER_USAGE_SERIES_SCOPE, PROVIDER_USAGE_SERIES_KEY, {
+    observations: [
+      { at: '2026-09-01T00:00:00.000Z', patronLevel: 1, remaining: 4900, limit: 5000 },
+    ],
+  });
+  stubInfo({ patronLevel: 1, remainingCalls: 4600 });
+
+  await GET(authed());
+
+  const series = await readProviderUsageSeries();
+  assert.equal(series.observations.length, 2, 'the prior reading survives and the new one lands');
+  assert.equal(series.observations[0]?.remaining, 4900);
+  assert.equal(series.observations[1]?.remaining, 4600);
 });
 
 test('teardown restores globals', () => {

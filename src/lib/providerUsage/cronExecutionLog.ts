@@ -1,7 +1,7 @@
 /**
  * Item 127 — secret-safe runtime event for the unconditional CFBD usage sampler.
  *
- * The other seven cron routes each emit one of these plus a durable receipt, so
+ * The other eight cron routes each emit one of these plus a durable receipt, so
  * "did this job run, and what did it decide" is answerable after Vercel's runtime
  * logs expire. A sampler without one would be the exact gap Item 126 documents,
  * created in a route added after documenting it.
@@ -26,6 +26,7 @@ export type UsageSampleCronExecutionReason =
   /** The durable write failed. The observation is lost; the run is not an error. */
   | 'sample-write-failed'
   | 'sample-write-indeterminate'
+  | 'series-unreadable'
   | 'unexpected-error';
 
 export type UsageSampleCronExecutionState = {
@@ -55,7 +56,7 @@ export type UsageSampleCronExecutionState = {
  * asserting the loss the write path had just refused to assert.
  */
 export function recordedFromWriteOutcome(
-  outcome: 'recorded' | 'not-recorded' | 'indeterminate'
+  outcome: 'recorded' | 'not-recorded' | 'indeterminate' | 'unreadable'
 ): boolean | null {
   if (outcome === 'indeterminate') return null;
   return outcome === 'recorded';

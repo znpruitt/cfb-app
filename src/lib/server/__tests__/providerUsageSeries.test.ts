@@ -10,7 +10,13 @@ import {
 } from '../providerUsageSeries';
 
 function obs(overrides: Partial<ProviderUsageObservation> = {}): ProviderUsageObservation {
-  return { at: '2026-09-04T00:00:00.000Z', remaining: 4600, limit: 5000, ...overrides };
+  return {
+    at: '2026-09-04T00:00:00.000Z',
+    patronLevel: 1,
+    remaining: 4600,
+    limit: 5000,
+    ...overrides,
+  };
 }
 
 /**

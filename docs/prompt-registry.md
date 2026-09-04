@@ -71,13 +71,16 @@ Rules:
   rises. A second opportunistic producer on the game-stats probe was built and then removed: one
   durable row with two writers produced lost updates, clock skew reading as a reset, and out-of-order
   commits.
-- Review / verification: exact commit reviewed by both reviewers, `c057eee6`. `/code-review` returned
-  one MEDIUM and five LOW; Codex returned one P2. The MEDIUM was real and load-bearing — the receipt's
-  availability gate still keyed on the derived `used`, so a usable `remaining` with no `patronLevel`
-  filed `partial` and would have raised a System Health warning every six hours indefinitely. All
-  seven findings were remediated. Codex's reported gate failures were environmental (stale
-  `.next/types`, an unquoted glob) and did not reproduce: `npm test` exit 0 at 4,613 tests, `npx tsc
-  --noEmit` exit 0, `npm run lint:all` exit 0, each run separately with its own exit code.
+- Review / verification: FOUR paired review rounds. Earlier rounds were reviewed at `c057eee6`,
+  `26638026` and `0ceb2121`; `c057eee6` is no longer an ancestor of this branch — the rebase onto
+  `main` after Item 128 rewrote it as `cda2bc88` — so it is recorded as history, not as the verified
+  commit. The FINAL reviewed commit is the one that merges. Findings across the rounds: an
+  availability gate keyed on the derived `used`; a receipt asserting a definite loss on an uncertain
+  commit; a coherence check that reintroduced the first defect through a fabricated Tier 0 limit; a
+  reread that could confirm a commit that never happened; and a tolerant reader on the WRITE path
+  that would have destroyed the whole log on one unparseable row. Each was remediated and
+  mutation-proven. Gate evidence is stated against the merged commit below, each command run
+  separately with its own exit code.
 - Second remediation round (owner-authorized): the confirming passes returned two Codex P2s and one
   `/code-review` finding, none caused by the first round — a receipt that asserted a definite loss
   when a lost COMMIT acknowledgement left durability unknown, a rotation-checklist step demanding

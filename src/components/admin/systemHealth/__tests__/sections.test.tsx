@@ -140,7 +140,7 @@ test('stoplight renders six panels with text state labels and no repair links', 
   );
 });
 
-test('scheduler renders 8 human-named rows keeping delivery and execution separate', async () => {
+test('scheduler renders 9 human-named rows keeping delivery and execution separate', async () => {
   const model = await buildModel({
     schedulerDelivery: () =>
       Promise.resolve(

@@ -50,6 +50,14 @@ export const PROVIDER_USAGE_MAX_OBSERVATIONS = 1700;
 export type ProviderUsageObservation = {
   /** When the probe returned. The only ordering key. */
   at: string;
+  /**
+   * The tier CFBD reported, recorded so a reader can tell a GENUINE Tier 0 from
+   * the fabricated fallback. `cfbdCanonicalLimitForTier` returns Tier 0's 1,000
+   * for any tier outside its table, so without this an unrecognised tier writes
+   * `limit: 1000` beside a true `remaining` and nothing distinguishes it — and
+   * this series is the only record. Absent on rows written before this field.
+   */
+  patronLevel: number | null;
   /** Provider-reported calls remaining this period, or null when nothing usable came back. */
   remaining: number | null;
   /**
@@ -89,6 +97,7 @@ function parseObservation(value: unknown): ProviderUsageObservation | null {
   // claim that they are "normalized on the way in" actually true.
   return {
     at: new Date(parsed).toISOString(),
+    patronLevel: trustworthyCount(record.patronLevel),
     remaining: trustworthyCount(record.remaining),
     limit: trustworthyCount(record.limit),
   };
@@ -155,6 +164,7 @@ export function buildProviderUsageObservation(
 ): ProviderUsageObservation {
   return {
     at: now.toISOString(),
+    patronLevel: trustworthyCount(usage.patronLevel),
     remaining: trustworthyCount(usage.remaining),
     limit: trustworthyCount(usage.limit),
   };
@@ -164,7 +174,47 @@ export function buildProviderUsageObservation(
  * `recorded` — durably stored. `not-recorded` — durably absent. `indeterminate` —
  * genuinely unknown, and nothing downstream may round it to either.
  */
-export type ProviderUsageWriteOutcome = 'recorded' | 'not-recorded' | 'indeterminate';
+export type ProviderUsageWriteOutcome =
+  | 'recorded'
+  | 'not-recorded'
+  | 'indeterminate'
+  | 'unreadable';
+
+/** Thrown inside the write transaction to abort it without clobbering the row. */
+class ProviderUsageSeriesUnreadableError extends Error {
+  constructor() {
+    super('provider usage series is present but unreadable');
+    this.name = 'ProviderUsageSeriesUnreadableError';
+  }
+}
+
+/**
+ * The WRITE-path read, which — unlike `parseProviderUsageSeries` — refuses to
+ * treat an unusable stored value as an empty one.
+ *
+ * The tolerant reader returns `{observations: []}` for anything it cannot
+ * understand. On a read that is right: degrade rather than take the cron down. On
+ * a WRITE it is catastrophic: the append would then write a one-entry array over
+ * a fourteen-month log and report success, destroying the only copy of data CFBD
+ * cannot reproduce. `recordSchedulerExecutionReceipt` already refuses to treat an
+ * unusable prior as absent; this matches it.
+ *
+ * ABSENT is still fine — that is a first write. Individual unparseable ROWS are
+ * still dropped tolerantly, because they are bounded and independently validated,
+ * and failing closed on one bad row would stop the sampler permanently to protect
+ * the rest. Only a value that is PRESENT and yields nothing is refused.
+ */
+export function readProviderUsageSeriesForWrite(
+  value: unknown
+): { ok: true; series: ProviderUsageSeries } | { ok: false } {
+  if (value === null || value === undefined) return { ok: true, series: { observations: [] } };
+  if (typeof value !== 'object') return { ok: false };
+  const raw = (value as { observations?: unknown }).observations;
+  if (!Array.isArray(raw)) return { ok: false };
+  const parsed = parseProviderUsageSeries(value);
+  if (raw.length > 0 && parsed.observations.length === 0) return { ok: false };
+  return { ok: true, series: parsed };
+}
 
 export async function recordProviderUsageObservation(
   observation: ProviderUsageObservation
@@ -179,8 +229,12 @@ export async function recordProviderUsageObservation(
       PROVIDER_USAGE_SERIES_KEY,
       async (txn) => {
         const record = await txn.read<unknown>();
-        const series = parseProviderUsageSeries(record?.value);
-        await txn.write(appendProviderUsageObservation(series, observation));
+        const prior = readProviderUsageSeriesForWrite(record?.value);
+        // Abort rather than append onto an empty stand-in for a row we could not
+        // read. The throw rolls the transaction back, so the stored value is left
+        // exactly as found for an operator to inspect.
+        if (!prior.ok) throw new ProviderUsageSeriesUnreadableError();
+        await txn.write(appendProviderUsageObservation(prior.series, observation));
       }
     );
     return 'recorded';
@@ -196,6 +250,7 @@ export async function recordProviderUsageObservation(
     // EARLIER row and confirm a commit that never happened. Verifying would need a
     // unique identity per observation, which is more machinery than the honest
     // answer costs.
+    if (error instanceof ProviderUsageSeriesUnreadableError) return 'unreadable';
     const uncertain =
       (error instanceof AppStateTxnFinalizeError || error instanceof AppStateTxnCleanupError) &&
       error.writeAttempted;

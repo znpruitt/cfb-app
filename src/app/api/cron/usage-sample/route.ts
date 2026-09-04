@@ -130,7 +130,14 @@ export async function GET(req: Request): Promise<NextResponse<UsageSampleResult>
     // decorative distinction: `false` renders as "not recorded" on System Health,
     // and an uncertain COMMIT must not produce that claim.
     exec.recorded = recordedFromWriteOutcome(outcome);
-    if (outcome === 'indeterminate') {
+    if (outcome === 'unreadable') {
+      // The stored series was PRESENT but unreadable, so the write was refused
+      // rather than allowed to overwrite it with a single fresh entry. `partial`
+      // makes it visible: this needs an operator to inspect the row, and every
+      // subsequent run will refuse identically until they do.
+      exec.result = 'partial';
+      exec.reason = 'series-unreadable';
+    } else if (outcome === 'indeterminate') {
       exec.result = 'partial';
       exec.reason = 'sample-write-indeterminate';
     } else if (outcome === 'not-recorded') {

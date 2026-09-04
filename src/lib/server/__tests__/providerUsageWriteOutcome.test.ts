@@ -6,6 +6,7 @@ import { __resetAppStateForTests, __setAppStatePoolForTests } from '../appStateS
 import { recordedFromWriteOutcome } from '../../providerUsage/cronExecutionLog';
 import {
   buildProviderUsageObservation,
+  readProviderUsageSeriesForWrite,
   recordProviderUsageObservation,
   type ProviderUsageObservation,
 } from '../providerUsageSeries';
@@ -63,6 +64,7 @@ class FakePool {
 
 const OBSERVATION: ProviderUsageObservation = {
   at: '2026-09-04T18:00:00.000Z',
+  patronLevel: 1,
   remaining: 4600,
   limit: 5000,
 };
@@ -140,4 +142,65 @@ test('the receipt maps indeterminate to NULL, never to a definite loss', () => {
   // `null` and `false` must stay distinguishable — `??` and truthiness both
   // collapse them, which is how the flattening happened in the first place.
   assert.notEqual(recordedFromWriteOutcome('indeterminate'), false);
+});
+
+test('an unreadable stored row is REFUSED, never overwritten with a fresh entry', () => {
+  // The defect this round exists to close. The tolerant reader returns
+  // `{observations: []}` for anything it cannot understand, so appending onto it
+  // would write ONE entry over a fourteen-month log and report success — silently
+  // destroying the only copy of data CFBD cannot reproduce.
+  for (const stored of [
+    'a string where an object belongs',
+    42,
+    { observations: 'not an array' },
+    { renamedInAFutureShape: [] },
+    // Present and non-empty, but nothing in it survives parsing — partial jsonb
+    // corruption looks exactly like this.
+    { observations: [{ at: 'not-a-date' }, { nope: true }] },
+  ]) {
+    assert.equal(
+      readProviderUsageSeriesForWrite(stored).ok,
+      false,
+      `refused: ${JSON.stringify(stored)}`
+    );
+  }
+});
+
+test('absence is NOT corruption, and a partly-damaged log is still appended to', () => {
+  // Positive control, and the limit of the guard. Failing closed on a first write
+  // would mean the sampler could never start; failing closed on ONE bad row would
+  // stop it permanently to protect the rest, which trades all future data for the
+  // past. Only a present-and-wholly-unusable value is refused.
+  const absent = readProviderUsageSeriesForWrite(undefined);
+  assert.equal(absent.ok, true, 'a first write is not corruption');
+  assert.deepEqual(absent.ok && absent.series.observations, []);
+
+  const partial = readProviderUsageSeriesForWrite({
+    observations: [{ at: 'not-a-date' }, { at: '2026-09-04T06:00:00.000Z', remaining: 4300 }],
+  });
+  assert.equal(partial.ok, true, 'one bad row does not condemn the log');
+  assert.equal(partial.ok && partial.series.observations.length, 1, 'the good row survives');
+});
+
+test('the tier is recorded, so a fabricated Tier 0 limit is distinguishable', () => {
+  // `cfbdCanonicalLimitForTier` returns Tier 0's 1,000 for any tier outside its
+  // table. Without `patronLevel` the series shows `limit: 1000` beside a true
+  // `remaining` and a reader cannot tell that from a genuine Tier 0 account — and
+  // this series is the only record.
+  const unknownTier = buildProviderUsageObservation(
+    { patronLevel: 7, used: null, remaining: 4600, limit: 1000 },
+    new Date('2026-09-04T18:00:00.000Z')
+  );
+  const genuineTier0 = buildProviderUsageObservation(
+    { patronLevel: 0, used: null, remaining: 900, limit: 1000 },
+    new Date('2026-09-04T18:00:00.000Z')
+  );
+
+  assert.equal(unknownTier.patronLevel, 7);
+  assert.equal(genuineTier0.patronLevel, 0);
+  assert.notEqual(
+    unknownTier.patronLevel,
+    genuineTier0.patronLevel,
+    'the two cases must not be indistinguishable, which is the whole point'
+  );
 });
