@@ -79,7 +79,7 @@ gate, no action. **Item 122** (the historical-cache button cannot re-cache) and 
 **Overview ordering:** **Item 125** portions 1 and 2 — the Live kickoff sort
 and the Featured final-row time — are each an hour and user-facing, so they belong near the top of
 the run order rather than in the interstitials. **Item 124** (retire the dead `sectionOrder`) is
-undated cleanup.
+DONE — POLISH-024, PR #564.
 
 **Decisions parked, with the item that consumes each:** amber `upset` border → slice 5;
 normalisation target `#0A0A0A` vs `#161616` → Item 119; card-owner treatment → Item 117.
@@ -542,8 +542,50 @@ Item 123 documents in the postseason template.
 touches the type, four construction sites and four test files, which would make a presentation-only
 change into a data-model one.
 
-**Scope note:** check `highlightsTitle` in the same pass — it IS read (`context.highlightsTitle`
-supplies the Featured heading), so this is a partial deletion, not a whole-type one.
+**DONE — POLISH-024, PR #564.** Five fields removed, not three: `sectionOrder`, `scopeLabel`,
+`highlightsTitle`, `highlightsDescription` and `liveDescription`. `OverviewContext` is now
+`{ scopeDetail, emphasis }`.
+
+**Correcting this item's own scope note.** It said `highlightsTitle` "IS read
+(`context.highlightsTitle` supplies the Featured heading), so this is a partial deletion". That was
+wrong and unchecked — the Featured heading is the literal string `"Featured games"` in
+`OverviewPanel.tsx`, and `highlightsTitle` has no reader outside `overview.ts` and test fixtures.
+`scopeLabel` was dead the same way. Only `scopeDetail` (read by
+`selectors/overview.ts:237` for the week label) is genuinely read.
+
+**And the same error, one sentence later — caught by `/code-review` on PR #564.** The paragraph
+above originally continued "and `emphasis` (five components branch on it) survive", inside the very
+correction it was making. That claim was also false and also unchecked: it came from grepping the
+bare word `emphasis`, which matches `cardEmphasisClasses`, `data-leader-emphasis` and an unrelated
+`CareerSummaryCard` prop. **Nothing in `src/` reads `context.emphasis`** — proved by renaming the
+field, which errors in four test files and zero production files. `emphasis` therefore met the
+exact criterion the five deleted fields failed, and the owner ruled it out too: **`OverviewContext`
+is now `{ scopeDetail }`.** The Item 113 argument did not survive contact with what 113 needs —
+`emphasis` is a slate-level fact, and Featured selection is per-game, so a slate signal cannot say
+which game to promote; if 113 wants slate context it will derive it in the shape its selector needs.
+And "a future item might want this" is the weakest reason to retain code — it is the reason that
+produced both false claims, because a field kept for a hypothetical consumer accumulates a story
+about being used until someone writes that story down as fact.
+
+**The collapse was an argument for deleting, not against.** With `emphasis` gone,
+`deriveOverviewContext`'s four slate branches all returned the same object, so the function reduces
+to `{ scopeDetail: selectedWeekLabel ?? null }`. It was never deriving context; it was deriving one
+field with ceremony around it. `activeSlateStatus` left its parameters and is still used elsewhere
+for `includeFinalWeekGames` and `recentMode`.
+
+**Rule written into `AGENTS.md` → Verification (binding):** a claim that something IS READ requires a
+mutation, not a grep. All three of this branch's false claims came from greps that returned matches
+on near-namesakes; a rename answers in one command and cannot return a false positive.
+
+**One test deleted rather than gutted.** `overview uses postseason context when the active slate is
+postseason-driven` had `scopeLabel` as its entire subject; with the field gone,
+`deriveOverviewContext` has no postseason-specific output left, so keeping it meant an `emphasis`
+assertion other tests already make. Deleted with a comment in place saying why. `weekGames` also
+left `deriveOverviewContext`'s parameters — it existed only to run `isTruePostseasonGame` for that
+label.
+
+**Net: 256 lines removed, 36 added.** `npm run build` was run as a gate alongside the usual three,
+since the change alters an exported type's surface.
 
 - Backlog slug: `POLISH-RETIRE-OVERVIEW-SECTION-ORDER-v1`
 

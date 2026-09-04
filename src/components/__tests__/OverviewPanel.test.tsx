@@ -158,14 +158,7 @@ const standingsLeaders: OwnerStandingsRow[] = [
 const coverage: StandingsCoverage = { state: 'complete', message: null };
 
 const defaultContext: OverviewContext = {
-  scopeLabel: 'League',
   scopeDetail: 'Week 1',
-  emphasis: 'upcoming',
-  highlightsTitle: 'What matters next',
-  highlightsDescription:
-    'The active slate is upcoming, so Overview leads with the next head-to-head and owned-team games to watch.',
-  liveDescription: 'If games go live, they will automatically move to the top of Overview.',
-  sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
 };
 
 const matchupMatrix: OwnerMatchupMatrix = {
@@ -1055,7 +1048,7 @@ test('overview panel summary uses postseason in-progress championship language',
         }),
       ]}
       keyMatchups={[item(postseasonGame)]}
-      context={{ ...defaultContext, scopeLabel: 'Postseason' }}
+      context={{ ...defaultContext }}
       displayTimeZone="UTC"
     />
   );
@@ -1118,7 +1111,7 @@ test('overview panel summary shows season-complete champion, second, and third',
           time: null,
         }),
       ]}
-      context={{ ...defaultContext, scopeLabel: 'Postseason', emphasis: 'recent' }}
+      context={{ ...defaultContext }}
       displayTimeZone="UTC"
     />
   );
@@ -1211,7 +1204,7 @@ test('overview panel summary does not render season-complete framing when standi
           time: null,
         }),
       ]}
-      context={{ ...defaultContext, scopeLabel: 'Postseason', emphasis: 'recent' }}
+      context={{ ...defaultContext }}
       displayTimeZone="UTC"
     />
   );
@@ -1245,7 +1238,7 @@ test('overview panel summary does not render season-complete framing when standi
           time: null,
         }),
       ]}
-      context={{ ...defaultContext, scopeLabel: 'Postseason', emphasis: 'recent' }}
+      context={{ ...defaultContext }}
       displayTimeZone="UTC"
     />
   );
@@ -1996,7 +1989,7 @@ test('overview panel suppresses redundant movement chips in completed-season pod
           time: null,
         }),
       ]}
-      context={{ ...defaultContext, scopeLabel: 'Postseason', emphasis: 'recent' }}
+      context={{ ...defaultContext }}
       displayTimeZone="UTC"
     />
   );

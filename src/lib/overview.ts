@@ -29,16 +29,30 @@ export type OwnerMatchupMatrix = {
   rows: OwnerMatchupMatrixRow[];
 };
 
-export type OverviewSectionKind = 'standings' | 'matrix' | 'live' | 'highlights';
-
+/**
+ * What Overview knows about the slate it is rendering.
+ *
+ * Five fields were removed here on 2026-09-04 (Item 124): `sectionOrder`, `scopeLabel`,
+ * `highlightsTitle`, `highlightsDescription` and `liveDescription`. Every one was
+ * declared, populated at all four construction sites below, and read by nothing outside
+ * this file and test fixtures — `OverviewPanel` hardcodes its section order and headings
+ * in JSX. `sectionOrder`'s live-emphasis value said Live leads the page above Standings,
+ * which the shipped order contradicts, and `liveDescription` carried copy describing
+ * behaviour the page does not have. A second, unread model of a fact the JSX already
+ * owns is exactly what let those two drift without anyone noticing.
+ *
+ * `emphasis` went with them, one round later. An earlier draft of this comment exempted it
+ * — "five components branch on the second" — which was false, and came from grepping the
+ * bare word `emphasis`: that matches `cardEmphasisClasses`, `data-leader-emphasis` and an
+ * unrelated prop on `CareerSummaryCard`. Renaming the field errors in four test files and
+ * zero production files. A grep returning matches feels like verification; only a mutation
+ * is one.
+ *
+ * `scopeDetail` is the one survivor, and it is genuinely read: `selectors/overview.ts:237`
+ * derives the week label from it.
+ */
 export type OverviewContext = {
-  scopeLabel: string;
   scopeDetail: string | null;
-  emphasis: 'live' | 'upcoming' | 'recent' | 'standings';
-  highlightsTitle: string;
-  highlightsDescription: string;
-  liveDescription: string;
-  sectionOrder: OverviewSectionKind[];
 };
 
 export type OverviewSnapshot = {
@@ -118,66 +132,15 @@ function deriveActiveSlateStatus(items: OverviewGameItem[]): ActiveSlateStatus {
   );
 }
 
-function deriveOverviewContext(params: {
-  weekGames: AppGame[];
-  activeSlateStatus: ActiveSlateStatus;
-  selectedWeekLabel?: string;
-}): OverviewContext {
-  const { weekGames, activeSlateStatus, selectedWeekLabel } = params;
-  const scopeLabel = weekGames.some((game) => isTruePostseasonGame(game)) ? 'Postseason' : 'League';
-  const scopeDetail = selectedWeekLabel ?? null;
-
-  if (activeSlateStatus.hasLive) {
-    return {
-      scopeLabel,
-      scopeDetail,
-      emphasis: 'live',
-      highlightsTitle: 'Up next for the league',
-      highlightsDescription: activeSlateStatus.hasUpcoming
-        ? 'Live games lead the page, with the next owned-team matchups queued right behind them.'
-        : 'Live action is leading the page while completed and pending league games stay one step back.',
-      liveDescription:
-        'Track league-relevant live action across all teams and head-to-head battles.',
-      sectionOrder: ['live', 'highlights', 'standings', 'matrix'],
-    };
-  }
-
-  if (activeSlateStatus.hasUpcoming) {
-    return {
-      scopeLabel,
-      scopeDetail,
-      emphasis: 'upcoming',
-      highlightsTitle: 'What matters next',
-      highlightsDescription:
-        'The active slate is upcoming, so Overview leads with the next head-to-head and owned-team games to watch.',
-      liveDescription: 'If games go live, they will automatically move to the top of Overview.',
-      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
-    };
-  }
-
-  if (activeSlateStatus.hasFinal) {
-    return {
-      scopeLabel,
-      scopeDetail,
-      emphasis: 'recent',
-      highlightsTitle: 'Recent league results',
-      highlightsDescription:
-        'The active slate is mostly complete, so Overview highlights the latest owned-team results before the broader season view.',
-      liveDescription: 'If new live action starts, it will automatically take priority here.',
-      sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
-    };
-  }
-
-  return {
-    scopeLabel,
-    scopeDetail,
-    emphasis: 'standings',
-    highlightsTitle: 'League watch list',
-    highlightsDescription:
-      'Standings stay central while Overview waits for owned-team games to define the next slate.',
-    liveDescription: 'Live league games will appear automatically once scores are in progress.',
-    sectionOrder: ['standings', 'highlights', 'matrix', 'live'],
-  };
+// Reduced to one field in Item 124. `weekGames` and `activeSlateStatus` both left the
+// parameters with the fields that used them — `weekGames` ran `isTruePostseasonGame` for
+// `scopeLabel`, and `activeSlateStatus` chose between four `emphasis` values. With both
+// unread fields gone the four slate branches all returned the same object, which is the
+// tell: this was never deriving context, it was deriving one field with ceremony around
+// it. `activeSlateStatus` itself is still very much alive — `deriveOverviewSnapshot` uses
+// it for `includeFinalWeekGames` and `recentMode`.
+function deriveOverviewContext(params: { selectedWeekLabel?: string }): OverviewContext {
+  return { scopeDetail: params.selectedWeekLabel ?? null };
 }
 
 export type AutonomousOverviewScope = {
@@ -445,11 +408,7 @@ export function deriveOverviewSnapshot(params: {
     .filter((item) => (includeFinalWeekGames ? true : isKeyMatchupState(item.score)))
     .sort(recentMode ? compareRecentOverviewItems : compareOverviewItems);
 
-  const context = deriveOverviewContext({
-    weekGames,
-    activeSlateStatus,
-    selectedWeekLabel,
-  });
+  const context = deriveOverviewContext({ selectedWeekLabel });
 
   return {
     standingsLeaders,

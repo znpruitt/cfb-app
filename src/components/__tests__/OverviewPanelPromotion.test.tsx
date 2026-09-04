@@ -14,13 +14,7 @@ import RecapTile from '../recap/RecapTile';
 const coverage: StandingsCoverage = { state: 'complete', message: null };
 const matchupMatrix: OwnerMatchupMatrix = { owners: [], rows: [] };
 const context: OverviewContext = {
-  scopeLabel: 'League',
   scopeDetail: 'Week 1',
-  emphasis: 'upcoming',
-  highlightsTitle: 'Featured games',
-  highlightsDescription: '',
-  liveDescription: '',
-  sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
 };
 
 function game(overrides: Partial<AppGame> = {}): AppGame {

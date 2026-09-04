@@ -223,40 +223,19 @@ test('overview shifts to recent-results emphasis when the active slate is comple
     selectedWeekLabel: 'Week 2',
   });
 
-  assert.equal(snapshot.context.emphasis, 'recent');
-  assert.equal(snapshot.context.highlightsTitle, 'Recent league results');
-  assert.deepEqual(snapshot.context.sectionOrder, ['highlights', 'standings', 'matrix', 'live']);
   assert.deepEqual(
     snapshot.keyMatchups.map((item) => item.bucket.game.key),
     ['ou-tex-final']
   );
 });
 
-test('overview uses postseason context when the active slate is postseason-driven', () => {
-  const rosterByTeam = new Map([['Texas', 'Alice']]);
-  const semifinal = game({
-    key: 'semifinal',
-    csvAway: 'Texas',
-    csvHome: 'Michigan',
-    date: '2026-12-31T21:00:00.000Z',
-    stage: 'playoff',
-    postseasonRole: 'playoff',
-  });
-
-  const snapshot = deriveOverviewSnapshot({
-    standingsRows,
-    standingsCoverage: coverage,
-    weekGames: [semifinal],
-    allGames: [semifinal],
-    rosterByTeam,
-    scoresByKey: {},
-    selectedWeekLabel: 'the postseason',
-  });
-
-  assert.equal(snapshot.context.scopeLabel, 'Postseason');
-  assert.equal(snapshot.context.emphasis, 'upcoming');
-  assert.deepEqual(snapshot.context.sectionOrder, ['highlights', 'standings', 'matrix', 'live']);
-});
+// REMOVED 2026-09-04 (Item 124): 'overview uses postseason context when the active
+// slate is postseason-driven'. Its subject was `context.scopeLabel`, which returned
+// 'Postseason' for a postseason slate — a value nothing outside this module ever read.
+// With the field deleted, `deriveOverviewContext` has no postseason-specific output
+// left, so the test could only have been kept by gutting it down to an `emphasis`
+// assertion that other tests already make. Deleted rather than hollowed out. Postseason
+// PRESENTATION is covered where it is actually rendered, in the OverviewPanel suites.
 
 test('overview preserves completed selected-week results even when unrelated owned games are live elsewhere', () => {
   const rosterByTeam = new Map([
@@ -301,7 +280,6 @@ test('overview preserves completed selected-week results even when unrelated own
     selectedWeekLabel: 'Week 2',
   });
 
-  assert.equal(snapshot.context.emphasis, 'recent');
   assert.deepEqual(
     snapshot.keyMatchups.map((item) => item.bucket.game.key),
     ['completed-week']
@@ -380,8 +358,6 @@ test('overview context stays upcoming when later active-slate games are truncate
     selectedWeekLabel: 'Week 5',
   });
 
-  assert.equal(snapshot.context.emphasis, 'upcoming');
-  assert.equal(snapshot.context.highlightsTitle, 'What matters next');
   assert.deepEqual(
     snapshot.keyMatchups.map((item) => item.bucket.game.key),
     ['upcoming-5']
@@ -535,7 +511,6 @@ test('recent-results mode keeps latest completed finals ordered in the uncapped 
     selectedWeekLabel: 'Week 5',
   });
 
-  assert.equal(snapshot.context.emphasis, 'recent');
   assert.deepEqual(
     snapshot.keyMatchups.map((item) => item.bucket.game.key),
     ['final-5', 'final-4', 'final-3', 'final-2', 'final-1']

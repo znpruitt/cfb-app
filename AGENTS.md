@@ -361,6 +361,23 @@ gap, while both records had sat in the registry since 2026-07-24; and `seasonOri
 for three successive wrong proxies for "has football been played" while
 `insights/generators/existing.ts` already carried the correct pairing, with a comment explaining why.
 
+**A claim that something IS READ requires a mutation, not a grep.** Before writing that a field,
+export, flag, or helper is consumed — "five components branch on it", "this is read by X", "still in
+use, do not delete" — rename or delete the symbol and report which files fail to compile. A grep is
+the wrong instrument for this and fails in one specific way: it returns matches on substrings and
+near-namesakes, and matches _feel_ like verification. The feeling is what reaches the sentence, not
+the result. This is the mirror of the absence rule above — that one guards claims that nothing
+exists, this one guards claims that something is used — and it is cheaper than either, because the
+compiler answers in one command.
+
+Named failure cases (2026-09-04, all three in one branch, POLISH-024): `highlightsTitle` was
+described in `docs/next-tasks.md` as supplying the Featured heading, which is a literal string in
+`OverviewPanel.tsx`; `context.emphasis` was described in both a JSDoc and the ledger as having "five
+components branch on it", from grepping the bare word `emphasis`, which matches
+`cardEmphasisClasses`, `data-leader-emphasis`, and an unrelated `CareerSummaryCard` prop — nothing
+reads it; and the second of those was written one sentence after the paragraph correcting the first.
+All three fields were dead. A review found them by renaming the symbol.
+
 **A measurement carries the scope it was taken at.** Name the fixture, the year, or the commit a
 figure came from, and do not generalise one probe into a property. Gate results attach to the commit
 they ran against: when the tree moves, re-measure or say the figure is from an earlier commit — a
