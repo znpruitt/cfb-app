@@ -4,6 +4,7 @@ import { JSDOM } from 'jsdom';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 
 import type { AppGame } from '../../../lib/schedule';
+import type { TeamCatalogItem } from '../../../lib/teamIdentity';
 import { EMPTY_SCORE_HYDRATION_STATE } from '../../../lib/scoreHydration';
 import { useLiveRefresh } from '../useLiveRefresh';
 
@@ -100,7 +101,10 @@ function makeParams(
     scoresByKey: {},
     // Item 128: the catalog the schedule bootstrap already holds. Non-empty here
     // so the hook takes the reuse path; the positive control below overrides it.
-    teamCatalog: [{ teamId: 'h', school: 'Home' } as never],
+    // Typed as `TeamCatalogItem`, NOT cast: an earlier version wrote `teamId`,
+    // which is not a field on that type, and an `as never` cast on the very
+    // parameter this change introduces suppressed the error that would have said so.
+    teamCatalog: [{ id: 'h', school: 'Home' } satisfies TeamCatalogItem],
     aliasMap: {},
     oddsUsage: null,
     scoreHydrationState: EMPTY_SCORE_HYDRATION_STATE,
@@ -269,7 +273,9 @@ test('a live refresh reuses the supplied team catalog instead of refetching it',
 test('POSITIVE CONTROL: an empty catalog still falls back to fetching it', async () => {
   // Proves the assertion above can actually observe an `/api/teams` request, and
   // pins the degenerate path: an empty array is forwarded as `undefined`, so
-  // `fetchScoresByGame` fetches the catalog itself exactly as it did before.
+  // `fetchScoresByGame` fetches one itself. Note this is a deliberate CHANGE, not
+  // a preservation — the old code passed `[]`, and `??` does not fire on `[]`, so
+  // it attached scores against an empty catalog with no retry.
   const { result } = renderHook(() => useLiveRefresh(makeParams({ teamCatalog: [] })));
 
   await act(async () => {
@@ -283,5 +289,54 @@ test('POSITIVE CONTROL: an empty catalog still falls back to fetching it', async
     fetchUrls.filter((url) => url.includes('/api/teams')).length,
     1,
     'the fallback still reaches /api/teams, so the harness can see such a request'
+  );
+});
+
+test('a catalog replaced after mount is used on the NEXT poll, not the mount-time one', async () => {
+  // Review finding: `teamCatalog` was read inside `refreshLiveData` but omitted
+  // from its `useCallback` deps, and `react-hooks/exhaustive-deps` is not enabled
+  // in this repo, so nothing caught it. It was masked because both
+  // `setTeamCatalog` call sites are paired with a `setGames` that produces a fresh
+  // array, and `games` IS a dep — but `loadScheduleFromApi` sets the catalog
+  // BEFORE building the schedule, so if that build throws, the catch touches
+  // neither `games` nor `scheduleLoaded`. On an in-place reload the component
+  // would then hold the new catalog while every later poll resolved identities
+  // against the previous one, for the life of the tab.
+  //
+  // Observable here as a request: starting empty forces the fetch fallback, so if
+  // the callback is stale it keeps fetching after a real catalog arrives.
+  // EVERY other dependency is held stable across the rerender by building the
+  // params ONCE. Two earlier versions of this test passed with the defect still in
+  // place: the first let `makeParams()` rebuild `games` per render, the second
+  // still rebuilt `aliasMap` and `weeks` — each recreated the callback on its own
+  // and hid the stale dep. That is the same masking described above, reproduced
+  // accidentally, twice.
+  const base = makeParams();
+  const { result, rerender } = renderHook(
+    (props: { teamCatalog: TeamCatalogItem[] }) =>
+      useLiveRefresh({ ...base, teamCatalog: props.teamCatalog }),
+    { initialProps: { teamCatalog: [] as TeamCatalogItem[] } }
+  );
+
+  await act(async () => {
+    await result.current.refreshLiveData({ manual: false, scoreScopeGamesOverride: base.games });
+  });
+  assert.equal(
+    fetchUrls.filter((url) => url.includes('/api/teams')).length,
+    1,
+    'the empty mount-time catalog falls back to fetching'
+  );
+
+  // Replace ONLY the catalog — `games` is deliberately untouched, which is what
+  // made the stale dep invisible in the masked case.
+  rerender({ teamCatalog: [{ id: 'h', school: 'Home' } satisfies TeamCatalogItem] });
+
+  await act(async () => {
+    await result.current.refreshLiveData({ manual: false, scoreScopeGamesOverride: base.games });
+  });
+  assert.equal(
+    fetchUrls.filter((url) => url.includes('/api/teams')).length,
+    1,
+    'the second poll sees the NEW catalog and issues no further request'
   );
 });

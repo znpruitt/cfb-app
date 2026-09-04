@@ -58,9 +58,16 @@ type UseLiveRefreshParams = {
    * the whole durable catalog record, normalized, filtered, sorted and serialized
    * every team — for data the client had in memory the whole time. Every caller of
    * `refreshLiveData` is gated on `scheduleLoaded`, which is only set after that
-   * bootstrap succeeds, so this is populated whenever a refresh runs. An empty
-   * array is forwarded as `undefined`, which makes `fetchScoresByGame` fetch the
-   * catalog itself exactly as before.
+   * bootstrap succeeds, so this is populated whenever a refresh runs.
+   *
+   * An empty array is forwarded as `undefined` so `fetchScoresByGame` fetches the
+   * catalog itself. That is NOT what the old code did, and the difference is worth
+   * stating: the removed line was `fetchTeamsCatalog().catch(() => [])`, so a
+   * failed catalog fetch passed `[]` — and `providedTeams ?? …` does not fire on
+   * `[]`, so scores were attached against an EMPTY catalog with no retry. The new
+   * path retries instead. Production cannot reach it either way, because
+   * `scheduleLoaded` is only set after a successful catalog fetch, but the
+   * degraded behaviour is better and the claim that it is unchanged was wrong.
    */
   teamCatalog: TeamCatalogItem[];
   aliasMap: AliasMap;
@@ -332,8 +339,9 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
 
       try {
         // Reuse the bootstrap's catalog instead of refetching it every tick. Empty
-        // becomes `undefined` so `fetchScoresByGame` falls back to its own fetch —
-        // the identical path this line used to take.
+        // becomes `undefined`, so `fetchScoresByGame` fetches one itself rather
+        // than attaching scores against an empty catalog (see the param doc — the
+        // old code passed `[]` here, which silently skipped that fallback).
         const teams = teamCatalog.length > 0 ? teamCatalog : undefined;
 
         if (refreshDecision.reason === 'odds-disabled-by-quota') {
@@ -544,6 +552,7 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
       setOddsSnapshotAt,
       setScoreHydrationState,
       setScoresByKey,
+      teamCatalog,
       visibleGames,
       weeks,
     ]
