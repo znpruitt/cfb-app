@@ -20,7 +20,8 @@ These were conflated, and only the first was specified.
 
 **Featured → Live → Recent finals → Upcoming watchlist.**
 
-> **Decision 1 is implemented.** POLISH-022, PR #562, `2879f5f3` — a pure block move of the
+> **Decision 1 is shipped.** POLISH-022, merged via PR #562 (merge commit `f4e13ad0`),
+> 2026-09-04 — a pure block move of the
 > watchlist JSX below Recent finals, mutation-proven and order-pinned by a test with positive
 > controls. Decisions 2, 3, 5 and 6 remain unbuilt; decision 4 was documentation only. The table
 > below records the state at filing and is not a live view of `main`.

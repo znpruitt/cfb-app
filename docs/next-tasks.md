@@ -76,7 +76,7 @@ Item 87's postseason grouping input; it does not block that work. **Item 120** c
 gate, no action. **Item 122** (the historical-cache button cannot re-cache) and **Item 123**
 (retire the dead postseason template) are both undated; 123 is small and adjacent to 121.
 
-**Overview ordering, after PR #562 merges:** **Item 125** portions 1 and 2 — the Live kickoff sort
+**Overview ordering:** **Item 125** portions 1 and 2 — the Live kickoff sort
 and the Featured final-row time — are each an hour and user-facing, so they belong near the top of
 the run order rather than in the interstitials. **Item 124** (retire the dead `sectionOrder`) is
 undated cleanup.

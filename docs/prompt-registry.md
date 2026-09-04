@@ -68,7 +68,7 @@ Rules:
   `OverviewPanel.tsx` fails `Recent finals must precede the watchlist`. Codex review clean;
   `/code-review` found no correctness bugs and three low findings, two closed by this closeout and
   one filed as Item 124.
-- Status: PR #562 open at `2879f5f3` — **not merged**. Flip this line at merge.
+- Status: Merged via PR #562 (merge commit `f4e13ad0`), 2026-09-04.
 
 ### POLISH-021-NOCLAIM-PRESENTATION-v1
 

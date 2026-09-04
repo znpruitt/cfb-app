@@ -32,6 +32,27 @@ Supersedes: (none)
 > [`docs/ai/game-stats-writer-fence.md`](ai/game-stats-writer-fence.md) (with the superseded
 > original design frozen in [`docs/ai/platform-086h3-contract.md`](ai/platform-086h3-contract.md)).
 
+### POLISH-022 — Overview Section Order — Complete
+
+- **Status:** Merged via PR #562 (merge commit `f4e13ad0`), 2026-09-04.
+- **PROMPT_ID(s):** `POLISH-022-OVERVIEW-SECTION-ORDER-v1`.
+- **Outcome:** Overview's game sections render Featured → Live → Recent finals → Upcoming watchlist,
+  ordered by temporal distance from now. The shipped order placed the watchlist second and Live
+  third, burying the only content with a deadline; it was inherited layout rather than a decision,
+  traceable through the slice-4 watchlist conversion to the 2025 Overview redesign. The order is now
+  an owner decision recorded in `docs/campaigns/item-87-followon-section-ordering.md`.
+- **Mechanism:** a pure block move of the watchlist JSX below Recent finals — 28 lines added, 28
+  removed, the sorted line multisets of `main` and `HEAD` identical. No selector, cap, condition, or
+  data change.
+- **Verification:** exact pre-merge head `2879f5f3`, clean tree. `npx tsc --noEmit` exit 0,
+  `npm run lint:all` exit 0, `npm test` exit 0 with 4,586 passing (+1). The new order test carries
+  four presence assertions as positive controls and is mutation-proven: restoring `main`'s
+  `OverviewPanel.tsx` fails `Recent finals must precede the watchlist`.
+- **Review:** Codex clean. `/code-review` found no correctness bugs and three low documentation
+  findings — two closed by the pre-merge closeout, the third filed as Item 124.
+- **Open follow-ups:** Item 125 (the four remaining section-ordering decisions) and Item 124 (retire
+  the dead `OverviewContext.sectionOrder`).
+
 ### POLISH-021 — NoClaim Presentation and Schedule Participant Naming — Complete
 
 - **Status:** Merged via PR #560 (merge commit `0b95aeca`), 2026-09-03.
