@@ -70,6 +70,11 @@ committed `c9f76081`) surfaced four new items and one split; the remaining open 
 week) and **Item 108** (one read of `provider-refresh-status` for `scores:week:2026:2:regular` on
 the morning of 2026-09-04 — then close it or promote it).
 
+**Postseason, before December:** **Item 121** (CFP first-round `eventKey` collision — dormant until
+the 2026 first round is ingested, then live on the surface it breaks) and **Item 120** (the 2024
+schedule cache holds no CFP rows). Both were measured while verifying Item 87's postseason grouping
+input; neither blocks it.
+
 **Decisions parked, with the item that consumes each:** amber `upset` border → slice 5;
 normalisation target `#0A0A0A` vs `#161616` → Item 119; card-owner treatment → Item 117.
 
@@ -471,6 +476,59 @@ through the offseason without an operator, and is driven by a Vercel Active CPU 
 Neon one. Keep this item for the read-replica autosuspend and the non-cadence findings.
 
 - Backlog slug: `PLATFORM-OFFSEASON-SCHEDULE-PAUSE-v1`
+
+### Item 121 — every CFP first-round game shares one `eventKey`, and it is the React list key
+
+**Filed 2026-09-04. Data-identity defect, measured not inferred.** Evidence and the grouping work it
+touches: `docs/campaigns/item-87-followon-postseason-refinements.md` §3.
+
+**The collision.** `playoffEventKey` (`cfbdSchedule.ts:366-370`) returns `cfp-${round}` when a playoff
+row has no bowl name to disambiguate. Quarterfinals and semifinals carry bowl names and are safe; the
+championship is singular. **First round is the one round the scheme cannot separate, and the 12-team
+format made it four games.** Measured on the read-only replica: all four 2025 first-round rows carry
+`eventKey: "cfp-first-round"`, so `schedule.ts:485-486` gives all four `eventId: "2025-cfp-first-round"`.
+
+**Two consumers, both reachable.** `schedule.ts:503` sets `key: eventId` for postseason games and
+`GameWeekPanel.tsx:213` renders `key={g.key}` — four identical React keys in one list. The operator
+label override is the second: `GameWeekPanel.tsx:340` saves by `g.eventId` and
+`schedulePostseasonHelpers.ts:372-377` applies it wherever `candidate.eventId === eventId`, so one
+label edit would hit all four games. The placeholder participant slot ids (`schedule.ts:492`, `:498`,
+`${eventId}-home` / `-away`) collide the same way.
+
+**Not reachable today — it lands in December.** `CFBScheduleApp.tsx:313` fixes the season with
+`useState` and no setter exists anywhere in `src/`, so a member sees only their league's season. The
+2026 cache holds **zero** postseason rows, so nothing renders these keys yet. It goes live when the
+2026 first round is ingested, which is exactly when the postseason tab matters.
+
+**Acceptance boundary:** first-round games get distinct `eventKey` values, and a test renders more
+than one first-round game in the same list. End-to-end confirmation of the override and render paths
+is the first step, not a prerequisite for filing.
+
+**Separable from round grouping** — that work keys on `playoffRound` and `playoffCompetition`, not
+`eventId`, so it is not blocked.
+
+- Backlog slug: `PLATFORM-CFP-EVENT-KEY-COLLISION-v1`
+
+### Item 120 — the 2024 schedule cache is a stale partial snapshot with no CFP rows
+
+**Filed 2026-09-04. Data-freshness defect, unrelated to Item 87** — surfaced while verifying postseason
+round derivation.
+
+**Measured on the read-only replica**, `app_state` `scope='schedule'`, `key='2024-all-all'`: 54
+postseason rows, **all** `postseasonSubtype: 'bowl'` with `playoffRound: null` — **zero CFP rows** —
+every one still `status: 'scheduled'` against December dates. The row shape predates the provenance
+work entirely: `playoffRoundSource`, `playoffCompetition` and `homeClassification` are absent as
+fields, not null. The cache was written before the playoff was populated and never refreshed.
+
+**Consequence:** anything reading the 2024 postseason sees bowls and no bracket, and no completed
+statuses. Members cannot reach it — the season is league-resolved and fixed (`CFBScheduleApp.tsx:313`)
+— so this is an archive-integrity and operator-read problem rather than a member-facing one.
+
+**Open before scoping:** whether the other historical caches are equally stale, and whether any
+consumer reads a prior season's postseason at all. 2021–2023 do carry CFP rows, so 2024 may be
+singular. Check that first — the fix could be one refresh rather than a mechanism.
+
+- Backlog slug: `PLATFORM-2024-SCHEDULE-CACHE-STALE-v1`
 
 ### Item 119 — team-colour bar on the shared scoreboard, and no accent for teams with no colour
 
