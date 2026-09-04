@@ -696,10 +696,19 @@ test('overview Featured renders a home-won final through the neutral compact sco
   assert.match(finalScoreboard, /data-scoreboard-context-slot/);
   assert.match(finalScoreboard, /CFP Quarterfinal/);
   // Owner decision 2026-09-04, section-ordering resolutions §3: a final row carries no
-  // date and no time — for a completed game the result is the information. The badge
-  // assertion above is the positive control: the header still renders, it just no
-  // longer carries a kickoff.
-  assert.doesNotMatch(finalScoreboard, /Dec 19|7:00 PM/);
+  // date and no time — for a completed game the result is the information.
+  //
+  // Asserted structurally rather than against this fixture's literal kickoff. A
+  // `doesNotMatch(/Dec 19|7:00 PM/)` would pass with `clock` restored the moment the
+  // fixture's date changed, so the regression it exists to catch would go invisible.
+  const finalHeader = finalScoreboard.match(/<div[^>]*data-scoreboard-header[\s\S]*?<\/div>/)?.[0];
+  assert.ok(finalHeader, 'the final row must still render a status header');
+  assert.match(finalHeader, />Final</, 'positive control: the header carries the Final status');
+  assert.equal(
+    (finalHeader.match(/<span/g) ?? []).length,
+    1,
+    'the header holds the Final status span and nothing else — no kickoff, no clock'
+  );
   assert.match(
     finalScoreboard,
     /data-scoreboard-side="away" data-scoreboard-leading="false"[\s\S]*data-scoreboard-team="away">Texas<\/span>[\s\S]*data-scoreboard-value="away">21<\//

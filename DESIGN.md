@@ -178,8 +178,11 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   or live DOM state; final uses a neutral `Final` status row and score anchors. In the final variant,
   away → home order remains fixed while the winner receives primary weight and the loser is muted,
   including when the home team won. **A final row carries no date and no time** — for a completed
-  game the result is the information, and the container supplies temporal context (week tabs on
-  Matchups, date-group headings on Schedule). Owner decision 2026-09-04, reversing the earlier rule
+  game the result is the information, and the container supplies temporal context: week tabs on
+  Matchups, date-group headings on Schedule, and on Overview the section's own scoping — Recent
+  finals is bounded to the current week and expires at the recap boundary, Featured is week-scoped.
+  Overview renders no week or date label in a section header, so that scoping is the whole of its
+  temporal context. Owner decision 2026-09-04, reversing the earlier rule
   that Featured results keep an expanded kickoff beside `Final`; the reasoning is in
   `docs/campaigns/item-87-followon-section-ordering-resolutions.md` §3. **Implemented on Overview
   only so far** — Matchups (`MatchupsWeekPanel.tsx`, the non-scheduled metadata branch) and Schedule

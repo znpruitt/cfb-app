@@ -492,10 +492,17 @@ rest, so the document is not the only place they live.
 
 1. **DONE — Live sorts by kickoff alone.** POLISH-023, PR #563. `compareOverviewLiveItems` reduced
    to kickoff ascending; the in-progress partition and the owner-count key both removed. §2 was
-   scoped by the owner on 2026-09-04 to **every** section, so the same key also came out of
-   `compareOverviewRecentFinals` and out of the watchlist's `compareWatchlistItems` — the watchlist
-   keeps `watchlistPriority`, its curation score, which is not an owner-count key. Sort rules for
-   all three sections are now written down in the resolutions doc.
+   scoped by the owner on 2026-09-04 to the **three state sections**, so the same key also came out
+   of `compareOverviewRecentFinals` and out of the watchlist's `compareWatchlistItems` — the
+   watchlist keeps `watchlistPriority`, its curation score, which is not an owner-count key. Sort
+   rules for all three are now written down in the resolutions doc.
+   **Open, and NOT closed by PR #563: does Featured drop it too?** `compareRecentResultItems`
+   (`selectors/overview.ts`) still sorts `resultCandidates` by kickoff descending then
+   `item.priority`, and `selectFeaturedGames` slices without re-sorting — so Featured still orders
+   _and selects_ by owner count, and at the cap a two-owner game displaces a one-owner game sharing
+   its kickoff. Arguable for the relevance surface, but nobody chose owner count as that signal, and
+   `NoClaim` is truthy so a `NoClaim`-vs-real-owner final scores `priority: 2`, indistinguishable
+   from a genuine two-owner game.
 2. **DONE — no date or time on a Featured final.** POLISH-023, PR #563. `DESIGN.md` said the
    opposite and was amended. **Still outstanding, and the rule is repo-wide:** Matchups
    (`MatchupsWeekPanel.tsx`, the non-scheduled metadata branch) and Schedule
@@ -762,6 +769,19 @@ at the presentation seam; otherwise decide whether to re-key or delete the dorma
 - Backlog slug: `POLISH-MATCHUPS-SCOREBOARD-v1`
 
 ### Item 115 — Overview sections truncate with no expansion, though "bounded default" was decided
+
+**Sharpened 2026-09-04 by a `/code-review` finding on PR #563.** POLISH-023 made Live sort by
+kickoff alone, which changes the cap from "scored rows win the slots" to "earliest kickoffs win the
+slots". A provider gap across one kickoff window — the PLATFORM-105A failure mode — routes those
+games to `awaiting-score`, and `routeForItem`'s abandonment gate keeps them there for up to
+`GAME_MAX_DURATION_MS` (8h from kickoff, `standingsHistory.ts:109`). Six such rows hold the earliest
+`sortDate`s, fill Live, and every later game carrying a real score is sliced off: **the Live section
+can show six "Awaiting score" rows and zero scores during a live slate, for hours.** That is not a
+defect of the sort — the rows are in the decided order — it is the hard cap with no expand control,
+which is this item. It is the sharpest argument yet for the expansion, sharper than the count.
+**Also a test gap to close here:** `live rows ignore owner count and keep the six-row cap on kickoff
+order` uses one unscored row plus six scored ones, so it never exercises the direction where
+unscored rows consume the cap.
 
 **Filed 2026-09-03. Owner decision already exists — this is unbuilt work, not an open question.**
 `item-87-live-watchlist-scoreboard.md:244` settles it: _"Progressive disclosure per section: bounded

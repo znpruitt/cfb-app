@@ -84,7 +84,18 @@ section-ordering findings in the first place.
 curation applied; ordering by anything else leaves a member unable to tell why one row sits above
 another. No awaiting-score partition (§1) and no owner count (§2).
 
-**The watchlist keeps its curation score, and this is the one place §2 does NOT reach.** The
+**Two places §2 does NOT reach.** The watchlist keeps its curation score, deliberately. **Featured
+also still keys on owner count** — `compareRecentResultItems` (`selectors/overview.ts`) sorts
+`resultCandidates` by kickoff descending and then by `item.priority`, and `selectFeaturedGames`
+slices without re-sorting. So on Overview the Featured section still orders *and selects* by owner
+count: two finals sharing a kickoff put the two-owner game first, and at the cap that displaces the
+one-owner game from the section entirely. That is an **open decision, not an oversight** — Featured
+is the relevance surface, so a relevance key there is arguable in a way it is not in Live. But it
+carries the `NoClaim` defect below (a `NoClaim`-vs-real-owner final scores `priority: 2`,
+indistinguishable from a genuine two-owner game), and nobody chose owner count as Featured's
+relevance signal. Recorded in Item 125 for a decision.
+
+**Why the watchlist keeps its score.** The
 watchlist is already a selected list — something decided those games were worth showing — so
 ordering by the reason they were chosen is the visible logic of the section rather than a hidden key.
 It also matters structurally: with Featured capped at four, the watchlist is where notable games that
