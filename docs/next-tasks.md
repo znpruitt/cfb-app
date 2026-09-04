@@ -76,6 +76,11 @@ Item 87's postseason grouping input; it does not block that work. **Item 120** c
 gate, no action. **Item 122** (the historical-cache button cannot re-cache) and **Item 123**
 (retire the dead postseason template) are both undated; 123 is small and adjacent to 121.
 
+**Overview ordering, after PR #562 merges:** **Item 125** portions 1 and 2 — the Live kickoff sort
+and the Featured final-row time — are each an hour and user-facing, so they belong near the top of
+the run order rather than in the interstitials. **Item 124** (retire the dead `sectionOrder`) is
+undated cleanup.
+
 **Decisions parked, with the item that consumes each:** amber `upset` border → slice 5;
 normalisation target `#0A0A0A` vs `#161616` → Item 119; card-owner treatment → Item 117.
 
@@ -477,6 +482,60 @@ through the offseason without an operator, and is driven by a Vercel Active CPU 
 Neon one. Keep this item for the read-replica autosuspend and the non-cadence findings.
 
 - Backlog slug: `PLATFORM-OFFSEASON-SCHEDULE-PAUSE-v1`
+
+### Item 125 — four Overview section-ordering decisions are decided but unbuilt
+
+**Filed 2026-09-04.** The decisions and their evidence:
+`docs/campaigns/item-87-followon-section-ordering.md` and its two children. Decision 1 (section
+order) shipped as POLISH-022; decision 4 was documentation only. This item is the queue home for the
+rest, so the document is not the only place they live.
+
+1. **Live sorts by kickoff alone.** `compareOverviewLiveItems` (`overviewGameSections.ts:124`) sorts
+   in-progress before awaiting-score FIRST, then real-owner count descending, then kickoff. Both
+   leading keys are removed; the resolutions doc withdrew the awaiting-score partition because a row
+   would reposition on a polling surface the moment a score arrived. Small and standalone.
+2. **Final rows carry no date or time — scoped to Featured.** Recent finals already passes
+   `clock: undefined`; `FeaturedGamesList` passes `clock={formatExpandedKickoff(...)}` with
+   `state="final"`, which is the shipped `Final · 4:47 PM` row. One prop. Standalone.
+3. **Counts are totals, not visible counts** — belongs to **Item 115**, not here. `liveTitle` reads
+   `.length` after `.slice(0, OVERVIEW_LIVE_LIMIT)`, so it is a visible count, and today the surplus
+   is dropped with no expand control at all. A total before Item 115 exists would promise games the
+   UI cannot reach; the count and the cap are one fix.
+4. **"Today" is the only relative date label** — constrains **Item 87 slice 5**, not a change on its
+   own. No relative label ships today; every date is absolute.
+
+Items 1 and 2 together are an hour and both are user-facing. 3 and 4 are recorded here only so the
+decision is not lost when someone opens Item 115 or slice 5.
+
+- Backlog slug: `POLISH-OVERVIEW-ORDERING-REMAINDER-v1`
+
+### Item 124 — `OverviewContext.sectionOrder` is dead and now contradicts the shipped order
+
+**Filed 2026-09-04 from a `/code-review` finding on PR #562. Pre-existing, not introduced there.**
+
+`overview.ts:41` declares `sectionOrder: OverviewSectionKind[]` and four construction sites populate
+it (`:141`, `:154`, `:167`, `:179`). **Nothing outside `overview.ts` and test fixtures reads it** —
+`OverviewPanel.tsx` hardcodes section order in static JSX. The live-emphasis value at `:141`,
+`['live', 'highlights', 'standings', 'matrix']`, asserts Live leads the page above Standings, which
+is now contradicted by the owner decision POLISH-022 implemented.
+
+**Two sibling fields are dead the same way.** `liveDescription` and `highlightsDescription` have no
+`.tsx` reader; `liveDescription` at `:159` is copy — "If games go live, they will automatically move
+to the top of Overview" — that no surface renders and that describes behaviour the page does not
+have.
+
+**Why it matters:** someone edits `sectionOrder` to change the layout, nothing renders differently,
+and the model quietly disagrees with the JSX. A second unread model of the same fact is the shape
+Item 123 documents in the postseason template.
+
+**Deliberately not folded into PR #562**, which is a 28-line pure block move. Deleting these fields
+touches the type, four construction sites and four test files, which would make a presentation-only
+change into a data-model one.
+
+**Scope note:** check `highlightsTitle` in the same pass — it IS read (`context.highlightsTitle`
+supplies the Featured heading), so this is a partial deletion, not a whole-type one.
+
+- Backlog slug: `POLISH-RETIRE-OVERVIEW-SECTION-ORDER-v1`
 
 ### Item 123 — `buildPostseasonTemplate` is dead, and stale in three ways if revived
 
