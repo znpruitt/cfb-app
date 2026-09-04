@@ -1,7 +1,7 @@
 # Prompt Registry
 
 Status: Current ledger
-Last verified: 2026-09-03
+Last verified: 2026-09-04
 Owner: Project documentation
 Canonical for: prompt ledger / historical implementation record (not an active backlog)
 Supersedes: (none)
@@ -50,6 +50,19 @@ Rules:
 ---
 
 ## Prompt ledger (most recent first)
+
+### PLATFORM-RETIRE-POSTSEASON-TEMPLATE-v1
+
+- Purpose: retire the unreferenced postseason template before its hardcoded, incomplete bracket and
+  stale provider-week assumptions could be mistaken for a supported model.
+- Scope: delete `src/lib/postseason-template.ts`; no replacement, caller, test, live postseason path,
+  or runtime behavior change.
+- Outcome: removed the 183-line dead module. Searches found no surviving source or script reference,
+  no test file existed, and no second static template generator was found.
+- Review / verification: exact implementation commit `12da576e`; Codex and `/code-review` returned no
+  findings. TypeScript, `lint:all`, all 4,590 tests (delta 0), and the production build passed.
+- Status: Implemented — review complete, awaiting merge on
+  `platform/retire-postseason-template`.
 
 ### SCHEDULE-REFRESH-DIAGNOSTIC-DOCUMENTATION
 
