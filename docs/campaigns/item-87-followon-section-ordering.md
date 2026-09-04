@@ -16,9 +16,14 @@ These were conflated, and only the first was specified.
 
 ---
 
-## Proposed order
+## The order — decided, and built
 
 **Featured → Live → Recent finals → Upcoming watchlist.**
+
+> **Decision 1 is implemented.** POLISH-022, PR #562, `2879f5f3` — a pure block move of the
+> watchlist JSX below Recent finals, mutation-proven and order-pinned by a test with positive
+> controls. Decisions 2, 3, 5 and 6 remain unbuilt; decision 4 was documentation only. The table
+> below records the state at filing and is not a live view of `main`.
 
 Ordered by temporal distance from now: happening, just happened, coming up. That matches what a member is looking for at the moment they open the page during a slate.
 
@@ -70,7 +75,7 @@ The CLI report was about **shipped behaviour**, read from `OverviewPanel.tsx` ra
 
 | # | Decision | Shipped today | Handling |
 | --- | --- | --- | --- |
-| 1 | Featured → Live → Recent finals → Upcoming watchlist | Featured `:1644` → Upcoming watchlist `:1671` → Live `:1702` → Recent finals `:1731`, static JSX with no reordering logic | Change request — two moves, not one |
+| 1 | Featured → Live → Recent finals → Upcoming watchlist | Featured `:1644` → Upcoming watchlist `:1671` → Live `:1702` → Recent finals `:1731`, static JSX with no reordering logic | **BUILT** — POLISH-022, PR #562 |
 | 2 | Live sorts by kickoff; progress not a sort input | `compareOverviewLiveItems` (`overviewGameSections.ts:124`) sorts in-progress before awaiting-score FIRST, then real-owner count DESC, then kickoff | Change request; deletes two existing sort keys |
 | 3 | Counts are totals | `liveTitle` reads `gameSections.live.length` AFTER `.slice(0, OVERVIEW_LIVE_LIMIT)`, so it is a visible count | Change request, and see below |
 | 4 | No "Why these →" link | Never shipped; the string appears nowhere in `src/` | Documentation only |

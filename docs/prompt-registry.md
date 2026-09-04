@@ -51,6 +51,25 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### POLISH-022-OVERVIEW-SECTION-ORDER-v1
+
+- Purpose: render Overview's game sections in the owner-decided order — Featured → Live → Recent
+  finals → Upcoming watchlist — instead of the inherited Featured → watchlist → Live → Recent finals,
+  which placed the only time-sensitive section third.
+- Scope: `src/components/OverviewPanel.tsx` (JSX block move only) and the two Overview component
+  test files. No selector, cap, condition, or data change; the five other decisions in
+  `docs/campaigns/item-87-followon-section-ordering.md` are explicitly not in scope.
+- Outcome: the watchlist block moved below Recent finals. Verified a pure permutation — the sorted
+  line multisets of `main` and `HEAD` for `OverviewPanel.tsx` are identical, 28 lines added and 28
+  removed with every line paired.
+- Review / verification: exact head `2879f5f3`, clean tree. `npx tsc --noEmit` exit 0,
+  `npm run lint:all` exit 0, `npm test` exit 0 with 4,586 passing (+1). One new order test carrying
+  four presence assertions as positive controls, mutation-proven — restoring `main`'s
+  `OverviewPanel.tsx` fails `Recent finals must precede the watchlist`. Codex review clean;
+  `/code-review` found no correctness bugs and three low findings, two closed by this closeout and
+  one filed as Item 124.
+- Status: PR #562 open at `2879f5f3` — **not merged**. Flip this line at merge.
+
 ### POLISH-021-NOCLAIM-PRESENTATION-v1
 
 - Purpose: stop the internal `NoClaim` roster sentinel from rendering as a member name on Schedule,
