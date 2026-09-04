@@ -23,7 +23,6 @@ import {
   type LiveScorePartition,
 } from '../../lib/liveScores/browserPolling';
 import { getOddsQuotaGuardState } from '../../lib/api/oddsUsage';
-import { fetchTeamsCatalog } from '../../lib/teamsCatalog';
 import { requireAdminAuthHeaders } from '../../lib/adminAuth';
 import { type CombinedOdds } from '../../lib/odds';
 import { applyOddsResponse, type OddsClientResponse } from '../../lib/oddsClientPayload';
@@ -32,6 +31,7 @@ import { classifyScorePackStatus } from '../../lib/gameStatus';
 import type { LiveScoreObservation } from '../../lib/selectors/gameDayConfidence';
 import { isLiveIssue, isLiveOddsIssue } from '../../lib/cfbScheduleAppHelpers';
 import type { AliasMap } from '../../lib/teamNames';
+import type { TeamCatalogItem } from '../../lib/teamIdentity';
 import type { AppGame } from '../../lib/schedule';
 import type { OddsUsageSnapshot } from '../../lib/apiUsage';
 
@@ -51,6 +51,32 @@ type UseLiveRefreshParams = {
    * `setScoresByKey`.
    */
   scoresByKey: Record<string, ScorePack>;
+  /**
+   * The team catalog the schedule bootstrap already loaded and retains (Item 128).
+   * Passed in rather than refetched: `fetchTeamsCatalog` sets `cache: 'no-store'`,
+   * so calling it per tick was a real `/api/teams` function invocation that read
+   * the whole durable catalog record, normalized, filtered, sorted and serialized
+   * every team — for data the client had in memory the whole time. Every caller of
+   * `refreshLiveData` is gated on `scheduleLoaded`, which is only set after that
+   * bootstrap succeeds, so this is populated whenever a refresh runs.
+   *
+   * An empty array is forwarded as `undefined` so `fetchScoresByGame` fetches the
+   * catalog itself. That is NOT what the old code did, and the difference is worth
+   * stating: the removed line was `fetchTeamsCatalog().catch(() => [])`, so a
+   * failed catalog fetch passed `[]` — and `providedTeams ?? …` does not fire on
+   * `[]`, so scores were attached against an EMPTY catalog with no retry. The new
+   * path retries instead. Production cannot reach it either way, because
+   * `scheduleLoaded` is only set after a successful catalog fetch, but the
+   * degraded behaviour is better and the claim that it is unchanged was wrong.
+   *
+   * ACCEPTED TRADE: polls are now pinned to the catalog held at bootstrap. The
+   * team database behind `/api/teams` can be re-synced at runtime, and the old
+   * per-tick fetch picked such a change up within one tick; identity resolution
+   * now keeps using the bootstrap copy until a full schedule reload. That is
+   * deliberate — the catalog changes only on an operator re-sync, while the fetch
+   * it replaces ran on every poll in every visible tab.
+   */
+  teamCatalog: TeamCatalogItem[];
   aliasMap: AliasMap;
   oddsUsage: OddsUsageSnapshot | null;
   scoreHydrationState: ScoreHydrationState;
@@ -204,6 +230,7 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
     visibleGames,
     scoreScopeGames,
     scoresByKey,
+    teamCatalog,
     aliasMap,
     oddsUsage,
     scoreHydrationState,
@@ -318,7 +345,11 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
       }
 
       try {
-        const teams = await fetchTeamsCatalog().catch(() => []);
+        // Reuse the bootstrap's catalog instead of refetching it every tick. Empty
+        // becomes `undefined`, so `fetchScoresByGame` fetches one itself rather
+        // than attaching scores against an empty catalog (see the param doc — the
+        // old code passed `[]` here, which silently skipped that fallback).
+        const teams = teamCatalog.length > 0 ? teamCatalog : undefined;
 
         if (refreshDecision.reason === 'odds-disabled-by-quota') {
           setIssues((p) => [
@@ -528,6 +559,7 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
       setOddsSnapshotAt,
       setScoreHydrationState,
       setScoresByKey,
+      teamCatalog,
       visibleGames,
       weeks,
     ]
