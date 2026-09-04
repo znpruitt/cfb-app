@@ -84,7 +84,13 @@
   .sb-line { display: flex; align-items: baseline; justify-content: space-between; font-size: 14px; padding: 2px 0; }
   .sb-line .who { display: flex; align-items: baseline; gap: 6px; overflow: hidden; white-space: nowrap; margin-right: 12px; }
   .sb-line .who > span { overflow: hidden; text-overflow: ellipsis; }
+  /* Prefix slot holds a classification marker: AP rank OR FCS, mutually exclusive
+     (AP Top 25 is FBS-only, so no team carries both). */
   .sb-line .rank { color: var(--text-tertiary); font-size: 12px; }
+  .sb-line .cls {
+    color: var(--text-tertiary); font-size: 9.5px; font-weight: 600; letter-spacing: 0.06em;
+    border: 1px solid var(--hairline); border-radius: 3px; padding: 0 3px;
+  }
   .sb-line .owner { color: var(--text-tertiary); font-size: 12.5px; }
   /* Inline team record, standard CFB scoreboard placement — parenthetical after the team
      name. Used on live and final rows, where the anchor already holds the score. */
@@ -167,7 +173,6 @@
   <div class="featured">
     <div class="featured-head">
       <h2>Featured</h2>
-      <a href="#">Why these &rarr;</a>
     </div>
     <div class="featured-grid">
       <div class="scoreboard">
@@ -201,19 +206,9 @@
   </div>
   <div class="game-list" id="live-list">
       <div class="scoreboard">
-        <div class="sb-status"><span class="state">Awaiting score</span><span>Kicked off 2:30 PM</span></div>
-        <div class="sb-line"><span class="who"><span class="team">Rice</span><span class="rec num">(2–6)</span><span class="owner">Maleski</span></span><span class="score num pending">&ndash;</span></div>
-        <div class="sb-line"><span class="who"><span class="team">Texas State</span><span class="rec num">(5–3)</span><span class="owner">Ciprys</span></span><span class="score num pending">&ndash;</span></div>
-      </div>
-      <div class="scoreboard">
-        <div class="sb-status"><span class="live-badge">Live</span><span>Q2 2:46</span><span class="eyebrow">&middot; Top matchup</span></div>
-        <div class="sb-line trailing"><span class="who"><span class="team">San José State</span><span class="rec num">(2–5)</span><span class="owner">Whited</span></span><span class="score num">0</span></div>
-        <div class="sb-line"><span class="who"><span class="rank">#14</span><span class="team">USC</span><span class="rec num">(7–1)</span><span class="owner">Chamness</span></span><span class="score num">21</span></div>
-      </div>
-      <div class="scoreboard">
-        <div class="sb-status"><span class="live-badge">Live</span><span>Q1 2:37</span><span class="eyebrow">&middot; Top matchup</span></div>
-        <div class="sb-line trailing"><span class="who"><span class="team">NC State</span><span class="rec num">(4–3)</span><span class="owner">BHooper</span></span><span class="score num">0</span></div>
-        <div class="sb-line"><span class="who"><span class="team">Virginia</span><span class="rec num">(6–2)</span><span class="owner">Chamness</span></span><span class="score num">10</span></div>
+        <div class="sb-status"><span class="live-badge">Live</span><span>Q4 6:18</span></div>
+        <div class="sb-line trailing"><span class="who"><span class="team">Memphis</span><span class="rec num">(4–4)</span><span class="owner">Stevens</span></span><span class="score num">24</span></div>
+        <div class="sb-line"><span class="who"><span class="team">Houston</span><span class="rec num">(6–2)</span><span class="owner">Ciprys</span></span><span class="score num">27</span></div>
       </div>
       <div class="scoreboard">
         <div class="sb-status"><span class="live-badge">Live</span><span>Q3 11:02</span></div>
@@ -221,19 +216,24 @@
         <div class="sb-line trailing"><span class="who"><span class="team">Tulane</span><span class="rec num">(5–3)</span><span class="owner">Gladney</span></span><span class="score num">17</span></div>
       </div>
       <div class="scoreboard">
-        <div class="sb-status"><span class="live-badge">Live</span><span>Q4 6:18</span></div>
-        <div class="sb-line trailing"><span class="who"><span class="team">Memphis</span><span class="rec num">(4–4)</span><span class="owner">Stevens</span></span><span class="score num">24</span></div>
-        <div class="sb-line"><span class="who"><span class="team">Houston</span><span class="rec num">(6–2)</span><span class="owner">Ciprys</span></span><span class="score num">27</span></div>
+        <div class="sb-status"><span class="live-badge">Live</span><span>Q3 4:55</span></div>
+        <div class="sb-line"><span class="who"><span class="team">Utah</span><span class="rec num">(6–2)</span><span class="owner">Gladney</span></span><span class="score num">31</span></div>
+        <div class="sb-line trailing"><span class="who"><span class="team">Arizona State</span><span class="rec num">(3–5)</span><span class="owner">Stevens</span></span><span class="score num">20</span></div>
+      </div>
+      <div class="scoreboard overflow">
+        <div class="sb-status"><span class="live-badge">Live</span><span>Q3 8:21</span></div>
+        <div class="sb-line"><span class="who"><span class="team">Middle Tennessee State</span><span class="rec num">(3–5)</span><span class="owner">Shambaugh</span></span><span class="score num">13</span></div>
+        <div class="sb-line trailing"><span class="who"><span class="team">Florida International</span><span class="rec num">(2–6)</span><span class="owner">Maleski</span></span><span class="score num">10</span></div>
+      </div>
+      <div class="scoreboard">
+        <div class="sb-status"><span class="live-badge">Live</span><span>Q2 2:46</span><span class="eyebrow">&middot; Top matchup</span></div>
+        <div class="sb-line trailing"><span class="who"><span class="team">San José State</span><span class="rec num">(2–5)</span><span class="owner">Whited</span></span><span class="score num">0</span></div>
+        <div class="sb-line"><span class="who"><span class="rank">#14</span><span class="team">USC</span><span class="rec num">(7–1)</span><span class="owner">Chamness</span></span><span class="score num">21</span></div>
       </div>
       <div class="scoreboard">
         <div class="sb-status"><span class="live-badge">Live</span><span>Q2 0:42</span></div>
         <div class="sb-line"><span class="who"><span class="team">Kansas</span><span class="rec num">(3–5)</span><span class="owner">Maleski</span></span><span class="score num">14</span></div>
         <div class="sb-line"><span class="who"><span class="team">Baylor</span><span class="rec num">(4–4)</span><span class="owner">Shambaugh</span></span><span class="score num">14</span></div>
-      </div>
-      <div class="scoreboard">
-        <div class="sb-status"><span class="live-badge">Live</span><span>Q3 4:55</span></div>
-        <div class="sb-line"><span class="who"><span class="team">Utah</span><span class="rec num">(6–2)</span><span class="owner">Gladney</span></span><span class="score num">31</span></div>
-        <div class="sb-line trailing"><span class="who"><span class="team">Arizona State</span><span class="rec num">(3–5)</span><span class="owner">Stevens</span></span><span class="score num">20</span></div>
       </div>
       <div class="scoreboard overflow">
         <div class="sb-status"><span class="live-badge">Live</span><span>Q2 9:30</span></div>
@@ -245,12 +245,17 @@
         <div class="sb-line trailing"><span class="who"><span class="team">Iowa</span><span class="rec num">(5–3)</span><span class="owner">Shambaugh</span></span><span class="score num">3</span></div>
         <div class="sb-line"><span class="who"><span class="team">Nebraska</span><span class="rec num">(4–4)</span><span class="owner">Chamness</span></span><span class="score num">10</span></div>
       </div>
-      <div class="scoreboard overflow">
-        <div class="sb-status"><span class="live-badge">Live</span><span>Q3 8:21</span></div>
-        <div class="sb-line"><span class="who"><span class="team">Middle Tennessee State</span><span class="rec num">(3–5)</span><span class="owner">Shambaugh</span></span><span class="score num">13</span></div>
-        <div class="sb-line trailing"><span class="who"><span class="team">Florida International</span><span class="rec num">(2–6)</span><span class="owner">Maleski</span></span><span class="score num">10</span></div>
+      <div class="scoreboard">
+        <div class="sb-status"><span class="live-badge">Live</span><span>Q1 2:37</span><span class="eyebrow">&middot; Top matchup</span></div>
+        <div class="sb-line trailing"><span class="who"><span class="team">NC State</span><span class="rec num">(4–3)</span><span class="owner">BHooper</span></span><span class="score num">0</span></div>
+        <div class="sb-line"><span class="who"><span class="team">Virginia</span><span class="rec num">(6–2)</span><span class="owner">Chamness</span></span><span class="score num">10</span></div>
       </div>
-  </div>
+      <div class="scoreboard">
+        <div class="sb-status"><span class="state">Awaiting score</span><span>Kicked off 2:30 PM</span></div>
+        <div class="sb-line"><span class="who"><span class="team">Rice</span><span class="rec num">(2–6)</span><span class="owner">Maleski</span></span><span class="score num pending">&ndash;</span></div>
+        <div class="sb-line"><span class="who"><span class="team">Texas State</span><span class="rec num">(5–3)</span><span class="owner">Ciprys</span></span><span class="score num pending">&ndash;</span></div>
+      </div>
+</div>
   <div class="expand-footer"><button class="linkbtn" onclick="var l=document.getElementById('live-list');l.classList.toggle('expanded');this.innerHTML = l.classList.contains('expanded') ? 'Collapse &uarr;' : 'Show 3 more live games &rarr;';">Show 3 more live games &rarr;</button></div>
 
   <div class="divider"></div>
@@ -261,32 +266,32 @@
   </div>
   <div class="game-list" id="final-list">
       <div class="scoreboard">
-        <div class="sb-status"><span class="state">Final</span><span>4:47 PM</span></div>
+        <div class="sb-status"><span class="state">Final</span></div>
         <div class="sb-line trailing"><span class="who"><span class="team">Alabama</span><span class="rec num">(6–2)</span><span class="owner">Ciprys</span></span><span class="score num">3</span></div>
         <div class="sb-line"><span class="who"><span class="team">Indiana</span><span class="rec num">(8–0)</span><span class="owner">Gladney</span></span><span class="score num">38</span></div>
       </div>
       <div class="scoreboard">
-        <div class="sb-status"><span class="state">Final</span><span>4:12 PM</span></div>
+        <div class="sb-status"><span class="state">Final</span></div>
         <div class="sb-line"><span class="who"><span class="team">Washington</span><span class="rec num">(6–2)</span><span class="owner">Stevens</span></span><span class="score num">38</span></div>
         <div class="sb-line trailing"><span class="who"><span class="team">Boise State</span><span class="rec num">(5–3)</span><span class="owner">Whited</span></span><span class="score num">10</span></div>
       </div>
       <div class="scoreboard">
-        <div class="sb-status"><span class="state">Final</span><span>3:55 PM</span></div>
+        <div class="sb-status"><span class="state">Final</span></div>
         <div class="sb-line trailing"><span class="who"><span class="team">Texas Tech</span><span class="rec num">(4–4)</span><span class="owner">Maleski</span></span><span class="score num">0</span></div>
         <div class="sb-line"><span class="who"><span class="rank">#6</span><span class="team">Oregon</span><span class="rec num">(7–1)</span><span class="owner">BHooper</span></span><span class="score num">23</span></div>
       </div>
       <div class="scoreboard">
-        <div class="sb-status"><span class="state">Final</span><span>3:40 PM</span></div>
+        <div class="sb-status"><span class="state">Final</span></div>
         <div class="sb-line"><span class="who"><span class="team">Illinois</span><span class="rec num">(5–3)</span><span class="owner">Whited</span></span><span class="score num">30</span></div>
         <div class="sb-line trailing"><span class="who"><span class="team">Tennessee</span><span class="rec num">(5–3)</span><span class="owner">Stevens</span></span><span class="score num">28</span></div>
       </div>
       <div class="scoreboard overflow">
-        <div class="sb-status"><span class="state">Final</span><span>3:22 PM</span></div>
+        <div class="sb-status"><span class="state">Final</span></div>
         <div class="sb-line trailing"><span class="who"><span class="team">Purdue</span><span class="rec num">(1–7)</span></span><span class="score num">6</span></div>
         <div class="sb-line"><span class="who"><span class="team">Penn State</span><span class="rec num">(7–1)</span><span class="owner">Chamness</span></span><span class="score num">45</span></div>
       </div>
       <div class="scoreboard overflow">
-        <div class="sb-status"><span class="state">Final</span><span>2:58 PM</span></div>
+        <div class="sb-status"><span class="state">Final</span></div>
         <div class="sb-line"><span class="who"><span class="team">UTSA</span><span class="rec num">(4–4)</span><span class="owner">Gladney</span></span><span class="score num">57</span></div>
         <div class="sb-line trailing"><span class="who"><span class="team">Florida International</span><span class="rec num">(2–6)</span><span class="owner">BHooper</span></span><span class="score num">20</span></div>
       </div>
@@ -298,7 +303,7 @@
   <div class="divider"></div>
 
   <div class="section-head">
-    <h2>Upcoming watchlist <span class="count">&middot; 5</span></h2>
+    <h2>Upcoming watchlist <span class="count">&middot; 7</span></h2>
     <a href="#">All matchups &rarr;</a>
   </div>
   <div class="game-list" id="sched-list">
@@ -337,8 +342,22 @@
         <div class="sb-line"><span class="who"><span class="team">Nevada</span><span class="owner">Whited</span></span><span class="anchor-soft num">1&ndash;5</span></div>
         <div class="sb-odds num">Line not yet posted</div>
       </div>
+      <div class="scoreboard overflow">
+        <div class="sb-title empty">&nbsp;</div>
+        <div class="sb-meta-row">Fri, Sep 4 &middot; 7:00 PM</div>
+        <div class="sb-line"><span class="who"><span class="cls">FCS</span><span class="team">Long Island</span><span class="owner">BHooper</span></span><span class="anchor-soft num">1&ndash;5</span></div>
+        <div class="sb-line"><span class="who"><span class="team">Kansas</span><span class="owner">Maleski</span></span><span class="anchor-soft num">3&ndash;5</span></div>
+        <div class="sb-odds num">Kansas &minus;24.5 &middot; O/U 55.5</div>
+      </div>
+      <div class="scoreboard overflow">
+        <div class="sb-title">Ranked spotlight</div>
+        <div class="sb-meta-row">Sun, Sep 6 &middot; 6:30 PM &middot; <span class="tv">ABC</span> &middot; Neutral site</div>
+        <div class="sb-line"><span class="who"><span class="rank">#24</span><span class="team">Louisville</span><span class="owner">Stevens</span></span><span class="anchor-soft num">5&ndash;1</span></div>
+        <div class="sb-line"><span class="who"><span class="rank">#9</span><span class="team">Ole Miss</span><span class="owner">BHooper</span></span><span class="anchor-soft num">6&ndash;1</span></div>
+        <div class="sb-odds num">Ole Miss &minus;6.5 &middot; O/U 49.5</div>
+      </div>
   </div>
-  <div class="expand-footer"><button class="linkbtn" onclick="var l=document.getElementById('sched-list');l.classList.toggle('expanded');this.innerHTML = l.classList.contains('expanded') ? 'Collapse &uarr;' : 'Show 3 more upcoming games &rarr;';">Show 3 more upcoming games &rarr;</button></div>
+  <div class="expand-footer"><button class="linkbtn" onclick="var l=document.getElementById('sched-list');l.classList.toggle('expanded');this.innerHTML = l.classList.contains('expanded') ? 'Collapse &uarr;' : 'Show 5 more upcoming games &rarr;';">Show 5 more upcoming games &rarr;</button></div>
   <div class="option-note">Last card (Fresno State at Nevada) shows the no-line-posted fallback.</div>
 
   <div class="mockup-notes">
@@ -346,6 +365,8 @@
     <ul>
       <li><strong>What this proposes:</strong> the scoreboard micro-component with three rendered state variants (live, final, scheduled), the promotion model &mdash; a game occupies exactly one section instead of rendering in both watchlist and live as it does today (overview.ts:1009 filters <code>!== 'final'</code>, admitting in-progress by omission; Item 82 records it as a defect) &mdash; a two-column grid, and progressive disclosure per section.</li>
       <li><strong>Live state is neutral text plus a neutral dot,</strong> per the amber reservations in DESIGN.md :135, :215 and :281, none of which admit a live exception. (POLISH-007 governs the league-header confidence signal and owned-team-row copy, not game-card badges &mdash; it is not the authority here.) Two pieces of shipped amber are drift and must both go: the clock badges, and the amber card borders on live cards (OverviewPanel.tsx:734, <code>border-amber-200/80 … dark:border-amber-900/70</code>), which additionally collide with DESIGN.md :195 reserving card chrome for meaningful border signals.</li>
+      <li><strong>Prefix slot is a classification marker, not just a rank.</strong> It holds an AP rank when the team is ranked, or an FCS marker when the opponent is FCS &mdash; mutually exclusive, since AP Top 25 is FBS-only. This preserves the FCS flag the Matchups panel surfaces today, which is real information: an FBS win over an FCS opponent means something different.</li>
+      <li><strong>Neutral-site games need explicit handling.</strong> Away &rarr; home ordering assumes a home team; conference championships, bowls, CFP games and neutral openers have none. CFBD still assigns nominal away/home alongside a <code>neutralSite</code> flag, so ordering can stay unchanged and the condition becomes a metadata marker on the date line ("Neutral site"), as drawn. <strong>This must be in the component contract before Item 87 ships</strong> &mdash; otherwise postseason forces a widening of a shipped component.</li>
       <li><strong>Team records appear in every state, in one of two positions &mdash; decided.</strong> On <em>scheduled</em> rows the record is the anchor, since no score exists yet, and spread plus O/U sit on the odds footer. On <em>live</em> and <em>final</em> rows the anchor holds the score, so the record moves inline as a parenthetical after the team name &mdash; standard CFB scoreboard placement. Finals carry the <em>post-game</em> record including the result being read; a stale record on a final is bad data handling. The record therefore shifts position by state, which is accepted: the watchlist is legitimately a different layout, and the anchor consistently holds whatever number matters most in that state. The alternative &mdash; record inline everywhere with the scheduled anchor given back to the spread &mdash; was considered and rejected.</li>
       <li><strong>All records depend on Item 92.</strong> Until the CFBD records endpoint is wired, live and final rows omit the parenthetical and scheduled rows fall back to the spread anchor. The rows degrade cleanly in both cases.</li>
       <li><strong>The anchor holds a record; the record belongs to the line's primary identifier.</strong> A team-primary line (this scoreboard, in any state) anchors a <em>team</em> record. An owner-primary line (recap week records, standings, movement) anchors an <em>owner</em> record. Position stays constant across the app and context disambiguates &mdash; no label needed, and the team line stays at three elements plus an anchor, matching the live and final rows exactly. Spread and O/U move to the odds footer together.</li>
