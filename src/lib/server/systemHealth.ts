@@ -36,10 +36,6 @@ import {
   type ProviderRefreshHealthSnapshot,
 } from './providerRefreshHealth.ts';
 import {
-  partitionScopedHealthByDataset,
-  type PartitionActivity,
-} from './partitionScopedRefreshHealth.ts';
-import {
   getProviderRefreshSettings,
   type ProviderRefreshSettings,
 } from './providerRefreshSettings.ts';
@@ -374,51 +370,6 @@ export async function buildSystemHealthViewModel(params: {
   const expectations: ProviderDataExpectations = diagR.ok
     ? diagR.value.expectations
     : unknownProviderDataExpectations();
-  // Item 88 — for scores and game-stats the year-scoped record is never written,
-  // so neither elapsed time nor cache presence can say whether the dataset is
-  // healthy. Both inputs are already here: the scheduler receipt says whether a
-  // refresh was DUE, and the row's partition activity says whether one happened.
-  const partitionHealth = partitionScopedHealthByDataset({
-    nowMs,
-    modelYear: year,
-    receiptFor: (job) => {
-      const jobRow = schedulerDelivery.jobs.find((candidate) => candidate.job === job);
-      const receipt = jobRow?.receipt ?? null;
-      if (!receipt) return null;
-      // Both partition-scoped jobs carry their target year; anything else is
-      // treated as unusable rather than assumed to match.
-      const target = receipt.target;
-      const targetYear =
-        target.kind === 'live-scores' || target.kind === 'game-stats' ? target.year : null;
-      return { reason: receipt.reason, startedAt: receipt.startedAt, year: targetYear };
-    },
-    activityFor: (dataset): PartitionActivity => {
-      const row = providerRefresh.rows.find((candidate) => candidate.dataset === dataset);
-      if (!row) return { state: 'absent' };
-      const fact = row.latestScopedActivity;
-      if (fact.state === 'unavailable') return { state: 'unknown' };
-      if (fact.state !== 'available') return { state: 'absent' };
-
-      // A CLEAN RESOLUTION, not a success. `no-op` is a healthy poll that found
-      // nothing to commit, and `recordProviderRefreshNoop` deliberately leaves
-      // `lastSuccessAt` untouched — so reading success marked every halftime and
-      // every scoreless stretch as a stall while polling worked perfectly.
-      const outcome = fact.status.latestAttemptOutcome;
-      if (outcome === 'succeeded' || outcome === 'no-op') {
-        const at = fact.status.latestAttemptResolvedAt ?? fact.status.lastSuccessAt;
-        const atMs = at ? Date.parse(at) : Number.NaN;
-        return Number.isFinite(atMs) ? { state: 'clean', atMs } : { state: 'absent' };
-      }
-      if (outcome === null) {
-        // A pre-outcome legacy record: fall back to its last success.
-        const atMs = fact.status.lastSuccessAt ? Date.parse(fact.status.lastSuccessAt) : Number.NaN;
-        return Number.isFinite(atMs) ? { state: 'clean', atMs } : { state: 'absent' };
-      }
-      // failed / partial / in-progress — running, achieving nothing.
-      return { state: 'unclean' };
-    },
-  });
-
   const datasets: ProviderDatasetHealthRow[] = providerRefresh.rows.map((row) => {
     const datasetDiagnostics = diagnosticsAvailable
       ? diagnostics.diagnostics.filter((diag) => diag.dataset === row.dataset)
@@ -436,7 +387,6 @@ export async function buildSystemHealthViewModel(params: {
         diagnosticsAvailable,
         diagnostics: datasetDiagnostics,
         expectation: expectations[row.dataset],
-        partitionHealth: partitionHealth[row.dataset] ?? null,
       }),
       diagnostics: datasetDiagnostics,
     };

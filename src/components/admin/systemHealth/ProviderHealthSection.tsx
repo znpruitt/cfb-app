@@ -169,12 +169,31 @@ function outcomeFactFor(row: ProviderDatasetHealthRow): CanonicalRefreshFact {
   if (row.canonicalStatus.state === 'invalid') return row.canonicalStatus;
   const latest = row.latestScopedActivity;
   if (latest.state !== 'available') return row.canonicalStatus;
-  // Partition activity wins even when a VALID year rollup exists. Scores are not
-  // exclusively partition-scoped: a manual aggregate refresh writes
-  // `scores:year:<year>` when it covers every applicable partition. Preferring
-  // that record once it exists pinned the row to stale manual history for the
+  // A canonical record carrying a FAULT stays on the row. Scores are not
+  // exclusively partition-scoped: a manual aggregate writes `scores:year:<year>`,
+  // and a failed or partial one remains an active dataset issue. Substituting the
+  // newer partition success unconditionally showed "Attention · Succeeded" with
+  // no error, no failed partitions and no duration — a warning with its forensic
+  // detail removed from the only row that names it.
+  if (
+    row.canonicalStatus.state === 'available' &&
+    canonicalCarriesFault(row.canonicalStatus.status)
+  )
+    return row.canonicalStatus;
+  // Otherwise partition activity wins, even over a clean year rollup: preferring
+  // that record once it existed pinned the row to stale manual history for the
   // rest of the season, through every live poll.
   return { state: 'available', status: latest.status };
+}
+
+/** A canonical record whose own outcome is the reason an issue names this row. */
+function canonicalCarriesFault(status: SafeProviderRefreshStatus): boolean {
+  return (
+    status.latestAttemptOutcome === 'failed' ||
+    status.latestAttemptOutcome === 'partial' ||
+    status.hasError ||
+    status.partialFailure
+  );
 }
 
 function refreshOutcomeDisplay(fact: CanonicalRefreshFact): { label: string; tone: StateTone } {

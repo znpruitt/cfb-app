@@ -623,3 +623,41 @@ test('Item 88: partition activity wins over a STALE year rollup', async () => {
     'the month-old manual rollup no longer supplies the row detail'
   );
 });
+
+test('Item 88: a FAILED year rollup keeps the row, even with newer partition success', async () => {
+  // Codex P2. A failed `scores:year:<year>` aggregate stays an active dataset
+  // issue. Substituting the newer partition success showed "Succeeded" with no
+  // error code, no failed partitions and no duration — a warning stripped of the
+  // detail explaining it, on the only row that names it.
+  const failedAggregate = canonicalOutcome('scores', 'failed', {
+    hasError: true,
+    errorCode: 'provider-503',
+  });
+  const newerPartition = canonicalOutcome('scores', 'succeeded', {
+    latestAttemptResolvedAt: new Date(NOW - 30_000).toISOString(),
+  });
+  if (failedAggregate.state !== 'available' || newerPartition.state !== 'available') return;
+
+  const model = await buildModel({
+    providerRefresh: () =>
+      Promise.resolve(
+        refreshSnapshotWith({
+          scores: {
+            canonical: failedAggregate,
+            latest: { state: 'available', status: newerPartition.status },
+          },
+        })
+      ),
+  });
+
+  const html = renderToStaticMarkup(
+    <ProviderHealthSection
+      datasets={model.datasets}
+      automation={model.automation}
+      year={model.year}
+      nowMs={NOW}
+    />
+  );
+
+  assert.ok(html.includes('provider-503'), 'the fault that drives the warning stays visible');
+});

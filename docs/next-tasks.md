@@ -766,6 +766,45 @@ not be read as a requirement on the other.**
 
 - Backlog slug: `PLATFORM-SCHEDULE-REFRESH-FORENSICS-v1`
 
+### Item 132 — rebuild partition-scoped freshness on the issues layer, not beside it
+
+**Filed 2026-09-05 after PLATFORM-088 was split.** The display half shipped; this is the half that
+was taken back.
+
+**What shipped instead.** The Scores and Game stats rows now read their outcome and detail from the
+week-partition record rather than the year record they never write, so they no longer say "No refresh
+history" while refreshing — and a row can no longer read healthy while a warning names it. That is
+Item 88's original complaint and its fourth acceptance bullet.
+
+**What was reverted, and why.** A freshness model that answered "was a refresh due, and did it
+happen" from raw `provider-refresh-status` fields. Two paired review rounds produced fourteen
+findings, and the branch kept surfacing semantics of that record which the model had assumed:
+
+- `recordProviderRefreshNoop` deliberately preserves `lastSuccessAt`, and live-scores records a no-op
+  on every poll that finds nothing to commit — so reading success called every halftime a stall.
+- `in-progress` is the NORMAL state mid-poll: both cron routes open an attempt before provider work,
+  so any admin page load landing inside a run read "Refresh overdue".
+- `automation-paused-or-disabled` means polling is OFF, not that nothing was due — a paused dataset
+  during a live slate read green "Idle — no games in window", an affirmatively false cause.
+- The System Health model year (`resolveOperationalSeasonYear`, which uses league `status.year`, and
+  preseason sets `year + 1`) and the cron receipt year (`seasonYearForToday`, which returns
+  `year − 1` from January to June) legitimately DISAGREE for months. A guard comparing them would
+  have shown "Attention needed" for roughly half of every year with no operator remedy.
+- Scores are not exclusively partition-scoped: a manual aggregate writes `scores:year:<year>`.
+- Delivery grace is not a receipt validity window — `requiredStartedAt` allows grace PLUS one period.
+
+**The lesson, and the direction.** `attemptFaultIssue` in `systemHealthIssues.ts` already interprets
+these records correctly — it deliberately returns null for a fresh `in-progress` and escalates only
+past `INTERRUPTED_ATTEMPT_AFTER_MS`. The reverted model was a SECOND interpreter of the same records,
+and every round rediscovered a semantic the first one already encodes. **Rebuild on that layer rather
+than beside it**: derive the row's state from the issues already raised for the dataset, and add only
+the one fact the issue layer genuinely lacks — "a refresh was due and no activity followed".
+
+**Value:** unchanged from Item 88 — those two rows still cannot distinguish "nothing was due" from
+"a refresh was due and did not happen", so they cannot report a live-scoring stall.
+
+- Backlog slug: `PLATFORM-PARTITION-FRESHNESS-ON-ISSUES-v1`
+
 ### Item 130 — narrow live-score polling to game clusters, then stand down when they finish
 
 **Filed 2026-09-05, revised the same day after re-reading the measurement.** Depends on Item 102 for
