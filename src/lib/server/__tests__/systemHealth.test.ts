@@ -765,3 +765,35 @@ test('bullet 4 END TO END: an INTENTIONAL gray is downgraded too', async () => {
     'an intentional gray cannot sit under a warning naming it'
   );
 });
+
+test('bullet 4: a CRITICAL issue turns the row red, not a flat yellow', async () => {
+  // A flat yellow left the row understating the issue it caused:
+  // `provider-refresh-failed` is critical whenever the cache is proven absent, so
+  // the panel and Overall rendered red while the one dataset row responsible
+  // rendered yellow — the row contradicting the panel above it.
+  const failedWithNoCache = canonicalOutcome('game-stats', 'failed', {
+    hasError: true,
+    errorCode: 'provider-503',
+  });
+  assert.equal(failedWithNoCache.state, 'available');
+  if (failedWithNoCache.state !== 'available') return;
+
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders({
+      cacheStates: () => Promise.resolve({ ...allAvailable(), 'game-stats': 'absent' as const }),
+      providerRefresh: () =>
+        Promise.resolve(refreshSnapshot({ 'game-stats': { canonical: failedWithNoCache } })),
+    }),
+  });
+
+  const critical = model.issues.some(
+    (i) =>
+      i.subject.axis === 'dataset' && i.subject.id === 'game-stats' && i.severity === 'critical'
+  );
+  assert.ok(critical, 'fixture sanity: the issue must actually be critical');
+
+  const row = model.datasets.find((d) => d.dataset === 'game-stats')!;
+  assert.equal(row.freshness.status, 'red', 'the row matches the severity it caused');
+});

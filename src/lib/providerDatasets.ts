@@ -38,13 +38,19 @@ export const PROVIDER_DATASETS: readonly ProviderDataset[] = [
 /**
  * Datasets whose refresh is recorded PER PARTITION and never per year.
  *
- * `scores` and `game-stats` write `weekPartitionScope(year, week, seasonType)`,
- * so the year-scoped record every other dataset is read through is never written
- * for them — verified in production, where `provider-refresh-status` holds
- * `scores:week:2026:1:regular` and no `scores:year:2026`. Any surface that reads
- * the canonical year record must consult the partition activity instead, or it
- * reports "No refresh history" for a dataset that refreshed minutes ago
- * (Item 88).
+ * `scores` and `game-stats` refresh per week partition
+ * (`weekPartitionScope(year, week, seasonType)`), so the year-scoped record every
+ * other dataset is read through is USUALLY absent — verified in production, where
+ * `provider-refresh-status` held `scores:week:2026:1:regular` and no
+ * `scores:year:2026`. A surface reading only the canonical year record therefore
+ * reports "No refresh history" for a dataset that refreshed minutes ago (Item 88).
+ *
+ * "Usually", not "never": `scores` DOES write `scores:year:<year>` when a manual
+ * aggregate covers every applicable partition (`/api/scores`,
+ * `/api/admin/cache-historical-scores`). An earlier version of this note said the
+ * year record is never written and told callers to consult partition activity
+ * INSTEAD — following that verbatim would hide a failed year rollup. Show both,
+ * each named by its scope. The never-written claim does hold for `game-stats`.
  *
  * Lives here rather than in a server module because it is a property of the
  * dataset, and both the server health model and the admin row need it.

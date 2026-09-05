@@ -55,9 +55,9 @@ export default function ProviderHealthSection({
       <ul className="divide-y divide-gray-200 dark:divide-zinc-800">
         {datasets.map((row) => {
           const descriptor = getProviderDatasetDescriptor(row.dataset);
-          const outcomeFact = outcomeFactFor(row);
-          const outcome = refreshOutcomeDisplay(outcomeFact);
-          const timestamp = canonicalTimestamp(outcomeFact);
+          const summaryFact = summaryFactFor(row);
+          const outcome = refreshOutcomeDisplay(summaryFact);
+          const timestamp = canonicalTimestamp(summaryFact);
           return (
             <li key={row.dataset}>
               <details className="group">
@@ -101,30 +101,32 @@ export default function ProviderHealthSection({
                 <dl className="grid grid-cols-1 gap-x-4 gap-y-0.5 pb-2 pl-5 text-[11px] text-gray-500 dark:text-zinc-400 sm:grid-cols-2">
                   <Detail label="Provider" value={descriptor.provider} />
                   <Detail label="Cache" value={row.cacheState} />
-                  <Detail label="Canonical scope" value={row.canonicalScopeKey} />
-                  <Detail label="Last success" value={lastSuccessDetail(outcomeFact, nowMs)} />
-                  <Detail label="Latest activity" value={latestActivityDetail(row, nowMs)} />
-                  {outcomeFact.state === 'available' && (
-                    <>
-                      {(outcomeFact.status.errorCode || outcomeFact.status.errorStatus != null) && (
-                        <Detail label="Error" value={errorDetail(outcomeFact.status)} />
-                      )}
-                      {outcomeFact.status.partialFailure && (
-                        <Detail
-                          label="Failed partitions"
-                          value={outcomeFact.status.failedPartitions.join(', ') || 'yes'}
-                        />
-                      )}
-                      {outcomeFact.status.rowsCommitted != null && (
-                        <Detail
-                          label="Rows committed"
-                          value={String(outcomeFact.status.rowsCommitted)}
-                        />
-                      )}
-                      {outcomeFact.status.durationMs != null && (
-                        <Detail label="Duration" value={`${outcomeFact.status.durationMs} ms`} />
-                      )}
-                    </>
+                  {/* BOTH records, each named by its scope. An earlier version
+                      printed "Canonical scope: scores:year:2026" directly above an
+                      Error read from a WEEK record, so an operator diagnosing a
+                      failed week would reasonably have repaired the whole
+                      season. */}
+                  <ScopedRecordDetails
+                    label="Year rollup"
+                    scopeKey={row.canonicalScopeKey}
+                    fact={row.canonicalStatus}
+                    nowMs={nowMs}
+                  />
+                  {isPartitionScopedDataset(row.dataset) && (
+                    <ScopedRecordDetails
+                      label="Latest partition"
+                      scopeKey={
+                        row.latestScopedActivity.state === 'available'
+                          ? row.latestScopedActivity.status.scopeKey
+                          : null
+                      }
+                      fact={
+                        row.latestScopedActivity.state === 'available'
+                          ? { state: 'available', status: row.latestScopedActivity.status }
+                          : { state: 'absent' }
+                      }
+                      nowMs={nowMs}
+                    />
                   )}
                   {row.diagnostics.length > 0 && (
                     <Detail
@@ -157,43 +159,70 @@ export default function ProviderHealthSection({
  * partition read.
  */
 /**
- * Used for the summary line AND the detail disclosure. An earlier version routed
- * only the summary, so for scores and game-stats — whose canonical record is
- * usually absent — the row could read "Failed" while the disclosure showed no
- * error code, no failed partitions and no rows committed: a failure with no
- * forensic detail anywhere on the row.
+ * Which fact the SUMMARY line describes (Item 88).
+ *
+ * For `scores` and `game-stats` the canonical YEAR record is usually not written
+ * at all — they refresh per week partition — so reading it produced "No refresh
+ * history" on a dataset that refreshed minutes earlier, printed beside a
+ * freshness dot reading "Current".
+ *
+ * NO FAULT CLASSIFICATION HAPPENS HERE, deliberately. An earlier version decided
+ * whether the canonical record "carried a fault" and kept it when so. Both
+ * reviewers found that wrong in opposite directions: it missed an `in-progress`
+ * attempt past the interrupted threshold, and it fired on a stale `hasError`
+ * that `beginProviderRefreshAttempt` deliberately preserves through a re-run. It
+ * was a second implementation of `attemptFaultIssue`'s judgement — the same
+ * re-derivation that got this branch's freshness model reverted. The disclosure
+ * shows BOTH records instead, each labelled by scope, so nothing is hidden and
+ * nothing has to be classified.
  */
-function outcomeFactFor(row: ProviderDatasetHealthRow): CanonicalRefreshFact {
-  if (!isPartitionScopedDataset(row.dataset)) return row.canonicalStatus;
-  // A malformed canonical record is a fact worth showing, never papered over.
-  if (row.canonicalStatus.state === 'invalid') return row.canonicalStatus;
-  const latest = row.latestScopedActivity;
-  if (latest.state !== 'available') return row.canonicalStatus;
-  // A canonical record carrying a FAULT stays on the row. Scores are not
-  // exclusively partition-scoped: a manual aggregate writes `scores:year:<year>`,
-  // and a failed or partial one remains an active dataset issue. Substituting the
-  // newer partition success unconditionally showed "Attention · Succeeded" with
-  // no error, no failed partitions and no duration — a warning with its forensic
-  // detail removed from the only row that names it.
-  if (
-    row.canonicalStatus.state === 'available' &&
-    canonicalCarriesFault(row.canonicalStatus.status)
-  )
-    return row.canonicalStatus;
-  // Otherwise partition activity wins, even over a clean year rollup: preferring
-  // that record once it existed pinned the row to stale manual history for the
-  // rest of the season, through every live poll.
-  return { state: 'available', status: latest.status };
+/**
+ * One record's details, always named by the scope it came from. Both the year
+ * rollup and the latest partition are shown for a partition-scoped dataset, so a
+ * fault in either is visible and neither can be mistaken for the other.
+ */
+function ScopedRecordDetails(props: {
+  label: string;
+  scopeKey: string | null;
+  fact: CanonicalRefreshFact;
+  nowMs: number;
+}): React.ReactElement {
+  const { label, scopeKey, fact, nowMs } = props;
+  return (
+    <>
+      <Detail label={`${label} scope`} value={scopeKey ?? 'none'} />
+      <Detail label={`${label} · last success`} value={lastSuccessDetail(fact, nowMs)} />
+      {fact.state === 'available' && (
+        <>
+          {(fact.status.errorCode || fact.status.errorStatus != null) && (
+            <Detail label={`${label} · error`} value={errorDetail(fact.status)} />
+          )}
+          {fact.status.partialFailure && (
+            <Detail
+              label={`${label} · failed partitions`}
+              value={fact.status.failedPartitions.join(', ') || 'yes'}
+            />
+          )}
+          {fact.status.rowsCommitted != null && (
+            <Detail label={`${label} · rows committed`} value={String(fact.status.rowsCommitted)} />
+          )}
+          {fact.status.durationMs != null && (
+            <Detail label={`${label} · duration`} value={`${fact.status.durationMs} ms`} />
+          )}
+        </>
+      )}
+    </>
+  );
 }
 
-/** A canonical record whose own outcome is the reason an issue names this row. */
-function canonicalCarriesFault(status: SafeProviderRefreshStatus): boolean {
-  return (
-    status.latestAttemptOutcome === 'failed' ||
-    status.latestAttemptOutcome === 'partial' ||
-    status.hasError ||
-    status.partialFailure
-  );
+function summaryFactFor(row: ProviderDatasetHealthRow): CanonicalRefreshFact {
+  if (!isPartitionScopedDataset(row.dataset)) return row.canonicalStatus;
+  // A malformed canonical record is a fact worth showing rather than skipping past.
+  if (row.canonicalStatus.state === 'invalid') return row.canonicalStatus;
+  const latest = row.latestScopedActivity;
+  return latest.state === 'available'
+    ? { state: 'available', status: latest.status }
+    : row.canonicalStatus;
 }
 
 function refreshOutcomeDisplay(fact: CanonicalRefreshFact): { label: string; tone: StateTone } {
@@ -227,16 +256,6 @@ function lastSuccessDetail(fact: CanonicalRefreshFact, nowMs: number): string {
 function errorDetail(status: SafeProviderRefreshStatus): string {
   const code = status.errorCode ?? 'error';
   return status.errorStatus != null ? `${code} (${status.errorStatus})` : code;
-}
-
-function latestActivityDetail(row: ProviderDatasetHealthRow, nowMs: number): string {
-  const fact = row.latestScopedActivity;
-  if (fact.state !== 'available') return fact.state === 'unavailable' ? 'unavailable' : 'none';
-  const outcome = attemptOutcomeDisplay(fact.status.latestAttemptOutcome).label;
-  const when = fact.status.lastAttemptAt ? formatMoment(fact.status.lastAttemptAt, nowMs) : '—';
-  // Include the scope so a noncanonical target (a specific scores week, a
-  // filtered Odds request) is identifiable (exact-target invariant).
-  return `${outcome} · ${when} · ${fact.status.scopeKey}`;
 }
 
 /** Read-only automation state for a dataset row (toggles live in Automation safety). */

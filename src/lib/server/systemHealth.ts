@@ -408,26 +408,36 @@ export async function buildSystemHealthViewModel(params: {
   // expressing it where both already exist keeps it from being re-derived.
   // Only `warning` and `critical` — an `info` issue (a deliberately disabled
   // dataset, say) is not a contradiction of health.
-  const contradictedDatasets = new Set(
-    issues
-      .filter(
-        (issue) =>
-          issue.subject.axis === 'dataset' &&
-          (issue.severity === 'warning' || issue.severity === 'critical')
-      )
-      .map((issue) => issue.subject.id)
-  );
+  const worstIssueSeverity = new Map<string, 'warning' | 'critical'>();
+  for (const issue of issues) {
+    if (issue.subject.axis !== 'dataset') continue;
+    if (issue.severity !== 'warning' && issue.severity !== 'critical') continue;
+    const current = worstIssueSeverity.get(issue.subject.id);
+    if (current === 'critical') continue;
+    worstIssueSeverity.set(issue.subject.id, issue.severity);
+  }
   for (const row of datasets) {
-    // Green OR an INTENTIONAL gray. An intentional gray is non-degrading in the
-    // rollups and reads to an operator as "healthy by design", so leaving it
-    // alone reproduced the same contradiction the bullet closes: game-stats can
-    // show "None expected" directly beneath a warning naming game-stats.
-    const readsHealthy =
-      row.freshness.status === 'green' ||
-      (row.freshness.status === 'gray' && row.freshness.intentional);
-    if (!readsHealthy) continue;
-    if (!contradictedDatasets.has(row.dataset)) continue;
-    row.freshness = { status: 'yellow', label: 'Attention', intentional: false };
+    const severity = worstIssueSeverity.get(row.dataset);
+    if (!severity) continue;
+
+    // AT LEAST as severe as the worst issue naming it — not merely "downgrade a
+    // healthy row". An earlier version only fired on a healthy reading, so a row
+    // already yellow from a diagnostic stayed yellow beneath a CRITICAL issue it
+    // caused, with the panel and Overall both red. `provider-refresh-failed` is
+    // critical whenever the cache is proven absent, so that combination is
+    // ordinary rather than exotic.
+    if (severity === 'critical' && row.freshness.status !== 'red') {
+      row.freshness = { status: 'red', label: 'Failed', intentional: false };
+      continue;
+    }
+    if (severity === 'warning') {
+      const readsHealthy =
+        row.freshness.status === 'green' ||
+        (row.freshness.status === 'gray' && row.freshness.intentional);
+      if (readsHealthy) {
+        row.freshness = { status: 'yellow', label: 'Attention', intentional: false };
+      }
+    }
   }
 
   const panels = deriveSystemHealthPanels({

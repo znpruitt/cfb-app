@@ -242,11 +242,24 @@ function refreshSnapshotWith(
   return refreshSnapshot({ ...base, ...overrides });
 }
 
-/** A successful scores WEEK-partition activity fact, as production actually holds it. */
-function scoredPartitionActivity() {
-  const fact = canonicalOutcome('scores', 'succeeded');
-  if (fact.state !== 'available') throw new Error('fixture: expected an available status');
-  return { state: 'available' as const, status: fact.status };
+/**
+ * A successful scores WEEK-partition activity fact, as production actually holds
+ * it — `scores:week:2026:1:regular`, not the canonical year scope.
+ *
+ * An earlier version built this with `canonicalOutcome`, which derives its scope
+ * from `canonicalScopeFor(dataset)` — a YEAR scope. So every test claiming to
+ * exercise a partition record was exercising a year record, and none covered the
+ * production shape this item is about. A reviewer caught the mismatch; the test
+ * asserting the week key then proved it.
+ */
+function scoredPartitionActivity(overrides: Record<string, unknown> = {}) {
+  return {
+    state: 'available' as const,
+    status: safeStatus('scores', weekPartitionScope(YEAR, 1, 'regular'), {
+      latestAttemptOutcome: 'succeeded' as const,
+      ...overrides,
+    }),
+  };
 }
 
 // PLATFORM-090 — the Game stats row renders the neutral lifecycle state (gray
@@ -356,8 +369,10 @@ test('provider row timestamps the latest attempt (not prior success) and shows l
   );
   // The noncanonical latest-activity scope key is disclosed (exact-target).
   assert.ok(html.includes('scores:week:2026:3:regular'), 'latest-activity scope key shown');
-  // The historical success is exposed separately as "Last success".
-  assert.ok(html.includes('Last success'), 'prior success surfaced separately');
+  // The historical success is still exposed separately — now NAMED by the scope
+  // it came from, so a year-rollup value can no longer be read as a week's.
+  assert.ok(html.includes('last success'), 'prior success surfaced separately');
+  assert.ok(html.includes('Year rollup scope'), 'and each record names its own scope');
 });
 
 test('issues render in model order with repair links only for non-null repairs', async () => {
@@ -592,10 +607,11 @@ test('Item 88: partition activity wins over a STALE year rollup', async () => {
     latestAttemptResolvedAt: new Date(NOW - 30 * 24 * 60 * 60_000).toISOString(),
     rowsCommitted: 1234,
   });
-  const freshPartition = canonicalOutcome('scores', 'no-op', {
+  const freshPartition = scoredPartitionActivity({
+    latestAttemptOutcome: 'no-op',
     latestAttemptResolvedAt: new Date(NOW - 30_000).toISOString(),
   });
-  if (staleManual.state !== 'available' || freshPartition.state !== 'available') return;
+  assert.equal(staleManual.state, 'available', 'fixture sanity: the rollup must exist');
 
   const model = await buildModel({
     providerRefresh: () =>
@@ -603,7 +619,7 @@ test('Item 88: partition activity wins over a STALE year rollup', async () => {
         refreshSnapshotWith({
           scores: {
             canonical: staleManual,
-            latest: { state: 'available', status: freshPartition.status },
+            latest: freshPartition,
           },
         })
       ),
@@ -618,9 +634,14 @@ test('Item 88: partition activity wins over a STALE year rollup', async () => {
     />
   );
 
+  // BOTH records now render, each named by scope — so the stale rollup's figures
+  // are present but cannot be mistaken for the partition's. The earlier version of
+  // this test asserted the rollup vanished, which hid a fault an issue was naming.
+  assert.ok(html.includes('Year rollup · rows committed'), 'the rollup is shown, labelled');
+  assert.ok(html.includes('Latest partition scope'), 'and the partition is named too');
   assert.ok(
-    !html.includes('1234'),
-    'the month-old manual rollup no longer supplies the row detail'
+    html.includes('scores:week:2026:1:regular'),
+    'the partition scope key is the one the operator needs to act on'
   );
 });
 
