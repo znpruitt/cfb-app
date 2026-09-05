@@ -72,6 +72,44 @@ the reason it stopped, and a copied file carries them back in.
 Do not build on `platform/browser-poll-cadence` or `platform/browser-poll-interval` either — those are
 merged or abandoned, and a stacked branch has twice produced a review against the wrong base here.
 
+## Carried forward from v1's FIRST review round — do not rediscover these either
+
+The five corrections below come from v1's SECOND round. Round ONE found three more, and those fixes
+live only in the abandoned branch's code. **A rebuild from `main` discards them**, so they are
+restated here as specification. This is the known weak point of reconstruct-don't-cherry-pick: the
+accumulated corrections are lost unless they are extracted as spec.
+
+1. **Header bullets are separators — each renders only when an earlier segment precedes it.** A
+   scheduled row carrying only `neutralSite` (or only `broadcast`) otherwise opens with an orphan
+   `•`. Latent today (`formatExpandedKickoff` never returns empty, so the sole scheduled caller
+   always supplies a clock) but reachable by the later slices this contract exists to serve.
+2. **The tier-2 wrapper must carry the spacing and overflow constraints its sibling slots already
+   have.** It is the ONLY slot that can widen an `<article>` inside the `grid grid-cols-2` container
+   — without them it breaks the two-column layout rather than scrolling inside its own box.
+3. **The FCS marker is a bordered pill, not plain text like the rank marker**, matching
+   `mockups/live-scoreboard-mockup.html:90-93` (`.sb-line .cls`): `rounded-[3px]`, a hairline border,
+   `px-[3px]`, `text-[9.5px]`, `font-semibold`, `tracking-[0.06em]`. **It also needs an explicit
+   `leading-[1.4]`** — without it the 9.5px marker changes the line height of the row it sits in,
+   which is a render-identical violation that a colour-and-geometry review will not catch.
+
+**Do NOT carry forward one round-1 fix:** commit `28820939` made the scheduled footer conditional on
+`tier2Slot` to avoid an empty band. **That fix is what produced correction 2 below** — it traded an
+empty band for a misaligned row. Correction 2 supersedes it; solve the empty band without making the
+reservation conditional.
+
+**The mockup is LAYOUT truth, not COLOUR truth.** Take the geometry above from it. Do NOT take colour
+from it: its marker token is `--text-tertiary: #6b6b6b`, which measures **3.40:1** on the mockup's own
+`#161616` and **3.72:1** on the app's `#0a0a0a` — both below the 4.5:1 floor. Colour is re-derived
+against the shipping surface, per correction 5. Note the mockup gives `.rank` and `.cls` the SAME
+token, which is independent confirmation that the two markers should not diverge in colour.
+
+**Two v1 findings were REFUTED with measured evidence. Do not re-raise or re-litigate them:**
+
+- The `'fcs'`-only marker vocabulary is complete. No rendered game lacks an FBS participant
+  (`scheduleEligibility.ts:168`), and production carries **0 FBS-vs-D-II/D-III rows across 2025 and
+  2026**, against 126/127 fbs/fcs pairings.
+- The raw exact classification match stands **by owner decision**.
+
 ## The five corrections — these are SPECIFICATION, not findings to rediscover
 
 All five were verified against the source before this prompt was written. Build to them from the
