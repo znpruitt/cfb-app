@@ -1828,8 +1828,8 @@ point of the full slate. The tail cannot simply be shortened; `kickoff + 24h` is
 final-reconciliation guarantee, and PLATFORM-105A already found that boundary giving up on late
 finals. **Build it for the ~83% annual saving and the manual pause it retires — not as the fix for
 in-season pressure.** Evidence and the sensitivity table:
-[`docs/campaigns/vercel-active-cpu.md`](campaigns/vercel-active-cpu.md) → *The 20% duty cycle is an
-ANNUAL average*. An in-route gate before the context load was proposed and dropped as
+[`docs/campaigns/vercel-active-cpu.md`](campaigns/vercel-active-cpu.md) → _The 20% duty cycle is an
+ANNUAL average_. An in-route gate before the context load was proposed and dropped as
 redundant against the pair — recorded in the campaign doc so it is not re-derived.
 
 **Four things it collides with, all located:**
