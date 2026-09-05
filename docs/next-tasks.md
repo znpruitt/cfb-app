@@ -60,9 +60,20 @@ committed `c9f76081`) surfaced four new items and one split; the remaining open 
 3. **Item 87 slice 5 + Item 112** — Schedule adopts the scoreboard row with no one-line collapse and
    tier-2 behind "More" (which _is_ Item 112's disclosure model, landing on Schedule first); kickoff
    sort; deletes `GameWeekPanel`'s collapse and `cardEmphasisClasses`. Carries the
-   `ownerOutcomeRowClasses` sibling asymmetry into `MatchupsWeekPanel`. **Owner decision needed
-   before build:** the amber `upset` border (`GameWeekPanel.tsx:42`) is a reserved-colour violation
-   the base addendum explicitly exempted; confirm it dies with the card chrome.
+   `ownerOutcomeRowClasses` sibling asymmetry into `MatchupsWeekPanel`.
+   **No open owner decisions.** The amber `upset` border (`GameWeekPanel.tsx:42`) is **DELIBERATELY
+   RETIRED** — owner decision 2026-09-05, not a side effect of deleting the card chrome it lives on.
+   The distinction matters and is why it is recorded this way: the base addendum exempted that border
+   as "emphasis and is out of scope for every slice here", and this rework removes the chrome it sits
+   on, so without a decision the exemption would have lapsed by accident. A reader finding an
+   exemption on record and the border gone could not otherwise tell which of the two happened.
+   The eyebrow pill carries the emphasis forward. **The cost is stated, not glossed: a pill is
+   quieter than a card border** — acceptable if Schedule is a reference surface and making games jump
+   out belongs to Featured and the recap, but a reduction rather than a like-for-like swap.
+   **Reopen condition:** if upsets should stay prominent in practice, the instrument is **a hue from
+   `INSIGHTS-017-PALETTE`, not a shape** — do not put a border back, which is the decision this
+   entry records against. Canonical:
+   `docs/campaigns/item-87-followon-matchups-schedule-design.md`.
    **Design:** `docs/campaigns/item-87-followon-matchups-schedule-design.md`;
    `docs/campaigns/item-87-followon-section-ordering.md` (the relative label is unbuilt and
    constrains this slice); `mockups/matchups-schedule-mockup.html`.
