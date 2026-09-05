@@ -161,11 +161,21 @@ start; do not re-litigate them.
    `dark:text-zinc-500`) and WCAG large text begins at 18.66px bold / 24px — **neither marker
    qualifies, so both are held to 4.5:1, and the shipped rank marker is the same 4.10:1 failure.**
 
-   Shipping FCS at `zinc-400` while rank stays `zinc-500` would put two markers in ONE slot with the
-   SMALLER one visibly brighter, and leave a known violation beside a fix for the identical problem.
-   **Owner decision 2026-09-05: move both.** The rank-marker token change is pre-existing-defect
-   repair, deliberately in scope, and it is the ONLY permitted visual change — see the completeness
-   contract.
+   **AMENDED 2026-09-05, after the first v2 build.** Naming only the two markers was a PARTIAL
+   application of the rule, and it let the slice ship a NEW element below the floor: the new
+   `Neutral site` span carries no colour of its own and inherits the header row's
+   `dark:text-zinc-500`. Three elements on this card remain at `zinc-500` — the header row
+   (`:101`, `text-xs`, which the new marker inherits), and the record and owner spans (`:171`, `:179`,
+   `text-[12.5px]`). All are 4.10:1. None is WCAG large text.
+
+   **Owner decision: apply the rule COMPLETELY rather than adding a third exception.** The rule is
+   **no `dark:text-zinc-500` anywhere in this component** — every one of them moves to `zinc-400`.
+   This is one coherent repair, not a growing carve-out list: the findings were rhyming because the
+   correction was scoped to symptoms instead of to the rule.
+
+   Enforce it with ONE component-wide guard — `assert.doesNotMatch(html, /dark:text-zinc-500/)`,
+   rendered across the card's states — rather than pinning each element's token separately. Update
+   the existing header assertion that pins `text-xs dark:text-zinc-500`; it encodes the old value.
 
 ## Why this is its own slice
 
@@ -200,11 +210,11 @@ change what an existing caller renders today.
 </task>
 
 <completeness_contract>
-- **Overview must render IDENTICALLY before and after, with EXACTLY ONE named exception: the rank
-  marker's colour token changes `dark:text-zinc-500` → `dark:text-zinc-400`
-  (`CompactGameScoreboard.tsx:131`).** Nothing else about that element changes — not its size, weight,
-  position, or `title`. Any OTHER render difference is a defect, not a judgement call: if you find
-  yourself wanting a second one, STOP and ask.
+- **Overview must render IDENTICALLY before and after, with EXACTLY ONE named exception: every
+  `dark:text-zinc-500` in `CompactGameScoreboard.tsx` becomes `dark:text-zinc-400`.** That is a
+  COLOUR-TOKEN change only — no element changes size, weight, position, `title`, or structure. Any
+  other render difference is a defect, not a judgement call: if you find yourself wanting a second
+  exception, STOP and ask.
 - **Prove the rest by MUTATION, not by inspection**: break each new branch in turn and show a SPECIFIC
   named test going red, then restore. A screenshot, a visual check, or "I verified the markup is
   unchanged" is not evidence.
