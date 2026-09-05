@@ -24,8 +24,8 @@ Supersedes: (none)
 
 ## Current execution order
 
-`CURRENT`: **Item 102** — polling planner. (Item 88's display half shipped 2026-09-05; its
-remaining half is **Item 132**.)
+`CURRENT`: **Item 102** — polling planner. (Item 88's display half is in review; its remaining half
+is **Item 132**.)
 `NEXT`: **Item 87 slice 5a** — shared scoreboard contract widening.
 
 Owner-selected run order (2026-09-03), replacing the 2026-09-02 order. Ordering values, stated by the
@@ -769,8 +769,8 @@ not be read as a requirement on the other.**
 
 ### Item 132 — rebuild partition-scoped freshness on the issues layer, not beside it
 
-**Filed 2026-09-05 after PLATFORM-088 was split.** The display half shipped; this is the half that
-was taken back.
+**Filed 2026-09-05 after PLATFORM-088 was split.** The display half is in review separately; this is
+the half that was taken back.
 
 **What shipped instead.** The Scores and Game stats rows now read their outcome and detail from the
 week-partition record rather than the year record they never write, so they no longer say "No refresh
@@ -778,8 +778,8 @@ history" while refreshing — and a row can no longer read healthy while a warni
 Item 88's original complaint and its fourth acceptance bullet.
 
 **What was reverted, and why.** A freshness model that answered "was a refresh due, and did it
-happen" from raw `provider-refresh-status` fields. Two paired review rounds produced fourteen
-findings, and the branch kept surfacing semantics of that record which the model had assumed:
+happen" from raw `provider-refresh-status` fields. It kept surfacing semantics of that record which
+the model had assumed — these are the reason it comes back as its own item rather than a patch:
 
 - `recordProviderRefreshNoop` deliberately preserves `lastSuccessAt`, and live-scores records a no-op
   on every poll that finds nothing to commit — so reading success called every halftime a stall.
@@ -3066,20 +3066,15 @@ Acceptance boundary:
 
 ### Item 88 — PARTLY SHIPPED: Provider data health cannot describe a schedule-armed dataset
 
-**The display half SHIPPED 2026-09-05** (`PLATFORM-088`, branch
-`platform/partition-scoped-health`). Closed: the Scores and Game stats rows no longer read a
-year-scoped record those datasets never write, so they stop reporting "No refresh history" while
-refreshing; the disclosure names every value by the scope it came from; and a row can no longer read
-healthy — or understate a critical issue — while an issue names that dataset.
+**The display half is IN REVIEW on `platform/partition-scoped-health`, not merged.** Its scope: the
+Scores and Game stats rows stop reading a year-scoped record those datasets usually never write, so
+they no longer report "No refresh history" while refreshing; and a row cannot read healthy, or
+understate a critical issue, while an issue names that dataset.
 
-**The remaining half is Item 132**, which supersedes the acceptance bullets below. A freshness model
-that answers "was a refresh due, and did it happen" was built, reviewed twice, and REVERTED: it
-re-derived provider-refresh semantics that `attemptFaultIssue` already encodes. Item 132 carries the
-six semantics that reverted it, so it starts from them.
+**The remaining half is Item 132**, which supersedes the acceptance bullets below.
 
-**The text below is retained as the original diagnosis. Two of its statements are now stale:** the
-row summary no longer reads "Current" beside "No refresh history", and the class-wide legibility
-defect it describes is fixed. What remains true is the model mismatch itself — elapsed time still
+**The text below is retained as the original diagnosis.** Its row-summary observation is what the
+in-review branch addresses. What remains open regardless is the model mismatch itself — elapsed time
 cannot describe a schedule-armed dataset — which is Item 132's subject.
 
 ### Item 88 — Provider data health cannot describe a schedule-armed dataset

@@ -600,7 +600,11 @@ test('Item 88: partition activity wins over a STALE year rollup', async () => {
   // refresh writes `scores:year:<year>` when it covers every applicable
   // partition. Preferring that record once it exists pinned the row to stale
   // manual history for the rest of the season, through every live poll.
-  const staleManual = canonicalOutcome('scores', 'succeeded', {
+  // FAILED, so the two candidate summaries are distinguishable: the word "Failed"
+  // can only come from the summary line, while the disclosure prints the LATEST
+  // activity's outcome. With a succeeded rollup both paths rendered "No-op"
+  // somewhere and the test passed either way — the vacuity a reviewer caught.
+  const staleManual = canonicalOutcome('scores', 'failed', {
     lastSuccessAt: new Date(NOW - 30 * 24 * 60 * 60_000).toISOString(),
     latestAttemptResolvedAt: new Date(NOW - 30 * 24 * 60 * 60_000).toISOString(),
     rowsCommitted: 1234,
@@ -632,16 +636,19 @@ test('Item 88: partition activity wins over a STALE year rollup', async () => {
     />
   );
 
-  // The SUMMARY line describes the partition record, and the disclosure's own
-  // "Latest activity" line names its scope — which is what the operator acts on.
-  // The canonical block is untouched, so a year-rollup fault stays visible there
-  // under its own "Canonical scope" label; nothing is hidden and nothing is
-  // relabelled.
+  // Assert the SUMMARY LINE, which is the only thing `summaryFactFor` drives.
+  // An earlier version of this test asserted disclosure content instead — scope
+  // keys and rows-committed figures the disclosure renders unconditionally — so
+  // it passed whatever `summaryFactFor` returned, despite its name. A reviewer
+  // caught that; the mutation below is what settles it.
+  assert.ok(html.includes('No-op'), 'the summary describes the newer PARTITION record');
   assert.ok(
-    html.includes('scores:week:2026:1:regular'),
-    'the partition scope the operator needs to act on is named'
+    !html.includes('Failed'),
+    'and not the month-old failed year rollup, which would otherwise supply it'
   );
-  assert.ok(html.includes('Canonical scope'), 'and the canonical record keeps its own label');
+  // The rollup is not hidden: the canonical block still carries it under its own
+  // label, so a fault an issue names stays visible.
+  assert.ok(html.includes('Canonical scope'), 'the canonical record keeps its own label');
 });
 
 test('Item 88: a FAILED year rollup keeps the row, even with newer partition success', async () => {

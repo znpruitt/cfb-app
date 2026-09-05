@@ -797,3 +797,33 @@ test('bullet 4: a CRITICAL issue turns the row red, not a flat yellow', async ()
   const row = model.datasets.find((d) => d.dataset === 'game-stats')!;
   assert.equal(row.freshness.status, 'red', 'the row matches the severity it caused');
 });
+
+test('bullet 4: a malformed STATUS RECORD does not repaint an expected absence', async () => {
+  // `provider-status-invalid` is a fault in the observability record, not the
+  // data. Preseason game-stats with a legitimately absent cache reads gray "None
+  // expected"; one unparseable status row would otherwise flip it to yellow,
+  // reporting a freshness problem where only the bookkeeping is broken.
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders({
+      cacheStates: () => Promise.resolve({ ...allAvailable(), 'game-stats': 'absent' as const }),
+      diagnostics: () =>
+        Promise.resolve({
+          ...healthyDiagnostics(),
+          expectations: allExpectations('expected', { 'game-stats': 'not-yet-expected' }),
+        }),
+      providerRefresh: () =>
+        Promise.resolve(refreshSnapshot({ 'game-stats': { canonical: { state: 'invalid' } } })),
+    }),
+  });
+
+  const invalidIssue = model.issues.some(
+    (i) => i.subject.axis === 'dataset' && i.code === 'provider-status-invalid'
+  );
+  assert.ok(invalidIssue, 'fixture sanity: the malformed-record issue must be raised');
+
+  const row = model.datasets.find((d) => d.dataset === 'game-stats')!;
+  assert.equal(row.freshness.status, 'gray', 'the expected absence is not repainted');
+  assert.ok(row.freshness.intentional, 'and it stays the INTENTIONAL gray');
+});

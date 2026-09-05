@@ -412,6 +412,13 @@ export async function buildSystemHealthViewModel(params: {
   for (const issue of issues) {
     if (issue.subject.axis !== 'dataset') continue;
     if (issue.severity !== 'warning' && issue.severity !== 'critical') continue;
+    // `provider-status-invalid` is a fault in the OBSERVABILITY RECORD, not in the
+    // data. A preseason `game-stats` whose cache is legitimately absent reads gray
+    // "None expected"; one unparseable status row would otherwise flip it to
+    // yellow "Attention", reporting a freshness problem where the data is
+    // correctly absent and only the bookkeeping is broken. The issue still shows
+    // in the list, which is where a malformed record belongs.
+    if (issue.code === 'provider-status-invalid') continue;
     const current = worstIssueSeverity.get(issue.subject.id);
     if (current === 'critical') continue;
     worstIssueSeverity.set(issue.subject.id, issue.severity);
