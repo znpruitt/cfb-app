@@ -12,11 +12,12 @@ const DEFAULT_VISIBLE_GAMES = 3;
 const DEFAULT_VISIBLE_OPPONENTS = 3;
 // Selector invariant: this module emits deterministic derived copy/tokens only.
 
-// The two descriptors an UNOWNED opponent collapses onto. Both are correct where
-// they render — `MatchupsWeekPanel` suppresses `NoClaim (FBS)` from a row's
-// metadata and renders `FCS` deliberately, because an FBS-over-FCS result means
-// something different. They are named here only so the COUNT can tell them apart
-// from a descriptor that already identifies one opponent (Item 135).
+// The two descriptors an UNOWNED opponent collapses onto, plus the self marker.
+// Named for the render contract they carry, which is the standing gate on this
+// module: `MatchupsWeekPanel` suppresses `NoClaim (FBS)` from a row's metadata
+// and renders `FCS` deliberately, because an FBS-over-FCS result means something
+// different. Nothing counts descriptors — the owner-card control counts games
+// (Item 135) — so `deriveOpponentDescriptor` is their only consumer.
 const FCS_DESCRIPTOR = 'FCS';
 const NO_CLAIM_FBS_DESCRIPTOR = 'NoClaim (FBS)';
 const SELF_DESCRIPTOR = 'Self';
@@ -99,6 +100,13 @@ export function selectDistinctSlateGames(slate: OwnerWeekSlate): OwnerSlateGame[
  * thing that needs them — it renders prose like `5 games · vs Alice, FCS (x2)`.
  * Nothing in production calls it; Item 117 decides its fate. The owner-card
  * control no longer consumes this: it counts games, which is what it renders.
+ *
+ * These groups are built over DISTINCT games, so a caller pairing them with a
+ * game total must use the distinct count — `selectDistinctSlateGames(slate).length`
+ * or `selectSlateGameVisibility(...).distinctGames.length`, NOT `slate.totalGames`,
+ * which counts slate entries and reads 2 for a single self game. Passing the
+ * latter would print a total of two above a group of one: the same label/list
+ * unit mismatch Item 135 removed, relocated into this path.
  */
 export function summarizeSlateOpponents(slate: OwnerWeekSlate): OpponentSummaryEntry[] {
   const counts = new Map<string, number>();
