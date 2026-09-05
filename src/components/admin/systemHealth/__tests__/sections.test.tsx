@@ -481,3 +481,115 @@ test('scheduler timestamps render absolute AND relative, not relative alone', ()
   // Relative kept ALONGSIDE — it is the faster read when the answer is "minutes".
   assert.match(html, /\(\s*[^)]*ago\s*\)/, 'relative form retained in parentheses');
 });
+
+// Item 88 (summary line only) — the rest of that problem is Item 132.
+
+/** A real WEEK-partition status. NEVER build one with `canonicalOutcome`: that
+ *  derives a YEAR scope, producing two records under one key — a state
+ *  `readProviderRefreshHealth` cannot emit, and one that silently changes issue
+ *  severity. That mistake cost two review rounds on the abandoned attempt. */
+function weekPartitionActivity(overrides: Partial<Parameters<typeof safeStatus>[2]> = {}) {
+  return {
+    state: 'available' as const,
+    status: safeStatus('scores', weekPartitionScope(YEAR, 1, 'regular'), {
+      latestAttemptOutcome: 'succeeded' as const,
+      ...overrides,
+    }),
+  };
+}
+
+test('Item 88: the Scores summary reads the week record, not the absent year one', async () => {
+  // The production shape, verified 2026-09-05: a week record exists and no year
+  // record does, so the row claimed "No refresh history" minutes after refreshing.
+  const partition = weekPartitionActivity();
+  const base = Object.fromEntries(
+    PROVIDER_DATASETS.map((d) => [
+      d,
+      { canonical: canonicalOutcome(d, 'succeeded'), latest: canonicalOutcome(d, 'succeeded') },
+    ])
+  );
+  const model = await buildModel({
+    providerRefresh: () =>
+      Promise.resolve(
+        refreshSnapshot({ ...base, scores: { canonical: { state: 'absent' }, latest: partition } })
+      ),
+  });
+
+  const html = renderToStaticMarkup(
+    <ProviderHealthSection
+      datasets={model.datasets}
+      automation={model.automation}
+      year={model.year}
+      nowMs={NOW}
+    />
+  );
+
+  assert.ok(!html.includes('No refresh history'), 'the false claim is gone');
+  assert.ok(
+    html.includes('scores:week:2026:1:regular'),
+    'and the week record is the one on the row'
+  );
+});
+
+test('Item 88: a dataset with genuinely no history still says so', async () => {
+  // Positive control. Without it the assertion above passes for the wrong reason
+  // — the string simply never rendering.
+  const base = Object.fromEntries(
+    PROVIDER_DATASETS.map((d) => [
+      d,
+      { canonical: canonicalOutcome(d, 'succeeded'), latest: canonicalOutcome(d, 'succeeded') },
+    ])
+  );
+  const model = await buildModel({
+    providerRefresh: () =>
+      Promise.resolve(
+        refreshSnapshot({
+          ...base,
+          schedule: { canonical: { state: 'absent' }, latest: { state: 'absent' } },
+        })
+      ),
+  });
+
+  const html = renderToStaticMarkup(
+    <ProviderHealthSection
+      datasets={model.datasets}
+      automation={model.automation}
+      year={model.year}
+      nowMs={NOW}
+    />
+  );
+
+  assert.ok(html.includes('No refresh history'), 'a truly absent history is still reported');
+});
+
+test('Item 88: a MALFORMED canonical record still surfaces as malformed', async () => {
+  // The narrowing is deliberate: a corrupt record is a fact worth showing, never
+  // skipped past in favour of the partition. Asserting that in a comment is not
+  // enforcing it — a mutation removing the guard passed until this test existed.
+  const base = Object.fromEntries(
+    PROVIDER_DATASETS.map((d) => [
+      d,
+      { canonical: canonicalOutcome(d, 'succeeded'), latest: canonicalOutcome(d, 'succeeded') },
+    ])
+  );
+  const model = await buildModel({
+    providerRefresh: () =>
+      Promise.resolve(
+        refreshSnapshot({
+          ...base,
+          scores: { canonical: { state: 'invalid' }, latest: weekPartitionActivity() },
+        })
+      ),
+  });
+
+  const html = renderToStaticMarkup(
+    <ProviderHealthSection
+      datasets={model.datasets}
+      automation={model.automation}
+      year={model.year}
+      nowMs={NOW}
+    />
+  );
+
+  assert.ok(html.includes('Status malformed'), 'the corrupt record is reported as corrupt');
+});
