@@ -116,8 +116,29 @@ test('unranked exact FCS participant renders the compact bordered classification
 
   assert.match(
     html,
-    /class="shrink-0 rounded-\[3px\] border border-gray-200 px-\[3px\] text-\[9\.5px\] leading-\[1\.4\] font-semibold tracking-\[0\.06em\] text-gray-500 dark:border-zinc-800 dark:text-zinc-500" data-scoreboard-classification="away">FCS<\/span>[\s\S]*data-scoreboard-team="away">Montana State<\/span>/
+    /class="shrink-0 rounded-\[3px\] border px-\[3px\] text-\[9\.5px\] leading-\[1\.4\] font-semibold tracking-\[0\.06em\] dark:border-zinc-800 dark:text-zinc-500" data-scoreboard-classification="away">FCS<\/span>[\s\S]*data-scoreboard-team="away">Montana State<\/span>/
   );
+});
+
+test('classification marker authors no light half against the dark-only theme', () => {
+  const html = renderScoreboard({
+    state: 'scheduled',
+    clock: 'Sat, Sep 5, 5:00 PM',
+    away: {
+      teamName: 'Montana State',
+      owner: null,
+      rank: null,
+      classification: 'fcs',
+      score: null,
+    },
+    home: { teamName: 'Oregon State', owner: 'Ballard', rank: null, score: null },
+  });
+  const marker = html.match(/<span class="([^"]*)" data-scoreboard-classification="away"/)?.[1];
+
+  assert.ok(marker, 'classification marker must render');
+  assert.doesNotMatch(marker, /(?:^|\s)(?:text|border|bg)-(?:gray|zinc|white|black|slate)-/);
+  assert.match(marker, /dark:border-zinc-800/);
+  assert.match(marker, /dark:text-zinc-500/);
 });
 
 test('classification marker rejects a case-variant near miss', () => {
@@ -302,8 +323,28 @@ test('scheduled scoreboard preserves its empty odds row when tier 2 is absent', 
     home: { teamName: 'Old Dominion', owner: 'Ballard', rank: null, score: null },
   });
 
-  assert.match(html, /data-scoreboard-odds-footer[^>]*><\/div>/);
+  assert.match(html, /class="mt-1\.5 min-h-4 [^"]*" data-scoreboard-odds-footer[^>]*><\/div>/);
   assert.doesNotMatch(html, /data-scoreboard-tier-2-slot/);
+});
+
+test('scheduled odds survive alongside tier 2 without reserving a band they no longer anchor', () => {
+  const html = renderScoreboard({
+    state: 'scheduled',
+    clock: 'Sat, Sep 5, 5:00 PM',
+    footerSlot: 'Old Dominion -3.5 \u00b7 O/U 52.5',
+    tier2Slot: <span>More venue and conference</span>,
+    away: { teamName: 'Norfolk State', owner: null, rank: null, score: null },
+    home: { teamName: 'Old Dominion', owner: 'Ballard', rank: null, score: null },
+  });
+  const footer = html.match(/<div class="([^"]*)" data-scoreboard-odds-footer/)?.[1];
+
+  assert.ok(footer, 'a supplied odds footer must still render above tier 2');
+  assert.doesNotMatch(footer, /min-h-4/);
+  assert.match(html, /data-scoreboard-odds-footer[^>]*>Old Dominion -3\.5/);
+  assert.ok(
+    html.indexOf('data-scoreboard-odds-footer') < html.indexOf('data-scoreboard-tier-2-slot'),
+    'odds must stay above tier-2 content'
+  );
 });
 
 test('live scoreboard omits the clock node when no trustworthy clock is available', () => {

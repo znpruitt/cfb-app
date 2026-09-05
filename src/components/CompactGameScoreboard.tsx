@@ -82,7 +82,10 @@ export default function CompactGameScoreboard({
     (state === 'scheduled' && scheduleNoticeLabel !== '') ||
     clockLabel !== '';
   const hasSegmentBeforeNeutralSite = hasSegmentBeforeBroadcast || showsBroadcast;
-  const showsScheduledFooter = state === 'scheduled' && (!tier2Slot || Boolean(footerSlot));
+  // The reserved band keeps odds-less scheduled cards flush with their neighbours, so it is
+  // worth reserving only while the footer is the card's last element. Callers with nothing to
+  // show must pass `footerSlot` as null rather than an empty node.
+  const showsScheduledFooter = state === 'scheduled' && (!tier2Slot || footerSlot != null);
 
   return (
     <article
@@ -157,7 +160,7 @@ export default function CompactGameScoreboard({
                 </span>
               ) : participant.classification === 'fcs' ? (
                 <span
-                  className="shrink-0 rounded-[3px] border border-gray-200 px-[3px] text-[9.5px] leading-[1.4] font-semibold tracking-[0.06em] text-gray-500 dark:border-zinc-800 dark:text-zinc-500"
+                  className="shrink-0 rounded-[3px] border px-[3px] text-[9.5px] leading-[1.4] font-semibold tracking-[0.06em] dark:border-zinc-800 dark:text-zinc-500"
                   data-scoreboard-classification={side}
                 >
                   FCS
@@ -207,7 +210,11 @@ export default function CompactGameScoreboard({
       })}
       {showsScheduledFooter ? (
         <div
-          className="mt-1.5 min-h-4 overflow-hidden whitespace-nowrap text-xs text-gray-500 dark:text-zinc-400"
+          className={
+            tier2Slot
+              ? 'mt-1.5 overflow-hidden whitespace-nowrap text-xs text-gray-500 dark:text-zinc-400'
+              : 'mt-1.5 min-h-4 overflow-hidden whitespace-nowrap text-xs text-gray-500 dark:text-zinc-400'
+          }
           data-scoreboard-odds-footer
         >
           {footerSlot}
