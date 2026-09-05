@@ -1,7 +1,7 @@
 # Completed Work Log
 
 Status: Historical (append-only ledger)
-Last verified: 2026-09-03
+Last verified: 2026-09-05
 Owner: Project documentation
 Canonical for: append-only record of shipped phases/milestones (outcomes) — historical, not current implementation authority
 Supersedes: (none)
@@ -31,6 +31,25 @@ Supersedes: (none)
 > superseded prerequisite B), and the architecture record in
 > [`docs/ai/game-stats-writer-fence.md`](ai/game-stats-writer-fence.md) (with the superseded
 > original design frozen in [`docs/ai/platform-086h3-contract.md`](ai/platform-086h3-contract.md)).
+
+### PLATFORM-BROWSER-POLL-CADENCE — Complete
+
+- **Status:** Merged via PR #567 (merge commit `3c2d8774`), 2026-09-05.
+- **PROMPT_ID(s):** `PLATFORM-BROWSER-POLL-CADENCE-v2`.
+- **Outcome:** visible current-season tabs read the full eligible live-score partition set every 90
+  seconds while any eligible game is inside `[kickoff − 15 min, kickoff + 8 h]` without a usable
+  final, then every 180 seconds. Missing or incomplete score evidence stays fast through the hard
+  ceiling; a usable final requires final status plus both numeric scores.
+- **Why it mattered:** the unchanged three-minute cron is the only writer, so the fast tier improves
+  expected display staleness from about 180 to 135 seconds (roughly 45 seconds or 25%) without
+  doubling browser reads through the full 24-hour finals tail. Item 128 landed first and removed the
+  redundant team-catalog request from every poll.
+- **Verification / review:** final pre-merge head `9d3cd081` passed TypeScript, `lint:all`, and all
+  4,661 tests. Both independent confirming reviews targeted production remediation `20870cfc`;
+  Codex returned no findings and `/code-review` found no correctness defects.
+- **Carried forward:** Item 95 retains the seven-minute client stale-overlay decision, a live-slate
+  `/api/scores?live=1` Active CPU observation, and Portion 2's provider-cadence decision gated on
+  Item 94.
 
 ### PLATFORM-RETIRE-POSTSEASON-TEMPLATE — Complete
 

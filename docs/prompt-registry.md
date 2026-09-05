@@ -1,7 +1,7 @@
 # Prompt Registry
 
 Status: Current ledger
-Last verified: 2026-09-04
+Last verified: 2026-09-05
 Owner: Project documentation
 Canonical for: prompt ledger / historical implementation record (not an active backlog)
 Supersedes: (none)
@@ -62,13 +62,13 @@ Rules:
   is inside `[kickoff − 15 min, kickoff + 8 h]` without a usable final (final status plus both numeric
   scores), then every 180 seconds. Missing or ambiguous evidence stays fast through the hard ceiling.
   Expected display staleness improves by about 45 seconds (25%); Item 128 removed the redundant team
-  catalog request before this reaches production.
+  catalog request before this merged.
 - Review / verification: the settled design replaced two abandoned branches after review disproved
-  partial partition polling. Final production remediation `20870cfc` received clean Codex confirmation
-  and `/code-review` found no correctness defect; its three LOWs resolved as an intentional lazy-
-  hydration trade, a cadence-divisibility assertion, and an operations clarification. TypeScript,
-  all 4,661 tests, and `lint:all` pass.
-- Status: Implemented and reviewed on `platform/browser-poll-cadence`; not yet merged.
+  partial partition polling. Production remediation `20870cfc` received clean Codex confirmation and
+  `/code-review` found no correctness defect; its three LOWs resolved as an intentional lazy-
+  hydration trade, a cadence-divisibility assertion, and an operations clarification. Final
+  pre-merge head `9d3cd081` passed TypeScript, all 4,661 tests, and `lint:all`.
+- Status: Merged via PR #567 (merge commit `3c2d8774`), 2026-09-05.
 
 ### PLATFORM-127-RETAIN-PROVIDER-USAGE-SERIES-v1
 
@@ -134,7 +134,7 @@ Rules:
 ### PLATFORM-128-LIVE-POLL-TEAM-CATALOG-v1
 
 - Purpose: stop every browser live-score poll from refetching the full team catalog it already holds
-  in memory, so halving the poll interval (Item 95 portion 1) does not double an avoidable cost.
+  in memory, so Item 95 portion 1's 90-second fast tier does not double an avoidable cost.
 - Scope: pass `CFBScheduleApp`'s existing `teamCatalog` state into `useLiveRefresh` instead of calling
   `fetchTeamsCatalog()` inside `refreshLiveData`; no new endpoint, no new cache, no change to score
   attachment, provider calls, or the poll cadence itself.
@@ -152,8 +152,8 @@ Rules:
   repo does not enable `react-hooks/exhaustive-deps`. Confirming pass on `62dd1843`: Codex no
   findings, `/code-review` two LOW and no correctness defect, both folded in here. `npx tsc --noEmit`
   exit 0; `npm test` exit 0 at 4,593 tests; `npm run lint:all` exit 0, each run separately.
-- Status: Merged to `main`, 2026-09-04. Should reach production together with Item 95 portion 1,
-  which halves the browser poll interval and would otherwise double this cost.
+- Status: Merged to `main`, 2026-09-04. Sequencing satisfied: Item 95 portion 1 merged after it via
+  PR #567, so the faster browser tier never shipped with the redundant catalog request.
 
 ### PLATFORM-RETIRE-POSTSEASON-TEMPLATE-v1
 
