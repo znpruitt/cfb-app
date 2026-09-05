@@ -32,6 +32,30 @@ Supersedes: (none)
 > [`docs/ai/game-stats-writer-fence.md`](ai/game-stats-writer-fence.md) (with the superseded
 > original design frozen in [`docs/ai/platform-086h3-contract.md`](ai/platform-086h3-contract.md)).
 
+### PLATFORM-087 Slice 5a — Shared Scoreboard Contract — Complete
+
+- **Status:** Merged via PR #570 (merge commit `4caa1a79`), 2026-09-05.
+- **PROMPT_ID(s):** `PLATFORM-087-SLICE-5A-SCOREBOARD-CONTRACT-v2`; v1 stopped after two remediation
+  rounds and was reconstructed from clean `main`.
+- **Outcome:** `CompactGameScoreboard` gained four additive seams for the remaining Item 87 UI spine:
+  a mutually exclusive rank/FCS prefix, neutral-site metadata, broadcast on scheduled/live/awaiting
+  rows, and optional non-reserving tier-2 expansion content. Conditional separators prevent orphan
+  bullets, and the tier-2 wrapper carries the sibling spacing and overflow constraints needed inside
+  two-column grids.
+- **Contrast ruling:** every `dark:text-zinc-500` token in this component moved to zinc-400 to meet
+  the 4.5:1 small-text floor. On a losing participant row that collapses the former colour step
+  between the team name and its record/owner suffixes; the remaining 14px versus 12.5px size step is
+  accepted because reverting the colour fails contrast and a replacement dimming mechanism was out
+  of scope.
+- **Verification / review:** exact final pre-merge head `5425f3f9` passed TypeScript, `lint:all`, and
+  all 4,679 tests. The change added 14 scoreboard tests and one rich Overview fixture; mutations
+  proved classification exclusivity, separators, state-gated broadcast, tier-2 behavior, and that
+  forwarding the reserved props would change Overview. Both confirming reviewers converged on the
+  final production commit `afbc81c5` with no credible in-scope P2.
+- **Known data limit:** provider classification is absent from 2018–2024. The FCS marker therefore
+  renders only where current-season rows carry the field; it is inert on those historical seasons by
+  design. The next five UI slices retain the consumer seam audit in `docs/next-tasks.md` Item 87.
+
 ### PLATFORM-BROWSER-POLL-CADENCE — Complete
 
 - **Status:** Merged via PR #567 (merge commit `3c2d8774`), 2026-09-05.

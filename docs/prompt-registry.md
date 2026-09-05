@@ -51,6 +51,34 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-087-SLICE-5A-SCOREBOARD-CONTRACT-v2
+
+- Purpose: widen `CompactGameScoreboard` once so five serial UI slices inherit one reviewed contract
+  for classification, neutral-site metadata, broadcast, and tier-2 expansion content.
+- Scope: the shared component, its Overview prop seams, focused component tests, and the settled
+  `DESIGN.md` contract; no Schedule, Matchups, data-fetch, or disclosure implementation.
+- Outcome: rows now expose a mutually exclusive rank/FCS prefix, conditional metadata separators,
+  broadcast for scheduled/live/awaiting rows, and a non-reserving tier-2 slot. Static empty arrays
+  and fragments emit no optional wrapper; the unconditional tier-1 odds band remains unchanged.
+  Overview's pre-existing output is structurally identical. Provider classifications remain absent
+  from 2018–2024, so the FCS marker is intentionally inert on those historical seasons.
+- Review / verification: reconstructed from clean `main` after v1 stopped. Both reviewers were
+  gathered against each target; one normal cohesive remediation plus one owner-approved
+  production-vs-test exception converged at `afbc81c5`. The final pre-merge head `5425f3f9` passed
+  TypeScript, `lint:all`, and all 4,679 tests. Fourteen scoreboard tests and one Overview test were
+  added; mutations proved every new branch and the unchanged Overview seam.
+- Status: Merged via PR #570 (merge commit `4caa1a79`), 2026-09-05.
+
+### PLATFORM-087-SLICE-5A-SCOREBOARD-CONTRACT-v1
+
+- Purpose: make the same shared-component widening first attempted by v2.
+- Scope: `CompactGameScoreboard`, its tests, and Overview prop forwarding.
+- Outcome: stopped after two remediation rounds still produced credible findings. Its accepted and
+  refuted findings were rewritten as requirements in v2; none of the v1 branch history merged.
+- Review / verification: abandoned head `b80004c9`; reconstruction was required by `AGENTS.md` rather
+  than a third patch.
+- Status: Superseded/unimplemented; replaced by v2 / PR #570.
+
 ### PLATFORM-BROWSER-POLL-CADENCE-v2
 
 - Purpose: reduce expected live-score display staleness without doubling browser reads through the

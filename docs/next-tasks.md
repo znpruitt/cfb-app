@@ -26,46 +26,8 @@ Supersedes: (none)
 
 `CURRENT`: **Item 102** — polling planner. (Item 88 is superseded in full by **Item 132**; both
 attempts at it were reverted.)
-`NEXT`: **Item 87 slice 5a** — shared scoreboard contract widening. **Review converged and pre-merge
-closeout is complete on `platform/087-slice-5a-scoreboard-contract-v2`** (2026-09-05); not yet merged.
-The kickoff is `docs/prompts/platform-087-slice-5a-scoreboard-contract-v2.md`.
-
-- **v1 was STOPPED, not merged.** `platform/087-slice-5a-scoreboard-contract` reached `b80004c9`
-  after two remediation rounds without converging; per `AGENTS.md` → Review and remediation limits it
-  was abandoned rather than patched a third time. It is retained for reference only, has no PR, and
-  must not merge. Both rounds' findings were carried into the v2 prompt as specification.
-- **v2** rebuilt from `main` as a single commit. Both reviewers gathered against `c8562d57`; seven
-  findings were accepted — one production-behavior family (optional-slot presence semantics) and six
-  proof-surface defects. The first cohesive remediation landed at `254ff171`.
-- **Second remediation round — owner exception granted 2026-09-05.** Both confirming reviewers
-  agreed on one remaining production defect: `hasRenderableContent` does not recurse into
-  `React.Fragment` children, so an empty fragment renders an empty context/tier-2 wrapper. Only that
-  defect was caused by the first round; the three coverage gaps predate it and `AGENTS.md:313` would
-  class them as follow-ups. **The owner granted an exception drawn at production-vs-test:** fragment
-  recursion is the ONLY production change, and everything else in the round is test-only. Rationale —
-  these are gaps in a contract **five serial slices inherit** (slice 5 + 112 → 117 → 115 → 119 →
-  118), so a follow-up item would have to land before slice 5 to be worth anything, making it a
-  blocker rather than a follow-up.
-  The exception landed at `afbc81c5`; both confirming reviewers converged on that commit with no
-  credible in-scope P2 remaining.
-- **Seam audit (2026-09-05), for the five inheriting slices — do not re-derive.** The shared fact is
-  "does this slot have renderable content". Writers today are `OverviewPanel` only: `contextSlot`
-  `:772` (an unconditional `<div>`, always present), `contextSlot` `:858`
-  (`gameBadge ? <span/> : undefined`), and `footerSlot` `:809` (`string | null`, which the footer
-  renders directly and the predicate never sees). **`tier2Slot` has no writer at all** — so the
-  fragment defect is unreachable in production today and becomes routine the moment slice 5 fills
-  that slot. **`OverviewPanel:772` deliberately reserves 22px** (`min-h-[22px]` plus `aria-hidden`)
-  by always rendering its wrapper; passing `undefined` there when empty would silently drop that
-  reservation, and no test covers it. The recursion boundary is principled: fragments and arrays are
-  static structure, inspectable without evaluation, while a component returning `null` would have to
-  be rendered to know — which is unsafe and hook-incompatible. Do not cross it.
-- **Tier-2 reserves nothing.** Settled 2026-09-05: it is optional, variable-height expansion content,
-  an empty wrapper would reserve only margin, and it cannot align against real content anyway. The
-  unconditional odds band aligns tier-1. Expansion alignment belongs to the consuming slice.
-- **Known limitation:** provider classifications are absent from 2018–2024 data, so the FCS marker
-  is inert on every historical season in that range. It renders only where current-season rows carry
-  classification; this is expected data coverage, not a broken marker. The widened anatomy and this
-  limitation are recorded in the required pre-merge closeout without claiming the branch is merged.
+`NEXT`: **Item 87 slice 5 + Item 112** — Schedule adopts the shared scoreboard and adds its tier-2
+disclosure. Slice 5a's shared-component prerequisite merged via PR #570 (`4caa1a79`) on 2026-09-05.
 
 Owner-selected run order (2026-09-03), replacing the 2026-09-02 order. Ordering values, stated by the
 owner: **user-facing improvements, data correction, and bug fixes first; prerequisites persisted in
@@ -95,16 +57,7 @@ committed `c9f76081`) surfaced four new items and one split; the remaining open 
    **Operationally independent, though:** 126's incident is the weekly `schedule-refresh` job, while
    102 narrows `live-scores` and `game-stats`. Neither blocks the other; the conflict is in files.
    Observation-only by its own acceptance boundary, so it is the lower-risk half of the pair.
-3. **Item 87 slice 5a** — `CompactGameScoreboard` contract widening: classification marker in the
-   prefix slot (rank | FCS | empty, mutually exclusive by `rankings.ts` exact-match), neutral-site
-   marker, broadcast on live rows (`CompactGameScoreboard.tsx:16-19` is scheduled-only today), and a
-   tier-2 expansion slot. **Split from slice 5 by owner decision 2026-09-03** so that slice 5, Item
-   117 and Item 119 build on one reviewed component change instead of each re-deriving it. Overview
-   must render identically before and after — prove it by mutation, not by inspection.
-   **Design (canonical, read before writing the prompt):** `docs/campaigns/item-87-followon-matchups-schedule-design.md`
-   §1 (prefix slot) and §on neutral site; `docs/campaigns/item-87-live-watchlist-scoreboard.md`;
-   `mockups/live-scoreboard-mockup.html`, `mockups/matchups-schedule-mockup.html`.
-4. **Item 87 slice 5 + Item 112** — Schedule adopts the scoreboard row with no one-line collapse and
+3. **Item 87 slice 5 + Item 112** — Schedule adopts the scoreboard row with no one-line collapse and
    tier-2 behind "More" (which _is_ Item 112's disclosure model, landing on Schedule first); kickoff
    sort; deletes `GameWeekPanel`'s collapse and `cardEmphasisClasses`. Carries the
    `ownerOutcomeRowClasses` sibling asymmetry into `MatchupsWeekPanel`. **Owner decision needed
@@ -113,29 +66,29 @@ committed `c9f76081`) surfaced four new items and one split; the remaining open 
    **Design:** `docs/campaigns/item-87-followon-matchups-schedule-design.md`;
    `docs/campaigns/item-87-followon-section-ordering.md` (the relative label is unbuilt and
    constrains this slice); `mockups/matchups-schedule-mockup.html`.
-5. **Item 117** — Matchups adopts the shared scoreboard. User-facing and a correctness fix (the
+4. **Item 117** — Matchups adopts the shared scoreboard. User-facing and a correctness fix (the
    shipped row never says which team is which owner). Needs the card-owner-treatment decision.
    **Design:** `docs/campaigns/item-87-followon-matchups-schedule-design.md`;
    `docs/campaigns/item-87-live-watchlist-scoreboard.md`; `mockups/matchups-schedule-mockup.html`.
-6. **Item 115** — Overview section expansion. Recent finals is documented as complete and truncates
+5. **Item 115** — Overview section expansion. Recent finals is documented as complete and truncates
    at six today; this reuses the disclosure pattern slice 5 settles rather than inventing one.
    **Design:** `docs/campaigns/item-87-followon-section-ordering-resolutions.md` §5 (counts, which
    that document explicitly defers to this item); `docs/campaigns/item-87-followon-section-ordering.md`.
-7. **Item 119** — team-colour bar on the existing normaliser, with no accent for teams that have no
+6. **Item 119** — team-colour bar on the existing normaliser, with no accent for teams that have no
    colour — which also removes the green fallback every FCS row carries today. OKLCH only if measured.
    **Design:** `docs/campaigns/item-87-followon-team-colour.md`;
    `docs/campaigns/item-87-live-watchlist-scoreboard.md`.
-8. **Item 118** — Schedule status filter with counts. Purely additive; after the rework it filters.
+7. **Item 118** — Schedule status filter with counts. Purely additive; after the rework it filters.
    **Design:** none written. Item 112 likewise has no campaign doc — both are described only here,
    so a prompt for either needs an owner design pass FIRST, not a paraphrase of this entry.
-9. **Item 100b** — internal slate marker. Date gate removed 2026-09-03; its 2026 consequence
+8. **Item 100b** — internal slate marker. Date gate removed 2026-09-03; its 2026 consequence
     (Featured empty through 2026-09-07) closes on its own, but the recap and look-ahead targeting it
     exists for recur next August. Cheap: the clustering code is recoverable from `d6184c28`.
-10. **Item 113** — Featured as insight-selected, state-agnostic. Largest, and gated on a decision
+9. **Item 113** — Featured as insight-selected, state-agnostic. Largest, and gated on a decision
     about `INSIGHTS-017-PALETTE` (a prose bullet today, not an item).
     **Design:** `docs/campaigns/item-87-followon-featured-intent.md` — it supplies the product
     intent and states that THIS item owns the reconciliation. Do not re-derive what it settles.
-11. **Item 101** — season-boundary finals gap. Re-derive the empty window against the floating cutoff
+10. **Item 101** — season-boundary finals gap. Re-derive the empty window against the floating cutoff
     first; fix before late November.
 
 **Interstitial, no dedicated slot:** **Item 111** (~5-minute Observability check, any time this
@@ -161,8 +114,8 @@ the UI spine do not touch each other, so they can run concurrently:
 
 - **Server track, strictly serial with itself:** Item 102 + 88, then Item 126. All three converge on
   `schedulerExecutionStatus.ts` / `schedulerDeliveryHealth.ts` / `systemHealthIssues.ts`.
-- **UI spine, strictly serial with itself:** slice 5a → slice 5 + 112 → 117 → 115 → 119 → 118. Every
-  one consumes the component 5a widens; that is what the split was for.
+- **UI spine, strictly serial with itself:** slice 5 + 112 → 117 → 115 → 119 → 118. The shared
+  component widening prerequisite merged via PR #570; every remaining slice consumes it.
 - **Independent, parallel-safe against both:** Item 122 (`admin/HistoricalCachePanel.tsx`), Item 121
   (`schedule/cfbdSchedule.ts`, `schedule.ts`, `schedulePostseasonHelpers.ts` — pipeline, not
   components), and Items 84, 86, 111. **Item 123 shipped 2026-09-04** via PR #565.
@@ -3106,8 +3059,20 @@ the interim correctness and empty-copy fixes on this surface. POLISH-016 / slice
 shared scoreboard contract and converted the Live section; POLISH-017 / slice 2 converted Featured
 and settled green-live on Overview; POLISH-019 / slice 3 added Recent finals and structural
 promotion. **POLISH-020 / slice 4 converted the Watchlist**, merged 2026-09-03 via PR #558
-(`c730b4d0`). **Slice 5a** (shared-component contract widening, split out 2026-09-03) and
-**slice 5** (Schedule) remain; Matchups is Item 117, not a slice.
+(`c730b4d0`). **PLATFORM-087 / slice 5a widened the shared component**, merged via PR #570
+(`4caa1a79`) on 2026-09-05. **Slice 5** (Schedule) remains; Matchups is Item 117, not a slice.
+
+**Slice 5a carry-forward for the five consumers — do not re-derive.** `CompactGameScoreboard` now
+owns the settled rank/FCS prefix, neutral-site and broadcast metadata, and optional tier-2 slot; the
+full visual contract is in `DESIGN.md` → Cards and game results. The only writers at merge are three
+`OverviewPanel` sites: one `contextSlot` is an unconditional wrapper that deliberately reserves 22px
+even when empty; the other is `gameBadge ? <span /> : undefined`; and `footerSlot` is `string | null`,
+rendered directly without the optional-content predicate. `tier2Slot` has no writer yet.
+Renderable-content inspection recurses only through static arrays and fragments — evaluating
+arbitrary components would be unsafe and hook-incompatible. Tier-2 reserves no height: it is
+variable expansion content, while the unconditional odds band aligns tier-1. Provider
+classifications are absent from 2018–2024, so the FCS marker is expected to remain inert on those
+historical seasons.
 
 **Problem observed on `/league/tsc` during the 2026 opening slate (2026-08-29).** One game appeared
 twice on a single screen — in "Upcoming watchlist" and again in the "Live" tile — and the Live card
