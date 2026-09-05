@@ -1,4 +1,4 @@
-import { POLLING_WINDOW_BEFORE_KICKOFF_MS } from '@/lib/liveScores/pollingTarget';
+import { LIVE_SCORE_WINDOW_BEFORE_MS } from '@/lib/liveScores/browserPolling';
 
 /**
  * PLATFORM-102 slice 1 — derive polling windows from kickoff times alone.
@@ -44,8 +44,18 @@ import { POLLING_WINDOW_BEFORE_KICKOFF_MS } from '@/lib/liveScores/pollingTarget
  */
 export const CLUSTER_MARGIN_MS = 8 * 60 * 60 * 1000;
 
-/** Dense polling opens before kickoff, on the same lead the poller itself uses. */
-export const CLUSTER_LEAD_MS = POLLING_WINDOW_BEFORE_KICKOFF_MS;
+/**
+ * Dense polling opens before kickoff, on the same lead the poller itself uses.
+ *
+ * Sourced from `browserPolling`, NOT `pollingTarget`, and the choice is
+ * deliberate: `pollingTarget` pulls in `canonicalContext`, which pulls in the
+ * schedule builder and score-cache types, so importing it would make this module
+ * server-only. Taking the client-safe twin keeps ONE rule usable by both the
+ * daily planner and `useLiveRefresh`, which is the point — the browser and the
+ * cron are answering the same question from the same data, and they should not
+ * answer it differently.
+ */
+export const CLUSTER_LEAD_MS = LIVE_SCORE_WINDOW_BEFORE_MS;
 
 export type PollingWindow = {
   /** First kickoff in the cluster, minus the lead. */
