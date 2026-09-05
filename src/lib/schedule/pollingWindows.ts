@@ -1,4 +1,4 @@
-import { LIVE_SCORE_WINDOW_BEFORE_MS } from '@/lib/liveScores/browserPolling';
+import { POLLING_WINDOW_BEFORE_KICKOFF_MS } from '@/lib/liveScores/pollingTarget';
 
 /**
  * PLATFORM-102 slice 1 — derive polling windows from kickoff times alone.
@@ -45,17 +45,18 @@ import { LIVE_SCORE_WINDOW_BEFORE_MS } from '@/lib/liveScores/browserPolling';
 export const CLUSTER_MARGIN_MS = 8 * 60 * 60 * 1000;
 
 /**
- * Dense polling opens before kickoff, on the same lead the poller itself uses.
+ * Dense polling opens this far before kickoff.
  *
- * Sourced from `browserPolling`, NOT `pollingTarget`, and the choice is
- * deliberate: `pollingTarget` pulls in `canonicalContext`, which pulls in the
- * schedule builder and score-cache types, so importing it would make this module
- * server-only. Taking the client-safe twin keeps ONE rule usable by both the
- * daily planner and `useLiveRefresh`, which is the point — the browser and the
- * cron are answering the same question from the same data, and they should not
- * answer it differently.
+ * Taken from `pollingTarget`, which is the constant that actually governs CRON
+ * eligibility. An earlier version imported the numerically-equal twin in
+ * `browserPolling` to keep the module client-safe, and claimed that kept "one
+ * rule" for the browser and the cron. That was false: they are two independent
+ * `15 * 60 * 1000` literals, and the copy it took was the one that does NOT
+ * decide server eligibility — so widening the server window would have left the
+ * planner arming late. Server-only is the correct trade for a planner; the
+ * browser keeps its own dependency-light copy, as it already does.
  */
-export const CLUSTER_LEAD_MS = LIVE_SCORE_WINDOW_BEFORE_MS;
+export const CLUSTER_LEAD_MS = POLLING_WINDOW_BEFORE_KICKOFF_MS;
 
 export type PollingWindow = {
   /** First kickoff in the cluster, minus the lead. */
@@ -72,24 +73,62 @@ export type DeriveOptions = {
 };
 
 /**
+ * One scheduled kickoff, with the caller's answer to the only question this
+ * module cannot answer for itself.
+ *
+ * `timeConfirmed: false` means the row is `startTimeTBD` — CFBD publishes those
+ * with a PLACEHOLDER instant, not a missing one. Measured on the shipped 2026
+ * record: 0 of 3,679 `startDate` values fail to parse, while all 421 TBD rows
+ * parse cleanly at UTC hour 4 or 5 — midnight or 1am Eastern on the game date,
+ * 12 to 19 hours before the real kickoff. Clustering on those placeholders arms
+ * the wrong hours and leaves the actual kickoff uncovered, which is the exact
+ * failure a narrowed cron cannot survive.
+ *
+ * This is a REQUIRED field rather than an option because the previous signature
+ * took bare numbers and "protected" itself with a finiteness check that, on real
+ * data, filters nothing at all.
+ */
+export type PlannedKickoff = {
+  kickoffMs: number;
+  timeConfirmed: boolean;
+};
+
+export type PollingWindowPlan = {
+  /** Windows derived from CONFIRMED kickoffs only, ascending and disjoint. */
+  windows: PollingWindow[];
+  /**
+   * Kickoffs whose time is not yet confirmed. Returned rather than dropped: a
+   * TBD game still has to be covered somehow, and only the caller can decide
+   * whether to arm its whole day or wait for CFBD to publish a time. Silently
+   * discarding them would trade a wrong window for no window.
+   */
+  unconfirmed: PlannedKickoff[];
+};
+
+/**
  * Group kickoffs into contiguous clusters and return one window per cluster,
  * ascending and non-overlapping.
  *
- * A kickoff joins the current cluster when it begins at or before that cluster's
- * current end; otherwise it opens a new one. Non-finite values are dropped rather
- * than throwing — a schedule row with an unparseable kickoff must not be able to
- * take the planner down, and `startTimeTBD` rows are common (421 of 3,679 in
- * 2026).
+ * A kickoff joins the current cluster when `kickoff − lead` falls at or before
+ * that cluster's current end, so the effective split threshold is `margin + lead`
+ * (8h15m by default), NOT `margin` — an earlier docstring said `margin` and was
+ * wrong. Two kickoffs 8h05m apart merge.
  */
 export function derivePollingWindows(
-  kickoffsMs: readonly number[],
+  kickoffs: readonly PlannedKickoff[],
   options: DeriveOptions = {}
-): PollingWindow[] {
+): PollingWindowPlan {
   const marginMs = options.marginMs ?? CLUSTER_MARGIN_MS;
   const leadMs = options.leadMs ?? CLUSTER_LEAD_MS;
 
-  const sorted = kickoffsMs.filter((value) => Number.isFinite(value)).sort((a, b) => a - b);
-  if (sorted.length === 0) return [];
+  const unconfirmed = kickoffs.filter(
+    (entry) => !entry.timeConfirmed && Number.isFinite(entry.kickoffMs)
+  );
+  const sorted = kickoffs
+    .filter((entry) => entry.timeConfirmed && Number.isFinite(entry.kickoffMs))
+    .map((entry) => entry.kickoffMs)
+    .sort((a, b) => a - b);
+  if (sorted.length === 0) return { windows: [], unconfirmed };
 
   const windows: PollingWindow[] = [];
   let startMs = sorted[0]! - leadMs;
@@ -110,7 +149,7 @@ export function derivePollingWindows(
     kickoffCount = 1;
   }
   windows.push({ startMs, endMs, kickoffCount });
-  return windows;
+  return { windows, unconfirmed };
 }
 
 /**
