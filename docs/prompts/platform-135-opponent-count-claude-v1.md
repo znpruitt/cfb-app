@@ -52,9 +52,15 @@ entries for one game**, and the row key includes `ownerTeamSide` so **both rende
 three answers for one game: 2 rows, 1 opponent, and `"2 games · vs Self (x2)"`. Key the count on
 `game.key` and render each game once.
 
-**Measured, so you know the stakes:** the live 2026 league has **0** such games today (138 teams, 16
-owners, 3,679 games). Latent, not visible — not urgent, but do not leave it, because the point of
-this change is that the count and the list finally agree.
+**This is LIVE, not hypothetical — measured 2026-09-05.** The 2026 season has **39 games where one
+owner holds both teams**, out of 888 involving a rostered team. Week 1 alone: Whited with Jacksonville
+State vs North Dakota State; Maleski with Miami vs Stanford, and Baylor vs Auburn. Those cards show
+the same matchup twice right now, while the header count says one opponent. **A test fixture must
+cover it** — this is production's shape, not an edge case.
+
+(An earlier version of this paragraph said 0. That probe read `csvAway`/`canAway` on stored schedule
+rows that carry `awayTeam`/`homeTeam`, so every lookup returned `undefined` and the condition never
+fired. A probe that cannot reach what it measures returns zero, not proof.)
 
 **Keep** the collapse behaviour, `aria-expanded`/`aria-controls`, and the singular-at-1 label — all
 correct and reviewed. **Keep `formatSlateSummaryText` untouched**; Item 117 decides its fate, and its
