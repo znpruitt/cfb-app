@@ -41,6 +41,29 @@ take scoped implementation. Whatever the assigned role, diagnose accurately, kee
 prompt's stated scope, and report outcomes honestly — preserving known unresolved risks as
 unresolved.
 
+## Worktrees and session roles
+
+Owner decision 2026-09-05: planning and implementation run in SEPARATE Claude sessions, in separate
+worktrees. Two sessions sharing one checkout share one index and one branch — a `git add -A` in
+either sweeps the other's half-finished edits into a commit, and a branch switch in either relocates
+the other's next commit. Check `git worktree list` and `git rev-parse --abbrev-ref HEAD` before your
+first commit; if you are not where this table says you should be, stop and say so.
+
+| Worktree | Branch | Session | May commit to `main` | Touches |
+| --- | --- | --- | --- | --- |
+| `/Users/zach/cfb-app` | `main` | **Planning Claude** | Yes | `docs/`, `AGENTS.md`, `CLAUDE.md`, `DESIGN.md` — never `src/` |
+| `/Users/zach/cfb-app-claude` | `claude/<task>` off `main` | **Implementation Claude** | **No** | `src/`, tests, and its branch's closeout |
+| `/Users/zach/cfb-app-codex` | the Codex branch | Codex | **No** | its own branch only |
+
+- **Implementation Claude branches per implementation set**, off current `origin/main`, from
+  `claude/base` in that worktree. It never commits to `main` and never merges its own branch; the
+  owner merges after review convergence.
+- **Planning Claude never edits `src/`.** Queue, prompts, governance and closeout documents only.
+- **Prefer explicit paths over `git add -A`** in every session. `-A` is what makes a shared or
+  mistaken checkout destructive rather than merely confusing.
+- A new worktree needs what git does not carry: `npm ci`, plus `.env.local` and `.env.operator.local`
+  copied from the primary worktree. Without them the gates cannot run.
+
 ## Interaction preferences
 
 - Concise, technically precise, professional, direct.
