@@ -185,8 +185,13 @@ touches no component file.
 Written and ready: `platform-087-slice-5-item-112-codex-v1.md`,
 `platform-135-opponent-count-claude-v1.md`, `platform-102-slice-2-cron-synthesis-claude-v1.md`.
 
-**Fillers, safe against both lanes, any order:** Item 136 (`matchups.ts` aggregates, surfaced by
-135), Item 133a (below), 122, 121, 84, 86, 111. **Item 135 shipped 2026-09-05** — PR #571, merged
+**Fillers, safe against both lanes, any order:** Item 136 and Item 138 (both `matchups.ts`, worth
+pairing — same file, same `NoClaim` root), Item 137 (the red-`main` time bombs, test-only), Item 133a
+(below), 122, 121, 84, 86, 111.
+
+> **Known-failure baseline:** `npm test` on clean `main` exits 1 with exactly two failures in
+> `src/app/api/odds/__tests__/writer-convergence.test.ts` — see **Item 137**. This is the baseline
+> `CLAUDE.md`'s merge condition 3 binds to. Exactly these two, or stop and report. **Item 135 shipped 2026-09-05** — PR #571, merged
 `ee68246c`. Both reviewers converged on the content now at `521e79d0`; the pre-rebase `a7f4dead` is
 unreachable.
 
@@ -837,6 +842,61 @@ not be read as a requirement on the other.**
   intentionally redesigns QStash retries, quota consequences, and idempotency together.
 
 - Backlog slug: `PLATFORM-SCHEDULE-REFRESH-FORENSICS-v1`
+
+### Item 137 — two `writer-convergence` tests are time bombs; `main` is red
+
+**Standing known-failure baseline.** Until this ships, `npm test` on clean `main` exits **1** with
+**exactly two** failures, both in `src/app/api/odds/__tests__/writer-convergence.test.ts`:
+
+    not ok - convergence #10: a canonical success is recorded only after the atomic commit
+    not ok - compatibility #46: an authorized manual refresh returns the compatible 200 shape
+
+**This is the baseline `CLAUDE.md`'s merge condition 3 refers to.** A lane may merge only when the
+failures are EXACTLY these two. One more, or one elsewhere, is a stop-and-report.
+
+**Root cause, diagnosed 2026-09-05.** The fixture pins its kickoff at `2026-09-05T19:30:00.000Z`
+(`scheduleItem()` and the odds event's `commence_time`). Past kickoff the odds writer correctly stops
+attaching a line — closing-line behaviour — so no durable store record is created, and
+`assert.equal(record?.latestSnapshot?.homeSpread, -3.5)` sees `undefined` rather than `null`. Correct
+production behaviour meeting a stale fixture. **The durable path itself is healthy**:
+`durable-odds:2026 / store` holds 115KB in production.
+
+**This is Item 103's residue.** Item 103 was filed 2026-09-02 as "at least six odds-route tests are
+time bombs; four expired first", and `PLATFORM-121` replaced the fixtures in
+`src/app/api/odds/__tests__/route.test.ts` — which now passes 21/21 — then closed and removed the
+item. **`writer-convergence.test.ts` has the same fixed-kickoff pattern and was never touched.** Its
+two expired on 2026-09-05. PLATFORM-121's closeout claim to have "removed at least six latent time
+bombs" overstated its reach.
+
+**Fix:** the PLATFORM-121 treatment applied to this file — kickoffs relative to now, not fixed.
+
+**A bisect will lie to you.** Checking out an older commit does not roll back the clock, so a
+time-dependent test fails at EVERY commit once expired. A sweep across four historical commits during
+diagnosis produced four false positives before the fixture date was read.
+
+**Blocker:** none. Test-only; no production defect. But it costs every branch a clean baseline, which
+is the condition under which a third failure hides.
+
+### Item 138 — `isOwnerVsOwner` counts `NoClaim` as a real owner
+
+**The ask:** judge league membership through the shared sentinel seam, not through `!opponentOwner`.
+
+**The mechanism.** `buildOwnerSlateGames` (`src/lib/matchups.ts:249`) sets
+`isOwnerVsOwner: Boolean(bucket.homeOwner)` and `isOpponentUnownedOrNonLeague: !bucket.homeOwner`.
+After a draft, `buildConfirmedOwnersCsv` writes **`NoClaim` as a real owner** for every undrafted
+eligible team (`src/lib/rosterEditing.ts:23`), so both predicates read a sentinel as a league owner:
+a game against nobody reports `isOwnerVsOwner: true` and `isOpponentUnownedOrNonLeague: false`.
+
+**Same root as Item 135**, which corrected only the opponent-count path. `displayOwner`
+(`src/lib/gameOwnership.ts:24`) is the shared seam that returns `null` for `NoClaim`, and
+`AGENTS.md` rule 11 (**Centralized game ownership**) is the governing rule.
+
+**Reported by the implementation lane during Item 135 and deliberately left untouched** — it was out
+of that item's scope. Consumers must be surveyed before changing it: these flags are on
+`OwnerSlateGame` and a truthy `isOwnerVsOwner` may be feeding presentation or grouping beyond the
+count.
+
+**Blocker:** none. Sits in the same file as Item 136 — worth pairing.
 
 ### Item 136 — Matchups slate aggregates double-count a self game
 
