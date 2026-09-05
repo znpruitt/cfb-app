@@ -17,11 +17,13 @@ import type { OddsUsageReadState } from '../oddsUsageStore.ts';
 import type { AppStateStorageStatus } from '../appStateStore.ts';
 import { PROVIDER_DATASETS, type ProviderDataset } from '../../providerDatasets.ts';
 import { EXTERNAL_SCHEDULER_JOBS } from '../schedulerExecutionStatus.ts';
+import { weekPartitionScope } from '../../providerRefreshScope.ts';
 import {
   NOW,
   YEAR,
   allExpectations,
   canonicalOutcome,
+  safeStatus,
   healthyDelivery,
   refreshSnapshot,
 } from './systemHealthFixtures.ts';
@@ -726,11 +728,17 @@ test('bullet 4 END TO END: an INTENTIONAL gray is downgraded too', async () => {
   // as "healthy by design", so leaving it alone reproduced the same
   // contradiction: an expected-absence row sitting directly beneath a warning
   // that names it.
-  const failedPartition = canonicalOutcome('game-stats', 'failed', {
+  // A NONCANONICAL week scope, deliberately. `canonicalOutcome` yields a YEAR
+  // scope, so `providerAttemptIssues` sees `scopeKey === canonicalScopeKey`,
+  // passes the real absent cache instead of `'unknown'`, and returns CRITICAL —
+  // which the critical branch repaints, leaving the intentional-gray clause this
+  // test is named for never entered. A reviewer proved that by deleting the clause
+  // and watching the suite stay green.
+  const failedPartitionStatus = safeStatus('game-stats', weekPartitionScope(YEAR, 2, 'regular'), {
+    latestAttemptOutcome: 'failed',
     hasError: true,
     errorCode: 'provider-503',
   });
-  if (failedPartition.state !== 'available') return;
 
   const model = await buildSystemHealthViewModel({
     year: YEAR,
@@ -745,19 +753,24 @@ test('bullet 4 END TO END: an INTENTIONAL gray is downgraded too', async () => {
       providerRefresh: () =>
         Promise.resolve(
           refreshSnapshot({
-            'game-stats': { latest: { state: 'available', status: failedPartition.status } },
+            'game-stats': { latest: { state: 'available', status: failedPartitionStatus } },
           })
         ),
     }),
   });
 
-  const namesGameStats = model.issues.some(
-    (i) =>
-      i.subject.axis === 'dataset' &&
-      i.subject.id === 'game-stats' &&
-      (i.severity === 'warning' || i.severity === 'critical')
+  const gameStatsIssues = model.issues.filter(
+    (i) => i.subject.axis === 'dataset' && i.subject.id === 'game-stats'
   );
-  assert.ok(namesGameStats, 'fixture sanity: a warning must actually name game-stats');
+  assert.ok(gameStatsIssues.length > 0, 'fixture sanity: an issue must name game-stats');
+  assert.ok(
+    gameStatsIssues.some((i) => i.severity === 'warning'),
+    'fixture sanity: and it must be a WARNING — a critical takes a different branch'
+  );
+  assert.ok(
+    !gameStatsIssues.some((i) => i.severity === 'critical'),
+    'fixture sanity: no critical, or the clause under test is bypassed'
+  );
 
   const row = model.datasets.find((d) => d.dataset === 'game-stats')!;
   assert.ok(

@@ -772,10 +772,12 @@ not be read as a requirement on the other.**
 **Filed 2026-09-05 after PLATFORM-088 was split.** The display half is in review separately; this is
 the half that was taken back.
 
-**What shipped instead.** The Scores and Game stats rows now read their outcome and detail from the
-week-partition record rather than the year record they never write, so they no longer say "No refresh
-history" while refreshing — and a row can no longer read healthy while a warning names it. That is
-Item 88's original complaint and its fourth acceptance bullet.
+**What the in-review branch covers instead.** The Scores and Game stats rows read their summary and
+details from the week-partition record rather than the year-scoped one those datasets USUALLY do not
+write — `scores` does write `scores:year:<year>` on a covering manual aggregate — so they stop saying
+"No refresh history" while refreshing. A row also cannot read healthier than a warning or critical
+issue naming it, except `provider-status-invalid`, which is a fault in the observability record rather
+than the data.
 
 **What was reverted, and why.** A freshness model that answered "was a refresh due, and did it
 happen" from raw `provider-refresh-status` fields. It kept surfacing semantics of that record which
@@ -3067,9 +3069,10 @@ Acceptance boundary:
 ### Item 88 — PARTLY SHIPPED: Provider data health cannot describe a schedule-armed dataset
 
 **The display half is IN REVIEW on `platform/partition-scoped-health`, not merged.** Its scope: the
-Scores and Game stats rows stop reading a year-scoped record those datasets usually never write, so
-they no longer report "No refresh history" while refreshing; and a row cannot read healthy, or
-understate a critical issue, while an issue names that dataset.
+Scores and Game stats rows stop reading a year-scoped record those datasets usually do not write, so
+they no longer report "No refresh history" while refreshing; and a row cannot read healthier than a
+warning or critical issue naming that dataset — except `provider-status-invalid`, a fault in the
+observability record rather than the data.
 
 **The remaining half is Item 132**, which supersedes the acceptance bullets below.
 

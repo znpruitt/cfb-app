@@ -101,35 +101,34 @@ export default function ProviderHealthSection({
                 <dl className="grid grid-cols-1 gap-x-4 gap-y-0.5 pb-2 pl-5 text-[11px] text-gray-500 dark:text-zinc-400 sm:grid-cols-2">
                   <Detail label="Provider" value={descriptor.provider} />
                   <Detail label="Cache" value={row.cacheState} />
-                  <Detail label="Canonical scope" value={row.canonicalScopeKey} />
-                  <Detail
-                    label="Last success"
-                    value={lastSuccessDetail(row.canonicalStatus, nowMs)}
-                  />
+                  <Detail label="Scope" value={scopeKeyOf(summaryFact) ?? row.canonicalScopeKey} />
+                  <Detail label="Last success" value={lastSuccessDetail(summaryFact, nowMs)} />
+                  {summaryFact !== row.canonicalStatus && (
+                    <Detail
+                      label="Canonical outcome"
+                      value={canonicalOutcomeDetail(row.canonicalStatus, row.canonicalScopeKey)}
+                    />
+                  )}
                   <Detail label="Latest activity" value={latestActivityDetail(row, nowMs)} />
-                  {row.canonicalStatus.state === 'available' && (
+                  {summaryFact.state === 'available' && (
                     <>
-                      {(row.canonicalStatus.status.errorCode ||
-                        row.canonicalStatus.status.errorStatus != null) && (
-                        <Detail label="Error" value={errorDetail(row.canonicalStatus.status)} />
+                      {(summaryFact.status.errorCode || summaryFact.status.errorStatus != null) && (
+                        <Detail label="Error" value={errorDetail(summaryFact.status)} />
                       )}
-                      {row.canonicalStatus.status.partialFailure && (
+                      {summaryFact.status.partialFailure && (
                         <Detail
                           label="Failed partitions"
-                          value={row.canonicalStatus.status.failedPartitions.join(', ') || 'yes'}
+                          value={summaryFact.status.failedPartitions.join(', ') || 'yes'}
                         />
                       )}
-                      {row.canonicalStatus.status.rowsCommitted != null && (
+                      {summaryFact.status.rowsCommitted != null && (
                         <Detail
                           label="Rows committed"
-                          value={String(row.canonicalStatus.status.rowsCommitted)}
+                          value={String(summaryFact.status.rowsCommitted)}
                         />
                       )}
-                      {row.canonicalStatus.status.durationMs != null && (
-                        <Detail
-                          label="Duration"
-                          value={`${row.canonicalStatus.status.durationMs} ms`}
-                        />
+                      {summaryFact.status.durationMs != null && (
+                        <Detail label="Duration" value={`${summaryFact.status.durationMs} ms`} />
                       )}
                     </>
                   )}
@@ -166,6 +165,35 @@ export default function ProviderHealthSection({
  * already did this job correctly — `latestActivityDetail` prints
  * `outcome · time · scopeKey` — so the fix was one line above it, not a rewrite.
  */
+/**
+ * The scope of the record these details DESCRIBE, which for a partition-scoped
+ * dataset is not the canonical one. Printing "Canonical scope: scores:year:2026"
+ * above an error read from a week record would send an operator to repair the
+ * whole season.
+ */
+function scopeKeyOf(fact: CanonicalRefreshFact): string | null {
+  return fact.state === 'available' ? fact.status.scopeKey : null;
+}
+
+/**
+ * The canonical record's own outcome, kept on the row whenever the summary
+ * describes something else. A canonical attempt left `in-progress`, or failed
+ * without a sanitized code, raises a warning through `providerAttemptIssues`
+ * that would otherwise have no explanation anywhere on the row it names.
+ */
+function canonicalOutcomeDetail(fact: CanonicalRefreshFact, scopeKey: string): string {
+  if (fact.state === 'invalid') return `malformed · ${scopeKey}`;
+  if (fact.state === 'unavailable') return 'unavailable';
+  if (fact.state === 'absent') return `none · ${scopeKey}`;
+  const outcome = attemptOutcomeDisplay(fact.status.latestAttemptOutcome).label;
+  // The CODE too, not just the word. A canonical failure whose forensic detail is
+  // only reachable through the fault block would be invisible once the summary
+  // describes a newer scoped record — which is the gap this line exists to close.
+  const code =
+    fact.status.errorCode || fact.status.errorStatus != null ? errorDetail(fact.status) : null;
+  return [outcome, code, scopeKey].filter(Boolean).join(' · ');
+}
+
 function summaryFactFor(row: ProviderDatasetHealthRow): CanonicalRefreshFact {
   if (!isPartitionScopedDataset(row.dataset)) return row.canonicalStatus;
   // A malformed canonical record is a fact worth showing rather than skipping.

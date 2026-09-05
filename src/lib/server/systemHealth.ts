@@ -88,7 +88,11 @@ export type ProviderDatasetHealthRow = {
   canonicalStatus: CanonicalRefreshFact;
   latestScopedActivity: LatestScopedActivityFact;
   cacheState: ProviderCacheAvailability;
-  /** Server-derived freshness stoplight (cache + diagnostics), separate from refresh outcome. */
+  /**
+   * Server-derived freshness stoplight. Cache + diagnostics, then RAISED so it
+   * cannot read healthier than an issue naming this dataset (Item 88) — so it is
+   * no longer independent of refresh outcome, as this comment previously claimed.
+   */
   freshness: DatasetFreshness;
   /** Per-dataset diagnostics WITHOUT their human message (code/severity/repair only). */
   diagnostics: SafeDiagnostic[];

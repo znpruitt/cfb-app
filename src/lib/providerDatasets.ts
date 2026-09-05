@@ -53,9 +53,16 @@ export const PROVIDER_DATASETS: readonly ProviderDataset[] = [
  * each named by its scope. The never-written claim does hold for `game-stats`.
  *
  * Lives here rather than in a server module because it is a property of the
- * dataset, and both the server health model and the admin row need it.
+ * dataset and the only consumer is a React component, which must not pull server
+ * modules into its graph. An earlier version of this note claimed the server
+ * health model needs it too; `systemHealth.ts` does not import it.
+ *
+ * KNOWN DUPLICATION: this list restates what `DATASET_ACTIVITY_SCOPE_KINDS` and
+ * `canonicalScopeFor` already encode, so it will go stale silently if a dataset's
+ * scoping changes. Deriving it from those is the better shape and is deliberately
+ * not done here — see Item 132, which rebuilds this area.
  */
-export const PARTITION_SCOPED_DATASETS: readonly ProviderDataset[] = ['scores', 'game-stats'];
+const PARTITION_SCOPED_DATASETS: readonly ProviderDataset[] = ['scores', 'game-stats'];
 
 export function isPartitionScopedDataset(dataset: ProviderDataset): boolean {
   return PARTITION_SCOPED_DATASETS.includes(dataset);

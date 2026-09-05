@@ -370,9 +370,15 @@ function storagePanel(input: SystemHealthPanelsInput): SystemHealthPanel {
 
 /**
  * Per-dataset FRESHNESS stoplight — derived from cache availability + canonical
- * data diagnostics ONLY (server-side health policy). It is deliberately SEPARATE
- * from the latest refresh OUTCOME and the automation gate, which the row renders
- * as their own facts. Conferences is availability-only (no freshness expectation).
+ * data diagnostics ONLY (server-side health policy), deliberately SEPARATE from
+ * the latest refresh OUTCOME and the automation gate, which the row renders as
+ * their own facts. Conferences is availability-only (no freshness expectation).
+ *
+ * WHAT THE ROW ACTUALLY SHOWS IS NOT ONLY THIS VALUE.
+ * `buildSystemHealthViewModel` raises the result afterwards so a row cannot read
+ * healthier than an issue naming its dataset (Item 88). This function is
+ * exported, so a direct caller gets the pre-raise verdict — which is the input to
+ * the row's freshness, not the row's freshness.
  *
  * The label reflects the diagnostic CODE, not merely severity: a `*-cache-stale`
  * warning is "Stale", but an unavailable-evidence warning is "Unknown" and other

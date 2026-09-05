@@ -613,6 +613,15 @@ test('Item 88: partition activity wins over a STALE year rollup', async () => {
     latestAttemptOutcome: 'no-op',
     latestAttemptResolvedAt: new Date(NOW - 30_000).toISOString(),
   });
+  // The two records must be DIFFERENT scopes. `canonicalOutcome` yields a YEAR
+  // scope, so building the "partition" through it produced two statuses sharing
+  // one key — a snapshot `readProviderRefreshHealth` cannot emit. Both reviewers
+  // caught that shape; this assertion makes it impossible to reintroduce.
+  assert.notEqual(
+    freshPartition.status.scopeKey,
+    staleManual.state === 'available' ? staleManual.status.scopeKey : null,
+    'fixture sanity: the partition and the rollup must be different records'
+  );
   assert.equal(staleManual.state, 'available', 'fixture sanity: the rollup must exist');
 
   const model = await buildModel({
@@ -642,13 +651,19 @@ test('Item 88: partition activity wins over a STALE year rollup', async () => {
   // it passed whatever `summaryFactFor` returned, despite its name. A reviewer
   // caught that; the mutation below is what settles it.
   assert.ok(html.includes('No-op'), 'the summary describes the newer PARTITION record');
+  // The discriminator: this line renders ONLY when the summary describes something
+  // other than the canonical record. If `summaryFactFor` returned the canonical
+  // one, the summary would read "Failed" and this line would be absent entirely.
   assert.ok(
-    !html.includes('Failed'),
-    'and not the month-old failed year rollup, which would otherwise supply it'
+    html.includes('Canonical outcome'),
+    'and the rollup is disclosed separately, which only happens when they differ'
   );
-  // The rollup is not hidden: the canonical block still carries it under its own
-  // label, so a fault an issue names stays visible.
-  assert.ok(html.includes('Canonical scope'), 'the canonical record keeps its own label');
+  // And the scope line names the record the details describe — the WEEK one —
+  // rather than the canonical key, so nobody repairs a season over a week's fault.
+  assert.ok(
+    html.includes('scores:week:2026:1:regular'),
+    'the details are labelled with the scope they came from'
+  );
 });
 
 test('Item 88: a FAILED year rollup keeps the row, even with newer partition success', async () => {
@@ -723,5 +738,45 @@ test('Item 88: "Latest activity" survives for datasets this item never touched',
   assert.ok(
     html.includes('schedule:week:2026:4:regular'),
     'a non-partition dataset still discloses its latest scoped target'
+  );
+});
+
+test('Item 88: a FAILED week partition brings its own forensics to the row', async () => {
+  // The exact production shape and the exact gap a reviewer rendered: canonical
+  // absent, a failed week record present. The summary said "Failed" while the
+  // details still read the canonical record, so `provider-503`, the failed
+  // partitions and the duration never reached the page — a failure with no
+  // explanation on the only row that names it.
+  const model = await buildModel({
+    providerRefresh: () =>
+      Promise.resolve(
+        refreshSnapshotWith({
+          scores: {
+            canonical: { state: 'absent' },
+            latest: scoredPartitionActivity({
+              latestAttemptOutcome: 'failed',
+              hasError: true,
+              errorCode: 'provider-503',
+              durationMs: 4210,
+            }),
+          },
+        })
+      ),
+  });
+
+  const html = renderToStaticMarkup(
+    <ProviderHealthSection
+      datasets={model.datasets}
+      automation={model.automation}
+      year={model.year}
+      nowMs={NOW}
+    />
+  );
+
+  assert.ok(html.includes('provider-503'), 'the error code reaches the row');
+  assert.ok(html.includes('4210'), 'and so does the duration');
+  assert.ok(
+    html.includes('scores:week:2026:1:regular'),
+    'labelled with the scope that actually failed'
   );
 });
