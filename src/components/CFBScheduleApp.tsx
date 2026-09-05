@@ -1881,7 +1881,9 @@ export default function CFBScheduleApp({
                   rosterByTeam={rosterByTeam}
                   isDebug={IS_DEBUG}
                   teamCatalogById={teamCatalogById}
+                  teamRecordsByProviderGameId={teamRecordsByProviderGameId}
                   onSavePostseasonOverride={isAdmin ? savePostseasonOverride : undefined}
+                  currentDateMs={liveStaleClock || null}
                   focusedGameId={focusedGameId}
                 />
               ) : primarySurfaceKind === 'rankings' ? (
@@ -1927,9 +1929,11 @@ export default function CFBScheduleApp({
                   rosterByTeam={rosterByTeam}
                   isDebug={IS_DEBUG}
                   teamCatalogById={teamCatalogById}
+                  teamRecordsByProviderGameId={teamRecordsByProviderGameId}
                   onSavePostseasonOverride={isAdmin ? savePostseasonOverride : undefined}
                   displayTimeZone={presentationTimeZone}
                   rankingsByTeamId={rankingsByTeamId}
+                  currentDateMs={liveStaleClock || null}
                   focusedGameId={focusedGameId}
                 />
               )}

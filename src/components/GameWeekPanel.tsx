@@ -1,58 +1,24 @@
 import React from 'react';
 
 import { deriveDisplayEventName } from '../lib/gameEventName';
-import { deriveExpandedMetadataLines } from '../lib/gameCardPresentation';
 import { displayOwner } from '../lib/gameOwnership';
 import type { CombinedOdds } from '../lib/odds';
 import { formatGameMatchupLabel, usesNeutralSiteSemantics } from '../lib/gameUi';
 import { LEAGUE_TAG_LABELS } from '../lib/gameTags';
 import { deriveGameWeekPanelViewModel } from '../lib/selectors/gameWeek';
+import type { TeamRecordsByProviderGameId } from '../lib/selectors/teamRecordsClient';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
 import type { TeamRankingEnrichment } from '../lib/rankings';
 import type { ScorePack } from '../lib/scores';
-import { getSafeScoreboardTeamColorById } from '../lib/teamColors';
 import type { TeamCatalogItem, TeamDisplayInfo } from '../lib/teamIdentity';
 import type { AppGame } from '../lib/schedule';
-import GameScoreboard from './GameScoreboard';
-import RankedTeamName from './RankedTeamName';
+import CompactGameScoreboard from './CompactGameScoreboard';
 
 type Game = AppGame;
 
-function summaryChipClasses(
-  tone: 'final' | 'live' | 'disrupted' | 'placeholder' | 'scheduled'
-): string {
-  if (tone === 'final') {
-    return 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-200';
-  }
-  if (tone === 'live') {
-    return 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-200';
-  }
-  if (tone === 'disrupted') {
-    return 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/15 dark:text-rose-200';
-  }
-  if (tone === 'placeholder') {
-    return 'border-violet-200 bg-violet-50 text-violet-700 dark:border-violet-500/40 dark:bg-violet-500/15 dark:text-violet-200';
-  }
-  return 'border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-200';
-}
-
-function cardEmphasisClasses(
-  tone: 'upset' | 'upset_watch' | 'top_25_matchup' | 'ranked' | 'none'
-): string {
-  if (tone === 'upset') {
-    return 'border-amber-300/80 bg-amber-50/35 dark:border-amber-900/70 dark:bg-amber-950/20';
-  }
-  if (tone === 'upset_watch') {
-    return 'border-orange-300/80 bg-orange-50/30 dark:border-orange-900/70 dark:bg-orange-950/20';
-  }
-  if (tone === 'top_25_matchup') {
-    return 'border-indigo-300/80 bg-indigo-50/35 dark:border-indigo-900/70 dark:bg-indigo-950/20';
-  }
-  if (tone === 'ranked') {
-    return 'border-blue-300/70 bg-blue-50/20 dark:border-blue-900/70 dark:bg-blue-950/15';
-  }
-  return '';
-}
+const EMPTY_TEAM_RECORDS: TeamRecordsByProviderGameId = {};
+const EYEBROW_TAG_CLASSES =
+  'inline-flex shrink-0 rounded-full border border-[#c9a66b]/40 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#dbc190]';
 
 function participantDisplayInfo(game: AppGame, side: 'home' | 'away'): TeamDisplayInfo {
   const participant = game.participants[side];
@@ -72,25 +38,6 @@ function participantDisplayInfo(game: AppGame, side: 'home' | 'away'): TeamDispl
   };
 }
 
-function renderMatchupLabel(
-  game: AppGame,
-  rankingsByTeamId: Map<string, TeamRankingEnrichment>,
-  homeAwaySeparator: '@' | 'vs',
-  awayTeamId: string,
-  homeTeamId: string
-): React.ReactElement {
-  const plainLabel = formatGameMatchupLabel(game, { homeAwaySeparator });
-  const separator = plainLabel.slice(game.csvAway.length, plainLabel.length - game.csvHome.length);
-
-  return (
-    <>
-      <RankedTeamName teamName={game.csvAway} ranking={rankingsByTeamId.get(awayTeamId)} />
-      {separator}
-      <RankedTeamName teamName={game.csvHome} ranking={rankingsByTeamId.get(homeTeamId)} />
-    </>
-  );
-}
-
 type GameWeekPanelProps = {
   games: Game[];
   byes: string[];
@@ -100,9 +47,11 @@ type GameWeekPanelProps = {
   isDebug: boolean;
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
   teamCatalogById?: Map<string, TeamCatalogItem>;
+  teamRecordsByProviderGameId?: TeamRecordsByProviderGameId;
   onSavePostseasonOverride?: (eventId: string, patch: Partial<AppGame>) => void;
   hideByes?: boolean;
   displayTimeZone?: string;
+  currentDateMs?: number | null;
   focusedGameId?: string | null;
 };
 
@@ -129,20 +78,23 @@ export default function GameWeekPanel({
   scoresByKey,
   rosterByTeam,
   rankingsByTeamId = new Map(),
-  teamCatalogById = new Map(),
+  teamRecordsByProviderGameId = EMPTY_TEAM_RECORDS,
   onSavePostseasonOverride,
   hideByes = false,
   displayTimeZone = getPresentationTimeZone(),
+  currentDateMs = null,
   focusedGameId = null,
 }: GameWeekPanelProps): React.ReactElement {
-  const gameCardRefs = React.useRef<Map<string, HTMLDetailsElement>>(new Map());
+  const gameCardRefs = React.useRef<Map<string, HTMLDivElement>>(new Map());
   const viewModel = deriveGameWeekPanelViewModel({
     games,
     oddsByKey,
     scoresByKey,
     rosterByTeam,
     rankingsByTeamId,
+    teamRecordsByProviderGameId,
     displayTimeZone,
+    currentDateMs,
   });
   React.useEffect(() => {
     scrollFocusedGameIntoView({ gameId: focusedGameId, refsByGameId: gameCardRefs.current });
@@ -150,23 +102,12 @@ export default function GameWeekPanel({
 
   return (
     <>
-      <div className="flex flex-wrap items-center gap-1.5 text-xs">
-        <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 font-semibold uppercase tracking-widest text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/15 dark:text-emerald-200">
-          Final
-        </span>
-        <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 font-semibold uppercase tracking-widest text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/15 dark:text-amber-200">
-          In Progress
-        </span>
-        <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 font-semibold uppercase tracking-widest text-sky-700 dark:border-sky-500/40 dark:bg-sky-500/15 dark:text-sky-200">
-          Scheduled
-        </span>
-      </div>
       {viewModel.hasNoGames ? (
         <div className="rounded border border-dashed border-gray-300 bg-gray-50 px-3 py-3 text-sm text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
           No games match the current filters.
         </div>
       ) : null}
-      <div className="grid gap-4">
+      <div className="@container grid gap-4">
         {viewModel.groupedGames.map((group) => (
           <section key={group.dateKey} className="space-y-1.5">
             <div
@@ -176,40 +117,37 @@ export default function GameWeekPanel({
               {group.label}
             </div>
 
-            <div className="grid gap-1.5">
+            <div
+              className="grid grid-cols-2 gap-x-10 @max-[760.01px]:grid-cols-1"
+              data-schedule-scoreboard-grid
+            >
               {group.games.map((card) => {
                 const g = card.game;
                 const awayDisplayOwner = displayOwner(card.awayOwner);
                 const homeDisplayOwner = displayOwner(card.homeOwner);
-                const showDisplayOwnerMatchup =
-                  card.showOwnerMatchup && Boolean(awayDisplayOwner || homeDisplayOwner);
-
                 const useNeutralSemantics = usesNeutralSiteSemantics(g);
                 const matchupLabel = formatGameMatchupLabel(g, {
                   homeAwaySeparator: useNeutralSemantics ? 'vs' : '@',
                 });
                 const eventName = deriveDisplayEventName(g.label, g.notes, matchupLabel);
-                const awayColorTreatment = getSafeScoreboardTeamColorById(
-                  card.awayTeamId,
-                  teamCatalogById
-                );
-                const homeColorTreatment = getSafeScoreboardTeamColorById(
-                  card.homeTeamId,
-                  teamCatalogById
-                );
-                const metadataLines = deriveExpandedMetadataLines({
-                  date: g.date,
-                  timeZone: displayTimeZone,
-                  useNeutralSemantics,
-                  venue: g.venue,
-                  startTimeTBD: g.startTimeTBD,
-                  media: g.media,
-                });
+                const contextEventName =
+                  eventName ?? (card.showCanonicalEventLabel ? g.label : null);
                 const primaryTag = card.tagPrimary;
                 const secondaryTags = card.tagSecondary;
+                const tags = primaryTag ? [primaryTag, ...secondaryTags] : secondaryTags;
+                const awayDisplay = participantDisplayInfo(g, 'away');
+                const homeDisplay = participantDisplayInfo(g, 'home');
+                const awayRanking = rankingsByTeamId.get(card.awayTeamId);
+                const homeRanking = rankingsByTeamId.get(card.homeTeamId);
+                const hasTier2Content = Boolean(
+                  card.venueLabel ||
+                    card.oddsSummary ||
+                    card.conferenceSummary ||
+                    (card.isPlaceholder && onSavePostseasonOverride)
+                );
 
                 return (
-                  <details
+                  <div
                     key={g.key}
                     ref={(element) => {
                       if (!element) {
@@ -218,133 +156,103 @@ export default function GameWeekPanel({
                       }
                       gameCardRefs.current.set(g.key, element);
                     }}
-                    className={`group overflow-hidden rounded border border-gray-300 bg-gray-50 text-gray-900 transition-colors hover:border-gray-400 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:border-zinc-700 ${
-                      card.isLiveState ? 'ring-1 ring-amber-300/70 dark:ring-amber-800/60' : ''
-                    } ${cardEmphasisClasses(card.emphasisTone)} ${
+                    className={
                       focusedGameId === g.key ? 'ring-1 ring-blue-500 dark:ring-blue-500' : ''
-                    }`}
-                    style={{
-                      boxShadow: `inset 0 2px 0 ${awayColorTreatment.borderAccent}, inset 0 -2px 0 ${homeColorTreatment.borderAccent}`,
-                    }}
-                    data-card-team-accent-top="away"
-                    data-card-team-accent-bottom="home"
+                    }
                     data-primary-tag={primaryTag ?? ''}
                     data-ranked-game={card.hasRankedTeam ? 'true' : 'false'}
                     data-focused-game={focusedGameId === g.key ? 'true' : 'false'}
                     data-game-card-id={g.key}
-                    open={focusedGameId === g.key ? true : undefined}
                   >
-                    <summary className="cursor-pointer list-none px-2.5 py-1.5">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex flex-col gap-1">
-                          {showDisplayOwnerMatchup && (
-                            <div className="text-xs font-semibold text-indigo-700 dark:text-indigo-300">
-                              {awayDisplayOwner} vs {homeDisplayOwner}
-                            </div>
-                          )}
-                          {card.showCollapsedCanonicalLabel && (
-                            <div className="text-xs font-semibold text-violet-700 dark:text-violet-300">
-                              {g.label}
-                            </div>
-                          )}
-                          <div
-                            className={`font-medium ${card.isPlaceholder ? 'text-gray-500 dark:text-zinc-400' : 'text-gray-900 dark:text-zinc-100'}`}
-                          >
-                            {renderMatchupLabel(
-                              g,
-                              rankingsByTeamId,
-                              useNeutralSemantics ? 'vs' : '@',
-                              card.awayTeamId,
-                              card.homeTeamId
-                            )}
-                          </div>
-                          {primaryTag ? (
-                            <div className="mt-1 inline-flex flex-wrap items-center gap-1 text-xs uppercase tracking-wide">
-                              <span className="rounded-full border border-blue-300 bg-blue-100 px-1.5 py-0.5 font-semibold text-blue-800 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-200">
-                                {LEAGUE_TAG_LABELS[primaryTag]}
+                    <CompactGameScoreboard
+                      state={card.scoreboardState}
+                      clock={card.kickoffLabel ?? undefined}
+                      broadcast={card.broadcastLabel}
+                      neutralSite={useNeutralSemantics}
+                      scheduleNotice={card.scheduleNotice}
+                      matchupLabel={matchupLabel}
+                      contextSlot={
+                        contextEventName || tags.length > 0 ? (
+                          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                            {contextEventName ? (
+                              <span
+                                className="min-w-0 truncate text-xs dark:text-zinc-400"
+                                data-expanded-event-name
+                              >
+                                {contextEventName}
                               </span>
-                              {secondaryTags.map((tag) => (
-                                <span
-                                  key={`${g.key}:${tag}`}
-                                  className="rounded-full border border-gray-200/70 bg-gray-50/70 px-1.5 py-0.5 font-medium text-gray-500 dark:border-zinc-700/80 dark:bg-zinc-900/70 dark:text-zinc-400"
-                                >
-                                  {LEAGUE_TAG_LABELS[tag]}
-                                </span>
-                              ))}
-                            </div>
-                          ) : null}
-                        </div>
-                        <div
-                          className={`shrink-0 rounded-full border px-2 py-1 text-right text-xs font-semibold uppercase tracking-[0.18em] group-open:hidden ${summaryChipClasses(card.summaryStateTone)}`}
-                          data-summary-state
-                        >
-                          {card.summaryState}
-                        </div>
-                      </div>
-                    </summary>
-
-                    <div className="space-y-2.5 px-2.5 py-2.5">
-                      <div className="space-y-1">
-                        {eventName && (
-                          <div
-                            className="text-sm leading-snug text-gray-400 dark:text-zinc-500"
-                            data-expanded-event-name
-                          >
-                            {eventName}
-                          </div>
-                        )}
-                        <div
-                          className="space-y-0.5 text-xs text-gray-400 dark:text-zinc-500"
-                          data-expanded-metadata
-                        >
-                          <div
-                            className="metadata-primary flex flex-wrap items-center gap-x-2 gap-y-1"
-                            data-expanded-metadata-primary
-                          >
-                            {metadataLines.primary.map((part) => (
-                              <span key={`${g.key}:meta-primary:${part}`}>{part}</span>
+                            ) : null}
+                            {tags.map((tag) => (
+                              <span key={`${g.key}:${tag}`} className={EYEBROW_TAG_CLASSES}>
+                                {LEAGUE_TAG_LABELS[tag]}
+                              </span>
                             ))}
                           </div>
-                          {metadataLines.secondary ? (
-                            <div className="metadata-secondary" data-expanded-metadata-secondary>
-                              {metadataLines.secondary}
+                        ) : undefined
+                      }
+                      away={{
+                        teamName: awayDisplay.scoreboardName,
+                        owner: awayDisplayOwner,
+                        rank: awayRanking?.rank,
+                        rankSource: awayRanking?.rankSource,
+                        classification: g.awayClassification,
+                        record: card.teamRecords?.away,
+                        score: card.score?.away.score ?? null,
+                      }}
+                      home={{
+                        teamName: homeDisplay.scoreboardName,
+                        owner: homeDisplayOwner,
+                        rank: homeRanking?.rank,
+                        rankSource: homeRanking?.rankSource,
+                        classification: g.homeClassification,
+                        record: card.teamRecords?.home,
+                        score: card.score?.home.score ?? null,
+                      }}
+                      tier2Slot={
+                        hasTier2Content ? (
+                          <details
+                            className="group/tier2 text-xs dark:text-zinc-400"
+                            open={focusedGameId === g.key ? true : undefined}
+                          >
+                            <summary
+                              className="w-fit cursor-pointer list-none select-none py-0.5"
+                              aria-label={`More details for ${matchupLabel}`}
+                            >
+                              <span className="group-open/tier2:hidden">More ↓</span>
+                              <span className="hidden group-open/tier2:inline">Less ↑</span>
+                            </summary>
+                            <div className="mt-1 space-y-1 pb-1">
+                              {card.venueLabel ? (
+                                <div data-schedule-tier2-venue>{card.venueLabel}</div>
+                              ) : null}
+                              {card.oddsSummary ? (
+                                <div data-schedule-tier2-odds>{card.oddsSummary}</div>
+                              ) : null}
+                              {card.conferenceSummary ? (
+                                <div data-schedule-tier2-conference>{card.conferenceSummary}</div>
+                              ) : null}
+                              {card.isPlaceholder && onSavePostseasonOverride ? (
+                                <button
+                                  className="rounded border px-2 py-1 text-xs"
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    const nextLabel =
+                                      window.prompt('Override event label', g.label ?? '') ?? '';
+                                    if (!nextLabel.trim()) return;
+                                    onSavePostseasonOverride(g.eventId, {
+                                      label: nextLabel.trim(),
+                                    });
+                                  }}
+                                >
+                                  Save label override
+                                </button>
+                              ) : null}
                             </div>
-                          ) : null}
-                        </div>
-                      </div>
-
-                      <GameScoreboard
-                        score={card.score}
-                        awayTeam={participantDisplayInfo(g, 'away')}
-                        homeTeam={participantDisplayInfo(g, 'home')}
-                        awayRanking={rankingsByTeamId.get(card.awayTeamId)}
-                        homeRanking={rankingsByTeamId.get(card.homeTeamId)}
-                        awayConference={g.awayConf}
-                        homeConference={g.homeConf}
-                        awayOwner={card.awayOwner}
-                        homeOwner={card.homeOwner}
-                        awayColorTreatment={awayColorTreatment}
-                        homeColorTreatment={homeColorTreatment}
-                        odds={card.odds}
-                        isPlaceholder={card.isPlaceholder}
-                      />
-
-                      {card.isPlaceholder && onSavePostseasonOverride && (
-                        <button
-                          className="px-2 py-1 rounded border text-xs"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            const nextLabel =
-                              window.prompt('Override event label', g.label ?? '') ?? '';
-                            if (!nextLabel.trim()) return;
-                            onSavePostseasonOverride(g.eventId, { label: nextLabel.trim() });
-                          }}
-                        >
-                          Save label override
-                        </button>
-                      )}
-                    </div>
-                  </details>
+                          </details>
+                        ) : undefined
+                      }
+                    />
+                  </div>
                 );
               })}
             </div>

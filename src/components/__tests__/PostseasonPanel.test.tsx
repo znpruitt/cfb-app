@@ -56,34 +56,22 @@ function postseasonGame(overrides: Partial<AppGame>): AppGame {
   };
 }
 
-test('postseason panel threads team catalog through to game cards', () => {
+test('postseason panel threads team records through to shared scoreboards', () => {
   const html = renderToStaticMarkup(
     <PostseasonPanel
-      games={[postseasonGame({ key: 'orange-bowl' })]}
+      games={[postseasonGame({ key: 'orange-bowl', providerGameId: '401234567' })]}
       oddsByKey={{}}
       scoresByKey={{}}
       rosterByTeam={new Map()}
       isDebug={false}
-      teamCatalogById={
-        new Map([
-          [
-            'texas',
-            { id: 'texas', school: 'Texas', color: '#BF5700', altColor: '#FFFFFF', alts: [] },
-          ],
-          [
-            'georgia',
-            { id: 'georgia', school: 'Georgia', color: '#BA0C2F', altColor: '#000000', alts: [] },
-          ],
-        ])
-      }
+      teamRecordsByProviderGameId={{
+        '401234567': { away: { wins: 11, losses: 2 }, home: { wins: 12, losses: 1 } },
+      }}
     />
   );
 
-  assert.match(html, /data-card-team-accent-top="away"/);
-  assert.match(html, /data-card-team-accent-bottom="home"/);
-  assert.match(html, /rgba\(170, 89, 21, 0\.38\)/);
-  assert.match(html, /rgba\(176, 22, 53, 0\.38\)/);
-  assert.doesNotMatch(html, /rgba\(5, 150, 105, 0\.28\)/);
+  assert.match(html, /data-scoreboard-value="away">11–2<\/span>/);
+  assert.match(html, /data-scoreboard-value="home">12–1<\/span>/);
 });
 
 test('postseason panel forwards focused game id to grouped game cards', () => {

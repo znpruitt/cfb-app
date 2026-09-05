@@ -105,7 +105,7 @@ function ownerOutcomeRowClasses(tone: GameOutcomeTone): string {
     case 'finalLoss':
       return 'border-l-2 border-l-transparent bg-gray-50/40 pl-2 dark:border-l-rose-500/70 dark:bg-zinc-950/10';
     case 'finalSelf':
-      return 'border-l-2 border-l-violet-400/80 bg-violet-50/40 pl-2 dark:border-l-violet-500/70 dark:bg-violet-950/10';
+      return 'border-l-2 border-l-violet-400/80 bg-gray-50/40 pl-2 dark:border-l-violet-500/70 dark:bg-zinc-950/10';
     default:
       return 'border-l-2 border-l-transparent pl-2';
   }

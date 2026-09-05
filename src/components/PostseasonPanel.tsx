@@ -2,6 +2,7 @@ import React from 'react';
 
 import type { CombinedOdds } from '../lib/odds';
 import { isTruePostseasonGame } from '../lib/postseason-display';
+import type { TeamRecordsByProviderGameId } from '../lib/selectors/teamRecordsClient';
 import type { ScorePack } from '../lib/scores';
 import type { AppGame } from '../lib/schedule';
 import type { TeamCatalogItem } from '../lib/teamIdentity';
@@ -14,7 +15,9 @@ type PostseasonPanelProps = {
   rosterByTeam: Map<string, string>;
   isDebug: boolean;
   teamCatalogById?: Map<string, TeamCatalogItem>;
+  teamRecordsByProviderGameId?: TeamRecordsByProviderGameId;
   onSavePostseasonOverride?: (eventId: string, patch: Partial<AppGame>) => void;
+  currentDateMs?: number | null;
   focusedGameId?: string | null;
 };
 
@@ -42,7 +45,9 @@ export default function PostseasonPanel({
   rosterByTeam,
   isDebug,
   teamCatalogById = new Map(),
+  teamRecordsByProviderGameId,
   onSavePostseasonOverride,
+  currentDateMs = null,
   focusedGameId = null,
 }: PostseasonPanelProps): React.ReactElement {
   const postseason = games.filter(isTruePostseasonGame);
@@ -84,7 +89,9 @@ export default function PostseasonPanel({
               rosterByTeam={rosterByTeam}
               isDebug={isDebug}
               teamCatalogById={teamCatalogById}
+              teamRecordsByProviderGameId={teamRecordsByProviderGameId}
               onSavePostseasonOverride={onSavePostseasonOverride}
+              currentDateMs={currentDateMs}
               focusedGameId={focusedGameId}
             />
           </div>
