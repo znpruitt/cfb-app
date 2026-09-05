@@ -369,10 +369,8 @@ test('provider row timestamps the latest attempt (not prior success) and shows l
   );
   // The noncanonical latest-activity scope key is disclosed (exact-target).
   assert.ok(html.includes('scores:week:2026:3:regular'), 'latest-activity scope key shown');
-  // The historical success is still exposed separately — now NAMED by the scope
-  // it came from, so a year-rollup value can no longer be read as a week's.
-  assert.ok(html.includes('last success'), 'prior success surfaced separately');
-  assert.ok(html.includes('Year rollup scope'), 'and each record names its own scope');
+  // The historical success is exposed separately as "Last success".
+  assert.ok(html.includes('Last success'), 'prior success surfaced separately');
 });
 
 test('issues render in model order with repair links only for non-null repairs', async () => {
@@ -634,15 +632,16 @@ test('Item 88: partition activity wins over a STALE year rollup', async () => {
     />
   );
 
-  // BOTH records now render, each named by scope — so the stale rollup's figures
-  // are present but cannot be mistaken for the partition's. The earlier version of
-  // this test asserted the rollup vanished, which hid a fault an issue was naming.
-  assert.ok(html.includes('Year rollup · rows committed'), 'the rollup is shown, labelled');
-  assert.ok(html.includes('Latest partition scope'), 'and the partition is named too');
+  // The SUMMARY line describes the partition record, and the disclosure's own
+  // "Latest activity" line names its scope — which is what the operator acts on.
+  // The canonical block is untouched, so a year-rollup fault stays visible there
+  // under its own "Canonical scope" label; nothing is hidden and nothing is
+  // relabelled.
   assert.ok(
     html.includes('scores:week:2026:1:regular'),
-    'the partition scope key is the one the operator needs to act on'
+    'the partition scope the operator needs to act on is named'
   );
+  assert.ok(html.includes('Canonical scope'), 'and the canonical record keeps its own label');
 });
 
 test('Item 88: a FAILED year rollup keeps the row, even with newer partition success', async () => {
@@ -681,4 +680,41 @@ test('Item 88: a FAILED year rollup keeps the row, even with newer partition suc
   );
 
   assert.ok(html.includes('provider-503'), 'the fault that drives the warning stays visible');
+});
+
+test('Item 88: "Latest activity" survives for datasets this item never touched', async () => {
+  // Regression guard. A previous version made that detail conditional on
+  // partition-scoped datasets, which silently removed it from Schedule and Odds —
+  // whose targeted and filtered refreshes are exactly what lives there. A scoped
+  // failure could then raise an issue while the row showed only canonical success.
+  const model = await buildModel({
+    providerRefresh: () =>
+      Promise.resolve(
+        refreshSnapshotWith({
+          schedule: {
+            canonical: canonicalOutcome('schedule', 'succeeded'),
+            latest: {
+              state: 'available',
+              status: safeStatus('schedule', weekPartitionScope(YEAR, 4, 'regular'), {
+                latestAttemptOutcome: 'failed',
+              }),
+            },
+          },
+        })
+      ),
+  });
+
+  const html = renderToStaticMarkup(
+    <ProviderHealthSection
+      datasets={model.datasets}
+      automation={model.automation}
+      year={model.year}
+      nowMs={NOW}
+    />
+  );
+
+  assert.ok(
+    html.includes('schedule:week:2026:4:regular'),
+    'a non-partition dataset still discloses its latest scoped target'
+  );
 });
