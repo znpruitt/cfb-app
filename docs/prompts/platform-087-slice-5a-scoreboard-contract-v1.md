@@ -5,6 +5,32 @@ SCOPE: `src/components/CompactGameScoreboard.tsx` and `src/components/__tests__/
 Read `AGENTS.md` first, then `DESIGN.md` — it is canonical for UI and this is UI work. Neither is
 restated here. Queue context: `docs/next-tasks.md` → **Item 87 slice 5a** (run-order position 3).
 
+## References — READ THESE BEFORE WRITING ANYTHING
+
+**These were missing from the first dispatch, and that omission is why the FCS rule below needed
+correcting after you had started.** The design was already settled in writing; the prompt paraphrased
+it from a one-line queue summary instead of citing it.
+
+**The settled design, canonical for the markers:**
+
+- [`docs/campaigns/item-87-followon-matchups-schedule-design.md`](../campaigns/item-87-followon-matchups-schedule-design.md)
+  — §"prefix slot" (around `:43-47`) settles the classification marker: _"rank if ranked, FCS if FCS,
+  otherwise empty. No precedence logic, no ambiguous case to test."_ It also records WHY no precedence
+  rule is needed: rankings derive from FBS poll data only, so an FCS team never carries a rank — the
+  two markers are mutually exclusive by construction of the ingestion pipeline, not by display
+  convention. **Where this document and the task list below disagree, this document wins.**
+- [`docs/campaigns/item-87-live-watchlist-scoreboard.md`](../campaigns/item-87-live-watchlist-scoreboard.md)
+  — the scoreboard family's state model, including the `awaiting` state, the green-dot/`Live`
+  treatment, and which surfaces render this component.
+
+**The visual target:**
+
+- [`mockups/live-scoreboard-mockup.html`](../../mockups/live-scoreboard-mockup.html)
+- [`mockups/matchups-schedule-mockup.html`](../../mockups/matchups-schedule-mockup.html)
+
+Open both. They show the intended row composition — where the prefix marker sits, how the neutral-site
+and broadcast metadata read, and what the tier-2 slot is for. Do not infer the layout from the prose.
+
 ## Start from a NEW branch
 
 Branch from current `origin/main`, named `platform/087-slice-5a-scoreboard-contract`. Do NOT reuse or
