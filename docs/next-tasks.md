@@ -846,7 +846,24 @@ becomes ONE entry and every FCS opponent becomes ONE entry. `MatchupsWeekPanel:3
 _"Show N more opponents"_. Three unowned opponents count as one, so the number is understated on any
 slate carrying more than one — a rendered, wrong number.
 
-**Scope is narrower than it looks — do NOT widen it.** The sentinels are correct where they render:
+**The control the count labels is INERT — found 2026-09-05 during the read receipt.** `isExpanded`
+(`MatchupsWeekPanel.tsx:332`) is read at exactly one place, `:398`, for the button's own label. The
+list at `:378` is `slate.games.map(...)` with no slice and no condition, so every game renders in both
+states. Clicking toggles the text between `Show N more opponents ↓` and `Show less ↑` and does nothing
+else.
+
+**That changes the item, because the count fix alone makes the surface worse.**
+`hasHiddenOpponents` is `entries.length > DEFAULT_VISIBLE_OPPONENTS` (`:334`), and the sentinel
+collapse suppresses that length — so today the button often does not render at all. Correcting the key
+RAISES the length, which makes a dead button appear on more slates than it does now. **Owner decision
+2026-09-05: fix both.** The list honours `isExpanded`; the button does what its label claims.
+
+**Collapsed means the first N OPPONENTS, not the first N games.** The label counts opponents while
+the list renders games, so this must be stated or it gets chosen arbitrarily. Collapsed renders the
+games whose opponent falls in the first `DEFAULT_VISIBLE_OPPONENTS` summary entries (they are in
+first-appearance order). Slicing games instead would make the label lie in a new way.
+
+**Scope is narrower than it looks in one respect — do NOT widen it further.** The sentinels are correct where they render:
 `MatchupsWeekPanel:194` already suppresses `'NoClaim (FBS)'` from the row descriptor, and `'FCS'`
 renders deliberately as a badge because an FBS-over-FCS result means something different (the base
 addendum's rule). **The defect is in the COUNT only.** Fixing it means giving the summary a key that
@@ -858,9 +875,19 @@ wiring `entry.label` into JSX must suppress the sentinel — which is a rule abo
 not a fix for what ships now. Doing it inside 117 means inheriting 117's whole scope for a defect
 that is one selector and one count. **117 keeps its constraint**; this item fixes the live number.
 
-**Value:** small, member-visible, and a correctness fix rather than a redesign. Independent of the UI
-spine: `selectors/matchups.ts` plus one panel, no shared component, so it cannot collide with slice 5
-or with Item 102.
+**Keying — settled 2026-09-05.** Re-key **only the two sentinel branches** onto opponent team
+identity. Owned opponents stay keyed on the opponent owner, `Self` on `'Self'`, placeholder/derived on
+the participant `displayName`. Keying every branch on team identity would split an owner who fields
+two teams against this owner in one week, and split two `Self` games — changing counts the contract
+says must not move. `opponentTeamId` / `opponentTeamName` are already on `OwnerSlateGame`
+(`src/lib/matchups.ts:46-47`), so no fetch or payload widening is required.
+
+**Tests live at `src/lib/__tests__/selectors-matchups.test.ts`**, not under
+`src/lib/selectors/__tests__/`. Add to the existing suite rather than creating a second location.
+
+**Value:** member-visible, and a correctness fix rather than a redesign — a wrong number labelling a
+control that does nothing. Independent of the UI spine: `selectors/matchups.ts` plus one panel, no
+shared component, so it cannot collide with slice 5 or with Item 102.
 
 **Blocker:** none.
 

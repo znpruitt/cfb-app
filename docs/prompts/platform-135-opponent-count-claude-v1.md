@@ -1,6 +1,6 @@
 PROMPT_ID: PLATFORM-135-OPPONENT-COUNT-CLAUDE-v1
 PURPOSE: Item 135 — "Show N more opponents" on Matchups understates, because the opponent summary counts sentinel labels rather than distinct opponents. Fix the count. Change nothing that renders.
-SCOPE: `src/lib/selectors/matchups.ts` and its `__tests__/`; `src/components/MatchupsWeekPanel.tsx` ONLY if the count cannot be corrected in the selector, plus that component's tests. No shared scoreboard component, no other panel, no new dependency.
+SCOPE: `src/lib/selectors/matchups.ts`; its existing suite at `src/lib/__tests__/selectors-matchups.test.ts`; `src/components/MatchupsWeekPanel.tsx` and its tests. No shared scoreboard component, no other panel, no new dependency.
 
 Read `AGENTS.md` first. Nothing in it is restated here.
 
@@ -44,6 +44,26 @@ every unowned FBS opponent collapses into ONE entry and every FCS opponent into 
 
 Give the summary a key that distinguishes opponents — the opponent's team identity — so the count is
 the number of distinct opponents.
+
+**Re-key ONLY the two sentinel branches — settled 2026-09-05, after your receipt.** You were right
+that `<task>` and `<completeness_contract>` pulled in opposite directions here, and the contract
+governs. Owned opponents stay keyed on the opponent owner, `Self` on `'Self'`, placeholder/derived on
+the participant `displayName`. Keying every branch on team identity would split an owner fielding two
+teams against this owner in one week, and split two `Self` games — moving counts the contract says
+must not move.
+
+**SECOND, AND THIS IS NEW — make the control work.** Your receipt found that `isExpanded`
+(`:332`) is read only at `:398` for the button's own label, while the list at `:378` is
+`slate.games.map(...)` unsliced, so clicking hides nothing. That matters more than it first appears:
+`hasHiddenOpponents` is `entries.length > DEFAULT_VISIBLE_OPPONENTS` (`:334`), so the sentinel
+collapse currently suppresses the button entirely on many slates — and **correcting the count raises
+the length, which would make a dead button appear on MORE slates.** Fixing the count alone makes the
+surface worse. **Owner decision: fix both.**
+
+**Collapsed means the first N OPPONENTS, not the first N games.** The label counts opponents while the
+list renders games, so this is stated rather than left to you: when collapsed, render the games whose
+opponent falls within the first `DEFAULT_VISIBLE_OPPONENTS` summary entries — they are in
+first-appearance order. Slicing games instead would make the label lie in a new way.
 </task>
 
 <gate>
@@ -77,6 +97,12 @@ data fetch or a widened payload.
   `:194` and show a SPECIFIC named test going red, then restore.
 - Owned opponents, `Self`, and placeholder/derived participants keep counting exactly as they do
   today. Assert each; do not assume.
+- **The control actually collapses.** A slate with more than `DEFAULT_VISIBLE_OPPONENTS` opponents
+  renders fewer games collapsed than expanded, and every game returns when expanded. Prove by
+  MUTATION that the assertion can fail — restore the unsliced list and show a SPECIFIC named test
+  going red.
+- **`Show N more opponents` equals the number of opponents actually withheld.** Assert the label
+  against the hidden opponent count, not against a literal.
 - Test count delta reported as a measured number.
 </completeness_contract>
 
