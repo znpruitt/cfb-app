@@ -25,7 +25,7 @@ import {
 import {
   deriveOpponentDescriptor,
   deriveOwnerOutcome,
-  selectSlateOpponentVisibility,
+  selectSlateGameVisibility,
   type GameOutcomeTone,
 } from '../lib/selectors/matchups';
 import type { TeamRankingEnrichment } from '../lib/rankings';
@@ -330,8 +330,10 @@ function OwnerCard({
   const gameListId = `${React.useId()}-games`;
   // Item 135 — the selector decides both the count and which games the collapsed
   // card shows, so the control's label and the list it governs cannot disagree.
-  const { visibleGames, hiddenOpponentCount, hasHiddenOpponents } = React.useMemo(
-    () => selectSlateOpponentVisibility(slate, isExpanded),
+  // It also deduplicates: an owner holding both teams in a game gets two mirror
+  // slate entries, and that is one game, one row.
+  const { visibleGames, hiddenGameCount, hasHiddenGames } = React.useMemo(
+    () => selectSlateGameVisibility(slate, isExpanded),
     [slate, isExpanded]
   );
   const wins = ownerStanding?.wins ?? 0;
@@ -378,7 +380,7 @@ function OwnerCard({
       <ul id={gameListId} className="divide-y divide-gray-200 dark:divide-zinc-700">
         {visibleGames.map((slateGame) => (
           <GameRow
-            key={`${slate.owner}:${slateGame.game.key}:${slateGame.ownerTeamSide}`}
+            key={`${slate.owner}:${slateGame.game.key}`}
             slateGame={slateGame}
             scoresByKey={scoresByKey}
             oddsByKey={oddsByKey}
@@ -390,7 +392,7 @@ function OwnerCard({
         ))}
       </ul>
 
-      {hasHiddenOpponents ? (
+      {hasHiddenGames ? (
         <button
           type="button"
           aria-expanded={isExpanded}
@@ -400,7 +402,7 @@ function OwnerCard({
         >
           {isExpanded
             ? 'Show less ↑'
-            : `Show ${hiddenOpponentCount} more opponent${hiddenOpponentCount === 1 ? '' : 's'} ↓`}
+            : `Show ${hiddenGameCount} more game${hiddenGameCount === 1 ? '' : 's'} ↓`}
         </button>
       ) : null}
     </article>

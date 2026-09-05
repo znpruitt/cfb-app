@@ -6,8 +6,9 @@ import {
   deriveOpponentDescriptor,
   deriveOwnerOutcome,
   formatSlateSummaryText,
-  getDefaultVisibleOpponentsCount,
-  selectSlateOpponentVisibility,
+  getDefaultVisibleGamesCount,
+  selectDistinctSlateGames,
+  selectSlateGameVisibility,
   summarizeSlateOpponents,
 } from '../selectors/matchups.ts';
 import { deriveOwnerWeekSlates, deriveWeekMatchupSections } from '../matchups';
@@ -96,9 +97,16 @@ test('selector derives summary and outcome including self-game edge case', () =>
     performance: { summary: '1-1', detail: 'x', tone: 'final' },
   } as OwnerWeekSlate);
 
+  // Item 135 retarget. This fixture holds the SAME slate entry twice, which is
+  // the shape `buildOwnerSlateGames` produces for one self game — so it is one
+  // game, and the summary now says so. It previously read
+  // `2 games · vs Self (x2)`, counting the duplicate as a second game.
+  // Both original assertions are preserved: the formatter's output for a self
+  // slate, and the `finalSelf` outcome tone below.
+  assert.deepEqual(entries, [{ label: 'Self', count: 1 }]);
   assert.equal(
-    formatSlateSummaryText({ entries, totalGames: 2, expanded: false }),
-    '2 games · vs Self (x2)'
+    formatSlateSummaryText({ entries, totalGames: 1, expanded: false }),
+    '1 game · vs Self'
   );
 
   const outcome = deriveOwnerOutcome({
@@ -208,11 +216,12 @@ test('deriveWeekMatchupSections resolves owners despite a provider-name mismatch
 });
 
 // ---------------------------------------------------------------------------
-// Item 135 — the opponent SUMMARY key. `deriveOpponentDescriptor` collapses
-// every unowned opponent onto one of two sentinels, so keying the count map on
-// that string made three distinct opponents count as one. The count is keyed on
-// opponent team identity for those two branches only; owned opponents, `Self`,
-// and placeholder/derived participants keep the keys they already had.
+// Item 135, after the model change — the owner-card control counts GAMES.
+//
+// It previously counted opponent GROUPS, a shape borrowed from the dormant
+// `formatSlateSummaryText`, while the list rendered games. Every defect on this
+// control came from that mismatch, including a `NoClaim` collision that
+// survived a full remediation round. These tests pin the rendered unit.
 // ---------------------------------------------------------------------------
 
 function slate(games: OwnerSlateGame[], owner = 'Alex'): OwnerWeekSlate {
@@ -239,291 +248,17 @@ function unownedOpponent(teamId: string, conference: string): OwnerSlateGame {
   });
 }
 
-test('summarizeSlateOpponents counts distinct unowned FBS opponents separately (Item 135)', () => {
-  const entries = summarizeSlateOpponents(
-    slate([
-      unownedOpponent('rice', 'SEC'),
-      unownedOpponent('tulane', 'SEC'),
-      unownedOpponent('smu', 'SEC'),
-    ])
-  );
-
-  assert.equal(entries.length, 3, 'three unowned FBS opponents are three opponents, not one');
-  assert.deepEqual(
-    entries.map((entry) => entry.count),
-    [1, 1, 1]
-  );
-  // The rendered descriptor is unchanged: each entry still carries the sentinel.
-  assert.deepEqual(
-    entries.map((entry) => entry.label),
-    ['NoClaim (FBS)', 'NoClaim (FBS)', 'NoClaim (FBS)']
-  );
-});
-
-test('summarizeSlateOpponents counts distinct FCS opponents separately (Item 135)', () => {
-  const entries = summarizeSlateOpponents(
-    slate([
-      unownedOpponent('north-dakota', 'MVFC'),
-      unownedOpponent('montana', 'Big Sky'),
-      unownedOpponent('mercer', 'Southern'),
-    ])
-  );
-
-  assert.equal(entries.length, 3, 'three FCS opponents are three opponents, not one');
-  assert.deepEqual(
-    entries.map((entry) => entry.count),
-    [1, 1, 1]
-  );
-  assert.deepEqual(
-    entries.map((entry) => entry.label),
-    ['FCS', 'FCS', 'FCS']
-  );
-});
-
-test('summarizeSlateOpponents repeats one unowned opponent as a single entry (Item 135)', () => {
-  // The split is by opponent identity, not per game: the same unowned team met
-  // twice is still ONE opponent.
-  const entries = summarizeSlateOpponents(
-    slate([
-      unownedOpponent('rice', 'SEC'),
-      { ...unownedOpponent('rice', 'SEC'), game: game({ key: 'g-rice-2', homeConf: 'SEC' }) },
-      unownedOpponent('tulane', 'SEC'),
-    ])
-  );
-
-  assert.equal(entries.length, 2);
-  assert.deepEqual(
-    entries.map((entry) => entry.count),
-    [2, 1]
-  );
-});
-
-test('summarizeSlateOpponents keys owned opponents on the opponent owner (Item 135)', () => {
-  // Two DIFFERENT teams owned by the same owner stay one opponent entry — the
-  // opponent is the owner, not the team. Keying every branch on team identity
-  // would have split this.
-  const entries = summarizeSlateOpponents(
-    slate([
-      slateGame({
-        owner: 'Alex',
-        opponentOwner: 'Bailey',
-        opponentTeamId: 'alabama',
-        game: game({ key: 'g-bama' }),
-        isOpponentUnownedOrNonLeague: false,
-      }),
-      slateGame({
-        owner: 'Alex',
-        opponentOwner: 'Bailey',
-        opponentTeamId: 'auburn',
-        game: game({ key: 'g-auburn' }),
-        isOpponentUnownedOrNonLeague: false,
-      }),
-      slateGame({
-        owner: 'Alex',
-        opponentOwner: 'Casey',
-        opponentTeamId: 'oregon',
-        game: game({ key: 'g-oregon' }),
-        isOpponentUnownedOrNonLeague: false,
-      }),
-    ])
-  );
-
-  assert.deepEqual(
-    entries.map((entry) => ({ label: entry.label, count: entry.count })),
-    [
-      { label: 'Bailey', count: 2 },
-      { label: 'Casey', count: 1 },
-    ]
-  );
-});
-
-test('summarizeSlateOpponents keeps two Self games as one Self entry (Item 135)', () => {
-  const self = slateGame({
-    owner: 'Alex',
-    opponentOwner: 'Alex',
-    isOwnerVsOwner: true,
-    isOpponentUnownedOrNonLeague: false,
-  });
-  const entries = summarizeSlateOpponents(
-    slate([
-      { ...self, opponentTeamId: 'alabama', game: game({ key: 'g-self-1' }) },
-      { ...self, opponentTeamId: 'auburn', game: game({ key: 'g-self-2' }) },
-    ])
-  );
-
-  assert.equal(entries.length, 1);
-  assert.equal(entries[0]?.label, 'Self');
-  assert.equal(entries[0]?.count, 2);
-});
-
-test('summarizeSlateOpponents keys placeholder and derived opponents on their display name (Item 135)', () => {
-  const placeholder = slateGame({
-    owner: 'Alex',
-    ownerTeamSide: 'away',
-    opponentOwner: undefined,
-    opponentTeamId: 'slot-home',
-    game: game({
-      key: 'g-placeholder',
-      participants: {
-        away: {
-          kind: 'team',
-          teamId: 'away-id',
-          displayName: 'Away',
-          canonicalName: 'Away',
-          rawName: 'Away',
-        },
-        home: { kind: 'placeholder', slotId: 'slot-home', displayName: 'Winner G1' },
-      },
-    }),
-  });
-  const derived = slateGame({
-    owner: 'Alex',
-    ownerTeamSide: 'away',
-    opponentOwner: undefined,
-    opponentTeamId: 'slot-derived',
-    game: game({
-      key: 'g-derived',
-      participants: {
-        away: {
-          kind: 'team',
-          teamId: 'away-id',
-          displayName: 'Away',
-          canonicalName: 'Away',
-          rawName: 'Away',
-        },
-        home: {
-          kind: 'derived',
-          slotId: 'slot-derived',
-          displayName: 'Winner G2',
-          sourceEventId: 'e1',
-          derivation: 'winner',
-        },
-      },
-    }),
-  });
-
-  const entries = summarizeSlateOpponents(
-    slate([
-      placeholder,
-      { ...placeholder, game: { ...placeholder.game, key: 'g-placeholder-2' } },
-      derived,
-    ])
-  );
-
-  assert.deepEqual(
-    entries.map((entry) => ({ label: entry.label, count: entry.count })),
-    [
-      { label: 'Winner G1', count: 2 },
-      { label: 'Winner G2', count: 1 },
-    ]
-  );
-});
-
-// ---------------------------------------------------------------------------
-// Item 135 — the control the count labels. Before this item `isExpanded` was
-// read only for the button's own text while the list rendered every game
-// unconditionally, so the button hid nothing. Collapsing slices by OPPONENT,
-// because that is what the label counts.
-// ---------------------------------------------------------------------------
-
-function unownedSlateOfSize(opponentCount: number): OwnerWeekSlate {
+function unownedSlateOfSize(gameCount: number): OwnerWeekSlate {
   return slate(
-    Array.from({ length: opponentCount }, (_, index) => unownedOpponent(`opponent-${index}`, 'SEC'))
+    Array.from({ length: gameCount }, (_, index) => unownedOpponent(`opponent-${index}`, 'SEC'))
   );
 }
 
-test('selectSlateOpponentVisibility withholds games beyond the default opponent count (Item 135)', () => {
-  const visible = getDefaultVisibleOpponentsCount();
-  const source = unownedSlateOfSize(visible + 2);
-
-  const collapsed = selectSlateOpponentVisibility(source, false);
-  const expanded = selectSlateOpponentVisibility(source, true);
-
-  assert.equal(collapsed.hasHiddenOpponents, true);
-  assert.equal(
-    collapsed.visibleGames.length,
-    visible,
-    'collapsed renders only the games of the first visible opponents'
-  );
-  assert.ok(
-    collapsed.visibleGames.length < expanded.visibleGames.length,
-    'collapsed must render FEWER games than expanded'
-  );
-  assert.deepEqual(
-    expanded.visibleGames,
-    source.games,
-    'every game returns when expanded — nothing is dropped'
-  );
-  // Collapsed keeps the FIRST opponents, in first-appearance order.
-  assert.deepEqual(
-    collapsed.visibleGames.map((slateGameItem) => slateGameItem.opponentTeamId),
-    source.games.slice(0, visible).map((slateGameItem) => slateGameItem.opponentTeamId)
-  );
-});
-
-test('selectSlateOpponentVisibility hides nothing when opponents fit (Item 135)', () => {
-  const source = unownedSlateOfSize(getDefaultVisibleOpponentsCount());
-
-  const collapsed = selectSlateOpponentVisibility(source, false);
-
-  assert.equal(collapsed.hasHiddenOpponents, false);
-  assert.equal(collapsed.hiddenOpponentCount, 0);
-  assert.deepEqual(collapsed.visibleGames, source.games);
-});
-
-test('hiddenOpponentCount equals the opponents no visible game represents (Item 135)', () => {
-  // The label states a number of OPPONENTS. Derive the withheld count from the
-  // visible games rather than restating the literal the selector used, so a
-  // slice that kept the wrong games would fail here.
-  for (const opponentCount of [4, 5, 9]) {
-    const source = unownedSlateOfSize(opponentCount);
-    const collapsed = selectSlateOpponentVisibility(source, false);
-    const opponentsShown = summarizeSlateOpponents(slate(collapsed.visibleGames)).length;
-
-    assert.equal(
-      collapsed.hiddenOpponentCount,
-      collapsed.entries.length - opponentsShown,
-      `${opponentCount} opponents: label must equal the opponents actually withheld`
-    );
-    assert.equal(collapsed.entries.length, opponentCount);
-  }
-});
-
-test('selectSlateOpponentVisibility keeps every game of a retained opponent (Item 135)', () => {
-  // Slicing by opponent, not by game: a repeated opponent inside the visible
-  // window brings BOTH of its games, so the collapsed card can show more games
-  // than opponents.
-  const source = slate([
-    unownedOpponent('rice', 'SEC'),
-    { ...unownedOpponent('rice', 'SEC'), game: game({ key: 'g-rice-2', homeConf: 'SEC' }) },
-    unownedOpponent('tulane', 'SEC'),
-    unownedOpponent('smu', 'SEC'),
-    unownedOpponent('navy', 'SEC'),
-  ]);
-
-  const collapsed = selectSlateOpponentVisibility(source, false);
-
-  assert.equal(collapsed.entries.length, 4);
-  assert.equal(collapsed.hiddenOpponentCount, 1);
-  assert.equal(collapsed.visibleGames.length, 4, 'three opponents, four games');
-  assert.deepEqual(
-    collapsed.visibleGames.map((slateGameItem) => slateGameItem.game.key),
-    ['g-rice', 'g-rice-2', 'g-tulane', 'g-smu']
-  );
-});
-
-// ---------------------------------------------------------------------------
-// Item 135, Codex review of 1259bd61 — the PRODUCTION roster shape.
-//
-// A confirmed draft writes `NoClaim` as the OWNER of every undrafted eligible
-// team (`buildConfirmedOwnersCsv`), and `CFBScheduleApp` puts those rows into
-// `rosterByTeam` unfiltered. So on a real league an unclaimed opponent has a
-// TRUTHY `opponentOwner`, takes the owned branch, and never reaches the team
-// key — which left the original defect fully intact where it actually ships.
-// The first fixture for this item omitted unowned teams from the roster
-// instead, and could not reach that path.
-// ---------------------------------------------------------------------------
-
+/**
+ * The production shape a confirmed draft produces: every undrafted eligible team
+ * is written with the reserved `NoClaim` OWNER, so an unclaimed opponent has a
+ * truthy `opponentOwner`. Built through the real derivation rather than by hand.
+ */
 function noClaimRosterSlate(opponents: string[]): OwnerWeekSlate {
   const games = opponents.map((opponent, index) =>
     game({
@@ -553,7 +288,6 @@ function noClaimRosterSlate(opponents: string[]): OwnerWeekSlate {
 
   const rosterByTeam = new Map<string, string>();
   opponents.forEach((_, index) => rosterByTeam.set(`Owned${index}`, 'Taylor'));
-  // The rows a confirmed draft writes for undrafted teams.
   for (const opponent of opponents) rosterByTeam.set(opponent, NO_CLAIM_OWNER);
 
   const ownerSlate = deriveOwnerWeekSlates(games, rosterByTeam, {}).find(
@@ -563,72 +297,167 @@ function noClaimRosterSlate(opponents: string[]): OwnerWeekSlate {
   return ownerSlate;
 }
 
-test('summarizeSlateOpponents counts NoClaim-rostered opponents as distinct opponents (Item 135)', () => {
+/** An owner holding BOTH teams in a game — 39 of these in the 2026 season. */
+function selfGameSlate(): OwnerWeekSlate {
+  const ownerSlate = deriveOwnerWeekSlates(
+    [game({ key: 'self-1', csvAway: 'Jacksonville State', csvHome: 'North Dakota State' })],
+    new Map([
+      ['Jacksonville State', 'Whited'],
+      ['North Dakota State', 'Whited'],
+    ]),
+    {}
+  ).find((entry) => entry.owner === 'Whited');
+  assert.ok(ownerSlate, 'owner slate should exist');
+  return ownerSlate;
+}
+
+test('selectDistinctSlateGames collapses the mirrored entries of a self game (Item 135)', () => {
+  const source = selfGameSlate();
+
+  // Positive control: the fixture must actually carry the duplicate, or it
+  // proves nothing about the deduplication.
+  assert.equal(source.games.length, 2, 'buildOwnerSlateGames emits one entry per owned side');
+  assert.deepEqual(
+    source.games.map((slateGameItem) => slateGameItem.ownerTeamSide),
+    ['away', 'home']
+  );
+
+  const distinct = selectDistinctSlateGames(source);
+
+  assert.equal(distinct.length, 1, 'one real game is one game');
+  assert.equal(distinct[0]?.ownerTeamSide, 'away', 'first occurrence wins, deterministically');
+});
+
+test('a self game renders one row and counts once (Item 135)', () => {
+  const visibility = selectSlateGameVisibility(selfGameSlate(), false);
+
+  assert.equal(visibility.distinctGames.length, 1);
+  assert.equal(visibility.visibleGames.length, 1);
+  assert.equal(visibility.hasHiddenGames, false);
+  assert.equal(visibility.hiddenGameCount, 0);
+});
+
+test('selectDistinctSlateGames keeps every genuinely distinct game (Item 135)', () => {
+  // Deduplication is by game key, so two different games against the same
+  // opponent both survive — the count is of games, not opponents.
+  const source = slate([
+    unownedOpponent('rice', 'SEC'),
+    { ...unownedOpponent('rice', 'SEC'), game: game({ key: 'g-rice-2', homeConf: 'SEC' }) },
+    unownedOpponent('tulane', 'SEC'),
+  ]);
+
+  assert.deepEqual(
+    selectDistinctSlateGames(source).map((slateGameItem) => slateGameItem.game.key),
+    ['g-rice', 'g-rice-2', 'g-tulane']
+  );
+});
+
+test('selectSlateGameVisibility withholds games beyond the default count (Item 135)', () => {
+  const visible = getDefaultVisibleGamesCount();
+  const source = unownedSlateOfSize(visible + 2);
+
+  const collapsed = selectSlateGameVisibility(source, false);
+  const expanded = selectSlateGameVisibility(source, true);
+
+  assert.equal(collapsed.hasHiddenGames, true);
+  assert.equal(collapsed.visibleGames.length, visible);
+  assert.ok(
+    collapsed.visibleGames.length < expanded.visibleGames.length,
+    'collapsed must render FEWER games than expanded'
+  );
+  assert.deepEqual(
+    expanded.visibleGames,
+    source.games,
+    'every game returns when expanded — nothing is dropped'
+  );
+  assert.deepEqual(
+    collapsed.visibleGames,
+    source.games.slice(0, visible),
+    'collapsed keeps the first games, in slate order'
+  );
+});
+
+test('selectSlateGameVisibility hides nothing when the slate fits (Item 135)', () => {
+  const source = unownedSlateOfSize(getDefaultVisibleGamesCount());
+
+  const collapsed = selectSlateGameVisibility(source, false);
+
+  assert.equal(collapsed.hasHiddenGames, false);
+  assert.equal(collapsed.hiddenGameCount, 0);
+  assert.deepEqual(collapsed.visibleGames, source.games);
+});
+
+test('hiddenGameCount equals the games no visible row represents (Item 135)', () => {
+  // Derived from the visible list rather than restating the literal the
+  // selector used, so a slice that kept the wrong games would fail here.
+  for (const gameCount of [4, 5, 9]) {
+    const source = unownedSlateOfSize(gameCount);
+    const collapsed = selectSlateGameVisibility(source, false);
+
+    assert.equal(
+      collapsed.hiddenGameCount,
+      collapsed.distinctGames.length - collapsed.visibleGames.length,
+      `${gameCount} games: the label must equal the games actually withheld`
+    );
+    assert.equal(collapsed.distinctGames.length, gameCount);
+  }
+});
+
+test('the game count is unaffected by how opponents group (Item 135)', () => {
+  // The bug class this model change removes. Five games against five unowned
+  // FBS opponents, five games against ONE repeated opponent, and five games
+  // against a mix all count five, because the count no longer asks who the
+  // opponent is.
+  const distinctOpponents = unownedSlateOfSize(5);
+  const oneRepeatedOpponent = slate(
+    Array.from({ length: 5 }, (_, index) => ({
+      ...unownedOpponent('rice', 'SEC'),
+      game: game({ key: `g-rice-${index}`, csvHome: 'rice', homeConf: 'SEC' }),
+    }))
+  );
+  const fcsOpponents = slate(
+    ['north-dakota', 'montana', 'mercer', 'furman', 'elon'].map((id) =>
+      unownedOpponent(id, 'Big Sky')
+    )
+  );
+
+  for (const [name, source] of [
+    ['distinct unowned FBS', distinctOpponents],
+    ['one repeated opponent', oneRepeatedOpponent],
+    ['FCS opponents', fcsOpponents],
+  ] as const) {
+    const collapsed = selectSlateGameVisibility(source, false);
+    assert.equal(collapsed.distinctGames.length, 5, `${name}: five games`);
+    assert.equal(collapsed.hiddenGameCount, 5 - getDefaultVisibleGamesCount(), `${name}: hidden`);
+  }
+});
+
+test('NoClaim-rostered opponents do not collapse the game count (Item 135)', () => {
+  // The Codex finding that prompted the model change. On a drafted league every
+  // unclaimed team carries the reserved `NoClaim` OWNER, which grouped them all
+  // into one opponent. Counting games is indifferent to it.
   const source = noClaimRosterSlate(['Rice', 'Tulane', 'SMU', 'Navy', 'Temple']);
 
-  // The fixture must actually reach the owned branch, or it proves nothing.
-  assert.deepEqual(
-    source.games.map((slateGameItem) => slateGameItem.opponentOwner),
-    Array.from({ length: 5 }, () => NO_CLAIM_OWNER),
+  assert.ok(
+    source.games.every((slateGameItem) => slateGameItem.opponentOwner === NO_CLAIM_OWNER),
     'positive control: every opponent carries the reserved NoClaim owner'
   );
 
-  const entries = summarizeSlateOpponents(source);
+  const collapsed = selectSlateGameVisibility(source, false);
 
-  assert.equal(entries.length, 5, 'five unclaimed teams are five opponents, not one');
-  assert.deepEqual(
-    entries.map((entry) => entry.count),
-    [1, 1, 1, 1, 1]
-  );
-  assert.ok(
-    entries.every((entry) => entry.key.startsWith('team:')),
-    'the reserved sentinel is not a real owner — it must not key an owner group'
-  );
+  assert.equal(collapsed.distinctGames.length, 5, 'five games, whoever owns the opponents');
+  assert.equal(collapsed.hiddenGameCount, 5 - getDefaultVisibleGamesCount());
 });
 
-test('the reserved NoClaim owner never forms an owner group (Item 135)', () => {
-  const source = noClaimRosterSlate(['Rice', 'Tulane', 'SMU', 'Navy']);
+test('summarizeSlateOpponents counts a self game once (Item 135)', () => {
+  // The dormant formatter's input is deduplicated too, so it can no longer
+  // report `2 games · vs Self (x2)` for one game. Item 117 owns its fate; this
+  // pins the consequence rather than changing the function.
+  const entries = summarizeSlateOpponents(selfGameSlate());
 
-  const entries = summarizeSlateOpponents(source);
-
+  assert.deepEqual(entries, [{ label: 'Self', count: 1 }]);
   assert.equal(
-    entries.filter((entry) => entry.key === `owner:${NO_CLAIM_OWNER}`).length,
-    0,
-    'NoClaim is an unowned marker, not an opponent'
-  );
-});
-
-test('the collapse control counts NoClaim-rostered opponents (Item 135)', () => {
-  // The end of the chain: with the defect present this slate summarised to ONE
-  // opponent, so the control was suppressed entirely on a real roster.
-  const source = noClaimRosterSlate(['Rice', 'Tulane', 'SMU', 'Navy', 'Temple']);
-
-  const collapsed = selectSlateOpponentVisibility(source, false);
-
-  assert.equal(collapsed.hasHiddenOpponents, true);
-  assert.equal(collapsed.hiddenOpponentCount, 5 - getDefaultVisibleOpponentsCount());
-  assert.equal(collapsed.visibleGames.length, getDefaultVisibleOpponentsCount());
-});
-
-test('an owner literally named FCS stays out of the FCS opponent group (Item 135)', () => {
-  // The key namespaces are load-bearing: without the `owner:` / `team:` prefixes
-  // a real owner whose name equals a sentinel would merge with unowned teams.
-  const entries = summarizeSlateOpponents(
-    slate([
-      slateGame({
-        owner: 'Alex',
-        opponentOwner: 'FCS',
-        opponentTeamId: 'montana',
-        game: game({ key: 'g-owned-by-fcs' }),
-        isOpponentUnownedOrNonLeague: false,
-      }),
-      unownedOpponent('north-dakota', 'MVFC'),
-    ])
-  );
-
-  assert.equal(entries.length, 2, 'the owner named FCS is not the FCS group');
-  assert.deepEqual(
-    entries.map((entry) => entry.key),
-    ['owner:FCS', 'team:north-dakota']
+    formatSlateSummaryText({ entries, totalGames: 1, expanded: false }),
+    '1 game · vs Self'
   );
 });
