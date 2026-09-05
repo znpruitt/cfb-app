@@ -185,8 +185,9 @@ touches no component file.
 Written and ready: `platform-087-slice-5-item-112-codex-v1.md`,
 `platform-135-opponent-count-claude-v1.md`, `platform-102-slice-2-cron-synthesis-claude-v1.md`.
 
-**Fillers, safe against both lanes, any order:** Item 135 (`selectors/matchups.ts` only), Item 133a
-(below), 122, 121, 84, 86, 111.
+**Fillers, safe against both lanes, any order:** Item 136 (`matchups.ts` aggregates, surfaced by
+135), Item 133a (below), 122, 121, 84, 86, 111. **Item 135 is complete** — both reviewers converged on
+`a7f4dead`.
 
 **Run Item 135 first.** It is written, small, a wrong number on screen today, and the only filler with
 any theoretical path into spine territory — taking it before slice 5 starts removes the question.
@@ -833,18 +834,64 @@ not be read as a requirement on the other.**
 
 - Backlog slug: `PLATFORM-SCHEDULE-REFRESH-FORENSICS-v1`
 
+### Item 136 — Matchups slate aggregates double-count a self game
+
+**The ask:** make the per-owner tiles count games the way the row list now does — once each.
+
+**The mechanism, measured 2026-09-05.** `buildOwnerWeekPerformance` (`src/lib/matchups.ts:306`) takes
+`games: OwnerSlateGame[]` and iterates them directly, incrementing `liveGames` / `finalGames` /
+`scheduledGames` per **entry**. `buildOwnerSlateGames` (`:239`, `:254`) emits **two entries for one
+game** when an owner holds both teams, so every such game counts twice. `totalGames`, `liveGames` and
+`finalGames` on the slate carry the same defect, and `ownerView.ts:346` consumes them.
+
+Probed output for one live self game:
+
+    performance.summary : "0–0 · 2 live"
+    performance.detail  : "2 games"
+    slate.liveGames     : 2
+    rendered rows       : 1
+
+**Visible today.** The 2026 season has **39 games where one owner holds both teams** (measured against
+`owners:tsc:2026`, 138 teams, 16 owners, out of 888 games involving a rostered team). Week 1 alone:
+Whited (Jacksonville State vs North Dakota State), Maleski (Miami vs Stanford, and Baylor vs Auburn).
+Those cards read `2 GAMES` above a single row.
+
+**Item 135 did not cause this — it revealed it.** Before 135 the list rendered the duplicate rows too,
+so the header and the list agreed while both were wrong. Deduplicating the rows made the aggregate
+disagreement visible. Same shape as the `NoClaim` finding: each correct fix exposes what the previous
+defect was masking.
+
+**Correction on record.** An earlier note claimed `performance.summary` was safe because it counts
+buckets rather than slate entries. That holds for the **record** half (`wins`/`losses`) only; the
+live/total counters iterate the un-deduped entries. Recorded so the scope is not under-described.
+
+**Scope:** `src/lib/matchups.ts` — `buildOwnerWeekPerformance` plus the slate's `totalGames`,
+`liveGames`, `finalGames` — and the `src/lib/ownerView.ts:346` consumer. Dedupe on `game.key`, the
+same key `scoresByKey` / `oddsByKey` already treat as unique.
+
+**Blocker:** none. Independent of the UI spine; no shared component. Parallel-safe against both lanes.
+
 ### Item 135 — "Show N more opponents" undercounts on Matchups
 
 **The ask:** make the opponent count reflect distinct opponents. It is wrong on screen today.
 
-**The mechanism, traced 2026-09-05.** `deriveOpponentDescriptor`
-(`src/lib/selectors/matchups.ts:22`) returns a per-owner descriptor for owned opponents but collapses
-unowned ones to one of two **sentinels**: `'FCS'` (`:39`) and `'NoClaim (FBS)'` (`:42`).
-`summarizeSlateOpponents` (`:51`) keys its count map on that string, so **every** unowned FBS opponent
-becomes ONE entry and every FCS opponent becomes ONE entry. `MatchupsWeekPanel:335` derives
-`hiddenCount` from `opponentSummaryEntries.length`, and `:398` renders it as
-_"Show N more opponents"_. Three unowned opponents count as one, so the number is understated on any
-slate carrying more than one — a rendered, wrong number.
+**The mechanism — CORRECTED 2026-09-05. The original diagnosis below named a path production does
+not take.** The count was understated, but not through the sentinel branches.
+`buildConfirmedOwnersCsv` writes **`NoClaim` as a real owner** for every undrafted eligible team
+(`src/lib/rosterEditing.ts:23`), and `CFBScheduleApp:637` copies the roster into `rosterByTeam`
+unfiltered. So in any drafted league an unclaimed opponent has a **truthy** `opponentOwner`, takes the
+OWNED branch, and every one of them collapses into a single `NoClaim` group. The sentinel branches
+(`'FCS'`, `'NoClaim (FBS)'`) are reachable only before a draft.
+
+**Why that mattered:** a fix targeting the sentinel branches passes every test and changes nothing on
+a real league. It survived a full remediation round before Codex caught it, because the fixtures
+built the pre-draft shape. Recorded because the wrong mechanism, not the wrong fix, is what cost the
+round.
+
+**Original diagnosis, retained for the reasoning only — NOT the production path:**
+`deriveOpponentDescriptor` (`src/lib/selectors/matchups.ts:22`) collapses unowned opponents to two
+sentinels, `'FCS'` and `'NoClaim (FBS)'`; `summarizeSlateOpponents` keyed its count map on that
+string. True, but unreachable after a draft.
 
 **The control the count labels is INERT — found 2026-09-05 during the read receipt.** `isExpanded`
 (`MatchupsWeekPanel.tsx:332`) is read at exactly one place, `:398`, for the button's own label. The
