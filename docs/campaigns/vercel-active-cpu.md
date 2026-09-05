@@ -275,6 +275,42 @@ Projections, not measurements — built on the one measured ratio and a 12-hour 
 that projection. Both changes together give a season's margin.** Seasonal Vercel Pro (~$20/month)
 remains an operational option for headroom, not a substitute for either change.
 
+### The 20% duty cycle is an ANNUAL average, and the allowance is monthly
+
+Measured 2026-09-05 against the real `schedule / 2026-all-all` record (3,679 games, all with
+parseable UTC kickoffs), replaying the planner's own rule — a UTC hour is armed if any game's
+`[kickoff − 15m, kickoff + 24h]` window overlaps it, which is `pollingTarget.ts`'s window:
+
+| | Sep | Oct | Nov | Dec | Jan–Aug | Full year |
+| --- | --- | --- | --- | --- | --- | --- |
+| Hours armed | 49% | **74%** | 66% | 3% | 0–13% | **17%** |
+
+**The full-year 17% confirms the ~20% duty cycle the projection assumed. October's 74% is the
+problem**: the Vercel allowance is measured per 30 days, so the binding month is the one that
+matters, and in it the planner removes roughly **26%** of live-scores wakeups, not ~72%. Applied to
+the ~2.8 h post-Item-99 figure that lands near **~2.25 h**, not ~1.1 h. The projection is right about
+the year and wrong about the month.
+
+**The cause is the 24-hour tail, not the schedule.** Sensitivity at the same measurement, October:
+
+| Tail | 24h | 12h | 6h | 3h |
+| --- | --- | --- | --- | --- |
+| Hours armed (Oct) | 74% | 50% | 33% | 24% |
+
+One Saturday game arms all of Sunday, so in-season the tail — not kickoff density — holds the cron
+open. **Restricting to FBS games does not help**: 888 of the 3,679 involve an FBS team, and planning
+from only those gives 74% in October and 16% for the year, within a point of the full slate. The FBS
+slate alone is dense enough to cover the same clock.
+
+**The tail cannot simply be shortened.** `kickoff + 24h` is the final-reconciliation guarantee, and
+PLATFORM-105A already found that boundary giving up on late-arriving finals. Shortening it trades a
+correctness property for CPU.
+
+**What this does NOT change:** Item 102 remains clearly worth building — ~83% of annual wakeups is a
+large real saving, and it retires the manual pause that can strand a final. What changes is the
+claim: it is an annual and offseason win that buys headroom, **not** the fix for in-season pressure.
+Anything that depends on being under the line in October needs a second lever.
+
 ---
 
 ## What the planner must deal with

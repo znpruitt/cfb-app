@@ -1815,7 +1815,21 @@ Full evidence, including the rejected alternatives, in
 
 **Pairs with shipped PLATFORM-120.** That change cuts the canonical-build cost of every live-score
 and game-stats invocation; this cuts their number. Projected together: ~1.1 CPU-h/30d against ~2.8 h
-for PLATFORM-120 alone. An in-route gate before the context load was proposed and dropped as
+for PLATFORM-120 alone.
+
+**That projection is ANNUAL, and the allowance is monthly — measured 2026-09-05.** Replaying the
+planner's own window rule against the real 2026 schedule (3,679 games), hours armed are **17% for the
+year** — which confirms the ~20% duty cycle the projection assumed — but **74% in October**, 49% in
+September, 66% in November. In the binding month the planner therefore removes ~26% of live-scores
+wakeups, landing near ~2.25 h rather than ~1.1 h. **The 24-hour tail is the cause, not kickoff
+density**: one Saturday game arms all of Sunday, and October falls to 50% at a 12h tail and 33% at 6h.
+Restricting to FBS games does not help — the 888 FBS-involving games give 74% in October, within a
+point of the full slate. The tail cannot simply be shortened; `kickoff + 24h` is the
+final-reconciliation guarantee, and PLATFORM-105A already found that boundary giving up on late
+finals. **Build it for the ~83% annual saving and the manual pause it retires — not as the fix for
+in-season pressure.** Evidence and the sensitivity table:
+[`docs/campaigns/vercel-active-cpu.md`](campaigns/vercel-active-cpu.md) → *The 20% duty cycle is an
+ANNUAL average*. An in-route gate before the context load was proposed and dropped as
 redundant against the pair — recorded in the campaign doc so it is not re-derived.
 
 **Four things it collides with, all located:**
