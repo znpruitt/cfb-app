@@ -35,6 +35,7 @@ import {
   type LatestScopedActivityFact,
   type ProviderRefreshHealthSnapshot,
 } from './providerRefreshHealth.ts';
+import { partitionScopedHealthByDataset } from './partitionScopedRefreshHealth.ts';
 import {
   getProviderRefreshSettings,
   type ProviderRefreshSettings,
@@ -370,6 +371,33 @@ export async function buildSystemHealthViewModel(params: {
   const expectations: ProviderDataExpectations = diagR.ok
     ? diagR.value.expectations
     : unknownProviderDataExpectations();
+  // Item 88 — for scores and game-stats the year-scoped record is never written,
+  // so neither elapsed time nor cache presence can say whether the dataset is
+  // healthy. Both inputs are already here: the scheduler receipt says whether a
+  // refresh was DUE, and the row's partition activity says whether one happened.
+  const partitionHealth = partitionScopedHealthByDataset({
+    nowMs,
+    receiptFor: (job) => {
+      const jobRow = schedulerDelivery.jobs.find((candidate) => candidate.job === job);
+      const receipt = jobRow?.receipt ?? null;
+      return receipt ? { reason: receipt.reason, startedAt: receipt.startedAt } : null;
+    },
+    lastActivityAtFor: (dataset) => {
+      const row = providerRefresh.rows.find((candidate) => candidate.dataset === dataset);
+      if (!row || row.latestScopedActivity.state !== 'available') return null;
+      // The SUCCESS, not the attempt. An earlier version read `lastAttemptAt` and
+      // justified it as liveness — "a failing writer is still alive" — but this
+      // feeds the FRESHNESS stoplight. A writer attempting and failing for twenty
+      // minutes would have read green while its data went stale and an issue
+      // already named the dataset. Success catches both failure modes: a writer
+      // that stopped, and one that is running but achieving nothing.
+      //
+      // A mutation found this: swapping the two fields killed no test, because
+      // the fixture set them to the same instant.
+      return row.latestScopedActivity.status.lastSuccessAt;
+    },
+  });
+
   const datasets: ProviderDatasetHealthRow[] = providerRefresh.rows.map((row) => {
     const datasetDiagnostics = diagnosticsAvailable
       ? diagnostics.diagnostics.filter((diag) => diag.dataset === row.dataset)
@@ -387,6 +415,7 @@ export async function buildSystemHealthViewModel(params: {
         diagnosticsAvailable,
         diagnostics: datasetDiagnostics,
         expectation: expectations[row.dataset],
+        partitionHealth: partitionHealth[row.dataset] ?? null,
       }),
       diagnostics: datasetDiagnostics,
     };

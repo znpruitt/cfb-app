@@ -151,3 +151,43 @@ export function partitionScopedHealth(input: PartitionScopedHealthInput): Partit
 export function isHealthy(health: PartitionScopedHealth): boolean {
   return health.state === 'active' || health.state === 'quiet';
 }
+
+/**
+ * Compute partition-scoped health for every dataset that has it, from facts the
+ * health snapshot already holds. Returns a sparse map: datasets without a
+ * partition scope are simply absent, so `deriveDatasetFreshness` receives
+ * `undefined` for them and behaves exactly as before.
+ *
+ * `receiptValidForMs` is the job's own delivery grace. Beyond it,
+ * `schedulerDeliveryHealth` already calls the job `late`, so treating its last
+ * receipt as still speaking for the present would contradict the row directly
+ * above it on the same page.
+ */
+export function partitionScopedHealthByDataset(input: {
+  nowMs: number;
+  /** Latest receipt per job, from the scheduler-delivery snapshot. */
+  receiptFor: (job: ExternalSchedulerJob) => { reason: string; startedAt: string } | null;
+  /** Latest partition-scoped ATTEMPT per dataset, ISO, or null when there is none. */
+  lastActivityAtFor: (dataset: ProviderDataset) => string | null;
+}): Partial<Record<ProviderDataset, PartitionScopedHealth>> {
+  const out: Partial<Record<ProviderDataset, PartitionScopedHealth>> = {};
+  for (const dataset of PARTITION_SCOPED_DATASETS) {
+    const job = EXPECTATION_JOB_BY_DATASET[dataset];
+    const boundary = stallBoundaryMs(dataset);
+    if (!job || boundary === null) continue;
+
+    const raw = input.receiptFor(job);
+    const startedAtMs = raw ? Date.parse(raw.startedAt) : Number.NaN;
+    const activityRaw = input.lastActivityAtFor(dataset);
+    const activityMs = activityRaw ? Date.parse(activityRaw) : Number.NaN;
+
+    out[dataset] = partitionScopedHealth({
+      nowMs: input.nowMs,
+      receipt: raw ? { reason: raw.reason, startedAtMs } : null,
+      receiptValidForMs: boundary,
+      lastActivityAtMs: Number.isFinite(activityMs) ? activityMs : null,
+      expectedWithinMs: boundary,
+    });
+  }
+  return out;
+}

@@ -21,7 +21,11 @@ import {
   NOW,
   YEAR,
   allExpectations,
+  canonicalOutcome,
+  deliveryRow,
+  deliverySnapshot,
   healthyDelivery,
+  receiptFor,
   refreshSnapshot,
 } from './systemHealthFixtures.ts';
 
@@ -82,6 +86,11 @@ function healthyLoaders(
     oddsUsage: () => Promise.resolve(healthyOdds()),
     ...overrides,
   };
+}
+
+/** A live-scores receipt whose reason means a refresh WAS due (not `no-polling-target`). */
+function liveScoresReceiptWithTarget() {
+  return { ...receiptFor('live-scores', 'success'), reason: 'scoreboard-written-clean' as const };
 }
 
 function allAvailable() {
@@ -652,4 +661,124 @@ test('PLATFORM-090: a diagnostics-pass failure yields a non-intentional Unknown 
   assert.equal(row.freshness.intentional, false);
   assert.equal(row.freshness.status, 'gray');
   assert.equal(row.freshness.label, 'Unknown');
+});
+
+// --- Item 88: partition-scoped rows reach the model end to end ---------------
+
+test('Item 88: a stalled scores writer turns the row yellow, cache notwithstanding', async () => {
+  // The wiring proof. The cron reports a real target (a refresh WAS due) while
+  // the partition writer has gone silent, and the cache is fully available —
+  // which is exactly the shape that used to read green "Current" forever.
+  // Older than live-scores' two-poll-window grace.
+  const stalledFact = canonicalOutcome('scores', 'succeeded', {
+    lastAttemptAt: new Date(NOW - 60 * 60_000).toISOString(),
+  });
+  assert.equal(stalledFact.state, 'available', 'fixture sanity: the status exists to be read');
+  const stalledActivity =
+    stalledFact.state === 'available'
+      ? ({ state: 'available', status: stalledFact.status } as const)
+      : ({ state: 'absent' } as const);
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders({
+      schedulerDelivery: () =>
+        Promise.resolve(
+          deliverySnapshot(
+            EXTERNAL_SCHEDULER_JOBS.map((job) =>
+              deliveryRow(
+                job,
+                'on-time',
+                job === 'live-scores' ? liveScoresReceiptWithTarget() : receiptFor(job, 'success')
+              )
+            )
+          )
+        ),
+      providerRefresh: () =>
+        Promise.resolve(refreshSnapshot({ scores: { latest: stalledActivity } })),
+    }),
+  });
+
+  const row = model.datasets.find((d) => d.dataset === 'scores')!;
+  assert.equal(row.freshness.status, 'yellow', 'never green while a due refresh is missing');
+  assert.equal(row.freshness.label, 'Refresh overdue');
+});
+
+test('Item 88: with no games in window the scores row reads idle and healthy', async () => {
+  // Positive control for the test above AND the ordinary case: the default
+  // fixture receipt reason is `no-polling-target`, so this is what the row looks
+  // like for most of the year.
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders(),
+  });
+
+  const row = model.datasets.find((d) => d.dataset === 'scores')!;
+  assert.deepEqual(row.freshness, {
+    status: 'green',
+    label: 'Idle — no games in window',
+    intentional: true,
+  });
+  assert.equal(model.overallState, 'healthy', 'and an idle slate is not an alarm');
+});
+
+test('Item 88: a year-scoped dataset is untouched by any of this', async () => {
+  // Schedule writes a year scope and was never broken. If this moves, the change
+  // has leaked past the two datasets it is scoped to.
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders(),
+  });
+
+  const row = model.datasets.find((d) => d.dataset === 'schedule')!;
+  assert.deepEqual(row.freshness, { status: 'green', label: 'Current', intentional: false });
+});
+
+test('Item 88: a writer ATTEMPTING but never succeeding is not healthy', async () => {
+  // Pins the field choice end to end. `lastAttemptAt` would read this as a live
+  // writer and show green while the data goes stale and an issue already names
+  // the dataset. A mutation caught the two fields being interchangeable, because
+  // the fixture had set them to the same instant.
+  const fact = canonicalOutcome('scores', 'failed', {
+    lastAttemptAt: new Date(NOW - 30_000).toISOString(), // trying, seconds ago
+    lastSuccessAt: new Date(NOW - 60 * 60_000).toISOString(), // last worked an hour ago
+  });
+  assert.equal(fact.state, 'available');
+  if (fact.state !== 'available') return;
+  assert.notEqual(
+    fact.status.lastAttemptAt,
+    fact.status.lastSuccessAt,
+    'fixture sanity: the two fields must DIFFER or this proves nothing'
+  );
+
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders({
+      schedulerDelivery: () =>
+        Promise.resolve(
+          deliverySnapshot(
+            EXTERNAL_SCHEDULER_JOBS.map((job) =>
+              deliveryRow(
+                job,
+                'on-time',
+                job === 'live-scores' ? liveScoresReceiptWithTarget() : receiptFor(job, 'success')
+              )
+            )
+          )
+        ),
+      providerRefresh: () =>
+        Promise.resolve(
+          refreshSnapshot({
+            scores: { latest: { state: 'available', status: fact.status } },
+          })
+        ),
+    }),
+  });
+
+  const row = model.datasets.find((d) => d.dataset === 'scores')!;
+  assert.notEqual(row.freshness.status, 'green', 'a writer achieving nothing is not healthy');
+  assert.equal(row.freshness.label, 'Refresh overdue');
 });

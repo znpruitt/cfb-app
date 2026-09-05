@@ -453,11 +453,19 @@ export function deriveDatasetFreshness(input: {
       case 'quiet':
         // No games are in the window, so no refresh was due. GREEN, not neutral —
         // correctly determining nothing is due IS the healthy state, and for most
-        // of the year it is this row's normal one (owner ruling). Still gray when
-        // there is no cached data either: that is an absence, not a working idle.
-        return cacheState === 'available'
-          ? { status: 'green', label: 'Idle — no games in window', intentional: true }
-          : { status: 'gray', label: 'None expected', intentional: true };
+        // of the year it is this row's normal one (owner ruling).
+        //
+        // ONLY when data is actually cached. With an absent cache this falls
+        // through to PLATFORM-090's expectation branch, which answers a DIFFERENT
+        // question: "should this dataset have data by now?" A game-stats cache can
+        // be absent AND expected — games were played, stats should exist — while
+        // the cron has no polling target because the window has closed. Claiming
+        // "nothing was due" there would silence a real warning, which an existing
+        // PLATFORM-090 test caught this doing.
+        if (cacheState === 'available') {
+          return { status: 'green', label: 'Idle — no games in window', intentional: true };
+        }
+        break;
       case 'active':
         break;
     }

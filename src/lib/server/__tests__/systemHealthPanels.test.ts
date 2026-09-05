@@ -700,17 +700,33 @@ test('Item 88: QUIET reads green — correctly knowing nothing is due is healthy
   });
 });
 
-test('Item 88: QUIET with no cached data is gray, not green', () => {
-  // Idle is healthy; idle with nothing cached is an absence, and green there
-  // would claim evidence that does not exist.
-  const f = deriveDatasetFreshness({
+test('Item 88: QUIET with no cached data DEFERS to the PLATFORM-090 expectation', () => {
+  // Two different questions. PLATFORM-090 asks "should this dataset have data by
+  // now"; this asks "was a refresh due in the last few minutes". A game-stats
+  // cache can be absent AND expected — games were played, stats should exist —
+  // while the cron has no polling target because the window closed. Quiet must
+  // not silence that.
+  const stillExpected = deriveDatasetFreshness({
     ...partitionBase,
     cacheState: 'absent',
+    expectation: 'expected',
     partitionHealth: { state: 'quiet' },
   });
+  assert.deepEqual(stillExpected, {
+    status: 'yellow',
+    label: 'No cached data',
+    intentional: false,
+  });
 
-  assert.equal(f.status, 'gray');
-  assert.equal(f.label, 'None expected');
+  // And when the canonical authority agrees nothing is due yet, it stays gray.
+  const notYet = deriveDatasetFreshness({
+    ...partitionBase,
+    cacheState: 'absent',
+    expectation: 'not-yet-expected',
+    partitionHealth: { state: 'quiet' },
+  });
+  assert.equal(notYet.status, 'gray');
+  assert.equal(notYet.label, 'None expected');
 });
 
 test('Item 88: an INDETERMINATE scheduler yields Unknown, never green', () => {
