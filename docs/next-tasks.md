@@ -24,8 +24,8 @@ Supersedes: (none)
 
 ## Current execution order
 
-`CURRENT`: **Item 102** — polling planner. (Item 88's display half is in review; its remaining half
-is **Item 132**.)
+`CURRENT`: **Item 102** — polling planner. (Item 88 is superseded in full by **Item 132**; both
+attempts at it were reverted.)
 `NEXT`: **Item 87 slice 5a** — shared scoreboard contract widening.
 
 Owner-selected run order (2026-09-03), replacing the 2026-09-02 order. Ordering values, stated by the
@@ -3049,13 +3049,11 @@ Acceptance boundary:
 
 ### Item 88 — PARTLY SHIPPED: Provider data health cannot describe a schedule-armed dataset
 
-**The display half is IN REVIEW on `platform/partition-scoped-health`, not merged.** Its scope: the
-Scores and Game stats rows stop reading a year-scoped record those datasets usually do not write, so
-they no longer report "No refresh history" while refreshing; and a row cannot read healthier than a
-warning or critical issue naming that dataset — except `provider-status-invalid`, a fault in the
-observability record rather than the data.
-
-**The remaining half is Item 132**, which supersedes the acceptance bullets below.
+**SUPERSEDED IN FULL BY ITEM 132.** Both attempts at this item — a freshness model and a
+display-only fix — were built, reviewed, and reverted. Neither merged; nothing reached production.
+The evidence and the pitfalls each one found are in
+[`docs/campaigns/item-132-partition-scoped-health.md`](campaigns/item-132-partition-scoped-health.md).
+Item 132 supersedes the acceptance bullets below.
 
 **The text below is retained as the original diagnosis.** Its row-summary observation is what the
 in-review branch addresses. What remains open regardless is the model mismatch itself — elapsed time
