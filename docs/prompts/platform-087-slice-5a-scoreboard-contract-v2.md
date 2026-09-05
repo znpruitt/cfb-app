@@ -1,4 +1,4 @@
-PROMPT_ID: PLATFORM-087-SLICE-5A-SCOREBOARD-CONTRACT-v1
+PROMPT_ID: PLATFORM-087-SLICE-5A-SCOREBOARD-CONTRACT-v2
 PURPOSE: Widen the shared `CompactGameScoreboard` contract so slice 5, Item 112, Item 117, Item 115, Item 119 and Item 118 build on ONE reviewed component change instead of each re-deriving it. Item 87 slice 5a only.
 SCOPE: `src/components/CompactGameScoreboard.tsx` and `src/components/__tests__/CompactGameScoreboard.test.tsx`; `src/components/OverviewPanel.tsx` ONLY where the new props must be supplied; `src/components/__tests__/OverviewPanel.test.tsx`. No other consumer, no new dependency, no design token changes.
 
@@ -31,12 +31,65 @@ it from a one-line queue summary instead of citing it.
 Open both. They show the intended row composition — where the prefix marker sits, how the neutral-site
 and broadcast metadata read, and what the tier-2 slot is for. Do not infer the layout from the prose.
 
-## Start from a NEW branch
+## v2 is a RECONSTRUCTION. Read this before anything else.
 
-Branch from current `origin/main`, named `platform/087-slice-5a-scoreboard-contract`. Do NOT reuse or
-build on `platform/browser-poll-cadence`, `platform/browser-poll-interval`, or any other existing
-branch — those are merged or abandoned, and a stacked branch has twice produced a review against the
-wrong base in this campaign.
+v1 was built, reviewed twice, remediated twice, and **stopped at `b80004c9` without merging** because
+review had not converged. Per `AGENTS.md` → **Review and remediation limits**, no third patch lands on
+that branch. This is the correct call and it is not up for renegotiation.
+
+**Rebuild from current `origin/main`. Do NOT cherry-pick, rebase, branch from, or copy files out of
+`platform/087-slice-5a-scoreboard-contract`.** Use a NEW branch name:
+`platform/087-slice-5a-scoreboard-contract-v2`. The stopped branch stays for reference only; reading
+it to understand a decision is fine, lifting code out of it is not — the five corrections below are
+the reason it stopped, and a copied file carries them back in.
+
+Do not build on `platform/browser-poll-cadence` or `platform/browser-poll-interval` either — those are
+merged or abandoned, and a stacked branch has twice produced a review against the wrong base here.
+
+## The five corrections — these are SPECIFICATION, not findings to rediscover
+
+All five were verified against the source before this prompt was written. Build to them from the
+start; do not re-litigate them.
+
+1. **Broadcast renders on `scheduled || live || awaiting` — everything except `final`. This finding
+   was REJECTED by the owner; v1's behaviour here was correct and must be preserved.**
+
+   The reviewer's objection was that `awaiting` can contain a game that is already over:
+   `isAwaitingScoreGame` (`src/lib/selectors/gameDayConfidence.ts:36-50`) requires only that kickoff
+   has passed and `classifyScorePackStatus(score) === 'scheduled'`, inside a window running to
+   kickoff + 24h — so a game whose feed never delivered sits there for a day.
+
+   **Owner ruling, 2026-09-05:** _"awaiting is a subset of live — it was supposed to start and is in
+   an indeterminate state — it should show the broadcast info."_ The broadcast label names the channel
+   the game is carried on; it is not a present-tense claim that the game is airing. Withholding it
+   from precisely the rows where a member most wants to go look for themselves is the worse failure.
+
+   **Do not re-raise this in review.** It is a settled product decision, not an oversight.
+
+2. **The reserved odds band must be unconditional.** The band exists so an odds-less scheduled card
+   stays flush with its odds-carrying neighbours in the same row. v1 made the footer conditional on
+   `tier2Slot`, which reintroduced exactly the misalignment the band was added to prevent — a card
+   with odds gained a row its neighbours lacked. **Invariant to hold and to test: two scheduled cards
+   side by side occupy the same height whether or not either carries odds, with tier-2 content
+   present and absent.** Assert it as that invariant, not as a class-string match.
+
+3. **The light-theme guard must catch `bg-white`, `text-white`, and `text-black`.** v1's regex was
+   `/(?:^|\s)(?:text|border|bg)-(?:gray|zinc|white|black|slate)-/` — the trailing `-` means it only
+   ever matched numbered tokens, so it would have had to see `text-white-` to fire. The canonical
+   unnumbered tokens walked straight through the guard that existed to stop them. Cover the numbered
+   families AND the unnumbered `white`/`black`, and add a positive control: a deliberately bad class
+   string the guard is shown to REJECT, so the guard cannot pass vacuously again.
+
+4. **One presence predicate for both slots.** v1 used `footerSlot != null` (nullish) and `tier2Slot`
+   (truthy) — an empty array is truthy but not null, so `tier2Slot={[]}` suppressed the footer band
+   and rendered an empty tier-2 wrapper. Use ONE shared predicate for both slots and state in a
+   comment what callers must pass to mean "nothing".
+
+5. **The FCS marker uses `zinc-400`, not `zinc-500`.** Measured against the `#0a0a0a` composition:
+   `zinc-500` (`#71717a`) is **4.10:1** and FAILS the 4.5:1 normal-text floor `DESIGN.md` requires;
+   `zinc-400` (`#a1a1aa`) is **7.72:1** and passes. Note this is a genuine exception to matching the
+   neighbouring rank marker's token — the rank marker sits at a larger size. If you believe 9.5px
+   qualifies as large text under `DESIGN.md`, STOP and ask rather than deciding it yourself.
 
 ## Why this is its own slice
 
@@ -64,8 +117,9 @@ change what an existing caller renders today.
    `homeClassification`/`awayClassification` on `AppGame` (`src/lib/schedule.ts:102`), matched EXACTLY
    as `rankings.ts` matches — no substring or case-insensitive widening.
 2. **Neutral-site marker.**
-3. **Broadcast on LIVE rows.** `CompactGameScoreboard.tsx:16-19` accepts `broadcast` today but the
-   component renders it on scheduled rows only; live rows must be able to carry it too.
+3. **Broadcast on live AND awaiting rows.** `CompactGameScoreboard.tsx:16-19` accepts `broadcast`
+   today but renders it on scheduled rows only. It must render on `scheduled`, `live` and `awaiting`,
+   and NOT on `final` — see correction 1, which is a settled owner decision.
 4. **A tier-2 expansion slot** — a render slot the later slices fill. Empty by default.
 </task>
 
@@ -92,6 +146,19 @@ Do NOT touch `MatchupsWeekPanel`, `GameWeekPanel`, or the Schedule surfaces — 
 Item 117 and Item 118, each with owner decisions still parked. The amber `upset` border and the
 card-owner treatment are explicitly NOT in this slice.
 </gate>
+
+## Closeout — required before merge, not after
+
+Both land in the SAME pre-merge closeout commit (`AGENTS.md` → **Documentation closeout timing**):
+
+- **`DESIGN.md`** — the widened contract: the prefix-slot marker rule, the neutral-site metadata, the
+  broadcast state set including the `awaiting` ruling above, and the tier-2 slot.
+- **`docs/next-tasks.md`** — slice 5a status.
+
+**Also document this KNOWN LIMITATION** rather than leaving it implicit: provider classifications are
+**absent from 2018-2024 data**, so the FCS marker is inert on every historical season and renders only
+for current-season rows. That is expected, not a bug — but an undocumented inert marker reads as a
+broken one to the next person who looks at an archive page. State it where the marker rule is stated.
 
 <verification>
 Run each separately and report its own exit code — never chained behind `&&` or a pipe:
