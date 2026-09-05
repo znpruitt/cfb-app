@@ -56,8 +56,25 @@ first commit; if you are not where this table says you should be, stop and say s
 | `/Users/zach/cfb-app-codex` | the Codex branch | Codex | **No** | its own branch only |
 
 - **Implementation Claude branches per implementation set**, off current `origin/main`, from
-  `claude/base` in that worktree. It never commits to `main` and never merges its own branch; the
-  owner merges after review convergence.
+  `claude/base` in that worktree. It never commits to `main` directly.
+- **The implementation lane opens its own PR and merges it — owner decision 2026-09-05**, amending the
+  earlier rule that the owner merged. By the time both reviewers have converged the decision is
+  already made, and the owner's merge step was mechanical: every catch in practice happened at REPORT
+  time, not at merge time. **Promotion is NOT delegated** — it stays with the owner, because that is
+  the step with production consequences and the one where "what ships together" is a judgement call.
+  Four conditions, all binding:
+  1. **The closeout commit lands first, on the branch.** `AGENTS.md` → **Documentation closeout
+     timing** requires it pre-merge. Record what actually SHIPPED, not what was specified — a model
+     that changed mid-branch is exactly what a ledger written from the prompt gets wrong.
+  2. **`git pull` immediately before merging**, and report any conflict resolved. Three writers share
+     `main` — both implementation lanes and the planning session.
+  3. **Never gate the merge on a green suite, and never tolerate an unknown failure.** `main` can
+     carry known failures (see the standing baseline in `docs/next-tasks.md`). Merge only when the
+     failures are EXACTLY the known set; one more, or one elsewhere, means stop and report. A
+     "tolerate failures" rule would swallow the next real regression.
+  4. **Report the merge SHA and stop.** Anything ambiguous at merge time — a conflict that needed
+     thought, an unexpected diff, a ledger wording you were unsure of — is a stop-and-report, not a
+     decision. The merge is delegated; the judgement is not.
 - **Planning Claude never edits `src/`.** Queue, prompts, governance and closeout documents only.
 - **Prefer explicit paths over `git add -A`** in every session. `-A` is what makes a shared or
   mistaken checkout destructive rather than merely confusing.
