@@ -116,12 +116,34 @@ export function refreshExpectation(input: ExpectationInput): RefreshExpectation 
 export type PartitionScopedHealth =
   | { state: 'quiet' }
   | { state: 'active'; lastActivityAtMs: number }
-  | { state: 'stalled'; expectedSinceMs: number }
+  /**
+   * `staleSinceMs` is WHEN THE WRITER WAS LAST CLEAN, or null when it has never
+   * been observed clean. An earlier field named `expectedSinceMs` was assigned
+   * the receipt time in one branch and the activity time in another, so the first
+   * consumer to render "expected since …" would have printed whichever the branch
+   * happened to carry.
+   */
+  | { state: 'stalled'; staleSinceMs: number | null }
   | { state: 'indeterminate' };
 
+/**
+ * The writer's most recent observable state.
+ *
+ * `clean` covers `succeeded` AND `no-op`. A no-op is a HEALTHY poll that found
+ * nothing to commit, and `recordProviderRefreshNoop` deliberately preserves
+ * `lastSuccessAt` — "clears the latest error but preserves the prior-good
+ * success". Reading `lastSuccessAt` therefore marked every halftime, every
+ * scoreless stretch, and the minutes between arming and kickoff as a stall,
+ * because polling was working perfectly and simply had nothing to write.
+ */
+export type PartitionActivity =
+  | { state: 'clean'; atMs: number }
+  | { state: 'unclean' }
+  | { state: 'absent' }
+  | { state: 'unknown' };
+
 export type PartitionScopedHealthInput = ExpectationInput & {
-  /** Most recent partition-scoped activity for this dataset, if any. */
-  lastActivityAtMs: number | null;
+  activity: PartitionActivity;
   /**
    * The stall boundary. Callers pass `stallBoundaryMs(dataset)` — it is a
    * parameter only so this function stays pure and testable, NOT so each caller
@@ -135,15 +157,24 @@ export function partitionScopedHealth(input: PartitionScopedHealthInput): Partit
   if (expectation === 'unknown') return { state: 'indeterminate' };
   if (expectation === 'not-expected') return { state: 'quiet' };
 
-  const { lastActivityAtMs, nowMs, expectedWithinMs } = input;
-  if (lastActivityAtMs === null || !Number.isFinite(lastActivityAtMs)) {
-    return { state: 'stalled', expectedSinceMs: input.receipt!.startedAtMs };
+  const { activity, nowMs, expectedWithinMs } = input;
+  switch (activity.state) {
+    case 'unknown':
+      // The status store could not be read. "Refresh overdue" is a specific claim
+      // that a due refresh did not happen; the actual fact is that nothing about
+      // the writer is knowable, and the issue list already says so.
+      return { state: 'indeterminate' };
+    case 'absent':
+      return { state: 'stalled', staleSinceMs: null };
+    case 'unclean':
+      // Failed, partial, or still in progress past its window: the writer is
+      // running and achieving nothing, which is not health.
+      return { state: 'stalled', staleSinceMs: null };
+    case 'clean':
+      return nowMs - activity.atMs > expectedWithinMs
+        ? { state: 'stalled', staleSinceMs: activity.atMs }
+        : { state: 'active', lastActivityAtMs: activity.atMs };
   }
-  const activityAge = nowMs - lastActivityAtMs;
-  if (activityAge > expectedWithinMs) {
-    return { state: 'stalled', expectedSinceMs: lastActivityAtMs };
-  }
-  return { state: 'active', lastActivityAtMs };
 }
 
 /** Only `active` and `quiet` are healthy. `indeterminate` never reads healthy. */
@@ -164,10 +195,20 @@ export function isHealthy(health: PartitionScopedHealth): boolean {
  */
 export function partitionScopedHealthByDataset(input: {
   nowMs: number;
-  /** Latest receipt per job, from the scheduler-delivery snapshot. */
-  receiptFor: (job: ExternalSchedulerJob) => { reason: string; startedAt: string } | null;
-  /** Latest partition-scoped ATTEMPT per dataset, ISO, or null when there is none. */
-  lastActivityAtFor: (dataset: ProviderDataset) => string | null;
+  /** The season year this dashboard is describing. */
+  modelYear: number;
+  /**
+   * Latest receipt per job, WITH the year it targeted. The year matters: the
+   * dashboard can be showing an older stored season or a future preseason while
+   * both crons target today's season, and applying a current-year receipt to an
+   * unrelated year would mark it overdue (or idle) on evidence about a different
+   * season entirely.
+   */
+  receiptFor: (
+    job: ExternalSchedulerJob
+  ) => { reason: string; startedAt: string; year: number | null } | null;
+  /** The writer's latest observable state for this dataset. */
+  activityFor: (dataset: ProviderDataset) => PartitionActivity;
 }): Partial<Record<ProviderDataset, PartitionScopedHealth>> {
   const out: Partial<Record<ProviderDataset, PartitionScopedHealth>> = {};
   for (const dataset of PARTITION_SCOPED_DATASETS) {
@@ -176,15 +217,15 @@ export function partitionScopedHealthByDataset(input: {
     if (!job || boundary === null) continue;
 
     const raw = input.receiptFor(job);
+    // A receipt about a different season says nothing about this one.
+    const sameYear = raw !== null && raw.year !== null && raw.year === input.modelYear;
     const startedAtMs = raw ? Date.parse(raw.startedAt) : Number.NaN;
-    const activityRaw = input.lastActivityAtFor(dataset);
-    const activityMs = activityRaw ? Date.parse(activityRaw) : Number.NaN;
 
     out[dataset] = partitionScopedHealth({
       nowMs: input.nowMs,
-      receipt: raw ? { reason: raw.reason, startedAtMs } : null,
+      receipt: raw && sameYear ? { reason: raw.reason, startedAtMs } : null,
       receiptValidForMs: boundary,
-      lastActivityAtMs: Number.isFinite(activityMs) ? activityMs : null,
+      activity: input.activityFor(dataset),
       expectedWithinMs: boundary,
     });
   }

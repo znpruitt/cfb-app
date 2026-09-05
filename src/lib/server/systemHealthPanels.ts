@@ -463,7 +463,10 @@ export function deriveDatasetFreshness(input: {
         // "nothing was due" there would silence a real warning, which an existing
         // PLATFORM-090 test caught this doing.
         if (cacheState === 'available') {
-          return { status: 'green', label: 'Idle — no games in window', intentional: true };
+          // `intentional: false` — the field's own contract says only a GRAY may
+          // be intentional, because the rollups use it to keep an expected
+          // absence non-degrading. A green needs no such exemption.
+          return { status: 'green', label: 'Idle — no games in window', intentional: false };
         }
         break;
       case 'active':

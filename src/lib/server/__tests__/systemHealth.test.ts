@@ -718,7 +718,9 @@ test('Item 88: with no games in window the scores row reads idle and healthy', a
   assert.deepEqual(row.freshness, {
     status: 'green',
     label: 'Idle — no games in window',
-    intentional: true,
+    // `intentional: false` — the field's contract reserves it for grays, whose
+    // rollup treatment depends on it. A green needs no such exemption.
+    intentional: false,
   });
   assert.equal(model.overallState, 'healthy', 'and an idle slate is not an alarm');
 });
@@ -845,4 +847,140 @@ test('Item 88 bullet 4: an INFO issue does NOT downgrade the row', async () => {
 
   const row = model.datasets.find((d) => d.dataset === 'schedule')!;
   assert.equal(row.freshness.status, 'green', 'an intentional pause is not ill health');
+});
+
+test('P1 END TO END: a no-op poll with a stale lastSuccessAt is still healthy', () => {
+  // The false-alarm generator both reviewers found, exercised through the real
+  // derivation rather than by handing the predicate a pre-made answer. A no-op
+  // preserves `lastSuccessAt`, so an hour-old success with a seconds-old clean
+  // no-op resolution is a WORKING poll at halftime — not a stall.
+  const noopFact = canonicalOutcome('scores', 'no-op', {
+    lastSuccessAt: new Date(NOW - 60 * 60_000).toISOString(),
+    latestAttemptResolvedAt: new Date(NOW - 30_000).toISOString(),
+    lastAttemptAt: new Date(NOW - 30_000).toISOString(),
+  });
+  assert.equal(noopFact.state, 'available');
+  if (noopFact.state !== 'available') return;
+  assert.notEqual(
+    noopFact.status.lastSuccessAt,
+    noopFact.status.latestAttemptResolvedAt,
+    'fixture sanity: the two timestamps must DIFFER or this proves nothing'
+  );
+  return buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders({
+      schedulerDelivery: () =>
+        Promise.resolve(
+          deliverySnapshot(
+            EXTERNAL_SCHEDULER_JOBS.map((job) =>
+              deliveryRow(
+                job,
+                'on-time',
+                job === 'live-scores' ? liveScoresReceiptWithTarget() : receiptFor(job, 'success')
+              )
+            )
+          )
+        ),
+      providerRefresh: () =>
+        Promise.resolve(
+          refreshSnapshot({ scores: { latest: { state: 'available', status: noopFact.status } } })
+        ),
+    }),
+  }).then((model) => {
+    const row = model.datasets.find((d) => d.dataset === 'scores')!;
+    assert.notEqual(row.freshness.status, 'yellow', 'a working no-op poll is not overdue');
+    assert.equal(row.freshness.status, 'green');
+  });
+});
+
+test('P2 END TO END: an unreadable refresh store is Unknown, not "Refresh overdue"', async () => {
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders({
+      schedulerDelivery: () =>
+        Promise.resolve(
+          deliverySnapshot(
+            EXTERNAL_SCHEDULER_JOBS.map((job) =>
+              deliveryRow(
+                job,
+                'on-time',
+                job === 'live-scores' ? liveScoresReceiptWithTarget() : receiptFor(job, 'success')
+              )
+            )
+          )
+        ),
+      providerRefresh: () =>
+        Promise.resolve(refreshSnapshot({ scores: { latest: { state: 'unavailable' } } })),
+    }),
+  });
+
+  const row = model.datasets.find((d) => d.dataset === 'scores')!;
+  assert.notEqual(row.freshness.label, 'Refresh overdue', 'never a definite claim from no data');
+  assert.equal(row.freshness.label, 'Unknown');
+});
+
+test('P2 END TO END: a receipt for another season cannot judge this one', async () => {
+  // The model year here is 2026; the receipt fixture targets its own year, so to
+  // exercise the mismatch the model asks about a DIFFERENT season.
+  const model = await buildSystemHealthViewModel({
+    year: YEAR - 1,
+    nowMs: NOW,
+    loaders: healthyLoaders({
+      providerRefresh: () => Promise.resolve(refreshSnapshot({}, YEAR - 1)),
+    }),
+  });
+
+  const row = model.datasets.find((d) => d.dataset === 'scores')!;
+  assert.notEqual(
+    row.freshness.label,
+    'Idle — no games in window',
+    'no idle claim from a 2026 receipt'
+  );
+});
+
+test('bullet 4 END TO END: an INTENTIONAL gray is downgraded too', async () => {
+  // An intentional gray is non-degrading in the rollups and reads to an operator
+  // as "healthy by design", so leaving it alone reproduced the same
+  // contradiction: an expected-absence row sitting directly beneath a warning
+  // that names it.
+  const failedPartition = canonicalOutcome('game-stats', 'failed', {
+    hasError: true,
+    errorCode: 'provider-503',
+  });
+  if (failedPartition.state !== 'available') return;
+
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders({
+      cacheStates: () => Promise.resolve({ ...allAvailable(), 'game-stats': 'absent' as const }),
+      diagnostics: () =>
+        Promise.resolve({
+          ...healthyDiagnostics(),
+          expectations: allExpectations('expected', { 'game-stats': 'not-yet-expected' }),
+        }),
+      providerRefresh: () =>
+        Promise.resolve(
+          refreshSnapshot({
+            'game-stats': { latest: { state: 'available', status: failedPartition.status } },
+          })
+        ),
+    }),
+  });
+
+  const namesGameStats = model.issues.some(
+    (i) =>
+      i.subject.axis === 'dataset' &&
+      i.subject.id === 'game-stats' &&
+      (i.severity === 'warning' || i.severity === 'critical')
+  );
+  assert.ok(namesGameStats, 'fixture sanity: a warning must actually name game-stats');
+
+  const row = model.datasets.find((d) => d.dataset === 'game-stats')!;
+  assert.ok(
+    !(row.freshness.status === 'gray' && row.freshness.intentional),
+    'an intentional gray cannot sit under a warning naming it'
+  );
 });

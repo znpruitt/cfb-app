@@ -35,7 +35,10 @@ import {
   type LatestScopedActivityFact,
   type ProviderRefreshHealthSnapshot,
 } from './providerRefreshHealth.ts';
-import { partitionScopedHealthByDataset } from './partitionScopedRefreshHealth.ts';
+import {
+  partitionScopedHealthByDataset,
+  type PartitionActivity,
+} from './partitionScopedRefreshHealth.ts';
 import {
   getProviderRefreshSettings,
   type ProviderRefreshSettings,
@@ -377,24 +380,42 @@ export async function buildSystemHealthViewModel(params: {
   // refresh was DUE, and the row's partition activity says whether one happened.
   const partitionHealth = partitionScopedHealthByDataset({
     nowMs,
+    modelYear: year,
     receiptFor: (job) => {
       const jobRow = schedulerDelivery.jobs.find((candidate) => candidate.job === job);
       const receipt = jobRow?.receipt ?? null;
-      return receipt ? { reason: receipt.reason, startedAt: receipt.startedAt } : null;
+      if (!receipt) return null;
+      // Both partition-scoped jobs carry their target year; anything else is
+      // treated as unusable rather than assumed to match.
+      const target = receipt.target;
+      const targetYear =
+        target.kind === 'live-scores' || target.kind === 'game-stats' ? target.year : null;
+      return { reason: receipt.reason, startedAt: receipt.startedAt, year: targetYear };
     },
-    lastActivityAtFor: (dataset) => {
+    activityFor: (dataset): PartitionActivity => {
       const row = providerRefresh.rows.find((candidate) => candidate.dataset === dataset);
-      if (!row || row.latestScopedActivity.state !== 'available') return null;
-      // The SUCCESS, not the attempt. An earlier version read `lastAttemptAt` and
-      // justified it as liveness — "a failing writer is still alive" — but this
-      // feeds the FRESHNESS stoplight. A writer attempting and failing for twenty
-      // minutes would have read green while its data went stale and an issue
-      // already named the dataset. Success catches both failure modes: a writer
-      // that stopped, and one that is running but achieving nothing.
-      //
-      // A mutation found this: swapping the two fields killed no test, because
-      // the fixture set them to the same instant.
-      return row.latestScopedActivity.status.lastSuccessAt;
+      if (!row) return { state: 'absent' };
+      const fact = row.latestScopedActivity;
+      if (fact.state === 'unavailable') return { state: 'unknown' };
+      if (fact.state !== 'available') return { state: 'absent' };
+
+      // A CLEAN RESOLUTION, not a success. `no-op` is a healthy poll that found
+      // nothing to commit, and `recordProviderRefreshNoop` deliberately leaves
+      // `lastSuccessAt` untouched — so reading success marked every halftime and
+      // every scoreless stretch as a stall while polling worked perfectly.
+      const outcome = fact.status.latestAttemptOutcome;
+      if (outcome === 'succeeded' || outcome === 'no-op') {
+        const at = fact.status.latestAttemptResolvedAt ?? fact.status.lastSuccessAt;
+        const atMs = at ? Date.parse(at) : Number.NaN;
+        return Number.isFinite(atMs) ? { state: 'clean', atMs } : { state: 'absent' };
+      }
+      if (outcome === null) {
+        // A pre-outcome legacy record: fall back to its last success.
+        const atMs = fact.status.lastSuccessAt ? Date.parse(fact.status.lastSuccessAt) : Number.NaN;
+        return Number.isFinite(atMs) ? { state: 'clean', atMs } : { state: 'absent' };
+      }
+      // failed / partial / in-progress — running, achieving nothing.
+      return { state: 'unclean' };
     },
   });
 
@@ -447,7 +468,14 @@ export async function buildSystemHealthViewModel(params: {
       .map((issue) => issue.subject.id)
   );
   for (const row of datasets) {
-    if (row.freshness.status !== 'green') continue;
+    // Green OR an INTENTIONAL gray. An intentional gray is non-degrading in the
+    // rollups and reads to an operator as "healthy by design", so leaving it
+    // alone reproduced the same contradiction the bullet closes: game-stats can
+    // show "None expected" directly beneath a warning naming game-stats.
+    const readsHealthy =
+      row.freshness.status === 'green' ||
+      (row.freshness.status === 'gray' && row.freshness.intentional);
+    if (!readsHealthy) continue;
     if (!contradictedDatasets.has(row.dataset)) continue;
     row.freshness = { status: 'yellow', label: 'Attention', intentional: false };
   }

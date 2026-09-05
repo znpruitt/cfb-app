@@ -678,7 +678,7 @@ test('Item 88: a STALLED partition dataset is never green, even with a full cach
   // at all. Its cached data is just what the last successful poll left behind.
   const f = deriveDatasetFreshness({
     ...partitionBase,
-    partitionHealth: { state: 'stalled', expectedSinceMs: 0 },
+    partitionHealth: { state: 'stalled', staleSinceMs: null },
   });
 
   assert.equal(f.status, 'yellow');
@@ -696,7 +696,9 @@ test('Item 88: QUIET reads green — correctly knowing nothing is due is healthy
   assert.deepEqual(f, {
     status: 'green',
     label: 'Idle — no games in window',
-    intentional: true,
+    // `intentional: false` — the field's contract reserves it for grays, whose
+    // rollup treatment depends on it. A green needs no such exemption.
+    intentional: false,
   });
 });
 

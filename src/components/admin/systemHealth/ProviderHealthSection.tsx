@@ -102,34 +102,27 @@ export default function ProviderHealthSection({
                   <Detail label="Provider" value={descriptor.provider} />
                   <Detail label="Cache" value={row.cacheState} />
                   <Detail label="Canonical scope" value={row.canonicalScopeKey} />
-                  <Detail
-                    label="Last success"
-                    value={lastSuccessDetail(row.canonicalStatus, nowMs)}
-                  />
+                  <Detail label="Last success" value={lastSuccessDetail(outcomeFact, nowMs)} />
                   <Detail label="Latest activity" value={latestActivityDetail(row, nowMs)} />
-                  {row.canonicalStatus.state === 'available' && (
+                  {outcomeFact.state === 'available' && (
                     <>
-                      {(row.canonicalStatus.status.errorCode ||
-                        row.canonicalStatus.status.errorStatus != null) && (
-                        <Detail label="Error" value={errorDetail(row.canonicalStatus.status)} />
+                      {(outcomeFact.status.errorCode || outcomeFact.status.errorStatus != null) && (
+                        <Detail label="Error" value={errorDetail(outcomeFact.status)} />
                       )}
-                      {row.canonicalStatus.status.partialFailure && (
+                      {outcomeFact.status.partialFailure && (
                         <Detail
                           label="Failed partitions"
-                          value={row.canonicalStatus.status.failedPartitions.join(', ') || 'yes'}
+                          value={outcomeFact.status.failedPartitions.join(', ') || 'yes'}
                         />
                       )}
-                      {row.canonicalStatus.status.rowsCommitted != null && (
+                      {outcomeFact.status.rowsCommitted != null && (
                         <Detail
                           label="Rows committed"
-                          value={String(row.canonicalStatus.status.rowsCommitted)}
+                          value={String(outcomeFact.status.rowsCommitted)}
                         />
                       )}
-                      {row.canonicalStatus.status.durationMs != null && (
-                        <Detail
-                          label="Duration"
-                          value={`${row.canonicalStatus.status.durationMs} ms`}
-                        />
+                      {outcomeFact.status.durationMs != null && (
+                        <Detail label="Duration" value={`${outcomeFact.status.durationMs} ms`} />
                       )}
                     </>
                   )}
@@ -163,13 +156,25 @@ export default function ProviderHealthSection({
  * a malformed record is a fact worth showing rather than papering over with a
  * partition read.
  */
+/**
+ * Used for the summary line AND the detail disclosure. An earlier version routed
+ * only the summary, so for scores and game-stats — whose canonical record is
+ * usually absent — the row could read "Failed" while the disclosure showed no
+ * error code, no failed partitions and no rows committed: a failure with no
+ * forensic detail anywhere on the row.
+ */
 function outcomeFactFor(row: ProviderDatasetHealthRow): CanonicalRefreshFact {
   if (!isPartitionScopedDataset(row.dataset)) return row.canonicalStatus;
-  if (row.canonicalStatus.state !== 'absent') return row.canonicalStatus;
+  // A malformed canonical record is a fact worth showing, never papered over.
+  if (row.canonicalStatus.state === 'invalid') return row.canonicalStatus;
   const latest = row.latestScopedActivity;
-  return latest.state === 'available'
-    ? { state: 'available', status: latest.status }
-    : row.canonicalStatus;
+  if (latest.state !== 'available') return row.canonicalStatus;
+  // Partition activity wins even when a VALID year rollup exists. Scores are not
+  // exclusively partition-scoped: a manual aggregate refresh writes
+  // `scores:year:<year>` when it covers every applicable partition. Preferring
+  // that record once it exists pinned the row to stale manual history for the
+  // rest of the season, through every live poll.
+  return { state: 'available', status: latest.status };
 }
 
 function refreshOutcomeDisplay(fact: CanonicalRefreshFact): { label: string; tone: StateTone } {

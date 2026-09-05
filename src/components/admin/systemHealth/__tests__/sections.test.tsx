@@ -581,3 +581,45 @@ test('Item 88: a MALFORMED canonical record still surfaces, never masked by the 
 
   assert.ok(html.includes('Status malformed'), 'the corrupt record is reported as corrupt');
 });
+
+test('Item 88: partition activity wins over a STALE year rollup', async () => {
+  // Codex P2. Scores are not exclusively partition-scoped — a manual aggregate
+  // refresh writes `scores:year:<year>` when it covers every applicable
+  // partition. Preferring that record once it exists pinned the row to stale
+  // manual history for the rest of the season, through every live poll.
+  const staleManual = canonicalOutcome('scores', 'succeeded', {
+    lastSuccessAt: new Date(NOW - 30 * 24 * 60 * 60_000).toISOString(),
+    latestAttemptResolvedAt: new Date(NOW - 30 * 24 * 60 * 60_000).toISOString(),
+    rowsCommitted: 1234,
+  });
+  const freshPartition = canonicalOutcome('scores', 'no-op', {
+    latestAttemptResolvedAt: new Date(NOW - 30_000).toISOString(),
+  });
+  if (staleManual.state !== 'available' || freshPartition.state !== 'available') return;
+
+  const model = await buildModel({
+    providerRefresh: () =>
+      Promise.resolve(
+        refreshSnapshotWith({
+          scores: {
+            canonical: staleManual,
+            latest: { state: 'available', status: freshPartition.status },
+          },
+        })
+      ),
+  });
+
+  const html = renderToStaticMarkup(
+    <ProviderHealthSection
+      datasets={model.datasets}
+      automation={model.automation}
+      year={model.year}
+      nowMs={NOW}
+    />
+  );
+
+  assert.ok(
+    !html.includes('1234'),
+    'the month-old manual rollup no longer supplies the row detail'
+  );
+});

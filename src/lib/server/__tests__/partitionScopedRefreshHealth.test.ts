@@ -6,6 +6,7 @@ import {
   isHealthy,
   isPartitionScopedDataset,
   partitionScopedHealth,
+  partitionScopedHealthByDataset,
   refreshExpectation,
   stallBoundaryMs,
 } from '../partitionScopedRefreshHealth';
@@ -19,7 +20,7 @@ const base = {
   nowMs: NOW,
   receiptValidForMs: 30 * MIN,
   expectedWithinMs: stallBoundaryMs('scores')!,
-  lastActivityAtMs: NOW - MIN,
+  activity: { state: 'clean' as const, atMs: NOW - MIN },
 };
 
 test('the two partition-scoped datasets are marked, and nothing else is', () => {
@@ -114,7 +115,7 @@ test('QUIET: nothing was due, so a multi-day gap raises nothing', () => {
   const health = partitionScopedHealth({
     ...base,
     receipt: { reason: 'no-polling-target', startedAtMs: NOW - MIN },
-    lastActivityAtMs: NOW - 40 * 24 * HOUR,
+    activity: { state: 'clean' as const, atMs: NOW - 40 * 24 * HOUR },
   });
 
   assert.deepEqual(health, { state: 'quiet' });
@@ -125,7 +126,7 @@ test('ACTIVE: a refresh was due and recent activity followed it', () => {
   const health = partitionScopedHealth({
     ...base,
     receipt: { reason: 'scoreboard-written-clean', startedAtMs: NOW - MIN },
-    lastActivityAtMs: NOW - 2 * MIN,
+    activity: { state: 'clean' as const, atMs: NOW - 2 * MIN },
   });
 
   assert.equal(health.state, 'active');
@@ -139,7 +140,7 @@ test('STALLED: a refresh was due and the writer went silent', () => {
   const health = partitionScopedHealth({
     ...base,
     receipt: { reason: 'scoreboard-written-clean', startedAtMs: NOW - MIN },
-    lastActivityAtMs: NOW - 20 * MIN,
+    activity: { state: 'clean' as const, atMs: NOW - 20 * MIN },
   });
 
   assert.equal(health.state, 'stalled');
@@ -152,7 +153,7 @@ test('STALLED: a refresh was due and there has never been any activity', () => {
   const health = partitionScopedHealth({
     ...base,
     receipt: { reason: 'scoreboard-written-clean', startedAtMs: NOW - MIN },
-    lastActivityAtMs: null,
+    activity: { state: 'absent' as const },
   });
 
   assert.equal(health.state, 'stalled');
@@ -165,12 +166,12 @@ test('the stall boundary is one polling window, not a freshness threshold', () =
   const inside = partitionScopedHealth({
     ...base,
     receipt: { reason: 'scoreboard-written-clean', startedAtMs: NOW - MIN },
-    lastActivityAtMs: NOW - base.expectedWithinMs + 1,
+    activity: { state: 'clean' as const, atMs: NOW - base.expectedWithinMs + 1 },
   });
   const outside = partitionScopedHealth({
     ...base,
     receipt: { reason: 'scoreboard-written-clean', startedAtMs: NOW - MIN },
-    lastActivityAtMs: NOW - base.expectedWithinMs - 1,
+    activity: { state: 'clean' as const, atMs: NOW - base.expectedWithinMs - 1 },
   });
 
   assert.equal(inside.state, 'active');
@@ -193,4 +194,81 @@ test('and that derived boundary is two poll windows for both jobs today', () => 
   // the model.
   assert.equal(stallBoundaryMs('scores'), 2 * 3 * MIN, '3-minute cron');
   assert.equal(stallBoundaryMs('game-stats'), 2 * 15 * MIN, '15-minute cron');
+});
+
+test('a clean NO-OP poll is activity — the P1 both reviewers found', () => {
+  // `recordProviderRefreshNoop` deliberately preserves `lastSuccessAt` ("clears
+  // the latest error but preserves the prior-good success"), and live-scores
+  // records a no-op on every poll that found nothing to commit. Reading success
+  // therefore called every halftime, every scoreless stretch and the minutes
+  // between arming and kickoff a stall — while polling worked perfectly.
+  const health = partitionScopedHealth({
+    ...base,
+    receipt: { reason: 'scoreboard-unchanged-clean', startedAtMs: NOW - MIN },
+    activity: { state: 'clean', atMs: NOW - MIN },
+  });
+
+  assert.equal(health.state, 'active');
+  assert.ok(isHealthy(health), 'a working poll with nothing to write is healthy');
+});
+
+test('an UNCLEAN writer is stalled even when it resolved seconds ago', () => {
+  // The other half: failed/partial/in-progress is running and achieving nothing.
+  const health = partitionScopedHealth({
+    ...base,
+    receipt: { reason: 'provider-fetch-failed', startedAtMs: NOW - MIN },
+    activity: { state: 'unclean' },
+  });
+
+  assert.equal(health.state, 'stalled');
+  assert.ok(!isHealthy(health));
+});
+
+test('an UNREADABLE status store is indeterminate, not a definite stall', () => {
+  // "Refresh overdue" claims a due refresh did not happen. When the store cannot
+  // be read, the honest answer is that nothing about the writer is knowable — and
+  // the issue list already says the status is unavailable.
+  const health = partitionScopedHealth({
+    ...base,
+    receipt: { reason: 'scoreboard-written-clean', startedAtMs: NOW - MIN },
+    activity: { state: 'unknown' },
+  });
+
+  assert.deepEqual(health, { state: 'indeterminate' });
+  assert.ok(!isHealthy(health), 'and it still never reads healthy');
+});
+
+test('a receipt for a DIFFERENT season is not evidence about this one', () => {
+  // The dashboard can show an older stored season or a future preseason while
+  // both crons target today's. Applying a current-year receipt to an unrelated
+  // year would mark it overdue, or idle, on evidence about a different season.
+  const plan = partitionScopedHealthByDataset({
+    nowMs: NOW,
+    modelYear: 2024,
+    receiptFor: () => ({
+      reason: 'no-polling-target',
+      startedAt: new Date(NOW - MIN).toISOString(),
+      year: 2026,
+    }),
+    activityFor: () => ({ state: 'clean', atMs: NOW - MIN }),
+  });
+
+  assert.deepEqual(
+    plan.scores,
+    { state: 'indeterminate' },
+    'a 2026 receipt says nothing about 2024'
+  );
+
+  // Positive control: the same receipt for the MATCHING year does speak.
+  const matched = partitionScopedHealthByDataset({
+    nowMs: NOW,
+    modelYear: 2026,
+    receiptFor: () => ({
+      reason: 'no-polling-target',
+      startedAt: new Date(NOW - MIN).toISOString(),
+      year: 2026,
+    }),
+    activityFor: () => ({ state: 'clean', atMs: NOW - MIN }),
+  });
+  assert.deepEqual(matched.scores, { state: 'quiet' });
 });
