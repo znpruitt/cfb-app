@@ -1,4 +1,4 @@
-PROMPT_ID: PLATFORM-135-OPPONENT-COUNT-v1
+PROMPT_ID: PLATFORM-135-OPPONENT-COUNT-CLAUDE-v1
 PURPOSE: Item 135 — "Show N more opponents" on Matchups understates, because the opponent summary counts sentinel labels rather than distinct opponents. Fix the count. Change nothing that renders.
 SCOPE: `src/lib/selectors/matchups.ts` and its `__tests__/`; `src/components/MatchupsWeekPanel.tsx` ONLY if the count cannot be corrected in the selector, plus that component's tests. No shared scoreboard component, no other panel, no new dependency.
 

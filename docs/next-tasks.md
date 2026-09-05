@@ -74,6 +74,7 @@ committed `c9f76081`) surfaced four new items and one split; the remaining open 
    `INSIGHTS-017-PALETTE`, not a shape** — do not put a border back, which is the decision this
    entry records against. Canonical:
    `docs/campaigns/item-87-followon-matchups-schedule-design.md`.
+   **Kickoff:** `docs/prompts/platform-087-slice-5-item-112-codex-v1.md`.
    **Design:** `docs/campaigns/item-87-followon-matchups-schedule-design.md`;
    `docs/campaigns/item-87-followon-section-ordering.md` (the relative label is unbuilt and
    constrains this slice); `mockups/matchups-schedule-mockup.html`.
@@ -178,7 +179,11 @@ touches no component file.
 | lane | worktree | sequence |
 | --- | --- | --- |
 | **UI spine** | `cfb-app-codex` | slice 5 + 112 → 5b → 117 → 115 → 119 → 134 → 118 |
-| **Platform** | `cfb-app-claude` | 102 slice 2 → slice 3 → slice 4 → 129 → 126 |
+| **Platform** | `cfb-app-claude` | 135 → 102 slice 2 → slice 3 → slice 4 → 129 → 126 |
+
+**Kickoffs are named `<item>-<agent>-v<n>.md`** so the target lane is legible from the filename.
+Written and ready: `platform-087-slice-5-item-112-codex-v1.md`,
+`platform-135-opponent-count-claude-v1.md`, `platform-102-slice-2-cron-synthesis-claude-v1.md`.
 
 **Fillers, safe against both lanes, any order:** Item 135 (`selectors/matchups.ts` only), Item 133a
 (below), 122, 121, 84, 86, 111.

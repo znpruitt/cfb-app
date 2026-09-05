@@ -1,4 +1,4 @@
-PROMPT_ID: PLATFORM-102-SLICE-2-CRON-SYNTHESIS-v1
+PROMPT_ID: PLATFORM-102-SLICE-2-CRON-SYNTHESIS-CLAUDE-v1
 PURPOSE: Item 102 slice 2 — two pure functions over slice 1's polling windows: synthesize the cron expression that covers them, and derive the scheduler delivery expectation from them. Both ship DORMANT; nothing consumes either yet.
 SCOPE: `src/lib/schedule/pollingWindows.ts` (or a sibling under `src/lib/schedule/`) and its `__tests__/`; `src/lib/server/schedulerDeliveryHealth.ts` ONLY to make its policy derivable, plus that file's tests. No route, no cron, no QStash call, no environment variable, no durable write, no component.
 
