@@ -29,7 +29,8 @@ broadcast state set, neutral-site placement, tier-2 non-reservation, and the com
 
 ## STOP — post a READ RECEIPT before writing any code
 
-Report these, then **STOP and wait**. No branch, no code, no tests until the owner replies.
+Report these, then **STOP and wait**. No code and no tests until the owner replies; a branch checkout
+is fine.
 
 1. The `PROMPT_ID:` line of THIS document, verbatim.
 2. From the design doc § *Sorted strictly by kickoff*: quote the paragraph beginning **"Open —"** and
@@ -109,6 +110,10 @@ line is a data finding, not something to paper over in presentation.
   fail — restore the class and show a SPECIFIC named test going red.
 - **Broadcast state coverage:** renders on scheduled and live, absent on final, absent when no
   broadcast is listed. Four cases, four assertions.
+- **Finals carry no kickoff time** (task item 5) is asserted directly, and proven by MUTATION —
+  render a time on a final and show a SPECIFIC named test going red, then restore. This reverses what
+  an earlier draft of the design doc said, so it is exactly the rule a future reader is most likely to
+  undo by accident.
 - **The sort is asserted as a property, not by example:** for a date group with mixed states, every
   row's kickoff is >= its predecessor's, finals included.
 - **Same-conference collapse** is asserted in both forms — "ACC matchup" for a same-conference game,
