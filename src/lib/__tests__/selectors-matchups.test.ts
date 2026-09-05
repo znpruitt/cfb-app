@@ -10,7 +10,8 @@ import {
   selectSlateOpponentVisibility,
   summarizeSlateOpponents,
 } from '../selectors/matchups.ts';
-import { deriveWeekMatchupSections } from '../matchups';
+import { deriveOwnerWeekSlates, deriveWeekMatchupSections } from '../matchups';
+import { NO_CLAIM_OWNER } from '../standings';
 import type { OwnerSlateGame, OwnerWeekSlate } from '../matchups';
 import type { AppGame } from '../schedule';
 
@@ -508,5 +509,126 @@ test('selectSlateOpponentVisibility keeps every game of a retained opponent (Ite
   assert.deepEqual(
     collapsed.visibleGames.map((slateGameItem) => slateGameItem.game.key),
     ['g-rice', 'g-rice-2', 'g-tulane', 'g-smu']
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Item 135, Codex review of 1259bd61 — the PRODUCTION roster shape.
+//
+// A confirmed draft writes `NoClaim` as the OWNER of every undrafted eligible
+// team (`buildConfirmedOwnersCsv`), and `CFBScheduleApp` puts those rows into
+// `rosterByTeam` unfiltered. So on a real league an unclaimed opponent has a
+// TRUTHY `opponentOwner`, takes the owned branch, and never reaches the team
+// key — which left the original defect fully intact where it actually ships.
+// The first fixture for this item omitted unowned teams from the roster
+// instead, and could not reach that path.
+// ---------------------------------------------------------------------------
+
+function noClaimRosterSlate(opponents: string[]): OwnerWeekSlate {
+  const games = opponents.map((opponent, index) =>
+    game({
+      key: `g-${index}`,
+      csvAway: `Owned${index}`,
+      canAway: `Owned${index}`,
+      csvHome: opponent,
+      canHome: opponent,
+      participants: {
+        away: {
+          kind: 'team',
+          teamId: `Owned${index}-id`,
+          displayName: `Owned${index}`,
+          canonicalName: `Owned${index}`,
+          rawName: `Owned${index}`,
+        },
+        home: {
+          kind: 'team',
+          teamId: `${opponent}-id`,
+          displayName: opponent,
+          canonicalName: opponent,
+          rawName: opponent,
+        },
+      },
+    })
+  );
+
+  const rosterByTeam = new Map<string, string>();
+  opponents.forEach((_, index) => rosterByTeam.set(`Owned${index}`, 'Taylor'));
+  // The rows a confirmed draft writes for undrafted teams.
+  for (const opponent of opponents) rosterByTeam.set(opponent, NO_CLAIM_OWNER);
+
+  const ownerSlate = deriveOwnerWeekSlates(games, rosterByTeam, {}).find(
+    (entry) => entry.owner === 'Taylor'
+  );
+  assert.ok(ownerSlate, 'owner slate should exist');
+  return ownerSlate;
+}
+
+test('summarizeSlateOpponents counts NoClaim-rostered opponents as distinct opponents (Item 135)', () => {
+  const source = noClaimRosterSlate(['Rice', 'Tulane', 'SMU', 'Navy', 'Temple']);
+
+  // The fixture must actually reach the owned branch, or it proves nothing.
+  assert.deepEqual(
+    source.games.map((slateGameItem) => slateGameItem.opponentOwner),
+    Array.from({ length: 5 }, () => NO_CLAIM_OWNER),
+    'positive control: every opponent carries the reserved NoClaim owner'
+  );
+
+  const entries = summarizeSlateOpponents(source);
+
+  assert.equal(entries.length, 5, 'five unclaimed teams are five opponents, not one');
+  assert.deepEqual(
+    entries.map((entry) => entry.count),
+    [1, 1, 1, 1, 1]
+  );
+  assert.ok(
+    entries.every((entry) => entry.key.startsWith('team:')),
+    'the reserved sentinel is not a real owner — it must not key an owner group'
+  );
+});
+
+test('the reserved NoClaim owner never forms an owner group (Item 135)', () => {
+  const source = noClaimRosterSlate(['Rice', 'Tulane', 'SMU', 'Navy']);
+
+  const entries = summarizeSlateOpponents(source);
+
+  assert.equal(
+    entries.filter((entry) => entry.key === `owner:${NO_CLAIM_OWNER}`).length,
+    0,
+    'NoClaim is an unowned marker, not an opponent'
+  );
+});
+
+test('the collapse control counts NoClaim-rostered opponents (Item 135)', () => {
+  // The end of the chain: with the defect present this slate summarised to ONE
+  // opponent, so the control was suppressed entirely on a real roster.
+  const source = noClaimRosterSlate(['Rice', 'Tulane', 'SMU', 'Navy', 'Temple']);
+
+  const collapsed = selectSlateOpponentVisibility(source, false);
+
+  assert.equal(collapsed.hasHiddenOpponents, true);
+  assert.equal(collapsed.hiddenOpponentCount, 5 - getDefaultVisibleOpponentsCount());
+  assert.equal(collapsed.visibleGames.length, getDefaultVisibleOpponentsCount());
+});
+
+test('an owner literally named FCS stays out of the FCS opponent group (Item 135)', () => {
+  // The key namespaces are load-bearing: without the `owner:` / `team:` prefixes
+  // a real owner whose name equals a sentinel would merge with unowned teams.
+  const entries = summarizeSlateOpponents(
+    slate([
+      slateGame({
+        owner: 'Alex',
+        opponentOwner: 'FCS',
+        opponentTeamId: 'montana',
+        game: game({ key: 'g-owned-by-fcs' }),
+        isOpponentUnownedOrNonLeague: false,
+      }),
+      unownedOpponent('north-dakota', 'MVFC'),
+    ])
+  );
+
+  assert.equal(entries.length, 2, 'the owner named FCS is not the FCS group');
+  assert.deepEqual(
+    entries.map((entry) => entry.key),
+    ['owner:FCS', 'team:north-dakota']
   );
 });
