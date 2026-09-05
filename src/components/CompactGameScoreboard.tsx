@@ -156,7 +156,7 @@ export default function CompactGameScoreboard({
                 </span>
               ) : participant.classification === 'fcs' ? (
                 <span
-                  className="shrink-0 rounded-[3px] border border-gray-200 px-[3px] text-[9.5px] font-semibold tracking-[0.06em] text-gray-500 dark:border-zinc-800 dark:text-zinc-500"
+                  className="shrink-0 rounded-[3px] border border-gray-200 px-[3px] text-[9.5px] leading-[1.4] font-semibold tracking-[0.06em] text-gray-500 dark:border-zinc-800 dark:text-zinc-500"
                   data-scoreboard-classification={side}
                 >
                   FCS
