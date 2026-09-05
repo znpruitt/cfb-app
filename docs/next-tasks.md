@@ -66,29 +66,53 @@ committed `c9f76081`) surfaced four new items and one split; the remaining open 
    **Design:** `docs/campaigns/item-87-followon-matchups-schedule-design.md`;
    `docs/campaigns/item-87-followon-section-ordering.md` (the relative label is unbuilt and
    constrains this slice); `mockups/matchups-schedule-mockup.html`.
-4. **Item 117** — Matchups adopts the shared scoreboard. User-facing and a correctness fix (the
-   shipped row never says which team is which owner). Needs the card-owner-treatment decision.
-   **Design:** `docs/campaigns/item-87-followon-matchups-schedule-design.md`;
+4. **Item 87 slice 5b** — card-owner row modifier on the shared component. **Split out 2026-09-05;
+   do NOT fold this into Item 117.** The tint the highlight needs is a per-participant-row modifier,
+   and `CompactGameScoreboard` renders those rows internally, so a caller cannot reach one — it needs
+   a new participant field. The property worth protecting is not "one widening" for its own sake: it
+   is that **a component change gets reviewed as a component change**. A field added inside a Matchups
+   slice is reviewed by someone thinking about Matchups, and it lands on all six surfaces —
+   **five of which will never set it**, since the tint is Matchups-only by construction (it needs the
+   card's owner scope). That is not a reason to avoid the field; it is a reason to look at it on its
+   own terms.
+   **Rejected alternative, recorded before someone reaches for it:** styling the row from Matchups via
+   a wrapper class and a descendant selector avoids the component change but couples Matchups to the
+   component's internal DOM. That is worse than a field.
+   **Design:** `docs/campaigns/item-87-followon-team-highlight.md`;
+   `mockups/matchups-schedule-mockup.html`.
+5. **Item 117** — Matchups adopts the shared scoreboard. User-facing and a correctness fix (the
+   shipped row never says which team is which owner). **The card-owner-treatment decision is
+   SETTLED** (2026-09-05) — neutral background tint on the card owner's row; dimming rejected and its
+   mockup toggle removed; owner colour rejected. Consumes slice 5b's field rather than adding it.
+   **Design:** `docs/campaigns/item-87-followon-team-highlight.md` (canonical for the treatment);
+   `docs/campaigns/item-87-followon-matchups-schedule-design.md`;
    `docs/campaigns/item-87-live-watchlist-scoreboard.md`; `mockups/matchups-schedule-mockup.html`.
-5. **Item 115** — Overview section expansion. Recent finals is documented as complete and truncates
+6. **Item 115** — Overview section expansion. Recent finals is documented as complete and truncates
    at six today; this reuses the disclosure pattern slice 5 settles rather than inventing one.
+   **Cross-reference Item 134:** caps are counts, not rows, so at three columns a cap produces a
+   ragged final row (seven live games renders 3 + 3 + 1). That interaction belongs to THIS item's cap
+   work, not to the tier.
    **Design:** `docs/campaigns/item-87-followon-section-ordering-resolutions.md` §5 (counts, which
    that document explicitly defers to this item); `docs/campaigns/item-87-followon-section-ordering.md`.
-6. **Item 119** — team-colour bar on the existing normaliser, with no accent for teams that have no
+7. **Item 119** — team-colour bar on the existing normaliser, with no accent for teams that have no
    colour — which also removes the green fallback every FCS row carries today. OKLCH only if measured.
+   **Blocks Item 134** — it changes row anatomy at the line-start slot, which is what Item 134's
+   breakpoint is derived from. See that entry for the arithmetic.
    **Design:** `docs/campaigns/item-87-followon-team-colour.md`;
    `docs/campaigns/item-87-live-watchlist-scoreboard.md`.
-7. **Item 118** — Schedule status filter with counts. Purely additive; after the rework it filters.
+8. **Item 134** — Overview three-column tier. **Must run AFTER Item 119**, which consumes its
+   headroom. See the Item 134 entry.
+9. **Item 118** — Schedule status filter with counts. Purely additive; after the rework it filters.
    **Design:** none written. Item 112 likewise has no campaign doc — both are described only here,
    so a prompt for either needs an owner design pass FIRST, not a paraphrase of this entry.
-8. **Item 100b** — internal slate marker. Date gate removed 2026-09-03; its 2026 consequence
+10. **Item 100b** — internal slate marker. Date gate removed 2026-09-03; its 2026 consequence
     (Featured empty through 2026-09-07) closes on its own, but the recap and look-ahead targeting it
     exists for recur next August. Cheap: the clustering code is recoverable from `d6184c28`.
-9. **Item 113** — Featured as insight-selected, state-agnostic. Largest, and gated on a decision
+11. **Item 113** — Featured as insight-selected, state-agnostic. Largest, and gated on a decision
     about `INSIGHTS-017-PALETTE` (a prose bullet today, not an item).
     **Design:** `docs/campaigns/item-87-followon-featured-intent.md` — it supplies the product
     intent and states that THIS item owns the reconciliation. Do not re-derive what it settles.
-10. **Item 101** — season-boundary finals gap. Re-derive the empty window against the floating cutoff
+12. **Item 101** — season-boundary finals gap. Re-derive the empty window against the floating cutoff
     first; fix before late November.
 
 **Abandoned branches — dispositions recorded 2026-09-05.** `platform/browser-poll-cadence` and
@@ -125,8 +149,11 @@ the UI spine do not touch each other, so they can run concurrently:
 
 - **Server track, strictly serial with itself:** Item 102 + 88, then Item 126. All three converge on
   `schedulerExecutionStatus.ts` / `schedulerDeliveryHealth.ts` / `systemHealthIssues.ts`.
-- **UI spine, strictly serial with itself:** slice 5 + 112 → 117 → 115 → 119 → 118. The shared
-  component widening prerequisite merged via PR #570; every remaining slice consumes it.
+- **UI spine, strictly serial with itself:** slice 5 + 112 → **5b** → 117 → 115 → 119 → **134** →
+  118. The shared component widening prerequisite merged via PR #570; every remaining slice consumes
+  it. Two ordering constraints are load-bearing, not preference: **5b before 117**, because the tint
+  needs a component field and a component change is reviewed as one; and **119 before 134**, because
+  119 changes the row anatomy 134's breakpoint is derived from.
 - **Independent, parallel-safe against both:** Item 122 (`admin/HistoricalCachePanel.tsx`), Item 121
   (`schedule/cfbdSchedule.ts`, `schedule.ts`, `schedulePostseasonHelpers.ts` — pipeline, not
   components), and Items 84, 86, 111. **Item 123 shipped 2026-09-04** via PR #565.
@@ -750,6 +777,52 @@ not be read as a requirement on the other.**
   intentionally redesigns QStash retries, quota consequences, and idempotency together.
 
 - Backlog slug: `PLATFORM-SCHEDULE-REFRESH-FORENSICS-v1`
+
+### Item 134 — Overview three-column tier
+
+**The ask:** Overview's game grid gains a third tier — 1 column below 760px, 2 to 1300px, 3 above.
+
+**Design:** [`docs/campaigns/item-87-followon-three-column-tier.md`](campaigns/item-87-followon-three-column-tier.md);
+`mockups/live-scoreboard-mockup.html` (the Middle Tennessee State row in Live is the stress case).
+
+**Filed as its own item, not folded into Item 115.** Same surface, different concern — 115 is
+disclosure and counts, this is grid columns. But see 115's cross-reference: caps are counts, not
+rows, so a cap produces a ragged final row at three columns, and that interaction belongs to 115's
+cap work.
+
+**MUST RUN AFTER ITEM 119, and the reason is arithmetic.** The breakpoint is derived from the longest
+row's minimum width — 400px for team, record, owner and score. Item 119 puts an 8px team-colour bar
+in the line-start slot, which is exactly the anatomy the derivation depends on:
+
+| row anatomy | min column | requirement (3 × col + 2 × 40px gap) | vs the 1300 breakpoint |
+| --- | --- | --- | --- |
+| today | 400px | 1280 | fits, 20px slack |
+| + 8px bar | 408px | 1304 | **exceeds by 4px** |
+| + 8px bar + 6px gap | 414px | 1322 | **exceeds by 22px** |
+
+The 20px of headroom the design records is precisely what 119 consumes. Ship the tier first and its
+breakpoint is derived against anatomy 119 then changes, so the longest rows begin clipping at the low
+end of the three-column range — **silently, because nothing tests rendered column width.**
+
+**Sequencing only half-fixes this.** After 119 the breakpoint is correct again — until the NEXT
+anatomy change, which restores the identical silent failure. The design doc already names logos as
+the likely one. Two requirements follow, and neither is optional:
+
+1. **Make the dependency visible in code, not only in prose.** The minimum column width becomes a
+   named constant, with the breakpoint derived from it in a comment ADJACENT to the container query.
+   Container queries cannot take a `var()`, so the derivation stays manual — but manual and adjacent
+   beats manual and three files away.
+2. **Test that the longest row fits at the breakpoint.** This is the real gap: nothing today asserts
+   rendered column width, which is why the 119 interaction would have shipped unnoticed. A test
+   pinned to the stress-case row catches EVERY future anatomy change, not just this one. It ships
+   with whichever item ships the tier.
+
+**Also open, from the design doc:** confirm the ragged remainder aligns left rather than centring,
+and decide whether Schedule inherits the tier at all — sixty-plus rows across three columns is a
+different reading problem from six, and Schedule's date grouping means each group renders its own
+partial final row.
+
+**Blocker:** Item 119.
 
 ### Item 133 — `zinc-500` at small type fails the contrast floor, repo-wide
 
