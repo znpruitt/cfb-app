@@ -24,7 +24,7 @@ The incumbent renders 2–3px. The proposal is a solid 8px muted bar at ~72% opa
 
 The argument for OKLCH: HSL's `L` is not perceptual, so one threshold behaves differently across hues. The incumbent's yellow-gold carve-out at hue 42–72 is a symptom of exactly that — a per-hue exception compensating for a non-uniform lightness axis. OKLCH's `L` is perceptually uniform, so the carve-out becomes unnecessary for *legibility* purposes.
 
-```
+```text
 normalizeTeamColor(hex, { minL = 0.62, maxL = 0.78, maxC = 0.16 }):
   1. sRGB hex → OKLCH
   2. clamp lightness:  L = min(max(L, minL), maxL)

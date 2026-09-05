@@ -66,7 +66,6 @@ The design doc has said "suppressed on Schedule"; the mockup places spread/O/U/M
 
 `GameWeekPanel.tsx:42` `cardEmphasisClasses` renders an amber border for upsets, which is a reserved-colour violation. **But the base addendum explicitly exempts it** as "emphasis, out of scope for every slice." The transition deletes the card chrome it lives on, so the exemption becomes moot by accident. Either re-scope the exemption or record that the transition retires it deliberately — do not let it lapse silently.
 
-
 ---
 
 ## Three unowned states, rendered distinctly
@@ -182,7 +181,6 @@ The base addendum exempts that border as *"emphasis, out of scope for every slic
 ### Not applied to the Featured reason row
 
 The Featured tile's reason row (`sb-title`) stays plain bronze text. It is a card title on its own line rather than an inline tag beside a status, and a border there would read as chrome on a tile that already has some. Consequence: bronze appears in two shapes. Flagged rather than settled — making it a pill too is a one-line change if the inconsistency reads badly.
-
 
 ## Corrections to earlier premises
 
