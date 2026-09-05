@@ -22,6 +22,7 @@ import type {
   ProviderDataExpectation,
   ProviderDiagnosticCode,
 } from './providerDataDiagnostics.ts';
+import type { PartitionScopedHealth } from './partitionScopedRefreshHealth.ts';
 import type { ProviderCacheAvailability } from './providerCacheState.ts';
 import type { ProviderDataset } from '../providerDatasets.ts';
 
@@ -410,6 +411,18 @@ export function deriveDatasetFreshness(input: {
    * absent-cache branch, and never suppresses a diagnostic-derived state.
    */
   expectation: ProviderDataExpectation;
+  /**
+   * Item 88 — for datasets whose refresh is recorded per PARTITION (scores,
+   * game-stats) this answers "was a refresh due, and did it happen". Absent for
+   * every other dataset, which keeps its existing behaviour exactly.
+   *
+   * Consulted BEFORE the cache branch, because cache presence cannot answer the
+   * question this row is asked. Scores stay cached through a total polling
+   * outage, so `cacheState === 'available'` returned green while live scoring was
+   * dead — the row could not go bad at all. That is the defect, not a wording
+   * problem.
+   */
+  partitionHealth?: PartitionScopedHealth | null;
 }): DatasetFreshness {
   const { dataset, cacheState, diagnosticsAvailable, diagnostics, expectation } = input;
   if (!diagnosticsAvailable) return unknownFreshness();
@@ -426,6 +439,30 @@ export function deriveDatasetFreshness(input: {
     }
     return { status: 'yellow', label: 'Attention', intentional: false };
   }
+  // Item 88, before the cache branch — see `partitionHealth` above.
+  const partitionHealth = input.partitionHealth ?? null;
+  if (partitionHealth) {
+    switch (partitionHealth.state) {
+      case 'stalled':
+        // A refresh WAS due and no activity followed. Never green, however much
+        // data is cached: the cache is what the last successful poll left behind.
+        return { status: 'yellow', label: 'Refresh overdue', intentional: false };
+      case 'indeterminate':
+        // The scheduler itself is not reporting, so nothing here can be asserted.
+        return unknownFreshness();
+      case 'quiet':
+        // No games are in the window, so no refresh was due. GREEN, not neutral —
+        // correctly determining nothing is due IS the healthy state, and for most
+        // of the year it is this row's normal one (owner ruling). Still gray when
+        // there is no cached data either: that is an absence, not a working idle.
+        return cacheState === 'available'
+          ? { status: 'green', label: 'Idle — no games in window', intentional: true }
+          : { status: 'gray', label: 'None expected', intentional: true };
+      case 'active':
+        break;
+    }
+  }
+
   if (cacheState === 'available') {
     return {
       status: 'green',

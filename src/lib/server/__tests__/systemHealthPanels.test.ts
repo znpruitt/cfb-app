@@ -661,3 +661,98 @@ test('provider-data panel: a governing issue still owns the detail line over an 
   );
   assert.equal(p.detail, 'rankings refresh failed');
 });
+
+// --- Item 88: partition-scoped datasets (scores, game-stats) -----------------
+
+const partitionBase = {
+  dataset: 'scores' as const,
+  cacheState: 'available' as const,
+  diagnosticsAvailable: true,
+  diagnostics: [],
+  expectation: 'expected' as const,
+};
+
+test('Item 88: a STALLED partition dataset is never green, even with a full cache', () => {
+  // The defect. Scores stay cached through a total polling outage, so the cache
+  // branch returned green while live scoring was dead — the row could not go bad
+  // at all. Its cached data is just what the last successful poll left behind.
+  const f = deriveDatasetFreshness({
+    ...partitionBase,
+    partitionHealth: { state: 'stalled', expectedSinceMs: 0 },
+  });
+
+  assert.equal(f.status, 'yellow');
+  assert.equal(f.label, 'Refresh overdue');
+});
+
+test('Item 88: QUIET reads green — correctly knowing nothing is due is healthy', () => {
+  // Owner ruling. For most of the year this is the Scores row's normal state, and
+  // it is a working state rather than an absence of news.
+  const f = deriveDatasetFreshness({
+    ...partitionBase,
+    partitionHealth: { state: 'quiet' },
+  });
+
+  assert.deepEqual(f, {
+    status: 'green',
+    label: 'Idle — no games in window',
+    intentional: true,
+  });
+});
+
+test('Item 88: QUIET with no cached data is gray, not green', () => {
+  // Idle is healthy; idle with nothing cached is an absence, and green there
+  // would claim evidence that does not exist.
+  const f = deriveDatasetFreshness({
+    ...partitionBase,
+    cacheState: 'absent',
+    partitionHealth: { state: 'quiet' },
+  });
+
+  assert.equal(f.status, 'gray');
+  assert.equal(f.label, 'None expected');
+});
+
+test('Item 88: an INDETERMINATE scheduler yields Unknown, never green', () => {
+  const f = deriveDatasetFreshness({
+    ...partitionBase,
+    partitionHealth: { state: 'indeterminate' },
+  });
+
+  assert.notEqual(f.status, 'green', 'the point: a silent scheduler cannot read healthy');
+  assert.deepEqual(f, { status: 'gray', label: 'Unknown', intentional: false });
+  // Distinguishable from the other gray: an idle window with no cache reads
+  // "None expected", which is a different claim from "cannot tell".
+});
+
+test('Item 88: ACTIVE falls through to the ordinary cache branch', () => {
+  // Positive control: the partition path must not hijack the normal case, or the
+  // three assertions above would prove nothing about routing.
+  const f = deriveDatasetFreshness({
+    ...partitionBase,
+    partitionHealth: { state: 'active', lastActivityAtMs: 0 },
+  });
+
+  assert.deepEqual(f, { status: 'green', label: 'Current', intentional: false });
+});
+
+test('Item 88: a dataset with NO partition health keeps its existing behaviour', () => {
+  // Every other dataset passes nothing here, so this path must be inert for them.
+  const withNull = deriveDatasetFreshness({ ...partitionBase, partitionHealth: null });
+  const without = deriveDatasetFreshness(partitionBase);
+
+  assert.deepEqual(withNull, { status: 'green', label: 'Current', intentional: false });
+  assert.deepEqual(without, withNull);
+});
+
+test('Item 88: a real diagnostic still outranks partition health', () => {
+  // Partition health softens or hardens the ABSENCE of a signal; it must never
+  // suppress an error the diagnostics authority actually raised.
+  const f = deriveDatasetFreshness({
+    ...partitionBase,
+    diagnostics: [{ dataset: 'scores', code: 'scores-cache-missing', severity: 'error' } as never],
+    partitionHealth: { state: 'quiet' },
+  });
+
+  assert.equal(f.status, 'red', 'an error diagnostic wins over a quiet window');
+});
