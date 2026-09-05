@@ -1,5 +1,6 @@
 import React from 'react';
 
+import type { ProviderClassification } from '../lib/conferenceSubdivision';
 import { gameStatusLabelPresentation } from '../lib/gameUi';
 import { rankSourceLabel, type RankSource } from '../lib/rankings';
 import type { TeamRecordClient } from '../lib/selectors/teamRecordsClient';
@@ -9,6 +10,7 @@ export type CompactScoreboardParticipant = {
   owner?: string | null;
   rank?: number | null;
   rankSource?: RankSource | null;
+  classification?: ProviderClassification | null;
   record?: TeamRecordClient | null;
   score: number | null;
 };
@@ -21,8 +23,10 @@ export type CompactGameScoreboardProps = {
   matchupLabel: string;
   away: CompactScoreboardParticipant;
   home: CompactScoreboardParticipant;
+  neutralSite?: boolean;
   contextSlot?: React.ReactNode;
   footerSlot?: React.ReactNode;
+  tier2Slot?: React.ReactNode;
 };
 
 function leadingSide(
@@ -51,8 +55,10 @@ export default function CompactGameScoreboard({
   matchupLabel,
   away,
   home,
+  neutralSite,
   contextSlot,
   footerSlot,
+  tier2Slot,
 }: CompactGameScoreboardProps): React.ReactElement {
   const leader = leadingSide(away, home);
   const participants = [
@@ -98,10 +104,18 @@ export default function CompactGameScoreboard({
           </span>
         ) : null}
         {clockLabel ? <span className="min-w-0 truncate tabular-nums">{clockLabel}</span> : null}
-        {state === 'scheduled' && broadcastLabel ? (
+        {(state === 'scheduled' || state === 'live') && broadcastLabel ? (
           <>
             <span aria-hidden="true">•</span>
             <span className="min-w-0 truncate">{broadcastLabel}</span>
+          </>
+        ) : null}
+        {neutralSite ? (
+          <>
+            <span aria-hidden="true">•</span>
+            <span className="min-w-0 truncate" data-scoreboard-neutral-site>
+              Neutral site
+            </span>
           </>
         ) : null}
       </div>
@@ -130,6 +144,13 @@ export default function CompactGameScoreboard({
               {participant.rank !== null && participant.rank !== undefined ? (
                 <span className="shrink-0 text-xs font-normal dark:text-zinc-500" title={rankTitle}>
                   #{participant.rank}
+                </span>
+              ) : participant.classification === 'fcs' ? (
+                <span
+                  className="shrink-0 text-xs font-normal dark:text-zinc-500"
+                  data-scoreboard-classification={side}
+                >
+                  FCS
                 </span>
               ) : null}
               <span className="min-w-0 truncate">
@@ -182,6 +203,7 @@ export default function CompactGameScoreboard({
           {footerSlot}
         </div>
       ) : null}
+      {tier2Slot ? <div data-scoreboard-tier-2-slot>{tier2Slot}</div> : null}
     </article>
   );
 }

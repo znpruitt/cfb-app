@@ -85,6 +85,55 @@ test('live scoreboard keeps its header and long team-owner identities on one cli
   );
 });
 
+test('ranked FCS participant renders its rank instead of an FCS marker', () => {
+  const html = renderScoreboard({
+    away: {
+      teamName: 'Montana State',
+      owner: null,
+      rank: 12,
+      rankSource: 'ap',
+      classification: 'fcs',
+      score: 20,
+    },
+  });
+  const awayRow = html.match(/<div[^>]*data-scoreboard-side="away"[\s\S]*?<\/div>/)?.[0];
+
+  assert.ok(awayRow, 'away row must render');
+  assert.match(awayRow, /title="AP rank #12">#12<\/span>/);
+  assert.doesNotMatch(awayRow, /data-scoreboard-classification="away"|>FCS<\/span>/);
+});
+
+test('unranked exact FCS participant renders the classification marker', () => {
+  const html = renderScoreboard({
+    away: {
+      teamName: 'Montana State',
+      owner: null,
+      rank: null,
+      classification: 'fcs',
+      score: 20,
+    },
+  });
+
+  assert.match(
+    html,
+    /data-scoreboard-classification="away">FCS<\/span>[\s\S]*data-scoreboard-team="away">Montana State<\/span>/
+  );
+});
+
+test('classification marker rejects a case-variant near miss', () => {
+  const html = renderScoreboard({
+    away: {
+      teamName: 'Montana State',
+      owner: null,
+      rank: null,
+      classification: 'FCS' as unknown as 'fcs',
+      score: 20,
+    },
+  });
+
+  assert.doesNotMatch(html, /data-scoreboard-classification="away"|>FCS<\/span>/);
+});
+
 test('live scoreboard expresses live state in green with no amber utility', () => {
   const html = renderScoreboard();
 
@@ -92,6 +141,22 @@ test('live scoreboard expresses live state in green with no amber utility', () =
   assert.match(html, /dark:text-emerald-400/);
   assert.doesNotMatch(html, /amber/);
   assert.match(html, /data-scoreboard-state="live"/);
+});
+
+test('neutral-site prop renders a marker in the scoreboard header', () => {
+  const html = renderScoreboard({ neutralSite: true });
+  const header = html.match(/<div[^>]+data-scoreboard-header[^>]*>([\s\S]*?)<\/div>/)?.[1];
+
+  assert.ok(header, 'scoreboard header must render');
+  assert.match(header, /data-scoreboard-neutral-site="true">Neutral site<\/span>/);
+});
+
+test('live scoreboard renders a supplied broadcast while final scoreboard omits it', () => {
+  const liveHtml = renderScoreboard({ broadcast: 'ESPN2' });
+  const finalHtml = renderScoreboard({ state: 'final', broadcast: 'ESPN2' });
+
+  assert.match(liveHtml, />ESPN2<\/span>/);
+  assert.doesNotMatch(finalHtml, />ESPN2<\/span>/);
 });
 
 test('awaiting scoreboard uses a neutral status row without claiming the game is live', () => {
@@ -148,6 +213,16 @@ test('scoreboard exposes an additive context slot above its state row', () => {
   assert.ok(
     html.indexOf('Rivalry reason') < html.indexOf('data-scoreboard-header'),
     'context must render before the scoreboard state row'
+  );
+});
+
+test('scoreboard exposes an additive tier-2 slot after its primary rows', () => {
+  const html = renderScoreboard({ tier2Slot: <span>Venue and conference</span> });
+
+  assert.match(html, /data-scoreboard-tier-2-slot/);
+  assert.ok(
+    html.indexOf('data-scoreboard-side="home"') < html.indexOf('Venue and conference'),
+    'tier-2 content must follow the primary scoreboard rows'
   );
 });
 

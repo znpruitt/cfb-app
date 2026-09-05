@@ -77,6 +77,12 @@ function game(overrides: Partial<AppGame>): AppGame {
     canHome: overrides.canHome ?? overrides.csvHome ?? 'Home',
     awayConf: overrides.awayConf ?? 'SEC',
     homeConf: overrides.homeConf ?? 'Big Ten',
+    ...(overrides.awayClassification !== undefined
+      ? { awayClassification: overrides.awayClassification }
+      : {}),
+    ...(overrides.homeClassification !== undefined
+      ? { homeClassification: overrides.homeClassification }
+      : {}),
     media: overrides.media,
     sources: overrides.sources,
     startTimeTBD: overrides.startTimeTBD,
@@ -209,6 +215,45 @@ test('overview panel uses neutral wording for neutral-site games', () => {
 
   assert.match(html, /aria-label="Texas vs Ohio State"/);
   assert.doesNotMatch(html, /aria-label="Texas at Ohio State"/);
+});
+
+test('overview scoreboards do not opt into the widened component presentation', () => {
+  const reservedMetadataGame = game({
+    csvAway: 'Montana State',
+    csvHome: 'Oregon',
+    neutral: true,
+    neutralDisplay: 'vs',
+    awayClassification: 'fcs',
+    homeClassification: 'fbs',
+    media: [{ gameId: 'reserved-metadata', mediaType: 'tv', outlet: 'ESPN2' }],
+  });
+  const live = itemWithScore(reservedMetadataGame, {
+    status: 'In Progress',
+    away: { team: 'Montana State', score: 7 },
+    home: { team: 'Oregon', score: 14 },
+    time: 'Q2 4:30',
+  });
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[live]}
+      keyMatchups={[]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+  const scoreboard = html.match(
+    /<article(?=[^>]*aria-label="Montana State vs Oregon")[\s\S]*?<\/article>/
+  )?.[0];
+
+  assert.ok(scoreboard, 'the existing Overview scoreboard must render');
+  assert.match(scoreboard, />Live<\/span>[\s\S]*>Q2 4:30<\/span>/);
+  assert.doesNotMatch(scoreboard, /data-scoreboard-classification|>FCS<\/span>/);
+  assert.doesNotMatch(scoreboard, /data-scoreboard-neutral-site|>Neutral site<\/span>/);
+  assert.doesNotMatch(scoreboard, />ESPN2<\/span>/);
+  assert.doesNotMatch(scoreboard, /data-scoreboard-tier-2-slot/);
 });
 
 test('overview panel keeps home-away wording for standard games', () => {
