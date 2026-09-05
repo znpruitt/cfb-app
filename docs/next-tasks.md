@@ -157,6 +157,45 @@ the UI spine do not touch each other, so they can run concurrently:
 - **Independent, parallel-safe against both:** Item 122 (`admin/HistoricalCachePanel.tsx`), Item 121
   (`schedule/cfbdSchedule.ts`, `schedule.ts`, `schedulePostseasonHelpers.ts` — pipeline, not
   components), and Items 84, 86, 111. **Item 123 shipped 2026-09-04** via PR #565.
+
+### Two-lane assignment (2026-09-05) — measured, not inferred
+
+Two implementation worktrees run concurrently (`CLAUDE.md` → **Worktrees and session roles**). The UI
+spine is strictly serial with itself, so it occupies ONE lane entirely; the other lane takes work that
+touches no component file.
+
+| lane | worktree | sequence |
+| --- | --- | --- |
+| **UI spine** | `cfb-app-codex` | slice 5 + 112 → 5b → 117 → 115 → 119 → 134 → 118 |
+| **Platform** | `cfb-app-claude` | 102 slice 2 → slice 3 → slice 4 → 129 → 126 |
+
+**Fillers, safe against both lanes, any order:** Item 135 (`selectors/matchups.ts` only), Item 133a
+(below), 122, 121, 84, 86, 111.
+
+**Run Item 135 first.** It is written, small, a wrong number on screen today, and the only filler with
+any theoretical path into spine territory — taking it before slice 5 starts removes the question.
+
+**Three collisions, measured 2026-09-05. Two were not previously recorded:**
+
+1. **Item 129 collides with Item 102 slice 2 — NEW.** 129's second half edits the `usage-sample`
+   grace in `DELIVERY_POLICIES`, and slice 2 rewrites that same structure to derive the delivery
+   expectation from planner windows (collision 2). Same file, same declaration. They cannot run
+   concurrently; 129 follows 102 in the platform lane.
+2. **Item 133 splits along the spine boundary — NEW.** Its 184 `zinc-500` uses are not evenly spread:
+   only **20** are in spine files (`OverviewPanel` 14, `MatchupsWeekPanel` 4, `GameWeekPanel` 2;
+   `CompactGameScoreboard` is already 0, done by slice 5a). The other ~164 sit in `components/admin`,
+   `components/history`, `components/draft` and `components/admin/systemHealth`, which no spine slice
+   touches. So **133a (non-spine) is fully parallel-safe**, and **133b (the 20)** must fold into the
+   spine slices that touch those files or follow the spine. **133a is not small** — it is a
+   ~164-occurrence classification pass across ~70 files, and the entry forbids bulk replacement. Good
+   filler for a blocked lane; not a third concurrent workstream.
+3. **Item 126 after Item 102** — already recorded above; `schedulerDeliveryHealth.ts` imports
+   `schedulerExecutionStatus.ts` and `systemHealthIssues.ts` consumes both.
+
+**Item 135 is selector-only, verified.** `MatchupsWeekPanel` consumes `opponentSummaryEntries` for
+`.length` alone (`:333-335`), so re-keying inside `summarizeSlateOpponents` needs no panel edit and
+cannot conflict with slice 5 or 117.
+
 - **Dated, and it beats a deadline:** **Item 127** (retain the CFBD usage already probed) supersedes
   Item 94's manual 2026-09-30 read if it ships first. As shipped it is a STANDALONE cron route: it
   touches `game-stats/route.ts` with a comment only and does not touch `season-transition` at all, so
@@ -867,6 +906,19 @@ text begins at 18.66px bold / 24px — so anything at `text-xs` (12px), `text-[1
 
 Slice 5a fixed this inside `CompactGameScoreboard` only, as a deliberately component-local
 prohibition. **184 occurrences across 73 files remain** (measured on `main` at `e5a23313`).
+
+**Split along the UI-spine boundary (2026-09-05), because the halves parallelize differently:**
+
+- **133a — non-spine, ~164 occurrences.** `components/admin` (13 files), `components/history` (10),
+  `components/draft` (8), `components/admin/systemHealth` (6) and the rest. **No spine slice touches
+  any of these**, so 133a is fully parallel-safe against both lanes. It is still not small: a
+  classification pass across roughly 70 files. Good work for a blocked lane, not a third concurrent
+  workstream.
+- **133b — the spine files, 20 occurrences.** `OverviewPanel.tsx` (14), `MatchupsWeekPanel.tsx` (4),
+  `GameWeekPanel.tsx` (2). `CompactGameScoreboard.tsx` is already 0 — slice 5a did it. These collide
+  with every slice that touches those files, so **fold each into the spine slice that owns the file**
+  (115 owns `OverviewPanel`, 117 owns `MatchupsWeekPanel`, slice 5 owns `GameWeekPanel`) or run 133b
+  after the spine completes. Do not run it as a separate concurrent item.
 
 **Not all 184 are violations — that is the work.** The count includes borders (`dark:border-zinc-500`
 is not text), backgrounds, and any genuinely large text. The audit must classify each occurrence by
