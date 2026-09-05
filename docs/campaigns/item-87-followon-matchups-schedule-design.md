@@ -66,6 +66,7 @@ The design doc has said "suppressed on Schedule"; the mockup places spread/O/U/M
 
 `GameWeekPanel.tsx:42` `cardEmphasisClasses` renders an amber border for upsets, which is a reserved-colour violation. **But the base addendum explicitly exempts it** as "emphasis, out of scope for every slice." The transition deletes the card chrome it lives on, so the exemption becomes moot by accident. Either re-scope the exemption or record that the transition retires it deliberately — do not let it lapse silently.
 
+
 ---
 
 ## Three unowned states, rendered distinctly
@@ -145,6 +146,43 @@ The row treatment is now identical across Overview, Matchups and Schedule. Only 
 That is a cleaner story than the earlier draft, which had three different collapse behaviours.
 
 ---
+
+---
+
+## Eyebrow tags — bronze, rendered as pills
+
+### Colour: bronze `#c9a66b`, a deliberate deviation from the shipped blue
+
+Bronze was decided earlier in this campaign, ranked above sky, neutral and fuchsia. An intermediate mockup reverted it to the shipped `text-blue-300` after a review flagged gold as champion-reserved. **That flag bundled two claims and only one holds.**
+
+*"Shipped is blue"* is descriptive. A mockup proposing a change is precisely what deviates from what ships, so this is not an argument against bronze.
+
+*"Gold is champion-reserved"* is answered by temporal separation. The champion treatment does not render until a title is awarded — podium cards for #1–#3 are neutral all season, confirmed by inspection — so bronze is uncontested through the year. At season end the two remain distinguishable: bronze is a desaturated tan, champion amber (`#BA7517`) a dark saturated gold. The reservation binds a token to a purpose, not a hue neighbourhood.
+
+Blue would also have been poor independently: it is the interactive token, so eyebrows would share a colour with links and controls.
+
+### Treatment: pills, uniformly
+
+Every eyebrow renders as a pill — hairline bronze border, brighter bronze text. No per-class variation.
+
+**The mixed version is rejected.** An earlier draft gave the outcome tag (*Upset*) a pill while selection tags (*Ranked spotlight*, *Top matchup*) stayed plain, reasoning that they are different classes: pre-game selection reasons versus post-game outcome facts. The distinction is real but **undecodable** — a reader cannot learn "pill means outcome" from looking, so the shape difference was a distinction the design knew and did not communicate. Decoration carrying a semantic argument.
+
+Within each state, a tagged row already stands out from untagged rows, so shape does no scanning work. Only the word does.
+
+**Pills rather than plain text** cuts against this campaign's direction of removing chrome, but a hairline border on a 10px label is a long way from card chrome, and the tags carry more presence with one.
+
+### This answers the amber `upset` border
+
+The base addendum exempts that border as *"emphasis, out of scope for every slice."* The transition deletes the card chrome it lives on, so without a decision the exemption lapses by side effect rather than by choice.
+
+**Slice 5 should record the border as deliberately retired, with the eyebrow pill carrying its emphasis forward.**
+
+**State the cost plainly:** a pill is quieter than a border around a card. A border catches the eye across sixty rows; an eyebrow does not. That is acceptable if Schedule is a reference surface and making games jump out belongs to Featured and the recap — but it is a real reduction, not a like-for-like replacement. If upsets should stay prominent, the honest instrument is a hue assigned in `INSIGHTS-017-PALETTE`, not a shape difference.
+
+### Not applied to the Featured reason row
+
+The Featured tile's reason row (`sb-title`) stays plain bronze text. It is a card title on its own line rather than an inline tag beside a status, and a border there would read as chrome on a tile that already has some. Consequence: bronze appears in two shapes. Flagged rather than settled — making it a pill too is a one-line change if the inconsistency reads badly.
+
 
 ## Corrections to earlier premises
 

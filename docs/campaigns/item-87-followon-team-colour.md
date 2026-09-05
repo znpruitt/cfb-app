@@ -24,7 +24,7 @@ The incumbent renders 2–3px. The proposal is a solid 8px muted bar at ~72% opa
 
 The argument for OKLCH: HSL's `L` is not perceptual, so one threshold behaves differently across hues. The incumbent's yellow-gold carve-out at hue 42–72 is a symptom of exactly that — a per-hue exception compensating for a non-uniform lightness axis. OKLCH's `L` is perceptually uniform, so the carve-out becomes unnecessary for *legibility* purposes.
 
-```text
+```
 normalizeTeamColor(hex, { minL = 0.62, maxL = 0.78, maxC = 0.16 }):
   1. sRGB hex → OKLCH
   2. clamp lightness:  L = min(max(L, minL), maxL)
@@ -82,3 +82,17 @@ Alongside the catalog: compute when `teamCatalogById` is memoised (`CFBScheduleA
 1. Decide the background constant.
 2. Widen the bar to 8px on the **existing** normaliser. Visual change only.
 3. Measure whether HSL normalisation actually produces bad output at that width. If it does, port to OKLCH with the reserved-hue guard. If not, leave it.
+
+---
+
+## Reconciling with the eyebrow bronze decision
+
+This document argues that structural treatments were chosen because the palette had no room for another hue. `item-87-followon-matchups-schedule-design.md` then claims bronze `#c9a66b` for eyebrow tags. Those look contradictory and are not.
+
+**Bronze is available for one specific reason that does not generalise.** Champion amber does not render until a title is awarded — podium cards for #1–#3 are neutral all season — so bronze is uncontested through the year, and at season end the two remain distinguishable as a desaturated tan against a dark saturated gold.
+
+**No other hue has that property.** Green means live, red means negative delta, blue means interactive, and the five insight category tokens are already colliding eight-ways among themselves. Each of those is in continuous use, so adjacency is a live problem rather than a seasonal one.
+
+**So the team-colour bar stays structural.** Not because bronze was unavailable, but because team colour is per-team identity drawn from provider data — it cannot take a single assigned hue at all, and the argument for keeping it out of the text is about competing with the winner/loser weight, which is unaffected by any of this.
+
+The two decisions are consistent: one hue was claimed where a seasonal gap made it safe, and identity colour remains a separate system that no palette assignment can serve.

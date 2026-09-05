@@ -69,7 +69,12 @@
     font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
   }
   .sb-status .state { color: var(--text-secondary); }
-  .sb-status .eyebrow { color: var(--text-tertiary); }
+  /* Eyebrows render as pills, bronze. One treatment for every tag — no per-class
+     variation; see the matchups mockup notes for why the mixed version was rejected. */
+  .sb-status .eyebrow {
+    color: #dbc190; border: 0.5px solid rgba(201,166,107,0.40);
+    border-radius: 3px; padding: 1px 5px;
+  }
   .sb-title {
     font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
     color: var(--text-secondary); margin-bottom: 3px;
@@ -119,7 +124,7 @@
      Green live is constant across previews 1-4; only the eyebrow hue varies. ---- */
   body[data-c]:not([data-c="0"]) .live-badge { color: #4ade80; }
   body[data-c]:not([data-c="0"]) .live-badge::before { background: #4ade80; }
-  body[data-c="2"] .sb-title, body[data-c="2"] .sb-status .eyebrow { color: #c9a66b; }
+  body[data-c="2"] .sb-title { color: #c9a66b; }
   body[data-c="3"] .sb-title, body[data-c="3"] .sb-status .eyebrow { color: #7dd3fc; }
   body[data-c="4"] .sb-title, body[data-c="4"] .sb-status .eyebrow { color: #e879f9; }
 

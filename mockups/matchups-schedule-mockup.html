@@ -37,9 +37,18 @@
     font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
     color: var(--text-secondary);
   }
+  /* Outcome tags (post-game facts) render heavier than selection tags (pre-game
+     reasons). Same hue family — the distinction is class, not importance, and the
+     palette has no room for a new hue until INSIGHTS-017-PALETTE rationalises it. */
+  /* Pill treatment, applied by mode. See notes — the mixed mode is shown for
+     comparison and is not recommended. */
+  .sb-status .eyebrow {
+    border: 0.5px solid rgba(201,166,107,0.40);
+    border-radius: 3px; padding: 1px 5px; color: #dbc190;
+  }
   .sb-status .eyebrow {
     font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
-    color: #93c5fd; /* matches shipped eyebrow (text-blue-300); gold is champion-reserved */
+    color: #c9a66b; /* bronze — see notes; deliberate deviation from shipped blue */
   }
   .live-badge {
     display: flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 600;
@@ -225,7 +234,7 @@
 <button class="linkbtn" style="border:1px dashed #4a4a4a; border-radius:6px; padding:6px 12px; color:#a8a8a8; margin-left:8px;"
     onclick="var b=document.body,T=['hl-neutral','hl-owner',''],L=['My team: neutral tint (click)','My team: owner colour (click)','My team: no highlight (click)'];var i=(parseInt(b.dataset.hl||'0')+1)%3;b.dataset.hl=i;b.classList.remove('hl-neutral','hl-owner');if(T[i])b.classList.add(T[i]);this.textContent=L[i];">
     My team: neutral tint (click)</button>
-  <button class="linkbtn" style="border:1px dashed #4a4a4a; border-radius:6px; padding:6px 12px; color:#a8a8a8; margin-left:8px;"
+<button class="linkbtn" style="border:1px dashed #4a4a4a; border-radius:6px; padding:6px 12px; color:#a8a8a8; margin-left:8px;"
     onclick="var b=document.body; var two=b.classList.contains('demo-2col'); b.classList.remove('demo-2col','demo-1col'); b.classList.add(two ? 'demo-1col' : 'demo-2col'); this.textContent = two ? 'Layout: one column (click to swap)' : 'Layout: two columns (click to swap)';">
     Layout: two columns (click to swap)</button>
   <button class="linkbtn" style="border:1px dashed #4a4a4a; border-radius:6px; padding:6px 12px; color:#a8a8a8; margin-left:8px;"
@@ -325,7 +334,7 @@
     <div class="grow" data-state="final">
       <button class="grow-head">
         <div class="scoreboard">
-          <div class="sb-status"><span class="state">Final</span><span class="eyebrow">&middot; Upset</span></div>
+          <div class="sb-status"><span class="state">Final</span><span class="eyebrow outcome">Upset</span></div>
           <div class="sb-line" style="--tcol:#7BB8E0"><span class="who"><span class="tc"></span><span class="team">North Carolina</span><span class="rec num">(3&ndash;5)</span><span class="owner">Jackson</span></span><span class="score num">31</span></div>
           <div class="sb-line loser" style="--tcol:#8F5FBF"><span class="who"><span class="tc"></span><span class="team">TCU</span><span class="rec num">(5&ndash;3)</span><span class="owner">Gladney</span></span><span class="score num">24</span></div>
         </div>
@@ -552,6 +561,14 @@
   <ul>
     <li><strong>Same component, no fork.</strong> Both views consume the scoreboard shipped in Item 87 slices 1&ndash;4. Nothing here is a new row shape &mdash; the additions are the two contract widenings recorded separately: the prefix slot accepting an FCS marker as well as a rank, and a neutral-site marker on the meta line.</li>
     <li><strong>Matchups gains a correctness fix, not just a restyle.</strong> The shipped row reads <code>Colorado @ Georgia Tech</code> with <code>vs BHooper</code> beneath it, which never says which team belongs to which owner. Team-primary with an owner suffix resolves it structurally &mdash; the same defect and the same fix as the Overview redesign.</li>
+    <li><strong>Eyebrows are bronze (#c9a66b), a deliberate deviation from the shipped blue.</strong> Bronze was decided earlier in this campaign, ranked above sky, neutral and fuchsia. An intermediate mockup reverted it to the shipped <code>text-blue-300</code> after a reviewer flagged gold as champion-reserved &mdash; that bundled two claims, and only one holds. <em>Shipped is blue</em> is descriptive, and a mockup proposing a change is what deviates from it. <em>Gold is champion-reserved</em> is answered by temporal separation: the champion treatment does not render until a title is awarded &mdash; podium cards for #1&ndash;#3 are neutral all season &mdash; so bronze is uncontested through the year, and at season end the two remain distinguishable, since bronze is a desaturated tan against a dark saturated gold. The reservation binds a token to a purpose, not a hue neighbourhood.</li>
+    <li><strong>Blue would also have been a poor choice independently</strong> &mdash; it is the interactive token, so eyebrows would share a colour with links and controls.</li>
+    <li><strong>All eyebrows render as pills &mdash; one treatment, no per-class variation.</strong> An earlier draft gave the outcome tag (<em>Upset</em>) a pill while selection tags (<em>Ranked spotlight</em>, <em>Top matchup</em>) stayed plain, reasoning that they are different classes: pre-game selection reasons versus post-game outcome facts. That distinction is real but undecodable &mdash; a reader cannot learn "pill means outcome" from looking, so the shape difference was a distinction the design knew and did not communicate. Rejected. Within each state a tagged row already stands out from untagged rows, so shape does no scanning work; only the word does.</li>
+    <li><strong>Pills rather than plain text.</strong> Adding a border cuts against this campaign's direction of removing chrome, but the tags carry more presence with one, and a hairline border on a 10px label is a long way from card chrome. This also recovers some of the weight lost when the amber upset border is deleted.</li>
+
+    <li><strong>The cost is explicit: this is quieter than the amber border it replaces.</strong> A border around a card catches the eye across sixty rows; an eyebrow does not. That is acceptable if Schedule is a reference surface and making games jump out is Featured's and the recap's job &mdash; but it is a real reduction, and slice 5 should record it as a decision rather than let the border lapse when the card chrome it lives on is deleted. If upsets should stay prominent, the honest instrument is a hue from INSIGHTS-017-PALETTE, not a shape difference.</li>
+
+    <li><strong>This is what replaces the amber upset border.</strong> The base addendum exempts that border as "emphasis, out of scope for every slice", but the transition deletes the card chrome it lives on &mdash; so the exemption would lapse by side effect rather than by decision. The outcome-tag treatment carries the emphasis forward in a form the new row anatomy supports, and slice 5 should record the border as deliberately retired rather than leaving an on-record exemption to expire unnoticed.</li>
     <li><strong>The card owner's team row carries a neutral background tint.</strong> Answers member feedback that the Matchups screen should distinguish an owner's own teams. Background rather than text weight: weight already carries winner/loser on final rows, so emphasising the owner's team that way would render a losing team of theirs bold-and-dimmed &mdash; two signals arguing on one row. A tint sits behind the text and leaves the outcome hierarchy alone.</li>
     <li><strong>Dimming the card owner is dropped.</strong> An earlier draft offered it as the alternative treatment, on the reasoning that the repeated name was noise. The tint supersedes it &mdash; it distinguishes the row positively rather than by suppressing the other one, and the owner name stays legible. The comparison toggle is removed with it.</li>
     <li><strong>Neutral rather than owner colour, unless neutral reads too quietly.</strong> DESIGN.md reserves owner colour for lists acting as a chart legend, so using it here would be a rule change rather than an application. It would also be a third identity colour on one row alongside the team-colour bar. The toggle keeps an owner-colour variant for comparison only.</li>
