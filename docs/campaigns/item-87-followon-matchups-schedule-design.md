@@ -84,6 +84,14 @@ Beating an FCS team and beating an unowned FBS team are different achievements, 
 
 ## Schedule — design decisions
 
+> **`DESIGN.md` governs the shared scoreboard's STATE behaviour; this section governs Schedule's
+> layout.** This document predates the slice 5a rulings, and three of its statements about state
+> behaviour have now been found stale against `DESIGN.md` — finals carrying a kickoff time, broadcast
+> on `awaiting`, and the live row's clock. Each is corrected in place below. **Where this section
+> states what a STATE renders, check `DESIGN.md` first** — it is canonical for UI and carries the
+> dated owner rulings. What is genuinely Schedule's to decide is tier assignment, sort, grouping and
+> disclosure.
+
 ### The scoreboard is the row; there is no one-line collapse
 
 The shipped collapse hides the wrong tier. **Tier 1** is teams, owners, records, score and broadcast — what a schedule is *for*. **Tier 2** is venue, moneyline and conference. Collapsing to one line hid tier 1 to protect against tier 2, which meant expanding a finished game just to see the score.
@@ -96,7 +104,9 @@ Now the scoreboard always renders and only tier 2 sits behind a "More" affordanc
 
 ### Broadcast network is tier 1
 
-"Can I watch this" is the question a schedule answers, so the network sits in the status row beside the kickoff time. It renders on **scheduled and live rows only** — a completed game's broadcast is dead information, and the row's job at that point is the result. Same principle as the anchor: the status row carries what is actionable for that state. Games with no listed broadcast omit it rather than rendering a placeholder.
+"Can I watch this" is the question a schedule answers, so the network sits in the status row beside the kickoff or game clock. It renders on **scheduled, live and awaiting rows — not finals**. A completed game's broadcast is dead information, and the row's job at that point is the result.
+
+**Correction 2026-09-05.** This section previously said "scheduled and live rows only", omitting `awaiting`. That predates the owner ruling now recorded at `DESIGN.md:182`: *awaiting is an indeterminate post-kickoff subset of live, and a broadcast label names the game's carrier rather than claiming the game is currently on air.* `DESIGN.md` governs. Same principle as the anchor: the status row carries what is actionable for that state. Games with no listed broadcast omit it rather than rendering a placeholder.
 
 ### Conference sits in tier 2, on its own line
 
@@ -112,8 +122,11 @@ Not appended to the odds string, where it read as an afterthought and coupled tw
 
 A schedule's contract is time order, so live games are **not** floated to the top the way the Overview promotion model does — the filter covers "show me what's live" without breaking the one guarantee the view makes.
 
-**Kickoff times render on scheduled and live rows only. Finals carry none — owner decision
-2026-09-05.** An earlier draft of this section said the opposite ("kickoff times therefore render on
+**Kickoff times render on SCHEDULED rows. Live rows carry the in-game clock instead, and finals
+carry neither — owner decision 2026-09-05, reconciled with `DESIGN.md:204`.** A live row's status row
+is a green dot plus `Live` plus the game clock (`Live · Q3 8:12` in the mockup); the kickoff has
+already happened, so the clock is the actionable value. `awaiting` carries its neutral
+`Awaiting score` label with no clock, since the absence of a clock is the state. An earlier draft of this section said the opposite ("kickoff times therefore render on
 every row including finals: with the sort keyed to a value, hiding that value on most rows makes the
 order look arbitrary"). **That was wrong, and it contradicted `DESIGN.md:208`**, which states that a
 final row carries no date and no time and names *date-group headings on Schedule* as the container

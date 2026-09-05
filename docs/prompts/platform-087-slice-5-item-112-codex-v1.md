@@ -65,11 +65,14 @@ Schedule adopts the shared scoreboard row, per the design doc § Schedule.
 2. **Delete `cardEmphasisClasses`** (`GameWeekPanel.tsx:39-50`). The amber `upset` border at `:42` is
    **deliberately retired** — owner decision 2026-09-05, not a side effect. The eyebrow pill carries
    the emphasis forward.
-3. **Broadcast is tier 1**, in the status row beside kickoff, on **scheduled and live rows only**.
+3. **Broadcast is tier 1**, in the status row, on **scheduled, live AND awaiting rows — not finals**.
    Games with no listed broadcast omit it rather than rendering a placeholder.
+   **Corrected 2026-09-05 — your P2 was right.** This prompt said "scheduled and live only", copied
+   from a design-doc line that predates the owner ruling at `DESIGN.md:182`.
 4. **Conference in tier 2 on its own line**, not appended to the odds string.
 5. **Sort strictly by kickoff ascending within each date group.** Live games are NOT floated.
-   **Kickoff times render on scheduled and live rows ONLY — finals carry none.** Your receipt
+   **Kickoff times render on SCHEDULED rows. Live rows carry the in-game CLOCK instead; finals carry
+   neither. Corrected 2026-09-05 — your other P2 was right too.** Your receipt
    correctly found that the design doc and `DESIGN.md:208` conflicted here. **Owner ruling
    2026-09-05: `DESIGN.md` wins** — a kickoff time is a useful fact only while the game is in the
    future, and the "order looks arbitrary" objection does not survive, because the rows are still
@@ -108,8 +111,10 @@ line is a data finding, not something to paper over in presentation.
 - **Every deleted behaviour is deliberate and tested.** `cardEmphasisClasses` deletion in particular:
   assert no amber border renders for an `upset` card, and prove by MUTATION that the assertion can
   fail — restore the class and show a SPECIFIC named test going red.
-- **Broadcast state coverage:** renders on scheduled and live, absent on final, absent when no
-  broadcast is listed. Four cases, four assertions.
+- **Broadcast state coverage:** renders on scheduled, live AND awaiting; absent on final; absent when
+  no broadcast is listed. Five cases, five assertions.
+- **Status-row value per state:** scheduled shows kickoff, live shows the game clock, awaiting shows
+  neither, final shows neither. Four assertions.
 - **Finals carry no kickoff time** (task item 5) is asserted directly, and proven by MUTATION —
   render a time on a final and show a SPECIFIC named test going red, then restore. This reverses what
   an earlier draft of the design doc said, so it is exactly the rule a future reader is most likely to
