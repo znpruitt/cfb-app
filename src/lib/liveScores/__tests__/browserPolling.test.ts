@@ -4,10 +4,13 @@ import test from 'node:test';
 import type { AppGame } from '../../schedule.ts';
 import type { ScorePack } from '../../scores.ts';
 import {
+  LIVE_SCORE_FAST_POLL_INTERVAL_MS,
+  LIVE_SCORE_FAST_WINDOW_AFTER_MS,
   LIVE_SCORE_POLL_INTERVAL_MS,
   LIVE_SCORE_WINDOW_AFTER_MS,
   LIVE_SCORE_WINDOW_BEFORE_MS,
   deriveLiveScorePartitions,
+  hasGameInLiveScoreFastWindow,
   isCurrentLiveScoreSeason,
   isLiveScoreEligibleGame,
   selectLiveScorePollGames,
@@ -16,7 +19,7 @@ import {
 // PLATFORM-086B2B — browser live-poll eligibility. Pure/deterministic (a fixed
 // `now`), it decides whether a VISIBLE tab should issue a cache-only score read:
 // current season + a schedule-owned kickoff inside `[−15 min, +24 h]`, excluding
-// resolved finals and canceled/postponed, keeping delayed/suspended.
+// canceled/postponed while keeping correctable finals and delayed/suspended.
 
 // A November 2025 anchor → canonical current season 2025 (seasonYearForToday).
 const NOW = new Date('2025-11-01T18:00:00.000Z');
@@ -71,8 +74,17 @@ function makeGame(overrides: Partial<AppGame> & { key: string }): AppGame {
   };
 }
 
-function scorePack(status: string): ScorePack {
-  return { status, home: { team: 'home', score: 0 }, away: { team: 'away', score: 0 }, time: null };
+function scorePack(
+  status: string,
+  scores: { home?: number | null; away?: number | null } = {}
+): ScorePack {
+  const { home = 0, away = 0 } = scores;
+  return {
+    status,
+    home: { team: 'home', score: home },
+    away: { team: 'away', score: away },
+    time: null,
+  };
 }
 
 test('isCurrentLiveScoreSeason gates on the canonical current season only', () => {
@@ -212,6 +224,147 @@ test('deriveLiveScorePartitions dedupes (providerWeek, seasonType) and maps stag
   );
 });
 
-test('the poll cadence constant is 3 minutes', () => {
+test('the browser cadence constants retain 3 minutes normally and use 90 seconds near kickoff', () => {
   assert.equal(LIVE_SCORE_POLL_INTERVAL_MS, 3 * 60 * 1000);
+  assert.equal(LIVE_SCORE_FAST_POLL_INTERVAL_MS, 90 * 1000);
+  assert.equal(LIVE_SCORE_POLL_INTERVAL_MS % LIVE_SCORE_FAST_POLL_INTERVAL_MS, 0);
+  assert.equal(LIVE_SCORE_FAST_WINDOW_AFTER_MS, 8 * 60 * 60 * 1000);
+});
+
+test('a just-kicked-off eligible game selects the fast tier without score state', () => {
+  const justKickedOff = makeGame({ key: 'no-score', date: NOW.toISOString() });
+
+  assert.equal(
+    hasGameInLiveScoreFastWindow({
+      eligibleGames: [justKickedOff],
+      scoresByKey: {},
+      now: NOW,
+    }),
+    true
+  );
+});
+
+test('a missing score pack stays fast through the inclusive +8h fail-safe ceiling', () => {
+  const atAge = (ageMs: number) =>
+    makeGame({ key: String(ageMs), date: new Date(NOW_MS - ageMs).toISOString() });
+
+  assert.equal(
+    hasGameInLiveScoreFastWindow({
+      eligibleGames: [atAge(-LIVE_SCORE_WINDOW_BEFORE_MS)],
+      scoresByKey: {},
+      now: NOW,
+    }),
+    true
+  );
+  assert.equal(
+    hasGameInLiveScoreFastWindow({
+      eligibleGames: [atAge(-LIVE_SCORE_WINDOW_BEFORE_MS - 1)],
+      scoresByKey: {},
+      now: NOW,
+    }),
+    false
+  );
+  assert.equal(
+    hasGameInLiveScoreFastWindow({
+      eligibleGames: [atAge(LIVE_SCORE_FAST_WINDOW_AFTER_MS)],
+      scoresByKey: {},
+      now: NOW,
+    }),
+    true
+  );
+  assert.equal(
+    hasGameInLiveScoreFastWindow({
+      eligibleGames: [atAge(LIVE_SCORE_FAST_WINDOW_AFTER_MS + 1)],
+      scoresByKey: {},
+      now: NOW,
+    }),
+    false
+  );
+});
+
+test('only positive final score evidence permits slowing before the +8h ceiling', () => {
+  const insideWindow = makeGame({
+    key: 'inside',
+    date: new Date(NOW_MS - 6 * 60 * 60 * 1000).toISOString(),
+    rawStatus: 'completed',
+    status: 'final',
+    completed: true,
+  });
+
+  assert.equal(
+    hasGameInLiveScoreFastWindow({ eligibleGames: [insideWindow], scoresByKey: {}, now: NOW }),
+    true,
+    'frozen schedule finality without a score pack is not positive attached-score evidence'
+  );
+  assert.equal(
+    hasGameInLiveScoreFastWindow({
+      eligibleGames: [insideWindow],
+      scoresByKey: { inside: scorePack('In Progress') },
+      now: NOW,
+    }),
+    true,
+    'an ambiguous or lossy attached pack degrades to the fast time-bound behavior'
+  );
+  assert.equal(
+    hasGameInLiveScoreFastWindow({
+      eligibleGames: [insideWindow],
+      scoresByKey: { inside: scorePack('final') },
+      now: NOW,
+    }),
+    false,
+    'positive attached finality permits the normal cadence before the hard ceiling'
+  );
+});
+
+test('a final-labelled pack with a missing score stays fast inside the +8h window', () => {
+  const insideWindow = makeGame({
+    key: 'incomplete-final',
+    date: new Date(NOW_MS - 6 * 60 * 60 * 1000).toISOString(),
+  });
+
+  assert.equal(
+    hasGameInLiveScoreFastWindow({
+      eligibleGames: [insideWindow],
+      scoresByKey: { 'incomplete-final': scorePack('final', { home: null }) },
+      now: NOW,
+    }),
+    true,
+    'a final label with a missing score is not positive final score evidence'
+  );
+});
+
+test('score attachment and frozen completion fields cannot extend the hard fast-window ceiling', () => {
+  const staleScheduled = makeGame({
+    key: 'missing-score',
+    date: new Date(NOW_MS - LIVE_SCORE_FAST_WINDOW_AFTER_MS - 1).toISOString(),
+    rawStatus: 'scheduled',
+    status: 'matchup_set',
+    completed: false,
+  });
+  const lossyCompletedGame = makeGame({
+    key: 'incomplete-final',
+    date: new Date(NOW_MS - LIVE_SCORE_FAST_WINDOW_AFTER_MS - 1).toISOString(),
+    rawStatus: 'completed',
+    status: 'matchup_set',
+    completed: true,
+  });
+
+  assert.equal(
+    hasGameInLiveScoreFastWindow({
+      eligibleGames: [staleScheduled],
+      scoresByKey: {},
+      now: NOW,
+    }),
+    false,
+    'a missing score cannot pin a frozen scheduled game to the fast tier'
+  );
+  assert.equal(
+    hasGameInLiveScoreFastWindow({
+      eligibleGames: [lossyCompletedGame],
+      scoresByKey: { 'incomplete-final': scorePack('In Progress') },
+      now: NOW,
+    }),
+    false,
+    'even a lossy completed row cannot extend the hard fast-window ceiling'
+  );
 });

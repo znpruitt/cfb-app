@@ -6,10 +6,11 @@ import { NO_CLAIM_OWNER } from '../standings.ts';
 import type { CanonicalStandings } from './leagueStandings.ts';
 
 /**
- * Default isStale threshold: 7 minutes (PLATFORM-086B2B). Live scores now poll on
- * a 3-minute visible-tab cadence, so two missed ticks plus request-latency slack
- * flag the overlay stale — tighter than the previous 16-minute (15-minute-cadence)
- * bound, so a stale live overlay is caught roughly twice as fast.
+ * Default client-poll watchdog: 7 minutes (PLATFORM-086B2B). This unchanged
+ * wall-clock product threshold bounds how long the member-facing overlay remains
+ * fresh when browser polling wedges; it is not a data TTL and no longer represents
+ * a fixed number of missed ticks under the tiered browser cadence. Retuning the
+ * value is a separate product decision.
  */
 export const DEFAULT_LIVE_DELTA_STALE_THRESHOLD_MS = 7 * 60 * 1000;
 

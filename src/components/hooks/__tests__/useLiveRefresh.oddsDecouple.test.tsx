@@ -4,7 +4,9 @@ import { JSDOM } from 'jsdom';
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 
 import type { AppGame } from '../../../lib/schedule';
+import type { ScorePack } from '../../../lib/scores';
 import type { TeamCatalogItem } from '../../../lib/teamIdentity';
+import { LIVE_SCORE_FAST_WINDOW_AFTER_MS } from '../../../lib/liveScores/browserPolling';
 import { EMPTY_SCORE_HYDRATION_STATE } from '../../../lib/scoreHydration';
 import { useLiveRefresh } from '../useLiveRefresh';
 
@@ -29,8 +31,13 @@ Object.defineProperty(globalThis, 'navigator', {
 });
 
 const originalFetch = globalThis.fetch;
+const originalDateNow = Date.now;
+const originalSetTimeout = globalThis.setTimeout;
+const originalVisibilityDescriptor = Object.getOwnPropertyDescriptor(document, 'visibilityState');
 let fetchUrls: string[];
 let scorePayload: unknown;
+let scoreFetchGate: Promise<void> | null;
+let scoreResponseStatus: number;
 
 function game(overrides: Partial<AppGame> = {}): AppGame {
   return {
@@ -126,6 +133,8 @@ function makeParams(
 beforeEach(() => {
   fetchUrls = [];
   scorePayload = { items: [], meta: {} };
+  scoreFetchGate = null;
+  scoreResponseStatus = 200;
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = typeof input === 'string' ? input : input.toString();
     fetchUrls.push(url);
@@ -137,8 +146,9 @@ beforeEach(() => {
       });
     }
     if (url.includes('/api/scores')) {
+      if (scoreFetchGate) await scoreFetchGate;
       return new Response(JSON.stringify(scorePayload), {
-        status: 200,
+        status: scoreResponseStatus,
         headers: { 'Content-Type': 'application/json' },
       });
     }
@@ -152,6 +162,13 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   globalThis.fetch = originalFetch;
+  Date.now = originalDateNow;
+  globalThis.setTimeout = originalSetTimeout;
+  if (originalVisibilityDescriptor) {
+    Object.defineProperty(document, 'visibilityState', originalVisibilityDescriptor);
+  } else {
+    Reflect.deleteProperty(document, 'visibilityState');
+  }
 });
 
 function oddsUrls(): string[] {
@@ -347,5 +364,356 @@ test('a catalog replaced after mount is used on the NEXT poll, not the mount-tim
     fetchUrls.filter((url) => url.includes('/api/scores')).length,
     2,
     'and it genuinely polled — two score reads, one per refresh'
+  );
+});
+
+test('a just-kicked-off game with no score pack polls every full eligible partition at 90 seconds', async () => {
+  const nowBase = Date.parse('2026-09-05T17:00:00.000Z');
+  let nowMs = nowBase;
+  Date.now = () => nowMs;
+  Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+
+  const regularFinal: AppGame = {
+    ...game({
+      key: 'regular-final',
+      date: new Date(nowBase - LIVE_SCORE_FAST_WINDOW_AFTER_MS - 1).toISOString(),
+    }),
+    eventKey: 'regular-final',
+    week: 16,
+    canonicalWeek: 16,
+    providerWeek: 16,
+    rawStatus: 'STATUS_FINAL',
+  };
+  const postseasonJustKickedOff: AppGame = {
+    ...game({ key: 'postseason-live', date: new Date(nowBase).toISOString() }),
+    eventKey: 'postseason-live',
+    stage: 'bowl',
+    week: 17,
+    canonicalWeek: 17,
+    providerWeek: 1,
+    rawStatus: 'scheduled',
+  };
+  const games = [regularFinal, postseasonJustKickedOff];
+  const scoresByKey: Record<string, ScorePack> = {
+    'regular-final': {
+      status: 'final',
+      home: { team: 'Home', score: 24 },
+      away: { team: 'Away', score: 17 },
+      time: null,
+    },
+    // Intentionally no postseason-live pack: kickoff alone must select 90s.
+  };
+  let loading = false;
+  const loadingWrites: boolean[] = [];
+  const params = makeParams({
+    scheduleLoaded: true,
+    selectedTab: 16,
+    selectedWeek: 16,
+    weeks: [16],
+    games,
+    visibleGames: games,
+    scoreScopeGames: games,
+    scoresByKey,
+    setLoadingLive: (action) => {
+      loading = typeof action === 'function' ? action(loading) : action;
+      loadingWrites.push(loading);
+    },
+  });
+  renderHook(() => useLiveRefresh(params));
+
+  // The season-wide bootstrap completes at t=0 and seeds the shared poll clock.
+  await waitFor(() => assert.deepEqual(loadingWrites, [true, false]));
+  fetchUrls = [];
+  loadingWrites.length = 0;
+
+  nowMs = nowBase + 90 * 1000;
+  act(() => {
+    window.dispatchEvent(new dom.window.Event('focus'));
+  });
+  await waitFor(() => assert.deepEqual(loadingWrites, [true, false]));
+
+  assert.deepEqual(
+    fetchUrls.filter((url) => url.includes('/api/scores')),
+    [
+      '/api/scores?week=16&year=2026&seasonType=regular&live=1',
+      '/api/scores?week=1&year=2026&seasonType=postseason&live=1',
+    ],
+    'a different game selects the fast tier without dropping this older eligible partition'
+  );
+});
+
+test('positive final score evidence returns to 180 seconds before the hard ceiling', async () => {
+  const nowBase = Date.parse('2026-09-05T17:00:00.000Z');
+  let nowMs = nowBase;
+  Date.now = () => nowMs;
+  Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+  const insideFastWindow = new Date(nowBase).toISOString();
+
+  const regularFinal: AppGame = {
+    ...game({ key: 'regular-final', date: insideFastWindow }),
+    eventKey: 'regular-final',
+    week: 16,
+    canonicalWeek: 16,
+    providerWeek: 16,
+    rawStatus: 'STATUS_FINAL',
+  };
+  const postseasonFinal: AppGame = {
+    ...game({ key: 'postseason-final', date: insideFastWindow }),
+    eventKey: 'postseason-final',
+    stage: 'bowl',
+    week: 17,
+    canonicalWeek: 17,
+    providerWeek: 1,
+    rawStatus: 'STATUS_FINAL',
+  };
+  const games = [regularFinal, postseasonFinal];
+  const finalPack: ScorePack = {
+    status: 'final',
+    home: { team: 'Home', score: 24 },
+    away: { team: 'Away', score: 17 },
+    time: null,
+  };
+  let loading = false;
+  const loadingWrites: boolean[] = [];
+  const params = makeParams({
+    scheduleLoaded: true,
+    selectedTab: 16,
+    selectedWeek: 16,
+    weeks: [16],
+    games,
+    visibleGames: games,
+    scoreScopeGames: games,
+    scoresByKey: { 'regular-final': finalPack, 'postseason-final': finalPack },
+    setLoadingLive: (action) => {
+      loading = typeof action === 'function' ? action(loading) : action;
+      loadingWrites.push(loading);
+    },
+  });
+  renderHook(() => useLiveRefresh(params));
+
+  await waitFor(() => assert.deepEqual(loadingWrites, [true, false]));
+  fetchUrls = [];
+  loadingWrites.length = 0;
+
+  nowMs = nowBase + 90 * 1000;
+  act(() => {
+    window.dispatchEvent(new dom.window.Event('focus'));
+  });
+  assert.deepEqual(
+    fetchUrls.filter((url) => url.includes('/api/scores')),
+    [],
+    'the completed bootstrap clock suppresses the abandoned extra t+90s read'
+  );
+
+  nowMs = nowBase + 180 * 1000;
+  act(() => {
+    window.dispatchEvent(new dom.window.Event('focus'));
+  });
+  await waitFor(() => assert.deepEqual(loadingWrites, [true, false]));
+
+  assert.deepEqual(
+    fetchUrls.filter((url) => url.includes('/api/scores')),
+    [
+      '/api/scores?week=16&year=2026&seasonType=regular&live=1',
+      '/api/scores?week=1&year=2026&seasonType=postseason&live=1',
+    ],
+    'the normal tier retains the same complete eligible partition set as the fast tier'
+  );
+});
+
+test('events inside the 90-second floor do not rescan the loaded season', async () => {
+  const nowBase = Date.parse('2026-09-05T17:00:00.000Z');
+  let nowMs = nowBase;
+  Date.now = () => nowMs;
+  Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+
+  const kickoff = game({ key: 'kickoff', date: new Date(nowBase).toISOString() });
+  const games = [kickoff];
+  let filterReads = 0;
+  Object.defineProperty(games, 'filter', {
+    configurable: true,
+    get: () => {
+      filterReads += 1;
+      return Array.prototype.filter.bind(games);
+    },
+  });
+
+  let loading = false;
+  const loadingWrites: boolean[] = [];
+  renderHook(() =>
+    useLiveRefresh(
+      makeParams({
+        scheduleLoaded: true,
+        games,
+        visibleGames: games,
+        scoreScopeGames: games,
+        setLoadingLive: (action) => {
+          loading = typeof action === 'function' ? action(loading) : action;
+          loadingWrites.push(loading);
+        },
+      })
+    )
+  );
+
+  await waitFor(() => assert.deepEqual(loadingWrites, [true, false]));
+  filterReads = 0;
+  nowMs = nowBase + 1_000;
+
+  act(() => {
+    window.dispatchEvent(new dom.window.Event('focus'));
+    document.dispatchEvent(new dom.window.Event('visibilitychange'));
+  });
+
+  assert.equal(filterReads, 0, 'the minimum-cadence pre-check short-circuits both events');
+});
+
+test('bootstrap completion re-anchors the heartbeat after nonzero fetch latency', async () => {
+  const nowBase = Date.parse('2026-09-05T17:00:00.000Z');
+  let nowMs = nowBase;
+  Date.now = () => nowMs;
+  Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+
+  const heartbeatDelays: number[] = [];
+  const observingSetTimeout = (
+    ...parameters: Parameters<typeof setTimeout>
+  ): ReturnType<typeof setTimeout> => {
+    if (parameters[1] === 90 * 1000) heartbeatDelays.push(parameters[1]);
+    return originalSetTimeout(...parameters);
+  };
+  globalThis.setTimeout = observingSetTimeout as typeof setTimeout;
+
+  let releaseBootstrap!: () => void;
+  scoreFetchGate = new Promise<void>((resolve) => {
+    releaseBootstrap = () => {
+      scoreFetchGate = null;
+      resolve();
+    };
+  });
+
+  let loading = false;
+  const loadingWrites: boolean[] = [];
+  const kickoff = game({ key: 'kickoff', date: new Date(nowBase).toISOString() });
+  renderHook(() =>
+    useLiveRefresh(
+      makeParams({
+        scheduleLoaded: true,
+        games: [kickoff],
+        visibleGames: [kickoff],
+        scoreScopeGames: [kickoff],
+        setLoadingLive: (action) => {
+          loading = typeof action === 'function' ? action(loading) : action;
+          loadingWrites.push(loading);
+        },
+      })
+    )
+  );
+
+  await waitFor(() => assert.deepEqual(loadingWrites, [true]));
+  assert.equal(heartbeatDelays.length, 1, 'mount arms the initial heartbeat');
+
+  nowMs = nowBase + 1_500;
+  await act(async () => {
+    releaseBootstrap();
+  });
+  await waitFor(() => assert.deepEqual(loadingWrites, [true, false]));
+
+  assert.equal(
+    heartbeatDelays.length,
+    2,
+    'completion clears the mount-aligned heartbeat and re-arms 90 seconds from the stamped clock'
+  );
+});
+
+test('a failed initial bootstrap does not stamp or defer the next live poll', async () => {
+  const nowBase = Date.parse('2026-09-05T17:00:00.000Z');
+  let nowMs = nowBase;
+  Date.now = () => nowMs;
+  Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+  scoreResponseStatus = 500;
+
+  let loading = false;
+  const loadingWrites: boolean[] = [];
+  const kickoff = game({ key: 'kickoff', date: new Date(nowBase).toISOString() });
+  renderHook(() =>
+    useLiveRefresh(
+      makeParams({
+        scheduleLoaded: true,
+        games: [kickoff],
+        visibleGames: [kickoff],
+        scoreScopeGames: [kickoff],
+        setLoadingLive: (action) => {
+          loading = typeof action === 'function' ? action(loading) : action;
+          loadingWrites.push(loading);
+        },
+      })
+    )
+  );
+
+  await waitFor(() => assert.deepEqual(loadingWrites, [true, false]));
+  fetchUrls = [];
+  loadingWrites.length = 0;
+  scoreResponseStatus = 200;
+  nowMs = nowBase + 1_000;
+
+  act(() => {
+    window.dispatchEvent(new dom.window.Event('focus'));
+  });
+  await waitFor(() => assert.deepEqual(loadingWrites, [true, false]));
+  assert.deepEqual(
+    fetchUrls.filter((url) => url.includes('/api/scores')),
+    ['/api/scores?week=1&year=2026&seasonType=regular&live=1'],
+    'the failed bootstrap left the poll clock unstamped, so focus can retry immediately'
+  );
+});
+
+test('a lazy hydration-shaped read does not move the live-poll deadline', async () => {
+  const nowBase = Date.parse('2026-09-05T17:00:00.000Z');
+  let nowMs = nowBase;
+  Date.now = () => nowMs;
+  Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+
+  let loading = false;
+  const loadingWrites: boolean[] = [];
+  const kickoff = game({ key: 'kickoff', date: new Date(nowBase).toISOString() });
+  const params = makeParams({
+    scheduleLoaded: true,
+    games: [kickoff],
+    visibleGames: [kickoff],
+    scoreScopeGames: [kickoff],
+    setLoadingLive: (action) => {
+      loading = typeof action === 'function' ? action(loading) : action;
+      loadingWrites.push(loading);
+    },
+  });
+  const { result } = renderHook(() => useLiveRefresh(params));
+
+  await waitFor(() => assert.deepEqual(loadingWrites, [true, false]));
+  loadingWrites.length = 0;
+
+  nowMs = nowBase + 90 * 1000;
+  act(() => {
+    window.dispatchEvent(new dom.window.Event('focus'));
+  });
+  await waitFor(() => assert.deepEqual(loadingWrites, [true, false]));
+  loadingWrites.length = 0;
+
+  nowMs = nowBase + 100 * 1000;
+  await act(async () => {
+    await result.current.refreshLiveData({
+      manual: false,
+      scoreScopeGamesOverride: [kickoff],
+    });
+  });
+  loadingWrites.length = 0;
+
+  nowMs = nowBase + 180 * 1000;
+  act(() => {
+    window.dispatchEvent(new dom.window.Event('focus'));
+  });
+  await waitFor(() => assert.deepEqual(loadingWrites, [true, false]));
+  assert.equal(
+    fetchUrls.filter((url) => url.includes('&live=1')).length,
+    2,
+    'the unpartitioned hydration at t+100s did not move the exact-poll clock from t+90s'
   );
 });
