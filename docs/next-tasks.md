@@ -179,18 +179,19 @@ touches no component file.
 | lane | worktree | sequence |
 | --- | --- | --- |
 | **UI spine** | `cfb-app-codex` | slice 5 + 112 → 5b → 117 → 115 → 119 → 134 → 118 |
-| **Platform** | `cfb-app-claude` | 135 → 102 slice 2 → slice 3 → slice 4 → 129 → 126 |
+| **Platform** | `cfb-app-claude` | 102 slice 2 → slice 3 → slice 4 → 129 → 126 |
 
 **Kickoffs are named `<item>-<agent>-v<n>.md`** so the target lane is legible from the filename.
 Written and ready: `platform-087-slice-5-item-112-codex-v1.md`,
 `platform-135-opponent-count-claude-v1.md`, `platform-102-slice-2-cron-synthesis-claude-v1.md`.
 
 **Fillers, safe against both lanes, any order:** Item 136 (`matchups.ts` aggregates, surfaced by
-135), Item 133a (below), 122, 121, 84, 86, 111. **Item 135 is complete** — both reviewers converged on
-`a7f4dead`.
+135), Item 133a (below), 122, 121, 84, 86, 111. **Item 135 shipped 2026-09-05** — PR #571, merged
+`ee68246c`. Both reviewers converged on the content now at `521e79d0`; the pre-rebase `a7f4dead` is
+unreachable.
 
-**Run Item 135 first.** It is written, small, a wrong number on screen today, and the only filler with
-any theoretical path into spine territory — taking it before slice 5 starts removes the question.
+**Item 135 shipped 2026-09-05.** It surfaced **Item 136** (slate aggregates double-count a self game),
+which inherits its place as the first filler — same file, same 39 affected games.
 
 **Three collisions, measured 2026-09-05. Two were not previously recorded:**
 
@@ -209,9 +210,12 @@ any theoretical path into spine territory — taking it before slice 5 starts re
 3. **Item 126 after Item 102** — already recorded above; `schedulerDeliveryHealth.ts` imports
    `schedulerExecutionStatus.ts` and `systemHealthIssues.ts` consumes both.
 
-**Item 135 is selector-only, verified.** `MatchupsWeekPanel` consumes `opponentSummaryEntries` for
-`.length` alone (`:333-335`), so re-keying inside `summarizeSlateOpponents` needs no panel edit and
-cannot conflict with slice 5 or 117.
+**Item 135 was NOT selector-only — that claim was disproved by the build.** This entry previously read
+"selector-only, verified: `MatchupsWeekPanel` consumes `opponentSummaryEntries` for `.length` alone,
+so re-keying needs no panel edit." True of the original keying design; false of what shipped. The
+model changed mid-branch to counting distinct games, and the panel was edited to render deduped games
+and honour `isExpanded`. Recorded because a disproved claim sitting in the canonical queue is worse
+than no claim: it was the basis for calling the item parallel-safe against the UI spine.
 
 - **Dated, and it beats a deadline:** **Item 127** (retain the CFBD usage already probed) supersedes
   Item 94's manual 2026-09-30 read if it ships first. As shipped it is a STANDALONE cron route: it
