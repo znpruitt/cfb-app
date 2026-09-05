@@ -51,6 +51,25 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-BROWSER-POLL-CADENCE-v2
+
+- Purpose: reduce expected live-score display staleness without doubling browser reads through the
+  full 24-hour finals tail.
+- Scope: cadence tiering in the client polling helper and hook, full-partition behavioral tests, and
+  canonical architecture, runbook, operator-policy, and cadence-comment corrections; no cron, TTL,
+  provider-call, cache-boundary, or `/api/scores` behavior change.
+- Outcome: visible tabs read the full eligible partition set every 90 seconds while any eligible game
+  is inside `[kickoff − 15 min, kickoff + 8 h]` without a usable final (final status plus both numeric
+  scores), then every 180 seconds. Missing or ambiguous evidence stays fast through the hard ceiling.
+  Expected display staleness improves by about 45 seconds (25%); Item 128 removed the redundant team
+  catalog request before this reaches production.
+- Review / verification: the settled design replaced two abandoned branches after review disproved
+  partial partition polling. Final production remediation `20870cfc` received clean Codex confirmation
+  and `/code-review` found no correctness defect; its three LOWs resolved as an intentional lazy-
+  hydration trade, a cadence-divisibility assertion, and an operations clarification. TypeScript,
+  all 4,661 tests, and `lint:all` pass.
+- Status: Implemented and reviewed on `platform/browser-poll-cadence`; not yet merged.
+
 ### PLATFORM-127-RETAIN-PROVIDER-USAGE-SERIES-v1
 
 - Purpose: retain the CFBD quota figures the app already probes, because `/info` reports the CURRENT

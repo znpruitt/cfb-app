@@ -437,15 +437,17 @@ one applicable partition per run. A visible current-season browser tab reads the
 cache-only score partition set every 90 seconds while at least one eligible game is inside its fixed
 `[kickoff − 15 min, kickoff + 8 h]` window without positive final score evidence, and every three
 minutes otherwise. Missing or ambiguous score evidence keeps the fast tier; positive finality can
-end it early, and eight hours after kickoff is the hard ceiling. The cron remains the only writer
-on its unchanged three-minute cadence, so the fast browser tier improves expected
-display staleness from about 180 seconds to 135 seconds — roughly 45 seconds or 25%, not 2× — while
-allowing positive finality to end doubled reads before the hard ceiling rather than carrying them
-through the full 24-hour eligibility tail. Browser reads are provider-free, not cost-free: they still
-invoke the dynamic scores route and durable reconciliation. They never call CFBD and are
+end it early, and eight hours after kickoff is the hard ceiling. One eligible game without usable
+final score evidence keeps the whole tab on the fast tier through that ceiling, including when its
+score never attaches; this is the deliberate fail-safe for missing or lossy evidence. The cron
+remains the only writer on its unchanged three-minute cadence, so the fast browser tier improves
+expected display staleness from about 180 seconds to 135 seconds — roughly 45 seconds or 25%, not 2×
+— while allowing positive finality to end doubled reads before the hard ceiling rather than carrying
+them through the full 24-hour eligibility tail. Browser reads are provider-free, not cost-free: they
+still invoke the dynamic scores route and durable reconciliation. They never call CFBD and are
 intentionally not gated by the provider automation settings. For an incident: global pause on,
-Scores automation off, pause and inspect the schedule, then remember that those controls do not
-stop visible member-browser reads. Activation evidence is
+Scores automation off, pause and inspect the schedule, then remember that those controls do not stop
+visible member-browser reads. Activation evidence is
 [archived](archive/operations/provider-activation-2026.md#live-score-automation).
 
 **§8f step 5 (CLI authentication-proof reference):** with global pause on and Scores automation

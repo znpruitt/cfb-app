@@ -227,6 +227,7 @@ test('deriveLiveScorePartitions dedupes (providerWeek, seasonType) and maps stag
 test('the browser cadence constants retain 3 minutes normally and use 90 seconds near kickoff', () => {
   assert.equal(LIVE_SCORE_POLL_INTERVAL_MS, 3 * 60 * 1000);
   assert.equal(LIVE_SCORE_FAST_POLL_INTERVAL_MS, 90 * 1000);
+  assert.equal(LIVE_SCORE_POLL_INTERVAL_MS % LIVE_SCORE_FAST_POLL_INTERVAL_MS, 0);
   assert.equal(LIVE_SCORE_FAST_WINDOW_AFTER_MS, 8 * 60 * 60 * 1000);
 });
 

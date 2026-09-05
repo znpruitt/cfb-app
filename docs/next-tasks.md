@@ -66,17 +66,11 @@ committed `c9f76081`) surfaced four new items and one split; the remaining open 
 7. **Item 119** — team-colour bar on the existing normaliser, with no accent for teams that have no
    colour — which also removes the green fallback every FCS row carries today. OKLCH only if measured.
 8. **Item 118** — Schedule status filter with counts. Purely additive; after the rework it filters.
-9. **Item 95 portion 1 → `PLATFORM-BROWSER-POLL-CADENCE-v2`** — dispatched to Codex 2026-09-04;
-   kickoff at `docs/prompts/platform-browser-poll-cadence-v2.md`. **Both earlier branches are
-   abandoned** (`platform/browser-poll-interval` `205d1030`, and the unpushed
-   `platform/browser-poll-interval-v2` `fafe4074`). Codex's own analysis showed partition SELECTION
-   is a no-op on a normal slate — `LiveScorePartition` is `{providerWeek, seasonType}`, so every
-   Saturday game is one partition and "live only" emits the identical request — and that partial
-   polling does not compose with global health metadata. The shipped design is cadence tiering only:
-   90s while a game is in progress, 180s otherwise, always the full eligible partition set. **The
-   benefit is ~45s, a 25% improvement — not 2×**, because the cron is the only writer at 3 minutes;
-   the earlier framing was wrong. What justifies it is the 24h finals tail: polling it at 90s doubles
-   cost for zero freshness, and tiering keeps it at today's rate.
+9. **Item 95 portion 1 → `PLATFORM-BROWSER-POLL-CADENCE-v2`** — implemented and reviewed on
+   `platform/browser-poll-cadence`; awaiting merge. Visible tabs read the full eligible partition set
+   every 90s while at least one eligible game is inside its fixed kickoff window without usable final
+   score evidence, then every 180s, with +8h as the hard fast-tier ceiling. Expected display
+   staleness improves by ~45s (25%), not 2×; the cron remains the only writer at three minutes.
 10. **Item 100b** — internal slate marker. Date gate removed 2026-09-03; its 2026 consequence
     (Featured empty through 2026-09-07) closes on its own, but the recap and look-ahead targeting it
     exists for recur next August. Cheap: the clustering code is recoverable from `d6184c28`.
@@ -111,7 +105,7 @@ the UI spine do not touch each other, so they can run concurrently:
 - **UI spine, strictly serial with itself:** slice 5a → slice 5 + 112 → 117 → 115 → 119 → 118. Every
   one consumes the component 5a widens; that is what the split was for.
 - **Independent, parallel-safe against both:** Item 122 (`admin/HistoricalCachePanel.tsx`), Item 95
-  portion 1 (one constant in `liveScores/browserPolling.ts:19`), Item 121
+  portion 1 (implemented/reviewed; awaiting merge), Item 121
   (`schedule/cfbdSchedule.ts`, `schedule.ts`, `schedulePostseasonHelpers.ts` — pipeline, not
   components), and Items 84, 86, 111. **Item 123 shipped 2026-09-04** via PR #565.
 - **Dated, and it beats a deadline:** **Item 127** (retain the CFBD usage already probed) supersedes
@@ -134,9 +128,9 @@ Gated: **Item 85** after 86, which is how the repair gets verified.
 **Item 94** (CFBD burn-rate measurement) must be READ ON 2026-09-30, not in October — `/info`
 reports the current period only and the counter resets 1 October, so a later read loses September
 entirely; it is the accumulated observation **Item 63** and **Item 95 portion 2** are waiting
-on. **Item 95 portion 1** was gated on PLATFORM-120 because it doubles `/api/scores` function
-invocations; that merge has now cleared the gate, without changing its position in the selected
-order.
+on. **Item 95 portion 1's production gate is cleared:** Item 128 shipped first and removed the
+redundant `/api/teams` invocation, and the owner accepted the remaining visible-tab `/api/scores`
+budget with the +8h ceiling.
 **Item 100b** (slate marker) is **no longer date-gated** — its gate was removed 2026-09-03 after
 production showed a live 2026 consequence: Featured games renders nothing from 2026-08-27 through
 2026-09-07, because CFBD buckets week 0 into a 455-game, twelve-day week 1. **Item 101** matters at
@@ -343,47 +337,30 @@ these confirming-review observations without putting them into the active sequen
 
 - Backlog slug: `PLATFORM-SCORE-GAP-DIAGNOSTIC-FOLLOWUPS-v1`
 
-### Item 95 — live-score staleness is two unsynchronized 3-minute cycles, and half the fix is free
+### Item 95 — reduce live-score staleness across unsynchronized cron and browser cadences
 
-**Portion 1 interacts with Item 128 — order them.** Halving the poll doubles browser-driven Vercel
-invocations, and each tick currently makes TWO: `/api/scores` and an entirely avoidable
-`/api/teams`. Item 128 removes the second by reusing the catalog the bootstrap already holds. Land
-128 before or with portion 1 in production, or portion 1 doubles a cost that need not exist.
+**Portion 1 is implemented and reviewed; awaiting merge.** `PLATFORM-BROWSER-POLL-CADENCE-v2`
+keeps the browser cache-only boundary and always reads the full eligible `(providerWeek,
+seasonType)` set. A visible tab reads every 90 seconds while at least one eligible game is inside
+`[kickoff − 15 min, kickoff + 8 h]` without usable final score evidence, then every 180 seconds.
+Usable final evidence requires a final status and both numeric scores; missing or ambiguous evidence
+keeps the whole tab fast until the hard +8h ceiling. The cron remains the only writer at three
+minutes, so the fast tier improves expected display staleness from ~180s to ~135s: about 45 seconds
+or 25%, not 2×.
 
-**Filed from the portion-1 gate, 2026-09-04 — retune the client staleness threshold.**
-`DEFAULT_LIVE_DELTA_STALE_THRESHOLD_MS` (`selectors/liveDelta.ts`) is 7 minutes, justified in its own
-docblock as "two missed ticks plus request-latency slack" against a 3-minute visible-tab cadence.
-Portion 1 halves that cadence to 90s, so 7 minutes stops being a two-tick bound and becomes ~4.7. The
-value is deliberately NOT changed by portion 1, because that threshold detects a **wedged client
-poll** rather than stale data — data freshness is bounded by the cron, which portion 1 leaves alone —
-so retuning it changes when a member sees a stale overlay. Options: ~4 minutes to restore the
-two-tick property and catch a wedged tab faster, or keep 7 minutes as a deliberate wall-clock bound.
-Needs an owner call, not a mechanical follow-on.
+**The budget is accepted, not free.** The fast tier makes 40 cache-only `/api/scores` invocations per
+visible-tab hour and the slow tier makes 20. Item 128 landed first and removed the redundant
+`/api/teams` invocation from every tick, so the paired design averages roughly 27 browser function
+invocations per hour over a full eligibility window — about one third below the pre-Item-128 rate.
+Cost is bounded by visible tabs and the +8h ceiling. Each scores read still invokes the dynamic route
+and durable full-season reconciliation; observe its Active CPU attribution during a live slate and
+memoize that reconcile if it proves material.
 
-**Also surfaced: the prose conflates two cadences.** `gameDayConfidence.ts` describes its TTL as
-"two 3-minute poll cycles" when it is compared against a **provider-refresh** timestamp — a cron
-event, not a browser poll. That ambiguity is why the portion-1 gate fired on a module the change
-cannot affect. Portion 1 corrects the wording repo-wide; the lesson is that "the 3-minute cycle"
-names two different things in this codebase.
-
-**Measured, not estimated.** Two independent cadences compound:
-
-| Layer | Interval | Provider cost |
-| --- | --- | --- |
-| Cron `turfwar-live-scores-3m` | `*/3 * * * *` (runbook `:32`, `:316`) | **at most ONE** billed request per run (`live-scores/route.ts:53`, `:261`), and only when armed |
-| Browser | `LIVE_SCORE_POLL_INTERVAL_MS = 3 * 60 * 1000` (`liveScores/browserPolling.ts:19`) | **zero** — cache-only read while the tab is visible |
-
-They are not phase-locked, so a tab that reads the cache just before the cron refreshes it shows a
-score up to **~6 minutes** stale, averaging ~4.5. Halving the cron alone therefore buys less than it
-appears: it addresses only one of the two cycles.
-
-**Portion 1 — browser interval, free, no gate.** Take `LIVE_SCORE_POLL_INTERVAL_MS` from 180s to
-90s. Worst case falls ~6 min → ~4.5, average ~4.5 → ~3.75, for **zero CFBD calls** — the client is
-cache-only by architecture (PLATFORM-086B2B, PLATFORM-075), and this does not weaken that boundary.
-
-Two bounds to respect. More polling means more Vercel function invocations, scaling with concurrent
-_visible_ tabs — far cheaper than provider calls, not free. And below roughly the cron interval the
-extra polls re-read the same cache entry, so ~90s is the useful floor until portion 2 moves the cron.
+**Remaining follow-up — retune the client staleness threshold.**
+`DEFAULT_LIVE_DELTA_STALE_THRESHOLD_MS` (`selectors/liveDelta.ts`) remains 7 minutes. It detects a
+wedged client poll rather than stale provider data, so changing it is a product decision: reduce it
+to roughly four minutes to restore a two-missed-tick bound, or keep seven minutes as an intentional
+wall-clock allowance. Portion 1 deliberately changes only its docblock, not the value.
 
 **Portion 2 — cron cadence, gated on Item 94.** Because the route bills at most one request per run,
 the cost is exactly linear:
@@ -394,9 +371,8 @@ So the price of doubling equals the month's armed-hour count — a number nobody
 **Item 94 produces it.** Do not size this from an estimate; the whole point of 94 is that August's
 395 calls covers ~2 in-season days and is not a usable baseline.
 
-Ship portion 1 independently. It is a one-constant change with a real latency win and no quota
-argument attached, and it makes portion 2's benefit easier to judge because only one cycle remains
-unsynchronized.
+Portion 1 can merge independently: it spends no CFBD quota and its browser-function budget is
+accepted above. Portion 2 remains separate because it changes the provider writer and spends quota.
 
 **Item 102 changes what portion 2 is asking — recorded 2026-09-04.** The planner does not create quota
 headroom: dead-day runs already bill zero provider calls, since the route bills only when armed. What
@@ -411,10 +387,9 @@ gates both halves of portion 2**, not just the quota half — which upgrades 94 
 measurement into the input for two decisions. It bills 0 (`GET /info`) and reports after the
 September reset, so the answer arrives at the start of October on its own.
 
-**Consequence for sequencing:** ship portion 1 now, ship Item 102 for the CPU win it already
-justifies, and let the cadence decision land when 94 reports — with the headroom banked and the quota
-cost finally measured rather than estimated. Do not size portion 2 before then; that is the whole
-reason 94 exists.
+**Consequence for sequencing:** merge portion 1 after Item 128, as now ordered, and let the provider
+cadence decision land when Item 94 reports — with the headroom banked and quota cost measured rather
+than estimated. Do not size portion 2 before then; that is the whole reason Item 94 exists.
 
 - Backlog slug: `PLATFORM-LIVE-SCORE-CADENCE-v1`
 
@@ -2265,7 +2240,7 @@ trip:
 
 **Fix: cache the slow-changing fetches across navigations.** Schedule changes weekly and teams and
 aliases change less than that; scores are the only genuinely live one and already have their own
-3-minute polling. Keep the live path exactly as it is.
+90-second/3-minute tiered polling. Keep the live path exactly as it is.
 
 #### 98d — targeted prefetch of History, paired with `staleTimes`
 
@@ -2282,8 +2257,8 @@ prefetching would be harmful, and those owner links likely want `prefetch={false
 time for dynamic routes defaults to **0**, so a prefetched dynamic payload is fetched and then not
 reused. Shipping the prefetch alone pays History's full server render speculatively and discards it —
 strictly worse than doing nothing. Set a short `experimental.staleTimes.dynamic` (~30s): long enough
-to make the switch instant, short enough that a member never sees materially stale scores, which
-matters because the whole live-score design is built on a 3-minute freshness cadence.
+to make the switch instant, short enough that a member never sees materially stale scores relative
+to the 90-second/3-minute tiered browser cadence and the three-minute provider writer.
 
 **What it buys, and what it does not.**
 
