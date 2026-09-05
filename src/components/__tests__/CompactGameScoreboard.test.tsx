@@ -281,6 +281,31 @@ test('scoreboard exposes an additive tier-2 slot after its primary rows', () => 
   );
 });
 
+test('scheduled tier-2 content replaces the otherwise empty odds footer', () => {
+  const html = renderScoreboard({
+    state: 'scheduled',
+    clock: 'Sat, Sep 5, 5:00 PM',
+    tier2Slot: <span>More venue and conference</span>,
+    away: { teamName: 'Norfolk State', owner: null, rank: null, score: null },
+    home: { teamName: 'Old Dominion', owner: 'Ballard', rank: null, score: null },
+  });
+
+  assert.doesNotMatch(html, /data-scoreboard-odds-footer/);
+  assert.match(html, /data-scoreboard-tier-2-slot[^>]*><span>More venue and conference<\/span>/);
+});
+
+test('scheduled scoreboard preserves its empty odds row when tier 2 is absent', () => {
+  const html = renderScoreboard({
+    state: 'scheduled',
+    clock: 'Sat, Sep 5, 5:00 PM',
+    away: { teamName: 'Norfolk State', owner: null, rank: null, score: null },
+    home: { teamName: 'Old Dominion', owner: 'Ballard', rank: null, score: null },
+  });
+
+  assert.match(html, /data-scoreboard-odds-footer[^>]*><\/div>/);
+  assert.doesNotMatch(html, /data-scoreboard-tier-2-slot/);
+});
+
 test('live scoreboard omits the clock node when no trustworthy clock is available', () => {
   const html = renderScoreboard({ clock: '  ' });
   const header = html.match(/<div[^>]+data-scoreboard-header[^>]*>([\s\S]*?)<\/div>/)?.[1];

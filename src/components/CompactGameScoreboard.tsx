@@ -82,6 +82,7 @@ export default function CompactGameScoreboard({
     (state === 'scheduled' && scheduleNoticeLabel !== '') ||
     clockLabel !== '';
   const hasSegmentBeforeNeutralSite = hasSegmentBeforeBroadcast || showsBroadcast;
+  const showsScheduledFooter = state === 'scheduled' && (!tier2Slot || Boolean(footerSlot));
 
   return (
     <article
@@ -204,7 +205,7 @@ export default function CompactGameScoreboard({
           </div>
         );
       })}
-      {state === 'scheduled' ? (
+      {showsScheduledFooter ? (
         <div
           className="mt-1.5 min-h-4 overflow-hidden whitespace-nowrap text-xs text-gray-500 dark:text-zinc-400"
           data-scoreboard-odds-footer
