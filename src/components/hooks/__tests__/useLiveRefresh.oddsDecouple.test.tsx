@@ -442,15 +442,15 @@ test('a just-kicked-off game with no score pack polls every full eligible partit
   );
 });
 
-test('a window past the fixed fast tail waits 180 seconds and requests the same full partition set', async () => {
+test('positive final score evidence returns to 180 seconds before the hard ceiling', async () => {
   const nowBase = Date.parse('2026-09-05T17:00:00.000Z');
   let nowMs = nowBase;
   Date.now = () => nowMs;
   Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
-  const outsideFastWindow = new Date(nowBase - LIVE_SCORE_FAST_WINDOW_AFTER_MS - 1).toISOString();
+  const insideFastWindow = new Date(nowBase).toISOString();
 
   const regularFinal: AppGame = {
-    ...game({ key: 'regular-final', date: outsideFastWindow }),
+    ...game({ key: 'regular-final', date: insideFastWindow }),
     eventKey: 'regular-final',
     week: 16,
     canonicalWeek: 16,
@@ -458,7 +458,7 @@ test('a window past the fixed fast tail waits 180 seconds and requests the same 
     rawStatus: 'STATUS_FINAL',
   };
   const postseasonFinal: AppGame = {
-    ...game({ key: 'postseason-final', date: outsideFastWindow }),
+    ...game({ key: 'postseason-final', date: insideFastWindow }),
     eventKey: 'postseason-final',
     stage: 'bowl',
     week: 17,
@@ -519,6 +519,52 @@ test('a window past the fixed fast tail waits 180 seconds and requests the same 
     ],
     'the normal tier retains the same complete eligible partition set as the fast tier'
   );
+});
+
+test('events inside the 90-second floor do not rescan the loaded season', async () => {
+  const nowBase = Date.parse('2026-09-05T17:00:00.000Z');
+  let nowMs = nowBase;
+  Date.now = () => nowMs;
+  Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+
+  const kickoff = game({ key: 'kickoff', date: new Date(nowBase).toISOString() });
+  const games = [kickoff];
+  let filterReads = 0;
+  Object.defineProperty(games, 'filter', {
+    configurable: true,
+    get: () => {
+      filterReads += 1;
+      return Array.prototype.filter.bind(games);
+    },
+  });
+
+  let loading = false;
+  const loadingWrites: boolean[] = [];
+  renderHook(() =>
+    useLiveRefresh(
+      makeParams({
+        scheduleLoaded: true,
+        games,
+        visibleGames: games,
+        scoreScopeGames: games,
+        setLoadingLive: (action) => {
+          loading = typeof action === 'function' ? action(loading) : action;
+          loadingWrites.push(loading);
+        },
+      })
+    )
+  );
+
+  await waitFor(() => assert.deepEqual(loadingWrites, [true, false]));
+  filterReads = 0;
+  nowMs = nowBase + 1_000;
+
+  act(() => {
+    window.dispatchEvent(new dom.window.Event('focus'));
+    document.dispatchEvent(new dom.window.Event('visibilitychange'));
+  });
+
+  assert.equal(filterReads, 0, 'the minimum-cadence pre-check short-circuits both events');
 });
 
 test('bootstrap completion re-anchors the heartbeat after nonzero fetch latency', async () => {

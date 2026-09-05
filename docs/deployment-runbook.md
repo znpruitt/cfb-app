@@ -435,12 +435,13 @@ npm run manage:live-scores-schedule
 Server-side provider polling is bounded by the canonical kickoff-window target and handles at most
 one applicable partition per run. A visible current-season browser tab reads the full eligible
 cache-only score partition set every 90 seconds while at least one eligible game is inside its fixed
-`[kickoff − 15 min, kickoff + 8 h]` fast window, and every three minutes otherwise. The tier uses
-kickoff time only; score attachment and client completion state cannot extend it. The cron remains
-the only writer on its unchanged three-minute cadence, so the fast browser tier improves expected
+`[kickoff − 15 min, kickoff + 8 h]` window without positive final score evidence, and every three
+minutes otherwise. Missing or ambiguous score evidence keeps the fast tier; positive finality can
+end it early, and eight hours after kickoff is the hard ceiling. The cron remains the only writer
+on its unchanged three-minute cadence, so the fast browser tier improves expected
 display staleness from about 180 seconds to 135 seconds — roughly 45 seconds or 25%, not 2× — while
-bounding doubled reads to the union of those fixed per-kickoff windows instead of the full 24-hour
-eligibility tail. Browser reads are provider-free, not cost-free: they still
+allowing positive finality to end doubled reads before the hard ceiling rather than carrying them
+through the full 24-hour eligibility tail. Browser reads are provider-free, not cost-free: they still
 invoke the dynamic scores route and durable reconciliation. They never call CFBD and are
 intentionally not gated by the provider automation settings. For an incident: global pause on,
 Scores automation off, pause and inspect the schedule, then remember that those controls do not

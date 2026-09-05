@@ -192,9 +192,10 @@ async function aggregateSeasonScoresResponse(params: {
 /**
  * Live browser week read (PLATFORM-086B2B): serve the RECONCILED winner for one
  * week (its child cache reconciled with the `${year}-all-${seasonType}` aggregate)
- * instead of the raw week child, so a 3-minute poll can neither overwrite nor miss
- * an admin score correction that landed only in the aggregate — the served rows
- * match the reconciled view standings use. Cache-only; no provider call.
+ * instead of the raw week child, so a tiered browser poll can neither overwrite
+ * nor miss an admin score correction that landed only in the aggregate — the
+ * served rows match the reconciled view standings use. Cache-only; no provider
+ * call.
  */
 async function readLiveObservation(params: {
   year: number;

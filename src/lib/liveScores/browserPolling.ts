@@ -111,19 +111,21 @@ export function selectLiveScorePollGames(params: {
 }
 
 /**
- * Whether at least one already-eligible game is inside the inclusive fast-poll
- * window `[kickoff - 15m, kickoff + 8h]`.
+ * Whether at least one already-eligible game should keep the browser on the fast
+ * cadence inside `[kickoff - 15m, kickoff + 8h]`.
  *
- * Time is deliberately the ONLY input. The client schedule retains kickoff time
- * reliably, but its completion fields are frozen in-session and an identity miss
- * can leave a game without an attached score pack. Neither condition may pin the
- * browser to 90-second reads through the full 24-hour eligibility tail.
+ * Finality is deliberately asymmetric: only a positively final attached score
+ * pack permits slowing before the time bound. A missing or ambiguous pack stays
+ * fast, so a failed/lossy signal degrades to the time-only behavior instead of
+ * falsely ending the fast cadence. The fixed +8h boundary is the hard fail-safe
+ * ceiling regardless of score or frozen schedule state.
  */
 export function hasGameInLiveScoreFastWindow(params: {
   eligibleGames: AppGame[];
+  scoresByKey: Record<string, ScorePack>;
   now?: Date;
 }): boolean {
-  const { eligibleGames, now = new Date() } = params;
+  const { eligibleGames, scoresByKey, now = new Date() } = params;
   const nowMs = now.getTime();
 
   return eligibleGames.some((game) => {
@@ -131,7 +133,8 @@ export function hasGameInLiveScoreFastWindow(params: {
     const kickoffMs = Date.parse(game.date);
     if (!Number.isFinite(kickoffMs)) return false;
     const age = nowMs - kickoffMs;
-    return age >= -LIVE_SCORE_WINDOW_BEFORE_MS && age <= LIVE_SCORE_FAST_WINDOW_AFTER_MS;
+    if (age < -LIVE_SCORE_WINDOW_BEFORE_MS || age > LIVE_SCORE_FAST_WINDOW_AFTER_MS) return false;
+    return classifyScorePackStatus(scoresByKey[game.key]) !== 'final';
   });
 }
 

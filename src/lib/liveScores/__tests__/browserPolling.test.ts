@@ -227,19 +227,21 @@ test('a just-kicked-off eligible game selects the fast tier without score state'
   assert.equal(
     hasGameInLiveScoreFastWindow({
       eligibleGames: [justKickedOff],
+      scoresByKey: {},
       now: NOW,
     }),
     true
   );
 });
 
-test('the fast tier uses the inclusive [kickoff-15m, kickoff+8h] time window', () => {
+test('a missing score pack stays fast through the inclusive +8h fail-safe ceiling', () => {
   const atAge = (ageMs: number) =>
     makeGame({ key: String(ageMs), date: new Date(NOW_MS - ageMs).toISOString() });
 
   assert.equal(
     hasGameInLiveScoreFastWindow({
       eligibleGames: [atAge(-LIVE_SCORE_WINDOW_BEFORE_MS)],
+      scoresByKey: {},
       now: NOW,
     }),
     true
@@ -247,6 +249,7 @@ test('the fast tier uses the inclusive [kickoff-15m, kickoff+8h] time window', (
   assert.equal(
     hasGameInLiveScoreFastWindow({
       eligibleGames: [atAge(-LIVE_SCORE_WINDOW_BEFORE_MS - 1)],
+      scoresByKey: {},
       now: NOW,
     }),
     false
@@ -254,6 +257,7 @@ test('the fast tier uses the inclusive [kickoff-15m, kickoff+8h] time window', (
   assert.equal(
     hasGameInLiveScoreFastWindow({
       eligibleGames: [atAge(LIVE_SCORE_FAST_WINDOW_AFTER_MS)],
+      scoresByKey: {},
       now: NOW,
     }),
     true
@@ -261,13 +265,48 @@ test('the fast tier uses the inclusive [kickoff-15m, kickoff+8h] time window', (
   assert.equal(
     hasGameInLiveScoreFastWindow({
       eligibleGames: [atAge(LIVE_SCORE_FAST_WINDOW_AFTER_MS + 1)],
+      scoresByKey: {},
       now: NOW,
     }),
     false
   );
 });
 
-test('score attachment and frozen completion fields cannot extend the fast window', () => {
+test('only positive final score evidence permits slowing before the +8h ceiling', () => {
+  const insideWindow = makeGame({
+    key: 'inside',
+    date: new Date(NOW_MS - 6 * 60 * 60 * 1000).toISOString(),
+    rawStatus: 'completed',
+    status: 'final',
+    completed: true,
+  });
+
+  assert.equal(
+    hasGameInLiveScoreFastWindow({ eligibleGames: [insideWindow], scoresByKey: {}, now: NOW }),
+    true,
+    'frozen schedule finality without a score pack is not positive attached-score evidence'
+  );
+  assert.equal(
+    hasGameInLiveScoreFastWindow({
+      eligibleGames: [insideWindow],
+      scoresByKey: { inside: scorePack('In Progress') },
+      now: NOW,
+    }),
+    true,
+    'an ambiguous or lossy attached pack degrades to the fast time-bound behavior'
+  );
+  assert.equal(
+    hasGameInLiveScoreFastWindow({
+      eligibleGames: [insideWindow],
+      scoresByKey: { inside: scorePack('final') },
+      now: NOW,
+    }),
+    false,
+    'positive attached finality permits the normal cadence before the hard ceiling'
+  );
+});
+
+test('score attachment and frozen completion fields cannot extend the hard fast-window ceiling', () => {
   const staleScheduled = makeGame({
     key: 'missing-score',
     date: new Date(NOW_MS - LIVE_SCORE_FAST_WINDOW_AFTER_MS - 1).toISOString(),
@@ -275,7 +314,7 @@ test('score attachment and frozen completion fields cannot extend the fast windo
     status: 'matchup_set',
     completed: false,
   });
-  const attachedIncompleteFinal = makeGame({
+  const lossyCompletedGame = makeGame({
     key: 'incomplete-final',
     date: new Date(NOW_MS - LIVE_SCORE_FAST_WINDOW_AFTER_MS - 1).toISOString(),
     rawStatus: 'completed',
@@ -284,13 +323,21 @@ test('score attachment and frozen completion fields cannot extend the fast windo
   });
 
   assert.equal(
-    hasGameInLiveScoreFastWindow({ eligibleGames: [staleScheduled], now: NOW }),
+    hasGameInLiveScoreFastWindow({
+      eligibleGames: [staleScheduled],
+      scoresByKey: {},
+      now: NOW,
+    }),
     false,
     'a missing score cannot pin a frozen scheduled game to the fast tier'
   );
   assert.equal(
-    hasGameInLiveScoreFastWindow({ eligibleGames: [attachedIncompleteFinal], now: NOW }),
+    hasGameInLiveScoreFastWindow({
+      eligibleGames: [lossyCompletedGame],
+      scoresByKey: { 'incomplete-final': scorePack('In Progress') },
+      now: NOW,
+    }),
     false,
-    'even a completed row normalized for display cannot extend the time-only tier'
+    'even a lossy completed row cannot extend the hard fast-window ceiling'
   );
 });

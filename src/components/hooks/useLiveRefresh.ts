@@ -272,7 +272,7 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
   );
 
   // Latest eligibility inputs for the visible-tab live-score timer
-  // (PLATFORM-086B2B). Held in a ref so the 3-minute interval reads fresh
+  // (PLATFORM-086B2B). Held in a ref so the tiered heartbeat reads fresh
   // games/scores/season on each tick without the timer resetting on every score
   // update (the effect depends only on the memoized refreshLiveData).
   const liveScoreInputsRef = useRef({ games, scoresByKey, selectedSeason });
@@ -613,10 +613,11 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
   // cadence every tick AND whenever the tab gains focus/becomes visible, so a
   // page opened before kickoff arms itself as the window opens without any
   // re-render. Reads run every 90 seconds while any eligible game is inside the
-  // fixed `[kickoff - 15m, kickoff + 8h]` window, then return to three minutes.
-  // The tier is time-only: frozen completion state or a missing score attachment
-  // cannot extend it. BOTH tiers always read the complete eligible
-  // `(providerWeek, seasonType)` partition set — cadence changes when, never what.
+  // fixed `[kickoff - 15m, kickoff + 8h]` window without positive final score
+  // evidence, then return to three minutes. Missing or ambiguous score evidence
+  // stays fast; the +8h boundary is the hard ceiling. BOTH tiers always read the
+  // complete eligible `(providerWeek, seasonType)` partition set — cadence changes
+  // when, never what.
   //
   // The next heartbeat is always scheduled 90 seconds after the LAST attempt
   // rather than on a fixed wall-clock grid: a `setInterval` grid desyncs from the
@@ -632,6 +633,10 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
     const attemptPoll = (): void => {
       if (document.visibilityState !== 'visible') return;
       const nowMs = Date.now();
+      // No tier can poll inside 90 seconds. Avoid re-filtering the full loaded
+      // season for heartbeat/focus/visibility events that are guaranteed to be
+      // throttled; at or beyond this floor, derive the actual 90s/180s tier.
+      if (nowMs - lastAutoScoresRefreshMsRef.current < LIVE_SCORE_FAST_POLL_INTERVAL_MS) return;
       const now = new Date(nowMs);
       const {
         games: currentGames,
@@ -647,6 +652,7 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
       if (eligibleGames.length === 0) return;
       const pollIntervalMs = hasGameInLiveScoreFastWindow({
         eligibleGames,
+        scoresByKey: currentScores,
         now,
       })
         ? LIVE_SCORE_FAST_POLL_INTERVAL_MS
