@@ -421,6 +421,37 @@ export async function buildSystemHealthViewModel(params: {
     };
   });
 
+  // Item 88, final acceptance bullet: the row never reads healthy while an active
+  // issue NAMES that dataset.
+  //
+  // Two families of issue carry a dataset subject. Those derived from diagnostics
+  // already reach `deriveDatasetFreshness` and colour the row. Provider-refresh
+  // ATTEMPT FAULTS do not — they are read from the refresh status, not the
+  // diagnostics pass — so a scores refresh that just failed could raise
+  // "Scores refresh failed" while the row beside it still read green, because the
+  // cache is present and the last success was a minute ago. That is the row
+  // contradicting the warning list directly above it, which is the defect.
+  //
+  // Applied as a final downgrade rather than another input to the freshness
+  // predicate: this is a CONSISTENCY guarantee between two derived views, and
+  // expressing it where both already exist keeps it from being re-derived.
+  // Only `warning` and `critical` — an `info` issue (a deliberately disabled
+  // dataset, say) is not a contradiction of health.
+  const contradictedDatasets = new Set(
+    issues
+      .filter(
+        (issue) =>
+          issue.subject.axis === 'dataset' &&
+          (issue.severity === 'warning' || issue.severity === 'critical')
+      )
+      .map((issue) => issue.subject.id)
+  );
+  for (const row of datasets) {
+    if (row.freshness.status !== 'green') continue;
+    if (!contradictedDatasets.has(row.dataset)) continue;
+    row.freshness = { status: 'yellow', label: 'Attention', intentional: false };
+  }
+
   const panels = deriveSystemHealthPanels({
     generatedAt,
     issues,

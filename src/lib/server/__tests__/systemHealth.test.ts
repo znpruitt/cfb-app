@@ -782,3 +782,67 @@ test('Item 88: a writer ATTEMPTING but never succeeding is not healthy', async (
   assert.notEqual(row.freshness.status, 'green', 'a writer achieving nothing is not healthy');
   assert.equal(row.freshness.label, 'Refresh overdue');
 });
+
+test('Item 88 bullet 4: a row never reads green while an issue names that dataset', async () => {
+  // The gap the other three bullets leave open. Provider-refresh ATTEMPT FAULTS
+  // raise a dataset-subject issue but never reach `deriveDatasetFreshness`, which
+  // reads cache + diagnostics + partition health. So a scores refresh that failed
+  // moments ago could show "Scores refresh failed" in the issue list while the row
+  // beside it read green — the cache is present and the last success was recent.
+  const failedRecently = canonicalOutcome('scores', 'failed', {
+    lastAttemptAt: new Date(NOW - 30_000).toISOString(),
+    lastSuccessAt: new Date(NOW - 60_000).toISOString(), // recent enough to be "active"
+    hasError: true,
+    errorCode: 'provider-503',
+  });
+  assert.equal(failedRecently.state, 'available');
+  if (failedRecently.state !== 'available') return;
+
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders({
+      providerRefresh: () =>
+        Promise.resolve(refreshSnapshot({ scores: { canonical: failedRecently } })),
+    }),
+  });
+
+  const namesScores = model.issues.some(
+    (issue) => issue.subject.axis === 'dataset' && issue.subject.id === 'scores'
+  );
+  assert.ok(namesScores, 'fixture sanity: an issue must actually name the dataset');
+
+  const row = model.datasets.find((d) => d.dataset === 'scores')!;
+  assert.notEqual(row.freshness.status, 'green', 'the row cannot contradict the issue above it');
+});
+
+test('Item 88 bullet 4: an INFO issue does NOT downgrade the row', async () => {
+  // Positive control and a deliberate limit. Turning a dataset OFF raises an
+  // info-severity dataset issue; that is an operator's choice, not a
+  // contradiction of health, and downgrading for it would paint every
+  // intentionally-disabled dataset as broken.
+  const disabledSchedule: ProviderRefreshSettings = {
+    globalPause: false,
+    datasets: Object.fromEntries(
+      PROVIDER_DATASETS.map((d) => [d, { enabled: d !== 'schedule' }])
+    ) as ProviderRefreshSettings['datasets'],
+  };
+
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders({ automationSettings: () => Promise.resolve(disabledSchedule) }),
+  });
+
+  const scheduleIssues = model.issues.filter(
+    (issue) => issue.subject.axis === 'dataset' && issue.subject.id === 'schedule'
+  );
+  assert.ok(scheduleIssues.length > 0, 'fixture sanity: an issue must actually name schedule');
+  assert.ok(
+    scheduleIssues.every((issue) => issue.severity === 'info'),
+    'fixture sanity: and every one of them must be INFO, or this proves nothing'
+  );
+
+  const row = model.datasets.find((d) => d.dataset === 'schedule')!;
+  assert.equal(row.freshness.status, 'green', 'an intentional pause is not ill health');
+});
