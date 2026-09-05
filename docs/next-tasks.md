@@ -38,6 +38,29 @@ attempts at it were reverted.)
   findings accepted — one production-behavior family (optional-slot presence semantics) and six
   proof-surface defects. **One cohesive remediation round is authorized and in progress**; a second
   would require owner approval and only for a defect that round causes.
+- **Second remediation round — owner exception granted 2026-09-05.** Both confirming reviewers
+  agreed on one remaining production defect: `hasRenderableContent` does not recurse into
+  `React.Fragment` children, so an empty fragment renders an empty context/tier-2 wrapper. Only that
+  defect was caused by the first round; the three coverage gaps predate it and `AGENTS.md:313` would
+  class them as follow-ups. **The owner granted an exception drawn at production-vs-test:** fragment
+  recursion is the ONLY production change, and everything else in the round is test-only. Rationale —
+  these are gaps in a contract **five serial slices inherit** (slice 5 + 112 → 117 → 115 → 119 →
+  118), so a follow-up item would have to land before slice 5 to be worth anything, making it a
+  blocker rather than a follow-up.
+- **Seam audit (2026-09-05), for the five inheriting slices — do not re-derive.** The shared fact is
+  "does this slot have renderable content". Writers today are `OverviewPanel` only: `contextSlot`
+  `:772` (an unconditional `<div>`, always present), `contextSlot` `:858`
+  (`gameBadge ? <span/> : undefined`), and `footerSlot` `:809` (`string | null`, which the footer
+  renders directly and the predicate never sees). **`tier2Slot` has no writer at all** — so the
+  fragment defect is unreachable in production today and becomes routine the moment slice 5 fills
+  that slot. **`OverviewPanel:772` deliberately reserves 22px** (`min-h-[22px]` plus `aria-hidden`)
+  by always rendering its wrapper; passing `undefined` there when empty would silently drop that
+  reservation, and no test covers it. The recursion boundary is principled: fragments and arrays are
+  static structure, inspectable without evaluation, while a component returning `null` would have to
+  be rendered to know — which is unsafe and hook-incompatible. Do not cross it.
+- **Tier-2 reserves nothing.** Settled 2026-09-05: it is optional, variable-height expansion content,
+  an empty wrapper would reserve only margin, and it cannot align against real content anyway. The
+  unconditional odds band aligns tier-1. Expansion alignment belongs to the consuming slice.
 - **Closeout still owed at merge:** the `DESIGN.md` anatomy update and the `docs/next-tasks.md`
   known-limitation entry (provider classifications absent 2018–2024, so the FCS marker is inert on
   historical seasons) land together in the pre-merge commit, after convergence.
