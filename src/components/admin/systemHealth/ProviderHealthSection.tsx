@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { getProviderDatasetDescriptor } from '@/lib/providerDatasets';
+import { getProviderDatasetDescriptor, isPartitionScopedDataset } from '@/lib/providerDatasets';
 import type { AutomationHealth } from '@/lib/server/systemHealthIssues';
 import type {
   CanonicalRefreshFact,
@@ -55,8 +55,9 @@ export default function ProviderHealthSection({
       <ul className="divide-y divide-gray-200 dark:divide-zinc-800">
         {datasets.map((row) => {
           const descriptor = getProviderDatasetDescriptor(row.dataset);
-          const outcome = refreshOutcomeDisplay(row.canonicalStatus);
-          const timestamp = canonicalTimestamp(row.canonicalStatus);
+          const summaryFact = summaryFactFor(row);
+          const outcome = refreshOutcomeDisplay(summaryFact);
+          const timestamp = canonicalTimestamp(summaryFact);
           return (
             <li key={row.dataset}>
               <details className="group">
@@ -146,6 +147,32 @@ export default function ProviderHealthSection({
       </ul>
     </section>
   );
+}
+
+/**
+ * Which fact the SUMMARY LINE describes. Nothing else on the row changes.
+ *
+ * `scores` and `game-stats` refresh per week partition, so the canonical year
+ * record this line read is usually never written — producing "No refresh history"
+ * on a dataset that refreshed minutes earlier.
+ *
+ * DELIBERATELY ONLY THE SUMMARY LINE. The expanded details still describe the
+ * canonical record, so a partition-scoped row can read "Succeeded · 2m ago" above
+ * "Last success: —". That is a known, accepted cosmetic disagreement: the details
+ * already carry the truth on their "Latest activity" line
+ * (`outcome · time · scopeKey`), and every attempt to reconcile the two halves —
+ * routing the details, showing both records, classifying which to prefer — broke
+ * rows this fix does not touch. The full reconciliation is Item 132; see
+ * `docs/campaigns/item-132-partition-scoped-health.md` before widening this.
+ */
+function summaryFactFor(row: ProviderDatasetHealthRow): CanonicalRefreshFact {
+  if (!isPartitionScopedDataset(row.dataset)) return row.canonicalStatus;
+  // A malformed canonical record is a fact worth showing rather than skipping.
+  if (row.canonicalStatus.state === 'invalid') return row.canonicalStatus;
+  const latest = row.latestScopedActivity;
+  return latest.state === 'available'
+    ? { state: 'available', status: latest.status }
+    : row.canonicalStatus;
 }
 
 function refreshOutcomeDisplay(fact: CanonicalRefreshFact): { label: string; tone: StateTone } {
