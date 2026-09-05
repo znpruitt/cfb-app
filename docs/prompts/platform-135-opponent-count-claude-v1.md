@@ -34,6 +34,37 @@ Work in **`/Users/zach/cfb-app-claude`** — see `CLAUDE.md` → **Worktrees and
 `main`. A `pre-push` hook runs `npm run lint:all` and refuses a failing push; do not bypass it with
 `--no-verify`.
 
+<model_change>
+**Owner decision 2026-09-05, after your remediation round. This SUPERSEDES the keying task below —
+read this first, then treat `<task>` as historical reasoning rather than instructions.**
+
+**Count DISTINCT GAMES, not opponents. Delete the opponent grouping.** Hidden count is
+`distinct games − visible games`; the label becomes _"Show N more games"_.
+
+Your Codex-P2 finding is what prompted this. The grouping exists to serve `formatSlateSummaryText`
+(`"5 games · vs Alice, FCS (x2), Bob +2"`), which **has no production caller**. The button borrowed
+its shape — and the `NoClaim` collision that survived a full round descends entirely from grouping
+opponents when the list renders games. Removing the grouping removes the bug class, not just the bug.
+
+**A self game counts ONCE and renders ONE row.** `buildOwnerSlateGames` (`src/lib/matchups.ts:239`
+and `:254`) has two independent `if` blocks, so an owner holding both teams produces **two slate
+entries for one game**, and the row key includes `ownerTeamSide` so **both render**. Today that gives
+three answers for one game: 2 rows, 1 opponent, and `"2 games · vs Self (x2)"`. Key the count on
+`game.key` and render each game once.
+
+**Measured, so you know the stakes:** the live 2026 league has **0** such games today (138 teams, 16
+owners, 3,679 games). Latent, not visible — not urgent, but do not leave it, because the point of
+this change is that the count and the list finally agree.
+
+**Keep** the collapse behaviour, `aria-expanded`/`aria-controls`, and the singular-at-1 label — all
+correct and reviewed. **Keep `formatSlateSummaryText` untouched**; Item 117 decides its fate, and its
+output changes as a consequence. **`displayOwner` stays the sentinel seam** wherever ownership is
+judged.
+
+**This is not a third remediation round.** It is new work under a changed specification, so the round
+limits reset: build it, then both reviewers run fresh against the final commit.
+</model_change>
+
 <task>
 `summarizeSlateOpponents` (`matchups.ts:51`) keys its count map on
 `getSummaryOpponentLabel` (`:45`), which returns `deriveOpponentDescriptor`'s string. For unowned

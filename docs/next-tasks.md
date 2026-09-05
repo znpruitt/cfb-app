@@ -894,9 +894,17 @@ one game — 2 rows, 1 opponent, and `"2 games · vs Self (x2)"` from the dorman
 `DESIGN.md` or any campaign doc records a decision here; it falls out of iterating both owned sides.
 Count distinct games keyed on `game.key`, and render each once.
 
-**Latent today, measured 2026-09-05:** the live 2026 league (`owners:tsc:2026`, 138 teams, 16 owners,
-3,679 games) has **0 games where one owner holds both teams**. Not a visible defect now; one draft
-away from being one.
+**LIVE TODAY — measured 2026-09-05, and the first measurement was wrong.** The 2026 season
+(`owners:tsc:2026`, 138 teams, 16 owners) has **39 games where one owner holds both teams**, out of
+888 games involving at least one rostered team. Week 1 alone: Whited (Jacksonville State vs North
+Dakota State), Maleski (Miami vs Stanford, and Baylor vs Auburn). **Each renders as two mirrored rows
+on that owner's card today**, with the header count saying one opponent while the list shows two.
+
+**An earlier probe reported 0 and that number was fabricated by its own defect** — it looked up
+`csvAway`/`canAway` on stored schedule rows that carry `awayTeam`/`homeTeam`, so every lookup returned
+`undefined` and the condition never fired. Recorded because the wrong number was used to argue the
+issue was latent, which reversed the item's priority. A probe that cannot reach the thing it measures
+returns zero, not proof.
 
 **Leave `formatSlateSummaryText` alone.** It is dormant and Item 117 decides its fate.
 
