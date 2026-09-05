@@ -49,9 +49,10 @@ type UseLiveRefreshParams = {
   /**
    * Current per-game score cache (PLATFORM-086B2B). Read only to re-evaluate
    * browser live-poll eligibility each heartbeat. Canceled/postponed games drop
-   * out; in-window finals remain eligible. Cadence uses kickoff time only, never
-   * these score packs. Not a write path; the hook still owns updates via
-   * `setScoresByKey`.
+   * out; in-window finals remain eligible. Cadence uses kickoff bounds plus
+   * positive final score evidence from these packs; missing or ambiguous evidence
+   * stays fast until the hard time ceiling. Not a write path; the hook still owns
+   * updates via `setScoresByKey`.
    */
   scoresByKey: Record<string, ScorePack>;
   /**

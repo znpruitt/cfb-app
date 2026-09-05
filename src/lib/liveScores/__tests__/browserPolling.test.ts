@@ -74,8 +74,17 @@ function makeGame(overrides: Partial<AppGame> & { key: string }): AppGame {
   };
 }
 
-function scorePack(status: string): ScorePack {
-  return { status, home: { team: 'home', score: 0 }, away: { team: 'away', score: 0 }, time: null };
+function scorePack(
+  status: string,
+  scores: { home?: number | null; away?: number | null } = {}
+): ScorePack {
+  const { home = 0, away = 0 } = scores;
+  return {
+    status,
+    home: { team: 'home', score: home },
+    away: { team: 'away', score: away },
+    time: null,
+  };
 }
 
 test('isCurrentLiveScoreSeason gates on the canonical current season only', () => {
@@ -303,6 +312,23 @@ test('only positive final score evidence permits slowing before the +8h ceiling'
     }),
     false,
     'positive attached finality permits the normal cadence before the hard ceiling'
+  );
+});
+
+test('a final-labelled pack with a missing score stays fast inside the +8h window', () => {
+  const insideWindow = makeGame({
+    key: 'incomplete-final',
+    date: new Date(NOW_MS - 6 * 60 * 60 * 1000).toISOString(),
+  });
+
+  assert.equal(
+    hasGameInLiveScoreFastWindow({
+      eligibleGames: [insideWindow],
+      scoresByKey: { 'incomplete-final': scorePack('final', { home: null }) },
+      now: NOW,
+    }),
+    true,
+    'a final label with a missing score is not positive final score evidence'
   );
 });
 

@@ -1,4 +1,8 @@
-import { classifyScorePackStatus, isCanceledOrPostponedStatusLabel } from '@/lib/gameStatus';
+import {
+  classifyScorePackStatus,
+  hasUsableFinalScore,
+  isCanceledOrPostponedStatusLabel,
+} from '@/lib/gameStatus';
 import type { AppGame } from '@/lib/schedule';
 import type { ScorePack } from '@/lib/scores';
 import { seasonYearForToday } from '@/lib/scores/normalizers';
@@ -62,12 +66,14 @@ function partitionOf(game: AppGame): LiveScorePartition {
  * `completed` row as `final` BEFORE its later `/games` reconciliation, which can
  * correct the score (and invalidate standings). The browser cannot cheaply tell a
  * provisional final from a `/games`-confirmed one (the client response carries no
- * pending-confirmation set), so it keeps polling in-window finals cache-only at
- * the three-minute cadence. That bounded read is provider-free, not cost-free: it
- * still invokes the scores route and durable reconciliation. A truly resolved
- * final simply ages out of the window. Canceled/postponed are TERMINAL (never
- * corrected) and DO end eligibility. The provider schedule status is preserved
- * on `AppGame.rawStatus`, so a game with no score row can still be excluded.
+ * pending-confirmation set), so it keeps polling in-window finals cache-only. The
+ * cadence belongs to the full eligible set: while another game needs the fast
+ * tier, those finals are re-read at 90 seconds too. That bounded read is
+ * provider-free, not cost-free: it still invokes the scores route and durable
+ * reconciliation. A truly resolved final simply ages out of the window.
+ * Canceled/postponed are TERMINAL (never corrected) and DO end eligibility. The
+ * provider schedule status is preserved on `AppGame.rawStatus`, so a game with no
+ * score row can still be excluded.
  */
 export function isLiveScoreEligibleGame(
   game: AppGame,
@@ -134,7 +140,7 @@ export function hasGameInLiveScoreFastWindow(params: {
     if (!Number.isFinite(kickoffMs)) return false;
     const age = nowMs - kickoffMs;
     if (age < -LIVE_SCORE_WINDOW_BEFORE_MS || age > LIVE_SCORE_FAST_WINDOW_AFTER_MS) return false;
-    return classifyScorePackStatus(scoresByKey[game.key]) !== 'final';
+    return !hasUsableFinalScore(scoresByKey[game.key]);
   });
 }
 
