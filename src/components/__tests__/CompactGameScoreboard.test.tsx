@@ -36,17 +36,28 @@ function occurrenceCount(value: string, needle: string): number {
   return value.split(needle).length - 1;
 }
 
-const NEW_LIGHT_THEME_CLASS_RE =
-  /(?:^|\s)(?:(?:text|border|bg)-(?:gray|zinc|slate)-\d+(?:\/\d+)?|(?:text|border|bg)-(?:white|black)(?:\/\d+)?)(?=\s|$)/;
+function classTokens(markup: string): Set<string> {
+  const className = markup.match(/class="([^"]*)"/)?.[1] ?? '';
+  return new Set(className.split(/\s+/).filter(Boolean));
+}
+
+const LIGHT =
+  /^(?:text|bg|border)-(?:white|black|(?:gray|zinc|slate|neutral|stone)-\d{2,3})(?:\/\d+)?$/;
+
+function lightHalves(html: string): string[] {
+  const out: string[] = [];
+  for (const match of html.matchAll(/class="([^"]*)"/g)) {
+    for (const token of match[1].split(/\s+/).filter(Boolean)) {
+      const parts = token.replace(/^!/, '').split(':');
+      const base = parts.pop() ?? '';
+      if (LIGHT.test(base) && !parts.includes('dark')) out.push(token);
+    }
+  }
+  return out;
+}
 
 function assertNoNewLightThemeClass(markup: string): void {
-  const classNames = [...markup.matchAll(/class="([^"]*)"/g)].map((match) => match[1]).join(' ');
-  const lightClass = classNames.match(NEW_LIGHT_THEME_CLASS_RE)?.[0]?.trim();
-  assert.equal(
-    lightClass,
-    undefined,
-    `new scoreboard markup contains light-theme class ${lightClass}`
-  );
+  assert.deepEqual(lightHalves(markup), [], 'new scoreboard markup contains light-theme classes');
 }
 
 test('live scoreboard keeps away above a leading home team and emphasizes the bottom line', () => {
@@ -82,6 +93,7 @@ test('prefix markers share zinc-400 while FCS keeps its bordered-pill geometry',
     /<span class="[^"]*" data-scoreboard-classification="away">FCS<\/span>/
   )?.[0];
   assert.ok(fcsMarker, 'FCS classification marker must render');
+  const fcsClassTokens = classTokens(fcsMarker);
   for (const className of [
     'rounded-[3px]',
     'border',
@@ -93,7 +105,7 @@ test('prefix markers share zinc-400 while FCS keeps its bordered-pill geometry',
     'dark:border-zinc-800',
     'dark:text-zinc-400',
   ]) {
-    assert.ok(fcsMarker.includes(className), `FCS marker must include ${className}`);
+    assert.ok(fcsClassTokens.has(className), `FCS marker must include exact token ${className}`);
   }
 });
 
@@ -318,25 +330,34 @@ test('scoreboard exposes a constrained additive tier-2 slot after the reserved o
   );
 });
 
-test('slot presence is nullish: callers pass null for nothing, while zero and an empty array are supplied', () => {
-  const absentHtml = renderScoreboard({ state: 'scheduled', footerSlot: null, tier2Slot: null });
-  assert.doesNotMatch(absentHtml, /data-scoreboard-tier2-slot/);
+test('optional wrappers reject React-empty content recursively while preserving zero', () => {
+  const emptySlots: React.ReactNode[] = [
+    null,
+    undefined,
+    false,
+    true,
+    '',
+    [],
+    [null, false, '', []],
+    [[[], [false, [null]]]],
+  ];
 
-  const suppliedZeroHtml = renderScoreboard({
-    state: 'scheduled',
-    footerSlot: 0,
-    tier2Slot: 0,
-  });
-  assert.match(suppliedZeroHtml, /data-scoreboard-odds-footer[^>]*>0<\/div>/);
-  assert.match(suppliedZeroHtml, /data-scoreboard-tier2-slot[^>]*>0<\/div>/);
+  for (const emptySlot of emptySlots) {
+    const html = renderScoreboard({ contextSlot: emptySlot, tier2Slot: emptySlot });
+    assert.doesNotMatch(html, /data-scoreboard-context-slot/);
+    assert.doesNotMatch(html, /data-scoreboard-tier2-slot/);
+  }
 
-  const suppliedArrayHtml = renderScoreboard({
-    state: 'scheduled',
-    footerSlot: [],
-    tier2Slot: [],
+  const zeroHtml = renderScoreboard({ contextSlot: 0, tier2Slot: 0 });
+  assert.match(zeroHtml, /data-scoreboard-context-slot[^>]*>0<\/div>/);
+  assert.match(zeroHtml, /data-scoreboard-tier2-slot[^>]*>0<\/div>/);
+
+  const nestedContentHtml = renderScoreboard({
+    contextSlot: [null, [false, <span key="context">Context</span>]],
+    tier2Slot: [[<span key="tier-2">Tier 2</span>]],
   });
-  assert.match(suppliedArrayHtml, /data-scoreboard-odds-footer/);
-  assert.match(suppliedArrayHtml, /data-scoreboard-tier2-slot/);
+  assert.match(nestedContentHtml, /data-scoreboard-context-slot[^>]*>[\s\S]*Context/);
+  assert.match(nestedContentHtml, /data-scoreboard-tier2-slot[^>]*>[\s\S]*Tier 2/);
 });
 
 test('scheduled peers reserve equal odds bands with and without odds across tier-2 states', () => {
@@ -365,10 +386,20 @@ test('scheduled peers reserve equal odds bands with and without odds across tier
 
     assert.equal(scoreboards.length, 2, 'the peer pair must render two scoreboards');
     for (const scoreboard of scoreboards) {
+      const footerOpeningTag = scoreboard.match(
+        /<div(?=[^>]*class="[^"]*")(?=[^>]*data-scoreboard-odds-footer)[^>]*>/
+      )?.[0];
+      assert.ok(footerOpeningTag, 'every scheduled peer must render its odds footer');
       assert.equal(
         occurrenceCount(scoreboard, 'data-scoreboard-odds-footer'),
         1,
         'every scheduled peer reserves exactly one odds band'
+      );
+      // Static markup cannot measure layout height. This exact token is the structural pin for the
+      // minimum-height reservation that keeps empty and populated peer bands aligned.
+      assert.ok(
+        classTokens(footerOpeningTag).has('min-h-4'),
+        'the odds footer must structurally reserve its minimum height'
       );
       assert.equal(
         occurrenceCount(scoreboard, 'data-scoreboard-tier2-slot'),
@@ -401,17 +432,36 @@ test('new scoreboard additions reject light-theme utility classes, including unn
   assertNoNewLightThemeClass(newMarkup.join(''));
 
   for (const forbidden of [
+    'bg-white',
+    'text-black',
+    'text-white',
     'text-gray-500',
     'border-zinc-800',
     'bg-slate-950',
-    'bg-white',
-    'text-white',
-    'text-black',
+    'hover:bg-white',
+    'focus:text-gray-500',
+    'md:bg-zinc-100',
+    'group-hover:text-black',
+    '!text-white',
+    'text-white/50',
   ]) {
-    assert.throws(
-      () => assertNoNewLightThemeClass(`<span class="${forbidden}">bad</span>`),
-      /new scoreboard markup contains light-theme class/,
-      `positive control must reject ${forbidden}`
+    assert.deepEqual(
+      lightHalves(`<span class="${forbidden}">bad</span>`),
+      [forbidden],
+      `positive control must flag ${forbidden}`
+    );
+  }
+
+  for (const allowed of [
+    'dark:text-zinc-400',
+    'dark:hover:text-white',
+    'text-[9.5px]',
+    'rounded-[3px]',
+  ]) {
+    assert.deepEqual(
+      lightHalves(`<span class="${allowed}">allowed</span>`),
+      [],
+      `${allowed} must remain allowed`
     );
   }
 });

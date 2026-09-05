@@ -211,6 +211,49 @@ test('overview panel uses neutral wording for neutral-site games', () => {
   assert.doesNotMatch(html, /aria-label="Texas at Ohio State"/);
 });
 
+test('overview keeps reserved scoreboard additions dormant for a metadata-rich live game', () => {
+  const reservedMetadataGame: AppGame = {
+    ...game({
+      key: 'reserved-scoreboard-metadata',
+      csvAway: 'Montana State',
+      csvHome: 'Oregon',
+      neutral: true,
+      neutralDisplay: 'vs',
+      media: [{ gameId: 'reserved-scoreboard-metadata', mediaType: 'tv', outlet: 'ESPN2' }],
+    }),
+    awayClassification: 'fcs',
+    homeClassification: 'fbs',
+  };
+  const live = itemWithScore(reservedMetadataGame, {
+    status: 'In Progress',
+    away: { team: 'Montana State', score: 7 },
+    home: { team: 'Oregon', score: 14 },
+    time: 'Q2 4:30',
+  });
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[live]}
+      keyMatchups={[]}
+      sectionItems={[live]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+  const scoreboard = html.match(
+    /<article(?=[^>]*aria-label="Montana State vs Oregon")(?=[^>]*data-scoreboard-state="live")[\s\S]*?<\/article>/
+  )?.[0];
+
+  assert.ok(scoreboard, 'the metadata-rich existing Overview scoreboard must render');
+  assert.match(scoreboard, />Live<\/span>[\s\S]*>Q2 4:30<\/span>/);
+  assert.doesNotMatch(scoreboard, /data-scoreboard-classification|>FCS<\/span>/);
+  assert.doesNotMatch(scoreboard, /data-scoreboard-neutral-site|>Neutral site<\/span>/);
+  assert.doesNotMatch(scoreboard, />ESPN2<\/span>/);
+  assert.doesNotMatch(scoreboard, /data-scoreboard-tier2-slot/);
+});
+
 test('overview panel keeps home-away wording for standard games', () => {
   const homeAwayGame = game({
     csvAway: 'Texas',

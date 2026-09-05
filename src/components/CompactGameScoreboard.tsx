@@ -47,10 +47,10 @@ function recordLabel(record: TeamRecordClient | null | undefined): string | null
   return record ? `${record.wins}–${record.losses}` : null;
 }
 
-function isSlotProvided(slot: React.ReactNode): boolean {
-  // Optional props may be omitted; callers deriving slot content must return null for "nothing",
-  // rather than an empty array or another truthy-but-empty React node.
-  return slot != null;
+function hasRenderableContent(slot: React.ReactNode): boolean {
+  if (slot == null || typeof slot === 'boolean' || slot === '') return false;
+  if (Array.isArray(slot)) return slot.some(hasRenderableContent);
+  return true;
 }
 
 export default function CompactGameScoreboard({
@@ -82,8 +82,8 @@ export default function CompactGameScoreboard({
   const hasScheduleNotice = state === 'scheduled' && Boolean(scheduleNoticeLabel);
   const hasHeaderLead = Boolean(statusLabel) || hasScheduleNotice || Boolean(clockLabel);
   const showsBroadcast = state !== 'final' && Boolean(broadcastLabel);
-  const hasFooterSlot = isSlotProvided(footerSlot);
-  const hasTier2Slot = isSlotProvided(tier2Slot);
+  const hasContextSlot = hasRenderableContent(contextSlot);
+  const hasTier2Slot = hasRenderableContent(tier2Slot);
 
   return (
     <article
@@ -92,7 +92,7 @@ export default function CompactGameScoreboard({
       data-game-scoreboard
       data-scoreboard-state={state}
     >
-      {contextSlot ? (
+      {hasContextSlot ? (
         <div className="mb-1.5 min-w-0" data-scoreboard-context-slot>
           {contextSlot}
         </div>
@@ -211,7 +211,9 @@ export default function CompactGameScoreboard({
           className="mt-1.5 min-h-4 overflow-hidden whitespace-nowrap text-xs text-gray-500 dark:text-zinc-400"
           data-scoreboard-odds-footer
         >
-          {hasFooterSlot ? footerSlot : null}
+          {/* This wrapper always reserves peer-card height. React handles empty footer children;
+              a content predicate here would be render-equivalent and therefore unobservable. */}
+          {footerSlot}
         </div>
       ) : null}
       {hasTier2Slot ? (
