@@ -724,6 +724,28 @@ not be read as a requirement on the other.**
 
 - Backlog slug: `PLATFORM-SCHEDULE-REFRESH-FORENSICS-v1`
 
+### Item 132 — the Scores and Game stats health rows read the wrong record
+
+**Filed 2026-09-05.** Evidence, both reverted attempts, and the pitfalls they found:
+[`docs/campaigns/item-132-partition-scoped-health.md`](campaigns/item-132-partition-scoped-health.md).
+
+**The ask.** Those two datasets record refreshes per week partition, not per year, so the row reads a
+canonical year scope that usually does not exist for them. It reports `No refresh history` while they
+are refreshing, and — because the freshness dot is driven by cache presence, and scores stay cached
+through a total polling outage — it cannot report a stall at all. Verified in production 2026-09-05.
+
+**The value.** A live-scoring outage is currently invisible on the row built to show it, and the row
+contradicts the issue list above it. Fixed for the class: `game-stats` reads null the same way.
+
+**The blocker is knowledge, not permission.** Two attempts were built and reverted — a freshness model
+(six `provider-refresh-status` semantics it had assumed) and a display-only fix (five review rounds).
+The campaign doc holds both, including the fixture rule that cost two of those rounds. **Read it
+before starting**; the direction is to build on `attemptFaultIssue`'s existing interpretation rather
+than a second one beside it. Abandoned branch, kept for reference: `platform/partition-scoped-health`
+at `17f32dc7`.
+
+- Backlog slug: `PLATFORM-PARTITION-SCOPED-HEALTH-v2`
+
 ### Item 130 — narrow live-score polling to game clusters, then stand down when they finish
 
 **Filed 2026-09-05, revised the same day after re-reading the measurement.** Depends on Item 102 for
