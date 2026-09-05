@@ -111,11 +111,23 @@ start; do not re-litigate them.
    and rendered an empty tier-2 wrapper. Use ONE shared predicate for both slots and state in a
    comment what callers must pass to mean "nothing".
 
-5. **The FCS marker uses `zinc-400`, not `zinc-500`.** Measured against the `#0a0a0a` composition:
-   `zinc-500` (`#71717a`) is **4.10:1** and FAILS the 4.5:1 normal-text floor `DESIGN.md` requires;
-   `zinc-400` (`#a1a1aa`) is **7.72:1** and passes. Note this is a genuine exception to matching the
-   neighbouring rank marker's token — the rank marker sits at a larger size. If you believe 9.5px
-   qualifies as large text under `DESIGN.md`, STOP and ask rather than deciding it yourself.
+5. **BOTH prefix markers use `zinc-400`. The rank marker moves too — this is the one intentional
+   visual change in the slice.**
+
+   Measured against the `#0a0a0a` composition: `zinc-500` (`#71717a`) is **4.10:1** and FAILS the
+   4.5:1 normal-text floor `DESIGN.md` requires; `zinc-400` (`#a1a1aa`) is **7.72:1** and passes.
+
+   **Correction to an earlier draft of this prompt, which the read receipt surfaced.** That draft
+   justified the FCS marker diverging from its neighbour by saying "the rank marker sits at a larger
+   size". That is wrong. The shipped rank marker is `text-xs` (12px, `CompactGameScoreboard.tsx:131`,
+   `dark:text-zinc-500`) and WCAG large text begins at 18.66px bold / 24px — **neither marker
+   qualifies, so both are held to 4.5:1, and the shipped rank marker is the same 4.10:1 failure.**
+
+   Shipping FCS at `zinc-400` while rank stays `zinc-500` would put two markers in ONE slot with the
+   SMALLER one visibly brighter, and leave a known violation beside a fix for the identical problem.
+   **Owner decision 2026-09-05: move both.** The rank-marker token change is pre-existing-defect
+   repair, deliberately in scope, and it is the ONLY permitted visual change — see the completeness
+   contract.
 
 ## Why this is its own slice
 
@@ -150,12 +162,22 @@ change what an existing caller renders today.
 </task>
 
 <completeness_contract>
-- **Overview must render IDENTICALLY before and after. Prove it by MUTATION, not by inspection**:
-  break each new branch in turn and show a SPECIFIC named test going red, then restore. A screenshot,
-  a visual check, or "I verified the markup is unchanged" is not evidence.
+- **Overview must render IDENTICALLY before and after, with EXACTLY ONE named exception: the rank
+  marker's colour token changes `dark:text-zinc-500` → `dark:text-zinc-400`
+  (`CompactGameScoreboard.tsx:131`).** Nothing else about that element changes — not its size, weight,
+  position, or `title`. Any OTHER render difference is a defect, not a judgement call: if you find
+  yourself wanting a second one, STOP and ask.
+- **Prove the rest by MUTATION, not by inspection**: break each new branch in turn and show a SPECIFIC
+  named test going red, then restore. A screenshot, a visual check, or "I verified the markup is
+  unchanged" is not evidence.
+- **Pin both tokens in a test.** The contrast fix is invisible to a render-identical check by
+  construction, so it needs its own assertion or the next refactor silently reverts it.
 - Every new prop is exercised by a test that fails when the prop is ignored.
 - The rank/FCS exclusivity is asserted in BOTH directions: a ranked FCS team shows the rank and NOT
-  the FCS marker, and an unranked FCS team shows the marker.
+  the FCS marker, and an unranked FCS team shows the marker. **Label the first case for what it is** —
+  your read receipt had this right: the collision cannot occur in real data (rankings are FBS-only),
+  so that test guards an UPSTREAM DATA DEFECT and is not a product case. Name it that way so a later
+  reader does not mistake it for a supported input.
 - NEGATIVE coverage for `'ii'` and `'iii'`: neither may render an FCS marker.
 - The classification match is EXACT. A test must pin that a near-miss value does not produce a marker.
 - Test count delta reported as a measured number.
