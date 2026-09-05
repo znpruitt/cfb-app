@@ -785,9 +785,20 @@ all of the saving is.**
 
 #### Step 1 — cluster windows with a margin (schedule-derived, ONE writer)
 
-Poll densely from `first kickoff − 15m` to `last kickoff + margin`, then a ~2-hour slow
-reconciliation poll, then off until the next cluster. All of it derives from kickoff times, so the
-daily planner is the only thing that ever writes the cron.
+Three phases, all derived from kickoff times, so the daily planner is the only thing that ever
+writes the cron:
+
+| Phase | Window | Rate |
+| --- | --- | --- |
+| Dense | `first kickoff − 15m` → `last kickoff + 8h` | every 3 min |
+| Slow | `last kickoff + 8h` → `last kickoff + 24h` | hourly |
+| Off | until the next cluster arms | — |
+
+**CORRECTION 2026-09-05:** this item first said "a ~2-hour slow reconciliation poll", which would
+have ended all polling near `+10h` and silently dropped the `kickoff + 24h` reconciliation guarantee
+that PLATFORM-105A found already straining. The slow phase must run to `+24h`. Measured cost of doing
+it properly: **356 extra wakeups in October** of 14,880, taking the saving from 61% to 59%. Sixteen
+hourly checks across the tail are ample for a fact that changes at most once.
 
 **CORRECTION to this item's first filing.** It attributed the saving to observing live game state.
 It does not: the measurement behind these numbers ended each cluster at a FIXED offset after the last
@@ -796,10 +807,13 @@ observation at all.
 
 Margin sensitivity, October, against 14,880 wakeups today:
 
-| Margin after last kickoff | Dense hours | Wakeups | Removed |
+Margin sensitivity — **DENSE PHASE ONLY**, so these are not the deliverable figures. The saving with
+the mandated slow phase included is the 59% in the table below; do not quote these in isolation.
+
+| Margin after last kickoff | Dense hours | Dense-only wakeups | Dense-only removed |
 | --- | --- | --- | --- |
 | 4.75h | 27% | 3,965 | 73% |
-| **8h (recommended)** | 36% | 5,395 | **64%** |
+| **8h (recommended)** | 36% | 5,395 | 64% |
 | 12h | 48% | 7,110 | 52% |
 
 **8h, because Item 108 measured a game still live at 6.4h** behind a weather delay while five others
@@ -810,16 +824,19 @@ pass still collects it, late rather than never.
 | Wakeups / month | Sep | Oct | Nov | Year |
 | --- | --- | --- | --- | --- |
 | live-scores today | 14,400 | 14,880 | 14,400 | 175,200 |
-| Step 1 (8h margin) | — | 5,395 | — | — |
-| Step 1 (4.75h margin) | 3,072 | 3,965 | 4,127 | 12,209 |
+| Step 1, dense 8h + hourly slow to +24h | 4,351 | 6,156 | 5,757 | — |
+| removed | 70% | **59%** | 60% | — |
+
+Measured through `utcHoursCovered`, i.e. the hours a cron can actually express — partial hours round
+up, which costs ~3 points against the raw windows and is already included above.
 
 #### Step 2 — stand down when the games actually finish (+~9 points)
 
 The route already computes this. `pollingTarget.ts` returns `scoreboard` while anything is open,
 `final-reconciliation` when only unconfirmed finals remain, `none` otherwise. **The cadence tiers ARE
 those three modes**; the scheduler simply never hears about them. Standing down on the real fact
-rather than a margin recovers the gap between 64% and 73% AND handles an overrunning game correctly
-instead of generously.
+rather than a margin recovers the gap between the 8h and 4.75h margins — about 9 points on the
+dense-only base — AND handles an overrunning game correctly instead of generously.
 
 **Why the planner cannot do the observing.** It would have to be awake to notice, and an invocation
 every few minutes is the cost this item removes — the campaign measured 66.7% cold starts, so
@@ -843,10 +860,33 @@ a week-zero game in Ireland kicks off near 11:00 UTC, so this is not hypothetica
 production evidence of how often games really overrun the margin — which prices step 2 with data
 instead of this item's estimate.
 
+**Step 2 CANNOT simply reuse `mode === 'none'`, and the reason was found by Codex reviewing the
+browser cadence (2026-09-05).** `resolveWindowState` treats anything that is not a cached `final` as
+`unresolved-open`, and says so deliberately: _"an unclear cache never suppresses a poll."_ That
+fail-safe is right for "should I make a provider call" and WRONG for "should I stop waking up" —
+the two questions want opposite behaviour from an unclear state. Two conditions therefore defeat the
+stand-down, both verified:
+
+- **A game that never attaches a score pack** (phantom row, identity miss — PLATFORM-114 found ten
+  phantom games) has `cachedStatus: null`, reads `unresolved-open`, and holds dense polling to
+  `kickoff + 24h`.
+- **A provider row marked `completed` but missing one score** is normalized to in-progress, never
+  reaches `final`, and does the same. The cached `ScorePack` is LOSSY here — the original `completed`
+  is discarded — so the signal cannot be recovered downstream. It must originate where the live cron
+  still holds normalized provider state (`scheduled` / `in_progress` / `completed`) and be persisted
+  as target-scoped evidence.
+
+**Step 1 is structurally immune to both** because it reads kickoff times and never consults cache
+state. That is now a stronger argument for the margin than the original framing gave it: step 2 is
+correct for a game that overruns and INCORRECT for a game that fails to attach, and which is more
+common is unmeasured.
+
 **Reconciliation stays per-cluster, not per-slate.** Condensing it to once per week bucket was
 considered and rejected: a Thursday game would reconcile Sunday night, stretching `kickoff + 24h` to
-+72h, and PLATFORM-105A already found that boundary giving up on late finals. A 2-hour slow poll per
-cluster costs almost nothing and keeps the guarantee.
++72h, and PLATFORM-105A already found that boundary giving up on late finals. **The slow phase runs
+hourly to `last kickoff + 24h`, per the phase table above** — an earlier draft of this paragraph said
+"a 2-hour slow poll", which contradicted that table and would have restored the +10h cutoff the
+correction rejects. It costs 356 wakeups in October and keeps the guarantee.
 
 - Backlog slug: `PLATFORM-LIVE-CADENCE-CLUSTERS-v1`
 
