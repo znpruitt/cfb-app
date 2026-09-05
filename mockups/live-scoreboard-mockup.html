@@ -16,7 +16,7 @@
     -webkit-font-smoothing: antialiased; line-height: 1.4;
   }
   /* Container query context — DESIGN.md :120 prefers container over viewport queries */
-  .page { max-width: 980px; margin: 0 auto; padding: 56px 32px 96px; container-type: inline-size; }
+  .page { max-width: 1440px; margin: 0 auto; padding: 56px 32px 96px; container-type: inline-size; }
   .num { font-variant-numeric: tabular-nums; }
   a { color: var(--blue); text-decoration: none; font-size: 13px; }
   .linkbtn {
@@ -36,7 +36,13 @@
   /* Demo-only overrides so narrow preview panes can see both layouts. The container
      query below is the real production rule; these force it for previewing and would
      not exist in the implementation. */
+  /* Production tiering: 1 col below 760, 2 col to 1300, 3 col above.
+     1300 = 3 x 400px minimum column + 2 x 40px gap + padding. 400px is the
+     comfortable width for the longest row: team + record + owner + score. */
+  @container (min-width: 1300px) { .game-list { grid-template-columns: 1fr 1fr 1fr; } }
+
   body.demo-2col .game-list { display: grid !important; grid-template-columns: 1fr 1fr !important; }
+  body.demo-3col .game-list { display: grid !important; grid-template-columns: 1fr 1fr 1fr !important; }
   body.demo-1col .game-list { display: block !important; }
   /* DESIGN.md specifies the mechanism (container queries, :120) but no value; three
      disagree in code today (640 FeaturedGamesList, 821 recap, 760 here). 760 is chosen on
@@ -155,14 +161,14 @@
   .mockup-notes ul { margin: 8px 0 0 18px; }
 </style>
 </head>
-<body class="demo-2col" data-c="2">
+<body class="demo-3col" data-c="2" data-cols="1">
 <div class="page">
 
   <div class="variant-label">Full-slate Saturday &mdash; two columns, progressive disclosure</div>
   <div style="margin-bottom:16px;">
     <button class="linkbtn" style="border:1px dashed #4a4a4a; border-radius:6px; padding:6px 12px; color:#a8a8a8;"
-      onclick="var b=document.body; var two=b.classList.contains('demo-2col'); b.classList.toggle('demo-2col', !two); b.classList.toggle('demo-1col', two); this.textContent = two ? 'Layout: one column (click to swap)' : 'Layout: two columns (click to swap)';">
-      Layout: two columns (click to swap)</button>
+      onclick="var b=document.body,T=['demo-2col','demo-3col','demo-1col'],L=['Layout: two columns (click)','Layout: three columns (click)','Layout: one column (click)'];var i=(parseInt(b.dataset.cols||'0')+1)%3;b.dataset.cols=i;b.classList.remove('demo-2col','demo-3col','demo-1col');b.classList.add(T[i]);this.textContent=L[i];">
+      Layout: three columns (click)</button>
     <button class="linkbtn" style="border:1px dashed #4a4a4a; border-radius:6px; padding:6px 12px; color:#a8a8a8; margin-left:8px;"
       onclick="var b=document.body; var T=['Colour: neutral \u2014 no hues (click)','Colour: green live, neutral eyebrow (click)','Colour: green live, bronze eyebrow \u2014 proposed (click)','Colour: green live, sky eyebrow (click)','Colour: green live, fuchsia eyebrow (click)']; var i=(parseInt(b.getAttribute('data-c')||'0')+1)%5; b.setAttribute('data-c',i); this.textContent=T[i];">
       Colour: green live, bronze eyebrow &mdash; proposed (click)</button>
@@ -205,6 +211,11 @@
     <a href="#">All matchups &rarr;</a>
   </div>
   <div class="game-list" id="live-list">
+      <div class="scoreboard">
+        <div class="sb-status"><span class="live-badge">Live</span><span>Q3 8:21</span></div>
+        <div class="sb-line"><span class="who"><span class="team">Middle Tennessee State</span><span class="rec num">(3&ndash;5)</span><span class="owner">Shambaugh</span></span><span class="score num">13</span></div>
+        <div class="sb-line trailing"><span class="who"><span class="team">Florida International</span><span class="rec num">(2&ndash;6)</span><span class="owner">Maleski</span></span><span class="score num">10</span></div>
+      </div>
       <div class="scoreboard">
         <div class="sb-status"><span class="live-badge">Live</span><span>Q4 6:18</span></div>
         <div class="sb-line trailing"><span class="who"><span class="team">Memphis</span><span class="rec num">(4–4)</span><span class="owner">Stevens</span></span><span class="score num">24</span></div>
@@ -377,6 +388,8 @@
       <li><strong>Section migration is immediate.</strong> A finalising game moves from Live to Recent finals as soon as it finalises, including while a section is expanded. This is a live surface and staleness is worse than motion. Client expansion state itself survives (useLiveRefresh.ts:443 is a state update on a mounted tree; router.refresh() preserves client state) &mdash; only the content changes beneath it.</li>
       <li><strong>Header rows are single-line by contract</strong> (nowrap + ellipsis on title, meta and status rows), because any wrap desynchronises team rows across a grid row. Consequence: the date/kickoff/broadcast line has a hard width budget and clips rather than wraps; precedence category names should stay to roughly two words.</li>
       <li><strong>Cards with no precedence reason reserve the title row and hide it,</strong> so team lines stay aligned across a grid row. Cost is a line of whitespace on untagged cards.</li>
+      <li><strong>Three-column tier above 1300px container width.</strong> Rows use roughly a third of their column at two columns on a wide display, so the space is there. 1300 is 3&times;400px minimum column plus two 40px gaps: 400px is what the longest row needs &mdash; team, record, owner and score &mdash; and the Middle Tennessee State row in Live is the stress case. Below that the tier drops to two, then one under 760px.</li>
+      <li><strong>Two costs worth weighing before adopting it.</strong> Row-major flow across three columns makes a kickoff-sorted section harder to follow &mdash; positions 1,2,3 / 4,5,6 read less naturally than 1,2 / 3,4, and the wider the grid the more the eye has to reset. And at current caps the saving is one row: six live games go from three rows to two. The gain is real only at full slate, which is also when ordering legibility matters most.</li>
       <li><strong>Two-column grid follows existing precedent</strong> rather than introducing it &mdash; FeaturedGamesList already ships <code>grid-cols-1 sm:grid-cols-2</code> on this surface. Flow is row-major, matching RecapPrimitives.tsx:70 and FeaturedGamesList. Degradation uses a container query per DESIGN.md :120. The doc specifies the mechanism but no value, and three disagree in code (640 FeaturedGamesList, 821 recap, 760 here). 760 is chosen on content width &mdash; below it each card gets under ~350px, which clips team + owner + anchor on the longest rows &mdash; so the amendment should declare the game-grid value rather than inherit a sibling section.</li>
       <li><strong>Section titles are 17px/650 &mdash; a deliberate exception to DESIGN.md :224</strong> (15px/500). At the documented size the section boundary sits one step above a team line at 14px and reads weakly against dense two-column content, worsened by three stacked sections. Documented as a game-section exception, not drift.</li>
       <li><strong>Broadcast network is free</strong> &mdash; buildCfbdGamesMediaUrl already runs via schedulePresentationRefresh.ts:273, cached year-wide, and joined onto rows by enrichScheduleItemsWithPresentation. No new call, no fallback needed.</li>
