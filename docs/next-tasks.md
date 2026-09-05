@@ -1,7 +1,7 @@
 # Next Tasks (Active Queue)
 
 Status: Current
-Last verified: 2026-09-03
+Last verified: 2026-09-05
 Owner: Project documentation
 Canonical for: current execution order, planned/parked work, blockers, and the one canonical list of
 unresolved decisions and known deferrals
@@ -66,17 +66,12 @@ committed `c9f76081`) surfaced four new items and one split; the remaining open 
 7. **Item 119** — team-colour bar on the existing normaliser, with no accent for teams that have no
    colour — which also removes the green fallback every FCS row carries today. OKLCH only if measured.
 8. **Item 118** — Schedule status filter with counts. Purely additive; after the rework it filters.
-9. **Item 95 portion 1 → `PLATFORM-BROWSER-POLL-CADENCE-v2`** — implemented and reviewed on
-   `platform/browser-poll-cadence`; awaiting merge. Visible tabs read the full eligible partition set
-   every 90s while at least one eligible game is inside its fixed kickoff window without usable final
-   score evidence, then every 180s, with +8h as the hard fast-tier ceiling. Expected display
-   staleness improves by ~45s (25%), not 2×; the cron remains the only writer at three minutes.
-10. **Item 100b** — internal slate marker. Date gate removed 2026-09-03; its 2026 consequence
+9. **Item 100b** — internal slate marker. Date gate removed 2026-09-03; its 2026 consequence
     (Featured empty through 2026-09-07) closes on its own, but the recap and look-ahead targeting it
     exists for recur next August. Cheap: the clustering code is recoverable from `d6184c28`.
-11. **Item 113** — Featured as insight-selected, state-agnostic. Largest, and gated on a decision
+10. **Item 113** — Featured as insight-selected, state-agnostic. Largest, and gated on a decision
     about `INSIGHTS-017-PALETTE` (a prose bullet today, not an item).
-12. **Item 101** — season-boundary finals gap. Re-derive the empty window against the floating cutoff
+11. **Item 101** — season-boundary finals gap. Re-derive the empty window against the floating cutoff
     first; fix before late November.
 
 **Interstitial, no dedicated slot:** **Item 111** (~5-minute Observability check, any time this
@@ -104,8 +99,7 @@ the UI spine do not touch each other, so they can run concurrently:
   `schedulerExecutionStatus.ts` / `schedulerDeliveryHealth.ts` / `systemHealthIssues.ts`.
 - **UI spine, strictly serial with itself:** slice 5a → slice 5 + 112 → 117 → 115 → 119 → 118. Every
   one consumes the component 5a widens; that is what the split was for.
-- **Independent, parallel-safe against both:** Item 122 (`admin/HistoricalCachePanel.tsx`), Item 95
-  portion 1 (implemented/reviewed; awaiting merge), Item 121
+- **Independent, parallel-safe against both:** Item 122 (`admin/HistoricalCachePanel.tsx`), Item 121
   (`schedule/cfbdSchedule.ts`, `schedule.ts`, `schedulePostseasonHelpers.ts` — pipeline, not
   components), and Items 84, 86, 111. **Item 123 shipped 2026-09-04** via PR #565.
 - **Dated, and it beats a deadline:** **Item 127** (retain the CFBD usage already probed) supersedes
@@ -128,9 +122,7 @@ Gated: **Item 85** after 86, which is how the repair gets verified.
 **Item 94** (CFBD burn-rate measurement) must be READ ON 2026-09-30, not in October — `/info`
 reports the current period only and the counter resets 1 October, so a later read loses September
 entirely; it is the accumulated observation **Item 63** and **Item 95 portion 2** are waiting
-on. **Item 95 portion 1's production gate is cleared:** Item 128 shipped first and removed the
-redundant `/api/teams` invocation, and the owner accepted the remaining visible-tab `/api/scores`
-budget with the +8h ceiling.
+on.
 **Item 100b** (slate marker) is **no longer date-gated** — its gate was removed 2026-09-03 after
 production showed a live 2026 consequence: Featured games renders nothing from 2026-08-27 through
 2026-09-07, because CFBD buckets week 0 into a 455-game, twelve-day week 1. **Item 101** matters at
@@ -337,24 +329,17 @@ these confirming-review observations without putting them into the active sequen
 
 - Backlog slug: `PLATFORM-SCORE-GAP-DIAGNOSTIC-FOLLOWUPS-v1`
 
-### Item 95 — reduce live-score staleness across unsynchronized cron and browser cadences
+### Item 95 — remaining live-score cadence work
 
-**Portion 1 is implemented and reviewed; awaiting merge.** `PLATFORM-BROWSER-POLL-CADENCE-v2`
-keeps the browser cache-only boundary and always reads the full eligible `(providerWeek,
-seasonType)` set. A visible tab reads every 90 seconds while at least one eligible game is inside
-`[kickoff − 15 min, kickoff + 8 h]` without usable final score evidence, then every 180 seconds.
-Usable final evidence requires a final status and both numeric scores; missing or ambiguous evidence
-keeps the whole tab fast until the hard +8h ceiling. The cron remains the only writer at three
-minutes, so the fast tier improves expected display staleness from ~180s to ~135s: about 45 seconds
-or 25%, not 2×.
+Portion 1 shipped via PR #567; its implementation and review record is in
+`PLATFORM-BROWSER-POLL-CADENCE-v2` in `docs/prompt-registry.md`. The settled baseline for the open
+work is a cache-only, full-partition browser read every 90 seconds inside the bounded fast tier and
+every 180 seconds otherwise, with the provider writer unchanged at three minutes.
 
-**The budget is accepted, not free.** The fast tier makes 40 cache-only `/api/scores` invocations per
-visible-tab hour and the slow tier makes 20. Item 128 landed first and removed the redundant
-`/api/teams` invocation from every tick, so the paired design averages roughly 27 browser function
-invocations per hour over a full eligibility window — about one third below the pre-Item-128 rate.
-Cost is bounded by visible tabs and the +8h ceiling. Each scores read still invokes the dynamic route
-and durable full-season reconciliation; observe its Active CPU attribution during a live slate and
-memoize that reconcile if it proves material.
+**Post-merge observation — measure `/api/scores?live=1` Active CPU during a live slate.** Each browser
+read still invokes the dynamic route and durable full-season reconciliation. If its attribution is
+material, memoize that reconcile; the optimization helps both cadence tiers and does not change what
+scores are read.
 
 **Remaining follow-up — retune the client staleness threshold.**
 `DEFAULT_LIVE_DELTA_STALE_THRESHOLD_MS` (`selectors/liveDelta.ts`) remains 7 minutes. It detects a
@@ -371,8 +356,7 @@ So the price of doubling equals the month's armed-hour count — a number nobody
 **Item 94 produces it.** Do not size this from an estimate; the whole point of 94 is that August's
 395 calls covers ~2 in-season days and is not a usable baseline.
 
-Portion 1 can merge independently: it spends no CFBD quota and its browser-function budget is
-accepted above. Portion 2 remains separate because it changes the provider writer and spends quota.
+Portion 2 remains separate because it changes the provider writer and spends quota.
 
 **Item 102 changes what portion 2 is asking — recorded 2026-09-04.** The planner does not create quota
 headroom: dead-day runs already bill zero provider calls, since the route bills only when armed. What
@@ -387,9 +371,9 @@ gates both halves of portion 2**, not just the quota half — which upgrades 94 
 measurement into the input for two decisions. It bills 0 (`GET /info`) and reports after the
 September reset, so the answer arrives at the start of October on its own.
 
-**Consequence for sequencing:** merge portion 1 after Item 128, as now ordered, and let the provider
-cadence decision land when Item 94 reports — with the headroom banked and quota cost measured rather
-than estimated. Do not size portion 2 before then; that is the whole reason Item 94 exists.
+**Consequence for sequencing:** let the provider cadence decision land when Item 94 reports — with
+the headroom banked and quota cost measured rather than estimated. Do not size portion 2 before then;
+that is the whole reason Item 94 exists.
 
 - Backlog slug: `PLATFORM-LIVE-SCORE-CADENCE-v1`
 
@@ -561,13 +545,11 @@ invocation, durable read, serialization and client parse per tick** — no new e
 **A team-ID-filtered endpoint is the worse fix**, and worth recording so it is not reached for: it
 shrinks transfer but still decodes the full durable record server-side, which is the expensive half.
 
-**Sequencing matters — this interacts with Item 95 portion 1.** Portion 1 halves the browser poll to
-90s, which DOUBLES the frequency of this. Item 95's own text already concedes the cost axis: "more
-polling means more Vercel function invocations, scaling with concurrent _visible_ tabs — far cheaper
-than provider calls, not free." Each tick is currently two invocations, and one of them is entirely
-avoidable. **Land this before or with portion 1 reaching production**, or portion 1 doubles a cost
-that did not need to exist. Together they are roughly neutral on invocations while halving latency,
-which is a better trade than either alone.
+**Sequencing satisfied.** Item 95 portion 1's 90-second fast tier doubles browser ticks relative to
+the 180-second baseline while armed. Item 128 merged first, so the faster tier never shipped with the
+redundant `/api/teams` invocation: during the fast window, one scores call every 90 seconds matches
+the pre-128 total rate of two calls every 180 seconds while improving expected display staleness by
+about 25%.
 
 **Two adjacent inefficiencies found in the same pass, not part of this item's fix:**
 
