@@ -48,8 +48,10 @@ alone, is not a receipt. If two references disagree, say so rather than resolvin
 
 ## Branch
 
-Branch from current `origin/main` as `platform/087-slice-5-item-112`. Work in
-`/Users/zach/cfb-app-codex`. A `pre-push` hook runs `npm run lint:all` and refuses a failing push; do
+Work in `/Users/zach/cfb-app-codex`, on `platform/087-slice-5-item-112` branched from current
+`origin/main`. **Creating the branch before the receipt is fine** — the gate blocks CODE, not a
+checkout. (An earlier dispatch message and this prompt disagreed on that; the gate's intent is that no
+implementation begins until the receipt is answered.) A `pre-push` hook runs `npm run lint:all` and refuses a failing push; do
 not bypass it with `--no-verify`. Claude is concurrently in `/Users/zach/cfb-app-claude` on platform
 work (`src/lib/schedule`, `src/lib/server`) — no component overlap.
 
@@ -65,8 +67,13 @@ Schedule adopts the shared scoreboard row, per the design doc § Schedule.
 3. **Broadcast is tier 1**, in the status row beside kickoff, on **scheduled and live rows only**.
    Games with no listed broadcast omit it rather than rendering a placeholder.
 4. **Conference in tier 2 on its own line**, not appended to the odds string.
-5. **Sort strictly by kickoff ascending within each date group.** Live games are NOT floated. Kickoff
-   times render on every row including finals.
+5. **Sort strictly by kickoff ascending within each date group.** Live games are NOT floated.
+   **Kickoff times render on scheduled and live rows ONLY — finals carry none.** Your receipt
+   correctly found that the design doc and `DESIGN.md:208` conflicted here. **Owner ruling
+   2026-09-05: `DESIGN.md` wins** — a kickoff time is a useful fact only while the game is in the
+   future, and the "order looks arbitrary" objection does not survive, because the rows are still
+   sorted by kickoff so for finals the ORDER ITSELF carries the relative timing. The design doc has
+   been corrected; re-read § *Sorted strictly by kickoff*.
 6. **Carry the `ownerOutcomeRowClasses` sibling asymmetry into `MatchupsWeekPanel`**
    (`MatchupsWeekPanel.tsx:99`, consumed at `:165`).
 7. **Eyebrows render as bronze pills**, uniformly — no per-class variation. Values and the reasoning
@@ -123,8 +130,10 @@ deletion; what your change does to landing position; and anything you deliberate
 Item 133b assigns them to whichever slice owns the file. Fixing them here is in scope; leaving them is
 acceptable if you say so.
 
-Push the BRANCH ONLY, and push `preview` with it — you own the feature branch, so `preview` is yours
-per `AGENTS.md` → **Preview branch**. Do not open a PR.
+Push the BRANCH ONLY. **Do NOT push `preview` or any preview branch.** An earlier version of this
+prompt said the opposite; that was an error and `AGENTS.md` → **Preview branch** governs — `preview`
+belongs to Claude alone. The 2026-09-05 amendment narrowed WHICH Claude session owns it (the one
+holding the feature branch); it did not extend it to Codex. Do not open a PR.
 
 The Codex worktree's dev server is port **3010**, not 3000.
 </output_contract>

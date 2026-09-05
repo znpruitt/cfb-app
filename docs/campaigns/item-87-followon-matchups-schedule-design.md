@@ -110,7 +110,21 @@ Not appended to the odds string, where it read as an afterthought and coupled tw
 
 ### Sorted strictly by kickoff, ascending, within each date group
 
-A schedule's contract is time order, so live games are **not** floated to the top the way the Overview promotion model does — the filter covers "show me what's live" without breaking the one guarantee the view makes. Kickoff times therefore render on every row including finals: with the sort keyed to a value, hiding that value on most rows makes the order look arbitrary.
+A schedule's contract is time order, so live games are **not** floated to the top the way the Overview promotion model does — the filter covers "show me what's live" without breaking the one guarantee the view makes.
+
+**Kickoff times render on scheduled and live rows only. Finals carry none — owner decision
+2026-09-05.** An earlier draft of this section said the opposite ("kickoff times therefore render on
+every row including finals: with the sort keyed to a value, hiding that value on most rows makes the
+order look arbitrary"). **That was wrong, and it contradicted `DESIGN.md:208`**, which states that a
+final row carries no date and no time and names *date-group headings on Schedule* as the container
+supplying temporal context — a dated owner decision of 2026-09-04. `DESIGN.md` is canonical for UI;
+this document was the one in error.
+
+The reasoning that resolves it rather than merely overruling it: **a kickoff time is a useful fact
+only while the game is in the future.** For a completed game the result is the information. And the
+"order looks arbitrary" objection does not survive — the rows are still sorted by kickoff, so for
+finals the ORDER ITSELF carries the relative timing. The value is redundant on those rows, not
+hidden.
 
 **Open — landing position.** Ascending order means a mid-Saturday visit opens on the morning's finals with live games below the fold. Options: leave it, scroll to the first non-final game on load, or anchor the current date group. A scroll-position question, not a sort question.
 
