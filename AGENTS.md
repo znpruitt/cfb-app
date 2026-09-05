@@ -315,6 +315,30 @@ Implementation prompts automate the review cycle instead of relaying each result
 
 **Reconstruction over accumulation.** When a branch has taken two remediation rounds and still yields credible findings, or when review shows the scope itself was wrong (crossing automation jobs, shipping an untested second surface), **abandon the branch and rebuild the settled behavior from clean `main`** rather than patching further. Reconstruct by re-deriving, not by cherry-picking the stopped commits — the stopped history carries the defects that stopped it. Record the abandoned attempt as superseded/unimplemented and the replacement as the execution record. Named failure case: `PLATFORM-086F2H1T1` v1 (two remediation rounds, a false claim in a commit message, and a client-feedback layer that could not work in production).
 
+**Discarding the code must not discard what the rounds LEARNED.** Rebuilding from `main` throws away
+every fix the stopped branch accumulated — including the correct ones from EARLIER rounds, which
+survive nowhere else once the branch is abandoned. The final review report is not sufficient: it
+names only the round that stopped the branch. Before dispatching a reconstruction, **walk the whole
+stopped history** — `git log` the branch and read each remediation commit's message AND diff, not just
+the last one — and carry forward, as SPECIFICATION in the replacement prompt:
+
+1. **Every accepted finding from every round**, restated as a requirement rather than a bug report.
+   A latent finding still counts: it was latent in the old shape, not necessarily in the new one.
+2. **Findings that were REFUTED, with the evidence that refuted them** — especially anything settled
+   by a production measurement or an owner decision. Otherwise the next review spends a round
+   re-deriving a refutation that already cost one.
+3. **Fixes that must NOT be carried forward**, named explicitly with the reason. A remediation that
+   caused a later finding will look like a correction to anyone reading the stopped diff, and the
+   rebuild will reintroduce it.
+4. **Subtle invariants a commit body records but the code does not make obvious** — a line-height that
+   preserves row height, an overflow constraint that keeps a slot from widening its container. These
+   are the first things lost, and they read as incidental styling in a diff.
+
+Named failure case: `PLATFORM-087` slice 5a v2, dispatched carrying only the second round's five
+findings while round one's three fixes — a conditional bullet separator, a tier-2 overflow constraint,
+and a marker line-height — existed nowhere but the abandoned commits. Caught by the owner asking what
+happened to the earlier rounds, after the rebuild had already started.
+
 Reconstruction is for sedimentary **product behavior, architecture, or scope** — not merely for a
 misstated comment or an overbuilt proof harness around otherwise-sound production code. Classify
 accepted findings as product/security behavior, verification-harness defects, or documentation
