@@ -1,4 +1,8 @@
-import type { ProviderDataset } from '../providerDatasets.ts';
+import {
+  PARTITION_SCOPED_DATASETS,
+  isPartitionScopedDataset,
+  type ProviderDataset,
+} from '../providerDatasets.ts';
 import { schedulerDeliveryPolicy } from './schedulerDeliveryHealth.ts';
 import type { ExternalSchedulerJob } from './schedulerExecutionStatus.ts';
 
@@ -30,12 +34,7 @@ import type { ExternalSchedulerJob } from './schedulerExecutionStatus.ts';
  * reading null three minutes after a successful run, so this covers both.
  */
 
-/** Datasets whose refresh is recorded per partition and never per year. */
-export const PARTITION_SCOPED_DATASETS: readonly ProviderDataset[] = ['scores', 'game-stats'];
-
-export function isPartitionScopedDataset(dataset: ProviderDataset): boolean {
-  return PARTITION_SCOPED_DATASETS.includes(dataset);
-}
+export { PARTITION_SCOPED_DATASETS, isPartitionScopedDataset };
 
 /** The scheduled job whose receipt carries a dataset's expectation. */
 export const EXPECTATION_JOB_BY_DATASET: Partial<Record<ProviderDataset, ExternalSchedulerJob>> = {

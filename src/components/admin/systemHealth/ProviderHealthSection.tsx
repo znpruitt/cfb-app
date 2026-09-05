@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { getProviderDatasetDescriptor } from '@/lib/providerDatasets';
+import { getProviderDatasetDescriptor, isPartitionScopedDataset } from '@/lib/providerDatasets';
 import type { AutomationHealth } from '@/lib/server/systemHealthIssues';
 import type {
   CanonicalRefreshFact,
@@ -55,8 +55,9 @@ export default function ProviderHealthSection({
       <ul className="divide-y divide-gray-200 dark:divide-zinc-800">
         {datasets.map((row) => {
           const descriptor = getProviderDatasetDescriptor(row.dataset);
-          const outcome = refreshOutcomeDisplay(row.canonicalStatus);
-          const timestamp = canonicalTimestamp(row.canonicalStatus);
+          const outcomeFact = outcomeFactFor(row);
+          const outcome = refreshOutcomeDisplay(outcomeFact);
+          const timestamp = canonicalTimestamp(outcomeFact);
           return (
             <li key={row.dataset}>
               <details className="group">
@@ -146,6 +147,29 @@ export default function ProviderHealthSection({
       </ul>
     </section>
   );
+}
+
+/**
+ * Which fact this row's outcome line should describe (Item 88).
+ *
+ * For `scores` and `game-stats` the canonical YEAR record is never written —
+ * they refresh per week partition — so reading it produced "No refresh history"
+ * on a dataset that had refreshed minutes earlier, printed directly beside a
+ * freshness dot reading "Current". That contradiction is the defect the item was
+ * filed about; the truth was already on the row in `latestScopedActivity`.
+ *
+ * Deliberately narrow: only when the canonical record is genuinely ABSENT. An
+ * `invalid` or `unavailable` canonical status still surfaces as itself, because
+ * a malformed record is a fact worth showing rather than papering over with a
+ * partition read.
+ */
+function outcomeFactFor(row: ProviderDatasetHealthRow): CanonicalRefreshFact {
+  if (!isPartitionScopedDataset(row.dataset)) return row.canonicalStatus;
+  if (row.canonicalStatus.state !== 'absent') return row.canonicalStatus;
+  const latest = row.latestScopedActivity;
+  return latest.state === 'available'
+    ? { state: 'available', status: latest.status }
+    : row.canonicalStatus;
 }
 
 function refreshOutcomeDisplay(fact: CanonicalRefreshFact): { label: string; tone: StateTone } {

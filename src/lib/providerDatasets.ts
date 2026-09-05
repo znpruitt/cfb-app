@@ -35,6 +35,26 @@ export const PROVIDER_DATASETS: readonly ProviderDataset[] = [
   'game-stats',
 ] as const;
 
+/**
+ * Datasets whose refresh is recorded PER PARTITION and never per year.
+ *
+ * `scores` and `game-stats` write `weekPartitionScope(year, week, seasonType)`,
+ * so the year-scoped record every other dataset is read through is never written
+ * for them — verified in production, where `provider-refresh-status` holds
+ * `scores:week:2026:1:regular` and no `scores:year:2026`. Any surface that reads
+ * the canonical year record must consult the partition activity instead, or it
+ * reports "No refresh history" for a dataset that refreshed minutes ago
+ * (Item 88).
+ *
+ * Lives here rather than in a server module because it is a property of the
+ * dataset, and both the server health model and the admin row need it.
+ */
+export const PARTITION_SCOPED_DATASETS: readonly ProviderDataset[] = ['scores', 'game-stats'];
+
+export function isPartitionScopedDataset(dataset: ProviderDataset): boolean {
+  return PARTITION_SCOPED_DATASETS.includes(dataset);
+}
+
 export function isProviderDataset(value: unknown): value is ProviderDataset {
   return typeof value === 'string' && PROVIDER_DATASETS.includes(value as ProviderDataset);
 }

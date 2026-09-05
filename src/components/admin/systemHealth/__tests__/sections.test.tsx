@@ -229,6 +229,26 @@ test('provider renders 6 rows with freshness, outcome, automation as separate fa
   );
 });
 
+/** Every dataset healthy, then override just the ones a test cares about. */
+function refreshSnapshotWith(
+  overrides: Parameters<typeof refreshSnapshot>[0] = {}
+): ReturnType<typeof refreshSnapshot> {
+  const base = Object.fromEntries(
+    PROVIDER_DATASETS.map((d) => [
+      d,
+      { canonical: canonicalOutcome(d, 'succeeded'), latest: canonicalOutcome(d, 'succeeded') },
+    ])
+  );
+  return refreshSnapshot({ ...base, ...overrides });
+}
+
+/** A successful scores WEEK-partition activity fact, as production actually holds it. */
+function scoredPartitionActivity() {
+  const fact = canonicalOutcome('scores', 'succeeded');
+  if (fact.state !== 'available') throw new Error('fixture: expected an available status');
+  return { state: 'available' as const, status: fact.status };
+}
+
 // PLATFORM-090 — the Game stats row renders the neutral lifecycle state (gray
 // dot + "None expected"), not the yellow "No cached data" warning, when the
 // canonical authority says no evidence is expected yet.
@@ -480,4 +500,84 @@ test('scheduler timestamps render absolute AND relative, not relative alone', ()
   assert.ok(html.includes('Started'), 'the value the delivery contract actually compares');
   // Relative kept ALONGSIDE — it is the faster read when the answer is "minutes".
   assert.match(html, /\(\s*[^)]*ago\s*\)/, 'relative form retained in parentheses');
+});
+
+// Item 88 — the Scores row's outcome line reads the PARTITION record, because
+// the canonical year record is never written for it.
+test('provider Scores row shows its partition outcome, not "No refresh history"', async () => {
+  const model = await buildModel({
+    providerRefresh: () =>
+      Promise.resolve(
+        refreshSnapshotWith({
+          // Exactly production's shape: no year record, a real week record.
+          scores: { canonical: { state: 'absent' }, latest: scoredPartitionActivity() },
+        })
+      ),
+  });
+
+  const html = renderToStaticMarkup(
+    <ProviderHealthSection
+      datasets={model.datasets}
+      automation={model.automation}
+      year={model.year}
+      nowMs={NOW}
+    />
+  );
+
+  assert.ok(
+    !html.includes('No refresh history'),
+    'the row no longer claims no history while a partition refreshed'
+  );
+  assert.ok(html.includes('Succeeded'), 'it shows the partition outcome instead');
+});
+
+test('POSITIVE CONTROL: a dataset with genuinely no history still says so', async () => {
+  // Proves the assertion above is not simply that the string never renders. A
+  // year-scoped dataset with no record at all must still read "No refresh
+  // history" — this fix is scoped to the two partition-scoped datasets.
+  const model = await buildModel({
+    providerRefresh: () =>
+      Promise.resolve(
+        refreshSnapshotWith({
+          schedule: { canonical: { state: 'absent' }, latest: { state: 'absent' } },
+        })
+      ),
+  });
+
+  const html = renderToStaticMarkup(
+    <ProviderHealthSection
+      datasets={model.datasets}
+      automation={model.automation}
+      year={model.year}
+      nowMs={NOW}
+    />
+  );
+
+  assert.ok(html.includes('No refresh history'), 'a truly absent history is still reported');
+});
+
+test('Item 88: a MALFORMED canonical record still surfaces, never masked by the partition read', async () => {
+  // The routing is deliberately narrow — only a genuinely ABSENT year record is
+  // replaced. A corrupt one is a fact worth showing, not something to paper over
+  // with a partition read. A mutation proved this narrowness was documented but
+  // unenforced.
+  const model = await buildModel({
+    providerRefresh: () =>
+      Promise.resolve(
+        refreshSnapshotWith({
+          scores: { canonical: { state: 'invalid' }, latest: scoredPartitionActivity() },
+        })
+      ),
+  });
+
+  const html = renderToStaticMarkup(
+    <ProviderHealthSection
+      datasets={model.datasets}
+      automation={model.automation}
+      year={model.year}
+      nowMs={NOW}
+    />
+  );
+
+  assert.ok(html.includes('Status malformed'), 'the corrupt record is reported as corrupt');
 });
