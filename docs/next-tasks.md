@@ -785,9 +785,20 @@ all of the saving is.**
 
 #### Step 1 — cluster windows with a margin (schedule-derived, ONE writer)
 
-Poll densely from `first kickoff − 15m` to `last kickoff + margin`, then a ~2-hour slow
-reconciliation poll, then off until the next cluster. All of it derives from kickoff times, so the
-daily planner is the only thing that ever writes the cron.
+Three phases, all derived from kickoff times, so the daily planner is the only thing that ever
+writes the cron:
+
+| Phase | Window | Rate |
+| --- | --- | --- |
+| Dense | `first kickoff − 15m` → `last kickoff + 8h` | every 3 min |
+| Slow | `last kickoff + 8h` → `last kickoff + 24h` | hourly |
+| Off | until the next cluster arms | — |
+
+**CORRECTION 2026-09-05:** this item first said "a ~2-hour slow reconciliation poll", which would
+have ended all polling near `+10h` and silently dropped the `kickoff + 24h` reconciliation guarantee
+that PLATFORM-105A found already straining. The slow phase must run to `+24h`. Measured cost of doing
+it properly: **356 extra wakeups in October** of 14,880, taking the saving from 61% to 59%. Sixteen
+hourly checks across the tail are ample for a fact that changes at most once.
 
 **CORRECTION to this item's first filing.** It attributed the saving to observing live game state.
 It does not: the measurement behind these numbers ended each cluster at a FIXED offset after the last
@@ -810,8 +821,11 @@ pass still collects it, late rather than never.
 | Wakeups / month | Sep | Oct | Nov | Year |
 | --- | --- | --- | --- | --- |
 | live-scores today | 14,400 | 14,880 | 14,400 | 175,200 |
-| Step 1 (8h margin) | — | 5,395 | — | — |
-| Step 1 (4.75h margin) | 3,072 | 3,965 | 4,127 | 12,209 |
+| Step 1, dense 8h + hourly slow to +24h | 4,351 | 6,156 | 5,757 | — |
+| removed | 70% | **59%** | 60% | — |
+
+Measured through `utcHoursCovered`, i.e. the hours a cron can actually express — partial hours round
+up, which costs ~3 points against the raw windows and is already included above.
 
 #### Step 2 — stand down when the games actually finish (+~9 points)
 
