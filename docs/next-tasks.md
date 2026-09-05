@@ -778,6 +778,37 @@ not be read as a requirement on the other.**
 
 - Backlog slug: `PLATFORM-SCHEDULE-REFRESH-FORENSICS-v1`
 
+### Item 135 — "Show N more opponents" undercounts on Matchups
+
+**The ask:** make the opponent count reflect distinct opponents. It is wrong on screen today.
+
+**The mechanism, traced 2026-09-05.** `deriveOpponentDescriptor`
+(`src/lib/selectors/matchups.ts:22`) returns a per-owner descriptor for owned opponents but collapses
+unowned ones to one of two **sentinels**: `'FCS'` (`:39`) and `'NoClaim (FBS)'` (`:42`).
+`summarizeSlateOpponents` (`:51`) keys its count map on that string, so **every** unowned FBS opponent
+becomes ONE entry and every FCS opponent becomes ONE entry. `MatchupsWeekPanel:335` derives
+`hiddenCount` from `opponentSummaryEntries.length`, and `:398` renders it as
+_"Show N more opponents"_. Three unowned opponents count as one, so the number is understated on any
+slate carrying more than one — a rendered, wrong number.
+
+**Scope is narrower than it looks — do NOT widen it.** The sentinels are correct where they render:
+`MatchupsWeekPanel:194` already suppresses `'NoClaim (FBS)'` from the row descriptor, and `'FCS'`
+renders deliberately as a badge because an FBS-over-FCS result means something different (the base
+addendum's rule). **The defect is in the COUNT only.** Fixing it means giving the summary a key that
+distinguishes opponents — the team identity — while leaving the rendered descriptor alone. Do not
+change what any row displays.
+
+**Why it is filed separately from Item 117.** 117 records this as a constraint on its rework — that
+wiring `entry.label` into JSX must suppress the sentinel — which is a rule about not making it worse,
+not a fix for what ships now. Doing it inside 117 means inheriting 117's whole scope for a defect
+that is one selector and one count. **117 keeps its constraint**; this item fixes the live number.
+
+**Value:** small, member-visible, and a correctness fix rather than a redesign. Independent of the UI
+spine: `selectors/matchups.ts` plus one panel, no shared component, so it cannot collide with slice 5
+or with Item 102.
+
+**Blocker:** none.
+
 ### Item 134 — Overview three-column tier
 
 **The ask:** Overview's game grid gains a third tier — 1 column below 760px, 2 to 1300px, 3 above.
