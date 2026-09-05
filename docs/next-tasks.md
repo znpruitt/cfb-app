@@ -26,18 +26,17 @@ Supersedes: (none)
 
 `CURRENT`: **Item 102** — polling planner. (Item 88 is superseded in full by **Item 132**; both
 attempts at it were reverted.)
-`NEXT`: **Item 87 slice 5a** — shared scoreboard contract widening. **In remediation on
-`platform/087-slice-5a-scoreboard-contract-v2`** (2026-09-05); kickoff at
-`docs/prompts/platform-087-slice-5a-scoreboard-contract-v2.md`.
+`NEXT`: **Item 87 slice 5a** — shared scoreboard contract widening. **Review converged and pre-merge
+closeout is complete on `platform/087-slice-5a-scoreboard-contract-v2`** (2026-09-05); not yet merged.
+The kickoff is `docs/prompts/platform-087-slice-5a-scoreboard-contract-v2.md`.
 
 - **v1 was STOPPED, not merged.** `platform/087-slice-5a-scoreboard-contract` reached `b80004c9`
   after two remediation rounds without converging; per `AGENTS.md` → Review and remediation limits it
   was abandoned rather than patched a third time. It is retained for reference only, has no PR, and
   must not merge. Both rounds' findings were carried into the v2 prompt as specification.
 - **v2** rebuilt from `main` as a single commit. Both reviewers gathered against `c8562d57`; seven
-  findings accepted — one production-behavior family (optional-slot presence semantics) and six
-  proof-surface defects. **One cohesive remediation round is authorized and in progress**; a second
-  would require owner approval and only for a defect that round causes.
+  findings were accepted — one production-behavior family (optional-slot presence semantics) and six
+  proof-surface defects. The first cohesive remediation landed at `254ff171`.
 - **Second remediation round — owner exception granted 2026-09-05.** Both confirming reviewers
   agreed on one remaining production defect: `hasRenderableContent` does not recurse into
   `React.Fragment` children, so an empty fragment renders an empty context/tier-2 wrapper. Only that
@@ -47,6 +46,8 @@ attempts at it were reverted.)
   these are gaps in a contract **five serial slices inherit** (slice 5 + 112 → 117 → 115 → 119 →
   118), so a follow-up item would have to land before slice 5 to be worth anything, making it a
   blocker rather than a follow-up.
+  The exception landed at `afbc81c5`; both confirming reviewers converged on that commit with no
+  credible in-scope P2 remaining.
 - **Seam audit (2026-09-05), for the five inheriting slices — do not re-derive.** The shared fact is
   "does this slot have renderable content". Writers today are `OverviewPanel` only: `contextSlot`
   `:772` (an unconditional `<div>`, always present), `contextSlot` `:858`
@@ -61,9 +62,10 @@ attempts at it were reverted.)
 - **Tier-2 reserves nothing.** Settled 2026-09-05: it is optional, variable-height expansion content,
   an empty wrapper would reserve only margin, and it cannot align against real content anyway. The
   unconditional odds band aligns tier-1. Expansion alignment belongs to the consuming slice.
-- **Closeout still owed at merge:** the `DESIGN.md` anatomy update and the `docs/next-tasks.md`
-  known-limitation entry (provider classifications absent 2018–2024, so the FCS marker is inert on
-  historical seasons) land together in the pre-merge commit, after convergence.
+- **Known limitation:** provider classifications are absent from 2018–2024 data, so the FCS marker
+  is inert on every historical season in that range. It renders only where current-season rows carry
+  classification; this is expected data coverage, not a broken marker. The widened anatomy and this
+  limitation are recorded in the required pre-merge closeout without claiming the branch is merged.
 
 Owner-selected run order (2026-09-03), replacing the 2026-09-02 order. Ordering values, stated by the
 owner: **user-facing improvements, data correction, and bug fixes first; prerequisites persisted in

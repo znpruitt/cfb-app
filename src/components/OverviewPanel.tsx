@@ -769,6 +769,8 @@ function WatchlistScoreboardList({
                 : undefined
             }
             matchupLabel={formatGameMatchupLabel(game)}
+            // Keep this wrapper unconditional: min-h-[22px] deliberately reserves the reason-row
+            // band even when empty. Passing undefined would silently drop that 22px reservation.
             contextSlot={
               <div
                 className="flex min-h-[22px] min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap"
