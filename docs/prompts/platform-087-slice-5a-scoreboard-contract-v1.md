@@ -23,7 +23,17 @@ Widen the contract with four additions. Each is a PROP the component accepts and
 change what an existing caller renders today.
 
 1. **Classification marker in the prefix slot** — `rank | FCS | empty`, MUTUALLY EXCLUSIVE. A ranked
-   team shows its rank; an unranked non-FBS team shows an FCS marker; everything else shows nothing.
+   team shows its rank; an unranked team **whose classification is exactly `fcs`** shows an FCS
+   marker; everything else shows nothing.
+
+   **CORRECTION 2026-09-05, after dispatch.** This originally said "an unranked NON-FBS team shows an
+   FCS marker". That is wrong and would ship a defect: `ProviderClassification` is
+   `'fbs' | 'fcs' | 'ii' | 'iii'` (`conferenceSubdivision.ts:89`), and Division II/III map to `OTHER`,
+   not FCS — so a non-FBS test would label real D-II and D-III opponents as FCS. The settled design
+   says "FCS if FCS, otherwise empty"
+   (`docs/campaigns/item-87-followon-matchups-schedule-design.md:41-47`). Require
+   `classification === 'fcs'`, and include NEGATIVE coverage for `'ii'` and `'iii'`.
+
    Rank comes from the existing `rank`/`rankSource` participant fields; classification from
    `homeClassification`/`awayClassification` on `AppGame` (`src/lib/schedule.ts:102`), matched EXACTLY
    as `rankings.ts` matches — no substring or case-insensitive widening.
@@ -38,8 +48,9 @@ change what an existing caller renders today.
   break each new branch in turn and show a SPECIFIC named test going red, then restore. A screenshot,
   a visual check, or "I verified the markup is unchanged" is not evidence.
 - Every new prop is exercised by a test that fails when the prop is ignored.
-- The rank/FCS exclusivity is asserted in BOTH directions: a ranked non-FBS team shows the rank and
-  NOT the FCS marker, and an unranked non-FBS team shows the marker.
+- The rank/FCS exclusivity is asserted in BOTH directions: a ranked FCS team shows the rank and NOT
+  the FCS marker, and an unranked FCS team shows the marker.
+- NEGATIVE coverage for `'ii'` and `'iii'`: neither may render an FCS marker.
 - The classification match is EXACT. A test must pin that a near-miss value does not produce a marker.
 - Test count delta reported as a measured number.
 </completeness_contract>
