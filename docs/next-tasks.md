@@ -24,7 +24,8 @@ Supersedes: (none)
 
 ## Current execution order
 
-`CURRENT`: **Item 102 + Item 88** — polling planner and its health model.
+`CURRENT`: **Item 102** — polling planner. (Item 88 is superseded in full by **Item 132**; both
+attempts at it were reverted.)
 `NEXT`: **Item 87 slice 5a** — shared scoreboard contract widening.
 
 Owner-selected run order (2026-09-03), replacing the 2026-09-02 order. Ordering values, stated by the
@@ -2980,6 +2981,15 @@ Acceptance boundary:
 - No scheduled row terminates in an empty value.
 - Ranked information appears once as inline detail and once as a scannable category chip — not three
   times.
+
+### Item 88 — SUPERSEDED by Item 132
+
+**SUPERSEDED IN FULL 2026-09-05.** Both attempts — a freshness model and a display-only fix — were
+built, reviewed, and reverted. Neither merged; nothing reached production. The evidence and the
+pitfalls each one found are in
+[`docs/campaigns/item-132-partition-scoped-health.md`](campaigns/item-132-partition-scoped-health.md).
+**Item 132 supersedes the acceptance bullets below**, which are retained only as the original
+diagnosis.
 
 ### Item 88 — Provider data health cannot describe a schedule-armed dataset
 
