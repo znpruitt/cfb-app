@@ -26,25 +26,34 @@ Supersedes: (none)
 
 `CURRENT`: **Item 102** — polling planner. (Item 88 is superseded in full by **Item 132**; both
 attempts at it were reverted.)
-`NEXT`: **Item 87 slice 5a** — shared scoreboard contract widening.
+`NEXT`: **Item 87 slice 5a** — shared scoreboard contract widening. **Dispatched to Codex
+2026-09-05** on `platform/087-slice-5a-scoreboard-contract`; kickoff at
+`docs/prompts/platform-087-slice-5a-scoreboard-contract-v1.md`.
 
 Owner-selected run order (2026-09-03), replacing the 2026-09-02 order. Ordering values, stated by the
 owner: **user-facing improvements, data correction, and bug fixes first; prerequisites persisted in
 place rather than deferred.** The Item 87 follow-on inputs (`docs/campaigns/item-87-followon-*.md`,
 committed `c9f76081`) surfaced four new items and one split; the remaining open work is placed below.
 
-1. **Item 102 + Item 88** — polling planner and the health model, together. 102 narrows the cron and
-   88 is the reason that is safe: `schedulerDeliveryHealth.ts:82,88` hardcodes the cadence, so a
-   planner shipped alone makes both jobs read `late` forever. Held at the top of the large work
-   because it is a **data-correction** item as much as a cost one: the manual pause it retires can
-   strand a game's final permanently at the `kickoff + 24h` boundary. The campaign's projection puts
-   Item 99 alone at ~2.8h/30d against the 4h allowance; Item 102 reaches ~1.1h.
-2. **Item 126** — schedule-refresh forensics. Placed here, immediately after 102 + 88, because it is
-   the **same code layer, not merely adjacent**: `schedulerDeliveryHealth.ts` (Item 88) imports
-   `schedulerExecutionStatus.ts` (Item 126's core file, home of `scheduleYearsTarget`), and
-   `systemHealthIssues.ts` consumes both. Running 126 concurrently with 102 + 88 means two agents
-   editing one receipt contract. Doing them adjacent also avoids reworking System Health twice —
-   88 changes what a receipt _means_ to that surface, and 126 changes what a receipt _contains_.
+1. **Item 102** — polling planner. Held at the top of the large work because it is a
+   **data-correction** item as much as a cost one: the manual pause it retires can strand a game's
+   final permanently at the `kickoff + 24h` boundary.
+
+   **Item 88 no longer pairs with it.** That pairing existed because
+   `schedulerDeliveryHealth.ts:82,88` hardcodes the cadence, so a narrowed cron makes both jobs read
+   `late` forever — but Item 88 is superseded by **Item 132**, whose scope is partition-scoped
+   FRESHNESS, not delivery cadence. The coupling is internal to Item 102 and is already stated as its
+   own **collision 2**. Slice 1 (window derivation) merged 2026-09-05; slices 2–4 remain.
+
+   **The ~1.1h projection is ANNUAL, not the binding month.** Measured 2026-09-05: October runs 74%
+   armed under today's `kickoff + 24h` tail, so the planner alone lands near ~2.25h. **Item 130** is
+   what reaches the target in-season — see its entry and
+   [`docs/campaigns/vercel-active-cpu.md`](campaigns/vercel-active-cpu.md).
+2. **Item 126** — schedule-refresh forensics. Placed immediately after Item 102 because it is the
+   **same code layer, not merely adjacent**: `schedulerDeliveryHealth.ts` (which Item 102's collision
+   2 must change) imports `schedulerExecutionStatus.ts` (Item 126's core file, home of
+   `scheduleYearsTarget`), and `systemHealthIssues.ts` consumes both. Running 126 concurrently with
+   102 means two agents editing one receipt contract.
    **Operationally independent, though:** 126's incident is the weekly `schedule-refresh` job, while
    102 narrows `live-scores` and `game-stats`. Neither blocks the other; the conflict is in files.
    Observation-only by its own acceptance boundary, so it is the lower-risk half of the pair.
