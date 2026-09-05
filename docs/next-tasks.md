@@ -843,6 +843,27 @@ a week-zero game in Ireland kicks off near 11:00 UTC, so this is not hypothetica
 production evidence of how often games really overrun the margin — which prices step 2 with data
 instead of this item's estimate.
 
+**Step 2 CANNOT simply reuse `mode === 'none'`, and the reason was found by Codex reviewing the
+browser cadence (2026-09-05).** `resolveWindowState` treats anything that is not a cached `final` as
+`unresolved-open`, and says so deliberately: _"an unclear cache never suppresses a poll."_ That
+fail-safe is right for "should I make a provider call" and WRONG for "should I stop waking up" —
+the two questions want opposite behaviour from an unclear state. Two conditions therefore defeat the
+stand-down, both verified:
+
+- **A game that never attaches a score pack** (phantom row, identity miss — PLATFORM-114 found ten
+  phantom games) has `cachedStatus: null`, reads `unresolved-open`, and holds dense polling to
+  `kickoff + 24h`.
+- **A provider row marked `completed` but missing one score** is normalized to in-progress, never
+  reaches `final`, and does the same. The cached `ScorePack` is LOSSY here — the original `completed`
+  is discarded — so the signal cannot be recovered downstream. It must originate where the live cron
+  still holds normalized provider state (`scheduled` / `in_progress` / `completed`) and be persisted
+  as target-scoped evidence.
+
+**Step 1 is structurally immune to both** because it reads kickoff times and never consults cache
+state. That is now a stronger argument for the margin than the original framing gave it: step 2 is
+correct for a game that overruns and INCORRECT for a game that fails to attach, and which is more
+common is unmeasured.
+
 **Reconciliation stays per-cluster, not per-slate.** Condensing it to once per week bucket was
 considered and rejected: a Thursday game would reconcile Sunday night, stretching `kickoff + 24h` to
 +72h, and PLATFORM-105A already found that boundary giving up on late finals. A 2-hour slow poll per
