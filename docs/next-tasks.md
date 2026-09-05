@@ -2122,9 +2122,40 @@ Ships dormant.
 - Derive the delivery expectation (cadence + grace) from the same windows, replacing the hardcoded
   `*/3` / `*/15` and 6/30-minute grace at `schedulerDeliveryHealth.ts:82,88` — **collision 2**. Fall
   back to today's constants when no plan exists, so this ships as a no-op against current production.
-- The **empty-window case is a product decision, not an edge case**: what cron does the planner emit
-  in the offseason, when no game is scheduled at all? That is the behaviour superseding the manual
-  half of Item 96. Decide it here, in the pure layer, where it is cheap to test.
+- **The planner never emits an empty cron — owner decision 2026-09-05.** Off-window it emits a
+  **floor cadence** (hourly), so the job always runs and delivery health stays truthful with NO change
+  to `SchedulerDeliveryState` and none of its four consumers touched. The offseason is not a special
+  case: it is a long run of dead days, one rule covers both, and the schedule stays present so
+  `inspect` and delivery health keep working. This is the behaviour superseding the manual half of
+  Item 96.
+
+  **Why a state change was rejected.** `SchedulerDeliveryState` is
+  `on-time | late | missing | invalid | unavailable` — there is no way to say "not supposed to run",
+  so a narrowed cron on a dead day would report `late` or `missing`, both alarms. Adding a sixth
+  member (mirroring PLATFORM-090's `ProviderDataExpectation`) would touch `deliveryStateDisplay`,
+  `deliveryRowStatus`, `noReceiptExecutionLabel` and `systemHealthIssues.ts:352`. The floor cadence
+  buys nearly the same saving for none of that.
+
+  **The floor's cost, computed 2026-09-05** (`*/3` = 480 runs/day, `*/15` = 96; armed 17% annually,
+  74% in October):
+
+  | job | today | windows-only | with hourly floor |
+  | --- | --- | --- | --- |
+  | live-scores, annual | 480/day | 82 | **102 (79% below today)** |
+  | live-scores, October | 480/day | 355 | **361 (25% below today)** |
+  | game-stats, annual | 96/day | 16 | **36 (62% below today)** |
+  | game-stats, October | 96/day | 71 | **77 (20% below today)** |
+
+  The floor costs ~20 runs/day against windows-only in the annual case and ~6/day in October. Update
+  `docs/campaigns/vercel-active-cpu.md` with these figures when slice 2 ships rather than leaving the
+  windows-only projection standing.
+
+- **`cadenceLabel` is plan-derived — owner decision 2026-09-05.** It renders verbatim at
+  `SchedulerHealthSection.tsx:99` and must show the day's actual shape, e.g. _"every 3 min until 04:00
+  UTC, then hourly"_, not a static rule. **Ordering consequence:** rendering it needs the plan record,
+  which does not exist until slice 3. Slice 2 therefore derives the label from the windows it is
+  handed and keeps the existing static constants as the fallback; the health row is not wired to a
+  durable plan until slice 3 lands. Do not build a plan reader in slice 2.
 - **Must not:** call QStash, read `QSTASH_TOKEN`, write durable state, or change any rendered output.
 
 **Slice 3 — the durable planner record, and `inspect` divergence against it.** The reconstructibility
