@@ -3,8 +3,24 @@ import type { OwnerSlateGame, OwnerWeekSlate, WeekMatchupSections } from '../mat
 import type { ScorePack } from '../scores';
 import { isPolicyFcsConference } from '../conferenceSubdivision';
 
+// Games shown before an owner card collapses the rest behind its control.
+const DEFAULT_VISIBLE_GAMES = 3;
+// Opponent groups the DORMANT `formatSlateSummaryText` lists before summarising
+// the rest as `+N`. Deliberately distinct from `DEFAULT_VISIBLE_GAMES`: that one
+// counts games, this one counts opponent groups, and they are equal by
+// coincidence rather than by rule.
 const DEFAULT_VISIBLE_OPPONENTS = 3;
 // Selector invariant: this module emits deterministic derived copy/tokens only.
+
+// The two descriptors an UNOWNED opponent collapses onto, plus the self marker.
+// Named for the render contract they carry, which is the standing gate on this
+// module: `MatchupsWeekPanel` suppresses `NoClaim (FBS)` from a row's metadata
+// and renders `FCS` deliberately, because an FBS-over-FCS result means something
+// different. Nothing counts descriptors — the owner-card control counts games
+// (Item 135) — so `deriveOpponentDescriptor` is their only consumer.
+const FCS_DESCRIPTOR = 'FCS';
+const NO_CLAIM_FBS_DESCRIPTOR = 'NoClaim (FBS)';
+const SELF_DESCRIPTOR = 'Self';
 
 export type OpponentSummaryEntry = {
   label: string;
@@ -19,27 +35,32 @@ export type GameOutcomeTone =
   | 'finalSelf'
   | 'neutral';
 
+function getOpponentParticipant(slateGame: OwnerSlateGame) {
+  return slateGame.ownerTeamSide === 'away'
+    ? slateGame.game.participants.home
+    : slateGame.game.participants.away;
+}
+
 export function deriveOpponentDescriptor(slateGame: OwnerSlateGame): string {
   if (slateGame.opponentOwner) {
-    return slateGame.opponentOwner === slateGame.owner ? 'Self' : `vs ${slateGame.opponentOwner}`;
+    return slateGame.opponentOwner === slateGame.owner
+      ? SELF_DESCRIPTOR
+      : `vs ${slateGame.opponentOwner}`;
   }
 
   const opponentConference =
     slateGame.ownerTeamSide === 'away' ? slateGame.game.homeConf : slateGame.game.awayConf;
-  const opponentParticipant =
-    slateGame.ownerTeamSide === 'away'
-      ? slateGame.game.participants.home
-      : slateGame.game.participants.away;
+  const opponentParticipant = getOpponentParticipant(slateGame);
 
   if (opponentParticipant.kind === 'placeholder' || opponentParticipant.kind === 'derived') {
     return opponentParticipant.displayName;
   }
 
   if (opponentParticipant.kind !== 'team' || isPolicyFcsConference(opponentConference)) {
-    return 'FCS';
+    return FCS_DESCRIPTOR;
   }
 
-  return 'NoClaim (FBS)';
+  return NO_CLAIM_FBS_DESCRIPTOR;
 }
 
 function getSummaryOpponentLabel(slateGame: OwnerSlateGame): string {
@@ -48,17 +69,94 @@ function getSummaryOpponentLabel(slateGame: OwnerSlateGame): string {
   return descriptor;
 }
 
+/**
+ * Item 135 — the distinct GAMES on an owner's slate, in slate order.
+ *
+ * `buildOwnerSlateGames` (`src/lib/matchups.ts`) has two independent `if`
+ * blocks, one per side, so an owner holding BOTH teams in a game gets TWO slate
+ * entries for that one game — mirror images differing only in `ownerTeamSide`.
+ * The 2026 season carries 39 such games out of 888 involving a rostered team,
+ * so this is production's shape rather than an edge case.
+ *
+ * A game is one game. First occurrence wins, which is the `away` entry: the two
+ * entries compare equal on every sort key, so their push order survives, and an
+ * away-first row states the scoreline in the order the matchup line prints it.
+ */
+export function selectDistinctSlateGames(slate: OwnerWeekSlate): OwnerSlateGame[] {
+  const seen = new Set<string>();
+  const distinct: OwnerSlateGame[] = [];
+
+  for (const slateGame of slate.games) {
+    if (seen.has(slateGame.game.key)) continue;
+    seen.add(slateGame.game.key);
+    distinct.push(slateGame);
+  }
+
+  return distinct;
+}
+
+/**
+ * Opponent groups for the DORMANT `formatSlateSummaryText`, which is the only
+ * thing that needs them — it renders prose like `5 games · vs Alice, FCS (x2)`.
+ * Nothing in production calls it; Item 117 decides its fate. The owner-card
+ * control no longer consumes this: it counts games, which is what it renders.
+ *
+ * These groups are built over DISTINCT games, so a caller pairing them with a
+ * game total must use the distinct count — `selectDistinctSlateGames(slate).length`
+ * or `selectSlateGameVisibility(...).distinctGames.length`, NOT `slate.totalGames`,
+ * which counts slate entries and reads 2 for a single self game. Passing the
+ * latter would print a total of two above a group of one: the same label/list
+ * unit mismatch Item 135 removed, relocated into this path.
+ */
 export function summarizeSlateOpponents(slate: OwnerWeekSlate): OpponentSummaryEntry[] {
   const counts = new Map<string, number>();
   const order: string[] = [];
 
-  for (const game of slate.games) {
-    const label = getSummaryOpponentLabel(game);
+  for (const slateGame of selectDistinctSlateGames(slate)) {
+    const label = getSummaryOpponentLabel(slateGame);
     if (!counts.has(label)) order.push(label);
     counts.set(label, (counts.get(label) ?? 0) + 1);
   }
 
   return order.map((label) => ({ label, count: counts.get(label) ?? 0 }));
+}
+
+export type SlateGameVisibility = {
+  /** Every game on the slate, deduplicated — one entry per real game. */
+  distinctGames: OwnerSlateGame[];
+  /** The games to render. Collapsed, this is a prefix of `distinctGames`. */
+  visibleGames: OwnerSlateGame[];
+  /** Games withheld while collapsed — the number the control's label states. */
+  hiddenGameCount: number;
+  hasHiddenGames: boolean;
+};
+
+/**
+ * Item 135 — what an owner card shows, collapsed or expanded.
+ *
+ * The count is of GAMES, matching the unit the list renders. It previously
+ * grouped OPPONENTS — a shape borrowed from `formatSlateSummaryText`, which
+ * genuinely needs groups and has no production caller. Every defect on this
+ * control descended from that mismatch: a label counting one thing while the
+ * list showed another, which is also what let two mirrored rows of a single
+ * self game hide behind a count of one opponent. Counting the rendered unit
+ * removes the class rather than the instance.
+ */
+export function selectSlateGameVisibility(
+  slate: OwnerWeekSlate,
+  expanded: boolean
+): SlateGameVisibility {
+  const distinctGames = selectDistinctSlateGames(slate);
+  const hiddenGameCount = Math.max(distinctGames.length - DEFAULT_VISIBLE_GAMES, 0);
+  const hasHiddenGames = hiddenGameCount > 0;
+
+  return {
+    distinctGames,
+    visibleGames:
+      expanded || !hasHiddenGames ? distinctGames : distinctGames.slice(0, DEFAULT_VISIBLE_GAMES),
+    hiddenGameCount,
+    hasHiddenGames,
+  };
 }
 
 function formatOpponentSummaryEntry(entry: OpponentSummaryEntry): string {
@@ -153,6 +251,6 @@ export function deriveExcludedGamesSummary(sections: WeekMatchupSections): strin
   return `${gameCount} excluded ${noun} ${verb} not involve owned teams.`;
 }
 
-export function getDefaultVisibleOpponentsCount(): number {
-  return DEFAULT_VISIBLE_OPPONENTS;
+export function getDefaultVisibleGamesCount(): number {
+  return DEFAULT_VISIBLE_GAMES;
 }

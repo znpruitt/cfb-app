@@ -98,6 +98,49 @@ Rules:
   pre-merge head `9d3cd081` passed TypeScript, all 4,661 tests, and `lint:all`.
 - Status: Merged via PR #567 (merge commit `3c2d8774`), 2026-09-05.
 
+### PLATFORM-135-OPPONENT-COUNT-CLAUDE-v1
+
+- Purpose: the Matchups owner card rendered a wrong number — `Show N more opponents` understated,
+  because the opponent summary counted sentinel labels rather than distinct opponents.
+- Scope: `src/lib/selectors/matchups.ts`, `src/components/MatchupsWeekPanel.tsx`, and the three suites
+  covering them. No shared scoreboard component, no other panel, no new dependency.
+- Outcome: **the counting model changed mid-branch, so what shipped is not what the prompt first
+  specified.** The control counts DISTINCT GAMES, the unit its list renders; the opponent grouping it
+  had borrowed from the dormant `formatSlateSummaryText` is gone from the count path, and that
+  function keeps its own grouping untouched for Item 117. Three defects shared one root — a label
+  counting a different unit than the list showed. (1) Unowned opponents collapsed onto the `FCS` and
+  `NoClaim (FBS)` sentinels, so three counted as one. (2) The control was INERT: `isExpanded` was read
+  only for the button's own text while the list rendered `slate.games` unsliced, so clicking hid
+  nothing — which also meant a count fix alone would have put a DEAD button on more cards, because
+  `hasHiddenOpponents` gated on the very length the sentinel collapse was suppressing. (3)
+  `buildOwnerSlateGames` emits one slate entry per owned SIDE, so an owner holding both teams rendered
+  two mirrored rows for one game — 39 such games in the 2026 season out of 888 involving a rostered
+  team. `selectDistinctSlateGames` dedupes on `game.key`, first occurrence winning; and
+  `selectSlateGameVisibility` returns the count and the visible games together, so the label and the
+  list cannot disagree. The button also gained `aria-expanded`/`aria-controls`, absent because while
+  inert it controlled nothing, and a singular label at N=1, which the count fix made routine. The
+  rendered opponent descriptor is unchanged — `MatchupsWeekPanel:191` does not appear in the diff.
+- Review / verification: an intermediate design re-keyed only the two sentinel branches onto opponent
+  team identity, and Codex refuted it as still broken. `buildConfirmedOwnersCsv` writes the reserved
+  `NoClaim` OWNER for every undrafted eligible team and `rosterByTeam` carries those rows through
+  unfiltered, so on a drafted league an unclaimed opponent has a TRUTHY owner, took the owned branch,
+  and five distinct opponents still summarised to one — measured through the real path as 1 entry
+  before and 5 after. That refutation is what prompted the move to counting games, which removed the
+  class rather than the instance. Verification bound to `521e79d0`, the final code commit and the
+  exact commit both reviewers ran against: TypeScript and `lint:all` clean; `npm test` reported 4,697
+  tests with 4,695 passing and exactly two failures, both pre-existing in
+  `src/app/api/odds/__tests__/writer-convergence.test.ts` — a file this branch does not touch,
+  reproduced on clean `origin/main`, and since diagnosed as an expired fixture kickoff rather than a
+  defect. Test delta +18 across the three suites (6→15, 25→25, and 9 in a new file). Four mutations
+  each killed named tests and were restored: dedupe removed (7 red), collapse removed (6 red),
+  `NoClaim (FBS)` suppression disabled (1 red), fixed-plural label restored (1 red). Three pre-existing
+  tests were retargeted with every other assertion preserved and the reason stated at each call site;
+  all three had encoded the row duplication as intended behaviour. Codex returned clean;
+  `/code-review` returned no finding in the production code, one out-of-scope defect now filed as
+  Item 136, and two comment inaccuracies corrected in the final commit.
+- Status: Merged via PR #571, 2026-09-05. The closeout commit that follows `521e79d0` changes
+  documentation only.
+
 ### PLATFORM-127-RETAIN-PROVIDER-USAGE-SERIES-v1
 
 - Purpose: retain the CFBD quota figures the app already probes, because `/info` reports the CURRENT

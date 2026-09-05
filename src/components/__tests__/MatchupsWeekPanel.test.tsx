@@ -199,15 +199,19 @@ test('matchups panel summarizes self-matchups as Self', () => {
   );
 
   assert.match(html, /data-owner-card="Alex"/);
-  // Self-vs-self game is duplicated into both team slots within the owner's
-  // single card, so the "Self" opponent badge appears twice and GAMES is 2.
+  // Item 135 retarget. `buildOwnerSlateGames` still emits one slate entry per
+  // owned SIDE, so this game arrives twice — but one game is one row, so the
+  // "Self" badge appears ONCE. Previously 2, alongside a comment recording the
+  // duplication as intended. Every other assertion here is unchanged: the 1–1
+  // record (counted from buckets, never doubled), the scoreline order, the
+  // self-tone border, and the absence of Leading/Trailing phrasing.
   assert.match(html, /1–1/);
-  assert.equal((html.match(/>Self</g) ?? []).length, 2);
+  assert.equal((html.match(/>Self</g) ?? []).length, 1);
   assert.match(html, /Texas[\s\S]*28[\s\S]*–[\s\S]*21[\s\S]*Oklahoma/);
   assert.match(html, /border-l-violet-400\/80 bg-violet-50\/40/);
   assert.doesNotMatch(html, /Leading 28-21/);
   assert.doesNotMatch(html, /Trailing 28-21/);
-  assert.equal((html.match(/Texas/g) ?? []).length, 2);
+  assert.equal((html.match(/Texas/g) ?? []).length, 1);
 });
 
 test('matchups panel keeps status text non-redundant for completed games', () => {
@@ -631,12 +635,13 @@ test('matchups panel counts repeated opponents before truncating the summary lis
     />
   );
 
-  // Taylor faces 8 games across 6 distinct opponents (Pruitt x2, Carter x3,
-  // plus Surowiec/Jordan/Ballard). With more opponents than the default
-  // visible count, the card surfaces a truncation control rather than listing
-  // every opponent inline.
+  // Item 135 retarget: the control counts GAMES, which is what the list
+  // renders. Taylor has 8 games (across 5 distinct opponents — Pruitt x2,
+  // Carter x3, plus Surowiec/Jordan/Ballard; the previous comment said 6).
+  // With more games than the default visible count, the card surfaces a
+  // truncation control rather than listing every game inline.
   assert.match(html, /data-owner-card="Taylor"/);
-  assert.match(html, /Show \d+ more opponents/);
+  assert.match(html, /Show \d+ more games/);
 });
 
 test('matchups panel preserves championship placeholder labels instead of collapsing them to FCS', () => {
@@ -726,7 +731,8 @@ test('unexpected final ties do not surface as supported matchup record semantics
   );
 
   assert.match(html, /Texas[\s\S]*24[\s\S]*–[\s\S]*24[\s\S]*Oklahoma/);
-  assert.equal((html.match(/>FINAL</g) ?? []).length, 2);
+  // Item 135 retarget: one self game is one row, so one FINAL pill. Was 2.
+  assert.equal((html.match(/>FINAL</g) ?? []).length, 1);
   assert.doesNotMatch(html, /Counts as 1W \/ 1L/);
   assert.doesNotMatch(html, /1–1–1/);
 });
