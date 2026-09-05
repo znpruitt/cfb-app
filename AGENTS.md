@@ -264,6 +264,16 @@ When practical, verify key runtime flows still behave:
      uncited in `docs/campaigns/`, and built without either mockup being opened.
    - **Prompt authors must include the gate.** Every kickoff prompt ends its references with a receipt
      block naming the specific facts to report back.
+   - **A prompt is written from the DESIGN DOCUMENT, never from the queue entry.** `docs/next-tasks.md`
+     compresses a design to a few lines on purpose — ask, value, blocker — and every compression is
+     lossy. Writing a prompt from that summary copies the lossy version and then builds on it. Open
+     the canonical document, and QUOTE it in the prompt rather than paraphrasing: a paraphrase is a
+     second lossy copy, and the implementer cannot tell it from the original. Slice 5a v1's rule came
+     from the queue entry, which was itself correct — the defect was introduced by re-expanding its
+     shorthand instead of reading the source that had already ruled that expansion out.
+   - **Run-order entries carry a `Design:` line** naming the canonical documents and mockups, or
+     stating explicitly that none exists — in which case the item needs an owner design pass before
+     dispatch, not a prompt written from the queue prose.
    - **The receipt must demand facts obtainable ONLY by opening the files** — a verbatim quote with
      its line number, a structural detail of a mockup, the `PROMPT_ID` line from the document itself.
      "I have read the references" is not a receipt; neither is a summary that could be reconstructed

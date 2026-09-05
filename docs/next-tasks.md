@@ -63,24 +63,40 @@ committed `c9f76081`) surfaced four new items and one split; the remaining open 
    tier-2 expansion slot. **Split from slice 5 by owner decision 2026-09-03** so that slice 5, Item
    117 and Item 119 build on one reviewed component change instead of each re-deriving it. Overview
    must render identically before and after — prove it by mutation, not by inspection.
+   **Design (canonical, read before writing the prompt):** `docs/campaigns/item-87-followon-matchups-schedule-design.md`
+   §1 (prefix slot) and §on neutral site; `docs/campaigns/item-87-live-watchlist-scoreboard.md`;
+   `mockups/live-scoreboard-mockup.html`, `mockups/matchups-schedule-mockup.html`.
 4. **Item 87 slice 5 + Item 112** — Schedule adopts the scoreboard row with no one-line collapse and
    tier-2 behind "More" (which _is_ Item 112's disclosure model, landing on Schedule first); kickoff
    sort; deletes `GameWeekPanel`'s collapse and `cardEmphasisClasses`. Carries the
    `ownerOutcomeRowClasses` sibling asymmetry into `MatchupsWeekPanel`. **Owner decision needed
    before build:** the amber `upset` border (`GameWeekPanel.tsx:42`) is a reserved-colour violation
    the base addendum explicitly exempted; confirm it dies with the card chrome.
+   **Design:** `docs/campaigns/item-87-followon-matchups-schedule-design.md`;
+   `docs/campaigns/item-87-followon-section-ordering.md` (the relative label is unbuilt and
+   constrains this slice); `mockups/matchups-schedule-mockup.html`.
 5. **Item 117** — Matchups adopts the shared scoreboard. User-facing and a correctness fix (the
    shipped row never says which team is which owner). Needs the card-owner-treatment decision.
+   **Design:** `docs/campaigns/item-87-followon-matchups-schedule-design.md`;
+   `docs/campaigns/item-87-live-watchlist-scoreboard.md`; `mockups/matchups-schedule-mockup.html`.
 6. **Item 115** — Overview section expansion. Recent finals is documented as complete and truncates
    at six today; this reuses the disclosure pattern slice 5 settles rather than inventing one.
+   **Design:** `docs/campaigns/item-87-followon-section-ordering-resolutions.md` §5 (counts, which
+   that document explicitly defers to this item); `docs/campaigns/item-87-followon-section-ordering.md`.
 7. **Item 119** — team-colour bar on the existing normaliser, with no accent for teams that have no
    colour — which also removes the green fallback every FCS row carries today. OKLCH only if measured.
+   **Design:** `docs/campaigns/item-87-followon-team-colour.md`;
+   `docs/campaigns/item-87-live-watchlist-scoreboard.md`.
 8. **Item 118** — Schedule status filter with counts. Purely additive; after the rework it filters.
+   **Design:** none written. Item 112 likewise has no campaign doc — both are described only here,
+   so a prompt for either needs an owner design pass FIRST, not a paraphrase of this entry.
 9. **Item 100b** — internal slate marker. Date gate removed 2026-09-03; its 2026 consequence
     (Featured empty through 2026-09-07) closes on its own, but the recap and look-ahead targeting it
     exists for recur next August. Cheap: the clustering code is recoverable from `d6184c28`.
 10. **Item 113** — Featured as insight-selected, state-agnostic. Largest, and gated on a decision
     about `INSIGHTS-017-PALETTE` (a prose bullet today, not an item).
+    **Design:** `docs/campaigns/item-87-followon-featured-intent.md` — it supplies the product
+    intent and states that THIS item owns the reconciliation. Do not re-derive what it settles.
 11. **Item 101** — season-boundary finals gap. Re-derive the empty window against the floating cutoff
     first; fix before late November.
 
