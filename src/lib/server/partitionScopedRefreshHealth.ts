@@ -1,4 +1,5 @@
 import type { ProviderDataset } from '../providerDatasets.ts';
+import { schedulerDeliveryPolicy } from './schedulerDeliveryHealth.ts';
 import type { ExternalSchedulerJob } from './schedulerExecutionStatus.ts';
 
 /**
@@ -59,6 +60,29 @@ const NOT_EXPECTED_REASONS: ReadonlySet<string> = new Set([
   'automation-paused-or-disabled',
 ]);
 
+/**
+ * How long after an expected refresh the absence of activity becomes a stall,
+ * DERIVED from the job's delivery policy rather than written down here.
+ *
+ * `graceMs` is already the job's delivery tolerance and is already two poll
+ * windows for both of these jobs — 6 minutes on a 3-minute cron, 30 on a
+ * 15-minute one — and `DELIVERY_POLICIES` is the single place a cadence lives.
+ * Hardcoding six minutes would silently go wrong the moment scores polling is
+ * tightened, which Item 130 exists to do; deriving it means this follows the
+ * planner automatically once Item 102 makes those policies dynamic (its
+ * collision 2 requires exactly that).
+ *
+ * CAVEAT worth knowing: grace is not universally two periods. Item 129 records
+ * `usage-sample` sitting at exactly one, which would make this boundary tight
+ * enough to call a single missed tick a stall. It is two for both jobs here; if
+ * that changes for one of them, this follows it down.
+ */
+export function stallBoundaryMs(dataset: ProviderDataset): number | null {
+  const job = EXPECTATION_JOB_BY_DATASET[dataset];
+  if (!job) return null;
+  return schedulerDeliveryPolicy(job).graceMs;
+}
+
 export type RefreshExpectation = 'expected' | 'not-expected' | 'unknown';
 
 export type ExpectationInput = {
@@ -100,10 +124,9 @@ export type PartitionScopedHealthInput = ExpectationInput & {
   /** Most recent partition-scoped activity for this dataset, if any. */
   lastActivityAtMs: number | null;
   /**
-   * How long after an expected refresh the absence of activity becomes a stall.
-   * Item 88's boundary: the row stops reading healthy within ONE POLLING WINDOW
-   * of live scoring stopping, so this is the job's cadence plus its grace — not
-   * a freshness threshold, which is the very thing that cannot work here.
+   * The stall boundary. Callers pass `stallBoundaryMs(dataset)` — it is a
+   * parameter only so this function stays pure and testable, NOT so each caller
+   * can choose a number.
    */
   expectedWithinMs: number;
 };

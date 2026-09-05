@@ -7,7 +7,9 @@ import {
   isPartitionScopedDataset,
   partitionScopedHealth,
   refreshExpectation,
+  stallBoundaryMs,
 } from '../partitionScopedRefreshHealth';
+import { schedulerDeliveryPolicy } from '../schedulerDeliveryHealth';
 
 const NOW = Date.UTC(2026, 8, 5, 20, 0, 0);
 const MIN = 60_000;
@@ -16,7 +18,7 @@ const HOUR = 60 * MIN;
 const base = {
   nowMs: NOW,
   receiptValidForMs: 30 * MIN,
-  expectedWithinMs: 6 * MIN,
+  expectedWithinMs: stallBoundaryMs('scores')!,
   lastActivityAtMs: NOW - MIN,
 };
 
@@ -173,4 +175,22 @@ test('the stall boundary is one polling window, not a freshness threshold', () =
 
   assert.equal(inside.state, 'active');
   assert.equal(outside.state, 'stalled');
+});
+
+test('the stall boundary is DERIVED from the job cadence, never written down here', () => {
+  // Owner ruling: two poll windows, not a hardcoded six minutes — scores polling
+  // may tighten as CPU and call-usage understanding improve (Items 130/102), and
+  // a literal would silently go wrong the moment it does.
+  assert.equal(stallBoundaryMs('scores'), schedulerDeliveryPolicy('live-scores').graceMs);
+  assert.equal(stallBoundaryMs('game-stats'), schedulerDeliveryPolicy('game-stats').graceMs);
+  assert.equal(stallBoundaryMs('schedule'), null, 'a year-scoped dataset has no boundary here');
+});
+
+test('and that derived boundary is two poll windows for both jobs today', () => {
+  // Pins the CURRENT values so a change is deliberate rather than incidental. If
+  // a cadence changes, this test fails and whoever changed it confirms the
+  // boundary still means "two windows" — it does not hardcode the boundary into
+  // the model.
+  assert.equal(stallBoundaryMs('scores'), 2 * 3 * MIN, '3-minute cron');
+  assert.equal(stallBoundaryMs('game-stats'), 2 * 15 * MIN, '15-minute cron');
 });
