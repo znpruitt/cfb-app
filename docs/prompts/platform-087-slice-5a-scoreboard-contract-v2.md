@@ -31,6 +31,32 @@ it from a one-line queue summary instead of citing it.
 Open both. They show the intended row composition — where the prefix marker sits, how the neutral-site
 and broadcast metadata read, and what the tier-2 slot is for. Do not infer the layout from the prose.
 
+### STOP — post a READ RECEIPT before writing any code
+
+You have two sources: the short message pasted into your chat, and this document with its references.
+**v1 was built from the pasted message.** It shipped a classification rule that appears nowhere in the
+settled design, and neither mockup was opened. That is the failure this gate exists to catch, and it
+is not caught by asking whether you read the references — v1 would have said yes.
+
+**Report these, then STOP and wait. No branch, no code, no tests until the owner replies.**
+
+1. The `PROMPT_ID:` line of THIS document, verbatim. (Not the campaign name from the chat message.)
+2. From `item-87-followon-matchups-schedule-design.md` §1: the **italicised sentence** that closes the
+   prefix-slot section, verbatim with its line number. It records something about an earlier draft
+   that changes how you should read any precedence language you encounter.
+3. From `mockups/live-scoreboard-mockup.html`: the **CSS class name** the mockup gives the
+   classification marker, and the class name it gives the rank marker. Quote the comment above them.
+4. From either mockup: **where the neutral-site marker sits** in the row composition — which line of
+   the card, and what it sits beside.
+5. **Anything in the references that CONTRADICTS, narrows, or is already settled differently from the
+   message you were handed.** If you find nothing, say so explicitly — but note that the four
+   additions in the task list below are described in the references in more detail than the task list
+   gives, and at least one carries a constraint the task list does not state.
+
+A receipt that summarises without quoting, or that could have been written from the chat message
+alone, is not a receipt. If a reference is missing, unreadable, or contradicts another reference, say
+that instead of resolving it yourself — flagging it is correct behaviour, not a failure.
+
 ## v2 is a RECONSTRUCTION. Read this before anything else.
 
 v1 was built, reviewed twice, remediated twice, and **stopped at `b80004c9` without merging** because

@@ -255,6 +255,25 @@ When practical, verify key runtime flows still behave:
    - Commit reference files before dispatching prompts that point to them.
    - Implementers should flag missing references rather than guess at content — this is correct behavior, not a defect.
 
+3. **Every kickoff prompt carries a READ RECEIPT gate, and the implementer stops at it.**
+   - A dispatched agent receives two things: a short relay message in chat, and the prompt document
+     with its references. The failure mode this exists to stop is the agent working from the relay
+     message alone and inferring the rest from priors — which reads as competent work right up until
+     it ships a rule nobody wrote. Named failure case: `PLATFORM-087` slice 5a v1, dispatched with a
+     classification rule paraphrased from a one-line queue summary while the settled design sat
+     uncited in `docs/campaigns/`, and built without either mockup being opened.
+   - **Prompt authors must include the gate.** Every kickoff prompt ends its references with a receipt
+     block naming the specific facts to report back.
+   - **The receipt must demand facts obtainable ONLY by opening the files** — a verbatim quote with
+     its line number, a structural detail of a mockup, the `PROMPT_ID` line from the document itself.
+     "I have read the references" is not a receipt; neither is a summary that could be reconstructed
+     from the relay message. Ask for something that cannot be guessed.
+   - **The receipt must ask what CONTRADICTS the relay message.** This is the part that earns the
+     gate: the agent reconciles the sources rather than confirming it looked at them, and a wrong
+     premise surfaces before it has a branch built on top of it.
+   - **The implementer stops there and waits** — receipt first, no code. A blocked dispatch costs one
+     message; a wrong premise costs a build and two review cycles.
+
 ---
 
 ## Reporting expectations for Codex tasks
