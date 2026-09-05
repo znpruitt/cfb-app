@@ -4,7 +4,10 @@ import test from 'node:test';
 import {
   CLUSTER_LEAD_MS,
   CLUSTER_MARGIN_MS,
+  densePhase,
   derivePollingWindows,
+  RECONCILIATION_GUARANTEE_MS,
+  slowPhase,
   utcHoursCovered,
   type PlannedKickoff,
 } from '../pollingWindows';
@@ -35,7 +38,7 @@ test('one kickoff yields one window, lead before and margin after', () => {
 
   assert.equal(rest.length, 0);
   assert.equal(window!.startMs, kickoff.kickoffMs - CLUSTER_LEAD_MS);
-  assert.equal(window!.endMs, kickoff.kickoffMs + CLUSTER_MARGIN_MS);
+  assert.equal(window!.denseEndMs, kickoff.kickoffMs + CLUSTER_MARGIN_MS);
   assert.equal(window!.kickoffCount, 1);
 });
 
@@ -46,8 +49,8 @@ test('the margin runs from the LAST kickoff, not the first', () => {
   const last = confirmed('2026-09-05T23:30:00.000Z');
   const [window] = windowsOf([first, last]);
 
-  assert.equal(window!.endMs, last.kickoffMs + CLUSTER_MARGIN_MS);
-  assert.notEqual(window!.endMs, first.kickoffMs + CLUSTER_MARGIN_MS);
+  assert.equal(window!.denseEndMs, last.kickoffMs + CLUSTER_MARGIN_MS);
+  assert.notEqual(window!.denseEndMs, first.kickoffMs + CLUSTER_MARGIN_MS);
 });
 
 test('a gap wider than margin+lead splits the cluster', () => {
@@ -59,7 +62,7 @@ test('a gap wider than margin+lead splits the cluster', () => {
   ]);
 
   assert.equal(windows.length, 2, 'two days of football are not one window');
-  assert.ok(windows[0]!.endMs < windows[1]!.startMs, 'and the cron is OFF between them');
+  assert.ok(windows[0]!.denseEndMs < windows[1]!.startMs, 'and the cron is OFF between them');
 });
 
 test('the split threshold is margin+lead exactly, not margin', () => {
@@ -91,7 +94,7 @@ test('a chain of games extends the window past any single margin', () => {
 
   assert.equal(windows.length, 1);
   assert.equal(windows[0]!.kickoffCount, 5);
-  assert.equal(windows[0]!.endMs, kickoffs[4]!.kickoffMs + CLUSTER_MARGIN_MS);
+  assert.equal(windows[0]!.denseEndMs, kickoffs[4]!.kickoffMs + CLUSTER_MARGIN_MS);
 });
 
 test('A TBD KICKOFF NEVER SHAPES A WINDOW, and is handed back rather than dropped', () => {
@@ -165,7 +168,7 @@ test('the real 2026-09-03 weekend derives as FIVE clusters, not one', () => {
 
   assert.equal(windows.length, 5);
   assert.deepEqual(
-    windows.map((window) => `${iso(window.startMs)} -> ${iso(window.endMs)}`),
+    windows.map((window) => `${iso(window.startMs)} -> ${iso(window.denseEndMs)}`),
     [
       '2026-09-03T20:45 -> 2026-09-04T05:00',
       '2026-09-04T21:45 -> 2026-09-05T06:00',
@@ -185,7 +188,7 @@ test('utcHoursCovered projects a window onto the hours a cron can express', () =
 
   // 19:15 -> 21:30 touches hours 19, 20 and 21: a partial hour still counts,
   // because cron cannot fire for part of an hour.
-  assert.deepEqual(utcHoursCovered(windows, Date.UTC(2026, 8, 5)), [19, 20, 21]);
+  assert.deepEqual(utcHoursCovered(windows.map(densePhase), Date.UTC(2026, 8, 5)), [19, 20, 21]);
 });
 
 test('a window spanning midnight covers the tail of one day and the head of the next', () => {
@@ -194,15 +197,63 @@ test('a window spanning midnight covers the tail of one day and the head of the 
     leadMs: 0,
   });
 
-  assert.deepEqual(utcHoursCovered(windows, Date.UTC(2026, 8, 5)), [23]);
+  assert.deepEqual(utcHoursCovered(windows.map(densePhase), Date.UTC(2026, 8, 5)), [23]);
   // Hour 2 is NOT covered: the window ends exactly at 02:00 and the interval is
   // half-open, so an hour beginning at the end is untouched. An off-by-one here
   // would arm an extra hour every day.
-  assert.deepEqual(utcHoursCovered(windows, Date.UTC(2026, 8, 6)), [0, 1]);
+  assert.deepEqual(utcHoursCovered(windows.map(densePhase), Date.UTC(2026, 8, 6)), [0, 1]);
 });
 
 test('a day no window touches yields no hours', () => {
   const windows = windowsOf([confirmed('2026-09-05T19:00:00.000Z')]);
-  assert.deepEqual(utcHoursCovered(windows, Date.UTC(2026, 8, 9)), []);
-  assert.ok(utcHoursCovered(windows, Date.UTC(2026, 8, 5)).length > 0, 'positive control');
+  assert.deepEqual(utcHoursCovered(windows.map(densePhase), Date.UTC(2026, 8, 9)), []);
+  assert.ok(
+    utcHoursCovered(windows.map(densePhase), Date.UTC(2026, 8, 5)).length > 0,
+    'positive control'
+  );
+});
+
+test('every window carries a SLOW phase reaching the +24h guarantee', () => {
+  // The MEDIUM finding. An earlier version emitted only a dense end while its own
+  // docstring claimed an overrunning game would "still be collected, late rather
+  // than never" — true of the design, false of what the module returned. A cron
+  // built from the dense windows alone went dark straight past the eligibility
+  // bound, so such a final was never collected at all.
+  const kickoff = confirmed('2026-09-05T15:00:00.000Z');
+  const [window] = windowsOf([kickoff]);
+
+  assert.equal(window!.denseEndMs, kickoff.kickoffMs + CLUSTER_MARGIN_MS);
+  assert.equal(window!.slowEndMs, kickoff.kickoffMs + RECONCILIATION_GUARANTEE_MS);
+  assert.ok(window!.slowEndMs > window!.denseEndMs, 'the slow phase is non-empty');
+});
+
+test('a game reconciling at +11h falls inside the slow phase, not into a dark gap', () => {
+  // The concrete scenario the finding named: a Saturday 15:00Z kickoff whose
+  // final lands at +11h. The dense phase has closed by then; without the slow
+  // phase the next cluster is Thursday and the final is never collected.
+  const kickoff = confirmed('2026-09-05T15:00:00.000Z');
+  const [window] = windowsOf([kickoff]);
+  const reconciledAt = kickoff.kickoffMs + 11 * H;
+
+  assert.ok(reconciledAt > window!.denseEndMs, 'dense polling has stopped by then');
+  assert.ok(reconciledAt < window!.slowEndMs, 'but the slow phase still covers it');
+
+  const slowHours = utcHoursCovered([slowPhase(window!)], Date.UTC(2026, 8, 6));
+  assert.ok(slowHours.length > 0, 'and it projects onto real cron hours');
+});
+
+test('the two phases are adjacent and non-overlapping', () => {
+  // Projecting both must not double-arm an hour, and must not leave a hole.
+  const [window] = windowsOf([confirmed('2026-09-05T15:00:00.000Z')]);
+  assert.equal(slowPhase(window!).startMs, densePhase(window!).endMs);
+});
+
+test('an unparseable TBD kickoff is still REPORTED, never silently discarded', () => {
+  // Caused by the previous round: `unconfirmed` filtered on finiteness, so a TBD
+  // row with a malformed date fell out of BOTH lists and the caller had no signal
+  // the game existed — precisely what this field was added to prevent.
+  const plan = derivePollingWindows([{ kickoffMs: Number.NaN, timeConfirmed: false }]);
+
+  assert.deepEqual(plan.windows, []);
+  assert.equal(plan.unconfirmed.length, 1, 'the caller can still see it exists');
 });

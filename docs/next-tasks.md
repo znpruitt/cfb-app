@@ -807,10 +807,13 @@ observation at all.
 
 Margin sensitivity, October, against 14,880 wakeups today:
 
-| Margin after last kickoff | Dense hours | Wakeups | Removed |
+Margin sensitivity — **DENSE PHASE ONLY**, so these are not the deliverable figures. The saving with
+the mandated slow phase included is the 59% in the table below; do not quote these in isolation.
+
+| Margin after last kickoff | Dense hours | Dense-only wakeups | Dense-only removed |
 | --- | --- | --- | --- |
 | 4.75h | 27% | 3,965 | 73% |
-| **8h (recommended)** | 36% | 5,395 | **64%** |
+| **8h (recommended)** | 36% | 5,395 | 64% |
 | 12h | 48% | 7,110 | 52% |
 
 **8h, because Item 108 measured a game still live at 6.4h** behind a weather delay while five others
@@ -832,8 +835,8 @@ up, which costs ~3 points against the raw windows and is already included above.
 The route already computes this. `pollingTarget.ts` returns `scoreboard` while anything is open,
 `final-reconciliation` when only unconfirmed finals remain, `none` otherwise. **The cadence tiers ARE
 those three modes**; the scheduler simply never hears about them. Standing down on the real fact
-rather than a margin recovers the gap between 64% and 73% AND handles an overrunning game correctly
-instead of generously.
+rather than a margin recovers the gap between the 8h and 4.75h margins — about 9 points on the
+dense-only base — AND handles an overrunning game correctly instead of generously.
 
 **Why the planner cannot do the observing.** It would have to be awake to notice, and an invocation
 every few minutes is the cost this item removes — the campaign measured 66.7% cold starts, so
@@ -880,8 +883,10 @@ common is unmeasured.
 
 **Reconciliation stays per-cluster, not per-slate.** Condensing it to once per week bucket was
 considered and rejected: a Thursday game would reconcile Sunday night, stretching `kickoff + 24h` to
-+72h, and PLATFORM-105A already found that boundary giving up on late finals. A 2-hour slow poll per
-cluster costs almost nothing and keeps the guarantee.
++72h, and PLATFORM-105A already found that boundary giving up on late finals. **The slow phase runs
+hourly to `last kickoff + 24h`, per the phase table above** — an earlier draft of this paragraph said
+"a 2-hour slow poll", which contradicted that table and would have restored the +10h cutoff the
+correction rejects. It costs 356 wakeups in October and keeps the guarantee.
 
 - Backlog slug: `PLATFORM-LIVE-CADENCE-CLUSTERS-v1`
 
