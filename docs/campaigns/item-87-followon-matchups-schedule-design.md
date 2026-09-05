@@ -150,7 +150,7 @@ That is a cleaner story than the earlier draft, which had three different collap
 
 ## Eyebrow tags — bronze, rendered as pills
 
-### Colour: bronze `#c9a66b`, a deliberate deviation from the shipped blue
+### Colour: bronze, a correction to the shipped blue
 
 Bronze was decided earlier in this campaign, ranked above sky, neutral and fuchsia. An intermediate mockup reverted it to the shipped `text-blue-300` after a review flagged gold as champion-reserved. **That flag bundled two claims and only one holds.**
 
@@ -158,11 +158,23 @@ Bronze was decided earlier in this campaign, ranked above sky, neutral and fuchs
 
 *"Gold is champion-reserved"* is answered by temporal separation. The champion treatment does not render until a title is awarded — podium cards for #1–#3 are neutral all season, confirmed by inspection — so bronze is uncontested through the year. At season end the two remain distinguishable: bronze is a desaturated tan, champion amber (`#BA7517`) a dark saturated gold. The reservation binds a token to a purpose, not a hue neighbourhood.
 
-Blue would also have been poor independently: it is the interactive token, so eyebrows would share a colour with links and controls.
+**The known weakness, measured rather than asserted.** Bronze against champion gold is **1.37:1** —
+essentially no luminance contrast, so the separation is carried by hue and saturation alone. That is
+the one moment the two sit adjacent, and it is the case that fails for a viewer with reduced colour
+discrimination. Temporal separation covers the rest of the year; this is precisely what it does not
+cover. If the pairing ever needs to survive that viewer, the instrument is a luminance step, not a
+different hue.
+
+**Blue is not merely a weaker choice — it is non-compliant.** `DESIGN.md:148` states *"Blue signals interactivity or active state only — never use blue to mean 'featured' or 'important'."* An eyebrow tag is exactly a featured/important signal, so the shipped `text-blue-300` violates a rule already on the books (`OverviewPanel.tsx:781`; `:196` carries the same token on the chip). Bronze is therefore a **correction to shipped**, not a preference deviating from it. The secondary objection — that blue is the interactive token, so eyebrows would share a colour with links and controls — is true but subordinate to the rule.
 
 ### Treatment: pills, uniformly
 
 Every eyebrow renders as a pill — hairline bronze border, brighter bronze text. No per-class variation.
+
+**Two bronze values, with roles.** Base `#c9a66b` (8.63:1 on the dark composition); pill **text**
+`#dbc190` (11.35:1); pill **border** `#c9a66b` at 40% opacity. The split is deliberate — a border
+should recede relative to the label it encloses — but both values are stated here because naming one
+while the mockup renders two is the same gap as an arithmetic that does not reproduce its own number.
 
 **The mixed version is rejected.** An earlier draft gave the outcome tag (*Upset*) a pill while selection tags (*Ranked spotlight*, *Top matchup*) stayed plain, reasoning that they are different classes: pre-game selection reasons versus post-game outcome facts. The distinction is real but **undecodable** — a reader cannot learn "pill means outcome" from looking, so the shape difference was a distinction the design knew and did not communicate. Decoration carrying a semantic argument.
 
