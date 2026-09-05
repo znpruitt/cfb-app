@@ -875,7 +875,35 @@ wiring `entry.label` into JSX must suppress the sentinel — which is a rule abo
 not a fix for what ships now. Doing it inside 117 means inheriting 117's whole scope for a defect
 that is one selector and one count. **117 keeps its constraint**; this item fixes the live number.
 
-**Keying — settled 2026-09-05.** Re-key **only the two sentinel branches** onto opponent team
+## MODEL CHANGE — owner decision 2026-09-05, supersedes the keying design below
+
+**Count DISTINCT GAMES, not opponents. Delete the opponent grouping entirely.** Hidden count is
+`distinct games − visible games`. The label becomes _"Show N more games"_.
+
+**Why the grouping existed at all:** `formatSlateSummaryText` renders text like
+`"5 games · vs Alice, FCS (x2), Bob +2"`, which genuinely needs opponent groups. **It has no
+production caller.** The button's count borrowed that structure because it was already there — and
+every subsequent problem, including the `NoClaim` collision that survived a full remediation round,
+descends from grouping opponents when the list renders games.
+
+**A self game counts ONCE and renders ONE row — owner decision.** `buildOwnerSlateGames`
+(`src/lib/matchups.ts:239,254`) has two independent `if` blocks, so an owner holding both teams gets
+**two slate entries for one game**, and the row key includes `ownerTeamSide`, so **both render**. The
+opponent grouping was masking that in the count while the list showed it: three different answers for
+one game — 2 rows, 1 opponent, and `"2 games · vs Self (x2)"` from the dormant formatter. Nothing in
+`DESIGN.md` or any campaign doc records a decision here; it falls out of iterating both owned sides.
+Count distinct games keyed on `game.key`, and render each once.
+
+**Latent today, measured 2026-09-05:** the live 2026 league (`owners:tsc:2026`, 138 teams, 16 owners,
+3,679 games) has **0 games where one owner holds both teams**. Not a visible defect now; one draft
+away from being one.
+
+**Leave `formatSlateSummaryText` alone.** It is dormant and Item 117 decides its fate.
+
+**Superseded below — retained for the reasoning, not as instructions.** The keying design assumed the
+count must group opponents. It does not.
+
+**Keying — settled 2026-09-05, SUPERSEDED by the model change above.** Re-key **only the two sentinel branches** onto opponent team
 identity. Owned opponents stay keyed on the opponent owner, `Self` on `'Self'`, placeholder/derived on
 the participant `displayName`. Keying every branch on team identity would split an owner who fields
 two teams against this owner in one week, and split two `Self` games — changing counts the contract
