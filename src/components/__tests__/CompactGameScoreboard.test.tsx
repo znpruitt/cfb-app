@@ -103,7 +103,7 @@ test('ranked FCS participant renders its rank instead of an FCS marker', () => {
   assert.doesNotMatch(awayRow, /data-scoreboard-classification="away"|>FCS<\/span>/);
 });
 
-test('unranked exact FCS participant renders the classification marker', () => {
+test('unranked exact FCS participant renders the compact bordered classification marker', () => {
   const html = renderScoreboard({
     away: {
       teamName: 'Montana State',
@@ -116,7 +116,7 @@ test('unranked exact FCS participant renders the classification marker', () => {
 
   assert.match(
     html,
-    /data-scoreboard-classification="away">FCS<\/span>[\s\S]*data-scoreboard-team="away">Montana State<\/span>/
+    /class="shrink-0 rounded-\[3px\] border border-gray-200 px-\[3px\] text-\[9\.5px\] font-semibold tracking-\[0\.06em\] text-gray-500 dark:border-zinc-800 dark:text-zinc-500" data-scoreboard-classification="away">FCS<\/span>[\s\S]*data-scoreboard-team="away">Montana State<\/span>/
   );
 });
 
