@@ -5,7 +5,6 @@ import { isTruePostseasonGame } from '../lib/postseason-display';
 import type { TeamRecordsByProviderGameId } from '../lib/selectors/teamRecordsClient';
 import type { ScorePack } from '../lib/scores';
 import type { AppGame } from '../lib/schedule';
-import type { TeamCatalogItem } from '../lib/teamIdentity';
 import GameWeekPanel from './GameWeekPanel';
 
 type PostseasonPanelProps = {
@@ -14,7 +13,6 @@ type PostseasonPanelProps = {
   scoresByKey: Record<string, ScorePack>;
   rosterByTeam: Map<string, string>;
   isDebug: boolean;
-  teamCatalogById?: Map<string, TeamCatalogItem>;
   teamRecordsByProviderGameId?: TeamRecordsByProviderGameId;
   onSavePostseasonOverride?: (eventId: string, patch: Partial<AppGame>) => void;
   currentDateMs?: number | null;
@@ -44,7 +42,6 @@ export default function PostseasonPanel({
   scoresByKey,
   rosterByTeam,
   isDebug,
-  teamCatalogById = new Map(),
   teamRecordsByProviderGameId,
   onSavePostseasonOverride,
   currentDateMs = null,
@@ -88,7 +85,6 @@ export default function PostseasonPanel({
               scoresByKey={scoresByKey}
               rosterByTeam={rosterByTeam}
               isDebug={isDebug}
-              teamCatalogById={teamCatalogById}
               teamRecordsByProviderGameId={teamRecordsByProviderGameId}
               onSavePostseasonOverride={onSavePostseasonOverride}
               currentDateMs={currentDateMs}

@@ -3,6 +3,7 @@ import {
   formatScheduleStatusLabel,
   formatScoreSummaryLabel,
   isDisruptedStatusLabel,
+  normalizeStatusTokens,
 } from '../gameStatus';
 import { formatPrimaryBroadcastLabel, formatVenueLabel } from '../gameCardPresentation';
 import { computeGameTags, prioritizeGameTags, type LeagueGameTag } from '../gameTags';
@@ -68,12 +69,43 @@ function formatScheduleKickoff(
   });
 }
 
+const ISO_DATE_PREFIX_RE = /^\d{4}-\d{2}-\d{2}[t\s]\d{2}:\d{2}/i;
+const ISO_UTC_SUFFIX_RE = /z$/i;
+
+function formatLiveGameClock(score: ScorePack | undefined): string | null {
+  if (!score) return null;
+
+  const status = score.status.trim();
+  const statusTokens = normalizeStatusTokens(status);
+  const hasGenericLiveStatus =
+    statusTokens === 'in progress' ||
+    statusTokens === 'inprogress' ||
+    statusTokens === 'status in progress' ||
+    statusTokens === 'live' ||
+    statusTokens === 'status live';
+
+  const scoreTime = score.time?.trim() ?? '';
+  const looksLikeKickoffTimestamp =
+    scoreTime.length > 0 &&
+    (ISO_DATE_PREFIX_RE.test(scoreTime) || ISO_UTC_SUFFIX_RE.test(scoreTime)) &&
+    Number.isFinite(Date.parse(scoreTime));
+  const clock = looksLikeKickoffTimestamp ? '' : scoreTime;
+
+  if (hasGenericLiveStatus) return clock || null;
+  if (!status) return clock || null;
+  if (!clock || status.toLocaleLowerCase().includes(clock.toLocaleLowerCase())) return status;
+  return `${status} ${clock}`;
+}
+
 function formatMoneyline(value: number | null): string | null {
   if (value == null) return null;
   return value > 0 ? `+${value}` : `${value}`;
 }
 
-function formatOddsSummary(odds: CombinedOdds | undefined, game: AppGame): string | null {
+function formatOddsSummary(
+  odds: CombinedOdds | undefined,
+  teamNames: { away: string; home: string }
+): string | null {
   if (!odds) return null;
 
   const segments: string[] = [];
@@ -89,14 +121,25 @@ function formatOddsSummary(odds: CombinedOdds | undefined, game: AppGame): strin
   const awayMoneyline = formatMoneyline(odds.mlAway);
   const homeMoneyline = formatMoneyline(odds.mlHome);
   const moneylines = [
-    awayMoneyline ? `${game.csvAway} ${awayMoneyline}` : null,
-    homeMoneyline ? `${game.csvHome} ${homeMoneyline}` : null,
+    awayMoneyline ? `${teamNames.away} ${awayMoneyline}` : null,
+    homeMoneyline ? `${teamNames.home} ${homeMoneyline}` : null,
   ].filter((part): part is string => part !== null);
   if (moneylines.length > 0) {
     segments.push(`Moneyline: ${moneylines.join(' • ')}`);
   }
 
   return segments.length > 0 ? segments.join(' • ') : null;
+}
+
+function participantScoreboardName(game: AppGame, side: 'away' | 'home'): string {
+  const participant = game.participants[side];
+  if (participant.kind === 'team' && participant.labels) {
+    return participant.labels.scoreboardName;
+  }
+
+  return participant.kind === 'team'
+    ? participant.rawName.trim() || participant.displayName
+    : participant.displayName;
 }
 
 function formatConferenceSummary(game: AppGame): string | null {
@@ -150,7 +193,7 @@ export type GameWeekCardViewModel = {
   isPlaceholder: boolean;
   scoreboardState: ScheduleScoreboardState;
   scheduleNotice: string | null;
-  kickoffLabel: string | null;
+  statusRowValue: string | null;
   broadcastLabel: string | null;
   venueLabel: string | null;
   oddsSummary: string | null;
@@ -161,6 +204,8 @@ export type GameWeekCardViewModel = {
   awayOwner?: string;
   homeTeamId: string;
   awayTeamId: string;
+  homeTeamName: string;
+  awayTeamName: string;
   hasRankedTeam: boolean;
   tagPrimary: LeagueGameTag | null;
   tagSecondary: LeagueGameTag[];
@@ -224,6 +269,8 @@ export function deriveGameWeekPanelViewModel(params: {
         : undefined;
       const homeTeamId = getGameParticipantTeamId(game, 'home') ?? game.canHome;
       const awayTeamId = getGameParticipantTeamId(game, 'away') ?? game.canAway;
+      const homeTeamName = participantScoreboardName(game, 'home');
+      const awayTeamName = participantScoreboardName(game, 'away');
       const hasRankedTeam =
         (rankingsByTeamId.get(homeTeamId)?.rank ?? null) != null ||
         (rankingsByTeamId.get(awayTeamId)?.rank ?? null) != null;
@@ -232,11 +279,9 @@ export function deriveGameWeekPanelViewModel(params: {
       );
       const stateKind = summaryStateKind(summaryState);
       const resolvedScoreboardState = scoreboardState(stateKind, score);
-      const showKickoff =
-        resolvedScoreboardState === 'live' ||
-        (resolvedScoreboardState === 'scheduled' && stateKind !== 'disrupted');
       const showBroadcast =
         resolvedScoreboardState === 'live' ||
+        resolvedScoreboardState === 'awaiting' ||
         (resolvedScoreboardState === 'scheduled' && stateKind !== 'disrupted');
 
       return {
@@ -245,12 +290,15 @@ export function deriveGameWeekPanelViewModel(params: {
         isPlaceholder,
         scoreboardState: resolvedScoreboardState,
         scheduleNotice: resolvedScoreboardState === 'scheduled' ? summaryState : null,
-        kickoffLabel: showKickoff
-          ? formatScheduleKickoff(game.date, displayTimeZone, game.startTimeTBD)
-          : null,
+        statusRowValue:
+          resolvedScoreboardState === 'live'
+            ? formatLiveGameClock(score)
+            : resolvedScoreboardState === 'scheduled' && stateKind !== 'disrupted'
+              ? formatScheduleKickoff(game.date, displayTimeZone, game.startTimeTBD)
+              : null,
         broadcastLabel: showBroadcast ? formatPrimaryBroadcastLabel(game.media) : null,
         venueLabel: formatVenueLabel(game.venue),
-        oddsSummary: formatOddsSummary(odds, game),
+        oddsSummary: formatOddsSummary(odds, { away: awayTeamName, home: homeTeamName }),
         conferenceSummary: formatConferenceSummary(game),
         teamRecords: recordsForGame(game, teamRecordsByProviderGameId),
         showCanonicalEventLabel: shouldShowCanonicalEventLabel(game, isPlaceholder),
@@ -258,6 +306,8 @@ export function deriveGameWeekPanelViewModel(params: {
         awayOwner,
         homeTeamId,
         awayTeamId,
+        homeTeamName,
+        awayTeamName,
         hasRankedTeam,
         tagPrimary: tagState.primary,
         tagSecondary: tagState.secondary,

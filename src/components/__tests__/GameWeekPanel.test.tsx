@@ -591,30 +591,6 @@ test('shared scoreboard renders team rows, rankings, scores, and final status', 
       hideByes={true}
       displayTimeZone="UTC"
       rankingsByTeamId={new Map([['mississippi', { rank: 7, rankSource: 'ap' }]])}
-      teamCatalogById={
-        new Map([
-          [
-            'mississippi',
-            {
-              id: 'mississippi',
-              school: 'Mississippi',
-              color: '#13294B',
-              altColor: '#CE1126',
-              alts: [],
-            },
-          ],
-          [
-            'mississippistate',
-            {
-              id: 'mississippistate',
-              school: 'Mississippi State',
-              color: '#660000',
-              altColor: '#FFFFFF',
-              alts: [],
-            },
-          ],
-        ])
-      }
     />
   );
 
@@ -727,7 +703,7 @@ test('shared scoreboard presents live state and preserves pregame notices', () =
   );
 
   assert.match(liveHtml, />Live<\/span>/);
-  assert.doesNotMatch(liveHtml, /Q3 8:14/);
+  assert.match(liveHtml, />Q3 8:14<\/span>/);
   assert.match(scheduledHtml, /7:30 PM ET/);
   assert.match(liveHtml, /data-scoreboard-state="live"/);
   assert.match(scheduledHtml, /data-scoreboard-state="scheduled"/);
@@ -840,7 +816,7 @@ test('final rows preserve neutral-site context and carry no kickoff time', () =>
   assert.doesNotMatch(html, /data-scoreboard-header[^>]*>[\s\S]*Mon, Sep 1/);
 });
 
-test('moneyline-only odds still render in expanded scoreboard odds row', () => {
+test('moneyline-only odds use the same scoreboard names as the participant rows', () => {
   const html = renderToStaticMarkup(
     <GameWeekPanel
       games={[
@@ -848,6 +824,32 @@ test('moneyline-only odds still render in expanded scoreboard odds row', () => {
           key: 'moneyline-only',
           csvAway: 'South Carolina',
           csvHome: 'Clemson',
+          participants: {
+            away: {
+              kind: 'team',
+              teamId: 'south-carolina',
+              displayName: 'South Carolina',
+              canonicalName: 'South Carolina',
+              rawName: 'South Carolina',
+              labels: {
+                displayName: 'South Carolina',
+                shortDisplayName: 'South Carolina',
+                scoreboardName: 'SC',
+              },
+            },
+            home: {
+              kind: 'team',
+              teamId: 'clemson',
+              displayName: 'Clemson',
+              canonicalName: 'Clemson',
+              rawName: 'Clemson',
+              labels: {
+                displayName: 'Clemson',
+                shortDisplayName: 'Clemson',
+                scoreboardName: 'CLEM',
+              },
+            },
+          },
         }),
       ]}
       byes={[]}
@@ -878,7 +880,10 @@ test('moneyline-only odds still render in expanded scoreboard odds row', () => {
     />
   );
 
-  assert.match(html, /Moneyline: South Carolina \+425 • Clemson -600/);
+  assert.match(html, /data-scoreboard-team="away">SC<\/span>/);
+  assert.match(html, /data-scoreboard-team="home">CLEM<\/span>/);
+  assert.match(html, /Moneyline: SC \+425 • CLEM -600/);
+  assert.doesNotMatch(html, /Moneyline: South Carolina|Moneyline:[^<]*Clemson/);
   assert.doesNotMatch(html, /No odds/);
 });
 
@@ -1389,18 +1394,6 @@ test('shared scoreboard rows keep state styling inside the row without outer car
       isDebug={false}
       hideByes={true}
       displayTimeZone="UTC"
-      teamCatalogById={
-        new Map([
-          [
-            'Texas',
-            { id: 'Texas', school: 'Texas', color: '#BF5700', altColor: '#FFFFFF', alts: [] },
-          ],
-          [
-            'Oklahoma',
-            { id: 'Oklahoma', school: 'Oklahoma', color: '#841617', altColor: '#FDF9D8', alts: [] },
-          ],
-        ])
-      }
     />
   );
 
@@ -1886,7 +1879,64 @@ test('Today is the only relative date-group label', () => {
   assert.doesNotMatch(html, />Tomorrow<\/div>/);
 });
 
-test('broadcast renders for scheduled and live rows, but not final or unlisted rows', () => {
+test('status row renders kickoff, game clock, or no value according to scoreboard state', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({ key: 'status-scheduled', date: '2025-09-01T17:00:00.000Z' }),
+        game({ key: 'status-live', date: '2025-09-01T18:00:00.000Z' }),
+        game({
+          key: 'status-awaiting',
+          date: '2025-09-01T19:00:00.000Z',
+          status: 'in_progress',
+        }),
+        game({ key: 'status-final', date: '2025-09-01T20:00:00.000Z' }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'status-live': {
+          away: { team: 'Away', score: 14 },
+          home: { team: 'Home', score: 10 },
+          status: 'Q3',
+          time: '8:12',
+        },
+        'status-final': {
+          away: { team: 'Away', score: 28 },
+          home: { team: 'Home', score: 17 },
+          status: 'Final',
+          time: null,
+        },
+      }}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  function headerFor(key: string): string {
+    const start = html.indexOf(`data-game-card-id="${key}"`);
+    assert.notEqual(start, -1);
+    const next = html.indexOf('data-game-card-id="', start + 1);
+    const cardHtml = html.slice(start, next === -1 ? undefined : next);
+    return cardHtml.match(/data-scoreboard-header[^>]*>([\s\S]*?)<\/div>/)?.[1] ?? '';
+  }
+
+  const scheduledHeader = headerFor('status-scheduled');
+  const liveHeader = headerFor('status-live');
+  const awaitingHeader = headerFor('status-awaiting');
+  const finalHeader = headerFor('status-final');
+
+  assert.match(scheduledHeader, />Scheduled<\/span>[\s\S]*>5:00 PM<\/span>/);
+  assert.match(liveHeader, />Live<\/span>[\s\S]*>Q3 8:12<\/span>/);
+  assert.match(awaitingHeader, />Awaiting score<\/span>/);
+  assert.doesNotMatch(awaitingHeader, /7:00 PM|Q\d/);
+  assert.match(finalHeader, />Final<\/span>/);
+  assert.doesNotMatch(finalHeader, /8:00 PM|Q\d/);
+});
+
+test('broadcast renders for scheduled, live, and awaiting rows, but not final or unlisted rows', () => {
   const media = (outlet: string) => [
     { gameId: 'broadcast-test', mediaType: 'tv' as const, outlet },
   ];
@@ -1933,6 +1983,13 @@ test('broadcast renders for scheduled and live rows, but not final or unlisted r
       }}
     />
   );
+  const awaitingHtml = renderToStaticMarkup(
+    <GameWeekPanel
+      {...baseProps}
+      games={[game({ key: 'awaiting-broadcast', status: 'in_progress', media: media('NBC') })]}
+      scoresByKey={{}}
+    />
+  );
   const unlistedHtml = renderToStaticMarkup(
     <GameWeekPanel
       {...baseProps}
@@ -1943,8 +2000,15 @@ test('broadcast renders for scheduled and live rows, but not final or unlisted r
 
   assert.match(scheduledHtml, />ESPN<\/span>/);
   assert.match(liveHtml, />FOX<\/span>/);
+  assert.match(awaitingHtml, />NBC<\/span>/);
   assert.doesNotMatch(finalHtml, /CBS/);
-  assert.doesNotMatch(unlistedHtml, /Broadcast TBD|>TBD network<|>TBD channel</);
+  const unlistedHeader = unlistedHtml.match(/data-scoreboard-header[^>]*>([\s\S]*?)<\/div>/)?.[1];
+  assert.ok(unlistedHeader);
+  assert.doesNotMatch(
+    unlistedHeader,
+    /aria-hidden="true">•<\/span>/,
+    'an unlisted carrier must not add a broadcast segment to the status row'
+  );
 });
 
 test('conference tier 2 collapses same-conference games and distinguishes cross-conference games', () => {

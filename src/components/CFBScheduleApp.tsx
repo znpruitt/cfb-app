@@ -648,15 +648,6 @@ export default function CFBScheduleApp({
     return m;
   }, [roster, isPreseason, initialPreseasonOwners]);
 
-  const teamCatalogById = useMemo(() => {
-    const next = new Map<string, TeamCatalogItem>();
-    for (const team of teamCatalog) {
-      const id = team.id?.trim();
-      if (id) next.set(id, team);
-    }
-    return next;
-  }, [teamCatalog]);
-
   const filteredWeekGames = useMemo(() => {
     if (selectedWeek == null) return [] as AppGame[];
     const tf = teamFilter.toLowerCase();
@@ -1880,7 +1871,6 @@ export default function CFBScheduleApp({
                   scoresByKey={scoresByKey}
                   rosterByTeam={rosterByTeam}
                   isDebug={IS_DEBUG}
-                  teamCatalogById={teamCatalogById}
                   teamRecordsByProviderGameId={teamRecordsByProviderGameId}
                   onSavePostseasonOverride={isAdmin ? savePostseasonOverride : undefined}
                   currentDateMs={liveStaleClock || null}
@@ -1928,7 +1918,6 @@ export default function CFBScheduleApp({
                   scoresByKey={scoresByKey}
                   rosterByTeam={rosterByTeam}
                   isDebug={IS_DEBUG}
-                  teamCatalogById={teamCatalogById}
                   teamRecordsByProviderGameId={teamRecordsByProviderGameId}
                   onSavePostseasonOverride={isAdmin ? savePostseasonOverride : undefined}
                   displayTimeZone={presentationTimeZone}

@@ -10,7 +10,6 @@ import type { TeamRecordsByProviderGameId } from '../lib/selectors/teamRecordsCl
 import { getPresentationTimeZone } from '../lib/weekPresentation';
 import type { TeamRankingEnrichment } from '../lib/rankings';
 import type { ScorePack } from '../lib/scores';
-import type { TeamCatalogItem, TeamDisplayInfo } from '../lib/teamIdentity';
 import type { AppGame } from '../lib/schedule';
 import CompactGameScoreboard from './CompactGameScoreboard';
 
@@ -20,24 +19,6 @@ const EMPTY_TEAM_RECORDS: TeamRecordsByProviderGameId = {};
 const EYEBROW_TAG_CLASSES =
   'inline-flex shrink-0 rounded-full border border-[#c9a66b]/40 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#dbc190]';
 
-function participantDisplayInfo(game: AppGame, side: 'home' | 'away'): TeamDisplayInfo {
-  const participant = game.participants[side];
-  if (participant.kind === 'team' && participant.labels) {
-    return participant.labels;
-  }
-
-  const fallbackName =
-    participant.kind === 'team'
-      ? participant.rawName.trim() || participant.displayName
-      : participant.displayName;
-
-  return {
-    displayName: fallbackName,
-    shortDisplayName: fallbackName,
-    scoreboardName: fallbackName,
-  };
-}
-
 type GameWeekPanelProps = {
   games: Game[];
   byes: string[];
@@ -46,7 +27,6 @@ type GameWeekPanelProps = {
   rosterByTeam: Map<string, string>;
   isDebug: boolean;
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
-  teamCatalogById?: Map<string, TeamCatalogItem>;
   teamRecordsByProviderGameId?: TeamRecordsByProviderGameId;
   onSavePostseasonOverride?: (eventId: string, patch: Partial<AppGame>) => void;
   hideByes?: boolean;
@@ -135,8 +115,6 @@ export default function GameWeekPanel({
                 const primaryTag = card.tagPrimary;
                 const secondaryTags = card.tagSecondary;
                 const tags = primaryTag ? [primaryTag, ...secondaryTags] : secondaryTags;
-                const awayDisplay = participantDisplayInfo(g, 'away');
-                const homeDisplay = participantDisplayInfo(g, 'home');
                 const awayRanking = rankingsByTeamId.get(card.awayTeamId);
                 const homeRanking = rankingsByTeamId.get(card.homeTeamId);
                 const hasTier2Content = Boolean(
@@ -166,7 +144,7 @@ export default function GameWeekPanel({
                   >
                     <CompactGameScoreboard
                       state={card.scoreboardState}
-                      clock={card.kickoffLabel ?? undefined}
+                      clock={card.statusRowValue ?? undefined}
                       broadcast={card.broadcastLabel}
                       neutralSite={useNeutralSemantics}
                       scheduleNotice={card.scheduleNotice}
@@ -191,7 +169,7 @@ export default function GameWeekPanel({
                         ) : undefined
                       }
                       away={{
-                        teamName: awayDisplay.scoreboardName,
+                        teamName: card.awayTeamName,
                         owner: awayDisplayOwner,
                         rank: awayRanking?.rank,
                         rankSource: awayRanking?.rankSource,
@@ -200,7 +178,7 @@ export default function GameWeekPanel({
                         score: card.score?.away.score ?? null,
                       }}
                       home={{
-                        teamName: homeDisplay.scoreboardName,
+                        teamName: card.homeTeamName,
                         owner: homeDisplayOwner,
                         rank: homeRanking?.rank,
                         rankSource: homeRanking?.rankSource,
