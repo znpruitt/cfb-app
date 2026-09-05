@@ -595,7 +595,7 @@ These rules apply from PLATFORM-086F2B onward and must not be violated:
 
 ## Preview branch
 
-**`preview` belongs to Claude alone.** Claude pushes it with EVERY commit on a feature branch — not once at the end of a session, and never after a merge (owner rule, 2026-08-17). The two pushes go together, docs-only and closeout commits included:
+**`preview` belongs to Claude alone.** With planning and implementation split across two Claude sessions (2026-09-05), it belongs specifically to **the session that owns the feature branch** — the implementation session. A planning session working on `main` never pushes `preview`, because pushing `main:preview` duplicates production and is the case this rule already forbids. Claude pushes it with EVERY commit on a feature branch — not once at the end of a session, and never after a merge (owner rule, 2026-08-17). The two pushes go together, docs-only and closeout commits included:
 
 ```bash
 git push origin HEAD                 # the branch

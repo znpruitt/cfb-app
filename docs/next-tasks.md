@@ -26,9 +26,46 @@ Supersedes: (none)
 
 `CURRENT`: **Item 102** — polling planner. (Item 88 is superseded in full by **Item 132**; both
 attempts at it were reverted.)
-`NEXT`: **Item 87 slice 5a** — shared scoreboard contract widening. **Dispatched to Codex
-2026-09-05** on `platform/087-slice-5a-scoreboard-contract`; kickoff at
-`docs/prompts/platform-087-slice-5a-scoreboard-contract-v1.md`.
+`NEXT`: **Item 87 slice 5a** — shared scoreboard contract widening. **Review converged and pre-merge
+closeout is complete on `platform/087-slice-5a-scoreboard-contract-v2`** (2026-09-05); not yet merged.
+The kickoff is `docs/prompts/platform-087-slice-5a-scoreboard-contract-v2.md`.
+
+- **v1 was STOPPED, not merged.** `platform/087-slice-5a-scoreboard-contract` reached `b80004c9`
+  after two remediation rounds without converging; per `AGENTS.md` → Review and remediation limits it
+  was abandoned rather than patched a third time. It is retained for reference only, has no PR, and
+  must not merge. Both rounds' findings were carried into the v2 prompt as specification.
+- **v2** rebuilt from `main` as a single commit. Both reviewers gathered against `c8562d57`; seven
+  findings were accepted — one production-behavior family (optional-slot presence semantics) and six
+  proof-surface defects. The first cohesive remediation landed at `254ff171`.
+- **Second remediation round — owner exception granted 2026-09-05.** Both confirming reviewers
+  agreed on one remaining production defect: `hasRenderableContent` does not recurse into
+  `React.Fragment` children, so an empty fragment renders an empty context/tier-2 wrapper. Only that
+  defect was caused by the first round; the three coverage gaps predate it and `AGENTS.md:313` would
+  class them as follow-ups. **The owner granted an exception drawn at production-vs-test:** fragment
+  recursion is the ONLY production change, and everything else in the round is test-only. Rationale —
+  these are gaps in a contract **five serial slices inherit** (slice 5 + 112 → 117 → 115 → 119 →
+  118), so a follow-up item would have to land before slice 5 to be worth anything, making it a
+  blocker rather than a follow-up.
+  The exception landed at `afbc81c5`; both confirming reviewers converged on that commit with no
+  credible in-scope P2 remaining.
+- **Seam audit (2026-09-05), for the five inheriting slices — do not re-derive.** The shared fact is
+  "does this slot have renderable content". Writers today are `OverviewPanel` only: `contextSlot`
+  `:772` (an unconditional `<div>`, always present), `contextSlot` `:858`
+  (`gameBadge ? <span/> : undefined`), and `footerSlot` `:809` (`string | null`, which the footer
+  renders directly and the predicate never sees). **`tier2Slot` has no writer at all** — so the
+  fragment defect is unreachable in production today and becomes routine the moment slice 5 fills
+  that slot. **`OverviewPanel:772` deliberately reserves 22px** (`min-h-[22px]` plus `aria-hidden`)
+  by always rendering its wrapper; passing `undefined` there when empty would silently drop that
+  reservation, and no test covers it. The recursion boundary is principled: fragments and arrays are
+  static structure, inspectable without evaluation, while a component returning `null` would have to
+  be rendered to know — which is unsafe and hook-incompatible. Do not cross it.
+- **Tier-2 reserves nothing.** Settled 2026-09-05: it is optional, variable-height expansion content,
+  an empty wrapper would reserve only margin, and it cannot align against real content anyway. The
+  unconditional odds band aligns tier-1. Expansion alignment belongs to the consuming slice.
+- **Known limitation:** provider classifications are absent from 2018–2024 data, so the FCS marker
+  is inert on every historical season in that range. It renders only where current-season rows carry
+  classification; this is expected data coverage, not a broken marker. The widened anatomy and this
+  limitation are recorded in the required pre-merge closeout without claiming the branch is merged.
 
 Owner-selected run order (2026-09-03), replacing the 2026-09-02 order. Ordering values, stated by the
 owner: **user-facing improvements, data correction, and bug fixes first; prerequisites persisted in
@@ -43,7 +80,8 @@ committed `c9f76081`) surfaced four new items and one split; the remaining open 
    `schedulerDeliveryHealth.ts:82,88` hardcodes the cadence, so a narrowed cron makes both jobs read
    `late` forever — but Item 88 is superseded by **Item 132**, whose scope is partition-scoped
    FRESHNESS, not delivery cadence. The coupling is internal to Item 102 and is already stated as its
-   own **collision 2**. Slice 1 (window derivation) merged 2026-09-05; slices 2–4 remain.
+   own **collision 2**. Slice 1 (window derivation) merged 2026-09-05 and is live; **slices 2–4 are
+   defined in the Item 102 entry** — synthesis, durable record, activation, in that order.
 
    **The ~1.1h projection is ANNUAL, not the binding month.** Measured 2026-09-05: October runs 74%
    armed under today's `kickoff + 24h` tail, so the planner alone lands near ~2.25h. **Item 130** is
@@ -2068,6 +2106,96 @@ Three constraints on it:
   state.
 - **Carry the invocation id**, so this correlates with the receipt like everything else under
   Item 126 Tier A.
+
+**The slices — defined 2026-09-05. Slice 1 (`pollingWindows.ts`, window derivation) merged and is
+live; it has no consumer yet, by design.** The split is pure derivation → durable truth → activation,
+the same shape as PLATFORM-086C1 → 086C2. Each slice is independently shippable and reviewable, and
+**the order is load-bearing** — see the ordering note after slice 4.
+
+**Slice 2 — synthesis: windows → cron, and windows → delivery expectation.** Two pure functions over
+slice 1's `PollingWindow[]`. No QStash, no environment variable, no durable write, no consumer.
+Ships dormant.
+
+- Synthesize a single cron expression covering the windows. Collision 4 is the governing constraint:
+  one schedule holds one cron, so windows over-approximate as hour ranges. **The synthesized cron must
+  never UNDER-cover a window** — over-approximation is safe because the handler guards still block the
+  provider call, under-approximation silently drops a reconciliation. Assert that direction explicitly;
+  it is the one property that matters.
+- Derive the delivery expectation (cadence + grace) from the same windows, replacing the hardcoded
+  `*/3` / `*/15` and 6/30-minute grace at `schedulerDeliveryHealth.ts:82,88` — **collision 2**. Fall
+  back to today's constants when no plan exists, so this ships as a no-op against current production.
+- **The planner never emits an empty cron — owner decision 2026-09-05.** Off-window it emits a
+  **floor cadence** (hourly), so the job always runs and delivery health stays truthful with NO change
+  to `SchedulerDeliveryState` and none of its four consumers touched. The offseason is not a special
+  case: it is a long run of dead days, one rule covers both, and the schedule stays present so
+  `inspect` and delivery health keep working. This is the behaviour superseding the manual half of
+  Item 96.
+
+  **Why a state change was rejected.** `SchedulerDeliveryState` is
+  `on-time | late | missing | invalid | unavailable` — there is no way to say "not supposed to run",
+  so a narrowed cron on a dead day would report `late` or `missing`, both alarms. Adding a sixth
+  member (mirroring PLATFORM-090's `ProviderDataExpectation`) would touch `deliveryStateDisplay`,
+  `deliveryRowStatus`, `noReceiptExecutionLabel` and `systemHealthIssues.ts:352`. The floor cadence
+  buys nearly the same saving for none of that.
+
+  **The floor's cost, computed 2026-09-05** (`*/3` = 480 runs/day, `*/15` = 96; armed 17% annually,
+  74% in October):
+
+  | job | today | windows-only | with hourly floor |
+  | --- | --- | --- | --- |
+  | live-scores, annual | 480/day | 82 | **102 (79% below today)** |
+  | live-scores, October | 480/day | 355 | **361 (25% below today)** |
+  | game-stats, annual | 96/day | 16 | **36 (62% below today)** |
+  | game-stats, October | 96/day | 71 | **77 (20% below today)** |
+
+  The floor costs ~20 runs/day against windows-only in the annual case and ~6/day in October. Update
+  `docs/campaigns/vercel-active-cpu.md` with these figures when slice 2 ships rather than leaving the
+  windows-only projection standing.
+
+- **`cadenceLabel` is plan-derived — owner decision 2026-09-05.** It renders verbatim at
+  `SchedulerHealthSection.tsx:99` and must show the day's actual shape, e.g. _"every 3 min until 04:00
+  UTC, then hourly"_, not a static rule. **Ordering consequence:** rendering it needs the plan record,
+  which does not exist until slice 3. Slice 2 therefore derives the label from the windows it is
+  handed and keeps the existing static constants as the fallback; the health row is not wired to a
+  durable plan until slice 3 lands. Do not build a plan reader in slice 2.
+- **Must not:** call QStash, read `QSTASH_TOKEN`, write durable state, or change any rendered output.
+
+**Slice 3 — the durable planner record, and `inspect` divergence against it.** The reconstructibility
+replacement, which **must exist before slice 4 takes cron ownership** — otherwise the tampering signal
+is gone for the window between them.
+
+- Durable record of every planner run: input windows, generated cron, previous cron, applied-or-
+  skipped, outcome, and the invocation id (Item 126 Tier A correlation). **Durable, not a runtime
+  log** — Vercel logs expire too fast to be incident history, and rebuilding that defect here is
+  explicitly out of bounds.
+- **Allowlisted projection only.** `buildUpsertRequest` headers carry TWO secrets —
+  `Authorization: Bearer <QSTASH_TOKEN>` and `Upstash-Forward-Authorization: Bearer <CRON_SECRET>`.
+  Record cron, `scheduleId`, destination, method, retries and derived windows. Never `headers`, never
+  a raw request, never a response body.
+- Rewrite `qstashSchedule.ts:342` to diff live QStash state against the planner's **last recorded
+  intent** rather than the FIXED constant — **collision 1**. With no record present it must fall back
+  to the constant, so `inspect` keeps working before slice 4 ever runs.
+- **Must not:** apply an upsert, or make the cron planner-owned. Records are written by tests only.
+
+**Slice 4 — activation.** Small, because everything it needs is already built and tested by then.
+
+- `QSTASH_TOKEN` into the Vercel environment. **Check first whether QStash offers a scoped management
+  token** limited to the two schedules the planner touches; if it does, use it. **Update all five
+  statements in the same PR** — `docs/deployment-runbook.md:88` and the four `scripts/manage-*-
+  schedule.ts` headers — or the repo lies about its own security posture. Collision 3.
+- The daily cron that derives → synthesizes → records → upserts, and the cutover of `live-scores` and
+  `game-stats` to planner-owned crons.
+- **Existing handler guards stay.** They are the defence against kickoff changes, postponements,
+  stale QStash state, and planner mistakes. The planner reduces wakeups; it must never become the
+  only correctness or quota protection.
+
+**Ordering is load-bearing, not preference.** Slice 3 before slice 4, because slice 4 destroys the
+property slice 3 replaces. Slice 2's collision-2 fix before any narrowing, or the two rows that matter
+most on a game day read `late` forever. Slice 2 and slice 3 both ship dormant and are therefore safe
+to merge in either order relative to each other — but neither may be skipped to reach slice 4.
+
+**Out of scope for all three: the faster in-window cadence.** It spends provider quota that dead days
+were never spending, and it is **Item 95 portion 2**, gated on Item 94. Do not fold it in.
 
 **Blocker:** none technical. Until it ships the schedules are managed by hand per game window, which
 is what makes the `kickoff + 24h` reconciliation deadline an operational hazard — see the campaign

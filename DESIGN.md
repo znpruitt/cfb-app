@@ -164,18 +164,46 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 
 - Game cards sit on a dark surface tint with a light border — discrete, bordered objects (see Containerization), with a per-line team-colour accent at the start of each team row, normalised for contrast against the dark surface via `teamColors.ts`. A team with no catalog colour currently receives the fallback accent (`#059669`, `teamColors.ts:24`); rendering no accent for those rows is proposed in `docs/campaigns/item-87-followon-team-colour.md` and not yet shipped
 - The shared compact scoreboard uses a status row followed by away and home team lines. Each team is
-  the primary label, a nullable rank is its prefix, an owner is a tertiary inline suffix, and the
-  state-relevant value stays right-anchored. Unowned opponents render team-only; the same owner may
-  appear on both lines without special treatment. The team identity begins the row so a future logo
-  slot can be inserted structurally; logos are not part of the current component. An optional
-  context slot immediately before the status row reserves additive space for a reason label and
-  substance without changing the scoreboard rows
+  the primary label, a single-valued classification marker is its prefix, an owner is a tertiary
+  inline suffix, and the state-relevant value stays right-anchored. The prefix has exactly one state:
+  rank, FCS, or empty. A present rank renders first; otherwise a bordered FCS pill renders only when
+  provider classification is exactly `fcs`; otherwise nothing. A ranked-FCS collision is an
+  upstream-data defect, and the defensive display rule lets rank win rather than hiding it. Division
+  II, Division III, case variants, and other near matches never render the FCS label. The FCS pill
+  uses a hairline border, 3px radius, 3px horizontal padding, 9.5px semibold type, 0.06em tracking,
+  and explicit 1.4 line height so it does not alter the participant row's height. Unowned opponents
+  render team-only; the same owner may appear on both lines without special treatment. The team
+  identity begins the row so a future logo slot can be inserted structurally; logos are not part of
+  the current component. An optional context slot immediately before the status row provides
+  additive space for a reason label and substance without changing the scoreboard rows
+- Compact scoreboard header metadata stays on one line in this order: state or schedule notice,
+  kickoff or game clock, broadcast, then `Neutral site`. Bullets are conditional separators before
+  broadcast and neutral-site metadata, never leading decoration; a row containing only either label
+  begins with that label. Broadcast renders for scheduled, live, and awaiting rows, but not finals.
+  `Awaiting score` is an indeterminate post-kickoff subset of live for this presentation rule, and a
+  broadcast label names the game's carrier rather than claiming it is currently on air
+- The scheduled odds footer always reserves its tier-1 band, even with no odds. The optional tier-2
+  expansion slot follows the primary rows — and the odds band on scheduled rows — and reserves
+  nothing: it is variable-height content, so an empty wrapper would add only margin and could not
+  align with real expansion content. The wrapper is suppressed when the slot is statically known to
+  be React-empty; otherwise it carries spacing, minimum-width, and overflow constraints so it cannot
+  widen a scoreboard inside the two-column grid. Arrays and fragments can be inspected recursively
+  for emptiness without evaluation; arbitrary components cannot and are left intact. Expansion
+  alignment belongs to the consuming slice
+- `CompactGameScoreboard` has a component-local prohibition on `dark:text-zinc-500`: its header,
+  rank/FCS markers, records, and owner suffixes use `dark:text-zinc-400` to meet the 4.5:1 normal-text
+  floor on the app's dark surface. This is not a repository-wide ban. The complete-rule change has
+  one accepted hierarchy cost: on a losing participant row the 14px team name was already zinc-400,
+  while the 12.5px record and owner suffixes were zinc-500 one colour step below it. Moving the
+  suffixes to zinc-400 collapses that colour step and leaves type size as the distinction. Reverting
+  to zinc-500 would restore the step but fail contrast; a new dimming mechanism is outside this
+  contract
 - Compact scoreboard order is always away → home. Position communicates home/away; font weight,
   never reordering, marks the live leader or final winner
-- Compact scoreboard state variants share that row anatomy: scheduled uses a single-line kickoff /
-  broadcast header, team-record anchors, and an odds footer; live uses a green dot + `Live` + clock
-  status row and score anchors; awaiting uses a neutral `Awaiting score` status row with no live dot
-  or live DOM state; final uses a neutral `Final` status row and score anchors. In the final variant,
+- Compact scoreboard state variants share that row anatomy: scheduled uses its metadata header,
+  team-record anchors, and an odds footer; live uses a green dot + `Live` + clock status row and score
+  anchors; awaiting uses a neutral `Awaiting score` status row with no live dot or live DOM state;
+  final uses a neutral `Final` status row and score anchors. In the final variant,
   away → home order remains fixed while the winner receives primary weight and the loser is muted,
   including when the home team won. **A final row carries no date and no time** — for a completed
   game the result is the information, and the container supplies temporal context: week tabs on
