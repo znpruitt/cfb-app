@@ -24,6 +24,7 @@ import {
   getDefaultVisibleOpponentsCount,
   selectSlateOpponentVisibility,
 } from '../../lib/selectors/matchups';
+import { NO_CLAIM_OWNER } from '../../lib/standings';
 import type { AppGame } from '../../lib/schedule';
 
 afterEach(() => cleanup());
@@ -222,4 +223,86 @@ test('the rendered opponent descriptor is unchanged by the count re-key (Item 13
 
   assert.doesNotMatch(card.innerHTML, /NoClaim/, 'the unowned-FBS sentinel stays suppressed');
   assert.match(card.innerHTML, /FCS/, 'the FCS marker still renders');
+});
+
+// ---------------------------------------------------------------------------
+// Codex review of 1259bd61 — the production roster shape, at the surface.
+//
+// A confirmed draft writes `NoClaim` as the OWNER of every undrafted eligible
+// team, and those rows reach `rosterByTeam` unfiltered. The fixtures above omit
+// unowned teams from the roster instead, which is a real shape but NOT the one
+// a drafted league ships with — and the original fix passed against them while
+// leaving the defect fully intact here.
+// ---------------------------------------------------------------------------
+
+function noClaimRoster(opponentCount: number): {
+  games: AppGame[];
+  rosterByTeam: Map<string, string>;
+  opponentNames: string[];
+} {
+  const built = unownedOpponentSlate(opponentCount);
+  const rosterByTeam = new Map(built.rosterByTeam);
+  for (const opponent of built.opponentNames) rosterByTeam.set(opponent, NO_CLAIM_OWNER);
+  return { ...built, rosterByTeam };
+}
+
+test('the control counts NoClaim-rostered opponents on a drafted league (Item 135)', () => {
+  const visible = getDefaultVisibleOpponentsCount();
+  const { games, rosterByTeam } = noClaimRoster(visible + 2);
+
+  // Positive control: the fixture must actually carry the reserved owner, or it
+  // degenerates into the roster-absent case that already passed.
+  const slate = deriveOwnerWeekSlates(games, rosterByTeam, {}).find(
+    (entry) => entry.owner === OWNER
+  );
+  assert.ok(slate, 'owner slate should exist');
+  assert.ok(
+    slate.games.every((slateGame) => slateGame.opponentOwner === NO_CLAIM_OWNER),
+    'every opponent carries the reserved NoClaim owner'
+  );
+
+  const { container } = renderPanel(games, rosterByTeam);
+  const toggle = within(ownerCard(container)).getByRole('button');
+
+  assert.equal(toggle.textContent, 'Show 2 more opponents ↓');
+  assert.equal(gameRowCount(container), visible);
+});
+
+test('a NoClaim-rostered opponent is not rendered as an owner (Item 135)', () => {
+  // The reserved sentinel must stay out of member-facing copy — it is a marker,
+  // not somebody's name.
+  const { games, rosterByTeam } = noClaimRoster(2);
+  const { container } = renderPanel(games, rosterByTeam);
+
+  assert.doesNotMatch(ownerCard(container).innerHTML, /NoClaim/);
+});
+
+test('the control label is singular when exactly one opponent is withheld (Item 135)', () => {
+  const { games, rosterByTeam } = noClaimRoster(getDefaultVisibleOpponentsCount() + 1);
+  const { container } = renderPanel(games, rosterByTeam);
+
+  const toggle = within(ownerCard(container)).getByRole('button');
+  assert.equal(toggle.textContent, 'Show 1 more opponent ↓');
+});
+
+test('the collapse control carries disclosure state for assistive technology (Item 135)', () => {
+  const { games, rosterByTeam } = noClaimRoster(getDefaultVisibleOpponentsCount() + 2);
+  const { container } = renderPanel(games, rosterByTeam);
+
+  const card = ownerCard(container);
+  const toggle = within(card).getByRole('button');
+  const controlled = toggle.getAttribute('aria-controls');
+
+  assert.equal(toggle.getAttribute('aria-expanded'), 'false');
+  assert.ok(controlled, 'the button must name the region it controls');
+  // Compared by id rather than by selector lookup: `React.useId` emits colons,
+  // which are not valid unescaped in a CSS id selector.
+  assert.equal(
+    card.querySelector('ul')?.id,
+    controlled,
+    'aria-controls must point at the game list it actually shows and hides'
+  );
+
+  fireEvent.click(toggle);
+  assert.equal(toggle.getAttribute('aria-expanded'), 'true');
 });

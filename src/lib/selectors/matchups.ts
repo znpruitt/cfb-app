@@ -1,4 +1,5 @@
 import { classifyScorePackStatus, formatCompactGameStatus } from '../gameStatus';
+import { displayOwner } from '../gameOwnership';
 import type { OwnerSlateGame, OwnerWeekSlate, WeekMatchupSections } from '../matchups';
 import type { ScorePack } from '../scores';
 import { isPolicyFcsConference } from '../conferenceSubdivision';
@@ -35,6 +36,12 @@ export type GameOutcomeTone =
   | 'finalSelf'
   | 'neutral';
 
+function getOpponentParticipant(slateGame: OwnerSlateGame) {
+  return slateGame.ownerTeamSide === 'away'
+    ? slateGame.game.participants.home
+    : slateGame.game.participants.away;
+}
+
 export function deriveOpponentDescriptor(slateGame: OwnerSlateGame): string {
   if (slateGame.opponentOwner) {
     return slateGame.opponentOwner === slateGame.owner
@@ -44,10 +51,7 @@ export function deriveOpponentDescriptor(slateGame: OwnerSlateGame): string {
 
   const opponentConference =
     slateGame.ownerTeamSide === 'away' ? slateGame.game.homeConf : slateGame.game.awayConf;
-  const opponentParticipant =
-    slateGame.ownerTeamSide === 'away'
-      ? slateGame.game.participants.home
-      : slateGame.game.participants.away;
+  const opponentParticipant = getOpponentParticipant(slateGame);
 
   if (opponentParticipant.kind === 'placeholder' || opponentParticipant.kind === 'derived') {
     return opponentParticipant.displayName;
@@ -69,35 +73,44 @@ function getSummaryOpponentLabel(slateGame: OwnerSlateGame): string {
 /**
  * Item 135 — the identity the opponent count groups by.
  *
- * Keying on the DESCRIPTOR undercounted, because `deriveOpponentDescriptor`
- * collapses every unowned FBS opponent onto one sentinel and every FCS opponent
- * onto another. Only those two branches are re-keyed, onto opponent team
- * identity. Every other branch keeps the grouping it already had:
+ * Keying on the DESCRIPTOR undercounted, because an unowned opponent collapses
+ * onto a marker rather than identifying itself. Every unowned opponent is keyed
+ * on team identity; the grouping every other branch already had is preserved:
  *
  * - owned opponent → the opponent OWNER, so one owner fielding two teams against
  *   this owner in one week stays ONE opponent;
- * - self → a single `Self` group, for the same reason;
+ * - self → a single `self` group, for the same reason;
  * - placeholder / derived → the participant display name, which already
  *   distinguishes one unresolved slot from another.
+ *
+ * "Unowned" is decided by `displayOwner`, not by an absent `opponentOwner`, and
+ * that distinction is the whole fix on a real league. A confirmed draft writes
+ * the reserved `NoClaim` owner for every undrafted eligible team
+ * (`buildConfirmedOwnersCsv`), and `rosterByTeam` carries those rows through
+ * unfiltered — so on production data an unclaimed opponent has a TRUTHY owner.
+ * Testing `slateGame.opponentOwner` for truthiness therefore sent every
+ * unclaimed team into ONE `owner:NoClaim` group and left the defect exactly as
+ * it was; only a fixture that omits unowned teams from the roster hides that.
+ * `displayOwner` is the shared seam for the sentinel (AGENTS.md rule 11).
  *
  * Keys are namespaced so a category can never collide with another — an owner
  * named "FCS" is not the FCS opponent group.
  */
 function getSummaryOpponentKey(slateGame: OwnerSlateGame): string {
-  if (slateGame.opponentOwner) {
-    return slateGame.opponentOwner === slateGame.owner
-      ? 'self'
-      : `owner:${slateGame.opponentOwner}`;
+  const opponentOwner = displayOwner(slateGame.opponentOwner);
+  if (opponentOwner) {
+    return opponentOwner === slateGame.owner ? 'self' : `owner:${opponentOwner}`;
   }
 
-  const descriptor = deriveOpponentDescriptor(slateGame);
-  if (descriptor !== FCS_DESCRIPTOR && descriptor !== NO_CLAIM_FBS_DESCRIPTOR) {
-    return `label:${descriptor}`;
+  // Derived from the participant rather than the descriptor: for a
+  // NoClaim-owned opponent the descriptor is `vs NoClaim`, which identifies no
+  // team and would re-collapse the group this branch exists to split.
+  const opponentParticipant = getOpponentParticipant(slateGame);
+  if (opponentParticipant.kind === 'placeholder' || opponentParticipant.kind === 'derived') {
+    return `label:${opponentParticipant.displayName}`;
   }
 
-  // Both sentinel branches leave `opponentParticipant.kind === 'team'`, so a
-  // team id is present; the name and the descriptor are ordered fallbacks only.
-  return `team:${slateGame.opponentTeamId || slateGame.opponentTeamName || descriptor}`;
+  return `team:${slateGame.opponentTeamId || slateGame.opponentTeamName || opponentParticipant.displayName}`;
 }
 
 export function summarizeSlateOpponents(slate: OwnerWeekSlate): OpponentSummaryEntry[] {
