@@ -4,12 +4,13 @@ import test from 'node:test';
 import type { AppGame } from '../../schedule.ts';
 import type { ScorePack } from '../../scores.ts';
 import {
-  LIVE_SCORE_IN_PROGRESS_POLL_INTERVAL_MS,
+  LIVE_SCORE_FAST_POLL_INTERVAL_MS,
+  LIVE_SCORE_FAST_WINDOW_AFTER_MS,
   LIVE_SCORE_POLL_INTERVAL_MS,
   LIVE_SCORE_WINDOW_AFTER_MS,
   LIVE_SCORE_WINDOW_BEFORE_MS,
   deriveLiveScorePartitions,
-  hasInProgressLiveScoreGame,
+  hasGameInLiveScoreFastWindow,
   isCurrentLiveScoreSeason,
   isLiveScoreEligibleGame,
   selectLiveScorePollGames,
@@ -214,70 +215,82 @@ test('deriveLiveScorePartitions dedupes (providerWeek, seasonType) and maps stag
   );
 });
 
-test('the browser cadence constants retain 3 minutes normally and use 90 seconds in progress', () => {
+test('the browser cadence constants retain 3 minutes normally and use 90 seconds near kickoff', () => {
   assert.equal(LIVE_SCORE_POLL_INTERVAL_MS, 3 * 60 * 1000);
-  assert.equal(LIVE_SCORE_IN_PROGRESS_POLL_INTERVAL_MS, 90 * 1000);
+  assert.equal(LIVE_SCORE_FAST_POLL_INTERVAL_MS, 90 * 1000);
+  assert.equal(LIVE_SCORE_FAST_WINDOW_AFTER_MS, 8 * 60 * 60 * 1000);
 });
 
-test('a just-kicked-off eligible game selects the fast tier without a score pack', () => {
+test('a just-kicked-off eligible game selects the fast tier without score state', () => {
   const justKickedOff = makeGame({ key: 'no-score', date: NOW.toISOString() });
 
   assert.equal(
-    hasInProgressLiveScoreGame({
+    hasGameInLiveScoreFastWindow({
       eligibleGames: [justKickedOff],
-      scoresByKey: {},
       now: NOW,
     }),
     true
   );
 });
 
-test('the fast-tier predicate waits for kickoff even when a cached status says live', () => {
-  const upcoming = makeGame({
-    key: 'upcoming',
-    date: new Date(NOW_MS + LIVE_SCORE_WINDOW_BEFORE_MS).toISOString(),
-  });
+test('the fast tier uses the inclusive [kickoff-15m, kickoff+8h] time window', () => {
+  const atAge = (ageMs: number) =>
+    makeGame({ key: String(ageMs), date: new Date(NOW_MS - ageMs).toISOString() });
 
   assert.equal(
-    hasInProgressLiveScoreGame({
-      eligibleGames: [upcoming],
-      scoresByKey: { upcoming: scorePack('Q1 15:00') },
+    hasGameInLiveScoreFastWindow({
+      eligibleGames: [atAge(-LIVE_SCORE_WINDOW_BEFORE_MS)],
+      now: NOW,
+    }),
+    true
+  );
+  assert.equal(
+    hasGameInLiveScoreFastWindow({
+      eligibleGames: [atAge(-LIVE_SCORE_WINDOW_BEFORE_MS - 1)],
+      now: NOW,
+    }),
+    false
+  );
+  assert.equal(
+    hasGameInLiveScoreFastWindow({
+      eligibleGames: [atAge(LIVE_SCORE_FAST_WINDOW_AFTER_MS)],
+      now: NOW,
+    }),
+    true
+  );
+  assert.equal(
+    hasGameInLiveScoreFastWindow({
+      eligibleGames: [atAge(LIVE_SCORE_FAST_WINDOW_AFTER_MS + 1)],
       now: NOW,
     }),
     false
   );
 });
 
-test('final evidence stays on the normal tier, with an attached score taking precedence', () => {
-  const scheduleFinal = makeGame({
-    key: 'schedule-final',
+test('score attachment and frozen completion fields cannot extend the fast window', () => {
+  const staleScheduled = makeGame({
+    key: 'missing-score',
+    date: new Date(NOW_MS - LIVE_SCORE_FAST_WINDOW_AFTER_MS - 1).toISOString(),
+    rawStatus: 'scheduled',
+    status: 'matchup_set',
+    completed: false,
+  });
+  const attachedIncompleteFinal = makeGame({
+    key: 'incomplete-final',
+    date: new Date(NOW_MS - LIVE_SCORE_FAST_WINDOW_AFTER_MS - 1).toISOString(),
     rawStatus: 'completed',
     status: 'matchup_set',
     completed: true,
   });
-  const scoreFinal = makeGame({ key: 'score-final', rawStatus: 'STATUS_IN_PROGRESS' });
 
   assert.equal(
-    hasInProgressLiveScoreGame({ eligibleGames: [scheduleFinal], scoresByKey: {}, now: NOW }),
+    hasGameInLiveScoreFastWindow({ eligibleGames: [staleScheduled], now: NOW }),
     false,
-    'CFBD completed=true applies before a score pack exists'
+    'a missing score cannot pin a frozen scheduled game to the fast tier'
   );
   assert.equal(
-    hasInProgressLiveScoreGame({
-      eligibleGames: [scoreFinal],
-      scoresByKey: { 'score-final': scorePack('Final') },
-      now: NOW,
-    }),
+    hasGameInLiveScoreFastWindow({ eligibleGames: [attachedIncompleteFinal], now: NOW }),
     false,
-    'an attached final score applies even when the schedule still says live'
-  );
-  assert.equal(
-    hasInProgressLiveScoreGame({
-      eligibleGames: [scheduleFinal],
-      scoresByKey: { 'schedule-final': scorePack('Q4 02:00') },
-      now: NOW,
-    }),
-    true,
-    'a newer attached non-final score overrides stale schedule finality'
+    'even a completed row normalized for display cannot extend the time-only tier'
   );
 });

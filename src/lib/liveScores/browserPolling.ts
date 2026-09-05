@@ -1,8 +1,4 @@
-import {
-  classifyScorePackStatus,
-  classifyStatusLabel,
-  isCanceledOrPostponedStatusLabel,
-} from '@/lib/gameStatus';
+import { classifyScorePackStatus, isCanceledOrPostponedStatusLabel } from '@/lib/gameStatus';
 import type { AppGame } from '@/lib/schedule';
 import type { ScorePack } from '@/lib/scores';
 import { seasonYearForToday } from '@/lib/scores/normalizers';
@@ -20,13 +16,21 @@ import { seasonYearForToday } from '@/lib/scores/normalizers';
  * pending-confirmation metadata).
  */
 
-/** Browser live-score cadence when the eligible window has no game in progress. */
+/** Browser live-score cadence outside the bounded fast window. */
 export const LIVE_SCORE_POLL_INTERVAL_MS = 3 * 60 * 1000;
-/** Browser live-score cadence while at least one eligible game is in progress. */
-export const LIVE_SCORE_IN_PROGRESS_POLL_INTERVAL_MS = 90 * 1000;
+/** Browser live-score cadence near kickoff, while updates are most likely. */
+export const LIVE_SCORE_FAST_POLL_INTERVAL_MS = 90 * 1000;
 /** Inclusive window: 15 minutes before kickoff through 24 hours after (== B1). */
 export const LIVE_SCORE_WINDOW_BEFORE_MS = 15 * 60 * 1000;
 export const LIVE_SCORE_WINDOW_AFTER_MS = 24 * 60 * 60 * 1000;
+/**
+ * Inclusive fast-cadence tail after kickoff. Item 108 observed ordinary finals
+ * by +3.40h..+4.75h and one weather-delayed game still live at +6.4h; eight
+ * hours carries that outlier plus 1.6h of guard without doubling reads through
+ * an isolated game's remaining 16 hours of eligibility. Overlapping games form
+ * the union of their fixed windows; they never extend one from score state.
+ */
+export const LIVE_SCORE_FAST_WINDOW_AFTER_MS = 8 * 60 * 60 * 1000;
 
 /** The canonical current season — browser auto-polling never arms a past season. */
 export function isCurrentLiveScoreSeason(season: number, now: Date = new Date()): boolean {
@@ -107,35 +111,27 @@ export function selectLiveScorePollGames(params: {
 }
 
 /**
- * Whether at least one already-eligible game has reached kickoff and is not final.
+ * Whether at least one already-eligible game is inside the inclusive fast-poll
+ * window `[kickoff - 15m, kickoff + 8h]`.
  *
- * Kickoff time is deliberately sufficient to enter the fast tier: the first cron
- * write may not have produced a score pack yet, and waiting for one would delay
- * the 90-second cadence at the moment it matters. Once a score pack exists its
- * status is the freshest finality signal; before then, the schedule's retained
- * `completed` flag, mapped status, and raw status prevent an already-final game
- * from being treated as live.
+ * Time is deliberately the ONLY input. The client schedule retains kickoff time
+ * reliably, but its completion fields are frozen in-session and an identity miss
+ * can leave a game without an attached score pack. Neither condition may pin the
+ * browser to 90-second reads through the full 24-hour eligibility tail.
  */
-export function hasInProgressLiveScoreGame(params: {
+export function hasGameInLiveScoreFastWindow(params: {
   eligibleGames: AppGame[];
-  scoresByKey: Record<string, ScorePack>;
   now?: Date;
 }): boolean {
-  const { eligibleGames, scoresByKey, now = new Date() } = params;
+  const { eligibleGames, now = new Date() } = params;
   const nowMs = now.getTime();
 
   return eligibleGames.some((game) => {
     if (!game.date) return false;
     const kickoffMs = Date.parse(game.date);
-    if (!Number.isFinite(kickoffMs) || kickoffMs > nowMs) return false;
-
-    const score = scoresByKey[game.key];
-    const isFinal = score
-      ? classifyScorePackStatus(score) === 'final'
-      : game.completed === true ||
-        game.status === 'final' ||
-        classifyStatusLabel(game.rawStatus) === 'final';
-    return !isFinal;
+    if (!Number.isFinite(kickoffMs)) return false;
+    const age = nowMs - kickoffMs;
+    return age >= -LIVE_SCORE_WINDOW_BEFORE_MS && age <= LIVE_SCORE_FAST_WINDOW_AFTER_MS;
   });
 }
 

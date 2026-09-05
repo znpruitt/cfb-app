@@ -17,10 +17,10 @@ import {
 import { decideRefresh } from '../../lib/refreshDecision';
 import { LIVE_MANUAL_COOLDOWN_MS } from '../../lib/refreshPolicy';
 import {
-  LIVE_SCORE_IN_PROGRESS_POLL_INTERVAL_MS,
+  LIVE_SCORE_FAST_POLL_INTERVAL_MS,
   LIVE_SCORE_POLL_INTERVAL_MS,
   deriveLiveScorePartitions,
-  hasInProgressLiveScoreGame,
+  hasGameInLiveScoreFastWindow,
   selectLiveScorePollGames,
   type LiveScorePartition,
 } from '../../lib/liveScores/browserPolling';
@@ -48,9 +48,10 @@ type UseLiveRefreshParams = {
   scoreScopeGames: AppGame[];
   /**
    * Current per-game score cache (PLATFORM-086B2B). Read only to re-evaluate
-   * browser live-poll eligibility and cadence each heartbeat. Canceled/postponed
-   * games drop out; in-window finals remain eligible at the normal cadence. Not a
-   * write path; the hook still owns updates via `setScoresByKey`.
+   * browser live-poll eligibility each heartbeat. Canceled/postponed games drop
+   * out; in-window finals remain eligible. Cadence uses kickoff time only, never
+   * these score packs. Not a write path; the hook still owns updates via
+   * `setScoresByKey`.
    */
   scoresByKey: Record<string, ScorePack>;
   /**
@@ -219,6 +220,8 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
      * these partitions via week-scoped URLs — never season-wide, never a refresh.
      */
     scorePartitions?: LiveScorePartition[];
+    /** Initial bootstrap only: stamp/re-anchor the auto-poll clock after a clean read. */
+    stampAutoPollClockOnSuccess?: boolean;
   }) => Promise<void>;
   liveScoreObservation: LiveScoreObservation | null;
 } {
@@ -295,12 +298,14 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
       includeOdds?: boolean;
       scoreScopeGamesOverride?: AppGame[];
       scorePartitions?: LiveScorePartition[];
+      stampAutoPollClockOnSuccess?: boolean;
     }): Promise<void> => {
       const manual = options?.manual ?? false;
       if (liveRefreshInFlightRef.current) return;
 
       const nowMs = Date.now();
-      const stampAutoPollOnCompletion = !manual && options?.scorePartitions === undefined;
+      const isExactAutoPoll = !manual && options?.scorePartitions !== undefined;
+      const stampAutoPollClockOnSuccess = !manual && options?.stampAutoPollClockOnSuccess === true;
       // Odds are NOT fetched automatically here anymore — cache-only Odds display is
       // owned by `useOddsHydration` (PLATFORM-086C3), decoupled from the kickoff
       // window. This path fetches odds ONLY when a caller explicitly opts in
@@ -338,7 +343,7 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
       setLoadingLive(true);
       if (manual) {
         lastManualLiveRefreshMsRef.current = nowMs;
-      } else if (!stampAutoPollOnCompletion) {
+      } else if (isExactAutoPoll) {
         // Stamp the auto-poll throttle at poll INITIATION, not completion. The
         // scheduler's heartbeat is shorter than or equal to its selected cadence,
         // so anchoring to `nowMs` keeps consecutive exact-partition polls the
@@ -532,18 +537,18 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
               setScoreHydrationState((prev) => markScoreHydrationLoaded(prev, loadedSeasonTypes));
             }
           }
-          // Exact-partition polls stamp at initiation above. Season-wide automatic
-          // hydration stamps on completion below so the first heartbeat cannot
-          // immediately repeat a bootstrap that was still in flight.
+          // Exact-partition polls stamp at initiation above. Only a CLEAN initial
+          // bootstrap stamps here at completion: a failed bootstrap must remain
+          // retryable, and lazy hydration must not move the live-poll deadline.
+          if (stampAutoPollClockOnSuccess && scoreIssues.length === 0) {
+            lastAutoScoresRefreshMsRef.current = Date.now();
+            resetAutoPollHeartbeatRef.current?.();
+          }
         } catch (err) {
           if (options?.scorePartitions) setLiveScoreObservation(null);
           setIssues((p) => [...p, `Scores fetch failed: ${(err as Error).message}`]);
         }
       } finally {
-        if (stampAutoPollOnCompletion) {
-          lastAutoScoresRefreshMsRef.current = Date.now();
-          resetAutoPollHeartbeatRef.current?.();
-        }
         liveRefreshInFlightRef.current = false;
         setLoadingLive(false);
       }
@@ -599,16 +604,18 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
     void refreshLiveData({
       manual: false,
       scoreScopeGamesOverride: bootstrapScoreGames,
+      stampAutoPollClockOnSuccess: true,
     });
   }, [games, refreshLiveData, scheduleLoaded, selectedTab]);
 
   // Visible-tab live-score polling (PLATFORM-BROWSER-POLL-CADENCE-v2): a
   // self-rescheduling 90-second heartbeat that re-evaluates eligibility and
-  // cadence every tick AND whenever the tab gains
-  // focus/becomes visible, so a page opened before kickoff arms itself as the
-  // window opens without any re-render. When at least one eligible game's kickoff
-  // has passed and it is not final, reads run every 90 seconds; otherwise they
-  // retain the three-minute cadence. BOTH tiers always read the complete eligible
+  // cadence every tick AND whenever the tab gains focus/becomes visible, so a
+  // page opened before kickoff arms itself as the window opens without any
+  // re-render. Reads run every 90 seconds while any eligible game is inside the
+  // fixed `[kickoff - 15m, kickoff + 8h]` window, then return to three minutes.
+  // The tier is time-only: frozen completion state or a missing score attachment
+  // cannot extend it. BOTH tiers always read the complete eligible
   // `(providerWeek, seasonType)` partition set — cadence changes when, never what.
   //
   // The next heartbeat is always scheduled 90 seconds after the LAST attempt
@@ -638,12 +645,11 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
         now,
       });
       if (eligibleGames.length === 0) return;
-      const pollIntervalMs = hasInProgressLiveScoreGame({
+      const pollIntervalMs = hasGameInLiveScoreFastWindow({
         eligibleGames,
-        scoresByKey: currentScores,
         now,
       })
-        ? LIVE_SCORE_IN_PROGRESS_POLL_INTERVAL_MS
+        ? LIVE_SCORE_FAST_POLL_INTERVAL_MS
         : LIVE_SCORE_POLL_INTERVAL_MS;
       if (nowMs - lastAutoScoresRefreshMsRef.current < pollIntervalMs) return;
 
@@ -659,14 +665,14 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
     };
 
     // Always re-arm one FAST interval out. The throttle inside attemptPoll selects
-    // 90 or 180 seconds; the 90-second heartbeat is what notices a kickoff even
-    // before a score pack exists, without a render or a premature read.
+    // 90 or 180 seconds; the 90-second heartbeat is what notices the fast-window
+    // boundaries without a render.
     const reschedule = (): void => {
       if (timeoutId !== undefined) clearTimeout(timeoutId);
       timeoutId = setTimeout(() => {
         attemptPoll();
         reschedule();
-      }, LIVE_SCORE_IN_PROGRESS_POLL_INTERVAL_MS);
+      }, LIVE_SCORE_FAST_POLL_INTERVAL_MS);
     };
 
     const onVisible = (): void => {

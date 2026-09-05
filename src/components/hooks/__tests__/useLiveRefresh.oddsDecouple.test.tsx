@@ -6,6 +6,7 @@ import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 import type { AppGame } from '../../../lib/schedule';
 import type { ScorePack } from '../../../lib/scores';
 import type { TeamCatalogItem } from '../../../lib/teamIdentity';
+import { LIVE_SCORE_FAST_WINDOW_AFTER_MS } from '../../../lib/liveScores/browserPolling';
 import { EMPTY_SCORE_HYDRATION_STATE } from '../../../lib/scoreHydration';
 import { useLiveRefresh } from '../useLiveRefresh';
 
@@ -36,6 +37,7 @@ const originalVisibilityDescriptor = Object.getOwnPropertyDescriptor(document, '
 let fetchUrls: string[];
 let scorePayload: unknown;
 let scoreFetchGate: Promise<void> | null;
+let scoreResponseStatus: number;
 
 function game(overrides: Partial<AppGame> = {}): AppGame {
   return {
@@ -132,6 +134,7 @@ beforeEach(() => {
   fetchUrls = [];
   scorePayload = { items: [], meta: {} };
   scoreFetchGate = null;
+  scoreResponseStatus = 200;
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = typeof input === 'string' ? input : input.toString();
     fetchUrls.push(url);
@@ -145,7 +148,7 @@ beforeEach(() => {
     if (url.includes('/api/scores')) {
       if (scoreFetchGate) await scoreFetchGate;
       return new Response(JSON.stringify(scorePayload), {
-        status: 200,
+        status: scoreResponseStatus,
         headers: { 'Content-Type': 'application/json' },
       });
     }
@@ -371,7 +374,10 @@ test('a just-kicked-off game with no score pack polls every full eligible partit
   Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
 
   const regularFinal: AppGame = {
-    ...game({ key: 'regular-final', date: new Date(nowBase).toISOString() }),
+    ...game({
+      key: 'regular-final',
+      date: new Date(nowBase - LIVE_SCORE_FAST_WINDOW_AFTER_MS - 1).toISOString(),
+    }),
     eventKey: 'regular-final',
     week: 16,
     canonicalWeek: 16,
@@ -432,18 +438,19 @@ test('a just-kicked-off game with no score pack polls every full eligible partit
       '/api/scores?week=16&year=2026&seasonType=regular&live=1',
       '/api/scores?week=1&year=2026&seasonType=postseason&live=1',
     ],
-    'the fast tier changes only timing and retains every main-branch eligible partition'
+    'a different game selects the fast tier without dropping this older eligible partition'
   );
 });
 
-test('a final-only window waits 180 seconds and requests the same full partition set', async () => {
+test('a window past the fixed fast tail waits 180 seconds and requests the same full partition set', async () => {
   const nowBase = Date.parse('2026-09-05T17:00:00.000Z');
   let nowMs = nowBase;
   Date.now = () => nowMs;
   Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+  const outsideFastWindow = new Date(nowBase - LIVE_SCORE_FAST_WINDOW_AFTER_MS - 1).toISOString();
 
   const regularFinal: AppGame = {
-    ...game({ key: 'regular-final', date: new Date(nowBase).toISOString() }),
+    ...game({ key: 'regular-final', date: outsideFastWindow }),
     eventKey: 'regular-final',
     week: 16,
     canonicalWeek: 16,
@@ -451,7 +458,7 @@ test('a final-only window waits 180 seconds and requests the same full partition
     rawStatus: 'STATUS_FINAL',
   };
   const postseasonFinal: AppGame = {
-    ...game({ key: 'postseason-final', date: new Date(nowBase).toISOString() }),
+    ...game({ key: 'postseason-final', date: outsideFastWindow }),
     eventKey: 'postseason-final',
     stage: 'bowl',
     week: 17,
@@ -568,5 +575,99 @@ test('bootstrap completion re-anchors the heartbeat after nonzero fetch latency'
     heartbeatDelays.length,
     2,
     'completion clears the mount-aligned heartbeat and re-arms 90 seconds from the stamped clock'
+  );
+});
+
+test('a failed initial bootstrap does not stamp or defer the next live poll', async () => {
+  const nowBase = Date.parse('2026-09-05T17:00:00.000Z');
+  let nowMs = nowBase;
+  Date.now = () => nowMs;
+  Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+  scoreResponseStatus = 500;
+
+  let loading = false;
+  const loadingWrites: boolean[] = [];
+  const kickoff = game({ key: 'kickoff', date: new Date(nowBase).toISOString() });
+  renderHook(() =>
+    useLiveRefresh(
+      makeParams({
+        scheduleLoaded: true,
+        games: [kickoff],
+        visibleGames: [kickoff],
+        scoreScopeGames: [kickoff],
+        setLoadingLive: (action) => {
+          loading = typeof action === 'function' ? action(loading) : action;
+          loadingWrites.push(loading);
+        },
+      })
+    )
+  );
+
+  await waitFor(() => assert.deepEqual(loadingWrites, [true, false]));
+  fetchUrls = [];
+  loadingWrites.length = 0;
+  scoreResponseStatus = 200;
+  nowMs = nowBase + 1_000;
+
+  act(() => {
+    window.dispatchEvent(new dom.window.Event('focus'));
+  });
+  await waitFor(() => assert.deepEqual(loadingWrites, [true, false]));
+  assert.deepEqual(
+    fetchUrls.filter((url) => url.includes('/api/scores')),
+    ['/api/scores?week=1&year=2026&seasonType=regular&live=1'],
+    'the failed bootstrap left the poll clock unstamped, so focus can retry immediately'
+  );
+});
+
+test('a lazy hydration-shaped read does not move the live-poll deadline', async () => {
+  const nowBase = Date.parse('2026-09-05T17:00:00.000Z');
+  let nowMs = nowBase;
+  Date.now = () => nowMs;
+  Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+
+  let loading = false;
+  const loadingWrites: boolean[] = [];
+  const kickoff = game({ key: 'kickoff', date: new Date(nowBase).toISOString() });
+  const params = makeParams({
+    scheduleLoaded: true,
+    games: [kickoff],
+    visibleGames: [kickoff],
+    scoreScopeGames: [kickoff],
+    setLoadingLive: (action) => {
+      loading = typeof action === 'function' ? action(loading) : action;
+      loadingWrites.push(loading);
+    },
+  });
+  const { result } = renderHook(() => useLiveRefresh(params));
+
+  await waitFor(() => assert.deepEqual(loadingWrites, [true, false]));
+  loadingWrites.length = 0;
+
+  nowMs = nowBase + 90 * 1000;
+  act(() => {
+    window.dispatchEvent(new dom.window.Event('focus'));
+  });
+  await waitFor(() => assert.deepEqual(loadingWrites, [true, false]));
+  loadingWrites.length = 0;
+
+  nowMs = nowBase + 100 * 1000;
+  await act(async () => {
+    await result.current.refreshLiveData({
+      manual: false,
+      scoreScopeGamesOverride: [kickoff],
+    });
+  });
+  loadingWrites.length = 0;
+
+  nowMs = nowBase + 180 * 1000;
+  act(() => {
+    window.dispatchEvent(new dom.window.Event('focus'));
+  });
+  await waitFor(() => assert.deepEqual(loadingWrites, [true, false]));
+  assert.equal(
+    fetchUrls.filter((url) => url.includes('&live=1')).length,
+    2,
+    'the unpartitioned hydration at t+100s did not move the exact-poll clock from t+90s'
   );
 });
