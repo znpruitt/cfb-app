@@ -311,6 +311,32 @@ large real saving, and it retires the manual pause that can strand a final. What
 claim: it is an annual and offseason win that buys headroom, **not** the fix for in-season pressure.
 Anything that depends on being under the line in October needs a second lever.
 
+### The second lever, measured 2026-09-05 — Items 130 and 131
+
+Owner design: bound the dense cadence by live STATE rather than by a fixed tail. Poll densely from
+`kickoff − 15m` until the last game of a CLUSTER reports final, then a ~2-hour slow reconciliation
+poll, then off. A cluster is a contiguous run of games — the 2026-09-03 weekend is five (Thu, Fri,
+Sat, Sun, Mon), not one four-day window. The route already computes the switch: `pollingTarget.ts`'s
+three modes ARE the three cadences.
+
+Same measurement basis as the table above. 60 clusters across 2026, median 10h, max 17h:
+
+| Wakeups / month | Sep | Oct | Nov | Year |
+| --- | --- | --- | --- | --- |
+| live-scores today | 14,400 | 14,880 | 14,400 | 175,200 |
+| Item 130 | 3,072 | 4,149 | 4,127 | 12,209 |
+| game-stats today | 2,880 | 2,976 | 2,880 | 35,040 |
+| Item 131 | 56 | 92 | 76 | 240 |
+
+**Projected CPU, applying this document's measured 75% / 12% share to the October column: ~0.96 h/30d
+in the BINDING month** — below the ~1.1 h this table projected as an annual average. Projection, not
+measurement: it assumes per-invocation cost is unchanged and that the share holds.
+
+**Why state beats a fixed tail:** Item 108 measured five games reconciling at `kickoff + 3.40h..4.75h`
+and one still live at **6.4h** behind a weather delay. Any fixed window slows polling on that game
+while it is on the clock; delayed and suspended games stay eligible in `pollingTarget`, so a
+state-driven cluster holds itself open.
+
 ---
 
 ## What the planner must deal with

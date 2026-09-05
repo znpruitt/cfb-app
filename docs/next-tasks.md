@@ -766,6 +766,90 @@ not be read as a requirement on the other.**
 
 - Backlog slug: `PLATFORM-SCHEDULE-REFRESH-FORENSICS-v1`
 
+### Item 130 — live-score cadence should be bounded by live STATE, not by a fixed tail
+
+**Filed 2026-09-05. Owner design, measured against the real 2026 schedule.** Depends on Item 102 for
+the QStash-write-from-runtime capability; do not start before it.
+
+**The idea.** Poll densely from `kickoff − 15m` until the last game of that CLUSTER reports final,
+then drop to a slow reconciliation poll for ~2 hours, then off until the next cluster arms. A cluster
+is a contiguous run of games — this weekend is five clusters (Thu, Fri, Sat, Sun, Mon), not one
+four-day window.
+
+**The route already computes the switch.** `pollingTarget.ts` returns `scoreboard` while anything is
+open, `final-reconciliation` when only unconfirmed finals remain, and `none` otherwise. The cadence
+tiers ARE those three modes; what is missing is only that the scheduler never hears about them.
+
+**Why state and not a fixed tail.** A fixed window is an estimate of when games end, and Item 108
+already has the counter-example: five games reconciled at `kickoff + 3.40h..4.75h`, but one was still
+live at **6.4h** behind a weather delay. A 6h tail would have slowed polling while that game was on
+the clock. State-driven cannot make that mistake, and delayed/suspended games stay eligible in
+`pollingTarget`, so a suspended game holds its cluster open on its own.
+
+**Measured, 2026 schedule, 60 clusters (median 10h, max 17h):**
+
+| Hours armed | Sep | Oct | Nov | Year |
+| --- | --- | --- | --- | --- |
+| Today (`kickoff + 24h` tail) | 49% | 74% | 66% | 17% |
+| This model | 23% | **30%** | 30% | **7%** |
+
+Wakeups per month, dense `*/3` plus a 2-hour `*/15` reconciliation per cluster:
+
+| | Sep | Oct | Nov | Year |
+| --- | --- | --- | --- | --- |
+| live-scores today | 14,400 | 14,880 | 14,400 | 175,200 |
+| this model | 3,072 | 4,149 | 4,127 | 12,209 |
+| removed | 79% | **72%** | 71% | **93%** |
+
+**This is what makes the CPU target reachable in the BINDING month.** Item 102 alone removes ~26% of
+October wakeups; this removes ~72%. Applying the campaign's measured ratios to the October column
+projects ~0.96 h/30d — under the ~1.1 h the campaign claimed as an annual average.
+
+**Two design hazards, both to settle before building:**
+
+- **Two writers on one cron.** The planner rewrites it daily; this would rewrite it on transition.
+  That is the exact shape that cost PLATFORM-127 several review rounds. One writer only — decide
+  which before designing.
+- **Never call QStash per invocation.** live-scores runs every 3 minutes; the retime must fire only
+  on a mode TRANSITION, which means durably remembering the last requested cadence.
+
+**Reconciliation stays per-cluster, not per-slate.** Condensing it to once per week bucket was
+considered and rejected: a Thursday game would reconcile Sunday night, stretching `kickoff + 24h` to
++72h, and PLATFORM-105A already found that boundary giving up on late finals. A 2-hour slow poll per
+cluster costs almost nothing and keeps the guarantee.
+
+- Backlog slug: `PLATFORM-LIVE-CADENCE-STAND-DOWN-v1`
+
+### Item 131 — game-stats polls 21 hours per game for data nothing reads live
+
+**Filed 2026-09-05.** Depends on Item 102 for the same capability as Item 130. Separate item because
+it is a separate automation job (`AGENTS.md` scope rule), and it is the largest proportional saving
+available anywhere in the campaign.
+
+**Today:** `gameStats/pollingTarget.ts` makes a game pollable from `kickoff + 3h` to `kickoff + 24h`,
+on a `*/15` cron — 21 hours per game, 4 wakeups an hour, effectively continuous in season, for 12% of
+all Active CPU.
+
+**Nothing consumes it live.** Item 110's own consumer inventory: insights and archive only. So one
+pass once a cluster has settled is sufficient.
+
+**Measured:**
+
+| | Sep | Oct | Nov | Year |
+| --- | --- | --- | --- | --- |
+| game-stats today | 2,880 | 2,976 | 2,880 | 35,040 |
+| one pass per cluster | 56 | 92 | 76 | 240 |
+| removed | 98% | **97%** | 97% | **99%** |
+
+**Do it LATE, and prefer weekly — CFBD's admin, recorded in Item 110:** _"I will always do a 'final'
+data reconciliation on Sundays for that week's games."_ The current 24h window closes Sunday noon for
+a Saturday game and therefore already misses that reconciliation. Collecting earlier does not fix it;
+collecting after CFBD's Sunday pass would. **That is a correctness gain this item can capture for
+free**, and it argues for a weekly late pass rather than a per-cluster one — decide which when the
+item is taken.
+
+- Backlog slug: `PLATFORM-GAME-STATS-COLLECT-LATE-v1`
+
 ### Item 129 — two `usage-sample` follow-ups deferred out of PLATFORM-127
 
 **Filed 2026-09-04, post-merge.** Both were found by review, judged real, and deliberately NOT folded
