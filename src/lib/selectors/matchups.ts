@@ -6,7 +6,23 @@ import { isPolicyFcsConference } from '../conferenceSubdivision';
 const DEFAULT_VISIBLE_OPPONENTS = 3;
 // Selector invariant: this module emits deterministic derived copy/tokens only.
 
+// The two descriptors an UNOWNED opponent collapses onto. Both are correct where
+// they render — `MatchupsWeekPanel` suppresses `NoClaim (FBS)` from a row's
+// metadata and renders `FCS` deliberately, because an FBS-over-FCS result means
+// something different. They are named here only so the COUNT can tell them apart
+// from a descriptor that already identifies one opponent (Item 135).
+const FCS_DESCRIPTOR = 'FCS';
+const NO_CLAIM_FBS_DESCRIPTOR = 'NoClaim (FBS)';
+const SELF_DESCRIPTOR = 'Self';
+
 export type OpponentSummaryEntry = {
+  /**
+   * Identity the count is grouped by — NOT rendered. Distinct from `label`
+   * precisely because two entries may share a label: three unowned FBS
+   * opponents are three opponents that all describe themselves as
+   * `NoClaim (FBS)`.
+   */
+  key: string;
   label: string;
   count: number;
 };
@@ -21,7 +37,9 @@ export type GameOutcomeTone =
 
 export function deriveOpponentDescriptor(slateGame: OwnerSlateGame): string {
   if (slateGame.opponentOwner) {
-    return slateGame.opponentOwner === slateGame.owner ? 'Self' : `vs ${slateGame.opponentOwner}`;
+    return slateGame.opponentOwner === slateGame.owner
+      ? SELF_DESCRIPTOR
+      : `vs ${slateGame.opponentOwner}`;
   }
 
   const opponentConference =
@@ -36,10 +54,10 @@ export function deriveOpponentDescriptor(slateGame: OwnerSlateGame): string {
   }
 
   if (opponentParticipant.kind !== 'team' || isPolicyFcsConference(opponentConference)) {
-    return 'FCS';
+    return FCS_DESCRIPTOR;
   }
 
-  return 'NoClaim (FBS)';
+  return NO_CLAIM_FBS_DESCRIPTOR;
 }
 
 function getSummaryOpponentLabel(slateGame: OwnerSlateGame): string {
@@ -48,17 +66,101 @@ function getSummaryOpponentLabel(slateGame: OwnerSlateGame): string {
   return descriptor;
 }
 
-export function summarizeSlateOpponents(slate: OwnerWeekSlate): OpponentSummaryEntry[] {
-  const counts = new Map<string, number>();
-  const order: string[] = [];
-
-  for (const game of slate.games) {
-    const label = getSummaryOpponentLabel(game);
-    if (!counts.has(label)) order.push(label);
-    counts.set(label, (counts.get(label) ?? 0) + 1);
+/**
+ * Item 135 — the identity the opponent count groups by.
+ *
+ * Keying on the DESCRIPTOR undercounted, because `deriveOpponentDescriptor`
+ * collapses every unowned FBS opponent onto one sentinel and every FCS opponent
+ * onto another. Only those two branches are re-keyed, onto opponent team
+ * identity. Every other branch keeps the grouping it already had:
+ *
+ * - owned opponent → the opponent OWNER, so one owner fielding two teams against
+ *   this owner in one week stays ONE opponent;
+ * - self → a single `Self` group, for the same reason;
+ * - placeholder / derived → the participant display name, which already
+ *   distinguishes one unresolved slot from another.
+ *
+ * Keys are namespaced so a category can never collide with another — an owner
+ * named "FCS" is not the FCS opponent group.
+ */
+function getSummaryOpponentKey(slateGame: OwnerSlateGame): string {
+  if (slateGame.opponentOwner) {
+    return slateGame.opponentOwner === slateGame.owner
+      ? 'self'
+      : `owner:${slateGame.opponentOwner}`;
   }
 
-  return order.map((label) => ({ label, count: counts.get(label) ?? 0 }));
+  const descriptor = deriveOpponentDescriptor(slateGame);
+  if (descriptor !== FCS_DESCRIPTOR && descriptor !== NO_CLAIM_FBS_DESCRIPTOR) {
+    return `label:${descriptor}`;
+  }
+
+  // Both sentinel branches leave `opponentParticipant.kind === 'team'`, so a
+  // team id is present; the name and the descriptor are ordered fallbacks only.
+  return `team:${slateGame.opponentTeamId || slateGame.opponentTeamName || descriptor}`;
+}
+
+export function summarizeSlateOpponents(slate: OwnerWeekSlate): OpponentSummaryEntry[] {
+  const entries = new Map<string, OpponentSummaryEntry>();
+
+  for (const game of slate.games) {
+    const key = getSummaryOpponentKey(game);
+    const existing = entries.get(key);
+    if (existing) {
+      existing.count += 1;
+      continue;
+    }
+    entries.set(key, { key, label: getSummaryOpponentLabel(game), count: 1 });
+  }
+
+  // Map iteration is insertion-ordered, preserving first-appearance order.
+  return [...entries.values()];
+}
+
+export type SlateOpponentVisibility = {
+  entries: OpponentSummaryEntry[];
+  /** The games to render. Collapsed, this is a SUBSET of `slate.games`. */
+  visibleGames: OwnerSlateGame[];
+  /** Opponents withheld while collapsed — the number the control's label states. */
+  hiddenOpponentCount: number;
+  hasHiddenOpponents: boolean;
+};
+
+/**
+ * Item 135 — what an owner card shows, collapsed or expanded.
+ *
+ * The control's label counts OPPONENTS while the list renders GAMES, so
+ * collapsing has to slice by opponent: the visible games are those whose
+ * opponent falls within the first `DEFAULT_VISIBLE_OPPONENTS` summary entries
+ * (first-appearance order). Slicing the games array instead would leave the
+ * label stating a number of opponents that bears no relation to what was
+ * withheld.
+ *
+ * `hiddenOpponentCount` is therefore exactly the number of opponents no visible
+ * game represents, which is what makes "Show N more opponents" true.
+ */
+export function selectSlateOpponentVisibility(
+  slate: OwnerWeekSlate,
+  expanded: boolean
+): SlateOpponentVisibility {
+  const entries = summarizeSlateOpponents(slate);
+  const hiddenOpponentCount = Math.max(entries.length - DEFAULT_VISIBLE_OPPONENTS, 0);
+  const hasHiddenOpponents = hiddenOpponentCount > 0;
+
+  if (expanded || !hasHiddenOpponents) {
+    return { entries, visibleGames: slate.games, hiddenOpponentCount, hasHiddenOpponents };
+  }
+
+  const visibleKeys = new Set(
+    entries.slice(0, DEFAULT_VISIBLE_OPPONENTS).map((entry) => entry.key)
+  );
+
+  return {
+    entries,
+    visibleGames: slate.games.filter((game) => visibleKeys.has(getSummaryOpponentKey(game))),
+    hiddenOpponentCount,
+    hasHiddenOpponents,
+  };
 }
 
 function formatOpponentSummaryEntry(entry: OpponentSummaryEntry): string {

@@ -25,8 +25,7 @@ import {
 import {
   deriveOpponentDescriptor,
   deriveOwnerOutcome,
-  getDefaultVisibleOpponentsCount,
-  summarizeSlateOpponents,
+  selectSlateOpponentVisibility,
   type GameOutcomeTone,
 } from '../lib/selectors/matchups';
 import type { TeamRankingEnrichment } from '../lib/rankings';
@@ -80,8 +79,6 @@ export function scrollFocusedOwnerIntoView(params: {
   element.scrollIntoView({ block: 'center', behavior: 'smooth' });
   return true;
 }
-
-const DEFAULT_VISIBLE_OPPONENTS = getDefaultVisibleOpponentsCount();
 
 function getOpponentBadgeClasses(descriptor: string): string {
   if (descriptor === 'Self') {
@@ -330,9 +327,12 @@ function OwnerCard({
   liveDelta?: LiveDelta | null;
 }): React.ReactElement {
   const [isExpanded, setIsExpanded] = React.useState(false);
-  const opponentSummaryEntries = React.useMemo(() => summarizeSlateOpponents(slate), [slate]);
-  const hasHiddenOpponents = opponentSummaryEntries.length > DEFAULT_VISIBLE_OPPONENTS;
-  const hiddenCount = opponentSummaryEntries.length - DEFAULT_VISIBLE_OPPONENTS;
+  // Item 135 — the selector decides both the count and which games the collapsed
+  // card shows, so the control's label and the list it governs cannot disagree.
+  const { visibleGames, hiddenOpponentCount, hasHiddenOpponents } = React.useMemo(
+    () => selectSlateOpponentVisibility(slate, isExpanded),
+    [slate, isExpanded]
+  );
   const wins = ownerStanding?.wins ?? 0;
   const losses = ownerStanding?.losses ?? 0;
   const winPctDisplay = wins + losses > 0 ? `${((wins / (wins + losses)) * 100).toFixed(1)}%` : '—';
@@ -375,7 +375,7 @@ function OwnerCard({
       </div>
 
       <ul className="divide-y divide-gray-200 dark:divide-zinc-700">
-        {slate.games.map((slateGame) => (
+        {visibleGames.map((slateGame) => (
           <GameRow
             key={`${slate.owner}:${slateGame.game.key}:${slateGame.ownerTeamSide}`}
             slateGame={slateGame}
@@ -395,7 +395,7 @@ function OwnerCard({
           className="mt-2.5 w-full rounded-md border border-gray-200 py-1.5 text-xs font-semibold text-gray-600 transition-colors hover:bg-gray-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-700/50"
           onClick={() => setIsExpanded((current) => !current)}
         >
-          {isExpanded ? 'Show less ↑' : `Show ${hiddenCount} more opponents ↓`}
+          {isExpanded ? 'Show less ↑' : `Show ${hiddenOpponentCount} more opponents ↓`}
         </button>
       ) : null}
     </article>
