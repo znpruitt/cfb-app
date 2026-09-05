@@ -109,6 +109,30 @@ test('prefix markers share zinc-400 while FCS keeps its bordered-pill geometry',
   }
 });
 
+test('classification markers identify both participant sides', () => {
+  const awayHtml = renderScoreboard({
+    away: {
+      teamName: 'Away FCS opponent',
+      owner: null,
+      rank: null,
+      classification: 'fcs',
+      score: 10,
+    },
+  });
+  assert.match(awayHtml, /data-scoreboard-classification="away">FCS<\/span>/);
+
+  const homeHtml = renderScoreboard({
+    home: {
+      teamName: 'Home FCS opponent',
+      owner: null,
+      rank: null,
+      classification: 'fcs',
+      score: 24,
+    },
+  });
+  assert.match(homeHtml, /data-scoreboard-classification="home">FCS<\/span>/);
+});
+
 test('rank wins only as an upstream-data-defect guard when a ranked team is marked FCS', () => {
   const html = renderScoreboard({
     away: {
@@ -255,6 +279,36 @@ test('scheduled headers open with a lone broadcast or neutral-site marker withou
   assert.doesNotMatch(neutralHeader, /•/);
 });
 
+test('broadcast separates neutral-site metadata when neither has an earlier segment', () => {
+  const header = headerMarkup(
+    renderScoreboard({
+      state: 'scheduled',
+      clock: undefined,
+      broadcast: 'ABC',
+      neutralSite: true,
+    })
+  );
+
+  assert.equal(occurrenceCount(header, '>•</span>'), 1);
+  assert.ok(header.indexOf('ABC') < header.indexOf('•'));
+  assert.ok(header.indexOf('•') < header.indexOf('Neutral site'));
+});
+
+test('schedule notice separates a following broadcast when no clock precedes it', () => {
+  const header = headerMarkup(
+    renderScoreboard({
+      state: 'scheduled',
+      clock: undefined,
+      scheduleNotice: 'Postponed',
+      broadcast: 'ESPN2',
+    })
+  );
+
+  assert.equal(occurrenceCount(header, '>•</span>'), 1);
+  assert.ok(header.indexOf('Postponed') < header.indexOf('•'));
+  assert.ok(header.indexOf('•') < header.indexOf('ESPN2'));
+});
+
 test('header separators divide kickoff, broadcast, and neutral-site metadata', () => {
   const header = headerMarkup(
     renderScoreboard({
@@ -340,6 +394,16 @@ test('optional wrappers reject React-empty content recursively while preserving 
     [],
     [null, false, '', []],
     [[[], [false, [null]]]],
+    <React.Fragment key="empty-fragment" />,
+    <React.Fragment key="nested-empty-fragment">{[null, false, '', []]}</React.Fragment>,
+    [
+      <React.Fragment key="array-empty-fragment" />,
+      [
+        <React.Fragment key="deep-empty-fragment">
+          {[false, [null, <React.Fragment key="deepest-empty-fragment" />]]}
+        </React.Fragment>,
+      ],
+    ],
   ];
 
   for (const emptySlot of emptySlots) {
@@ -353,15 +417,44 @@ test('optional wrappers reject React-empty content recursively while preserving 
   assert.match(zeroHtml, /data-scoreboard-tier2-slot[^>]*>0<\/div>/);
 
   const nestedContentHtml = renderScoreboard({
-    contextSlot: [null, [false, <span key="context">Context</span>]],
-    tier2Slot: [[<span key="tier-2">Tier 2</span>]],
+    contextSlot: [
+      null,
+      [
+        false,
+        <React.Fragment key="context-fragment">
+          <span>Context</span>
+        </React.Fragment>,
+      ],
+    ],
+    tier2Slot: [
+      [
+        <React.Fragment key="tier-2-fragment">
+          <span>Tier 2</span>
+        </React.Fragment>,
+      ],
+    ],
   });
   assert.match(nestedContentHtml, /data-scoreboard-context-slot[^>]*>[\s\S]*Context/);
   assert.match(nestedContentHtml, /data-scoreboard-tier2-slot[^>]*>[\s\S]*Tier 2/);
 });
 
 test('scheduled peers reserve equal odds bands with and without odds across tier-2 states', () => {
-  for (const tier2Slot of [null, <span key="tier-2">Tier 2</span>]) {
+  const tier2Cases: Array<{
+    withOdds: React.ReactNode;
+    withoutOdds: React.ReactNode;
+    expectedCounts: [number, number];
+  }> = [
+    { withOdds: null, withoutOdds: null, expectedCounts: [0, 0] },
+    {
+      withOdds: <span>Tier 2 with odds</span>,
+      withoutOdds: <span>Tier 2 without odds</span>,
+      expectedCounts: [1, 1],
+    },
+    { withOdds: <span>Tier 2 with odds</span>, withoutOdds: null, expectedCounts: [1, 0] },
+    { withOdds: null, withoutOdds: <span>Tier 2 without odds</span>, expectedCounts: [0, 1] },
+  ];
+
+  for (const { withOdds, withoutOdds, expectedCounts } of tier2Cases) {
     const html = renderToStaticMarkup(
       <div className="grid grid-cols-2">
         <CompactGameScoreboard
@@ -370,7 +463,7 @@ test('scheduled peers reserve equal odds bands with and without odds across tier
           away={{ teamName: 'Away', score: null }}
           home={{ teamName: 'Home', score: null }}
           footerSlot="Home -7.5 · O/U 48.5"
-          tier2Slot={tier2Slot}
+          tier2Slot={withOdds}
         />
         <CompactGameScoreboard
           state="scheduled"
@@ -378,14 +471,14 @@ test('scheduled peers reserve equal odds bands with and without odds across tier
           away={{ teamName: 'Away', score: null }}
           home={{ teamName: 'Home', score: null }}
           footerSlot={null}
-          tier2Slot={tier2Slot}
+          tier2Slot={withoutOdds}
         />
       </div>
     );
     const scoreboards = html.match(/<article[\s\S]*?<\/article>/g) ?? [];
 
     assert.equal(scoreboards.length, 2, 'the peer pair must render two scoreboards');
-    for (const scoreboard of scoreboards) {
+    for (const [index, scoreboard] of scoreboards.entries()) {
       const footerOpeningTag = scoreboard.match(
         /<div(?=[^>]*class="[^"]*")(?=[^>]*data-scoreboard-odds-footer)[^>]*>/
       )?.[0];
@@ -401,10 +494,11 @@ test('scheduled peers reserve equal odds bands with and without odds across tier
         classTokens(footerOpeningTag).has('min-h-4'),
         'the odds footer must structurally reserve its minimum height'
       );
+      // Tier 2 reserves nothing: its wrapper follows each card's renderable expansion content.
       assert.equal(
         occurrenceCount(scoreboard, 'data-scoreboard-tier2-slot'),
-        tier2Slot === null ? 0 : 1,
-        'peer cards must have the same tier-2 structure'
+        expectedCounts[index],
+        'each peer must render exactly its own tier-2 expansion wrapper'
       );
     }
   }

@@ -50,6 +50,11 @@ function recordLabel(record: TeamRecordClient | null | undefined): string | null
 function hasRenderableContent(slot: React.ReactNode): boolean {
   if (slot == null || typeof slot === 'boolean' || slot === '') return false;
   if (Array.isArray(slot)) return slot.some(hasRenderableContent);
+  // Arrays and fragments expose static children we can inspect without evaluation. Arbitrary
+  // components may render null, but evaluating them here would be unsafe and hook-incompatible.
+  if (React.isValidElement<{ children?: React.ReactNode }>(slot) && slot.type === React.Fragment) {
+    return hasRenderableContent(slot.props.children);
+  }
   return true;
 }
 
