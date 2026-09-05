@@ -91,6 +91,17 @@ committed `c9f76081`) surfaced four new items and one split; the remaining open 
 10. **Item 101** — season-boundary finals gap. Re-derive the empty window against the floating cutoff
     first; fix before late November.
 
+**Abandoned branches — dispositions recorded 2026-09-05.** `platform/browser-poll-cadence` and
+`docs/browser-poll-cadence-closeout` shipped as PR #567/#568 and are merged; their worktrees and the
+closeout branch are deleted. **`platform/browser-poll-interval-v2` (`fafe4074`, 2 commits, 516
+insertions) is SUPERSEDED and will not merge** — it was a parallel implementation of the same browser
+cadence tiering that #567 shipped instead. Its worktree is removed; **the branch ref is deliberately
+retained** because it holds a client-side poll-plan abstraction that `main` does not:
+`selectLiveScorePollPlan`, `LiveScorePollPlan`, `LiveScorePollTier` and
+`LIVE_SCORE_FULL_WINDOW_POLL_INTERVAL_MS`. That is prior art for the tiering question in **Item 102**
+and **Item 95 portion 2** — read it before designing a poll-plan shape, rather than re-deriving one.
+Delete the ref only once that decision is made.
+
 **Interstitial, no dedicated slot:** **Item 111** (~5-minute Observability check, any time this
 week). **Item 108** is CLOSED — verified 2026-09-04, live scores do tick for FBS-vs-FCS games.
 
@@ -739,6 +750,38 @@ not be read as a requirement on the other.**
   intentionally redesigns QStash retries, quota consequences, and idempotency together.
 
 - Backlog slug: `PLATFORM-SCHEDULE-REFRESH-FORENSICS-v1`
+
+### Item 133 — `zinc-500` at small type fails the contrast floor, repo-wide
+
+**The ask:** audit every remaining `dark:text-zinc-500` and move the ones that are normal text to a
+passing token.
+
+**The finding, measured 2026-09-05 during Item 87 slice 5a.** `zinc-500` (`#71717a`) on the app's
+`#0a0a0a` composition is **4.10:1**. `DESIGN.md` requires **4.5:1 for normal text**, and WCAG large
+text begins at 18.66px bold / 24px — so anything at `text-xs` (12px), `text-[12.5px]` or `text-sm`
+(14px) fails. `zinc-400` (`#a1a1aa`) is 7.72:1.
+
+Slice 5a fixed this inside `CompactGameScoreboard` only, as a deliberately component-local
+prohibition. **184 occurrences across 73 files remain** (measured on `main` at `e5a23313`).
+
+**Not all 184 are violations — that is the work.** The count includes borders (`dark:border-zinc-500`
+is not text), backgrounds, and any genuinely large text. The audit must classify each occurrence by
+what it colours and at what size, then fix only the failing ones. **Do not bulk-replace**; a scripted
+substitution across 73 files is exactly the shape that has shipped defects past every gate here
+before.
+
+**Expect a hierarchy cost, and budget for it.** In the scoreboard, moving suffixes off `zinc-500`
+collapsed a colour step against a losing team's name, which was already `zinc-400` — accepted there,
+with type size left as the distinction. The same collapse will recur anywhere `zinc-400` and
+`zinc-500` were being used as adjacent hierarchy levels. Where it matters, the answer is a different
+mechanism (size, weight, spacing), not a return to a failing token.
+
+**Value:** accessibility compliance against a rule `DESIGN.md` already states, on text members read on
+every surface. **Not urgent** — it has been shipping this way — but it is a stated rule the codebase
+does not currently meet.
+
+**Blocker:** none. Independent of the UI spine; touches presentation only. Best run as one audit pass
+with the classification recorded, not folded into a feature slice.
 
 ### Item 132 — the Scores and Game stats health rows read the wrong record
 
