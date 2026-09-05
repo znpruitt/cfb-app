@@ -37,8 +37,11 @@
      query below is the real production rule; these force it for previewing and would
      not exist in the implementation. */
   /* Production tiering: 1 col below 760, 2 col to 1300, 3 col above.
-     1300 = 3 x 400px minimum column + 2 x 40px gap + padding. 400px is the
-     comfortable width for the longest row: team + record + owner + score. */
+     Requirement is 1280 = 3 x 400px minimum column + 2 x 40px gap; the value is
+     1300, so 20px of deliberate headroom. Page padding is NOT a term: a
+     container-type: inline-size query measures the content box, so it is already
+     excluded, and adding it double-counts. 400px is the comfortable width for the
+     longest row: team + record + owner + score. */
   @container (min-width: 1300px) { .game-list { grid-template-columns: 1fr 1fr 1fr; } }
 
   body.demo-2col .game-list { display: grid !important; grid-template-columns: 1fr 1fr !important; }
