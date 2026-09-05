@@ -22,6 +22,8 @@ That distinction is why this is a Matchups-only feature rather than an app-wide 
 
 **Neutral rather than owner colour.** `DESIGN.md` reserves owner colour for lists acting as a chart legend, so using it here would be a rule change rather than an application of one. It would also be a third identity colour on a single row, alongside the team-colour bar at line start. The mockup keeps an owner-colour variant behind a toggle for comparison only.
 
+Owner colour is reserved for lists acting as a legend for an adjacent chart. `DESIGN.md:321` records Standings rank numbers as an exception, carrying owner line colour — but that is the rule's rationale applying, not a hole in it: that list is functionally a legend for the chart beside it. The exception sits exactly where the reservation's reasoning holds, which makes it a test. A Matchups row tint has no chart to key to, so it fails the test the exception passes.
+
 **Dimming the card owner is rejected.** An earlier draft offered it as the alternative, on the reasoning that the repeated owner name was noise. The tint supersedes it: dimming distinguished the owner's row by *suppressing* the other one, costing legibility on the opponent to gain it on the owner. The tint marks the row positively and leaves both sides readable. Same class of improvement as the anchor rule — encode the thing you mean rather than degrade what you don't.
 
 This closes the card-owner treatment question that had been open since the Matchups mockup was built.
