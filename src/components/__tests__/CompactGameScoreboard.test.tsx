@@ -151,6 +151,61 @@ test('neutral-site prop renders a marker in the scoreboard header', () => {
   assert.match(header, /data-scoreboard-neutral-site="true">Neutral site<\/span>/);
 });
 
+test('scheduled header opens with the neutral-site marker rather than an orphan separator', () => {
+  const html = renderScoreboard({
+    state: 'scheduled',
+    clock: undefined,
+    neutralSite: true,
+    away: { teamName: 'Michigan', owner: 'Whited', rank: null, score: null },
+    home: { teamName: 'Ohio State', owner: 'Chamness', rank: null, score: null },
+  });
+  const header = html.match(/<div[^>]+data-scoreboard-header[^>]*>([\s\S]*?)<\/div>/)?.[1];
+
+  assert.ok(header, 'scoreboard header must render');
+  assert.match(header, /data-scoreboard-neutral-site="true">Neutral site<\/span>/);
+  assert.doesNotMatch(header, /•/);
+});
+
+test('scheduled header opens with the broadcast rather than an orphan separator', () => {
+  const html = renderScoreboard({
+    state: 'scheduled',
+    clock: undefined,
+    broadcast: 'ESPN2',
+    away: { teamName: 'Michigan', owner: 'Whited', rank: null, score: null },
+    home: { teamName: 'Ohio State', owner: 'Chamness', rank: null, score: null },
+  });
+  const header = html.match(/<div[^>]+data-scoreboard-header[^>]*>([\s\S]*?)<\/div>/)?.[1];
+
+  assert.ok(header, 'scoreboard header must render');
+  assert.match(header, />ESPN2<\/span>/);
+  assert.doesNotMatch(header, /•/);
+});
+
+test('header separators still divide the segments that follow an earlier one', () => {
+  const html = renderScoreboard({ broadcast: 'ESPN2', neutralSite: true });
+  const header = html.match(/<div[^>]+data-scoreboard-header[^>]*>([\s\S]*?)<\/div>/)?.[1];
+
+  assert.ok(header, 'scoreboard header must render');
+  assert.match(
+    header,
+    /Q3 8:12<\/span>.*?•.*?>ESPN2<\/span>.*?•.*?data-scoreboard-neutral-site="true"/
+  );
+});
+
+test('awaiting scoreboard still carries the broadcast of a game that is on the air', () => {
+  const html = renderScoreboard({
+    state: 'awaiting',
+    clock: undefined,
+    broadcast: 'ESPN2',
+    away: { teamName: 'Michigan', owner: 'Whited', rank: null, score: null },
+    home: { teamName: 'Ohio State', owner: 'Chamness', rank: null, score: null },
+  });
+  const header = html.match(/<div[^>]+data-scoreboard-header[^>]*>([\s\S]*?)<\/div>/)?.[1];
+
+  assert.ok(header, 'scoreboard header must render');
+  assert.match(header, />Awaiting score<\/span>.*?•.*?>ESPN2<\/span>/);
+});
+
 test('live scoreboard renders a supplied broadcast while final scoreboard omits it', () => {
   const liveHtml = renderScoreboard({ broadcast: 'ESPN2' });
   const finalHtml = renderScoreboard({ state: 'final', broadcast: 'ESPN2' });
@@ -219,7 +274,7 @@ test('scoreboard exposes an additive context slot above its state row', () => {
 test('scoreboard exposes an additive tier-2 slot after its primary rows', () => {
   const html = renderScoreboard({ tier2Slot: <span>Venue and conference</span> });
 
-  assert.match(html, /data-scoreboard-tier-2-slot/);
+  assert.match(html, /class="mt-1\.5 min-w-0 overflow-hidden" data-scoreboard-tier-2-slot/);
   assert.ok(
     html.indexOf('data-scoreboard-side="home"') < html.indexOf('Venue and conference'),
     'tier-2 content must follow the primary scoreboard rows'

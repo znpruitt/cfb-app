@@ -73,6 +73,15 @@ export default function CompactGameScoreboard({
       ? null
       : gameStatusLabelPresentation(state === 'awaiting' ? 'unknown' : state);
   const statusText = state === 'live' ? 'Live' : state === 'final' ? 'Final' : 'Awaiting score';
+  // Broadcast belongs to any game that has not finished — including `awaiting`, which is a
+  // live game whose score feed has not produced a score yet, not a separate kind of row.
+  const showsBroadcast = state !== 'final' && broadcastLabel !== '';
+  // The bullets are separators, so each one renders only when an earlier segment precedes it.
+  const hasSegmentBeforeBroadcast =
+    statusLabel !== null ||
+    (state === 'scheduled' && scheduleNoticeLabel !== '') ||
+    clockLabel !== '';
+  const hasSegmentBeforeNeutralSite = hasSegmentBeforeBroadcast || showsBroadcast;
 
   return (
     <article
@@ -104,15 +113,15 @@ export default function CompactGameScoreboard({
           </span>
         ) : null}
         {clockLabel ? <span className="min-w-0 truncate tabular-nums">{clockLabel}</span> : null}
-        {(state === 'scheduled' || state === 'live') && broadcastLabel ? (
+        {showsBroadcast ? (
           <>
-            <span aria-hidden="true">•</span>
+            {hasSegmentBeforeBroadcast ? <span aria-hidden="true">•</span> : null}
             <span className="min-w-0 truncate">{broadcastLabel}</span>
           </>
         ) : null}
         {neutralSite ? (
           <>
-            <span aria-hidden="true">•</span>
+            {hasSegmentBeforeNeutralSite ? <span aria-hidden="true">•</span> : null}
             <span className="min-w-0 truncate" data-scoreboard-neutral-site>
               Neutral site
             </span>
@@ -203,7 +212,11 @@ export default function CompactGameScoreboard({
           {footerSlot}
         </div>
       ) : null}
-      {tier2Slot ? <div data-scoreboard-tier-2-slot>{tier2Slot}</div> : null}
+      {tier2Slot ? (
+        <div className="mt-1.5 min-w-0 overflow-hidden" data-scoreboard-tier-2-slot>
+          {tier2Slot}
+        </div>
+      ) : null}
     </article>
   );
 }
