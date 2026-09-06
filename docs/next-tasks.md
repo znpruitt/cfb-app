@@ -26,8 +26,8 @@ Supersedes: (none)
 
 `CURRENT`: **Item 102** — polling planner. (Item 88 is superseded in full by **Item 132**; both
 attempts at it were reverted.)
-`NEXT`: **Item 87 slice 5 + Item 112** — Schedule adopts the shared scoreboard and adds its tier-2
-disclosure. Slice 5a's shared-component prerequisite merged via PR #570 (`4caa1a79`) on 2026-09-05.
+`NEXT`: **Item 87 slice 5b** — slice 5 + Item 112 merged via PR #572 (`f424222a`) on 2026-09-05;
+slice 5a's shared-component prerequisite merged via PR #570 (`4caa1a79`) the same day.
 
 Owner-selected run order (2026-09-03), replacing the 2026-09-02 order. Ordering values, stated by the
 owner: **user-facing improvements, data correction, and bug fixes first; prerequisites persisted in
@@ -57,74 +57,56 @@ committed `c9f76081`) surfaced four new items and one split; the remaining open 
    **Operationally independent, though:** 126's incident is the weekly `schedule-refresh` job, while
    102 narrows `live-scores` and `game-stats`. Neither blocks the other; the conflict is in files.
    Observation-only by its own acceptance boundary, so it is the lower-risk half of the pair.
-3. **Item 87 slice 5 + Item 112** — Schedule adopts the scoreboard row with no one-line collapse and
-   tier-2 behind "More" (which _is_ Item 112's disclosure model, landing on Schedule first); kickoff
-   sort; deletes `GameWeekPanel`'s collapse and `cardEmphasisClasses`. Carries the
-   `ownerOutcomeRowClasses` sibling asymmetry into `MatchupsWeekPanel`.
-   **No open owner decisions.** The amber `upset` border (`GameWeekPanel.tsx:42`) is **DELIBERATELY
-   RETIRED** — owner decision 2026-09-05, not a side effect of deleting the card chrome it lives on.
-   The distinction matters and is why it is recorded this way: the base addendum exempted that border
-   as "emphasis and is out of scope for every slice here", and this rework removes the chrome it sits
-   on, so without a decision the exemption would have lapsed by accident. A reader finding an
-   exemption on record and the border gone could not otherwise tell which of the two happened.
-   The eyebrow pill carries the emphasis forward. **The cost is stated, not glossed: a pill is
-   quieter than a card border** — acceptable if Schedule is a reference surface and making games jump
-   out belongs to Featured and the recap, but a reduction rather than a like-for-like swap.
-   **Reopen condition:** if upsets should stay prominent in practice, the instrument is **a hue from
-   `INSIGHTS-017-PALETTE`, not a shape** — do not put a border back, which is the decision this
-   entry records against. Canonical:
-   `docs/campaigns/item-87-followon-matchups-schedule-design.md`.
-   **Kickoff:** `docs/prompts/platform-087-slice-5-item-112-codex-v1.md`.
-   **Design:** `docs/campaigns/item-87-followon-matchups-schedule-design.md`;
-   `docs/campaigns/item-87-followon-section-ordering.md` (the relative label is unbuilt and
-   constrains this slice); `mockups/matchups-schedule-mockup.html`.
-4. **Item 87 slice 5b** — card-owner row modifier on the shared component. **Split out 2026-09-05;
+3. **Item 87 slice 5b** — card-owner row modifier on the shared component. **Split out 2026-09-05;
    do NOT fold this into Item 117.** The tint the highlight needs is a per-participant-row modifier,
    and `CompactGameScoreboard` renders those rows internally, so a caller cannot reach one — it needs
    a new participant field. The property worth protecting is not "one widening" for its own sake: it
-   is that **a component change gets reviewed as a component change**. A field added inside a Matchups
-   slice is reviewed by someone thinking about Matchups, and it lands on all six surfaces —
-   **five of which will never set it**, since the tint is Matchups-only by construction (it needs the
-   card's owner scope). That is not a reason to avoid the field; it is a reason to look at it on its
-   own terms.
+   is that **a component change gets reviewed as a component change** — a field added inside a Matchups
+   slice is reviewed by someone thinking about Matchups.
+   **Correction 2026-09-05: the component has TWO callers today, not six** — `OverviewPanel` and
+   `GameWeekPanel`. `MatchupsWeekPanel` is not on the shared component at all; **Item 117 is what puts
+   it there.** So 5b ships a field with **zero consumers**, and its only consumer is the next slice.
+   That is still the right split — 117 then adopts the component without also widening it — but the
+   earlier "lands on six surfaces, five never set it" framing described a change that does not exist.
    **Rejected alternative, recorded before someone reaches for it:** styling the row from Matchups via
    a wrapper class and a descendant selector avoids the component change but couples Matchups to the
    component's internal DOM. That is worse than a field.
    **Design:** `docs/campaigns/item-87-followon-team-highlight.md`;
    `mockups/matchups-schedule-mockup.html`.
-5. **Item 117** — Matchups adopts the shared scoreboard. User-facing and a correctness fix (the
+   **Kickoff:** `docs/prompts/platform-087-slice-5b-card-owner-row-codex-v1.md`.
+4. **Item 117** — Matchups adopts the shared scoreboard. User-facing and a correctness fix (the
    shipped row never says which team is which owner). **The card-owner-treatment decision is
    SETTLED** (2026-09-05) — neutral background tint on the card owner's row; dimming rejected and its
    mockup toggle removed; owner colour rejected. Consumes slice 5b's field rather than adding it.
    **Design:** `docs/campaigns/item-87-followon-team-highlight.md` (canonical for the treatment);
    `docs/campaigns/item-87-followon-matchups-schedule-design.md`;
    `docs/campaigns/item-87-live-watchlist-scoreboard.md`; `mockups/matchups-schedule-mockup.html`.
-6. **Item 115** — Overview section expansion. Recent finals is documented as complete and truncates
+5. **Item 115** — Overview section expansion. Recent finals is documented as complete and truncates
    at six today; this reuses the disclosure pattern slice 5 settles rather than inventing one.
    **Cross-reference Item 134:** caps are counts, not rows, so at three columns a cap produces a
    ragged final row (seven live games renders 3 + 3 + 1). That interaction belongs to THIS item's cap
    work, not to the tier.
    **Design:** `docs/campaigns/item-87-followon-section-ordering-resolutions.md` §5 (counts, which
    that document explicitly defers to this item); `docs/campaigns/item-87-followon-section-ordering.md`.
-7. **Item 119** — team-colour bar on the existing normaliser, with no accent for teams that have no
+6. **Item 119** — team-colour bar on the existing normaliser, with no accent for teams that have no
    colour — which also removes the green fallback every FCS row carries today. OKLCH only if measured.
    **Blocks Item 134** — it changes row anatomy at the line-start slot, which is what Item 134's
    breakpoint is derived from. See that entry for the arithmetic.
    **Design:** `docs/campaigns/item-87-followon-team-colour.md`;
    `docs/campaigns/item-87-live-watchlist-scoreboard.md`.
-8. **Item 134** — Overview three-column tier. **Must run AFTER Item 119**, which consumes its
+7. **Item 134** — Overview three-column tier. **Must run AFTER Item 119**, which consumes its
    headroom. See the Item 134 entry.
-9. **Item 118** — Schedule status filter with counts. Purely additive; after the rework it filters.
-   **Design:** none written. Item 112 likewise has no campaign doc — both are described only here,
-   so a prompt for either needs an owner design pass FIRST, not a paraphrase of this entry.
-10. **Item 100b** — internal slate marker. Date gate removed 2026-09-03; its 2026 consequence
+8. **Item 118** — Schedule status filter with counts. Purely additive; after the rework it filters.
+   **Design:** none written, so its prompt needs an owner design pass first rather than a paraphrase
+   of this entry.
+9. **Item 100b** — internal slate marker. Date gate removed 2026-09-03; its 2026 consequence
     (Featured empty through 2026-09-07) closes on its own, but the recap and look-ahead targeting it
     exists for recur next August. Cheap: the clustering code is recoverable from `d6184c28`.
-11. **Item 113** — Featured as insight-selected, state-agnostic. Largest, and gated on a decision
+10. **Item 113** — Featured as insight-selected, state-agnostic. Largest, and gated on a decision
     about `INSIGHTS-017-PALETTE` (a prose bullet today, not an item).
     **Design:** `docs/campaigns/item-87-followon-featured-intent.md` — it supplies the product
     intent and states that THIS item owns the reconciliation. Do not re-derive what it settles.
-12. **Item 101** — season-boundary finals gap. Re-derive the empty window against the floating cutoff
+11. **Item 101** — season-boundary finals gap. Re-derive the empty window against the floating cutoff
     first; fix before late November.
 
 **Abandoned branches — dispositions recorded 2026-09-05.** `platform/browser-poll-cadence` and
@@ -148,24 +130,24 @@ gate, no action. **Item 122** (the historical-cache button cannot re-cache) and 
 (retire the dead postseason template) are both undated; 123 is small and adjacent to 121.
 
 **Overview ordering:** **Item 125** portions 1 and 2 are DONE — POLISH-023, merged via PR #563
-(`1546bbc8`). What remains under that item is portion 2's repo-wide half: Matchups
-(`MatchupsWeekPanel.tsx`) and Schedule (`gameCardPresentation.ts:125`) still print a kickoff on final
-rows, which the shipped rule forbids. Small and user-facing. **Item 124** (retire the dead `sectionOrder`) is
-DONE — POLISH-024, merged via PR #564 (`cac6dab9`).
+(`1546bbc8`). Schedule's final-time half shipped in PR #572; Matchups
+(`MatchupsWeekPanel.tsx`) is the only remaining portion 2 surface that prints a kickoff on final rows,
+which the shipped rule forbids. Small and user-facing. **Item 124** (retire the dead `sectionOrder`)
+is DONE — POLISH-024, merged via PR #564 (`cac6dab9`).
 
-**Decisions parked, with the item that consumes each:** amber `upset` border → slice 5;
-normalisation target `#0A0A0A` vs `#161616` → Item 119; card-owner treatment → Item 117.
+**Decisions parked, with the item that consumes each:** normalisation target `#0A0A0A` vs `#161616`
+→ Item 119; card-owner treatment → Item 117.
 
 **Parallel tracks (added 2026-09-04).** File surfaces verified, not inferred. The server track and
 the UI spine do not touch each other, so they can run concurrently:
 
 - **Server track, strictly serial with itself:** Item 102 + 88, then Item 126. All three converge on
   `schedulerExecutionStatus.ts` / `schedulerDeliveryHealth.ts` / `systemHealthIssues.ts`.
-- **UI spine, strictly serial with itself:** slice 5 + 112 → **5b** → 117 → 115 → 119 → **134** →
-  118. The shared component widening prerequisite merged via PR #570; every remaining slice consumes
-  it. Two ordering constraints are load-bearing, not preference: **5b before 117**, because the tint
-  needs a component field and a component change is reviewed as one; and **119 before 134**, because
-  119 changes the row anatomy 134's breakpoint is derived from.
+- **UI spine, strictly serial with itself:** **5b** → 117 → 115 → 119 → **134** → 118. The shared
+  component widening and Schedule transition merged via PRs #570 and #572. Two ordering constraints
+  are load-bearing, not preference: **5b before 117**, because the tint needs a component field and a
+  component change is reviewed as one; and **119 before 134**, because 119 changes the row anatomy
+  134's breakpoint is derived from.
 - **Independent, parallel-safe against both:** Item 122 (`admin/HistoricalCachePanel.tsx`), Item 121
   (`schedule/cfbdSchedule.ts`, `schedule.ts`, `schedulePostseasonHelpers.ts` — pipeline, not
   components), and Items 84, 86, 111. **Item 123 shipped 2026-09-04** via PR #565.
@@ -178,15 +160,15 @@ touches no component file.
 
 | lane | worktree | sequence |
 | --- | --- | --- |
-| **UI spine** | `cfb-app-codex` | slice 5 + 112 → 5b → 117 → 115 → 119 → 134 → 118 |
+| **UI spine** | `cfb-app-codex` | 5b → 117 → 115 → 119 → 134 → 118 |
 | **Platform** | `cfb-app-claude` | 102 slice 2 → slice 3 → slice 4 → 129 → 126 |
 
 **Kickoffs are named `<item>-<agent>-v<n>.md`** so the target lane is legible from the filename.
-Written and ready: `platform-087-slice-5-item-112-codex-v1.md`,
-`platform-135-opponent-count-claude-v1.md`, `platform-102-slice-2-cron-synthesis-claude-v1.md`.
+Written and ready: `platform-102-slice-2-cron-synthesis-claude-v1.md`.
 
-**Fillers, safe against both lanes, any order:** Item 136 and Item 138 (both `matchups.ts`, worth
-pairing — same file, same `NoClaim` root), Item 137 (the red-`main` time bombs, test-only), Item 133a
+**Fillers, safe against both lanes, any order:** Item 139 (records reconciliation — fixes Overview
+and gates records returning to Schedule), Item 136 and Item 138 (both `matchups.ts`, worth pairing —
+same file, same `NoClaim` root), Item 137 (the red-`main` time bombs, test-only), Item 133a
 (below), 122, 121, 84, 86, 111.
 
 > **Known-failure baseline:** `npm test` on clean `main` exits 1 with exactly two failures in
@@ -843,6 +825,42 @@ not be read as a requirement on the other.**
 
 - Backlog slug: `PLATFORM-SCHEDULE-REFRESH-FORENSICS-v1`
 
+### Item 139 — a final can show a pre-game record; reconcile records against completed games
+
+**The ask:** make a final always carry the record INCLUDING the result being read, on every surface.
+
+**This is a binding rule, stated twice and violated today.**
+`docs/campaigns/item-87-live-watchlist-scoreboard.md:209` — _"Finals carry the POST-GAME record,
+including the result being read. A stale record on a final is bad data handling."_ And `DESIGN.md`
+carries the corollary as binding: the record is today's, and today includes that game.
+
+**Why it happens.** `team-records` is a season-total cache refreshed **hourly**
+(`schedulerDeliveryHealth.ts:83`). Between a game finalising and the next refresh, the cached record
+predates the result — so the row shows a pre-game record beside a finished score.
+
+**Already live on Overview.** `OverviewPanel` renders records through `CompactGameScoreboard` with the
+same lag, so this is a pre-existing violation, not one Item 87 slice 5 introduces. Slice 5 would have
+extended it to Schedule; it ships without records there instead, pending this item.
+
+**The mechanism — reconcile, do not invalidate.** The record carries a games count:
+`total: {wins, losses, ties, games}` (Georgia 2025 reads `{wins:12, losses:2, games:14}`), and
+schedule rows carry `completed`. So **"does this record already include this final?" is answerable**:
+compare the team's completed-game count against `total.games` and apply the outcomes of any finals the
+record is behind on. That has game identity, needs no cache trigger, and works even when the PROVIDER
+itself lags.
+
+**Verify first, before building:** that CFBD's record counts the same game population the schedule
+does. If it excludes some games, the two counts disagree permanently and the derivation would always
+believe it is behind. **This is the gate — if the populations differ, stop and report.**
+
+**A cache-invalidation trigger was tried and is the wrong layer — do not repeat it.** Slice 5's
+`onGamesFinalized` gate discarded game identity, so it blanked every team's record for one final,
+never fired on first-seen finals (the case that matters), and over-fired on same-winner score
+corrections. Four defects from one mechanism that cannot see which game finished.
+
+**Scope:** the records selector plus its consumers; shared, so it fixes Overview and unblocks
+Schedule together. **Blocker:** none, but it gates records returning to Schedule.
+
 ### Item 137 — two `writer-convergence` tests are time bombs; `main` is red
 
 **Standing known-failure baseline.** Until this ships, `npm test` on clean `main` exits **1** with
@@ -1001,11 +1019,12 @@ prohibition. **184 occurrences across 73 files remain** (measured on `main` at `
   any of these**, so 133a is fully parallel-safe against both lanes. It is still not small: a
   classification pass across roughly 70 files. Good work for a blocked lane, not a third concurrent
   workstream.
-- **133b — the spine files, 20 occurrences.** `OverviewPanel.tsx` (14), `MatchupsWeekPanel.tsx` (4),
-  `GameWeekPanel.tsx` (2). `CompactGameScoreboard.tsx` is already 0 — slice 5a did it. These collide
+- **133b — the spine files, 17 occurrences after PR #572.** `OverviewPanel.tsx` (14) and
+  `MatchupsWeekPanel.tsx` (3); slice 5 removed both `GameWeekPanel.tsx` occurrences and one Matchups
+  self-result occurrence, while `CompactGameScoreboard.tsx` remains at 0 from slice 5a. These collide
   with every slice that touches those files, so **fold each into the spine slice that owns the file**
-  (115 owns `OverviewPanel`, 117 owns `MatchupsWeekPanel`, slice 5 owns `GameWeekPanel`) or run 133b
-  after the spine completes. Do not run it as a separate concurrent item.
+  (115 owns `OverviewPanel`, 117 owns `MatchupsWeekPanel`) or run 133b after the spine completes. Do
+  not run it as a separate concurrent item.
 
 **Not all 184 are violations — that is the work.** The count includes borders (`dark:border-zinc-500`
 is not text), backgrounds, and any genuinely large text. The audit must classify each occurrence by
@@ -1608,9 +1627,9 @@ arbitrary number for another while leaving the same failure at the next boundary
 from the coverage argument — it is a curated subset by design (owner, 2026-09-03) and a small cap is
 its point; this item is about the sections that claim completeness.
 
-**Distinct from [[Item 112]].** Row disclosure (tapping a row reveals detail about that game) and
-section expansion (revealing more rows) are different affordances. They share a surface and should
-probably be sequenced together, but they are not one ticket.
+**Distinct from the Schedule row disclosure delivered by PR #572.** Row disclosure (tapping a row
+reveals detail about that game) and section expansion (revealing more rows) are different
+affordances. They are not one ticket.
 
 **Acceptance boundary:** a section whose pool exceeds its default shows an in-place control that
 lengthens it, and no game reachable in the current slate is absent from Overview without an
@@ -1714,9 +1733,9 @@ qualifying games hides the tile or renders an empty state; which insight categor
 pair-anchorable, and whether any new generators are needed.
 
 **Re-verify the mockup against current Overview before building.** The design predates POLISH-020
-(Watchlist converted to the shared scoreboard, 2026-09-03) and Item 112 (row disclosure, filed the
-same day). Both change what "the rest of Overview" looks like around the Featured tile; confirm the
-mockup's assumptions still hold rather than trusting it as current.
+(Watchlist converted to the shared scoreboard, 2026-09-03); confirm the mockup's assumptions still
+hold rather than trusting it as current. Item 112 ultimately landed on Schedule only and did not
+change Overview.
 
 **Acceptance boundary:** a featured game is selected once and renders in exactly one place —
 Featured — for its entire scheduled→live→final lifecycle, never duplicated into Live, Watchlist, or
@@ -1726,49 +1745,6 @@ in that week's insights feed. Reason copy and colour come from the insight, not 
 template.
 
 - Backlog slug: `INSIGHTS-FEATURED-GAME-HOOK-v1`
-
-### Item 112 — rows do not expand: a settled Item 87 decision that no slice implemented
-
-**Filed 2026-09-03 at the close of Item 87 slice 4.** The shared scoreboard is now the row type on
-every Overview section, which means the gap is uniform rather than per-section — this is the moment
-it becomes tractable, and also the moment it stops being invisible.
-
-**The decision.** Owner, 2026-08-29, recorded in Item 87's settled decisions: _"Rows expand in place;
-tapping discloses rather than navigating."_ Slices 1-4 converted Live, Featured, Recent finals, and
-the watchlist to the shared anatomy and delivered none of it.
-
-**The gap, measured.** `src/components/CompactGameScoreboard.tsx` contains no `useState`, no
-`onClick`, no `aria-expanded`, no `<details>`, and no collapse affordance of any kind. It is a pure
-presentational row. Three call sites in `OverviewPanel` render it, so one implementation covers every
-Overview section at once.
-
-**Why the content half is already paid for.** Item 87 records that L1 disclosure content reaches this
-surface and is discarded today: schedule rows carry `media` (broadcast outlet) and full venue,
-`CombinedOdds` is already threaded into `GameScoreboard`, and `historySelectors` computes owner
-head-to-head records. Confirmed here that `CompactGameScoreboard` currently receives neither `media`
-nor `venue` — the props stop short of the row. So the work is a disclosure mechanism plus prop
-threading, not new data derivation. That claim is inherited from Item 87 and re-verified only for the
-component boundary; verify the four sources independently before scoping.
-
-**Why it was not folded into slice 4.** That branch reached 18 files against the AGENTS.md:306
->15-file signal before this was considered. Adding an interactive affordance and its accessibility
-coverage to an already-oversized branch would have been the wrong trade the night before a slate.
-
-**Scope.** One disclosure mechanism on the shared component, its keyboard and screen-reader contract,
-and the prop threading for whichever L1 facts survive an owner content decision. Every Overview
-section inherits it; Matchups and the recap primitives still use `GameSummaryList` and
-`GameScoreboard`, so they do not.
-
-**Still a different affordance — corrected 2026-09-03.** Section-level expansion — a "show more"
-that lengthens a capped section — is a DIFFERENT feature from row disclosure, and the two must not be
-conflated into one ticket: "tapping a row discloses detail" and "tapping a section reveals more rows"
-are not the same thing. **An earlier version of this entry claimed section expansion was "not in the
-settled decisions" and "never decided." That was wrong.** The campaign doc settles it at
-`item-87-live-watchlist-scoreboard.md:244` — "Progressive disclosure per section: bounded default,
-expands in place" — and it was simply never built, the same failure mode as this item. Tracked
-separately as [[Item 115]].
-
-- Backlog slug: `POLISH-SCOREBOARD-ROW-DISCLOSURE-v1`
 
 ### Item 111 — `/api/odds` fetches its own origin, costing two extra invocations per request
 
@@ -2369,6 +2345,13 @@ Ships dormant.
   `parseCron` applies a single minute-set to every hour it matches, so the union is two rectangles.
   So `live-scores` and `game-stats` each get **two QStash schedules**: dense at `*/3`, slow at hourly.
 
+  **Slice 2's slow cron uses an OFFSET MINUTE — `1`, not `0` — decided 2026-09-05.** `*/3` and `*/15`
+  both include minute 0, so a slow cron at `0` fires simultaneously with the dense cron every dense
+  hour: two invocations, both reaching the provider, both billed. `live-scores/route.ts` has no
+  invocation-level lock or dedupe to absorb it. Minute 1 is in neither dense set. **This is the ONLY
+  one of the review's findings that is slice 2's to fix** — the others are the delivery-health
+  consumer, which is slice 3's (see above).
+
   **The slow phase's slower pace is the point, not a compromise.** It catches a late final without
   paying dense cost across a 16-hour tail. Covering dense ∪ slow at `*/3` is safe but gives back most
   of the saving, since the 24h guarantee is why October reads 74% armed. Covering only dense hours
@@ -2469,7 +2452,31 @@ replacement, which **must exist before slice 4 takes cron ownership** — otherw
 is gone for the window between them.
 
 - Durable record of every planner run: input windows, generated cron, previous cron, applied-or-
-  skipped, outcome, and the invocation id (Item 126 Tier A correlation). **Durable, not a runtime
+  skipped, outcome, and the invocation id (Item 126 Tier A correlation).
+- **Slice 3 also OWNS THE DELIVERY-HEALTH CONSUMER — scope widened 2026-09-05.** Writing the record is
+  half the job; delivery health reading it is the other half, and it is what actually fixes the
+  defect below. Two consumers:
+  1. **`previousScheduleSlotMs` must stop extrapolating.** It walks backwards through TODAY's cron as
+     if the cron were eternal. A planner-owned cron is **rewritten daily**, so on any day whose plan
+     differs from yesterday's it computes a slot that never existed. Measured on the real parser: a
+     game day of `*/3 19,20,21,22,23` after a dead day of `0 * * * *` reports **false `late` for
+     ~19 hours** — collision 2's exact failure, reintroduced by the fix for collision 2. The record
+     already stores `previous cron`, so the row can read what was ACTUALLY in force rather than
+     predict it.
+  2. **The row must carry BOTH crons**, taking `max(previousSlot(dense), previousSlot(slow))`. One
+     row with one cron cannot describe two schedules: the cadence label is untrue, and a slow-schedule
+     delivery failure is invisible for a measured **15.0 h**. With the record, the row knows both
+     because the planner wrote both.
+
+  **This is why slice 2 does NOT reinstate the "floor cadence."** An eternal hourly slow schedule
+  would make backward extrapolation accidentally correct — a workaround for a dashboard that cannot
+  see history. Slice 3 removes the need to predict history, which is the actual fix. Slice 2's gate
+  already draws that line: it stops if "making the policy derivable requires the health row to read
+  durable state." That boundary was right and points here.
+
+  **Neither defect reaches production**: slice 2 ships dormant, and slice 3 precedes slice 4, which is
+  what activates any of it. **That ordering is now load-bearing for correctness, not just for the
+  tampering signal.** **Durable, not a runtime
   log** — Vercel logs expire too fast to be incident history, and rebuilding that defect here is
   explicitly out of bounds.
 - **Allowlisted projection only.** `buildUpsertRequest` headers carry TWO secrets —
@@ -3411,14 +3418,15 @@ shared scoreboard contract and converted the Live section; POLISH-017 / slice 2 
 and settled green-live on Overview; POLISH-019 / slice 3 added Recent finals and structural
 promotion. **POLISH-020 / slice 4 converted the Watchlist**, merged 2026-09-03 via PR #558
 (`c730b4d0`). **PLATFORM-087 / slice 5a widened the shared component**, merged via PR #570
-(`4caa1a79`) on 2026-09-05. **Slice 5** (Schedule) remains; Matchups is Item 117, not a slice.
+(`4caa1a79`) on 2026-09-05. **Slice 5 + Item 112 converted Schedule and added its tier-2
+disclosure**, merged the same day via PR #572 (`f424222a`). Matchups remains Item 117, not a slice.
 
 **Slice 5a carry-forward for the five consumers — do not re-derive.** `CompactGameScoreboard` now
 owns the settled rank/FCS prefix, neutral-site and broadcast metadata, and optional tier-2 slot; the
-full visual contract is in `DESIGN.md` → Cards and game results. The only writers at merge are three
-`OverviewPanel` sites: one `contextSlot` is an unconditional wrapper that deliberately reserves 22px
-even when empty; the other is `gameBadge ? <span /> : undefined`; and `footerSlot` is `string | null`,
-rendered directly without the optional-content predicate. `tier2Slot` has no writer yet.
+full visual contract is in `DESIGN.md` → Cards and game results. Overview retains three writers: one
+`contextSlot` is an unconditional wrapper that deliberately reserves 22px even when empty; the other
+is `gameBadge ? <span /> : undefined`; and `footerSlot` is `string | null`, rendered directly without
+the optional-content predicate. Schedule now supplies `tier2Slot` from `GameWeekPanel`.
 Renderable-content inspection recurses only through static arrays and fragments — evaluating
 arbitrary components would be unsafe and hook-incompatible. Tier-2 reserves no height: it is
 variable expansion content, while the unconditional odds band aligns tier-1. Provider
@@ -3434,9 +3442,9 @@ as a section eyebrow, and scheduled rows ended in an empty `———` box.
 Remaining root cause:
 
 - The same conceptual object still has multiple renderers. Slices 1–4 moved Overview Live,
-  Featured, Recent finals, and Watchlist onto the shared scoreboard anatomy, but `GameSummaryList`
-  remains bespoke alongside `GameScoreboard` on Matchups and the recap primitives. The remaining
-  Item 87 slice (5) completes the Schedule transition.
+  Featured, Recent finals, and Watchlist onto the shared scoreboard anatomy, and slice 5 moved
+  Schedule. `GameSummaryList` remains bespoke on Matchups and the recap primitives; Matchups is Item
+  117.
 
 **Settled decisions (owner, 2026-08-29).** The governing criterion for any marker is that it be
 TRUE and VALUABLE to the reader; scarcity is not the test, and chips are not capped. See `DESIGN.md`
@@ -3447,8 +3455,9 @@ TRUE and VALUABLE to the reader; scarcity is not the test, and chips are not cap
   interim state-specific ordering and exclusion rules.
 - Right-edge anchor is the score, or the kickoff time when there is no score. The `———` placeholder
   violates the trailing-whitespace rule and carries no information.
-- Rows expand in place; tapping discloses rather than navigating. **Not delivered by any slice** —
-  `CompactGameScoreboard` has no disclosure mechanism; tracked as [[Item 112]], not restated here.
+- Rows expand in place; tapping discloses rather than navigating. **Delivered on Schedule by Item
+  112 / PR #572**, through `GameWeekPanel`; `CompactGameScoreboard` and Overview remain
+  non-interactive.
 - Chips get category names ("Top 25 Matchup"), which also resolves the overload below.
 
 **RESOLVED by slice 4.** The `Top matchup` label was false — `gameTags.ts:441` fired the chip from
@@ -3459,16 +3468,15 @@ Slice 4 renamed both to what each measures — the chip is now `Contender Watch`
 `Game of the Week` — in the shared `gameTags.ts`/`overview.ts`, so this applies everywhere the chip
 renders, not just Overview.
 
-L1 disclosure content already flows to this surface and is currently discarded: schedule rows carry
-`media` (broadcast outlet) and full venue, `CombinedOdds` is already threaded into `GameScoreboard`,
-and `historySelectors` computes owner head-to-head records. Delivering it is [[Item 112]]'s scope, not
-restated here.
+Schedule now supplies venue, odds, and conference through the shared tier-2 slot. It deliberately
+omits records pending Item 139's completed-game reconciliation; `CompactGameScoreboard` remains a
+pure row and Overview's records feed is unchanged.
 
 Acceptance boundary:
 
 - No game appears in more than one place on Overview, enforced structurally rather than by a filter.
 - Every chip rendered is true by its own definition.
-- Opening a row shows the detail that justifies it — delivered by [[Item 112]], not this item.
+- Opening a Schedule row shows its tier-2 detail — delivered by Item 112 / PR #572.
 - No scheduled row terminates in an empty value.
 - Ranked information appears once as inline detail and once as a scannable category chip — not three
   times.

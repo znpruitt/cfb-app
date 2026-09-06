@@ -266,11 +266,3 @@ export function getSafeScoreboardTeamColor(
 
   return buildTreatment(FALLBACK_BASE, 'fallback');
 }
-
-export function getSafeScoreboardTeamColorById(
-  teamId: string | null | undefined,
-  teamsById?: Map<string, TeamCatalogItem>
-): ScoreboardTeamColorTreatment {
-  if (!teamId || !teamsById) return getSafeScoreboardTeamColor(null);
-  return getSafeScoreboardTeamColor(teamsById.get(teamId) ?? null);
-}

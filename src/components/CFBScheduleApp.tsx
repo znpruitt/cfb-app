@@ -91,7 +91,10 @@ import type { DraftPhase } from '../lib/draft';
 import type { LeagueStatus } from '../lib/league';
 import { resolveLeagueSeason } from '../lib/leagueSeason';
 import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
-import type { TeamRecordsByProviderGameId } from '../lib/selectors/teamRecordsClient';
+import {
+  EMPTY_TEAM_RECORDS_BY_PROVIDER_GAME_ID,
+  type TeamRecordsByProviderGameId,
+} from '../lib/selectors/teamRecordsClient';
 import {
   isWeeklyRecapActiveSeason,
   selectWeeklyRecapTileState,
@@ -103,8 +106,6 @@ const EXPLICIT_SEASON = Number.parseInt(process.env.NEXT_PUBLIC_SEASON ?? '', 10
 const DEFAULT_SEASON = getDefaultRankingsSeason(
   Number.isFinite(EXPLICIT_SEASON) ? EXPLICIT_SEASON : null
 );
-const EMPTY_TEAM_RECORDS_BY_PROVIDER_GAME_ID: TeamRecordsByProviderGameId = {};
-
 type CFBScheduleAppProps = {
   leagueSlug?: string;
   leagueDisplayName?: string;
@@ -647,16 +648,6 @@ export default function CFBScheduleApp({
     }
     return m;
   }, [roster, isPreseason, initialPreseasonOwners]);
-
-  const teamCatalogById = useMemo(() => {
-    const next = new Map<string, TeamCatalogItem>();
-    for (const team of teamCatalog) {
-      const id = team.id?.trim();
-      if (id) next.set(id, team);
-    }
-    return next;
-  }, [teamCatalog]);
-
   const filteredWeekGames = useMemo(() => {
     if (selectedWeek == null) return [] as AppGame[];
     const tf = teamFilter.toLowerCase();
@@ -1126,8 +1117,8 @@ export default function CFBScheduleApp({
     setLoadingLive,
     isDebug: IS_DEBUG,
     // PLATFORM-080: when a live poll observes a game finalize in-session, refresh
-    // the RSC tree so server canonicalStandings recomputes (records/ranks pick
-    // up the new final). liveDelta excludes final games, so without this the
+    // the RSC tree so server canonicalStandings recomputes (ranks pick up the
+    // new final). liveDelta excludes final games, so without this the
     // standings would stay tied to the render-time snapshot until navigation.
     onGamesFinalized: handleGamesFinalized,
   });
@@ -1880,8 +1871,8 @@ export default function CFBScheduleApp({
                   scoresByKey={scoresByKey}
                   rosterByTeam={rosterByTeam}
                   isDebug={IS_DEBUG}
-                  teamCatalogById={teamCatalogById}
                   onSavePostseasonOverride={isAdmin ? savePostseasonOverride : undefined}
+                  currentDateMs={liveStaleClock || null}
                   focusedGameId={focusedGameId}
                 />
               ) : primarySurfaceKind === 'rankings' ? (
@@ -1926,10 +1917,10 @@ export default function CFBScheduleApp({
                   scoresByKey={scoresByKey}
                   rosterByTeam={rosterByTeam}
                   isDebug={IS_DEBUG}
-                  teamCatalogById={teamCatalogById}
                   onSavePostseasonOverride={isAdmin ? savePostseasonOverride : undefined}
                   displayTimeZone={presentationTimeZone}
                   rankingsByTeamId={rankingsByTeamId}
+                  currentDateMs={liveStaleClock || null}
                   focusedGameId={focusedGameId}
                 />
               )}

@@ -143,8 +143,7 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 - Shared game-status labels use emerald text plus a `size-1.5` dot for live, neutral zinc for final,
   sky for scheduled, and a dimmer accessible zinc for unknown. Matchups keeps its live label neutral
   with the existing freshness-gated pulse because green already means `finalWin` in that component.
-  The Schedule scoreboard is a separate legacy family and deliberately retains amber-live and
-  green-final until Item 87 slice 5 replaces it
+  Schedule uses the shared game-status-label family through the compact scoreboard
 - Blue signals interactivity or active state only — never use blue to mean "featured" or "important"
 - Chart line colors are fixed per owner for the full season — never change with standings position
 - No color for decoration — every color must encode meaning. This stands unamended for every
@@ -198,6 +197,18 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   suffixes to zinc-400 collapses that colour step and leaves type size as the distinction. Reverting
   to zinc-500 would restore the step but fail contrast; a new dimming mechanism is outside this
   contract
+- **A team record is ALWAYS the team's record TODAY — every surface, every week, every state. Owner
+  decision 2026-09-05.** Never "as of that game", and never a state-dependent variant. The reasoning
+  is that the alternative is incoherent: a record "as of that game" is meaningless for a game that has
+  not happened, so a browse surface like Schedule would show the same column meaning two different
+  things depending on which way the reader scrolled. One rule removes that. It also cannot be built
+  from what is stored — `team-records` holds one season total per team per year, with no per-week
+  breakdown, so a past-week value would require replaying completed games rather than reading one.
+  Consequence, accepted: browsing to an earlier week shows today's record beside an older game.
+  **The corollary is binding: a final must carry the record INCLUDING the result being read.** A row
+  showing a pre-game record beside a finished score is stale data, not a different rule — the record
+  is "today's", and today includes that game. Supersedes the per-state discussion in
+  `docs/campaigns/item-87-live-watchlist-scoreboard.md` §records, which this consolidates.
 - Compact scoreboard order is always away → home. Position communicates home/away; font weight,
   never reordering, marks the live leader or final winner
 - Compact scoreboard state variants share that row anatomy: scheduled uses its metadata header,

@@ -208,7 +208,8 @@ test('matchups panel summarizes self-matchups as Self', () => {
   assert.match(html, /1–1/);
   assert.equal((html.match(/>Self</g) ?? []).length, 1);
   assert.match(html, /Texas[\s\S]*28[\s\S]*–[\s\S]*21[\s\S]*Oklahoma/);
-  assert.match(html, /border-l-violet-400\/80 bg-violet-50\/40/);
+  assert.match(html, /border-l-violet-400\/80 bg-gray-50\/40/);
+  assert.doesNotMatch(html, /border-l-violet-400\/80 bg-violet-50\/40/);
   assert.doesNotMatch(html, /Leading 28-21/);
   assert.doesNotMatch(html, /Trailing 28-21/);
   assert.equal((html.match(/Texas/g) ?? []).length, 1);
