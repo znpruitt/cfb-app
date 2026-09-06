@@ -8,9 +8,14 @@ Read `AGENTS.md` first, then `DESIGN.md` — canonical for UI, and it carries th
 
 **Canonical; they win over anything summarised below.**
 
-- **`DESIGN.md`** → the team-record rule. It states that a record is **always the team's record today**,
-  on every surface and every week, and marks the corollary **binding**: a final must carry the record
-  including the result being read. That corollary is what this slice implements.
+- **`docs/campaigns/item-87-live-watchlist-scoreboard.md:194` → _Records across scoreboard states —
+  resolved_. CANONICAL.** It carries the state/anchor/position table, the inline format
+  (`#14 USC (7-1) . Chamness . 21`), the markup order **rank -> team -> record -> owner**, and the two
+  rules this slice turns on: **"Finals carry the POST-GAME record, including the result being read"**
+  and **"One rule, not two... No state-dependent branching in the data layer."**
+- **`DESIGN.md`** carries the same rule in canonical UI form with the corollary marked binding.
+  `item-87-followon-records.md` is the retained INPUT, applied 2026-08-31 and folded into the section
+  above — read that one, not this.
 - [`docs/next-tasks.md`](../next-tasks.md) → **Item 139**, including the failed approach it records.
 - **`docs/campaigns/item-87-live-watchlist-scoreboard.md` → _Records across scoreboard states —
   resolved_.** THIS is canonical for the record rule, not `DESIGN.md` alone.
@@ -32,8 +37,9 @@ Report these, then **STOP and wait**. A branch checkout is fine; no code, no tes
 replies.
 
 1. The `PROMPT_ID:` line of THIS document, verbatim.
-2. From `DESIGN.md`: quote the sentence stating what a team record always is, and the corollary marked
-   binding. Say in one line why the corollary is a consequence of the rule rather than an exception.
+2. From `item-87-live-watchlist-scoreboard.md:194`: quote **"One rule, not two"** and the sentence that
+   follows it about the data layer. Then say what the state/anchor table varies by state and what it
+   does NOT — and why that distinction constrains this slice.
 3. `TeamRecordClient` is `Pick<TeamRecordItem['total'], 'wins' | 'losses'>`. **Name the field it drops
    that this slice needs.** Then say what `teamRecordsClientProps` receives as arguments, and why that
    means the reconciliation cannot live there — this is the correction that reshaped the slice.
@@ -65,8 +71,15 @@ records on Schedule rather than extend it.
 3. **Fold every unreflected game, not only the one being rendered.** If the record is behind by three,
    applying just the current game leaves a number that is still wrong. Folding all of them makes the
    record correct for every row on the card.
-4. **Outcomes come from the scores already in hand.** No provider call. This is why the approach
-   survives CFBD itself lagging.
+4. **Outcomes come from the scores already in hand.** No provider call — this is why the approach
+   survives CFBD itself lagging. **`hasUsableFinalScore` (`src/lib/gameStatus.ts:96`) is the existing
+   authority** for whether a score can be read as a result; do not write a second one. `ScoreTeam.score`
+   is `number | null`, so a "final" with a null score is exactly the case the open question covers.
+
+5. **No state-dependent branching in the data layer.** The canonical section is explicit: the record is
+   the team's CURRENT record in every state, and the only thing that varies by state is where it is
+   POSITIONED (anchor on scheduled, inline parenthetical on live/final). This slice makes "current"
+   actually current — it must not introduce a scheduled-versus-final branch in the record itself.
 
 **The population gate is VERIFIED, not merely satisfiable — do not re-derive it.** Measured
 2026-09-06 against production `team-records/2025` and `schedule/2025-all-all`: **668 of 668 teams**
@@ -114,8 +127,8 @@ scores available at this seam.
 </completeness_contract>
 
 <open_question>
-**Answer before building; do not choose silently.** What renders when an unreflected game has **no
-usable score** — the outcome cannot be determined, so the record cannot be folded correctly.
+**Answer before building; do not choose silently.** What renders when an unreflected game fails
+`hasUsableFinalScore` — the outcome cannot be determined, so the record cannot be folded correctly.
 
 Options: show the stored record unadjusted (honest "we cannot tell yet"); withhold the record entirely
 via the existing `uncreditableTeamIds` mechanism; or fold what is determinable and show a partially-
