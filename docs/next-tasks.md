@@ -61,6 +61,12 @@ committed `c9f76081`) surfaced four new items and one split; the remaining open 
    tier-2 behind "More" (which _is_ Item 112's disclosure model, landing on Schedule first); kickoff
    sort; deletes `GameWeekPanel`'s collapse and `cardEmphasisClasses`. Carries the
    `ownerOutcomeRowClasses` sibling asymmetry into `MatchupsWeekPanel`.
+   **Records are OMITTED on Schedule — decided 2026-09-05, pending Item 139.** The shared row carries
+   records; Schedule showed none before this slice. Rendering them here would add new instances of a
+   violation stated twice and already live on Overview — a final showing its pre-game record, because
+   `team-records` refreshes hourly. Omitting them ships nothing wrong and matches Schedule's prior
+   behaviour. **Item 139 reconciles records against completed games for BOTH surfaces**; records
+   return to Schedule with it, not before.
    **No open owner decisions.** The amber `upset` border (`GameWeekPanel.tsx:42`) is **DELIBERATELY
    RETIRED** — owner decision 2026-09-05, not a side effect of deleting the card chrome it lives on.
    The distinction matters and is why it is recorded this way: the base addendum exempted that border
@@ -185,8 +191,9 @@ touches no component file.
 Written and ready: `platform-087-slice-5-item-112-codex-v1.md`,
 `platform-135-opponent-count-claude-v1.md`, `platform-102-slice-2-cron-synthesis-claude-v1.md`.
 
-**Fillers, safe against both lanes, any order:** Item 136 and Item 138 (both `matchups.ts`, worth
-pairing — same file, same `NoClaim` root), Item 137 (the red-`main` time bombs, test-only), Item 133a
+**Fillers, safe against both lanes, any order:** Item 139 (records reconciliation — fixes Overview
+and gates records returning to Schedule), Item 136 and Item 138 (both `matchups.ts`, worth pairing —
+same file, same `NoClaim` root), Item 137 (the red-`main` time bombs, test-only), Item 133a
 (below), 122, 121, 84, 86, 111.
 
 > **Known-failure baseline:** `npm test` on clean `main` exits 1 with exactly two failures in
@@ -842,6 +849,42 @@ not be read as a requirement on the other.**
   intentionally redesigns QStash retries, quota consequences, and idempotency together.
 
 - Backlog slug: `PLATFORM-SCHEDULE-REFRESH-FORENSICS-v1`
+
+### Item 139 — a final can show a pre-game record; reconcile records against completed games
+
+**The ask:** make a final always carry the record INCLUDING the result being read, on every surface.
+
+**This is a binding rule, stated twice and violated today.**
+`docs/campaigns/item-87-live-watchlist-scoreboard.md:209` — _"Finals carry the POST-GAME record,
+including the result being read. A stale record on a final is bad data handling."_ And `DESIGN.md`
+carries the corollary as binding: the record is today's, and today includes that game.
+
+**Why it happens.** `team-records` is a season-total cache refreshed **hourly**
+(`schedulerDeliveryHealth.ts:83`). Between a game finalising and the next refresh, the cached record
+predates the result — so the row shows a pre-game record beside a finished score.
+
+**Already live on Overview.** `OverviewPanel` renders records through `CompactGameScoreboard` with the
+same lag, so this is a pre-existing violation, not one Item 87 slice 5 introduces. Slice 5 would have
+extended it to Schedule; it ships without records there instead, pending this item.
+
+**The mechanism — reconcile, do not invalidate.** The record carries a games count:
+`total: {wins, losses, ties, games}` (Georgia 2025 reads `{wins:12, losses:2, games:14}`), and
+schedule rows carry `completed`. So **"does this record already include this final?" is answerable**:
+compare the team's completed-game count against `total.games` and apply the outcomes of any finals the
+record is behind on. That has game identity, needs no cache trigger, and works even when the PROVIDER
+itself lags.
+
+**Verify first, before building:** that CFBD's record counts the same game population the schedule
+does. If it excludes some games, the two counts disagree permanently and the derivation would always
+believe it is behind. **This is the gate — if the populations differ, stop and report.**
+
+**A cache-invalidation trigger was tried and is the wrong layer — do not repeat it.** Slice 5's
+`onGamesFinalized` gate discarded game identity, so it blanked every team's record for one final,
+never fired on first-seen finals (the case that matters), and over-fired on same-winner score
+corrections. Four defects from one mechanism that cannot see which game finished.
+
+**Scope:** the records selector plus its consumers; shared, so it fixes Overview and unblocks
+Schedule together. **Blocker:** none, but it gates records returning to Schedule.
 
 ### Item 137 — two `writer-convergence` tests are time bombs; `main` is red
 
