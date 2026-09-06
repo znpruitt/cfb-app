@@ -26,8 +26,9 @@ Supersedes: (none)
 
 `CURRENT`: **Item 102** — polling planner. (Item 88 is superseded in full by **Item 132**; both
 attempts at it were reverted.)
-`NEXT`: **Item 87 slice 5 + Item 112** — Schedule adopts the shared scoreboard and adds its tier-2
-disclosure. Slice 5a's shared-component prerequisite merged via PR #570 (`4caa1a79`) on 2026-09-05.
+`NEXT`: **Item 87 slice 5b** — after the owner merges the implemented, review-complete slice 5 +
+Item 112 branch. Slice 5a's shared-component prerequisite merged via PR #570 (`4caa1a79`) on
+2026-09-05.
 
 Owner-selected run order (2026-09-03), replacing the 2026-09-02 order. Ordering values, stated by the
 owner: **user-facing improvements, data correction, and bug fixes first; prerequisites persisted in
@@ -57,33 +58,13 @@ committed `c9f76081`) surfaced four new items and one split; the remaining open 
    **Operationally independent, though:** 126's incident is the weekly `schedule-refresh` job, while
    102 narrows `live-scores` and `game-stats`. Neither blocks the other; the conflict is in files.
    Observation-only by its own acceptance boundary, so it is the lower-risk half of the pair.
-3. **Item 87 slice 5 + Item 112** — Schedule adopts the scoreboard row with no one-line collapse and
-   tier-2 behind "More" (which _is_ Item 112's disclosure model, landing on Schedule first); kickoff
-   sort; deletes `GameWeekPanel`'s collapse and `cardEmphasisClasses`. Carries the
-   `ownerOutcomeRowClasses` sibling asymmetry into `MatchupsWeekPanel`.
-   **Records are OMITTED on Schedule — decided 2026-09-05, pending Item 139.** The shared row carries
-   records; Schedule showed none before this slice. Rendering them here would add new instances of a
-   violation stated twice and already live on Overview — a final showing its pre-game record, because
-   `team-records` refreshes hourly. Omitting them ships nothing wrong and matches Schedule's prior
-   behaviour. **Item 139 reconciles records against completed games for BOTH surfaces**; records
-   return to Schedule with it, not before.
-   **No open owner decisions.** The amber `upset` border (`GameWeekPanel.tsx:42`) is **DELIBERATELY
-   RETIRED** — owner decision 2026-09-05, not a side effect of deleting the card chrome it lives on.
-   The distinction matters and is why it is recorded this way: the base addendum exempted that border
-   as "emphasis and is out of scope for every slice here", and this rework removes the chrome it sits
-   on, so without a decision the exemption would have lapsed by accident. A reader finding an
-   exemption on record and the border gone could not otherwise tell which of the two happened.
-   The eyebrow pill carries the emphasis forward. **The cost is stated, not glossed: a pill is
-   quieter than a card border** — acceptable if Schedule is a reference surface and making games jump
-   out belongs to Featured and the recap, but a reduction rather than a like-for-like swap.
-   **Reopen condition:** if upsets should stay prominent in practice, the instrument is **a hue from
-   `INSIGHTS-017-PALETTE`, not a shape** — do not put a border back, which is the decision this
-   entry records against. Canonical:
-   `docs/campaigns/item-87-followon-matchups-schedule-design.md`.
-   **Kickoff:** `docs/prompts/platform-087-slice-5-item-112-codex-v1.md`.
-   **Design:** `docs/campaigns/item-87-followon-matchups-schedule-design.md`;
-   `docs/campaigns/item-87-followon-section-ordering.md` (the relative label is unbuilt and
-   constrains this slice); `mockups/matchups-schedule-mockup.html`.
+3. **Item 87 slice 5 + Item 112 — IMPLEMENTED, REVIEW COMPLETE, AWAITING OWNER MERGE.** Branch
+   `platform/087-slice-5-item-112`, exact reviewed code head `c6b01169`; no PR opened by the Codex
+   lane. Regular and postseason Schedule omit records pending **Item 139**, which reconciles records
+   against completed games for Schedule and Overview together. The discarded browser-finalization
+   gate is not part of the result. Review findings about disrupted/placeholder rendering were
+   rejected against the measured production population, not fixed or silently queued. Closeout is in
+   `docs/completed-work.md` and `docs/prompt-registry.md`.
 4. **Item 87 slice 5b** — card-owner row modifier on the shared component. **Split out 2026-09-05;
    do NOT fold this into Item 117.** The tint the highlight needs is a per-participant-row modifier,
    and `CompactGameScoreboard` renders those rows internally, so a caller cannot reach one — it needs
@@ -1772,46 +1753,16 @@ template.
 
 ### Item 112 — rows do not expand: a settled Item 87 decision that no slice implemented
 
-**Filed 2026-09-03 at the close of Item 87 slice 4.** The shared scoreboard is now the row type on
-every Overview section, which means the gap is uniform rather than per-section — this is the moment
-it becomes tractable, and also the moment it stops being invisible.
+**IMPLEMENTED FOR SCHEDULE — review complete, awaiting owner merge.** Item 112 was consumed by Item
+87 slice 5 as `GameWeekPanel`'s native tier-2 More/Less disclosure, landing on regular and postseason
+Schedule rows first. The scoreboard stays visible; only venue, odds, conference, and the
+postseason-admin override disclose in place. The delivered mechanism is Schedule-local and does not
+widen `CompactGameScoreboard` or add disclosure to Overview. This execution truth supersedes the
+entry's earlier proposed shared-component/Overview scope. Section-level expansion remains the
+separate Item 115.
 
-**The decision.** Owner, 2026-08-29, recorded in Item 87's settled decisions: _"Rows expand in place;
-tapping discloses rather than navigating."_ Slices 1-4 converted Live, Featured, Recent finals, and
-the watchlist to the shared anatomy and delivered none of it.
-
-**The gap, measured.** `src/components/CompactGameScoreboard.tsx` contains no `useState`, no
-`onClick`, no `aria-expanded`, no `<details>`, and no collapse affordance of any kind. It is a pure
-presentational row. Three call sites in `OverviewPanel` render it, so one implementation covers every
-Overview section at once.
-
-**Why the content half is already paid for.** Item 87 records that L1 disclosure content reaches this
-surface and is discarded today: schedule rows carry `media` (broadcast outlet) and full venue,
-`CombinedOdds` is already threaded into `GameScoreboard`, and `historySelectors` computes owner
-head-to-head records. Confirmed here that `CompactGameScoreboard` currently receives neither `media`
-nor `venue` — the props stop short of the row. So the work is a disclosure mechanism plus prop
-threading, not new data derivation. That claim is inherited from Item 87 and re-verified only for the
-component boundary; verify the four sources independently before scoping.
-
-**Why it was not folded into slice 4.** That branch reached 18 files against the AGENTS.md:306
->15-file signal before this was considered. Adding an interactive affordance and its accessibility
-coverage to an already-oversized branch would have been the wrong trade the night before a slate.
-
-**Scope.** One disclosure mechanism on the shared component, its keyboard and screen-reader contract,
-and the prop threading for whichever L1 facts survive an owner content decision. Every Overview
-section inherits it; Matchups and the recap primitives still use `GameSummaryList` and
-`GameScoreboard`, so they do not.
-
-**Still a different affordance — corrected 2026-09-03.** Section-level expansion — a "show more"
-that lengthens a capped section — is a DIFFERENT feature from row disclosure, and the two must not be
-conflated into one ticket: "tapping a row discloses detail" and "tapping a section reveals more rows"
-are not the same thing. **An earlier version of this entry claimed section expansion was "not in the
-settled decisions" and "never decided." That was wrong.** The campaign doc settles it at
-`item-87-live-watchlist-scoreboard.md:244` — "Progressive disclosure per section: bounded default,
-expands in place" — and it was simply never built, the same failure mode as this item. Tracked
-separately as [[Item 115]].
-
-- Backlog slug: `POLISH-SCOREBOARD-ROW-DISCLOSURE-v1`
+- Prompt: `PLATFORM-087-SLICE-5-ITEM-112-CODEX-v1`
+- Branch/head: `platform/087-slice-5-item-112` / `c6b01169`
 
 ### Item 111 — `/api/odds` fetches its own origin, costing two extra invocations per request
 
