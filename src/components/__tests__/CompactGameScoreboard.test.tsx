@@ -37,8 +37,33 @@ function occurrenceCount(value: string, needle: string): number {
 }
 
 function classTokens(markup: string): Set<string> {
-  const className = markup.match(/class="([^"]*)"/)?.[1] ?? '';
+  const className = (markup.match(/class="([^"]*)"/)?.[1] ?? '').replaceAll('&#x27;', "'");
   return new Set(className.split(/\s+/).filter(Boolean));
+}
+
+function participantOpeningTag(html: string, side: 'away' | 'home'): string {
+  const row = html.match(new RegExp(`<div(?=[^>]*data-scoreboard-side="${side}")[^>]*>`))?.[0];
+  assert.ok(row, `${side} participant row must render`);
+  return row;
+}
+
+const SCOREBOARD_STATES = ['scheduled', 'live', 'awaiting', 'final'] as const;
+type Participant = React.ComponentProps<typeof CompactGameScoreboard>['away'];
+type CardOwnerFlag = boolean | undefined | 'absent';
+
+function participantWithCardOwnerFlag(side: 'away' | 'home', flag: CardOwnerFlag): Participant {
+  const participant: Participant =
+    side === 'away'
+      ? { teamName: 'Michigan', owner: 'Whited', rank: null, score: 17 }
+      : {
+          teamName: 'Ohio State',
+          owner: 'Chamness',
+          rank: 7,
+          rankSource: 'ap',
+          score: 24,
+        };
+
+  return flag === 'absent' ? participant : { ...participant, isCardOwnerTeam: flag };
 }
 
 const LIGHT =
@@ -200,6 +225,97 @@ test('live scoreboard renders the same owner as each team suffix when one owner 
 
   assert.match(html, /data-scoreboard-owner="away">Whited<\/span>/);
   assert.match(html, /data-scoreboard-owner="home">Whited<\/span>/);
+});
+
+test('every scoreboard state adds an isolated neutral tint only to the marked participant row', () => {
+  const tintClasses = [
+    'relative',
+    'isolate',
+    'after:pointer-events-none',
+    'after:absolute',
+    'after:inset-[-1px_-8px]',
+    'after:z-[-1]',
+    'after:rounded-[4px]',
+    'after:bg-[rgba(255,255,255,0.055)]',
+    "after:content-['']",
+  ];
+
+  for (const state of SCOREBOARD_STATES) {
+    const html = renderScoreboard({
+      state,
+      away: participantWithCardOwnerFlag('away', true),
+      home: participantWithCardOwnerFlag('home', 'absent'),
+    });
+    const awayRow = participantOpeningTag(html, 'away');
+    const homeClasses = classTokens(participantOpeningTag(html, 'home'));
+    const awayClasses = classTokens(awayRow);
+
+    for (const className of tintClasses) {
+      assert.ok(
+        awayClasses.has(className),
+        `${state} marked row must include exact token ${className}`
+      );
+      assert.ok(
+        !homeClasses.has(className),
+        `${state} unmarked row must omit tint token ${className}`
+      );
+    }
+    assertNoNewLightThemeClass(awayRow);
+  }
+});
+
+test('every scoreboard state leaves absent, undefined, and false flags byte-identical', () => {
+  for (const state of SCOREBOARD_STATES) {
+    const withoutFlags = renderScoreboard({
+      state,
+      away: participantWithCardOwnerFlag('away', 'absent'),
+      home: participantWithCardOwnerFlag('home', 'absent'),
+    });
+
+    for (const flag of [undefined, false] as const) {
+      const html = renderScoreboard({
+        state,
+        away: participantWithCardOwnerFlag('away', flag),
+        home: participantWithCardOwnerFlag('home', flag),
+      });
+
+      assert.equal(html, withoutFlags);
+      for (const side of ['away', 'home'] as const) {
+        assert.ok(
+          !classTokens(participantOpeningTag(html, side)).has('after:bg-[rgba(255,255,255,0.055)]'),
+          `${state} ${side} row without a true flag must remain untinted`
+        );
+      }
+    }
+  }
+});
+
+test('every scoreboard state tints both rows when one owner holds both teams', () => {
+  for (const state of SCOREBOARD_STATES) {
+    const html = renderScoreboard({
+      state,
+      away: {
+        teamName: 'Jacksonville State',
+        owner: 'Whited',
+        isCardOwnerTeam: true,
+        rank: null,
+        score: 14,
+      },
+      home: {
+        teamName: 'North Dakota State',
+        owner: 'Whited',
+        isCardOwnerTeam: true,
+        rank: null,
+        score: 10,
+      },
+    });
+
+    for (const side of ['away', 'home'] as const) {
+      const rowClasses = classTokens(participantOpeningTag(html, side));
+      assert.ok(rowClasses.has('after:bg-[rgba(255,255,255,0.055)]'));
+      assert.ok(rowClasses.has('isolate'));
+    }
+  }
 });
 
 test('live scoreboard keeps its header and long team-owner identities on one clipped line', () => {

@@ -8,6 +8,7 @@ import type { TeamRecordClient } from '../lib/selectors/teamRecordsClient';
 export type CompactScoreboardParticipant = {
   teamName: string;
   owner?: string | null;
+  isCardOwnerTeam?: boolean;
   rank?: number | null;
   rankSource?: RankSource | null;
   classification?: ProviderClassification;
@@ -42,6 +43,15 @@ function participantRowClasses(isLeading: boolean, hasLeader: boolean): string {
   if (hasLeader) return 'font-normal dark:text-zinc-400';
   return 'font-medium dark:text-zinc-100';
 }
+
+// The #0a0a0a app surface under 5.5% white rounds to #171717. The current zinc-400
+// token (oklch(70.5% 0.015 286.067), about #9f9fa9) remains about 6.82:1 over it,
+// clearing the 4.5:1 normal-text floor carried by record and owner suffixes.
+// `isolate` keeps the negative-z tint above the card background; without it the tint
+// vanishes behind the card. Item 119's team-colour bar will be absolutely positioned
+// against this row, so positioning children to lift them would re-anchor and shift it.
+const CARD_OWNER_ROW_CLASSES =
+  "relative isolate after:pointer-events-none after:absolute after:inset-[-1px_-8px] after:z-[-1] after:rounded-[4px] after:bg-[rgba(255,255,255,0.055)] after:content-['']";
 
 function recordLabel(record: TeamRecordClient | null | undefined): string | null {
   return record ? `${record.wins}–${record.losses}` : null;
@@ -151,7 +161,7 @@ export default function CompactGameScoreboard({
             className={`flex items-baseline justify-between gap-3 py-0.5 text-sm ${participantRowClasses(
               isLeading,
               leader !== null
-            )}`}
+            )}${participant.isCardOwnerTeam ? ` ${CARD_OWNER_ROW_CLASSES}` : ''}`}
             data-scoreboard-side={side}
             data-scoreboard-leading={isLeading}
           >
