@@ -40,11 +40,27 @@ import { densePhase, slowPhase, utcHoursCovered, type PollingWindow } from './po
  * call happens.
  */
 
-/** The slow reconciliation schedule fires once per covered hour, on the hour. */
+/** The slow reconciliation schedule fires once per covered hour. */
 export const SLOW_STEP_MINUTES = 60;
+
+/**
+ * The minute past the hour the slow schedule fires at — deliberately NOT zero.
+ *
+ * Both dense rates include minute 0 — a three-minute step and a fifteen-minute
+ * step alike — so an hourly slow
+ * schedule on the hour dispatches at the same instant as a dense poll in every
+ * dense hour. These are two QStash schedules against one route, and that route
+ * takes no invocation lock: both invocations pass target selection, both begin
+ * provider-refresh attempts, and both reach the provider. So the collision is a
+ * duplicate BILLED CFBD call once an hour while a game is open, not merely a
+ * duplicate wakeup. One minute of offset removes it, and no dense step in 1..60
+ * that divides an hour can land on it.
+ */
+export const SLOW_OFFSET_MINUTE = 1;
 
 const MINUTE_MS = 60_000;
 const HOURS_PER_DAY = 24;
+const DAY_MS = HOURS_PER_DAY * 60 * MINUTE_MS;
 const ALL_HOURS: readonly number[] = Array.from({ length: HOURS_PER_DAY }, (_, hour) => hour);
 
 export type SynthesizedCron = {
@@ -105,6 +121,7 @@ export function synthesizePollingCrons(
   dayStartMs: number,
   options: CronSynthesisOptions
 ): PollingCronPlan {
+  validDayStart(dayStartMs);
   const denseStepMinutes = validStep(options.denseStepMinutes, 'denseStepMinutes');
   const slowStepMinutes = validStep(
     options.slowStepMinutes ?? SLOW_STEP_MINUTES,
@@ -145,19 +162,31 @@ export type DeliveryExpectation = {
  * this slice deliberately does not widen it (the gate forbids reaching into
  * `SchedulerDeliveryState` or its consumers). So the expectation is taken from
  * the DENSE schedule whenever the day has one, and from the slow schedule
- * otherwise. That direction is chosen, not incidental:
+ * otherwise. Grace is two dense intervals — six minutes for `live-scores`,
+ * thirty for `game-stats` — which is exactly what the fixed policies carry today.
  *
- * - It never raises a false alarm. `requiredStartedAt` is the previous slot of
- *   THIS cron, so during the tail the required slot is the last dense slot, hours
- *   back, which the slow schedule's newer receipt already satisfies.
- * - It keeps game-day detection tight. Grace is two dense intervals — six minutes
- *   for `live-scores`, thirty for `game-stats`, which is exactly what the fixed
- *   policies carry today, so an armed day reads the same as production does now.
+ * THIS EXPECTATION IS NOT YET TRUTHFUL, AND SLICE 3 OWNS THE FIX. An earlier
+ * version of this comment claimed it "never raises a false alarm". That was
+ * wrong, and review found it: `previousScheduleSlotMs` treats a cron as ETERNAL,
+ * but a planner-owned cron is REWRITTEN DAILY, so it extrapolates today's hour
+ * set backwards onto a day that ran a different plan and derives a required slot
+ * that never existed. Measured against the real parser: an armed day whose cron
+ * narrows to hours 19–23 at the three-minute step, preceded by a dead day that
+ * genuinely last fired
+ * at 23:00, computes a required slot of 23:57 and reads `late` from 00:06 until
+ * the window opens — roughly nineteen hours of false alarm on an ordinary game
+ * day, on the two rows that matter most. The same extrapolation hides a real
+ * outage in the other direction: with a morning cluster, a receipt at 08:57 still
+ * reads `on-time` at 23:59, fifteen hours later.
  *
- * What it gives up, recorded rather than hidden: a slow-schedule delivery failure
- * inside the tail is not visible until the next dense slot. Closing that needs
- * the row to carry both crons, which is slice 3's to decide once the durable
- * plan record exists.
+ * The cause is extrapolation itself, not the choice of governing schedule. The
+ * fix is for delivery health to read what the planner actually scheduled —
+ * slice 3's durable record already stores the previous cron — rather than
+ * projecting one backwards. An always-on hourly schedule would only make the
+ * extrapolation accidentally correct. Do not build that here: the gate for this
+ * slice stops at the health row reading durable state, which is precisely what
+ * the real fix requires. Slice 3 also owns the two-cron row that restores
+ * six-minute in-window detection.
  */
 export function deliveryExpectationForPlan(plan: PollingCronPlan): DeliveryExpectation {
   const governing = plan.dense ?? plan.slow;
@@ -202,7 +231,7 @@ function buildCron(hours: readonly number[], stepMinutes: number): SynthesizedCr
 }
 
 function minuteField(stepMinutes: number): string {
-  return stepMinutes >= 60 ? '0' : `*/${stepMinutes}`;
+  return stepMinutes >= 60 ? String(SLOW_OFFSET_MINUTE) : `*/${stepMinutes}`;
 }
 
 /**
@@ -212,6 +241,25 @@ function minuteField(stepMinutes: number): string {
  */
 function hourField(hours: readonly number[]): string {
   return hours.length === HOURS_PER_DAY ? '*' : hours.join(',');
+}
+
+/**
+ * `dayStartMs` must be an exact UTC midnight, and it is checked rather than
+ * assumed because both ways of getting it wrong fail SILENTLY and in the one
+ * direction this module cannot survive.
+ *
+ * `utcHoursCovered` pushes the loop INDEX, so an offset day start rotates the
+ * whole hour field: the same window at `06:00Z` yields hours 13–21 instead of
+ * 19–23, arming six hours early and going dark over the actual kickoff. A
+ * non-finite value is worse — every overlap test fails, so an armed day
+ * degrades to no dense schedule and an all-day slow one, which is exactly the
+ * shape of a legitimate offseason plan and indistinguishable from it.
+ */
+function validDayStart(dayStartMs: number): number {
+  if (!Number.isFinite(dayStartMs) || dayStartMs % DAY_MS !== 0) {
+    throw new Error(`dayStartMs must be an exact UTC midnight, received ${dayStartMs}`);
+  }
+  return dayStartMs;
 }
 
 function validStep(stepMinutes: number, field: string): number {
@@ -234,7 +282,9 @@ function describePlan(plan: PollingCronPlan): string {
 function describeSchedule(schedule: SynthesizedCron): string {
   const cadence = schedule.stepMinutes >= 60 ? 'hourly' : `every ${schedule.stepMinutes} min`;
   if (schedule.hours.length === HOURS_PER_DAY) {
-    return cadence === 'hourly' ? 'hourly (top of hour UTC)' : `${cadence} (all day UTC)`;
+    return cadence === 'hourly'
+      ? `hourly (:${String(SLOW_OFFSET_MINUTE).padStart(2, '0')} UTC)`
+      : `${cadence} (all day UTC)`;
   }
   return `${cadence} at ${describeHours(schedule.hours)} UTC`;
 }

@@ -904,8 +904,8 @@ test('a plan with NO windows is the offseason, and is a different input from no 
   const offseason = schedulerDeliveryPolicy('live-scores', offseasonPlan);
   const absent = schedulerDeliveryPolicy('live-scores');
 
-  assert.equal(offseason.cron, '0 * * * *');
-  assert.equal(offseason.cadenceLabel, 'hourly (top of hour UTC)');
+  assert.equal(offseason.cron, '1 * * * *');
+  assert.equal(offseason.cadenceLabel, 'hourly (:01 UTC)');
   assert.equal(offseason.graceMs, 2 * HOUR);
   assert.equal(absent.cron, '*/3 * * * *');
   assert.notDeepEqual(offseason, absent);

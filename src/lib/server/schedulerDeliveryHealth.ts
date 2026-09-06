@@ -42,7 +42,13 @@ export type SchedulerDeliveryState = 'on-time' | 'late' | 'missing' | 'invalid' 
 export type SchedulerDeliveryPolicy = {
   job: ExternalSchedulerJob;
   source: SchedulerSource;
-  /** The fixed UTC cron expression (pinned to the management scripts / vercel.json by tests). */
+  /**
+   * The UTC cron expression this job's delivery is measured against. On the fixed
+   * branch — every job today, and the seven the planner never owns — it is pinned
+   * to the management scripts / `vercel.json` by tests. For a planner-owned job
+   * given a plan it is DERIVED and pinned to nothing, so the parity test covers
+   * the fixed branch only.
+   */
   cron: string;
   cadenceLabel: string;
   /** Scheduler-DELIVERY tolerance (dispatch jitter + execution allowance) — NOT a provider-freshness threshold. */

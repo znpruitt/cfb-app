@@ -98,7 +98,7 @@ test('POSITIVE CONTROL: the coverage checker rejects a cron that drops one armed
   const windows = windowsFor('2026-10-03T16:00:00.000Z', '2026-10-03T23:00:00.000Z');
   const armed = armedHoursOf(windows);
   const dropped = armed[Math.floor(armed.length / 2)]!;
-  const underCovering = `0 ${armed.filter((hour) => hour !== dropped).join(',')} * * *`;
+  const underCovering = `1 ${armed.filter((hour) => hour !== dropped).join(',')} * * *`;
 
   assert.deepEqual(uncoveredHours([underCovering], armed), [dropped]);
   // The real plan covers the very hour the mutilated one drops.
@@ -119,7 +119,7 @@ test('the slow schedule alone covers every armed hour — dense is purely additi
   // The tail-only alternative, spelled out and rejected: hours 0–7 are dense
   // hours with no tail over them, and it drops every one.
   assert.deepEqual(
-    uncoveredHours([`0 ${tailOnlyHours.join(',')} * * *`], armedHoursOf(morning)),
+    uncoveredHours([`1 ${tailOnlyHours.join(',')} * * *`], armedHoursOf(morning)),
     [0, 1, 2, 3, 4, 5, 6, 7]
   );
   // And the Saturday-night shape, where the tail projects onto the day not at all.
@@ -147,7 +147,7 @@ test('no windows at all is the offseason: no dense schedule, hourly all day', ()
   const plan = liveScores([]);
 
   assert.equal(plan.dense, null);
-  assert.equal(plan.slow.cron, '0 * * * *');
+  assert.equal(plan.slow.cron, '1 * * * *');
   assert.deepEqual(
     plan.slow.hours,
     Array.from({ length: 24 }, (_, hour) => hour)
@@ -180,7 +180,7 @@ test('windows covering a full day collapse the hour field to `*`', () => {
 
   assert.equal(windows.length, 1);
   assert.equal(plan.dense!.cron, '*/3 * * * *');
-  assert.equal(plan.slow.cron, '0 * * * *');
+  assert.equal(plan.slow.cron, '1 * * * *');
   assert.deepEqual(uncoveredHours([plan.dense!.cron], armedHoursOf(windows)), []);
 });
 
@@ -221,9 +221,9 @@ test('an armed day derives the dense cadence and exactly today’s grace', () =>
 test('a dead day derives the slow schedule, since there is no dense one to govern', () => {
   const expectation = deliveryExpectationForPlan(liveScores([]));
 
-  assert.equal(expectation.cron, '0 * * * *');
+  assert.equal(expectation.cron, '1 * * * *');
   assert.equal(expectation.graceMs, 2 * HOUR);
-  assert.equal(expectation.cadenceLabel, 'hourly (top of hour UTC)');
+  assert.equal(expectation.cadenceLabel, 'hourly (:01 UTC)');
 });
 
 test('a fragmented day names each armed stretch', () => {
@@ -264,4 +264,52 @@ test('a minute step outside 1..60 is refused rather than silently emitted', () =
   assert.throws(() => synthesizePollingCrons([], DAY, { denseStepMinutes: 61 }), {
     message: /denseStepMinutes/,
   });
+});
+
+// ── 5. The two guards review found ───────────────────────────────────────────
+
+test('the dense and slow schedules never fire in the same minute', () => {
+  // They are two QStash schedules against ONE route, and that route takes no
+  // invocation lock — both invocations pass target selection and both reach the
+  // provider. On the hour that is a duplicate BILLED call, not just a wakeup.
+  const plan = liveScores(windowsFor('2026-10-03T19:30:00.000Z'));
+  const stats = synthesizePollingCrons(windowsFor('2026-10-03T19:30:00.000Z'), DAY, {
+    denseStepMinutes: 15,
+  });
+
+  for (const [dense, slow] of [
+    [plan.dense!, plan.slow],
+    [stats.dense!, stats.slow],
+  ]) {
+    for (const hour of dense.hours) {
+      const hourStart = DAY + hour * HOUR;
+      for (let minute = 0; minute < 60; minute += 1) {
+        const instant = hourStart + minute * MINUTE;
+        const denseFires = previousScheduleSlotMs(dense.cron, instant) === instant;
+        const slowFires = previousScheduleSlotMs(slow.cron, instant) === instant;
+        assert.ok(!(denseFires && slowFires), `collision at hour ${hour} minute ${minute}`);
+      }
+    }
+  }
+});
+
+test('a dayStartMs that is not an exact UTC midnight is refused, not silently rotated', () => {
+  // `utcHoursCovered` pushes the loop INDEX, so an offset day start rotates the
+  // whole hour field — arming six hours early and going dark over the kickoff,
+  // which is the one direction a narrowed cron cannot survive.
+  const windows = windowsFor('2026-10-03T19:30:00.000Z');
+
+  assert.throws(() => synthesizePollingCrons(windows, DAY + 6 * HOUR, { denseStepMinutes: 3 }), {
+    message: /dayStartMs must be an exact UTC midnight/,
+  });
+  // Non-finite is the worse one: every overlap test fails, so an ARMED day would
+  // degrade to the exact shape of a legitimate offseason plan.
+  assert.throws(() => synthesizePollingCrons(windows, Number.NaN, { denseStepMinutes: 3 }), {
+    message: /dayStartMs must be an exact UTC midnight/,
+  });
+  // The valid form still works, so the guard is not simply refusing everything.
+  assert.equal(
+    synthesizePollingCrons(windows, DAY, { denseStepMinutes: 3 }).dense!.cron,
+    '*/3 19,20,21,22,23 * * *'
+  );
 });
