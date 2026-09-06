@@ -88,12 +88,28 @@ committed `c9f76081`) surfaced four new items and one split; the remaining open 
    work, not to the tier.
    **Design:** `docs/campaigns/item-87-followon-section-ordering-resolutions.md` §5 (counts, which
    that document explicitly defers to this item); `docs/campaigns/item-87-followon-section-ordering.md`.
-6. **Item 119** — team-colour bar on the existing normaliser, with no accent for teams that have no
-   colour — which also removes the green fallback every FCS row carries today. OKLCH only if measured.
+6. **Item 119** — **restore the team-colour accent, removed in slice 5**, as a solid **8px muted bar
+   at ~72%** at the line start of each team row, on the existing HSL normaliser. No accent for teams
+   with no catalog colour — which also removes the green `#059669` fallback every FCS row carried.
+   OKLCH only if measured.
+   **Reframed 2026-09-06: this is a RESTORATION, not a widening.** `§A` of the design doc opens "the
+   incumbent renders 2–3px", and there is no longer an incumbent — `GameScoreboard.tsx` carried that
+   line-start accent and went with the orphaned legacy tile in slice 5, leaving `teamColors.ts` with
+   **zero production consumers**. The `§A` DECISION is unchanged; only the framing of the work is
+   stale.
+   **Covers Overview, Matchups AND Schedule** — the treatment belongs to the shared row, not to one
+   consumer.
+   **Depends on slice 5b.** That slice puts `isolation: isolate` on the participant row, which is what
+   lets an absolutely-positioned bar coexist with the card-owner tint; making row children
+   `position: relative` instead would re-anchor the bar and shift it on every highlighted row.
    **Blocks Item 134** — it changes row anatomy at the line-start slot, which is what Item 134's
    breakpoint is derived from. See that entry for the arithmetic.
-   **Design:** `docs/campaigns/item-87-followon-team-colour.md`;
-   `docs/campaigns/item-87-live-watchlist-scoreboard.md`.
+   **Design:** `docs/campaigns/item-87-followon-team-colour-regression.md` (read first — it corrects
+   the framing); `docs/campaigns/item-87-followon-team-colour.md` §A;
+   `docs/campaigns/item-87-followon-presentation-decisions.md`;
+   `docs/campaigns/item-87-live-watchlist-scoreboard.md`;
+   `mockups/live-scoreboard-mockup.html` and `mockups/matchups-schedule-mockup.html` (both now carry
+   the bar).
 7. **Item 134** — Overview three-column tier. **Must run AFTER Item 119**, which consumes its
    headroom. See the Item 134 entry.
 8. **Item 118** — Schedule status filter with counts. Purely additive; after the rework it filters.
