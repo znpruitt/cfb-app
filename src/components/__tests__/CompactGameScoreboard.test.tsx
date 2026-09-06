@@ -67,7 +67,7 @@ function participantWithCardOwnerFlag(side: 'away' | 'home', flag: CardOwnerFlag
 }
 
 const LIGHT =
-  /^(?:text|bg|border)-(?:white|black|(?:gray|zinc|slate|neutral|stone)-\d{2,3})(?:\/[^\s]+)?$/;
+  /^(?:accent|bg|border|caret|decoration|divide|drop-shadow|fill|from|inset-ring|inset-shadow|outline|placeholder|ring|ring-offset|shadow|stroke|text|to|via)-(?:white|black|(?:gray|zinc|slate|neutral|stone)-\d{2,3})(?:\/[^\s]+)?$/;
 const CSS_DIMENSION = /^(?:-?(?:\d+(?:\.\d+)?|\.\d+)(?:%|[a-z]+)|-?0+(?:\.0+)?)$/i;
 const CSS_DIMENSION_FUNCTION = /^(?:calc|min|max|clamp)\(/i;
 const APPROVED_UNGATED_ARBITRARY_COLORS = new Set(['after:bg-[rgba(255,255,255,0.055)]']);
@@ -152,6 +152,16 @@ function lightHalves(html: string): string[] {
 
 function assertNoNewLightThemeClass(markup: string): void {
   assert.deepEqual(lightHalves(markup), [], 'new scoreboard markup contains light-theme classes');
+}
+
+function verticalInsetFromClasses(classes: Set<string>): number {
+  const insetClass = [...classes].find((className) => className.startsWith('after:inset-['));
+  assert.ok(insetClass, 'tinted row must include an arbitrary inset utility');
+  const verticalValue = insetClass.match(
+    /^after:inset-\[(-?(?:\d+(?:\.\d+)?|\.\d+))(?:[a-z%]+)?_/i
+  )?.[1];
+  assert.ok(verticalValue, `must parse vertical inset from ${insetClass}`);
+  return Number(verticalValue);
 }
 
 test('live scoreboard keeps away above a leading home team and emphasizes the bottom line', () => {
@@ -310,26 +320,29 @@ test('every scoreboard state adds an isolated neutral tint only to the marked pa
   ];
 
   for (const state of SCOREBOARD_STATES) {
-    const html = renderScoreboard({
-      state,
-      away: participantWithCardOwnerFlag('away', true),
-      home: participantWithCardOwnerFlag('home', 'absent'),
-    });
-    const awayRow = participantOpeningTag(html, 'away');
-    const homeClasses = classTokens(participantOpeningTag(html, 'home'));
-    const awayClasses = classTokens(awayRow);
+    for (const markedSide of ['away', 'home'] as const) {
+      const unmarkedSide = markedSide === 'away' ? 'home' : 'away';
+      const html = renderScoreboard({
+        state,
+        away: participantWithCardOwnerFlag('away', markedSide === 'away' ? true : 'absent'),
+        home: participantWithCardOwnerFlag('home', markedSide === 'home' ? true : 'absent'),
+      });
+      const markedRow = participantOpeningTag(html, markedSide);
+      const markedClasses = classTokens(markedRow);
+      const unmarkedClasses = classTokens(participantOpeningTag(html, unmarkedSide));
 
-    for (const className of tintClasses) {
-      assert.ok(
-        awayClasses.has(className),
-        `${state} marked row must include exact token ${className}`
-      );
-      assert.ok(
-        !homeClasses.has(className),
-        `${state} unmarked row must omit tint token ${className}`
-      );
+      for (const className of tintClasses) {
+        assert.ok(
+          markedClasses.has(className),
+          `${state} ${markedSide} marked row must include exact token ${className}`
+        );
+        assert.ok(
+          !unmarkedClasses.has(className),
+          `${state} ${unmarkedSide} unmarked row must omit tint token ${className}`
+        );
+      }
+      assertNoNewLightThemeClass(markedRow);
     }
-    assertNoNewLightThemeClass(awayRow);
   }
 });
 
@@ -384,13 +397,15 @@ test('every scoreboard state tints both rows without overlap when one owner hold
       assert.ok(rowClasses.has('after:bg-[rgba(255,255,255,0.055)]'));
       assert.ok(rowClasses.has('isolate'));
       assert.ok(
-        rowClasses.has('after:inset-[0_-8px]'),
-        `${state} ${side} tint must stop at its own vertical edges`
-      );
-      assert.ok(
-        !rowClasses.has('after:inset-[-1px_-8px]'),
+        verticalInsetFromClasses(rowClasses) >= 0,
         `${state} ${side} tint must not bleed into its adjacent participant row`
       );
+      const expectedCornerClass =
+        side === 'away' ? 'after:rounded-t-[4px]' : 'after:rounded-b-[4px]';
+      const facingCornerClass = side === 'away' ? 'after:rounded-b-[4px]' : 'after:rounded-t-[4px]';
+      assert.ok(rowClasses.has(expectedCornerClass));
+      assert.ok(!rowClasses.has('after:rounded-[4px]'));
+      assert.ok(!rowClasses.has(facingCornerClass));
     }
   }
 });
@@ -697,7 +712,7 @@ test('scheduled peers reserve equal odds bands with and without odds across tier
   }
 });
 
-test('new scoreboard additions reject named and arbitrary light-theme utility values', () => {
+test('new scoreboard additions reject named theme colors and arbitrary values in parser-supported text/bg/border families', () => {
   const html = renderScoreboard({
     state: 'scheduled',
     neutralSite: true,
@@ -747,6 +762,23 @@ test('new scoreboard additions reject named and arbitrary light-theme utility va
     'bg-[color:#fff]',
     'bg-(--color-white)',
     'border-[rgb(0,0,0)]',
+    'ring-gray-300',
+    'divide-gray-200',
+    'from-white',
+    'via-black',
+    'to-zinc-950',
+    'shadow-white',
+    'outline-black',
+    'fill-white',
+    'stroke-gray-500',
+    'placeholder-zinc-400',
+    'accent-gray-300',
+    'caret-white',
+    'decoration-black',
+    'drop-shadow-white',
+    'inset-ring-zinc-400',
+    'inset-shadow-black',
+    'ring-offset-white',
   ]) {
     assert.deepEqual(
       lightHalves(`<span class="${forbidden}">bad</span>`),
