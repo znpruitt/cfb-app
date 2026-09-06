@@ -1,7 +1,6 @@
 # Item 87 — Follow-on input: card-owner team highlight on Matchups
 
-> **Status:** decision settled; component seam implemented by Item 87 slice 5b; UI adoption remains
-> Item 117.
+> **Status:** decision settled; component seam merged via PR #575; UI adoption remains Item 117.
 
 Origin: member feedback on the Matchups page — *"this screen should color my teams."*
 
