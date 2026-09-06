@@ -92,14 +92,20 @@ export const SLOW_OFFSET_MINUTE = 1;
  * clusters chain through midnight — has no unshared hour to offer, so the slot
  * necessarily lands in one and bills one duplicate call that day.
  *
- * Hour zero is not an arbitrary choice that happens to work. On the idle path
- * every reconciliation hour is already a dense hour, and a tail runs sixteen
- * hours past its own dense end, so the tail either falls wholly on the next day —
- * leaving this day's dense hours late and hour zero free — or the dense phase
- * covers everything. Measured across 400,000 generated shapes: of 27,217
- * idle-path days, hour zero was dense in 3,238, and all 3,238 were fully dense.
- * Zero were the mixed case. The sweep asserts that, so a future change that makes
- * the mixed case reachable fails rather than quietly billing duplicates.
+ * THE MIXED CASE IS REACHABLE, AND THIS CONSTANT DOES NOT HANDLE IT — a recorded
+ * Item 102 follow-up, not a closed question. Across 400,000 shapes generated from
+ * `derivePollingWindows` DEFAULTS, hour zero was dense on 3,238 of 27,217
+ * idle-path days and all 3,238 were fully dense, which is what an earlier version
+ * of this comment reported as a general property. It is not one: that measurement
+ * ranged over slice 1's default margins, while this function accepts any window
+ * satisfying `startMs <= denseEndMs <= slowEndMs`. A TAIL-LESS window
+ * (`slowEndMs === denseEndMs`) breaks it — dense hours 0–5 with the slot at hour
+ * zero, not fully dense — and it is reachable through
+ * `derivePollingWindows(k, { guaranteeMs: CLUSTER_MARGIN_MS })` with an early
+ * kickoff, as well as through the constructed windows this module's own note
+ * invites for TBD games. The cost is one duplicate billed call per day on that
+ * shape. The fix is a free-hour lookup plus a generator that ranges over the
+ * accepted contract rather than over slice 1's defaults.
  *
  * Review found this constant returned unconditionally while the docstring claimed
  * the two hour sets were simply disjoint — true on 3,911 of 4,000 shapes, false
@@ -361,9 +367,16 @@ function validDayStart(dayStartMs: number): number {
 
 /**
  * The dense step, checked against the slow schedule's offset rather than assumed
- * clear of it. A step of 60 would emit the offset minute as a literal — a dense
- * cron byte-identical to the slow one — and a step that divides the offset fires
- * on it too. Both were reachable through this function before review found them.
+ * clear of it. A step that divides the offset fires on it — with the offset at
+ * one minute that is step 1, and it collides in every shared hour.
+ *
+ * The rejection of step 60 is retained but its ORIGINAL reason no longer holds:
+ * when one shared helper chose the minute field on `stepMinutes >= 60`, a step of
+ * 60 emitted the offset as a literal and made the dense cron byte-identical to
+ * the slow one. Splitting the builders removed that path — a sixty-minute step
+ * now emits a stepped field firing at minute zero only. Sixty is refused because
+ * an hourly "dense" schedule is not a dense schedule, which is a weaker reason
+ * than the one this comment used to give.
  */
 function validDenseStep(stepMinutes: number): number {
   const step = validStep(stepMinutes, 'denseStepMinutes');

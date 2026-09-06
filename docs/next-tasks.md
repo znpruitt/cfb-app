@@ -2423,6 +2423,47 @@ Ships dormant.
   durable plan until slice 3 lands. Do not build a plan reader in slice 2.
 - **Must not:** call QStash, read `QSTASH_TOKEN`, write durable state, or change any rendered output.
 
+**Slice 2 SHIPPED 2026-09-05** — `claude/102-slice-2-cron-synthesis` at `575ec6cd`, dormant. Two crons
+per job: dense over the dense hours at the job's existing rate, slow over the reconciliation tail
+MINUS those hours, so the pair covers every armed hour and no hour is billed twice. Measured from the
+shipped synthesizer against `schedule / 2026-all-all`: `live-scores` 63.2 runs/day annual and 190.7 in
+October against today's 480; `game-stats` 28.8 and 45.1 against 96. **These supersede the windows-only
+table above**, which was computed on the pre-slice-1 `kickoff + 24h` arming rule rather than slice 1's
+clusters; see the campaign doc.
+
+**Slice 3 inherits four things, three of them found by review on slice 2:**
+
+1. **Delivery health must stop extrapolating.** `previousScheduleSlotMs` treats a cron as eternal,
+   but a planner-owned cron is rewritten daily, so it derives a required slot from a day that ran a
+   different plan — roughly nineteen hours of false `late` on an armed day, and a fifteen-hour outage
+   reading `on-time` in the other direction. The record slice 3 already stores holds the previous
+   cron, which is the input that removes the guess. Slice 2 documents the hazard at the call site and
+   wires nothing.
+2. **The two-cron row.** One row carrying one cron cannot describe two schedules; restoring
+   six-minute in-window detection needs both, taken as `max(previousSlot(dense), previousSlot(slow))`.
+3. **A corrupt stored plan should surface as `invalid`/`unavailable`, not fall back to the fixed
+   contract.** Falling back claims a firing every three minutes while the real schedule is dark, so a
+   corrupt plan reads `late` continuously. That is a delivery-state decision and belongs with the row.
+4. **Thread the plan through `SchedulerDeliveryHealthOptions` when it is wired.** The policy functions
+   take a plan; `buildDeliveryRow` and `requiredStartedAtForJob` do not, so a partial wiring would
+   display one schedule and measure against another with no test failing.
+
+**Item 102 follow-ups from slice 2's final review** (none P0/P1; recorded under the owner's stop
+boundary rather than fixed on that branch):
+
+- **The idle slot can share a dense hour for windows slice 1's defaults never produce.** A tail-less
+  window (`slowEndMs === denseEndMs`) — admitted by the synthesizer's validated contract, reachable
+  through `derivePollingWindows(k, { guaranteeMs: CLUSTER_MARGIN_MS })` with an early kickoff, and
+  invited by the module's own note that a caller may construct windows to cover TBD games — yields
+  dense hours `0–5` and an idle slot at hour 0. One duplicate billed call per day on that shape. The
+  fix is a free-hour lookup plus a generator that ranges over the accepted contract, not just over
+  `derivePollingWindows` defaults.
+- **`validDenseStep`'s rejection of step 60 is right but its stated reason is stale** after the
+  dense/slow builders were split: `*/60` fires at minute 0 only and is no longer identical to the slow
+  cron. Only step 1 genuinely collides.
+- **The synthesis fallback `catch` is unqualified**, so it would swallow a programming error as well
+  as the deliberate validation refusal.
+
 **Slice 3 — the durable planner record, and `inspect` divergence against it.** The reconstructibility
 replacement, which **must exist before slice 4 takes cron ownership** — otherwise the tampering signal
 is gone for the window between them.

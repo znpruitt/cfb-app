@@ -379,10 +379,12 @@ test('no admissible dense step collides with the slow minute, on a CONSTRUCTED s
 });
 
 test('a dense step that would land on the slow minute is REFUSED, not merely documented', () => {
-  // Both of these were reachable, and both defeated the offset entirely: step 60
-  // emitted the offset minute as a literal, making the dense cron byte-identical
-  // to the slow one, and step 1 fires every minute including that one. The
-  // docstring used to assert this could not happen; now the validator enforces it.
+  // Step 1 fires every minute, including the offset, and collides in any shared
+  // hour. Step 60 was ALSO a collision when one helper chose the minute field on
+  // `stepMinutes >= 60` — it emitted the offset as a literal, making the two crons
+  // identical — but splitting the builders removed that path, so today it is
+  // refused only because an hourly "dense" schedule is not a dense schedule. Both
+  // were once reachable, and the docstring used to assert they could not be.
   const windows = windowsFor('2026-10-03T12:00:00.000Z');
 
   for (const step of [1, 60]) {

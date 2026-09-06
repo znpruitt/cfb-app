@@ -202,6 +202,41 @@ Rules:
   `manage:usage-sample-schedule upsert --apply` requires the owner's `QSTASH_TOKEN`. Until it runs,
   System Health correctly reports `usage-sample` with a scheduler-delivery warning.
 
+### PLATFORM-102-SLICE-2-CRON-SYNTHESIS-v1
+
+- Purpose: Item 102 slice 2 — two pure functions over slice 1's polling windows: synthesize the cron
+  expressions covering them, and derive the scheduler delivery expectation from the same windows so
+  `schedulerDeliveryHealth.ts` no longer hardcodes the two polling jobs' cadence and grace
+  (collision 2). Ships dormant; nothing calls either.
+- Scope: new `src/lib/schedule/pollingCron.ts` and its suite; an optional `plan` parameter on
+  `schedulerDeliveryPolicy`/`schedulerDeliveryPolicies` plus tests. No route, cron, QStash call,
+  environment variable, durable write, or component. `SchedulerDeliveryState` and its four consumers
+  untouched.
+- Outcome: TWO crons per job, not one. The read receipt established that one 5-field expression
+  cannot carry two cadences — `parseCron` applies a single minute-set to every hour it matches — which
+  reversed the planned single-cron design before any code was written. The dense cron covers the dense
+  hours at the job's existing rate; the slow cron covers the reconciliation tail MINUS those hours, so
+  the pair covers every armed hour with no hour billed twice. Hour fields are comma lists because
+  `parseCronField` reads a range as an empty set. A day with no reconciliation hours holds one idle
+  slot; a day with nothing armed holds hourly-all-day, because no cron can mean "never". The delivery
+  expectation falls back to today's exact constants when no plan is supplied, which is what makes the
+  slice a no-op: absence and emptiness are distinct inputs in the signature.
+- Measured cost, from the shipped synthesizer replayed against production `schedule / 2026-all-all`
+  (3,679 rows, 421 `startTimeTBD` excluded, 58 windows): `live-scores` 63.2 runs/day annual and 190.7
+  in October against today's 480; `game-stats` 28.8 and 45.1 against 96. These supersede Item 102's
+  windows-only table, which was computed on the pre-slice-1 `kickoff + 24h` arming rule.
+- Review / verification: four cycles, both reviewers against each commit. `edcebdbe` — `/code-review`
+  one HIGH (delivery health extrapolates a daily-rewritten cron backwards, ~19h of false `late`;
+  assigned to slice 3, which owns the consumer that removes it), Codex one P2. `f81b5fd7`, `d833331a`,
+  `84e50c4a`, final `575ec6cd` — Codex clean, `/code-review` four issues, none P0/P1, all recorded as
+  Item 102 follow-ups under the owner's stop boundary. Two owner decisions were reversed by evidence
+  found during the branch: the floor cadence (its stated rationale was false about `buildDeliveryRow`)
+  and the union slow cron (its Saturday justification was mine, and I disproved it by re-running my
+  own measurement). `npx tsc --noEmit` exit 0; `npm run lint:all` exit 0; `npm test` exit 1 with
+  exactly the two known `writer-convergence` failures (Item 137 baseline), 4,724/4,726 — each gate run
+  separately.
+- Status: pre-merge closeout on `claude/102-slice-2-cron-synthesis` at `575ec6cd`.
+
 ### PLATFORM-128-LIVE-POLL-TEAM-CATALOG-v1
 
 - Purpose: stop every browser live-score poll from refetching the full team catalog it already holds
