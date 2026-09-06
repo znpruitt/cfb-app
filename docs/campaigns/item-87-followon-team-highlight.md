@@ -40,6 +40,27 @@ Two stacking bugs surfaced while building it, both worth knowing:
 
 ---
 
+## Adjacent tinted rows — squared facing corners
+
+**Owner decision 2026-09-06.** On a self game both rows tint, so two tints sit adjacent. Three
+behaviours are possible at the seam and only one is right:
+
+- **Rounded on both, no vertical bleed** (`inset: 0 -8px`) — the two blocks curve away from each other
+  and leave a light pinch at each end of the seam.
+- **Negative vertical bleed** (`inset: -1px -8px`, the mockup's original) — the tints overlap, and two
+  5.5% layers read as a **darker stripe** across the seam. **Ruled out**: a darker artifact is more
+  visible than a lighter one, and avoiding it is why the implementation moved to zero inset.
+- **Squared facing corners — CHOSEN.** When the adjacent row is also tinted, the touching corners
+  square off so the pair reads as one block with rounded outer corners only. No overlap, so no
+  doubled alpha, and no pinch.
+
+The component already knows both participants, so the condition is available without new plumbing.
+
+**Deviation from the mockup, recorded so it is not "restored".** The mockup specifies
+`inset: -1px -8px`. The implementation ships `0 -8px` plus squared facing corners. Anyone reconciling
+the two should change the mockup, not the code — the mockup's value predates the both-rows-tint rule
+and produces the darker stripe above.
+
 ## Residual — this ships the legibility fix, not the request
 
 The feedback said *my* teams. On that member's own card the card owner and the member coincide, so the highlight answers it. **On another owner's card it does not** — Matt's card highlights Matt's teams, which is a coherent rule but not what was asked for.
