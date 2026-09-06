@@ -2363,12 +2363,36 @@ Ships dormant.
 - Derive the delivery expectation (cadence + grace) from the same windows, replacing the hardcoded
   `*/3` / `*/15` and 6/30-minute grace at `schedulerDeliveryHealth.ts:82,88` — **collision 2**. Fall
   back to today's constants when no plan exists, so this ships as a no-op against current production.
-- **The planner never emits an empty cron — owner decision 2026-09-05.** Off-window it emits a
-  **floor cadence** (hourly), so the job always runs and delivery health stays truthful with NO change
-  to `SchedulerDeliveryState` and none of its four consumers touched. The offseason is not a special
-  case: it is a long run of dead days, one rule covers both, and the schedule stays present so
-  `inspect` and delivery health keep working. This is the behaviour superseding the manual half of
-  Item 96.
+- **TWO SCHEDULES PER JOB — corrected 2026-09-05, superseding the "floor cadence" design.** Slice 1
+  emits **two phases per window**: `densePhase` (start → last kickoff + 8h) and `slowPhase` (+8h →
+  +24h, the reconciliation tail). They need DIFFERENT cadences, and one cron cannot express that —
+  `parseCron` applies a single minute-set to every hour it matches, so the union is two rectangles.
+  So `live-scores` and `game-stats` each get **two QStash schedules**: dense at `*/3`, slow at hourly.
+
+  **The slow phase's slower pace is the point, not a compromise.** It catches a late final without
+  paying dense cost across a 16-hour tail. Covering dense ∪ slow at `*/3` is safe but gives back most
+  of the saving, since the 24h guarantee is why October reads 74% armed. Covering only dense hours
+  re-commits the failure `pollingWindows.ts:88` records: _"a cron built from the dense windows alone
+  goes dark straight past the eligibility bound, so such a final is never collected at all."_
+
+  **QStash supports it:** identity is the arbitrary `Upstash-Schedule-Id` header
+  (`turfwar-live-scores-3m` today), independent of `destination`, so two IDs may target one route.
+  Read from `scripts/lib/qstashSchedule.ts:176-196`, not from the provider — `QSTASH_TOKEN` is
+  operator-CLI-only.
+
+  **Carry into slices 3 and 4:** collision 1 widens to four planner-owned crons; slice 3's durable
+  record covers both schedules per job; and the schedule IDs encode a cadence in their names, so
+  `turfwar-live-scores-3m` becomes false and needs renaming once the cron is planner-owned.
+
+- **SUPERSEDED — the floor-cadence rationale, retained because it was wrong in an instructive way.**
+  It held that a dark cron would report `late` or `missing`. **False about the code:**
+  `buildDeliveryRow` (`schedulerDeliveryHealth.ts:290-320`) derives `late` from
+  `receipt.startedAt < requiredMs`, where `requiredMs` is the previous slot OF THAT CRON, and
+  `missing` only when the receipt key is absent — never from the cron. Under a narrowed cron a dead
+  day's required slot is the last armed slot, which the retained receipt satisfies, so the row reads
+  **`on-time`**. The floor guarded an alarm that does not fire. What survives: no cron can mean
+  "never", so a zero-window offseason still needs an expression — subsumed by the slow schedule. This
+  is the behaviour superseding the manual half of Item 96.
 
   **Why a state change was rejected.** `SchedulerDeliveryState` is
   `on-time | late | missing | invalid | unavailable` — there is no way to say "not supposed to run",
