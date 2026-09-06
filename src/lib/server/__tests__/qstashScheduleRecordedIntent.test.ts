@@ -4,9 +4,11 @@ import test from 'node:test';
 import type {
   FetchLike,
   RecordedIntentLookup,
+  RecordedScheduleIntent,
   RunDeps,
   ScheduleReadback,
 } from '../../../../scripts/lib/qstashSchedule';
+import type { PlannerScheduleIntent } from '../pollingPlannerRecord';
 import * as gameStats from '../../../../scripts/manage-game-stats-schedule';
 import * as liveScores from '../../../../scripts/manage-live-scores-schedule';
 import * as odds from '../../../../scripts/manage-odds-schedule';
@@ -317,4 +319,94 @@ test('no output on the recorded path carries a credential', async () => {
     everything.includes(SUBJECT.scheduleId),
     'positive control: the harness sees the output'
   );
+});
+
+// ---------------------------------------------------------------------------
+// Remediation round 1 — both reviews, 2026-09-06
+// ---------------------------------------------------------------------------
+
+/**
+ * The type-level pin. `RecordedScheduleIntent` is re-declared in the CLI rather
+ * than imported — the module carries no application dependency — and nothing tied
+ * the two shapes together, so they could drift silently and the CLI would keep
+ * compiling against a store field it no longer receives. These assignments fail
+ * the type-check the moment either side changes.
+ */
+const _cliAcceptsStoreShape: RecordedScheduleIntent = {} as PlannerScheduleIntent;
+const _storeAcceptsCliShape: PlannerScheduleIntent = {} as RecordedScheduleIntent;
+void _cliAcceptsStoreShape;
+void _storeAcceptsCliShape;
+
+test('the four refusal causes are told apart, because they send an operator elsewhere', async () => {
+  // /code-review #4. One message claimed "is present but could not be read" for a
+  // store OUTAGE, where nothing is known about presence, and for a record that
+  // read fine but belonged to another schedule. The durable side keeps those
+  // states apart; the CLI now does too.
+  const cases: Array<{ reader: RunDeps['readRecordedIntent']; expect: RegExp; not?: RegExp }> = [
+    { reader: reader({ kind: 'unreadable' }), expect: /is present but could not be read/ },
+    {
+      reader: reader({ kind: 'unavailable' }),
+      expect: /record store was unavailable/,
+      not: /is present/,
+    },
+    { reader: throwingReader(), expect: /record store was unavailable/, not: /is present/ },
+    {
+      reader: reader({
+        kind: 'intent',
+        intent: recordedIntent({ scheduleId: 'turfwar-something-else' }),
+      }),
+      expect: /recorded for a DIFFERENT schedule id/,
+    },
+  ];
+
+  for (const { reader: readRecordedIntent, expect, not } of cases) {
+    const { deps, err, calls } = harness(readbackFor(SUBJECT), readRecordedIntent);
+    assert.equal(await SUBJECT.run(deps), 3, err.join(' | '));
+    assert.equal(calls.length, 0, 'no management request is sent on any refusal');
+    const joined = err.join('\n');
+    assert.match(joined, expect);
+    if (not) assert.doesNotMatch(joined, not, 'no presence claim the CLI cannot support');
+  }
+});
+
+test('an intent this CLI would not PRINT is refused before it reaches an output sink', async () => {
+  // Codex P2 at the second boundary. The store validates on read, but the reader
+  // is injected and this module deliberately does not import the store — so the
+  // "only ever the known-safe expected value" invariant has to be re-established
+  // here, where the value is actually printed.
+  const forged = 'https://turfwar.games/a\nREFUSED: schedule diverges from the fixed contract:';
+  const unprintable: Array<Partial<{ destination: string; cron: string; method: string }>> = [
+    { destination: forged },
+    { destination: `https://turfwar.games/a${String.fromCharCode(27)}[31m` },
+    { destination: 'http://turfwar.games/api/cron/game-stats' },
+    { destination: 'https://user:pass@turfwar.games/api/cron/game-stats' },
+    { cron: 'rm -rf / # */15 * * * *' },
+    { method: 'get' },
+  ];
+
+  for (const override of unprintable) {
+    const { deps, out, err, calls } = harness(readbackFor(SUBJECT), (async () => ({
+      kind: 'intent' as const,
+      intent: { ...recordedIntent(), ...override },
+    })) as RunDeps['readRecordedIntent']);
+
+    assert.equal(await SUBJECT.run(deps), 3, `accepted ${JSON.stringify(override)}`);
+    assert.equal(calls.length, 0);
+    assert.match(err.join('\n'), /shape this CLI will not print/);
+    assert.equal(
+      [...out, ...err].join('\n').includes('REFUSED: schedule diverges'),
+      false,
+      'the forged line never reaches the operator'
+    );
+  }
+
+  // Positive control: the same intent, unmodified, is accepted and printed.
+  const clean = harness(
+    readbackFor(SUBJECT, { cron: PLANNER_CRON }),
+    reader({
+      kind: 'intent',
+      intent: recordedIntent(),
+    })
+  );
+  assert.equal(await SUBJECT.run(clean.deps), 0, clean.err.join(' | '));
 });

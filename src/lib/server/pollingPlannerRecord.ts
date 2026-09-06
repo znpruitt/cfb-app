@@ -54,9 +54,12 @@ import type { ExternalSchedulerJob } from './schedulerExecutionStatus.ts';
 export const POLLING_PLANNER_RECORD_SCOPE = 'polling-planner-record';
 
 /**
- * ~400 runs at one planner run per day is about six months per job, bounded the
- * way `providerUsageSeries` bounds its own series: trimmed on every write, so the
- * bound is structural and there is no cleanup job to forget.
+ * ~400 runs at one planner run per day is about THIRTEEN months per job — a
+ * season plus the offseason either side, which is the horizon this is sized for.
+ * (An earlier comment said "six months"; 400 days is not six months, and the
+ * constant was never the thing that was wrong. `providerUsageSeries` states its
+ * own bound the same way: 1,700 samples at four a day is ~14 months.) Trimmed on
+ * every write, so the bound is structural and there is no cleanup job to forget.
  */
 export const POLLING_PLANNER_MAX_RUNS = 400;
 
@@ -152,7 +155,28 @@ export type PollingPlannerRun = {
   slow: PlannerScheduleRun;
 };
 
-export type PollingPlannerRunSeries = { runs: PollingPlannerRun[] };
+export type PollingPlannerRunSeries = {
+  runs: PollingPlannerRun[];
+  /**
+   * How many stored rows have EVER been discarded as unparseable, cumulative
+   * across every write — owner decision 2026-09-06, and the smallest honest
+   * answer to a real hole.
+   *
+   * Row-level tolerance means a damaged row is dropped so one bad row cannot stop
+   * the planner recording forever. The complaint review raised is not that rows
+   * are dropped but that they were dropped SILENTLY: below the refusal threshold
+   * the write reports `recorded` while history quietly shrinks. This counts them,
+   * so a later reader can see that loss happened and how much — and read roughly
+   * WHEN off the gap in the retained rows' `at` values.
+   *
+   * It deliberately does NOT change the drop semantics. Preserving unparsed rows
+   * verbatim is the better end state, but `providerUsageSeries` carries the
+   * identical exposure and changing one twin leaves two behaviours for one
+   * problem — so that is filed as its own item covering both stores, not decided
+   * here. Absent on rows written before this field, which reads as 0.
+   */
+  droppedRuns: number;
+};
 
 // ---------------------------------------------------------------------------
 // Projection (the write side of the allowlist)
@@ -205,13 +229,37 @@ export function buildPollingPlannerRun(input: {
   dense: PlannerScheduleRun | null;
   slow: PlannerScheduleRun;
 }): PollingPlannerRun {
-  return {
+  return projectPollingPlannerRun({
     at: input.at.toISOString(),
     invocationId: input.invocationId,
     dayStartMs: input.dayStartMs,
-    windows: input.windows.map(projectPollingWindow),
-    dense: input.dense === null ? null : projectPlannerScheduleRun(input.dense),
-    slow: projectPlannerScheduleRun(input.slow),
+    windows: [...input.windows],
+    dense: input.dense,
+    slow: input.slow,
+  });
+}
+
+/**
+ * The allowlist AT THE SINK.
+ *
+ * Both reviewers found the same defect independently, and it was one mistake
+ * rather than two: the projection lived in {@link buildPollingPlannerRun}, which
+ * is an OPTIONAL constructor. TypeScript's excess-property check fires only on
+ * object literals, so a caller assembling a run from a variable — a contract
+ * spread over a request, say — could hand `recordPollingPlannerRun` a
+ * structurally wider object, and every surplus key including `headers` would be
+ * serialized into the durable row verbatim. A guarantee enforced at a
+ * constructor is a convention; enforced here, on the one path every stored run
+ * passes through, it is a property.
+ */
+export function projectPollingPlannerRun(run: PollingPlannerRun): PollingPlannerRun {
+  return {
+    at: run.at,
+    invocationId: run.invocationId,
+    dayStartMs: run.dayStartMs,
+    windows: run.windows.map(projectPollingWindow),
+    dense: run.dense === null ? null : projectPlannerScheduleRun(run.dense),
+    slow: projectPlannerScheduleRun(run.slow),
   };
 }
 
@@ -237,6 +285,7 @@ function projectPlannerScheduleRun(run: PlannerScheduleRun): PlannerScheduleRun 
 const MAX_CRON_LENGTH = 120;
 const MAX_SCHEDULE_ID_LENGTH = 120;
 const MAX_DESTINATION_LENGTH = 300;
+const MAX_METHOD_LENGTH = 10;
 const MAX_RETRIES = 10;
 
 /** Cron fields only: digits, `*`, `/`, `,`, `-` and single spaces. */
@@ -244,42 +293,82 @@ const CRON_PATTERN = /^[0-9*/,\- ]+$/;
 const SCHEDULE_ID_PATTERN = /^[A-Za-z0-9._-]+$/;
 const METHOD_PATTERN = /^[A-Z]{3,10}$/;
 
-function parseCronExpression(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  if (value.length === 0 || value.length > MAX_CRON_LENGTH) return null;
-  if (!CRON_PATTERN.test(value)) return null;
-  if (value.trim().length === 0) return null;
-  return value;
-}
-
-function parseScheduleId(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  if (value.length === 0 || value.length > MAX_SCHEDULE_ID_LENGTH) return null;
-  return SCHEDULE_ID_PATTERN.test(value) ? value : null;
+/**
+ * C0 controls, DEL, and the C1 range. Checked EXPLICITLY rather than left to the
+ * field patterns, because one field is not pattern-matched at all.
+ *
+ * `parseDestination` validates through `new URL()`, and `new URL()` SILENTLY
+ * ACCEPTS embedded control characters — it strips `\n`, `\r` and `\t` and
+ * percent-encodes ESC when producing `.href`, but the constructor does not throw.
+ * The parser then returned the ORIGINAL string, so the normalization never
+ * touched the value that was stored and later printed. Measured:
+ * `https://turfwar.games/a\nREFUSED: forged line` parses clean, and
+ * `inspect`'s divergence message interpolates it verbatim — letting a corrupt
+ * record forge an output line or emit terminal escapes during the exact
+ * diagnosis that output exists for.
+ */
+function hasControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    // C0 + DEL + C1. Scanned rather than matched by regex: ESLint's
+    // `no-control-regex` refuses the literal, and suppressing a rule that exists
+    // to catch exactly this class of character would be the wrong trade in the
+    // one function whose job is to catch it.
+    if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) return true;
+  }
+  return false;
 }
 
 /**
- * A destination must parse as an https origin-and-path URL with no embedded
+ * The gate every printable field passes, applied at the VALIDATOR rather than at
+ * each call site. The cron, scheduleId and method patterns already exclude these
+ * characters by construction; this makes that a property of the parser instead of
+ * a property of three regexes that a fourth field turned out not to share.
+ */
+function printableString(value: unknown, maxLength: number): string | null {
+  if (typeof value !== 'string') return null;
+  if (value.length === 0 || value.length > maxLength) return null;
+  return hasControlCharacter(value) ? null : value;
+}
+
+function parseCronExpression(value: unknown): string | null {
+  const text = printableString(value, MAX_CRON_LENGTH);
+  if (text === null) return null;
+  if (!CRON_PATTERN.test(text)) return null;
+  return text.trim().length === 0 ? null : text;
+}
+
+function parseScheduleId(value: unknown): string | null {
+  const text = printableString(value, MAX_SCHEDULE_ID_LENGTH);
+  if (text === null) return null;
+  return SCHEDULE_ID_PATTERN.test(text) ? text : null;
+}
+
+/**
+ * A destination must be printable AND parse as an https URL with no embedded
  * userinfo — the same fail-closed instinct as `resolveQstashBase`, for the same
  * reason: this string is echoed to an operator, and a credential can be smuggled
- * in a URL's userinfo without looking like one.
+ * in a URL's userinfo without looking like one. `new URL()` alone is NOT that
+ * check; see {@link hasControlCharacter}.
  */
 function parseDestination(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  if (value.length === 0 || value.length > MAX_DESTINATION_LENGTH) return null;
+  const text = printableString(value, MAX_DESTINATION_LENGTH);
+  if (text === null) return null;
   let url: URL;
   try {
-    url = new URL(value);
+    url = new URL(text);
   } catch {
     return null;
   }
   if (url.protocol !== 'https:') return null;
   if (url.username || url.password) return null;
-  return value;
+  return text;
 }
 
 function parseMethod(value: unknown): string | null {
-  return typeof value === 'string' && METHOD_PATTERN.test(value) ? value : null;
+  const text = printableString(value, MAX_METHOD_LENGTH);
+  if (text === null) return null;
+  return METHOD_PATTERN.test(text) ? text : null;
 }
 
 function parseRetries(value: unknown): number | null {
@@ -425,15 +514,26 @@ function parseRun(value: unknown): PollingPlannerRun | null {
  * down. It is NOT right on a write; see {@link readPollingPlannerRunsForWrite}.
  */
 export function parsePollingPlannerRuns(value: unknown): PollingPlannerRunSeries {
-  if (typeof value !== 'object' || value === null) return { runs: [] };
+  const empty: PollingPlannerRunSeries = { runs: [], droppedRuns: 0 };
+  if (typeof value !== 'object' || value === null) return empty;
   const raw = (value as { runs?: unknown }).runs;
-  if (!Array.isArray(raw)) return { runs: [] };
+  if (!Array.isArray(raw)) return empty;
   const runs: PollingPlannerRun[] = [];
   for (const entry of raw) {
     const run = parseRun(entry);
     if (run) runs.push(run);
   }
-  return runs.length > 0 ? sortAndBound(runs) : { runs: [] };
+  // The count CARRIED FORWARD from previous writes plus the rows this parse just
+  // discarded. A stored value written before the field reads as 0, so an older
+  // row is understated rather than rejected.
+  const carried = parseDroppedRuns((value as { droppedRuns?: unknown }).droppedRuns);
+  const droppedRuns = carried + (raw.length - runs.length);
+  return runs.length > 0 ? sortAndBound(runs, droppedRuns) : { runs: [], droppedRuns };
+}
+
+/** Absent or unusable reads as 0 — understating a loss beats rejecting a series. */
+function parseDroppedRuns(value: unknown): number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : 0;
 }
 
 /**
@@ -441,17 +541,23 @@ export function parsePollingPlannerRuns(value: unknown): PollingPlannerRunSeries
  * keep insertion order, and nothing is deduplicated — two planner runs in the
  * same millisecond is a redelivery worth seeing, not a collision worth hiding.
  */
-function sortAndBound(runs: PollingPlannerRun[]): PollingPlannerRunSeries {
+function sortAndBound(runs: PollingPlannerRun[], droppedRuns: number): PollingPlannerRunSeries {
   const sorted = [...runs].sort((a, b) => a.at.localeCompare(b.at));
-  return { runs: sorted.slice(-POLLING_PLANNER_MAX_RUNS) };
+  // Trimming to the bound is NOT a drop: it is the designed retention, and
+  // counting it would make the loss signal fire every day from row 401 onward.
+  return { runs: sorted.slice(-POLLING_PLANNER_MAX_RUNS), droppedRuns };
 }
 
-/** Append one run. Sorting and the bound are applied to the whole set. */
+/**
+ * Append one run. Sorting and the bound are applied to the whole set; the
+ * dropped-row count carries through untouched, because appending discards
+ * nothing.
+ */
 export function appendPollingPlannerRun(
   series: PollingPlannerRunSeries,
   run: PollingPlannerRun
 ): PollingPlannerRunSeries {
-  return sortAndBound([...series.runs, run]);
+  return sortAndBound([...series.runs, projectPollingPlannerRun(run)], series.droppedRuns);
 }
 
 /**
@@ -471,7 +577,9 @@ export function appendPollingPlannerRun(
 export function readPollingPlannerRunsForWrite(
   value: unknown
 ): { ok: true; series: PollingPlannerRunSeries } | { ok: false } {
-  if (value === null || value === undefined) return { ok: true, series: { runs: [] } };
+  if (value === null || value === undefined) {
+    return { ok: true, series: { runs: [], droppedRuns: 0 } };
+  }
   if (typeof value !== 'object') return { ok: false };
   const raw = (value as { runs?: unknown }).runs;
   if (!Array.isArray(raw)) return { ok: false };
@@ -580,25 +688,55 @@ export async function readPollingPlannerRuns(
 }
 
 /**
- * The newest recorded intent for one schedule id, or null if the series holds
- * none.
+ * The intent `inspect` should judge a live schedule against — the newest one
+ * KNOWN TO BE IN FORCE, which is not the same as the newest one recorded.
  *
- * This is a LOOKUP by stored key, not an interpretation of history: it answers
- * "what did the planner last intend for this schedule", which is exactly what
- * `inspect` diffs against, and it answers nothing about which cron was in force
- * at any given instant. Both schedules of a run are searched because a
- * planner-owned job has two — a dense schedule and a slow one — under one job
- * key.
+ * Both reviews found the earlier version returned the newest matching intent
+ * unconditionally, and the type itself says why that is wrong:
+ * {@link PlannerScheduleOutcome} models `failed` as "exit 3 — nothing sent". A
+ * run that DERIVED cron C2 and failed to send it leaves QStash holding C1, so
+ * comparing against C2 reports a divergence forever — a permanent false tampering
+ * signal on the job the record exists to protect, with nothing telling the
+ * operator the planner itself failed.
+ *
+ * So the walk is outcome-aware, newest first:
+ *
+ * - `confirmed` / `unchanged` — this intent is what QStash holds. Use it.
+ * - `refused` / `failed` — nothing was sent, so an OLDER intent still governs.
+ *   Keep walking.
+ * - `indeterminate` — the upsert MAY or may not have landed. Neither this intent
+ *   nor the prior one is known to be in force, so there is no honest basis and
+ *   the walk STOPS. Falling through to an older intent would assert exactly the
+ *   certainty the outcome exists to deny — the PLATFORM-127 lesson, where a
+ *   predicate kept consuming a derived input until the fix was deletion.
+ *
+ * Still a lookup, not an interpretation of history: it answers nothing about
+ * which cron was in force at a given INSTANT, which is slice 3b's question. Both
+ * schedules of a run are searched because a planner-owned job has two — dense and
+ * slow — under one job key.
  */
+export type RecordedIntentResolution =
+  | { kind: 'intent'; intent: PlannerScheduleIntent }
+  /** A run for this schedule may or may not have applied; no basis exists. */
+  | { kind: 'indeterminate' }
+  /** The series holds no run for this schedule at all. */
+  | { kind: 'none' };
+
 export function latestRecordedIntentForSchedule(
   series: PollingPlannerRunSeries,
   scheduleId: string
-): PlannerScheduleIntent | null {
+): RecordedIntentResolution {
   for (let index = series.runs.length - 1; index >= 0; index -= 1) {
     const run = series.runs[index];
     if (!run) continue;
-    if (run.slow.intent.scheduleId === scheduleId) return run.slow.intent;
-    if (run.dense && run.dense.intent.scheduleId === scheduleId) return run.dense.intent;
+    for (const schedule of [run.slow, run.dense]) {
+      if (!schedule || schedule.intent.scheduleId !== scheduleId) continue;
+      if (schedule.outcome === 'indeterminate') return { kind: 'indeterminate' };
+      if (schedule.outcome === 'confirmed' || schedule.outcome === 'unchanged') {
+        return { kind: 'intent', intent: schedule.intent };
+      }
+      // `refused` / `failed`: nothing reached QStash, so keep walking back.
+    }
   }
-  return null;
+  return { kind: 'none' };
 }

@@ -5,6 +5,7 @@ import { buildUpsertRequest, type ScheduleContract } from '../../../../scripts/l
 import type { PollingWindow } from '../../schedule/pollingWindows';
 import {
   appendPollingPlannerRun,
+  projectPollingPlannerRun,
   buildPollingPlannerRun,
   latestRecordedIntentForSchedule,
   parsePollingPlannerRuns,
@@ -16,6 +17,7 @@ import {
   type PlannerScheduleOutcome,
   type PlannerScheduleRun,
   type PollingPlannerRun,
+  type PollingPlannerRunSeries,
 } from '../pollingPlannerRecord';
 
 /**
@@ -369,7 +371,7 @@ test('arrival order does not matter — runs are sorted by time', () => {
   const later = minimalRun('2026-09-06T12:00:00.000Z', '1 * * * *');
   const earlier = minimalRun('2026-09-06T06:00:00.000Z', '*/3 19 * * *');
 
-  const series = appendPollingPlannerRun({ runs: [later] }, earlier);
+  const series = appendPollingPlannerRun({ runs: [later], droppedRuns: 0 }, earlier);
 
   assert.deepEqual(
     series.runs.map((run) => run.at),
@@ -380,7 +382,7 @@ test('arrival order does not matter — runs are sorted by time', () => {
 test('the bound is enforced from the OLD end, so the newest run always survives', () => {
   // `inspect` reads the newest entry. Trimming the wrong end would make the
   // record answer with a stale intent forever, which is worse than having none.
-  let series = { runs: [] as PollingPlannerRun[] };
+  let series: PollingPlannerRunSeries = { runs: [], droppedRuns: 0 };
   const total = POLLING_PLANNER_MAX_RUNS + 100;
   for (let day = 0; day < total; day += 1) {
     series = appendPollingPlannerRun(series, minimalRun(new Date(day * 86_400_000).toISOString()));
@@ -555,15 +557,226 @@ test('the newest recorded intent wins, and both schedules of a run are searched'
   };
   const newer: PollingPlannerRun = { ...minimalRun('2026-09-06T04:00:00.000Z'), dense, slow };
 
-  const series = { runs: [older, newer] };
-  assert.equal(
-    latestRecordedIntentForSchedule(series, 'turfwar-live-scores-dense')?.cron,
-    '*/3 19,20 * * *'
+  const series: PollingPlannerRunSeries = { runs: [older, newer], droppedRuns: 0 };
+  assert.equal(intentCron(series, 'turfwar-live-scores-dense'), '*/3 19,20 * * *');
+  assert.equal(intentCron(series, 'turfwar-live-scores-slow'), '1 21,22 * * *');
+  assert.deepEqual(latestRecordedIntentForSchedule(series, 'turfwar-odds-hourly'), {
+    kind: 'none',
+  });
+  assert.deepEqual(
+    latestRecordedIntentForSchedule({ runs: [], droppedRuns: 0 }, 'turfwar-live-scores-dense'),
+    { kind: 'none' }
   );
+});
+
+function intentCron(series: PollingPlannerRunSeries, scheduleId: string): string | null {
+  const resolved = latestRecordedIntentForSchedule(series, scheduleId);
+  return resolved.kind === 'intent' ? resolved.intent.cron : null;
+}
+
+// ---------------------------------------------------------------------------
+// Remediation round 1 — both reviews, 2026-09-06
+// ---------------------------------------------------------------------------
+
+test('the allowlist is enforced at the SINK, not only in the constructor', () => {
+  // Codex P1 and /code-review #2, found independently. `buildPollingPlannerRun`
+  // projects, but it is OPTIONAL — TypeScript's excess-property check fires only
+  // on object literals, so a run assembled from a variable reached `txn.write`
+  // with its surplus keys intact. Everything stored now passes through
+  // `appendPollingPlannerRun`, which projects.
+  const request = upsertRequestWithSecrets();
+  const wideRun = {
+    ...minimalRun('2026-09-06T06:00:00.000Z'),
+    headers: request.headers,
+    rawRequest: request,
+    slow: {
+      intent: wideSource(),
+      previousCron: null,
+      action: 'applied',
+      outcome: 'confirmed',
+      headers: request.headers,
+    },
+  } as PollingPlannerRun;
+
+  assert.equal(leaksASecret(wideRun), true, 'positive control: the input really does carry both');
+
+  const appended = appendPollingPlannerRun({ runs: [], droppedRuns: 0 }, wideRun);
+  assert.equal(leaksASecret(appended), false, 'nothing that reaches the durable write carries one');
+  assert.equal(leaksASecret(projectPollingPlannerRun(wideRun)), false);
+  assert.deepEqual(Object.keys(appended.runs[0] ?? {}).sort(), [
+    'at',
+    'dayStartMs',
+    'dense',
+    'invocationId',
+    'slow',
+    'windows',
+  ]);
+  assert.deepEqual(Object.keys(appended.runs[0]?.slow ?? {}).sort(), [
+    'action',
+    'intent',
+    'outcome',
+    'previousCron',
+  ]);
+});
+
+test('a destination carrying control characters is refused', () => {
+  // Codex P2, verified against the runtime: `new URL()` ACCEPTS embedded control
+  // characters and only strips or percent-encodes them in `.href`, while the
+  // parser returned the original string. A stored destination could therefore
+  // forge an output line in the divergence message it is interpolated into.
+  const good = minimalRun('2026-09-06T06:00:00.000Z');
+  const forged = 'https://turfwar.games/a\nREFUSED: schedule diverges from the fixed contract:';
+  const escaped = `https://turfwar.games/a${String.fromCharCode(27)}[31m`;
+
+  for (const destination of [forged, escaped, 'https://turfwar.games/a\tb', 'https://a.b/\r']) {
+    // Positive control ON THE SAME INPUT: `new URL()` alone would have let it by,
+    // so the test proves the added check is what refuses it.
+    assert.doesNotThrow(() => new URL(destination), 'new URL accepts it — that is the hole');
+    const row = { ...good, slow: { ...good.slow, intent: { ...good.slow.intent, destination } } };
+    assert.equal(
+      parsePollingPlannerRuns({ runs: [row] }).runs.length,
+      0,
+      `accepted a destination carrying a control character: ${JSON.stringify(destination)}`
+    );
+  }
+});
+
+test('dropped rows are COUNTED, so a silent loss becomes a visible one', () => {
+  // Owner decision 2026-09-06 on /code-review #6. Row-level tolerance stays —
+  // one bad row must not stop the planner recording forever — but below the
+  // refusal threshold the write used to report success while history shrank with
+  // no trace. The count is that trace; the retained rows' `at` gap gives roughly
+  // when. Preserving unparsed rows verbatim is filed separately, because
+  // `providerUsageSeries` carries the identical exposure and one twin must not
+  // diverge from the other.
+  const good = JSON.parse(JSON.stringify(minimalRun('2026-09-06T06:00:00.000Z'))) as unknown;
+  const parsed = parsePollingPlannerRuns({ runs: [{ at: 'not-a-date' }, good, { nope: true }] });
+
+  assert.equal(parsed.runs.length, 1, 'the good row survives');
+  assert.equal(parsed.droppedRuns, 2);
+
+  // Cumulative: a later parse adds to what earlier writes already recorded.
   assert.equal(
-    latestRecordedIntentForSchedule(series, 'turfwar-live-scores-slow')?.cron,
-    '1 21,22 * * *'
+    parsePollingPlannerRuns({ runs: [{ at: 'not-a-date' }], droppedRuns: 40 }).droppedRuns,
+    41
   );
-  assert.equal(latestRecordedIntentForSchedule(series, 'turfwar-odds-hourly'), null);
-  assert.equal(latestRecordedIntentForSchedule({ runs: [] }, 'turfwar-live-scores-dense'), null);
+  // Absent on rows written before the field, which understates rather than refuses.
+  assert.equal(parsePollingPlannerRuns({ runs: [good] }).droppedRuns, 0);
+  // Appending discards nothing, so it carries the count through untouched.
+  assert.equal(
+    appendPollingPlannerRun({ runs: [], droppedRuns: 7 }, minimalRun('2026-09-07T06:00:00.000Z'))
+      .droppedRuns,
+    7
+  );
+});
+
+test('trimming to the bound is NOT counted as a dropped row', () => {
+  // Positive control for the counter's meaning. Counting the bound would fire the
+  // loss signal every day from run 401 onward and make the field useless.
+  let series: PollingPlannerRunSeries = { runs: [], droppedRuns: 0 };
+  for (let day = 0; day < POLLING_PLANNER_MAX_RUNS + 10; day += 1) {
+    series = appendPollingPlannerRun(series, minimalRun(new Date(day * 86_400_000).toISOString()));
+  }
+
+  assert.equal(series.runs.length, POLLING_PLANNER_MAX_RUNS);
+  assert.equal(
+    series.droppedRuns,
+    0,
+    'ten runs left by the bound, none of them lost to corruption'
+  );
+});
+
+// ---------------------------------------------------------------------------
+// The comparison basis inspect uses
+// ---------------------------------------------------------------------------
+
+function runWithOutcome(
+  at: string,
+  cron: string,
+  outcome: PlannerScheduleOutcome
+): PollingPlannerRun {
+  return {
+    ...minimalRun(at),
+    slow: scheduleRun(intent({ cron }), null, 'applied', outcome),
+  };
+}
+
+test('an intent that was never SENT is not what inspect judges against', () => {
+  // Both reviews. `failed` is documented as "exit 3 — nothing sent", so QStash
+  // still holds the previous cron; judging against the derived one would report a
+  // divergence forever, on the job the record exists to protect.
+  const series: PollingPlannerRunSeries = {
+    runs: [
+      runWithOutcome('2026-09-04T04:00:00.000Z', '*/3 12 * * *', 'confirmed'),
+      runWithOutcome('2026-09-05T04:00:00.000Z', '*/3 19 * * *', 'failed'),
+      runWithOutcome('2026-09-06T04:00:00.000Z', '*/3 20 * * *', 'refused'),
+    ],
+    droppedRuns: 0,
+  };
+
+  assert.equal(
+    intentCron(series, 'turfwar-live-scores-3m'),
+    '*/3 12 * * *',
+    'the newest intent KNOWN to be in force, not the newest recorded'
+  );
+});
+
+test('a skipped-but-matching run is in force, exactly like a confirmed one', () => {
+  const series: PollingPlannerRunSeries = {
+    runs: [
+      runWithOutcome('2026-09-05T04:00:00.000Z', '*/3 12 * * *', 'confirmed'),
+      runWithOutcome('2026-09-06T04:00:00.000Z', '*/3 19 * * *', 'unchanged'),
+    ],
+    droppedRuns: 0,
+  };
+
+  assert.equal(intentCron(series, 'turfwar-live-scores-3m'), '*/3 19 * * *');
+});
+
+test('an INDETERMINATE run stops the walk rather than asserting an older intent', () => {
+  // The upsert may or may not have landed, so neither cron is known to be in
+  // force. Falling through would assert exactly the certainty the outcome exists
+  // to deny — the PLATFORM-127 lesson, where a predicate kept consuming a derived
+  // input until the fix was deletion.
+  const series: PollingPlannerRunSeries = {
+    runs: [
+      runWithOutcome('2026-09-05T04:00:00.000Z', '*/3 12 * * *', 'confirmed'),
+      runWithOutcome('2026-09-06T04:00:00.000Z', '*/3 19 * * *', 'indeterminate'),
+    ],
+    droppedRuns: 0,
+  };
+
+  assert.deepEqual(latestRecordedIntentForSchedule(series, 'turfwar-live-scores-3m'), {
+    kind: 'indeterminate',
+  });
+  // Positive control: the same series without the indeterminate run resolves.
+  assert.equal(
+    intentCron(
+      { runs: [series.runs[0] as PollingPlannerRun], droppedRuns: 0 },
+      'turfwar-live-scores-3m'
+    ),
+    '*/3 12 * * *'
+  );
+});
+
+test('every outcome the type admits is classified — no silent default', () => {
+  // The invariant over the space, not over the three outcomes that came to mind.
+  const expected: Record<PlannerScheduleOutcome, 'intent' | 'indeterminate' | 'none'> = {
+    confirmed: 'intent',
+    unchanged: 'intent',
+    refused: 'none',
+    failed: 'none',
+    indeterminate: 'indeterminate',
+  };
+  for (const outcome of OUTCOMES) {
+    const series: PollingPlannerRunSeries = {
+      runs: [runWithOutcome('2026-09-06T04:00:00.000Z', '*/3 19 * * *', outcome)],
+      droppedRuns: 0,
+    };
+    assert.equal(
+      latestRecordedIntentForSchedule(series, 'turfwar-live-scores-3m').kind,
+      expected[outcome],
+      `outcome ${outcome} is unclassified`
+    );
+  }
 });

@@ -494,7 +494,10 @@ export type RecordedScheduleIntent = {
 export type RecordedIntentLookup =
   | { kind: 'absent' }
   | { kind: 'intent'; intent: RecordedScheduleIntent }
-  | { kind: 'unreadable' };
+  /** A record is PRESENT but unusable — corruption, or a shape from the future. */
+  | { kind: 'unreadable' }
+  /** The record STORE could not be read; whether a record exists is unknown. */
+  | { kind: 'unavailable' };
 
 /**
  * Reads the planner's last recorded intent for one schedule id.
@@ -502,8 +505,13 @@ export type RecordedIntentLookup =
  * INJECTED, never imported. `RunDeps` has no store access and this slice does not
  * give it any: no `manage-*` CLI supplies a reader, so all seven of them resolve
  * `absent` and behave byte-for-byte as they do today. Slice 4 wires a real reader
- * for the two schedules the planner takes ownership of. A reader that THROWS is
- * treated as `unreadable`, because a store failure is not an absence.
+ * for the two schedules the planner takes ownership of.
+ *
+ * A reader that THROWS resolves to `unavailable`, not `unreadable`: a store
+ * outage says nothing about whether a record exists, and the durable side keeps
+ * those two states apart for exactly that reason. Both refuse — only the message
+ * differs, and it differs because an operator told "present but unreadable" will
+ * go looking for a corrupt row that may not exist.
  */
 export type RecordedIntentReader = (scheduleId: string) => Promise<RecordedIntentLookup>;
 
@@ -552,22 +560,87 @@ async function readSchedule(
  * substituting a different identity would compare schedule A against intent B and
  * report a divergence that means nothing.
  */
+/**
+ * Why a recorded intent could not be used. Each refuses; each says something
+ * different, because they send the operator somewhere different.
+ */
+type IntentRefusal = 'unreadable' | 'unavailable' | 'foreign' | 'malformed';
+
+const INTENT_REFUSAL_DETAIL: Record<IntentRefusal, string> = {
+  unreadable: 'is present but could not be read',
+  unavailable:
+    'could not be read — the record store was unavailable, so whether a record exists is unknown',
+  foreign: 'came back recorded for a DIFFERENT schedule id',
+  malformed: 'came back in a shape this CLI will not print',
+};
+
+/** C0, DEL and C1 — see the store's own parser for the measurement behind this. */
+function hasControlCharacter(value: string): boolean {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) return true;
+  }
+  return false;
+}
+const INTENT_CRON_PATTERN = /^[0-9*/,\- ]{1,120}$/;
+const INTENT_SCHEDULE_ID_PATTERN = /^[A-Za-z0-9._-]{1,120}$/;
+const INTENT_METHOD_PATTERN = /^[A-Z]{3,10}$/;
+
+/**
+ * Validate an injected intent BEFORE any of it reaches an output sink.
+ *
+ * `summarizeSchedule` and `evaluateScheduleContract` both document that they only
+ * ever emit the known-safe EXPECTED value and never the raw readback — an
+ * invariant that held while the expected value was a compile-time constant. A
+ * recorded intent is not one. The durable store validates on read, but the reader
+ * here is injected and this module deliberately does not import it, so the
+ * guarantee has to be re-established at the boundary that actually prints. The
+ * store's `RecordedScheduleIntent` twin is pinned to this shape by a test.
+ */
+function usableIntent(intent: RecordedScheduleIntent): boolean {
+  const strings = [intent.scheduleId, intent.destination, intent.cron, intent.method];
+  if (strings.some((value) => typeof value !== 'string' || hasControlCharacter(value))) {
+    return false;
+  }
+  if (!INTENT_SCHEDULE_ID_PATTERN.test(intent.scheduleId)) return false;
+  if (!INTENT_CRON_PATTERN.test(intent.cron) || intent.cron.trim().length === 0) return false;
+  if (!INTENT_METHOD_PATTERN.test(intent.method)) return false;
+  if (!Number.isSafeInteger(intent.retries) || intent.retries < 0 || intent.retries > 10) {
+    return false;
+  }
+  // `new URL()` accepts embedded control characters and only normalizes them in
+  // `.href`, so the check above is what makes this one safe — not the reverse.
+  if (intent.destination.length > 300) return false;
+  let url: URL;
+  try {
+    url = new URL(intent.destination);
+  } catch {
+    return false;
+  }
+  return url.protocol === 'https:' && !url.username && !url.password;
+}
+
 async function resolveExpectedContract(
   contract: ScheduleContract,
   deps: RunDeps
 ): Promise<
-  { kind: 'ok'; contract: ScheduleContract; authority: ScheduleAuthority } | { kind: 'unreadable' }
+  | { kind: 'ok'; contract: ScheduleContract; authority: ScheduleAuthority }
+  | { kind: 'refused'; reason: IntentRefusal }
 > {
   if (!deps.readRecordedIntent) return { kind: 'ok', contract, authority: 'fixed' };
   let lookup: RecordedIntentLookup;
   try {
     lookup = await deps.readRecordedIntent(contract.scheduleId);
   } catch {
-    return { kind: 'unreadable' };
+    return { kind: 'refused', reason: 'unavailable' };
   }
-  if (lookup.kind === 'unreadable') return { kind: 'unreadable' };
+  if (lookup.kind === 'unreadable') return { kind: 'refused', reason: 'unreadable' };
+  if (lookup.kind === 'unavailable') return { kind: 'refused', reason: 'unavailable' };
   if (lookup.kind === 'absent') return { kind: 'ok', contract, authority: 'fixed' };
-  if (lookup.intent.scheduleId !== contract.scheduleId) return { kind: 'unreadable' };
+  if (lookup.intent.scheduleId !== contract.scheduleId) {
+    return { kind: 'refused', reason: 'foreign' };
+  }
+  if (!usableIntent(lookup.intent)) return { kind: 'refused', reason: 'malformed' };
   return {
     kind: 'ok',
     // An explicit per-field substitution, not a spread: the five recorded fields
@@ -592,11 +665,12 @@ async function runInspect(
   token: string
 ): Promise<number> {
   const expected = await resolveExpectedContract(contract, deps);
-  if (expected.kind === 'unreadable') {
+  if (expected.kind === 'refused') {
     deps.errorLog(
-      `FAILED: the planner's recorded intent for \`${contract.scheduleId}\` is present but could ` +
-        'not be read. Refusing rather than falling back to the fixed contract — a planner-owned ' +
-        'cron would then read as verified against a constant it no longer follows. No change made.'
+      `FAILED: the planner's recorded intent for \`${contract.scheduleId}\` ` +
+        `${INTENT_REFUSAL_DETAIL[expected.reason]}. Refusing rather than falling back to the fixed ` +
+        'contract — a planner-owned cron would then read as verified against a constant it no ' +
+        'longer follows. No change made.'
     );
     return 3;
   }

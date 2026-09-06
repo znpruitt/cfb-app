@@ -170,6 +170,66 @@ test('a store READ FAILURE is its own state, and never reads as absence', async 
   );
 });
 
+test('a partial loss is COUNTED into the written value, not passed over in silence', async () => {
+  // Owner decision on /code-review #6. Row-level tolerance stays — one bad row
+  // must not stop the planner recording forever — but the write used to report
+  // `recorded` while history shrank with no trace. A later read now shows that
+  // loss happened and how much; roughly WHEN comes off the gap in the retained
+  // rows' `at` values.
+  await reset();
+  const survivor = run('2026-09-04T04:00:00.000Z', '*/3 12 * * *');
+  await setAppState(POLLING_PLANNER_RECORD_SCOPE, KEY, {
+    runs: [{ at: 'not-a-date' }, survivor, { nope: true }],
+  });
+
+  assert.equal(
+    await recordPollingPlannerRun(JOB, run('2026-09-06T04:00:00.000Z', '*/3 19 * * *')),
+    'recorded'
+  );
+
+  const read = await readPollingPlannerRuns(JOB);
+  assert.equal(read.kind, 'ok');
+  assert.equal(read.kind === 'ok' && read.series.runs.length, 2, 'the readable rows survive');
+  assert.equal(
+    read.kind === 'ok' && read.series.droppedRuns,
+    2,
+    'and the two that did not are on the record'
+  );
+
+  // Cumulative across writes, so a second partial loss adds rather than replaces.
+  assert.equal(
+    await recordPollingPlannerRun(JOB, run('2026-09-07T04:00:00.000Z', '*/3 20 * * *')),
+    'recorded'
+  );
+  const later = await readPollingPlannerRuns(JOB);
+  assert.equal(
+    later.kind === 'ok' && later.series.droppedRuns,
+    2,
+    'a clean write neither adds to the count nor resets it'
+  );
+});
+
+test('a run reaching the durable write carries no surplus key', async () => {
+  // Codex P1 end to end: the projection is on the path, not merely available to
+  // a caller who remembers the constructor.
+  await reset();
+  const wide = {
+    ...run('2026-09-06T04:00:00.000Z', '*/3 19 * * *'),
+    headers: { Authorization: 'Bearer qstash-token-SECRET-VALUE' },
+  } as PollingPlannerRun;
+
+  assert.equal(await recordPollingPlannerRun(JOB, wide), 'recorded');
+
+  const stored = await getAppState<unknown>(POLLING_PLANNER_RECORD_SCOPE, KEY);
+  const serialized = JSON.stringify(stored?.value) ?? '';
+  assert.equal(serialized.includes('SECRET-VALUE'), false);
+  assert.equal(serialized.toLowerCase().includes('authorization'), false);
+  assert.ok(
+    (JSON.stringify(wide) ?? '').includes('SECRET-VALUE'),
+    'positive control: the input really did carry it'
+  );
+});
+
 test('an empty stored series is a readable state, not an absent one', async () => {
   // A planner that ran and recorded nothing is a different fact from a planner
   // that has never run, and only the second may fall back.
