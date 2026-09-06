@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   deliveryExpectationForPlan,
   IDLE_SLOW_HOUR,
+  SLOW_OFFSET_MINUTE,
   plannedRunsPerDay,
   SLOW_STEP_MINUTES,
   synthesizePollingCrons,
@@ -124,13 +125,17 @@ test('coverage is a property of the PAIR — each cron covers its own phase, and
 
   assert.deepEqual(uncoveredHours([plan.dense!.cron, plan.slow.cron], armedHoursOf(morning)), []);
   // Neither expression covers the day on its own — the pair is load-bearing.
-  assert.deepEqual(uncoveredHours([plan.slow.cron], denseHours), [0, 1, 2, 3, 4, 5, 6, 7]);
+  assert.deepEqual(denseHours, [0, 1, 2, 3, 4, 5, 6, 7, 8]);
+  assert.deepEqual(uncoveredHours([plan.slow.cron], denseHours), denseHours);
   assert.deepEqual(
     uncoveredHours([plan.dense!.cron], tailHours),
     tailHours.filter((hour) => !denseHours.includes(hour))
   );
-  // The slow cron IS the tail, not the armed extent.
-  assert.deepEqual(plan.slow.hours, tailHours);
+  // The slow cron is the tail MINUS the hours the dense cron already polls — the
+  // subtraction that keeps a single hour from billing two provider calls.
+  assert.deepEqual(plan.slow.hours, [9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]);
+  assert.equal(tailHours.includes(8), true, 'hour 8 is a tail hour the dense cron already covers');
+  assert.equal(plan.slow.hours.includes(8), false);
 });
 
 test('a day with dense hours and NO tail gets a single idle slot, not a whole day of them', () => {
@@ -265,7 +270,7 @@ test('a fragmented day names each armed stretch', () => {
   assert.equal(windows.length, 3);
   assert.equal(
     label,
-    'every 3 min at 01:00–09:00, 11:00–19:00, 21:00–23:00 UTC, hourly (:01) at 10:00–23:00 UTC'
+    'every 3 min at 01:00–09:00, 11:00–19:00, 21:00–23:00 UTC, hourly (:01) at 10:00, 20:00 UTC'
   );
 });
 
@@ -295,38 +300,82 @@ test('a minute step outside 1..60 is refused rather than silently emitted', () =
 
 // ── 5. The two guards review found ───────────────────────────────────────────
 
-test('no admissible dense step ever fires in the same minute as the slow schedule', () => {
-  // They are two QStash schedules against ONE route, and that route takes no
-  // invocation lock — both invocations pass target selection and both reach the
-  // provider, so a shared minute is a duplicate BILLED call, not just a wakeup.
-  // Tail-only slow hours shrink the overlap to a window's boundary hour; they do
-  // not remove it, so this must hold for EVERY step the validator admits, not
-  // just the two the jobs use today. An earlier version tested only 3 and 15 and
-  // would have missed both steps that actually collided.
-  const windows = windowsFor('2026-10-03T12:00:00.000Z');
+test('the two schedules never share an HOUR — the primary no-duplicate guarantee', () => {
+  // Subtracting the dense hours is what removes the duplicate billed call. The
+  // shape that proves it is a multi-cluster day, where an early cluster's 24-hour
+  // tail spans the later clusters' dense phases: those hours were in BOTH sets
+  // before, twelve of them, each one a second provider call in an hour a game is
+  // live. This is the assertion the earlier minute-level sweep should have been.
+  for (const kickoffs of [
+    ['2026-10-03T02:00:00.000Z', '2026-10-03T12:00:00.000Z', '2026-10-03T22:00:00.000Z'],
+    ['2026-10-03T12:30:00.000Z'],
+    ['2026-10-03T12:00:00.000Z'],
+    ['2026-10-03T23:00:00.000Z'],
+  ]) {
+    const windows = windowsFor(...kickoffs);
+    const plan = liveScores(windows);
+    const dense = plan.dense?.hours ?? [];
+    const shared = dense.filter((hour) => plan.slow.hours.includes(hour));
+
+    assert.deepEqual(shared, [], `dense and slow share hours for ${kickoffs.join(' ')}`);
+    // Still complete: subtracting removed overlap, not coverage.
+    assert.deepEqual(
+      uncoveredHours(
+        [plan.dense?.cron, plan.slow.cron].filter((c) => c !== undefined),
+        armedHoursOf(windows)
+      ),
+      []
+    );
+  }
+
+  // POSITIVE CONTROL on the fixture, not just on the loop: the three-cluster day
+  // genuinely HAS hours in both phases, so the disjointness above is subtraction
+  // working rather than an input that could never overlap.
+  const fragmented = windowsFor(
+    '2026-10-03T02:00:00.000Z',
+    '2026-10-03T12:00:00.000Z',
+    '2026-10-03T22:00:00.000Z'
+  );
+  const denseHours = utcHoursCovered(fragmented.map(densePhase), DAY);
+  const tailHours = utcHoursCovered(fragmented.map(slowPhase), DAY);
+  assert.equal(tailHours.filter((hour) => denseHours.includes(hour)).length, 12);
+});
+
+test('no admissible dense step collides with the slow minute, on a CONSTRUCTED shared hour', () => {
+  // The second line of defence, and it has to be tested against an hour the two
+  // schedules share — which by design they no longer do. An earlier version swept
+  // the minutes of a synthesized plan's dense hours and was VACUOUS: that
+  // fixture's sets were disjoint, so the slow cron fired 0 times inside the 3,132
+  // instants examined and the assertion could not fail for any offset. Build the
+  // overlap explicitly instead of hoping a fixture produces one.
+  const sharedHour = 12;
+  const slowOnSharedHour = `${SLOW_OFFSET_MINUTE} ${sharedHour} * * *`;
+  let observedSlowFirings = 0;
   let stepsChecked = 0;
 
   for (let step = 1; step <= 60; step += 1) {
-    let plan;
+    let denseCron: string;
     try {
-      plan = synthesizePollingCrons(windows, DAY, { denseStepMinutes: step });
+      denseCron = synthesizePollingCrons(windowsFor('2026-10-03T12:30:00.000Z'), DAY, {
+        denseStepMinutes: step,
+      }).dense!.cron;
     } catch {
-      continue; // refused by the validator — finding its own test below
+      continue; // refused by the validator — its own test is below
     }
     stepsChecked += 1;
-    for (const hour of plan.dense!.hours) {
-      const hourStart = DAY + hour * HOUR;
-      for (let minute = 0; minute < 60; minute += 1) {
-        const instant = hourStart + minute * MINUTE;
-        const denseFires = previousScheduleSlotMs(plan.dense!.cron, instant) === instant;
-        const slowFires = previousScheduleSlotMs(plan.slow.cron, instant) === instant;
-        assert.ok(!(denseFires && slowFires), `step ${step} collides at ${hour}:${minute}`);
-      }
+    for (let minute = 0; minute < 60; minute += 1) {
+      const instant = DAY + sharedHour * HOUR + minute * MINUTE;
+      const denseFires = previousScheduleSlotMs(denseCron, instant) === instant;
+      const slowFires = previousScheduleSlotMs(slowOnSharedHour, instant) === instant;
+      if (slowFires) observedSlowFirings += 1;
+      assert.ok(!(denseFires && slowFires), `step ${step} collides at minute ${minute}`);
     }
   }
-  // A positive control on the sweep itself: it must actually have run, and on
-  // more than the handful of steps the two jobs use.
+
   assert.equal(stepsChecked, 58, 'every step in 2..59 is admissible and was checked');
+  // The observer saw the slow schedule fire — without this the sweep above would
+  // pass just as happily against a cron that never fires at all.
+  assert.equal(observedSlowFirings, 58, 'one slow firing per step examined');
 });
 
 test('a dense step that would land on the slow minute is REFUSED, not merely documented', () => {
@@ -366,4 +415,27 @@ test('a dayStartMs that is not an exact UTC midnight is refused, not silently ro
     synthesizePollingCrons(windows, DAY, { denseStepMinutes: 3 }).dense!.cron,
     '*/3 19,20,21,22,23 * * *'
   );
+});
+
+test('a window with a non-finite bound is refused, not silently read as an offseason day', () => {
+  // The same silent failure `dayStartMs` is guarded against, reached by a
+  // different input. A stored plan is JSON, so a null or NaN bound is a real
+  // future shape: every overlap test fails, the day yields no dense schedule and
+  // an all-day slow one, and that is indistinguishable from a legitimate dead
+  // day. Nothing throws on that path, so the policy's own fallback cannot see it
+  // either — a live game day would poll hourly straight through kickoff.
+  const good = windowsFor('2026-10-03T19:30:00.000Z');
+  const corrupt = good.map((window) => ({ ...window, denseEndMs: Number.NaN }));
+
+  assert.throws(() => synthesizePollingCrons(corrupt, DAY, { denseStepMinutes: 3 }), {
+    message: /finite startMs, denseEndMs and slowEndMs/,
+  });
+  // POSITIVE CONTROL: without the guard this input produces the offseason shape
+  // rather than an error, which is the whole reason it needs one.
+  assert.deepEqual(
+    utcHoursCovered(corrupt.map(densePhase), DAY),
+    [],
+    'the corrupt window covers nothing, exactly like a dead day'
+  );
+  assert.ok(synthesizePollingCrons(good, DAY, { denseStepMinutes: 3 }).dense);
 });

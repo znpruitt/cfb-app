@@ -25,9 +25,12 @@ import { densePhase, slowPhase, utcHoursCovered, type PollingWindow } from './po
  * COMMA-SEPARATED EXPLICIT HOURS ONLY, NEVER A RANGE. `parseCronField` handles
  * `*`, a stepped wildcard, a bare integer, and comma lists — nothing else. A
  * range such as `12-23` parses to an EMPTY set, `cronMatchesUtc` then never
- * matches, and `previousScheduleSlotMs` walks its full 366-day backstop and
- * returns the floored cutoff. Delivery health would be silently wrong with
- * nothing failing. `utcHoursCovered` already returns the list form this needs.
+ * matches, and `previousScheduleSlotMs` decrements past its whole 366-day
+ * backstop — returning an instant a YEAR before the cutoff, not the floored
+ * cutoff an earlier version of this comment claimed. The consequence is worse
+ * than "silently wrong": every receipt satisfies a required slot that far back,
+ * so every row reads `on-time` forever and a real outage is hidden.
+ * `utcHoursCovered` already returns the list form this needs.
  *
  * ONE UTC DAY PER PLAN. `utcHoursCovered` projects onto a single day and a cron
  * has no date field, so the expressions describe the planning day and then repeat
@@ -47,13 +50,21 @@ export const SLOW_STEP_MINUTES = 60;
  * The minute past the hour the slow schedule fires at — deliberately NOT zero.
  *
  * Every dense rate includes minute 0, so an hourly slow schedule on the hour
- * dispatches at the same instant as a dense poll in every hour the two share.
+ * would dispatch at the same instant as a dense poll in any hour the two share.
  * These are two QStash schedules against one route, and that route takes no
  * invocation lock: both invocations pass target selection, both begin provider-
  * refresh attempts, and both reach the provider. The collision is therefore a
- * duplicate BILLED CFBD call, not merely a duplicate wakeup. Tail-only slow hours
- * shrink the overlap to the boundary hour a window's two phases share; they do
- * not remove it, so the offset is still load-bearing.
+ * duplicate BILLED CFBD call, not merely a duplicate wakeup.
+ *
+ * The PRIMARY guarantee is that the two hour sets are disjoint — the slow
+ * schedule subtracts the dense hours — so no shared hour exists to collide in.
+ * This offset is the second line, and it is kept because the first one is a
+ * property of one filter expression that a future change could quietly drop.
+ * An earlier version of this comment claimed tail-only hours already shrank the
+ * overlap "to the boundary hour a window's two phases share". That was measured
+ * false: on a three-cluster day an early cluster's 24-hour tail spans the later
+ * clusters' dense phases, and the sets shared TWELVE hours, each one a duplicate
+ * billed call. Subtracting is what actually removes them.
  *
  * An earlier version of this comment asserted that no dense step could land on
  * the offset. That was FALSE at both ends of the range the validator admitted:
@@ -127,8 +138,6 @@ export type PollingCronPlan = {
 export type CronSynthesisOptions = {
   /** The dense cadence, in minutes — today's `live-scores` 3 / `game-stats` 15. */
   denseStepMinutes: number;
-  /** Defaults to {@link SLOW_STEP_MINUTES}; exposed for tests, not for tuning. */
-  slowStepMinutes?: number;
 };
 
 /**
@@ -140,6 +149,16 @@ export type CronSynthesisOptions = {
  * caller distinguishes "no plan exists" from "a plan with no windows" — see
  * `schedulerDeliveryHealth.ts`'s optional plan argument — because collapsing the
  * two would make the offseason and the no-op fallback the same input.
+ *
+ * THE CALLER OWES THESE WINDOWS EVERY KICKOFF IT WANTS COVERED, INCLUDING TBD
+ * ONES. `derivePollingWindows` returns `{ windows, unconfirmed }` and deliberately
+ * does not cluster `startTimeTBD` rows, because their published instant is a
+ * placeholder 12 to 19 hours off — 421 of 3,679 rows on the shipped 2026 record.
+ * Passing `derivePollingWindows(kickoffs).windows` straight through therefore
+ * plans a cron that goes dark over every TBD game's real kickoff. Deciding what
+ * to do with them — arm their whole day, or wait for CFBD to publish a time — is
+ * the caller's, exactly as slice 1 designed, and this function has no way to tell
+ * that a decision was skipped.
  */
 export function synthesizePollingCrons(
   windows: readonly PollingWindow[],
@@ -147,40 +166,44 @@ export function synthesizePollingCrons(
   options: CronSynthesisOptions
 ): PollingCronPlan {
   validDayStart(dayStartMs);
+  validWindows(windows);
   const denseStepMinutes = validDenseStep(options.denseStepMinutes);
-  const slowStepMinutes = validStep(
-    options.slowStepMinutes ?? SLOW_STEP_MINUTES,
-    'slowStepMinutes'
-  );
 
   const denseHours = utcHoursCovered(windows.map(densePhase), dayStartMs);
   const tailHours = utcHoursCovered(windows.map(slowPhase), dayStartMs);
+  // An hour the dense schedule already polls twenty times needs no hourly
+  // reconciliation on top, and adding one bills a second provider call in it.
+  // Subtracting is free: the dense cron covers those hours, so the pair still
+  // covers every armed hour.
+  const reconciliationHours = tailHours.filter((hour) => !denseHours.includes(hour));
 
   return {
     dense: denseHours.length === 0 ? null : buildCron(denseHours, denseStepMinutes),
-    slow: buildCron(slowHoursFor(denseHours, tailHours), slowStepMinutes),
+    slow: buildCron(slowHoursFor(denseHours, reconciliationHours), SLOW_STEP_MINUTES),
   };
 }
 
 /**
- * Which hours the slow schedule occupies — the tail, or the cheapest honest
- * stand-in when the day has no tail to cover.
+ * Which hours the slow schedule occupies — the reconciliation hours the dense
+ * schedule does NOT already cover, or the cheapest honest stand-in when there are
+ * none.
  *
  * Three cases, and only the first does any reconciliation work:
  *
- * - A tail on this day: cover exactly it. The dense cron covers the dense hours,
- *   so between them every armed hour is covered.
- * - Dense hours but no tail: the cluster ends after midnight and its tail belongs
- *   to tomorrow's plan. Nothing here needs slow coverage, so this is a single
- *   daily slot to keep the schedule alive.
+ * - Reconciliation hours on this day: cover exactly those. Together with the
+ *   dense cron that is every armed hour, with no hour covered twice.
+ * - None, but dense hours exist: either the cluster ends after midnight so its
+ *   tail belongs to tomorrow's plan, or the tail falls entirely inside hours the
+ *   dense schedule already polls. Nothing here needs slow coverage, so this is a
+ *   single daily slot to keep the schedule alive.
  * - Neither: a dead day. Hourly, all day — the widest safe expression, which
  *   keeps delivery health resolving at the slow cadence through the offseason.
  */
 function slowHoursFor(
   denseHours: readonly number[],
-  tailHours: readonly number[]
+  reconciliationHours: readonly number[]
 ): readonly number[] {
-  if (tailHours.length > 0) return tailHours;
+  if (reconciliationHours.length > 0) return reconciliationHours;
   return denseHours.length > 0 ? [IDLE_SLOW_HOUR] : ALL_HOURS;
 }
 
@@ -312,6 +335,26 @@ function validDenseStep(stepMinutes: number): number {
     );
   }
   return step;
+}
+
+/**
+ * Window bounds must be finite, for the reason {@link validDayStart} exists: a
+ * NaN or null bound (a stored plan is JSON) fails every overlap test silently, so
+ * an armed day yields no dense schedule and an all-day slow one — the exact shape
+ * of a legitimate offseason plan, and indistinguishable from it. Nothing throws
+ * on that path, so the policy's own fallback would not catch it either: a live
+ * game day would poll hourly straight through kickoff.
+ */
+function validWindows(windows: readonly PollingWindow[]): void {
+  for (const window of windows) {
+    if (
+      !Number.isFinite(window.startMs) ||
+      !Number.isFinite(window.denseEndMs) ||
+      !Number.isFinite(window.slowEndMs)
+    ) {
+      throw new Error('polling windows must carry finite startMs, denseEndMs and slowEndMs');
+    }
+  }
 }
 
 function validStep(stepMinutes: number, field: string): number {
