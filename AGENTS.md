@@ -391,6 +391,31 @@ throws, capture observations in `finally`; an empty collection populated only af
 resolution proves nothing. Mutation-check the observer when practical, not only the production
 guard it observes.
 
+**An invariant over a space must be tested over the space, not over chosen representatives.** When an
+assertion says _all_ — every valid step, every plan shape, every hour, every state — generate the
+space and assert across it. A hand-picked fixture proves the fixture; it says nothing about the
+invariant, and the inputs a person chooses are exactly the ones already in mind, so the case that
+breaks it is the case not thought of. **The tell is a docstring stronger than its test**: "no valid
+step can collide", "coverage always holds", "the descriptor identifies one opponent". Each of those
+shipped here, each was false, and each was defended by fixtures that could not reach the failure.
+
+Named failure cases, all the same shape:
+
+- **PLATFORM-102 slice 2** took four review cycles. Every defect was an invariant stated more strongly
+  than it was tested — a validator that admitted colliding steps at both ends of its range, an idle
+  slot that overlapped a dense hour, a coverage claim disproved on a shape nobody picked. The
+  generated shape sweep that finally held would have caught all three earlier rounds in the first.
+- **PLATFORM-135** shipped a fix, a full remediation round, and its own passing tests against a
+  fixture built in the pre-draft shape — which cannot reach the production path at all, because
+  `NoClaim` is written as a real owner after a draft. The tests certified a fix that changed nothing
+  on a real league.
+
+This is the companion to the positive-control rule above, and they fail differently: a positive
+control proves the test _can_ fail, and generation proves it fails _on the inputs you did not
+choose_. A test can pass both bars and still be worthless if the fixture cannot reach production's
+shape — so where a real population exists, measure it (`docs/deployment-runbook.md`'s read-only rail)
+rather than inventing one.
+
 Use verification labels precisely:
 
 - **Regression test:** demonstrated failing against the actual pre-fix behavior.
