@@ -399,12 +399,23 @@ breaks it is the case not thought of. **The tell is a docstring stronger than it
 step can collide", "coverage always holds", "the descriptor identifies one opponent". Each of those
 shipped here, each was false, and each was defended by fixtures that could not reach the failure.
 
+**And the space is the function's CONTRACT, not its callers' habits.** Generating inputs is only half
+of it: a generator seeded from what today's callers happen to pass tests the callers, not the
+function. `PLATFORM-102` slice 2's fourth round is the case — a **400,000-shape** sweep missed a
+reachable defect because it was generated from `derivePollingWindows`' defaults rather than from what
+`synthesizePollingCrons` **accepts**. That is the same error as a hand-picked fixture, one level up,
+and it is harder to see because the shape count looks like rigour. Derive the generator from the
+parameter types and the validator's admitted range; if a validator accepts a value the generator never
+produces, the gap is the bug you will ship.
+
 Named failure cases, all the same shape:
 
-- **PLATFORM-102 slice 2** took four review cycles. Every defect was an invariant stated more strongly
-  than it was tested — a validator that admitted colliding steps at both ends of its range, an idle
-  slot that overlapped a dense hour, a coverage claim disproved on a shape nobody picked. The
-  generated shape sweep that finally held would have caught all three earlier rounds in the first.
+- **PLATFORM-102 slice 2** took four review cycles, and the progression is the useful part: rounds 1-3
+  were hand-picked fixtures; round 4 generated shapes but drew them from a space narrower than the
+  contract. Every defect was an invariant stated more strongly than it was tested — a validator that
+  admitted colliding steps at both ends of its range, an idle slot that overlapped a dense hour, a
+  coverage claim disproved on a shape nobody picked. Each fix exposed the same mistake one level
+  further up.
 - **PLATFORM-135** shipped a fix, a full remediation round, and its own passing tests against a
   fixture built in the pre-draft shape — which cannot reach the production path at all, because
   `NoClaim` is written as a real owner after a draft. The tests certified a fix that changed nothing
