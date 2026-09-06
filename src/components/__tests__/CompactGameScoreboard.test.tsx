@@ -67,15 +67,84 @@ function participantWithCardOwnerFlag(side: 'away' | 'home', flag: CardOwnerFlag
 }
 
 const LIGHT =
-  /^(?:text|bg|border)-(?:white|black|(?:gray|zinc|slate|neutral|stone)-\d{2,3})(?:\/\d+)?$/;
+  /^(?:text|bg|border)-(?:white|black|(?:gray|zinc|slate|neutral|stone)-\d{2,3})(?:\/[^\s]+)?$/;
+const CSS_DIMENSION = /^(?:-?(?:\d+(?:\.\d+)?|\.\d+)(?:%|[a-z]+)|-?0+(?:\.0+)?)$/i;
+const CSS_DIMENSION_FUNCTION = /^(?:calc|min|max|clamp)\(/i;
+const APPROVED_UNGATED_ARBITRARY_COLORS = new Set(['after:bg-[rgba(255,255,255,0.055)]']);
+
+function tailwindTokenParts(token: string): { base: string; variants: string[] } {
+  const normalized = token.replace(/^!/, '');
+  const parts: string[] = [];
+  let nestingDepth = 0;
+  let partStart = 0;
+
+  for (let index = 0; index < normalized.length; index += 1) {
+    const character = normalized[index];
+    if (character === '[' || character === '(') nestingDepth += 1;
+    if (character === ']' || character === ')') nestingDepth = Math.max(0, nestingDepth - 1);
+    if (character === ':' && nestingDepth === 0) {
+      parts.push(normalized.slice(partStart, index));
+      partStart = index + 1;
+    }
+  }
+
+  return {
+    base: normalized.slice(partStart).replace(/^!|!$/g, ''),
+    variants: parts,
+  };
+}
+
+function isArbitraryThemeValue(base: string): boolean {
+  const propertyMatch = base.match(/^(text|bg|border)-/);
+  if (!propertyMatch) return false;
+  const property = propertyMatch[1];
+  const remainder = base.slice(propertyMatch[0].length);
+  const opener = remainder[0];
+  if (opener !== '[' && opener !== '(') return false;
+  const closer = opener === '[' ? ']' : ')';
+  let depth = 0;
+  let valueEnd = -1;
+
+  for (let index = 0; index < remainder.length; index += 1) {
+    if (remainder[index] === opener) depth += 1;
+    if (remainder[index] === closer) depth -= 1;
+    if (depth === 0) {
+      valueEnd = index;
+      break;
+    }
+  }
+
+  if (valueEnd < 0) return false;
+  const modifier = remainder.slice(valueEnd + 1);
+  if (modifier !== '' && !/^\/[^\s]+$/.test(modifier)) return false;
+  const rawValue = remainder.slice(1, valueEnd);
+
+  // Arbitrary backgrounds can paint colors or images. Requiring an explicit exception keeps a
+  // future addition from bypassing this theme guard through another valid CSS spelling.
+  if (property === 'bg') return true;
+
+  // `text-[9.5px]` and similar dimension utilities control geometry, not color. Tailwind's type
+  // hint is the unambiguous form for a variable/calculation-backed arbitrary dimension.
+  return (
+    !CSS_DIMENSION.test(rawValue) &&
+    !CSS_DIMENSION_FUNCTION.test(rawValue) &&
+    !rawValue.startsWith('length:')
+  );
+}
 
 function lightHalves(html: string): string[] {
   const out: string[] = [];
   for (const match of html.matchAll(/class="([^"]*)"/g)) {
     for (const token of match[1].split(/\s+/).filter(Boolean)) {
-      const parts = token.replace(/^!/, '').split(':');
-      const base = parts.pop() ?? '';
-      if (LIGHT.test(base) && !parts.includes('dark')) out.push(token);
+      const { base, variants } = tailwindTokenParts(token);
+      const isLightOrDarkColor = LIGHT.test(base) || isArbitraryThemeValue(base);
+      if (
+        isLightOrDarkColor &&
+        !variants.includes('dark') &&
+        !APPROVED_UNGATED_ARBITRARY_COLORS.has(token)
+      ) {
+        out.push(token);
+      }
     }
   }
   return out;
@@ -233,7 +302,7 @@ test('every scoreboard state adds an isolated neutral tint only to the marked pa
     'isolate',
     'after:pointer-events-none',
     'after:absolute',
-    'after:inset-[-1px_-8px]',
+    'after:inset-[0_-8px]',
     'after:z-[-1]',
     'after:rounded-[4px]',
     'after:bg-[rgba(255,255,255,0.055)]',
@@ -290,7 +359,7 @@ test('every scoreboard state leaves absent, undefined, and false flags byte-iden
   }
 });
 
-test('every scoreboard state tints both rows when one owner holds both teams', () => {
+test('every scoreboard state tints both rows without overlap when one owner holds both teams', () => {
   for (const state of SCOREBOARD_STATES) {
     const html = renderScoreboard({
       state,
@@ -314,6 +383,14 @@ test('every scoreboard state tints both rows when one owner holds both teams', (
       const rowClasses = classTokens(participantOpeningTag(html, side));
       assert.ok(rowClasses.has('after:bg-[rgba(255,255,255,0.055)]'));
       assert.ok(rowClasses.has('isolate'));
+      assert.ok(
+        rowClasses.has('after:inset-[0_-8px]'),
+        `${state} ${side} tint must stop at its own vertical edges`
+      );
+      assert.ok(
+        !rowClasses.has('after:inset-[-1px_-8px]'),
+        `${state} ${side} tint must not bleed into its adjacent participant row`
+      );
     }
   }
 });
@@ -620,7 +697,7 @@ test('scheduled peers reserve equal odds bands with and without odds across tier
   }
 });
 
-test('new scoreboard additions reject light-theme utility classes, including unnumbered tokens', () => {
+test('new scoreboard additions reject named and arbitrary light-theme utility values', () => {
   const html = renderScoreboard({
     state: 'scheduled',
     neutralSite: true,
@@ -654,6 +731,22 @@ test('new scoreboard additions reject light-theme utility classes, including unn
     'group-hover:text-black',
     '!text-white',
     'text-white/50',
+    'bg-white/[0.055]',
+    'text-black/[50%]',
+    'border-white/(--opacity)',
+    'bg-white/5.5',
+    'text-black/0.5',
+    'bg-[#fff]',
+    'bg-[#fff]/50',
+    'bg-[#ffff]',
+    'bg-[white]',
+    'after:bg-[rgba(255,255,255,0.5)]',
+    'after:!bg-[#fff]',
+    'after:bg-[#fff]!',
+    'bg-[rgb(255_255_255/0.5)]',
+    'bg-[color:#fff]',
+    'bg-(--color-white)',
+    'border-[rgb(0,0,0)]',
   ]) {
     assert.deepEqual(
       lightHalves(`<span class="${forbidden}">bad</span>`),
@@ -665,7 +758,18 @@ test('new scoreboard additions reject light-theme utility classes, including unn
   for (const allowed of [
     'dark:text-zinc-400',
     'dark:hover:text-white',
+    'dark:after:bg-[#fff]',
     'text-[9.5px]',
+    'text-[9.5px]/[1.2]',
+    'text-[9.5px]/6',
+    'border-[3px]',
+    'text-[0]',
+    'text-[0.0]',
+    'border-[0]',
+    'text-[length:var(--scoreboard-size)]',
+    'text-(length:--scoreboard-size)',
+    'text-[calc(0.5rem+1vw)]',
+    'after:bg-[rgba(255,255,255,0.055)]',
     'rounded-[3px]',
   ]) {
     assert.deepEqual(

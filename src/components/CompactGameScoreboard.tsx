@@ -44,14 +44,15 @@ function participantRowClasses(isLeading: boolean, hasLeader: boolean): string {
   return 'font-medium dark:text-zinc-100';
 }
 
-// The #0a0a0a app surface under 5.5% white rounds to #171717. The current zinc-400
-// token (oklch(70.5% 0.015 286.067), about #9f9fa9) remains about 6.82:1 over it,
+// The nearest painted app surface is zinc-950 (#09090b); under 5.5% white it rounds to
+// #171718. The current zinc-400 token (about #9f9fa9) remains about 6.8:1 over it,
 // clearing the 4.5:1 normal-text floor carried by record and owner suffixes.
-// `isolate` keeps the negative-z tint above the card background; without it the tint
-// vanishes behind the card. Item 119's team-colour bar will be absolutely positioned
-// against this row, so positioning children to lift them would re-anchor and shift it.
+// `isolate` contains the negative-z tint in this row's stacking context; without that
+// boundary it can descend behind an intervening painted card surface. Item 119's
+// team-colour bar will be absolutely positioned against this row, so positioning
+// children to lift them would re-anchor and shift it.
 const CARD_OWNER_ROW_CLASSES =
-  "relative isolate after:pointer-events-none after:absolute after:inset-[-1px_-8px] after:z-[-1] after:rounded-[4px] after:bg-[rgba(255,255,255,0.055)] after:content-['']";
+  "relative isolate after:pointer-events-none after:absolute after:inset-[0_-8px] after:z-[-1] after:rounded-[4px] after:bg-[rgba(255,255,255,0.055)] after:content-['']";
 
 function recordLabel(record: TeamRecordClient | null | undefined): string | null {
   return record ? `${record.wins}–${record.losses}` : null;
