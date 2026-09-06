@@ -16,7 +16,8 @@ tested over the space"** — the rule slice 2 earned.
 - `src/lib/server/providerUsageSeries.ts` — **the pattern to follow.** A durable append-only store
   with a fail-closed read path, built under PLATFORM-127. Its `readProviderUsageSeriesForWrite`
   (`:207`) is the shape this slice's read path should take, and the reason is in the file.
-- `scripts/lib/qstashSchedule.ts` — `buildUpsertRequest` (`:176`) and the divergence check (`:336`).
+- `scripts/lib/qstashSchedule.ts` — `buildUpsertRequest` (`:176`), `evaluateScheduleContract` (`:331`,
+  cron compared at `:342`), and `RunDeps` (`:437`), which today has no store access.
 - `src/lib/server/schedulerExecutionStatus.ts` — how `invocationId` is generated and ordered
   (`:42-52`), for the Item 126 Tier A correlation.
 - `src/lib/schedule/pollingCron.ts` — what slice 2 shipped. `PollingCronPlan` and `SynthesizedCron`
@@ -57,20 +58,37 @@ with a record of intent.
 
 1. **A durable record of every planner run**, holding: the input windows, the generated cron, the
    previous cron, whether an upsert was applied or skipped, the outcome, and the `invocationId` (Item
-   126 Tier A correlation). **Durable, not a runtime log** — Vercel logs expire too fast to serve as
+   126 Tier A correlation) — typed **`string | null`**, because `createSchedulerInvocationId`
+   (`schedulerExecutionStatus.ts:331`) returns null on UUID failure and a record must never be lost to
+   that. Correlation is best-effort, exactly as the receipt is. **Durable, not a runtime log** — Vercel logs expire too fast to serve as
    incident history, and rebuilding that defect here is out of bounds.
 
 2. **An allowlisted projection, and nothing else.** Record `cron`, `scheduleId`, `destination`,
-   `method`, `retries` and the derived windows. **Never `headers`, never a raw request, never a
+   `method`, `retries` and the derived windows — **per SCHEDULE, and slice 2 ships TWO per job.**
+   `PollingCronPlan` (`pollingCron.ts:134`) is `{ dense: SynthesizedCron | null; slow: SynthesizedCron }`,
+   and Item 102 confirms the record covers both, with `dense` nullable. The singular wording here
+   predated slice 2. **Never `headers`, never a raw request, never a
    response body.** `buildUpsertRequest` carries `Authorization: Bearer <QSTASH_TOKEN>` and
    `Upstash-Forward-Authorization: Bearer <CRON_SECRET>` — an allowlist is required because a
    denylist fails open the moment a header is added.
 
-3. **`inspect` diffs against the last recorded intent** (`qstashSchedule.ts:336-348`), resolving
-   **collision 1**. **With no record present it must fall back to the fixed constant**, so `inspect`
-   keeps working today and for every job the planner does not own.
+3. **`inspect` diffs against the last recorded intent** — `evaluateScheduleContract` opens at
+   `qstashSchedule.ts:331` and the cron comparison is `:342` (the prompt previously cited `:336`,
+   which is the signature's closing brace) — resolving
+   **collision 1**, so `inspect` can still say a planner-owned cron is *correct* rather than merely
+   *current*. Its three states are item 4.
 
-4. **A fail-closed read on the write path.** Follow `readProviderUsageSeriesForWrite`
+4. **`inspect` distinguishes THREE states, not two — owner ruling 2026-09-06.** The earlier wording
+   ("with no record present it must fall back") collapsed absence and unreadability, which is the
+   tolerant-read defect item 5 exists to prevent, and Item 102's inherited item 3 already rules the
+   analogous delivery-health case the other way.
+   - **Absent** → fall back to the fixed constant, exactly as today.
+   - **Present and readable** → diff against the recorded intent.
+   - **Present but unreadable, or a store READ FAILURE** → **refuse.** Exit non-zero, say it could not
+     read, mutate nothing. Never silently fall back to a constant a planner-owned cron would then
+     diverge from forever — that turns a broken record into a permanent false "correct".
+
+5. **A fail-closed read on the write path.** Follow `readProviderUsageSeriesForWrite`
    (`providerUsageSeries.ts:207`): a stored row that is present but wholly unusable must NOT be
    silently treated as absent, because that would overwrite the history the record exists to keep.
 </task>
@@ -88,15 +106,20 @@ Making the cron planner-owned is slice 4.
 projection, at any level. If the shape you want requires one, STOP and report; that is the finding,
 not an obstacle.
 
-STOP and report if `inspect` cannot fall back to the fixed constant without a behaviour change for
-the seven jobs the planner does not own, or if the record cannot carry the previous cron without a
-second read of live QStash state.
+STOP and report if `inspect` cannot fall back without a behaviour change for the seven manage-CLI
+contracts, or if the record cannot carry the previous cron without a second read of live QStash
+state.
 </gate>
 
 <completeness_contract>
-- **`inspect` is unchanged for every job the planner does not own.** Prove it by MUTATION — break the
-  fallback and show a SPECIFIC named test going red, then restore. Seven jobs; assert them, do not
-  assume.
+- **`inspect` is unchanged for every job it exists for.** Prove it by MUTATION — break the fallback
+  and show a SPECIFIC named test going red, then restore.
+  **Corrected 2026-09-06 — "seven jobs" conflated two populations.** `EXTERNAL_SCHEDULER_JOBS` has
+  **nine**; seven are not planner-owned. But `inspect` exists only for the **seven `scripts/manage-*`
+  CLIs**, and two of the not-planner-owned jobs (`season-transition`, `season-rollover`) are
+  `vercel-cron` with no manage script — so only **five** CLIs are not planner-owned. **Assert the
+  fallback over all seven manage-CLI contracts**, which is right because nothing writes a record
+  today, so every one of them must fall back.
 - **A secret can never reach the record.** Assert on the projection with a **positive control**: feed
   a record builder a request whose headers contain both secret values and show the test detects them
   if the allowlist is removed. A test that merely checks the happy-path projection proves nothing
