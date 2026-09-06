@@ -1,7 +1,7 @@
 # Completed Work Log
 
 Status: Historical (append-only ledger)
-Last verified: 2026-09-05
+Last verified: 2026-09-06
 Owner: Project documentation
 Canonical for: append-only record of shipped phases/milestones (outcomes) — historical, not current implementation authority
 Supersedes: (none)
@@ -31,6 +31,25 @@ Supersedes: (none)
 > superseded prerequisite B), and the architecture record in
 > [`docs/ai/game-stats-writer-fence.md`](ai/game-stats-writer-fence.md) (with the superseded
 > original design frozen in [`docs/ai/platform-086h3-contract.md`](ai/platform-086h3-contract.md)).
+
+### PLATFORM-087 Slice 5b — Card-owner scoreboard row modifier — Complete
+
+- **Status:** Merged via PR #575 (merge commit `fef083ae`), 2026-09-06.
+- **PROMPT_ID:** `PLATFORM-087-SLICE-5B-CARD-OWNER-ROW-CODEX-v1`.
+- **Outcome:** `CompactGameScoreboard` now accepts an optional, caller-decided
+  `isCardOwnerTeam` participant flag and renders a neutral 5.5%-white tint behind only marked rows.
+  The tint is `dark:`-gated, isolated behind row content, and bleeds 8px horizontally without
+  changing layout. Adjacent marked rows meet at exact-zero vertical inset with squared facing
+  corners and rounded outer corners, avoiding overlap, separation, and a pinched seam. The merge
+  deliberately adds no caller wiring, so every existing render remains unchanged until a caller
+  supplies true.
+- **Verification / review:** exact implementation head `89079e17` passed TypeScript, `lint:all`, and
+  the 26-test focused suite. Three focused tests protect marked-row tinting across every state,
+  byte-identical absent/undefined/false output, and both-row seam geometry; the existing theme guard
+  was strengthened to cover named and arbitrary values from one utility-family set. Full `npm test`
+  passed 4,715/4,717 with exactly the two standing Item 137 odds failures. Four review passes
+  completed; mutations rejected ungated tint, an omitted `text-shadow` family, incorrect paired
+  corners, and multiple positive/negative vertical inset values.
 
 ### PLATFORM-087 Slice 5 + Item 112 — Schedule scoreboard and disclosure — Complete
 

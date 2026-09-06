@@ -71,8 +71,8 @@ Rules:
   full `npm test` passed 4,715/4,717 with exactly the two standing Item 137 odds failures, reconfirmed
   in their focused file at 12/14. Mutations proved that ungating the tint or omitting `text-shadow`
   turns the suite red, alongside the earlier flag, corner, and positive/negative seam mutations.
-- Status: final pre-merge closeout on `platform/087-slice-5b-card-owner-row`; implementation head
-  `89079e17`; review closed after four passes.
+- Status: Merged via PR #575 (merge commit `fef083ae`), 2026-09-06. Implementation head `89079e17`;
+  review closed after four passes.
 
 ### PLATFORM-087-SLICE-5-ITEM-112-CODEX-v1
 
