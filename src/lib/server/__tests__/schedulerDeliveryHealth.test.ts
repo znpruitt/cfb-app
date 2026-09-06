@@ -33,11 +33,16 @@ import {
   type SchedulerExecutionTarget,
 } from '@/lib/server/schedulerExecutionStatus';
 import {
+  isPlannerOwnedJob,
+  PLANNER_OWNED_JOBS,
   previousScheduleSlotMs,
   readSchedulerDeliveryHealth,
+  requiredStartedAtForJob,
   schedulerDeliveryPolicies,
+  schedulerDeliveryPolicy,
   type SchedulerDeliveryState,
 } from '@/lib/server/schedulerDeliveryHealth';
+import { derivePollingWindows } from '@/lib/schedule/pollingWindows';
 
 // PLATFORM-086F2E2B — the cache-only reader + schedule-slot delivery classifier.
 // All boundary tests use FIXED UTC instants (never the machine clock).
@@ -757,4 +762,188 @@ test('an UPPERCASE stored commit is normalized, not treated as corruption', () =
   );
   // The rest of the receipt is intact — the point of not rejecting it.
   assert.ok(parsed.reason.length > 0 && parsed.target && parsed.startedAt);
+});
+
+// ── PLATFORM-102 slice 2: the policy becomes planner-derivable ───────────────
+//
+// Ships DORMANT. Nothing in production supplies a plan, so every assertion here
+// about the derived branch describes a code path no route reaches yet; the no-op
+// test below is the one that describes what production actually runs.
+
+/** An October Saturday: one afternoon cluster, tail running into Sunday. */
+const PLAN_DAY = ms('2026-10-03T00:00:00Z');
+const saturdayPlan = {
+  windows: derivePollingWindows([{ kickoffMs: ms('2026-10-03T19:30:00Z'), timeConfirmed: true }])
+    .windows,
+  dayStartMs: PLAN_DAY,
+};
+const offseasonPlan = { windows: [], dayStartMs: PLAN_DAY };
+
+test('NO-OP: with no plan, every one of the nine policies is byte-identical to the fixed contract', () => {
+  // The proof that this slice changes nothing in production. `readSchedulerDelivery
+  // Health` and `systemHealth` both call the no-argument form, so this is the
+  // shape they still get. Mutation target: make the absent-plan branch derive
+  // from an empty plan and this test names the first job that moves.
+  assert.deepEqual(schedulerDeliveryPolicies(), [
+    {
+      job: 'live-scores',
+      source: 'qstash',
+      cron: '*/3 * * * *',
+      cadenceLabel: 'every 3 minutes',
+      graceMs: 6 * MIN,
+    },
+    {
+      job: 'team-records',
+      source: 'qstash',
+      cron: '0 * * * *',
+      cadenceLabel: 'hourly (top of hour UTC)',
+      graceMs: 2 * HOUR,
+    },
+    {
+      job: 'game-stats',
+      source: 'qstash',
+      cron: '*/15 * * * *',
+      cadenceLabel: 'every 15 minutes',
+      graceMs: 30 * MIN,
+    },
+    {
+      job: 'odds',
+      source: 'qstash',
+      cron: '0 * * * *',
+      cadenceLabel: 'hourly (top of hour UTC)',
+      graceMs: 2 * HOUR,
+    },
+    {
+      job: 'schedule-refresh',
+      source: 'qstash',
+      cron: '0 12 * * 2',
+      cadenceLabel: 'weekly (Tuesday 12:00 UTC)',
+      graceMs: 24 * HOUR,
+    },
+    {
+      job: 'rankings',
+      source: 'qstash',
+      cron: '0 4,22 * * *',
+      cadenceLabel: 'twice daily (04:00 & 22:00 UTC)',
+      graceMs: 2 * HOUR,
+    },
+    {
+      job: 'season-transition',
+      source: 'vercel-cron',
+      cron: '0 0 * * *',
+      cadenceLabel: 'daily (00:00 UTC)',
+      graceMs: 65 * MIN,
+    },
+    {
+      job: 'season-rollover',
+      source: 'vercel-cron',
+      cron: '0 0 * * *',
+      cadenceLabel: 'daily (00:00 UTC)',
+      graceMs: 65 * MIN,
+    },
+    {
+      job: 'usage-sample',
+      source: 'qstash',
+      cron: '0 */6 * * *',
+      cadenceLabel: 'every 6 hours',
+      graceMs: 6 * HOUR,
+    },
+  ]);
+});
+
+test('the seven jobs the planner does not own are untouched even WITH a plan supplied', () => {
+  // Asserted, not assumed. Narrowing a job whose QStash schedule the planner
+  // never rewrites would make delivery health measure against a cron that was
+  // never sent — a false `late` on a job that is running exactly as configured.
+  const withPlan = new Map(schedulerDeliveryPolicies(saturdayPlan).map((p) => [p.job, p]));
+  const fixed = new Map(schedulerDeliveryPolicies().map((p) => [p.job, p]));
+
+  for (const job of EXTERNAL_SCHEDULER_JOBS) {
+    if (isPlannerOwnedJob(job)) continue;
+    assert.deepEqual(withPlan.get(job), fixed.get(job), `${job} must not move`);
+  }
+  assert.deepEqual([...PLANNER_OWNED_JOBS], ['live-scores', 'game-stats']);
+  // Every job still resolves a policy, planner-owned or not.
+  assert.equal(withPlan.size, EXTERNAL_SCHEDULER_JOBS.length);
+  assert.equal(withPlan.size, 9);
+});
+
+test('an armed day narrows both polling crons and keeps their grace exactly as today', () => {
+  const byJob = new Map(schedulerDeliveryPolicies(saturdayPlan).map((p) => [p.job, p]));
+
+  const live = byJob.get('live-scores')!;
+  assert.equal(live.cron, '*/3 19,20,21,22,23 * * *');
+  assert.equal(live.graceMs, 6 * MIN, 'two dense intervals — the constant it replaces');
+  assert.equal(live.cadenceLabel, 'every 3 min at 19:00–23:00 UTC, hourly at 19:00–23:00 UTC');
+
+  const stats = byJob.get('game-stats')!;
+  assert.equal(stats.cron, '*/15 19,20,21,22,23 * * *');
+  assert.equal(stats.graceMs, 30 * MIN);
+});
+
+test('a derived cron is one the PRODUCTION slot calculator can read', () => {
+  // The whole point of the comma-list form: a range would parse to an empty hour
+  // set and `previousScheduleSlotMs` would answer from its 366-day backstop.
+  const live = schedulerDeliveryPolicy('live-scores', saturdayPlan);
+
+  assert.equal(
+    previousScheduleSlotMs(live.cron, ms('2026-10-03T19:32:30Z')),
+    ms('2026-10-03T19:30:00Z')
+  );
+  // Outside the armed hours the previous slot is the last armed one, so a dead
+  // stretch resolves backwards rather than into the backstop.
+  assert.equal(
+    previousScheduleSlotMs(live.cron, ms('2026-10-04T09:00:00Z')),
+    ms('2026-10-03T23:57:00Z')
+  );
+});
+
+test('a plan with NO windows is the offseason, and is a different input from no plan', () => {
+  // Finding (d): collapsing absence and emptiness would make the no-op fallback
+  // and the offseason the same case, and only one of them can be the constants.
+  const offseason = schedulerDeliveryPolicy('live-scores', offseasonPlan);
+  const absent = schedulerDeliveryPolicy('live-scores');
+
+  assert.equal(offseason.cron, '0 * * * *');
+  assert.equal(offseason.cadenceLabel, 'hourly (top of hour UTC)');
+  assert.equal(offseason.graceMs, 2 * HOUR);
+  assert.equal(absent.cron, '*/3 * * * *');
+  assert.notDeepEqual(offseason, absent);
+});
+
+test('the planner dense cadence matches each job’s fixed cron, so the two cannot drift', () => {
+  // `PLANNER_DENSE_STEP_MINUTES` restates a rate that already exists in the fixed
+  // policy. A faster in-window cadence is Item 95 portion 2, gated on Item 94 —
+  // if it ever lands here by accident, this fails.
+  const fixed = new Map(schedulerDeliveryPolicies().map((p) => [p.job, p]));
+  const armed = {
+    windows: derivePollingWindows([{ kickoffMs: ms('2026-10-03T19:30:00Z'), timeConfirmed: true }])
+      .windows,
+    dayStartMs: PLAN_DAY,
+  };
+
+  for (const job of PLANNER_OWNED_JOBS) {
+    const derivedMinuteField = schedulerDeliveryPolicy(job, armed).cron.split(' ')[0];
+    assert.equal(derivedMinuteField, fixed.get(job)!.cron.split(' ')[0], `${job} keeps its rate`);
+  }
+});
+
+test('no plan reaches the reader, so every row still carries the fixed contract', async () => {
+  // Dormancy, stated as a test rather than asserted in prose: the entry points
+  // production calls take no plan, so `SchedulerDeliveryState` and its four
+  // consumers see exactly what they saw before this slice.
+  const snap = await readSchedulerDeliveryHealth({
+    nowMs: ms('2026-10-03T19:32:30Z'),
+    loadEntries: loaderOf([]),
+  });
+  const live = snap.jobs.find((row) => row.job === 'live-scores')!;
+
+  assert.equal(live.cron, '*/3 * * * *');
+  assert.equal(live.cadenceLabel, 'every 3 minutes');
+  assert.equal(live.graceMs, 6 * MIN);
+  // 19:32:30 − 6m grace = 19:26:30, whose previous `*/3` slot is 19:24.
+  assert.equal(
+    requiredStartedAtForJob('live-scores', ms('2026-10-03T19:32:30Z')),
+    ms('2026-10-03T19:24:00Z')
+  );
 });

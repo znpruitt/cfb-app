@@ -1,3 +1,9 @@
+import {
+  deliveryExpectationForPlan,
+  synthesizePollingCrons,
+  type PollingCronPlan,
+} from '@/lib/schedule/pollingCron';
+import type { PollingWindow } from '@/lib/schedule/pollingWindows';
 import { getAppStateEntries } from '@/lib/server/appStateStore';
 import {
   EXTERNAL_SCHEDULER_JOBS,
@@ -120,9 +126,79 @@ const DELIVERY_POLICIES: Record<
   },
 };
 
-/** The full delivery policy for one job (source derived, never a second map). */
-export function schedulerDeliveryPolicy(job: ExternalSchedulerJob): SchedulerDeliveryPolicy {
-  const policy = DELIVERY_POLICIES[job];
+// ---------------------------------------------------------------------------
+// Planner-derived policy (PLATFORM-102 slice 2, collision 2).
+//
+// The two polling jobs are the ones whose cron becomes planner-owned, so they
+// are the only ones whose delivery expectation may be derived. Everything else
+// keeps a fixed contract pinned to the management scripts and `vercel.json`, and
+// a plan passed alongside them is IGNORED rather than applied — narrowing a job
+// the planner does not own would make delivery health claim a schedule QStash
+// was never sent.
+
+/** The jobs whose schedules the polling-window planner owns. */
+export const PLANNER_OWNED_JOBS: readonly ExternalSchedulerJob[] = ['live-scores', 'game-stats'];
+
+export type PlannerOwnedJob = Extract<ExternalSchedulerJob, 'live-scores' | 'game-stats'>;
+
+/**
+ * The dense cadence each planner-owned job polls at, in minutes. It stays exactly
+ * what the job runs today — a faster in-window cadence spends provider quota that
+ * dead days never spent, and it is Item 95 portion 2, gated on Item 94. A test
+ * pins each value against that job's fixed cron so the two cannot drift.
+ */
+const PLANNER_DENSE_STEP_MINUTES: Record<PlannerOwnedJob, number> = {
+  'live-scores': 3,
+  'game-stats': 15,
+};
+
+export function isPlannerOwnedJob(job: ExternalSchedulerJob): job is PlannerOwnedJob {
+  return PLANNER_OWNED_JOBS.includes(job);
+}
+
+/**
+ * The planner input a derived policy needs: the windows for one UTC day, and the
+ * midnight that day starts at (`utcHoursCovered`'s own contract).
+ *
+ * ABSENCE AND EMPTINESS ARE DIFFERENT INPUTS, and collapsing them would make two
+ * required behaviours the same case. Passing no plan at all means no planner
+ * record exists — the policy falls back to the fixed constants byte for byte,
+ * which is what makes this slice a no-op against production. Passing a plan whose
+ * `windows` is empty is a real plan for a day with no games, and it yields the
+ * hourly reconciliation schedule that carries the offseason.
+ */
+export type PollingPlanInput = {
+  windows: readonly PollingWindow[];
+  /** Midnight UTC of the day being planned. */
+  dayStartMs: number;
+};
+
+/** The dense and slow cron expressions one planner-owned job runs for a day. */
+export function pollingCronPlanForJob(
+  job: PlannerOwnedJob,
+  plan: PollingPlanInput
+): PollingCronPlan {
+  return synthesizePollingCrons(plan.windows, plan.dayStartMs, {
+    denseStepMinutes: PLANNER_DENSE_STEP_MINUTES[job],
+  });
+}
+
+/**
+ * The full delivery policy for one job (source derived, never a second map).
+ *
+ * With no `plan`, every job resolves to its fixed contract exactly as it did
+ * before PLATFORM-102 — nothing in production supplies one yet, so this ships
+ * dormant. With a plan, the two planner-owned jobs derive their cron, cadence
+ * label and grace from the windows instead of the hardcoded constants.
+ */
+export function schedulerDeliveryPolicy(
+  job: ExternalSchedulerJob,
+  plan?: PollingPlanInput
+): SchedulerDeliveryPolicy {
+  const policy =
+    plan !== undefined && isPlannerOwnedJob(job)
+      ? deliveryExpectationForPlan(pollingCronPlanForJob(job, plan))
+      : DELIVERY_POLICIES[job];
   return {
     job,
     source: schedulerSourceForJob(job),
@@ -133,8 +209,8 @@ export function schedulerDeliveryPolicy(job: ExternalSchedulerJob): SchedulerDel
 }
 
 /** Every delivery policy, one per scheduled job, in canonical order. */
-export function schedulerDeliveryPolicies(): SchedulerDeliveryPolicy[] {
-  return EXTERNAL_SCHEDULER_JOBS.map((job) => schedulerDeliveryPolicy(job));
+export function schedulerDeliveryPolicies(plan?: PollingPlanInput): SchedulerDeliveryPolicy[] {
+  return EXTERNAL_SCHEDULER_JOBS.map((job) => schedulerDeliveryPolicy(job, plan));
 }
 
 // ---------------------------------------------------------------------------
