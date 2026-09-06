@@ -66,8 +66,36 @@ function participantWithCardOwnerFlag(side: 'away' | 'home', flag: CardOwnerFlag
   return flag === 'absent' ? participant : { ...participant, isCardOwnerTeam: flag };
 }
 
-const LIGHT =
-  /^(?:accent|bg|border|caret|decoration|divide|drop-shadow|fill|from|inset-ring|inset-shadow|outline|placeholder|ring|ring-offset|shadow|stroke|text|to|via)-(?:white|black|(?:gray|zinc|slate|neutral|stone)-\d{2,3})(?:\/[^\s]+)?$/;
+const THEME_COLOR_UTILITY_FAMILIES = [
+  'accent',
+  'bg',
+  'border',
+  'caret',
+  'decoration',
+  'divide',
+  'drop-shadow',
+  'fill',
+  'from',
+  'inset-ring',
+  'inset-shadow',
+  'outline',
+  'placeholder',
+  'ring',
+  'ring-offset',
+  'shadow',
+  'stroke',
+  'text',
+  'to',
+  'via',
+] as const;
+const THEME_COLOR_UTILITY_FAMILY_PATTERN = [...THEME_COLOR_UTILITY_FAMILIES]
+  .sort((left, right) => right.length - left.length)
+  .join('|');
+const THEME_COLOR_UTILITY_PREFIX_PATTERN = `(${THEME_COLOR_UTILITY_FAMILY_PATTERN})(?:-[trblxyse])?`;
+const LIGHT = new RegExp(
+  String.raw`^${THEME_COLOR_UTILITY_PREFIX_PATTERN}-(?:white|black|(?:gray|zinc|slate|neutral|stone)-\d{2,3})(?:\/[^\s]+)?$`
+);
+const ARBITRARY_THEME_VALUE_PREFIX = new RegExp(`^${THEME_COLOR_UTILITY_PREFIX_PATTERN}-`);
 const CSS_DIMENSION = /^(?:-?(?:\d+(?:\.\d+)?|\.\d+)(?:%|[a-z]+)|-?0+(?:\.0+)?)$/i;
 const CSS_DIMENSION_FUNCTION = /^(?:calc|min|max|clamp)\(/i;
 const APPROVED_UNGATED_ARBITRARY_COLORS = new Set(['after:bg-[rgba(255,255,255,0.055)]']);
@@ -95,7 +123,7 @@ function tailwindTokenParts(token: string): { base: string; variants: string[] }
 }
 
 function isArbitraryThemeValue(base: string): boolean {
-  const propertyMatch = base.match(/^(text|bg|border)-/);
+  const propertyMatch = base.match(ARBITRARY_THEME_VALUE_PREFIX);
   if (!propertyMatch) return false;
   const property = propertyMatch[1];
   const remainder = base.slice(propertyMatch[0].length);
@@ -123,8 +151,10 @@ function isArbitraryThemeValue(base: string): boolean {
   // future addition from bypassing this theme guard through another valid CSS spelling.
   if (property === 'bg') return true;
 
-  // `text-[9.5px]` and similar dimension utilities control geometry, not color. Tailwind's type
-  // hint is the unambiguous form for a variable/calculation-backed arbitrary dimension.
+  // Unambiguous dimension-only values control geometry, not color. Composite values in every
+  // guarded family are deliberately treated as theme-bearing: even a legitimately dark value such
+  // as `shadow-[0_2px_8px_rgba(0,0,0,0.6)]` requires an exact allowlist entry. That conservative
+  // speed bump avoids growing a partial CSS color parser whose unhandled forms silently escape.
   return (
     !CSS_DIMENSION.test(rawValue) &&
     !CSS_DIMENSION_FUNCTION.test(rawValue) &&
@@ -372,7 +402,7 @@ test('every scoreboard state leaves absent, undefined, and false flags byte-iden
   }
 });
 
-test('every scoreboard state tints both rows without overlap when one owner holds both teams', () => {
+test('every scoreboard state joins both tinted rows without overlap or separation', () => {
   for (const state of SCOREBOARD_STATES) {
     const html = renderScoreboard({
       state,
@@ -396,9 +426,10 @@ test('every scoreboard state tints both rows without overlap when one owner hold
       const rowClasses = classTokens(participantOpeningTag(html, side));
       assert.ok(rowClasses.has('after:bg-[rgba(255,255,255,0.055)]'));
       assert.ok(rowClasses.has('isolate'));
-      assert.ok(
-        verticalInsetFromClasses(rowClasses) >= 0,
-        `${state} ${side} tint must not bleed into its adjacent participant row`
+      assert.equal(
+        verticalInsetFromClasses(rowClasses),
+        0,
+        `${state} ${side} tint must neither overlap nor separate from its adjacent participant row`
       );
       const expectedCornerClass =
         side === 'away' ? 'after:rounded-t-[4px]' : 'after:rounded-b-[4px]';
@@ -712,7 +743,7 @@ test('scheduled peers reserve equal odds bands with and without odds across tier
   }
 });
 
-test('new scoreboard additions reject named theme colors and arbitrary values in parser-supported text/bg/border families', () => {
+test('new scoreboard additions reject named and arbitrary values across one guarded utility space', () => {
   const html = renderScoreboard({
     state: 'scheduled',
     neutralSite: true,
@@ -733,7 +764,7 @@ test('new scoreboard additions reject named theme colors and arbitrary values in
   assert.ok(newMarkup.every(Boolean), 'all new scoreboard elements must render for the guard');
   assertNoNewLightThemeClass(newMarkup.join(''));
 
-  for (const forbidden of [
+  const forbiddenThemeClasses = new Set([
     'bg-white',
     'text-black',
     'text-white',
@@ -779,7 +810,17 @@ test('new scoreboard additions reject named theme colors and arbitrary values in
     'inset-ring-zinc-400',
     'inset-shadow-black',
     'ring-offset-white',
-  ]) {
+    'border-t-white',
+    'border-x-zinc-800',
+    'divide-y-gray-200',
+    'border-t-[#fff]',
+    'border-x-[rgb(255,255,255)]',
+    'divide-y-[#fff]',
+    'shadow-[0_2px_8px_rgba(0,0,0,0.6)]',
+    ...THEME_COLOR_UTILITY_FAMILIES.map((family) => `${family}-[#fff]`),
+  ]);
+
+  for (const forbidden of forbiddenThemeClasses) {
     assert.deepEqual(
       lightHalves(`<span class="${forbidden}">bad</span>`),
       [forbidden],
