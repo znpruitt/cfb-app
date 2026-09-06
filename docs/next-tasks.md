@@ -61,11 +61,13 @@ committed `c9f76081`) surfaced four new items and one split; the remaining open 
    do NOT fold this into Item 117.** The tint the highlight needs is a per-participant-row modifier,
    and `CompactGameScoreboard` renders those rows internally, so a caller cannot reach one — it needs
    a new participant field. The property worth protecting is not "one widening" for its own sake: it
-   is that **a component change gets reviewed as a component change**. A field added inside a Matchups
-   slice is reviewed by someone thinking about Matchups, and it lands on all six surfaces —
-   **five of which will never set it**, since the tint is Matchups-only by construction (it needs the
-   card's owner scope). That is not a reason to avoid the field; it is a reason to look at it on its
-   own terms.
+   is that **a component change gets reviewed as a component change** — a field added inside a Matchups
+   slice is reviewed by someone thinking about Matchups.
+   **Correction 2026-09-05: the component has TWO callers today, not six** — `OverviewPanel` and
+   `GameWeekPanel`. `MatchupsWeekPanel` is not on the shared component at all; **Item 117 is what puts
+   it there.** So 5b ships a field with **zero consumers**, and its only consumer is the next slice.
+   That is still the right split — 117 then adopts the component without also widening it — but the
+   earlier "lands on six surfaces, five never set it" framing described a change that does not exist.
    **Rejected alternative, recorded before someone reaches for it:** styling the row from Matchups via
    a wrapper class and a descendant selector avoids the component change but couples Matchups to the
    component's internal DOM. That is worse than a field.
