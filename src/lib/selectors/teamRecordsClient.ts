@@ -14,24 +14,7 @@ export const EMPTY_TEAM_RECORDS_BY_PROVIDER_GAME_ID: TeamRecordsByProviderGameId
 
 export type TeamRecordsClientProps = {
   teamRecordsByProviderGameId: TeamRecordsByProviderGameId;
-  teamRecordsSnapshotAt: number | null;
 };
-
-/**
- * A browser-observed final invalidates the records snapshot already on screen.
- * Keep records withheld until an RSC refresh proves the cache advanced.
- */
-export function selectUsableTeamRecords(params: {
-  teamRecordsByProviderGameId: TeamRecordsByProviderGameId;
-  snapshotAt: number | null;
-  invalidatedSnapshotAt: number | null;
-}): TeamRecordsByProviderGameId {
-  const { teamRecordsByProviderGameId, snapshotAt, invalidatedSnapshotAt } = params;
-  if (invalidatedSnapshotAt === null) return teamRecordsByProviderGameId;
-  return snapshotAt !== null && snapshotAt > invalidatedSnapshotAt
-    ? teamRecordsByProviderGameId
-    : EMPTY_TEAM_RECORDS_BY_PROVIDER_GAME_ID;
-}
 
 function recordForParticipant(
   teamId: number | null | undefined,
@@ -60,7 +43,6 @@ export function teamRecordsClientProps(
   if (!recordCache) {
     return {
       teamRecordsByProviderGameId: EMPTY_TEAM_RECORDS_BY_PROVIDER_GAME_ID,
-      teamRecordsSnapshotAt: null,
     };
   }
 
@@ -78,5 +60,5 @@ export function teamRecordsClientProps(
     teamRecordsByProviderGameId[providerGameId] = { away, home };
   }
 
-  return { teamRecordsByProviderGameId, teamRecordsSnapshotAt: recordCache.at };
+  return { teamRecordsByProviderGameId };
 }

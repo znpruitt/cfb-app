@@ -56,7 +56,7 @@ function postseasonGame(overrides: Partial<AppGame>): AppGame {
   };
 }
 
-test('postseason panel threads team records through to shared scoreboards', () => {
+test('postseason Schedule rows omit team records pending shared reconciliation', () => {
   const html = renderToStaticMarkup(
     <PostseasonPanel
       games={[postseasonGame({ key: 'orange-bowl', providerGameId: '401234567' })]}
@@ -64,14 +64,11 @@ test('postseason panel threads team records through to shared scoreboards', () =
       scoresByKey={{}}
       rosterByTeam={new Map()}
       isDebug={false}
-      teamRecordsByProviderGameId={{
-        '401234567': { away: { wins: 11, losses: 2 }, home: { wins: 12, losses: 1 } },
-      }}
     />
   );
 
-  assert.match(html, /data-scoreboard-value="away">11–2<\/span>/);
-  assert.match(html, /data-scoreboard-value="home">12–1<\/span>/);
+  assert.doesNotMatch(html, /data-scoreboard-record=/);
+  assert.doesNotMatch(html, /data-scoreboard-value-kind="record"/);
 });
 
 test('postseason panel forwards focused game id to grouped game cards', () => {

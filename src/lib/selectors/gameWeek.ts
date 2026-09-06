@@ -10,11 +10,6 @@ import { deriveFavoriteSpreadPair, type CombinedOdds } from '../odds';
 import type { TeamRankingEnrichment } from '../rankings';
 import type { ScorePack } from '../scores';
 import { getGameParticipantTeamId, type AppGame } from '../schedule';
-import {
-  EMPTY_TEAM_RECORDS_BY_PROVIDER_GAME_ID,
-  type GameTeamRecordsClient,
-  type TeamRecordsByProviderGameId,
-} from './teamRecordsClient';
 import { groupGamesByDisplayDate } from '../weekPresentation';
 import { isPolicyFcsConference } from '../conferenceSubdivision';
 import { getOwnerForGameSide } from '../gameOwnership';
@@ -133,14 +128,6 @@ function formatConferenceSummary(game: AppGame): string | null {
   return null;
 }
 
-function recordsForGame(
-  game: AppGame,
-  recordsByProviderGameId: TeamRecordsByProviderGameId
-): GameTeamRecordsClient | null {
-  const providerGameId = game.providerGameId?.trim();
-  return providerGameId ? (recordsByProviderGameId[providerGameId] ?? null) : null;
-}
-
 function displayDateKey(timestampMs: number | null | undefined, timeZone: string): string | null {
   if (timestampMs == null || !Number.isFinite(timestampMs)) return null;
   return new Intl.DateTimeFormat('en-CA', {
@@ -175,7 +162,6 @@ export type GameWeekCardViewModel = {
   venueLabel: string | null;
   oddsSummary: string | null;
   conferenceSummary: string | null;
-  teamRecords: GameTeamRecordsClient | null;
   showCanonicalEventLabel: boolean;
   homeOwner?: string;
   awayOwner?: string;
@@ -204,7 +190,6 @@ export function deriveGameWeekPanelViewModel(params: {
   scoresByKey: Record<string, ScorePack>;
   rosterByTeam: Map<string, string>;
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
-  teamRecordsByProviderGameId?: TeamRecordsByProviderGameId;
   displayTimeZone: string;
   currentDateMs?: number | null;
 }): GameWeekPanelViewModel {
@@ -216,7 +201,6 @@ export function deriveGameWeekPanelViewModel(params: {
     scoresByKey,
     rosterByTeam,
     rankingsByTeamId,
-    teamRecordsByProviderGameId = EMPTY_TEAM_RECORDS_BY_PROVIDER_GAME_ID,
     displayTimeZone,
     currentDateMs,
   } = params;
@@ -277,7 +261,6 @@ export function deriveGameWeekPanelViewModel(params: {
         venueLabel: formatVenueLabel(game.venue),
         oddsSummary: formatOddsSummary(odds, { away: awayTeamName, home: homeTeamName }),
         conferenceSummary: formatConferenceSummary(game),
-        teamRecords: recordsForGame(game, teamRecordsByProviderGameId),
         showCanonicalEventLabel: shouldShowCanonicalEventLabel(game, isPlaceholder),
         homeOwner,
         awayOwner,

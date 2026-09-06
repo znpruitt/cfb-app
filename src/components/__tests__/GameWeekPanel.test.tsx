@@ -1172,6 +1172,13 @@ test('tier 1 renders kickoff while tier 2 preserves venue on its own line', () =
             country: 'USA',
           },
         }),
+        game({
+          key: 'second-venue-context',
+          csvAway: 'Navy',
+          csvHome: 'Notre Dame',
+          date: '2025-09-01T19:00:00.000Z',
+          venue: { stadium: 'Aviva Stadium', city: 'Dublin', state: null, country: 'Ireland' },
+        }),
       ]}
       byes={[]}
       oddsByKey={{}}
@@ -1188,12 +1195,18 @@ test('tier 1 renders kickoff while tier 2 preserves venue on its own line', () =
     html,
     /data-schedule-tier2-venue[^>]*>Boone Pickens Stadium • Stillwater, OK<\/div>/
   );
-  assert.match(html, /<summary[^>]*>[\s\S]*More ↓[\s\S]*Less ↑[\s\S]*<\/summary>/);
+  assert.match(html, /<summary[^>]*>[\s\S]*More[\s\S]*Less[\s\S]*<\/summary>/);
   assert.doesNotMatch(
     html,
     /<summary[^>]*aria-label=/,
     'the native disclosure name must follow its visible More/Less label'
   );
+  assert.match(
+    html,
+    /class="sr-only"> details for TCU @ Oklahoma State<\/span>/,
+    'the native disclosure name must retain matchup context when many rows expose the same control'
+  );
+  assert.match(html, /class="sr-only"> details for Navy @ Notre Dame<\/span>/);
 });
 
 test('tier-2 venue falls back to stadium-only label', () => {
@@ -2115,27 +2128,33 @@ test('conference tier 2 collapses same-conference games and distinguishes cross-
   assert.doesNotMatch(html, /FCS vs ACC|ACC vs FCS/);
 });
 
-test('tier 1 joins team records by exact provider game id', () => {
+test('Schedule omits team records pending shared completed-game reconciliation', () => {
   const html = renderToStaticMarkup(
     <GameWeekPanel
-      games={[game({ key: 'records', providerGameId: '401234567' })]}
+      games={[
+        game({ key: 'scheduled-records', providerGameId: '401234567' }),
+        game({ key: 'final-records', providerGameId: '401234568' }),
+      ]}
       byes={[]}
       oddsByKey={{}}
-      scoresByKey={{}}
+      scoresByKey={{
+        'final-records': {
+          away: { team: 'Away', score: 24 },
+          home: { team: 'Home', score: 17 },
+          status: 'Final',
+          time: null,
+        },
+      }}
       rosterByTeam={new Map()}
       isDebug={false}
       hideByes={true}
       displayTimeZone="UTC"
-      teamRecordsByProviderGameId={{
-        '401234567': { away: { wins: 4, losses: 1 }, home: { wins: 3, losses: 2 } },
-        records: { away: { wins: 99, losses: 0 }, home: { wins: 99, losses: 0 } },
-      }}
     />
   );
 
-  assert.match(html, /data-scoreboard-value="away">4–1<\/span>/);
-  assert.match(html, /data-scoreboard-value="home">3–2<\/span>/);
-  assert.doesNotMatch(html, /99–0/);
+  assert.doesNotMatch(html, /data-scoreboard-record=/);
+  assert.doesNotMatch(html, /data-scoreboard-value-kind="record"/);
+  assert.match(html, /data-scoreboard-value-kind="score" data-scoreboard-value="away">24<\/span>/);
 });
 
 // ---------------------------------------------------------------------------

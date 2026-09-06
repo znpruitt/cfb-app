@@ -6,10 +6,6 @@ import type { CombinedOdds } from '../lib/odds';
 import { formatGameMatchupLabel, usesNeutralSiteSemantics } from '../lib/gameUi';
 import { LEAGUE_TAG_LABELS } from '../lib/gameTags';
 import { deriveGameWeekPanelViewModel } from '../lib/selectors/gameWeek';
-import {
-  EMPTY_TEAM_RECORDS_BY_PROVIDER_GAME_ID,
-  type TeamRecordsByProviderGameId,
-} from '../lib/selectors/teamRecordsClient';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
 import type { TeamRankingEnrichment } from '../lib/rankings';
 import type { ScorePack } from '../lib/scores';
@@ -29,7 +25,6 @@ type GameWeekPanelProps = {
   rosterByTeam: Map<string, string>;
   isDebug: boolean;
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
-  teamRecordsByProviderGameId?: TeamRecordsByProviderGameId;
   onSavePostseasonOverride?: (eventId: string, patch: Partial<AppGame>) => void;
   hideByes?: boolean;
   displayTimeZone?: string;
@@ -60,7 +55,6 @@ export default function GameWeekPanel({
   scoresByKey,
   rosterByTeam,
   rankingsByTeamId = new Map(),
-  teamRecordsByProviderGameId = EMPTY_TEAM_RECORDS_BY_PROVIDER_GAME_ID,
   onSavePostseasonOverride,
   hideByes = false,
   displayTimeZone = getPresentationTimeZone(),
@@ -74,7 +68,6 @@ export default function GameWeekPanel({
     scoresByKey,
     rosterByTeam,
     rankingsByTeamId,
-    teamRecordsByProviderGameId,
     displayTimeZone,
     currentDateMs,
   });
@@ -176,7 +169,6 @@ export default function GameWeekPanel({
                         rank: awayRanking?.rank,
                         rankSource: awayRanking?.rankSource,
                         classification: g.awayClassification,
-                        record: card.teamRecords?.away,
                         score: card.score?.away.score ?? null,
                       }}
                       home={{
@@ -185,7 +177,6 @@ export default function GameWeekPanel({
                         rank: homeRanking?.rank,
                         rankSource: homeRanking?.rankSource,
                         classification: g.homeClassification,
-                        record: card.teamRecords?.home,
                         score: card.score?.home.score ?? null,
                       }}
                       tier2Slot={
@@ -195,8 +186,13 @@ export default function GameWeekPanel({
                             open={focusedGameId === g.key ? true : undefined}
                           >
                             <summary className="w-fit cursor-pointer list-none select-none py-0.5">
-                              <span className="group-open/tier2:hidden">More ↓</span>
-                              <span className="hidden group-open/tier2:inline">Less ↑</span>
+                              <span className="group-open/tier2:hidden">
+                                More <span aria-hidden="true">↓</span>
+                              </span>
+                              <span className="hidden group-open/tier2:inline">
+                                Less <span aria-hidden="true">↑</span>
+                              </span>
+                              <span className="sr-only"> details for {matchupLabel}</span>
                             </summary>
                             <div className="mt-1 space-y-1 pb-1">
                               {card.venueLabel ? (
