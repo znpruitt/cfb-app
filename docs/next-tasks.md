@@ -73,6 +73,7 @@ committed `c9f76081`) surfaced four new items and one split; the remaining open 
    component's internal DOM. That is worse than a field.
    **Design:** `docs/campaigns/item-87-followon-team-highlight.md`;
    `mockups/matchups-schedule-mockup.html`.
+   **Kickoff:** `docs/prompts/platform-087-slice-5b-card-owner-row-codex-v1.md`.
 4. **Item 117** — Matchups adopts the shared scoreboard. User-facing and a correctness fix (the
    shipped row never says which team is which owner). **The card-owner-treatment decision is
    SETTLED** (2026-09-05) — neutral background tint on the card owner's row; dimming rejected and its
