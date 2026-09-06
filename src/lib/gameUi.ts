@@ -1,4 +1,4 @@
-import { classifyScorePackStatus } from './gameStatus.ts';
+import { classifyScorePackStatus, normalizeStatusTokens } from './gameStatus.ts';
 import type { AppGame } from './schedule.ts';
 import type { ScorePack } from './scores.ts';
 
@@ -65,6 +65,35 @@ export function gameStateFromScore(
   if (bucket === 'final') return 'final';
   if (bucket === 'inprogress') return 'inprogress';
   return 'scheduled';
+}
+
+const LIVE_CLOCK_ISO_DATE_PREFIX_RE = /^\d{4}-\d{2}-\d{2}[t\s]\d{2}:\d{2}/i;
+const LIVE_CLOCK_ISO_UTC_SUFFIX_RE = /z$/i;
+
+export function formatLiveGameClock(score: ScorePack | null | undefined): string | null {
+  if (!score) return null;
+
+  const status = score.status.trim();
+  const statusTokens = normalizeStatusTokens(status);
+  const hasGenericLiveStatus =
+    statusTokens === 'in progress' ||
+    statusTokens === 'inprogress' ||
+    statusTokens === 'status in progress' ||
+    statusTokens === 'live' ||
+    statusTokens === 'status live';
+
+  const scoreTime = score.time?.trim() ?? '';
+  const looksLikeKickoffTimestamp =
+    scoreTime.length > 0 &&
+    (LIVE_CLOCK_ISO_DATE_PREFIX_RE.test(scoreTime) ||
+      LIVE_CLOCK_ISO_UTC_SUFFIX_RE.test(scoreTime)) &&
+    Number.isFinite(Date.parse(scoreTime));
+  const clock = looksLikeKickoffTimestamp ? '' : scoreTime;
+
+  if (hasGenericLiveStatus) return clock || null;
+  if (!status) return clock || null;
+  if (!clock || status.toLocaleLowerCase().includes(clock.toLocaleLowerCase())) return status;
+  return `${status} ${clock}`;
 }
 
 export type GameStatusLabelTone = 'live' | 'final' | 'scheduled' | 'unknown';

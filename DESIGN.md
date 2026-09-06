@@ -143,8 +143,7 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 - Shared game-status labels use emerald text plus a `size-1.5` dot for live, neutral zinc for final,
   sky for scheduled, and a dimmer accessible zinc for unknown. Matchups keeps its live label neutral
   with the existing freshness-gated pulse because green already means `finalWin` in that component.
-  The Schedule scoreboard is a separate legacy family and deliberately retains amber-live and
-  green-final until Item 87 slice 5 replaces it
+  Schedule uses the shared game-status-label family through the compact scoreboard
 - Blue signals interactivity or active state only — never use blue to mean "featured" or "important"
 - Chart line colors are fixed per owner for the full season — never change with standings position
 - No color for decoration — every color must encode meaning. This stands unamended for every

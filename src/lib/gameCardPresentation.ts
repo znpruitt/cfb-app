@@ -1,5 +1,3 @@
-import { classifyStatusLabel } from './gameStatus';
-import type { ScorePack } from './scores';
 import {
   MEDIA_TYPE_DISPLAY_PRIORITY,
   type ScheduleMediaItem,
@@ -111,49 +109,4 @@ export function formatVenueLabel(venue: VenueDetails | string | null | undefined
   if (stadium && location) return `${stadium} • ${location}`;
   if (stadium) return stadium;
   return location;
-}
-
-export function deriveExpandedMetadataLines(params: {
-  date: string | null;
-  timeZone: string;
-  useNeutralSemantics: boolean;
-  venue?: VenueDetails | string | null;
-  /** Presentation metadata (PLATFORM-086E1C1) — optional, absent keeps prior output. */
-  startTimeTBD?: boolean | null;
-  media?: ScheduleMediaItem[] | null;
-}): { primary: string[]; secondary: string | null } {
-  const lineOne = [formatExpandedKickoff(params.date, params.timeZone, params.startTimeTBD)];
-  const broadcast = formatPrimaryBroadcastLabel(params.media);
-  if (broadcast) {
-    lineOne.push(broadcast);
-  }
-  if (params.useNeutralSemantics) {
-    lineOne.push('Neutral Site');
-  }
-
-  return {
-    primary: lineOne,
-    secondary: formatVenueLabel(params.venue),
-  };
-}
-
-export function deriveScoreOutcomePresentation(score?: ScorePack): {
-  winner: 'away' | 'home' | null;
-  shouldEmphasize: boolean;
-} {
-  const bucket = classifyStatusLabel(score?.status);
-  if (!score || bucket !== 'final') {
-    return { winner: null, shouldEmphasize: false };
-  }
-
-  const awayScore = score.away.score;
-  const homeScore = score.home.score;
-  if (awayScore == null || homeScore == null || awayScore === homeScore) {
-    return { winner: null, shouldEmphasize: false };
-  }
-
-  return {
-    winner: awayScore > homeScore ? 'away' : 'home',
-    shouldEmphasize: true,
-  };
 }

@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getSafeScoreboardTeamColorById } from '../teamColors.ts';
 import {
   __deleteTeamDatabaseStoreFileForTests,
   __getTeamDatabaseStoreFilePathForTests,
@@ -111,7 +110,7 @@ test('memory store updates on successive successful writes', async () => {
   assert.equal(afterSuccess.updatedAt, '2026-03-24T06:00:00.000Z');
 });
 
-test('fallback catalog derives stable ids before first sync and supports id-based color lookup', async () => {
+test('fallback catalog derives stable ids before first sync', async () => {
   const fallback = await getTeamDatabaseFile();
   const ids = fallback.items.map((item) => item.id).filter((id): id is string => Boolean(id));
   const teamCatalogById = new Map(
@@ -123,5 +122,4 @@ test('fallback catalog derives stable ids before first sync and supports id-base
   assert.ok(ids.length > 0);
   assert.ok(teamCatalogById.has('alabama'));
   assert.equal(teamCatalogById.get('alabama')?.school, 'Alabama');
-  assert.equal(getSafeScoreboardTeamColorById('alabama', teamCatalogById).source, 'fallback');
 });

@@ -10,6 +10,8 @@ export type GameTeamRecordsClient = {
 
 export type TeamRecordsByProviderGameId = Record<string, GameTeamRecordsClient>;
 
+export const EMPTY_TEAM_RECORDS_BY_PROVIDER_GAME_ID: TeamRecordsByProviderGameId = {};
+
 export type TeamRecordsClientProps = {
   teamRecordsByProviderGameId: TeamRecordsByProviderGameId;
 };
@@ -38,7 +40,11 @@ export function teamRecordsClientProps(
   scheduleItems: ReadonlyArray<ScheduleWireItem>,
   recordCache: TeamRecordsCacheRead | null | undefined
 ): TeamRecordsClientProps {
-  if (!recordCache) return { teamRecordsByProviderGameId: {} };
+  if (!recordCache) {
+    return {
+      teamRecordsByProviderGameId: EMPTY_TEAM_RECORDS_BY_PROVIDER_GAME_ID,
+    };
+  }
 
   const recordsByTeamId = new Map(recordCache.items.map((item) => [item.teamId, item]));
   const withheldTeamIds = new Set(recordCache.uncreditableTeamIds);

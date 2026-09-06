@@ -32,6 +32,37 @@ Supersedes: (none)
 > [`docs/ai/game-stats-writer-fence.md`](ai/game-stats-writer-fence.md) (with the superseded
 > original design frozen in [`docs/ai/platform-086h3-contract.md`](ai/platform-086h3-contract.md)).
 
+### PLATFORM-087 Slice 5 + Item 112 — Schedule scoreboard and disclosure — Complete
+
+- **Status:** Implemented and review-complete on `platform/087-slice-5-item-112`; awaiting owner
+  merge. No PR was opened at closeout.
+- **PROMPT_ID:** `PLATFORM-087-SLICE-5-ITEM-112-CODEX-v1`.
+- **Outcome:** Schedule's regular and postseason rows now render `CompactGameScoreboard` continuously
+  instead of collapsing the scoreboard into a one-line summary. Only tier-2 venue, odds, conference,
+  and postseason-admin detail sits behind the native More/Less disclosure. Rows remain strictly
+  kickoff-sorted within date groups; settled state presentation shows kickoff for scheduled, the
+  game clock for live, neither for awaiting/final, and broadcast for scheduled/live/awaiting only.
+  Bronze eyebrow pills replace the retired card-emphasis chrome, and the declared Matchups
+  self-result tint now matches its outcome siblings.
+- **What actually shipped for records:** no records render on Schedule or its Postseason consumer.
+  The attempted `onGamesFinalized` timestamp gate was deleted because it discarded game identity and
+  blanked the whole records projection. Overview's pre-existing feed is unchanged; Item 139 owns the
+  shared completed-game reconciliation required before records return to Schedule.
+- **Deletion / accessibility:** the orphaned `GameScoreboard` component and its tests, unused legacy
+  presentation helpers, dead `teamCatalogById` wiring, and vacuous no-broadcast assertion were
+  removed. Disclosure names follow their visible More/Less state and add matchup-specific
+  screen-reader context. The final branch code delta was 20 files, +874/−1,298 (net −424).
+- **Verification / review:** bound to exact code head `c6b01169`. `npx tsc --noEmit` and
+  `npm run lint:all` exited 0; the four focused suites passed 83/83. Full `npm test` executed 4,685
+  tests with 4,683 passing and exactly two failures — `convergence #10: a canonical success is
+  recorded only after the atomic commit` and `compatibility #46: an authorized manual refresh
+  returns the compatible 200 shape` — both the standing Item 137
+  `writer-convergence.test.ts` baseline, not a clean full-suite claim. Six review passes converged.
+  Findings about disrupted/placeholder rendering were deliberately not fixed: the measured
+  production population contained no provider disrupted status across 11,311 schedule rows from
+  2024–2026, so the owner rejected those paths as unreachable rather than treating them as contract
+  blockers.
+
 ### Item 135 — Matchups opponent count and its collapse control — Complete
 
 - **Status:** Merged via PR #571, 2026-09-05.

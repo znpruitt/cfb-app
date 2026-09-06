@@ -51,6 +51,29 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-087-SLICE-5-ITEM-112-CODEX-v1
+
+- Purpose: replace Schedule's collapsed game cards with the shared scoreboard row and put only
+  tier-2 venue, odds, conference, and postseason-admin detail behind an in-place disclosure.
+- Scope: `GameWeekPanel` plus its selector and regular/postseason consumers, the declared Matchups
+  result-tint correction, obsolete scoreboard/helper deletion, and focused tests; no widening of
+  `CompactGameScoreboard`, provider work, filter, navigation, PR, or preview-branch mutation.
+- Outcome: regular and postseason Schedule rows now keep tier 1 visible, sort within each date by
+  kickoff, render the settled scheduled/live/awaiting/final metadata, use bronze eyebrow pills, and
+  expose matchup-specific More/Less disclosures. The retired one-line/card-emphasis implementation
+  and orphaned legacy scoreboard family are gone. **Records do not render on Schedule:** the attempted
+  browser-finalization gate was deleted, Overview's existing records feed was restored unchanged,
+  and Item 139 owns shared completed-game reconciliation before records return here.
+- Review / verification: exact code head `c6b01169` passed TypeScript, `lint:all`, and all 83 focused
+  tests. Full `npm test` ran 4,685 tests: 4,683 passed and exactly the two
+  `writer-convergence.test.ts` failures recorded as the standing Item 137 baseline remained. Six
+  review passes converged with no new final-pass finding. Disrupted/placeholder findings were not
+  patched: measurement across 11,311 production schedule rows from 2024–2026 found no provider
+  disrupted status, and the owner rejected those branches as unreachable rather than contractual
+  blockers.
+- Status: Implemented and review-complete on `platform/087-slice-5-item-112`; awaiting owner merge.
+  No PR opened.
+
 ### PLATFORM-087-SLICE-5A-SCOREBOARD-CONTRACT-v2
 
 - Purpose: widen `CompactGameScoreboard` once so five serial UI slices inherit one reviewed contract

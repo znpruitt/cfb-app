@@ -97,7 +97,8 @@ test('deriveGameWeekPanelViewModel groups games and computes counts', () => {
   assert.equal(vm.hasNoGames, false);
   assert.equal(vm.groupedGames.length, 1);
   assert.equal(vm.groupedGames[0]?.games.length, 2);
-  assert.equal(vm.groupedGames[0]?.games[0]?.showOwnerMatchup, true);
+  assert.equal(vm.groupedGames[0]?.games[0]?.awayOwner, 'Alice');
+  assert.equal(vm.groupedGames[0]?.games[0]?.homeOwner, 'Bob');
 });
 
 test('deriveGameWeekPanelViewModel marks placeholders and canonical-label rule', () => {
@@ -121,8 +122,8 @@ test('deriveGameWeekPanelViewModel marks placeholders and canonical-label rule',
 
   const card = vm.groupedGames[0]?.games[0];
   assert.ok(card);
-  assert.equal(card?.showCollapsedCanonicalLabel, true);
-  assert.ok((card?.summaryState ?? '').length > 0);
+  assert.equal(card?.showCanonicalEventLabel, true);
+  assert.equal(card?.scheduleNotice, 'Scheduled');
 });
 
 test('owner matchup resolves despite a provider-name mismatch (PLATFORM-039)', () => {
@@ -153,7 +154,6 @@ test('owner matchup resolves despite a provider-name mismatch (PLATFORM-039)', (
   assert.ok(card);
   assert.equal(card?.awayOwner, 'Alice');
   assert.equal(card?.homeOwner, 'Bob');
-  assert.equal(card?.showOwnerMatchup, true);
 });
 
 test('an FCS participant cannot create an owner matchup (PLATFORM-036)', () => {
@@ -184,5 +184,4 @@ test('an FCS participant cannot create an owner matchup (PLATFORM-036)', () => {
   assert.ok(card);
   assert.equal(card?.awayOwner, undefined);
   assert.equal(card?.homeOwner, 'Bob');
-  assert.equal(card?.showOwnerMatchup, false);
 });
