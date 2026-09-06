@@ -88,7 +88,23 @@ with a record of intent.
      read, mutate nothing. Never silently fall back to a constant a planner-owned cron would then
      diverge from forever — that turns a broken record into a permanent false "correct".
 
-5. **A fail-closed read on the write path.** Follow `readProviderUsageSeriesForWrite`
+5. **Bounded HISTORY, not latest-only — owner decision 2026-09-06.** Keep a series, bounded the way
+   `providerUsageSeries` bounds its own (`PROVIDER_USAGE_MAX_OBSERVATIONS = 1700`,
+   `providerUsageSeries.ts:48`). The planner writes once a day per job, so **~400 runs per job** is
+   roughly six months — a season plus the offseason either side. Storage is cheap and "when did this
+   cron start diverging" is the question the record exists to answer; latest-only cannot answer it.
+   `inspect` reads only the newest entry, which is a subset of what is kept.
+
+6. **Expose the STORE's read. Do NOT build slice 3b's reader — owner decision 2026-09-06.**
+   3a owns storage and parsing; **3b owns interpretation.** So ship a read that returns the record
+   series for a job, with the same fail-closed parse as the write path, and stop there. Slice 3b
+   derives "what cron was in force on day D" from it.
+   **Do not build `getPreviousCronForDay(job, day)` or anything shaped like it.** That encodes the
+   extrapolation fix's requirements, which are not settled until 3b works out how one row consumes two
+   crons — guessing at them from a slice away is speculative generality, and the likely outcome is
+   that 3b widens the store anyway, paying twice and blurring the split.
+
+7. **A fail-closed read on the write path.** Follow `readProviderUsageSeriesForWrite`
    (`providerUsageSeries.ts:207`): a stored row that is present but wholly unusable must NOT be
    silently treated as absent, because that would overwrite the history the record exists to keep.
 </task>
