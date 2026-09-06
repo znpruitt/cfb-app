@@ -2369,6 +2369,13 @@ Ships dormant.
   `parseCron` applies a single minute-set to every hour it matches, so the union is two rectangles.
   So `live-scores` and `game-stats` each get **two QStash schedules**: dense at `*/3`, slow at hourly.
 
+  **Slice 2's slow cron uses an OFFSET MINUTE — `1`, not `0` — decided 2026-09-05.** `*/3` and `*/15`
+  both include minute 0, so a slow cron at `0` fires simultaneously with the dense cron every dense
+  hour: two invocations, both reaching the provider, both billed. `live-scores/route.ts` has no
+  invocation-level lock or dedupe to absorb it. Minute 1 is in neither dense set. **This is the ONLY
+  one of the review's findings that is slice 2's to fix** — the others are the delivery-health
+  consumer, which is slice 3's (see above).
+
   **The slow phase's slower pace is the point, not a compromise.** It catches a late final without
   paying dense cost across a 16-hour tail. Covering dense ∪ slow at `*/3` is safe but gives back most
   of the saving, since the 24h guarantee is why October reads 74% armed. Covering only dense hours
@@ -2428,7 +2435,31 @@ replacement, which **must exist before slice 4 takes cron ownership** — otherw
 is gone for the window between them.
 
 - Durable record of every planner run: input windows, generated cron, previous cron, applied-or-
-  skipped, outcome, and the invocation id (Item 126 Tier A correlation). **Durable, not a runtime
+  skipped, outcome, and the invocation id (Item 126 Tier A correlation).
+- **Slice 3 also OWNS THE DELIVERY-HEALTH CONSUMER — scope widened 2026-09-05.** Writing the record is
+  half the job; delivery health reading it is the other half, and it is what actually fixes the
+  defect below. Two consumers:
+  1. **`previousScheduleSlotMs` must stop extrapolating.** It walks backwards through TODAY's cron as
+     if the cron were eternal. A planner-owned cron is **rewritten daily**, so on any day whose plan
+     differs from yesterday's it computes a slot that never existed. Measured on the real parser: a
+     game day of `*/3 19,20,21,22,23` after a dead day of `0 * * * *` reports **false `late` for
+     ~19 hours** — collision 2's exact failure, reintroduced by the fix for collision 2. The record
+     already stores `previous cron`, so the row can read what was ACTUALLY in force rather than
+     predict it.
+  2. **The row must carry BOTH crons**, taking `max(previousSlot(dense), previousSlot(slow))`. One
+     row with one cron cannot describe two schedules: the cadence label is untrue, and a slow-schedule
+     delivery failure is invisible for a measured **15.0 h**. With the record, the row knows both
+     because the planner wrote both.
+
+  **This is why slice 2 does NOT reinstate the "floor cadence."** An eternal hourly slow schedule
+  would make backward extrapolation accidentally correct — a workaround for a dashboard that cannot
+  see history. Slice 3 removes the need to predict history, which is the actual fix. Slice 2's gate
+  already draws that line: it stops if "making the policy derivable requires the health row to read
+  durable state." That boundary was right and points here.
+
+  **Neither defect reaches production**: slice 2 ships dormant, and slice 3 precedes slice 4, which is
+  what activates any of it. **That ordering is now load-bearing for correctness, not just for the
+  tampering signal.** **Durable, not a runtime
   log** — Vercel logs expire too fast to be incident history, and rebuilding that defect here is
   explicitly out of bounds.
 - **Allowlisted projection only.** `buildUpsertRequest` headers carry TWO secrets —
