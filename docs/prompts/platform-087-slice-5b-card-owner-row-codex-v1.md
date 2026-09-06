@@ -49,14 +49,30 @@ background tint on that row.
 1. **The flag is on the participant**, beside `owner`, `rank`, `classification`, `record`, `score`.
    A caller cannot reach a participant row otherwise — the component renders them internally, which
    is the reason this slice exists.
-2. **The tint is a background, never text weight.** Weight already carries winner/loser on final
+
+   **A boolean, NOT the card's owner for the component to compare — and this is deliberate.**
+   The obvious alternative is passing the card owner once and letting the component match it against
+   `participant.owner`. Rejected: `AGENTS.md` rule 11 (**Centralized game ownership**) puts ownership
+   judgement behind one seam, and `displayOwner` (`src/lib/gameOwnership.ts:24`) is that seam — it
+   returns `null` for the `NoClaim` sentinel. A component comparing owner strings itself would
+   re-derive ownership and could repeat **Item 138** exactly: `isOwnerVsOwner` reads `NoClaim` as a
+   real owner because it tests `!opponentOwner` rather than going through the seam, so a game against
+   nobody reports owner-versus-owner. **The caller decides ownership; the component renders what it
+   is told.** Expect a reviewer to ask why not compare internally — this paragraph is the answer.
+
+2. **Both rows tint when the card owner holds both teams — owner decision 2026-09-05.** The 2026
+   season has **39 games** where one owner holds both sides, so this is production's shape, not an
+   edge case. The rule stays simple with no special case, and the card still reads as distinct from
+   its neighbours. Do not suppress the tint when both participants carry the flag, and cover it with
+   a fixture.
+3. **The tint is a background, never text weight.** Weight already carries winner/loser on final
    rows; emphasising by weight would render a losing team of theirs bold-and-dimmed — two signals
    arguing on one row.
-3. **Neutral, not owner colour.** The mockup's `rgba(255,255,255,0.055)` composites to `#171717` on
+4. **Neutral, not owner colour.** The mockup's `rgba(255,255,255,0.055)` composites to `#171717` on
    the app surface. Verified: `zinc-50` reads 17.18:1 over it, `zinc-100` 16.31:1, and `zinc-400` —
    the worst case, carrying losing team names and every record/owner suffix — reads **7.00:1**. All
    clear 4.5:1, so the tint costs no legibility. Re-derive rather than trusting these.
-4. **The mechanism, from the mockup (`:64-71`):** `position: relative` and `isolation: isolate` on the
+5. **The mechanism, from the mockup (`:64-71`):** `position: relative` and `isolation: isolate` on the
    row, plus an `::after` at `inset: -1px -8px`, `border-radius: 4px`, `pointer-events: none`,
    `z-index: -1`.
 </task>
