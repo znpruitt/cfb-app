@@ -1,0 +1,137 @@
+PROMPT_ID: PLATFORM-139-RECORD-RECONCILIATION-v1
+PURPOSE: Item 139 — a final must carry the record INCLUDING the result being read. Reconcile the hourly-cached team record against the games the schedule shows completed, so a finished game never renders its pre-game record.
+SCOPE: `src/lib/selectors/teamRecordsClient.ts` and its tests; the server call site that builds its props; `src/lib/selectors/__tests__/` or the existing suite location. NOT `CompactGameScoreboard.tsx` — the component takes what it is given. No new provider call, no cache invalidation, no component.
+
+Read `AGENTS.md` first, then `DESIGN.md` — canonical for UI, and it carries the rule this slice enforces. Neither is restated here.
+
+## References — READ THESE BEFORE WRITING ANYTHING
+
+**Canonical; they win over anything summarised below.**
+
+- **`DESIGN.md`** → the team-record rule. It states that a record is **always the team's record today**,
+  on every surface and every week, and marks the corollary **binding**: a final must carry the record
+  including the result being read. That corollary is what this slice implements.
+- [`docs/next-tasks.md`](../next-tasks.md) → **Item 139**, including the failed approach it records.
+- `src/lib/selectors/teamRecordsClient.ts` — the seam. `teamRecordsClientProps` already joins records
+  to schedule rows on **CFBD team IDs**, exactly, with no name fallback, and already has a withhold
+  mechanism (`uncreditableTeamIds`).
+- `src/lib/teamRecords/teamRecordsCache.ts` — where `uncreditableTeamIds` is derived.
+
+## STOP — post a READ RECEIPT before writing any code
+
+Report these, then **STOP and wait**. A branch checkout is fine; no code, no tests until the owner
+replies.
+
+1. The `PROMPT_ID:` line of THIS document, verbatim.
+2. From `DESIGN.md`: quote the sentence stating what a team record always is, and the corollary marked
+   binding. Say in one line why the corollary is a consequence of the rule rather than an exception.
+3. `TeamRecordClient` is `Pick<TeamRecordItem['total'], 'wins' | 'losses'>`. **Name the field it drops
+   that this slice needs**, and say why the derivation cannot work on the client type as it stands.
+4. `teamRecordsClientProps` already withholds a record for some teams. Name the mechanism and where its
+   input is derived. Say whether you intend to reuse it for the no-usable-score case, and why.
+5. Anything in the references that CONTRADICTS or narrows the message you were handed. If nothing, say
+   so explicitly.
+
+A receipt that summarises without quoting is not a receipt.
+
+## Branch
+
+Branch from current `origin/main`. A `pre-push` hook runs `npm run lint:all` and refuses a failing
+push; do not bypass it.
+
+<task>
+**The defect.** `team-records` is a season-total cache refreshed **hourly**
+(`schedulerDeliveryHealth.ts:83`). Between a game finalising and the next refresh, the cached record
+predates the result — so a final renders a pre-game record. Live on Overview today; slice 5 deferred
+records on Schedule rather than extend it.
+
+**The derivation. Reconcile — do NOT invalidate.**
+
+1. **The record carries its own coverage count.** `TeamRecordItem['total']` is
+   `{wins, losses, ties, games}`, and `games` is **the number of games already reflected**.
+2. **The schedule says what has finished.** Sort a team's `completed` games by kickoff. The record
+   covers the first `games` of them; **anything at index ≥ `games` is not yet reflected.** That is a
+   positional test, not a guess about which specific games the provider counted.
+3. **Fold every unreflected game, not only the one being rendered.** If the record is behind by three,
+   applying just the current game leaves a number that is still wrong. Folding all of them makes the
+   record correct for every row on the card.
+4. **Outcomes come from the scores already in hand.** No provider call. This is why the approach
+   survives CFBD itself lagging.
+
+**The population gate is VERIFIED, not merely satisfiable — do not re-derive it.** Measured
+2026-09-06 against production `team-records/2025` and `schedule/2025-all-all`: **668 of 668 teams**
+have `record.total.games` exactly equal to their completed-game count. Zero disagreement in either
+direction. And the test covered the **variance**, which is the part that matters — game counts range
+**1 to 17** (16 teams at 9, 179 at 12, 32 at 14, 5 at 16, Illinois State at 17), so it spans teams that
+missed a bowl, played a conference championship, and ran deep into the playoff. **The derivation never
+compares against an expected total**; it compares each team against itself, which is why a variable
+postseason cannot break it.
+</task>
+
+<gate>
+**Do NOT build a cache-invalidation trigger.** Item 139 records why: slice 5 tried one
+(`onGamesFinalized`), and because a trigger has no game identity it blanked every team's record for one
+final, never fired on first-seen finals — the case that matters — and over-fired on same-winner score
+corrections. Four defects from one mechanism. If you find yourself wanting to clear a cache, stop.
+
+**Do NOT touch `CompactGameScoreboard.tsx`.** The component renders what it is handed. This is a
+selector change.
+
+**Do NOT add a provider call or widen a payload.** Everything needed is already in the schedule, the
+record cache, and the scores.
+
+**Do NOT restore records to Schedule.** Slice 5 removed them deliberately pending this item; putting
+them back is a separate change with its own review.
+
+STOP and report if a team's completed-game count and `record.total.games` disagree in a way the
+verified gate does not predict, or if the outcome of an unreflected game cannot be determined from the
+scores available at this seam.
+</gate>
+
+<completeness_contract>
+- **A final renders the record INCLUDING its own result.** The headline case; assert it directly.
+- **A record behind by more than one game folds all of them** — assert with a record three games
+  behind, not one. A one-game fixture cannot distinguish "folds the current game" from "folds
+  everything unreflected", and those are different implementations.
+- **A record already up to date is unchanged.** No double-counting: the common case is that the
+  hourly refresh has already run.
+- **The no-usable-score case behaves as decided** (see the open question below), asserted explicitly
+  rather than falling out of the code.
+- **Generate over the space, not over chosen fixtures** (`AGENTS.md`): vary games-completed, records-
+  behind-by, tie presence, and missing scores. The space is the **type's contract** — a generator
+  seeded from one season's shape tests that season.
+- Test count delta reported as a measured number.
+</completeness_contract>
+
+<open_question>
+**Answer before building; do not choose silently.** What renders when an unreflected game has **no
+usable score** — the outcome cannot be determined, so the record cannot be folded correctly.
+
+Options: show the stored record unadjusted (honest "we cannot tell yet"); withhold the record entirely
+via the existing `uncreditableTeamIds` mechanism; or fold what is determinable and show a partially-
+adjusted number. **The third is the one to argue against** — a partially folded record is wrong in a
+way nothing signals.
+
+State your recommendation with reasoning in the receipt; the owner rules.
+</open_question>
+
+<verification>
+Run each separately and report its own exit code — never chained behind `&&`, never behind a pipe:
+`npx tsc --noEmit`, `npm test`, `npm run lint:all`.
+
+`npm test` on clean `main` exits **1** with exactly two failures in
+`src/app/api/odds/__tests__/writer-convergence.test.ts` — the standing **Item 137** baseline. Exactly
+those two, or stop and report.
+</verification>
+
+<output_contract>
+Report: what changed and where; the measured test delta; the mutation proving the fold covers all
+unreflected games rather than only the current one; and anything you deliberately did not do.
+
+**Report what this unblocks:** records were removed from Schedule by Item 87 slice 5 pending this item.
+Restoring them is a separate change — say so rather than doing it.
+
+Closeout is a separate pre-merge commit after review convergence: registry entry, Item 139 status, and
+the `DESIGN.md` team-record paragraph, which currently describes the accent removal and should record
+that the binding corollary is now enforced.
+</output_contract>

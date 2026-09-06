@@ -848,9 +848,14 @@ compare the team's completed-game count against `total.games` and apply the outc
 record is behind on. That has game identity, needs no cache trigger, and works even when the PROVIDER
 itself lags.
 
-**Verify first, before building:** that CFBD's record counts the same game population the schedule
-does. If it excludes some games, the two counts disagree permanently and the derivation would always
-believe it is behind. **This is the gate — if the populations differ, stop and report.**
+**Gate VERIFIED 2026-09-06 — do not re-derive it.** Against production `team-records/2025` and
+`schedule/2025-all-all`: **668 of 668 teams** have `record.total.games` exactly equal to their
+completed-game count, zero disagreement either way. **The test covered the variance, which is the part
+that matters** — counts range **1 to 17** (16 teams at 9, 179 at 12, 32 at 14, 5 at 16, Illinois State
+at 17), spanning teams that missed a bowl, played a conference championship, and ran deep into the
+playoff. A variable postseason cannot break the derivation because it **never compares against an
+expected total** — each team is compared against itself.
+**Kickoff:** `docs/prompts/platform-139-record-reconciliation-v1.md`.
 
 **A cache-invalidation trigger was tried and is the wrong layer — do not repeat it.** Slice 5's
 `onGamesFinalized` gate discarded game identity, so it blanked every team's record for one final,
