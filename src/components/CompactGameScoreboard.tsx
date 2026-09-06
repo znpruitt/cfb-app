@@ -53,7 +53,7 @@ function participantRowClasses(isLeading: boolean, hasLeader: boolean): string {
 // every row for its absolutely positioned team-colour bar rather than rely on this class.
 // Positioning children to lift them would re-anchor and shift that bar.
 const CARD_OWNER_ROW_CLASSES =
-  "relative isolate after:pointer-events-none after:absolute after:inset-[0_-8px] after:z-[-1] after:bg-[rgba(255,255,255,0.055)] after:content-['']";
+  "relative isolate after:pointer-events-none after:absolute after:inset-[0_-8px] after:z-[-1] dark:after:bg-[rgba(255,255,255,0.055)] after:content-['']";
 
 function cardOwnerRowCornerClasses(
   side: 'away' | 'home',

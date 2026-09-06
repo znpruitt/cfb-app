@@ -85,6 +85,7 @@ const THEME_COLOR_UTILITY_FAMILIES = [
   'shadow',
   'stroke',
   'text',
+  'text-shadow',
   'to',
   'via',
 ] as const;
@@ -98,7 +99,6 @@ const LIGHT = new RegExp(
 const ARBITRARY_THEME_VALUE_PREFIX = new RegExp(`^${THEME_COLOR_UTILITY_PREFIX_PATTERN}-`);
 const CSS_DIMENSION = /^(?:-?(?:\d+(?:\.\d+)?|\.\d+)(?:%|[a-z]+)|-?0+(?:\.0+)?)$/i;
 const CSS_DIMENSION_FUNCTION = /^(?:calc|min|max|clamp)\(/i;
-const APPROVED_UNGATED_ARBITRARY_COLORS = new Set(['after:bg-[rgba(255,255,255,0.055)]']);
 
 function tailwindTokenParts(token: string): { base: string; variants: string[] } {
   const normalized = token.replace(/^!/, '');
@@ -168,11 +168,7 @@ function lightHalves(html: string): string[] {
     for (const token of match[1].split(/\s+/).filter(Boolean)) {
       const { base, variants } = tailwindTokenParts(token);
       const isLightOrDarkColor = LIGHT.test(base) || isArbitraryThemeValue(base);
-      if (
-        isLightOrDarkColor &&
-        !variants.includes('dark') &&
-        !APPROVED_UNGATED_ARBITRARY_COLORS.has(token)
-      ) {
+      if (isLightOrDarkColor && !variants.includes('dark')) {
         out.push(token);
       }
     }
@@ -345,7 +341,7 @@ test('every scoreboard state adds an isolated neutral tint only to the marked pa
     'after:inset-[0_-8px]',
     'after:z-[-1]',
     'after:rounded-[4px]',
-    'after:bg-[rgba(255,255,255,0.055)]',
+    'dark:after:bg-[rgba(255,255,255,0.055)]',
     "after:content-['']",
   ];
 
@@ -394,7 +390,9 @@ test('every scoreboard state leaves absent, undefined, and false flags byte-iden
       assert.equal(html, withoutFlags);
       for (const side of ['away', 'home'] as const) {
         assert.ok(
-          !classTokens(participantOpeningTag(html, side)).has('after:bg-[rgba(255,255,255,0.055)]'),
+          !classTokens(participantOpeningTag(html, side)).has(
+            'dark:after:bg-[rgba(255,255,255,0.055)]'
+          ),
           `${state} ${side} row without a true flag must remain untinted`
         );
       }
@@ -424,7 +422,7 @@ test('every scoreboard state joins both tinted rows without overlap or separatio
 
     for (const side of ['away', 'home'] as const) {
       const rowClasses = classTokens(participantOpeningTag(html, side));
-      assert.ok(rowClasses.has('after:bg-[rgba(255,255,255,0.055)]'));
+      assert.ok(rowClasses.has('dark:after:bg-[rgba(255,255,255,0.055)]'));
       assert.ok(rowClasses.has('isolate'));
       assert.equal(
         verticalInsetFromClasses(rowClasses),
@@ -802,6 +800,8 @@ test('new scoreboard additions reject named and arbitrary values across one guar
     'outline-black',
     'fill-white',
     'stroke-gray-500',
+    'text-shadow-white',
+    'text-shadow-[#fff]',
     'placeholder-zinc-400',
     'accent-gray-300',
     'caret-white',
@@ -842,7 +842,6 @@ test('new scoreboard additions reject named and arbitrary values across one guar
     'text-[length:var(--scoreboard-size)]',
     'text-(length:--scoreboard-size)',
     'text-[calc(0.5rem+1vw)]',
-    'after:bg-[rgba(255,255,255,0.055)]',
     'rounded-[3px]',
   ]) {
     assert.deepEqual(
