@@ -438,4 +438,109 @@ test('a window with a non-finite bound is refused, not silently read as an offse
     'the corrupt window covers nothing, exactly like a dead day'
   );
   assert.ok(synthesizePollingCrons(good, DAY, { denseStepMinutes: 3 }).dense);
+
+  // ORDERING fails the same silent way. A marginal inversion yields a garbage
+  // single-hour cron; a real one makes the phase an empty span and the armed day
+  // reads as the offseason. Neither throws without the guard, so the delivery
+  // policy's own fallback cannot see either.
+  const inverted = good.map((window) => ({ ...window, denseEndMs: window.startMs - 1 }));
+  const backwards = good.map((window) => ({ ...window, slowEndMs: window.startMs - 10 * HOUR }));
+  for (const windows of [inverted, backwards]) {
+    assert.throws(() => synthesizePollingCrons(windows, DAY, { denseStepMinutes: 3 }), {
+      message: /startMs <= denseEndMs <= slowEndMs/,
+    });
+  }
+});
+
+test('the slow schedule cannot be built with a sub-hourly step', () => {
+  // A stepped minute field always contains minute 0 — the minute every dense rate
+  // fires at — so a sub-hourly slow cadence would silently drop the dispatch
+  // offset. Deleting the `slowStepMinutes` option left that hole in the constant
+  // feeding the same branch; the slow builder is now its own function and refuses.
+  assert.equal(SLOW_STEP_MINUTES >= 60, true, 'the constant the builder guards');
+  const plan = liveScores(windowsFor('2026-10-03T12:00:00.000Z'));
+  assert.equal(plan.slow.cron.startsWith(`${SLOW_OFFSET_MINUTE} `), true);
+  assert.equal(plan.slow.cron.includes('*/'), false, 'never a stepped minute field');
+});
+
+// ── 6. The generated shape sweep ─────────────────────────────────────────────
+//
+// Every finding of the last three review rounds was the same failure: a property
+// asserted universally, checked against hand-picked fixtures, and false on a
+// shape nobody picked — steps 1 and 60, a three-cluster day, a fully dense day.
+// Twice the violating shape was already a fixture in this file and simply was not
+// run through the assertion. So the properties are checked here against a
+// GENERATED space instead, and the generator is itself controlled: if it stops
+// producing each interesting shape, the sweep fails rather than quietly passing.
+
+/** Deterministic PRNG — a fixed seed, so a failure reproduces exactly. */
+const makeRandom = (seed: number) => () => {
+  seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+  return seed / 0x7fffffff;
+};
+
+test('SWEEP: coverage, disjointness and minute non-collision hold across generated day shapes', () => {
+  const random = makeRandom(20261003);
+  const shapes = { dead: 0, idle: 0, reconciliation: 0, fullyDense: 0 };
+  const steps = [3, 15];
+
+  for (let trial = 0; trial < 2_000; trial += 1) {
+    // Kickoffs anywhere in a 48-hour band around the planning day, so windows
+    // land wholly inside it, straddle either boundary, or miss it entirely.
+    const count = Math.floor(random() * 7);
+    const kickoffs: PlannedKickoff[] = Array.from({ length: count }, () => ({
+      kickoffMs: DAY - 24 * HOUR + Math.floor(random() * 48 * HOUR),
+      timeConfirmed: true,
+    }));
+    const windows = derivePollingWindows(kickoffs).windows;
+    const denseStepMinutes = steps[trial % steps.length]!;
+    const plan = synthesizePollingCrons(windows, DAY, { denseStepMinutes });
+    const denseHours = plan.dense?.hours ?? [];
+    const armed = armedHoursOf(windows);
+    const shared = denseHours.filter((hour) => plan.slow.hours.includes(hour));
+    const label = `trial ${trial} step ${denseStepMinutes} dense=[${denseHours}] slow=[${plan.slow.hours}]`;
+
+    // a. Never under-cover. The one property Item 102 says must hold.
+    const crons = [plan.dense?.cron, plan.slow.cron].filter((c) => c !== undefined);
+    assert.deepEqual(uncoveredHours(crons, armed), [], `under-covered: ${label}`);
+
+    // b. Disjoint hour sets, with the ONE stated exception: a fully dense day has
+    //    no unshared hour for the idle slot, so it shares exactly that hour.
+    if (denseHours.length === 24) {
+      shapes.fullyDense += 1;
+      assert.deepEqual(plan.slow.hours, [IDLE_SLOW_HOUR], `full-day slot moved: ${label}`);
+      assert.deepEqual(shared, [IDLE_SLOW_HOUR], `full-day overlap changed: ${label}`);
+    } else {
+      assert.deepEqual(shared, [], `hour sets overlap: ${label}`);
+    }
+
+    // c. Even on a shared hour, the two never fire in the same minute.
+    for (const hour of shared) {
+      for (let minute = 0; minute < 60; minute += 1) {
+        const instant = DAY + hour * HOUR + minute * MINUTE;
+        const denseFires = previousScheduleSlotMs(plan.dense!.cron, instant) === instant;
+        const slowFires = previousScheduleSlotMs(plan.slow.cron, instant) === instant;
+        assert.ok(!(denseFires && slowFires), `minute collision at ${hour}:${minute} — ${label}`);
+      }
+    }
+
+    // d. The idle slot shares a dense hour ONLY on a fully dense day. This is the
+    //    reachability fact the constant's placement rests on: if a future change
+    //    makes the mixed case possible, this fails instead of billing duplicates.
+    if (plan.slow.hours.length === 1 && denseHours.includes(plan.slow.hours[0]!)) {
+      assert.equal(denseHours.length, 24, `idle slot in a dense hour on a mixed day: ${label}`);
+    }
+
+    if (windows.length === 0 || armed.length === 0) shapes.dead += 1;
+    else if (plan.slow.hours.length === 1 && denseHours.length < 24) shapes.idle += 1;
+    else if (denseHours.length < 24) shapes.reconciliation += 1;
+  }
+
+  // CONTROL ON THE GENERATOR. Without this the sweep passes just as happily on a
+  // space that never reaches the shapes the properties are interesting for — the
+  // exact way the previous collision test went vacuous.
+  assert.ok(shapes.dead > 0, 'no dead day generated');
+  assert.ok(shapes.idle > 0, 'no idle-slot day generated');
+  assert.ok(shapes.reconciliation > 0, 'no day with reconciliation hours generated');
+  assert.ok(shapes.fullyDense > 0, 'no fully dense day generated — the exception went untested');
 });

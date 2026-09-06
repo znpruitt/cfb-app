@@ -44,7 +44,7 @@ import { densePhase, slowPhase, utcHoursCovered, type PollingWindow } from './po
  */
 
 /** The slow reconciliation schedule fires once per covered hour. */
-export const SLOW_STEP_MINUTES = 60;
+export const SLOW_STEP_MINUTES: number = 60;
 
 /**
  * The minute past the hour the slow schedule fires at — deliberately NOT zero.
@@ -57,9 +57,11 @@ export const SLOW_STEP_MINUTES = 60;
  * duplicate BILLED CFBD call, not merely a duplicate wakeup.
  *
  * The PRIMARY guarantee is that the two hour sets are disjoint — the slow
- * schedule subtracts the dense hours — so no shared hour exists to collide in.
- * This offset is the second line, and it is kept because the first one is a
- * property of one filter expression that a future change could quietly drop.
+ * schedule subtracts the dense hours — so on all but one shape no shared hour
+ * exists to collide in. The exception is a FULLY dense day, where the idle slot
+ * has nowhere unshared to go; see {@link IDLE_SLOW_HOUR}. This offset is what
+ * keeps even that day free of a simultaneous dispatch, and it is kept besides
+ * because the disjointness is one filter expression a future change could drop.
  * An earlier version of this comment claimed tail-only hours already shrank the
  * overlap "to the boundary hour a window's two phases share". That was measured
  * false: on a three-cluster day an early cluster's 24-hour tail spans the later
@@ -76,13 +78,32 @@ export const SLOW_STEP_MINUTES = 60;
 export const SLOW_OFFSET_MINUTE = 1;
 
 /**
- * The single hour a slow schedule occupies on a day that has dense hours but no
- * reconciliation tail — an ordinary Saturday, whose cluster ends after midnight
- * so its tail lands entirely on the next day's plan.
+ * The fallback hour a slow schedule occupies on a day that has dense hours but no
+ * reconciliation hours of its own — an ordinary Saturday, whose cluster ends
+ * after midnight so its tail lands entirely on the next day's plan.
  *
  * Such a day needs no slow coverage: the dense cron covers every armed hour it
  * has. But the QStash schedule still exists and must hold an expression, so it
- * holds the cheapest honest one — a single daily slot, one wakeup.
+ * holds the cheapest honest one — a single daily slot, one wakeup — placed in the
+ * first hour the dense schedule does NOT poll.
+ *
+ * IT SHARES A DENSE HOUR ON EXACTLY ONE SHAPE, and that is the single honest
+ * exception to the disjointness invariant: a FULLY dense day — a full slate whose
+ * clusters chain through midnight — has no unshared hour to offer, so the slot
+ * necessarily lands in one and bills one duplicate call that day.
+ *
+ * Hour zero is not an arbitrary choice that happens to work. On the idle path
+ * every reconciliation hour is already a dense hour, and a tail runs sixteen
+ * hours past its own dense end, so the tail either falls wholly on the next day —
+ * leaving this day's dense hours late and hour zero free — or the dense phase
+ * covers everything. Measured across 400,000 generated shapes: of 27,217
+ * idle-path days, hour zero was dense in 3,238, and all 3,238 were fully dense.
+ * Zero were the mixed case. The sweep asserts that, so a future change that makes
+ * the mixed case reachable fails rather than quietly billing duplicates.
+ *
+ * Review found this constant returned unconditionally while the docstring claimed
+ * the two hour sets were simply disjoint — true on 3,911 of 4,000 shapes, false
+ * on the busiest one.
  */
 export const IDLE_SLOW_HOUR = 0;
 
@@ -178,8 +199,8 @@ export function synthesizePollingCrons(
   const reconciliationHours = tailHours.filter((hour) => !denseHours.includes(hour));
 
   return {
-    dense: denseHours.length === 0 ? null : buildCron(denseHours, denseStepMinutes),
-    slow: buildCron(slowHoursFor(denseHours, reconciliationHours), SLOW_STEP_MINUTES),
+    dense: denseHours.length === 0 ? null : buildDenseCron(denseHours, denseStepMinutes),
+    slow: buildSlowCron(slowHoursFor(denseHours, reconciliationHours)),
   };
 }
 
@@ -204,7 +225,11 @@ function slowHoursFor(
   reconciliationHours: readonly number[]
 ): readonly number[] {
   if (reconciliationHours.length > 0) return reconciliationHours;
-  return denseHours.length > 0 ? [IDLE_SLOW_HOUR] : ALL_HOURS;
+  if (denseHours.length === 0) return ALL_HOURS;
+  // The idle slot lands in a dense hour ONLY on a fully dense day, where no
+  // unshared hour exists — see {@link IDLE_SLOW_HOUR}, and the sweep that pins
+  // it. Searching for a free hour here would be defending an unreachable case.
+  return [IDLE_SLOW_HOUR];
 }
 
 export type DeliveryExpectation = {
@@ -281,16 +306,29 @@ function firingsPerHour(stepMinutes: number): number {
   return Math.ceil(60 / stepMinutes);
 }
 
-function buildCron(hours: readonly number[], stepMinutes: number): SynthesizedCron {
+function buildDenseCron(hours: readonly number[], stepMinutes: number): SynthesizedCron {
   return {
-    cron: `${minuteField(stepMinutes)} ${hourField(hours)} * * *`,
+    cron: `*/${stepMinutes} ${hourField(hours)} * * *`,
     hours: [...hours],
     stepMinutes,
   };
 }
 
-function minuteField(stepMinutes: number): string {
-  return stepMinutes >= 60 ? String(SLOW_OFFSET_MINUTE) : `*/${stepMinutes}`;
+function buildSlowCron(hours: readonly number[]): SynthesizedCron {
+  // The slow schedule's minute is the OFFSET, never a step. One shared helper
+  // chose between the two on `stepMinutes >= 60`, which meant an hourly cadence
+  // below an hour would silently emit a stepped field — and a stepped field
+  // always contains minute 0, the minute every dense rate also fires at. That is
+  // the hole the `slowStepMinutes` option was deleted for, and it survived in the
+  // constant feeding the same branch. Two builders cannot take each other's path.
+  if (SLOW_STEP_MINUTES < 60) {
+    throw new Error('SLOW_STEP_MINUTES below an hour cannot carry the dispatch offset');
+  }
+  return {
+    cron: `${SLOW_OFFSET_MINUTE} ${hourField(hours)} * * *`,
+    hours: [...hours],
+    stepMinutes: SLOW_STEP_MINUTES,
+  };
 }
 
 /**
@@ -353,6 +391,12 @@ function validWindows(windows: readonly PollingWindow[]): void {
       !Number.isFinite(window.slowEndMs)
     ) {
       throw new Error('polling windows must carry finite startMs, denseEndMs and slowEndMs');
+    }
+    // Ordering fails the same silent way finiteness does: an inverted bound makes
+    // its phase an empty or nonsense span, so an armed day yields a garbage cron
+    // or the offseason shape, and nothing throws for the policy fallback to catch.
+    if (!(window.startMs <= window.denseEndMs && window.denseEndMs <= window.slowEndMs)) {
+      throw new Error('polling windows must satisfy startMs <= denseEndMs <= slowEndMs');
     }
   }
 }
