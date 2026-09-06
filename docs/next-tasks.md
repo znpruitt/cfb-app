@@ -2447,6 +2447,13 @@ boundary rather than fixed on that branch):
 - **The synthesis fallback `catch` is unqualified**, so it would swallow a programming error as well
   as the deliberate validation refusal.
 
+**Slice 3 — SPLIT into 3a and 3b, owner decision 2026-09-06.** It had grown to seven deliverables
+across two subsystems with two distinct acceptance contracts, and the risky half rides with the
+additive half. **3a: the durable record + `inspect` divergence** — additive, dormant, `scripts/` plus
+a new store. **3b: the delivery-health consumer** — the four inherited items, touching functions every
+health path calls. 3a first, because 3b reads the record 3a writes.
+**Kickoff:** `docs/prompts/platform-102-slice-3a-planner-record-claude-v1.md`.
+
 **Slice 3 — the durable planner record, and `inspect` divergence against it.** The reconstructibility
 replacement, which **must exist before slice 4 takes cron ownership** — otherwise the tampering signal
 is gone for the window between them.
