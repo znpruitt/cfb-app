@@ -1,7 +1,7 @@
 # Next Tasks (Active Queue)
 
 Status: Current
-Last verified: 2026-09-05
+Last verified: 2026-09-06
 Owner: Project documentation
 Canonical for: current execution order, planned/parked work, blockers, and the one canonical list of
 unresolved decisions and known deferrals
@@ -26,8 +26,9 @@ Supersedes: (none)
 
 `CURRENT`: **Item 102** — polling planner. (Item 88 is superseded in full by **Item 132**; both
 attempts at it were reverted.)
-`NEXT`: **Item 87 slice 5b** — slice 5 + Item 112 merged via PR #572 (`f424222a`) on 2026-09-05;
-slice 5a's shared-component prerequisite merged via PR #570 (`4caa1a79`) the same day.
+`NEXT`: **Item 87 slice 5b** — review complete and pre-merge closeout finished on
+`platform/087-slice-5b-card-owner-row`; not yet merged. It deliberately has zero consumers, and Item
+117 remains the first UI consumer.
 
 Owner-selected run order (2026-09-03), replacing the 2026-09-02 order. Ordering values, stated by the
 owner: **user-facing improvements, data correction, and bug fixes first; prerequisites persisted in
@@ -57,20 +58,14 @@ committed `c9f76081`) surfaced four new items and one split; the remaining open 
    **Operationally independent, though:** 126's incident is the weekly `schedule-refresh` job, while
    102 narrows `live-scores` and `game-stats`. Neither blocks the other; the conflict is in files.
    Observation-only by its own acceptance boundary, so it is the lower-risk half of the pair.
-3. **Item 87 slice 5b** — card-owner row modifier on the shared component. **Split out 2026-09-05;
-   do NOT fold this into Item 117.** The tint the highlight needs is a per-participant-row modifier,
-   and `CompactGameScoreboard` renders those rows internally, so a caller cannot reach one — it needs
-   a new participant field. The property worth protecting is not "one widening" for its own sake: it
-   is that **a component change gets reviewed as a component change** — a field added inside a Matchups
-   slice is reviewed by someone thinking about Matchups.
-   **Correction 2026-09-05: the component has TWO callers today, not six** — `OverviewPanel` and
-   `GameWeekPanel`. `MatchupsWeekPanel` is not on the shared component at all; **Item 117 is what puts
-   it there.** So 5b ships a field with **zero consumers**, and its only consumer is the next slice.
-   That is still the right split — 117 then adopts the component without also widening it — but the
-   earlier "lands on six surfaces, five never set it" framing described a change that does not exist.
-   **Rejected alternative, recorded before someone reaches for it:** styling the row from Matchups via
-   a wrapper class and a descendant selector avoids the component change but couples Matchups to the
-   component's internal DOM. That is worse than a field.
+3. **Item 87 slice 5b — IMPLEMENTED; review complete, awaiting merge.** The shared scoreboard now
+   accepts an optional, caller-decided `isCardOwnerTeam` participant flag and can render its neutral
+   row tint without changing unflagged output. It still has TWO callers (`OverviewPanel` and
+   `GameWeekPanel`) and ZERO consumers of the flag; Item 117 remains the first and only planned
+   consumer. Two adjacent tints meet at zero vertical inset with squared facing corners. Item 119
+   must provide its own containing block for every team-colour bar rather than rely on the tint's
+   conditional `relative`. A future Schedule consumer must also resolve its flush focus-ring
+   layering or add an inner gutter before setting the flag.
    **Design:** `docs/campaigns/item-87-followon-team-highlight.md`;
    `mockups/matchups-schedule-mockup.html`.
    **Kickoff:** `docs/prompts/platform-087-slice-5b-card-owner-row-codex-v1.md`.
@@ -88,12 +83,28 @@ committed `c9f76081`) surfaced four new items and one split; the remaining open 
    work, not to the tier.
    **Design:** `docs/campaigns/item-87-followon-section-ordering-resolutions.md` §5 (counts, which
    that document explicitly defers to this item); `docs/campaigns/item-87-followon-section-ordering.md`.
-6. **Item 119** — team-colour bar on the existing normaliser, with no accent for teams that have no
-   colour — which also removes the green fallback every FCS row carries today. OKLCH only if measured.
+6. **Item 119** — **restore the team-colour accent, removed in slice 5**, as a solid **8px muted bar
+   at ~72%** at the line start of each team row, on the existing HSL normaliser. No accent for teams
+   with no catalog colour — which also removes the green `#059669` fallback every FCS row carried.
+   OKLCH only if measured.
+   **Reframed 2026-09-06: this is a RESTORATION, not a widening.** `§A` of the design doc opens "the
+   incumbent renders 2–3px", and there is no longer an incumbent — `GameScoreboard.tsx` carried that
+   line-start accent and went with the orphaned legacy tile in slice 5, leaving `teamColors.ts` with
+   **zero production consumers**. The `§A` DECISION is unchanged; only the framing of the work is
+   stale.
+   **Covers Overview, Matchups AND Schedule** — the treatment belongs to the shared row, not to one
+   consumer.
+   **Depends on slice 5b.** That slice puts `isolation: isolate` on the participant row, which is what
+   lets an absolutely-positioned bar coexist with the card-owner tint; making row children
+   `position: relative` instead would re-anchor the bar and shift it on every highlighted row.
    **Blocks Item 134** — it changes row anatomy at the line-start slot, which is what Item 134's
    breakpoint is derived from. See that entry for the arithmetic.
-   **Design:** `docs/campaigns/item-87-followon-team-colour.md`;
-   `docs/campaigns/item-87-live-watchlist-scoreboard.md`.
+   **Design:** `docs/campaigns/item-87-followon-team-colour-regression.md` (read first — it corrects
+   the framing); `docs/campaigns/item-87-followon-team-colour.md` §A;
+   `docs/campaigns/item-87-followon-presentation-decisions.md`;
+   `docs/campaigns/item-87-live-watchlist-scoreboard.md`;
+   `mockups/live-scoreboard-mockup.html` and `mockups/matchups-schedule-mockup.html` (both now carry
+   the bar).
 7. **Item 134** — Overview three-column tier. **Must run AFTER Item 119**, which consumes its
    headroom. See the Item 134 entry.
 8. **Item 118** — Schedule status filter with counts. Purely additive; after the rework it filters.
@@ -1569,8 +1580,11 @@ and the odds footer on. **Carries a correctness fix, not only a restyle:** the s
 same owner→team mapping defect the Overview redesign fixed. Not in slice 5's scope, which touches
 this file only for the `ownerOutcomeRowClasses` carry-over. Depends on **Item 87 slice 5a**.
 
-**Open — owner decision:** card-owner treatment. The card owner's name repeats on one line of every
-scoreboard; the mockup toggles full weight against dimmed. Decide before implementation.
+**Card-owner treatment settled 2026-09-05; component seam implemented by slice 5b.** The caller marks
+each participant belonging to the card owner, and the shared scoreboard renders a neutral background
+tint without re-deriving ownership. Both rows tint when the owner holds both teams. Dimming and owner
+colour remain rejected. See `docs/campaigns/item-87-followon-team-highlight.md`; this item supplies
+the first consumer rather than widening the component again.
 
 **Dormant summary and grouping cleanup — retained from Item 116.** `formatSlateSummaryText`
 (`selectors/matchups.ts`) has no production caller; `MatchupsWeekPanel` consumes
@@ -2405,6 +2419,54 @@ Ships dormant.
   handed and keeps the existing static constants as the fallback; the health row is not wired to a
   durable plan until slice 3 lands. Do not build a plan reader in slice 2.
 - **Must not:** call QStash, read `QSTASH_TOKEN`, write durable state, or change any rendered output.
+
+**Slice 2 SHIPPED 2026-09-05** — `claude/102-slice-2-cron-synthesis` at `575ec6cd`, dormant. Two crons
+per job: dense over the dense hours at the job's existing rate, slow over the reconciliation tail
+MINUS those hours, so the pair covers every armed hour and no hour is billed twice. Measured from the
+shipped synthesizer against `schedule / 2026-all-all`: `live-scores` 63.2 runs/day annual and 190.7 in
+October against today's 480; `game-stats` 28.8 and 45.1 against 96. **These supersede the windows-only
+table above**, which was computed on the pre-slice-1 `kickoff + 24h` arming rule rather than slice 1's
+clusters; see the campaign doc.
+
+**Slice 3 inherits four things, three of them found by review on slice 2:**
+
+1. **Delivery health must stop extrapolating.** `previousScheduleSlotMs` treats a cron as eternal,
+   but a planner-owned cron is rewritten daily, so it derives a required slot from a day that ran a
+   different plan — roughly nineteen hours of false `late` on an armed day, and a fifteen-hour outage
+   reading `on-time` in the other direction. The record slice 3 already stores holds the previous
+   cron, which is the input that removes the guess. Slice 2 documents the hazard at the call site and
+   wires nothing.
+2. **The two-cron row.** One row carrying one cron cannot describe two schedules; restoring
+   six-minute in-window detection needs both, taken as `max(previousSlot(dense), previousSlot(slow))`.
+3. **A corrupt stored plan should surface as `invalid`/`unavailable`, not fall back to the fixed
+   contract.** Falling back claims a firing every three minutes while the real schedule is dark, so a
+   corrupt plan reads `late` continuously. That is a delivery-state decision and belongs with the row.
+4. **Thread the plan through `SchedulerDeliveryHealthOptions` when it is wired.** The policy functions
+   take a plan; `buildDeliveryRow` and `requiredStartedAtForJob` do not, so a partial wiring would
+   display one schedule and measure against another with no test failing.
+
+**Item 102 follow-ups from slice 2's final review** (none P0/P1; recorded under the owner's stop
+boundary rather than fixed on that branch):
+
+- **The idle slot can share a dense hour for windows slice 1's defaults never produce.** A tail-less
+  window (`slowEndMs === denseEndMs`) — admitted by the synthesizer's validated contract, reachable
+  through `derivePollingWindows(k, { guaranteeMs: CLUSTER_MARGIN_MS })` with an early kickoff, and
+  invited by the module's own note that a caller may construct windows to cover TBD games — yields
+  dense hours `0–5` and an idle slot at hour 0. One duplicate billed call per day on that shape. The
+  fix is a free-hour lookup plus a generator that ranges over the accepted contract, not just over
+  `derivePollingWindows` defaults.
+- **`validDenseStep`'s rejection of step 60 is right but its stated reason is stale** after the
+  dense/slow builders were split: `*/60` fires at minute 0 only and is no longer identical to the slow
+  cron. Only step 1 genuinely collides.
+- **The synthesis fallback `catch` is unqualified**, so it would swallow a programming error as well
+  as the deliberate validation refusal.
+
+**Slice 3 — SPLIT into 3a and 3b, owner decision 2026-09-06.** It had grown to seven deliverables
+across two subsystems with two distinct acceptance contracts, and the risky half rides with the
+additive half. **3a: the durable record + `inspect` divergence** — additive, dormant, `scripts/` plus
+a new store. **3b: the delivery-health consumer** — the four inherited items, touching functions every
+health path calls. 3a first, because 3b reads the record 3a writes.
+**Kickoff:** `docs/prompts/platform-102-slice-3a-planner-record-claude-v1.md`.
 
 **Slice 3 — the durable planner record, and `inspect` divergence against it.** The reconstructibility
 replacement, which **must exist before slice 4 takes cron ownership** — otherwise the tampering signal

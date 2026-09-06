@@ -1,3 +1,9 @@
+import {
+  deliveryExpectationForPlan,
+  synthesizePollingCrons,
+  type PollingCronPlan,
+} from '@/lib/schedule/pollingCron';
+import type { PollingWindow } from '@/lib/schedule/pollingWindows';
 import { getAppStateEntries } from '@/lib/server/appStateStore';
 import {
   EXTERNAL_SCHEDULER_JOBS,
@@ -36,7 +42,13 @@ export type SchedulerDeliveryState = 'on-time' | 'late' | 'missing' | 'invalid' 
 export type SchedulerDeliveryPolicy = {
   job: ExternalSchedulerJob;
   source: SchedulerSource;
-  /** The fixed UTC cron expression (pinned to the management scripts / vercel.json by tests). */
+  /**
+   * The UTC cron expression this job's delivery is measured against. On the fixed
+   * branch — every job today, and the seven the planner never owns — it is pinned
+   * to the management scripts / `vercel.json` by tests. For a planner-owned job
+   * given a plan it is DERIVED and pinned to nothing, so the parity test covers
+   * the fixed branch only.
+   */
   cron: string;
   cadenceLabel: string;
   /** Scheduler-DELIVERY tolerance (dispatch jitter + execution allowance) — NOT a provider-freshness threshold. */
@@ -120,9 +132,115 @@ const DELIVERY_POLICIES: Record<
   },
 };
 
-/** The full delivery policy for one job (source derived, never a second map). */
-export function schedulerDeliveryPolicy(job: ExternalSchedulerJob): SchedulerDeliveryPolicy {
-  const policy = DELIVERY_POLICIES[job];
+// ---------------------------------------------------------------------------
+// Planner-derived policy (PLATFORM-102 slice 2, collision 2).
+//
+// The two polling jobs are the ones whose cron becomes planner-owned, so they
+// are the only ones whose delivery expectation may be derived. Everything else
+// keeps a fixed contract pinned to the management scripts and `vercel.json`, and
+// a plan passed alongside them is IGNORED rather than applied — narrowing a job
+// the planner does not own would make delivery health claim a schedule QStash
+// was never sent.
+
+export type PlannerOwnedJob = Extract<ExternalSchedulerJob, 'live-scores' | 'game-stats'>;
+
+/**
+ * The jobs whose schedules the polling-window planner owns.
+ *
+ * Typed to the narrow union, not to `ExternalSchedulerJob[]`. Widened, this list
+ * accepted any job name and the compiler linked it to nothing: adding one made
+ * `isPlannerOwnedJob` a FALSE type predicate, left its dense step `undefined`,
+ * and threw a validation error out of a policy function every health path calls.
+ */
+export const PLANNER_OWNED_JOBS: readonly PlannerOwnedJob[] = ['live-scores', 'game-stats'];
+
+/**
+ * The dense cadence each planner-owned job polls at, in minutes. It stays exactly
+ * what the job runs today — a faster in-window cadence spends provider quota that
+ * dead days never spent, and it is Item 95 portion 2, gated on Item 94. A test
+ * pins each value against that job's fixed cron so the two cannot drift.
+ */
+const PLANNER_DENSE_STEP_MINUTES: Record<PlannerOwnedJob, number> = {
+  'live-scores': 3,
+  'game-stats': 15,
+};
+
+export function isPlannerOwnedJob(job: ExternalSchedulerJob): job is PlannerOwnedJob {
+  return (PLANNER_OWNED_JOBS as readonly ExternalSchedulerJob[]).includes(job);
+}
+
+/**
+ * The planner input a derived policy needs: the windows for one UTC day, and the
+ * midnight that day starts at (`utcHoursCovered`'s own contract).
+ *
+ * ABSENCE AND EMPTINESS ARE DIFFERENT INPUTS, and collapsing them would make two
+ * required behaviours the same case. Passing no plan at all means no planner
+ * record exists — the policy falls back to the fixed constants byte for byte,
+ * which is what makes this slice a no-op against production. Passing a plan whose
+ * `windows` is empty is a real plan for a day with no games, and it yields the
+ * hourly reconciliation schedule that carries the offseason.
+ */
+export type PollingPlanInput = {
+  windows: readonly PollingWindow[];
+  /** Midnight UTC of the day being planned. */
+  dayStartMs: number;
+};
+
+/** The dense and slow cron expressions one planner-owned job runs for a day. */
+export function pollingCronPlanForJob(
+  job: PlannerOwnedJob,
+  plan: PollingPlanInput
+): PollingCronPlan {
+  return synthesizePollingCrons(plan.windows, plan.dayStartMs, {
+    denseStepMinutes: PLANNER_DENSE_STEP_MINUTES[job],
+  });
+}
+
+/** The derived expectation, or the fixed contract when synthesis refuses the plan. */
+function derivedPolicyOrFixed(
+  job: PlannerOwnedJob,
+  plan: PollingPlanInput
+): { cron: string; cadenceLabel: string; graceMs: number } {
+  try {
+    return deliveryExpectationForPlan(pollingCronPlanForJob(job, plan));
+  } catch {
+    return DELIVERY_POLICIES[job];
+  }
+}
+
+/**
+ * The full delivery policy for one job (source derived, never a second map).
+ *
+ * With no `plan`, every job resolves to its fixed contract exactly as it did
+ * before PLATFORM-102 — nothing in production supplies one yet, so this ships
+ * dormant. With a plan, the two planner-owned jobs derive their cron, cadence
+ * label and grace from the windows instead of the hardcoded constants.
+ *
+ * DO NOT WIRE A PLAN HERE BEFORE SLICE 3. The hazard is named at this call site
+ * rather than only in the module it comes from, because this parameter is the one
+ * thing standing between a stored plan and a live delivery row:
+ * `previousScheduleSlotMs` extrapolates a DAILY-REWRITTEN cron backwards onto a
+ * day that ran a different plan, so a derived policy reports roughly nineteen
+ * hours of false `late` on an ordinary game day, and hides a fifteen-hour outage
+ * in the other direction. Slice 3 owns the fix — delivery health reading what the
+ * planner actually scheduled — and only then should a caller pass this.
+ *
+ * A SYNTHESIS FAILURE DEGRADES ONE ROW, never the page. Slice 3 is the slice that
+ * starts storing plan data, so a stored `dayStartMs` off by a second is a real
+ * future input; synthesis refuses it deliberately, and that refusal must not
+ * escape through `readSchedulerDeliveryHealth` and `buildSystemHealthViewModel`
+ * to take System Health down. The row falls back to the fixed contract, which is
+ * the same shape every other job publishes. Surfacing the corruption itself
+ * belongs to slice 3, which owns the record it came from.
+ */
+export function schedulerDeliveryPolicy(
+  job: ExternalSchedulerJob,
+  plan?: PollingPlanInput
+): SchedulerDeliveryPolicy {
+  const policy =
+    plan !== undefined && isPlannerOwnedJob(job)
+      ? derivedPolicyOrFixed(job, plan)
+      : DELIVERY_POLICIES[job];
   return {
     job,
     source: schedulerSourceForJob(job),
@@ -133,8 +251,8 @@ export function schedulerDeliveryPolicy(job: ExternalSchedulerJob): SchedulerDel
 }
 
 /** Every delivery policy, one per scheduled job, in canonical order. */
-export function schedulerDeliveryPolicies(): SchedulerDeliveryPolicy[] {
-  return EXTERNAL_SCHEDULER_JOBS.map((job) => schedulerDeliveryPolicy(job));
+export function schedulerDeliveryPolicies(plan?: PollingPlanInput): SchedulerDeliveryPolicy[] {
+  return EXTERNAL_SCHEDULER_JOBS.map((job) => schedulerDeliveryPolicy(job, plan));
 }
 
 // ---------------------------------------------------------------------------

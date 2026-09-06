@@ -1,6 +1,7 @@
 # Item 87 — Follow-on input: card-owner team highlight on Matchups
 
-> **Status:** input for review, not applied.
+> **Status:** decision settled; component seam implemented by Item 87 slice 5b; UI adoption remains
+> Item 117.
 
 Origin: member feedback on the Matchups page — *"this screen should color my teams."*
 
@@ -39,6 +40,39 @@ Two stacking bugs surfaced while building it, both worth knowing:
 **Lifting row content above the tint by making children `position: relative` breaks the team-colour bar.** The bar is absolutely positioned against `.sb-line`; making `.who` positioned re-anchors it, shifting every bar on a highlighted row. `isolation` removes the need for that rule entirely.
 
 ---
+
+## Adjacent tinted rows — squared facing corners
+
+**Owner decision 2026-09-06.** On a self game both rows tint, so two tints sit adjacent. Three
+behaviours are possible at the seam and only one is right:
+
+- **Rounded on both, no vertical bleed** (`inset: 0 -8px`) — the two blocks curve away from each other
+  and leave a light pinch at each end of the seam.
+- **Negative vertical bleed** (`inset: -1px -8px`, the mockup's original) — the tints overlap, and two
+  5.5% layers read as a **darker stripe** across the seam. **Ruled out**: a darker artifact is more
+  visible than a lighter one, and avoiding it is why the implementation moved to zero inset.
+- **Squared facing corners — CHOSEN.** When the adjacent row is also tinted, the touching corners
+  square off so the pair reads as one block with rounded outer corners only. No overlap, so no
+  doubled alpha, and no pinch.
+
+The component already knows both participants, so the condition is available without new plumbing.
+
+**Deviation from the mockup, recorded so it is not "restored".** The mockup specifies
+`inset: -1px -8px`. The implementation ships `0 -8px` plus squared facing corners. Anyone reconciling
+the two should change the mockup, not the code — the mockup's value predates the both-rows-tint rule
+and produces the darker stripe above.
+
+## Horizontal bleed and flush focus rings
+
+**Owner decision 2026-09-06.** Keep the 8px horizontal bleed and accept a caller constraint rather
+than changing this slice. Item 117's intended Matchups owner card has 14–16px horizontal padding, so
+the tint stops 6–8px before that card's outer focus ring. `GameWeekPanel` places its ring flush around
+the scoreboard and a tinted descendant would paint over it, but Schedule supplies no
+`isCardOwnerTeam` flag and is not a consumer of this feature.
+
+If a future user↔owner mapping makes Schedule a consumer, that integration must first paint its focus
+indicator above descendant content or add an inner horizontal gutter. The zero-consumer state is not
+evidence that a flush ring and the bleed compose safely; it is why no Schedule change belongs here.
 
 ## Residual — this ships the legibility fix, not the request
 

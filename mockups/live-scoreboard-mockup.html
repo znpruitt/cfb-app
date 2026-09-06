@@ -37,11 +37,8 @@
      query below is the real production rule; these force it for previewing and would
      not exist in the implementation. */
   /* Production tiering: 1 col below 760, 2 col to 1300, 3 col above.
-     Requirement is 1280 = 3 x 400px minimum column + 2 x 40px gap; the value is
-     1300, so 20px of deliberate headroom. Page padding is NOT a term: a
-     container-type: inline-size query measures the content box, so it is already
-     excluded, and adding it double-counts. 400px is the comfortable width for the
-     longest row: team + record + owner + score. */
+     1300 = 3 x 400px minimum column + 2 x 40px gap + padding. 400px is the
+     comfortable width for the longest row: team + record + owner + score. */
   @container (min-width: 1300px) { .game-list { grid-template-columns: 1fr 1fr 1fr; } }
 
   body.demo-2col .game-list { display: grid !important; grid-template-columns: 1fr 1fr !important; }
@@ -95,11 +92,22 @@
   }
   .live-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--text); }
 
-  .sb-line { display: flex; align-items: baseline; justify-content: space-between; font-size: 14px; padding: 2px 0; }
+  .sb-line {
+    display: flex; align-items: baseline; justify-content: space-between;
+    font-size: 14px; padding: 2px 0 2px 16px;
+    position: relative; isolation: isolate;
+  }
   .sb-line .who { display: flex; align-items: baseline; gap: 6px; overflow: hidden; white-space: nowrap; margin-right: 12px; }
   .sb-line .who > span { overflow: hidden; text-overflow: ellipsis; }
   /* Prefix slot holds a classification marker: AP rank OR FCS, mutually exclusive
      (AP Top 25 is FBS-only, so no team carries both). */
+  /* Team colour: identity, not semantics. Solid 8px muted bar in the line-start slot,
+     the position reserved for future logos. Colours are luminance-normalised for a dark
+     background — several team primaries are near-invisible at source values. */
+  .sb-line .tc {
+    display: block; position: absolute; left: 0; top: 2px; bottom: 2px;
+    width: 8px; border-radius: 2px; background: var(--tcol); opacity: 0.72;
+  }
   .sb-line .rank { color: var(--text-tertiary); font-size: 12px; }
   .sb-line .cls {
     color: var(--text-tertiary); font-size: 9.5px; font-weight: 600; letter-spacing: 0.06em;
@@ -196,8 +204,8 @@
           <div class="fx-why">Whited leads Chamness 44&ndash;25 &mdash; the most lopsided rivalry on record</div>
         </div>
         <div class="sb-status"><span class="live-badge">Live</span><span>Q3 8:12</span></div>
-        <div class="sb-line trailing"><span class="who"><span class="team">Michigan</span><span class="rec num">(5–3)</span><span class="owner">Whited</span></span><span class="score num">17</span></div>
-        <div class="sb-line"><span class="who"><span class="rank">#7</span><span class="team">Ohio State</span><span class="rec num">(7–1)</span><span class="owner">Chamness</span></span><span class="score num">24</span></div>
+        <div class="sb-line trailing" style="--tcol:#5E7BB5"><span class="who"><span class="tc"></span><span class="team">Michigan</span><span class="rec num">(5–3)</span><span class="owner">Whited</span></span><span class="score num">17</span></div>
+        <div class="sb-line" style="--tcol:#E04A4A"><span class="who"><span class="rank">#7</span><span class="tc"></span><span class="team">Ohio State</span><span class="rec num">(7–1)</span><span class="owner">Chamness</span></span><span class="score num">24</span></div>
       </div>
       <div class="scoreboard">
         <div class="oos">
@@ -206,8 +214,8 @@
           <div class="fx-why">Last season's top two meet again &mdash; Chamness took the title by 2 games</div>
         </div>
         <div class="sb-meta-row">Sat, Aug 29 &middot; 8:00 PM &middot; <span class="tv">ABC</span></div>
-        <div class="sb-line"><span class="who"><span class="rank">#3</span><span class="team">Georgia</span><span class="owner">Chamness</span></span><span class="anchor-soft num">6&ndash;0</span></div>
-        <div class="sb-line"><span class="who"><span class="rank">#9</span><span class="team">Ole Miss</span><span class="owner">BHooper</span></span><span class="anchor-soft num">5&ndash;1</span></div>
+        <div class="sb-line" style="--tcol:#E04545"><span class="who"><span class="rank">#3</span><span class="tc"></span><span class="team">Georgia</span><span class="owner">Chamness</span></span><span class="anchor-soft num">6&ndash;0</span></div>
+        <div class="sb-line" style="--tcol:#C25050"><span class="who"><span class="rank">#9</span><span class="tc"></span><span class="team">Ole Miss</span><span class="owner">BHooper</span></span><span class="anchor-soft num">5&ndash;1</span></div>
         <div class="sb-odds num">Georgia &minus;4.5 &middot; O/U 51.5</div>
       </div>
     </div>
@@ -221,58 +229,58 @@
   <div class="game-list" id="live-list">
       <div class="scoreboard">
         <div class="sb-status"><span class="live-badge">Live</span><span>Q3 8:21</span></div>
-        <div class="sb-line"><span class="who"><span class="team">Middle Tennessee State</span><span class="rec num">(3&ndash;5)</span><span class="owner">Shambaugh</span></span><span class="score num">13</span></div>
-        <div class="sb-line trailing"><span class="who"><span class="team">Florida International</span><span class="rec num">(2&ndash;6)</span><span class="owner">Maleski</span></span><span class="score num">10</span></div>
+        <div class="sb-line" style="--tcol:#4A78C4"><span class="who"><span class="tc"></span><span class="team">Middle Tennessee State</span><span class="rec num">(3&ndash;5)</span><span class="owner">Shambaugh</span></span><span class="score num">13</span></div>
+        <div class="sb-line trailing" style="--tcol:#5A85B5"><span class="who"><span class="tc"></span><span class="team">Florida International</span><span class="rec num">(2&ndash;6)</span><span class="owner">Maleski</span></span><span class="score num">10</span></div>
       </div>
       <div class="scoreboard">
         <div class="sb-status"><span class="live-badge">Live</span><span>Q4 6:18</span></div>
-        <div class="sb-line trailing"><span class="who"><span class="team">Memphis</span><span class="rec num">(4–4)</span><span class="owner">Stevens</span></span><span class="score num">24</span></div>
-        <div class="sb-line"><span class="who"><span class="team">Houston</span><span class="rec num">(6–2)</span><span class="owner">Ciprys</span></span><span class="score num">27</span></div>
+        <div class="sb-line trailing" style="--tcol:#4A78C4"><span class="who"><span class="tc"></span><span class="team">Memphis</span><span class="rec num">(4–4)</span><span class="owner">Stevens</span></span><span class="score num">24</span></div>
+        <div class="sb-line" style="--tcol:#E85050"><span class="who"><span class="tc"></span><span class="team">Houston</span><span class="rec num">(6–2)</span><span class="owner">Ciprys</span></span><span class="score num">27</span></div>
       </div>
       <div class="scoreboard">
         <div class="sb-status"><span class="live-badge">Live</span><span>Q3 11:02</span></div>
-        <div class="sb-line"><span class="who"><span class="rank">#9</span><span class="team">Ole Miss</span><span class="rec num">(7–1)</span><span class="owner">BHooper</span></span><span class="score num">28</span></div>
-        <div class="sb-line trailing"><span class="who"><span class="team">Tulane</span><span class="rec num">(5–3)</span><span class="owner">Gladney</span></span><span class="score num">17</span></div>
+        <div class="sb-line" style="--tcol:#C25050"><span class="who"><span class="rank">#9</span><span class="tc"></span><span class="team">Ole Miss</span><span class="rec num">(7–1)</span><span class="owner">BHooper</span></span><span class="score num">28</span></div>
+        <div class="sb-line trailing" style="--tcol:#4A8FD6"><span class="who"><span class="tc"></span><span class="team">Tulane</span><span class="rec num">(5–3)</span><span class="owner">Gladney</span></span><span class="score num">17</span></div>
       </div>
       <div class="scoreboard">
         <div class="sb-status"><span class="live-badge">Live</span><span>Q3 4:55</span></div>
-        <div class="sb-line"><span class="who"><span class="team">Utah</span><span class="rec num">(6–2)</span><span class="owner">Gladney</span></span><span class="score num">31</span></div>
-        <div class="sb-line trailing"><span class="who"><span class="team">Arizona State</span><span class="rec num">(3–5)</span><span class="owner">Stevens</span></span><span class="score num">20</span></div>
+        <div class="sb-line" style="--tcol:#C25050"><span class="who"><span class="tc"></span><span class="team">Utah</span><span class="rec num">(6–2)</span><span class="owner">Gladney</span></span><span class="score num">31</span></div>
+        <div class="sb-line trailing" style="--tcol:#D65C60"><span class="who"><span class="tc"></span><span class="team">Arizona State</span><span class="rec num">(3–5)</span><span class="owner">Stevens</span></span><span class="score num">20</span></div>
       </div>
       <div class="scoreboard overflow">
         <div class="sb-status"><span class="live-badge">Live</span><span>Q3 8:21</span></div>
-        <div class="sb-line"><span class="who"><span class="team">Middle Tennessee State</span><span class="rec num">(3–5)</span><span class="owner">Shambaugh</span></span><span class="score num">13</span></div>
-        <div class="sb-line trailing"><span class="who"><span class="team">Florida International</span><span class="rec num">(2–6)</span><span class="owner">Maleski</span></span><span class="score num">10</span></div>
+        <div class="sb-line" style="--tcol:#4A78C4"><span class="who"><span class="tc"></span><span class="team">Middle Tennessee State</span><span class="rec num">(3–5)</span><span class="owner">Shambaugh</span></span><span class="score num">13</span></div>
+        <div class="sb-line trailing" style="--tcol:#5A85B5"><span class="who"><span class="tc"></span><span class="team">Florida International</span><span class="rec num">(2–6)</span><span class="owner">Maleski</span></span><span class="score num">10</span></div>
       </div>
       <div class="scoreboard">
         <div class="sb-status"><span class="live-badge">Live</span><span>Q2 2:46</span><span class="eyebrow">&middot; Top matchup</span></div>
-        <div class="sb-line trailing"><span class="who"><span class="team">San José State</span><span class="rec num">(2–5)</span><span class="owner">Whited</span></span><span class="score num">0</span></div>
-        <div class="sb-line"><span class="who"><span class="rank">#14</span><span class="team">USC</span><span class="rec num">(7–1)</span><span class="owner">Chamness</span></span><span class="score num">21</span></div>
+        <div class="sb-line trailing" style="--tcol:#3E86D6"><span class="who"><span class="tc"></span><span class="team">San José State</span><span class="rec num">(2–5)</span><span class="owner">Whited</span></span><span class="score num">0</span></div>
+        <div class="sb-line" style="--tcol:#E04A4A"><span class="who"><span class="rank">#14</span><span class="tc"></span><span class="team">USC</span><span class="rec num">(7–1)</span><span class="owner">Chamness</span></span><span class="score num">21</span></div>
       </div>
       <div class="scoreboard">
         <div class="sb-status"><span class="live-badge">Live</span><span>Q2 0:42</span></div>
-        <div class="sb-line"><span class="who"><span class="team">Kansas</span><span class="rec num">(3–5)</span><span class="owner">Maleski</span></span><span class="score num">14</span></div>
-        <div class="sb-line"><span class="who"><span class="team">Baylor</span><span class="rec num">(4–4)</span><span class="owner">Shambaugh</span></span><span class="score num">14</span></div>
+        <div class="sb-line" style="--tcol:#4A8FE0"><span class="who"><span class="tc"></span><span class="team">Kansas</span><span class="rec num">(3–5)</span><span class="owner">Maleski</span></span><span class="score num">14</span></div>
+        <div class="sb-line" style="--tcol:#D8C68C"><span class="who"><span class="tc"></span><span class="team">Baylor</span><span class="rec num">(4–4)</span><span class="owner">Shambaugh</span></span><span class="score num">14</span></div>
       </div>
       <div class="scoreboard overflow">
         <div class="sb-status"><span class="live-badge">Live</span><span>Q2 9:30</span></div>
-        <div class="sb-line trailing"><span class="who"><span class="team">Duke</span><span class="rec num">(5–3)</span><span class="owner">Ciprys</span></span><span class="score num">7</span></div>
-        <div class="sb-line"><span class="who"><span class="team">Wake Forest</span><span class="rec num">(4–4)</span><span class="owner">Whited</span></span><span class="score num">13</span></div>
+        <div class="sb-line trailing" style="--tcol:#5578B5"><span class="who"><span class="tc"></span><span class="team">Duke</span><span class="rec num">(5–3)</span><span class="owner">Ciprys</span></span><span class="score num">7</span></div>
+        <div class="sb-line" style="--tcol:#D8C68C"><span class="who"><span class="tc"></span><span class="team">Wake Forest</span><span class="rec num">(4–4)</span><span class="owner">Whited</span></span><span class="score num">13</span></div>
       </div>
       <div class="scoreboard overflow">
         <div class="sb-status"><span class="live-badge">Live</span><span>Q2 1:14</span></div>
-        <div class="sb-line trailing"><span class="who"><span class="team">Iowa</span><span class="rec num">(5–3)</span><span class="owner">Shambaugh</span></span><span class="score num">3</span></div>
-        <div class="sb-line"><span class="who"><span class="team">Nebraska</span><span class="rec num">(4–4)</span><span class="owner">Chamness</span></span><span class="score num">10</span></div>
+        <div class="sb-line trailing" style="--tcol:#D8C68C"><span class="who"><span class="tc"></span><span class="team">Iowa</span><span class="rec num">(5–3)</span><span class="owner">Shambaugh</span></span><span class="score num">3</span></div>
+        <div class="sb-line" style="--tcol:#E04545"><span class="who"><span class="tc"></span><span class="team">Nebraska</span><span class="rec num">(4–4)</span><span class="owner">Chamness</span></span><span class="score num">10</span></div>
       </div>
       <div class="scoreboard">
         <div class="sb-status"><span class="live-badge">Live</span><span>Q1 2:37</span><span class="eyebrow">&middot; Top matchup</span></div>
-        <div class="sb-line trailing"><span class="who"><span class="team">NC State</span><span class="rec num">(4–3)</span><span class="owner">BHooper</span></span><span class="score num">0</span></div>
-        <div class="sb-line"><span class="who"><span class="team">Virginia</span><span class="rec num">(6–2)</span><span class="owner">Chamness</span></span><span class="score num">10</span></div>
+        <div class="sb-line trailing" style="--tcol:#E04545"><span class="who"><span class="tc"></span><span class="team">NC State</span><span class="rec num">(4–3)</span><span class="owner">BHooper</span></span><span class="score num">0</span></div>
+        <div class="sb-line" style="--tcol:#6E7CB8"><span class="who"><span class="tc"></span><span class="team">Virginia</span><span class="rec num">(6–2)</span><span class="owner">Chamness</span></span><span class="score num">10</span></div>
       </div>
       <div class="scoreboard">
         <div class="sb-status"><span class="state">Awaiting score</span><span>Kicked off 2:30 PM</span></div>
-        <div class="sb-line"><span class="who"><span class="team">Rice</span><span class="rec num">(2–6)</span><span class="owner">Maleski</span></span><span class="score num pending">&ndash;</span></div>
-        <div class="sb-line"><span class="who"><span class="team">Texas State</span><span class="rec num">(5–3)</span><span class="owner">Ciprys</span></span><span class="score num pending">&ndash;</span></div>
+        <div class="sb-line" style="--tcol:#5578B5"><span class="who"><span class="tc"></span><span class="team">Rice</span><span class="rec num">(2–6)</span><span class="owner">Maleski</span></span><span class="score num pending">&ndash;</span></div>
+        <div class="sb-line" style="--tcol:#C4506B"><span class="who"><span class="tc"></span><span class="team">Texas State</span><span class="rec num">(5–3)</span><span class="owner">Ciprys</span></span><span class="score num pending">&ndash;</span></div>
       </div>
 </div>
   <div class="expand-footer"><button class="linkbtn" onclick="var l=document.getElementById('live-list');l.classList.toggle('expanded');this.innerHTML = l.classList.contains('expanded') ? 'Collapse &uarr;' : 'Show 3 more live games &rarr;';">Show 3 more live games &rarr;</button></div>
@@ -286,33 +294,33 @@
   <div class="game-list" id="final-list">
       <div class="scoreboard">
         <div class="sb-status"><span class="state">Final</span></div>
-        <div class="sb-line trailing"><span class="who"><span class="team">Alabama</span><span class="rec num">(6–2)</span><span class="owner">Ciprys</span></span><span class="score num">3</span></div>
-        <div class="sb-line"><span class="who"><span class="team">Indiana</span><span class="rec num">(8–0)</span><span class="owner">Gladney</span></span><span class="score num">38</span></div>
+        <div class="sb-line trailing" style="--tcol:#E04545"><span class="who"><span class="tc"></span><span class="team">Alabama</span><span class="rec num">(6–2)</span><span class="owner">Ciprys</span></span><span class="score num">3</span></div>
+        <div class="sb-line" style="--tcol:#C25050"><span class="who"><span class="tc"></span><span class="team">Indiana</span><span class="rec num">(8–0)</span><span class="owner">Gladney</span></span><span class="score num">38</span></div>
       </div>
       <div class="scoreboard">
         <div class="sb-status"><span class="state">Final</span></div>
-        <div class="sb-line"><span class="who"><span class="team">Washington</span><span class="rec num">(6–2)</span><span class="owner">Stevens</span></span><span class="score num">38</span></div>
-        <div class="sb-line trailing"><span class="who"><span class="team">Boise State</span><span class="rec num">(5–3)</span><span class="owner">Whited</span></span><span class="score num">10</span></div>
+        <div class="sb-line" style="--tcol:#8B5FC4"><span class="who"><span class="tc"></span><span class="team">Washington</span><span class="rec num">(6–2)</span><span class="owner">Stevens</span></span><span class="score num">38</span></div>
+        <div class="sb-line trailing" style="--tcol:#3FA36B"><span class="who"><span class="tc"></span><span class="team">Boise State</span><span class="rec num">(5–3)</span><span class="owner">Whited</span></span><span class="score num">10</span></div>
       </div>
       <div class="scoreboard">
         <div class="sb-status"><span class="state">Final</span></div>
-        <div class="sb-line trailing"><span class="who"><span class="team">Texas Tech</span><span class="rec num">(4–4)</span><span class="owner">Maleski</span></span><span class="score num">0</span></div>
-        <div class="sb-line"><span class="who"><span class="rank">#6</span><span class="team">Oregon</span><span class="rec num">(7–1)</span><span class="owner">BHooper</span></span><span class="score num">23</span></div>
+        <div class="sb-line trailing" style="--tcol:#E04545"><span class="who"><span class="tc"></span><span class="team">Texas Tech</span><span class="rec num">(4–4)</span><span class="owner">Maleski</span></span><span class="score num">0</span></div>
+        <div class="sb-line" style="--tcol:#3F9B72"><span class="who"><span class="rank">#6</span><span class="tc"></span><span class="team">Oregon</span><span class="rec num">(7–1)</span><span class="owner">BHooper</span></span><span class="score num">23</span></div>
       </div>
       <div class="scoreboard">
         <div class="sb-status"><span class="state">Final</span></div>
-        <div class="sb-line"><span class="who"><span class="team">Illinois</span><span class="rec num">(5–3)</span><span class="owner">Whited</span></span><span class="score num">30</span></div>
-        <div class="sb-line trailing"><span class="who"><span class="team">Tennessee</span><span class="rec num">(5–3)</span><span class="owner">Stevens</span></span><span class="score num">28</span></div>
+        <div class="sb-line" style="--tcol:#E85050"><span class="who"><span class="tc"></span><span class="team">Illinois</span><span class="rec num">(5–3)</span><span class="owner">Whited</span></span><span class="score num">30</span></div>
+        <div class="sb-line trailing" style="--tcol:#E0A84A"><span class="who"><span class="tc"></span><span class="team">Tennessee</span><span class="rec num">(5–3)</span><span class="owner">Stevens</span></span><span class="score num">28</span></div>
       </div>
       <div class="scoreboard overflow">
         <div class="sb-status"><span class="state">Final</span></div>
-        <div class="sb-line trailing"><span class="who"><span class="team">Purdue</span><span class="rec num">(1–7)</span></span><span class="score num">6</span></div>
-        <div class="sb-line"><span class="who"><span class="team">Penn State</span><span class="rec num">(7–1)</span><span class="owner">Chamness</span></span><span class="score num">45</span></div>
+        <div class="sb-line trailing" style="--tcol:#D8C68C"><span class="who"><span class="tc"></span><span class="team">Purdue</span><span class="rec num">(1–7)</span></span><span class="score num">6</span></div>
+        <div class="sb-line" style="--tcol:#5E7BB5"><span class="who"><span class="tc"></span><span class="team">Penn State</span><span class="rec num">(7–1)</span><span class="owner">Chamness</span></span><span class="score num">45</span></div>
       </div>
       <div class="scoreboard overflow">
         <div class="sb-status"><span class="state">Final</span></div>
-        <div class="sb-line"><span class="who"><span class="team">UTSA</span><span class="rec num">(4–4)</span><span class="owner">Gladney</span></span><span class="score num">57</span></div>
-        <div class="sb-line trailing"><span class="who"><span class="team">Florida International</span><span class="rec num">(2–6)</span><span class="owner">BHooper</span></span><span class="score num">20</span></div>
+        <div class="sb-line" style="--tcol:#5578B5"><span class="who"><span class="tc"></span><span class="team">UTSA</span><span class="rec num">(4–4)</span><span class="owner">Gladney</span></span><span class="score num">57</span></div>
+        <div class="sb-line trailing" style="--tcol:#5A85B5"><span class="who"><span class="tc"></span><span class="team">Florida International</span><span class="rec num">(2–6)</span><span class="owner">BHooper</span></span><span class="score num">20</span></div>
       </div>
       
   </div>
@@ -329,50 +337,50 @@
       <div class="scoreboard">
         <div class="sb-title">Ranked spotlight</div>
         <div class="sb-meta-row">Sat, Aug 29 &middot; 7:30 PM &middot; <span class="tv">ABC</span></div>
-        <div class="sb-line"><span class="who"><span class="rank">#24</span><span class="team">Louisville</span><span class="owner">Stevens</span></span><span class="anchor-soft num">5&ndash;1</span></div>
-        <div class="sb-line"><span class="who"><span class="rank">#3</span><span class="team">Georgia</span><span class="owner">Chamness</span></span><span class="anchor-soft num">6&ndash;0</span></div>
+        <div class="sb-line" style="--tcol:#8B5FC4"><span class="who"><span class="rank">#24</span><span class="tc"></span><span class="team">Louisville</span><span class="owner">Stevens</span></span><span class="anchor-soft num">5&ndash;1</span></div>
+        <div class="sb-line" style="--tcol:#E04545"><span class="who"><span class="rank">#3</span><span class="tc"></span><span class="team">Georgia</span><span class="owner">Chamness</span></span><span class="anchor-soft num">6&ndash;0</span></div>
         <div class="sb-odds num">Georgia &minus;10.5 &middot; O/U 52.5</div>
       </div>
       <div class="scoreboard">
         <div class="sb-title empty">&nbsp;</div>
         <div class="sb-meta-row">Sat, Aug 29 &middot; 8:00 PM &middot; <span class="tv">ESPN2</span></div>
-        <div class="sb-line"><span class="who"><span class="team">Jacksonville State</span><span class="owner">Whited</span></span><span class="anchor-soft num">3&ndash;3</span></div>
-        <div class="sb-line"><span class="who"><span class="team">North Dakota State</span><span class="owner">Whited</span></span><span class="anchor-soft num">5&ndash;1</span></div>
+        <div class="sb-line" style="--tcol:#E04545"><span class="who"><span class="tc"></span><span class="team">Jacksonville State</span><span class="owner">Whited</span></span><span class="anchor-soft num">3&ndash;3</span></div>
+        <div class="sb-line" style="--tcol:#D8C68C"><span class="who"><span class="tc"></span><span class="team">North Dakota State</span><span class="owner">Whited</span></span><span class="anchor-soft num">5&ndash;1</span></div>
         <div class="sb-odds num">North Dakota State &minus;7.5 &middot; O/U 44.5</div>
       </div>
       <div class="scoreboard overflow">
         <div class="sb-title">Top matchup</div>
         <div class="sb-meta-row">Sat, Aug 29 &middot; 8:00 PM &middot; <span class="tv">FOX</span></div>
-        <div class="sb-line"><span class="who"><span class="team">Miami</span><span class="owner">Gladney</span></span><span class="anchor-soft num">4&ndash;2</span></div>
-        <div class="sb-line"><span class="who"><span class="team">Florida State</span><span class="owner">Maleski</span></span><span class="anchor-soft num">3&ndash;3</span></div>
+        <div class="sb-line" style="--tcol:#3FA36B"><span class="who"><span class="tc"></span><span class="team">Miami</span><span class="owner">Gladney</span></span><span class="anchor-soft num">4&ndash;2</span></div>
+        <div class="sb-line" style="--tcol:#C4506B"><span class="who"><span class="tc"></span><span class="team">Florida State</span><span class="owner">Maleski</span></span><span class="anchor-soft num">3&ndash;3</span></div>
         <div class="sb-odds num">Miami &minus;3.5 &middot; O/U 48.5</div>
       </div>
       <div class="scoreboard overflow">
         <div class="sb-title empty">&nbsp;</div>
         <div class="sb-meta-row">Sat, Aug 29 &middot; 10:15 PM</div>
-        <div class="sb-line"><span class="who"><span class="team">BYU</span><span class="owner">Ciprys</span></span><span class="anchor-soft num">4&ndash;2</span></div>
-        <div class="sb-line"><span class="who"><span class="team">TCU</span><span class="owner">Shambaugh</span></span><span class="anchor-soft num">2&ndash;4</span></div>
+        <div class="sb-line" style="--tcol:#5578B5"><span class="who"><span class="tc"></span><span class="team">BYU</span><span class="owner">Ciprys</span></span><span class="anchor-soft num">4&ndash;2</span></div>
+        <div class="sb-line" style="--tcol:#8F5FBF"><span class="who"><span class="tc"></span><span class="team">TCU</span><span class="owner">Shambaugh</span></span><span class="anchor-soft num">2&ndash;4</span></div>
         <div class="sb-odds num">BYU &minus;6.5 &middot; O/U 51.5</div>
       </div>
       <div class="scoreboard overflow">
         <div class="sb-title empty">&nbsp;</div>
         <div class="sb-meta-row">Sun, Sep 6 &middot; 3:30 PM</div>
-        <div class="sb-line"><span class="who"><span class="team">Fresno State</span><span class="owner">BHooper</span></span><span class="anchor-soft num">3&ndash;3</span></div>
-        <div class="sb-line"><span class="who"><span class="team">Nevada</span><span class="owner">Whited</span></span><span class="anchor-soft num">1&ndash;5</span></div>
+        <div class="sb-line" style="--tcol:#5E7BB5"><span class="who"><span class="tc"></span><span class="team">Fresno State</span><span class="owner">BHooper</span></span><span class="anchor-soft num">3&ndash;3</span></div>
+        <div class="sb-line" style="--tcol:#5A85B5"><span class="who"><span class="tc"></span><span class="team">Nevada</span><span class="owner">Whited</span></span><span class="anchor-soft num">1&ndash;5</span></div>
         <div class="sb-odds num">Line not yet posted</div>
       </div>
       <div class="scoreboard overflow">
         <div class="sb-title empty">&nbsp;</div>
         <div class="sb-meta-row">Fri, Sep 4 &middot; 7:00 PM</div>
         <div class="sb-line"><span class="who"><span class="cls">FCS</span><span class="team">Long Island</span><span class="owner">BHooper</span></span><span class="anchor-soft num">1&ndash;5</span></div>
-        <div class="sb-line"><span class="who"><span class="team">Kansas</span><span class="owner">Maleski</span></span><span class="anchor-soft num">3&ndash;5</span></div>
+        <div class="sb-line" style="--tcol:#4A8FE0"><span class="who"><span class="tc"></span><span class="team">Kansas</span><span class="owner">Maleski</span></span><span class="anchor-soft num">3&ndash;5</span></div>
         <div class="sb-odds num">Kansas &minus;24.5 &middot; O/U 55.5</div>
       </div>
       <div class="scoreboard overflow">
         <div class="sb-title">Ranked spotlight</div>
         <div class="sb-meta-row">Sun, Sep 6 &middot; 6:30 PM &middot; <span class="tv">ABC</span> &middot; Neutral site</div>
-        <div class="sb-line"><span class="who"><span class="rank">#24</span><span class="team">Louisville</span><span class="owner">Stevens</span></span><span class="anchor-soft num">5&ndash;1</span></div>
-        <div class="sb-line"><span class="who"><span class="rank">#9</span><span class="team">Ole Miss</span><span class="owner">BHooper</span></span><span class="anchor-soft num">6&ndash;1</span></div>
+        <div class="sb-line" style="--tcol:#8B5FC4"><span class="who"><span class="rank">#24</span><span class="tc"></span><span class="team">Louisville</span><span class="owner">Stevens</span></span><span class="anchor-soft num">5&ndash;1</span></div>
+        <div class="sb-line" style="--tcol:#C25050"><span class="who"><span class="rank">#9</span><span class="tc"></span><span class="team">Ole Miss</span><span class="owner">BHooper</span></span><span class="anchor-soft num">6&ndash;1</span></div>
         <div class="sb-odds num">Ole Miss &minus;6.5 &middot; O/U 49.5</div>
       </div>
   </div>

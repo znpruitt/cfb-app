@@ -1,7 +1,7 @@
 # CFB App Design Principles
 
 Status: Current
-Last verified: 2026-09-03
+Last verified: 2026-09-06
 Owner: Project documentation
 Canonical for: durable UI/UX and design-system principles — layout, tables, cards, color, typography, component presentation
 Supersedes: (none)
@@ -161,7 +161,7 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 
 ## Cards and game results
 
-- Game cards sit on a dark surface tint with a light border — discrete, bordered objects (see Containerization), with a per-line team-colour accent at the start of each team row, normalised for contrast against the dark surface via `teamColors.ts`. A team with no catalog colour currently receives the fallback accent (`#059669`, `teamColors.ts:24`); rendering no accent for those rows is proposed in `docs/campaigns/item-87-followon-team-colour.md` and not yet shipped
+- Game cards sit on a dark surface tint with a light border — discrete, bordered objects (see Containerization). **They do not currently render a team-colour accent.** The per-line accent formerly provided by `GameScoreboard.tsx` was removed with that component in Item 87 slice 5; `teamColors.ts` is retained with no production consumer pending **Item 119**, which restores the accent as an 8px muted bar (~72% opacity) at the line start of each team row, on the shared scoreboard row and therefore across Overview, Matchups and Schedule. The decision that a team with no catalog colour renders NO accent — rather than the former `#059669` fallback — ships with it. See [`docs/campaigns/item-87-followon-team-colour-regression.md`](docs/campaigns/item-87-followon-team-colour-regression.md) and [`docs/campaigns/item-87-followon-team-colour.md`](docs/campaigns/item-87-followon-team-colour.md) §A
 - The shared compact scoreboard uses a status row followed by away and home team lines. Each team is
   the primary label, a single-valued classification marker is its prefix, an owner is a tertiary
   inline suffix, and the state-relevant value stays right-anchored. The prefix has exactly one state:
@@ -175,6 +175,19 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   identity begins the row so a future logo slot can be inserted structurally; logos are not part of
   the current component. An optional context slot immediately before the status row provides
   additive space for a reason label and substance without changing the scoreboard rows
+- The optional `isCardOwnerTeam` participant modifier is a caller-supplied ownership decision; the
+  scoreboard never compares owner strings itself. When true, it renders a neutral 5.5%-white tint
+  behind that participant through an isolated negative-z pseudo-element at `inset: 0 -8px`, without
+  changing row layout. One tinted row keeps a 4px radius on all corners. When both rows are tinted,
+  the away row keeps only its top corners and the home row only its bottom corners, so they meet as
+  one block with no overlap, doubled alpha, separation, or pinched seam. Absent, `undefined`, and
+  false flags remain render-identical, and the modifier ships with zero consumers pending Item 117
+- **Horizontal-bleed integration constraint:** Item 117's Matchups owner card supplies 14–16px of
+  horizontal padding, so the tint's 8px bleed remains inside its outer focus ring. A flush wrapper
+  such as `GameWeekPanel` does not have that protection and must not start supplying the modifier
+  unless its focus indicator is painted above descendant content or it first gains an inner gutter.
+  The current Schedule caller supplies no flag; accepting this latent constraint does not authorize
+  a Schedule or focus-treatment change in slice 5b
 - Compact scoreboard header metadata stays on one line in this order: state or schedule notice,
   kickoff or game clock, broadcast, then `Neutral site`. Bullets are conditional separators before
   broadcast and neutral-site metadata, never leading decoration; a row containing only either label

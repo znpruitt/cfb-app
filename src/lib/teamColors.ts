@@ -1,3 +1,19 @@
+// NO PRODUCTION CONSUMER TODAY — this is SCHEDULED, not dead. Do not delete it in
+// a dead-code sweep.
+//
+// Item 87 slice 5 removed the last one: `GameScoreboard.tsx` rendered the 2-3px
+// line-start accent (`border-l-2` / `border-l-[3px]`, coloured from
+// `winnerAccentColor` / `rowAccentColor`) and went with the orphaned legacy tile.
+// `DESIGN.md` still described that accent as shipping, which is how the orphaning
+// went unnoticed.
+//
+// **Item 119 is the pending consumer** — it restores the treatment on the SHARED
+// scoreboard row as a solid 8px bar at ~72% opacity, across Overview, Matchups and
+// Schedule. It ships on this HSL normaliser first; OKLCH is a separate, optional
+// step (`docs/campaigns/item-87-followon-team-colour.md` §A, §B). Deleting this
+// module means Item 119 rebuilds the normaliser, the contrast lifting, and the
+// reserved-hue guard from scratch.
+
 import type { TeamCatalogItem } from './teamIdentity';
 
 export type TeamColorSource = 'primary' | 'alt' | 'fallback';

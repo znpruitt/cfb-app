@@ -399,12 +399,23 @@ breaks it is the case not thought of. **The tell is a docstring stronger than it
 step can collide", "coverage always holds", "the descriptor identifies one opponent". Each of those
 shipped here, each was false, and each was defended by fixtures that could not reach the failure.
 
+**And the space is the function's CONTRACT, not its callers' habits.** Generating inputs is only half
+of it: a generator seeded from what today's callers happen to pass tests the callers, not the
+function. `PLATFORM-102` slice 2's fourth round is the case — a **400,000-shape** sweep missed a
+reachable defect because it was generated from `derivePollingWindows`' defaults rather than from what
+`synthesizePollingCrons` **accepts**. That is the same error as a hand-picked fixture, one level up,
+and it is harder to see because the shape count looks like rigour. Derive the generator from the
+parameter types and the validator's admitted range; if a validator accepts a value the generator never
+produces, the gap is the bug you will ship.
+
 Named failure cases, all the same shape:
 
-- **PLATFORM-102 slice 2** took four review cycles. Every defect was an invariant stated more strongly
-  than it was tested — a validator that admitted colliding steps at both ends of its range, an idle
-  slot that overlapped a dense hour, a coverage claim disproved on a shape nobody picked. The
-  generated shape sweep that finally held would have caught all three earlier rounds in the first.
+- **PLATFORM-102 slice 2** took four review cycles, and the progression is the useful part: rounds 1-3
+  were hand-picked fixtures; round 4 generated shapes but drew them from a space narrower than the
+  contract. Every defect was an invariant stated more strongly than it was tested — a validator that
+  admitted colliding steps at both ends of its range, an idle slot that overlapped a dense hour, a
+  coverage claim disproved on a shape nobody picked. Each fix exposed the same mistake one level
+  further up.
 - **PLATFORM-135** shipped a fix, a full remediation round, and its own passing tests against a
   fixture built in the pre-draft shape — which cannot reach the production path at all, because
   `NoClaim` is written as a real owner after a draft. The tests certified a fix that changed nothing
@@ -510,6 +521,8 @@ When a test is retargeted because an API was retired, preserve every assertion a
 - Implementation prompts should include the relevant documentation updates **in scope** (registry entry, roadmap/next-tasks status, invariant or architecture notes the change affects).
 - Finalize documentation **immediately before merge, after code review/remediation is complete**, so the docs describe the actual shipped behavior — not the plan. Do not mark work "complete" in governance/registry/roadmap docs while review findings remain open.
 - When a change resolves or supersedes a previously-documented risk or follow-up, update that earlier note; when it leaves a known risk unresolved, keep it documented as unresolved rather than quietly dropping it.
+- **When a slice DELETES a rendered treatment, grep `DESIGN.md` for it before merging.** A removal leaves the doc claim standing, and `DESIGN.md` is canonical for UI — so the file then describes a treatment nothing renders, and the next reader trusts it. Named failure case: `PLATFORM-087` slice 5 removed the line-start team-colour accent along with the orphaned legacy tile, leaving `DESIGN.md:165` asserting a per-line accent with **zero production consumers**. That was the SECOND false team-colour claim in the same file from the same mechanism; the first described the treatment as top-and-bottom card borders and stood long enough that a design comparison was built on it. This is cheap and mechanical — the deletion is in the diff, so the grep terms are too.
+- **A module left with no production consumer must say why in the code.** Zero consumers is exactly the signature a dead-code sweep acts on, and a reviewer declining to delete it is one agent's judgement on one branch, not a durable signal. Name the item that will consume it. `src/lib/teamColors.ts` is the live example: orphaned by slice 5, retained for Item 119.
 
 ### Ledger ownership during closeout
 
