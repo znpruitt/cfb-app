@@ -114,8 +114,9 @@ STOP and report, without coding around it, if: the cron expression cannot expres
 under-covering (that is a real finding about collision 4, not a problem to paper over); deriving the
 delivery expectation forces a change to `SchedulerDeliveryState` or any of its four consumers
 (`deliveryStateDisplay`, `deliveryRowStatus`, `noReceiptExecutionLabel`, `systemHealthIssues.ts:352`)
-— the floor cadence was chosen specifically so that would not happen, so if it does, the decision
-needs revisiting; or making the policy derivable requires the health row to read durable state.
+— the two-schedule design was chosen specifically so that would not happen, so if it does, the
+decision needs revisiting; or making the policy derivable requires the health row to read durable
+state.
 
 **Explicitly out of scope:** the faster in-window cadence. It spends provider quota that dead days
 never spent, and it is Item 95 portion 2, gated on Item 94. Also out: `QSTASH_TOKEN`, any QStash
