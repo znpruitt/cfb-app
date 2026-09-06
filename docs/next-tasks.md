@@ -1575,13 +1575,32 @@ Dimming and owner colour remain rejected. See
 `docs/campaigns/item-87-followon-team-highlight.md`; this item supplies the first consumer rather
 than widening the component again.
 
-**Dormant summary and grouping cleanup — retained from Item 116.** `formatSlateSummaryText`
-(`selectors/matchups.ts`) has no production caller; `MatchupsWeekPanel` consumes
-`summarizeSlateOpponents` entries only for `.length`, which drives the "Show N more opponents"
-control. The preserved internal `NoClaim` / `NoClaim (FBS)` grouping keys collapse distinct unowned
-FBS opponents, so that count can understate the number of opponent teams even though every owner
-game row still renders. If this rework wires `entry.label` into JSX, it must suppress the sentinel
-at the presentation seam; otherwise decide whether to re-key or delete the dormant summary path.
+**Eyebrow tags convert to bronze — a LIVE `DESIGN.md:148` violation today.** `MatchupsWeekPanel.tsx:267`
+renders `UPSET` / `TOP 25` as **filled blue pills**
+(`dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-200`). `DESIGN.md:148` states blue signals
+interactivity or active state only — _"never use blue to mean 'featured' or 'important'"_ — and those
+tags are exactly an importance signal. So this is a correction to shipped, not a preference. The
+settled treatment is a **hairline-bordered bronze pill, no fill**:
+`border: 0.5px solid rgba(201,166,107,0.40)`, text `#dbc190`, per
+`docs/campaigns/item-87-followon-matchups-schedule-design.md` § _Eyebrow tags_ and the mockup at
+`matchups-schedule-mockup.html:73-76`. The mockup also right-aligns tags in the status row with
+`flex-wrap: nowrap`, so a tagged card gains no line.
+
+**The design doc's _Matchups — design decisions_ section is STALE on one point.** It still reads
+"**Open — card-owner treatment**" and describes a dimming toggle. That was settled 2026-09-05 as the
+neutral tint above, with dimming rejected. `docs/campaigns/item-87-followon-team-highlight.md` wins.
+This is the third stale claim found in that document — it predates the slice 5a/5b rulings, so treat
+its state-behaviour and treatment statements as needing a check against `DESIGN.md` and the
+team-highlight doc rather than as canonical.
+
+**Dormant summary and grouping cleanup — retained from Item 116, and widened by Item 135.**
+`formatSlateSummaryText` (`selectors/matchups.ts`) has no production caller. **Item 135 changed its
+output and left the decision here**: the opponent count now keys on team identity, so a slate with
+three FCS opponents yields `FCS, FCS, FCS` where it used to yield `FCS (x3)`, and a caller pairing the
+now-deduped groups with `slate.totalGames` would print `2 games · vs Self` for one game. **Decide
+whether to re-key its label or delete the dormant path.** If this rework wires `entry.label` into JSX
+it must suppress the `NoClaim (FBS)` sentinel at the presentation seam — `MatchupsWeekPanel:194`
+already does for the row descriptor, and `'FCS'` renders deliberately.
 
 - Backlog slug: `POLISH-MATCHUPS-SCOREBOARD-v1`
 
