@@ -480,24 +480,35 @@ export type RecordedScheduleIntent = {
 };
 
 /**
- * The THREE states of a recorded-intent lookup — PLATFORM-102 slice 3a, owner
+ * The FOUR states of a recorded-intent lookup — PLATFORM-102 slice 3a, owner
  * ruling 2026-09-06. Collapsing any two of them is the defect the fail-closed
- * rule exists to prevent.
+ * rule exists to prevent, and each maps onto exactly one state of the durable
+ * store's own read so an adapter never has to invent one.
  *
  * - `absent` — the planner has never recorded this schedule. Fall back to the
- *   fixed constant, exactly as before this slice.
+ *   fixed constant, exactly as before this slice. THE ONLY state that falls back.
  * - `intent` — diff live QStash state against what the planner last intended.
- * - `unreadable` — a record is present but unusable, or the store could not be
- *   read at all. REFUSE. Silently falling back to a constant a planner-owned cron
- *   no longer follows would report a tampered schedule as permanently `correct`.
+ * - `unreadable` — a record is PRESENT but unusable (corruption, or a shape from
+ *   a build that has been rolled back). REFUSE.
+ * - `unavailable` — the record STORE could not be read, so whether a record
+ *   exists is unknown. REFUSE — and note this is NOT `unreadable`: telling an
+ *   operator a record is "present but corrupt" during a store outage sends them
+ *   looking for a row that may not exist.
+ * - `indeterminate` — a planner upsert for this schedule was left unconfirmed, so
+ *   NEITHER the recorded intent nor the one before it is known to be in force.
+ *   REFUSE. This variant exists because the store can resolve to exactly this and
+ *   an adapter would otherwise have to report it as one of the two above, both of
+ *   which would be false.
+ *
+ * Silently falling back on any of the three refusals would report a tampered
+ * schedule as permanently `correct`.
  */
 export type RecordedIntentLookup =
   | { kind: 'absent' }
   | { kind: 'intent'; intent: RecordedScheduleIntent }
-  /** A record is PRESENT but unusable — corruption, or a shape from the future. */
   | { kind: 'unreadable' }
-  /** The record STORE could not be read; whether a record exists is unknown. */
-  | { kind: 'unavailable' };
+  | { kind: 'unavailable' }
+  | { kind: 'indeterminate' };
 
 /**
  * Reads the planner's last recorded intent for one schedule id.
@@ -564,21 +575,41 @@ async function readSchedule(
  * Why a recorded intent could not be used. Each refuses; each says something
  * different, because they send the operator somewhere different.
  */
-type IntentRefusal = 'unreadable' | 'unavailable' | 'foreign' | 'malformed';
+type IntentRefusal =
+  | 'unreadable'
+  | 'unavailable'
+  | 'indeterminate'
+  | 'foreign'
+  | 'malformed'
+  | 'contradicts-contract';
 
 const INTENT_REFUSAL_DETAIL: Record<IntentRefusal, string> = {
   unreadable: 'is present but could not be read',
   unavailable:
     'could not be read — the record store was unavailable, so whether a record exists is unknown',
+  indeterminate:
+    'records an upsert that was never confirmed, so no cron is known to be in force — re-run the planner, or confirm the live schedule by hand, before trusting this check',
   foreign: 'came back recorded for a DIFFERENT schedule id',
   malformed: 'came back in a shape this CLI will not print',
+  'contradicts-contract':
+    'disagrees with the fixed contract on a field the planner does not own (destination, method or retries) — the record, the schedule, or both have been tampered with',
 };
 
-/** C0, DEL and C1 — see the store's own parser for the measurement behind this. */
-function hasControlCharacter(value: string): boolean {
+/**
+ * Unsafe in this string's CONSUMER — the operator's terminal — which is the
+ * contract that governs it, not "looks like a control character". C0, DEL, C1,
+ * the U+2028/U+2029 line separators, and the bidi overrides and isolates.
+ * `new URL()` accepts every one of them, so it backstops none of this. Kept
+ * byte-identical to the durable store's `hasUnsafeCharacter`, and a test pins the
+ * two against the same table.
+ */
+function hasUnsafeCharacter(value: string): boolean {
   for (let index = 0; index < value.length; index += 1) {
     const code = value.charCodeAt(index);
     if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) return true;
+    if (code === 0x2028 || code === 0x2029) return true;
+    if (code >= 0x202a && code <= 0x202e) return true;
+    if (code >= 0x2066 && code <= 0x2069) return true;
   }
   return false;
 }
@@ -598,8 +629,9 @@ const INTENT_METHOD_PATTERN = /^[A-Z]{3,10}$/;
  * store's `RecordedScheduleIntent` twin is pinned to this shape by a test.
  */
 function usableIntent(intent: RecordedScheduleIntent): boolean {
+  if (typeof intent !== 'object' || intent === null) return false;
   const strings = [intent.scheduleId, intent.destination, intent.cron, intent.method];
-  if (strings.some((value) => typeof value !== 'string' || hasControlCharacter(value))) {
+  if (strings.some((value) => typeof value !== 'string' || hasUnsafeCharacter(value))) {
     return false;
   }
   if (!INTENT_SCHEDULE_ID_PATTERN.test(intent.scheduleId)) return false;
@@ -636,24 +668,42 @@ async function resolveExpectedContract(
   }
   if (lookup.kind === 'unreadable') return { kind: 'refused', reason: 'unreadable' };
   if (lookup.kind === 'unavailable') return { kind: 'refused', reason: 'unavailable' };
+  if (lookup.kind === 'indeterminate') return { kind: 'refused', reason: 'indeterminate' };
   if (lookup.kind === 'absent') return { kind: 'ok', contract, authority: 'fixed' };
+  // SHAPE BEFORE MEANING. The reader is injected, so `intent` may be absent or
+  // null at runtime whatever the type says; dereferencing it for the id
+  // comparison first threw a TypeError out of `runInspect` and the CLI wrapper
+  // turned that into an opaque failure tag — losing the very message this
+  // validation exists to produce.
+  if (!usableIntent(lookup.intent)) return { kind: 'refused', reason: 'malformed' };
   if (lookup.intent.scheduleId !== contract.scheduleId) {
     return { kind: 'refused', reason: 'foreign' };
   }
-  if (!usableIntent(lookup.intent)) return { kind: 'refused', reason: 'malformed' };
+  // ONLY `cron` IS SUBSTITUTED, because only `cron` is what the planner produces.
+  // `SynthesizedCron` carries a cron and nothing else; `destination`, `method` and
+  // `retries` are invariant constants the planner never varies, so letting a
+  // record override them widened what `inspect` will bless far past what the
+  // planner owns — a record naming `https://evil.example/...`, plus a schedule
+  // repointed to match, would have read as verified where the fixed contract
+  // exits 2. They are still RECORDED (the record of intent is unchanged); they
+  // are simply not the comparison basis.
+  //
+  // And a record that DISAGREES with the contract on one of them is not ignored
+  // either: the planner cannot produce such a record, so its existence is itself
+  // the tampering signal, and discarding it quietly would throw that signal away.
+  if (
+    lookup.intent.destination !== contract.destination ||
+    lookup.intent.method !== contract.method ||
+    lookup.intent.retries !== contract.retries
+  ) {
+    return { kind: 'refused', reason: 'contradicts-contract' };
+  }
   return {
     kind: 'ok',
-    // An explicit per-field substitution, not a spread: the five recorded fields
-    // replace their constants and every other contract field (usage text, debug
-    // env var, failure tag, auth-proof reference) stays exactly as declared.
-    contract: {
-      ...contract,
-      scheduleId: lookup.intent.scheduleId,
-      destination: lookup.intent.destination,
-      cron: lookup.intent.cron,
-      method: lookup.intent.method,
-      retries: lookup.intent.retries,
-    },
+    // One explicit field, not a spread: everything else — identity, destination,
+    // method, retries, usage text, debug env var, failure tag, auth-proof
+    // reference — stays exactly as declared in the repo.
+    contract: { ...contract, cron: lookup.intent.cron },
     authority: 'recorded-intent',
   };
 }

@@ -28,8 +28,8 @@ import type { ExternalSchedulerJob } from './schedulerExecutionStatus.ts';
  * WHY A BOUNDED SERIES AND NOT LATEST-ONLY. "When did this cron start diverging"
  * is the question the record exists to answer, and latest-only cannot answer it.
  * The planner writes once a day per job, so {@link POLLING_PLANNER_MAX_RUNS} is
- * roughly six months — a season plus the offseason either side. `inspect` reads
- * only the newest entry, which is a subset of what is kept.
+ * roughly THIRTEEN months — a season plus the offseason either side. `inspect`
+ * reads only the newest entry, which is a subset of what is kept.
  *
  * ALLOWLIST-ONLY, AND WHY A DENYLIST WILL NOT DO. `buildUpsertRequest` carries
  * TWO secrets in its header block — `Authorization: Bearer <QSTASH_TOKEN>` and
@@ -276,15 +276,50 @@ function projectPlannerScheduleRun(run: PlannerScheduleRun): PlannerScheduleRun 
 // Parsing (the read side)
 // ---------------------------------------------------------------------------
 //
-// Every scalar below is validated to a shape narrow enough to PRINT, because
-// `inspect` renders the recorded intent in its summary and in its divergence
-// messages. A field that reached those sinks unvalidated would turn the record
-// into an injection channel for the one output the operator reads while
-// diagnosing a tampering signal.
+// EVERY FIELD IS VALIDATED AGAINST ITS CONSUMER'S CONTRACT, not against a
+// hand-chosen notion of well-formedness. That distinction is the second review
+// round's root cause: validating each field to what LOOKED reasonable admitted
+// values that a specific downstream consumer forbids, and each round then found
+// the next such value rather than the last one. Stated per field:
+//
+//   at            → the sole ordering key AND the bound. Must be a parseable
+//                   instant that is not implausibly FUTURE: `sortAndBound` keeps
+//                   the newest at the tail, so one future-dated row pins the
+//                   comparison basis forever while valid runs are trimmed off the
+//                   old end. `schedulerExecutionStatus` reached the same
+//                   conclusion for the same reason (`PRIOR_FUTURE_SKEW_TOLERANCE_MS`).
+//   dayStartMs    → `synthesizePollingCrons`, whose `validDayStart` requires an
+//                   EXACT UTC midnight because an offset rotates the whole hour
+//                   field — the same window at 06:00Z arms hours 13-21 instead of
+//                   19-23. An earlier version of this parser accepted any finite
+//                   value on the theory that the record should preserve evidence
+//                   of a planner defect. That was wrong: a preserved-but-unmarked
+//                   corrupt day is indistinguishable from a good one to the
+//                   consumer, and Item 102's own rule is that a corrupt plan must
+//                   SURFACE rather than be used. Refusing is now visible, because
+//                   the row is counted in `droppedRuns`.
+//   windows       → `validWindows`: finite and `start <= denseEnd <= slowEnd`.
+//   intent.*      → an operator's TERMINAL, via `inspect`'s summary and its
+//                   divergence messages. See {@link hasUnsafeCharacter}.
+//   invocationId  → correlation only, never printed, so it degrades to null
+//                   rather than costing the row.
 
 const MAX_CRON_LENGTH = 120;
 const MAX_SCHEDULE_ID_LENGTH = 120;
 const MAX_DESTINATION_LENGTH = 300;
+/**
+ * How far past real time a stored `at` may be before the row is corruption.
+ * Mirrors `schedulerExecutionStatus`'s `PRIOR_FUTURE_SKEW_TOLERANCE_MS` and its
+ * reasoning: a legitimate row is stamped at its own run instant, so a value
+ * meaningfully ahead of now is a damaged row or a foreign writer — and unlike a
+ * merely-old timestamp, which self-heals on the next run, a future one PINS the
+ * newest end of the series indefinitely.
+ */
+export const POLLING_PLANNER_FUTURE_SKEW_MS = 5 * 60 * 1000;
+
+/** `synthesizePollingCrons`' own day unit; `validDayStart` is modulo this. */
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 const MAX_METHOD_LENGTH = 10;
 const MAX_RETRIES = 10;
 
@@ -307,14 +342,35 @@ const METHOD_PATTERN = /^[A-Z]{3,10}$/;
  * record forge an output line or emit terminal escapes during the exact
  * diagnosis that output exists for.
  */
-function hasControlCharacter(value: string): boolean {
+/**
+ * Characters that are unsafe in the CONSUMER of these strings — an operator's
+ * terminal — rather than characters that merely look unusual.
+ *
+ * Deriving the class from the consumer is what this round corrected. The first
+ * pass covered C0, DEL and C1, which is what "control character" suggests; it
+ * missed U+2028 and U+2029, which terminate a line in several renderers, and the
+ * bidi overrides, which visually reorder text so a value can read as something it
+ * is not. `new URL()` accepts EVERY one of them — measured:
+ *
+ *   U+2028 LINE SEPARATOR | flagged by the old scan: false | new URL: ACCEPTED
+ *   U+2029 PARAGRAPH SEP  | flagged by the old scan: false | new URL: ACCEPTED
+ *   U+202E RTL OVERRIDE   | flagged by the old scan: false | new URL: ACCEPTED
+ *
+ * so the URL parser is not a backstop for any of it.
+ *
+ * Scanned rather than matched by a regex: ESLint's `no-control-regex` refuses the
+ * literal, and suppressing a rule that exists to catch this class of character —
+ * inside the one function whose job is to catch it — would be the wrong trade.
+ */
+function hasUnsafeCharacter(value: string): boolean {
   for (let index = 0; index < value.length; index += 1) {
     const code = value.charCodeAt(index);
-    // C0 + DEL + C1. Scanned rather than matched by regex: ESLint's
-    // `no-control-regex` refuses the literal, and suppressing a rule that exists
-    // to catch exactly this class of character would be the wrong trade in the
-    // one function whose job is to catch it.
     if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) return true;
+    // U+2028 LINE SEPARATOR, U+2029 PARAGRAPH SEPARATOR.
+    if (code === 0x2028 || code === 0x2029) return true;
+    // Bidi embedding/override (U+202A-U+202E) and isolates (U+2066-U+2069).
+    if (code >= 0x202a && code <= 0x202e) return true;
+    if (code >= 0x2066 && code <= 0x2069) return true;
   }
   return false;
 }
@@ -328,7 +384,7 @@ function hasControlCharacter(value: string): boolean {
 function printableString(value: unknown, maxLength: number): string | null {
   if (typeof value !== 'string') return null;
   if (value.length === 0 || value.length > maxLength) return null;
-  return hasControlCharacter(value) ? null : value;
+  return hasUnsafeCharacter(value) ? null : value;
 }
 
 function parseCronExpression(value: unknown): string | null {
@@ -349,7 +405,7 @@ function parseScheduleId(value: unknown): string | null {
  * userinfo — the same fail-closed instinct as `resolveQstashBase`, for the same
  * reason: this string is echoed to an operator, and a credential can be smuggled
  * in a URL's userinfo without looking like one. `new URL()` alone is NOT that
- * check; see {@link hasControlCharacter}.
+ * check; see {@link hasUnsafeCharacter}.
  */
 function parseDestination(value: unknown): string | null {
   const text = printableString(value, MAX_DESTINATION_LENGTH);
@@ -470,15 +526,20 @@ function parseWindow(value: unknown): PollingWindow | null {
  * discarding the row, because correlation is best-effort and losing the record
  * costs more than losing the link to a receipt.
  */
-function parseRun(value: unknown): PollingPlannerRun | null {
+function parseRun(value: unknown, nowMs: number): PollingPlannerRun | null {
   if (typeof value !== 'object' || value === null) return null;
   const record = value as Record<string, unknown>;
   const raw = typeof record.at === 'string' ? record.at : '';
   if (!raw) return null;
   const parsedAt = Date.parse(raw);
   if (Number.isNaN(parsedAt)) return null;
+  // The ordering key's contract: a run happened, so it is not in the future.
+  if (parsedAt > nowMs + POLLING_PLANNER_FUTURE_SKEW_MS) return null;
   const dayStartMs = parseFiniteNumber(record.dayStartMs);
-  if (dayStartMs === null) return null;
+  // `validDayStart`'s contract, applied here rather than left to the consumer:
+  // an offset day rotates the entire cron hour field, and nothing throws on that
+  // path for a fallback to catch.
+  if (dayStartMs === null || dayStartMs % DAY_MS !== 0) return null;
   if (!Array.isArray(record.windows)) return null;
   const windows: PollingWindow[] = [];
   for (const entry of record.windows) {
@@ -513,14 +574,20 @@ function parseRun(value: unknown): PollingPlannerRun | null {
  * than throwing. On a READ that is right — degrade rather than take a caller
  * down. It is NOT right on a write; see {@link readPollingPlannerRunsForWrite}.
  */
-export function parsePollingPlannerRuns(value: unknown): PollingPlannerRunSeries {
+export function parsePollingPlannerRuns(
+  value: unknown,
+  // Injected so the future-skew bound is testable without a fixture that rots:
+  // a hardcoded future date stops being future, and the test then passes for the
+  // wrong reason at every commit after it.
+  nowMs: number = Date.now()
+): PollingPlannerRunSeries {
   const empty: PollingPlannerRunSeries = { runs: [], droppedRuns: 0 };
   if (typeof value !== 'object' || value === null) return empty;
   const raw = (value as { runs?: unknown }).runs;
   if (!Array.isArray(raw)) return empty;
   const runs: PollingPlannerRun[] = [];
   for (const entry of raw) {
-    const run = parseRun(entry);
+    const run = parseRun(entry, nowMs);
     if (run) runs.push(run);
   }
   // The count CARRIED FORWARD from previous writes plus the rows this parse just
@@ -575,7 +642,8 @@ export function appendPollingPlannerRun(
  * ever again. Only a value that is PRESENT and yields nothing is refused.
  */
 export function readPollingPlannerRunsForWrite(
-  value: unknown
+  value: unknown,
+  nowMs: number = Date.now()
 ): { ok: true; series: PollingPlannerRunSeries } | { ok: false } {
   if (value === null || value === undefined) {
     return { ok: true, series: { runs: [], droppedRuns: 0 } };
@@ -583,7 +651,7 @@ export function readPollingPlannerRunsForWrite(
   if (typeof value !== 'object') return { ok: false };
   const raw = (value as { runs?: unknown }).runs;
   if (!Array.isArray(raw)) return { ok: false };
-  const parsed = parsePollingPlannerRuns(value);
+  const parsed = parsePollingPlannerRuns(value, nowMs);
   if (raw.length > 0 && parsed.runs.length === 0) return { ok: false };
   return { ok: true, series: parsed };
 }
@@ -591,6 +659,20 @@ export function readPollingPlannerRunsForWrite(
 // ---------------------------------------------------------------------------
 // Durable read / write
 // ---------------------------------------------------------------------------
+
+/**
+ * Is this thrown value our own refusal, at any wrapping depth? `appStateStore`
+ * may wrap a callback throw once (cleanup failure) or twice (cleanup + retained
+ * lock failure), and both carry the original on `cause`.
+ */
+function isUnreadableRefusal(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current; depth += 1) {
+    if (current instanceof PollingPlannerRecordUnreadableError) return true;
+    current = current instanceof Error ? current.cause : null;
+  }
+  return false;
+}
 
 /** Thrown inside the write transaction to abort it without clobbering the row. */
 class PollingPlannerRecordUnreadableError extends Error {
@@ -635,7 +717,13 @@ export async function recordPollingPlannerRun(
     );
     return 'recorded';
   } catch (error) {
-    if (error instanceof PollingPlannerRecordUnreadableError) return 'unreadable';
+    // UNWRAP before classifying. A callback throw whose ROLLBACK also fails is
+    // re-wrapped by `appStateStore` as `AppStateTxnCleanupError` (with the
+    // original on `cause`), and a coinciding lock failure wraps it once more as
+    // `AppStateTxnCallbackLockError`. A bare `instanceof` therefore missed the
+    // refusal and reported `not-recorded` — "durably absent" — for a row that is
+    // present and corrupt, losing the one signal that needs an operator.
+    if (isUnreadableRefusal(error)) return 'unreadable';
     // A COMMIT or ROLLBACK failing AFTER mutation SQL was submitted leaves
     // durability genuinely unknown — `appStateStore` sets the threshold at
     // `writeAttempted` precisely because a submitted mutation may have executed

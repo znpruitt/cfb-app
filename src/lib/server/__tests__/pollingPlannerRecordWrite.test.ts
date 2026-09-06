@@ -198,7 +198,7 @@ test('a partial loss is COUNTED into the written value, not passed over in silen
 
   // Cumulative across writes, so a second partial loss adds rather than replaces.
   assert.equal(
-    await recordPollingPlannerRun(JOB, run('2026-09-07T04:00:00.000Z', '*/3 20 * * *')),
+    await recordPollingPlannerRun(JOB, run('2026-09-05T16:00:00.000Z', '*/3 20 * * *')),
     'recorded'
   );
   const later = await readPollingPlannerRuns(JOB);
@@ -285,6 +285,61 @@ test('an uncertain COMMIT is reported as INDETERMINATE, never as a loss', async 
       run('2026-09-06T04:00:00.000Z', '*/3 19 * * *')
     );
     assert.equal(outcome, 'indeterminate');
+  } finally {
+    __setAppStatePoolForTests(null);
+    if (previous === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previous;
+    __resetAppStateForTests();
+  }
+});
+
+/**
+ * A client whose stored row is CORRUPT (so the callback refuses) and whose
+ * ROLLBACK then also fails — the one path that re-wraps our refusal.
+ */
+class RollbackFailingClient {
+  async query(text: string): Promise<{ rows: unknown[] }> {
+    const sql = String(text).trim().toLowerCase();
+    if (sql.startsWith('rollback')) throw new Error('ROLLBACK failed');
+    if (sql.startsWith('select value')) {
+      return { rows: [{ value: { runs: [{ at: 'not-a-date' }] }, updated_at: new Date() }] };
+    }
+    return { rows: [{ present: true }] };
+  }
+  release(): void {}
+}
+
+class RollbackFailingPool {
+  async connect(): Promise<RollbackFailingClient> {
+    return new RollbackFailingClient();
+  }
+  async query(): Promise<{ rows: unknown[] }> {
+    return { rows: [{ present: true }] };
+  }
+  async end(): Promise<void> {}
+}
+
+test('an unreadable prior stays UNREADABLE even when the rollback also fails', async () => {
+  // `appStateStore` re-wraps a callback throw whose rollback failed as
+  // `AppStateTxnCleanupError` (original on `cause`), and a coinciding lock
+  // failure wraps it once more. A bare `instanceof` missed both and reported
+  // `not-recorded` — "durably absent" — for a row that is present and corrupt,
+  // losing the one signal that needs an operator. `providerUsageSeries` carries
+  // the identical classifier and is filed separately rather than diverged here.
+  const previous = process.env.DATABASE_URL;
+  process.env.DATABASE_URL = 'postgres://fake-host/fake-db';
+  __setAppStatePoolForTests(new RollbackFailingPool() as unknown as Pool);
+  try {
+    const outcome = await recordPollingPlannerRun(
+      JOB,
+      run('2026-09-05T04:00:00.000Z', '*/3 19 * * *')
+    );
+    assert.equal(
+      outcome,
+      'unreadable',
+      'a wrapped refusal is still a refusal, not a durable absence'
+    );
+    assert.notEqual(outcome, 'not-recorded');
   } finally {
     __setAppStatePoolForTests(null);
     if (previous === undefined) delete process.env.DATABASE_URL;

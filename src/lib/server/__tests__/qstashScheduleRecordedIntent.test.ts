@@ -410,3 +410,106 @@ test('an intent this CLI would not PRINT is refused before it reaches an output 
   );
   assert.equal(await SUBJECT.run(clean.deps), 0, clean.err.join(' | '));
 });
+
+// ---------------------------------------------------------------------------
+// Remediation round 2
+// ---------------------------------------------------------------------------
+
+test('ONLY the cron is substituted — the planner does not own the other fields', async () => {
+  // The round's most severe finding. `SynthesizedCron` carries a cron and nothing
+  // else, so `destination`, `method` and `retries` are invariant constants;
+  // letting a record override them meant a record naming another host, plus a
+  // schedule repointed to match, would read as `verified` where the fixed
+  // contract exits 2.
+  const evil = 'https://evil.example/api/cron/game-stats';
+  const { deps, err, out } = harness(
+    readbackFor(SUBJECT, { cron: PLANNER_CRON, destination: evil }),
+    (async () => ({
+      kind: 'intent' as const,
+      intent: { ...recordedIntent(), destination: evil },
+    })) as RunDeps['readRecordedIntent']
+  );
+
+  assert.equal(await SUBJECT.run(deps), 3, out.join(' | '));
+  assert.match(err.join('\n'), /field the planner does not own/);
+  assert.equal(
+    out.some((line) => line.includes('verified:')),
+    false,
+    'a repointed destination is never blessed'
+  );
+});
+
+test('a record contradicting the contract is REFUSED, not quietly ignored', async () => {
+  // Ignoring the disagreement would be safe for the comparison but would throw
+  // away the signal: the planner cannot produce such a record, so its existence
+  // is itself evidence that the record, the schedule, or both were tampered with.
+  for (const override of [
+    { destination: 'https://turfwar.games/api/cron/other' },
+    { method: 'POST' },
+    { retries: 3 },
+  ]) {
+    const { deps, err } = harness(readbackFor(SUBJECT, { cron: PLANNER_CRON }), (async () => ({
+      kind: 'intent' as const,
+      intent: { ...recordedIntent(), ...override },
+    })) as RunDeps['readRecordedIntent']);
+
+    assert.equal(await SUBJECT.run(deps), 3, `accepted ${JSON.stringify(override)}`);
+    assert.match(err.join('\n'), /disagrees with the fixed contract/);
+  }
+
+  // Positive control: the same reader with a contract-consistent record verifies.
+  const clean = harness(
+    readbackFor(SUBJECT, { cron: PLANNER_CRON }),
+    reader({ kind: 'intent', intent: recordedIntent() })
+  );
+  assert.equal(await SUBJECT.run(clean.deps), 0, clean.err.join(' | '));
+});
+
+test('an INDETERMINATE lookup has its own state and its own message', async () => {
+  // The store can resolve to exactly this — an upsert left unconfirmed, so
+  // neither cron is known to be in force. Without the variant an adapter would
+  // have to report it as `unreadable` or `unavailable`, both of which are false.
+  const { deps, err, calls } = harness(readbackFor(SUBJECT), reader({ kind: 'indeterminate' }));
+
+  assert.equal(await SUBJECT.run(deps), 3);
+  assert.equal(calls.length, 0);
+  const joined = err.join('\n');
+  assert.match(joined, /upsert that was never confirmed/);
+  assert.doesNotMatch(joined, /is present but could not be read/);
+  assert.doesNotMatch(joined, /record store was unavailable/);
+});
+
+test('a malformed reader RESULT refuses with its message instead of throwing', async () => {
+  // `usableIntent` ran after `lookup.intent.scheduleId` was dereferenced, so a
+  // reader returning `{kind:'intent'}` with no intent threw a TypeError out of
+  // `runInspect` and the wrapper turned it into an opaque failure tag — losing
+  // the designed message. Shape is now checked before meaning.
+  for (const intent of [undefined, null, 'a string', 42]) {
+    const { deps, err } = harness(readbackFor(SUBJECT), (async () => ({
+      kind: 'intent' as const,
+      intent,
+    })) as unknown as RunDeps['readRecordedIntent']);
+
+    assert.equal(await SUBJECT.run(deps), 3, `threw on ${JSON.stringify(intent) ?? 'undefined'}`);
+    assert.match(err.join('\n'), /shape this CLI will not print/);
+  }
+});
+
+test('the CLI and the store agree on the unsafe-character class', async () => {
+  // The two scans are re-declared rather than shared, because the CLI carries no
+  // application import. This pins them against one table so they cannot drift.
+  for (const code of [0x0000, 0x001f, 0x007f, 0x0085, 0x2028, 0x2029, 0x202a, 0x202e, 0x2066]) {
+    const destination = `https://turfwar.games/a${String.fromCharCode(code)}b`;
+    const { deps, err } = harness(readbackFor(SUBJECT, { cron: PLANNER_CRON }), (async () => ({
+      kind: 'intent' as const,
+      intent: { ...recordedIntent(), destination },
+    })) as RunDeps['readRecordedIntent']);
+
+    assert.equal(
+      await SUBJECT.run(deps),
+      3,
+      `the CLI accepted U+${code.toString(16).padStart(4, '0')} where the store refuses it`
+    );
+    assert.match(err.join('\n'), /shape this CLI will not print/);
+  }
+});

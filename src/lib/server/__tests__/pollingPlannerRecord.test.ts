@@ -9,6 +9,7 @@ import {
   buildPollingPlannerRun,
   latestRecordedIntentForSchedule,
   parsePollingPlannerRuns,
+  POLLING_PLANNER_FUTURE_SKEW_MS,
   POLLING_PLANNER_MAX_RUNS,
   projectPlannerScheduleIntent,
   readPollingPlannerRunsForWrite,
@@ -112,7 +113,11 @@ const WINDOW_SETS: PollingWindow[][] = [
   ],
 ];
 
-const DAY_STARTS = [1_764_028_800_000, 1_764_028_800_001, 0, -86_400_000] as const;
+// EXACT UTC MIDNIGHTS ONLY — the generator ranges over what the parser admits,
+// and the parser now enforces `validDayStart`'s contract. An offset day was in
+// this list until review pointed out that admitting it here meant admitting it
+// in the store, where it rotates the entire cron hour field downstream.
+const DAY_STARTS = [1_764_028_800_000, 0, -86_400_000, 1_735_689_600_000] as const;
 const INVOCATION_IDS = [null, '6f1b3c02-9c1a-4f4e-8f2b-1f2a3b4c5d6e', 'i'.repeat(200)] as const;
 const PREVIOUS_CRONS = [null, '*/3 * * * *', CRONS[5]] as const;
 const ACTIONS: readonly PlannerScheduleAction[] = ['applied', 'skipped'];
@@ -779,4 +784,99 @@ test('every outcome the type admits is classified — no silent default', () => 
       `outcome ${outcome} is unclassified`
     );
   }
+});
+
+// ---------------------------------------------------------------------------
+// Remediation round 2 — validation derived from each field's CONSUMER
+// ---------------------------------------------------------------------------
+
+test('a future-dated run is refused, because `at` is the ordering key', () => {
+  // Codex P2. `sortAndBound` keeps the newest at the tail, so ONE row stamped
+  // ahead of real time pins the comparison basis forever while valid runs are
+  // trimmed off the old end — a merely-old timestamp self-heals on the next run,
+  // a future one does not. `schedulerExecutionStatus` reached the same conclusion
+  // for the same reason.
+  //
+  // `nowMs` is INJECTED rather than fixed in the fixture: a hardcoded future date
+  // stops being future, and the test would then pass for the wrong reason at
+  // every commit after it.
+  const nowMs = Date.parse('2026-09-06T12:00:00.000Z');
+  const at = (offsetMs: number) => new Date(nowMs + offsetMs).toISOString();
+
+  const within = { ...minimalRun(at(POLLING_PLANNER_FUTURE_SKEW_MS - 1_000)) };
+  const beyond = { ...minimalRun(at(POLLING_PLANNER_FUTURE_SKEW_MS + 1_000)) };
+
+  assert.equal(
+    parsePollingPlannerRuns({ runs: [within] }, nowMs).runs.length,
+    1,
+    'ordinary clock skew is tolerated, exactly as the receipt store tolerates it'
+  );
+  assert.equal(parsePollingPlannerRuns({ runs: [beyond] }, nowMs).runs.length, 0);
+  assert.equal(
+    parsePollingPlannerRuns({ runs: [beyond] }, nowMs).droppedRuns,
+    1,
+    'and the refusal is counted, so it is visible rather than silent'
+  );
+  // Positive control on the SAME row: it is only the clock that refuses it.
+  assert.equal(
+    parsePollingPlannerRuns({ runs: [beyond] }, nowMs + 10_000).runs.length,
+    1,
+    'once real time catches up, the same row is ordinary'
+  );
+});
+
+test('a dayStartMs that is not an exact UTC midnight is refused', () => {
+  // Codex P2, and it overturns a decision I documented in round 1. I argued the
+  // record should PRESERVE evidence of a planner defect rather than erase it.
+  // That was wrong on its own terms: a preserved-but-unmarked corrupt day is
+  // indistinguishable from a good one to `synthesizePollingCrons`, which requires
+  // an exact midnight because an offset rotates the whole hour field — the same
+  // window at 06:00Z arms hours 13-21 instead of 19-23. Item 102's own rule is
+  // that a corrupt plan must SURFACE. It does: the row is dropped and counted.
+  const good = minimalRun('2026-09-06T06:00:00.000Z');
+  const midnight = 1_764_028_800_000;
+
+  assert.equal(
+    parsePollingPlannerRuns({ runs: [{ ...good, dayStartMs: midnight }] }).runs.length,
+    1
+  );
+  for (const offset of [1, -1, 43_200_000, 3_600_000]) {
+    assert.equal(
+      parsePollingPlannerRuns({ runs: [{ ...good, dayStartMs: midnight + offset }] }).runs.length,
+      0,
+      `accepted a day start offset by ${offset}ms`
+    );
+  }
+});
+
+test('the unsafe-character class is the TERMINAL’s contract, not ASCII intuition', () => {
+  // Codex P2 round 2. Round 1 covered C0, DEL and C1 — what "control character"
+  // suggests — and missed the Unicode line separators and the bidi overrides.
+  // Measured: `new URL()` ACCEPTS every one of these, so it backstops none of it.
+  const good = minimalRun('2026-09-06T06:00:00.000Z');
+  const unsafe = [
+    0x0000, 0x001f, 0x007f, 0x0085, 0x009f, 0x2028, 0x2029, 0x202a, 0x202e, 0x2066, 0x2069,
+  ];
+
+  for (const code of unsafe) {
+    const destination = `https://turfwar.games/a${String.fromCharCode(code)}b`;
+    assert.doesNotThrow(
+      () => new URL(destination),
+      `new URL accepts U+${code.toString(16)} — that is why this check exists`
+    );
+    const row = { ...good, slow: { ...good.slow, intent: { ...good.slow.intent, destination } } };
+    assert.equal(
+      parsePollingPlannerRuns({ runs: [row] }).runs.length,
+      0,
+      `accepted U+${code.toString(16).padStart(4, '0')}`
+    );
+  }
+  // Positive control: an ordinary non-ASCII character is NOT rejected — the rule
+  // is about what a terminal does with a character, not about it being unusual.
+  const accented = { ...good.slow.intent, destination: 'https://turfwar.games/café' };
+  assert.equal(
+    parsePollingPlannerRuns({ runs: [{ ...good, slow: { ...good.slow, intent: accented } }] }).runs
+      .length,
+    1
+  );
 });
