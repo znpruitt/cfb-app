@@ -91,7 +91,11 @@ import type { DraftPhase } from '../lib/draft';
 import type { LeagueStatus } from '../lib/league';
 import { resolveLeagueSeason } from '../lib/leagueSeason';
 import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
-import type { TeamRecordsByProviderGameId } from '../lib/selectors/teamRecordsClient';
+import {
+  EMPTY_TEAM_RECORDS_BY_PROVIDER_GAME_ID,
+  selectUsableTeamRecords,
+  type TeamRecordsByProviderGameId,
+} from '../lib/selectors/teamRecordsClient';
 import {
   isWeeklyRecapActiveSeason,
   selectWeeklyRecapTileState,
@@ -103,8 +107,6 @@ const EXPLICIT_SEASON = Number.parseInt(process.env.NEXT_PUBLIC_SEASON ?? '', 10
 const DEFAULT_SEASON = getDefaultRankingsSeason(
   Number.isFinite(EXPLICIT_SEASON) ? EXPLICIT_SEASON : null
 );
-const EMPTY_TEAM_RECORDS_BY_PROVIDER_GAME_ID: TeamRecordsByProviderGameId = {};
-
 type CFBScheduleAppProps = {
   leagueSlug?: string;
   leagueDisplayName?: string;
@@ -120,6 +122,7 @@ type CFBScheduleAppProps = {
   mostRecentArchivedYear?: number;
   canonicalStandings?: CanonicalStandings;
   teamRecordsByProviderGameId?: TeamRecordsByProviderGameId;
+  teamRecordsSnapshotAt?: number | null;
   /**
    * PLATFORM-109 — derived on the server by `canonicalStandingsClientProps`,
    * which the league pages spread alongside `canonicalStandings`. The clock is
@@ -293,6 +296,7 @@ export default function CFBScheduleApp({
   mostRecentArchivedYear,
   canonicalStandings,
   teamRecordsByProviderGameId = EMPTY_TEAM_RECORDS_BY_PROVIDER_GAME_ID,
+  teamRecordsSnapshotAt = null,
   seasonContext = 'in-season',
   initialGames = [],
   initialIssues = [],
@@ -335,6 +339,9 @@ export default function CFBScheduleApp({
 
   const [oddsByKey, setOddsByKey] = useState<Record<string, CombinedOdds>>({});
   const [scoresByKey, setScoresByKey] = useState<Record<string, ScorePack>>({});
+  const [invalidatedTeamRecordsSnapshotAt, setInvalidatedTeamRecordsSnapshotAt] = useState<
+    number | null
+  >(null);
   const [loadingLive, setLoadingLive] = useState<boolean>(false);
   const [loadingSchedule, setLoadingSchedule] = useState<boolean>(false);
   const [issues, setIssues] = useState<string[]>(initialIssues);
@@ -647,6 +654,11 @@ export default function CFBScheduleApp({
     }
     return m;
   }, [roster, isPreseason, initialPreseasonOwners]);
+  const usableTeamRecordsByProviderGameId = selectUsableTeamRecords({
+    teamRecordsByProviderGameId,
+    snapshotAt: teamRecordsSnapshotAt,
+    invalidatedSnapshotAt: invalidatedTeamRecordsSnapshotAt,
+  });
 
   const filteredWeekGames = useMemo(() => {
     if (selectedWeek == null) return [] as AppGame[];
@@ -1082,9 +1094,15 @@ export default function CFBScheduleApp({
   // from the (cache-only) score/schedule caches — no client standings
   // derivation and no upstream provider fetch (PLATFORM-075 preserved).
   const handleGamesFinalized = useCallback(() => {
+    // The six-hour records provider floor can leave this snapshot pre-game even
+    // after the score becomes final. Hide it until the RSC payload proves the
+    // records cache advanced beyond the snapshot this tab just invalidated.
+    setInvalidatedTeamRecordsSnapshotAt((prior) =>
+      Math.max(prior ?? 0, teamRecordsSnapshotAt ?? 0)
+    );
     router.refresh();
     refreshInsights();
-  }, [refreshInsights, router]);
+  }, [refreshInsights, router, teamRecordsSnapshotAt]);
 
   const { liveScoreObservation } = useLiveRefresh({
     selectedSeason,
@@ -1803,7 +1821,7 @@ export default function CFBScheduleApp({
                   games={games}
                   scoresByKey={scoresByKey}
                   oddsByKey={oddsByKey}
-                  teamRecordsByProviderGameId={teamRecordsByProviderGameId}
+                  teamRecordsByProviderGameId={usableTeamRecordsByProviderGameId}
                   rosterByTeam={rosterByTeam}
                   ownerColorMap={ownerColorMap}
                   canonicalStandings={canonicalStandings}
@@ -1871,7 +1889,7 @@ export default function CFBScheduleApp({
                   scoresByKey={scoresByKey}
                   rosterByTeam={rosterByTeam}
                   isDebug={IS_DEBUG}
-                  teamRecordsByProviderGameId={teamRecordsByProviderGameId}
+                  teamRecordsByProviderGameId={usableTeamRecordsByProviderGameId}
                   onSavePostseasonOverride={isAdmin ? savePostseasonOverride : undefined}
                   currentDateMs={liveStaleClock || null}
                   focusedGameId={focusedGameId}
@@ -1918,7 +1936,7 @@ export default function CFBScheduleApp({
                   scoresByKey={scoresByKey}
                   rosterByTeam={rosterByTeam}
                   isDebug={IS_DEBUG}
-                  teamRecordsByProviderGameId={teamRecordsByProviderGameId}
+                  teamRecordsByProviderGameId={usableTeamRecordsByProviderGameId}
                   onSavePostseasonOverride={isAdmin ? savePostseasonOverride : undefined}
                   displayTimeZone={presentationTimeZone}
                   rankingsByTeamId={rankingsByTeamId}

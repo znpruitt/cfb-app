@@ -6,7 +6,10 @@ import type { CombinedOdds } from '../lib/odds';
 import { formatGameMatchupLabel, usesNeutralSiteSemantics } from '../lib/gameUi';
 import { LEAGUE_TAG_LABELS } from '../lib/gameTags';
 import { deriveGameWeekPanelViewModel } from '../lib/selectors/gameWeek';
-import type { TeamRecordsByProviderGameId } from '../lib/selectors/teamRecordsClient';
+import {
+  EMPTY_TEAM_RECORDS_BY_PROVIDER_GAME_ID,
+  type TeamRecordsByProviderGameId,
+} from '../lib/selectors/teamRecordsClient';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
 import type { TeamRankingEnrichment } from '../lib/rankings';
 import type { ScorePack } from '../lib/scores';
@@ -15,7 +18,6 @@ import CompactGameScoreboard from './CompactGameScoreboard';
 
 type Game = AppGame;
 
-const EMPTY_TEAM_RECORDS: TeamRecordsByProviderGameId = {};
 const EYEBROW_TAG_CLASSES =
   'inline-flex shrink-0 rounded-full border border-[#c9a66b]/40 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#dbc190]';
 
@@ -58,7 +60,7 @@ export default function GameWeekPanel({
   scoresByKey,
   rosterByTeam,
   rankingsByTeamId = new Map(),
-  teamRecordsByProviderGameId = EMPTY_TEAM_RECORDS,
+  teamRecordsByProviderGameId = EMPTY_TEAM_RECORDS_BY_PROVIDER_GAME_ID,
   onSavePostseasonOverride,
   hideByes = false,
   displayTimeZone = getPresentationTimeZone(),
@@ -192,10 +194,7 @@ export default function GameWeekPanel({
                             className="group/tier2 text-xs dark:text-zinc-400"
                             open={focusedGameId === g.key ? true : undefined}
                           >
-                            <summary
-                              className="w-fit cursor-pointer list-none select-none py-0.5"
-                              aria-label={`More details for ${matchupLabel}`}
-                            >
+                            <summary className="w-fit cursor-pointer list-none select-none py-0.5">
                               <span className="group-open/tier2:hidden">More ↓</span>
                               <span className="hidden group-open/tier2:inline">Less ↑</span>
                             </summary>

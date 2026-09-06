@@ -15,8 +15,7 @@ import {
 import { buildWeekLabelMap, formatWeekLabel } from '../lib/weekLabel';
 import { formatExpandedKickoff, formatPrimaryBroadcastLabel } from '../lib/gameCardPresentation';
 import { displayOwner } from '../lib/gameOwnership';
-import { formatGameMatchupLabel } from '../lib/gameUi';
-import { normalizeStatusTokens } from '../lib/gameStatus';
+import { formatGameMatchupLabel, formatLiveGameClock } from '../lib/gameUi';
 import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import {
   deriveLeagueInsights,
@@ -60,13 +59,13 @@ import type { ScorePack } from '../lib/scores';
 import { standingsCoverageNoticeWithSubject } from '../lib/standings';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
 import type { StandingsHistory } from '../lib/standingsHistory';
-import type {
-  GameTeamRecordsClient,
-  TeamRecordsByProviderGameId,
+import {
+  EMPTY_TEAM_RECORDS_BY_PROVIDER_GAME_ID,
+  type GameTeamRecordsClient,
+  type TeamRecordsByProviderGameId,
 } from '../lib/selectors/teamRecordsClient';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
 
-const EMPTY_TEAM_RECORDS_BY_PROVIDER_GAME_ID: TeamRecordsByProviderGameId = {};
 const EMPTY_OVERVIEW_ODDS_BY_KEY: Record<string, CombinedOdds> = {};
 
 /**
@@ -633,33 +632,6 @@ function CondensedStandingsTable({
   );
 }
 
-const SCOREBOARD_ISO_DATE_PREFIX_RE = /^\d{4}-\d{2}-\d{2}[t\s]\d{2}:\d{2}/i;
-const SCOREBOARD_ISO_UTC_SUFFIX_RE = /z$/i;
-
-function liveScoreboardClock(score: ScorePack | null | undefined): string {
-  const status = score?.status.trim() ?? '';
-  const statusTokens = normalizeStatusTokens(status);
-  const hasGenericLiveStatus =
-    statusTokens === 'in progress' ||
-    statusTokens === 'inprogress' ||
-    statusTokens === 'status in progress' ||
-    statusTokens === 'live' ||
-    statusTokens === 'status live';
-
-  const scoreTime = score?.time?.trim() ?? '';
-  const looksLikeKickoffTimestamp =
-    scoreTime.length > 0 &&
-    (SCOREBOARD_ISO_DATE_PREFIX_RE.test(scoreTime) ||
-      SCOREBOARD_ISO_UTC_SUFFIX_RE.test(scoreTime)) &&
-    Number.isFinite(Date.parse(scoreTime));
-  const clock = looksLikeKickoffTimestamp ? '' : scoreTime;
-
-  if (hasGenericLiveStatus) return clock;
-  if (!status) return clock;
-  if (!clock || status.toLocaleLowerCase().includes(clock.toLocaleLowerCase())) return status;
-  return `${status} ${clock}`;
-}
-
 function GameCardList({
   items,
   rankingsByTeamId,
@@ -694,7 +666,9 @@ function GameCardList({
             key={game.key}
             state={isAwaitingScore ? 'awaiting' : state}
             clock={
-              state === 'live' && !isAwaitingScore ? liveScoreboardClock(item.score) : undefined
+              state === 'live' && !isAwaitingScore
+                ? (formatLiveGameClock(item.score) ?? undefined)
+                : undefined
             }
             matchupLabel={formatGameMatchupLabel(game)}
             away={{

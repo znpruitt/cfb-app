@@ -15,6 +15,7 @@ import { getCanonicalStandings, type CanonicalStandings } from '@/lib/selectors/
 import { selectSeasonContext, type SeasonContext } from '@/lib/selectors/seasonContext';
 import type { StandingsHistoryWeekSnapshot } from '@/lib/standingsHistory';
 import {
+  selectUsableTeamRecords,
   teamRecordsClientProps,
   type TeamRecordsByProviderGameId,
 } from '@/lib/selectors/teamRecordsClient';
@@ -89,6 +90,7 @@ type CFBScheduleAppProps = {
   seasonContext?: SeasonContext;
   initialNowMs?: number;
   teamRecordsByProviderGameId?: TeamRecordsByProviderGameId;
+  teamRecordsSnapshotAt?: number | null;
 };
 
 /** The pages return `<main><CFBScheduleApp {...props} /></main>`; read the props. */
@@ -343,6 +345,11 @@ test('every league surface resolves pid-native records from the authoritative st
 
   for (const [name, render] of SURFACES) {
     const props = appProps(await render(SLUG));
+    assert.equal(
+      props.teamRecordsSnapshotAt,
+      Date.UTC(YEAR, 8, 2),
+      `${name} must retain records-cache freshness evidence across the client boundary`
+    );
     assert.deepEqual(
       props.teamRecordsByProviderGameId?.['401868946'],
       {
@@ -373,6 +380,40 @@ test('the client projection uses participant ids only and preserves withheld abs
     withheld.teamRecordsByProviderGameId.withheld,
     { away: null, home: { wins: 0, losses: 0 } },
     'a deliberately withheld outcome must stay absent rather than render as 0-0'
+  );
+});
+
+test('a finalization-invalidated records snapshot stays withheld until the cache advances', () => {
+  const records: TeamRecordsByProviderGameId = {
+    final: { away: { wins: 6, losses: 0 }, home: { wins: 4, losses: 2 } },
+  };
+
+  assert.strictEqual(
+    selectUsableTeamRecords({
+      teamRecordsByProviderGameId: records,
+      snapshotAt: 100,
+      invalidatedSnapshotAt: null,
+    }),
+    records,
+    'records remain current before this tab observes a final transition'
+  );
+  assert.deepEqual(
+    selectUsableTeamRecords({
+      teamRecordsByProviderGameId: records,
+      snapshotAt: 100,
+      invalidatedSnapshotAt: 100,
+    }),
+    {},
+    'the pre-final snapshot must not render beside the newly final score'
+  );
+  assert.strictEqual(
+    selectUsableTeamRecords({
+      teamRecordsByProviderGameId: records,
+      snapshotAt: 101,
+      invalidatedSnapshotAt: 100,
+    }),
+    records,
+    'a newer records snapshot restores the current record on every surface'
   );
 });
 
@@ -409,6 +450,7 @@ test('every league surface degrades a records-cache rejection to empty record pr
       {},
       `${name} must render with empty record props when the optional records read rejects`
     );
+    assert.equal(props.teamRecordsSnapshotAt, null);
   }
 });
 
@@ -432,6 +474,7 @@ test('every league surface degrades an optional schedule rejection to empty reco
       {},
       `${name} must render with empty record props when the optional schedule read rejects`
     );
+    assert.equal(props.teamRecordsSnapshotAt, null);
   }
 });
 

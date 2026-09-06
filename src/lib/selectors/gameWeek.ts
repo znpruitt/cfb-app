@@ -3,21 +3,24 @@ import {
   formatScheduleStatusLabel,
   formatScoreSummaryLabel,
   isDisruptedStatusLabel,
-  normalizeStatusTokens,
 } from '../gameStatus';
 import { formatPrimaryBroadcastLabel, formatVenueLabel } from '../gameCardPresentation';
 import { computeGameTags, prioritizeGameTags, type LeagueGameTag } from '../gameTags';
-import type { CombinedOdds } from '../odds';
+import { deriveFavoriteSpreadPair, type CombinedOdds } from '../odds';
 import type { TeamRankingEnrichment } from '../rankings';
 import type { ScorePack } from '../scores';
 import { getGameParticipantTeamId, type AppGame } from '../schedule';
-import type { GameTeamRecordsClient, TeamRecordsByProviderGameId } from './teamRecordsClient';
+import {
+  EMPTY_TEAM_RECORDS_BY_PROVIDER_GAME_ID,
+  type GameTeamRecordsClient,
+  type TeamRecordsByProviderGameId,
+} from './teamRecordsClient';
 import { groupGamesByDisplayDate } from '../weekPresentation';
 import { isPolicyFcsConference } from '../conferenceSubdivision';
 import { getOwnerForGameSide } from '../gameOwnership';
+import { formatLiveGameClock } from '../gameUi';
 
 export type ScheduleScoreboardState = 'scheduled' | 'live' | 'final' | 'awaiting';
-const EMPTY_TEAM_RECORDS: TeamRecordsByProviderGameId = {};
 
 function resolveSummaryStateLabel(
   game: AppGame,
@@ -69,34 +72,6 @@ function formatScheduleKickoff(
   });
 }
 
-const ISO_DATE_PREFIX_RE = /^\d{4}-\d{2}-\d{2}[t\s]\d{2}:\d{2}/i;
-const ISO_UTC_SUFFIX_RE = /z$/i;
-
-function formatLiveGameClock(score: ScorePack | undefined): string | null {
-  if (!score) return null;
-
-  const status = score.status.trim();
-  const statusTokens = normalizeStatusTokens(status);
-  const hasGenericLiveStatus =
-    statusTokens === 'in progress' ||
-    statusTokens === 'inprogress' ||
-    statusTokens === 'status in progress' ||
-    statusTokens === 'live' ||
-    statusTokens === 'status live';
-
-  const scoreTime = score.time?.trim() ?? '';
-  const looksLikeKickoffTimestamp =
-    scoreTime.length > 0 &&
-    (ISO_DATE_PREFIX_RE.test(scoreTime) || ISO_UTC_SUFFIX_RE.test(scoreTime)) &&
-    Number.isFinite(Date.parse(scoreTime));
-  const clock = looksLikeKickoffTimestamp ? '' : scoreTime;
-
-  if (hasGenericLiveStatus) return clock || null;
-  if (!status) return clock || null;
-  if (!clock || status.toLocaleLowerCase().includes(clock.toLocaleLowerCase())) return status;
-  return `${status} ${clock}`;
-}
-
 function formatMoneyline(value: number | null): string | null {
   if (value == null) return null;
   return value > 0 ? `+${value}` : `${value}`;
@@ -109,8 +84,10 @@ function formatOddsSummary(
   if (!odds) return null;
 
   const segments: string[] = [];
-  if (odds.favorite && odds.spread != null) {
-    segments.push(`Spread: ${odds.favorite} ${odds.spread}`);
+  const favoriteSide = deriveFavoriteSpreadPair(odds.homeSpread, odds.awaySpread)?.favoriteSide;
+  const favoriteName = favoriteSide ? teamNames[favoriteSide] : odds.favorite;
+  if (favoriteName && odds.spread != null) {
+    segments.push(`Spread: ${favoriteName} ${odds.spread}`);
   } else if (odds.spread != null) {
     segments.push(`Spread: ${odds.spread}`);
   }
@@ -239,7 +216,7 @@ export function deriveGameWeekPanelViewModel(params: {
     scoresByKey,
     rosterByTeam,
     rankingsByTeamId,
-    teamRecordsByProviderGameId = EMPTY_TEAM_RECORDS,
+    teamRecordsByProviderGameId = EMPTY_TEAM_RECORDS_BY_PROVIDER_GAME_ID,
     displayTimeZone,
     currentDateMs,
   } = params;

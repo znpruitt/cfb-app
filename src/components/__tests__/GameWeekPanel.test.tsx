@@ -887,6 +887,75 @@ test('moneyline-only odds use the same scoreboard names as the participant rows'
   assert.doesNotMatch(html, /No odds/);
 });
 
+test('spread favorite uses the same scoreboard name as its participant row', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'named-spread',
+          csvAway: 'Mississippi State',
+          csvHome: 'Mississippi',
+          participants: {
+            away: {
+              kind: 'team',
+              teamId: 'mississippi-state',
+              displayName: 'Mississippi State',
+              canonicalName: 'Mississippi State',
+              rawName: 'Mississippi State',
+              labels: {
+                displayName: 'Mississippi State',
+                shortDisplayName: 'Mississippi State',
+                scoreboardName: 'MSST',
+              },
+            },
+            home: {
+              kind: 'team',
+              teamId: 'mississippi',
+              displayName: 'Mississippi',
+              canonicalName: 'Mississippi',
+              rawName: 'Ole Miss',
+              labels: {
+                displayName: 'Mississippi',
+                shortDisplayName: 'Ole Miss',
+                scoreboardName: 'OLE MISS',
+              },
+            },
+          },
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{
+        'named-spread': {
+          favorite: 'Mississippi State',
+          spread: -3.5,
+          homeSpread: 3.5,
+          awaySpread: -3.5,
+          spreadPriceHome: -110,
+          spreadPriceAway: -110,
+          total: null,
+          mlHome: null,
+          mlAway: null,
+          overPrice: null,
+          underPrice: null,
+          source: 'DraftKings',
+          bookmakerKey: 'draftkings',
+          capturedAt: '2025-09-01T12:00:00.000Z',
+          lineSourceStatus: 'latest',
+        },
+      }}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /data-scoreboard-team="away">MSST<\/span>/);
+  assert.match(html, /Spread: MSST -3.5/);
+  assert.doesNotMatch(html, /Spread: Mississippi State/);
+});
+
 test('team rows keep owners while conference remains a separate tier-2 line', () => {
   const html = renderToStaticMarkup(
     <GameWeekPanel
@@ -1118,6 +1187,12 @@ test('tier 1 renders kickoff while tier 2 preserves venue on its own line', () =
   assert.match(
     html,
     /data-schedule-tier2-venue[^>]*>Boone Pickens Stadium • Stillwater, OK<\/div>/
+  );
+  assert.match(html, /<summary[^>]*>[\s\S]*More ↓[\s\S]*Less ↑[\s\S]*<\/summary>/);
+  assert.doesNotMatch(
+    html,
+    /<summary[^>]*aria-label=/,
+    'the native disclosure name must follow its visible More/Less label'
   );
 });
 
