@@ -179,17 +179,24 @@ touches no component file.
 | lane | worktree | sequence |
 | --- | --- | --- |
 | **UI spine** | `cfb-app-codex` | slice 5 + 112 → 5b → 117 → 115 → 119 → 134 → 118 |
-| **Platform** | `cfb-app-claude` | 135 → 102 slice 2 → slice 3 → slice 4 → 129 → 126 |
+| **Platform** | `cfb-app-claude` | 102 slice 2 → slice 3 → slice 4 → 129 → 126 |
 
 **Kickoffs are named `<item>-<agent>-v<n>.md`** so the target lane is legible from the filename.
 Written and ready: `platform-087-slice-5-item-112-codex-v1.md`,
 `platform-135-opponent-count-claude-v1.md`, `platform-102-slice-2-cron-synthesis-claude-v1.md`.
 
-**Fillers, safe against both lanes, any order:** Item 135 (`selectors/matchups.ts` only), Item 133a
+**Fillers, safe against both lanes, any order:** Item 136 and Item 138 (both `matchups.ts`, worth
+pairing — same file, same `NoClaim` root), Item 137 (the red-`main` time bombs, test-only), Item 133a
 (below), 122, 121, 84, 86, 111.
 
-**Run Item 135 first.** It is written, small, a wrong number on screen today, and the only filler with
-any theoretical path into spine territory — taking it before slice 5 starts removes the question.
+> **Known-failure baseline:** `npm test` on clean `main` exits 1 with exactly two failures in
+> `src/app/api/odds/__tests__/writer-convergence.test.ts` — see **Item 137**. This is the baseline
+> `CLAUDE.md`'s merge condition 3 binds to. Exactly these two, or stop and report. **Item 135 shipped 2026-09-05** — PR #571, merged
+`ee68246c`. Both reviewers converged on the content now at `521e79d0`; the pre-rebase `a7f4dead` is
+unreachable.
+
+**Item 135 shipped 2026-09-05.** It surfaced **Item 136** (slate aggregates double-count a self game),
+which inherits its place as the first filler — same file, same 39 affected games.
 
 **Three collisions, measured 2026-09-05. Two were not previously recorded:**
 
@@ -208,9 +215,12 @@ any theoretical path into spine territory — taking it before slice 5 starts re
 3. **Item 126 after Item 102** — already recorded above; `schedulerDeliveryHealth.ts` imports
    `schedulerExecutionStatus.ts` and `systemHealthIssues.ts` consumes both.
 
-**Item 135 is selector-only, verified.** `MatchupsWeekPanel` consumes `opponentSummaryEntries` for
-`.length` alone (`:333-335`), so re-keying inside `summarizeSlateOpponents` needs no panel edit and
-cannot conflict with slice 5 or 117.
+**Item 135 was NOT selector-only — that claim was disproved by the build.** This entry previously read
+"selector-only, verified: `MatchupsWeekPanel` consumes `opponentSummaryEntries` for `.length` alone,
+so re-keying needs no panel edit." True of the original keying design; false of what shipped. The
+model changed mid-branch to counting distinct games, and the panel was edited to render deduped games
+and honour `isExpanded`. Recorded because a disproved claim sitting in the canonical queue is worse
+than no claim: it was the basis for calling the item parallel-safe against the UI spine.
 
 - **Dated, and it beats a deadline:** **Item 127** (retain the CFBD usage already probed) supersedes
   Item 94's manual 2026-09-30 read if it ships first. As shipped it is a STANDALONE cron route: it
@@ -833,63 +843,97 @@ not be read as a requirement on the other.**
 
 - Backlog slug: `PLATFORM-SCHEDULE-REFRESH-FORENSICS-v1`
 
-### Item 135 — "Show N more opponents" undercounts on Matchups
+### Item 137 — two `writer-convergence` tests are time bombs; `main` is red
 
-**The ask:** make the opponent count reflect distinct opponents. It is wrong on screen today.
+**Standing known-failure baseline.** Until this ships, `npm test` on clean `main` exits **1** with
+**exactly two** failures, both in `src/app/api/odds/__tests__/writer-convergence.test.ts`:
 
-**The mechanism, traced 2026-09-05.** `deriveOpponentDescriptor`
-(`src/lib/selectors/matchups.ts:22`) returns a per-owner descriptor for owned opponents but collapses
-unowned ones to one of two **sentinels**: `'FCS'` (`:39`) and `'NoClaim (FBS)'` (`:42`).
-`summarizeSlateOpponents` (`:51`) keys its count map on that string, so **every** unowned FBS opponent
-becomes ONE entry and every FCS opponent becomes ONE entry. `MatchupsWeekPanel:335` derives
-`hiddenCount` from `opponentSummaryEntries.length`, and `:398` renders it as
-_"Show N more opponents"_. Three unowned opponents count as one, so the number is understated on any
-slate carrying more than one — a rendered, wrong number.
+    not ok - convergence #10: a canonical success is recorded only after the atomic commit
+    not ok - compatibility #46: an authorized manual refresh returns the compatible 200 shape
 
-**The control the count labels is INERT — found 2026-09-05 during the read receipt.** `isExpanded`
-(`MatchupsWeekPanel.tsx:332`) is read at exactly one place, `:398`, for the button's own label. The
-list at `:378` is `slate.games.map(...)` with no slice and no condition, so every game renders in both
-states. Clicking toggles the text between `Show N more opponents ↓` and `Show less ↑` and does nothing
-else.
+**This is the baseline `CLAUDE.md`'s merge condition 3 refers to.** A lane may merge only when the
+failures are EXACTLY these two. One more, or one elsewhere, is a stop-and-report.
 
-**That changes the item, because the count fix alone makes the surface worse.**
-`hasHiddenOpponents` is `entries.length > DEFAULT_VISIBLE_OPPONENTS` (`:334`), and the sentinel
-collapse suppresses that length — so today the button often does not render at all. Correcting the key
-RAISES the length, which makes a dead button appear on more slates than it does now. **Owner decision
-2026-09-05: fix both.** The list honours `isExpanded`; the button does what its label claims.
+**Root cause, diagnosed 2026-09-05.** The fixture pins its kickoff at `2026-09-05T19:30:00.000Z`
+(`scheduleItem()` and the odds event's `commence_time`). Past kickoff the odds writer correctly stops
+attaching a line — closing-line behaviour — so no durable store record is created, and
+`assert.equal(record?.latestSnapshot?.homeSpread, -3.5)` sees `undefined` rather than `null`. Correct
+production behaviour meeting a stale fixture. **The durable path itself is healthy**:
+`durable-odds:2026 / store` holds 115KB in production.
 
-**Collapsed means the first N OPPONENTS, not the first N games.** The label counts opponents while
-the list renders games, so this must be stated or it gets chosen arbitrarily. Collapsed renders the
-games whose opponent falls in the first `DEFAULT_VISIBLE_OPPONENTS` summary entries (they are in
-first-appearance order). Slicing games instead would make the label lie in a new way.
+**This is Item 103's residue.** Item 103 was filed 2026-09-02 as "at least six odds-route tests are
+time bombs; four expired first", and `PLATFORM-121` replaced the fixtures in
+`src/app/api/odds/__tests__/route.test.ts` — which now passes 21/21 — then closed and removed the
+item. **`writer-convergence.test.ts` has the same fixed-kickoff pattern and was never touched.** Its
+two expired on 2026-09-05. PLATFORM-121's closeout claim to have "removed at least six latent time
+bombs" overstated its reach.
 
-**Scope is narrower than it looks in one respect — do NOT widen it further.** The sentinels are correct where they render:
-`MatchupsWeekPanel:194` already suppresses `'NoClaim (FBS)'` from the row descriptor, and `'FCS'`
-renders deliberately as a badge because an FBS-over-FCS result means something different (the base
-addendum's rule). **The defect is in the COUNT only.** Fixing it means giving the summary a key that
-distinguishes opponents — the team identity — while leaving the rendered descriptor alone. Do not
-change what any row displays.
+**Fix:** the PLATFORM-121 treatment applied to this file — kickoffs relative to now, not fixed.
 
-**Why it is filed separately from Item 117.** 117 records this as a constraint on its rework — that
-wiring `entry.label` into JSX must suppress the sentinel — which is a rule about not making it worse,
-not a fix for what ships now. Doing it inside 117 means inheriting 117's whole scope for a defect
-that is one selector and one count. **117 keeps its constraint**; this item fixes the live number.
+**A bisect will lie to you.** Checking out an older commit does not roll back the clock, so a
+time-dependent test fails at EVERY commit once expired. A sweep across four historical commits during
+diagnosis produced four false positives before the fixture date was read.
 
-**Keying — settled 2026-09-05.** Re-key **only the two sentinel branches** onto opponent team
-identity. Owned opponents stay keyed on the opponent owner, `Self` on `'Self'`, placeholder/derived on
-the participant `displayName`. Keying every branch on team identity would split an owner who fields
-two teams against this owner in one week, and split two `Self` games — changing counts the contract
-says must not move. `opponentTeamId` / `opponentTeamName` are already on `OwnerSlateGame`
-(`src/lib/matchups.ts:46-47`), so no fetch or payload widening is required.
+**Blocker:** none. Test-only; no production defect. But it costs every branch a clean baseline, which
+is the condition under which a third failure hides.
 
-**Tests live at `src/lib/__tests__/selectors-matchups.test.ts`**, not under
-`src/lib/selectors/__tests__/`. Add to the existing suite rather than creating a second location.
+### Item 138 — `isOwnerVsOwner` counts `NoClaim` as a real owner
 
-**Value:** member-visible, and a correctness fix rather than a redesign — a wrong number labelling a
-control that does nothing. Independent of the UI spine: `selectors/matchups.ts` plus one panel, no
-shared component, so it cannot collide with slice 5 or with Item 102.
+**The ask:** judge league membership through the shared sentinel seam, not through `!opponentOwner`.
 
-**Blocker:** none.
+**The mechanism.** `buildOwnerSlateGames` (`src/lib/matchups.ts:249`) sets
+`isOwnerVsOwner: Boolean(bucket.homeOwner)` and `isOpponentUnownedOrNonLeague: !bucket.homeOwner`.
+After a draft, `buildConfirmedOwnersCsv` writes **`NoClaim` as a real owner** for every undrafted
+eligible team (`src/lib/rosterEditing.ts:23`), so both predicates read a sentinel as a league owner:
+a game against nobody reports `isOwnerVsOwner: true` and `isOpponentUnownedOrNonLeague: false`.
+
+**Same root as Item 135**, which corrected only the opponent-count path. `displayOwner`
+(`src/lib/gameOwnership.ts:24`) is the shared seam that returns `null` for `NoClaim`, and
+`AGENTS.md` rule 11 (**Centralized game ownership**) is the governing rule.
+
+**Reported by the implementation lane during Item 135 and deliberately left untouched** — it was out
+of that item's scope. Consumers must be surveyed before changing it: these flags are on
+`OwnerSlateGame` and a truthy `isOwnerVsOwner` may be feeding presentation or grouping beyond the
+count.
+
+**Blocker:** none. Sits in the same file as Item 136 — worth pairing.
+
+### Item 136 — Matchups slate aggregates double-count a self game
+
+**The ask:** make the per-owner tiles count games the way the row list now does — once each.
+
+**The mechanism, measured 2026-09-05.** `buildOwnerWeekPerformance` (`src/lib/matchups.ts:306`) takes
+`games: OwnerSlateGame[]` and iterates them directly, incrementing `liveGames` / `finalGames` /
+`scheduledGames` per **entry**. `buildOwnerSlateGames` (`:239`, `:254`) emits **two entries for one
+game** when an owner holds both teams, so every such game counts twice. `totalGames`, `liveGames` and
+`finalGames` on the slate carry the same defect, and `ownerView.ts:346` consumes them.
+
+Probed output for one live self game:
+
+    performance.summary : "0–0 · 2 live"
+    performance.detail  : "2 games"
+    slate.liveGames     : 2
+    rendered rows       : 1
+
+**Visible today.** The 2026 season has **39 games where one owner holds both teams** (measured against
+`owners:tsc:2026`, 138 teams, 16 owners, out of 888 games involving a rostered team). Week 1 alone:
+Whited (Jacksonville State vs North Dakota State), Maleski (Miami vs Stanford, and Baylor vs Auburn).
+Those cards read `2 GAMES` above a single row.
+
+**Item 135 did not cause this — it revealed it.** Before 135 the list rendered the duplicate rows too,
+so the header and the list agreed while both were wrong. Deduplicating the rows made the aggregate
+disagreement visible. Same shape as the `NoClaim` finding: each correct fix exposes what the previous
+defect was masking.
+
+**Correction on record.** An earlier note claimed `performance.summary` was safe because it counts
+buckets rather than slate entries. That holds for the **record** half (`wins`/`losses`) only; the
+live/total counters iterate the un-deduped entries. Recorded so the scope is not under-described.
+
+**Scope:** `src/lib/matchups.ts` — `buildOwnerWeekPerformance` plus the slate's `totalGames`,
+`liveGames`, `finalGames` — and the `src/lib/ownerView.ts:346` consumer. Dedupe on `game.key`, the
+same key `scoresByKey` / `oddsByKey` already treat as unique.
+
+**Blocker:** none. Independent of the UI spine; no shared component. Parallel-safe against both lanes.
 
 ### Item 134 — Overview three-column tier
 
@@ -2319,12 +2363,36 @@ Ships dormant.
 - Derive the delivery expectation (cadence + grace) from the same windows, replacing the hardcoded
   `*/3` / `*/15` and 6/30-minute grace at `schedulerDeliveryHealth.ts:82,88` — **collision 2**. Fall
   back to today's constants when no plan exists, so this ships as a no-op against current production.
-- **The planner never emits an empty cron — owner decision 2026-09-05.** Off-window it emits a
-  **floor cadence** (hourly), so the job always runs and delivery health stays truthful with NO change
-  to `SchedulerDeliveryState` and none of its four consumers touched. The offseason is not a special
-  case: it is a long run of dead days, one rule covers both, and the schedule stays present so
-  `inspect` and delivery health keep working. This is the behaviour superseding the manual half of
-  Item 96.
+- **TWO SCHEDULES PER JOB — corrected 2026-09-05, superseding the "floor cadence" design.** Slice 1
+  emits **two phases per window**: `densePhase` (start → last kickoff + 8h) and `slowPhase` (+8h →
+  +24h, the reconciliation tail). They need DIFFERENT cadences, and one cron cannot express that —
+  `parseCron` applies a single minute-set to every hour it matches, so the union is two rectangles.
+  So `live-scores` and `game-stats` each get **two QStash schedules**: dense at `*/3`, slow at hourly.
+
+  **The slow phase's slower pace is the point, not a compromise.** It catches a late final without
+  paying dense cost across a 16-hour tail. Covering dense ∪ slow at `*/3` is safe but gives back most
+  of the saving, since the 24h guarantee is why October reads 74% armed. Covering only dense hours
+  re-commits the failure `pollingWindows.ts:88` records: _"a cron built from the dense windows alone
+  goes dark straight past the eligibility bound, so such a final is never collected at all."_
+
+  **QStash supports it:** identity is the arbitrary `Upstash-Schedule-Id` header
+  (`turfwar-live-scores-3m` today), independent of `destination`, so two IDs may target one route.
+  Read from `scripts/lib/qstashSchedule.ts:176-196`, not from the provider — `QSTASH_TOKEN` is
+  operator-CLI-only.
+
+  **Carry into slices 3 and 4:** collision 1 widens to four planner-owned crons; slice 3's durable
+  record covers both schedules per job; and the schedule IDs encode a cadence in their names, so
+  `turfwar-live-scores-3m` becomes false and needs renaming once the cron is planner-owned.
+
+- **SUPERSEDED — the floor-cadence rationale, retained because it was wrong in an instructive way.**
+  It held that a dark cron would report `late` or `missing`. **False about the code:**
+  `buildDeliveryRow` (`schedulerDeliveryHealth.ts:290-320`) derives `late` from
+  `receipt.startedAt < requiredMs`, where `requiredMs` is the previous slot OF THAT CRON, and
+  `missing` only when the receipt key is absent — never from the cron. Under a narrowed cron a dead
+  day's required slot is the last armed slot, which the retained receipt satisfies, so the row reads
+  **`on-time`**. The floor guarded an alarm that does not fire. What survives: no cron can mean
+  "never", so a zero-window offseason still needs an expression — subsumed by the slow schedule. This
+  is the behaviour superseding the manual half of Item 96.
 
   **Why a state change was rejected.** `SchedulerDeliveryState` is
   `on-time | late | missing | invalid | unavailable` — there is no way to say "not supposed to run",

@@ -32,6 +32,38 @@ Supersedes: (none)
 > [`docs/ai/game-stats-writer-fence.md`](ai/game-stats-writer-fence.md) (with the superseded
 > original design frozen in [`docs/ai/platform-086h3-contract.md`](ai/platform-086h3-contract.md)).
 
+### Item 135 — Matchups opponent count and its collapse control — Complete
+
+- **Status:** Merged via PR #571, 2026-09-05.
+- **PROMPT_ID(s):** `PLATFORM-135-OPPONENT-COUNT-CLAUDE-v1`.
+- **Outcome:** the owner card's disclosure control counts **distinct games**, the unit its list
+  renders, and each game renders once. What shipped is not what the prompt first specified — it began
+  as a re-key of the opponent summary and became a change of counting model mid-branch, after the
+  opponent-keyed design was shown still broken against a drafted league's roster.
+- **Why it mattered:** three defects shared one root — the label counted a different unit than the
+  list showed. Unowned opponents collapsed onto two sentinels, so three counted as one. The control
+  was inert: it rendered every game in both states, so clicking hid nothing, and because the button
+  was gated on the suppressed count, fixing the count alone would have put a _dead_ button on more
+  cards than before. And an owner holding both teams in a game got two mirrored rows for it — 39
+  games in the 2026 season, out of 888 involving a rostered team.
+- **The refutation that changed the design:** a confirmed draft writes the reserved `NoClaim` owner
+  for every undrafted eligible team, and `rosterByTeam` carries those rows through unfiltered, so an
+  unclaimed opponent has a truthy owner and took the owned branch. The opponent-identity keying
+  therefore left the original defect fully intact wherever it actually ships, and passed only against
+  a fixture that omitted unowned teams from the roster.
+- **Verification / review:** bound to `521e79d0`, the final code commit and the exact commit both
+  reviewers ran against — TypeScript and `lint:all` clean, and 4,697 tests with 4,695 passing. The two
+  failures were pre-existing in `src/app/api/odds/__tests__/writer-convergence.test.ts`, reproduced on
+  clean `main`, and caused by an expired fixture kickoff rather than by this change. Test delta +18.
+  Four mutations proved the dedupe, the collapse, the sentinel suppression and the singular label;
+  three pre-existing tests that had encoded the row duplication were retargeted with their other
+  assertions preserved. Codex clean; `/code-review` found nothing in the production code.
+- **Known unresolved, filed as Item 136:** the slate aggregates still double-count a self game, so one
+  live self game now renders a single row beneath `2 GAMES`, `2 LIVE` and `0–0 · 2 live`. That code is
+  in `src/lib/matchups.ts`, outside this scope, and `src/lib/ownerView.ts` consumes the same values —
+  fixing only the panel would make Matchups and the Owner view disagree. The W–L record itself is
+  correct; it counts buckets, not slate entries.
+
 ### PLATFORM-087 Slice 5a — Shared Scoreboard Contract — Complete
 
 - **Status:** Merged via PR #570 (merge commit `4caa1a79`), 2026-09-05.

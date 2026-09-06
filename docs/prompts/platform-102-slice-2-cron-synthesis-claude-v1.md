@@ -46,35 +46,46 @@ Work in **`/Users/zach/cfb-app-claude`**, not the primary worktree — see `CLAU
 `src/components/` only, so there is no file overlap — do not go near it.
 
 <task>
-Two pure functions. No side effects, no I/O, no clock reads beyond what is passed in.
+**CORRECTED 2026-09-05 after your receipt. Your finding (a) was right and it changed the design.**
 
-1. **Windows → cron.** Synthesize ONE cron expression covering the given `PollingWindow[]`.
-   `utcHoursCovered` (`pollingWindows.ts:220`) already does the hour coarsening — build on it rather
-   than re-deriving it. Collision 4 governs: one schedule holds one cron, so windows over-approximate
-   as hour ranges.
+Two pure functions over slice 1's `PollingWindow[]`. No QStash, no environment variable, no durable
+write, no consumer. Ships dormant.
 
-   **The property that matters: the synthesized cron must never UNDER-cover a window.** Over-covering
-   is safe for the reason `pollingWindows.ts:218` states. Under-covering silently drops a
-   reconciliation, which is exactly the failure the `slowEndMs` docstring records. Assert that
-   direction explicitly and separately — not as a side effect of an example-based test.
+1. **Windows → TWO crons, not one.** Slice 1 emits `densePhase` and `slowPhase` per window, and they
+   need different cadences. One cron cannot express that — `parseCron` applies one minute-set to every
+   hour it matches, exactly as you found. So synthesize **a dense cron (`*/3`-style over
+   `utcHoursCovered(densePhase(...))`) and a slow cron (hourly over `utcHoursCovered(slowPhase(...))`)**.
+   `live-scores` and `game-stats` each get two QStash schedules in slice 4.
 
-2. **Windows → delivery expectation.** Derive `cadenceLabel` and `graceMs` from the same windows, so
-   `schedulerDeliveryHealth.ts:82,88` no longer hardcodes them for these two jobs — **collision 2**.
-   With no windows supplied it must fall back to today's exact constants, so this ships as a NO-OP
-   against current production.
+   **Use comma-separated explicit hours only.** Your finding (b) is confirmed: `parseCronField`
+   handles `*`, `*/n`, a bare integer and comma lists — a range like `12-23` parses to an EMPTY set
+   and delivery health then fails silently. `utcHoursCovered` already returns exactly that list.
+
+   **Never UNDER-cover.** Over-covering is safe for the reason `pollingWindows.ts:218` states.
+   Under-covering the slow phase re-commits the failure `:88` records. Assert that direction
+   explicitly, with a positive control.
+
+2. **Windows → delivery expectation.** Derive `cadenceLabel` and `graceMs` from the same windows so
+   `schedulerDeliveryHealth.ts:82,88` no longer hardcodes them — **collision 2**. With no windows
+   supplied it must fall back to today's exact constants, so this ships as a NO-OP.
+
+   **Absence and emptiness are DIFFERENT inputs — your finding (d).** "No windows supplied" (fall
+   back to constants) and "a plan with zero windows" (the offseason) must not both be `[]`, or the
+   no-op proof and the offseason case cannot both hold. Make that distinction in the signature.
 </task>
 
 <owner_decisions>
 Settled 2026-09-05. Do not re-derive or re-litigate these.
 
-- **The planner NEVER emits an empty cron.** Off-window it emits a **floor cadence of hourly**. This
-  reverses what an earlier version of the plan assumed (windows-only). The reason is that
-  `SchedulerDeliveryState` is `on-time | late | missing | invalid | unavailable` — there is no way to
-  say "not supposed to run" — so a cron that goes dark would report `late` or `missing` on a dead day,
-  both alarms, on the two rows that matter most on a game day. A floor keeps delivery health truthful
-  with **no change to that type and none of its four consumers touched**. Do not add a sixth state.
-- **The offseason is not a special case.** It is a long run of dead days; the floor covers it. One
-  rule, one set of tests. This is the behaviour superseding the manual half of Item 96.
+- **The floor-cadence decision is WITHDRAWN — your finding (c) disproved its rationale.** It claimed a
+  dark cron would report `late` or `missing`. `buildDeliveryRow` (`:290-320`) derives `late` from
+  `receipt.startedAt < requiredMs` where `requiredMs` is the previous slot OF THAT CRON, and `missing`
+  only when the receipt key is absent. A dead day under a narrowed cron reads **`on-time`**. You were
+  right not to re-litigate it; the owner withdrew it. **Still do not add a sixth `SchedulerDeliveryState`
+  member** — that part holds, and none of its four consumers should be touched.
+- **The offseason still needs an expression**, because no cron can mean "never" — but it is the SLOW
+  schedule that carries it, not a separate floor. A zero-window plan yields a slow cron and no dense
+  one. This is the behaviour superseding the manual half of Item 96.
 - **`cadenceLabel` is plan-derived** and must show the day's actual shape, e.g. _"every 3 min until
   04:00 UTC, then hourly"_ — it renders verbatim at `SchedulerHealthSection.tsx:99`. **But the plan
   record does not exist until slice 3.** In THIS slice, derive the label from the windows you are
