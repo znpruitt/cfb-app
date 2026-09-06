@@ -57,7 +57,7 @@ Rules:
   tier-2 venue, odds, conference, and postseason-admin detail behind an in-place disclosure.
 - Scope: `GameWeekPanel` plus its selector and regular/postseason consumers, the declared Matchups
   result-tint correction, obsolete scoreboard/helper deletion, and focused tests; no widening of
-  `CompactGameScoreboard`, provider work, filter, navigation, PR, or preview-branch mutation.
+  `CompactGameScoreboard`, provider work, filter, navigation, preview-branch mutation, or promotion.
 - Outcome: regular and postseason Schedule rows now keep tier 1 visible, sort within each date by
   kickoff, render the settled scheduled/live/awaiting/final metadata, use bronze eyebrow pills, and
   expose matchup-specific More/Less disclosures. The retired one-line/card-emphasis implementation
@@ -71,8 +71,7 @@ Rules:
   patched: measurement across 11,311 production schedule rows from 2024–2026 found no provider
   disrupted status, and the owner rejected those branches as unreachable rather than contractual
   blockers.
-- Status: Implemented and review-complete on `platform/087-slice-5-item-112`; awaiting owner merge.
-  No PR opened.
+- Status: Merged via PR #572 (merge commit `f424222a`), 2026-09-05.
 
 ### PLATFORM-087-SLICE-5A-SCOREBOARD-CONTRACT-v2
 

@@ -34,8 +34,7 @@ Supersedes: (none)
 
 ### PLATFORM-087 Slice 5 + Item 112 — Schedule scoreboard and disclosure — Complete
 
-- **Status:** Implemented and review-complete on `platform/087-slice-5-item-112`; awaiting owner
-  merge. No PR was opened at closeout.
+- **Status:** Merged via PR #572 (merge commit `f424222a`), 2026-09-05.
 - **PROMPT_ID:** `PLATFORM-087-SLICE-5-ITEM-112-CODEX-v1`.
 - **Outcome:** Schedule's regular and postseason rows now render `CompactGameScoreboard` continuously
   instead of collapsing the scoreboard into a one-line summary. Only tier-2 venue, odds, conference,
