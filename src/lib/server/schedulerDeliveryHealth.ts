@@ -142,10 +142,17 @@ const DELIVERY_POLICIES: Record<
 // the planner does not own would make delivery health claim a schedule QStash
 // was never sent.
 
-/** The jobs whose schedules the polling-window planner owns. */
-export const PLANNER_OWNED_JOBS: readonly ExternalSchedulerJob[] = ['live-scores', 'game-stats'];
-
 export type PlannerOwnedJob = Extract<ExternalSchedulerJob, 'live-scores' | 'game-stats'>;
+
+/**
+ * The jobs whose schedules the polling-window planner owns.
+ *
+ * Typed to the narrow union, not to `ExternalSchedulerJob[]`. Widened, this list
+ * accepted any job name and the compiler linked it to nothing: adding one made
+ * `isPlannerOwnedJob` a FALSE type predicate, left its dense step `undefined`,
+ * and threw a validation error out of a policy function every health path calls.
+ */
+export const PLANNER_OWNED_JOBS: readonly PlannerOwnedJob[] = ['live-scores', 'game-stats'];
 
 /**
  * The dense cadence each planner-owned job polls at, in minutes. It stays exactly
@@ -159,7 +166,7 @@ const PLANNER_DENSE_STEP_MINUTES: Record<PlannerOwnedJob, number> = {
 };
 
 export function isPlannerOwnedJob(job: ExternalSchedulerJob): job is PlannerOwnedJob {
-  return PLANNER_OWNED_JOBS.includes(job);
+  return (PLANNER_OWNED_JOBS as readonly ExternalSchedulerJob[]).includes(job);
 }
 
 /**
@@ -189,6 +196,18 @@ export function pollingCronPlanForJob(
   });
 }
 
+/** The derived expectation, or the fixed contract when synthesis refuses the plan. */
+function derivedPolicyOrFixed(
+  job: PlannerOwnedJob,
+  plan: PollingPlanInput
+): { cron: string; cadenceLabel: string; graceMs: number } {
+  try {
+    return deliveryExpectationForPlan(pollingCronPlanForJob(job, plan));
+  } catch {
+    return DELIVERY_POLICIES[job];
+  }
+}
+
 /**
  * The full delivery policy for one job (source derived, never a second map).
  *
@@ -196,6 +215,23 @@ export function pollingCronPlanForJob(
  * before PLATFORM-102 — nothing in production supplies one yet, so this ships
  * dormant. With a plan, the two planner-owned jobs derive their cron, cadence
  * label and grace from the windows instead of the hardcoded constants.
+ *
+ * DO NOT WIRE A PLAN HERE BEFORE SLICE 3. The hazard is named at this call site
+ * rather than only in the module it comes from, because this parameter is the one
+ * thing standing between a stored plan and a live delivery row:
+ * `previousScheduleSlotMs` extrapolates a DAILY-REWRITTEN cron backwards onto a
+ * day that ran a different plan, so a derived policy reports roughly nineteen
+ * hours of false `late` on an ordinary game day, and hides a fifteen-hour outage
+ * in the other direction. Slice 3 owns the fix — delivery health reading what the
+ * planner actually scheduled — and only then should a caller pass this.
+ *
+ * A SYNTHESIS FAILURE DEGRADES ONE ROW, never the page. Slice 3 is the slice that
+ * starts storing plan data, so a stored `dayStartMs` off by a second is a real
+ * future input; synthesis refuses it deliberately, and that refusal must not
+ * escape through `readSchedulerDeliveryHealth` and `buildSystemHealthViewModel`
+ * to take System Health down. The row falls back to the fixed contract, which is
+ * the same shape every other job publishes. Surfacing the corruption itself
+ * belongs to slice 3, which owns the record it came from.
  */
 export function schedulerDeliveryPolicy(
   job: ExternalSchedulerJob,
@@ -203,7 +239,7 @@ export function schedulerDeliveryPolicy(
 ): SchedulerDeliveryPolicy {
   const policy =
     plan !== undefined && isPlannerOwnedJob(job)
-      ? deliveryExpectationForPlan(pollingCronPlanForJob(job, plan))
+      ? derivedPolicyOrFixed(job, plan)
       : DELIVERY_POLICIES[job];
   return {
     job,

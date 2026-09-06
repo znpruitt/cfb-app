@@ -46,17 +46,34 @@ export const SLOW_STEP_MINUTES = 60;
 /**
  * The minute past the hour the slow schedule fires at — deliberately NOT zero.
  *
- * Both dense rates include minute 0 — a three-minute step and a fifteen-minute
- * step alike — so an hourly slow
- * schedule on the hour dispatches at the same instant as a dense poll in every
- * dense hour. These are two QStash schedules against one route, and that route
- * takes no invocation lock: both invocations pass target selection, both begin
- * provider-refresh attempts, and both reach the provider. So the collision is a
- * duplicate BILLED CFBD call once an hour while a game is open, not merely a
- * duplicate wakeup. One minute of offset removes it, and no dense step in 1..60
- * that divides an hour can land on it.
+ * Every dense rate includes minute 0, so an hourly slow schedule on the hour
+ * dispatches at the same instant as a dense poll in every hour the two share.
+ * These are two QStash schedules against one route, and that route takes no
+ * invocation lock: both invocations pass target selection, both begin provider-
+ * refresh attempts, and both reach the provider. The collision is therefore a
+ * duplicate BILLED CFBD call, not merely a duplicate wakeup. Tail-only slow hours
+ * shrink the overlap to the boundary hour a window's two phases share; they do
+ * not remove it, so the offset is still load-bearing.
+ *
+ * An earlier version of this comment asserted that no dense step could land on
+ * the offset. That was FALSE at both ends of the range the validator admitted:
+ * a step of 60 emitted this very minute as a literal, making the dense cron
+ * byte-identical to the slow one, and a step of 1 fires every minute including
+ * this one. {@link validDenseStep} now REJECTS both, so the property is enforced
+ * rather than asserted.
  */
 export const SLOW_OFFSET_MINUTE = 1;
+
+/**
+ * The single hour a slow schedule occupies on a day that has dense hours but no
+ * reconciliation tail — an ordinary Saturday, whose cluster ends after midnight
+ * so its tail lands entirely on the next day's plan.
+ *
+ * Such a day needs no slow coverage: the dense cron covers every armed hour it
+ * has. But the QStash schedule still exists and must hold an expression, so it
+ * holds the cheapest honest one — a single daily slot, one wakeup.
+ */
+export const IDLE_SLOW_HOUR = 0;
 
 const MINUTE_MS = 60_000;
 const HOURS_PER_DAY = 24;
@@ -68,7 +85,11 @@ export type SynthesizedCron = {
   cron: string;
   /** The UTC hours it fires in, ascending. `0..23` when the hour field is `*`. */
   hours: readonly number[];
-  /** Minutes between firings inside a covered hour; 60 means the top of the hour. */
+  /**
+   * Minutes between firings inside a covered hour. A step of 60 fires ONCE per
+   * covered hour, at {@link SLOW_OFFSET_MINUTE} past — never at the top of the
+   * hour, which is the minute the dense schedule owns.
+   */
   stepMinutes: number;
 };
 
@@ -81,20 +102,24 @@ export type PollingCronPlan = {
    */
   dense: SynthesizedCron | null;
   /**
-   * The slow schedule, ALWAYS present, and it covers EVERY armed hour — the
-   * dense phase's hours as well as the reconciliation tail's.
+   * The slow schedule, ALWAYS present, covering the RECONCILIATION TAIL only.
    *
-   * The dense schedule is therefore purely additive: it raises the rate inside
-   * the dense hours, and the never-under-cover property holds on this expression
-   * alone rather than on a union that has to be reasoned about. The alternative,
-   * a slow cron over the tail hours only, leaves a real gap to reason about on an
-   * ordinary Saturday, whose cluster ends after midnight so the day has dense
-   * hours and no tail hours at all. Paying one extra wakeup per dense hour — nine
-   * against that day's ~180 — buys the simpler invariant.
+   * Coverage is a property of the two crons TOGETHER: the dense cron covers the
+   * dense hours, this one covers the tail hours, and their union is every armed
+   * hour by construction. An earlier version widened this to the full armed
+   * extent so the guarantee would rest on one expression alone. That bought
+   * nothing — review measured `dense + tail-only` leaving zero uncovered hours on
+   * every real shape, including the Saturday case the widening was justified by —
+   * and it COST a billed provider call in every dense hour, since the route takes
+   * no invocation lock and selects a target for both runs. Roughly 21 live-score
+   * calls an hour against 20, and 5 game-stats against 4, in exactly the hours
+   * games are live. Item 102 funds Active CPU, not provider quota; in-window
+   * spend is Item 95 portion 2, gated on Item 94.
    *
-   * It is always present because no cron expression can mean "never", so the
-   * zero-window offseason is carried here rather than by deleting the schedule,
-   * which would also cost `inspect` and delivery health their subject.
+   * It is always present because no cron expression can mean "never", so a day
+   * with no tail is carried by {@link IDLE_SLOW_HOUR} and a day with nothing at
+   * all by the full-day fallback — rather than by deleting the schedule, which
+   * would also cost `inspect` and delivery health their subject.
    */
   slow: SynthesizedCron;
 };
@@ -122,30 +147,41 @@ export function synthesizePollingCrons(
   options: CronSynthesisOptions
 ): PollingCronPlan {
   validDayStart(dayStartMs);
-  const denseStepMinutes = validStep(options.denseStepMinutes, 'denseStepMinutes');
+  const denseStepMinutes = validDenseStep(options.denseStepMinutes);
   const slowStepMinutes = validStep(
     options.slowStepMinutes ?? SLOW_STEP_MINUTES,
     'slowStepMinutes'
   );
 
   const denseHours = utcHoursCovered(windows.map(densePhase), dayStartMs);
-  // Every hour any window touches, at either rate. The two phases are contiguous
-  // — the slow one begins where the dense one ends — so this is the full armed
-  // extent projected onto the day.
-  const armedHours = utcHoursCovered(
-    windows.flatMap((window) => [densePhase(window), slowPhase(window)]),
-    dayStartMs
-  );
+  const tailHours = utcHoursCovered(windows.map(slowPhase), dayStartMs);
 
   return {
     dense: denseHours.length === 0 ? null : buildCron(denseHours, denseStepMinutes),
-    // No armed hours at all is a day with no games — the offseason, and every
-    // other dead day, which are the same case and not a special one. The schedule
-    // still has to hold an expression, so it holds the widest safe one: hourly,
-    // all day. Safe for the reason over-approximation always is here, and it
-    // keeps delivery health resolving at the slow cadence year-round.
-    slow: buildCron(armedHours.length === 0 ? ALL_HOURS : armedHours, slowStepMinutes),
+    slow: buildCron(slowHoursFor(denseHours, tailHours), slowStepMinutes),
   };
+}
+
+/**
+ * Which hours the slow schedule occupies — the tail, or the cheapest honest
+ * stand-in when the day has no tail to cover.
+ *
+ * Three cases, and only the first does any reconciliation work:
+ *
+ * - A tail on this day: cover exactly it. The dense cron covers the dense hours,
+ *   so between them every armed hour is covered.
+ * - Dense hours but no tail: the cluster ends after midnight and its tail belongs
+ *   to tomorrow's plan. Nothing here needs slow coverage, so this is a single
+ *   daily slot to keep the schedule alive.
+ * - Neither: a dead day. Hourly, all day — the widest safe expression, which
+ *   keeps delivery health resolving at the slow cadence through the offseason.
+ */
+function slowHoursFor(
+  denseHours: readonly number[],
+  tailHours: readonly number[]
+): readonly number[] {
+  if (tailHours.length > 0) return tailHours;
+  return denseHours.length > 0 ? [IDLE_SLOW_HOUR] : ALL_HOURS;
 }
 
 export type DeliveryExpectation = {
@@ -262,6 +298,22 @@ function validDayStart(dayStartMs: number): number {
   return dayStartMs;
 }
 
+/**
+ * The dense step, checked against the slow schedule's offset rather than assumed
+ * clear of it. A step of 60 would emit the offset minute as a literal — a dense
+ * cron byte-identical to the slow one — and a step that divides the offset fires
+ * on it too. Both were reachable through this function before review found them.
+ */
+function validDenseStep(stepMinutes: number): number {
+  const step = validStep(stepMinutes, 'denseStepMinutes');
+  if (step >= 60 || SLOW_OFFSET_MINUTE % step === 0) {
+    throw new Error(
+      `denseStepMinutes ${step} collides with the slow schedule at minute ${SLOW_OFFSET_MINUTE}`
+    );
+  }
+  return step;
+}
+
 function validStep(stepMinutes: number, field: string): number {
   if (!Number.isInteger(stepMinutes) || stepMinutes < 1 || stepMinutes > 60) {
     throw new Error(`${field} must be an integer minute step in 1..60, received ${stepMinutes}`);
@@ -280,9 +332,16 @@ function describePlan(plan: PollingCronPlan): string {
 }
 
 function describeSchedule(schedule: SynthesizedCron): string {
-  const cadence = schedule.stepMinutes >= 60 ? 'hourly' : `every ${schedule.stepMinutes} min`;
+  // The dispatch minute travels with the hourly cadence on BOTH branches. This
+  // string renders verbatim as the System Health "Cadence" detail, and a label
+  // that said plain "hourly" for a narrowed schedule would have an operator
+  // expecting a top-of-hour receipt and mis-diagnosing the correct one at :01.
+  const hourly = schedule.stepMinutes >= 60;
+  const cadence = hourly
+    ? `hourly (:${String(SLOW_OFFSET_MINUTE).padStart(2, '0')})`
+    : `every ${schedule.stepMinutes} min`;
   if (schedule.hours.length === HOURS_PER_DAY) {
-    return cadence === 'hourly'
+    return hourly
       ? `hourly (:${String(SLOW_OFFSET_MINUTE).padStart(2, '0')} UTC)`
       : `${cadence} (all day UTC)`;
   }

@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   deliveryExpectationForPlan,
+  IDLE_SLOW_HOUR,
   plannedRunsPerDay,
   SLOW_STEP_MINUTES,
   synthesizePollingCrons,
@@ -83,10 +84,15 @@ test('the synthesized crons cover every armed hour of the planning day', () => {
   const crons = [plan.dense!.cron, plan.slow.cron];
 
   assert.deepEqual(uncoveredHours(crons, armedHoursOf(windows)), []);
-  // And the same windows projected onto the NEXT day, where only the tail lands.
+  // And the same windows projected onto the NEXT day, which holds the tail and
+  // the last hours of the dense phase.
   const sunday = liveScores(windows, NEXT_DAY);
   assert.deepEqual(
-    uncoveredHours([sunday.slow.cron], armedHoursOf(windows, NEXT_DAY), NEXT_DAY),
+    uncoveredHours(
+      [sunday.dense!.cron, sunday.slow.cron],
+      armedHoursOf(windows, NEXT_DAY),
+      NEXT_DAY
+    ),
     []
   );
 });
@@ -106,24 +112,41 @@ test('POSITIVE CONTROL: the coverage checker rejects a cron that drops one armed
   assert.deepEqual(uncoveredHours([plan.dense!.cron, plan.slow.cron], [dropped]), []);
 });
 
-test('the slow schedule alone covers every armed hour — dense is purely additive', () => {
-  // The invariant the design rests on. A slow cron built from the TAIL hours
-  // alone would leave the guarantee to a union of two expressions: here it would
-  // cover 08:00–23:00 and drop the morning entirely, and on a Saturday night it
-  // would cover nothing at all, since that cluster's tail is all Sunday.
+test('coverage is a property of the PAIR — each cron covers its own phase, and neither alone', () => {
+  // An earlier design widened the slow cron to every armed hour so the guarantee
+  // would rest on one expression. It bought nothing measurable — the pair already
+  // covers everything — and cost a billed provider call in every dense hour. This
+  // test pins the division of labour that replaced it, in both directions.
   const morning = windowsFor('2026-10-03T00:30:00.000Z');
   const plan = liveScores(morning);
-  const tailOnlyHours = utcHoursCovered(morning.map(slowPhase), DAY);
+  const denseHours = utcHoursCovered(morning.map(densePhase), DAY);
+  const tailHours = utcHoursCovered(morning.map(slowPhase), DAY);
 
-  assert.deepEqual(uncoveredHours([plan.slow.cron], armedHoursOf(morning)), []);
-  // The tail-only alternative, spelled out and rejected: hours 0–7 are dense
-  // hours with no tail over them, and it drops every one.
+  assert.deepEqual(uncoveredHours([plan.dense!.cron, plan.slow.cron], armedHoursOf(morning)), []);
+  // Neither expression covers the day on its own — the pair is load-bearing.
+  assert.deepEqual(uncoveredHours([plan.slow.cron], denseHours), [0, 1, 2, 3, 4, 5, 6, 7]);
   assert.deepEqual(
-    uncoveredHours([`1 ${tailOnlyHours.join(',')} * * *`], armedHoursOf(morning)),
-    [0, 1, 2, 3, 4, 5, 6, 7]
+    uncoveredHours([plan.dense!.cron], tailHours),
+    tailHours.filter((hour) => !denseHours.includes(hour))
   );
-  // And the Saturday-night shape, where the tail projects onto the day not at all.
-  assert.deepEqual(utcHoursCovered(windowsFor('2026-10-03T23:00:00.000Z').map(slowPhase), DAY), []);
+  // The slow cron IS the tail, not the armed extent.
+  assert.deepEqual(plan.slow.hours, tailHours);
+});
+
+test('a day with dense hours and NO tail gets a single idle slot, not a whole day of them', () => {
+  // The ordinary Saturday: the cluster ends after midnight, so its tail belongs
+  // to tomorrow's plan and nothing here needs slow coverage. The schedule still
+  // has to hold an expression — one wakeup, not twenty-four, and not a mirror of
+  // the dense hours that would bill a second call in each of them.
+  const windows = windowsFor('2026-10-03T23:00:00.000Z');
+  const plan = liveScores(windows);
+
+  assert.deepEqual(utcHoursCovered(windows.map(slowPhase), DAY), [], 'no tail on this day');
+  assert.deepEqual(plan.slow.hours, [IDLE_SLOW_HOUR]);
+  assert.equal(plan.slow.cron, '1 0 * * *');
+  assert.equal(plannedRunsPerDay(plan).slow, 1);
+  // And the day is still fully covered, by the dense cron alone.
+  assert.deepEqual(uncoveredHours([plan.dense!.cron], armedHoursOf(windows)), []);
 });
 
 test('A RANGE hour field is unreadable to the production parser — hence comma lists', () => {
@@ -162,10 +185,11 @@ test('windows covering part of a day narrow the dense hours to that part', () =>
   const windows = windowsFor('2026-10-03T19:30:00.000Z');
   const plan = liveScores(windows);
 
-  // Kickoff 19:30 − 15m lead = 19:15; dense end 19:30 + 8h = 03:30 next day.
+  // Kickoff 19:30 − 15m lead = 19:15; dense end 19:30 + 8h = 03:30 next day, so
+  // the tail lands entirely on tomorrow and today's slow schedule idles.
   assert.deepEqual(plan.dense!.hours, [19, 20, 21, 22, 23]);
   assert.equal(plan.dense!.cron, '*/3 19,20,21,22,23 * * *');
-  assert.deepEqual(plan.slow.hours, [19, 20, 21, 22, 23]);
+  assert.deepEqual(plan.slow.hours, [IDLE_SLOW_HOUR]);
 });
 
 test('windows covering a full day collapse the hour field to `*`', () => {
@@ -180,7 +204,9 @@ test('windows covering a full day collapse the hour field to `*`', () => {
 
   assert.equal(windows.length, 1);
   assert.equal(plan.dense!.cron, '*/3 * * * *');
-  assert.equal(plan.slow.cron, '1 * * * *');
+  // The dense phase covers the whole day, so the tail is tomorrow's and the slow
+  // schedule idles rather than doubling every hour of a full slate.
+  assert.equal(plan.slow.cron, '1 0 * * *');
   assert.deepEqual(uncoveredHours([plan.dense!.cron], armedHoursOf(windows)), []);
 });
 
@@ -195,7 +221,7 @@ test('the dense/slow boundary lands where the dense phase ends, not where pollin
   // Dense stops at 20:00 exactly, so hour 20 is not a dense hour: an hour counts
   // as covered only when a span overlaps part of it.
   assert.deepEqual(plan.dense!.hours, [11, 12, 13, 14, 15, 16, 17, 18, 19]);
-  assert.deepEqual(plan.slow.hours, [11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]);
+  assert.deepEqual(plan.slow.hours, [20, 21, 22, 23]);
   // Hours 20–23 are covered ONLY by the slow schedule.
   assert.deepEqual(uncoveredHours([plan.dense!.cron], [20, 21, 22, 23]), [20, 21, 22, 23]);
   assert.deepEqual(uncoveredHours([plan.slow.cron], [20, 21, 22, 23]), []);
@@ -209,7 +235,7 @@ test('an armed day derives the dense cadence and exactly today’s grace', () =>
   const live = deliveryExpectationForPlan(liveScores(windows));
   assert.equal(live.cron, '*/3 19,20,21,22,23 * * *');
   assert.equal(live.graceMs, 6 * MINUTE);
-  assert.equal(live.cadenceLabel, 'every 3 min at 19:00–23:00 UTC, hourly at 19:00–23:00 UTC');
+  assert.equal(live.cadenceLabel, 'every 3 min at 19:00–23:00 UTC, hourly (:01) at 00:00 UTC');
 
   const stats = deliveryExpectationForPlan(
     synthesizePollingCrons(windows, DAY, { denseStepMinutes: 15 })
@@ -239,7 +265,7 @@ test('a fragmented day names each armed stretch', () => {
   assert.equal(windows.length, 3);
   assert.equal(
     label,
-    'every 3 min at 01:00–09:00, 11:00–19:00, 21:00–23:00 UTC, hourly at 01:00–23:00 UTC'
+    'every 3 min at 01:00–09:00, 11:00–19:00, 21:00–23:00 UTC, hourly (:01) at 10:00–23:00 UTC'
   );
 });
 
@@ -250,8 +276,9 @@ test('runs per day counts each schedule at its own rate', () => {
   const runs = plannedRunsPerDay(plan);
 
   assert.equal(runs.dense, 5 * 20);
-  assert.equal(runs.slow, 5);
-  assert.equal(runs.total, 105);
+  // The tail is tomorrow's, so today's slow schedule is the single idle slot.
+  assert.equal(runs.slow, 1);
+  assert.equal(runs.total, 101);
   // Against 480/day today, on a day carrying a night kickoff.
   assert.ok(runs.total < 480);
 });
@@ -268,28 +295,55 @@ test('a minute step outside 1..60 is refused rather than silently emitted', () =
 
 // ── 5. The two guards review found ───────────────────────────────────────────
 
-test('the dense and slow schedules never fire in the same minute', () => {
+test('no admissible dense step ever fires in the same minute as the slow schedule', () => {
   // They are two QStash schedules against ONE route, and that route takes no
   // invocation lock — both invocations pass target selection and both reach the
-  // provider. On the hour that is a duplicate BILLED call, not just a wakeup.
-  const plan = liveScores(windowsFor('2026-10-03T19:30:00.000Z'));
-  const stats = synthesizePollingCrons(windowsFor('2026-10-03T19:30:00.000Z'), DAY, {
-    denseStepMinutes: 15,
-  });
+  // provider, so a shared minute is a duplicate BILLED call, not just a wakeup.
+  // Tail-only slow hours shrink the overlap to a window's boundary hour; they do
+  // not remove it, so this must hold for EVERY step the validator admits, not
+  // just the two the jobs use today. An earlier version tested only 3 and 15 and
+  // would have missed both steps that actually collided.
+  const windows = windowsFor('2026-10-03T12:00:00.000Z');
+  let stepsChecked = 0;
 
-  for (const [dense, slow] of [
-    [plan.dense!, plan.slow],
-    [stats.dense!, stats.slow],
-  ]) {
-    for (const hour of dense.hours) {
+  for (let step = 1; step <= 60; step += 1) {
+    let plan;
+    try {
+      plan = synthesizePollingCrons(windows, DAY, { denseStepMinutes: step });
+    } catch {
+      continue; // refused by the validator — finding its own test below
+    }
+    stepsChecked += 1;
+    for (const hour of plan.dense!.hours) {
       const hourStart = DAY + hour * HOUR;
       for (let minute = 0; minute < 60; minute += 1) {
         const instant = hourStart + minute * MINUTE;
-        const denseFires = previousScheduleSlotMs(dense.cron, instant) === instant;
-        const slowFires = previousScheduleSlotMs(slow.cron, instant) === instant;
-        assert.ok(!(denseFires && slowFires), `collision at hour ${hour} minute ${minute}`);
+        const denseFires = previousScheduleSlotMs(plan.dense!.cron, instant) === instant;
+        const slowFires = previousScheduleSlotMs(plan.slow.cron, instant) === instant;
+        assert.ok(!(denseFires && slowFires), `step ${step} collides at ${hour}:${minute}`);
       }
     }
+  }
+  // A positive control on the sweep itself: it must actually have run, and on
+  // more than the handful of steps the two jobs use.
+  assert.equal(stepsChecked, 58, 'every step in 2..59 is admissible and was checked');
+});
+
+test('a dense step that would land on the slow minute is REFUSED, not merely documented', () => {
+  // Both of these were reachable, and both defeated the offset entirely: step 60
+  // emitted the offset minute as a literal, making the dense cron byte-identical
+  // to the slow one, and step 1 fires every minute including that one. The
+  // docstring used to assert this could not happen; now the validator enforces it.
+  const windows = windowsFor('2026-10-03T12:00:00.000Z');
+
+  for (const step of [1, 60]) {
+    assert.throws(() => synthesizePollingCrons(windows, DAY, { denseStepMinutes: step }), {
+      message: new RegExp(`denseStepMinutes ${step} collides`),
+    });
+  }
+  // The steps the two jobs actually run are unaffected.
+  for (const step of [3, 15]) {
+    assert.ok(synthesizePollingCrons(windows, DAY, { denseStepMinutes: step }).dense);
   }
 });
 

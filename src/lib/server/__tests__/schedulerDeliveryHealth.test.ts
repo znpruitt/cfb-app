@@ -35,6 +35,7 @@ import {
 import {
   isPlannerOwnedJob,
   PLANNER_OWNED_JOBS,
+  pollingCronPlanForJob,
   previousScheduleSlotMs,
   readSchedulerDeliveryHealth,
   requiredStartedAtForJob,
@@ -874,7 +875,7 @@ test('an armed day narrows both polling crons and keeps their grace exactly as t
   const live = byJob.get('live-scores')!;
   assert.equal(live.cron, '*/3 19,20,21,22,23 * * *');
   assert.equal(live.graceMs, 6 * MIN, 'two dense intervals — the constant it replaces');
-  assert.equal(live.cadenceLabel, 'every 3 min at 19:00–23:00 UTC, hourly at 19:00–23:00 UTC');
+  assert.equal(live.cadenceLabel, 'every 3 min at 19:00–23:00 UTC, hourly (:01) at 00:00 UTC');
 
   const stats = byJob.get('game-stats')!;
   assert.equal(stats.cron, '*/15 19,20,21,22,23 * * *');
@@ -946,4 +947,19 @@ test('no plan reaches the reader, so every row still carries the fixed contract'
     requiredStartedAtForJob('live-scores', ms('2026-10-03T19:32:30Z')),
     ms('2026-10-03T19:24:00Z')
   );
+});
+
+test('a plan synthesis refusal degrades ONE row to the fixed contract, never the page', () => {
+  // Slice 3 is the slice that starts storing plan data, so a stored `dayStartMs`
+  // off by a second is a real future input. Synthesis refuses it deliberately —
+  // an offset day start rotates the hour field and arms the wrong hours — but
+  // that refusal must not escape through the reader and take System Health down
+  // with it. Positive control first: the same input DOES throw at the synthesizer.
+  const corrupt = { windows: saturdayPlan.windows, dayStartMs: PLAN_DAY + 1_000 };
+  assert.throws(() => pollingCronPlanForJob('live-scores', corrupt));
+
+  const row = schedulerDeliveryPolicy('live-scores', corrupt);
+  assert.deepEqual(row, schedulerDeliveryPolicy('live-scores'), 'falls back to the fixed contract');
+  // And every other job still resolves, so one bad plan cannot empty the table.
+  assert.equal(schedulerDeliveryPolicies(corrupt).length, EXTERNAL_SCHEDULER_JOBS.length);
 });
