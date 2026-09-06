@@ -1,6 +1,6 @@
 PROMPT_ID: PLATFORM-139-RECORD-RECONCILIATION-v1
 PURPOSE: Item 139 — a final must carry the record INCLUDING the result being read. Reconcile the hourly-cached team record against the games the schedule shows completed, so a finished game never renders its pre-game record.
-SCOPE: `src/lib/selectors/teamRecordsClient.ts` and its tests; the server call site that builds its props; `src/lib/selectors/__tests__/` or the existing suite location. NOT `CompactGameScoreboard.tsx` — the component takes what it is given. No new provider call, no cache invalidation, no component.
+SCOPE: TWO parts. (1) `src/lib/selectors/teamRecordsClient.ts` — widen the projected record to carry its coverage count across the server boundary. (2) A reconciliation selector, called where records and scores are BOTH in scope, plus the consumer that calls it. Tests for both. NOT `CompactGameScoreboard.tsx` — the component renders what it is handed. No new provider call, no cache invalidation.
 
 Read `AGENTS.md` first, then `DESIGN.md` — canonical for UI, and it carries the rule this slice enforces. Neither is restated here.
 
@@ -12,9 +12,18 @@ Read `AGENTS.md` first, then `DESIGN.md` — canonical for UI, and it carries th
   on every surface and every week, and marks the corollary **binding**: a final must carry the record
   including the result being read. That corollary is what this slice implements.
 - [`docs/next-tasks.md`](../next-tasks.md) → **Item 139**, including the failed approach it records.
-- `src/lib/selectors/teamRecordsClient.ts` — the seam. `teamRecordsClientProps` already joins records
-  to schedule rows on **CFBD team IDs**, exactly, with no name fallback, and already has a withhold
-  mechanism (`uncreditableTeamIds`).
+- **`docs/campaigns/item-87-live-watchlist-scoreboard.md` → _Records across scoreboard states —
+  resolved_.** THIS is canonical for the record rule, not `DESIGN.md` alone.
+  `item-87-followon-records.md` is the retained input and says so at its head: applied 2026-08-31,
+  folded into that section. Read the canonical one.
+- `src/lib/selectors/teamRecordsClient.ts` — the SERVER projection. `teamRecordsClientProps` joins
+  records to schedule rows on **CFBD team IDs**, exactly, with no name fallback, and withholds via
+  `uncreditableTeamIds`. **It has NO scores** — it takes `(scheduleItems, teamRecords)` and is called
+  from five page files, none of which have scores in scope. It cannot host the reconciliation; it can
+  only carry the coverage count across the boundary.
+- `src/components/OverviewPanel.tsx` — where records and scores DO coexist
+  (`teamRecordsByProviderGameId` at `:133`/`:638`, `scoresByKey` alongside). `recordForGame` (`:136`)
+  is the lookup the reconciliation wraps. `MatchupsWeekPanel` joins that population after Item 117.
 - `src/lib/teamRecords/teamRecordsCache.ts` — where `uncreditableTeamIds` is derived.
 
 ## STOP — post a READ RECEIPT before writing any code
@@ -26,7 +35,8 @@ replies.
 2. From `DESIGN.md`: quote the sentence stating what a team record always is, and the corollary marked
    binding. Say in one line why the corollary is a consequence of the rule rather than an exception.
 3. `TeamRecordClient` is `Pick<TeamRecordItem['total'], 'wins' | 'losses'>`. **Name the field it drops
-   that this slice needs**, and say why the derivation cannot work on the client type as it stands.
+   that this slice needs.** Then say what `teamRecordsClientProps` receives as arguments, and why that
+   means the reconciliation cannot live there — this is the correction that reshaped the slice.
 4. `teamRecordsClientProps` already withholds a record for some teams. Name the mechanism and where its
    input is derived. Say whether you intend to reuse it for the no-usable-score case, and why.
 5. Anything in the references that CONTRADICTS or narrows the message you were handed. If nothing, say
