@@ -61,6 +61,12 @@ committed `c9f76081`) surfaced four new items and one split; the remaining open 
    tier-2 behind "More" (which _is_ Item 112's disclosure model, landing on Schedule first); kickoff
    sort; deletes `GameWeekPanel`'s collapse and `cardEmphasisClasses`. Carries the
    `ownerOutcomeRowClasses` sibling asymmetry into `MatchupsWeekPanel`.
+   **Records are OMITTED on Schedule — decided 2026-09-05, pending Item 139.** The shared row carries
+   records; Schedule showed none before this slice. Rendering them here would add new instances of a
+   violation stated twice and already live on Overview — a final showing its pre-game record, because
+   `team-records` refreshes hourly. Omitting them ships nothing wrong and matches Schedule's prior
+   behaviour. **Item 139 reconciles records against completed games for BOTH surfaces**; records
+   return to Schedule with it, not before.
    **No open owner decisions.** The amber `upset` border (`GameWeekPanel.tsx:42`) is **DELIBERATELY
    RETIRED** — owner decision 2026-09-05, not a side effect of deleting the card chrome it lives on.
    The distinction matters and is why it is recorded this way: the base addendum exempted that border
@@ -185,8 +191,9 @@ touches no component file.
 Written and ready: `platform-087-slice-5-item-112-codex-v1.md`,
 `platform-135-opponent-count-claude-v1.md`, `platform-102-slice-2-cron-synthesis-claude-v1.md`.
 
-**Fillers, safe against both lanes, any order:** Item 136 and Item 138 (both `matchups.ts`, worth
-pairing — same file, same `NoClaim` root), Item 137 (the red-`main` time bombs, test-only), Item 133a
+**Fillers, safe against both lanes, any order:** Item 139 (records reconciliation — fixes Overview
+and gates records returning to Schedule), Item 136 and Item 138 (both `matchups.ts`, worth pairing —
+same file, same `NoClaim` root), Item 137 (the red-`main` time bombs, test-only), Item 133a
 (below), 122, 121, 84, 86, 111.
 
 > **Known-failure baseline:** `npm test` on clean `main` exits 1 with exactly two failures in
@@ -842,6 +849,42 @@ not be read as a requirement on the other.**
   intentionally redesigns QStash retries, quota consequences, and idempotency together.
 
 - Backlog slug: `PLATFORM-SCHEDULE-REFRESH-FORENSICS-v1`
+
+### Item 139 — a final can show a pre-game record; reconcile records against completed games
+
+**The ask:** make a final always carry the record INCLUDING the result being read, on every surface.
+
+**This is a binding rule, stated twice and violated today.**
+`docs/campaigns/item-87-live-watchlist-scoreboard.md:209` — _"Finals carry the POST-GAME record,
+including the result being read. A stale record on a final is bad data handling."_ And `DESIGN.md`
+carries the corollary as binding: the record is today's, and today includes that game.
+
+**Why it happens.** `team-records` is a season-total cache refreshed **hourly**
+(`schedulerDeliveryHealth.ts:83`). Between a game finalising and the next refresh, the cached record
+predates the result — so the row shows a pre-game record beside a finished score.
+
+**Already live on Overview.** `OverviewPanel` renders records through `CompactGameScoreboard` with the
+same lag, so this is a pre-existing violation, not one Item 87 slice 5 introduces. Slice 5 would have
+extended it to Schedule; it ships without records there instead, pending this item.
+
+**The mechanism — reconcile, do not invalidate.** The record carries a games count:
+`total: {wins, losses, ties, games}` (Georgia 2025 reads `{wins:12, losses:2, games:14}`), and
+schedule rows carry `completed`. So **"does this record already include this final?" is answerable**:
+compare the team's completed-game count against `total.games` and apply the outcomes of any finals the
+record is behind on. That has game identity, needs no cache trigger, and works even when the PROVIDER
+itself lags.
+
+**Verify first, before building:** that CFBD's record counts the same game population the schedule
+does. If it excludes some games, the two counts disagree permanently and the derivation would always
+believe it is behind. **This is the gate — if the populations differ, stop and report.**
+
+**A cache-invalidation trigger was tried and is the wrong layer — do not repeat it.** Slice 5's
+`onGamesFinalized` gate discarded game identity, so it blanked every team's record for one final,
+never fired on first-seen finals (the case that matters), and over-fired on same-winner score
+corrections. Four defects from one mechanism that cannot see which game finished.
+
+**Scope:** the records selector plus its consumers; shared, so it fixes Overview and unblocks
+Schedule together. **Blocker:** none, but it gates records returning to Schedule.
 
 ### Item 137 — two `writer-convergence` tests are time bombs; `main` is red
 
@@ -2369,6 +2412,13 @@ Ships dormant.
   `parseCron` applies a single minute-set to every hour it matches, so the union is two rectangles.
   So `live-scores` and `game-stats` each get **two QStash schedules**: dense at `*/3`, slow at hourly.
 
+  **Slice 2's slow cron uses an OFFSET MINUTE — `1`, not `0` — decided 2026-09-05.** `*/3` and `*/15`
+  both include minute 0, so a slow cron at `0` fires simultaneously with the dense cron every dense
+  hour: two invocations, both reaching the provider, both billed. `live-scores/route.ts` has no
+  invocation-level lock or dedupe to absorb it. Minute 1 is in neither dense set. **This is the ONLY
+  one of the review's findings that is slice 2's to fix** — the others are the delivery-health
+  consumer, which is slice 3's (see above).
+
   **The slow phase's slower pace is the point, not a compromise.** It catches a late final without
   paying dense cost across a 16-hour tail. Covering dense ∪ slow at `*/3` is safe but gives back most
   of the saving, since the 24h guarantee is why October reads 74% armed. Covering only dense hours
@@ -2428,7 +2478,31 @@ replacement, which **must exist before slice 4 takes cron ownership** — otherw
 is gone for the window between them.
 
 - Durable record of every planner run: input windows, generated cron, previous cron, applied-or-
-  skipped, outcome, and the invocation id (Item 126 Tier A correlation). **Durable, not a runtime
+  skipped, outcome, and the invocation id (Item 126 Tier A correlation).
+- **Slice 3 also OWNS THE DELIVERY-HEALTH CONSUMER — scope widened 2026-09-05.** Writing the record is
+  half the job; delivery health reading it is the other half, and it is what actually fixes the
+  defect below. Two consumers:
+  1. **`previousScheduleSlotMs` must stop extrapolating.** It walks backwards through TODAY's cron as
+     if the cron were eternal. A planner-owned cron is **rewritten daily**, so on any day whose plan
+     differs from yesterday's it computes a slot that never existed. Measured on the real parser: a
+     game day of `*/3 19,20,21,22,23` after a dead day of `0 * * * *` reports **false `late` for
+     ~19 hours** — collision 2's exact failure, reintroduced by the fix for collision 2. The record
+     already stores `previous cron`, so the row can read what was ACTUALLY in force rather than
+     predict it.
+  2. **The row must carry BOTH crons**, taking `max(previousSlot(dense), previousSlot(slow))`. One
+     row with one cron cannot describe two schedules: the cadence label is untrue, and a slow-schedule
+     delivery failure is invisible for a measured **15.0 h**. With the record, the row knows both
+     because the planner wrote both.
+
+  **This is why slice 2 does NOT reinstate the "floor cadence."** An eternal hourly slow schedule
+  would make backward extrapolation accidentally correct — a workaround for a dashboard that cannot
+  see history. Slice 3 removes the need to predict history, which is the actual fix. Slice 2's gate
+  already draws that line: it stops if "making the policy derivable requires the health row to read
+  durable state." That boundary was right and points here.
+
+  **Neither defect reaches production**: slice 2 ships dormant, and slice 3 precedes slice 4, which is
+  what activates any of it. **That ordering is now load-bearing for correctness, not just for the
+  tampering signal.** **Durable, not a runtime
   log** — Vercel logs expire too fast to be incident history, and rebuilding that defect here is
   explicitly out of bounds.
 - **Allowlisted projection only.** `buildUpsertRequest` headers carry TWO secrets —
