@@ -24,6 +24,17 @@
 // the environment and are NEVER printed — not in output, logs, or errors;
 // readback header VALUES are always redacted.
 //
+// PLATFORM-102 slice 3a widens `inspect`'s SUBJECT without widening its reach:
+// when a planner-owned schedule has a durable recorded intent, `inspect` diffs
+// live QStash state against THAT rather than against the fixed constant, which is
+// what keeps a "correct, not merely current" signal alive once slice 4 lets the
+// planner rewrite a cron daily. The lookup is INJECTED through
+// {@link RecordedIntentReader}; this module still carries no store, no database
+// and no application import, and no `manage-*` CLI supplies a reader yet — so
+// every one of the seven schedules resolves `absent` and behaves exactly as
+// before. See {@link RecordedIntentLookup} for why a read FAILURE refuses instead
+// of falling back.
+//
 // Exit codes (shared by every job): 0 = confirmed action / verified-good
 // inspection; 2 = refused (bad arguments, an action without --apply, or an
 // absent/divergent schedule on inspect) — nothing mutated; 3 = management
@@ -320,25 +331,40 @@ function isNumericUnset(value: unknown): boolean {
 }
 
 /**
- * Compare a readback against a job's FIXED contract. Divergence messages
- * reference ONLY the known-safe expected constants — never the raw readback
- * value — so a misconfigured field that embedded a secret cannot leak through
- * the very inspection meant to diagnose it. Header values are never formatted
- * into a message (compared/shape-checked only). Returns the divergences (empty =
- * good).
+ * Which authority a readback is judged against (PLATFORM-102 slice 3a).
+ *
+ * WORDING ONLY — the comparison is byte-identical either way, and `fixed` is the
+ * default so every pre-existing caller and every existing message is unchanged.
+ * It exists because once the planner owns a cron there is no "fixed contract" to
+ * diverge from, and an operator told a planner-owned cron "diverges from the
+ * fixed value" would go looking for a constant that no longer governs it.
+ */
+export type ScheduleAuthority = 'fixed' | 'recorded-intent';
+
+/**
+ * Compare a readback against a job's expected contract — the FIXED constants, or
+ * the planner's last recorded intent substituted into them. Divergence messages
+ * reference ONLY the known-safe expected values — never the raw readback value —
+ * so a misconfigured field that embedded a secret cannot leak through the very
+ * inspection meant to diagnose it. Header values are never formatted into a
+ * message (compared/shape-checked only). Returns the divergences (empty = good).
  */
 export function evaluateScheduleContract(
   contract: ScheduleContract,
-  schedule: ScheduleReadback
+  schedule: ScheduleReadback,
+  authority: ScheduleAuthority = 'fixed'
 ): {
   ok: boolean;
   mismatches: string[];
 } {
   const mismatches: string[] = [];
+  const authorityWord = authority === 'fixed' ? 'fixed' : 'recorded';
   if (schedule.scheduleId !== contract.scheduleId)
-    mismatches.push(`scheduleId diverges from the fixed id \`${contract.scheduleId}\``);
+    mismatches.push(`scheduleId diverges from the ${authorityWord} id \`${contract.scheduleId}\``);
   if (schedule.destination !== contract.destination)
-    mismatches.push(`destination diverges from the fixed value \`${contract.destination}\``);
+    mismatches.push(
+      `destination diverges from the ${authorityWord} value \`${contract.destination}\``
+    );
   if (schedule.cron !== contract.cron) mismatches.push(`cron diverges from \`${contract.cron}\``);
   if (schedule.method !== contract.method)
     mismatches.push(`method diverges from \`${contract.method}\``);
@@ -434,12 +460,61 @@ export type FetchLike = (
   init: { method: string; headers: Record<string, string> }
 ) => Promise<{ status: number; json: () => Promise<unknown> }>;
 
+/**
+ * The five schedule fields the planner records as its INTENT — exactly the
+ * fields {@link evaluateScheduleContract} compares, which is what lets a recorded
+ * intent stand in for the fixed contract without widening the check.
+ *
+ * Structurally identical to `PlannerScheduleIntent` in
+ * `src/lib/server/pollingPlannerRecord.ts` and deliberately re-declared rather
+ * than imported: this module is an operator CLI with no runtime dependency on the
+ * application, and importing the store would drag `next/server` and a database
+ * client into a script whose whole safety argument is that it carries neither.
+ */
+export type RecordedScheduleIntent = {
+  scheduleId: string;
+  destination: string;
+  cron: string;
+  method: string;
+  retries: number;
+};
+
+/**
+ * The THREE states of a recorded-intent lookup — PLATFORM-102 slice 3a, owner
+ * ruling 2026-09-06. Collapsing any two of them is the defect the fail-closed
+ * rule exists to prevent.
+ *
+ * - `absent` — the planner has never recorded this schedule. Fall back to the
+ *   fixed constant, exactly as before this slice.
+ * - `intent` — diff live QStash state against what the planner last intended.
+ * - `unreadable` — a record is present but unusable, or the store could not be
+ *   read at all. REFUSE. Silently falling back to a constant a planner-owned cron
+ *   no longer follows would report a tampered schedule as permanently `correct`.
+ */
+export type RecordedIntentLookup =
+  | { kind: 'absent' }
+  | { kind: 'intent'; intent: RecordedScheduleIntent }
+  | { kind: 'unreadable' };
+
+/**
+ * Reads the planner's last recorded intent for one schedule id.
+ *
+ * INJECTED, never imported. `RunDeps` has no store access and this slice does not
+ * give it any: no `manage-*` CLI supplies a reader, so all seven of them resolve
+ * `absent` and behave byte-for-byte as they do today. Slice 4 wires a real reader
+ * for the two schedules the planner takes ownership of. A reader that THROWS is
+ * treated as `unreadable`, because a store failure is not an absence.
+ */
+export type RecordedIntentReader = (scheduleId: string) => Promise<RecordedIntentLookup>;
+
 export type RunDeps = {
   argv: readonly string[];
   env: Record<string, string | undefined>;
   fetchImpl: FetchLike;
   log: (line: string) => void;
   errorLog: (line: string) => void;
+  /** Optional; absent for every job whose cron is still a fixed constant. */
+  readRecordedIntent?: RecordedIntentReader;
 };
 
 async function readSchedule(
@@ -466,12 +541,66 @@ async function readSchedule(
   }
 }
 
+/**
+ * The contract `inspect` judges the live schedule against, resolved BEFORE any
+ * management request is sent — so an unreadable record fails closed without the
+ * credential ever leaving the process, the same ordering `resolveQstashBase`
+ * already establishes for a poisoned base.
+ *
+ * A returned intent whose `scheduleId` is not the one being read is refused
+ * rather than applied: the schedule was fetched BY `contract.scheduleId`, so
+ * substituting a different identity would compare schedule A against intent B and
+ * report a divergence that means nothing.
+ */
+async function resolveExpectedContract(
+  contract: ScheduleContract,
+  deps: RunDeps
+): Promise<
+  { kind: 'ok'; contract: ScheduleContract; authority: ScheduleAuthority } | { kind: 'unreadable' }
+> {
+  if (!deps.readRecordedIntent) return { kind: 'ok', contract, authority: 'fixed' };
+  let lookup: RecordedIntentLookup;
+  try {
+    lookup = await deps.readRecordedIntent(contract.scheduleId);
+  } catch {
+    return { kind: 'unreadable' };
+  }
+  if (lookup.kind === 'unreadable') return { kind: 'unreadable' };
+  if (lookup.kind === 'absent') return { kind: 'ok', contract, authority: 'fixed' };
+  if (lookup.intent.scheduleId !== contract.scheduleId) return { kind: 'unreadable' };
+  return {
+    kind: 'ok',
+    // An explicit per-field substitution, not a spread: the five recorded fields
+    // replace their constants and every other contract field (usage text, debug
+    // env var, failure tag, auth-proof reference) stays exactly as declared.
+    contract: {
+      ...contract,
+      scheduleId: lookup.intent.scheduleId,
+      destination: lookup.intent.destination,
+      cron: lookup.intent.cron,
+      method: lookup.intent.method,
+      retries: lookup.intent.retries,
+    },
+    authority: 'recorded-intent',
+  };
+}
+
 async function runInspect(
   contract: ScheduleContract,
   deps: RunDeps,
   base: string,
   token: string
 ): Promise<number> {
+  const expected = await resolveExpectedContract(contract, deps);
+  if (expected.kind === 'unreadable') {
+    deps.errorLog(
+      `FAILED: the planner's recorded intent for \`${contract.scheduleId}\` is present but could ` +
+        'not be read. Refusing rather than falling back to the fixed contract — a planner-owned ' +
+        'cron would then read as verified against a constant it no longer follows. No change made.'
+    );
+    return 3;
+  }
+  const expectedContract = expected.contract;
   const read = await readSchedule(contract, deps, base, token);
   if (read.kind === 'error') {
     deps.errorLog('FAILED: could not read the schedule from QStash management. No change made.');
@@ -490,12 +619,30 @@ async function runInspect(
   // authentication is proven separately by the job's runbook scheduled-delivery
   // test (contract.authProofRef). No CRON_SECRET is needed (or usable) here.
   deps.log(
-    `[inspect] ${contract.scheduleId}: ${JSON.stringify(summarizeSchedule(contract, read.schedule))}`
+    `[inspect] ${contract.scheduleId}: ${JSON.stringify(
+      summarizeSchedule(expectedContract, read.schedule)
+    )}`
   );
-  const { ok, mismatches } = evaluateScheduleContract(contract, read.schedule);
+  // Only emitted on the recorded-intent branch, so the fixed-contract output an
+  // operator (and five CLI suites) already know is unchanged to the byte.
+  if (expected.authority === 'recorded-intent') {
+    deps.log(
+      `[inspect] judged against the planner's last recorded intent for \`${contract.scheduleId}\`, ` +
+        'not the fixed contract — this schedule is planner-owned.'
+    );
+  }
+  // `fixed` reproduces every existing message to the byte; the other branch is
+  // reachable only once a planner reader is injected, which nothing does yet.
+  const authorityPhrase =
+    expected.authority === 'fixed' ? 'the fixed contract' : "the planner's recorded intent";
+  const { ok, mismatches } = evaluateScheduleContract(
+    expectedContract,
+    read.schedule,
+    expected.authority
+  );
   if (!ok) {
     deps.errorLog(
-      `REFUSED: schedule diverges from the fixed contract:\n - ${mismatches.join('\n - ')}`
+      `REFUSED: schedule diverges from ${authorityPhrase}:\n - ${mismatches.join('\n - ')}`
     );
     return 2;
   }
@@ -507,8 +654,8 @@ async function runInspect(
       ? ' NOTE: the schedule is currently PAUSED — no deliveries until resumed.'
       : '';
   deps.log(
-    '[inspect] verified: schedule structure and provider-side redaction match the fixed ' +
-      `contract. Exact route authentication is NOT yet proven here — confirm it via the ${contract.authProofRef} ` +
+    `[inspect] verified: schedule structure and provider-side redaction match ${authorityPhrase}` +
+      `. Exact route authentication is NOT yet proven here — confirm it via the ${contract.authProofRef} ` +
       `scheduled-delivery test (one 200 paused/disabled result, zero provider calls).${pausedNote}`
   );
   return 0;
