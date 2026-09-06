@@ -1,7 +1,7 @@
 # Prompt Registry
 
 Status: Current ledger
-Last verified: 2026-09-05
+Last verified: 2026-09-06
 Owner: Project documentation
 Canonical for: prompt ledger / historical implementation record (not an active backlog)
 Supersedes: (none)
@@ -50,6 +50,29 @@ Rules:
 ---
 
 ## Prompt ledger (most recent first)
+
+### PLATFORM-087-SLICE-5B-CARD-OWNER-ROW-CODEX-v1
+
+- Purpose: add the per-participant card-owner modifier required before Matchups can adopt the shared
+  scoreboard and highlight the card owner's team without re-deriving ownership inside presentation.
+- Scope: `CompactGameScoreboard`, its focused suite, and the post-review design/queue closeout; no
+  caller, selector, provider, dependency, preview branch, or product-surface wiring.
+- Outcome: the optional boolean adds an isolated neutral row tint only when true. Its zero vertical
+  inset prevents overlap; self games square the two facing corners and retain only the rounded outer
+  corners. The field has zero consumers pending Item 117, and absent/undefined/false output remains
+  byte-identical. The tint remains `dark:`-gated so restoring theme awareness cannot erase it. Tests
+  derive one named/arbitrary theme-utility space, including `text-shadow`, and pin the exact-zero
+  seam.
+- Review / verification: four review passes completed. Codex returned no findings on `af70abd4`;
+  Claude's third pass prompted the test-only `687a95d6`. Claude's fourth pass on
+  `e2c2bc09` found the dormant-theme gating violation and missing `text-shadow` guard family; the
+  owner approved final follow-up `89079e17` and closed further review below P0/P1. On that exact
+  remediation commit, TypeScript and `lint:all` exited 0, the focused suite passed 26/26 (+3), and
+  full `npm test` passed 4,715/4,717 with exactly the two standing Item 137 odds failures, reconfirmed
+  in their focused file at 12/14. Mutations proved that ungating the tint or omitting `text-shadow`
+  turns the suite red, alongside the earlier flag, corner, and positive/negative seam mutations.
+- Status: final pre-merge closeout on `platform/087-slice-5b-card-owner-row`; implementation head
+  `89079e17`; review closed after four passes.
 
 ### PLATFORM-087-SLICE-5-ITEM-112-CODEX-v1
 
