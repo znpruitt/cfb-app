@@ -311,6 +311,40 @@ large real saving, and it retires the manual pause that can strand a final. What
 claim: it is an annual and offseason win that buys headroom, **not** the fix for in-season pressure.
 Anything that depends on being under the line in October needs a second lever.
 
+### SUPERSEDED by the shipped planner — measured 2026-09-05 from Item 102 slice 2
+
+The projection above is **windows-only, and computed on the pre-slice-1 arming rule**: a UTC hour is
+armed if any game's `[kickoff − 15m, kickoff + 24h]` window overlaps it, which is the 17% / 74% table.
+Slice 1 does not plan that way. It groups kickoffs into CLUSTERS and emits two phases per cluster, and
+slice 2 turns those into two cron expressions — dense at the job's existing rate over the dense hours,
+hourly over the reconciliation tail minus those hours. The cluster margin is eight hours where the old
+rule held the cron open for twenty-four, so the real figures are well below the ones above.
+
+Replaying the SHIPPED synthesizer against the same production record (`schedule / 2026-all-all`, 3,679
+rows, 421 `startTimeTBD` excluded as unconfirmed, 58 windows — 59 if the TBD rows are treated as
+confirmed, which is exactly slice 1's own figure, so the difference is entirely that exclusion):
+
+| runs/day | today | dense | slow | total | vs today |
+| --- | --- | --- | --- | --- | --- |
+| live-scores, annual | 480 | 43.0 | 20.2 | **63.2** | −86.8% |
+| live-scores, October | 480 | 181.9 | 8.7 | **190.7** | −60.3% |
+| game-stats, annual | 96 | 8.6 | 20.2 | **28.8** | −70.0% |
+| game-stats, October | 96 | 36.4 | 8.7 | **45.1** | −53.0% |
+
+**October is where the correction bites.** The windows-only projection put `live-scores` at 355/day in
+the binding month; the clusters put it at 190.7. The annual story is unchanged in kind — a large
+saving that buys headroom — but the in-season number is roughly half what this document projected, so
+**"not the fix for in-season pressure"** above is now understated rather than wrong.
+
+**These are wakeups, not CPU hours.** Converting them needs the per-invocation cost this document
+measures, and that measurement predates PLATFORM-120; do not multiply the two without re-measuring.
+
+**The saving is Active CPU only.** Dead-day runs already cost zero CFBD quota, because the handler
+guards block the provider call outside game windows. Slice 2's slow cron subtracts the dense hours for
+that reason: an hourly reconciliation poll landing in an hour the dense schedule already polls would
+bill a second provider call in a live-game hour, spending a budget this work does not fund. A faster
+in-window cadence remains Item 95 portion 2, gated on Item 94.
+
 ### The second lever, measured 2026-09-05 — Items 130 and 131
 
 Owner design: bound the dense cadence by live STATE rather than by a fixed tail. Poll densely from
