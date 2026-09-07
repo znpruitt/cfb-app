@@ -2850,6 +2850,37 @@ the deployed route does not" means COMPARE THE TWO ENVIRONMENTS FIRST** — I pr
 base64 padding and a sensitive-variable hypothesis before doing that, and the environment diff found
 it in one command. Written into `docs/deployment-runbook.md` §8n so the next person does not repeat it.
 
+**FOLLOW-UP, observed on the first live render 2026-09-07 ~19:51 UTC — two planner-owned rows that
+should agree, disagree. Probably CORRECT; verify before changing anything.**
+
+System Health showed `Live scores` as **On time** (green) and `Game stats` as **Nothing due** (gray)
+at the same instant, with identical slow crons. Measured inputs at 19:57:
+
+| | live-scores | game-stats |
+| --- | --- | --- |
+| last receipt | 19:39:00 | 19:30:03 |
+| dense cron (in force from 19:39:13) | `*/3 0,…,7,23` | `*/15 0,…,7,23` |
+| slow cron | `1 8,…,22` | `1 8,…,22` — **identical** |
+| dense `previousCron` | `*/3 * * * *` | `*/15 * * * *` |
+| runs in series / dropped | 3 / 0 | 3 / 0 |
+
+**The likely explanation is slice 3b's timeline working as designed, not a defect.** The required slot
+is judged against what was in force AT THE SLOT TIME, and grace is per-span at `2 × stepMinutes`. The
+two jobs differ ONLY in dense step size — 3 vs 15 minutes, so 6 vs 30 minutes of grace — which lands
+their walk-backs on **opposite sides of the 19:39:13 cutover**, in spans where the dense cron was
+still the unnarrowed `*/3 * * * *` / `*/15 * * * *`. Same input, different span, different answer.
+
+**Falsifiable prediction: the two rows converge once the cutover is more than ~2 hours old**, because
+both walk-backs then land wholly inside the post-cutover span. **Check after ~21:40 UTC.** If they
+still disagree, the asymmetry is not transient and the multi-schedule required-slot derivation needs
+a look.
+
+**Even if transient, there is a question worth answering:** whether a few hours of asymmetric
+delivery states immediately after every daily cutover is acceptable. It recurs at 23:50 every night,
+it is invisible in tests because no fixture spans a cron change with two different step sizes, and
+an operator seeing one planner-owned job green and its twin gray has no way to tell that from a
+fault. Not urgent — neither state raises an issue, and neither is wrong about its own job.
+
 **Slice 4 — activation.** Small, because everything it needs is already built and tested by then.
 
 **The two blocking specification items are RESOLVED — owner decisions 2026-09-07. Both made slice 4
