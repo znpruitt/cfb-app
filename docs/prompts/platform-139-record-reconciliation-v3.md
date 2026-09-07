@@ -39,11 +39,27 @@ solve is that its derivation needs a full-season build, and there is nowhere che
 | 4 | cache the `SeasonScoredBuild` | it exceeds Next's 2 MiB Data Cache entry limit, so it is never stored — every route rebuilds ~3,700 games |
 | 5 | cache only a compact projection (904,484 B, stored) | the projection is invalidated and never warmed |
 
-**Three rounds, one problem, moved three times.** And the shape of the error is visible on `main`
-without reading v2 at all: `assembleSeasonScoredBuild` already existed, and its only callers are
-**rollover, recap and analytics** — batch or occasional work. v2's first move put that assembly on
-**five page render paths**, and rounds 4 and 5 were attempts to make a batch-shaped assembly survive
-a request path.
+**Three rounds, one problem, moved three times.**
+
+**CORRECTION, 2026-09-07 — an earlier version of this prompt got the precedent wrong, and the
+correction matters to your design.** It said `assembleSeasonScoredBuild`'s three callers are batch or
+occasional work and that **"none is a page render path."** That is false. Verified:
+
+- `src/app/league/[slug]/insights/page.tsx:15` declares `export const dynamic = 'force-dynamic'`.
+- It calls `loadWeeklyRecap` on every render, which reaches `loadRecapContext`, which calls
+  `assembleSeasonScoredBuild`.
+- `loadRecapContext` is wrapped in **`React.cache` only** (`loadRecapContext.ts:174`) — per-request
+  dedup, **not** cross-request. Note the asymmetry on the same page: `loadInsights` IS wrapped in
+  `unstable_cache` with a TTL (`loadInsights.ts:391-396`). The recap half is not.
+- The gate is `leagueStatus.state === 'season' && year matches`
+  (`weeklyRecapFacts.ts:93-98`), and production's `tsc` league registry reads
+  `{"year":2026,"state":"season"}`. **It passes today.**
+
+**So a full-season build on a render path is not v2's invention — it is live in production right now
+on the Insights page.** v2's error was extending it from one route to five, on paths that are hit far
+harder. Filed separately as **Item 141**; do not fix it here, and do not cite it as precedent for
+doing the same thing again. Rounds 4 and 5 were attempts to make a batch-shaped assembly survive a
+request path, and they are why v3 exists.
 
 **Round 5's finding is worse than it was reported. Verified on the branch 2026-09-07:**
 
@@ -151,11 +167,12 @@ never take a page to the error boundary.** That was round 4's ruling and it stan
 - [`docs/next-tasks.md`](../next-tasks.md) → **Item 139**, and **Item 140**, which is the reason the
   design pass exists in this form.
 - `src/lib/seasonBuild.ts` on `main` — `SeasonScoredBuild` (`:72`) and `assembleSeasonScoredBuild`
-  (`:88`). **Check its callers on `main` before you design anything.** Verified 2026-09-07: they are
-  `seasonRollover.ts:65`, `recap/loadRecapContext.ts:110` and `gameStats/analyticsProvenance.ts:75` —
-  rollover, recap and analytics. **All batch or occasional. None is a page render path.** v2 put a
-  batch-shaped assembly on five of them. Note also that `loadSeasonScheduleItems` **does not exist on
-  `main`** — v2 created it as a cheap split-out. If you want it, you are building it.
+  (`:88`). **Check its callers on `main` yourself before designing.** Verified 2026-09-07:
+  `seasonRollover.ts:65` (batch), `gameStats/analyticsProvenance.ts:75` (occasional), and
+  `recap/loadRecapContext.ts:110` — which **is** on a `force-dynamic` page render path, with only
+  per-request memoization. See the correction above; that one is Item 141, not yours.
+  Note also that `loadSeasonScheduleItems` **does not exist on `main`** — v2 created it as a cheap
+  split-out. If you want it, you are building it.
 - `src/lib/selectors/teamRecordsClient.ts` on `main` — `teamRecordsClientProps`, the exact-CFBD-ID
   join, and `uncreditableTeamIds`.
 - The abandoned branches, as reference only: `716bb6d1` (v1), `132a0daf` (v2).
@@ -175,8 +192,9 @@ Report these, then **STOP and wait**. A branch checkout is fine; nothing else.
    full identity/score attachment before it returns. **List every step**, and mark which are needed to
    answer _"which of this team's completed games are not yet in its record, and what were their
    outcomes?"_ Then **name its three callers on `main`** and say what they have in common that five
-   page routes do not. This is the design pass's central question and the receipt is where you show
-   you can see it.
+   page routes do not — and note that one of the three is NOT what the earlier draft claimed, per the
+   correction above. This is the design pass's central question and the receipt is where you show you
+   can see it.
 5. Anything in the references that CONTRADICTS or narrows what you were handed. If nothing, say so
    explicitly.
 

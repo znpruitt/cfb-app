@@ -824,6 +824,52 @@ not be read as a requirement on the other.**
 
 - Backlog slug: `PLATFORM-SCHEDULE-REFRESH-FORENSICS-v1`
 
+### Item 141 — the Insights page does a full-season build on every request
+
+**The ask:** stop `/league/<slug>/insights` rebuilding ~3,700 games per render. Cache the recap
+context the way the insights feed beside it is already cached, or narrow what recap needs.
+
+**Found 2026-09-07** while correcting a false claim in the Item 139 v3 prompt. Not a regression —
+this is how it has always worked; nobody had looked.
+
+**The chain, verified:**
+
+- `src/app/league/[slug]/insights/page.tsx:15` — `export const dynamic = 'force-dynamic'`.
+- It calls `loadWeeklyRecap` on every render → `loadRecapContextForSeasonScope` →
+  `loadRecapContext` → `assembleSeasonScoredBuild` (`seasonBuild.ts:88`).
+- `assembleSeasonScoredBuild` loads the season schedule blob, the team database, the alias map and
+  postseason overrides, runs the full `buildScheduleFromApi` canonical build, builds an identity
+  resolver, loads reconciled full-season regular and postseason scores, and attaches every score to
+  every game. 2026 carries **3,679 games**.
+- `loadRecapContext` is wrapped in **`React.cache` only** (`:174`) — per-request dedup, NOT
+  cross-request.
+
+**The asymmetry is the tell.** On the same page and in the same `Promise.all`, `loadInsights` IS
+wrapped in `unstable_cache` with a TTL (`loadInsights.ts:391-396`). The insights half is cached
+across requests; the recap half is not. One of the two was given a cross-request cache and the other
+was not, and nothing records that as a decision.
+
+**Live today.** The gate is `leagueStatus.state === 'season' && leagueStatus.year === seasonYear`
+(`weeklyRecapFacts.ts:93-98`). Production's registry has `tsc` at
+`{"year":2026,"state":"season"}`, so it passes on every Insights render right now.
+
+**NOT MEASURED, and that is the first task.** The CPU cost per render and the Insights page's actual
+request volume are both unknown. Item 102 established that `/api/cron/live-scores` is 75% of Vercel
+Active CPU at 1.20 s per invocation; whether this route is a rounding error beside that or a second
+source is exactly the open question. **Measure before designing** — the Item 139 v3 reconstruction
+exists because two attempts designed a caching layer before measuring what it had to survive.
+
+**Cross-reference — do NOT let this become precedent.** Item 139 v3's defining constraint is no
+full-season build on a request or cron path. This item is the counter-example that already exists;
+it is a defect to fix, not a licence to add a second one.
+
+**Scope:** `src/lib/recap/loadRecapContext.ts` and its cache wrapper; possibly narrowing
+`WeeklyRecapContext` to what `composeWeeklyRecap` actually reads. NOT `assembleSeasonScoredBuild`
+itself — rollover and analytics depend on it unchanged.
+
+**Blocker:** none, but it should follow Item 139 v3's design pass, which may establish a cheaper way
+to get season-scoped facts that this item can reuse.
+
 ### Item 140 — stamp when a game first reads final, so the reconciliation tail can be sized
 
 **The ask:** record, per game, the first observation at which it read final. Nothing else — no change
