@@ -228,12 +228,15 @@ export function deliveryRow(
     graceMs: schedulerDeliveryPolicy(job).graceMs,
     requiredStartedAt: requiredStartedAt ?? derived,
     // The fixed contract measures against exactly one schedule, and `derived`
-    // came from the same resolver production uses, so this is that schedule.
+    // came from the same resolver production uses, so this is that schedule. An
+    // OVERRIDDEN required slot has to travel into it too: production computes
+    // the row's slot FROM this list, so leaving `derived` here built a row whose
+    // two halves disagreed.
     schedules: [
       {
         cron: schedulerDeliveryPolicy(job).cron,
         graceMs: schedulerDeliveryPolicy(job).graceMs,
-        requiredStartedAt: derived,
+        requiredStartedAt: requiredStartedAt ?? derived,
       },
     ],
     deliveryState,
@@ -256,8 +259,31 @@ export function assertRowIsClassifiable(row: SchedulerDeliveryHealthRow): void {
     );
   };
 
+  // The row's required slot IS the max over what it publishes. A fixture that
+  // overrode one without the other describes a row production cannot emit, and
+  // the partial-wiring guard rests on exactly this equality.
+  //
+  // Deferred for the two RECEIPT-TIMED states so the ordering checks below —
+  // which say precisely which state the row would really classify as — report
+  // first. A slot override violates both, and the specific message is the useful
+  // one.
+  const assertSlotIsMaxOfSchedules = (): void => {
+    if (row.schedules.length === 0) return;
+    const latest = Math.max(...row.schedules.map((entry) => Date.parse(entry.requiredStartedAt)));
+    if (Date.parse(row.requiredStartedAt) !== latest) {
+      fail(`the required slot must be the max over its published schedules`);
+    }
+  };
+  if (row.deliveryState !== 'on-time' && row.deliveryState !== 'late') {
+    assertSlotIsMaxOfSchedules();
+  }
+
   if (row.deliveryState === 'missing' || row.deliveryState === 'unavailable') {
-    if (row.receipt !== null) fail(`'${row.deliveryState}' must carry no receipt`);
+    // A plan-unavailable row DOES carry its receipt: only the delivery timing
+    // lost its basis, and execution/lifecycle faults still read from it.
+    if (row.receipt !== null && row.planUnavailableReason === null) {
+      fail(`'${row.deliveryState}' must carry no receipt`);
+    }
     // PLATFORM-102 slice 3b: a row unavailable because its PLAN could not be
     // established publishes no schedule at all. A fixture that kept the fixed
     // cron beside a plan reason would be a row `buildDeliveryRow` never emits —
@@ -304,6 +330,7 @@ export function assertRowIsClassifiable(row: SchedulerDeliveryHealthRow): void {
         `requiredStartedAt ${row.requiredStartedAt} classifies '${wouldBe}'`
     );
   }
+  assertSlotIsMaxOfSchedules();
 }
 
 /**
@@ -327,7 +354,8 @@ export function assertRowIsClassifiable(row: SchedulerDeliveryHealthRow): void {
  */
 export function planUnavailableRow(
   job: ExternalSchedulerJob,
-  planUnavailableReason: SchedulerPlanUnavailableReason
+  planUnavailableReason: SchedulerPlanUnavailableReason,
+  receipt: SchedulerExecutionReceipt | null = null
 ): SchedulerDeliveryHealthRow {
   const row: SchedulerDeliveryHealthRow = {
     job,
@@ -339,7 +367,10 @@ export function planUnavailableRow(
     schedules: [],
     deliveryState: 'unavailable',
     planUnavailableReason,
-    receipt: null,
+    // Carried, because only the delivery TIMING lost its basis. Execution and
+    // lifecycle faults are read from the receipt and must keep reaching the
+    // operator through a plan fault.
+    receipt,
   };
   assertRowIsClassifiable(row);
   return row;

@@ -439,6 +439,15 @@ function schedulerDeliveryIssues(
         //
         // The STATE and its four consumers are unchanged; only the sentence
         // branches, on the companion field that carries WHY.
+        //
+        // It says nothing ABOUT the receipt either way. An earlier version added
+        // "Its execution receipt is unaffected", which was a reassurance nothing
+        // here had checked — the receipt can be malformed or failed at the same
+        // time, and those faults raise their own issues from `row.receipt`.
+        //
+        // The `null` branch is defensive only: a receipt-scope failure makes
+        // EVERY row unavailable and is answered by the global issue above, so a
+        // per-job unavailable row reaching here always carries a reason.
         issues.push({
           ...base,
           code: 'scheduler-delivery-unavailable',
@@ -447,7 +456,7 @@ function schedulerDeliveryIssues(
           explanation:
             row.planUnavailableReason === null
               ? `The ${row.job} execution receipt could not be read.`
-              : `${PLAN_UNAVAILABLE_EXPLANATION[row.planUnavailableReason]} so the schedule ${row.job} is measured against is unknown and its delivery timeliness cannot be judged. Its execution receipt is unaffected.`,
+              : `${PLAN_UNAVAILABLE_EXPLANATION[row.planUnavailableReason]} so the schedule ${row.job} is measured against is unknown and its delivery timeliness cannot be judged.`,
         });
         break;
       case 'on-time':

@@ -472,7 +472,11 @@ test('a corrupt or unreadable record surfaces instead of falling back', async ()
       schedulerDeliveryPolicy('live-scores').cadenceLabel,
       `${reason}: the fixed contract is NOT restated`
     );
-    assert.equal(row.receipt, null);
+    // THE RECEIPT IS STILL PUBLISHED. Withholding it made every receiptless-row
+    // consumer skip this job, so a planner-record failure silently suppressed
+    // execution and lifecycle faults on the two jobs that matter most.
+    assert.ok(row.receipt, `${reason}: the receipt survives a plan fault`);
+    assert.equal(row.receipt!.startedAt, at(now - MIN), reason);
     // The other planner-owned job is untouched: one row degrades, not the page.
     assert.equal(rowOf(rows, 'game-stats').deliveryState, 'missing');
     assert.equal(rowOf(rows, 'game-stats').planUnavailableReason, null);
@@ -688,14 +692,17 @@ test('the recorded cron is read even when the stored windows disagree with it', 
   assert.equal(rowOf(rows, 'live-scores').cron, GAME_DAY_DENSE);
 });
 
-// ── 9. Generated over the TYPE'S contract, not over slice 2's output ────────
+// ── 9. Swept across the record type's axes, not slice 2's output ───────────
 //
-// The axes are the ones `PollingPlannerRun` and `PlannerScheduleRun` admit —
-// dense present or null, every outcome, a recorded previous cron or none, one
-// run or two — crossed with expressions this module's parser ACCEPTS, including
-// shapes the synthesizer never emits and two that match no instant at all. A
-// generator seeded from `synthesizePollingCrons` output would test slice 2.
-test('every shape the record type admits yields a coherent row', async () => {
+// NOT the whole contract — a finite sweep, and named for what it is. The axes
+// are the ones `PollingPlannerRun` and `PlannerScheduleRun` admit: dense present
+// or null, every outcome, a recorded previous cron or none, a consecutive
+// `previousCron` that AGREES or CONTRADICTS, one run or two, two runs sharing an
+// `at`, and a nonzero `droppedRuns` — crossed with expressions this module's
+// parser accepts, including shapes the synthesizer never emits, two that match
+// no instant at all, and one whose calendar is impossible. A generator seeded
+// from `synthesizePollingCrons` output would test slice 2.
+test("the record type's axes, swept, always yield a coherent row", async () => {
   const denseCrons: Array<string | null> = [
     null,
     GAME_DAY_DENSE,
@@ -703,8 +710,10 @@ test('every shape the record type admits yields a coherent row', async () => {
     '0,30 6,7 * * *',
     'nonsense',
     '99 * * * *',
+    // Every field parses; the calendar is impossible.
+    '0 0 31 2 *',
   ];
-  const slowCrons = ['1 * * * *', '1 0,1,2 * * *', '5 3 * * *', '* * * * 1'];
+  const slowCrons = ['1 * * * *', '1 0,1,2 * * *', '5 3 * * *', '* * * * 1', '30 * * * *'];
   const outcomes: PlannerScheduleOutcome[] = [
     'confirmed',
     'unchanged',
@@ -736,14 +745,20 @@ test('every shape the record type admits yields a coherent row', async () => {
     for (const slowCron of slowCrons) {
       for (const outcome of outcomes) {
         for (const previousCron of previousCrons) {
-          for (const runCount of [1, 2]) {
+          for (const priorShape of ['none', 'agreeing', 'contradicting', 'tied'] as const) {
             const runs: PollingPlannerRun[] = [];
-            if (runCount === 2) {
+            // The preceding run's own expression. `previousCron` on the newer
+            // run either matches it, contradicts it, or is absent — the three
+            // transition shapes the record admits.
+            const priorCron = priorShape === 'agreeing' ? previousCron : DEAD_DAY_SLOW;
+            if (priorShape !== 'none') {
               runs.push(
                 run(
-                  '2026-10-02T00:02:00.000Z',
-                  schedule(DEAD_DAY_SLOW, { previousCron: DEAD_DAY_SLOW }),
-                  schedule(DEAD_DAY_SLOW, { previousCron: DEAD_DAY_SLOW })
+                  // `tied` puts two runs at the SAME instant, which the store
+                  // permits and refuses to deduplicate.
+                  priorShape === 'tied' ? '2026-10-03T00:02:00.000Z' : '2026-10-02T00:02:00.000Z',
+                  schedule(priorCron ?? DEAD_DAY_SLOW, { previousCron: DEAD_DAY_SLOW }),
+                  schedule(priorCron ?? DEAD_DAY_SLOW, { previousCron: DEAD_DAY_SLOW })
                 )
               );
             }
@@ -754,7 +769,12 @@ test('every shape the record type admits yields a coherent row', async () => {
                 schedule(slowCron, { previousCron, outcome })
               )
             );
-            const record = okRecord(...runs);
+            // A nonzero drop count is a readable series with holes; the reader
+            // must not treat it as absence, and must not blank on it either.
+            const record: PollingPlannerReadResult = {
+              kind: 'ok',
+              series: { runs, droppedRuns: priorShape === 'contradicting' ? 3 : 0 },
+            };
             for (const now of clocks) {
               shapes += 1;
               const snapshot = await rowsFor({
@@ -764,7 +784,7 @@ test('every shape the record type admits yields a coherent row', async () => {
 
               for (const job of EXTERNAL_SCHEDULER_JOBS) {
                 const row = rowOf(snapshot, job);
-                const label = `${job} dense=${denseCron} slow=${slowCron} ${outcome} prev=${previousCron} runs=${runCount} @${at(now)}`;
+                const label = `${job} dense=${denseCron} slow=${slowCron} ${outcome} prev=${previousCron} prior=${priorShape} @${at(now)}`;
 
                 if (!isPlannerOwnedJob(job)) {
                   // No record is ever read for these, whatever is stored.
@@ -819,7 +839,7 @@ test('every shape the record type admits yields a coherent row', async () => {
     }
   }
 
-  assert.equal(shapes, 6 * 4 * 5 * 2 * 2 * 4, 'the whole product was swept');
+  assert.equal(shapes, 7 * 5 * 5 * 2 * 4 * 4, 'the whole product was swept');
   // The sweep proves nothing about a branch it never entered.
   assert.ok(resolved > 0 && unresolved > 0, 'both outcomes were reached');
   assert.deepEqual(
@@ -827,4 +847,225 @@ test('every shape the record type admits yields a coherent row', async () => {
     ['plan-incomplete', 'plan-indeterminate', 'plan-unreadable'],
     'every reason the record path can produce was reached'
   );
+});
+
+// ── 10. Review remediation — every fix carries its own regression test ──────
+
+// REGRESSION TEST for the first run, where `previousCron` is null by definition
+// (`pollingPlannerRecord.ts` documents it as "a first run"). The pre-fix walk
+// propagated that unknown span to the whole row, so on the first day slice 4
+// ever ran, both rows read `unavailable` for every hour before the dense window.
+test('an unknown older span drops ONE schedule, not the row', async () => {
+  const now = ms('2026-10-03T10:00:00.000Z');
+  const rows = await rowsFor({
+    nowMs: now,
+    records: {
+      'live-scores': okRecord(
+        run(
+          '2026-10-03T00:02:00.000Z',
+          schedule(GAME_DAY_DENSE, { previousCron: null }),
+          schedule(GAME_DAY_SLOW, { previousCron: null })
+        )
+      ),
+    },
+  });
+  const row = rowOf(rows, 'live-scores');
+  assert.equal(row.planUnavailableReason, null, 'the row still reports what it can');
+  assert.equal(row.cron, GAME_DAY_DENSE, 'the current expression is known');
+  // The dense schedule is not yet due today and its history is unknown, so it
+  // contributes nothing; the slow schedule carries detection on its own.
+  assert.deepEqual(
+    row.schedules.map((entry) => entry.cron),
+    [GAME_DAY_SLOW]
+  );
+  assert.equal(row.requiredStartedAt, '2026-10-03T07:01:00.000Z');
+});
+
+// REGRESSION TEST for the transition evidence. `previousCron` on the FOLLOWING
+// run is a direct observation of what was live; the pre-fix timeline ignored it
+// and asserted the preceding run's intent across the span regardless.
+test('a contradicted span stops contributing, and an agreeing one does not', async () => {
+  const now = ms('2026-10-03T00:06:00.000Z');
+  const yesterdayDense = '*/3 12,13 * * *';
+  const build = (slowPreviousCron: string, droppedRuns: number) =>
+    rowsFor({
+      nowMs: now,
+      records: {
+        'live-scores': {
+          kind: 'ok',
+          series: {
+            runs: [
+              run(
+                '2026-10-02T00:02:00.000Z',
+                schedule(yesterdayDense, { previousCron: DEAD_DAY_SLOW }),
+                schedule(DEAD_DAY_SLOW, { previousCron: DEAD_DAY_SLOW })
+              ),
+              run(
+                '2026-10-03T00:02:00.000Z',
+                schedule(GAME_DAY_DENSE, { previousCron: yesterdayDense }),
+                schedule(GAME_DAY_SLOW, { previousCron: slowPreviousCron })
+              ),
+            ],
+            droppedRuns,
+          },
+        },
+      },
+    });
+
+  // Agreement: the span is known and both schedules contribute.
+  const agreeing = rowOf(await build(DEAD_DAY_SLOW, 0), 'live-scores');
+  assert.deepEqual(
+    agreeing.schedules.map((entry) => entry.cron).sort(),
+    [yesterdayDense, DEAD_DAY_SLOW].sort()
+  );
+  assert.equal(agreeing.requiredStartedAt, '2026-10-02T22:00:00.000Z');
+
+  // Disagreement — a row dropped between the two, or a cron changed outside the
+  // planner. The slow schedule's span is no longer known, so it stops
+  // contributing; the dense one, whose transition still agrees, does not.
+  const contradicted = rowOf(await build('5 * * * *', 1), 'live-scores');
+  assert.equal(contradicted.planUnavailableReason, null);
+  assert.deepEqual(
+    contradicted.schedules.map((entry) => entry.cron),
+    [yesterdayDense]
+  );
+  assert.equal(contradicted.requiredStartedAt, '2026-10-02T13:57:00.000Z');
+});
+
+// REGRESSION TEST for grace crossing expressions. Pre-fix, one grace was taken
+// from the CURRENT expression and applied to a slot belonging to an older one.
+test("a slot is judged with its OWN expression's grace, not the current one's", async () => {
+  const now = ms('2026-10-03T00:03:00.000Z');
+  const receiptMs = ms('2026-10-02T22:30:00.000Z');
+  const rows = await rowsFor({
+    nowMs: now,
+    records: {
+      'live-scores': okRecord(
+        run(
+          '2026-10-02T00:02:00.000Z',
+          schedule(DEAD_DAY_SLOW, { previousCron: DEAD_DAY_SLOW }),
+          schedule(DEAD_DAY_SLOW, { previousCron: DEAD_DAY_SLOW })
+        ),
+        run(
+          '2026-10-03T00:02:00.000Z',
+          // Hourly yesterday, three-minute today: two hours of tolerance
+          // yesterday, six minutes today.
+          schedule('*/3 * * * *', { previousCron: DEAD_DAY_SLOW }),
+          schedule('*/3 * * * *', { previousCron: DEAD_DAY_SLOW })
+        )
+      ),
+    },
+    receipts: [{ key: 'live-scores', value: receiptFor('live-scores', receiptMs) }],
+  });
+  const row = rowOf(rows, 'live-scores');
+
+  const entry = row.schedules[0];
+  assert.ok(entry);
+  assert.equal(entry.cron, DEAD_DAY_SLOW, 'the slot belongs to the older expression');
+  assert.equal(entry.graceMs, 2 * HOUR, "and carries that expression's own grace");
+  assert.equal(entry.requiredStartedAt, '2026-10-02T22:00:00.000Z');
+  assert.equal(row.deliveryState, 'on-time');
+
+  // Pre-fix, the current six-minute grace was applied to the hourly span, which
+  // demanded the 23:00 slot and read this receipt `late` an hour early.
+  assert.equal(
+    previousScheduleSlotMs(DEAD_DAY_SLOW, now - 6 * MIN),
+    ms('2026-10-02T23:00:00.000Z')
+  );
+  assert.ok(ms('2026-10-02T23:00:00.000Z') > receiptMs);
+});
+
+// REGRESSION TEST for the future-skew window. The store admits a run up to five
+// minutes ahead; the pre-fix code took the newest segment unconditionally, so a
+// not-yet-started plan supplied the display, the grace, and an `indeterminate`
+// refusal.
+test('a run that has not started yet governs nothing', async () => {
+  const now = ms('2026-10-03T00:04:00.000Z');
+  const rows = await rowsFor({
+    nowMs: now,
+    records: {
+      'live-scores': okRecord(
+        run(
+          '2026-10-03T00:02:00.000Z',
+          schedule('*/3 * * * *', { previousCron: DEAD_DAY_SLOW }),
+          schedule('*/3 * * * *', { previousCron: DEAD_DAY_SLOW })
+        ),
+        run(
+          // Three minutes ahead of `now`, inside POLLING_PLANNER_FUTURE_SKEW_MS.
+          '2026-10-03T00:07:00.000Z',
+          schedule(GAME_DAY_DENSE, { previousCron: '*/3 * * * *', outcome: 'indeterminate' }),
+          schedule(GAME_DAY_SLOW, { previousCron: '*/3 * * * *', outcome: 'indeterminate' })
+        )
+      ),
+    },
+  });
+  const row = rowOf(rows, 'live-scores');
+  assert.equal(row.planUnavailableReason, null, 'a future run cannot refuse the present');
+  assert.equal(row.cron, '*/3 * * * *', 'the plan in force is the one that has started');
+});
+
+// REGRESSION TEST: readable fields are not proof an expression can fire.
+test('a recorded expression that matches no instant is a corrupt record', async () => {
+  const rows = await rowsFor({
+    nowMs: ms('2026-10-03T00:06:00.000Z'),
+    records: {
+      'live-scores': okRecord(
+        run(
+          '2026-10-03T00:02:00.000Z',
+          // Every field parses; February has no thirty-first.
+          schedule('0 0 31 2 *', { previousCron: DEAD_DAY_SLOW }),
+          schedule(DEAD_DAY_SLOW, { previousCron: DEAD_DAY_SLOW })
+        )
+      ),
+    },
+  });
+  const row = rowOf(rows, 'live-scores');
+  assert.equal(row.planUnavailableReason, 'plan-unreadable');
+  assert.deepEqual(
+    row.schedules,
+    [],
+    'it is NOT silently dropped while the sibling reports healthy'
+  );
+});
+
+// REGRESSION TEST for the cadence label, which took the dispatch minute from
+// this build's `SLOW_OFFSET_MINUTE` instead of from the record.
+test('the cadence label prints the RECORDED dispatch minute', async () => {
+  const rows = await rowsFor({
+    nowMs: ms('2026-10-03T12:00:00.000Z'),
+    records: {
+      'live-scores': okRecord(
+        run(
+          '2026-10-03T00:02:00.000Z',
+          null,
+          schedule('30 * * * *', { previousCron: '30 * * * *' })
+        )
+      ),
+    },
+  });
+  const row = rowOf(rows, 'live-scores');
+  assert.equal(row.cron, '30 * * * *');
+  assert.match(row.cadenceLabel, /:30/);
+  assert.doesNotMatch(
+    row.cadenceLabel,
+    /:01/,
+    'not the constant this build would have synthesized'
+  );
+});
+
+// The per-row `unavailable` state is reachable ONLY from a plan fault: a receipt
+// scope failure has no per-job resolution and takes every row with it, which
+// `systemHealthIssues` answers with one global issue instead. This pins that, so
+// the null-reason branch there stays honestly labelled as defensive.
+test('a receipt-scope failure takes every row, so a per-row unavailable is always plan-caused', async () => {
+  const snapshot = await readSchedulerDeliveryHealth({
+    nowMs: ms('2026-10-03T20:30:00.000Z'),
+    loadEntries: () => Promise.reject(new Error('scope read exploded')),
+    loadPlannerRecord: () => Promise.resolve({ kind: 'absent' }),
+  });
+  assert.equal(snapshot.jobs.length, EXTERNAL_SCHEDULER_JOBS.length);
+  for (const row of snapshot.jobs) {
+    assert.equal(row.deliveryState, 'unavailable', row.job);
+    assert.equal(row.planUnavailableReason, null, row.job);
+  }
 });
