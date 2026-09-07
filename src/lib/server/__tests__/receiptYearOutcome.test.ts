@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import type { UpstreamFaultClass } from '../../api/upstreamFaultClass.ts';
 import { UPSTREAM_FAULT_KINDS } from '../../api/upstreamFaultClass.ts';
@@ -445,4 +448,72 @@ test('the rankings target carries the same widened shape as the schedule target'
     summarizeReceiptTarget(parsed.target),
     '1 year(s): 2026 (weekly-ap-coaches) — failure / provider-fetch-failed · regular parse'
   );
+});
+
+// ── The stored-reason vocabulary ─────────────────────────────────────────────
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
+
+/**
+ * The literal members of one exported string union, read from its source.
+ *
+ * Comments are stripped FIRST: these unions carry long explanatory comments that
+ * contain both apostrophes and semicolons, either of which would otherwise
+ * truncate or poison the extraction — and a silently truncated scan would report
+ * a passing pin over three members instead of forty.
+ */
+function unionMembers(relativePath: string, typeName: string): string[] {
+  const source = readFileSync(path.join(REPO_ROOT, relativePath), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/[^\n]*/g, '');
+  const start = source.indexOf(`export type ${typeName} =`);
+  assert.ok(start >= 0, `${typeName} is declared in ${relativePath}`);
+  const end = source.indexOf(';', start);
+  assert.ok(end > start, `${typeName}'s declaration terminates`);
+  const members = [...source.slice(start, end).matchAll(/'([^']+)'/g)].map((match) => match[1]!);
+  assert.ok(members.length > 0, `${typeName} has literal members`);
+  return members;
+}
+
+/**
+ * STRUCTURAL PIN — every per-year reason either job can produce must satisfy the
+ * parser's stored-token pattern.
+ *
+ * The runtime cannot enumerate a TypeScript union, so this reads the source. It
+ * exists because of the `ODDS_CADENCES` lesson recorded in the parser: shipping
+ * a route's new closed value without widening the reader silently dropped every
+ * receipt carrying it, and the job then reported as having no recent invocation.
+ * A reason added with an underscore, a capital, a space, or a colon would do the
+ * same thing here — and would look completely harmless in its own diff.
+ */
+test('STRUCTURAL PIN: every per-year reason both jobs can produce is a storable token', () => {
+  const pattern = /^[a-z][a-z0-9-]{0,63}$/;
+  const reasons = [
+    ...unionMembers(
+      'src/lib/schedule/fullSeasonScheduleRefreshResult.ts',
+      'FullSeasonScheduleRefreshReason'
+    ),
+    ...unionMembers('src/lib/schedule/cronExecutionLog.ts', 'ScheduleRefreshCronExecutionReason'),
+    ...unionMembers('src/lib/rankings/refreshResult.ts', 'RankingsRefreshReason'),
+    ...unionMembers('src/lib/rankings/cronExecutionLog.ts', 'RankingsCronControlReason'),
+    // The one template-literal member, expanded from `QuotaRefusalReason`.
+    ...unionMembers('src/lib/gameStats/quotaPolicy.ts', 'QuotaRefusalReason').map(
+      (reason) => `quota-${reason}`
+    ),
+  ];
+  assert.ok(reasons.length >= 40, `the scan found the unions (${reasons.length} members)`);
+  for (const reason of reasons) {
+    assert.match(reason, pattern, `\`${reason}\` is storable in a receipt year entry`);
+  }
+
+  // POSITIVE CONTROL — the pattern rejects the shapes a leak would take.
+  for (const bad of [
+    'Partition_Fetch_Failed',
+    'partition fetch failed',
+    'https://api.collegefootballdata.com/games',
+    '{"error":"boom"}',
+    `a${'b'.repeat(64)}`,
+  ]) {
+    assert.doesNotMatch(bad, pattern, `\`${bad}\` is not storable`);
+  }
 });
