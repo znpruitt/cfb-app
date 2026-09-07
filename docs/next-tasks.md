@@ -3724,17 +3724,6 @@ PLATFORM-114 stopped this reaching eligibility by classifying from the provider'
 new seasons no longer track phantom games. It is forward-only: it does not repair archives, and the
 collision still reaches `buildPairKey`, score attachment, and roster/owner mapping.
 
-**Item 139 adds a second consumer, deferred here by owner ruling 2026-09-07.** Its reconciliation
-validates a score row's participants before the score may establish conclusion or contribute an
-outcome, but today's name resolver can still call a colliding label equal. The concrete
-`Missouri S&T` / `Missouri State` probe returns a false direct match. Measured reachability keeps this
-out of Item 139: only 6 of 22,761 production 2026 provider IDs carry any participant disagreement
-(5 side reversals and wrong-opponent `401858427`), none involves a colliding identity; Missouri S&T
-has zero score rows, and all nine of its 2026 games are Division II vs Division II and absent from the
-FBS score feed. Do not add a raw-name heuristic to shared score attachment. This item's numeric CFBD
-participant-ID design is the one fix that serves both consumers, and the additional consumer raises
-its priority.
-
 **Also in scope: the row primary key falls back to a name.** `ScheduleItem.id` is
 ``String(game.id ?? `${week}-${homeTeam}-${awayTeam}`)`` (`src/lib/schedule/cfbdSchedule.ts:730`,
 unchanged since 2026-03-13 and untouched by PLATFORM-114). So a row's identity is
