@@ -2441,6 +2441,13 @@ October against today's 480; `game-stats` 28.8 and 45.1 against 96. **These supe
 table above**, which was computed on the pre-slice-1 `kickoff + 24h` arming rule rather than slice 1's
 clusters; see the campaign doc.
 
+**Slice 3a merged `d1b46db4` and is live-but-dormant. Slice 3b is next** —
+`docs/prompts/platform-102-slice-3b-delivery-consumer-claude-v1.md`. It carries the four items below
+plus two model items from 3a's review: `dense: null` conflating "no dense phase today" with
+"deliberately disabled" (a **blocking specification item for slice 4**, since what a dense-less day
+does to a live schedule is slice 4's decision), and `action`/`outcome` admitting contradictory pairs
+such as `skipped` + `confirmed`.
+
 **Slice 3 inherits four things, three of them found by review on slice 2:**
 
 1. **Delivery health must stop extrapolating.** `previousScheduleSlotMs` treats a cron as eternal,
