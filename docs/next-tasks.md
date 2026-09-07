@@ -853,6 +853,21 @@ was not, and nothing records that as a decision.
 (`weeklyRecapFacts.ts:93-98`). Production's registry has `tsc` at
 `{"year":2026,"state":"season"}`, so it passes on every Insights render right now.
 
+**AND ON GAME DAYS IT BUILDS THE SEASON TO RENDER NOTHING — measured 2026-09-07.** The season gate
+(`isWeeklyRecapActiveSeason`) is cheap and passes, so `loadRecapContext` runs the full build. Only
+afterwards does `composeWeeklyRecap` call `selectWeeklyRecapFacts`, which returns `null` when no week
+is yet eligible — and `WeeklyRecapSection` then renders `null`.
+
+A week becomes eligible more than one day after its LAST game, or exactly one day after it at/after
+06:00 ET (`RECAP_ELIGIBILITY_HOUR = 6`). Today, 2026-09-07, week 1's last game is
+**SMU @ Florida State, 23:30 UTC — still scheduled**, so `elapsedDays = 0` and nothing is eligible.
+Every Insights render today pays for a 3,679-game build and discards the result.
+
+**That inverts the cost profile.** The expensive path runs hardest exactly when it produces nothing —
+Thursday through Monday, which is also the highest-traffic window. The cheap check that would settle
+it (is any week eligible?) needs only game dates and `now`, and it runs AFTER the build rather than
+before.
+
 **NOT MEASURED, and that is the first task.** The CPU cost per render and the Insights page's actual
 request volume are both unknown. Item 102 established that `/api/cron/live-scores` is 75% of Vercel
 Active CPU at 1.20 s per invocation; whether this route is a rounding error beside that or a second
@@ -863,8 +878,14 @@ exists because two attempts designed a caching layer before measuring what it ha
 full-season build on a request or cron path. This item is the counter-example that already exists;
 it is a defect to fix, not a licence to add a second one.
 
-**Scope:** `src/lib/recap/loadRecapContext.ts` and its cache wrapper; possibly narrowing
-`WeeklyRecapContext` to what `composeWeeklyRecap` actually reads. NOT `assembleSeasonScoredBuild`
+**The cheapest fix may not be a cache at all.** `selectWeeklyRecapTargetWeek` needs only each week's
+latest game date and the clock. Hoisting that check ahead of `assembleSeasonScoredBuild` skips the
+build entirely whenever no week is eligible — no cache, no invalidation, no new state. Establish
+whether that is most of the week or a minority of it before designing anything larger.
+
+**Scope:** `src/lib/recap/loadRecapContext.ts` and its cache wrapper; the eligibility check's position
+relative to the build; possibly narrowing `WeeklyRecapContext` to what `composeWeeklyRecap` actually
+reads. NOT `assembleSeasonScoredBuild`
 itself — rollover and analytics depend on it unchanged.
 
 **Blocker:** none, but it should follow Item 139 v3's design pass, which may establish a cheaper way
