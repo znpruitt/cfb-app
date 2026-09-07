@@ -982,9 +982,22 @@ up on late finals — which is exactly why the measurement has to come first.
 including the result being read. A stale record on a final is bad data handling."_ And `DESIGN.md`
 carries the corollary as binding: the record is today's, and today includes that game.
 
-**Why it happens.** `team-records` is a season-total cache refreshed **hourly**
-(`schedulerDeliveryHealth.ts:83`). Between a game finalising and the next refresh, the cached record
-predates the result — so the row shows a pre-game record beside a finished score.
+**Why it happens — and the window is far WIDER than this entry said until 2026-09-07.** Between a game
+finalising and the next records refresh, the cached record predates the result, so the row shows a
+pre-game record beside a finished score.
+
+**CORRECTION: `team-records` is NOT refreshed hourly.** This entry, and both abandoned prompts, said
+so from `schedulerDeliveryHealth.ts:83` — but that is the CRON's expected delivery cadence, not the
+refresh policy. `teamRecordsRefresh.ts:46-47` enforces
+`TEAM_RECORDS_MIN_REFRESH_INTERVAL_MS = 6h` (a durable provider-call floor) and
+`TEAM_RECORDS_MAX_CACHE_AGE_MS = 12h`. Observing a finalization does not escape the floor — `:113`
+still requires `ageMs >= 6h`. **So a final can render a pre-game record for at least six hours and up
+to twelve, not one.** Found by Codex during the v3 design pass, verified in the module.
+
+**This makes the item MORE valuable, and it kills a tempting optimization.** A "just look at the
+current week" shortcut has no sound boundary at a 6–12 hour cadence with provider lag on top. The
+derivation must stay correct for an arbitrarily long tail; only its COST may assume the tail is
+usually short.
 
 **Already live on Overview.** `OverviewPanel` renders records through `CompactGameScoreboard` with the
 same lag, so this is a pre-existing violation, not one Item 87 slice 5 introduces. Slice 5 would have

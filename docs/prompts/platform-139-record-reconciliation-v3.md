@@ -134,6 +134,21 @@ reserves reconstruction for sedimentary product behaviour, architecture, or scop
 | disrupted schedule rows, 2023–2026 | **0** |
 | reversed score rows | 5, **all canonical FBS; 0 in the non-FBS fallback population** |
 | cross-season-type duplicate provider IDs | **0** |
+
+**REFINED 2026-09-07, from your design pass — and this is now the fixture set.** Re-measured across
+every stored score entry, comparing each provider ID's matchup case-insensitively (22,761 distinct
+IDs, 22,755 consistent):
+
+| conflict | count | where |
+| --- | --- | --- |
+| same two teams, **sides reversed** | **5** | the season-wide `{year}-all-regular` aggregate |
+| **different opponent entirely** | **1** | `401858427` — aggregate says `howard @ maryland`, week entry and schedule both say `hampton @ maryland`, final |
+
+**The aggregate entry is the untrustworthy one, and the week-scoped entries agree with the schedule in
+every case.** That is not a caveat on your exact-ID projection — it is the requirement. Newest-by-
+`effectiveRowTimestamp` **and** validation against the schedule are both mandatory, and these six IDs
+are the fixtures that prove it. A plain last-wins projection inverts five games and misattributes a
+sixth.
 | null kickoffs | **0** |
 
 Guards for the last three are cheap and were accepted narrowly — **log and return empty enrichment,
