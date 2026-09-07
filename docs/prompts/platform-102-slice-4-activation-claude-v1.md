@@ -8,11 +8,11 @@ Read `AGENTS.md` first. Three rules there bind this slice unusually hard and are
 
 Slices 2, 3a and 3b each shipped the **same mistake in different clothes**, and each cost a review round:
 
-| slice | the guard was placed at | what it missed |
+| commit | the guard was placed at | what it missed |
 | --- | --- | --- |
-| 3a r1 | the constructor | the sink — an optional projector left the allowlist unenforced at the write |
-| 3b r3 | the read side | the write side — the sink projected fields the read would reject |
-| 3b r5 | the value | the shape — `Number('')` is `0`, so an empty comma part became slot zero |
+| `aed26d19` (3a) | the constructor | the sink — an optional projector left the allowlist unenforced at the write |
+| `0e294603` (3a) | the read side | the write side — a write/read asymmetry, plus a divergent exit code |
+| `e812b3c0` (3b) | the value | the shape — an unreadable cron part had to fail closed, not coerce |
 
 **One root: a guard on what something MEANS while what it IS goes unchecked.** Expect it here. This
 slice writes to an external system, so the sink is a network call and the shape is a request body.
@@ -24,10 +24,14 @@ slice writes to an external system, so the sink is a network call and the shape 
 - [`docs/next-tasks.md`](../next-tasks.md) → **Item 102**, the whole entry: the four collisions, the
   two-schedules-per-job decision, slice 4's own bullets, and **the two owner decisions of 2026-09-07**
   that resolved this slice's blockers.
-- `scripts/lib/qstashSchedule.ts` — `buildUpsertRequest` (`:176`), `buildPauseRequest` (`:222`),
-  `buildResumeRequest` (`:233`), `evaluateScheduleContract` (`:331`, cron compared at `:342`),
-  `RunDeps` (`:437`, no store access), and the `ScheduleContract` constants each `manage-*` script
-  declares.
+- `scripts/lib/qstashSchedule.ts` — verified 2026-09-07: `buildUpsertRequest` (`:187`),
+  `buildPauseRequest` (`:222`), `buildResumeRequest` (`:233`), `ScheduleAuthority` (`:342`),
+  `evaluateScheduleContract` (`:352`, taking `authority` at `:355`, cron compared at `:368`),
+  `resolveExpectedContract` (`:680`), `RunDeps` (`:529`), and the upsert dispatch (`:887`).
+  **Slice 3a already built the authority machinery** — `ScheduleAuthority = 'fixed' | 'recorded-intent'`
+  exists, and `runInspect` (`:742`) already resolves through it. Read `:700-733` for what a
+  recorded-intent resolution does and does not substitute; it is narrower than it sounds, and
+  deliberately so.
 - `src/lib/schedule/pollingCron.ts` — slice 2. `synthesizePollingCrons` produces the dense and slow
   expressions; `PollingCronPlan` is `{ dense: … | null; slow: … }`.
 - `src/lib/server/pollingPlannerRecord.ts` — slice 3a. `recordPollingPlannerRun`,
@@ -51,12 +55,16 @@ replies.
    count** of the places stating the same thing — this prompt claims seven; say whether you measured
    the same. Then say why this slice must change them, and what the repo would be asserting if it did
    not.
-3. **`buildUpsertRequest` and `buildPauseRequest` differ in what they carry.** Name every header the
-   upsert sends that the pause does not, and say which of them are secrets. Then say what that means
-   for a slice that will now call both on a schedule.
-4. **Both of this slice's blockers were resolved by a measurement or a mechanism nobody had used, not
+3. **`buildUpsertRequest` (`:187`) and `buildPauseRequest` (`:222`) differ in what they carry.** Name
+   every header the upsert sends that the pause does not, and say which of them are secrets. Then say
+   what that means for a slice that will now call both on the same schedule.
+4. **`resolveExpectedContract` (`:680`) substitutes exactly ONE field from a recorded intent, and
+   refuses on three others.** Name the field, name the three, and quote the reason the comment gives.
+   Then say what routing `upsert` through it would change — including which refusal branches become
+   reachable that are not reachable today.
+5. **Both of this slice's blockers were resolved by a measurement or a mechanism nobody had used, not
    by a judgement call.** Name both, and say for each what was being assumed before.
-5. Anything in the references that CONTRADICTS or narrows the message you were handed. If nothing, say
+6. Anything in the references that CONTRADICTS or narrows the message you were handed. If nothing, say
    so explicitly — but note that Item 102's slice-4 bullets were written before the two 2026-09-07
    decisions and one of them is now stated more strongly than it needs to be.
 
@@ -87,10 +95,14 @@ extrapolating. Nothing writes a record and no schedule is planner-owned. **This 
    ambiguity** — the planner never has to express "deliberately off", because *paused* is the state
    and it is visible in QStash rather than inferred from a missing field.
 
-3. **`upsert` answers to the record, not the fixed contract.** Slice 3a left this deliberately, because
-   choosing `upsert`'s authority IS the planner-ownership decision. Today a planner-owned schedule that
-   goes absent makes `inspect` print *"not provisioned. Run `upsert --apply` first"*, which provisions
-   the fixed cron that the next `inspect` then refuses. Resolve that loop here.
+3. **`upsert` answers to the record, not the fixed contract — and this is SMALLER than it sounds.**
+   Verified on `main` 2026-09-07: `runInspect` (`:742`) already calls `resolveExpectedContract`, but
+   the upsert dispatch (`:887`) calls `buildUpsertRequest(contract, …)` with the **raw fixed
+   contract**, never the resolver. So `inspect` blesses recorded intent while `upsert` writes the
+   fixed cron — a planner-owned schedule that goes absent gets reprovisioned at the fixed cadence,
+   which the next `inspect` then refuses. **Do not rebuild the authority machinery; slice 3a shipped
+   it.** Route `upsert` through the resolver that already exists, and say what that does to the
+   refusal branches, which today only `inspect` can reach.
 
 4. **`QSTASH_TOKEN` into the Vercel environment — collision 3.** **Check first whether QStash offers a
    scoped management token** limited to the two schedules the planner touches; if it does, use it.
@@ -99,11 +111,30 @@ extrapolating. Nothing writes a record and no schedule is planner-owned. **This 
    `qstashSchedule.ts:22` says only that the secrets are never printed; that stays true and should not
    be touched.
 
-5. **Nothing due renders GREEN — owner decision 2026-09-07.** If nothing is due, the job is doing what
-   it was told; that is healthy. **But the row must distinguish "nothing due yet" from "no evidence
-   this job has ever run"** — slice 3b measured a job dead five days rendering green because nothing
-   had been due, while a job with no receipt at all raised a warning. Absence warned and staleness did
-   not. Make that a **display** distinction; do not add a sixth `SchedulerDeliveryState` member.
+5. **Nothing due renders GREEN — owner decision 2026-09-07. Verified on `main`; this is a COLOUR and
+   LABEL change only, and it is small.** Slice 3b already did the state-level work and its reasoning
+   stands: nothing-due must NOT be `on-time`, because `on-time` asserts delivery was timely and
+   nothing measured that (`schedulerDeliveryHealth.ts:1353-1370`). It resolves to `unavailable`
+   instead, and `missing` still covers "no receipt at all" — **so the distinction the owner asked for
+   already exists in the state layer.** Do not redo it.
+
+   What is left is that a healthy idle job currently renders a **yellow row labelled "Unavailable"**:
+   `deliveryRowStatus` (`systemHealthPresentation.ts:119`) is `state === 'on-time' ? 'green' :
+   'yellow'`, and `deliveryStateDisplay` (`:137`) maps `unavailable` to the word "Unavailable". Both
+   are wrong for this case — the colour says warning and the word says broken, when the job is doing
+   exactly what it was told.
+
+   **The discriminator already exists: `planUnavailableReason`.** It is `null` when nothing is due,
+   and non-null (`plan-unreadable`, `plan-store-failed`, `plan-incomplete`, exit-4) when the plan
+   genuinely cannot be read. Those must STAY yellow. So both functions need the reason alongside the
+   state.
+
+   **Both are among the four `SchedulerDeliveryState` consumers this campaign has twice avoided
+   touching, so widening their signatures is a REPORTABLE change** — report it, do not treat it as
+   incidental. **Still no sixth state member.** If you conclude the owner's "green" should instead be
+   a neutral/muted tone that is simply not a warning, say so with reasoning — the decision was that a
+   healthy idle job must not read as a fault, not that it must be the same green as a measured
+   on-time delivery.
 </task>
 
 <gate>
@@ -137,7 +168,9 @@ you actually find. Also stop if pausing a schedule loses state `inspect` needs.
 - **No secret reaches a record, a log, or an error path.** Positive control: feed the real
   `buildUpsertRequest` output — both secret values in a real header block — through whatever this
   slice records or logs, and show the scan detects them if the allowlist is removed.
-- **Nothing-due renders green, and "never run" does not.** Both asserted; the distinction is the point.
+- **Nothing-due does not render as a fault, and a genuinely unreadable plan still does.** Both
+  asserted, discriminated by `planUnavailableReason`. Assert `missing` is untouched — "no receipt at
+  all" must keep warning.
 - **Generate over the type's contract** (`AGENTS.md`), not over the shapes today's schedule produces.
 - Test count delta reported as a measured number.
 </completeness_contract>
