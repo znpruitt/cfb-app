@@ -1,7 +1,7 @@
 # CFB App Design Principles
 
 Status: Current
-Last verified: 2026-09-03
+Last verified: 2026-09-06
 Owner: Project documentation
 Canonical for: durable UI/UX and design-system principles — layout, tables, cards, color, typography, component presentation
 Supersedes: (none)
@@ -175,6 +175,19 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   identity begins the row so a future logo slot can be inserted structurally; logos are not part of
   the current component. An optional context slot immediately before the status row provides
   additive space for a reason label and substance without changing the scoreboard rows
+- The optional `isCardOwnerTeam` participant modifier is a caller-supplied ownership decision; the
+  scoreboard never compares owner strings itself. When true, it renders a neutral 5.5%-white tint
+  behind that participant through an isolated negative-z pseudo-element at `inset: 0 -8px`, without
+  changing row layout. One tinted row keeps a 4px radius on all corners. When both rows are tinted,
+  the away row keeps only its top corners and the home row only its bottom corners, so they meet as
+  one block with no overlap, doubled alpha, separation, or pinched seam. Absent, `undefined`, and
+  false flags remain render-identical, and the modifier ships with zero consumers pending Item 117
+- **Horizontal-bleed integration constraint:** Item 117's Matchups owner card supplies 14–16px of
+  horizontal padding, so the tint's 8px bleed remains inside its outer focus ring. A flush wrapper
+  such as `GameWeekPanel` does not have that protection and must not start supplying the modifier
+  unless its focus indicator is painted above descendant content or it first gains an inner gutter.
+  The current Schedule caller supplies no flag; accepting this latent constraint does not authorize
+  a Schedule or focus-treatment change in slice 5b
 - Compact scoreboard header metadata stays on one line in this order: state or schedule notice,
   kickoff or game clock, broadcast, then `Neutral site`. Bullets are conditional separators before
   broadcast and neutral-site metadata, never leading decoration; a row containing only either label
@@ -207,8 +220,11 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   Consequence, accepted: browsing to an earlier week shows today's record beside an older game.
   **The corollary is binding: a final must carry the record INCLUDING the result being read.** A row
   showing a pre-game record beside a finished score is stale data, not a different rule — the record
-  is "today's", and today includes that game. Supersedes the per-state discussion in
-  `docs/campaigns/item-87-live-watchlist-scoreboard.md` §records, which this consolidates.
+  is "today's", and today includes that game. **`DESIGN.md` is canonical for the RULE** — what a record always is. The
+  per-state **anchor and position** table (record as anchor on scheduled; inline parenthetical on live
+  and final; markup order rank → team → record → owner) lives in
+  `docs/campaigns/item-87-live-watchlist-scoreboard.md` §_Records across scoreboard states — resolved_,
+  which stays canonical for placement. Neither supersedes the other; they answer different questions.
 - Compact scoreboard order is always away → home. Position communicates home/away; font weight,
   never reordering, marks the live leader or final winner
 - Compact scoreboard state variants share that row anatomy: scheduled uses its metadata header,

@@ -8,6 +8,7 @@ import type { TeamRecordClient } from '../lib/selectors/teamRecordsClient';
 export type CompactScoreboardParticipant = {
   teamName: string;
   owner?: string | null;
+  isCardOwnerTeam?: boolean;
   rank?: number | null;
   rankSource?: RankSource | null;
   classification?: ProviderClassification;
@@ -43,6 +44,25 @@ function participantRowClasses(isLeading: boolean, hasLeader: boolean): string {
   return 'font-medium dark:text-zinc-100';
 }
 
+// The nearest painted app surface is zinc-950 (#09090b); under 5.5% white it rounds to
+// #171718. The current zinc-400 token (about #9f9fa9) remains about 6.8:1 over it,
+// clearing the 4.5:1 normal-text floor carried by record and owner suffixes.
+// `isolate` contains the negative-z tint in this row's stacking context; without that
+// boundary it can descend behind an intervening painted card surface. `relative` here
+// is conditional on the owner tint; Item 119 must supply its own containing block on
+// every row for its absolutely positioned team-colour bar rather than rely on this class.
+// Positioning children to lift them would re-anchor and shift that bar.
+const CARD_OWNER_ROW_CLASSES =
+  "relative isolate after:pointer-events-none after:absolute after:inset-[0_-8px] after:z-[-1] dark:after:bg-[rgba(255,255,255,0.055)] after:content-['']";
+
+function cardOwnerRowCornerClasses(
+  side: 'away' | 'home',
+  bothParticipantsBelongToCardOwner: boolean
+): string {
+  if (!bothParticipantsBelongToCardOwner) return 'after:rounded-[4px]';
+  return side === 'away' ? 'after:rounded-t-[4px]' : 'after:rounded-b-[4px]';
+}
+
 function recordLabel(record: TeamRecordClient | null | undefined): string | null {
   return record ? `${record.wins}–${record.losses}` : null;
 }
@@ -76,6 +96,8 @@ export default function CompactGameScoreboard({
     { side: 'away' as const, participant: away },
     { side: 'home' as const, participant: home },
   ];
+  const bothParticipantsBelongToCardOwner =
+    away.isCardOwnerTeam === true && home.isCardOwnerTeam === true;
   const clockLabel = clock?.trim() ?? '';
   const broadcastLabel = broadcast?.trim() ?? '';
   const scheduleNoticeLabel = scheduleNotice?.trim() ?? '';
@@ -151,7 +173,14 @@ export default function CompactGameScoreboard({
             className={`flex items-baseline justify-between gap-3 py-0.5 text-sm ${participantRowClasses(
               isLeading,
               leader !== null
-            )}`}
+            )}${
+              participant.isCardOwnerTeam
+                ? ` ${CARD_OWNER_ROW_CLASSES} ${cardOwnerRowCornerClasses(
+                    side,
+                    bothParticipantsBelongToCardOwner
+                  )}`
+                : ''
+            }`}
             data-scoreboard-side={side}
             data-scoreboard-leading={isLeading}
           >

@@ -1,6 +1,6 @@
 # Item 87 — Follow-on input: card-owner team highlight on Matchups
 
-> **Status:** input for review, not applied.
+> **Status:** decision settled; component seam merged via PR #575; UI adoption remains Item 117.
 
 Origin: member feedback on the Matchups page — *"this screen should color my teams."*
 
@@ -60,6 +60,18 @@ The component already knows both participants, so the condition is available wit
 `inset: -1px -8px`. The implementation ships `0 -8px` plus squared facing corners. Anyone reconciling
 the two should change the mockup, not the code — the mockup's value predates the both-rows-tint rule
 and produces the darker stripe above.
+
+## Horizontal bleed and flush focus rings
+
+**Owner decision 2026-09-06.** Keep the 8px horizontal bleed and accept a caller constraint rather
+than changing this slice. Item 117's intended Matchups owner card has 14–16px horizontal padding, so
+the tint stops 6–8px before that card's outer focus ring. `GameWeekPanel` places its ring flush around
+the scoreboard and a tinted descendant would paint over it, but Schedule supplies no
+`isCardOwnerTeam` flag and is not a consumer of this feature.
+
+If a future user↔owner mapping makes Schedule a consumer, that integration must first paint its focus
+indicator above descendant content or add an inner horizontal gutter. The zero-consumer state is not
+evidence that a flush ring and the bleed compose safely; it is why no Schedule change belongs here.
 
 ## Residual — this ships the legibility fix, not the request
 

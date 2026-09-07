@@ -1,7 +1,7 @@
 # Next Tasks (Active Queue)
 
 Status: Current
-Last verified: 2026-09-05
+Last verified: 2026-09-06
 Owner: Project documentation
 Canonical for: current execution order, planned/parked work, blockers, and the one canonical list of
 unresolved decisions and known deferrals
@@ -26,8 +26,8 @@ Supersedes: (none)
 
 `CURRENT`: **Item 102** — polling planner. (Item 88 is superseded in full by **Item 132**; both
 attempts at it were reverted.)
-`NEXT`: **Item 87 slice 5b** — slice 5 + Item 112 merged via PR #572 (`f424222a`) on 2026-09-05;
-slice 5a's shared-component prerequisite merged via PR #570 (`4caa1a79`) the same day.
+`NEXT`: **Item 117** — Matchups adopts the shared scoreboard. Its slice 5b prerequisite merged via
+PR #575 (`fef083ae`) on 2026-09-06, with zero production consumers so Item 117 remains the first.
 
 Owner-selected run order (2026-09-03), replacing the 2026-09-02 order. Ordering values, stated by the
 owner: **user-facing improvements, data correction, and bug fixes first; prerequisites persisted in
@@ -57,38 +57,22 @@ committed `c9f76081`) surfaced four new items and one split; the remaining open 
    **Operationally independent, though:** 126's incident is the weekly `schedule-refresh` job, while
    102 narrows `live-scores` and `game-stats`. Neither blocks the other; the conflict is in files.
    Observation-only by its own acceptance boundary, so it is the lower-risk half of the pair.
-3. **Item 87 slice 5b** — card-owner row modifier on the shared component. **Split out 2026-09-05;
-   do NOT fold this into Item 117.** The tint the highlight needs is a per-participant-row modifier,
-   and `CompactGameScoreboard` renders those rows internally, so a caller cannot reach one — it needs
-   a new participant field. The property worth protecting is not "one widening" for its own sake: it
-   is that **a component change gets reviewed as a component change** — a field added inside a Matchups
-   slice is reviewed by someone thinking about Matchups.
-   **Correction 2026-09-05: the component has TWO callers today, not six** — `OverviewPanel` and
-   `GameWeekPanel`. `MatchupsWeekPanel` is not on the shared component at all; **Item 117 is what puts
-   it there.** So 5b ships a field with **zero consumers**, and its only consumer is the next slice.
-   That is still the right split — 117 then adopts the component without also widening it — but the
-   earlier "lands on six surfaces, five never set it" framing described a change that does not exist.
-   **Rejected alternative, recorded before someone reaches for it:** styling the row from Matchups via
-   a wrapper class and a descendant selector avoids the component change but couples Matchups to the
-   component's internal DOM. That is worse than a field.
-   **Design:** `docs/campaigns/item-87-followon-team-highlight.md`;
-   `mockups/matchups-schedule-mockup.html`.
-   **Kickoff:** `docs/prompts/platform-087-slice-5b-card-owner-row-codex-v1.md`.
-4. **Item 117** — Matchups adopts the shared scoreboard. User-facing and a correctness fix (the
+3. **Item 117** — Matchups adopts the shared scoreboard. User-facing and a correctness fix (the
    shipped row never says which team is which owner). **The card-owner-treatment decision is
    SETTLED** (2026-09-05) — neutral background tint on the card owner's row; dimming rejected and its
-   mockup toggle removed; owner colour rejected. Consumes slice 5b's field rather than adding it.
+   mockup toggle removed; owner colour rejected. Consumes slice 5b's merged field rather than adding
+   it.
    **Design:** `docs/campaigns/item-87-followon-team-highlight.md` (canonical for the treatment);
    `docs/campaigns/item-87-followon-matchups-schedule-design.md`;
    `docs/campaigns/item-87-live-watchlist-scoreboard.md`; `mockups/matchups-schedule-mockup.html`.
-5. **Item 115** — Overview section expansion. Recent finals is documented as complete and truncates
+4. **Item 115** — Overview section expansion. Recent finals is documented as complete and truncates
    at six today; this reuses the disclosure pattern slice 5 settles rather than inventing one.
    **Cross-reference Item 134:** caps are counts, not rows, so at three columns a cap produces a
    ragged final row (seven live games renders 3 + 3 + 1). That interaction belongs to THIS item's cap
    work, not to the tier.
    **Design:** `docs/campaigns/item-87-followon-section-ordering-resolutions.md` §5 (counts, which
    that document explicitly defers to this item); `docs/campaigns/item-87-followon-section-ordering.md`.
-6. **Item 119** — **restore the team-colour accent, removed in slice 5**, as a solid **8px muted bar
+5. **Item 119** — **restore the team-colour accent, removed in slice 5**, as a solid **8px muted bar
    at ~72%** at the line start of each team row, on the existing HSL normaliser. No accent for teams
    with no catalog colour — which also removes the green `#059669` fallback every FCS row carried.
    OKLCH only if measured.
@@ -99,9 +83,9 @@ committed `c9f76081`) surfaced four new items and one split; the remaining open 
    stale.
    **Covers Overview, Matchups AND Schedule** — the treatment belongs to the shared row, not to one
    consumer.
-   **Depends on slice 5b.** That slice puts `isolation: isolate` on the participant row, which is what
-   lets an absolutely-positioned bar coexist with the card-owner tint; making row children
-   `position: relative` instead would re-anchor the bar and shift it on every highlighted row.
+   **Prerequisite delivered by slice 5b / PR #575.** Its `isolation: isolate` on a tinted participant
+   row lets an absolutely-positioned bar coexist with the card-owner tint; Item 119 must still supply
+   its own containing block on every row rather than rely on slice 5b's conditional `relative`.
    **Blocks Item 134** — it changes row anatomy at the line-start slot, which is what Item 134's
    breakpoint is derived from. See that entry for the arithmetic.
    **Design:** `docs/campaigns/item-87-followon-team-colour-regression.md` (read first — it corrects
@@ -110,19 +94,19 @@ committed `c9f76081`) surfaced four new items and one split; the remaining open 
    `docs/campaigns/item-87-live-watchlist-scoreboard.md`;
    `mockups/live-scoreboard-mockup.html` and `mockups/matchups-schedule-mockup.html` (both now carry
    the bar).
-7. **Item 134** — Overview three-column tier. **Must run AFTER Item 119**, which consumes its
+6. **Item 134** — Overview three-column tier. **Must run AFTER Item 119**, which consumes its
    headroom. See the Item 134 entry.
-8. **Item 118** — Schedule status filter with counts. Purely additive; after the rework it filters.
+7. **Item 118** — Schedule status filter with counts. Purely additive; after the rework it filters.
    **Design:** none written, so its prompt needs an owner design pass first rather than a paraphrase
    of this entry.
-9. **Item 100b** — internal slate marker. Date gate removed 2026-09-03; its 2026 consequence
+8. **Item 100b** — internal slate marker. Date gate removed 2026-09-03; its 2026 consequence
     (Featured empty through 2026-09-07) closes on its own, but the recap and look-ahead targeting it
     exists for recur next August. Cheap: the clustering code is recoverable from `d6184c28`.
-10. **Item 113** — Featured as insight-selected, state-agnostic. Largest, and gated on a decision
+9. **Item 113** — Featured as insight-selected, state-agnostic. Largest, and gated on a decision
     about `INSIGHTS-017-PALETTE` (a prose bullet today, not an item).
     **Design:** `docs/campaigns/item-87-followon-featured-intent.md` — it supplies the product
     intent and states that THIS item owns the reconciliation. Do not re-derive what it settles.
-11. **Item 101** — season-boundary finals gap. Re-derive the empty window against the floating cutoff
+10. **Item 101** — season-boundary finals gap. Re-derive the empty window against the floating cutoff
     first; fix before late November.
 
 **Abandoned branches — dispositions recorded 2026-09-05.** `platform/browser-poll-cadence` and
@@ -159,10 +143,9 @@ the UI spine do not touch each other, so they can run concurrently:
 
 - **Server track, strictly serial with itself:** Item 102 + 88, then Item 126. All three converge on
   `schedulerExecutionStatus.ts` / `schedulerDeliveryHealth.ts` / `systemHealthIssues.ts`.
-- **UI spine, strictly serial with itself:** **5b** → 117 → 115 → 119 → **134** → 118. The shared
-  component widening and Schedule transition merged via PRs #570 and #572. Two ordering constraints
-  are load-bearing, not preference: **5b before 117**, because the tint needs a component field and a
-  component change is reviewed as one; and **119 before 134**, because 119 changes the row anatomy
+- **UI spine, strictly serial with itself:** 117 → 115 → 119 → **134** → 118. The shared component
+  widening, Schedule transition, and card-owner row modifier merged via PRs #570, #572, and #575.
+  The remaining load-bearing constraint is **119 before 134**, because 119 changes the row anatomy
   134's breakpoint is derived from.
 - **Independent, parallel-safe against both:** Item 122 (`admin/HistoricalCachePanel.tsx`), Item 121
   (`schedule/cfbdSchedule.ts`, `schedule.ts`, `schedulePostseasonHelpers.ts` — pipeline, not
@@ -176,7 +159,7 @@ touches no component file.
 
 | lane | worktree | sequence |
 | --- | --- | --- |
-| **UI spine** | `cfb-app-codex` | 5b → 117 → 115 → 119 → 134 → 118 |
+| **UI spine** | `cfb-app-codex` | 117 → 115 → 119 → 134 → 118 |
 | **Platform** | `cfb-app-claude` | 102 slice 2 → slice 3 → slice 4 → 129 → 126 |
 
 **Kickoffs are named `<item>-<agent>-v<n>.md`** so the target lane is legible from the filename.
@@ -865,9 +848,14 @@ compare the team's completed-game count against `total.games` and apply the outc
 record is behind on. That has game identity, needs no cache trigger, and works even when the PROVIDER
 itself lags.
 
-**Verify first, before building:** that CFBD's record counts the same game population the schedule
-does. If it excludes some games, the two counts disagree permanently and the derivation would always
-believe it is behind. **This is the gate — if the populations differ, stop and report.**
+**Gate VERIFIED 2026-09-06 — do not re-derive it.** Against production `team-records/2025` and
+`schedule/2025-all-all`: **668 of 668 teams** have `record.total.games` exactly equal to their
+completed-game count, zero disagreement either way. **The test covered the variance, which is the part
+that matters** — counts range **1 to 17** (16 teams at 9, 179 at 12, 32 at 14, 5 at 16, Illinois State
+at 17), spanning teams that missed a bowl, played a conference championship, and ran deep into the
+playoff. A variable postseason cannot break the derivation because it **never compares against an
+expected total** — each team is compared against itself.
+**Kickoff:** `docs/prompts/platform-139-record-reconciliation-v1.md`.
 
 **A cache-invalidation trigger was tried and is the wrong layer — do not repeat it.** Slice 5's
 `onGamesFinalized` gate discarded game identity, so it blanked every team's record for one final,
@@ -1585,16 +1573,39 @@ and the odds footer on. **Carries a correctness fix, not only a restyle:** the s
 same owner→team mapping defect the Overview redesign fixed. Not in slice 5's scope, which touches
 this file only for the `ownerOutcomeRowClasses` carry-over. Depends on **Item 87 slice 5a**.
 
-**Open — owner decision:** card-owner treatment. The card owner's name repeats on one line of every
-scoreboard; the mockup toggles full weight against dimmed. Decide before implementation.
+**Card-owner treatment settled 2026-09-05; component seam merged via slice 5b / PR #575.** The caller
+marks each participant belonging to the card owner, and the shared scoreboard renders a neutral
+background tint without re-deriving ownership. Both rows tint when the owner holds both teams.
+Dimming and owner colour remain rejected. See
+`docs/campaigns/item-87-followon-team-highlight.md`; this item supplies the first consumer rather
+than widening the component again.
 
-**Dormant summary and grouping cleanup — retained from Item 116.** `formatSlateSummaryText`
-(`selectors/matchups.ts`) has no production caller; `MatchupsWeekPanel` consumes
-`summarizeSlateOpponents` entries only for `.length`, which drives the "Show N more opponents"
-control. The preserved internal `NoClaim` / `NoClaim (FBS)` grouping keys collapse distinct unowned
-FBS opponents, so that count can understate the number of opponent teams even though every owner
-game row still renders. If this rework wires `entry.label` into JSX, it must suppress the sentinel
-at the presentation seam; otherwise decide whether to re-key or delete the dormant summary path.
+**Eyebrow tags convert to bronze — a LIVE `DESIGN.md:148` violation today.** `MatchupsWeekPanel.tsx:267`
+renders `UPSET` / `TOP 25` as **filled blue pills**
+(`dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-200`). `DESIGN.md:148` states blue signals
+interactivity or active state only — _"never use blue to mean 'featured' or 'important'"_ — and those
+tags are exactly an importance signal. So this is a correction to shipped, not a preference. The
+settled treatment is a **hairline-bordered bronze pill, no fill**:
+`border: 0.5px solid rgba(201,166,107,0.40)`, text `#dbc190`, per
+`docs/campaigns/item-87-followon-matchups-schedule-design.md` § _Eyebrow tags_ and the mockup at
+`matchups-schedule-mockup.html:73-76`. The mockup also right-aligns tags in the status row with
+`flex-wrap: nowrap`, so a tagged card gains no line.
+
+**The design doc's _Matchups — design decisions_ section is STALE on one point.** It still reads
+"**Open — card-owner treatment**" and describes a dimming toggle. That was settled 2026-09-05 as the
+neutral tint above, with dimming rejected. `docs/campaigns/item-87-followon-team-highlight.md` wins.
+This is the third stale claim found in that document — it predates the slice 5a/5b rulings, so treat
+its state-behaviour and treatment statements as needing a check against `DESIGN.md` and the
+team-highlight doc rather than as canonical.
+
+**Dormant summary and grouping cleanup — retained from Item 116, and widened by Item 135.**
+`formatSlateSummaryText` (`selectors/matchups.ts`) has no production caller. **Item 135 changed its
+output and left the decision here**: the opponent count now keys on team identity, so a slate with
+three FCS opponents yields `FCS, FCS, FCS` where it used to yield `FCS (x3)`, and a caller pairing the
+now-deduped groups with `slate.totalGames` would print `2 games · vs Self` for one game. **Decide
+whether to re-key its label or delete the dormant path.** If this rework wires `entry.label` into JSX
+it must suppress the `NoClaim (FBS)` sentinel at the presentation seam — `MatchupsWeekPanel:194`
+already does for the row descriptor, and `'FCS'` renders deliberately.
 
 - Backlog slug: `POLISH-MATCHUPS-SCOREBOARD-v1`
 
