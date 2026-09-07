@@ -104,10 +104,28 @@ export default function SchedulerHealthSection({
                       three-minute gap from a three-day one. The issues list was
                       corrected first; the row detail showed the same two values
                       in the old format on the same page. */}
-                  <Detail
-                    label="Required slot"
-                    value={`${utcInstant(row.requiredStartedAt)} (${formatMoment(row.requiredStartedAt, nowMs)})`}
-                  />
+                  {/* A row can legitimately have NO required slot — either no
+                      schedule could be established, or every schedule is known
+                      and none is due yet. Rendering `now` for those printed
+                      "Required slot: … (just now)" under a Cadence line reading
+                      "schedule unknown", moving on every reload, and asserting
+                      a deadline the row itself disclaims. */}
+                  {row.requiredStartedAt !== null ? (
+                    <Detail
+                      label="Required slot"
+                      value={`${utcInstant(row.requiredStartedAt)} (${formatMoment(row.requiredStartedAt, nowMs)})`}
+                    />
+                  ) : (
+                    <Detail
+                      label="Required slot"
+                      // TWO different facts share a null slot, and only one of
+                      // them is "nothing is due". A row whose schedule could not
+                      // be established has no slot BECAUSE it has no schedule,
+                      // and telling the operator nothing is due there is a
+                      // statement the row itself disclaims.
+                      value={requiredSlotAbsenceLabel(row)}
+                    />
+                  )}
                   {receipt && <Detail label="Reason" value={receipt.reason} />}
                   {receipt && (
                     <Detail
@@ -167,6 +185,24 @@ export default function SchedulerHealthSection({
       </ul>
     </section>
   );
+}
+
+/**
+ * WHY a row has no required slot. Four distinct facts share the empty value, and
+ * keying only on `deliveryState` printed "nothing is due" over a schedule that
+ * could not be checked at all.
+ */
+function requiredSlotAbsenceLabel(row: SchedulerDeliveryHealthRow): string {
+  if (row.schedules.some((entry) => entry.unavailableReason !== null)) {
+    return 'unknown — schedule cannot be checked';
+  }
+  if (row.cron === null) return 'unknown — no schedule';
+  // A row with a known schedule, no receipt and no slot is the delivery reader
+  // itself having failed; with a receipt it is simply not due yet.
+  if (row.deliveryState === 'unavailable' && row.receipt === null) {
+    return 'unknown — delivery cannot be checked';
+  }
+  return 'none — nothing is due yet';
 }
 
 /** Execution-column text when there is no parsed receipt — reserving "no receipt"

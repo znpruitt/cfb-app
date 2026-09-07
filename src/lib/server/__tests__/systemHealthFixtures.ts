@@ -19,6 +19,7 @@ import type {
 import type {
   SchedulerDeliveryHealthRow,
   SchedulerDeliveryHealthSnapshot,
+  SchedulerPlanUnavailableReason,
 } from '../schedulerDeliveryHealth.ts';
 import { requiredStartedAtForJob, schedulerDeliveryPolicy } from '../schedulerDeliveryHealth.ts';
 import {
@@ -226,7 +227,22 @@ export function deliveryRow(
     cadenceLabel: 'test cadence',
     graceMs: schedulerDeliveryPolicy(job).graceMs,
     requiredStartedAt: requiredStartedAt ?? derived,
+    // The fixed contract measures against exactly one schedule, and `derived`
+    // came from the same resolver production uses, so this is that schedule. An
+    // OVERRIDDEN required slot has to travel into it too: production computes
+    // the row's slot FROM this list, so leaving `derived` here built a row whose
+    // two halves disagreed.
+    schedules: [
+      {
+        schedule: 'fixed',
+        cron: schedulerDeliveryPolicy(job).cron,
+        graceMs: schedulerDeliveryPolicy(job).graceMs,
+        requiredStartedAt: requiredStartedAt ?? derived,
+        unavailableReason: null,
+      },
+    ],
     deliveryState,
+    planUnavailableReason: null,
     receipt,
   };
   assertRowIsClassifiable(row);
@@ -245,14 +261,80 @@ export function assertRowIsClassifiable(row: SchedulerDeliveryHealthRow): void {
     );
   };
 
+  // EVERY job has at least one schedule. `buildDeliveryRow` publishes one entry
+  // for the fixed contract and two once the planner owns the cron, refusals
+  // included — an empty list is a shape production cannot emit.
+  if (row.schedules.length === 0) fail(`a row must publish the schedules it knows about`);
+
+  // A ROW-level plan fault classifies `unavailable` — or `invalid`, which is a
+  // receipt fact that outranks it. Any other state beside a plan reason is a row
+  // `buildDeliveryRow` cannot emit, and the guard accepted `on-time`.
+  if (
+    row.planUnavailableReason !== null &&
+    row.deliveryState !== 'unavailable' &&
+    row.deliveryState !== 'invalid'
+  ) {
+    fail(`a row-level plan fault classifies 'unavailable', never '${row.deliveryState}'`);
+  }
+
+  const measured = row.schedules.filter((entry) => entry.requiredStartedAt !== null);
+  const known = row.schedules.filter((entry) => entry.cron !== null);
+
+  // The row's headline facts come from ONE entry — the latest measured slot, or
+  // the first known expression when nothing is due. Naming a schedule the row
+  // did not measure is the display-versus-measurement divergence `schedules`
+  // exists to make impossible, and it is checked here rather than assumed.
+  const governing =
+    measured.length > 0
+      ? measured.reduce((best, entry) =>
+          Date.parse(entry.requiredStartedAt!) > Date.parse(best.requiredStartedAt!) ? entry : best
+        )
+      : (known[0] ?? null);
+
+  // Deferred for the two RECEIPT-TIMED states so the ordering checks below —
+  // which say precisely which state the row would really classify as — report
+  // first. A slot override violates both, and the specific message is the useful
+  // one.
+  const assertHeadlineMatchesGoverning = (): void => {
+    if ((row.requiredStartedAt ?? null) !== (governing?.requiredStartedAt ?? null)) {
+      fail(`the required slot must be the latest one its published schedules carry`);
+    }
+    if ((row.cron ?? null) !== (governing?.cron ?? null)) {
+      fail(`'cron' must name the schedule the row was measured against`);
+    }
+    if ((row.graceMs ?? null) !== (governing?.graceMs ?? null)) {
+      fail(`'graceMs' must belong to the schedule named in 'cron'`);
+    }
+    // A reason on the ROW means no schedule is known at all. One schedule losing
+    // its basis is carried in that schedule's own entry and leaves the row
+    // reporting on the other.
+    if ((row.planUnavailableReason !== null) !== (known.length === 0)) {
+      fail(`a row-level plan reason means NO schedule is known — one failing schedule does not`);
+    }
+  };
+  if (row.deliveryState !== 'on-time' && row.deliveryState !== 'late') {
+    assertHeadlineMatchesGoverning();
+  }
+
   if (row.deliveryState === 'missing' || row.deliveryState === 'unavailable') {
-    if (row.receipt !== null) fail(`'${row.deliveryState}' must carry no receipt`);
+    // TWO `unavailable` shapes carry a receipt, and both are states where only
+    // the TIMING lost its basis: a plan fault (execution and lifecycle faults
+    // still read from the receipt), and a row with a known schedule that has
+    // nothing due yet. `missing` never carries one — it is defined by not having
+    // one.
+    const mayCarryReceipt =
+      row.deliveryState === 'unavailable' &&
+      (row.planUnavailableReason !== null || row.requiredStartedAt === null);
+    if (row.receipt !== null && !mayCarryReceipt) {
+      fail(`'${row.deliveryState}' must carry no receipt`);
+    }
     return;
   }
   // `buildDeliveryRow` nulls the receipt whenever the parse fails, so an INVALID
   // row with a receipt attached is unreachable — and accepted, it emits both
   // `scheduler-receipt-invalid` and an execution issue, a pair no real snapshot
-  // produces. Previously this branch returned before checking anything.
+  // produces. It MAY carry a plan reason: `invalid` is a fact about the receipt
+  // and stays true whatever the schedule is doing.
   if (row.deliveryState === 'invalid') {
     if (row.receipt !== null) fail(`'invalid' must carry no receipt`);
     return;
@@ -260,11 +342,21 @@ export function assertRowIsClassifiable(row: SchedulerDeliveryHealthRow): void {
   if (row.receipt === null) fail(`'${row.deliveryState}' requires a receipt`);
 
   const started = Date.parse(row.receipt!.startedAt);
-  const required = Date.parse(row.requiredStartedAt);
   // NaN comparisons are FALSE, so an unparseable instant silently classified as
   // `late` and slipped through the ordering check entirely.
-  if (!Number.isFinite(started))
+  if (!Number.isFinite(started)) {
     fail(`receipt startedAt '${row.receipt!.startedAt}' is unparseable`);
+  }
+
+  if (row.requiredStartedAt === null) {
+    // NOTHING IS DUE — every schedule is known and none has come due. A row with
+    // no obligation cannot be late.
+    if (row.deliveryState === 'late') fail(`'late' with no required slot is unreachable`);
+    assertHeadlineMatchesGoverning();
+    return;
+  }
+
+  const required = Date.parse(row.requiredStartedAt);
   if (!Number.isFinite(required)) {
     fail(`requiredStartedAt '${row.requiredStartedAt}' is unparseable`);
   }
@@ -281,6 +373,46 @@ export function assertRowIsClassifiable(row: SchedulerDeliveryHealthRow): void {
         `requiredStartedAt ${row.requiredStartedAt} classifies '${wouldBe}'`
     );
   }
+  assertHeadlineMatchesGoverning();
+}
+
+/**
+ * A row whose PLAN could not be established — the per-row `unavailable` slice 3b
+ * introduced. The receipt is irrelevant to it by construction: this state says
+ * nothing about the receipt at all.
+ */
+export function planUnavailableRow(
+  job: ExternalSchedulerJob,
+  planUnavailableReason: SchedulerPlanUnavailableReason,
+  receipt: SchedulerExecutionReceipt | null = null
+): SchedulerDeliveryHealthRow {
+  const row: SchedulerDeliveryHealthRow = {
+    job,
+    source: schedulerSourceForJob(job),
+    cron: null,
+    cadenceLabel: 'schedule unknown',
+    graceMs: null,
+    // No schedule is known, so there is no slot to name. Publishing `now` here
+    // printed a deadline the row itself disclaims, moving on every reload.
+    requiredStartedAt: null,
+    // BOTH schedules refused, which is what `resolveDeliverySchedules` emits for
+    // a record it cannot read at all.
+    schedules: (['dense', 'slow'] as const).map((schedule) => ({
+      schedule,
+      cron: null,
+      graceMs: null,
+      requiredStartedAt: null,
+      unavailableReason: planUnavailableReason,
+    })),
+    deliveryState: 'unavailable',
+    planUnavailableReason,
+    // Carried, because only the delivery TIMING lost its basis. Execution and
+    // lifecycle faults are read from the receipt and must keep reaching the
+    // operator through a plan fault.
+    receipt,
+  };
+  assertRowIsClassifiable(row);
+  return row;
 }
 
 /**

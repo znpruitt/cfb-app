@@ -247,6 +247,89 @@ Rules:
   `manage:usage-sample-schedule upsert --apply` requires the owner's `QSTASH_TOKEN`. Until it runs,
   System Health correctly reports `usage-sample` with a scheduler-delivery warning.
 
+### PLATFORM-102-SLICE-3B-DELIVERY-CONSUMER-v1
+
+- Purpose: Item 102 slice 3b — delivery health reads what the planner ACTUALLY scheduled from slice
+  3a's durable record, instead of walking today's cron backwards as if it were eternal. The four
+  inherited items, on functions every System Health load calls. This is what stops slice 4 shipping a
+  permanent false alarm.
+- Scope: `src/lib/server/schedulerDeliveryHealth.ts` and a new suite; `systemHealth.ts` and
+  `systemHealthIssues.ts` where the row shape and its operator text had to follow;
+  `SchedulerHealthSection.tsx` for the required-slot detail. NOT `pollingPlannerRecord.ts` — 3a owns
+  the store. No QStash call, `QSTASH_TOKEN`, cron ownership, or sixth `SchedulerDeliveryState`.
+- Outcome: the record is read as a PIECEWISE-CONSTANT TIMELINE. Each run's `at` opens a span; the
+  CLI's own exit vocabulary says what it left in force (`confirmed`/`unchanged` → the intent,
+  `refused`/`failed` → the previous cron, `indeterminate` → no basis); the following run's
+  `previousCron` cross-checks that span, resolving it where the run itself could not and unresolving
+  it where the two disagree — a dropped row, or a cron changed outside the planner. The required slot
+  is the LATEST across both schedules, each judged with two intervals of ITS OWN expression's cadence.
+  Measured on the shipped module: a game day following a differently-armed day read `late` for 1,144
+  contiguous minutes (19h04m) and now reads `on-time`; a slow-schedule failure inside the
+  reconciliation tail, invisible for a measured 15.0 h, is caught.
+- **The row model was wrong, and three findings across two rounds were that one defect at different
+  levels.** The row carried a single `planUnavailableReason` under an invariant that a reason blanked
+  the row — all-or-nothing uncertainty on a row describing two schedules that fail INDEPENDENTLY. An
+  unknown span blanked the row; an `indeterminate` dense upsert switched off `missing`/`late` for a
+  job whose slow schedule was fully determinate; the planner's FIRST run blanked both rows for 176
+  measured minutes on the day slice 4's cutover begins. Patching each closed one and invited the next.
+  The owner authorized a model re-derivation rather than a third round: per-schedule state (measured /
+  not due / unavailable-with-its-own-reason), the row unavailable only when NO schedule is known, and
+  `cron`/`graceMs`/`requiredStartedAt` all taken from the entry that produced the latest slot so the
+  row cannot name a schedule it did not measure. That closed all five at once, including one nobody
+  had filed.
+- **AN UNKNOWN PAST CANNOT CREATE AN OBLIGATION** is the sentence the re-derivation turns on. A
+  schedule whose history is unreadable but whose present is known is not late — it is not yet due, and
+  `requiredStartedAt` became nullable to say so. 176 blanked minutes → 0.
+- **A guessed lookback window drew four findings from both reviewers across three rounds, so the guess
+  was deleted rather than widened again.** In order: an eight-day walk could not reach a monthly cron's
+  obligation, so a receipt fifteen days stale read `on-time`; widening to 366 days still missed a
+  leap-day expression; the bound was chosen from the CURRENT cron while the walk crosses OLDER spans,
+  so a monthly schedule replaced by a not-yet-due daily one had its obligation skipped; and the wide
+  path cost a MEASURED 132 ms of blocking CPU per job per render, on the admin page of the project
+  whose entire point is an Active CPU budget. The walk now steps DAYS across the calendar and scans
+  minutes only inside a day the date fields admit, so no cadence can outrun it because it is not sized
+  in days at all. `0 0 29 2 *`: 132 ms → 0.16 ms, and `on-time` → `late` against `2024-02-29`.
+- **Two false claims in my own commit messages, both caught by a reviewer rather than by me, both
+  about behaviour I had designed and not implemented.** `48b7477a` claimed the row is unresolved only
+  when the current expression is unknown — false, a row whose schedules were all known but none due
+  was blanked too. `9b40611a` claimed `spanState` had stopped short-circuiting on `unknown` and now
+  used the following run's observation — the function still returned before ever looking at it. A
+  commit message is a verification assertion; these are recorded in the following commits rather than
+  rewritten. A third correction: my "176 measured minutes" understated the exposure by holding the
+  slow schedule in its all-day form; on the idle-slot shape it is thirteen hours.
+- **The false alarm this slice exists to remove has three directions, and I shipped the second one.**
+  Concluding from "a row with no obligation cannot be LATE" that it must be `on-time` put a green dot
+  on a job dead for five days, in 53 of 53 samples across slice 4's cutover morning — while the
+  identical shape with NO receipt reported `missing`. Absence raised a warning; a five-day outage
+  rendered healthy. It is now `unavailable`, this module's word for "no basis to judge". The third
+  direction is filed as a slice-4 blocker below.
+- **A parser hardened against the wrong half, twice.** `parseCron` was made strict about FIELD COUNT
+  and left lax about field CONTENT in the same commit, for the same stated reason — so a range inside
+  a comma list was dropped while its siblings were kept (`8,12-23` → hour 8 alone; a receipt 14h33m
+  stale read `on-time`). The fix then guarded the VALUE and not the SHAPE, so `Number('')` still
+  admitted an empty part as slot zero. Parts are now matched against `*`, `*/<n>` and `<digits>`; the
+  record's own stored pattern admits both `-` and stray commas, so both arrived from durable
+  operator-writable input.
+- Owner rulings that shaped it: reuse `unavailable` with a companion reason field rather than a sixth
+  state (`deliveryState` describes the RECEIPT, and plan corruption is orthogonal — a row can hold a
+  good receipt and an unusable plan); "live read, dormant output" as the honest framing; and the model
+  re-derivation over a third patch round.
+- Ships **LIVE READ, DORMANT OUTPUT**. Two additional durable reads per System Health load, one
+  `getAppState` per planner-owned job — `readSchedulerDeliveryHealth`'s own durable reads go from one
+  to three. Nothing writes a planner record in production, so both answer `absent` and all nine rows
+  resolve through the fixed contract exactly as on `main` — asserted by deep-equality across every
+  job, and confirmed independently by both reviewers. The claim holds on the read-SUCCESS path only: a
+  transient failure on either new query degrades that row today, before slice 4 writes anything.
+- Review / verification: six cycles, both reviewers against each commit, 39 findings raised across
+  `58c874ee`, `48b7477a`, `9b40611a`, `e812b3c0`, `8df69500`, `574b9285`. The convergence signal is not
+  a clean verdict — it is that the final two passes found nothing wrong with the PREVIOUS pass's fixes,
+  after four that did, and that two reviewers independently converged on the same four filed items. 27
+  mutation runs, each proven red and restored; two of them caught NOTHING on the first attempt, which
+  is how the missing-title and fallback-shape tests came to exist. `npx tsc --noEmit` exit 0;
+  `npm run lint:all` exit 0; `npm test` exit 1 with exactly the two known `writer-convergence` failures
+  (Item 137 baseline), 4,823/4,825 — each gate run separately. Test delta **+51**.
+- Status: pre-merge closeout on `claude/102-slice-3b-delivery-consumer` at `7ada7781`.
+
 ### PLATFORM-102-SLICE-3A-PLANNER-RECORD-v1
 
 - Purpose: Item 102 slice 3a — a durable record of what the polling planner derived and sent, and

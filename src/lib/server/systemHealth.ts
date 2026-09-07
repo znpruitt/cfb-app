@@ -305,8 +305,31 @@ function unavailableDelivery(nowMs: number): SchedulerDeliveryHealthSnapshot {
       cron: policy.cron,
       cadenceLabel: policy.cadenceLabel,
       graceMs: policy.graceMs,
-      requiredStartedAt: generatedAt,
+      // NO SLOT IS CLAIMED. This path is reached when the delivery reader itself
+      // failed or timed out, so nothing was measured — and publishing `now` here
+      // rendered "Required slot: … (just now)" on a row that knows nothing, a
+      // deadline that moved on every reload.
+      requiredStartedAt: null,
+      // NOT a plan fallback: no planner record was read, so nothing about a plan
+      // is asserted or discarded, and `planUnavailableReason` stays null — the
+      // reason this row is unavailable is the reader, not the record. The
+      // published cadence is the fixed contract, which stops being true for the
+      // two planner-owned jobs once slice 4 lands; carried as a slice-4 item.
+      //
+      // The entry is published rather than omitted because `schedules` is
+      // documented "never empty" and the branch's own fixture guard enforces it:
+      // production's fallback was the one row violating its own contract.
+      schedules: [
+        {
+          schedule: 'fixed' as const,
+          cron: policy.cron,
+          graceMs: policy.graceMs,
+          requiredStartedAt: null,
+          unavailableReason: null,
+        },
+      ],
       deliveryState: 'unavailable',
+      planUnavailableReason: null,
       receipt: null,
     })),
   };

@@ -23,6 +23,7 @@ import {
   healthyDelivery,
   receiptFor,
   lateReceiptFor,
+  planUnavailableRow,
   refreshSnapshot,
   canonicalOutcome,
   canonicalScopeFor,
@@ -592,4 +593,93 @@ test('Item 88: a MALFORMED canonical record still surfaces as malformed', async 
   );
 
   assert.ok(html.includes('Status malformed'), 'the corrupt record is reported as corrupt');
+});
+
+// PLATFORM-102 slice 3b. A null required slot has TWO causes and only one of
+// them is "nothing is due": a row whose schedule could not be established has no
+// slot BECAUSE it has no schedule. Rendering both as "nothing is due" told the
+// operator the opposite of what the row says.
+test('the required-slot detail separates an unknown schedule from nothing being due', async () => {
+  const nothingDue = {
+    ...deliveryRow('live-scores', 'missing', null),
+    requiredStartedAt: null,
+    cron: '1 * * * *',
+    graceMs: 2 * 60 * 60_000,
+    schedules: [
+      {
+        schedule: 'slow' as const,
+        cron: '1 * * * *',
+        graceMs: 2 * 60 * 60_000,
+        requiredStartedAt: null,
+        unavailableReason: null,
+      },
+    ],
+  };
+  const model = await buildModel({
+    schedulerDelivery: () =>
+      Promise.resolve(
+        deliverySnapshot(
+          EXTERNAL_SCHEDULER_JOBS.map((job) => {
+            if (job === 'live-scores') return nothingDue;
+            if (job === 'game-stats') return planUnavailableRow('game-stats', 'plan-unreadable');
+            return deliveryRow(job, 'on-time', receiptFor(job, 'success'));
+          })
+        )
+      ),
+  });
+  const html = renderToStaticMarkup(
+    <SchedulerHealthSection jobs={model.schedulerJobs} nowMs={NOW} />
+  );
+  assert.ok(html.includes('none — nothing is due yet'), 'a known schedule with no obligation');
+  // A row that cannot be checked at all must not be reported as one with nothing
+  // due — four different facts share a null slot, and only one of them is benign.
+  assert.ok(
+    html.includes('unknown — schedule cannot be checked'),
+    'and a row whose schedule could not be established'
+  );
+});
+
+// One schedule of two can be unavailable while the row itself resolves. Keying
+// the empty-slot wording on `deliveryState` alone printed "nothing is due" over
+// a row whose dense schedule could not be checked at all.
+test('a partly unavailable row does not report its slot as nothing being due', async () => {
+  const partial = {
+    ...deliveryRow('live-scores', 'missing', null),
+    requiredStartedAt: null,
+    cron: '1 * * * *',
+    graceMs: 2 * 60 * 60_000,
+    schedules: [
+      {
+        schedule: 'dense' as const,
+        cron: null,
+        graceMs: null,
+        requiredStartedAt: null,
+        unavailableReason: 'plan-indeterminate' as const,
+      },
+      {
+        schedule: 'slow' as const,
+        cron: '1 * * * *',
+        graceMs: 2 * 60 * 60_000,
+        requiredStartedAt: null,
+        unavailableReason: null,
+      },
+    ],
+  };
+  const model = await buildModel({
+    schedulerDelivery: () =>
+      Promise.resolve(
+        deliverySnapshot(
+          EXTERNAL_SCHEDULER_JOBS.map((job) =>
+            job === 'live-scores'
+              ? partial
+              : deliveryRow(job, 'on-time', receiptFor(job, 'success'))
+          )
+        )
+      ),
+  });
+  const html = renderToStaticMarkup(
+    <SchedulerHealthSection jobs={model.schedulerJobs} nowMs={NOW} />
+  );
+  assert.ok(html.includes('unknown — schedule cannot be checked'));
+  assert.ok(!html.includes('none — nothing is due yet'), 'and never as nothing being due');
 });
