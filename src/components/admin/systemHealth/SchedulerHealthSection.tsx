@@ -123,7 +123,11 @@ export default function SchedulerHealthSection({
                       // be established has no slot BECAUSE it has no schedule,
                       // and telling the operator nothing is due there is a
                       // statement the row itself disclaims.
-                      value={row.cron === null ? 'unknown — no schedule' : 'none — nothing is due'}
+                      value={
+                        row.deliveryState === 'unavailable'
+                          ? 'unknown — delivery cannot be checked'
+                          : 'none — nothing is due'
+                      }
                     />
                   )}
                   {receipt && <Detail label="Reason" value={receipt.reason} />}

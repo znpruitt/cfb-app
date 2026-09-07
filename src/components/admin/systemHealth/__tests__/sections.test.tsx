@@ -631,5 +631,10 @@ test('the required-slot detail separates an unknown schedule from nothing being 
     <SchedulerHealthSection jobs={model.schedulerJobs} nowMs={NOW} />
   );
   assert.ok(html.includes('none — nothing is due'), 'a known schedule with no obligation');
-  assert.ok(html.includes('unknown — no schedule'), 'and a schedule that could not be established');
+  // A row that cannot be checked at all must not be reported as one with nothing
+  // due — two different facts share a null slot, and only one of them is benign.
+  assert.ok(
+    html.includes('unknown — delivery cannot be checked'),
+    'and a row whose delivery could not be established'
+  );
 });

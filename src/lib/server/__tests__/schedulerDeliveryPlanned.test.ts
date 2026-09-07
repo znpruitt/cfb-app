@@ -1544,3 +1544,127 @@ test('a once-daily schedule is not labelled hourly', async () => {
   );
   assert.equal(hourly.cadenceLabel, 'hourly (:01 UTC)');
 });
+
+// ── 14. Both reviewers on e812b3c0 ─────────────────────────────────────────
+
+// REGRESSION TEST. `Number('')` is 0, so an EMPTY comma part — a trailing or
+// doubled comma, which the record's stored pattern admits — was accepted as slot
+// zero in any field where 0 is in range. Same failure as the dropped range, one
+// character over, and it survived that fix because the fix guarded the VALUE and
+// not the SHAPE.
+test('an empty comma part is unreadable, and does not invent slot zero', () => {
+  const hour = ms('2026-10-03T12:00:00.000Z');
+  const farPast = hour - 300 * 24 * HOUR;
+  for (const malformed of [
+    '*/3 19,20,21,22,23, * * *',
+    '0,, * * * *',
+    ' 0 * * * *,',
+    '*/3 8,12-23 * * *',
+    '0 1-5 * * *',
+  ]) {
+    assert.ok(
+      previousScheduleSlotMs(malformed, hour) < farPast,
+      `${JSON.stringify(malformed)} must not resolve to a slot`
+    );
+  }
+  // Positive control: the shapes the parser DOES accept still resolve to real
+  // slots, so the loop above is rejecting malformed input rather than everything.
+  assert.equal(
+    previousScheduleSlotMs('*/3 19,20,21,22,23 * * *', hour),
+    ms('2026-10-02T23:57:00.000Z')
+  );
+  assert.equal(previousScheduleSlotMs('0 8,12 * * *', hour), hour);
+});
+
+// REGRESSION TEST. The bound was derived from the CURRENT expression while the
+// walk crosses OLDER spans, so a monthly schedule replaced by a not-yet-due
+// daily one had its real obligation skipped by the daily cron's narrower floor.
+test('a bound is never narrower than the span the walk actually reaches', async () => {
+  const row = rowOf(
+    await rowsFor({
+      nowMs: ms('2026-10-15T12:00:00.000Z'),
+      records: {
+        'live-scores': okRecord(
+          run(
+            '2026-08-01T00:02:00.000Z',
+            null,
+            schedule('0 0 1 * *', { previousCron: '0 0 1 * *' })
+          ),
+          run(
+            '2026-10-15T00:02:00.000Z',
+            null,
+            schedule('1 0 * * *', { previousCron: '0 0 1 * *' })
+          )
+        ),
+      },
+      receipts: [
+        { key: 'live-scores', value: receiptFor('live-scores', ms('2026-09-30T00:00:00.000Z')) },
+      ],
+    }),
+    'live-scores'
+  );
+  assert.equal(row.deliveryState, 'late');
+  assert.equal(row.requiredStartedAt, '2026-10-01T00:00:00.000Z');
+});
+
+// REGRESSION TEST. A satisfiable expression's obligation can be YEARS back, and
+// no fixed window sized in days can be the answer — the walk steps the calendar
+// instead, so there is no cadence left to outrun it.
+test('an obligation years back is still found', async () => {
+  const row = rowOf(
+    await rowsFor({
+      nowMs: ms('2026-10-15T12:00:00.000Z'),
+      records: {
+        'live-scores': okRecord(
+          run(
+            '2024-01-01T00:02:00.000Z',
+            null,
+            schedule('0 0 29 2 *', { previousCron: '0 0 29 2 *' })
+          )
+        ),
+      },
+      receipts: [
+        { key: 'live-scores', value: receiptFor('live-scores', ms('2024-02-28T00:00:00.000Z')) },
+      ],
+    }),
+    'live-scores'
+  );
+  assert.equal(row.deliveryState, 'late');
+  assert.equal(row.requiredStartedAt, '2024-02-29T00:00:00.000Z');
+});
+
+// The walk must be cheap enough to run on every System Health load. Stepping
+// every MINUTE across a sparse expression was measured at 132 ms of blocking CPU
+// per job — on the admin page of a project whose entire point is an Active CPU
+// budget.
+test('a sparse expression costs a calendar walk, not half a million Date allocations', () => {
+  const now = ms('2026-10-15T12:00:00.000Z');
+  for (const cron of ['0 0 29 2 *', '0 0 1 1 *', '0 0 1 * *']) {
+    const started = process.hrtime.bigint();
+    for (let i = 0; i < 20; i += 1) previousScheduleSlotMs(cron, now);
+    const perCallMs = Number(process.hrtime.bigint() - started) / 20 / 1e6;
+    assert.ok(perCallMs < 10, `${cron} took ${perCallMs.toFixed(2)} ms/call`);
+  }
+});
+
+// REGRESSION TEST. "Once daily" is a claim about the CALENDAR, not the clock: a
+// weekly expression fires once, on one weekday, and was labelled once daily.
+test('a weekly expression is not labelled once daily', async () => {
+  const label = async (cron: string) =>
+    rowOf(
+      await rowsFor({
+        nowMs: ms('2026-10-03T18:00:00.000Z'),
+        records: {
+          'live-scores': okRecord(
+            run('2026-10-01T00:02:00.000Z', null, schedule(cron, { previousCron: cron }))
+          ),
+        },
+      }),
+      'live-scores'
+    ).cadenceLabel;
+
+  assert.doesNotMatch(await label('0 12 * * 2'), /once daily/);
+  assert.match(await label('0 12 * * 2'), /on selected days/);
+  // Positive control: a genuinely once-a-day expression keeps the wording.
+  assert.equal(await label('1 0 * * *'), 'once daily (00:01 UTC)');
+});

@@ -397,7 +397,14 @@ function schedulerDeliveryIssues(
           ...base,
           code: 'scheduler-delivery-missing',
           severity: 'warning',
-          title: `${row.job} has not delivered on schedule`,
+          // The TITLE RENDERS FIRST, AND LARGER. The null-slot explanation below
+          // says "no slot has come due yet, so this is not a missed delivery",
+          // and leaving the old title above it asserted the opposite — the exact
+          // defect the `late` block documents fixing one case down.
+          title:
+            row.requiredStartedAt === null
+              ? `${row.job} has never delivered`
+              : `${row.job} has not delivered on schedule`,
           // `missing` has NO receipt, so there is no "silent since" to state — the
           // only instant available is the required slot, and `now - slot` is
           // floored by the grace window plus up to one cron period. For hourly

@@ -21,6 +21,7 @@ import {
   NOW,
   YEAR,
   allExpectations,
+  assertRowIsClassifiable,
   healthyDelivery,
   refreshSnapshot,
 } from './systemHealthFixtures.ts';
@@ -652,4 +653,29 @@ test('PLATFORM-090: a diagnostics-pass failure yields a non-intentional Unknown 
   assert.equal(row.freshness.intentional, false);
   assert.equal(row.freshness.status, 'gray');
   assert.equal(row.freshness.label, 'Unknown');
+});
+
+// PLATFORM-102 slice 3b. When the delivery LOADER itself fails or times out, the
+// fallback builds its own rows — and they were the one shape in production that
+// broke the row contract the slice publishes: `schedules` documented "never
+// empty" but emitted `[]`, and a fabricated `requiredStartedAt` of `now` that
+// rendered "Required slot: … (just now)" on a row that knows nothing.
+test('the delivery-loader fallback emits rows that satisfy the row contract', async () => {
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders({
+      schedulerDelivery: () => Promise.reject(new Error('loader boom')),
+    }),
+  });
+  assert.equal(model.schedulerJobs.length, EXTERNAL_SCHEDULER_JOBS.length);
+  for (const row of model.schedulerJobs) {
+    assert.equal(row.deliveryState, 'unavailable', row.job);
+    assert.equal(row.requiredStartedAt, null, `${row.job} claims no slot it did not measure`);
+    assert.equal(row.schedules.length, 1, `${row.job} publishes the schedule it knows`);
+    assert.equal(row.schedules[0]!.requiredStartedAt, null, row.job);
+    assert.equal(row.schedules[0]!.cron, row.cron, row.job);
+    // The guard production's own rows are held to.
+    assertRowIsClassifiable(row);
+  }
 });

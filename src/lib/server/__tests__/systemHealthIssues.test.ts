@@ -1602,6 +1602,13 @@ test('a missing row with nothing due states that, rather than naming a deadline'
   );
   const missing = find(issues, 'scheduler-delivery-missing');
   assert.ok(missing);
+  // THE TITLE RENDERS FIRST, AND LARGER — it must not assert the missed delivery
+  // its own body denies.
+  assert.equal(missing!.title, 'live-scores has never delivered');
+  assert.ok(
+    !/has not delivered on schedule/.test(missing!.title),
+    'the title does not claim a missed schedule'
+  );
   assert.match(missing!.explanation, /No slot has come due yet/);
   assert.ok(
     !/at or after/.test(missing!.explanation),

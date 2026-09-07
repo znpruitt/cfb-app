@@ -329,15 +329,26 @@ function parseCronField(field: string, min: number, max: number): ReadonlySet<nu
   for (const part of field.split(',')) {
     if (part === '*') {
       for (let n = min; n <= max; n++) out.add(n);
-    } else if (part.startsWith('*/')) {
-      const step = Number(part.slice(2));
-      if (!Number.isInteger(step) || step <= 0) return null;
-      for (let n = min; n <= max; n += step) out.add(n);
-    } else {
-      const n = Number(part);
-      if (!Number.isInteger(n) || n < min || n > max) return null;
-      out.add(n);
+      continue;
     }
+    // MATCHED, not coerced. `Number('')` is 0, so an empty part — a trailing or
+    // doubled comma, which the record's stored pattern admits — was accepted as
+    // slot ZERO in any field where 0 is in range. Measured: a recorded
+    // `19,20,21,22,23,` invented hour 0 and moved the required slot to 00:57.
+    // That is the same failure as the dropped range, one character over, and it
+    // survived the fix for it because the fix guarded the VALUE and not the
+    // shape.
+    const stepped = /^\*\/(\d+)$/.exec(part);
+    if (stepped) {
+      const step = Number(stepped[1]);
+      if (step <= 0) return null;
+      for (let n = min; n <= max; n += step) out.add(n);
+      continue;
+    }
+    if (!/^\d+$/.test(part)) return null;
+    const n = Number(part);
+    if (n < min || n > max) return null;
+    out.add(n);
   }
   return out.size > 0 ? out : null;
 }
@@ -393,16 +404,19 @@ function cronCalendarIsSatisfiable(parsed: ParsedCron): boolean {
 }
 
 /**
- * Whether a UTC instant matches the parsed cron. Day matching follows standard
- * cron semantics: when BOTH day-of-month and day-of-week are restricted a time
- * matches if EITHER matches; otherwise the restricted field (or `*`) applies.
- * All supported policies restrict at most one of the two, so this reduces to a
- * simple AND for them.
+ * Whether a UTC instant's DATE matches the parsed cron.
+ *
+ * Day matching follows standard cron semantics: when BOTH day-of-month and
+ * day-of-week are restricted a date matches if EITHER matches; otherwise the
+ * restricted field (or `*`) applies. All supported policies restrict at most one
+ * of the two, so this reduces to a simple AND for them.
+ *
+ * Split from the clock half because the walk steps DAYS: the date is constant
+ * across a day, so re-deciding it every minute was most of the cost of a sparse
+ * expression, and the whole-instant matcher it replaced had no other caller.
  */
-function cronMatchesUtc(parsed: ParsedCron, instantMs: number): boolean {
+function cronDateMatchesUtc(parsed: ParsedCron, instantMs: number): boolean {
   const d = new Date(instantMs);
-  if (!parsed.minutes.has(d.getUTCMinutes())) return false;
-  if (!parsed.hours.has(d.getUTCHours())) return false;
   if (!parsed.months.has(d.getUTCMonth() + 1)) return false;
   const domRestricted = parsed.daysOfMonth.size < 31;
   const dowRestricted = parsed.daysOfWeek.size < 7;
@@ -411,10 +425,17 @@ function cronMatchesUtc(parsed: ParsedCron, instantMs: number): boolean {
   return domRestricted && dowRestricted ? domOk || dowOk : domOk && dowOk;
 }
 
-// A generous safety cap comfortably above the sparsest supported cadence (weekly
-// ≈ 7 days). The walk returns at the first match — for real policies within
-// ≤ 7 days — so this cap is only a defensive backstop, never the hot path.
-const MAX_SLOT_LOOKBACK_MINUTES = 366 * 24 * 60;
+/**
+ * A RUNAWAY GUARD, not a policy.
+ *
+ * The walk steps whole days across the calendar and scans minutes only inside a
+ * day the date fields match, so it does not need a bound tuned to any cadence —
+ * which is what the previous design got wrong three times over. No SATISFIABLE
+ * expression this parser accepts goes longer than eight years without firing
+ * (`0 0 29 2 *` is the extreme), and `cronCalendarIsSatisfiable` rejects the
+ * unsatisfiable ones outright, so this cap is unreachable in practice.
+ */
+const MAX_SLOT_LOOKBACK_DAYS = 9 * 366;
 
 /**
  * The most recent fixed UTC schedule slot at or before `cutoffMs`. Deterministic
@@ -424,7 +445,7 @@ const MAX_SLOT_LOOKBACK_MINUTES = 366 * 24 * 60;
  */
 export function previousScheduleSlotMs(cron: string, cutoffMs: number): number {
   const floorMs = Math.floor(cutoffMs / MINUTE_MS) * MINUTE_MS;
-  const notBeforeMs = floorMs - MAX_SLOT_LOOKBACK_MINUTES * MINUTE_MS;
+  const notBeforeMs = floorMs - MAX_SLOT_LOOKBACK_DAYS * DAY_MS;
   const parsed = parseCron(cron);
   // An unreadable expression FAILS CLOSED, exactly as one matching nothing does:
   // it answers with an instant far in the past, so a coverage checker built on
@@ -450,8 +471,26 @@ function previousSlotWithin(
   notBeforeMs: number
 ): number | null {
   let instant = Math.floor(fromMs / MINUTE_MS) * MINUTE_MS;
-  for (; instant >= notBeforeMs; instant -= MINUTE_MS) {
-    if (cronMatchesUtc(parsed, instant)) return instant;
+  for (let days = 0; days <= MAX_SLOT_LOOKBACK_DAYS; days += 1) {
+    if (instant < notBeforeMs) return null;
+    const dayStartMs = Math.floor(instant / DAY_MS) * DAY_MS;
+    // Minutes are scanned ONLY inside a day the calendar admits. Stepping every
+    // minute across a sparse expression cost ~527,000 `Date` allocations per
+    // schedule — measured at 132 ms of blocking CPU per job per render, on the
+    // page of a project whose entire point is an Active CPU budget. Skipping a
+    // non-matching day costs one date comparison.
+    if (cronDateMatchesUtc(parsed, instant)) {
+      // Minute and hour sets are non-empty by construction, so the first day the
+      // calendar admits necessarily contains a firing.
+      const stopMs = Math.max(dayStartMs, notBeforeMs);
+      for (let candidate = instant; candidate >= stopMs; candidate -= MINUTE_MS) {
+        const d = new Date(candidate);
+        if (parsed.hours.has(d.getUTCHours()) && parsed.minutes.has(d.getUTCMinutes())) {
+          return candidate;
+        }
+      }
+    }
+    instant = dayStartMs - MINUTE_MS;
   }
   return null;
 }
@@ -589,43 +628,16 @@ const PLAN_UNAVAILABLE_CADENCE_LABEL: Record<SchedulerPlanUnavailableReason, str
 const DAY_MS = 24 * HOUR_MS;
 
 /**
- * How far back the recorded-timeline walk looks for a schedule's previous slot.
+ * How far back the recorded-timeline walk looks. One bound, chosen once.
  *
- * Every schedule slice 2 synthesizes fires at least once a day — the slow cron
- * covers the reconciliation tail, the whole day when there are no dense hours,
- * and a single idle hour otherwise — so a healthy record answers within hours.
- * The cap exists because the record is DURABLE, OPERATOR-WRITABLE input: a
- * hand-edited row could hold an expression that fires only in February, and this
- * walk runs on a path every System Health load calls.
- *
- * EIGHT DAYS, not thirty. Eight covers a weekly-shaped hand edit with a day to
- * spare and bounds the worst case at ~11,520 minute-steps per schedule instead
- * of 43,200. Exhausting it means the recorded expression has not been due in
- * over a week, which for a POLLING schedule is a corrupt record rather than a
- * quiet one — `resolveSchedule` reports it as `plan-unreadable`.
+ * It was two, picked per expression, and that was the defect: the bound was
+ * derived from the CURRENT cron while the walk crosses OLDER spans, so a monthly
+ * schedule replaced by a daily one had its real obligation skipped by the daily
+ * cron's narrower floor. Guessing a window per cadence is the wrong shape of
+ * answer — the walk is now cheap because it steps DAYS over the calendar, so it
+ * can afford the same generous bound for every expression.
  */
-const PLANNER_SLOT_LOOKBACK_MS = 8 * DAY_MS;
-
-/**
- * How far back a CALENDAR-RESTRICTED expression is searched.
- *
- * Eight days is right for anything firing at least weekly, which is every shape
- * the planner emits and every hand edit that restricts only hours or days of the
- * week. It is WRONG for an expression restricted by day-of-month or month: a
- * monthly cron's obligation falls outside the window, the walk reports "nothing
- * due", and a receipt fifteen days stale reads `on-time` — a real outage masked
- * by the bound rather than by the schedule.
- *
- * So the bound follows the expression. The wide path costs a 366-day walk, and
- * is reachable only from a record no planner run produces.
- */
-const PLANNER_SPARSE_LOOKBACK_MS = 366 * DAY_MS;
-
-/** Restricting a day-of-month or a month can put the previous slot months back. */
-function lookbackForCron(parsed: ParsedCron): number {
-  const sparse = parsed.daysOfMonth.size < 31 || parsed.months.size < 12;
-  return sparse ? PLANNER_SPARSE_LOOKBACK_MS : PLANNER_SLOT_LOOKBACK_MS;
-}
+const PLANNER_SLOT_LOOKBACK_MS = MAX_SLOT_LOOKBACK_DAYS * DAY_MS;
 
 type ScheduleKind = 'dense' | 'slow';
 
@@ -887,6 +899,12 @@ type RecordedSchedule = {
    * every hourly expression and is the minute the label must print.
    */
   dispatchMinute: number | null;
+  /**
+   * Whether the calendar fields admit EVERY day. "Once daily" is a claim about
+   * the calendar, not the clock: `0 12 * * 2` fires once, on Tuesdays, and
+   * labelling it "once daily" told an operator to expect it seven times a week.
+   */
+  everyDay: boolean;
 };
 
 function recordedScheduleFromCron(cron: string): RecordedSchedule | null {
@@ -909,6 +927,8 @@ function recordedScheduleFromCron(cron: string): RecordedSchedule | null {
     hours: [...parsed.hours].sort((a, b) => a - b),
     stepMinutes,
     dispatchMinute: minutes.length === 1 ? (minutes[0] ?? null) : null,
+    everyDay:
+      parsed.daysOfMonth.size === 31 && parsed.months.size === 12 && parsed.daysOfWeek.size === 7,
   };
 }
 
@@ -952,15 +972,23 @@ function describeRecorded(schedule: RecordedSchedule | null): string {
   // IDLE_SLOW_HOUR, "a single daily slot, one wakeup") — so the label an
   // operator reads most often on a quiet day promised twenty-four firings where
   // there is one.
-  if (hourly && schedule.hours.length === 1) {
+  if (hourly && schedule.hours.length === 1 && schedule.everyDay) {
     const hour = String(schedule.hours[0] ?? 0).padStart(2, '0');
     return `once daily (${hour}:${minute} UTC)`;
   }
   const cadence = hourly ? `hourly (:${minute})` : `every ${schedule.stepMinutes} min`;
-  if (schedule.hours.length === HOURS_IN_A_DAY) {
-    return hourly ? `hourly (:${minute} UTC)` : `${cadence} (all day UTC)`;
-  }
-  return `${cadence} at ${describeRecordedHours(schedule.hours)} UTC`;
+  const clock =
+    schedule.hours.length === HOURS_IN_A_DAY
+      ? hourly
+        ? `hourly (:${minute} UTC)`
+        : `${cadence} (all day UTC)`
+      : `${cadence} at ${describeRecordedHours(schedule.hours)} UTC`;
+  // The hour ranges describe the CLOCK; a restricted day-of-month, month or
+  // day-of-week narrows the CALENDAR, and saying nothing about it implied the
+  // schedule runs every day. Not spelled out, because no planner run emits one
+  // and inventing a calendar describer for a hand edit is not this slice's job —
+  // but not silently overstated either.
+  return schedule.everyDay ? clock : `${clock}, on selected days`;
 }
 
 /** Consecutive hours as ranges — `19:00–23:00` fires in each of hours 19 to 23. */
@@ -1072,12 +1100,7 @@ function resolveSchedule(
   // item 3 exactly: a false alarm dressed as a real one.
   if (!schedule) return unavailable('plan-unreadable');
 
-  const parsedCurrent = parseCron(current.state.cron);
-  const found = previousSlotInForce(
-    segments,
-    nowMs,
-    nowMs - (parsedCurrent === null ? PLANNER_SLOT_LOOKBACK_MS : lookbackForCron(parsedCurrent))
-  );
+  const found = previousSlotInForce(segments, nowMs, nowMs - PLANNER_SLOT_LOOKBACK_MS);
   const graceMs = 2 * schedule.stepMinutes * MINUTE_MS;
   if (found.kind !== 'slot') {
     // Not due. The expression is known and published, so the row can still name
