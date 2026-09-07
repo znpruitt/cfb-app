@@ -916,7 +916,27 @@ that matters** — counts range **1 to 17** (16 teams at 9, 179 at 12, 32 at 14,
 at 17), spanning teams that missed a bowl, played a conference championship, and ran deep into the
 playoff. A variable postseason cannot break the derivation because it **never compares against an
 expected total** — each team is compared against itself.
-**Kickoff:** `docs/prompts/platform-139-record-reconciliation-v2.md`.
+**Kickoff:** [`docs/prompts/platform-139-record-reconciliation-v3.md`](prompts/platform-139-record-reconciliation-v3.md).
+
+**TWO ATTEMPTS ABANDONED. v3 is a reconstruction that stops for a DESIGN PASS before any code.**
+
+- **v1 (`716bb6d1`) died on the boundary** — it reconciled in the browser, taking the payload from
+  ~263 KB to ~738 KB across five dynamic routes.
+- **v2 (`132a0daf`) fixed that completely** — payload exactly flat at 262,550 bytes, every gate green
+  — **and died on the COST.** Its derivation needs a full-season build, and there is nowhere cheap to
+  put one. Three rounds moved the same problem three times: uncached scan → a cache too large for
+  Next's 2 MiB entry limit → a compact projection that is invalidated and never warmed.
+  **The invalidation is the killer:** the projection carries the standings tags, and
+  `live-scores/route.ts:454` busts them on every committing run — every 3 minutes — while the warmer
+  repopulates canonical standings only. During a game day the cache is discarded faster than members
+  can use it and every page load rebuilds ~3,700 games. That is round 3's behaviour, three rounds on.
+  Warming it from the cron is worse: it moves that build onto the job that is already **75% of all
+  Vercel Active CPU** and the thing Item 102 exists to shrink.
+- **The shape is visible on `main` without reading v2.** `assembleSeasonScoredBuild` already existed,
+  and its only callers are rollover, recap and analytics — batch or occasional work. v2 put a
+  batch-shaped assembly on five page render paths.
+
+**v3's defining constraint: no full-season build on any request or cron path.**
 
 **v1 (`716bb6d1`) ABANDONED 2026-09-07 — computed in the browser.** To count finished games client-side
 it shipped the whole schedule there, taking the payload from **~263 KB to ~738 KB across five dynamic
@@ -941,7 +961,9 @@ never fired on first-seen finals (the case that matters), and over-fired on same
 corrections. Four defects from one mechanism that cannot see which game finished.
 
 **Scope:** the records selector plus its consumers; shared, so it fixes Overview and unblocks
-Schedule together. **Blocker:** none, but it gates records returning to Schedule.
+Schedule together. **Blocker:** the design pass. Scope is undecided until the owner rules on a design, because two
+implementations have now failed on WHERE the derivation is computed rather than on whether it is
+correct. Still gates records returning to Schedule.
 
 ### Item 137 — two `writer-convergence` tests are time bombs; `main` is red
 

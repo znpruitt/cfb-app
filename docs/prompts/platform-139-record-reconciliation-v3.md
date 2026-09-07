@@ -78,8 +78,22 @@ reserves reconstruction for sedimentary product behaviour, architecture, or scop
 - **Positional counting is binding.** `/records` exposes totals, not covered game IDs, so the record's
   own `games` count is the only available basis. Reviewers proposed identity-verified coverage three
   times across two branches; ruled against three times.
-- **Score-store uncertainty must PROPAGATE, not become false absence.** A failed score read may not be
-  rendered as "no games to fold".
+- **Score-store uncertainty must PROPAGATE, not become false absence** — and your receipt was right
+  that this reads as narrowing the campaign's _"records must degrade, never take a page down"_. It
+  does not. **They govern two different failures; RULED 2026-09-07:**
+  1. **The `team-records` read fails** — the record prop is absent. The team line renders with **no
+     anchor, a blank hole**, never a fallback to the spread
+     (`item-87-live-watchlist-scoreboard.md:183-188`, a deliberate owner exception to `DESIGN.md:95`).
+     Unchanged, and **not this branch's to touch**.
+  2. **The score store fails** — records loaded fine; you cannot tell which games are unreflected. The
+     stored record renders, unreconciled. **That is exactly what `main` does today, so it is the
+     absence of an improvement, not a regression.** The page stays up and the record still shows.
+     Blanking it here would be withholding, which is banned.
+
+  **What must not happen is a failure being INDISTINGUISHABLE from a reconciliation that legitimately
+  found nothing to fold.** That is round 5 finding 3's real substance, and it is an **observability**
+  requirement — the two cases render identically and must be told apart in logs and diagnostics. Do
+  not turn it into a rendering difference.
 - **No withholding policy.** Withdrawn after measurement (below). An unreadable game is skipped. That
   is the whole policy.
 - **No cache-invalidation trigger.** The pre-v1 attempt had four defects from one mechanism: no game
