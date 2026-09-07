@@ -2441,12 +2441,9 @@ October against today's 480; `game-stats` 28.8 and 45.1 against 96. **These supe
 table above**, which was computed on the pre-slice-1 `kickoff + 24h` arming rule rather than slice 1's
 clusters; see the campaign doc.
 
-**Slice 3a merged `d1b46db4` and is live-but-dormant. Slice 3b is next** —
-`docs/prompts/platform-102-slice-3b-delivery-consumer-claude-v1.md`. It carries the four items below
-plus two model items from 3a's review: `dense: null` conflating "no dense phase today" with
-"deliberately disabled" (a **blocking specification item for slice 4**, since what a dense-less day
-does to a live schedule is slice 4's decision), and `action`/`outcome` admitting contradictory pairs
-such as `skipped` + `confirmed`.
+**Slices 3a and 3b are both merged. Slice 4 is next, and it has TWO BLOCKING SPECIFICATION ITEMS**
+— see the slice-4 entry below. 3a (`d1b46db4`) stores what the planner derived and sent; 3b
+(`7ada7781`) makes delivery health read it. Both are dormant against production output.
 
 **Slice 3 inherits four things, three of them found by review on slice 2:**
 
@@ -2500,21 +2497,45 @@ falls back to the constant; present-and-readable is diffed against; present-but-
 read failure REFUSES), the record keeps bounded history rather than latest-only, and 3a exposes the
 store's read while 3b owns interpretation.
 
-**Slice 3b — the delivery-health consumer.** The four inherited items above, touching functions every
-health path calls. It reads the record 3a writes.
+**Slice 3b SHIPPED 2026-09-07** — `claude/102-slice-3b-delivery-consumer` at `7ada7781`, **live read
+and dormant output**. Registry:
+[`PLATFORM-102-SLICE-3B-DELIVERY-CONSUMER-v1`](prompt-registry.md).
 
-**Slice 3b inherits, beyond the four:**
+Delivery health reads the record as a PIECEWISE-CONSTANT TIMELINE — each run's `at` opens a span, the
+CLI's exit vocabulary says what it left in force, and the following run's `previousCron` cross-checks
+that span. The required slot is the LATEST across both schedules, each judged with two intervals of
+ITS OWN cadence. Measured on the shipped module: the 19h04m false `late` is gone, and the 15.0 h
+slow-schedule blind spot is closed.
 
-- **A planned dense-schedule absence cannot be expressed — the most consequential finding of slice
-  3a's three review rounds, and a MODEL question, not a bug.** `dense: null` conflates "no dense phase
-  today" with "this schedule is deliberately off", and the intent lookup walks past a null dense to an
-  OLDER dense intent. A stale dense cron left active would then match that older intent and `inspect`
-  would exit 0. Deciding what a dense-less day does to a live schedule is **slice 4's**, and the record
-  must be able to express whatever it decides — so this is a blocking specification item for slice 4,
-  not a defect fixable inside 3a.
-- **`action` and `outcome` can contradict each other** (`skipped` + `confirmed` both validate), so the
-  type admits impossible states. Encode the valid combinations rather than validating the two fields
-  independently.
+**LIVE READ, DORMANT OUTPUT — the framing matters for slice 4.** Two additional durable reads per
+System Health load (one `getAppState` per planner-owned job; delivery health goes from one durable
+read to three). Nothing writes a record, so both answer `absent` and all nine rows are byte-identical
+to the fixed contract — **on the read-SUCCESS path only.** A transient failure on either new query
+degrades that row today, before slice 4 writes anything.
+
+**Reconciliation of the four inherited items against what actually shipped:**
+
+1. **Stop extrapolating — done, and it needed more than `previousCron`.** Reading the recorded cron
+   was necessary but not sufficient: the timeline also has to cross-check each span against the
+   FOLLOWING run's `previousCron`, or a dropped row or an out-of-band cron change silently recreates
+   the extrapolation.
+2. **The two-cron row — done, but `max(previousSlot(dense), previousSlot(slow))` understated it.**
+   Grace had to become per-SPAN as well as per-schedule: a slot from an older expression judged with
+   the current one's grace reported `late` up to two hours early.
+3. **A corrupt plan surfaces — done, in a vocabulary Item 102's wording could not express.** `invalid`
+   means the RECEIPT did not parse and renders "Receipt invalid"; using it for a corrupt plan asserts
+   something false about a receipt that parsed fine. Owner ruling 2026-09-07: reuse `unavailable` with
+   a companion reason field. No sixth `SchedulerDeliveryState`; none of its four consumers changed.
+4. **Thread the plan — done, and inverted.** The plan is not threaded; the RECORD is. Slice 2 left a
+   `plan` parameter on `schedulerDeliveryPolicy` as the seam slice 3 was expected to wire, and wiring
+   it would have kept predicting. That parameter is now the predictive path with no production caller
+   — removing it is a slice-4 cleanup.
+
+**`action`/`outcome` contradictory pairs — CLOSED as a non-issue for this consumer, and the argument
+is the useful part.** What a run left in force is a property of the OUTCOME alone: `applied`+`confirmed`
+and `skipped`+`confirmed` both leave `intent.cron` live, `applied`+`failed` and `skipped`+`failed`
+both leave `previousCron`. Every contradictory pair collapses to the same answer, asserted over all
+ten pairs, so 3b never reads `action`. Encoding the valid combinations remains the store's to do.
 
 **Deferred out of slice 3a, filed 2026-09-06 — one item, both stores.** `pollingPlannerRecord` and
 `providerUsageSeries` are twins: each drops individually unparseable ROWS tolerantly and refuses only
@@ -2549,6 +2570,60 @@ fixed the identical defect in its own classifier; the twin is untouched.
 - **Existing handler guards stay.** They are the defence against kickoff changes, postponements,
   stale QStash state, and planner mistakes. The planner reduces wakeups; it must never become the
   only correctness or quota protection.
+
+**TWO BLOCKING SPECIFICATION ITEMS — slice 4 must resolve both BEFORE activating.** Both are
+invisible today and arrive the moment the planner writes its first record, which is what makes them
+blockers rather than ordinary follow-ups: nothing-due and dense-less days are unreachable while every
+row falls back to a fixed contract that always has something due.
+
+1. **`dense: null` conflates "no dense phase today" with "this schedule is deliberately off"** —
+   carried from slice 3a, unchanged. Slice 3b took the reading COMMON to both (a schedule not expected
+   to fire contributes no required slot, which cannot raise a false alarm) and did not decide between
+   them. **What the ambiguity costs delivery health:** if slice 4 leaves a stale dense schedule
+   installed on a dense-less day, that schedule is still firing and **its failure is invisible until
+   the next day with a dense phase**. The record must be able to express whatever slice 4 decides.
+2. **A yellow row with an empty issues list — filed 2026-09-07 from slice 3b's final review.**
+   `deliveryRowStatus` maps every non-`on-time` state to yellow, and slice 3b deliberately raises NO
+   issue for "nothing is due yet" because nothing is wrong. So the row renders a yellow dot while the
+   page's overall state reads healthy and the issues list is empty. It arrives on cutover morning, on
+   the idle-slot shape `slowHoursFor` emits routinely — **a dashboard going yellow across rows that
+   are behaving perfectly. A dashboard that renders yellow for routine states teaches operators to
+   ignore yellow, which is worse than the false `late` this whole item exists to prevent.**
+   `PanelStatus` already has `gray`; reaching it means `deliveryRowStatus` seeing more than the state,
+   a signature change to one of the four consumers Item 102 has twice designed around. That is the
+   decision, and it belongs with the slice that makes the state reachable.
+
+**Slice 3b follow-ups, filed 2026-09-07 — ordinary, not blocking.** Two reviewers converged
+independently on four of these, which is why they are recorded as correctly classified rather than
+waved off:
+
+- **Mixed per-schedule reasons collapse to the first.** `schedulerDeliveryIssues` names every faulted
+  schedule but takes one reason, so a dense `plan-indeterminate` beside a slow `plan-unreadable` tells
+  the operator both have the same cause — losing exactly the distinction `PLAN_UNAVAILABLE_EXPLANATION`
+  exists to preserve (planner vs database).
+- **The all-unavailable global short-circuit drops per-schedule plan faults.** When the receipt scope
+  read fails, every row is `unavailable` and the function returns before the per-schedule scan, so a
+  simultaneously corrupt planner record produces no issue at all.
+- **A STALLED planner read stalls the whole snapshot.** A promise that never settles blocks the
+  enclosing `Promise.all`; System Health's 8 s timeout then replaces all nine rows. It is the same
+  failure mode the receipt scope read already carried through the same pool, but **the amplification
+  is real and must not be inherited as unchanged: there was ONE durable read on this path, there are
+  now THREE.**
+- **A dropped NEWEST planner run reads as no run at all.** The tolerant parser drops a malformed row
+  and leaves `droppedRuns` nonzero; the timeline then treats the prior cron as current. Slice 3b
+  argued a dropped row surfaces as a `previousCron` contradiction — **that holds only for a drop
+  BETWEEN two retained runs.** A dropped newest run has nothing following it to contradict it, so the
+  argument has a hole exactly there. Recorded because the reasoning, not just the defect, was wrong.
+- **The record read filters future-skewed rows against `Date.now()`**, not the snapshot's pinned
+  clock, contradicting `readSchedulerDeliveryHealth`'s "ONE clock captured for the whole snapshot".
+  Harmless in production; it means a caller pinning `nowMs` gets a record filtered against a different
+  instant than every slot is judged against. **This one is in slice 3a's store**, which 3b may not
+  change.
+- **`hourly (:01) at 00:00, 12:00 UTC` overstates a twice-daily schedule** — the same overstatement
+  the single-hour branch was added to remove, one shape over. Not emitted by `synthesizePollingCrons`.
+- **Slice 2's `plan` parameter on `schedulerDeliveryPolicy` is now dead.** It was the seam slice 3 was
+  expected to wire; 3b wired the RECORD instead, so it is the predictive path with no production
+  caller. Removing it churns slice 2's tests, so it is a slice-4 cleanup.
 
 **Ordering is load-bearing, not preference.** Slice 3 before slice 4, because slice 4 destroys the
 property slice 3 replaces. Slice 2's collision-2 fix before any narrowing, or the two rows that matter
