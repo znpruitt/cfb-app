@@ -2644,9 +2644,20 @@ smaller.**
   the mechanism that expresses it. The rule: **games today** → dense over the game hours, slow over
   the tail; **no games but yesterday's tail still open** → slow only, dense paused; **nothing at all**
   (mid-week, offseason) → both paused.
-  **Pause, never delete.** A paused schedule still exists, so `inspect` can still check it and the
-  tamper signal survives; deleting makes the schedule vanish and reappear daily as a new one, which
+  **Pause, never delete.** Deleting makes the schedule vanish and reappear daily as a new one, which
   undermines what slices 3a and 3b were built to protect.
+  **Validated against Upstash's documentation 2026-09-07** — the decision had been made from our own
+  code, which showed what we SEND, not what QStash does with it. `POST /v2/schedules/{id}/pause` and
+  `/resume` exist; a paused schedule "remains in the system and stays retrievable"; pausing an
+  already-paused schedule "has no effect", so a daily re-pause is idempotent. **And `GET
+  /v2/schedules/{id}` returns an `isPaused` boolean**, which is MORE than the decision assumed —
+  `inspect` can compare pause state as a fact rather than merely confirming the schedule exists.
+  Slice 4 must wire `isPaused` into `evaluateScheduleContract`, or a schedule that should be paused
+  but is running is indistinguishable from one correctly armed. Also validated: the create endpoint
+  is an upsert — "if a schedule with the provided ID exists, the settings of the existing schedule
+  will be updated with the new settings" — which is what makes a retry after an indeterminate outcome
+  safe. **No scoped QStash management token is documented**; the full-privilege token stands, on the
+  rationale already recorded above.
   **This dissolves the `dense: null` blocker.** The planner no longer needs to express "deliberately
   off" — _paused_ is the state, visible in QStash rather than inferred from a missing field.
 - **Nothing due must not read as a FAULT.** If nothing is due, the job is doing exactly what it was

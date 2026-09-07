@@ -89,11 +89,24 @@ extrapolating. Nothing writes a record and no schedule is planner-owned. **This 
    - **No games, tail still open from yesterday** → slow only, dense **paused**.
    - **Nothing at all** (mid-week, offseason) → **both paused**.
 
-   **Pause, never delete.** A paused schedule still exists, so `inspect` can still check it and the
-   tamper signal survives. Deleting makes it vanish and reappear daily as a new schedule, which
-   undermines exactly what slices 3a and 3b were built to protect. **This also removes the `dense: null`
-   ambiguity** — the planner never has to express "deliberately off", because *paused* is the state
-   and it is visible in QStash rather than inferred from a missing field.
+   **Pause, never delete.** Deleting makes a schedule vanish and reappear daily as a new one, which
+   undermines exactly what slices 3a and 3b were built to protect. **This also removes the
+   `dense: null` ambiguity** — the planner never has to express "deliberately off", because *paused*
+   is the state and it lives in QStash rather than being inferred from a missing field.
+
+   **VERIFIED against Upstash's documentation 2026-09-07 — and it supports MORE than the decision
+   assumed:**
+   - `POST /v2/schedules/{scheduleId}/pause` and `/resume` exist. A paused schedule _"remains in the
+     system and stays retrievable"_, and pausing an already-paused schedule _"has no effect"_ — so
+     the daily run is naturally idempotent and needs no read-before-write to avoid double-pausing.
+   - **`GET /v2/schedules/{scheduleId}` returns an `isPaused` boolean.** The decision assumed only
+     that `inspect` could still FIND a paused schedule. It can do better: it can read whether the
+     pause state matches the plan. **Wire that into `evaluateScheduleContract` as a compared field.**
+     Without it, a schedule that should be paused but is running looks identical to one correctly
+     armed — which is exactly the hole Item 102 described, where a stale dense schedule keeps firing
+     and its failure stays invisible until the next dense day. Do not leave `isPaused` unread.
+   - `ScheduleReadback` must gain the field for that comparison. It is a readback type, not a
+     contract type — widen it, and say so in the report.
 
 3. **`upsert` answers to the record, not the fixed contract — and this is SMALLER than it sounds.**
    Verified on `main` 2026-09-07: `runInspect` (`:742`) already calls `resolveExpectedContract`, but
@@ -104,22 +117,43 @@ extrapolating. Nothing writes a record and no schedule is planner-owned. **This 
    rebuild the authority machinery; slice 3a shipped it.** Route `upsert` through the existing
    resolver.
 
-   **Two refusal branches change meaning on a mutating path — both RULED 2026-09-07 from your
-   receipt, which raised them correctly.**
+   **THERE ARE TWO UPSERT CALLERS AND THEY ARE NOT THE SAME. Get this wrong and the branch has a
+   real defect.** Corrected 2026-09-07; an earlier version of this bullet blurred them.
 
-   - **`absent` → `fixed` is correct on the upsert path too, and it is the bootstrap.** The first
-     planner run has no prior record, so upsert must be allowed to write the fixed contract or the
-     planner can never take ownership. It is also the right behaviour AFTER the planner is live: if
-     the record store is wiped, upsert falls back to the dense fixed cadence, which over-approximates.
-     **Over-approximation is this item's stated safety direction** — the handler guards remain the
-     correctness protection, so the fallback costs CPU, not correctness. Assert both readings.
+   | caller | has a plan? | reads the record? |
+   | --- | --- | --- |
+   | the daily planner route (you build it) | **yes — it derives one** | **NO** |
+   | the operator CLI (`manage-*-schedule upsert --apply`) | no | **yes** |
+
+   **The planner must NOT read the record to decide what to write.** It derives windows from the
+   canonical schedule, synthesizes the cron, and writes THAT. Routing the planner through
+   `resolveExpectedContract` would make it read its own previous output to decide its next output —
+   a feedback loop where a fresh derivation belongs — and would deadlock the very first run, which
+   has no record. `readRecordedIntent` is optional on `RunDeps` (`:535`) precisely so a caller can
+   decline it.
+
+   **The record-reading belongs to the operator CLI.** After cutover, an operator running
+   `upsert --apply` on a planner-owned job would otherwise clobber the planner's cron with the fixed
+   constant — and the next `inspect`, which DOES read the record, would then refuse what the CLI just
+   wrote. That is the loop, and the CLI is where it lives.
+
+   **Two refusal branches change meaning once the CLI's upsert reads the record — both RULED
+   2026-09-07 from your receipt, which raised them correctly.**
+
+   - **`absent` → `fixed` is correct, and it is the bootstrap.** An operator upserting a planner-owned
+     job before the planner has ever run has nothing else to write. After cutover, a wiped record
+     store gives the same fallback — the fixed dense cadence, which over-approximates — and **the
+     next planner run overwrites it**, so the exposure is at most one cycle. Over-approximation is
+     this item's stated safety direction: the handler guards remain the correctness protection, so
+     the fallback costs CPU, not correctness. Assert both readings.
    - **`indeterminate` (exit 4) must NOT refuse on the upsert path.** On `inspect` a refusal is a
      diagnosis. On `upsert` it means never retrying the one operation whose outcome is unknown, so a
-     single exit 4 wedges the planner until a human intervenes — and the daily cron would re-refuse
-     every morning. **The upsert is idempotent under a pinned `Upstash-Schedule-Id`, which is what
-     makes re-issuing safe; VERIFY that against Upstash's management API before relying on it** and
-     stop and report if it does not hold. A per-action divergence in how one refusal reason is
-     treated must be explicit in the code, not implicit in a call order.
+     single exit 4 wedges it until a human intervenes. **VERIFIED against Upstash's documentation
+     2026-09-07 — you do not need to re-derive this, but do not widen it either:** the create
+     endpoint (`POST /v2/schedules/{destination}`) states of `Upstash-Schedule-Id` that _"if a
+     schedule with the provided ID exists, the settings of the existing schedule will be updated with
+     the new settings."_ Re-issuing is an update, not a duplicate. A per-action divergence in how one
+     refusal reason is treated must be explicit in the code, not implicit in a call order.
 
 4. **`QSTASH_TOKEN` into the Vercel environment — collision 3.** **Check first whether QStash offers a
    scoped management token** limited to the two schedules the planner touches; if it does, use it.
@@ -248,9 +282,12 @@ carries `Authorization: Bearer <QSTASH_TOKEN>` and `Upstash-Forward-Authorizatio
 Bearer <CRON_SECRET>`. The record's projection is allowlisted for this reason and slice 3a enforces it
 at the write; do not route around it.
 
-STOP and report if a scoped QStash management token does not exist and the full-privilege token is the
-only option — the owner accepted that risk on a stated rationale and should confirm it against what
-you actually find. Also stop if pausing a schedule loses state `inspect` needs.
+**The scoped-token question is ANSWERED — do not spend the branch on it.** Searched 2026-09-07: Upstash
+documents no per-schedule or scoped QStash MANAGEMENT token. The read-only tokens in their docs are
+Upstash **Redis**, not QStash, and read-only would not serve a planner that must write. Treat the
+full-privilege token as the only option, note it in the report, and leave the risk decision with the
+owner — who took it on a stated rationale already recorded on Item 102. **Reopen it only if you find
+primary documentation saying otherwise**, in which case stop and report rather than adopting it.
 </gate>
 
 <completeness_contract>
@@ -258,6 +295,8 @@ you actually find. Also stop if pausing a schedule loses state `inspect` needs.
   against what is actually sent to QStash, with the request builder exercised rather than mocked away.
 - **Pause is proven not to be delete.** After a pause, `inspect` still finds the schedule and still
   compares it. Mutation-prove it: make pause delete instead and show a named test go red.
+- **`isPaused` is COMPARED, not merely carried.** A schedule that should be paused but is running
+  must fail the contract check. Mutation-prove it by arming a schedule the plan says is paused.
 - **The `upsert`/`inspect` loop is closed.** Assert that a planner-owned schedule going absent does not
   produce a fixed cron that the next `inspect` refuses — the loop slice 3a left open.
 - **No secret reaches a record, a log, or an error path.** Positive control: feed the real
