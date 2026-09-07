@@ -160,9 +160,20 @@ and 3b all shipped dormant; this one writes to an external system and takes owne
 crons. Report what the first planner run does, and what an operator should see on System Health the
 morning after.
 
-**Report the projected saving against the measured baseline** — live-scores 480/day today; slice 2
-measured 63.9 annually and 193.7 in October. Say whether the shipped planner matches that and, if not,
-why.
+**Report the projected saving against the measured baseline.** Against today's 480 runs/day, slice 2
+measured the shipped synthesizer at **63.2/day annual and 190.7 in October** for `live-scores`, and
+**28.8 / 45.1** against 96 for `game-stats` (`schedule / 2026-all-all`). Say whether the shipped
+planner matches those, and if not why.
+
+**Report October separately from the annual figure, and do not lead with the annual one.** The
+annual saving is ~87%; October is ~60%, because the 24-hour tail means one Saturday game arms all of
+Sunday (74% of October hours armed, against 17% for the year). October is the binding month — the
+Hobby allowance is monthly. Item 102's entry is explicit that this is built _"for the ~83% annual
+saving and the manual pause it retires — not as the fix for in-season pressure."_ A report quoting
+only the annual number would overstate what an operator sees in October.
+
+**The pause-on-dead-day rule should improve on 63.2.** Slice 2's figure predates it. Report the
+delta if there is one; do not assume it.
 
 Closeout is a separate pre-merge commit after review convergence: registry entry, Item 102 slice-4
 status, the runbook and manage-script credential corrections, and `docs/deployment-runbook.md`'s

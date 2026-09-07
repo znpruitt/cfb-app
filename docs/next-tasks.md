@@ -876,6 +876,15 @@ the WALL CLOCK covers the same exposure far cheaper. Do not design that here —
 **Blocker:** none. Independent of Item 102's slices; parallel-safe against both lanes. Its VALUE
 depends on running through live weekends, so the sooner it lands the sooner the tail can be settled.
 
+**This is also the biggest remaining CPU lever in the binding month.** Item 102's own entry records
+that the 24-hour tail — not kickoff density — is why October arms 74% of hours against 17% for the
+year, holding the planner to ~60% of live-scores wakeups removed in October against ~87% annually, and
+landing near ~2.25 CPU-h/30d rather than ~1.1 h. October falls to **50% armed at a 12h tail and 33% at
+6h**. So the tail is not only a correctness question: it is what caps the saving in the one month the
+monthly allowance is actually under pressure. It cannot be shortened on the sensitivity table alone —
+`kickoff + 24h` is the reconciliation guarantee and PLATFORM-105A found that boundary already giving
+up on late finals — which is exactly why the measurement has to come first.
+
 ### Item 139 — a final can show a pre-game record; reconcile records against completed games
 
 **The ask:** make a final always carry the record INCLUDING the result being read, on every surface.
