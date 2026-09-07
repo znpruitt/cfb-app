@@ -1766,6 +1766,15 @@ a filter. Additive functionality — scoped after **Item 87 slice 5**, not insid
 
 ### Item 117 — Matchups adopts the shared scoreboard
 
+**Kickoff:** [`docs/prompts/platform-117-matchups-scoreboard-codex-v1.md`](prompts/platform-117-matchups-scoreboard-codex-v1.md).
+**Runnable now — it does NOT depend on Item 139.** Its only recorded dependency is Item 87 slice 5a
+(merged); the card-owner seam came with slice 5b (merged). An earlier verbal claim that 117 consumes
+139's records work was wrong and is corrected here: records reach Matchups separately, exactly as
+they will reach Schedule.
+
+**Verified 2026-09-07: `isCardOwnerTeam` (`CompactGameScoreboard.tsx:11`) has NO production
+consumer** — the only references outside the component are its own tests. This item is that consumer.
+
 **Filed 2026-09-03.** Design: `docs/campaigns/item-87-followon-matchups-schedule-design.md` →
 _Matchups — design decisions_, and `mockups/matchups-schedule-mockup.html`. `MatchupsWeekPanel`'s
 bespoke `GameRow` (`:140`) becomes `CompactGameScoreboard`, rendered expanded inline with no collapse
