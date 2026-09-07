@@ -13,7 +13,9 @@ Read `AGENTS.md` first, then `DESIGN.md` — canonical for UI, and it carries th
   (`#14 USC (7-1) . Chamness . 21`), the markup order **rank -> team -> record -> owner**, and the two
   rules this slice turns on: **"Finals carry the POST-GAME record, including the result being read"**
   and **"One rule, not two... No state-dependent branching in the data layer."**
-- **`DESIGN.md`** carries the same rule in canonical UI form with the corollary marked binding.
+- **`DESIGN.md`** is canonical for the RULE — what a record always is, with the corollary marked
+  binding. The campaign section above is canonical for PLACEMENT. Neither supersedes the other; a
+  previous wording in `DESIGN.md` claimed it did, corrected 2026-09-06.
   `item-87-followon-records.md` is the retained INPUT, applied 2026-08-31 and folded into the section
   above — read that one, not this.
 - [`docs/next-tasks.md`](../next-tasks.md) → **Item 139**, including the failed approach it records.
