@@ -38,11 +38,15 @@
 //
 // Secrets: `QSTASH_TOKEN` (management auth) and `CRON_SECRET` (the value QStash
 // forwards to the route) are read from the environment and are NEVER printed.
-// `QSTASH_TOKEN` is management-only and must live outside Vercel and the repo.
-// Rotating `CRON_SECRET` requires pausing then re-upserting ALL SEVEN schedules
-// (game-stats, live-scores, Team records, Odds, weekly schedule, rankings, usage sample)
-// before the new
-// secret is re-enabled on the routes.
+// `QSTASH_TOKEN` must never be committed. It IS configured in Vercel since
+// PLATFORM-102 slice 4, because the deployed polling planner rewrites the
+// live-scores and game-stats schedules daily; Upstash documents no scoped
+// management token, so that copy is full-privilege. Owner decision, with the
+// rationale in `docs/deployment-runbook.md` §4.
+// Rotating `CRON_SECRET` requires pausing then re-upserting ALL TEN schedules
+// (game-stats, game-stats slow, live-scores, live-scores slow, Team records,
+// Odds, weekly schedule, rankings, usage sample, polling planner) before the new
+// secret is re-enabled on the routes. PLATFORM-102 slice 4 added the last three.
 
 import { pathToFileURL } from 'node:url';
 
@@ -57,7 +61,6 @@ import {
   redactHeaderNames,
   resolveQstashBase,
   runManageSchedule as runManageScheduleShared,
-  runScheduleCli,
   scrubSecrets,
   summarizeSchedule as summarizeScheduleShared,
   type QstashRequest,
@@ -65,6 +68,7 @@ import {
   type ScheduleContract,
   type ScheduleReadback,
 } from './lib/qstashSchedule.ts';
+import { runScheduleCli } from './lib/qstashScheduleCli.ts';
 
 // === The FIXED schedule contract (never operator-tunable) ===
 export const SCHEDULE_ID = 'turfwar-usage-sample-6h';

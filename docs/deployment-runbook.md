@@ -86,12 +86,21 @@ secret and should not replace Clerk for normal admin use.
 Optional variables: `NEXT_PUBLIC_SEASON`, `PGSSLMODE`, `NEXT_PUBLIC_DEBUG`, `DEBUG_CFBD`, and
 `DEBUG_UPSTREAM`. Leave debug variables unset in normal production.
 
-`QSTASH_TOKEN` is different from `CRON_SECRET`: it is an operator-held management credential used
-by the seven schedule-manager scripts. Never commit it or configure it in Vercel. The deployed
-`CRON_SECRET` is the credential QStash forwards. If `CRON_SECRET` is missing or mismatched, all nine
-cron routes fail closed with `401`, stopping lifecycle reconciliation, statistics ingestion,
-live-score polling, team-record refresh, odds polling, weekly schedule maintenance, rankings
-publication, and CFBD usage sampling.
+`QSTASH_TOKEN` is different from `CRON_SECRET`: it is the QStash MANAGEMENT credential, used by the
+ten schedule-manager scripts and — since PLATFORM-102 slice 4 — by the deployed polling planner.
+**Never commit it. It IS configured in Vercel** (Production), because the planner rewrites the
+`live-scores` and `game-stats` schedules once a day from inside the application. That is a change of
+security posture and was an owner decision, recorded on Item 102: Upstash documents no scoped or
+per-schedule management token, so the deployed copy is full-privilege — it can retime, pause or
+delete every schedule. The accepted mitigation is that such tampering is OBSERVABLE (System Health
+reads the planner's durable record and `inspect` diffs live state against it) and RECOVERABLE (every
+schedule is reprovisionable from the repo's fixed contracts). Rotate it if a deployment is ever
+compromised, not only if a laptop is.
+
+The deployed `CRON_SECRET` is the credential QStash forwards. If `CRON_SECRET` is missing or
+mismatched, all ten cron routes fail closed with `401`, stopping lifecycle reconciliation, statistics
+ingestion, live-score polling, team-record refresh, odds polling, weekly schedule maintenance,
+rankings publication, CFBD usage sampling, and polling-window planning.
 
 ## 5) Configure authentication
 

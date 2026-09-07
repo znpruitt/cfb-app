@@ -777,7 +777,7 @@ test('secret canaries and arbitrary attached properties never reach durable stat
 
 // ── F2E2B — exported job list, source helper, and safe read parser ───────────
 
-test('EXTERNAL_SCHEDULER_JOBS is the canonical nine jobs and derives each source', () => {
+test('EXTERNAL_SCHEDULER_JOBS is the canonical ten jobs and derives each source', () => {
   assert.deepEqual(
     [...EXTERNAL_SCHEDULER_JOBS],
     [
@@ -790,6 +790,11 @@ test('EXTERNAL_SCHEDULER_JOBS is the canonical nine jobs and derives each source
       'season-transition',
       'season-rollover',
       'usage-sample',
+      // PLATFORM-102 slice 4. It carries a receipt because it is the ONE job
+      // whose silence is invisible downstream: a planner that stops leaves the
+      // schedules it last installed running, and a dense schedule paused on a
+      // dead day stays paused into the next game day.
+      'polling-planner',
     ]
   );
   for (const job of EXTERNAL_SCHEDULER_JOBS) {

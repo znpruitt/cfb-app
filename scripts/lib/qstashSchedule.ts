@@ -27,13 +27,20 @@
 // PLATFORM-102 slice 3a widens `inspect`'s SUBJECT without widening its reach:
 // when a planner-owned schedule has a durable recorded intent, `inspect` diffs
 // live QStash state against THAT rather than against the fixed constant, which is
-// what keeps a "correct, not merely current" signal alive once slice 4 lets the
-// planner rewrite a cron daily. The lookup is INJECTED through
+// what keeps a "correct, not merely current" signal alive once the planner
+// rewrites a cron daily. The lookup is INJECTED through
 // {@link RecordedIntentReader}; this module still carries no store, no database
-// and no application import, and no `manage-*` CLI supplies a reader yet — so
-// every one of the seven schedules resolves `absent` and behaves exactly as
-// before. See {@link RecordedIntentLookup} for why a read FAILURE refuses instead
-// of falling back.
+// and no application import. See {@link RecordedIntentLookup} for why a read
+// FAILURE refuses instead of falling back.
+//
+// PLATFORM-102 slice 4 wired it, and wired `upsert` to the same authority. FOUR
+// of the ten schedules are planner-owned (`live-scores` and `game-stats`, dense
+// and slow); their CLIs supply a reader through `qstashScheduleCli.ts`, and the
+// other six still resolve `absent` and behave exactly as before. Slice 4 also
+// moved the process-facing wrapper out of this file, so that a Next.js route can
+// drive the same orchestration the operator drives — one place decides how a
+// QStash mutation is confirmed, or the planner and the CLI could report the same
+// event differently.
 //
 // Exit codes (shared by every job): 0 = confirmed action / verified-good
 // inspection; 2 = refused (bad arguments, an action without --apply, or an
@@ -42,10 +49,6 @@
 // attempted); 4 = INDETERMINATE — a mutation's response could not be confirmed,
 // so the schedule MAY or may not have changed (inspect read-only before any
 // retry; never retry blindly); 1 = unexpected error.
-
-import path from 'node:path';
-
-import dotenv from 'dotenv';
 
 /** The management base; the official QStash convention is `QSTASH_URL`, default host below. */
 export const DEFAULT_QSTASH_BASE = 'https://qstash.upstash.io';
@@ -342,6 +345,46 @@ function isNumericUnset(value: unknown): boolean {
 export type ScheduleAuthority = 'fixed' | 'recorded-intent';
 
 /**
+ * The live pause state, read as a SHAPE before it is read as a value.
+ *
+ * `runInspect` and `summarizeSchedule` both coerce with `isPaused === true`,
+ * which is right for a NOTE (anything not-true reads as running, and the note is
+ * advisory). It is wrong for a COMPARISON: a readback carrying `"true"`, `1`, or
+ * nothing at all would then answer "running" with the same confidence as a real
+ * `false`, and a plan that pauses a schedule would be told its pause had landed.
+ * That is `e812b3c0` again — a guard on what the value MEANS while what it IS
+ * goes unchecked — so a non-boolean is `null`, never a side.
+ *
+ * ABSENT IS ALSO `null`, deliberately. QStash documents `isPaused` on the
+ * get-schedule response; a response without it is a provider contract change, and
+ * defaulting it to "not paused" would make a genuinely paused schedule read as
+ * armed — silently, in the direction that leaves a dead schedule looking alive.
+ */
+export function readPauseState(value: unknown): boolean | null {
+  return typeof value === 'boolean' ? value : null;
+}
+
+export type ScheduleComparisonOptions = {
+  /** Wording only; see {@link ScheduleAuthority}. */
+  authority?: ScheduleAuthority;
+  /**
+   * The pause state the CALLER's plan requires, compared when supplied and
+   * ignored when not — PLATFORM-102 slice 4.
+   *
+   * Only the planner has this expectation. `inspect` deliberately does NOT supply
+   * one: a paused schedule is an OPERATIONAL state an operator may have chosen
+   * (the runbook's "to stop one noncritical job" procedure pauses and then
+   * inspects), so making a pause a config divergence would refuse the very
+   * procedure that creates it. `runInspect` keeps its loud exit-0 note instead.
+   *
+   * For the planner the reverse holds, and it is the hole Item 102 named: a dense
+   * schedule left RUNNING on a dense-less day is indistinguishable from one
+   * correctly armed, and its failure stays invisible until the next dense day.
+   */
+  expectPaused?: boolean;
+};
+
+/**
  * Compare a readback against a job's expected contract — the FIXED constants, or
  * the planner's last recorded intent substituted into them. Divergence messages
  * reference ONLY the known-safe expected values — never the raw readback value —
@@ -352,11 +395,12 @@ export type ScheduleAuthority = 'fixed' | 'recorded-intent';
 export function evaluateScheduleContract(
   contract: ScheduleContract,
   schedule: ScheduleReadback,
-  authority: ScheduleAuthority = 'fixed'
+  options: ScheduleComparisonOptions = {}
 ): {
   ok: boolean;
   mismatches: string[];
 } {
+  const authority: ScheduleAuthority = options.authority ?? 'fixed';
   const mismatches: string[] = [];
   const authorityWord = authority === 'fixed' ? 'fixed' : 'recorded';
   if (schedule.scheduleId !== contract.scheduleId)
@@ -407,6 +451,18 @@ export function evaluateScheduleContract(
   ];
   for (const [field, message] of bannedNumericFields) {
     if (!isNumericUnset(schedule[field])) mismatches.push(message);
+  }
+  if (options.expectPaused !== undefined) {
+    const live = readPauseState(schedule.isPaused);
+    if (live === null) {
+      mismatches.push('the pause state could not be read (no boolean `isPaused` in the readback)');
+    } else if (live !== options.expectPaused) {
+      mismatches.push(
+        options.expectPaused
+          ? 'the schedule is RUNNING but the plan pauses it — a stale schedule still firing'
+          : 'the schedule is PAUSED but the plan arms it — it will deliver nothing until resumed'
+      );
+    }
   }
   return { ok: mismatches.length === 0, mismatches };
 }
@@ -513,10 +569,11 @@ export type RecordedIntentLookup =
 /**
  * Reads the planner's last recorded intent for one schedule id.
  *
- * INJECTED, never imported. `RunDeps` has no store access and this slice does not
- * give it any: no `manage-*` CLI supplies a reader, so all seven of them resolve
- * `absent` and behave byte-for-byte as they do today. Slice 4 wires a real reader
- * for the two schedules the planner takes ownership of.
+ * INJECTED, never imported. `RunDeps` has no store access and this module does
+ * not give it any. Slice 4 wired a real reader — `scripts/lib/plannerIntentReader.ts`,
+ * attached in `qstashScheduleCli.ts` — for the FOUR schedules the planner owns;
+ * the other six CLIs supply none, so they resolve `absent` and behave
+ * byte-for-byte as they always have.
  *
  * A reader that THROWS resolves to `unavailable`, not `unreadable`: a store
  * outage says nothing about whether a record exists, and the durable side keeps
@@ -538,7 +595,7 @@ export type RunDeps = {
 
 async function readSchedule(
   contract: ScheduleContract,
-  deps: RunDeps,
+  deps: Pick<RunDeps, 'fetchImpl'>,
   base: string,
   token: string
 ): Promise<{ kind: 'ok'; schedule: ScheduleReadback } | { kind: 'absent' } | { kind: 'error' }> {
@@ -561,9 +618,78 @@ async function readSchedule(
 }
 
 /**
+ * What the planner needs to know about a live schedule before it decides whether
+ * to write — PLATFORM-102 slice 4. A SANITIZED projection, never the readback.
+ *
+ * The readback is provider state and this slice's sink is a durable record, so
+ * the guard belongs here rather than at the record: `previousCron` is copied into
+ * a stored row, and the store's parser REJECTS A WHOLE RUN whose `previousCron`
+ * is present and unusable. A tampered or merely surprising cron coming back from
+ * QStash would therefore have cost the planner its entire day's record — the loss
+ * landing on the one field that exists to stop delivery health extrapolating.
+ * So `cron` survives only if it is a printable cron-shaped string, and is `null`
+ * (the store's own "could not be established") otherwise.
+ *
+ * `paused` is {@link readPauseState}: a strict boolean, `null` when unreadable.
+ * `contractOk` is the full contract comparison, so the planner can tell a
+ * schedule that merely holds a different cron from one whose forwarded
+ * Authorization has lost its redaction.
+ */
+export type ScheduleLiveState =
+  | { kind: 'absent' }
+  | { kind: 'error' }
+  | { kind: 'present'; cron: string | null; paused: boolean | null; contractOk: boolean };
+
+/** Cron fields only, and short — the store's `CRON_PATTERN`, re-declared at this boundary. */
+const LIVE_CRON_PATTERN = /^[0-9*/,\- ]{1,120}$/;
+
+function safeLiveCron(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  if (!LIVE_CRON_PATTERN.test(value)) return null;
+  return value.trim().length === 0 ? null : value;
+}
+
+/**
+ * Read one schedule's live state through the same base validation, credential
+ * fail-closed ordering and GET request every other action uses.
+ *
+ * Exported for the planner route, which needs the readback's FACTS (does it
+ * exist, what cron does it hold, is it paused, does it still satisfy the
+ * contract) to decide between `upsert`, `pause` and doing nothing. It returns no
+ * raw provider value, so nothing a caller records or logs can carry one.
+ */
+export async function readScheduleState(
+  contract: ScheduleContract,
+  deps: Pick<RunDeps, 'env' | 'fetchImpl'>,
+  expected: { contract: ScheduleContract; expectPaused: boolean }
+): Promise<ScheduleLiveState> {
+  const baseResult = resolveQstashBase(deps.env);
+  if (!baseResult.ok) return { kind: 'error' };
+  const token = deps.env.QSTASH_TOKEN?.trim() ?? '';
+  if (token.length === 0) return { kind: 'error' };
+  const read = await readSchedule(contract, deps, baseResult.base, token);
+  if (read.kind !== 'ok') return read;
+  const { ok } = evaluateScheduleContract(expected.contract, read.schedule, {
+    expectPaused: expected.expectPaused,
+  });
+  return {
+    kind: 'present',
+    cron: safeLiveCron(read.schedule.cron),
+    paused: readPauseState(read.schedule.isPaused),
+    contractOk: ok,
+  };
+}
+
+/**
  * Why a recorded intent could not be used. Each refuses; each says something
  * different, because they send the operator somewhere different.
  */
+/**
+ * Which action is asking. `indeterminate` is the only reason whose treatment
+ * depends on it, and {@link resolveExpectedContract} states why at the branch.
+ */
+type IntentConsumer = 'inspect' | 'upsert';
+
 type IntentRefusal =
   | 'unreadable'
   | 'unavailable'
@@ -679,7 +805,8 @@ function usableIntent(intent: RecordedScheduleIntent): boolean {
  */
 async function resolveExpectedContract(
   contract: ScheduleContract,
-  deps: RunDeps
+  deps: RunDeps,
+  action: IntentConsumer
 ): Promise<
   | { kind: 'ok'; contract: ScheduleContract; authority: ScheduleAuthority }
   | { kind: 'refused'; reason: IntentRefusal }
@@ -693,7 +820,27 @@ async function resolveExpectedContract(
   }
   if (lookup.kind === 'unreadable') return { kind: 'refused', reason: 'unreadable' };
   if (lookup.kind === 'unavailable') return { kind: 'refused', reason: 'unavailable' };
-  if (lookup.kind === 'indeterminate') return { kind: 'refused', reason: 'indeterminate' };
+  if (lookup.kind === 'indeterminate') {
+    // THE ONE REFUSAL THAT DIVERGES BY ACTION, and it is spelled out here rather
+    // than left to the order the two callers happen to run in.
+    //
+    // On `inspect` a refusal is a DIAGNOSIS: nothing is known to be in force, so
+    // saying so is the whole answer. On `upsert` the same refusal means never
+    // retrying the one operation whose outcome is unknown, so a single exit 4
+    // wedges reprovisioning until a human intervenes — and the thing an operator
+    // reaches for `upsert` to do is exactly to make an unknown state definite.
+    // QStash documents the create endpoint as an UPDATE when `Upstash-Schedule-Id`
+    // names an existing schedule ("the settings of the existing schedule will be
+    // updated with the new settings"), so re-issuing is not a duplicate.
+    //
+    // It falls back to the FIXED contract rather than to the unconfirmed intent
+    // because {@link RecordedIntentLookup} does not carry one on this variant —
+    // and the fixed cadence is the safe direction: it OVER-approximates, the
+    // handler guards remain the correctness protection, and the next planner run
+    // overwrites it, so the exposure is at most one cycle.
+    if (action === 'upsert') return { kind: 'ok', contract, authority: 'fixed' };
+    return { kind: 'refused', reason: 'indeterminate' };
+  }
   if (lookup.kind === 'absent') return { kind: 'ok', contract, authority: 'fixed' };
   // SHAPE BEFORE MEANING. The reader is injected, so `intent` may be absent or
   // null at runtime whatever the type says; dereferencing it for the id
@@ -739,7 +886,7 @@ async function runInspect(
   base: string,
   token: string
 ): Promise<number> {
-  const expected = await resolveExpectedContract(contract, deps);
+  const expected = await resolveExpectedContract(contract, deps, 'inspect');
   if (expected.kind === 'refused') {
     const exit = INTENT_REFUSAL_EXIT[expected.reason];
     deps.errorLog(
@@ -785,11 +932,9 @@ async function runInspect(
   // reachable only once a planner reader is injected, which nothing does yet.
   const authorityPhrase =
     expected.authority === 'fixed' ? 'the fixed contract' : "the planner's recorded intent";
-  const { ok, mismatches } = evaluateScheduleContract(
-    expectedContract,
-    read.schedule,
-    expected.authority
-  );
+  const { ok, mismatches } = evaluateScheduleContract(expectedContract, read.schedule, {
+    authority: expected.authority,
+  });
   if (!ok) {
     deps.errorLog(
       `REFUSED: schedule diverges from ${authorityPhrase}:\n - ${mismatches.join('\n - ')}`
@@ -889,7 +1034,34 @@ export async function runManageSchedule(
       deps.errorLog('FAILED: CRON_SECRET is not set (forwarded route credential). Fail closed.');
       return 3;
     }
-    const req = buildUpsertRequest(contract, { base, qstashToken: token, cronSecret });
+    // UPSERT ANSWERS TO THE SAME AUTHORITY `inspect` DOES — PLATFORM-102 slice 4.
+    // Slice 3a shipped the machinery and wired only the read side, which left one
+    // process holding two authorities: `inspect` blessed the planner's recorded
+    // intent while this dispatch wrote the FIXED constant. A planner-owned
+    // schedule that went absent was then reprovisioned at the fixed cadence, and
+    // the next `inspect` refused what the same CLI had just written.
+    //
+    // The resolver runs BEFORE the credentials are attached, the same ordering
+    // `resolveQstashBase` establishes, so an unreadable record fails closed
+    // without `QSTASH_TOKEN` or the forwarded `CRON_SECRET` leaving the process.
+    const expected = await resolveExpectedContract(contract, deps, 'upsert');
+    if (expected.kind === 'refused') {
+      const exit = INTENT_REFUSAL_EXIT[expected.reason];
+      deps.errorLog(
+        `${exit === 2 ? 'REFUSED' : 'FAILED'}: the planner's recorded intent for ` +
+          `\`${contract.scheduleId}\` ${INTENT_REFUSAL_DETAIL[expected.reason]}. Refusing rather ` +
+          'than writing the fixed contract — that would clobber a cron the planner owns, and ' +
+          'the next inspect would refuse what this run just wrote. Nothing sent.'
+      );
+      return exit;
+    }
+    if (expected.authority === 'recorded-intent') {
+      deps.log(
+        `[upsert] writing the planner's last recorded intent for \`${contract.scheduleId}\`, ` +
+          'not the fixed contract — this schedule is planner-owned.'
+      );
+    }
+    const req = buildUpsertRequest(expected.contract, { base, qstashToken: token, cronSecret });
     return runMutation(
       contract,
       deps,
@@ -924,51 +1096,4 @@ export function scrubSecrets(text: string, env: Record<string, string | undefine
     if (value && value.length > 0) out = out.split(value).join('<redacted>');
   }
   return out;
-}
-
-/**
- * The process-facing CLI wrapper shared by every job script: load env, run the
- * contract's orchestration with native fetch, and set `process.exitCode` (never
- * `process.exit()`, which can truncate buffered output). An unexpected exception
- * prints only the job's opaque failure tag; its scrubbed detail appears solely
- * when the job's debug env var is `1`. Job scripts call this under their own
- * `import.meta`/`process.argv[1]` invoked-directly guard so importing the
- * module for tests never triggers it.
- */
-export async function runScheduleCli(contract: ScheduleContract): Promise<void> {
-  // `.env.local` (gitignored, operator-held) wins; `.env` fills gaps. QSTASH_TOKEN
-  // must live here or in the shell — never in the repo or Vercel.
-  dotenv.config({ path: path.join(process.cwd(), '.env.local') });
-  dotenv.config();
-
-  const nativeFetch: FetchLike = async (url, init) => {
-    const res = await fetch(url, { method: init.method, headers: init.headers, cache: 'no-store' });
-    return { status: res.status, json: () => res.json() };
-  };
-
-  let code = 1;
-  try {
-    code = await runManageSchedule(contract, {
-      argv: process.argv.slice(2),
-      env: process.env,
-      fetchImpl: nativeFetch,
-      log: (line) => console.log(line),
-      errorLog: (line) => console.error(line),
-    });
-  } catch (err) {
-    // Even the explicit debug channel scrubs the actual credential values, so an
-    // unexpected exception whose message contains a token/secret cannot print it.
-    const detail =
-      process.env[contract.debugEnvVar] === '1' && err instanceof Error
-        ? `: ${scrubSecrets(err.message, process.env)}`
-        : '';
-    console.error(
-      `unexpected error [${contract.failureTag}] (set ${contract.debugEnvVar}=1 for detail)${detail}`
-    );
-    code = 1;
-  }
-  // Set exitCode and let the event loop drain rather than process.exit(), which
-  // can truncate buffered stdout/stderr (the inspect summary) when output is
-  // piped or redirected.
-  process.exitCode = code;
 }

@@ -62,6 +62,15 @@ function targetFor(job: ExternalSchedulerJob): SchedulerExecutionTarget {
       return { kind: 'team-records', year: 2026 };
     case 'usage-sample':
       return { kind: 'usage-sample', day: '2026-10-15', recorded: true };
+    case 'polling-planner':
+      return {
+        kind: 'polling-planner',
+        day: '2026-10-15',
+        schedulesApplied: 0,
+        schedulesUnchanged: 4,
+        schedulesFailed: 0,
+        recordsNotWritten: 0,
+      };
     case 'game-stats':
       return { kind: 'game-stats', year: 2026, week: null, seasonType: null };
     case 'odds':
@@ -103,6 +112,7 @@ const REASON_FOR: Record<ExternalSchedulerJob, SchedulerExecutionReceiptInput['r
   'season-transition': 'no-preseason-leagues',
   'season-rollover': 'no-season-leagues',
   'usage-sample': 'sample-recorded',
+  'polling-planner': 'plan-unchanged',
 };
 
 /** Build a valid STORED receipt for `job` started at `startedAtMs`. */
@@ -765,11 +775,19 @@ test('an UPPERCASE stored commit is normalized, not treated as corruption', () =
   assert.ok(parsed.reason.length > 0 && parsed.target && parsed.startedAt);
 });
 
-// ── PLATFORM-102 slice 2: the policy becomes planner-derivable ───────────────
+// ── PLATFORM-102 slice 2, as slice 4 leaves it ──────────────────────────────
 //
-// Ships DORMANT. Nothing in production supplies a plan, so every assertion here
-// about the derived branch describes a code path no route reaches yet; the no-op
-// test below is the one that describes what production actually runs.
+// Slice 2 hung its derivation off an optional `plan` parameter on
+// `schedulerDeliveryPolicy`, as the seam slice 3 was expected to wire. Slice 3b
+// wired the durable RECORD instead, and slice 4 removed the parameter — a second
+// PREDICTED answer beside the recorded one is a live way for two parts of the
+// page to disagree now that records actually exist.
+//
+// These tests are UPDATED rather than deleted. Every property slice 2 pinned is
+// still pinned; what moved is the subject. `pollingCronPlanForJob` survives and
+// is now a real production consumer (the planner route calls it), so the
+// synthesis assertions point at it, and `schedulerDeliveryPolicies()` is asserted
+// to be the fixed contract and nothing else.
 
 /** An October Saturday: one afternoon cluster, tail running into Sunday. */
 const PLAN_DAY = ms('2026-10-03T00:00:00Z');
@@ -780,11 +798,15 @@ const saturdayPlan = {
 };
 const offseasonPlan = { windows: [], dayStartMs: PLAN_DAY };
 
-test('NO-OP: with no plan, every one of the nine policies is byte-identical to the fixed contract', () => {
-  // The proof that this slice changes nothing in production. `readSchedulerDelivery
-  // Health` and `systemHealth` both call the no-argument form, so this is the
-  // shape they still get. Mutation target: make the absent-plan branch derive
-  // from an empty plan and this test names the first job that moves.
+/** The dense expression `pollingCronPlanForJob` synthesizes for a job on a day. */
+const denseCronFor = (job: 'live-scores' | 'game-stats', plan: typeof saturdayPlan): string =>
+  pollingCronPlanForJob(job, plan).dense!.cron;
+
+test('every delivery policy is the fixed contract, and there is no other branch', () => {
+  // The predictive path is GONE, so this is no longer "the no-plan case" — it is
+  // the only case. `readSchedulerDeliveryHealth` and `systemHealth` both call this
+  // form, and the ONLY thing that may narrow a planner-owned job's expectation is
+  // `resolveDeliverySchedules`, which reads what the planner recorded.
   assert.deepEqual(schedulerDeliveryPolicies(), [
     {
       job: 'live-scores',
@@ -849,67 +871,78 @@ test('NO-OP: with no plan, every one of the nine policies is byte-identical to t
       cadenceLabel: 'every 6 hours',
       graceMs: 6 * HOUR,
     },
+    {
+      // PLATFORM-102 slice 4 — the planner's own trigger. A FIXED contract on
+      // purpose: the job that rewrites the other two must be recoverable from the
+      // repo, so it is never planner-owned.
+      job: 'polling-planner',
+      source: 'qstash',
+      cron: '50 23 * * *',
+      cadenceLabel: 'daily (23:50 UTC)',
+      graceMs: 65 * MIN,
+    },
   ]);
+  // The planner owns TWO jobs and its own trigger is not one of them.
+  assert.deepEqual([...PLANNER_OWNED_JOBS], ['live-scores', 'game-stats']);
+  assert.equal(isPlannerOwnedJob('polling-planner'), false);
 });
 
-test('the seven jobs the planner does not own are untouched even WITH a plan supplied', () => {
-  // Asserted, not assumed. Narrowing a job whose QStash schedule the planner
-  // never rewrites would make delivery health measure against a cron that was
-  // never sent — a false `late` on a job that is running exactly as configured.
-  const withPlan = new Map(schedulerDeliveryPolicies(saturdayPlan).map((p) => [p.job, p]));
+test('no job\u2019s delivery policy can be narrowed by a caller any more', () => {
+  // The parameter is gone, so this is now a STRUCTURAL claim rather than a
+  // behavioural one, and it is the claim that matters: there is exactly one
+  // expression of a job's expected cadence outside the recorded timeline.
+  // Mutation target: give `schedulerDeliveryPolicy` a second branch of any kind
+  // and the arity assertion below names it.
   const fixed = new Map(schedulerDeliveryPolicies().map((p) => [p.job, p]));
+  assert.equal(fixed.size, EXTERNAL_SCHEDULER_JOBS.length);
+  assert.equal(fixed.size, 10);
+  assert.equal(schedulerDeliveryPolicy.length, 1, 'takes a job and nothing else');
+  assert.equal(schedulerDeliveryPolicies.length, 0);
 
+  // And a planner-owned job is byte-identical to an unowned one in this map: the
+  // narrowing lives in `resolveDeliverySchedules`, never here.
   for (const job of EXTERNAL_SCHEDULER_JOBS) {
-    if (isPlannerOwnedJob(job)) continue;
-    assert.deepEqual(withPlan.get(job), fixed.get(job), `${job} must not move`);
+    assert.deepEqual(fixed.get(job), schedulerDeliveryPolicy(job), `${job} resolves once`);
   }
-  assert.deepEqual([...PLANNER_OWNED_JOBS], ['live-scores', 'game-stats']);
-  // Every job still resolves a policy, planner-owned or not.
-  assert.equal(withPlan.size, EXTERNAL_SCHEDULER_JOBS.length);
-  assert.equal(withPlan.size, 9);
 });
 
 test('an armed day narrows both polling crons and keeps their grace exactly as today', () => {
-  const byJob = new Map(schedulerDeliveryPolicies(saturdayPlan).map((p) => [p.job, p]));
-
-  const live = byJob.get('live-scores')!;
-  assert.equal(live.cron, '*/3 19,20,21,22,23 * * *');
-  assert.equal(live.graceMs, 6 * MIN, 'two dense intervals — the constant it replaces');
-  assert.equal(live.cadenceLabel, 'every 3 min at 19:00–23:00 UTC, hourly (:01) at 00:00 UTC');
-
-  const stats = byJob.get('game-stats')!;
-  assert.equal(stats.cron, '*/15 19,20,21,22,23 * * *');
-  assert.equal(stats.graceMs, 30 * MIN);
+  // Slice 2's assertion, re-pointed at the function the PLANNER ROUTE calls. The
+  // grace figures moved with the parameter's removal (delivery health derives
+  // grace from the recorded cron now), so what is pinned here is the synthesis.
+  assert.equal(denseCronFor('live-scores', saturdayPlan), '*/3 19,20,21,22,23 * * *');
+  assert.equal(denseCronFor('game-stats', saturdayPlan), '*/15 19,20,21,22,23 * * *');
+  // The tail lands on the NEXT day, so this day's slow schedule is the idle slot.
+  assert.equal(pollingCronPlanForJob('live-scores', saturdayPlan).slow.cron, '1 0 * * *');
 });
 
 test('a derived cron is one the PRODUCTION slot calculator can read', () => {
   // The whole point of the comma-list form: a range would parse to an empty hour
   // set and `previousScheduleSlotMs` would answer from its 366-day backstop.
-  const live = schedulerDeliveryPolicy('live-scores', saturdayPlan);
+  const cron = denseCronFor('live-scores', saturdayPlan);
 
   assert.equal(
-    previousScheduleSlotMs(live.cron, ms('2026-10-03T19:32:30Z')),
+    previousScheduleSlotMs(cron, ms('2026-10-03T19:32:30Z')),
     ms('2026-10-03T19:30:00Z')
   );
   // Outside the armed hours the previous slot is the last armed one, so a dead
   // stretch resolves backwards rather than into the backstop.
   assert.equal(
-    previousScheduleSlotMs(live.cron, ms('2026-10-04T09:00:00Z')),
+    previousScheduleSlotMs(cron, ms('2026-10-04T09:00:00Z')),
     ms('2026-10-03T23:57:00Z')
   );
 });
 
-test('a plan with NO windows is the offseason, and is a different input from no plan', () => {
-  // Finding (d): collapsing absence and emptiness would make the no-op fallback
-  // and the offseason the same case, and only one of them can be the constants.
-  const offseason = schedulerDeliveryPolicy('live-scores', offseasonPlan);
-  const absent = schedulerDeliveryPolicy('live-scores');
-
-  assert.equal(offseason.cron, '1 * * * *');
-  assert.equal(offseason.cadenceLabel, 'hourly (:01 UTC)');
-  assert.equal(offseason.graceMs, 2 * HOUR);
-  assert.equal(absent.cron, '*/3 * * * *');
-  assert.notDeepEqual(offseason, absent);
+test('a plan with NO windows is a REAL plan for a dead day, not a missing one', () => {
+  // Slice 2's finding (d), kept: collapsing absence and emptiness would make the
+  // offseason and a fallback the same case. The fallback is gone, so what this
+  // now pins is that an empty window list synthesizes the widest slow expression
+  // and no dense one at all — the input `desiredJobState` turns into a pause.
+  const offseason = pollingCronPlanForJob('live-scores', offseasonPlan);
+  assert.equal(offseason.dense, null);
+  assert.equal(offseason.slow.cron, '1 * * * *');
+  // And the fixed contract is a different thing entirely.
+  assert.equal(schedulerDeliveryPolicy('live-scores').cron, '*/3 * * * *');
 });
 
 test('the planner dense cadence matches each job’s fixed cron, so the two cannot drift', () => {
@@ -924,15 +957,14 @@ test('the planner dense cadence matches each job’s fixed cron, so the two cann
   };
 
   for (const job of PLANNER_OWNED_JOBS) {
-    const derivedMinuteField = schedulerDeliveryPolicy(job, armed).cron.split(' ')[0];
+    const derivedMinuteField = denseCronFor(job, armed).split(' ')[0];
     assert.equal(derivedMinuteField, fixed.get(job)!.cron.split(' ')[0], `${job} keeps its rate`);
   }
 });
 
-test('no plan reaches the reader, so every row still carries the fixed contract', async () => {
-  // Dormancy, stated as a test rather than asserted in prose: the entry points
-  // production calls take no plan, so `SchedulerDeliveryState` and its four
-  // consumers see exactly what they saw before this slice.
+test('with no planner record, every row still carries the fixed contract', async () => {
+  // `absent` is the ONLY read state that resolves to the fixed contract, and this
+  // is the shape a job the planner has never touched still gets.
   const snap = await readSchedulerDeliveryHealth({
     nowMs: ms('2026-10-03T19:32:30Z'),
     loadEntries: loaderOf([]),
@@ -949,17 +981,16 @@ test('no plan reaches the reader, so every row still carries the fixed contract'
   );
 });
 
-test('a plan synthesis refusal degrades ONE row to the fixed contract, never the page', () => {
-  // Slice 3 is the slice that starts storing plan data, so a stored `dayStartMs`
-  // off by a second is a real future input. Synthesis refuses it deliberately —
-  // an offset day start rotates the hour field and arms the wrong hours — but
-  // that refusal must not escape through the reader and take System Health down
-  // with it. Positive control first: the same input DOES throw at the synthesizer.
-  const corrupt = { windows: saturdayPlan.windows, dayStartMs: PLAN_DAY + 1_000 };
-  assert.throws(() => pollingCronPlanForJob('live-scores', corrupt));
-
-  const row = schedulerDeliveryPolicy('live-scores', corrupt);
-  assert.deepEqual(row, schedulerDeliveryPolicy('live-scores'), 'falls back to the fixed contract');
-  // And every other job still resolves, so one bad plan cannot empty the table.
-  assert.equal(schedulerDeliveryPolicies(corrupt).length, EXTERNAL_SCHEDULER_JOBS.length);
+test('synthesis still REFUSES an offset day start rather than rotating the hour field', () => {
+  // Slice 2's positive control, kept as the thing it always was. The delivery
+  // policy no longer catches this — the PLANNER is the only caller now, and its
+  // route is where the refusal is contained (see the planner route suite). What
+  // must never change is that synthesis refuses: an offset day start rotates the
+  // whole hour field, arming six hours early and going dark over the kickoff.
+  assert.throws(() =>
+    pollingCronPlanForJob('live-scores', {
+      windows: saturdayPlan.windows,
+      dayStartMs: PLAN_DAY + 1_000,
+    })
+  );
 });

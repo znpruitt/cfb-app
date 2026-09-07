@@ -28,7 +28,11 @@
 //
 // Secrets: `QSTASH_TOKEN` (management auth) and `CRON_SECRET` (the value QStash
 // forwards to the route) are read from the environment and are NEVER printed.
-// `QSTASH_TOKEN` is management-only and must live outside Vercel and the repo.
+// `QSTASH_TOKEN` must never be committed. It IS configured in Vercel since
+// PLATFORM-102 slice 4, because the deployed polling planner rewrites the
+// live-scores and game-stats schedules daily; Upstash documents no scoped
+// management token, so that copy is full-privilege. Owner decision, with the
+// rationale in `docs/deployment-runbook.md` §4.
 
 import { pathToFileURL } from 'node:url';
 
@@ -43,39 +47,41 @@ import {
   redactHeaderNames,
   resolveQstashBase,
   runManageSchedule as runManageScheduleShared,
-  runScheduleCli,
   scrubSecrets,
   summarizeSchedule as summarizeScheduleShared,
   type QstashRequest,
   type RunDeps,
-  type ScheduleContract,
   type ScheduleReadback,
 } from './lib/qstashSchedule.ts';
+import { runScheduleCli } from './lib/qstashScheduleCli.ts';
+import { GAME_STATS_DENSE_CONTRACT } from './lib/plannerScheduleContracts.ts';
+import { createPlannerIntentReader } from './lib/plannerIntentReader.ts';
 
-// === The FIXED schedule contract (never operator-tunable) ===
-export const SCHEDULE_ID = 'turfwar-game-stats-15m';
-export const DESTINATION = 'https://turfwar.games/api/cron/game-stats';
-export const CRON = '*/15 * * * *';
-export const METHOD = 'GET';
-export const RETRIES = 0;
+// === The schedule contract, now declared ONCE for two writers ===
+//
+// PLATFORM-102 slice 4 moved it to `scripts/lib/plannerScheduleContracts.ts`. The
+// deployed planner rewrites this schedule daily and this CLI still inspects,
+// pauses and resumes it, so the two must agree on the id and destination byte for
+// byte — one declaration is the only way that is a property rather than a habit.
+// The re-exports below are unchanged, so every existing importer still resolves.
+const CONTRACT = GAME_STATS_DENSE_CONTRACT;
+
+export const SCHEDULE_ID = CONTRACT.scheduleId;
+export const DESTINATION = CONTRACT.destination;
+/**
+ * The FIXED FALLBACK cron — NOT the cadence this schedule runs since slice 4.
+ *
+ * The planner rewrites this expression once a day from the canonical schedule, so
+ * the live cron is whatever it last recorded. This constant is what an `upsert`
+ * writes when NO recorded intent exists: the bootstrap, and the state a wiped
+ * record store restores. It is the pre-planner always-on cadence, so it
+ * over-approximates rather than under-covers, and the next planner run narrows it.
+ */
+export const CRON = CONTRACT.cron;
+export const METHOD = CONTRACT.method;
+export const RETRIES = CONTRACT.retries;
 export { DEFAULT_QSTASH_BASE };
 export type { FetchLike, RunDeps, ScheduleReadback } from './lib/qstashSchedule.ts';
-
-const USAGE =
-  'usage: tsx scripts/manage-game-stats-schedule.ts [inspect]\n' +
-  '       tsx scripts/manage-game-stats-schedule.ts <upsert|pause|resume> --apply';
-
-const CONTRACT: ScheduleContract = {
-  scheduleId: SCHEDULE_ID,
-  destination: DESTINATION,
-  cron: CRON,
-  method: METHOD,
-  retries: RETRIES,
-  usage: USAGE,
-  debugEnvVar: 'MANAGE_GAME_STATS_SCHEDULE_DEBUG',
-  failureTag: 'manage-game-stats-schedule-failed',
-  authProofRef: '§8e',
-};
 
 // Contract-independent policy is re-exported straight through.
 export { parseScheduleArgs, redactHeaderNames, resolveQstashBase, scrubSecrets };
@@ -105,4 +111,9 @@ export const runManageSchedule = (deps: RunDeps): Promise<number> =>
 // injected-deps orchestration without triggering the process-exiting wrapper.
 const invokedDirectly =
   typeof process.argv[1] === 'string' && import.meta.url === pathToFileURL(process.argv[1]).href;
-if (invokedDirectly) void runScheduleCli(CONTRACT);
+// PLANNER-OWNED since slice 4, so this CLI reads the planner's recorded intent:
+// `inspect` judges the live schedule against what the planner last recorded rather
+// than against a constant it no longer follows, and `upsert` writes that same
+// intent rather than clobbering it with the fallback.
+if (invokedDirectly)
+  void runScheduleCli(CONTRACT, { readRecordedIntent: createPlannerIntentReader() });

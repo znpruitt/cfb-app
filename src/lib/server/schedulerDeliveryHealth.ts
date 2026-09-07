@@ -1,9 +1,7 @@
-import {
-  deliveryExpectationForPlan,
-  synthesizePollingCrons,
-  type PollingCronPlan,
-} from '@/lib/schedule/pollingCron';
+import { synthesizePollingCrons, type PollingCronPlan } from '@/lib/schedule/pollingCron';
 import type { PollingWindow } from '@/lib/schedule/pollingWindows';
+
+import { POLLING_PLANNER_CRON } from '../../../scripts/lib/plannerScheduleContracts.ts';
 import { getAppStateEntries } from '@/lib/server/appStateStore';
 import {
   readPollingPlannerRuns,
@@ -174,6 +172,26 @@ const DELIVERY_POLICIES: Record<
     cadenceLabel: 'every 6 hours',
     graceMs: 6 * HOUR_MS,
   },
+  /**
+   * PLATFORM-102 slice 4 — the daily planner, at 23:50 UTC so the day it plans is
+   * installed before that day begins.
+   *
+   * A FIXED contract, and it stays one: this is the job that rewrites the other
+   * two, and a planner whose own cron the planner owned could not be recovered
+   * from the repo. It is therefore never in {@link PLANNER_OWNED_JOBS} and never
+   * resolves through the record.
+   *
+   * The grace is deliberately TIGHT for a daily job — 65 minutes, matching the
+   * lifecycle crons — because lateness here is not a lost datapoint. Past midnight
+   * an unrun planner means today's schedules are still yesterday's, and on the
+   * transition that matters most (a dead day followed by a game day) it means the
+   * dense schedule is still PAUSED while games are live.
+   */
+  'polling-planner': {
+    cron: POLLING_PLANNER_CRON,
+    cadenceLabel: 'daily (23:50 UTC)',
+    graceMs: 65 * MINUTE_MS,
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -240,48 +258,25 @@ export function pollingCronPlanForJob(
   });
 }
 
-/** The derived expectation, or the fixed contract when synthesis refuses the plan. */
-function derivedPolicyOrFixed(
-  job: PlannerOwnedJob,
-  plan: PollingPlanInput
-): { cron: string; cadenceLabel: string; graceMs: number } {
-  try {
-    return deliveryExpectationForPlan(pollingCronPlanForJob(job, plan));
-  } catch {
-    return DELIVERY_POLICIES[job];
-  }
-}
-
 /**
- * The full delivery policy for one job (source derived, never a second map).
+ * The full delivery policy for one job (source derived, never a second map) —
+ * the FIXED contract, always.
  *
- * With no `plan`, every job resolves to its fixed contract exactly as it did
- * before PLATFORM-102 — nothing in production supplies one yet, so this ships
- * dormant. With a plan, the two planner-owned jobs derive their cron, cadence
- * label and grace from the windows instead of the hardcoded constants.
+ * THE PREDICTIVE `plan` PARAMETER IS GONE (PLATFORM-102 slice 4). Slice 2 left it
+ * here as the seam slice 3 was expected to wire; slice 3b answered the question
+ * differently and wired the durable RECORD instead, because the hazard was
+ * extrapolation itself. Windows re-synthesized here describe what THIS BUILD
+ * would have scheduled, not what QStash was actually holding — and now that the
+ * planner really does write records, a second predicted answer beside the
+ * recorded one is not merely unused, it is a live way for two parts of the page
+ * to disagree. `resolveDeliverySchedules` is the only path that narrows a
+ * planner-owned job's expectation, and it reads what was recorded.
  *
- * THE `plan` PARAMETER IS THE PREDICTIVE PATH, AND DELIVERY HEALTH NO LONGER
- * TAKES IT. Slice 2 left this here as the seam slice 3 was expected to wire;
- * slice 3b answered the question differently and wired the durable RECORD
- * instead, because the hazard was extrapolation itself. Windows re-synthesized
- * here describe what THIS BUILD would have scheduled, not what QStash was
- * actually holding — see `resolveDeliverySchedules`, which reads the recorded
- * expressions. Nothing in production passes this argument, and delivery health
- * must not start: it would reintroduce a second, predicted answer beside the
- * recorded one. Removing it is a slice-4 cleanup, kept out of slice 3b so its
- * diff stays the consumer.
- *
- * A SYNTHESIS FAILURE STILL DEGRADES ONE ROW, never the page — the same
- * guarantee `resolveDeliverySchedules` carries for a corrupt record.
+ * `AGENTS.md`: a module left with no production consumer must say why in the code
+ * — or go. This one goes.
  */
-export function schedulerDeliveryPolicy(
-  job: ExternalSchedulerJob,
-  plan?: PollingPlanInput
-): SchedulerDeliveryPolicy {
-  const policy =
-    plan !== undefined && isPlannerOwnedJob(job)
-      ? derivedPolicyOrFixed(job, plan)
-      : DELIVERY_POLICIES[job];
+export function schedulerDeliveryPolicy(job: ExternalSchedulerJob): SchedulerDeliveryPolicy {
+  const policy = DELIVERY_POLICIES[job];
   return {
     job,
     source: schedulerSourceForJob(job),
@@ -292,8 +287,8 @@ export function schedulerDeliveryPolicy(
 }
 
 /** Every delivery policy, one per scheduled job, in canonical order. */
-export function schedulerDeliveryPolicies(plan?: PollingPlanInput): SchedulerDeliveryPolicy[] {
-  return EXTERNAL_SCHEDULER_JOBS.map((job) => schedulerDeliveryPolicy(job, plan));
+export function schedulerDeliveryPolicies(): SchedulerDeliveryPolicy[] {
+  return EXTERNAL_SCHEDULER_JOBS.map((job) => schedulerDeliveryPolicy(job));
 }
 
 // ---------------------------------------------------------------------------
