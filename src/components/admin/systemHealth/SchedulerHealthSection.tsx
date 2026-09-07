@@ -104,10 +104,20 @@ export default function SchedulerHealthSection({
                       three-minute gap from a three-day one. The issues list was
                       corrected first; the row detail showed the same two values
                       in the old format on the same page. */}
-                  <Detail
-                    label="Required slot"
-                    value={`${utcInstant(row.requiredStartedAt)} (${formatMoment(row.requiredStartedAt, nowMs)})`}
-                  />
+                  {/* A row can legitimately have NO required slot — either no
+                      schedule could be established, or every schedule is known
+                      and none is due yet. Rendering `now` for those printed
+                      "Required slot: … (just now)" under a Cadence line reading
+                      "schedule unknown", moving on every reload, and asserting
+                      a deadline the row itself disclaims. */}
+                  {row.requiredStartedAt !== null ? (
+                    <Detail
+                      label="Required slot"
+                      value={`${utcInstant(row.requiredStartedAt)} (${formatMoment(row.requiredStartedAt, nowMs)})`}
+                    />
+                  ) : (
+                    <Detail label="Required slot" value="none — nothing is due" />
+                  )}
                   {receipt && <Detail label="Reason" value={receipt.reason} />}
                   {receipt && (
                     <Detail

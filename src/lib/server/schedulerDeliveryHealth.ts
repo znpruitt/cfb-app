@@ -68,10 +68,14 @@ export type SchedulerDeliveryHealthRow = {
   job: ExternalSchedulerJob;
   source: SchedulerSource;
   /**
-   * The expression GOVERNING this job now — the fixed contract, or the dense
-   * schedule the planner record says is in force (the slow one when the day has
-   * no dense phase). `null` when no schedule could be established at all; see
-   * {@link planUnavailableReason}.
+   * The expression this row was MEASURED against — the entry in
+   * {@link schedules} that produced {@link requiredStartedAt}, or, when nothing
+   * is due, the first schedule whose expression is known. `null` only when no
+   * schedule is known at all.
+   *
+   * It is deliberately not an independent "governing" pick: naming a schedule
+   * absent from `schedules` is the display-versus-measurement divergence that
+   * `schedules` exists to make impossible.
    */
   cron: string | null;
   cadenceLabel: string;
@@ -80,24 +84,28 @@ export type SchedulerDeliveryHealthRow = {
    * The slot a valid receipt must reach to be on-time — the LATEST required slot
    * across {@link schedules}, because one job runs one route from two schedules
    * and a receipt satisfying only the slower one hides the faster one's outage.
+   *
+   * `null` when NOTHING IS DUE: every schedule is known and none has a slot whose
+   * grace has expired. That is the planner's first hours, and it is not the same
+   * as having no basis — a row with no obligation cannot be late.
    */
-  requiredStartedAt: string;
+  requiredStartedAt: string | null;
   /**
-   * Every schedule this row was MEASURED against, dense first. One entry on the
-   * fixed contract; up to two once the planner owns the cron; empty when no
-   * schedule could be established.
+   * EVERY schedule this job has, each with its own state — one entry on the
+   * fixed contract, two once the planner owns the cron. Never empty.
    *
    * Published because it is what makes a partial wiring detectable: the row's
-   * `requiredStartedAt` is `max` over exactly these entries, so a build that
-   * displayed one schedule while measuring against another would contradict its
-   * own row.
+   * `requiredStartedAt`, `cron` and `graceMs` all come from the entry that
+   * produced the latest slot, so a build that displayed one schedule while
+   * measuring against another would contradict its own row.
    */
   schedules: readonly SchedulerDeliveryScheduleView[];
   deliveryState: SchedulerDeliveryState;
   /**
    * Why `unavailable`, when the reason is this row's PLAN rather than the receipt
-   * scope. `null` on every row whose schedule resolved — including an
-   * `unavailable` row caused by the receipt read failing.
+   * scope. Set only when NO schedule is known at all; a row that lost one of two
+   * schedules still reports on the other, and carries that schedule's reason in
+   * its own {@link schedules} entry.
    */
   planUnavailableReason: SchedulerPlanUnavailableReason | null;
   /** The safely-parsed, rebuilt receipt for `on-time`/`late`; `null` otherwise. */
@@ -316,15 +324,54 @@ function parseCronField(field: string, min: number, max: number): ReadonlySet<nu
   return out;
 }
 
-function parseCron(cron: string): ParsedCron {
-  const [minute, hour, dom, month, dow] = cron.trim().split(/\s+/);
+/**
+ * Parse a five-field UTC cron, or `null` for anything this parser cannot read.
+ *
+ * EXACTLY FIVE FIELDS. An earlier version defaulted a missing field to `*` and
+ * ignored extra ones, so a six-field seconds-first expression read as minute 0
+ * of every third hour, and a bare one-field stepped minute read as every three
+ * minutes all day — plausible, wrong, and silent. That was tolerable while every
+ * expression came from constants in this file; PLATFORM-102 slice 3b makes it
+ * read DURABLE, OPERATOR-WRITABLE input, whose stored pattern admits both
+ * shapes, and this slice's whole rule is that an expression it cannot read must
+ * surface rather than be reinterpreted.
+ */
+function parseCron(cron: string): ParsedCron | null {
+  const fields = cron.trim().split(/\s+/);
+  if (fields.length !== 5) return null;
+  const [minute, hour, dom, month, dow] = fields as [string, string, string, string, string];
   return {
-    minutes: parseCronField(minute ?? '*', 0, 59),
-    hours: parseCronField(hour ?? '*', 0, 23),
-    daysOfMonth: parseCronField(dom ?? '*', 1, 31),
-    months: parseCronField(month ?? '*', 1, 12),
-    daysOfWeek: parseCronField(dow ?? '*', 0, 6),
+    minutes: parseCronField(minute, 0, 59),
+    hours: parseCronField(hour, 0, 23),
+    daysOfMonth: parseCronField(dom, 1, 31),
+    months: parseCronField(month, 1, 12),
+    daysOfWeek: parseCronField(dow, 0, 6),
   };
+}
+
+/** February in a LEAP year — the 29th is reachable, the 30th and 31st never are. */
+const DAYS_IN_MONTH: readonly number[] = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+/**
+ * Whether any date at all satisfies the expression's calendar fields.
+ *
+ * STRUCTURAL, not probed. An earlier version asked "did this fire in the last
+ * eight days?", which cannot separate an impossible calendar from a merely
+ * SPARSE one: it reported a perfectly valid `0 0 1 * *` as a corrupt record on
+ * the fifteenth of the month. The calendar answers the question exactly.
+ *
+ * Cron's day rule does the rest: when BOTH day-of-month and day-of-week are
+ * restricted a date matches if EITHER does, so any restricted day-of-week keeps
+ * an expression satisfiable whatever its day-of-month says. Only a
+ * month/day-of-month pair no month contains — `0 0 31 2 *` — is impossible.
+ */
+function cronCalendarIsSatisfiable(parsed: ParsedCron): boolean {
+  if (parsed.daysOfWeek.size < 7) return true;
+  for (const month of parsed.months) {
+    const last = DAYS_IN_MONTH[month - 1] ?? 31;
+    for (const day of parsed.daysOfMonth) if (day <= last) return true;
+  }
+  return false;
 }
 
 /**
@@ -360,7 +407,11 @@ const MAX_SLOT_LOOKBACK_MINUTES = 366 * 24 * 60;
 export function previousScheduleSlotMs(cron: string, cutoffMs: number): number {
   const floorMs = Math.floor(cutoffMs / MINUTE_MS) * MINUTE_MS;
   const notBeforeMs = floorMs - MAX_SLOT_LOOKBACK_MINUTES * MINUTE_MS;
-  const slot = previousSlotWithin(parseCron(cron), floorMs, notBeforeMs);
+  const parsed = parseCron(cron);
+  // An unreadable expression FAILS CLOSED, exactly as one matching nothing does:
+  // it answers with an instant far in the past, so a coverage checker built on
+  // this reads "does not fire here" rather than inventing a slot.
+  const slot = parsed === null ? null : previousSlotWithin(parsed, floorMs, notBeforeMs);
   // Unreachable for the supported policies; degrade one minute past the cap,
   // exactly as the open-coded walk this delegates to did.
   return slot ?? notBeforeMs - MINUTE_MS;
@@ -403,7 +454,11 @@ export function requiredStartedAtForJob(job: ExternalSchedulerJob, nowMs: number
   // makes for a job with no planner record — not a second computation beside it.
   // Item 102's inherited item 4 is that a display path and a measurement path
   // may drift apart with no test failing; there is no second path to drift.
-  return maxRequiredMs(fixedSchedules(job, nowMs).measured);
+  const governing = governingSchedule(fixedSchedules(job, nowMs).entries);
+  // The fixed contract always measures, so this is production's own answer on
+  // that branch — computed by the SAME resolver `buildDeliveryRow` uses, not a
+  // second computation beside it.
+  return Date.parse(governing?.requiredStartedAt ?? new Date(nowMs).toISOString());
 }
 
 // ---------------------------------------------------------------------------
@@ -428,7 +483,7 @@ export function requiredStartedAtForJob(job: ExternalSchedulerJob, nowMs: number
 // today's expression onto yesterday.
 
 /**
- * Why the durable planner record could not establish a row's schedule.
+ * Why one schedule, or a whole row, has no basis to judge delivery against.
  *
  * A SEPARATE FIELD, not a sixth `SchedulerDeliveryState` — owner ruling
  * 2026-09-07. `deliveryState` describes the RECEIPT; plan corruption is
@@ -455,19 +510,54 @@ export type SchedulerPlanUnavailableReason =
   /** A run reported exit 4 — the upsert may or may not have landed. */
   | 'plan-indeterminate';
 
-/** One schedule a delivery row was actually measured against. */
+/**
+ * Which of a job's schedules one row entry describes. `fixed` is the pinned
+ * contract every job carries today and the seven unowned jobs keep forever.
+ */
+export type SchedulerScheduleKind = 'fixed' | 'dense' | 'slow';
+
+/**
+ * ONE SCHEDULE'S STATE, and the unit the row is built out of.
+ *
+ * A job the planner owns runs TWO schedules that fail INDEPENDENTLY, and the
+ * earlier design could not say so: the row carried a single reason under an
+ * invariant that a reason blanked the row, so any uncertainty anywhere was
+ * all-or-nothing. Three review findings across two rounds were that one defect
+ * at different levels — an unknown span blanking the row, an `indeterminate`
+ * dense upsert switching off `missing`/`late` for a job whose slow schedule was
+ * fully determinate, and the planner's FIRST run blanking both rows for 176
+ * measured minutes on the day slice 4's cutover begins. Per-schedule state is
+ * the shape the data has.
+ *
+ * Three states, and the difference between the last two is the whole point:
+ *
+ * - MEASURED — `requiredStartedAt` is set, and `cron`/`graceMs` describe the
+ *   expression that produced it.
+ * - NOT DUE — the expression is known and has no slot whose grace has expired.
+ *   An unknown PAST cannot create an obligation, so a schedule whose history is
+ *   unreadable but whose present is known is not late; it is not yet due.
+ * - UNAVAILABLE — the expression in force NOW is unknown or unusable, so
+ *   nothing can be said about this schedule at all.
+ */
 export type SchedulerDeliveryScheduleView = {
-  /** The expression IN FORCE at {@link requiredStartedAt} — recorded, never extrapolated. */
-  cron: string;
+  schedule: SchedulerScheduleKind;
+  /**
+   * The expression this entry describes — the one in force at
+   * {@link requiredStartedAt} when measured, the one in force now when not due.
+   * `null` only when no expression is known.
+   */
+  cron: string | null;
   /**
    * Two firing intervals of THIS expression — the one named in `cron`, not the
    * one in force now. The two differ whenever the slot belongs to a span the
    * planner has since replaced, and pairing them across expressions is what made
    * an hourly slot answerable in six minutes.
    */
-  graceMs: number;
-  /** This schedule's most recent slot at/before (`now − graceMs`). */
-  requiredStartedAt: string;
+  graceMs: number | null;
+  /** The slot this schedule requires; `null` when nothing is due yet. */
+  requiredStartedAt: string | null;
+  /** Why this schedule has no basis; `null` when it is measured or not due. */
+  unavailableReason: SchedulerPlanUnavailableReason | null;
 };
 
 /** The cadence rendered when no schedule could be established. NEVER the fixed contract. */
@@ -671,13 +761,15 @@ function previousSlotInForce(
     if (segment.state.kind === 'unknown') return { kind: 'unknown', reason: segment.state.reason };
     const schedule = recordedScheduleFromCron(segment.state.cron);
     if (!schedule) return { kind: 'unknown', reason: 'plan-unreadable' };
+    const parsed = parseCron(segment.state.cron);
+    if (parsed === null) return { kind: 'unknown', reason: 'plan-unreadable' };
     const graceMs = 2 * schedule.stepMinutes * MINUTE_MS;
     const cutoffMs = nowMs - graceMs;
     if (segment.fromMs <= cutoffMs) {
       // `toMs` is exclusive, so the last instant this span governs is one
       // millisecond earlier; the walk floors to the minute from there.
       const slot = previousSlotWithin(
-        parseCron(segment.state.cron),
+        parsed,
         Math.min(cutoffMs, segment.toMs - 1),
         Math.max(segment.fromMs, floorMs)
       );
@@ -737,6 +829,7 @@ type RecordedSchedule = {
 
 function recordedScheduleFromCron(cron: string): RecordedSchedule | null {
   const parsed = parseCron(cron);
+  if (parsed === null) return null;
   const stepMinutes = cronStepMinutes(parsed);
   if (stepMinutes === null) return null;
   if (
@@ -747,6 +840,7 @@ function recordedScheduleFromCron(cron: string): RecordedSchedule | null {
   ) {
     return null;
   }
+  if (!cronCalendarIsSatisfiable(parsed)) return null;
   const minutes = [...parsed.minutes];
   return {
     cron,
@@ -769,13 +863,26 @@ const HOURS_IN_A_DAY = 24;
  * build's constant rather than from the record. That is the same class of defect
  * as the extrapolation, one field over.
  */
-function describeRecordedSchedules(dense: RecordedSchedule | null, slow: RecordedSchedule): string {
-  return dense === null
-    ? describeRecorded(slow)
-    : `${describeRecorded(dense)}, ${describeRecorded(slow)}`;
+function describeRecordedSchedules(resolved: readonly ResolvedOneSchedule[]): string {
+  const parts: string[] = [];
+  for (const { view, currentCron } of resolved) {
+    // No expression and no fault is a `dense: null` day: there is no schedule to
+    // describe, and naming one would invent it.
+    if (currentCron === null && view.unavailableReason === null) continue;
+    const described =
+      currentCron === null
+        ? `${view.schedule} schedule unknown`
+        : describeRecorded(recordedScheduleFromCron(currentCron));
+    // Both schedules falling back to the SAME expression is a real shape — a
+    // `refused` run leaves one cron governing both — and repeating its
+    // description told the operator the job runs two identical schedules.
+    if (!parts.includes(described)) parts.push(described);
+  }
+  return parts.length > 0 ? parts.join(', ') : PLAN_UNAVAILABLE_CADENCE_LABEL['plan-incomplete'];
 }
 
-function describeRecorded(schedule: RecordedSchedule): string {
+function describeRecorded(schedule: RecordedSchedule | null): string {
+  if (schedule === null) return 'schedule unreadable';
   const hourly = schedule.stepMinutes >= 60;
   const minute = String(schedule.dispatchMinute ?? 0).padStart(2, '0');
   const cadence = hourly ? `hourly (:${minute})` : `every ${schedule.stepMinutes} min`;
@@ -799,68 +906,65 @@ function describeRecordedHours(hours: readonly number[]): string {
     .join(', ');
 }
 
-/** The schedules one row is measured against, or why none could be established. */
-type ResolvedSchedules =
-  | {
-      kind: 'resolved';
-      /** The expression governing NOW — dense when the day has one, else slow. */
-      cron: string;
-      cadenceLabel: string;
-      graceMs: number;
-      /** Every schedule that produced a required slot, dense first. */
-      measured: SchedulerDeliveryScheduleView[];
-    }
-  | { kind: 'unresolved'; reason: SchedulerPlanUnavailableReason };
+/** One schedule's published entry, plus the expression it runs NOW. */
+type ResolvedOneSchedule = {
+  view: SchedulerDeliveryScheduleView;
+  /** The expression in force now; `null` when none is known or none exists. */
+  currentCron: string | null;
+};
 
-type ScheduleResolution =
-  | { kind: 'measured'; view: SchedulerDeliveryScheduleView; current: RecordedSchedule }
-  /** Not expected to fire inside the lookback; contributes no required slot. */
-  | { kind: 'not-due'; current: RecordedSchedule | null }
-  | { kind: 'unresolved'; reason: SchedulerPlanUnavailableReason };
+/** The schedules one row is built from. NEVER empty — every job has at least one. */
+type ResolvedSchedules = {
+  entries: SchedulerDeliveryScheduleView[];
+  /** The label describing every schedule this job runs, unresolved ones included. */
+  cadenceLabel: string;
+};
 
-/** The fixed contract as a resolution — the seven unowned jobs, and any job with no record. */
-function fixedSchedules(
-  job: ExternalSchedulerJob,
-  nowMs: number
-): Extract<ResolvedSchedules, { kind: 'resolved' }> {
+/** The fixed contract as one schedule — the seven unowned jobs, and any job with no record. */
+function fixedSchedules(job: ExternalSchedulerJob, nowMs: number): ResolvedSchedules {
   const policy = DELIVERY_POLICIES[job];
   const requiredMs = previousScheduleSlotMs(policy.cron, nowMs - policy.graceMs);
   return {
-    kind: 'resolved',
-    cron: policy.cron,
     cadenceLabel: policy.cadenceLabel,
-    graceMs: policy.graceMs,
-    measured: [
+    entries: [
       {
+        schedule: 'fixed',
         cron: policy.cron,
         graceMs: policy.graceMs,
         requiredStartedAt: new Date(requiredMs).toISOString(),
+        unavailableReason: null,
       },
     ],
   };
 }
 
 /**
- * One schedule's required slot, from the timeline the record establishes.
+ * One schedule's state, from the timeline the record establishes.
  *
- * TWO KINDS OF "NO SLOT", AND ONLY ONE BLANKS THE ROW. If the expression in
- * force NOW cannot be read, or the record cannot say what is in force now, the
- * schedule is unresolved and the row goes with it — nothing is known about what
- * this job is supposed to do. But an older span being silent or unknown means
- * only that THIS schedule has no measurable slot: the current expression is
- * known and the sibling schedule may be perfectly measurable, so the schedule
- * contributes nothing and the row still reports what it can.
- *
- * That distinction is load-bearing on the planner's FIRST run, whose
- * `previousCron` is null by definition: the earlier version blanked both rows
- * for every hour before the dense window opened, on the first day slice 4 would
- * ever run.
+ * UNAVAILABLE IS ABOUT THE PRESENT, NOT THE PAST. If the expression in force NOW
+ * cannot be established or cannot be read, nothing can be said about this
+ * schedule. But a walk that finds no slot — because an older span is silent, or
+ * unknown, or the lookback runs out — means only that nothing is DUE: the
+ * current expression is known, and an unknown past cannot create an obligation
+ * the job could have missed. Collapsing those two is what blanked the row for a
+ * measured 176 minutes on the planner's very first run.
  */
 function resolveSchedule(
   series: PollingPlannerRunSeries,
   kind: ScheduleKind,
   nowMs: number
-): ScheduleResolution {
+): ResolvedOneSchedule {
+  const unavailable = (reason: SchedulerPlanUnavailableReason): ResolvedOneSchedule => ({
+    currentCron: null,
+    view: {
+      schedule: kind,
+      cron: null,
+      graceMs: null,
+      requiredStartedAt: null,
+      unavailableReason: reason,
+    },
+  });
+
   const segments = scheduleTimeline(series, kind);
   // The newest span that has actually STARTED. The store admits a run up to five
   // minutes ahead for clock skew, and a plan that has not begun governs nothing
@@ -873,50 +977,60 @@ function resolveSchedule(
       break;
     }
   }
-  if (!current) return { kind: 'unresolved', reason: 'plan-incomplete' };
-  if (current.state.kind === 'unknown') {
-    return { kind: 'unresolved', reason: current.state.reason };
+  if (!current) return unavailable('plan-incomplete');
+  if (current.state.kind === 'unknown') return unavailable(current.state.reason);
+  if (current.state.kind === 'silent') {
+    // `dense: null` — no expression at all, under either reading Item 102's item
+    // 5 leaves open. Not an error, and nothing to be late for.
+    return {
+      currentCron: null,
+      view: {
+        schedule: kind,
+        cron: null,
+        graceMs: null,
+        requiredStartedAt: null,
+        unavailableReason: null,
+      },
+    };
   }
-  if (current.state.kind === 'silent') return { kind: 'not-due', current: null };
   const schedule = recordedScheduleFromCron(current.state.cron);
-  // A recorded expression no parser can read is a CORRUPT record, not an absent
-  // one. Falling back to the fixed contract here would claim a firing every
-  // three minutes while the real schedule is dark — inherited item 3 exactly, a
-  // false alarm dressed as a real one.
-  if (!schedule) return { kind: 'unresolved', reason: 'plan-unreadable' };
-  // Readable FIELDS are not proof an expression can ever fire: `0 0 31 2 *`
-  // parses cleanly, passes the store's lexical validator, and matches no instant
-  // in any year. Probe the expression in force DIRECTLY, so a corrupt current
-  // schedule surfaces even where an older span would have answered for it and
-  // left the sibling reporting the row healthy. Cheap for a healthy cron — a
-  // three-minute cadence matches within three steps — and bounded for a broken
-  // one by the same lookback as the walk.
-  const everFires = previousSlotWithin(
-    parseCron(current.state.cron),
-    nowMs,
-    nowMs - PLANNER_SLOT_LOOKBACK_MS
-  );
-  if (everFires === null) return { kind: 'unresolved', reason: 'plan-unreadable' };
+  // A recorded expression no parser can read — a wrong field count, or a
+  // calendar like `0 0 31 2 *` that no year satisfies — is a CORRUPT record, not
+  // an absent one. Falling back to the fixed contract here would claim a firing
+  // every three minutes while the real schedule is dark, which is inherited
+  // item 3 exactly: a false alarm dressed as a real one.
+  if (!schedule) return unavailable('plan-unreadable');
+
   const found = previousSlotInForce(segments, nowMs, nowMs - PLANNER_SLOT_LOOKBACK_MS);
-  // Readable fields are not proof an expression can ever fire: `0 0 31 2 *`
-  // parses cleanly and matches no instant in any year. Exhausting the whole
-  // lookback without a single firing is that, or a schedule so sparse it cannot
-  // serve delivery health either way — a corrupt record, and it must surface
-  // rather than be quietly dropped while the sibling reports the row healthy.
-  if (found.kind === 'exhausted') return { kind: 'unresolved', reason: 'plan-unreadable' };
-  if (found.kind === 'unknown' || found.kind === 'silent') {
-    return { kind: 'not-due', current: schedule };
+  const graceMs = 2 * schedule.stepMinutes * MINUTE_MS;
+  if (found.kind !== 'slot') {
+    // Not due. The expression is known and published, so the row can still name
+    // what this job is supposed to be running.
+    return {
+      currentCron: schedule.cron,
+      view: {
+        schedule: kind,
+        cron: schedule.cron,
+        graceMs,
+        requiredStartedAt: null,
+        unavailableReason: null,
+      },
+    };
   }
   return {
-    kind: 'measured',
-    current: schedule,
-    // `cron` and `graceMs` come from the SAME span, so the published view is
-    // internally consistent — the earlier version paired an older span's
-    // expression with the current one's tolerance.
+    // The label answers "what does this job run NOW"; the entry answers "what
+    // produced this slot". They differ whenever the slot belongs to a span the
+    // planner has since replaced, and conflating them made the Cadence line
+    // describe an expression that is no longer installed.
+    currentCron: schedule.cron,
     view: {
+      schedule: kind,
+      // `cron` and `graceMs` come from the SAME span as the slot, so the
+      // published entry is internally consistent.
       cron: found.cron,
       graceMs: found.graceMs,
       requiredStartedAt: new Date(found.atMs).toISOString(),
+      unavailableReason: null,
     },
   };
 }
@@ -928,6 +1042,11 @@ function resolveSchedule(
  * `absent` is the ONLY read state that resolves to the fixed contract, which is
  * what makes this a no-op against production: nothing writes a planner record
  * today, so all nine jobs resolve exactly as they did before this slice.
+ *
+ * A JOB'S TWO SCHEDULES FAIL INDEPENDENTLY and are resolved independently. One
+ * of them losing its basis costs the row that schedule, never the row itself —
+ * an `indeterminate` dense upsert used to switch off `missing` and `late` for a
+ * job whose slow schedule was perfectly determinate, for up to a day.
  */
 function resolveDeliverySchedules(
   job: ExternalSchedulerJob,
@@ -935,38 +1054,49 @@ function resolveDeliverySchedules(
   record: PollingPlannerReadResult
 ): ResolvedSchedules {
   if (!isPlannerOwnedJob(job) || record.kind === 'absent') return fixedSchedules(job, nowMs);
-  if (record.kind === 'unreadable') return { kind: 'unresolved', reason: 'plan-unreadable' };
-  if (record.kind === 'failed') return { kind: 'unresolved', reason: 'plan-store-failed' };
-  if (record.series.runs.length === 0) return { kind: 'unresolved', reason: 'plan-incomplete' };
+  const refuse = (reason: SchedulerPlanUnavailableReason): ResolvedSchedules => ({
+    cadenceLabel: PLAN_UNAVAILABLE_CADENCE_LABEL[reason],
+    entries: (['dense', 'slow'] as const).map((schedule) => ({
+      schedule,
+      cron: null,
+      graceMs: null,
+      requiredStartedAt: null,
+      unavailableReason: reason,
+    })),
+  });
+  if (record.kind === 'unreadable') return refuse('plan-unreadable');
+  if (record.kind === 'failed') return refuse('plan-store-failed');
+  if (record.series.runs.length === 0) return refuse('plan-incomplete');
 
-  const dense = resolveSchedule(record.series, 'dense', nowMs);
-  if (dense.kind === 'unresolved') return dense;
-  const slow = resolveSchedule(record.series, 'slow', nowMs);
-  if (slow.kind === 'unresolved') return slow;
-
-  const measured = [dense, slow].flatMap((entry) =>
-    entry.kind === 'measured' ? [entry.view] : []
-  );
-  // Every schedule silent at once means the record cannot say when this job was
-  // last due. That is no basis, not "nothing is wrong", and it must never read
-  // as on-time.
-  if (measured.length === 0) return { kind: 'unresolved', reason: 'plan-incomplete' };
-  const governing = dense.current ?? slow.current;
-  // `PollingPlannerRun.slow` is non-nullable, so a parsed run always carries one
-  // — but the row must degrade rather than assume it.
-  if (!slow.current || !governing) return { kind: 'unresolved', reason: 'plan-incomplete' };
+  const resolved = [
+    resolveSchedule(record.series, 'dense', nowMs),
+    resolveSchedule(record.series, 'slow', nowMs),
+  ];
   return {
-    kind: 'resolved',
-    cron: governing.cron,
-    cadenceLabel: describeRecordedSchedules(dense.current, slow.current),
-    graceMs: 2 * governing.stepMinutes * MINUTE_MS,
-    measured,
+    entries: resolved.map((entry) => entry.view),
+    cadenceLabel: describeRecordedSchedules(resolved),
   };
 }
 
-/** The LATEST required slot across every measured schedule — item 2's `max`. */
-function maxRequiredMs(measured: readonly SchedulerDeliveryScheduleView[]): number {
-  return Math.max(...measured.map((entry) => Date.parse(entry.requiredStartedAt)));
+/** The entry that decides the row: the latest required slot, else the first known expression. */
+function governingSchedule(
+  entries: readonly SchedulerDeliveryScheduleView[]
+): SchedulerDeliveryScheduleView | null {
+  let latest: SchedulerDeliveryScheduleView | null = null;
+  for (const entry of entries) {
+    if (entry.requiredStartedAt === null) continue;
+    if (
+      latest === null ||
+      Date.parse(entry.requiredStartedAt) > Date.parse(latest.requiredStartedAt!)
+    ) {
+      latest = entry;
+    }
+  }
+  // `max` over the measured schedules — item 2. One job runs one route from two
+  // schedules, so a receipt satisfying only the slower one hides the faster
+  // one's outage.
+  if (latest !== null) return latest;
+  return entries.find((entry) => entry.cron !== null) ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1064,60 +1194,64 @@ function buildDeliveryRow(
   nowMs: number,
   schedules: ResolvedSchedules
 ): SchedulerDeliveryHealthRow {
-  const source = schedulerSourceForJob(job);
-  const unresolved = schedules.kind === 'unresolved';
-  const base = unresolved
-    ? {
-        job,
-        source,
-        // No basis to judge timing, so NO cadence is claimed — and deliberately
-        // not the fixed contract, whose cadence the planner has replaced.
-        cron: null,
-        cadenceLabel: PLAN_UNAVAILABLE_CADENCE_LABEL[schedules.reason],
-        graceMs: null,
-        requiredStartedAt: new Date(nowMs).toISOString(),
-        schedules: [] as readonly SchedulerDeliveryScheduleView[],
-        planUnavailableReason: schedules.reason,
-      }
-    : {
-        job,
-        source,
-        cron: schedules.cron,
-        cadenceLabel: schedules.cadenceLabel,
-        graceMs: schedules.graceMs,
-        requiredStartedAt: new Date(maxRequiredMs(schedules.measured)).toISOString(),
-        schedules: schedules.measured,
-        planUnavailableReason: null,
-      };
+  const governing = governingSchedule(schedules.entries);
+  // No basis AT ALL — every schedule this job has lost its expression. One
+  // schedule failing is NOT this case: the row reports on the other and carries
+  // the failure in that schedule's own entry.
+  const planUnavailableReason =
+    governing === null
+      ? (schedules.entries.find((entry) => entry.unavailableReason !== null)?.unavailableReason ??
+        'plan-incomplete')
+      : null;
+  const base = {
+    job,
+    source: schedulerSourceForJob(job),
+    // Never the fixed contract on a refusal: its cadence is what the planner
+    // replaced, and restating it is inherited item 3's false alarm.
+    cron: governing?.cron ?? null,
+    cadenceLabel: schedules.cadenceLabel,
+    graceMs: governing?.graceMs ?? null,
+    requiredStartedAt: governing?.requiredStartedAt ?? null,
+    schedules: schedules.entries,
+    planUnavailableReason,
+  };
 
   if (entriesByJob === null) {
     return { ...base, deliveryState: 'unavailable', receipt: null };
   }
   if (!entriesByJob.has(job)) {
-    // `missing` MEANS "nothing arrived for the required slot", and its issue text
-    // states that slot and the cadence. Neither exists when the plan is
-    // unresolved, so the honest answer there is still "no basis".
-    return { ...base, deliveryState: unresolved ? 'unavailable' : 'missing', receipt: null };
+    // `missing` is a fact about the RECEIPT — none exists — and stays true
+    // whatever the schedule is doing. Its issue text no longer assumes a
+    // required slot, because a row with nothing due does not have one.
+    return {
+      ...base,
+      deliveryState: planUnavailableReason === null ? 'missing' : 'unavailable',
+      receipt: null,
+    };
   }
   const receipt = parseSchedulerExecutionReceipt(entriesByJob.get(job), job, nowMs);
   if (receipt === null) {
-    // `invalid` is a fact about the RECEIPT and stays true whatever the plan is
-    // doing, so it is reported even alongside a plan fault — which the row still
-    // carries in `planUnavailableReason`.
+    // `invalid` is also a receipt fact, reported even alongside a plan fault —
+    // which the row still carries in `planUnavailableReason` and in `schedules`.
     return { ...base, deliveryState: 'invalid', receipt: null };
   }
-  if (unresolved) {
-    // THE RECEIPT IS PUBLISHED. An earlier version withheld it, and
-    // `schedulerExecutionIssues` and `lifecycleIntegrityIssues` both skip a
-    // receiptless row — so a planner-record failure silently suppressed
-    // `scheduler-execution-failed` and `lifecycle-data-unusable` for the two most
-    // important jobs. Execution outcome and delivery TIMING are separate facts;
-    // only the timing one has lost its basis here.
+  if (planUnavailableReason !== null) {
+    // THE RECEIPT IS PUBLISHED. Withholding it made `schedulerExecutionIssues`
+    // and `lifecycleIntegrityIssues` skip the job, so a planner-record failure
+    // silently suppressed `scheduler-execution-failed` and
+    // `lifecycle-data-unusable` for the two most important jobs. Execution
+    // outcome and delivery TIMING are separate facts; only timing lost its basis.
     return { ...base, deliveryState: 'unavailable', receipt };
+  }
+  if (base.requiredStartedAt === null) {
+    // NOTHING IS DUE. Every schedule is known and none has a slot whose grace has
+    // expired — the planner's first hours. A row with no obligation cannot be
+    // late, and it is not the same as having no basis.
+    return { ...base, deliveryState: 'on-time', receipt };
   }
   // Delivery timeliness is `startedAt` vs the required slot ONLY — never the
   // execution result/reason/provider flag/target, and never `updatedAt`.
   const deliveryState: SchedulerDeliveryState =
-    Date.parse(receipt.startedAt) >= maxRequiredMs(schedules.measured) ? 'on-time' : 'late';
+    Date.parse(receipt.startedAt) >= Date.parse(base.requiredStartedAt) ? 'on-time' : 'late';
   return { ...base, deliveryState, receipt };
 }

@@ -234,9 +234,11 @@ export function deliveryRow(
     // two halves disagreed.
     schedules: [
       {
+        schedule: 'fixed',
         cron: schedulerDeliveryPolicy(job).cron,
         graceMs: schedulerDeliveryPolicy(job).graceMs,
         requiredStartedAt: requiredStartedAt ?? derived,
+        unavailableReason: null,
       },
     ],
     deliveryState,
@@ -259,23 +261,48 @@ export function assertRowIsClassifiable(row: SchedulerDeliveryHealthRow): void {
     );
   };
 
-  // The row's required slot IS the max over what it publishes. A fixture that
-  // overrode one without the other describes a row production cannot emit, and
-  // the partial-wiring guard rests on exactly this equality.
-  //
+  // EVERY job has at least one schedule. `buildDeliveryRow` publishes one entry
+  // for the fixed contract and two once the planner owns the cron, refusals
+  // included — an empty list is a shape production cannot emit.
+  if (row.schedules.length === 0) fail(`a row must publish the schedules it knows about`);
+
+  const measured = row.schedules.filter((entry) => entry.requiredStartedAt !== null);
+  const known = row.schedules.filter((entry) => entry.cron !== null);
+
+  // The row's headline facts come from ONE entry — the latest measured slot, or
+  // the first known expression when nothing is due. Naming a schedule the row
+  // did not measure is the display-versus-measurement divergence `schedules`
+  // exists to make impossible, and it is checked here rather than assumed.
+  const governing =
+    measured.length > 0
+      ? measured.reduce((best, entry) =>
+          Date.parse(entry.requiredStartedAt!) > Date.parse(best.requiredStartedAt!) ? entry : best
+        )
+      : (known[0] ?? null);
+
   // Deferred for the two RECEIPT-TIMED states so the ordering checks below —
   // which say precisely which state the row would really classify as — report
   // first. A slot override violates both, and the specific message is the useful
   // one.
-  const assertSlotIsMaxOfSchedules = (): void => {
-    if (row.schedules.length === 0) return;
-    const latest = Math.max(...row.schedules.map((entry) => Date.parse(entry.requiredStartedAt)));
-    if (Date.parse(row.requiredStartedAt) !== latest) {
-      fail(`the required slot must be the max over its published schedules`);
+  const assertHeadlineMatchesGoverning = (): void => {
+    if ((row.requiredStartedAt ?? null) !== (governing?.requiredStartedAt ?? null)) {
+      fail(`the required slot must be the latest one its published schedules carry`);
+    }
+    if ((row.cron ?? null) !== (governing?.cron ?? null)) {
+      fail(`'cron' must name the schedule the row was measured against`);
+    }
+    if ((row.graceMs ?? null) !== (governing?.graceMs ?? null)) {
+      fail(`'graceMs' must belong to the schedule named in 'cron'`);
+    }
+    // A reason on the ROW means no schedule is known at all. One schedule losing
+    // its basis is carried in that schedule's own entry and leaves the row
+    // reporting on the other.
+    if ((row.planUnavailableReason !== null) !== (known.length === 0)) {
+      fail(`a row-level plan reason means NO schedule is known — one failing schedule does not`);
     }
   };
   if (row.deliveryState !== 'on-time' && row.deliveryState !== 'late') {
-    assertSlotIsMaxOfSchedules();
+    assertHeadlineMatchesGoverning();
   }
 
   if (row.deliveryState === 'missing' || row.deliveryState === 'unavailable') {
@@ -284,24 +311,13 @@ export function assertRowIsClassifiable(row: SchedulerDeliveryHealthRow): void {
     if (row.receipt !== null && row.planUnavailableReason === null) {
       fail(`'${row.deliveryState}' must carry no receipt`);
     }
-    // PLATFORM-102 slice 3b: a row unavailable because its PLAN could not be
-    // established publishes no schedule at all. A fixture that kept the fixed
-    // cron beside a plan reason would be a row `buildDeliveryRow` never emits —
-    // and would let a test certify the fallback the slice exists to remove.
-    if (row.planUnavailableReason !== null) {
-      if (row.cron !== null || row.graceMs !== null || row.schedules.length > 0) {
-        fail(`a plan-unavailable row must publish no schedule`);
-      }
-    }
     return;
-  }
-  if (row.planUnavailableReason !== null) {
-    fail(`'${row.deliveryState}' cannot carry a plan-unavailable reason`);
   }
   // `buildDeliveryRow` nulls the receipt whenever the parse fails, so an INVALID
   // row with a receipt attached is unreachable — and accepted, it emits both
   // `scheduler-receipt-invalid` and an execution issue, a pair no real snapshot
-  // produces. Previously this branch returned before checking anything.
+  // produces. It MAY carry a plan reason: `invalid` is a fact about the receipt
+  // and stays true whatever the schedule is doing.
   if (row.deliveryState === 'invalid') {
     if (row.receipt !== null) fail(`'invalid' must carry no receipt`);
     return;
@@ -309,11 +325,21 @@ export function assertRowIsClassifiable(row: SchedulerDeliveryHealthRow): void {
   if (row.receipt === null) fail(`'${row.deliveryState}' requires a receipt`);
 
   const started = Date.parse(row.receipt!.startedAt);
-  const required = Date.parse(row.requiredStartedAt);
   // NaN comparisons are FALSE, so an unparseable instant silently classified as
   // `late` and slipped through the ordering check entirely.
-  if (!Number.isFinite(started))
+  if (!Number.isFinite(started)) {
     fail(`receipt startedAt '${row.receipt!.startedAt}' is unparseable`);
+  }
+
+  if (row.requiredStartedAt === null) {
+    // NOTHING IS DUE — every schedule is known and none has come due. A row with
+    // no obligation cannot be late.
+    if (row.deliveryState === 'late') fail(`'late' with no required slot is unreachable`);
+    assertHeadlineMatchesGoverning();
+    return;
+  }
+
+  const required = Date.parse(row.requiredStartedAt);
   if (!Number.isFinite(required)) {
     fail(`requiredStartedAt '${row.requiredStartedAt}' is unparseable`);
   }
@@ -330,7 +356,7 @@ export function assertRowIsClassifiable(row: SchedulerDeliveryHealthRow): void {
         `requiredStartedAt ${row.requiredStartedAt} classifies '${wouldBe}'`
     );
   }
-  assertSlotIsMaxOfSchedules();
+  assertHeadlineMatchesGoverning();
 }
 
 /**
@@ -363,8 +389,18 @@ export function planUnavailableRow(
     cron: null,
     cadenceLabel: 'schedule unknown',
     graceMs: null,
-    requiredStartedAt: new Date(NOW).toISOString(),
-    schedules: [],
+    // No schedule is known, so there is no slot to name. Publishing `now` here
+    // printed a deadline the row itself disclaims, moving on every reload.
+    requiredStartedAt: null,
+    // BOTH schedules refused, which is what `resolveDeliverySchedules` emits for
+    // a record it cannot read at all.
+    schedules: (['dense', 'slow'] as const).map((schedule) => ({
+      schedule,
+      cron: null,
+      graceMs: null,
+      requiredStartedAt: null,
+      unavailableReason: planUnavailableReason,
+    })),
     deliveryState: 'unavailable',
     planUnavailableReason,
     // Carried, because only the delivery TIMING lost its basis. Execution and

@@ -33,7 +33,10 @@ import {
   assertRowIsClassifiable,
 } from './systemHealthFixtures.ts';
 import { EXTERNAL_SCHEDULER_JOBS } from '../schedulerExecutionStatus.ts';
-import { readSchedulerDeliveryHealth } from '../schedulerDeliveryHealth.ts';
+import {
+  readSchedulerDeliveryHealth,
+  type SchedulerDeliveryHealthRow,
+} from '../schedulerDeliveryHealth.ts';
 import { oddsTargetScope, weekPartitionScope } from '../../providerRefreshScope.ts';
 
 function codes(issues: SystemHealthIssue[]): string[] {
@@ -1250,7 +1253,7 @@ test('a receipt inside the grace window cannot be labelled late', () => {
   // — so the guard is applying the real policy rather than refusing everything.
   const genuinelyLate = deliveryRow('live-scores', 'late', lateReceiptFor('live-scores'));
   assert.ok(
-    Date.parse(genuinelyLate.receipt!.startedAt) < Date.parse(genuinelyLate.requiredStartedAt)
+    Date.parse(genuinelyLate.receipt!.startedAt) < Date.parse(genuinelyLate.requiredStartedAt!)
   );
   assert.equal(
     genuinelyLate.graceMs,
@@ -1421,7 +1424,7 @@ test('the fixture guard rejects a plan-unavailable row that still publishes a sc
         ...planUnavailableRow('live-scores', 'plan-unreadable'),
         cron: '*/3 * * * *',
       }),
-    /must publish no schedule/
+    /'cron' must name the schedule the row was measured against/
   );
   assert.throws(
     () =>
@@ -1429,7 +1432,7 @@ test('the fixture guard rejects a plan-unavailable row that still publishes a sc
         ...deliveryRow('live-scores', 'on-time', receiptFor('live-scores', 'success')),
         planUnavailableReason: 'plan-unreadable',
       }),
-    /cannot carry a plan-unavailable reason/
+    /a row-level plan reason means NO schedule is known/
   );
 });
 
@@ -1484,5 +1487,102 @@ test('a plan-unavailable row still raises its execution faults', async () => {
       'scheduler-execution-failed'
     ),
     undefined
+  );
+});
+
+// One schedule of two losing its basis must not be SILENT just because the row
+// survived on the other — the whole point of letting the row survive.
+test('a partially unavailable row still announces the schedule it lost', () => {
+  const partial: SchedulerDeliveryHealthRow = {
+    ...deliveryRow('live-scores', 'on-time', receiptFor('live-scores', 'success')),
+    schedules: [
+      {
+        schedule: 'dense',
+        cron: null,
+        graceMs: null,
+        requiredStartedAt: null,
+        unavailableReason: 'plan-indeterminate',
+      },
+      {
+        schedule: 'slow',
+        cron: '1 * * * *',
+        graceMs: 2 * 60 * 60_000,
+        requiredStartedAt: deliveryRow(
+          'live-scores',
+          'on-time',
+          receiptFor('live-scores', 'success')
+        ).requiredStartedAt,
+        unavailableReason: null,
+      },
+    ],
+    cron: '1 * * * *',
+    graceMs: 2 * 60 * 60_000,
+  };
+  const rows = EXTERNAL_SCHEDULER_JOBS.map((job) =>
+    job === 'live-scores' ? partial : deliveryRow(job, 'on-time', receiptFor(job, 'success'))
+  );
+  const issues = deriveSystemHealthIssues(
+    baseInputs({ schedulerDelivery: deliverySnapshot(rows) })
+  );
+  const unavailable = find(issues, 'scheduler-delivery-unavailable');
+  assert.ok(unavailable, 'the lost schedule is announced');
+  assert.equal(unavailable!.subject.id, 'live-scores');
+  assert.match(unavailable!.title, /dense schedule cannot be checked/);
+  assert.match(unavailable!.explanation, /polling-planner/);
+
+  // Positive control: with both schedules healthy the same snapshot raises
+  // nothing, so the assertion above is detecting the fault rather than the row.
+  const healthy: SchedulerDeliveryHealthRow = {
+    ...partial,
+    schedules: partial.schedules.map((entry) => ({ ...entry, unavailableReason: null })),
+  };
+  assert.equal(
+    find(
+      deriveSystemHealthIssues(
+        baseInputs({
+          schedulerDelivery: deliverySnapshot(
+            EXTERNAL_SCHEDULER_JOBS.map((job) =>
+              job === 'live-scores'
+                ? healthy
+                : deliveryRow(job, 'on-time', receiptFor(job, 'success'))
+            )
+          ),
+        })
+      ),
+      'scheduler-delivery-unavailable'
+    ),
+    undefined
+  );
+});
+
+// A row with no required slot cannot have its explanation cite one.
+test('a missing row with nothing due states that, rather than naming a deadline', () => {
+  const nothingDue: SchedulerDeliveryHealthRow = {
+    ...deliveryRow('live-scores', 'missing', null),
+    requiredStartedAt: null,
+    cron: '1 * * * *',
+    graceMs: 2 * 60 * 60_000,
+    schedules: [
+      {
+        schedule: 'slow',
+        cron: '1 * * * *',
+        graceMs: 2 * 60 * 60_000,
+        requiredStartedAt: null,
+        unavailableReason: null,
+      },
+    ],
+  };
+  const rows = EXTERNAL_SCHEDULER_JOBS.map((job) =>
+    job === 'live-scores' ? nothingDue : deliveryRow(job, 'on-time', receiptFor(job, 'success'))
+  );
+  const issues = deriveSystemHealthIssues(
+    baseInputs({ schedulerDelivery: deliverySnapshot(rows) })
+  );
+  const missing = find(issues, 'scheduler-delivery-missing');
+  assert.ok(missing);
+  assert.match(missing!.explanation, /No slot has come due yet/);
+  assert.ok(
+    !/at or after/.test(missing!.explanation),
+    'it does not name a deadline the row does not have'
   );
 });

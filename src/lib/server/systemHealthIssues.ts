@@ -365,6 +365,28 @@ function schedulerDeliveryIssues(
   const issues: SystemHealthIssue[] = [];
   for (const row of jobs) {
     const base = { subject: { axis: 'job' as const, id: row.job }, repair: null };
+
+    // PER-SCHEDULE, because a planner-owned job runs TWO schedules that fail
+    // independently. The row now reports on whichever one still resolves — which
+    // would make the other's failure silent if it were only ever announced by
+    // the row's own state. It is announced here instead, whether the row
+    // survived or not.
+    const faulted = row.schedules.filter((entry) => entry.unavailableReason !== null);
+    if (faulted.length > 0) {
+      const reason = faulted[0]!.unavailableReason!;
+      const named = faulted.map((entry) => entry.schedule).join(' and ');
+      const whole = faulted.length === row.schedules.length;
+      issues.push({
+        ...base,
+        code: 'scheduler-delivery-unavailable',
+        severity: 'warning',
+        title: whole
+          ? `${row.job} delivery status is unavailable`
+          : `${row.job} ${named} schedule cannot be checked`,
+        explanation: `${PLAN_UNAVAILABLE_EXPLANATION[reason]} so the ${whole ? `schedule ${row.job} is measured against is` : `${named} schedule is`} unknown and its delivery timeliness cannot be judged.`,
+      });
+    }
+
     switch (row.deliveryState) {
       case 'missing':
         issues.push({
@@ -379,7 +401,14 @@ function schedulerDeliveryIssues(
           // slot or has never run at all, because the slot is recomputed from
           // `now` on every render. So state the deadline and STOP: an elapsed
           // figure here would imply a precision this state cannot carry.
-          explanation: `No authenticated ${row.job} invocation (${row.cadenceLabel}) is recorded at or after ${utcInstant(row.requiredStartedAt)}, the most recent slot whose grace period has expired. This cannot distinguish a scheduler (${row.source}) failure from a best-effort receipt-write failure.`,
+          // A row can have NO required slot: every schedule is known and none is
+          // due yet, which is the planner's first hours. The job has still never
+          // delivered, which is worth saying — but naming a deadline it does not
+          // have is not.
+          explanation:
+            row.requiredStartedAt === null
+              ? `No authenticated ${row.job} invocation (${row.cadenceLabel}) is recorded at all. No slot has come due yet, so this is not a missed delivery. This cannot distinguish a scheduler (${row.source}) failure from a best-effort receipt-write failure.`
+              : `No authenticated ${row.job} invocation (${row.cadenceLabel}) is recorded at or after ${utcInstant(row.requiredStartedAt)}, the most recent slot whose grace period has expired. This cannot distinguish a scheduler (${row.source}) failure from a best-effort receipt-write failure.`,
         });
         break;
       case 'late': {
@@ -415,7 +444,9 @@ function schedulerDeliveryIssues(
           // "was due ... and arrived ..." also implied the arrival ANSWERED that
           // slot. It did not: the slot has no delivery at all, and the timestamp
           // shown is the last one on record from before it.
-          explanation: `An authenticated ${row.job} invocation (${row.cadenceLabel}) was expected to start at or after ${utcInstant(row.requiredStartedAt)}; the most recent on record started ${arrived}${silentFor ? `, ${silentFor} ago` : ''}. This cannot distinguish a scheduler (${row.source}) delay from a delayed receipt write.`,
+          // `late` is only ever reached with a required slot — a row with none
+          // cannot be late — so this interpolation is total.
+          explanation: `An authenticated ${row.job} invocation (${row.cadenceLabel}) was expected to start at or after ${utcInstant(row.requiredStartedAt ?? '')}; the most recent on record started ${arrived}${silentFor ? `, ${silentFor} ago` : ''}. This cannot distinguish a scheduler (${row.source}) delay from a delayed receipt write.`,
         });
         break;
       }
@@ -429,6 +460,10 @@ function schedulerDeliveryIssues(
         });
         break;
       case 'unavailable':
+        // Already reported above whenever the cause is the PLAN. What is left
+        // here is the receipt-scope failure, which the all-unavailable branch
+        // answers globally — so this per-job path is defensive.
+        if (row.planUnavailableReason !== null) break;
         // REACHABLE PER JOB since PLATFORM-102 slice 3b. It was not before: the
         // receipt scope read fails all-or-none, and the comment here said so.
         // A planner-owned job now also reads a durable PLAN, and that read fails
@@ -453,10 +488,7 @@ function schedulerDeliveryIssues(
           code: 'scheduler-delivery-unavailable',
           severity: 'warning',
           title: `${row.job} delivery status is unavailable`,
-          explanation:
-            row.planUnavailableReason === null
-              ? `The ${row.job} execution receipt could not be read.`
-              : `${PLAN_UNAVAILABLE_EXPLANATION[row.planUnavailableReason]} so the schedule ${row.job} is measured against is unknown and its delivery timeliness cannot be judged.`,
+          explanation: `The ${row.job} execution receipt could not be read.`,
         });
         break;
       case 'on-time':
@@ -526,8 +558,12 @@ function schedulerExecutionIssues(snapshot: SchedulerDeliveryHealthSnapshot): Sy
  * slug. Naming the reporting JOBS is the most specific true thing available.
  *
  * A receipt that is absent or unparsed contributes nothing. `receipt` is null
- * for `missing` / `invalid` / `unavailable` delivery, and a run with no readable
- * receipt cannot report a count — inferring one would be fabrication.
+ * for `missing` and `invalid` delivery, and for an `unavailable` row whose
+ * RECEIPT scope failed — but a row unavailable because its PLAN could not be
+ * read DOES carry its receipt (PLATFORM-102 slice 3b), and that is precisely
+ * what keeps this issue reachable through a planner-record failure. A run with
+ * no readable receipt cannot report a count — inferring one would be
+ * fabrication.
  *
  * CLEARING: when no parsed receipt reports a positive count. A STALE receipt
  * therefore holds the warning up until its job runs again. That is correct — the

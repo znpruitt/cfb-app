@@ -18,6 +18,7 @@ import {
   type PlannerOwnedJob,
   type PlannerRecordLoader,
   type SchedulerDeliveryHealthRow,
+  type SchedulerDeliveryScheduleView,
 } from '@/lib/server/schedulerDeliveryHealth';
 import {
   buildSchedulerExecutionReceipt,
@@ -125,6 +126,16 @@ async function rowsFor(options: {
   return new Map(snapshot.jobs.map((row) => [row.job, row] as const));
 }
 
+/** The slot an entry carries, asserted present — a measured entry always has one. */
+const slotOf = (entry: SchedulerDeliveryScheduleView | undefined, why: string): number => {
+  assert.ok(entry?.requiredStartedAt, `${why}: the entry is measured`);
+  return ms(entry.requiredStartedAt);
+};
+
+/** Only the schedules that produced a required slot, by expression. */
+const measuredCrons = (row: SchedulerDeliveryHealthRow): Array<string | null> =>
+  row.schedules.filter((entry) => entry.requiredStartedAt !== null).map((entry) => entry.cron);
+
 const rowOf = (snapshot: Snapshot, job: ExternalSchedulerJob): SchedulerDeliveryHealthRow => {
   const row = snapshot.get(job);
   assert.ok(row, `${job} has a row`);
@@ -169,14 +180,16 @@ test('a game day following a dead day reads on-time, not nineteen hours of false
   // The required slot is a firing of the cron that was ACTUALLY in force, on the
   // day it was in force — not a slot of today's expression projected backwards.
   assert.equal(row.requiredStartedAt, '2026-10-02T22:00:00.000Z');
-  assert.deepEqual(
-    row.schedules.map((entry) => entry.cron),
-    [DEAD_DAY_SLOW]
-  );
-  // The dense schedule is armed for tonight and simply not due yet, so it
-  // contributes no slot while still governing what the row DISPLAYS.
-  assert.equal(row.cron, GAME_DAY_DENSE);
-  assert.equal(row.graceMs, 6 * MIN);
+  assert.deepEqual(measuredCrons(row), [DEAD_DAY_SLOW]);
+  // The dense schedule is armed for tonight and simply not due yet: published,
+  // named, and contributing no slot.
+  const dense = row.schedules.find((entry) => entry.schedule === 'dense');
+  assert.equal(dense?.cron, GAME_DAY_DENSE);
+  assert.equal(dense?.requiredStartedAt, null);
+  assert.equal(dense?.unavailableReason, null, 'not due is not a fault');
+  // The row's own facts name the schedule it MEASURED, never one it did not.
+  assert.equal(row.cron, DEAD_DAY_SLOW);
+  assert.equal(row.graceMs, 2 * HOUR);
 
   // The magnitude of the defect, measured on this module's own parser: the
   // extrapolation demands a slot at 23:57 that the dead day never fired.
@@ -295,11 +308,11 @@ test('a dense-schedule failure inside the window is caught', async () => {
   assert.equal(row.requiredStartedAt, '2026-10-03T20:24:00.000Z');
   const byCron = new Map(row.schedules.map((entry) => [entry.cron, entry]));
   assert.ok(
-    ms(byCron.get(GAME_DAY_DENSE)!.requiredStartedAt) > receiptMs,
+    slotOf(byCron.get(GAME_DAY_DENSE), 'dense') > receiptMs,
     'the dense schedule is the one that catches it'
   );
   assert.ok(
-    ms(byCron.get(GAME_DAY_SLOW)!.requiredStartedAt) <= receiptMs,
+    slotOf(byCron.get(GAME_DAY_SLOW), 'slow') <= receiptMs,
     'and the slow schedule alone would have read this on-time'
   );
 });
@@ -328,7 +341,7 @@ test('a slow-schedule failure inside the reconciliation tail is caught', async (
   const byCron = new Map(row.schedules.map((entry) => [entry.cron, entry]));
   assert.equal(byCron.get(MORNING_DENSE)!.requiredStartedAt, '2026-10-03T08:57:00.000Z');
   assert.ok(
-    ms(byCron.get(MORNING_DENSE)!.requiredStartedAt) <= receiptMs,
+    slotOf(byCron.get(MORNING_DENSE), 'dense') <= receiptMs,
     'the dense schedule alone reads this on-time — the fifteen-hour blind spot'
   );
 
@@ -399,17 +412,25 @@ test('every row measures against exactly the schedules it publishes', async () =
 
   for (const job of EXTERNAL_SCHEDULER_JOBS) {
     const row = rowOf(rows, job);
-    assert.ok(row.schedules.length > 0, `${job} publishes what it measured`);
+    assert.ok(row.schedules.length > 0, `${job} publishes the schedules it knows`);
+    const measured = row.schedules.filter((entry) => entry.requiredStartedAt !== null);
+    assert.ok(measured.length > 0, `${job} measured at least one`);
     assert.equal(
-      ms(row.requiredStartedAt),
-      Math.max(...row.schedules.map((entry) => ms(entry.requiredStartedAt))),
-      `${job}: the required slot is the max over the published schedules`
+      ms(row.requiredStartedAt!),
+      Math.max(...measured.map((entry) => ms(entry.requiredStartedAt!))),
+      `${job}: the required slot is the latest one its schedules carry`
     );
-    for (const entry of row.schedules) {
+    // The row's headline facts come from the entry that produced that slot —
+    // never from a schedule absent from the list.
+    const governing = measured.find((entry) => entry.requiredStartedAt === row.requiredStartedAt);
+    assert.ok(governing, `${job}: the row names a schedule it published`);
+    assert.equal(row.cron, governing.cron, `${job}: cron names the measured schedule`);
+    assert.equal(row.graceMs, governing.graceMs, `${job}: grace belongs to that schedule`);
+    for (const entry of measured) {
       // The published slot is a real firing of the published expression.
       assert.equal(
-        previousScheduleSlotMs(entry.cron, ms(entry.requiredStartedAt)),
-        ms(entry.requiredStartedAt),
+        previousScheduleSlotMs(entry.cron!, ms(entry.requiredStartedAt!)),
+        ms(entry.requiredStartedAt!),
         `${job}: ${entry.cron} fires at its own required slot`
       );
     }
@@ -466,7 +487,16 @@ test('a corrupt or unreadable record surfaces instead of falling back', async ()
     assert.equal(row.planUnavailableReason, reason);
     assert.equal(row.cron, null, `${reason}: no cadence is claimed`);
     assert.equal(row.graceMs, null);
-    assert.deepEqual(row.schedules, []);
+    assert.equal(row.requiredStartedAt, null, `${reason}: and no slot is claimed`);
+    // BOTH schedules are refused, each carrying the reason, so the row says which
+    // of a job's schedules lost their basis rather than merely that one did.
+    assert.deepEqual(
+      row.schedules.map((entry) => [entry.schedule, entry.unavailableReason]),
+      [
+        ['dense', reason],
+        ['slow', reason],
+      ]
+    );
     assert.notEqual(
       row.cadenceLabel,
       schedulerDeliveryPolicy('live-scores').cadenceLabel,
@@ -535,7 +565,19 @@ test('indeterminate refuses rather than rounding to either side', async () => {
       ),
     },
   });
-  assert.equal(rowOf(reached, 'live-scores').planUnavailableReason, 'plan-indeterminate');
+  // The SLOW schedule lost its basis; the dense one did not, so the row still
+  // reports — and the fault is carried on the schedule it belongs to.
+  const reachedRow = rowOf(reached, 'live-scores');
+  assert.equal(reachedRow.planUnavailableReason, null, 'one schedule is not the row');
+  assert.equal(
+    reachedRow.schedules.find((entry) => entry.schedule === 'slow')?.unavailableReason,
+    'plan-indeterminate'
+  );
+  assert.equal(
+    reachedRow.schedules.find((entry) => entry.schedule === 'dense')?.unavailableReason,
+    null
+  );
+  assert.equal(reachedRow.cron, GAME_DAY_DENSE, 'measured on the schedule that resolved');
 
   // An indeterminate run the walk never reaches does not poison a later one.
   const superseded = await rowsFor({
@@ -657,7 +699,12 @@ test('a dense-less day is carried by the slow schedule alone', async () => {
   const row = rowOf(onTime, 'live-scores');
   assert.equal(row.deliveryState, 'on-time');
   assert.equal(row.cron, DEAD_DAY_SLOW, 'the slow schedule governs when there is no dense phase');
-  assert.equal(row.schedules.length, 1);
+  assert.deepEqual(measuredCrons(row), [DEAD_DAY_SLOW]);
+  // `dense: null` is published as a schedule with no expression and no fault —
+  // not as an omission, and not as an error.
+  const denseEntry = row.schedules.find((entry) => entry.schedule === 'dense');
+  assert.equal(denseEntry?.cron, null);
+  assert.equal(denseEntry?.unavailableReason, null);
 
   // Detection continues: the slow schedule still catches an outage.
   const late = await rowsFor({
@@ -739,6 +786,8 @@ test("the record type's axes, swept, always yield a coherent row", async () => {
   const reasonsSeen = new Set<string>();
   let resolved = 0;
   let unresolved = 0;
+  let notDue = 0;
+  let contradictions = 0;
   let shapes = 0;
 
   for (const denseCron of denseCrons) {
@@ -750,15 +799,23 @@ test("the record type's axes, swept, always yield a coherent row", async () => {
             // The preceding run's own expression. `previousCron` on the newer
             // run either matches it, contradicts it, or is absent — the three
             // transition shapes the record admits.
-            const priorCron = priorShape === 'agreeing' ? previousCron : DEAD_DAY_SLOW;
+            //
+            // An earlier version set this to `DEAD_DAY_SLOW` for BOTH the
+            // agreeing and contradicting branches, so the axis never once
+            // constructed a disagreement and differed only by `droppedRuns`. A
+            // contradiction needs a non-null `previousCron` that DIFFERS: absence
+            // of evidence is not disagreement.
+            const priorCron =
+              priorShape === 'contradicting' ? '7 * * * *' : (previousCron ?? DEAD_DAY_SLOW);
+            if (priorShape === 'contradicting' && previousCron !== null) contradictions += 1;
             if (priorShape !== 'none') {
               runs.push(
                 run(
                   // `tied` puts two runs at the SAME instant, which the store
                   // permits and refuses to deduplicate.
                   priorShape === 'tied' ? '2026-10-03T00:02:00.000Z' : '2026-10-02T00:02:00.000Z',
-                  schedule(priorCron ?? DEAD_DAY_SLOW, { previousCron: DEAD_DAY_SLOW }),
-                  schedule(priorCron ?? DEAD_DAY_SLOW, { previousCron: DEAD_DAY_SLOW })
+                  schedule(priorCron, { previousCron: DEAD_DAY_SLOW }),
+                  schedule(priorCron, { previousCron: DEAD_DAY_SLOW })
                 )
               );
             }
@@ -792,13 +849,32 @@ test("the record type's axes, swept, always yield a coherent row", async () => {
                   continue;
                 }
 
+                // Reasons are collected PER SCHEDULE, because that is where they
+                // now live: one schedule losing its basis leaves the row
+                // reporting on the other, so a row-level sweep would stop
+                // reaching `plan-unreadable` entirely.
+                for (const entry of row.schedules) {
+                  if (entry.unavailableReason !== null) reasonsSeen.add(entry.unavailableReason);
+                }
+
                 if (row.planUnavailableReason !== null) {
                   unresolved += 1;
-                  reasonsSeen.add(row.planUnavailableReason);
                   assert.equal(row.deliveryState, 'unavailable', label);
                   assert.equal(row.cron, null, label);
                   assert.equal(row.graceMs, null, label);
-                  assert.deepEqual(row.schedules, [], label);
+                  // A ROW-level reason means NO schedule is known — a silent
+                  // dense phase carries no expression and no fault, so it is not
+                  // required to carry the reason, only to have no expression.
+                  assert.ok(row.schedules.length > 0, label);
+                  assert.ok(
+                    row.schedules.every((entry) => entry.cron === null),
+                    label
+                  );
+                  assert.ok(
+                    row.schedules.some((entry) => entry.unavailableReason !== null),
+                    label
+                  );
+                  assert.equal(row.requiredStartedAt, null, label);
                   assert.equal(row.receipt, null, label);
                   // NEVER the fixed contract: that is inherited item 3.
                   assert.notEqual(
@@ -815,19 +891,26 @@ test("the record type's axes, swept, always yield a coherent row", async () => {
                 // With no receipts loaded, a resolved row is `missing` — never
                 // an on-time/late verdict invented out of the plan alone.
                 assert.equal(row.deliveryState, 'missing', label);
-                assert.equal(
-                  ms(row.requiredStartedAt),
-                  Math.max(...row.schedules.map((entry) => ms(entry.requiredStartedAt))),
-                  label
-                );
-                for (const entry of row.schedules) {
+                const measured = row.schedules.filter((e) => e.requiredStartedAt !== null);
+                if (measured.length === 0) {
+                  // Known but nothing due yet — a real state, and NOT a refusal.
+                  assert.equal(row.requiredStartedAt, null, label);
+                  notDue += 1;
+                } else {
                   assert.equal(
-                    previousScheduleSlotMs(entry.cron, ms(entry.requiredStartedAt)),
-                    ms(entry.requiredStartedAt),
+                    ms(row.requiredStartedAt!),
+                    Math.max(...measured.map((entry) => ms(entry.requiredStartedAt!))),
+                    label
+                  );
+                }
+                for (const entry of measured) {
+                  assert.equal(
+                    previousScheduleSlotMs(entry.cron!, ms(entry.requiredStartedAt!)),
+                    ms(entry.requiredStartedAt!),
                     `${label}: ${entry.cron} fires at its own slot`
                   );
                   assert.ok(
-                    ms(entry.requiredStartedAt) <= Math.floor((now - entry.graceMs) / MIN) * MIN,
+                    ms(entry.requiredStartedAt!) <= Math.floor((now - entry.graceMs!) / MIN) * MIN,
                     `${label}: the slot is at or before now minus its own grace`
                   );
                 }
@@ -842,6 +925,8 @@ test("the record type's axes, swept, always yield a coherent row", async () => {
   assert.equal(shapes, 7 * 5 * 5 * 2 * 4 * 4, 'the whole product was swept');
   // The sweep proves nothing about a branch it never entered.
   assert.ok(resolved > 0 && unresolved > 0, 'both outcomes were reached');
+  assert.ok(notDue > 0, 'and the known-but-not-yet-due state, which is neither');
+  assert.ok(contradictions > 0, 'the contradiction axis actually constructed disagreements');
   assert.deepEqual(
     [...reasonsSeen].sort(),
     ['plan-incomplete', 'plan-indeterminate', 'plan-unreadable'],
@@ -871,12 +956,15 @@ test('an unknown older span drops ONE schedule, not the row', async () => {
   });
   const row = rowOf(rows, 'live-scores');
   assert.equal(row.planUnavailableReason, null, 'the row still reports what it can');
-  assert.equal(row.cron, GAME_DAY_DENSE, 'the current expression is known');
   // The dense schedule is not yet due today and its history is unknown, so it
-  // contributes nothing; the slow schedule carries detection on its own.
-  assert.deepEqual(
-    row.schedules.map((entry) => entry.cron),
-    [GAME_DAY_SLOW]
+  // contributes nothing; the slow schedule carries detection on its own, and the
+  // row's own facts name THAT schedule.
+  assert.equal(row.cron, GAME_DAY_SLOW);
+  assert.deepEqual(measuredCrons(row), [GAME_DAY_SLOW]);
+  assert.equal(
+    row.schedules.find((entry) => entry.schedule === 'dense')?.cron,
+    GAME_DAY_DENSE,
+    'the dense expression is still known and published'
   );
   assert.equal(row.requiredStartedAt, '2026-10-03T07:01:00.000Z');
 });
@@ -914,10 +1002,7 @@ test('a contradicted span stops contributing, and an agreeing one does not', asy
 
   // Agreement: the span is known and both schedules contribute.
   const agreeing = rowOf(await build(DEAD_DAY_SLOW, 0), 'live-scores');
-  assert.deepEqual(
-    agreeing.schedules.map((entry) => entry.cron).sort(),
-    [yesterdayDense, DEAD_DAY_SLOW].sort()
-  );
+  assert.deepEqual(measuredCrons(agreeing).sort(), [yesterdayDense, DEAD_DAY_SLOW].sort());
   assert.equal(agreeing.requiredStartedAt, '2026-10-02T22:00:00.000Z');
 
   // Disagreement — a row dropped between the two, or a cron changed outside the
@@ -925,10 +1010,7 @@ test('a contradicted span stops contributing, and an agreeing one does not', asy
   // contributing; the dense one, whose transition still agrees, does not.
   const contradicted = rowOf(await build('5 * * * *', 1), 'live-scores');
   assert.equal(contradicted.planUnavailableReason, null);
-  assert.deepEqual(
-    contradicted.schedules.map((entry) => entry.cron),
-    [yesterdayDense]
-  );
+  assert.deepEqual(measuredCrons(contradicted), [yesterdayDense]);
   assert.equal(contradicted.requiredStartedAt, '2026-10-02T13:57:00.000Z');
 });
 
@@ -1001,7 +1083,10 @@ test('a run that has not started yet governs nothing', async () => {
   });
   const row = rowOf(rows, 'live-scores');
   assert.equal(row.planUnavailableReason, null, 'a future run cannot refuse the present');
-  assert.equal(row.cron, '*/3 * * * *', 'the plan in force is the one that has started');
+  // The cadence describes the span that HAS started; the not-yet-started run's
+  // `indeterminate` neither refuses the row nor supplies its display.
+  assert.match(row.cadenceLabel, /every 3 min/);
+  assert.doesNotMatch(row.cadenceLabel, /unknown/);
 });
 
 // REGRESSION TEST: readable fields are not proof an expression can fire.
@@ -1020,12 +1105,15 @@ test('a recorded expression that matches no instant is a corrupt record', async 
     },
   });
   const row = rowOf(rows, 'live-scores');
-  assert.equal(row.planUnavailableReason, 'plan-unreadable');
-  assert.deepEqual(
-    row.schedules,
-    [],
-    'it is NOT silently dropped while the sibling reports healthy'
+  // It is NOT silently dropped while the sibling reports healthy — the fault is
+  // named on the schedule that has it.
+  assert.equal(
+    row.schedules.find((entry) => entry.schedule === 'dense')?.unavailableReason,
+    'plan-unreadable'
   );
+  // And the slow schedule, which is fine, still reports.
+  assert.equal(row.planUnavailableReason, null);
+  assert.deepEqual(measuredCrons(row), [DEAD_DAY_SLOW]);
 });
 
 // REGRESSION TEST for the cadence label, which took the dispatch minute from
@@ -1068,4 +1156,193 @@ test('a receipt-scope failure takes every row, so a per-row unavailable is alway
     assert.equal(row.deliveryState, 'unavailable', row.job);
     assert.equal(row.planUnavailableReason, null, row.job);
   }
+});
+
+// ── 11. The model re-derivation — per-schedule state ────────────────────────
+
+// REGRESSION TEST. Pre-fix, `resolveDeliverySchedules` returned the moment DENSE
+// was unresolved, before `slow` was consulted: one exit-4 on one of two upserts
+// switched off `missing` and `late` for the whole job until the next planner run.
+test('one schedule losing its basis costs the row that schedule, not its sibling', async () => {
+  const now = ms('2026-10-03T20:30:00.000Z');
+  const rows = await rowsFor({
+    nowMs: now,
+    records: {
+      'live-scores': okRecord(
+        run(
+          '2026-10-03T00:02:00.000Z',
+          schedule(GAME_DAY_DENSE, { previousCron: DEAD_DAY_SLOW, outcome: 'indeterminate' }),
+          schedule('1 * * * *', { previousCron: DEAD_DAY_SLOW })
+        )
+      ),
+    },
+    receipts: [
+      { key: 'live-scores', value: receiptFor('live-scores', ms('2026-10-03T10:00:00.000Z')) },
+    ],
+  });
+  const row = rowOf(rows, 'live-scores');
+
+  // The slow schedule is fully determinate, so the row still judges delivery —
+  // and correctly finds this receipt ten hours stale.
+  assert.equal(row.planUnavailableReason, null);
+  assert.equal(row.deliveryState, 'late');
+  assert.equal(row.cron, '1 * * * *');
+  assert.deepEqual(measuredCrons(row), ['1 * * * *']);
+  // And the dense schedule's fault is carried where it belongs, not discarded.
+  assert.equal(
+    row.schedules.find((entry) => entry.schedule === 'dense')?.unavailableReason,
+    'plan-indeterminate'
+  );
+});
+
+// REGRESSION TEST for the planner's FIRST run — the day slice 4's cutover
+// begins. `previousCron` is null by definition there, so the pre-run span is
+// unknown and the slow grace has not cleared the first in-span slot. Pre-fix
+// that produced 176 measured minutes of `unavailable`; an unknown PAST cannot
+// create an obligation, so the honest answer is that nothing is due yet.
+test('the planner first run is never unavailable — an unknown past creates no obligation', async () => {
+  const record = okRecord(
+    run('2026-09-04T00:05:00.000Z', null, schedule('1 * * * *', { previousCron: null }))
+  );
+  let blanked = 0;
+  let sampled = 0;
+  for (
+    let now = ms('2026-09-04T00:05:00.000Z');
+    now <= ms('2026-09-04T06:00:00.000Z');
+    now += 5 * MIN
+  ) {
+    const row = rowOf(
+      await rowsFor({ nowMs: now, records: { 'live-scores': record } }),
+      'live-scores'
+    );
+    if (row.planUnavailableReason !== null) blanked += 1;
+    sampled += 1;
+  }
+  assert.equal(blanked, 0, 'not one minute of the cutover morning is blanked');
+  assert.ok(sampled > 60, 'and the whole morning was sampled');
+
+  // Before its first slot comes due the row has no required slot at all — which
+  // is NOT the same as having no basis, and cannot be late.
+  const early = rowOf(
+    await rowsFor({
+      nowMs: ms('2026-09-04T01:00:00.000Z'),
+      records: { 'live-scores': record },
+      receipts: [
+        { key: 'live-scores', value: receiptFor('live-scores', ms('2026-09-04T00:30:00.000Z')) },
+      ],
+    }),
+    'live-scores'
+  );
+  assert.equal(early.requiredStartedAt, null);
+  assert.equal(early.deliveryState, 'on-time', 'a row with no obligation cannot be late');
+  assert.equal(early.cron, '1 * * * *', 'and it still names what the job is scheduled to run');
+});
+
+// REGRESSION TEST. An eight-day probe cannot separate "fires never" from "fires
+// rarely", and reported a perfectly valid monthly expression as a corrupt
+// record. The calendar answers it exactly.
+test('a sparse expression is not corrupt, and an impossible calendar still is', async () => {
+  const at15th = ms('2026-10-15T12:00:00.000Z');
+  const sparse = rowOf(
+    await rowsFor({
+      nowMs: at15th,
+      records: {
+        'live-scores': okRecord(
+          run(
+            '2026-09-20T00:02:00.000Z',
+            null,
+            schedule('0 0 1 * *', { previousCron: '0 0 1 * *' })
+          )
+        ),
+      },
+    }),
+    'live-scores'
+  );
+  assert.equal(sparse.planUnavailableReason, null, 'monthly is sparse, not corrupt');
+  assert.equal(sparse.cron, '0 0 1 * *');
+
+  const impossible = rowOf(
+    await rowsFor({
+      nowMs: at15th,
+      records: {
+        'live-scores': okRecord(
+          // February has no thirty-first, in any year.
+          run(
+            '2026-09-20T00:02:00.000Z',
+            null,
+            schedule('0 0 31 2 *', { previousCron: '0 0 31 2 *' })
+          )
+        ),
+      },
+    }),
+    'live-scores'
+  );
+  assert.equal(impossible.planUnavailableReason, 'plan-unreadable');
+
+  // A restricted day-of-week keeps an expression satisfiable whatever its
+  // day-of-month says — cron matches on EITHER when both are restricted.
+  const dowRescued = rowOf(
+    await rowsFor({
+      nowMs: at15th,
+      records: {
+        'live-scores': okRecord(
+          run(
+            '2026-09-20T00:02:00.000Z',
+            null,
+            schedule('0 0 31 2 1', { previousCron: '0 0 31 2 1' })
+          )
+        ),
+      },
+    }),
+    'live-scores'
+  );
+  assert.equal(dowRescued.planUnavailableReason, null);
+});
+
+// REGRESSION TEST for the parser. It defaulted missing fields to `*` and ignored
+// extra ones, so a six-field seconds-first expression read as minute 0 of every
+// third hour — plausible, wrong, and silent, on durable operator-writable input.
+test('an expression with the wrong field count is unreadable, not reinterpreted', async () => {
+  for (const malformed of ['0 */3 * * * *', '*/3', '']) {
+    const row = rowOf(
+      await rowsFor({
+        nowMs: ms('2026-10-03T10:00:00.000Z'),
+        records: {
+          'live-scores': okRecord(
+            run('2026-10-03T00:02:00.000Z', null, schedule(malformed, { previousCron: malformed }))
+          ),
+        },
+      }),
+      'live-scores'
+    );
+    assert.equal(row.planUnavailableReason, 'plan-unreadable', JSON.stringify(malformed));
+  }
+  // And the shared slot walk fails CLOSED on the same shapes rather than
+  // inventing a slot from a reinterpreted expression.
+  const hour = ms('2026-10-03T10:00:00.000Z');
+  assert.ok(previousScheduleSlotMs('0 */3 * * * *', hour) < hour - 300 * 24 * HOUR);
+  assert.ok(previousScheduleSlotMs('*/3', hour) < hour - 300 * 24 * HOUR);
+});
+
+// REGRESSION TEST. A `refused` run leaves ONE expression governing both
+// schedules, and describing it twice told the operator the job runs two
+// identical schedules.
+test('the cadence label does not repeat one expression for two schedules', async () => {
+  const row = rowOf(
+    await rowsFor({
+      nowMs: ms('2026-10-03T20:30:00.000Z'),
+      records: {
+        'live-scores': okRecord(
+          run(
+            '2026-10-03T00:02:00.000Z',
+            schedule(GAME_DAY_DENSE, { previousCron: DEAD_DAY_SLOW, outcome: 'failed' }),
+            schedule(GAME_DAY_SLOW, { previousCron: DEAD_DAY_SLOW, outcome: 'failed' })
+          )
+        ),
+      },
+    }),
+    'live-scores'
+  );
+  assert.deepEqual(measuredCrons(row), [DEAD_DAY_SLOW, DEAD_DAY_SLOW]);
+  assert.equal(row.cadenceLabel.split(', ').length, 1, row.cadenceLabel);
 });
