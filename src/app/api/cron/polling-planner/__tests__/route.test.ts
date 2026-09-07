@@ -55,6 +55,19 @@ async function reset(): Promise<void> {
     await setAppState(SCHEDULER_EXECUTION_STATUS_SCOPE, job, null);
   }
   await setAppState(SCHEDULER_EXECUTION_STATUS_SCOPE, 'polling-planner', null);
+  // `__resetAppStateForTests` clears pools and seams but NOT the backing file, so
+  // a season seeded by an earlier test survives — and a test asserting that an
+  // ABSENT record sends nothing would then pass or fail on its neighbour's data.
+  const year = planningSeasonYear();
+  for (const suffix of ['all-all', 'all-regular', 'all-postseason']) {
+    await setAppState('schedule', `${year}-${suffix}`, null);
+  }
+}
+
+/** The season year the route will ask for, derived the same way the route does. */
+function planningSeasonYear(): number {
+  const planned = new Date(Math.floor((Date.now() + 60 * 60 * 1000) / 86_400_000) * 86_400_000);
+  return planned.getUTCMonth() >= 6 ? planned.getUTCFullYear() : planned.getUTCFullYear() - 1;
 }
 
 function restore(): void {
@@ -181,10 +194,18 @@ async function readReceipt(): Promise<SchedulerExecutionReceipt | null> {
 /** Seed the canonical schedule cache for the season year the planner will read. */
 async function seedSchedule(items: Array<Record<string, unknown>>): Promise<number> {
   const dayStartMs = Math.floor((Date.now() + 60 * 60 * 1000) / 86_400_000) * 86_400_000;
-  const planned = new Date(dayStartMs);
-  const year = planned.getUTCMonth() >= 6 ? planned.getUTCFullYear() : planned.getUTCFullYear() - 1;
-  await setAppState('schedule', `${year}-all-all`, { items });
+  await setAppState('schedule', `${planningSeasonYear()}-all-all`, { items });
   return dayStartMs;
+}
+
+/** A season record that is READABLE and whose games are nowhere near the planning day. */
+async function seedDeadDaySeason(): Promise<void> {
+  const dayStartMs = await seedDay();
+  // Sixty days behind the planning day: a real, parseable kickoff, so the season
+  // record is established — and no window of it reaches the day being planned.
+  await seedSchedule([
+    { startDate: new Date(dayStartMs - 60 * 86_400_000).toISOString(), startTimeTBD: false },
+  ]);
 }
 
 test('a dead day PAUSES both dense schedules and records what it did', async () => {
@@ -192,7 +213,7 @@ test('a dead day PAUSES both dense schedules and records what it did', async () 
   const deferrer = installReceiptDeferrer();
   const calls = installQstash({ scheduleFor: (id) => readbackFor(id) });
   try {
-    await seedSchedule([]);
+    await seedDeadDaySeason();
     const res = await GET(request());
     assert.equal(res.status, 200);
     await deferrer.flush();
@@ -264,14 +285,68 @@ async function seedDay(): Promise<number> {
 }
 const dayHour = (dayStartMs: number, hour: number): number => dayStartMs + hour * 3_600_000;
 
-test('an unreadable canonical schedule FAILS CLOSED and sends nothing', async () => {
-  // An empty window list is a legitimate plan for a dead day, so an unreadable
-  // schedule read as one would PAUSE dense polling on a live game day.
+test('an ABSENT or EMPTY season record sends nothing — absence is not a dead day', async () => {
+  // The defect all three reviewers found. `loadCachedScheduleItems` returns `[]`
+  // for a missing key and never throws, so the original guard — a try/catch —
+  // never fired for the failure that actually happens, and an unpopulated cache
+  // was byte-identical to a verified dead day: both dense schedules PAUSED on the
+  // strength of a record the planner had never read. Measured 2026-09-07:
+  // `schedule/2027-all-all` does not exist, so this is a live state.
+  //
+  // Mutation target: treat a zero-kickoff read as usable and the pause assertions
+  // in the positive control below start firing here too.
+  await reset();
+  const deferrer = installReceiptDeferrer();
+  const calls = installQstash({ scheduleFor: (id) => readbackFor(id) });
+  try {
+    // No season key at all.
+    const absent = await GET(request());
+    assert.equal(absent.status, 200);
+    assert.equal(calls.length, 0, 'nothing is sent when the season record is absent');
+
+    // Present but empty — `AGENTS.md`: a schedule is never committed empty, so
+    // this means the cache was never populated, not that the season has no games.
+    await seedSchedule([]);
+    await GET(request());
+    assert.equal(calls.length, 0, 'nothing is sent when the season record is empty');
+
+    // Present but with no parseable kickoff — same reading.
+    await seedSchedule([{ startDate: 'not a date', startTimeTBD: false }]);
+    await GET(request());
+    await deferrer.flush();
+    assert.equal(calls.length, 0, 'nothing is sent when no kickoff can be read');
+
+    const receipt = await readReceipt();
+    assert.equal(receipt?.result, 'failure');
+    assert.equal(receipt?.reason, 'schedule-unreadable');
+
+    // POSITIVE CONTROL: a READABLE season whose games miss the day does pause. So
+    // the silence above is the fail-closed branch, not a run with nothing to do.
+    await reset();
+    const openCalls = installQstash({ scheduleFor: (id) => readbackFor(id) });
+    await seedDeadDaySeason();
+    await GET(request());
+    assert.ok(
+      openCalls.some((call) => call.url.endsWith('/pause')),
+      'an established dead day pauses; an unestablished one must not'
+    );
+  } finally {
+    deferrer.restore();
+    restore();
+  }
+});
+
+test('a THROWN schedule read is retried inside the invocation before giving up', async () => {
+  // The planner runs once a day with `retries: 0`, and `AGENTS.md` forbids
+  // answering a controlled outcome with a non-200 on a QStash-delivered route — so
+  // the delivery layer cannot retry this. A transient store blip would otherwise
+  // cost a whole day of planning.
   await reset();
   const deferrer = installReceiptDeferrer();
   const calls = installQstash({ scheduleFor: (id) => readbackFor(id) });
   const { __setAppStateReadFailureForTests } = await import('@/lib/server/appStateStore');
   try {
+    await seedDeadDaySeason();
     // Only the `schedule` scope fails, so the receipt and record writes still work
     // and the assertions below are about the plan, not about a dead store.
     __setAppStateReadFailureForTests(new Error('schedule scope unavailable'), 'schedule');
@@ -284,20 +359,45 @@ test('an unreadable canonical schedule FAILS CLOSED and sends nothing', async ()
     const receipt = await readReceipt();
     assert.equal(receipt?.result, 'failure');
     assert.equal(receipt?.reason, 'schedule-unreadable');
-
-    // POSITIVE CONTROL: the SAME empty result reached the honest way — a readable
-    // schedule with no games — does send, and pauses. So the silence above is the
-    // fail-closed branch and not simply a run that had nothing to do.
-    await reset();
-    const openCalls = installQstash({ scheduleFor: (id) => readbackFor(id) });
-    await seedSchedule([]);
-    await GET(request());
-    assert.ok(
-      openCalls.some((call) => call.url.endsWith('/pause')),
-      'a genuinely empty day pauses; an unreadable one must not'
-    );
   } finally {
     __setAppStateReadFailureForTests(null);
+    deferrer.restore();
+    restore();
+  }
+});
+
+test('the durable record stores only the PLANNING DAY’s windows', async () => {
+  // Measured on production: the season yields 479 windows and 46,014 bytes per
+  // run, which at the store's 400-run bound is ~18 MB per job key — rewritten in a
+  // transaction daily and re-parsed on every System Health render, of a field no
+  // consumer reads. The derivation still runs over the whole season (a pre-filter
+  // would move cluster boundaries); only the RECORD is narrowed.
+  await reset();
+  const deferrer = installReceiptDeferrer();
+  installQstash({ scheduleFor: (id) => readbackFor(id) });
+  try {
+    const dayStartMs = await seedDay();
+    await seedSchedule([
+      { startDate: new Date(dayHour(dayStartMs, 19)).toISOString(), startTimeTBD: false },
+      // Far-away games: real windows, none of them touching the planned day.
+      { startDate: new Date(dayStartMs - 40 * 86_400_000).toISOString(), startTimeTBD: false },
+      { startDate: new Date(dayStartMs + 40 * 86_400_000).toISOString(), startTimeTBD: false },
+      { startDate: new Date(dayStartMs + 80 * 86_400_000).toISOString(), startTimeTBD: false },
+    ]);
+    await GET(request());
+    await deferrer.flush();
+
+    const record = await readPollingPlannerRuns('live-scores');
+    const newest = record.kind === 'ok' ? record.series.runs.at(-1) : null;
+    assert.ok(newest, 'a run was recorded');
+    assert.equal(newest!.windows.length, 1, 'only the window covering the planned day');
+    for (const window of newest!.windows) {
+      assert.ok(window.startMs < dayStartMs + 86_400_000);
+      assert.ok(window.slowEndMs > dayStartMs);
+    }
+    // Mutation target: record `allWindows` and this bound fails.
+    assert.ok(JSON.stringify(newest!.windows).length < 1_000);
+  } finally {
     deferrer.restore();
     restore();
   }

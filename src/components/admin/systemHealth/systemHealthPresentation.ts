@@ -134,13 +134,23 @@ export function schedulerJobLabel(job: ExternalSchedulerJob): string {
  *
  * `unavailable` with a null reason is true of the FIRST row and the LAST, so a
  * mapping keyed on the reason alone paints a receipt-store OUTAGE as healthy.
- * Nothing-due is uniquely `reason === null && receipt !== null`: it is reached
- * through `entriesByJob.has(job)`, so it always carries a parsed receipt, and the
- * scope failure never does.
+ * The receipt separates those two: nothing-due is reached through
+ * `entriesByJob.has(job)`, so it always carries a parsed receipt, and the scope
+ * failure never does.
+ *
+ * AND THE RECEIPT IS STILL NOT ENOUGH — a FIFTH path, found by review and
+ * confirmed by running it. `planUnavailableReason` is a ROW-level field derived
+ * from `governingSchedule`, which picks the entry with a cron when no slot is due;
+ * so a job whose DENSE schedule is faulted (`plan-indeterminate`) and whose SLOW
+ * schedule is known and not yet due produces `reason: null` with a receipt
+ * present, and rendered gray "Nothing due" while half the job could not be checked
+ * at all. That is this campaign's recurring failure a third time — a guard on what
+ * the row MEANS while the per-schedule facts go unchecked — so the predicate reads
+ * the entries too. Nothing is due only when EVERY schedule is accounted for.
  */
 export type DeliveryRowFacts = Pick<
   SchedulerDeliveryHealthRow,
-  'deliveryState' | 'planUnavailableReason' | 'receipt'
+  'deliveryState' | 'planUnavailableReason' | 'receipt' | 'schedules'
 >;
 
 /**
@@ -155,7 +165,8 @@ export function deliveryNothingDue(row: DeliveryRowFacts): boolean {
   return (
     row.deliveryState === 'unavailable' &&
     row.planUnavailableReason === null &&
-    row.receipt !== null
+    row.receipt !== null &&
+    row.schedules.every((schedule) => schedule.unavailableReason === null)
   );
 }
 

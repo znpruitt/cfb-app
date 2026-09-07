@@ -67,17 +67,42 @@ export function lookupFromStore(
 }
 
 /**
+ * Which connection string a record read uses, in order of preference.
+ *
+ * `DATABASE_URL_RO` FIRST, and that ordering is the fix. `CLAUDE.md` keeps
+ * production read access in `.env.operator.local` as a read-only `audit_ro` role
+ * and deliberately keeps `DATABASE_URL` out of `.env.local`, so an operator
+ * following the documented setup has only the read-only one — and requiring the
+ * write credential made `inspect` and `upsert` exit 3 before contacting QStash,
+ * which broke the routine §8e/§8f check, §8l rotation, and the provisioning of the
+ * two schedules this slice adds. Reading a record is a `SELECT`; the read-only
+ * rail is exactly the right credential for it. `DATABASE_URL` is still accepted so
+ * a deployed context (or a operator who has one) is not a special case.
+ */
+export function plannerRecordConnectionString(
+  env: Record<string, string | undefined>
+): string | null {
+  return env.DATABASE_URL_RO?.trim() || env.DATABASE_URL?.trim() || null;
+}
+
+/**
  * A reader for the four planner-owned schedules, or `unavailable` when this
  * process cannot honestly answer.
  *
- * THE `DATABASE_URL` CHECK IS THE POINT OF THIS FUNCTION, not a convenience.
- * `appStateStore` falls back to a LOCAL FILE outside production when no database
- * is configured, and an operator's laptop has no `DATABASE_URL` — deliberately,
- * per `CLAUDE.md`, so that a dev server can never point at production. A reader
- * built naively on top of that would read an empty local store, answer `absent`,
- * and the CLI would then write the fixed contract over a cron the planner owns.
- * That is the exact clobber the reader exists to prevent, reached through the
- * door beside it. So: no database, no answer — `unavailable`, which REFUSES.
+ * IT READS THROUGH THE OPERATOR'S READ-ONLY RAIL. The first version required
+ * `DATABASE_URL`, which `CLAUDE.md` says the operator environment deliberately
+ * does NOT have — production read access lives in `DATABASE_URL_RO` in
+ * `.env.operator.local`. Measured: `manage-live-scores-schedule.ts inspect` then
+ * exited 3 before contacting QStash, so this slice broke the routine §8e/§8f
+ * check, the §8l rotation `upsert`, and the provisioning of the two schedules it
+ * itself adds. A record read is a SELECT; the read-only rail exists for exactly
+ * this, and using it keeps `src/` free of any reference to it.
+ *
+ * With NO connection string at all it still refuses (`unavailable`), because
+ * `appStateStore`'s local-file fallback would otherwise answer `absent` from an
+ * empty store and the CLI would write the fixed contract over a planner-owned
+ * cron — the clobber this reader exists to prevent, reached through the door
+ * beside it.
  *
  * A schedule id the planner does not own also answers `absent`, which is the
  * pre-slice-4 behaviour byte for byte; the reader is only ever attached to the
@@ -89,17 +114,50 @@ export function createPlannerIntentReader(
   return async (scheduleId: string): Promise<RecordedIntentLookup> => {
     const job = plannerJobForScheduleId(scheduleId);
     if (job === null) return { kind: 'absent' };
-    if (!env.DATABASE_URL?.trim()) return { kind: 'unavailable' };
-    // Imported dynamically so this module — and every script that holds it — stays
-    // free of a database client until a read is actually attempted.
-    const { readPollingPlannerRuns, latestRecordedIntentForSchedule } = await import(
-      '../../src/lib/server/pollingPlannerRecord.ts'
-    );
-    const read = await readPollingPlannerRuns(job);
-    return lookupFromStore(read, () =>
-      read.kind === 'ok'
-        ? latestRecordedIntentForSchedule(read.series, scheduleId)
-        : { kind: 'none' }
+    const connectionString = plannerRecordConnectionString(env);
+    if (!connectionString) return { kind: 'unavailable' };
+
+    // The store's PARSER, not its reader. `readPollingPlannerRuns` goes through
+    // `appStateStore`, which needs `DATABASE_URL` and silently falls back to a
+    // LOCAL FILE without one — so an operator would have read an empty local store,
+    // been told `absent`, and had the CLI write the fixed contract over a cron the
+    // planner owns. One `SELECT` against the read-only rail avoids both, and
+    // reusing the store's own classifier means no parsing logic is duplicated.
+    const [
+      { default: pg },
+      {
+        POLLING_PLANNER_RECORD_SCOPE,
+        pollingPlannerRecordKey,
+        readPollingPlannerRunsForWrite,
+        latestRecordedIntentForSchedule,
+      },
+    ] = await Promise.all([import('pg'), import('../../src/lib/server/pollingPlannerRecord.ts')]);
+
+    const client = new pg.Client({ connectionString, ssl: { rejectUnauthorized: false } });
+    let value: unknown;
+    try {
+      await client.connect();
+      const result = await client.query(
+        'select value from app_state where scope = $1 and key = $2',
+        [POLLING_PLANNER_RECORD_SCOPE, pollingPlannerRecordKey(job)]
+      );
+      if (result.rows.length === 0) return { kind: 'absent' };
+      value = result.rows[0]?.value;
+    } catch {
+      return { kind: 'unavailable' };
+    } finally {
+      await client.end().catch(() => {});
+    }
+    if (value === null || value === undefined) return { kind: 'absent' };
+
+    // The SAME classifier `readPollingPlannerRuns` uses: a present value that
+    // yields nothing is `unreadable` (refuse), while individual damaged rows are
+    // dropped tolerantly. Reusing it is what keeps the CLI and the store from
+    // describing one stored value two different ways.
+    const parsed = readPollingPlannerRunsForWrite(value);
+    if (!parsed.ok) return { kind: 'unreadable' };
+    return lookupFromStore({ kind: 'ok', series: parsed.series }, () =>
+      latestRecordedIntentForSchedule(parsed.series, scheduleId)
     );
   };
 }

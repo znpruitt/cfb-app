@@ -5,6 +5,7 @@ import {
   deliveryNothingDue,
   deliveryRowStatus,
   deliveryStateDisplay,
+  type DeliveryRowFacts,
 } from '../systemHealthPresentation';
 import { readSchedulerDeliveryHealth } from '@/lib/server/schedulerDeliveryHealth';
 import type {
@@ -39,12 +40,22 @@ const RECEIPT: SchedulerExecutionReceipt = {
   target: { kind: 'live-scores', year: 2026, mode: null, targetGames: 0, targetPartitions: 0 },
 };
 
+/** A schedule entry with nothing wrong with it — known expression, nothing due. */
+const cleanEntry = (schedule: 'dense' | 'slow') => ({
+  schedule,
+  cron: '1 0 * * *',
+  graceMs: 2 * 60 * 60 * 1000,
+  requiredStartedAt: null,
+  unavailableReason: null,
+});
+
 function row(
   deliveryState: SchedulerDeliveryState,
   planUnavailableReason: SchedulerPlanUnavailableReason | null,
-  receipt: SchedulerExecutionReceipt | null
-): Pick<SchedulerDeliveryHealthRow, 'deliveryState' | 'planUnavailableReason' | 'receipt'> {
-  return { deliveryState, planUnavailableReason, receipt };
+  receipt: SchedulerExecutionReceipt | null,
+  schedules: SchedulerDeliveryHealthRow['schedules'] = [cleanEntry('dense'), cleanEntry('slow')]
+): DeliveryRowFacts {
+  return { deliveryState, planUnavailableReason, receipt, schedules };
 }
 
 test('NOTHING DUE renders gray and says so, instead of a yellow “Unavailable”', () => {
@@ -108,6 +119,35 @@ test('every other state keeps exactly the colour and word it had', () => {
       assert.equal(deliveryRowStatus(row(state, null, receipt)), colour, state);
       assert.equal(deliveryStateDisplay(row(state, null, receipt)).label, label, state);
     }
+  }
+});
+
+test('THE FIFTH PATH: one faulted schedule stops the row reading as idle', () => {
+  // Found by review and confirmed by running the real reader. `planUnavailableReason`
+  // is ROW-level and derived from `governingSchedule`, which picks the entry that
+  // HAS a cron — so a job whose dense schedule is `plan-indeterminate` and whose
+  // slow schedule is merely not-due yet yields `reason: null` with a receipt
+  // present. Before this predicate read the entries, that rendered gray "Nothing
+  // due" while half the job could not be checked at all.
+  //
+  // Mutation target: drop the `schedules.every(...)` clause and this goes red.
+  const halfFaulted = row('unavailable', null, RECEIPT, [
+    { ...cleanEntry('dense'), cron: null, graceMs: null, unavailableReason: 'plan-indeterminate' },
+    cleanEntry('slow'),
+  ]);
+
+  assert.equal(deliveryNothingDue(halfFaulted), false);
+  assert.equal(deliveryRowStatus(halfFaulted), 'yellow');
+  assert.deepEqual(deliveryStateDisplay(halfFaulted), { label: 'Unavailable', tone: 'muted' });
+
+  // Every per-schedule reason does it, not just the one review happened to name.
+  for (const reason of ['plan-unreadable', 'plan-store-failed', 'plan-incomplete'] as const) {
+    const faulted = row('unavailable', null, RECEIPT, [
+      cleanEntry('dense'),
+      { ...cleanEntry('slow'), cron: null, graceMs: null, unavailableReason: reason },
+    ]);
+    assert.equal(deliveryNothingDue(faulted), false, reason);
+    assert.equal(deliveryRowStatus(faulted), 'yellow', reason);
   }
 });
 

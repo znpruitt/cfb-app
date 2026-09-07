@@ -3,10 +3,13 @@ import test from 'node:test';
 
 import {
   applySchedule,
+  carriedDenseHours,
   DEAD_DAY_SLOW_CRON,
   dayIsArmed,
+  denseCronForHours,
   desiredJobState,
   outcomeForExitCode,
+  plannedFiringsFor,
 } from '../pollingPlannerApply';
 import { plannerWindows, resolvePlanningDayStartMs } from '../../schedule/pollingPlanner';
 import { pollingCronPlanForJob } from '../schedulerDeliveryHealth';
@@ -132,30 +135,33 @@ test('NOTHING AT ALL: dense PAUSED, and the slow schedule drops to one wakeup a 
 
 test('a dead day is decided from the WINDOWS, never inferred from the expression', () => {
   // THE INFERENCE THAT LOOKS RIGHT AND IS NOT. "No dense cron plus a 24-hour slow
-  // cron means a dead day" is false on a shape the planner emits routinely, and a
-  // day it calls dead is a day it PAUSES while a live game's final is still being
-  // reconciled.
+  // cron means a dead day" is false, and a day it calls dead is a day it PAUSES
+  // while a live game's final is still being reconciled.
   //
-  // Reached through a TBD game, whose whole-day window puts the dense phase on
-  // the published date and the entire 24h tail on the day after it. A confirmed
-  // kickoff cannot produce this shape — its dense phase and its tail are only 24h
-  // apart — which is exactly why generating over the CONTRACT rather than over
-  // `derivePollingWindows`' output is the rule.
+  // Generated over the WINDOW CONTRACT rather than over what `derivePollingWindows`
+  // emits (`AGENTS.md`): `synthesizePollingCrons` accepts any window satisfying
+  // `startMs <= denseEndMs <= slowEndMs`, and a window whose dense phase closed
+  // before the day while its reconciliation tail spans the whole of it is exactly
+  // that shape — a long tail still running.
   const dayStartMs = dayOf('2026-10-04T00:00:00Z');
-  const windows = plannerWindows([
-    { startDate: '2026-10-03T04:00:00Z', startTimeTBD: true },
-  ]).windows;
+  const windows = [
+    {
+      startMs: dayStartMs - 2 * DAY_MS,
+      denseEndMs: dayStartMs - DAY_MS,
+      slowEndMs: dayStartMs + DAY_MS,
+      kickoffCount: 1,
+    },
+  ];
   const plan = pollingCronPlanForJob('live-scores', { windows, dayStartMs });
 
-  assert.equal(plan.dense, null, 'no dense hours on the day after');
+  assert.equal(plan.dense, null, 'no dense hours on the day');
   assert.equal(plan.slow.hours.length, 24, 'and all 24 hours carry the tail');
   // The inference would call this dead. The windows say otherwise.
   assert.equal(dayIsArmed(windows, dayStartMs), true);
-  assert.notDeepEqual(desiredJobState(plan, windows, dayStartMs).slow, { kind: 'paused' });
-  assert.notEqual(
-    (desiredJobState(plan, windows, dayStartMs).slow as { cron: string }).cron,
-    DEAD_DAY_SLOW_CRON
-  );
+  const desired = desiredJobState(plan, windows, dayStartMs);
+  assert.deepEqual(desired.dense, { kind: 'paused' });
+  assert.equal(desired.slow.kind, 'armed');
+  assert.notEqual((desired.slow as { cron: string }).cron, DEAD_DAY_SLOW_CRON);
 
   // And a genuinely empty day IS dead.
   assert.equal(dayIsArmed([], dayStartMs), false);
@@ -295,10 +301,15 @@ test('a paused schedule that must be armed is upserted AND resumed, in that orde
   assert.ok(posts[1]!.url.endsWith('/resume'));
 });
 
-test('a failed resume is reported, not swallowed by the upsert that succeeded', async () => {
-  // The dead-day → game-day transition is the one that matters: a dense schedule
-  // left paused while games are live is total darkness, so the run must not read
-  // as confirmed.
+test('a failed resume keeps the CRON fact and reports the DELIVERY fact separately', async () => {
+  // Review found the fold: the resume's outcome used to overwrite the upsert's in
+  // the RECORD, so `installedState` read `indeterminate` — "no honest basis" — and
+  // the schedule contributed NO required slot for that game day. A real outage
+  // then went unmeasured while the cron the planner wrote sat in QStash.
+  //
+  // The two facts are separate. The record keeps `confirmed` (that cron IS
+  // installed, so delivery health measures against it and a silent schedule reads
+  // `late`, which is true), and `healthy` carries "it never resumed".
   const calls: Call[] = [];
   const fetchImpl = async (
     url: string,
@@ -318,8 +329,9 @@ test('a failed resume is reported, not swallowed by the upsert that succeeded', 
     { kind: 'armed', cron: '*/3 19,20 * * *' },
     { env: { QSTASH_TOKEN: TOKEN, CRON_SECRET }, fetchImpl: fetchImpl as never }
   );
-  assert.equal(applied.outcome, 'indeterminate');
-  assert.equal(applied.run?.outcome, 'indeterminate');
+  assert.equal(applied.outcome, 'confirmed', 'the cron landed, and the record says so');
+  assert.equal(applied.run?.outcome, 'confirmed');
+  assert.equal(applied.healthy, false, 'but the schedule never reached its planned state');
 });
 
 test('nothing to pause is already the desired state, and nothing is created to pause it', async () => {
@@ -425,4 +437,121 @@ test('exit codes map to the record’s vocabulary without rounding 4 to either s
   assert.equal(outcomeForExitCode(3), 'failed');
   assert.equal(outcomeForExitCode(4), 'indeterminate');
   assert.equal(outcomeForExitCode(1), 'failed');
+});
+
+// ---------------------------------------------------------------------------
+// Remediation round 1 — silence requires positive evidence
+// ---------------------------------------------------------------------------
+
+test('a pause that DID NOT LAND records the cron still firing, never silence', async () => {
+  // Three reviewers found this root independently. `installedState` reads a null
+  // dense entry as `silent`, which contributes no required slot and cannot raise
+  // an alarm — so a dense schedule still firing every three minutes was recorded
+  // as deliberately off, for a full day, with delivery health unable to say so.
+  //
+  // Mutation target: return `run: null` from the unconfirmed-pause branch and both
+  // assertions below go red.
+  for (const status of [500, 503]) {
+    const { deps } = qstash({
+      schedule: readback({ cron: '*/3 19,20 * * *' }),
+      mutationStatus: status,
+    });
+    const applied = await applySchedule(LIVE_SCORES_DENSE_CONTRACT, { kind: 'paused' }, deps);
+
+    assert.equal(applied.healthy, false);
+    assert.notEqual(applied.run, null, 'an unconfirmed pause is not silence');
+    // `priorCronState` then points delivery health at the expression that is
+    // actually still firing, so a missed delivery reads `late` rather than nothing.
+    assert.equal(applied.run?.previousCron, '*/3 19,20 * * *');
+    assert.equal(applied.run?.intent.cron, '*/3 19,20 * * *');
+    assert.equal(applied.outcome, 'indeterminate');
+  }
+
+  // POSITIVE CONTROL: a CONFIRMED pause is silence, and must stay so — otherwise
+  // every paused dense day would raise a false alarm.
+  const ok = qstash({ schedule: readback() });
+  const confirmed = await applySchedule(LIVE_SCORES_DENSE_CONTRACT, { kind: 'paused' }, ok.deps);
+  assert.equal(confirmed.run, null);
+  assert.equal(confirmed.healthy, true);
+});
+
+test('a pause whose state could not be READ records "cannot be judged", not silence', async () => {
+  // The planner never learned whether this schedule exists or is firing. Recording
+  // `dense: null` would assert exactly what the run failed to establish.
+  const fetchImpl = async () => ({ status: 500, json: async () => ({}) });
+  const applied = await applySchedule(
+    LIVE_SCORES_DENSE_CONTRACT,
+    { kind: 'paused' },
+    { env: { QSTASH_TOKEN: TOKEN, CRON_SECRET }, fetchImpl: fetchImpl as never }
+  );
+  assert.notEqual(applied.run, null);
+  assert.equal(applied.run?.outcome, 'failed');
+  // `failed` + no previousCron resolves to `plan-incomplete` — the row says the
+  // plan cannot be judged rather than that nothing was due.
+  assert.equal(applied.run?.previousCron, null);
+  assert.equal(applied.healthy, false);
+});
+
+test('an UNREADABLE pause state is not evidence the cron is in force', async () => {
+  // `!== true` admitted `readPauseState`'s explicit "could not be read" and copied
+  // the cron in as the cron in force — the same guard-the-meaning-miss-the-shape
+  // defect this module's docstring cites. Mutation target: relax it back.
+  const { deps } = qstash({ schedule: readback({ isPaused: 'yes', cron: '*/3 19,20 * * *' }) });
+  const applied = await applySchedule(
+    LIVE_SCORES_DENSE_CONTRACT,
+    { kind: 'armed', cron: '*/3 21,22 * * *' },
+    deps
+  );
+  assert.equal(applied.run?.previousCron, null);
+});
+
+// ---------------------------------------------------------------------------
+// Remediation round 1 — the 23:50 cutover, and honest firing counts
+// ---------------------------------------------------------------------------
+
+test('the installed expression carries TODAY’s remaining armed hours across the cutover', () => {
+  // Measured on the production 2026 record: 2026-09-12 is dense through hour 23
+  // and 2026-09-13 is not, so installing tomorrow's expression at 23:50 dropped
+  // the 23:51/23:54/23:57 polls and the next delivery was 00:00 — a twelve-minute
+  // hole during prime-time games, on every night whose hour sets differ that way.
+  const todayStart = ms('2026-09-12T00:00:00Z');
+  const carried = carriedDenseHours([15, 16, 22, 23], ms('2026-09-12T23:50:00Z'), todayStart);
+  assert.deepEqual(carried, [23], 'only hours still ahead of us are carried');
+
+  const merged = denseCronForHours([0, 1, 2, ...carried], 3);
+  assert.equal(merged, '*/3 0,1,2,23 * * *');
+  // NEVER a range: `parseCronField` reads `12-23` as an empty set and delivery
+  // health then answers from a 366-day backstop.
+  assert.doesNotMatch(merged, /-/);
+  // A full day still collapses to the wildcard the synthesizer emits.
+  assert.equal(denseCronForHours([...Array(24).keys()], 3), '*/3 * * * *');
+
+  // Nothing is carried once the hours have elapsed, or from a day with none.
+  assert.deepEqual(carriedDenseHours([15, 16], ms('2026-09-12T23:50:00Z'), todayStart), []);
+  assert.deepEqual(carriedDenseHours([], ms('2026-09-12T23:50:00Z'), todayStart), []);
+});
+
+test('planned firings are counted from what is INSTALLED, not from the raw plan', () => {
+  // The figure this whole item's justification is stated in. On an unarmed day the
+  // plan's slow expression still carries all 24 hours while the planner installs
+  // one daily slot, so the raw count over-reported a quiet day by 24 per job.
+  const dayStartMs = dayOf('2026-06-15T00:00:00Z');
+  const plan = pollingCronPlanForJob('live-scores', { windows: [], dayStartMs });
+  const desired = desiredJobState(plan, [], dayStartMs);
+
+  assert.equal(plan.slow.hours.length, 24, 'the raw plan really does say 24');
+  assert.equal(plannedFiringsFor(plan, desired.dense, desired.slow), 1, 'one wakeup is installed');
+
+  // An armed day counts both schedules from their installed expressions.
+  const armedDay = dayOf('2026-10-03T00:00:00Z');
+  const armedWindows = plannerWindows([
+    { startDate: '2026-10-03T19:30:00Z', startTimeTBD: false },
+  ]).windows;
+  const armedPlan = pollingCronPlanForJob('live-scores', {
+    windows: armedWindows,
+    dayStartMs: armedDay,
+  });
+  const armedDesired = desiredJobState(armedPlan, armedWindows, armedDay);
+  // 5 dense hours x 20 firings + 1 idle slow slot.
+  assert.equal(plannedFiringsFor(armedPlan, armedDesired.dense, armedDesired.slow), 101);
 });

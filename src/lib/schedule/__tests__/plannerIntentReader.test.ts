@@ -5,6 +5,7 @@ import {
   createPlannerIntentReader,
   lookupFromStore,
   plannerJobForScheduleId,
+  plannerRecordConnectionString,
 } from '../../../../scripts/lib/plannerIntentReader';
 import {
   GAME_STATS_DENSE_CONTRACT,
@@ -33,14 +34,43 @@ test('the four planner-owned schedules resolve to their job; nothing else does',
   assert.equal(plannerJobForScheduleId('turfwar-odds-hourly'), null);
 });
 
-test('NO DATABASE MEANS NO ANSWER — the fail-closed that this module exists for', async () => {
+test('the record is read through the operator READ-ONLY rail', () => {
+  // The documented operator setup has `DATABASE_URL_RO` in `.env.operator.local`
+  // and deliberately NO `DATABASE_URL`. Requiring the write credential made
+  // `inspect` and `upsert --apply` exit 3 before contacting QStash — measured by
+  // review — which broke the routine check, §8l rotation, and the provisioning of
+  // the two schedules this slice adds. Reading a record is a SELECT.
+  //
+  // Mutation target: drop `DATABASE_URL_RO` from the lookup and the first case
+  // returns null, which is the exit-3 that broke the CLI.
+  assert.equal(
+    plannerRecordConnectionString({ DATABASE_URL_RO: 'postgres://ro' }),
+    'postgres://ro'
+  );
+  // The read-only rail WINS when both are present: a record read never needs write
+  // access, and `CLAUDE.md` keeps the application off this rail entirely.
+  assert.equal(
+    plannerRecordConnectionString({
+      DATABASE_URL_RO: 'postgres://ro',
+      DATABASE_URL: 'postgres://rw',
+    }),
+    'postgres://ro'
+  );
+  // A deployed context that has only the write credential is not a special case.
+  assert.equal(plannerRecordConnectionString({ DATABASE_URL: 'postgres://rw' }), 'postgres://rw');
+  // Blank is absent, not a connection string.
+  assert.equal(plannerRecordConnectionString({ DATABASE_URL_RO: '   ' }), null);
+  assert.equal(plannerRecordConnectionString({}), null);
+});
+
+test('NO CONNECTION AT ALL MEANS NO ANSWER — the fail-closed that this module exists for', async () => {
   // `appStateStore` falls back to a LOCAL FILE outside production when no database
   // is configured, and an operator's laptop deliberately has no `DATABASE_URL`
   // (`CLAUDE.md`: a dev server must never point at production). A reader built
   // naively on that would read an empty local store, answer `absent`, and the CLI
   // would write the fixed contract over the planner's cron.
   //
-  // Mutation target: delete the `DATABASE_URL` guard and this returns `absent`,
+  // Mutation target: delete the connection-string guard and this returns `absent`,
   // which is the clobber.
   const reader = createPlannerIntentReader({});
   assert.deepEqual(await reader(LIVE_SCORES_DENSE_CONTRACT.scheduleId), { kind: 'unavailable' });

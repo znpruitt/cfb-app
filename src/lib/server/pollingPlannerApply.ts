@@ -1,4 +1,9 @@
-import { IDLE_SLOW_HOUR, SLOW_OFFSET_MINUTE, type PollingCronPlan } from '../schedule/pollingCron';
+import {
+  IDLE_SLOW_HOUR,
+  plannedRunsPerDay,
+  SLOW_OFFSET_MINUTE,
+  type PollingCronPlan,
+} from '../schedule/pollingCron';
 import type { PollingWindow } from '../schedule/pollingWindows';
 
 import type { PlannerScheduleOutcome, PlannerScheduleRun } from './pollingPlannerRecord';
@@ -98,6 +103,39 @@ export function dayIsArmed(windows: readonly PollingWindow[], dayStartMs: number
   return windows.some((window) => window.startMs < dayEndMs && window.slowEndMs > dayStartMs);
 }
 
+/**
+ * Re-serialize an hour set into the dense expression's own form.
+ *
+ * NOT a second synthesizer: the hours come from `synthesizePollingCrons`, and this
+ * only writes them back in the format that function emits — a comma list, or `*`
+ * for a full day, NEVER a range (`parseCronField` reads `12-23` as an empty set,
+ * and delivery health then answers from a 366-day backstop).
+ *
+ * It exists for the CUTOVER. The planner installs tomorrow's expression at 23:50,
+ * and a cron has no date field, so tomorrow's hour set governs the last ten
+ * minutes of today. Measured on the production 2026 record: 2026-09-12 is dense
+ * through hour 23 and 2026-09-13 is not, so the swap dropped the 23:51, 23:54 and
+ * 23:57 polls and the next delivery was 00:00 — a twelve-minute hole in
+ * live-score polling during prime-time games, on every night whose hour sets
+ * differ that way. Carrying today's still-future armed hours into the installed
+ * expression closes it; the cost is that those hours stay armed one extra day.
+ */
+export function denseCronForHours(hours: readonly number[], stepMinutes: number): string {
+  const unique = [...new Set(hours)].sort((a, b) => a - b);
+  return `*/${stepMinutes} ${unique.length === 24 ? '*' : unique.join(',')} * * *`;
+}
+
+/** The hours of `today`'s dense plan that have not yet elapsed at `nowMs`. */
+export function carriedDenseHours(
+  todayDenseHours: readonly number[],
+  nowMs: number,
+  todayStartMs: number
+): number[] {
+  const currentHour = Math.floor((nowMs - todayStartMs) / (60 * 60 * 1000));
+  if (currentHour < 0 || currentHour > 23) return [];
+  return todayDenseHours.filter((hour) => hour >= currentHour);
+}
+
 export type DesiredJobState = { dense: DesiredScheduleState; slow: DesiredScheduleState };
 
 /**
@@ -123,6 +161,41 @@ export function desiredJobState(
       ? { kind: 'armed', cron: plan.slow.cron }
       : { kind: 'armed', cron: DEAD_DAY_SLOW_CRON },
   };
+}
+
+/**
+ * How many times the DESIRED schedules fire in the planning day.
+ *
+ * `plannedRunsPerDay` counts the raw plan, and on an unarmed day the plan's slow
+ * expression still carries all 24 hours while {@link desiredJobState} installs one
+ * daily slot — so the raw figure over-reported a quiet day by 24 firings per job.
+ * That is the number this whole item's justification is stated in, so it is
+ * counted from what is actually installed.
+ */
+export function plannedFiringsFor(
+  plan: PollingCronPlan,
+  dense: DesiredScheduleState,
+  slow: DesiredScheduleState
+): number {
+  const raw = plannedRunsPerDay(plan);
+  const densePart = dense.kind === 'armed' ? countFirings(dense.cron, raw.dense) : 0;
+  const slowPart = slow.kind === 'armed' ? countFirings(slow.cron, plan.slow.hours.length) : 0;
+  return densePart + slowPart;
+}
+
+/**
+ * Firings a synthesized expression produces in a day, read from the expression
+ * itself so an overridden cron is counted as installed rather than as planned.
+ * Falls back to the plan's own figure for a shape this cannot read.
+ */
+function countFirings(cron: string, fallback: number): number {
+  const [minuteField, hourField] = cron.split(' ');
+  if (!minuteField || !hourField) return fallback;
+  const hours = hourField === '*' ? 24 : hourField.split(',').length;
+  const perHour = minuteField.startsWith('*/')
+    ? Math.ceil(60 / Number(minuteField.slice(2)))
+    : minuteField.split(',').length;
+  return Number.isFinite(perHour) && perHour > 0 ? hours * perHour : fallback;
 }
 
 /** Injected so a test drives every path without a network, a clock or a secret. */
@@ -154,23 +227,6 @@ export function outcomeForExitCode(code: number): PlannerScheduleOutcome {
   }
 }
 
-/** The worse of two outcomes, so a two-step apply reports its weakest link. */
-const OUTCOME_SEVERITY: Record<PlannerScheduleOutcome, number> = {
-  confirmed: 0,
-  unchanged: 0,
-  refused: 2,
-  failed: 3,
-  // Worst, because it is the only one that leaves the durable world UNKNOWN.
-  indeterminate: 4,
-};
-
-function worseOutcome(
-  a: PlannerScheduleOutcome,
-  b: PlannerScheduleOutcome
-): PlannerScheduleOutcome {
-  return OUTCOME_SEVERITY[b] > OUTCOME_SEVERITY[a] ? b : a;
-}
-
 async function runAction(
   contract: ScheduleContract,
   deps: PlannerQstashDeps,
@@ -196,11 +252,33 @@ async function runAction(
 }
 
 export type AppliedSchedule = {
-  /** The row for the durable record, or `null` for a paused schedule. */
+  /**
+   * The row for the durable record.
+   *
+   * `null` means SILENT — the store's one encoding of "not expected to fire" —
+   * and it is emitted ONLY on positive evidence that the schedule is not firing:
+   * a confirmed pause, or a readback that already said `isPaused: true`, or a
+   * schedule that does not exist. An unconfirmed pause is never silence; see
+   * {@link applySchedule}.
+   */
   run: PlannerScheduleRun | null;
   /** Reporting only: what the planner did, for the runtime event and receipt. */
   action: 'upsert' | 'pause' | 'resume' | 'none';
+  /** The record's outcome for this schedule — what became of its CRON. */
   outcome: PlannerScheduleOutcome;
+  /**
+   * Did the schedule reach the state the plan asked for?
+   *
+   * SEPARATE FROM {@link outcome}, because a successful upsert followed by a
+   * failed resume is a confirmed cron on a schedule that still delivers nothing.
+   * Folding the resume into the record's outcome made the record report
+   * `indeterminate`, which `installedState` reads as "no honest basis" — so the
+   * schedule contributed NO required slot and a real outage that day went
+   * unmeasured, while the cron the planner wrote sat in QStash. The record now
+   * keeps the cron fact and this flag carries the delivery fact, so an unresumed
+   * schedule reads `late` (which is true) instead of vanishing from measurement.
+   */
+  healthy: boolean;
 };
 
 /**
@@ -211,8 +289,16 @@ export type AppliedSchedule = {
  * schedule has no effect — so the read is not needed for safety. It is needed for
  * TRUTH: `previousCron` exists so that no later reader has to extrapolate what
  * was in force, and a skip can only be recorded as `unchanged` by something that
- * actually looked. It also lets an unchanged day cost one GET instead of an
- * upsert that re-sends the forwarded route credential for no reason.
+ * actually looked.
+ *
+ * SILENCE REQUIRES POSITIVE EVIDENCE. Three reviewers independently found the
+ * same root here: every paused-desired branch used to return `run: null`,
+ * including the ones where the planner never learned the live state or the pause
+ * request did not land. `installedState` reads a null as `silent`, which
+ * contributes no required slot and cannot raise an alarm — so a dense schedule
+ * still firing every three minutes recorded as deliberately off, for a full day,
+ * and delivery health had nothing to say about it. A pause is a DESTRUCTIVE
+ * action and its record must assert only what the run established.
  */
 export async function applySchedule(
   contract: ScheduleContract,
@@ -227,65 +313,110 @@ export async function applySchedule(
     expectPaused,
   });
 
-  // A PAUSED schedule's cron is not in force. See the module docstring: recording
-  // it makes the next run's cross-check read a contradiction where there is none.
-  const previousCron = state.kind === 'present' && state.paused !== true ? state.cron : null;
+  // A PAUSED schedule's cron is not in force, and an UNREADABLE pause state is not
+  // evidence that it is. `!== true` admitted `null` — `readPauseState`'s explicit
+  // "could not be read" — and copied the cron in as the cron in force, which is
+  // the same guard-the-meaning-miss-the-shape defect this module's docstring cites.
+  const previousCron = state.kind === 'present' && state.paused === false ? state.cron : null;
 
-  if (desired.kind === 'paused') {
-    // Nothing to pause is already the desired state. Creating a schedule solely
-    // to pause it would provision a live cron for the interval between the two
-    // calls, on the one day the plan says it must not fire.
-    if (state.kind === 'absent') return { run: null, action: 'none', outcome: 'unchanged' };
-    if (state.kind === 'error') return { run: null, action: 'none', outcome: 'failed' };
-    if (state.paused === true) return { run: null, action: 'none', outcome: 'unchanged' };
-    // `state.paused === null` is an UNREADABLE pause state, and it takes this
-    // branch on purpose: pausing is idempotent, so acting on an unknown costs one
-    // request, while assuming "already paused" would leave a stale dense schedule
-    // firing all day — the failure this rule exists to prevent.
-    return { run: null, action: 'pause', outcome: await runAction(contract, deps, 'pause') };
-  }
-
-  const intent = {
+  /** What the planner would write if it were arming this schedule. */
+  const intentFor = (cron: string) => ({
     scheduleId: contract.scheduleId,
     destination: contract.destination,
-    cron: desired.cron,
+    cron,
     method: contract.method,
     retries: contract.retries,
-  };
+  });
+
+  if (desired.kind === 'paused') {
+    // POSITIVE EVIDENCE OF SILENCE — a schedule that does not exist is not firing,
+    // and one QStash already reports as paused is not firing. Creating a schedule
+    // solely to pause it would provision a live cron for the interval between the
+    // two calls, on the one day the plan says it must not fire.
+    if (state.kind === 'absent') {
+      return { run: null, action: 'none', outcome: 'unchanged', healthy: true };
+    }
+    if (state.kind === 'error') {
+      // NO evidence at all: the planner never learned whether this schedule
+      // exists or is firing. Recording silence here asserts exactly what the run
+      // failed to establish. `failed` with no `previousCron` resolves to
+      // `plan-incomplete`, which is the honest answer — the row says the plan
+      // cannot be judged rather than that nothing was due.
+      return {
+        run: {
+          intent: intentFor(contract.cron),
+          previousCron: null,
+          action: 'skipped',
+          outcome: 'failed',
+        },
+        action: 'none',
+        outcome: 'failed',
+        healthy: false,
+      };
+    }
+    if (state.paused === true) {
+      return { run: null, action: 'none', outcome: 'unchanged', healthy: true };
+    }
+    // `state.paused === null` is an unreadable pause state and takes this branch on
+    // purpose: pausing is idempotent, so acting on an unknown costs one request,
+    // while assuming "already paused" leaves a stale dense schedule firing all day.
+    const outcome = await runAction(contract, deps, 'pause');
+    if (outcome === 'confirmed') {
+      return { run: null, action: 'pause', outcome, healthy: true };
+    }
+    // THE PAUSE DID NOT LAND, so the live cron is still what governs. Recording it
+    // as the intent leaves `priorCronState` pointing at the expression that is
+    // actually firing, and delivery health measures against that — instead of
+    // treating a schedule that never stopped as deliberately silent.
+    return {
+      run: {
+        intent: intentFor(state.cron ?? contract.cron),
+        previousCron: state.cron,
+        action: 'applied',
+        outcome,
+      },
+      action: 'pause',
+      outcome,
+      healthy: false,
+    };
+  }
+
   const row = (
     action: 'applied' | 'skipped',
     outcome: PlannerScheduleOutcome
-  ): PlannerScheduleRun => ({
-    intent,
-    previousCron,
-    action,
-    outcome,
-  });
+  ): PlannerScheduleRun => ({ intent: intentFor(desired.cron), previousCron, action, outcome });
 
   if (state.kind === 'error') {
     // Nothing was sent, so an OLDER intent still governs — which is exactly what
     // `failed` means to `latestRecordedIntentForSchedule` and to the timeline.
-    return { run: row('skipped', 'failed'), action: 'none', outcome: 'failed' };
+    return { run: row('skipped', 'failed'), action: 'none', outcome: 'failed', healthy: false };
   }
   if (state.kind === 'present' && state.contractOk) {
     // The full contract matched, INCLUDING the pause state, so there is nothing
     // to send. Contract equality rather than cron equality: a schedule holding
     // the right cron with its forwarded Authorization no longer redacted must
     // still be rewritten.
-    return { run: row('skipped', 'unchanged'), action: 'none', outcome: 'unchanged' };
+    return {
+      run: row('skipped', 'unchanged'),
+      action: 'none',
+      outcome: 'unchanged',
+      healthy: true,
+    };
   }
 
-  let outcome = await runAction({ ...contract, cron: desired.cron }, deps, 'upsert');
+  const outcome = await runAction({ ...contract, cron: desired.cron }, deps, 'upsert');
   // A schedule that exists and is paused needs BOTH: the new cron, then the
   // resume. Upsert first — a resume that lands before a failed upsert arms
   // yesterday's expression, while an upsert that lands before a failed resume
   // leaves the right cron installed for the next run to resume.
+  let resumed = true;
   if (outcome === 'confirmed' && state.kind === 'present' && state.paused !== false) {
-    outcome = worseOutcome(outcome, await runAction(contract, deps, 'resume'));
+    resumed = (await runAction(contract, deps, 'resume')) === 'confirmed';
   }
   return {
     run: row('applied', outcome),
     action: 'upsert',
     outcome,
+    healthy: outcome === 'confirmed' && resumed,
   };
 }

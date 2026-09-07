@@ -1,5 +1,6 @@
 import type { ScheduleWireItem } from '../schedule';
 import {
+  CLUSTER_MARGIN_MS,
   derivePollingWindows,
   RECONCILIATION_GUARANTEE_MS,
   type PlannedKickoff,
@@ -108,22 +109,34 @@ export function plannedKickoffsFromRows(rows: readonly PlannerScheduleRow[]): Pl
 }
 
 /**
- * The window a kickoff with no published time earns: its published UTC DAY, armed
- * end to end, plus the standard reconciliation tail measured from the latest
- * instant that day could still hold a kickoff.
+ * How far past the published UTC date a kickoff on that date can still fall.
  *
- * WHY A WHOLE DAY RATHER THAN A CLUSTER. CFBD publishes a TBD row with a
- * PLACEHOLDER instant at UTC hour 4 or 5 — midnight or 1am Eastern on the game
- * date — and the real kickoff lands 12 to 19 hours later, which is UTC hour 16 to
- * 24 of that same date. Clustering on the placeholder arms hours 4-12 and goes
- * dark over every one of those. Widening the cluster margin instead would arm
- * roughly two days per TBD game. The published DATE is the one fact the row
- * states truthfully, so the day it names is the tightest honest window.
+ * A US GAME DATE IS NOT A UTC DAY, and truncating at UTC midnight is what the
+ * first version of this function got wrong. CFBD's placeholder sits at UTC hour
+ * 4 or 5 — midnight or 1am Eastern on the game date — so the date it names runs
+ * to roughly 1am Eastern the FOLLOWING morning, and a late western kickoff
+ * (10:30pm Pacific) is 05:30Z on the next UTC day. Six hours past UTC midnight
+ * covers the Eastern-to-Pacific spread of a single game date.
+ */
+export const TBD_LATEST_KICKOFF_PAST_MIDNIGHT_MS = 6 * HOUR_MS;
+
+/**
+ * The window a kickoff with no published time earns: every instant its published
+ * DATE could still hold a kickoff, armed densely, plus each phase's normal
+ * allowance measured from the latest of those instants.
  *
- * WHAT IT COSTS, AND WHY IT IS SMALL. TBD rows are overwhelmingly Saturdays,
- * which confirmed kickoffs already arm densely, so the marginal hours are mostly
- * hours the plan holds anyway. The measured figure is reported with the branch
- * rather than asserted here.
+ * WHY THE WHOLE DATE RATHER THAN A CLUSTER. CFBD publishes a TBD row with a
+ * PLACEHOLDER instant at UTC hour 4 or 5 and the real kickoff lands 12 to 22
+ * hours later. Clustering on the placeholder arms hours 4-12 and goes dark over
+ * every one of those. The published DATE is the one fact the row states
+ * truthfully, so the span it names is the tightest honest window.
+ *
+ * THE DENSE PHASE RUNS PAST THE DATE, and that is the correction. Ending it at
+ * the placeholder's UTC midnight left a Saturday-night western kickoff resolving
+ * to 02:30Z Sunday with only hourly polling, and expired the reconciliation tail
+ * 2.5 hours before `kickoff + 24h`. Both allowances are now measured from the
+ * LATEST instant the date can hold, exactly as `closeWindow` measures them from a
+ * cluster's last kickoff.
  *
  * This is deliberately a shape `derivePollingWindows` never emits, and it is
  * legal because `synthesizePollingCrons` accepts any window satisfying
@@ -131,13 +144,11 @@ export function plannedKickoffsFromRows(rows: readonly PlannerScheduleRow[]): Pl
  */
 export function wholeDayWindowFor(kickoffMs: number): PollingWindow {
   const dayStartMs = Math.floor(kickoffMs / DAY_MS) * DAY_MS;
-  const dayEndMs = dayStartMs + DAY_MS;
+  const latestKickoffMs = dayStartMs + DAY_MS + TBD_LATEST_KICKOFF_PAST_MIDNIGHT_MS;
   return {
     startMs: dayStartMs,
-    denseEndMs: dayEndMs,
-    // The guarantee is measured from the LATEST kickoff the day could hold, so a
-    // game that turns out to start at 23:30 still gets its full reconciliation.
-    slowEndMs: dayEndMs + RECONCILIATION_GUARANTEE_MS,
+    denseEndMs: latestKickoffMs + CLUSTER_MARGIN_MS,
+    slowEndMs: latestKickoffMs + RECONCILIATION_GUARANTEE_MS,
     kickoffCount: 1,
   };
 }

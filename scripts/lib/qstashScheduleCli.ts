@@ -57,6 +57,13 @@ export async function runScheduleCli(
   // copy of the same credential, not a move, and this file is still never a place
   // to commit one.
   dotenv.config({ path: path.join(process.cwd(), '.env.local') });
+  // PLATFORM-102 slice 4: the planner-owned CLIs read the durable planner record,
+  // and production read access lives HERE — `CLAUDE.md` keeps `DATABASE_URL_RO` in
+  // `.env.operator.local` and deliberately keeps `DATABASE_URL` out of
+  // `.env.local` so a dev server can never point at production. Loading it is what
+  // makes `inspect` and `upsert` work from the documented operator environment;
+  // without it they refuse (fail closed) rather than clobber a planner-owned cron.
+  dotenv.config({ path: path.join(process.cwd(), '.env.operator.local') });
   dotenv.config();
 
   const nativeFetch: FetchLike = async (url, init) => {

@@ -3,14 +3,19 @@ import { NextResponse } from 'next/server';
 import { seasonYearForToday } from '@/lib/scores/normalizers';
 import { plannerWindows } from '@/lib/schedule/pollingPlanner';
 import { resolvePlanningDayStartMs } from '@/lib/schedule/pollingPlanner';
-import { plannedRunsPerDay } from '@/lib/schedule/pollingCron';
 import {
   createPollingPlannerCronExecutionState,
   emitPollingPlannerCronExecutionEvent,
   type PollingPlannerCronExecutionState,
 } from '@/lib/schedule/pollingPlannerCronLog';
 import { loadCachedScheduleItems } from '@/lib/server/canonicalScheduleCache';
-import { applySchedule, desiredJobState } from '@/lib/server/pollingPlannerApply';
+import {
+  applySchedule,
+  carriedDenseHours,
+  denseCronForHours,
+  desiredJobState,
+  plannedFiringsFor,
+} from '@/lib/server/pollingPlannerApply';
 import {
   buildPollingPlannerRun,
   recordPollingPlannerRun,
@@ -81,34 +86,101 @@ function verifyCronSecret(req: Request): 'ok' | 'not-configured' | 'invalid' {
   return authHeader === `Bearer ${cronSecret}` ? 'ok' : 'invalid';
 }
 
+/**
+ * How many times the season read is retried inside one invocation.
+ *
+ * The planner runs once a day with `retries: 0` on its own QStash schedule, and
+ * `AGENTS.md` forbids answering a controlled outcome with a non-200 on a
+ * QStash-delivered route — so the delivery layer cannot retry this for us. A
+ * transient store blip would therefore cost a whole day of planning. Retrying the
+ * read here is the bounded, in-invocation equivalent; a persistent absence still
+ * ends as a loud no-op rather than a guess.
+ */
+const SCHEDULE_READ_ATTEMPTS = 3;
+const SCHEDULE_READ_BACKOFF_MS = 250;
+
+type PlanningSchedule =
+  | { kind: 'usable'; windows: ReturnType<typeof plannerWindows> }
+  /** The read threw on every attempt. */
+  | { kind: 'unreadable' }
+  /** The read succeeded and the season record yields no usable kickoff at all. */
+  | { kind: 'unestablished' };
+
+async function readPlanningSchedule(year: number): Promise<PlanningSchedule> {
+  let threw = false;
+  for (let attempt = 0; attempt < SCHEDULE_READ_ATTEMPTS; attempt += 1) {
+    try {
+      const rows = await loadCachedScheduleItems(year);
+      const windows = plannerWindows(rows);
+      // A SEASON WITH NO USABLE KICKOFF IS NOT A DEAD SEASON. `AGENTS.md`: "a
+      // schedule is never committed empty", so an empty or unparseable season
+      // record means the cache was never populated — the one input this planner
+      // may not treat as evidence, because acting on it turns polling off.
+      if (windows.plannedKickoffs > 0) return { kind: 'usable', windows };
+      return { kind: 'unestablished' };
+    } catch {
+      threw = true;
+      if (attempt < SCHEDULE_READ_ATTEMPTS - 1) {
+        await new Promise((resolve) => setTimeout(resolve, SCHEDULE_READ_BACKOFF_MS));
+      }
+    }
+  }
+  return threw ? { kind: 'unreadable' } : { kind: 'unestablished' };
+}
+
 /** One job's two schedules, brought to their planned state and folded into one row. */
 async function planOneJob(
   job: PlannerOwnedJob,
-  input: { windows: ReturnType<typeof plannerWindows>; dayStartMs: number; at: Date },
+  input: {
+    windows: ReturnType<typeof plannerWindows>;
+    dayStartMs: number;
+    at: Date;
+    nowMs: number;
+  },
   exec: PollingPlannerCronExecutionState,
   invocationId: string | null
 ): Promise<void> {
   const contracts = PLANNER_JOB_CONTRACTS[job];
-  const plan = pollingCronPlanForJob(job, {
-    windows: input.windows.windows,
-    dayStartMs: input.dayStartMs,
-  });
-  const desired = desiredJobState(plan, input.windows.windows, input.dayStartMs);
+  const allWindows = input.windows.windows;
+  const plan = pollingCronPlanForJob(job, { windows: allWindows, dayStartMs: input.dayStartMs });
+  const desired = desiredJobState(plan, allWindows, input.dayStartMs);
   const deps = { env: process.env, fetchImpl: nativeFetch };
+
+  // THE CUTOVER CARRY. This run installs the expression for a day that has not
+  // started, and a cron has no date field — so between now and midnight the NEW
+  // hour set governs the OLD day. Any of today's dense hours still ahead of us are
+  // folded in, or the swap goes dark over the tail of a live game.
+  const todayStartMs = input.dayStartMs - 24 * 60 * 60 * 1000;
+  const todayPlan = pollingCronPlanForJob(job, { windows: allWindows, dayStartMs: todayStartMs });
+  const carried = carriedDenseHours(todayPlan.dense?.hours ?? [], input.nowMs, todayStartMs);
+  const denseDesired =
+    desired.dense.kind === 'armed' && carried.length > 0
+      ? {
+          kind: 'armed' as const,
+          cron: denseCronForHours([...plan.dense!.hours, ...carried], plan.dense!.stepMinutes),
+        }
+      : desired.dense;
 
   // SEQUENTIAL, not `Promise.all`. Both schedules of a job hit the same QStash
   // management API with the same credential, and a planner that fires four
   // mutations at once has no ordering to reason about when one of them returns a
   // rate limit. Four requests once a day is not a latency problem.
-  const dense = await applySchedule(contracts.dense, desired.dense, deps);
+  const dense = await applySchedule(contracts.dense, denseDesired, deps);
   const slow = await applySchedule(contracts.slow, desired.slow, deps);
 
   for (const applied of [dense, slow]) {
-    if (applied.outcome === 'confirmed') exec.schedulesApplied += 1;
+    // COUNTED BY WHETHER THE SCHEDULE REACHED ITS PLANNED STATE, not by the
+    // record's cron outcome: a confirmed upsert whose resume failed is a schedule
+    // that delivers nothing, and it must not be counted as applied.
+    if (!applied.healthy) exec.schedulesFailed += 1;
     else if (applied.outcome === 'unchanged') exec.schedulesUnchanged += 1;
-    else exec.schedulesFailed += 1;
+    else exec.schedulesApplied += 1;
   }
-  exec.plannedRuns += plannedRunsPerDay(plan).total;
+  // Counted from the DESIRED state, not the raw plan: `desiredJobState` overrides
+  // the slow expression on an unarmed day, where `plan.slow` still carries all 24
+  // hours. Reporting the plan's figure over-stated a quiet day by 24 firings per
+  // job — in the one number this whole item is justified in.
+  exec.plannedRuns += plannedFiringsFor(plan, denseDesired, desired.slow);
 
   // The slow schedule is always armed, so its row always exists. A paused DENSE
   // schedule is recorded as `dense: null` — the store's one encoding of "not
@@ -129,7 +201,17 @@ async function planOneJob(
       at: input.at,
       invocationId,
       dayStartMs: input.dayStartMs,
-      windows: input.windows.windows,
+      // ONLY THE PLANNING DAY'S WINDOWS. `plannerWindows` derives over the whole
+      // season on purpose (a pre-filter would move cluster boundaries), but the
+      // RECORD is a description of one day's plan. Storing all of them measured
+      // 479 windows and 46,014 bytes per run, which at the store's 400-run bound
+      // is ~18 MB per job key — rewritten in a transaction every day and
+      // re-parsed on every System Health render, of a field no consumer reads.
+      windows: allWindows.filter(
+        (window) =>
+          window.startMs < input.dayStartMs + 24 * 60 * 60 * 1000 &&
+          window.slowEndMs > input.dayStartMs
+      ),
       dense: dense.run,
       slow: slowRun,
     })
@@ -189,14 +271,30 @@ export async function GET(req: Request): Promise<NextResponse<PollingPlannerResu
     // the New Year boundary, where a 31 December run plans 1 January and the bowl
     // games on it are filed under the previous season.
     const year = seasonYearForToday(new Date(dayStartMs));
-    let rows;
-    try {
-      rows = await loadCachedScheduleItems(year);
-    } catch {
-      // FAIL CLOSED. An empty window list is a legitimate plan for a dead day, so
-      // an unreadable schedule read as one would PAUSE dense polling on a live
-      // game day. Leaving yesterday's schedules installed over-covers, which is
-      // the safe direction, and tomorrow's run repairs it.
+    const read = await readPlanningSchedule(year);
+    if (read.kind !== 'usable') {
+      // FAIL CLOSED, AND ABSENCE COUNTS AS UNREADABLE.
+      //
+      // The first version guarded only a THROWN read, which is the failure that
+      // does not happen: `loadCachedScheduleItems` returns `[]` for a missing key
+      // and never throws. So an absent or empty season cache reached
+      // `plannerWindows([])`, which is byte-identical to a genuinely dead day —
+      // and the planner PAUSED both dense schedules on the strength of a record it
+      // had never read. Measured 2026-09-07: `schedule/2027-all-all` does not
+      // exist, so "the planned year's key is absent" is a live state, not a
+      // hypothetical. `AGENTS.md` settles the reading — a schedule is never
+      // committed empty, so zero usable kickoffs means the record was never
+      // established, never that the season has no games.
+      //
+      // NOTHING IS SENT. Leaving the live schedules exactly as they are is neutral
+      // in both directions: mid-season they hold yesterday's armed hours, and in
+      // the pre-season gap they hold whatever the offseason left. What is NOT
+      // neutral is the residual case this does not close — a cache lost on a dead
+      // day that precedes a game day leaves dense paused through it. That is an
+      // operator-visible outage (the receipt below fails and the planner row goes
+      // yellow the same night), not a silent one, and closing it further means
+      // arming on an absence, which in the measured July case would spend the
+      // month's allowance on a month with no games.
       exec.result = 'failure';
       exec.reason = 'schedule-unreadable';
       return NextResponse.json({
@@ -205,15 +303,20 @@ export async function GET(req: Request): Promise<NextResponse<PollingPlannerResu
         schedulesUnchanged: 0,
         schedulesFailed: 0,
         recordsNotWritten: 0,
-        error: 'the canonical schedule could not be read — no plan was derived, nothing was sent',
+        error: `the canonical schedule for ${year} is ${read.kind} — no plan was derived, nothing was sent`,
       });
     }
 
-    const windows = plannerWindows(rows);
+    const windows = read.windows;
     exec.unconfirmedKickoffs = windows.unconfirmedKickoffs;
 
     for (const job of PLANNER_OWNED_JOBS) {
-      await planOneJob(job, { windows, dayStartMs, at }, exec, receiptInvocationId);
+      await planOneJob(
+        job,
+        { windows, dayStartMs, at, nowMs: startedAtMs },
+        exec,
+        receiptInvocationId
+      );
     }
 
     const failed = exec.schedulesFailed + exec.recordsNotWritten;

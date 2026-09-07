@@ -7,9 +7,15 @@ import {
   plannedKickoffsFromRows,
   plannerWindows,
   resolvePlanningDayStartMs,
+  TBD_LATEST_KICKOFF_PAST_MIDNIGHT_MS,
   wholeDayWindowFor,
 } from '../pollingPlanner';
-import { RECONCILIATION_GUARANTEE_MS, utcHoursCovered, densePhase } from '../pollingWindows';
+import {
+  CLUSTER_MARGIN_MS,
+  RECONCILIATION_GUARANTEE_MS,
+  utcHoursCovered,
+  densePhase,
+} from '../pollingWindows';
 
 /**
  * PLATFORM-102 slice 4 — the two answers slices 1 and 2 explicitly handed to
@@ -116,17 +122,28 @@ test('an unconfirmed kickoff arms its published UTC DAY, which is where the real
   // one of those, which is the failure this whole planner cannot survive.
   const placeholder = ms('2026-10-03T04:00:00Z');
   const window = wholeDayWindowFor(placeholder);
+  const latest = ms('2026-10-04T00:00:00Z') + TBD_LATEST_KICKOFF_PAST_MIDNIGHT_MS;
 
   assert.equal(window.startMs, ms('2026-10-03T00:00:00Z'));
-  assert.equal(window.denseEndMs, ms('2026-10-04T00:00:00Z'));
-  // The guarantee runs from the LATEST instant the day could hold a kickoff.
-  assert.equal(window.slowEndMs, ms('2026-10-04T00:00:00Z') + RECONCILIATION_GUARANTEE_MS);
+  // A US GAME DATE IS NOT A UTC DAY. Ending the dense phase at the placeholder's
+  // UTC midnight left a 10:30pm Pacific kickoff — 05:30Z the NEXT UTC day — on
+  // hourly polling only, and expired the tail 2.5h before `kickoff + 24h`. Both
+  // allowances now run from the latest instant the published date can hold.
+  assert.equal(window.denseEndMs, latest + CLUSTER_MARGIN_MS);
+  assert.equal(window.slowEndMs, latest + RECONCILIATION_GUARANTEE_MS);
 
-  // The real kickoff, wherever in that 12-19h band it lands, is densely covered.
+  // The real kickoff, wherever in that 12-22h band it lands, is densely covered —
+  // including the ones that fall on the following UTC day.
   const dense = utcHoursCovered([densePhase(window)], ms('2026-10-03T00:00:00Z'));
   for (let hour = 16; hour <= 23; hour += 1) {
     assert.ok(dense.includes(hour), `hour ${hour} must be armed for a TBD game`);
   }
+  const nextDay = utcHoursCovered([densePhase(window)], ms('2026-10-04T00:00:00Z'));
+  for (const hour of [0, 1, 2, 5]) {
+    assert.ok(nextDay.includes(hour), `hour ${hour} of the next UTC day must be armed`);
+  }
+  // POSITIVE CONTROL for the correction: the old window ended here and did not.
+  assert.ok(window.denseEndMs > ms('2026-10-04T00:00:00Z'));
 
   // POSITIVE CONTROL: the mapping this replaces really does go dark there. A
   // window clustered on the placeholder covers hour 4 and not hour 20.
