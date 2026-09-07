@@ -133,6 +133,58 @@ export function denseCronForHours(hours: readonly number[], stepMinutes: number)
   return `*/${stepMinutes} ${unique.length === 24 ? '*' : unique.join(',')} * * *`;
 }
 
+/**
+ * Re-serialize an hour set into the SLOW expression's own form — the dispatch
+ * offset, never a step. Mirrors `buildSlowCron`, for the same reason
+ * {@link denseCronForHours} mirrors its dense twin.
+ */
+export function slowCronForHours(hours: readonly number[]): string {
+  const unique = [...new Set(hours)].sort((a, b) => a - b);
+  if (unique.length === 0) {
+    throw new Error('slowCronForHours requires at least one hour; no cron means "never"');
+  }
+  return `${SLOW_OFFSET_MINUTE} ${unique.length === 24 ? '*' : unique.join(',')} * * *`;
+}
+
+/**
+ * The slow expression with the CARRIED dense hours removed.
+ *
+ * THE CARRY BROKE A DISJOINTNESS INVARIANT, and both reviewers found it
+ * independently. `synthesizePollingCrons` subtracts the dense hours from the tail
+ * precisely so no hour is covered twice — "an hour the dense schedule already
+ * polls twenty times needs no hourly reconciliation on top, and adding one bills a
+ * second provider call in it". The cutover carry adds hours to the dense
+ * expression AFTER that subtraction ran, so a carried hour reappeared in both.
+ * Measured on the 2026-09-07 cutover: dense `0..7,23` against slow `8..23`,
+ * overlapping at hour 23 — one duplicate BILLED CFBD call.
+ *
+ * THE FULLY-COVERED CASE KEEPS ITS COLLISION, deliberately. If subtracting leaves
+ * nothing, the slow schedule still has to hold an expression (no cron means
+ * "never", and the record's `slow` is not nullable), so it keeps the one it had —
+ * the same single honest exception `IDLE_SLOW_HOUR` already documents for a fully
+ * dense day.
+ */
+export function slowWithoutCarriedHours(
+  slow: DesiredScheduleState,
+  denseCron: string
+): DesiredScheduleState {
+  if (slow.kind !== 'armed') return slow;
+  const denseHourField = denseCron.split(' ')[1];
+  if (denseHourField === undefined) return slow;
+  const denseHours =
+    denseHourField === '*'
+      ? [...Array(24).keys()]
+      : denseHourField.split(',').map(Number).filter(Number.isFinite);
+  const slowHourField = slow.cron.split(' ')[1];
+  if (slowHourField === undefined) return slow;
+  const slowHours =
+    slowHourField === '*'
+      ? [...Array(24).keys()]
+      : slowHourField.split(',').map(Number).filter(Number.isFinite);
+  const kept = slowHours.filter((hour) => !denseHours.includes(hour));
+  return kept.length === 0 ? slow : { kind: 'armed', cron: slowCronForHours(kept) };
+}
+
 /** The hours of `today`'s dense plan that have not yet elapsed at `nowMs`. */
 export function carriedDenseHours(
   todayDenseHours: readonly number[],

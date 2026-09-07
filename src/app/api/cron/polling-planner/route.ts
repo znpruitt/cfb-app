@@ -10,10 +10,16 @@ import {
 } from '@/lib/schedule/pollingPlannerCronLog';
 import { loadCachedScheduleItems } from '@/lib/server/canonicalScheduleCache';
 import {
+  getProviderRefreshSettings,
+  isAutoRefreshAllowedBySettings,
+  type ProviderRefreshSettings,
+} from '@/lib/server/providerRefreshSettings';
+import {
   applySchedule,
   denseDesiredForCutover,
   desiredJobState,
   plannedFiringsFor,
+  slowWithoutCarriedHours,
 } from '@/lib/server/pollingPlannerApply';
 import {
   buildPollingPlannerRun,
@@ -127,6 +133,44 @@ async function readPlanningSchedule(year: number): Promise<PlanningSchedule> {
   return threw ? { kind: 'unreadable' } : { kind: 'unestablished' };
 }
 
+/**
+ * The dataset whose operator settings hold each planner-owned job.
+ *
+ * NOT A NEW MAPPING — it is the one each route already gates itself on
+ * (`live-scores` checks `scores`, `game-stats` checks `game-stats`), so the
+ * planner and the handler read the same switch and cannot disagree about whether
+ * a job is stopped.
+ */
+const HOLD_DATASET: Record<PlannerOwnedJob, 'scores' | 'game-stats'> = {
+  'live-scores': 'scores',
+  'game-stats': 'game-stats',
+};
+
+/**
+ * Is an operator holding this job?
+ *
+ * THE HOLD IS EXISTING STATE, NOT NEW STATE, and that is the design. The runbook's
+ * single-job emergency stop is already "enable global pause, disable its dataset,
+ * pause its schedule, and inspect" — the first two steps write durable,
+ * operator-owned settings before the third touches QStash. Before this, the
+ * planner ignored them and its next run silently undid step three: it saw a paused
+ * schedule on an armed day, failed the contract check, and upserted-then-resumed,
+ * removing a stop an operator had deliberately put in place.
+ *
+ * The planner cannot tell its OWN pause from an operator's by looking at QStash —
+ * a paused schedule is a paused schedule — so inference was never available and
+ * the hold has to be explicit state. It needs no new state, no new operator
+ * surface and no new credential: these settings already have an admin control, and
+ * reading them costs one durable read shared by both jobs.
+ *
+ * A HELD JOB IS SKIPPED ENTIRELY: no read, no upsert, no pause, no resume. Not
+ * "declines to resume" — the planner leaves both schedules exactly as the operator
+ * left them, which is what the runbook's "resume in reverse" expects to find.
+ */
+function jobIsHeld(job: PlannerOwnedJob, settings: ProviderRefreshSettings): boolean {
+  return !isAutoRefreshAllowedBySettings(settings, HOLD_DATASET[job]);
+}
+
 /** One job's two schedules, brought to their planned state and folded into one row. */
 async function planOneJob(
   job: PlannerOwnedJob,
@@ -163,8 +207,17 @@ async function planOneJob(
   // management API with the same credential, and a planner that fires four
   // mutations at once has no ordering to reason about when one of them returns a
   // rate limit. Four requests once a day is not a latency problem.
+  // The carry adds hours to the dense expression AFTER `synthesizePollingCrons`
+  // subtracted them from the tail, so a carried hour reappeared in both and billed
+  // a duplicate provider call in it. Subtract again against what is actually being
+  // installed.
+  const slowDesired =
+    denseDesired.kind === 'armed'
+      ? slowWithoutCarriedHours(desired.slow, denseDesired.cron)
+      : desired.slow;
+
   const dense = await applySchedule(contracts.dense, denseDesired, deps);
-  const slow = await applySchedule(contracts.slow, desired.slow, deps);
+  const slow = await applySchedule(contracts.slow, slowDesired, deps);
 
   for (const applied of [dense, slow]) {
     // COUNTED BY WHETHER THE SCHEDULE REACHED ITS PLANNED STATE, not by the
@@ -178,7 +231,7 @@ async function planOneJob(
   // the slow expression on an unarmed day, where `plan.slow` still carries all 24
   // hours. Reporting the plan's figure over-stated a quiet day by 24 firings per
   // job — in the one number this whole item is justified in.
-  exec.plannedRuns += plannedFiringsFor(plan, denseDesired, desired.slow);
+  exec.plannedRuns += plannedFiringsFor(plan, denseDesired, slowDesired);
 
   // The slow schedule is always armed, so its row always exists. A paused DENSE
   // schedule is recorded as `dense: null` — the store's one encoding of "not
@@ -308,7 +361,22 @@ export async function GET(req: Request): Promise<NextResponse<PollingPlannerResu
     const windows = read.windows;
     exec.unconfirmedKickoffs = windows.unconfirmedKickoffs;
 
+    // ONE settings read for both jobs, and it FAILS CLOSED. A settings-store read
+    // failure is not permission to rewrite schedules — `providerRefreshSettings`
+    // documents noncritical callers failing closed for exactly this reason, and
+    // here the direction that matters is not undoing an operator's stop.
+    let settings: ProviderRefreshSettings | null = null;
+    try {
+      settings = await getProviderRefreshSettings();
+    } catch {
+      settings = null;
+    }
+
     for (const job of PLANNER_OWNED_JOBS) {
+      if (settings === null || jobIsHeld(job, settings)) {
+        exec.jobsHeld += 1;
+        continue;
+      }
       await planOneJob(
         job,
         { windows, dayStartMs, at, nowMs: startedAtMs },
@@ -318,7 +386,14 @@ export async function GET(req: Request): Promise<NextResponse<PollingPlannerResu
     }
 
     const failed = exec.schedulesFailed + exec.recordsNotWritten;
-    if (failed === 0) {
+    if (exec.jobsHeld === PLANNER_OWNED_JOBS.length) {
+      // Every job is held, so the planner touched nothing and that is CORRECT.
+      // `no-op` rather than `failure`, because `schedulerExecutionIssues` raises
+      // nothing for `no-op` — a deliberate operator stop must not page anyone, and
+      // the count on the receipt is what distinguishes it from a quiet success.
+      exec.result = 'no-op';
+      exec.reason = 'plan-held';
+    } else if (failed === 0) {
       exec.result = 'success';
       // A day where every schedule was ALREADY right is the modal outcome once the
       // season settles, and it is a success rather than a `no-op`: the planner
@@ -384,6 +459,7 @@ export async function GET(req: Request): Promise<NextResponse<PollingPlannerResu
           schedulesUnchanged: exec.schedulesUnchanged,
           schedulesFailed: exec.schedulesFailed,
           recordsNotWritten: exec.recordsNotWritten,
+          jobsHeld: exec.jobsHeld,
         },
       });
     }

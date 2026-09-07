@@ -11,6 +11,7 @@ import {
   desiredJobState,
   outcomeForExitCode,
   plannedFiringsFor,
+  slowWithoutCarriedHours,
 } from '../pollingPlannerApply';
 import { plannerWindows, resolvePlanningDayStartMs } from '../../schedule/pollingPlanner';
 import { pollingCronPlanForJob } from '../schedulerDeliveryHealth';
@@ -635,4 +636,48 @@ test('THE CARRY OUTRANKS THE PAUSE: today’s open hour survives a dense-less to
   });
   assert.equal(armedTomorrow.kind, 'armed');
   assert.ok((armedTomorrow as { cron: string }).cron.includes('23'));
+});
+
+// ---------------------------------------------------------------------------
+// Remediation round 3 — the carry must not double-cover an hour
+// ---------------------------------------------------------------------------
+
+test('a CARRIED dense hour is removed from the slow schedule', () => {
+  // `synthesizePollingCrons` subtracts dense hours from the tail so no hour is
+  // covered twice — "adding one bills a second provider call in it". The cutover
+  // carry added hours AFTER that subtraction ran, so a carried hour reappeared in
+  // both. Measured on the real 2026-09-07 cutover: dense `0..7,23` against slow
+  // `8..23`, overlapping at hour 23.
+  //
+  // Mutation target: pass `desired.slow` through unchanged and the overlap
+  // assertion below goes red.
+  const corrected = slowWithoutCarriedHours(
+    { kind: 'armed', cron: '1 8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23 * * *' },
+    '*/3 0,1,2,3,4,5,6,7,23 * * *'
+  );
+  assert.equal(corrected.kind, 'armed');
+  const slowHours = (corrected as { cron: string }).cron.split(' ')[1]!.split(',').map(Number);
+  assert.ok(!slowHours.includes(23), 'hour 23 is dense now, so it is not also slow');
+  assert.deepEqual(slowHours, [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]);
+
+  // The hours the dense schedule does NOT cover are untouched.
+  assert.deepEqual(
+    slowWithoutCarriedHours({ kind: 'armed', cron: '1 8,9 * * *' }, '*/3 0,1 * * *'),
+    { kind: 'armed', cron: '1 8,9 * * *' }
+  );
+});
+
+test('a fully covered slow schedule keeps its expression rather than expressing "never"', () => {
+  // No cron means "never", and the record's `slow` is not nullable — so if
+  // subtracting leaves nothing, the schedule keeps what it had. That is the single
+  // honest collision `IDLE_SLOW_HOUR` already documents for a fully dense day.
+  const unchanged = slowWithoutCarriedHours({ kind: 'armed', cron: '1 23 * * *' }, '*/3 23 * * *');
+  assert.deepEqual(unchanged, { kind: 'armed', cron: '1 23 * * *' });
+  // A paused slow schedule is returned untouched.
+  assert.deepEqual(slowWithoutCarriedHours({ kind: 'paused' }, '*/3 23 * * *'), { kind: 'paused' });
+  // And an all-day dense expression subtracts every hour, so the same rule holds.
+  assert.deepEqual(slowWithoutCarriedHours({ kind: 'armed', cron: '1 * * * *' }, '*/3 * * * *'), {
+    kind: 'armed',
+    cron: '1 * * * *',
+  });
 });

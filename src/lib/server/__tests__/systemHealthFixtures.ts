@@ -76,6 +76,7 @@ function targetFor(job: ExternalSchedulerJob, refusals = 0): SchedulerExecutionT
         schedulesUnchanged: 4,
         schedulesFailed: 0,
         recordsNotWritten: 0,
+        jobsHeld: 0,
       };
     case 'game-stats':
       return { kind: 'game-stats', year: YEAR, week: null, seasonType: null };

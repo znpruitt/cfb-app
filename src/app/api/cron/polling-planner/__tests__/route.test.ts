@@ -457,3 +457,140 @@ test('POSITIVE CONTROL: the real header block contains both secrets, and the rec
     restore();
   }
 });
+
+// ---------------------------------------------------------------------------
+// Remediation round 3 — the durable operator hold
+// ---------------------------------------------------------------------------
+
+/** Put a job under the operator hold the runbook's emergency stop already writes. */
+async function holdJob(dataset: 'scores' | 'game-stats'): Promise<void> {
+  const { setDatasetAutoRefreshEnabled } = await import('@/lib/server/providerRefreshSettings');
+  await setDatasetAutoRefreshEnabled(dataset, false);
+}
+async function clearHolds(): Promise<void> {
+  const { PROVIDER_REFRESH_SETTINGS_SCOPE, PROVIDER_REFRESH_SETTINGS_KEY } = await import(
+    '@/lib/server/providerRefreshSettings'
+  );
+  await setAppState(PROVIDER_REFRESH_SETTINGS_SCOPE, PROVIDER_REFRESH_SETTINGS_KEY, null);
+}
+
+test('a HELD job is skipped ENTIRELY — not read, not paused, not resumed', async () => {
+  // The runbook's single-job stop is "enable global pause, disable its dataset,
+  // pause its schedule, and inspect". Before the hold, the planner's next run saw
+  // a paused schedule on an armed day, failed its contract check, and
+  // upserted-then-resumed — silently removing a stop an operator had deliberately
+  // put in place. It cannot tell its own pause from an operator's by looking at
+  // QStash, so the hold has to be explicit state.
+  //
+  // Mutation target: drop the `jobIsHeld` guard and `live-scores` gets four
+  // requests here instead of zero.
+  await reset();
+  await clearHolds();
+  const deferrer = installReceiptDeferrer();
+  const calls = installQstash({ scheduleFor: (id) => readbackFor(id) });
+  try {
+    const dayStartMs = await seedDay();
+    await seedSchedule([
+      { startDate: new Date(dayHour(dayStartMs, 19)).toISOString(), startTimeTBD: false },
+    ]);
+    await holdJob('scores');
+    await GET(request());
+    await deferrer.flush();
+
+    // NOTHING about live-scores was touched — including the GET.
+    const liveCalls = calls.filter(
+      (call) =>
+        call.url.includes(LIVE_SCORES_DENSE_CONTRACT.scheduleId) ||
+        call.url.includes(LIVE_SCORES_SLOW_CONTRACT.scheduleId) ||
+        call.url.includes(encodeURIComponent(LIVE_SCORES_DENSE_CONTRACT.destination)) ||
+        call.url.includes(LIVE_SCORES_DENSE_CONTRACT.destination)
+    );
+    assert.equal(liveCalls.length, 0, 'a held job is not read, paused, resumed or upserted');
+
+    // POSITIVE CONTROL: game-stats is NOT held, so the same run did act on it.
+    const statsCalls = calls.filter((call) =>
+      call.url.includes(GAME_STATS_DENSE_CONTRACT.scheduleId)
+    );
+    assert.ok(statsCalls.length > 0, 'the unheld job still runs');
+
+    // And no planner record was written for the held job, because nothing was
+    // observed and nothing changed — the previous record still describes reality.
+    assert.deepEqual(await readPollingPlannerRuns('live-scores'), { kind: 'absent' });
+  } finally {
+    await clearHolds();
+    deferrer.restore();
+    restore();
+  }
+});
+
+test('the receipt reports HELD separately — never as succeeded and never as failed', async () => {
+  // The distinction is the point: delivery health must be able to tell a
+  // deliberately stopped job from a broken one. `no-op` because
+  // `schedulerExecutionIssues` raises nothing for it — a deliberate stop must not
+  // page anyone — and the count is what separates it from a quiet success.
+  await reset();
+  await clearHolds();
+  const deferrer = installReceiptDeferrer();
+  const calls = installQstash({ scheduleFor: (id) => readbackFor(id) });
+  try {
+    const dayStartMs = await seedDay();
+    await seedSchedule([
+      { startDate: new Date(dayHour(dayStartMs, 19)).toISOString(), startTimeTBD: false },
+    ]);
+    await holdJob('scores');
+    await holdJob('game-stats');
+    await GET(request());
+    await deferrer.flush();
+
+    assert.equal(calls.length, 0, 'both held: the planner touches nothing at all');
+    const receipt = await readReceipt();
+    assert.equal(receipt?.result, 'no-op', 'a held run is not a failure');
+    assert.equal(receipt?.reason, 'plan-held');
+    const target = receipt?.target as {
+      jobsHeld: number;
+      schedulesFailed: number;
+      schedulesApplied: number;
+    };
+    assert.equal(target.jobsHeld, 2);
+    // Held is counted in NEITHER of the other buckets.
+    assert.equal(target.schedulesFailed, 0, 'held is not failed');
+    assert.equal(target.schedulesApplied, 0, 'held is not applied');
+  } finally {
+    await clearHolds();
+    deferrer.restore();
+    restore();
+  }
+});
+
+test('an unreadable settings store HOLDS EVERYTHING rather than rewriting schedules', async () => {
+  // Fail closed. A settings read failure is not permission to undo an operator's
+  // stop, and `providerRefreshSettings` documents noncritical callers failing
+  // closed for exactly this reason.
+  await reset();
+  await clearHolds();
+  const deferrer = installReceiptDeferrer();
+  const calls = installQstash({ scheduleFor: (id) => readbackFor(id) });
+  const { __setAppStateReadFailureForTests } = await import('@/lib/server/appStateStore');
+  try {
+    const dayStartMs = await seedDay();
+    await seedSchedule([
+      { startDate: new Date(dayHour(dayStartMs, 19)).toISOString(), startTimeTBD: false },
+    ]);
+    __setAppStateReadFailureForTests(
+      new Error('settings scope unavailable'),
+      'provider-refresh-settings'
+    );
+    await GET(request());
+    __setAppStateReadFailureForTests(null);
+    await deferrer.flush();
+
+    assert.equal(calls.length, 0, 'nothing is sent when the hold cannot be read');
+    const receipt = await readReceipt();
+    assert.equal(receipt?.reason, 'plan-held');
+  } finally {
+    __setAppStateReadFailureForTests(null);
+    await clearHolds();
+    deferrer.restore();
+    restore();
+  }
+});

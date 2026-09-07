@@ -33,6 +33,13 @@ export type PollingPlannerCronExecutionReason =
   /** Nothing could be applied at all — no credential, or QStash unreachable. */
   | 'plan-not-applied'
   /**
+   * EVERY planner-owned job is under an operator hold, so the planner touched
+   * nothing. Paired with `no-op`, never `failure`: a held job is doing exactly
+   * what an operator told it to, and `schedulerExecutionIssues` raises nothing for
+   * `no-op` — which is the point. A deliberate stop must not page anyone.
+   */
+  | 'plan-held'
+  /**
    * The canonical schedule could not be read, so no windows could be derived.
    * The planner FAILS CLOSED here rather than planning an empty day: an empty
    * window list is a legitimate plan for a dead day, and treating an unreadable
@@ -54,6 +61,16 @@ export type PollingPlannerCronExecutionState = {
   schedulesFailed: number;
   /** Planner-owned jobs whose durable record write did not confirm. */
   recordsNotWritten: number;
+  /**
+   * Planner-owned jobs the planner deliberately did not touch, because an
+   * operator holds them.
+   *
+   * REPORTED SEPARATELY FROM EVERY OTHER COUNT so a held job can never be read as
+   * a succeeded or failed one. That distinction is the whole reason the hold
+   * exists: delivery health must be able to tell a deliberately stopped job from a
+   * broken one.
+   */
+  jobsHeld: number;
   /** Reporting only: how many firings the day's plan buys, across both jobs. */
   plannedRuns: number;
   /** Reporting only: kickoffs with no published time, given whole-day coverage. */
@@ -71,6 +88,7 @@ export function createPollingPlannerCronExecutionState(): PollingPlannerCronExec
     schedulesUnchanged: 0,
     schedulesFailed: 0,
     recordsNotWritten: 0,
+    jobsHeld: 0,
     plannedRuns: 0,
     unconfirmedKickoffs: 0,
   };
@@ -91,6 +109,7 @@ export function emitPollingPlannerCronExecutionEvent(
         schedulesUnchanged: state.schedulesUnchanged,
         schedulesFailed: state.schedulesFailed,
         recordsNotWritten: state.recordsNotWritten,
+        jobsHeld: state.jobsHeld,
         plannedRuns: state.plannedRuns,
         unconfirmedKickoffs: state.unconfirmedKickoffs,
         durationMs: Math.max(0, Math.round(Date.now() - startedAtMs)),

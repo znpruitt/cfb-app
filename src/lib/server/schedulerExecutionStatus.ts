@@ -204,6 +204,12 @@ export type SchedulerExecutionTarget =
       schedulesFailed: number;
       /** Planner-owned jobs whose durable record write did not confirm. */
       recordsNotWritten: number;
+      /**
+       * Planner-owned jobs an operator holds, which the planner skipped entirely.
+       * Its own field so a held job is never counted as applied, unchanged or
+       * failed — telling a deliberate stop from a fault is what it is for.
+       */
+      jobsHeld: number;
     }
   | {
       kind: 'game-stats';
@@ -712,6 +718,7 @@ function rebuildTarget(target: SchedulerExecutionTarget): SchedulerExecutionTarg
         schedulesUnchanged: target.schedulesUnchanged,
         schedulesFailed: target.schedulesFailed,
         recordsNotWritten: target.recordsNotWritten,
+        jobsHeld: target.jobsHeld,
       };
     case 'game-stats':
       return {
@@ -899,7 +906,8 @@ function isValidStoredTarget(value: unknown, job: ExternalSchedulerJob): boolean
         isNonNegativeInteger(target.schedulesApplied) &&
         isNonNegativeInteger(target.schedulesUnchanged) &&
         isNonNegativeInteger(target.schedulesFailed) &&
-        isNonNegativeInteger(target.recordsNotWritten)
+        isNonNegativeInteger(target.recordsNotWritten) &&
+        isNonNegativeInteger(target.jobsHeld)
       );
     case 'game-stats':
       return (
