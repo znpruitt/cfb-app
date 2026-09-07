@@ -588,6 +588,27 @@ const DAY_MS = 24 * HOUR_MS;
  */
 const PLANNER_SLOT_LOOKBACK_MS = 8 * DAY_MS;
 
+/**
+ * How far back a CALENDAR-RESTRICTED expression is searched.
+ *
+ * Eight days is right for anything firing at least weekly, which is every shape
+ * the planner emits and every hand edit that restricts only hours or days of the
+ * week. It is WRONG for an expression restricted by day-of-month or month: a
+ * monthly cron's obligation falls outside the window, the walk reports "nothing
+ * due", and a receipt fifteen days stale reads `on-time` — a real outage masked
+ * by the bound rather than by the schedule.
+ *
+ * So the bound follows the expression. The wide path costs a 366-day walk, and
+ * is reachable only from a record no planner run produces.
+ */
+const PLANNER_SPARSE_LOOKBACK_MS = 366 * DAY_MS;
+
+/** Restricting a day-of-month or a month can put the previous slot months back. */
+function lookbackForCron(parsed: ParsedCron): number {
+  const sparse = parsed.daysOfMonth.size < 31 || parsed.months.size < 12;
+  return sparse ? PLANNER_SPARSE_LOOKBACK_MS : PLANNER_SLOT_LOOKBACK_MS;
+}
+
 type ScheduleKind = 'dense' | 'slow';
 
 /**
@@ -685,10 +706,33 @@ function priorCronState(schedule: PlannerScheduleRun): SegmentState {
  * and this reports the conflict rather than picking a side.
  */
 function spanState(inferred: SegmentState, nextPreviousCron: string | null): SegmentState {
-  if (inferred.kind === 'unknown') return inferred;
+  // Absence of evidence is not disagreement. `null` is the store's documented
+  // first-run value, and unresolving on it would blank delivery health on the
+  // first run of every new schedule id.
   if (nextPreviousCron === null) return inferred;
-  if (inferred.kind === 'cron' && inferred.cron === nextPreviousCron) return inferred;
-  return { kind: 'unknown', reason: 'plan-incomplete' };
+  switch (inferred.kind) {
+    case 'cron':
+      // Two direct claims about one span. Agreement confirms it; disagreement
+      // means a row was dropped or the cron changed outside the planner, and
+      // picking a side would be the guess this slice removes.
+      return inferred.cron === nextPreviousCron
+        ? inferred
+        : { kind: 'unknown', reason: 'plan-incomplete' };
+    case 'unknown':
+      // THE OBSERVATION RESOLVES WHAT THE RUN COULD NOT. An `indeterminate` run
+      // leaves two candidates — its intent, or the cron it was replacing — and
+      // the next run's `previousCron` says which was live. A `refused` run with
+      // no recorded previous cron leaves the same question, answered the same
+      // way. Returning `unknown` here discarded evidence the record holds: a
+      // known 22:00 obligation was dropped and a fourteen-hour-stale receipt
+      // read `on-time`.
+      return { kind: 'cron', cron: nextPreviousCron };
+    case 'silent':
+      // The record planned no schedule of this kind while the next run observed
+      // one live. That is Item 102's item 5 surfacing as a conflict, and which
+      // side governs is slice 4's decision, not this reader's.
+      return { kind: 'unknown', reason: 'plan-incomplete' };
+  }
 }
 
 /** One schedule's recorded timeline, oldest span first. */
@@ -1001,7 +1045,12 @@ function resolveSchedule(
   // item 3 exactly: a false alarm dressed as a real one.
   if (!schedule) return unavailable('plan-unreadable');
 
-  const found = previousSlotInForce(segments, nowMs, nowMs - PLANNER_SLOT_LOOKBACK_MS);
+  const parsedCurrent = parseCron(current.state.cron);
+  const found = previousSlotInForce(
+    segments,
+    nowMs,
+    nowMs - (parsedCurrent === null ? PLANNER_SLOT_LOOKBACK_MS : lookbackForCron(parsedCurrent))
+  );
   const graceMs = 2 * schedule.stepMinutes * MINUTE_MS;
   if (found.kind !== 'slot') {
     // Not due. The expression is known and published, so the row can still name

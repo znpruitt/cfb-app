@@ -1432,6 +1432,28 @@ test('the fixture guard rejects a plan-unavailable row that still publishes a sc
         ...deliveryRow('live-scores', 'on-time', receiptFor('live-scores', 'success')),
         planUnavailableReason: 'plan-unreadable',
       }),
+    /a row-level plan fault classifies 'unavailable', never 'on-time'/
+  );
+  // And the invariant behind it: a ROW-level reason means no schedule is known,
+  // so an unavailable row that still names an expression is impossible too.
+  assert.throws(
+    () =>
+      assertRowIsClassifiable({
+        ...planUnavailableRow('live-scores', 'plan-unreadable'),
+        // Headline facts agree with the entry, so only the reason-versus-known
+        // invariant is left to fire.
+        cron: '1 * * * *',
+        graceMs: 2 * 60 * 60_000,
+        schedules: [
+          {
+            schedule: 'slow',
+            cron: '1 * * * *',
+            graceMs: 2 * 60 * 60_000,
+            requiredStartedAt: null,
+            unavailableReason: null,
+          },
+        ],
+      }),
     /a row-level plan reason means NO schedule is known/
   );
 });

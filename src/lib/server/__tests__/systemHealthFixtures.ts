@@ -266,6 +266,17 @@ export function assertRowIsClassifiable(row: SchedulerDeliveryHealthRow): void {
   // included — an empty list is a shape production cannot emit.
   if (row.schedules.length === 0) fail(`a row must publish the schedules it knows about`);
 
+  // A ROW-level plan fault classifies `unavailable` — or `invalid`, which is a
+  // receipt fact that outranks it. Any other state beside a plan reason is a row
+  // `buildDeliveryRow` cannot emit, and the guard accepted `on-time`.
+  if (
+    row.planUnavailableReason !== null &&
+    row.deliveryState !== 'unavailable' &&
+    row.deliveryState !== 'invalid'
+  ) {
+    fail(`a row-level plan fault classifies 'unavailable', never '${row.deliveryState}'`);
+  }
+
   const measured = row.schedules.filter((entry) => entry.requiredStartedAt !== null);
   const known = row.schedules.filter((entry) => entry.cron !== null);
 

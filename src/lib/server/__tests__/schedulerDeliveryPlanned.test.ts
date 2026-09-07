@@ -354,7 +354,13 @@ test('a slow-schedule failure inside the reconciliation tail is caught', async (
 });
 
 // ── 3. The seven jobs the planner does not own ──────────────────────────────
-test('the seven unowned jobs are never asked for a record and are byte-identical', async () => {
+// It compares two executions of THIS build, so it proves the seven rows are
+// UNAFFECTED by a planner record — not that they serialize identically to an
+// earlier commit. They do not: the per-schedule model added `schedule` and
+// `unavailableReason` to every entry, this one included. The behaviour the
+// slice promised is the former; the field-level pins below are what tie these
+// rows to the fixed contract.
+test('the seven unowned jobs are never asked for a record and are unaffected by one', async () => {
   const now = ms('2026-10-03T14:33:17.000Z');
   const asked: ExternalSchedulerJob[] = [];
   const record = okRecord(
@@ -1345,4 +1351,105 @@ test('the cadence label does not repeat one expression for two schedules', async
   );
   assert.deepEqual(measuredCrons(row), [DEAD_DAY_SLOW, DEAD_DAY_SLOW]);
   assert.equal(row.cadenceLabel.split(', ').length, 1, row.cadenceLabel);
+});
+
+// ── 12. Two P1s the confirming pass found in the re-derivation ──────────────
+
+// REGRESSION TEST. "Not due" must mean the SCHEDULE has no obligation, never
+// that the LOOKBACK could not reach one. An eight-day walk could not see a
+// monthly cron's obligation, so a receipt fifteen days stale read `on-time` —
+// a real outage masked by the bound rather than by the schedule.
+test('a sparse schedule that IS overdue reads late, not "nothing due"', async () => {
+  const record = okRecord(
+    run('2026-09-20T00:02:00.000Z', null, schedule('0 0 1 * *', { previousCron: '0 0 1 * *' }))
+  );
+  const stale = rowOf(
+    await rowsFor({
+      nowMs: ms('2026-10-15T12:00:00.000Z'),
+      records: { 'live-scores': record },
+      receipts: [
+        { key: 'live-scores', value: receiptFor('live-scores', ms('2026-09-30T00:00:00.000Z')) },
+      ],
+    }),
+    'live-scores'
+  );
+  assert.equal(stale.deliveryState, 'late');
+  assert.equal(stale.requiredStartedAt, '2026-10-01T00:00:00.000Z');
+
+  // Positive control: the same schedule with a receipt that DID answer the
+  // October slot is on-time, so the assertion above detects the outage rather
+  // than the cadence.
+  const answered = rowOf(
+    await rowsFor({
+      nowMs: ms('2026-10-15T12:00:00.000Z'),
+      records: { 'live-scores': record },
+      receipts: [
+        { key: 'live-scores', value: receiptFor('live-scores', ms('2026-10-01T00:00:00.000Z')) },
+      ],
+    }),
+    'live-scores'
+  );
+  assert.equal(answered.deliveryState, 'on-time');
+});
+
+// REGRESSION TEST. The following run's `previousCron` is a DIRECT OBSERVATION of
+// what was live, and an `indeterminate` run is exactly where the inference is
+// weakest. Discarding it dropped a known obligation and read a fourteen-hour
+// stale receipt as `on-time`.
+test('an observation on the following run resolves an indeterminate span', async () => {
+  const receiptMs = ms('2026-10-02T10:00:00.000Z');
+  const build = (earlier: 'indeterminate' | 'confirmed') =>
+    rowsFor({
+      nowMs: ms('2026-10-03T00:06:00.000Z'),
+      records: {
+        'live-scores': okRecord(
+          run(
+            '2026-10-01T00:02:00.000Z',
+            null,
+            schedule(DEAD_DAY_SLOW, { previousCron: DEAD_DAY_SLOW, outcome: earlier })
+          ),
+          run(
+            '2026-10-03T00:02:00.000Z',
+            null,
+            schedule(DEAD_DAY_SLOW, { previousCron: DEAD_DAY_SLOW })
+          )
+        ),
+      },
+      receipts: [{ key: 'live-scores', value: receiptFor('live-scores', receiptMs) }],
+    });
+
+  const resolved = rowOf(await build('indeterminate'), 'live-scores');
+  const control = rowOf(await build('confirmed'), 'live-scores');
+  assert.equal(resolved.deliveryState, 'late');
+  assert.equal(resolved.requiredStartedAt, '2026-10-02T22:00:00.000Z');
+  // The observation makes the indeterminate run answer EXACTLY as a confirmed
+  // one does, because the record says what ended up live either way.
+  assert.deepEqual(resolved, control);
+});
+
+// The observation resolves; it does not override. A run that CONTRADICTS the
+// span before it still costs that schedule its slot.
+test('an observation that contradicts a recorded intent still unresolves the span', async () => {
+  const row = rowOf(
+    await rowsFor({
+      nowMs: ms('2026-10-03T00:06:00.000Z'),
+      records: {
+        'live-scores': okRecord(
+          run(
+            '2026-10-01T00:02:00.000Z',
+            null,
+            schedule('7 * * * *', { previousCron: '7 * * * *' })
+          ),
+          run(
+            '2026-10-03T00:02:00.000Z',
+            null,
+            schedule(GAME_DAY_SLOW, { previousCron: DEAD_DAY_SLOW })
+          )
+        ),
+      },
+    }),
+    'live-scores'
+  );
+  assert.deepEqual(measuredCrons(row), [], 'the contradicted span yields no slot');
+  assert.equal(row.requiredStartedAt, null);
 });

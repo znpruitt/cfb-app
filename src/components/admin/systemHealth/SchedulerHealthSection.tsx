@@ -116,7 +116,15 @@ export default function SchedulerHealthSection({
                       value={`${utcInstant(row.requiredStartedAt)} (${formatMoment(row.requiredStartedAt, nowMs)})`}
                     />
                   ) : (
-                    <Detail label="Required slot" value="none — nothing is due" />
+                    <Detail
+                      label="Required slot"
+                      // TWO different facts share a null slot, and only one of
+                      // them is "nothing is due". A row whose schedule could not
+                      // be established has no slot BECAUSE it has no schedule,
+                      // and telling the operator nothing is due there is a
+                      // statement the row itself disclaims.
+                      value={row.cron === null ? 'unknown — no schedule' : 'none — nothing is due'}
+                    />
                   )}
                   {receipt && <Detail label="Reason" value={receipt.reason} />}
                   {receipt && (
