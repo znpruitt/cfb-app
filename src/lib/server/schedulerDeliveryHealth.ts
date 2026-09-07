@@ -307,21 +307,39 @@ type ParsedCron = {
   daysOfWeek: ReadonlySet<number>;
 };
 
-// Parse one cron field (`*`, a `*`-slash-step, a single number, or a comma list) into a set.
-function parseCronField(field: string, min: number, max: number): ReadonlySet<number> {
+/**
+ * Parse one cron field (`*`, a `*`-slash-step, a single number, or a comma list)
+ * into a set — or `null` for a field holding anything else.
+ *
+ * IT FAILS CLOSED ON A PART IT CANNOT READ, and did not. An unrecognized part
+ * used to be DROPPED while its siblings were kept, so a comma list containing a
+ * RANGE silently narrowed the schedule: `8,12-23` parsed to hour 8 alone. The
+ * planner record's own stored pattern admits `-`, so this arrives from durable,
+ * operator-writable input, and the consequence is the failure this module exists
+ * to prevent — measured on the shipped classifier, a receipt 14h33m stale
+ * classified `on-time` against a schedule narrowed from twelve hours to one,
+ * beside a `cron` field still naming the full expression.
+ *
+ * Rejecting rather than SUPPORTING ranges is deliberate: an expression this
+ * parser cannot read is one System Health cannot measure, and the whole slice's
+ * rule is that such a record surfaces rather than being reinterpreted.
+ */
+function parseCronField(field: string, min: number, max: number): ReadonlySet<number> | null {
   const out = new Set<number>();
   for (const part of field.split(',')) {
     if (part === '*') {
       for (let n = min; n <= max; n++) out.add(n);
     } else if (part.startsWith('*/')) {
       const step = Number(part.slice(2));
-      if (Number.isInteger(step) && step > 0) for (let n = min; n <= max; n += step) out.add(n);
+      if (!Number.isInteger(step) || step <= 0) return null;
+      for (let n = min; n <= max; n += step) out.add(n);
     } else {
       const n = Number(part);
-      if (Number.isInteger(n) && n >= min && n <= max) out.add(n);
+      if (!Number.isInteger(n) || n < min || n > max) return null;
+      out.add(n);
     }
   }
-  return out;
+  return out.size > 0 ? out : null;
 }
 
 /**
@@ -340,13 +358,13 @@ function parseCron(cron: string): ParsedCron | null {
   const fields = cron.trim().split(/\s+/);
   if (fields.length !== 5) return null;
   const [minute, hour, dom, month, dow] = fields as [string, string, string, string, string];
-  return {
-    minutes: parseCronField(minute, 0, 59),
-    hours: parseCronField(hour, 0, 23),
-    daysOfMonth: parseCronField(dom, 1, 31),
-    months: parseCronField(month, 1, 12),
-    daysOfWeek: parseCronField(dow, 0, 6),
-  };
+  const minutes = parseCronField(minute, 0, 59);
+  const hours = parseCronField(hour, 0, 23);
+  const daysOfMonth = parseCronField(dom, 1, 31);
+  const months = parseCronField(month, 1, 12);
+  const daysOfWeek = parseCronField(dow, 0, 6);
+  if (!minutes || !hours || !daysOfMonth || !months || !daysOfWeek) return null;
+  return { minutes, hours, daysOfMonth, months, daysOfWeek };
 }
 
 /** February in a LEAP year — the 29th is reachable, the 30th and 31st never are. */
@@ -929,6 +947,15 @@ function describeRecorded(schedule: RecordedSchedule | null): string {
   if (schedule === null) return 'schedule unreadable';
   const hourly = schedule.stepMinutes >= 60;
   const minute = String(schedule.dispatchMinute ?? 0).padStart(2, '0');
+  // ONCE A DAY IS NOT HOURLY. An hourly step across a SINGLE hour fires once,
+  // and this is the planner's own idle-slot shape (`pollingCron.ts`
+  // IDLE_SLOW_HOUR, "a single daily slot, one wakeup") — so the label an
+  // operator reads most often on a quiet day promised twenty-four firings where
+  // there is one.
+  if (hourly && schedule.hours.length === 1) {
+    const hour = String(schedule.hours[0] ?? 0).padStart(2, '0');
+    return `once daily (${hour}:${minute} UTC)`;
+  }
   const cadence = hourly ? `hourly (:${minute})` : `every ${schedule.stepMinutes} min`;
   if (schedule.hours.length === HOURS_IN_A_DAY) {
     return hourly ? `hourly (:${minute} UTC)` : `${cadence} (all day UTC)`;

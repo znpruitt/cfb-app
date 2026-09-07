@@ -1608,3 +1608,46 @@ test('a missing row with nothing due states that, rather than naming a deadline'
     'it does not name a deadline the row does not have'
   );
 });
+
+// REGRESSION TEST. "The whole row" is the row having no schedule left, not every
+// ENTRY carrying a fault. A `dense: null` day publishes a schedule with no
+// expression and no fault, so counting entries announced a row with NO delivery
+// status at all as merely "the slow schedule cannot be checked".
+test('a row with no schedule left is announced as the whole row, not one schedule', () => {
+  const wholeRow: SchedulerDeliveryHealthRow = {
+    ...planUnavailableRow('live-scores', 'plan-indeterminate'),
+    schedules: [
+      // The dense phase simply does not exist today: no expression, no fault.
+      {
+        schedule: 'dense',
+        cron: null,
+        graceMs: null,
+        requiredStartedAt: null,
+        unavailableReason: null,
+      },
+      {
+        schedule: 'slow',
+        cron: null,
+        graceMs: null,
+        requiredStartedAt: null,
+        unavailableReason: 'plan-indeterminate',
+      },
+    ],
+  };
+  const issues = deriveSystemHealthIssues(
+    baseInputs({
+      schedulerDelivery: deliverySnapshot(
+        EXTERNAL_SCHEDULER_JOBS.map((job) =>
+          job === 'live-scores' ? wholeRow : deliveryRow(job, 'on-time', receiptFor(job, 'success'))
+        )
+      ),
+    })
+  );
+  const unavailable = find(issues, 'scheduler-delivery-unavailable');
+  assert.ok(unavailable);
+  assert.equal(unavailable!.title, 'live-scores delivery status is unavailable');
+  assert.ok(
+    !/slow schedule cannot be checked/.test(unavailable!.title),
+    'not announced as a single-schedule fault'
+  );
+});

@@ -375,7 +375,11 @@ function schedulerDeliveryIssues(
     if (faulted.length > 0) {
       const reason = faulted[0]!.unavailableReason!;
       const named = faulted.map((entry) => entry.schedule).join(' and ');
-      const whole = faulted.length === row.schedules.length;
+      // "The WHOLE row" is the row having no schedule left, not every ENTRY
+      // carrying a fault. A `dense: null` day publishes a schedule with no
+      // expression and no fault, so counting entries called a row with no
+      // delivery status at all "the slow schedule cannot be checked".
+      const whole = row.planUnavailableReason !== null;
       issues.push({
         ...base,
         code: 'scheduler-delivery-unavailable',

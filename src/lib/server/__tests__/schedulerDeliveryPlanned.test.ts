@@ -1453,3 +1453,94 @@ test('an observation that contradicts a recorded intent still unresolves the spa
   assert.deepEqual(measuredCrons(row), [], 'the contradicted span yields no slot');
   assert.equal(row.requiredStartedAt, null);
 });
+
+// ── 13. The confirming pass on the re-derivation ────────────────────────────
+
+// REGRESSION TEST. An unrecognized part inside a comma list used to be DROPPED
+// while its siblings were kept, so `8,12-23` parsed to hour 8 alone — and the
+// record's own stored pattern admits `-`. Measured on the shipped classifier
+// before the fix: a receipt 14h33m stale classified `on-time` against a schedule
+// silently narrowed from twelve hours to one, beside a `cron` field still
+// naming the full expression.
+test('a range inside a comma list is unreadable, never silently dropped', async () => {
+  const narrowed = '*/3 8,12-23 * * *';
+  const row = rowOf(
+    await rowsFor({
+      nowMs: ms('2026-10-03T23:30:00.000Z'),
+      records: {
+        'live-scores': okRecord(
+          run(
+            '2026-10-03T00:02:00.000Z',
+            schedule(narrowed, { previousCron: DEAD_DAY_SLOW }),
+            schedule('1 0 * * *', { previousCron: DEAD_DAY_SLOW })
+          )
+        ),
+      },
+      receipts: [
+        { key: 'live-scores', value: receiptFor('live-scores', ms('2026-10-03T08:57:00.000Z')) },
+      ],
+    }),
+    'live-scores'
+  );
+  // The corrupt expression SURFACES instead of narrowing the schedule.
+  assert.equal(
+    row.schedules.find((entry) => entry.schedule === 'dense')?.unavailableReason,
+    'plan-unreadable'
+  );
+  assert.ok(
+    !measuredCrons(row).includes(narrowed),
+    'and it is never measured against as if it had parsed'
+  );
+
+  // The parser fails closed on every unreadable part, rather than keeping the
+  // parts it happens to recognise.
+  const hour = ms('2026-10-03T12:00:00.000Z');
+  for (const unreadable of ['*/3 8,12-23 * * *', '0 1-5 * * *', '0 x * * *', '*/0 * * * *']) {
+    assert.ok(
+      previousScheduleSlotMs(unreadable, hour) < hour - 300 * 24 * HOUR,
+      `${unreadable} answers from the backstop, not from a partial parse`
+    );
+  }
+  // Positive control: the shapes it DOES read still resolve normally.
+  assert.equal(previousScheduleSlotMs('0 8,12 * * *', hour), ms('2026-10-03T12:00:00.000Z'));
+});
+
+// REGRESSION TEST. An hourly STEP across a single hour fires once a day, and it
+// is the planner's own idle-slot shape — the label an operator reads most often
+// on a quiet day promised twenty-four firings where there is one.
+test('a once-daily schedule is not labelled hourly', async () => {
+  const row = rowOf(
+    await rowsFor({
+      nowMs: ms('2026-10-03T12:00:00.000Z'),
+      records: {
+        'live-scores': okRecord(
+          run(
+            '2026-10-03T00:02:00.000Z',
+            null,
+            schedule('1 0 * * *', { previousCron: '1 0 * * *' })
+          )
+        ),
+      },
+    }),
+    'live-scores'
+  );
+  assert.equal(row.cadenceLabel, 'once daily (00:01 UTC)');
+
+  // Positive control: a genuinely hourly expression keeps the hourly wording.
+  const hourly = rowOf(
+    await rowsFor({
+      nowMs: ms('2026-10-03T12:00:00.000Z'),
+      records: {
+        'live-scores': okRecord(
+          run(
+            '2026-10-03T00:02:00.000Z',
+            null,
+            schedule('1 * * * *', { previousCron: '1 * * * *' })
+          )
+        ),
+      },
+    }),
+    'live-scores'
+  );
+  assert.equal(hourly.cadenceLabel, 'hourly (:01 UTC)');
+});
