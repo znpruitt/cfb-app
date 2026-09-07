@@ -11,8 +11,7 @@ import {
 import { loadCachedScheduleItems } from '@/lib/server/canonicalScheduleCache';
 import {
   applySchedule,
-  carriedDenseHours,
-  denseCronForHours,
+  denseDesiredForCutover,
   desiredJobState,
   plannedFiringsFor,
 } from '@/lib/server/pollingPlannerApply';
@@ -152,14 +151,13 @@ async function planOneJob(
   // folded in, or the swap goes dark over the tail of a live game.
   const todayStartMs = input.dayStartMs - 24 * 60 * 60 * 1000;
   const todayPlan = pollingCronPlanForJob(job, { windows: allWindows, dayStartMs: todayStartMs });
-  const carried = carriedDenseHours(todayPlan.dense?.hours ?? [], input.nowMs, todayStartMs);
-  const denseDesired =
-    desired.dense.kind === 'armed' && carried.length > 0
-      ? {
-          kind: 'armed' as const,
-          cron: denseCronForHours([...plan.dense!.hours, ...carried], plan.dense!.stepMinutes),
-        }
-      : desired.dense;
+  const denseDesired = denseDesiredForCutover({
+    plan,
+    todayPlan,
+    desired: desired.dense,
+    nowMs: input.nowMs,
+    todayStartMs,
+  });
 
   // SEQUENTIAL, not `Promise.all`. Both schedules of a job hit the same QStash
   // management API with the same credential, and a planner that fires four
@@ -344,6 +342,28 @@ export async function GET(req: Request): Promise<NextResponse<PollingPlannerResu
       schedulesUnchanged: exec.schedulesUnchanged,
       schedulesFailed: exec.schedulesFailed,
       recordsNotWritten: exec.recordsNotWritten,
+    });
+  } catch {
+    // THE 200-ONLY INVARIANT, MADE TRUE BY CONSTRUCTION. This route's own comment
+    // says a controlled outcome always answers 200 — `AGENTS.md` requires it of a
+    // QStash-delivered route, because an at-least-once delivery layer must not read
+    // a controlled refusal as a transport fault. A bare try/finally left that a
+    // claim rather than a property: any unexpected throw escaped as a 5xx.
+    //
+    // `exec` is pessimistic by construction, so it already reads
+    // `failure / unexpected-error` unless a later stage overwrote it; only the
+    // reason is narrowed here, to say that nothing is known to have been applied.
+    // No thrown value is inspected, logged or returned — a message can carry
+    // anything, including a credential.
+    exec.result = 'failure';
+    exec.reason = 'plan-not-applied';
+    return NextResponse.json({
+      day: exec.day,
+      schedulesApplied: exec.schedulesApplied,
+      schedulesUnchanged: exec.schedulesUnchanged,
+      schedulesFailed: exec.schedulesFailed,
+      recordsNotWritten: exec.recordsNotWritten,
+      error: 'the planner run did not complete — see the polling-planner receipt',
     });
   } finally {
     emitPollingPlannerCronExecutionEvent(exec, startedAtMs);

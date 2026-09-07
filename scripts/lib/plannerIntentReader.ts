@@ -10,6 +10,10 @@
 // `inspect` would then refuse. Slice 3a built the reader seam for exactly this
 // and left it unwired; this is where slice 4 wires it.
 
+import path from 'node:path';
+
+import dotenv from 'dotenv';
+
 import type { RecordedIntentLookup, RecordedIntentReader } from './qstashSchedule.ts';
 
 import { PLANNER_JOB_CONTRACTS } from './plannerScheduleContracts.ts';
@@ -67,38 +71,61 @@ export function lookupFromStore(
 }
 
 /**
- * Which connection string a record read uses, in order of preference.
+ * The connection string a record read uses: `DATABASE_URL_RO`, and ONLY that.
  *
- * `DATABASE_URL_RO` FIRST, and that ordering is the fix. `CLAUDE.md` keeps
- * production read access in `.env.operator.local` as a read-only `audit_ro` role
- * and deliberately keeps `DATABASE_URL` out of `.env.local`, so an operator
- * following the documented setup has only the read-only one — and requiring the
- * write credential made `inspect` and `upsert` exit 3 before contacting QStash,
- * which broke the routine §8e/§8f check, §8l rotation, and the provisioning of the
- * two schedules this slice adds. Reading a record is a `SELECT`; the read-only
- * rail is exactly the right credential for it. `DATABASE_URL` is still accepted so
- * a deployed context (or a operator who has one) is not a special case.
+ * `CLAUDE.md` keeps production read access in `.env.operator.local` as a
+ * read-only `audit_ro` role limited to CONNECT/USAGE/SELECT, and deliberately
+ * keeps `DATABASE_URL` out of `.env.local` so a dev server can never point at
+ * production. An operator following that setup has the read-only credential —
+ * requiring the write one made `inspect` and `upsert` exit 3 before contacting
+ * QStash, which broke the routine §8e/§8f check, §8l rotation, and the
+ * provisioning of the two schedules this slice adds.
+ *
+ * NO FALLBACK TO `DATABASE_URL`. A preference is not a guarantee: with a fallback,
+ * a blank or missing `DATABASE_URL_RO` silently turned "read through the read-only
+ * rail" into a read through the primary, which is the sentence above this function
+ * claiming something the code did not enforce. Reading a record is a `SELECT` and
+ * nothing here ever needs write access, so the rail is the only option and the
+ * guarantee is structural.
  */
 export function plannerRecordConnectionString(
   env: Record<string, string | undefined>
 ): string | null {
-  return env.DATABASE_URL_RO?.trim() || env.DATABASE_URL?.trim() || null;
+  return env.DATABASE_URL_RO?.trim() || null;
+}
+
+/**
+ * The operator's read-only credential, read out of `.env.operator.local` WITHOUT
+ * touching `process.env`.
+ *
+ * `dotenv`'s `processEnv` option is what makes that true: the file also holds the
+ * full-privilege `DATABASE_URL`, and an earlier version of this slice loaded the
+ * whole file into the environment of all ten CLIs — putting a production write
+ * credential in six processes that never touch the store, and disabling
+ * `appStateStore`'s local-file fallback so a stray store call would have written
+ * to production. Only the one key this reader needs is taken, and only into a
+ * private object.
+ *
+ * A value already in the ambient environment still wins, so a deployed or
+ * shell-exported context works without the file.
+ */
+export function operatorReadOnlyEnv(
+  ambient: Record<string, string | undefined> = process.env
+): Record<string, string | undefined> {
+  if (ambient.DATABASE_URL_RO?.trim()) return { DATABASE_URL_RO: ambient.DATABASE_URL_RO };
+  const parsed: Record<string, string> = {};
+  dotenv.config({ path: path.join(process.cwd(), '.env.operator.local'), processEnv: parsed });
+  return { DATABASE_URL_RO: parsed.DATABASE_URL_RO };
 }
 
 /**
  * A reader for the four planner-owned schedules, or `unavailable` when this
  * process cannot honestly answer.
  *
- * IT READS THROUGH THE OPERATOR'S READ-ONLY RAIL. The first version required
- * `DATABASE_URL`, which `CLAUDE.md` says the operator environment deliberately
- * does NOT have — production read access lives in `DATABASE_URL_RO` in
- * `.env.operator.local`. Measured: `manage-live-scores-schedule.ts inspect` then
- * exited 3 before contacting QStash, so this slice broke the routine §8e/§8f
- * check, the §8l rotation `upsert`, and the provisioning of the two schedules it
- * itself adds. A record read is a SELECT; the read-only rail exists for exactly
- * this, and using it keeps `src/` free of any reference to it.
+ * IT READS THROUGH THE OPERATOR'S READ-ONLY RAIL, and only that — see
+ * {@link plannerRecordConnectionString} and {@link operatorReadOnlyEnv}.
  *
- * With NO connection string at all it still refuses (`unavailable`), because
+ * With NO connection string it still refuses (`unavailable`), because
  * `appStateStore`'s local-file fallback would otherwise answer `absent` from an
  * empty store and the CLI would write the fixed contract over a planner-owned
  * cron — the clobber this reader exists to prevent, reached through the door
@@ -109,12 +136,14 @@ export function plannerRecordConnectionString(
  * four it does own, and this makes a mis-wiring safe rather than surprising.
  */
 export function createPlannerIntentReader(
-  env: Record<string, string | undefined> = process.env
+  env?: Record<string, string | undefined>
 ): RecordedIntentReader {
   return async (scheduleId: string): Promise<RecordedIntentLookup> => {
     const job = plannerJobForScheduleId(scheduleId);
     if (job === null) return { kind: 'absent' };
-    const connectionString = plannerRecordConnectionString(env);
+    // Resolved LAZILY and only for a schedule the planner owns, so a CLI for one
+    // of the other six never reads the operator file at all.
+    const connectionString = plannerRecordConnectionString(env ?? operatorReadOnlyEnv());
     if (!connectionString) return { kind: 'unavailable' };
 
     // The store's PARSER, not its reader. `readPollingPlannerRuns` goes through

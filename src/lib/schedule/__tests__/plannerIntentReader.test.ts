@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   createPlannerIntentReader,
   lookupFromStore,
+  operatorReadOnlyEnv,
   plannerJobForScheduleId,
   plannerRecordConnectionString,
 } from '../../../../scripts/lib/plannerIntentReader';
@@ -47,8 +48,6 @@ test('the record is read through the operator READ-ONLY rail', () => {
     plannerRecordConnectionString({ DATABASE_URL_RO: 'postgres://ro' }),
     'postgres://ro'
   );
-  // The read-only rail WINS when both are present: a record read never needs write
-  // access, and `CLAUDE.md` keeps the application off this rail entirely.
   assert.equal(
     plannerRecordConnectionString({
       DATABASE_URL_RO: 'postgres://ro',
@@ -56,11 +55,41 @@ test('the record is read through the operator READ-ONLY rail', () => {
     }),
     'postgres://ro'
   );
-  // A deployed context that has only the write credential is not a special case.
-  assert.equal(plannerRecordConnectionString({ DATABASE_URL: 'postgres://rw' }), 'postgres://rw');
-  // Blank is absent, not a connection string.
-  assert.equal(plannerRecordConnectionString({ DATABASE_URL_RO: '   ' }), null);
+  // NO FALLBACK TO THE WRITE CREDENTIAL. A preference is not a guarantee: with one,
+  // a blank or missing `DATABASE_URL_RO` silently turned "read through the
+  // read-only rail" into a read through the primary — the docstring claiming
+  // something the code did not enforce. Reading a record is a SELECT.
+  //
+  // Mutation target: restore `|| env.DATABASE_URL` and both of these go red.
+  assert.equal(plannerRecordConnectionString({ DATABASE_URL: 'postgres://rw' }), null);
+  assert.equal(
+    plannerRecordConnectionString({ DATABASE_URL_RO: '   ', DATABASE_URL: 'postgres://rw' }),
+    null
+  );
   assert.equal(plannerRecordConnectionString({}), null);
+});
+
+test('only the read-only key is taken from the operator file, never `process.env`', () => {
+  // `.env.operator.local` holds the full-privilege production `DATABASE_URL` as
+  // well as the read-only one. Loading the whole file — which an earlier revision
+  // of this slice did, for all ten CLIs — put a production WRITE credential in six
+  // processes that never touch the store, and disabled `appStateStore`'s
+  // local-file fallback so a stray store call would have written to production.
+  const before = process.env.DATABASE_URL;
+  const resolved = operatorReadOnlyEnv({});
+
+  // Exactly one key, whatever the file happens to contain.
+  assert.deepEqual(Object.keys(resolved), ['DATABASE_URL_RO']);
+  // Mutation target: drop `processEnv` from the dotenv call and this goes red on a
+  // machine that has the operator file.
+  assert.equal(process.env.DATABASE_URL, before, 'the ambient environment is untouched');
+  assert.equal(process.env.DATABASE_URL_RO, undefined);
+
+  // An ambient value wins without reading the file at all, so a deployed or
+  // shell-exported context needs no operator file.
+  assert.deepEqual(operatorReadOnlyEnv({ DATABASE_URL_RO: 'postgres://ambient' }), {
+    DATABASE_URL_RO: 'postgres://ambient',
+  });
 });
 
 test('NO CONNECTION AT ALL MEANS NO ANSWER — the fail-closed that this module exists for', async () => {

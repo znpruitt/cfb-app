@@ -693,9 +693,13 @@ yet elapsed, so the swap cannot go dark over the tail of a live game.
 3. `npm run manage:polling-planner-schedule -- upsert --apply`
 4. Inspect all three and require the exact contracts and one redacted Authorization header.
 
-Steps 1 and 2 come first because the planner rewrites those schedules; provisioning the planner
-first would have it fail to find them on its first run. The two DENSE schedules already exist and are
-not re-provisioned — the planner narrows them in place on its first run.
+Steps 1 and 2 come first so the two new schedules are created by the AUDITED CLI path, with an
+`inspect` available before the planner ever touches them. The planner does not depend on that
+ordering — `applySchedule` treats an absent schedule on an armed day as an ordinary upsert, so a
+planner provisioned first would CREATE both slow schedules itself, at the derived cron, with no
+operator check in between. That is the reason to keep the order, and it is the opposite of the reason
+an earlier revision of this section gave. The two DENSE schedules already exist and are not
+re-provisioned — the planner narrows them in place on its first run.
 
 **The four planner-owned managers need `DATABASE_URL_RO`** in `.env.operator.local`. They read the
 planner's recorded intent so `inspect` judges the live schedule against what the planner last wrote

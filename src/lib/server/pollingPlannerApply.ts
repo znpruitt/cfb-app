@@ -122,6 +122,14 @@ export function dayIsArmed(windows: readonly PollingWindow[], dayStartMs: number
  */
 export function denseCronForHours(hours: readonly number[], stepMinutes: number): string {
   const unique = [...new Set(hours)].sort((a, b) => a - b);
+  // NO CRON EXPRESSES "no hours". An empty set emitted `*/3  * * *` — four fields
+  // once the double space collapses — which the record's character-class pattern
+  // ADMITS and `parseCron` then rejects, so it would have been stored, sent to
+  // QStash, and surfaced a day later as `plan-unreadable`. Unreachable from the one
+  // caller, but this is exported and the failure is silent at the write end.
+  if (unique.length === 0) {
+    throw new Error('denseCronForHours requires at least one hour; no cron means "never"');
+  }
   return `*/${stepMinutes} ${unique.length === 24 ? '*' : unique.join(',')} * * *`;
 }
 
@@ -196,6 +204,50 @@ function countFirings(cron: string, fallback: number): number {
     ? Math.ceil(60 / Number(minuteField.slice(2)))
     : minuteField.split(',').length;
   return Number.isFinite(perHour) && perHour > 0 ? hours * perHour : fallback;
+}
+
+/**
+ * The dense state to APPLY, once today's still-open hours are taken into account.
+ *
+ * THE CARRY OUTRANKS THE PAUSE. Gating it on an armed tomorrow skipped it on the
+ * branch where the hole is worst: a 16:00 UTC kickoff's eight-hour dense phase
+ * ends at exactly midnight, so today covers hour 23 and tomorrow covers nothing —
+ * and the planner PAUSED at 23:50 with today's window still open, dropping the
+ * 23:51/23:54/23:57 polls with nothing until the slow slot at 00:01.
+ *
+ * Both reviewers found it; one measured ZERO occurrences across the 2026 season,
+ * which makes it structural rather than live. It is guarded anyway because the
+ * mechanism already exists — this is a condition, not a new mechanism — and "zero
+ * in 2026" is a fact about one season's slate, not about the code.
+ *
+ * It self-clears: tomorrow's run sees an empty carry and applies the pause, so the
+ * cost is at most one extra day of the carried hours.
+ */
+export function denseDesiredForCutover(input: {
+  /** The plan for the day being planned. */
+  plan: PollingCronPlan;
+  /** The plan for the day the planner is running IN. */
+  todayPlan: PollingCronPlan;
+  /** What the plan alone asks for. */
+  desired: DesiredScheduleState;
+  nowMs: number;
+  todayStartMs: number;
+}): DesiredScheduleState {
+  const carried = carriedDenseHours(
+    input.todayPlan.dense?.hours ?? [],
+    input.nowMs,
+    input.todayStartMs
+  );
+  if (carried.length === 0) return input.desired;
+  return {
+    kind: 'armed',
+    cron: denseCronForHours(
+      [...(input.plan.dense?.hours ?? []), ...carried],
+      // The step the CARRIED hours were synthesized at; both days resolve the same
+      // per-job constant, and today's is the one that produced them.
+      input.todayPlan.dense?.stepMinutes ?? input.plan.dense?.stepMinutes ?? 3
+    ),
+  };
 }
 
 /** Injected so a test drives every path without a network, a clock or a secret. */

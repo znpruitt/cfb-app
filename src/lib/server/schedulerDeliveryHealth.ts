@@ -613,7 +613,7 @@ export type SchedulerDeliveryScheduleView = {
 };
 
 /** The cadence rendered when no schedule could be established. NEVER the fixed contract. */
-const PLAN_UNAVAILABLE_CADENCE_LABEL: Record<SchedulerPlanUnavailableReason, string> = {
+export const PLAN_UNAVAILABLE_CADENCE_LABEL: Record<SchedulerPlanUnavailableReason, string> = {
   'plan-unreadable': 'schedule unknown — the planner record is unreadable',
   'plan-store-failed': 'schedule unknown — the planner record could not be read',
   'plan-incomplete': 'schedule unknown — no planner run records what is in force',

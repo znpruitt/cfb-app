@@ -7,6 +7,7 @@ import {
   DEAD_DAY_SLOW_CRON,
   dayIsArmed,
   denseCronForHours,
+  denseDesiredForCutover,
   desiredJobState,
   outcomeForExitCode,
   plannedFiringsFor,
@@ -554,4 +555,84 @@ test('planned firings are counted from what is INSTALLED, not from the raw plan'
   const armedDesired = desiredJobState(armedPlan, armedWindows, armedDay);
   // 5 dense hours x 20 firings + 1 idle slow slot.
   assert.equal(plannedFiringsFor(armedPlan, armedDesired.dense, armedDesired.slow), 101);
+});
+
+// ---------------------------------------------------------------------------
+// Remediation round 2
+// ---------------------------------------------------------------------------
+
+test('an empty hour set is REFUSED, because no cron expresses "never"', () => {
+  // `*/3  * * *` — four fields once the double space collapses. The record's
+  // character-class pattern ADMITS it and `parseCron` then rejects it, so it would
+  // have been stored, sent to QStash, and surfaced a day later as
+  // `plan-unreadable`. Unreachable from the one caller; this is the guard at the
+  // exported boundary rather than at the call site.
+  assert.throws(() => denseCronForHours([], 3), /at least one hour/);
+  // POSITIVE CONTROL: the shape it was emitting really is unusable — four fields.
+  assert.equal('*/3  * * *'.split(' ').filter(Boolean).length, 4);
+  // And one hour is fine.
+  assert.equal(denseCronForHours([23], 3), '*/3 23 * * *');
+});
+
+test('THE CARRY OUTRANKS THE PAUSE: today’s open hour survives a dense-less tomorrow', () => {
+  // A 16:00 UTC kickoff's eight-hour dense phase ends at exactly midnight, so today
+  // covers hour 23 and tomorrow covers nothing. Gating the carry on an armed
+  // tomorrow paused at 23:50 with today's window still open — dropping the
+  // 23:51/23:54/23:57 polls with nothing until the slow slot at 00:01, which is the
+  // hole the carry exists to close, on its other branch.
+  //
+  // Mutation target: restore `desired.kind === 'armed' &&` and the first assertion
+  // returns `{ kind: 'paused' }`.
+  const todayStartMs = ms('2026-10-03T00:00:00Z');
+  const dayStartMs = todayStartMs + DAY_MS;
+  const windows = plannerWindows([
+    { startDate: '2026-10-03T16:00:00Z', startTimeTBD: false },
+  ]).windows;
+  const todayPlan = pollingCronPlanForJob('live-scores', { windows, dayStartMs: todayStartMs });
+  const plan = pollingCronPlanForJob('live-scores', { windows, dayStartMs });
+
+  // The shape, asserted rather than assumed: today is dense through hour 23 and
+  // tomorrow has no dense phase at all.
+  assert.ok(todayPlan.dense?.hours.includes(23), 'today covers hour 23');
+  assert.equal(plan.dense, null, 'tomorrow has no dense phase');
+  const desired = desiredJobState(plan, windows, dayStartMs);
+  assert.deepEqual(desired.dense, { kind: 'paused' }, 'the plan alone says pause');
+
+  const applied = denseDesiredForCutover({
+    plan,
+    todayPlan,
+    desired: desired.dense,
+    nowMs: ms('2026-10-03T23:50:00Z'),
+    todayStartMs,
+  });
+  assert.deepEqual(applied, { kind: 'armed', cron: '*/3 23 * * *' });
+
+  // IT SELF-CLEARS. The next night there is nothing left to carry, so the pause
+  // lands — the cost is at most one extra day of the carried hours.
+  const tomorrowStart = dayStartMs;
+  const tomorrowPlan = pollingCronPlanForJob('live-scores', {
+    windows,
+    dayStartMs: tomorrowStart + DAY_MS,
+  });
+  assert.deepEqual(
+    denseDesiredForCutover({
+      plan: tomorrowPlan,
+      todayPlan: plan,
+      desired: { kind: 'paused' },
+      nowMs: ms('2026-10-04T23:50:00Z'),
+      todayStartMs: tomorrowStart,
+    }),
+    { kind: 'paused' }
+  );
+
+  // And an ARMED tomorrow still merges rather than replacing — the original case.
+  const armedTomorrow = denseDesiredForCutover({
+    plan: todayPlan,
+    todayPlan,
+    desired: { kind: 'armed', cron: '*/3 15,16 * * *' },
+    nowMs: ms('2026-10-03T23:50:00Z'),
+    todayStartMs,
+  });
+  assert.equal(armedTomorrow.kind, 'armed');
+  assert.ok((armedTomorrow as { cron: string }).cron.includes('23'));
 });

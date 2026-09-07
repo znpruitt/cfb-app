@@ -57,14 +57,14 @@ export async function runScheduleCli(
   // copy of the same credential, not a move, and this file is still never a place
   // to commit one.
   dotenv.config({ path: path.join(process.cwd(), '.env.local') });
-  // PLATFORM-102 slice 4: the planner-owned CLIs read the durable planner record,
-  // and production read access lives HERE — `CLAUDE.md` keeps `DATABASE_URL_RO` in
-  // `.env.operator.local` and deliberately keeps `DATABASE_URL` out of
-  // `.env.local` so a dev server can never point at production. Loading it is what
-  // makes `inspect` and `upsert` work from the documented operator environment;
-  // without it they refuse (fail closed) rather than clobber a planner-owned cron.
-  dotenv.config({ path: path.join(process.cwd(), '.env.operator.local') });
   dotenv.config();
+  // `.env.operator.local` IS NOT LOADED HERE, and that is the point. It holds the
+  // full-privilege production `DATABASE_URL` alongside the read-only one, so
+  // loading it for all ten CLIs put a production WRITE credential in the process
+  // of six jobs that never touch the store — and, worse, made `appStateStore`'s
+  // local-file fallback stop applying, so anything in a CLI path that reached the
+  // store would have written to PRODUCTION. `plannerIntentReader` reads the one key
+  // it needs, out of a private object, and never through `process.env`.
 
   const nativeFetch: FetchLike = async (url, init) => {
     const res = await fetch(url, { method: init.method, headers: init.headers, cache: 'no-store' });
