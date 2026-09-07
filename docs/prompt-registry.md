@@ -1,7 +1,7 @@
 # Prompt Registry
 
 Status: Current ledger
-Last verified: 2026-09-06
+Last verified: 2026-09-07
 Owner: Project documentation
 Canonical for: prompt ledger / historical implementation record (not an active backlog)
 Supersedes: (none)
@@ -50,6 +50,58 @@ Rules:
 ---
 
 ## Prompt ledger (most recent first)
+
+### PLATFORM-139-RECORD-RECONCILIATION-v3
+
+- Purpose: make an Overview final carry the team record including that result during the six-to-
+  twelve-hour interval before the next provider records refresh, without repeating v1's client
+  payload growth or v2's full-season render-path build.
+- Scope: a pure positional-tail selector, a request-scoped server loader and exact-provider-id score
+  projection, the five league route seams, the two-number client projection, and focused tests. No
+  provider call, cross-request cache, cache invalidation, browser counting, Schedule restoration, or
+  `CompactGameScoreboard` change.
+- Outcome: the server joins schedule and records on numeric CFBD participant IDs, supplements
+  schedule completion only with participant-validated final score evidence, and folds every readable
+  win, loss, or tie beyond the stored game count. Unreadable outcomes are skipped. Newest score facts
+  win by effective timestamp; equal-time conflicts and participant mismatches are logged. Tail-derived
+  identity registries bypass the unbounded process cache, durable reads begin concurrently, and only
+  `{ wins, losses }` crosses the client boundary. Payload stayed byte-flat at 262,172 bytes.
+- Review / verification: implementation heads `36cb3d79` and `e0a63788`; final behavior-neutral work-
+  metric rename `7efadd0d`. The final reviewed behavior passed TypeScript, `lint:all`, 110 focused
+  tests, and full `npm test` at 4,844/4,846 with exactly the two standing Item 137 failures. Test delta
+  is +21. Mutations proved multi-game suffix folding and rejection of the live wrong-opponent fixture
+  `401858427`. The production score-entry read measured 208,246 serialized bytes / 986 row
+  occurrences, 389.24 ms cold and 41.98 ms median; the five-run projection measured 596 ms cold and
+  184.63 ms warm median. Final review's identity-collision P2 is owner-deferred to Item 83: 6 of
+  22,761 production IDs disagree, none collide; Missouri S&T has no score rows and all nine games are
+  outside the FBS feed.
+- Status: Complete and reviewed; merge approved 2026-09-07. Records remain absent from Schedule;
+  restoring them is separate work.
+
+### PLATFORM-139-RECORD-RECONCILIATION-v2
+
+- Purpose: reconstruct v1 on the server and keep the client payload flat.
+- Scope: server-side reconciliation through the canonical season scored build and a compact derived
+  projection; no browser counting or Schedule restoration.
+- Outcome: v2 solved v1's boundary defect—262,550 bytes before and after—but put full-season schedule
+  construction on five dynamic render paths. Attempts to cache the build exceeded Next's 2 MiB entry
+  limit; caching only the projection left it invalidated every three minutes and not warmed.
+- Review / verification: three review/remediation passes ended at `132a0daf`. The repeated cost and
+  positional-assumption findings triggered the v3 reconstruction; no v2 implementation was carried
+  forward.
+- Status: Superseded/unimplemented; replaced by v3.
+
+### PLATFORM-139-RECORD-RECONCILIATION-v1
+
+- Purpose: reconcile stale provider record totals with finals visible in the scoreboard.
+- Scope: a browser-side selector and widened server/client projection; no scoreboard component or
+  provider changes.
+- Outcome: the approach shipped the full schedule to the browser, growing the shared payload from
+  roughly 263 KB to 738 KB across five dynamic routes. Its withholding mechanism was also withdrawn
+  after production measurement found only 2 unreadable outcomes among 3,831 completed games.
+- Review / verification: abandoned head `716bb6d1`; two review rounds established that the
+  client/server boundary was wrong rather than patchable.
+- Status: Superseded/unimplemented; replaced first by v2, then by v3.
 
 ### PLATFORM-087-SLICE-5B-CARD-OWNER-ROW-CODEX-v1
 
@@ -231,7 +283,7 @@ Rules:
   a commit that never happened, since this module deliberately permits two observations to share a
   timestamp. Both were DELETED rather than guarded: nothing derives from `limit`, and an uncertain
   write is reported rather than resolved. The tri-state now reaches the reader — `recorded: boolean |
-  null` through response, receipt target, validator and UI, which renders a third distinct
+null` through response, receipt target, validator and UI, which renders a third distinct
   "durability unknown". Stale eight/six-job counts corrected in `operations/deployment.md`,
   `architecture/admin-control-plane.md` and `lifecycleCronExecutionLog.ts`, and two ninth-job
   coverage gaps closed (`sections.test.tsx` asserted eight labels; the receipt enumeration skipped

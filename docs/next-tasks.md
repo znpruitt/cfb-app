@@ -1,7 +1,7 @@
 # Next Tasks (Active Queue)
 
 Status: Current
-Last verified: 2026-09-06
+Last verified: 2026-09-07
 Owner: Project documentation
 Canonical for: current execution order, planned/parked work, blockers, and the one canonical list of
 unresolved decisions and known deferrals
@@ -49,6 +49,7 @@ committed `c9f76081`) surfaced four new items and one split; the remaining open 
    armed under today's `kickoff + 24h` tail, so the planner alone lands near ~2.25h. **Item 130** is
    what reaches the target in-season — see its entry and
    [`docs/campaigns/vercel-active-cpu.md`](campaigns/vercel-active-cpu.md).
+
 2. **Item 126** — schedule-refresh forensics. Placed immediately after Item 102 because it is the
    **same code layer, not merely adjacent**: `schedulerDeliveryHealth.ts` (which Item 102's collision
    2 must change) imports `schedulerExecutionStatus.ts` (Item 126's core file, home of
@@ -100,12 +101,12 @@ committed `c9f76081`) surfaced four new items and one split; the remaining open 
    **Design:** none written, so its prompt needs an owner design pass first rather than a paraphrase
    of this entry.
 8. **Item 100b** — internal slate marker. Date gate removed 2026-09-03; its 2026 consequence
-    (Featured empty through 2026-09-07) closes on its own, but the recap and look-ahead targeting it
-    exists for recur next August. Cheap: the clustering code is recoverable from `d6184c28`.
+   (Featured empty through 2026-09-07) closes on its own, but the recap and look-ahead targeting it
+   exists for recur next August. Cheap: the clustering code is recoverable from `d6184c28`.
 9. **Item 113** — Featured as insight-selected, state-agnostic. Largest, and gated on a decision
-    about `INSIGHTS-017-PALETTE` (a prose bullet today, not an item).
-    **Design:** `docs/campaigns/item-87-followon-featured-intent.md` — it supplies the product
-    intent and states that THIS item owns the reconciliation. Do not re-derive what it settles.
+   about `INSIGHTS-017-PALETTE` (a prose bullet today, not an item).
+   **Design:** `docs/campaigns/item-87-followon-featured-intent.md` — it supplies the product
+   intent and states that THIS item owns the reconciliation. Do not re-derive what it settles.
 10. **Item 101** — season-boundary finals gap. Re-derive the empty window against the floating cutoff
     first; fix before late November.
 
@@ -157,24 +158,23 @@ Two implementation worktrees run concurrently (`CLAUDE.md` → **Worktrees and s
 spine is strictly serial with itself, so it occupies ONE lane entirely; the other lane takes work that
 touches no component file.
 
-| lane | worktree | sequence |
-| --- | --- | --- |
-| **UI spine** | `cfb-app-codex` | 117 → 115 → 119 → 134 → 118 |
+| lane         | worktree         | sequence                                    |
+| ------------ | ---------------- | ------------------------------------------- |
+| **UI spine** | `cfb-app-codex`  | 117 → 115 → 119 → 134 → 118                 |
 | **Platform** | `cfb-app-claude` | 102 slice 2 → slice 3 → slice 4 → 129 → 126 |
 
 **Kickoffs are named `<item>-<agent>-v<n>.md`** so the target lane is legible from the filename.
 Written and ready: `platform-102-slice-2-cron-synthesis-claude-v1.md`.
 
-**Fillers, safe against both lanes, any order:** Item 139 (records reconciliation — fixes Overview
-and gates records returning to Schedule), Item 136 and Item 138 (both `matchups.ts`, worth pairing —
-same file, same `NoClaim` root), Item 137 (the red-`main` time bombs, test-only), Item 133a
-(below), 122, 121, 84, 86, 111.
+**Fillers, safe against both lanes, any order:** Item 136 and Item 138 (both `matchups.ts`, worth
+pairing — same file, same `NoClaim` root), Item 137 (the red-`main` time bombs, test-only), Item 133a
+(below), 122, 121, 84, 86, 111. Item 139 is complete and merge-approved below.
 
 > **Known-failure baseline:** `npm test` on clean `main` exits 1 with exactly two failures in
 > `src/app/api/odds/__tests__/writer-convergence.test.ts` — see **Item 137**. This is the baseline
 > `CLAUDE.md`'s merge condition 3 binds to. Exactly these two, or stop and report. **Item 135 shipped 2026-09-05** — PR #571, merged
-`ee68246c`. Both reviewers converged on the content now at `521e79d0`; the pre-rebase `a7f4dead` is
-unreachable.
+> `ee68246c`. Both reviewers converged on the content now at `521e79d0`; the pre-rebase `a7f4dead` is
+> unreachable.
 
 **Item 135 shipped 2026-09-05.** It surfaced **Item 136** (slate aggregates double-count a self game),
 which inherits its place as the first filler — same file, same 39 affected games.
@@ -342,12 +342,12 @@ Only one PLATFORM-105 follow-up remains:
 **Four consumers now, updated 2026-09-01.** The shared policy is `hasGameBeenAbandoned`
 (`standingsHistory.ts:194`, `now - kickoff > 8h`):
 
-| Consumer | Applies it? |
-| --- | --- |
-| `selectSeasonContext` | yes |
+| Consumer                 | Applies it?                                                      |
+| ------------------------ | ---------------------------------------------------------------- |
+| `selectSeasonContext`    | yes                                                              |
 | `selectWeeklyRecapFacts` | yes, via `selectPendingGameFinality` (`weeklyRecapFacts.ts:458`) |
-| `isResolvedWeek` | **no — this item's remaining gap** |
-| Overview section router | added by POLISH-019 (slice 3) |
+| `isResolvedWeek`         | **no — this item's remaining gap**                               |
+| Overview section router  | added by POLISH-019 (slice 3)                                    |
 
 **Per-game versus population is an INTENTIONAL split, not part of the inconsistency this item fixes.**
 `selectPendingGameFinality` is deliberately all-or-nothing across its input population — one
@@ -487,21 +487,21 @@ open work is the _Scope to decide_ list.
 **All four billing surfaces measured 2026-08-31. Exposure is one variable: how many computes are
 running.**
 
-| Surface | Monthly | Character |
-| --- | --- | --- |
-| **Neon compute** | $39.03 (`368.21 CU-hrs x $0.106`) | the entire bill |
-| QStash | **$0.18** (18K messages @ $0.01/1,000) | noise even at 2x cadence |
-| Vercel | $0 | Hobby |
-| CFBD | fixed Patreon tier | 395 / 5,000 used |
+| Surface          | Monthly                                | Character                |
+| ---------------- | -------------------------------------- | ------------------------ |
+| **Neon compute** | $39.03 (`368.21 CU-hrs x $0.106`)      | the entire bill          |
+| QStash           | **$0.18** (18K messages @ $0.01/1,000) | noise even at 2x cadence |
+| Vercel           | $0                                     | Hobby                    |
+| CFBD             | fixed Patreon tier                     | 395 / 5,000 used         |
 
 Neon storage is `0.05 GB x $0.35 = $0.02`. **The attribution, once measured rather than inferred:**
 
-| Compute | CU-hrs | Cost | Why |
-| --- | --- | --- | --- |
-| `main` primary (`ep-small-lake-ama2wisz`) | ~180 | ~$19 | `*/3` live-scores cron never lets the 5-minute autosuspend threshold open |
-| **`cfb-audit-read-replica`** (`ep-plain-term-amtt3ekz`) | **~180** | **~$19** | **autosuspend was `never`** — ran 24/7 with ZERO connections |
-| all non-`main` branches | ~5 | ~$0.6 | wake events only; each preview branch reads 0.02 CU-hrs or 0 |
-| | **368** | **$39.03** | |
+| Compute                                                 | CU-hrs   | Cost       | Why                                                                       |
+| ------------------------------------------------------- | -------- | ---------- | ------------------------------------------------------------------------- |
+| `main` primary (`ep-small-lake-ama2wisz`)               | ~180     | ~$19       | `*/3` live-scores cron never lets the 5-minute autosuspend threshold open |
+| **`cfb-audit-read-replica`** (`ep-plain-term-amtt3ekz`) | **~180** | **~$19**   | **autosuspend was `never`** — ran 24/7 with ZERO connections              |
+| all non-`main` branches                                 | ~5       | ~$0.6      | wake events only; each preview branch reads 0.02 CU-hrs or 0              |
+|                                                         | **368**  | **$39.03** |                                                                           |
 
 Both computes are at the **0.25 CU minimum** with CPU flat at ~0, a 100% cache hit rate, and a
 ~40 MB database. Neon bills allocated CU by wall-clock, so this is money paid for **existing**, not
@@ -777,12 +777,12 @@ how an observability item becomes a storage item.
 **Scope note added 2026-09-04 — the gap is not schedule-only, and the shape matters for how this is
 built.** Owner observation, then checked per layer against all seven cron jobs:
 
-| Loss layer | Actually scoped to |
-| --- | --- |
+| Loss layer                                            | Actually scoped to                                                                                                                                                                                                                                                                                                                                                     |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1. Per-unit `result`/`reason` dropped from the target | **schedule-refresh AND rankings.** Both carry `years: Array<{ year, operation }>` and drop the rest. The single-target jobs (`live-scores`, `game-stats`, `odds`, `team-records`) have one unit per run, so the run-level `result`/`reason` covers them — but their targets record only what was ATTEMPTED (`targetGames`, `eligibleGames`, `week`), never an outcome. |
-| 2. Runtime event lacks `invocationId` | **All seven.** There are seven separate `cronExecutionLog` modules (`schedule`, `rankings`, `odds`, `liveScores`, `gameStats`, `teamRecords`, `lifecycle`) and `invocationId` appears in none of them. The receipt carries it (`schedulerExecutionStatus.ts:289`); the event does not, so no job's runtime log can be correlated with its durable receipt. |
-| 3. `provider-refresh-status` is latest-only | **Universal.** One shared store keyed by dataset scope. A successful manual repair replaces the failed attempt for any dataset, not just schedule. |
-| 4. Upstream class collapsed to `fetch-failed` | **schedule AND rankings**, identically: `schedule/fullSeasonScheduleFetch.ts:67` and `rankings/refreshAuthority.ts:111`. Both discard timeout vs network vs HTTP-status vs parse. |
+| 2. Runtime event lacks `invocationId`                 | **All seven.** There are seven separate `cronExecutionLog` modules (`schedule`, `rankings`, `odds`, `liveScores`, `gameStats`, `teamRecords`, `lifecycle`) and `invocationId` appears in none of them. The receipt carries it (`schedulerExecutionStatus.ts:289`); the event does not, so no job's runtime log can be correlated with its durable receipt.             |
+| 3. `provider-refresh-status` is latest-only           | **Universal.** One shared store keyed by dataset scope. A successful manual repair replaces the failed attempt for any dataset, not just schedule.                                                                                                                                                                                                                     |
+| 4. Upstream class collapsed to `fetch-failed`         | **schedule AND rankings**, identically: `schedule/fullSeasonScheduleFetch.ts:67` and `rankings/refreshAuthority.ts:111`. Both discard timeout vs network vs HTTP-status vs parse.                                                                                                                                                                                      |
 
 **Resolved by the owner 2026-09-04, and reflected in the boundary above.** Layer 2 goes platform-wide
 because it is a one-field change repeated across seven modules — cheap once, expensive seven times.
@@ -871,14 +871,14 @@ before.
 **MEASURED 2026-09-07 — this is NOT a cost item, and the entry originally implied it was.** Vercel Web
 Analytics, 2026-08-31 → 09-07, by route:
 
-| route | pageviews |
-| --- | --- |
-| `/league/[slug]` | 128 |
-| `/league/[slug]/standings` | 51 |
-| `/` | 36 |
-| `/admin/diagnostics` | 21 |
-| `/league/[slug]/draft/summary` | 12 |
-| **`/league/[slug]/insights`** | **3** |
+| route                          | pageviews |
+| ------------------------------ | --------- |
+| `/league/[slug]`               | 128       |
+| `/league/[slug]/standings`     | 51        |
+| `/`                            | 36        |
+| `/admin/diagnostics`           | 21        |
+| `/league/[slug]/draft/summary` | 12        |
+| **`/league/[slug]/insights`**  | **3**     |
 
 **Three pageviews in a week**, ~1% of 272 total. Against a monthly 4-hour Fluid allowance that is
 seconds, while `/api/cron/live-scores` alone runs 480×/day at 1.20 s — roughly the whole allowance.
@@ -928,11 +928,11 @@ scheduled batch, then a cleanup pass of unpredictable length. Our tail is `kicko
 **Measured against production `2025-all-all`, 2026-09-07.** 3,831 games, 3,536 kicking Saturday ET:
 
 | CFBD settles at | Saturday games whose 24h window has already closed |
-| --- | --- |
-| Sun 09:00 | **0** of 3,536 |
-| Sun 15:00 | 2,042 (57.7%) |
-| Sun 18:00 | 2,800 (79.2%) |
-| Sun 20:00 | 3,326 (94.1%) |
+| --------------- | -------------------------------------------------- |
+| Sun 09:00       | **0** of 3,536                                     |
+| Sun 15:00       | 2,042 (57.7%)                                      |
+| Sun 18:00       | 2,800 (79.2%)                                      |
+| Sun 20:00       | 3,326 (94.1%)                                      |
 
 **The 08:49 batch is fully covered**, and that conclusion is timezone-independent — the earliest any
 Saturday window closes is Sun 11:00 ET, so no plausible posting timezone puts the batch outside it.
@@ -974,6 +974,19 @@ monthly allowance is actually under pressure. It cannot be shortened on the sens
 up on late finals — which is exactly why the measurement has to come first.
 
 ### Item 139 — a final can show a pre-game record; reconcile records against completed games
+
+**Status: IMPLEMENTED, REVIEWED, AND MERGE-APPROVED 2026-09-07.** v3 is the execution record;
+v1 and v2 are superseded/unimplemented. Overview now receives a server-reconciled record whose
+readable unreflected results include the final being shown, while the client payload remains flat at
+262,172 bytes. Records remain absent from Schedule; restoring them is separate visible work. See
+`PLATFORM-139-RECORD-RECONCILIATION-v3` in `docs/prompt-registry.md` for execution and verification.
+
+**Closeout follow-ups:** persistent score-conflict or participant-mismatch logging remains
+unthrottled so failure cannot resemble genuine absence; log-volume control is retained in the
+deferral register rather than silently weakening observability. The known lossy identity collision
+is owned by Item 83, which now records record reconciliation as its second live consumer and the
+production reachability ruling. The misleading `tailScoreRowsValidated` work counter was renamed to
+`tailScoreRowsInspected` before closeout; it is not an open follow-up.
 
 **The ask:** make a final always carry the record INCLUDING the result being read, on every surface.
 
@@ -1174,11 +1187,11 @@ cap work.
 row's minimum width — 400px for team, record, owner and score. Item 119 puts an 8px team-colour bar
 in the line-start slot, which is exactly the anatomy the derivation depends on:
 
-| row anatomy | min column | requirement (3 × col + 2 × 40px gap) | vs the 1300 breakpoint |
-| --- | --- | --- | --- |
-| today | 400px | 1280 | fits, 20px slack |
-| + 8px bar | 408px | 1304 | **exceeds by 4px** |
-| + 8px bar + 6px gap | 414px | 1322 | **exceeds by 22px** |
+| row anatomy         | min column | requirement (3 × col + 2 × 40px gap) | vs the 1300 breakpoint |
+| ------------------- | ---------- | ------------------------------------ | ---------------------- |
+| today               | 400px      | 1280                                 | fits, 20px slack       |
+| + 8px bar           | 408px      | 1304                                 | **exceeds by 4px**     |
+| + 8px bar + 6px gap | 414px      | 1322                                 | **exceeds by 22px**    |
 
 The 20px of headroom the design records is precisely what 119 consumes. Ship the tier first and its
 breakpoint is derived against anatomy 119 then changes, so the longest rows begin clipping at the low
@@ -1294,11 +1307,11 @@ all of the saving is.**
 Three phases, all derived from kickoff times, so the daily planner is the only thing that ever
 writes the cron:
 
-| Phase | Window | Rate |
-| --- | --- | --- |
+| Phase | Window                                      | Rate        |
+| ----- | ------------------------------------------- | ----------- |
 | Dense | `first kickoff − 15m` → `last kickoff + 8h` | every 3 min |
-| Slow | `last kickoff + 8h` → `last kickoff + 24h` | hourly |
-| Off | until the next cluster arms | — |
+| Slow  | `last kickoff + 8h` → `last kickoff + 24h`  | hourly      |
+| Off   | until the next cluster arms                 | —           |
 
 **CORRECTION 2026-09-05:** this item first said "a ~2-hour slow reconciliation poll", which would
 have ended all polling near `+10h` and silently dropped the `kickoff + 24h` reconciliation guarantee
@@ -1317,21 +1330,21 @@ Margin sensitivity — **DENSE PHASE ONLY**, so these are not the deliverable fi
 the mandated slow phase included is the 59% in the table below; do not quote these in isolation.
 
 | Margin after last kickoff | Dense hours | Dense-only wakeups | Dense-only removed |
-| --- | --- | --- | --- |
-| 4.75h | 27% | 3,965 | 73% |
-| **8h (recommended)** | 36% | 5,395 | 64% |
-| 12h | 48% | 7,110 | 52% |
+| ------------------------- | ----------- | ------------------ | ------------------ |
+| 4.75h                     | 27%         | 3,965              | 73%                |
+| **8h (recommended)**      | 36%         | 5,395              | 64%                |
+| 12h                       | 48%         | 7,110              | 52%                |
 
 **8h, because Item 108 measured a game still live at 6.4h** behind a weather delay while five others
 reconciled at `kickoff + 3.40h..4.75h`. A tighter margin would have slowed polling on that game while
 it was on the clock. When a game does overrun the margin the score is not lost — the reconciliation
 pass still collects it, late rather than never.
 
-| Wakeups / month | Sep | Oct | Nov | Year |
-| --- | --- | --- | --- | --- |
-| live-scores today | 14,400 | 14,880 | 14,400 | 175,200 |
-| Step 1, dense 8h + hourly slow to +24h | 4,351 | 6,156 | 5,757 | — |
-| removed | 70% | **59%** | 60% | — |
+| Wakeups / month                        | Sep    | Oct     | Nov    | Year    |
+| -------------------------------------- | ------ | ------- | ------ | ------- |
+| live-scores today                      | 14,400 | 14,880  | 14,400 | 175,200 |
+| Step 1, dense 8h + hourly slow to +24h | 4,351  | 6,156   | 5,757  | —       |
+| removed                                | 70%    | **59%** | 60%    | —       |
 
 Measured through `utcHoursCovered`, i.e. the hours a cron can actually express — partial hours round
 up, which costs ~3 points against the raw windows and is already included above.
@@ -1411,11 +1424,11 @@ pass once a cluster has settled is sufficient.
 
 **Measured:**
 
-| | Sep | Oct | Nov | Year |
-| --- | --- | --- | --- | --- |
-| game-stats today | 2,880 | 2,976 | 2,880 | 35,040 |
-| one pass per cluster | 56 | 92 | 76 | 240 |
-| removed | 98% | **97%** | 97% | **99%** |
+|                      | Sep   | Oct     | Nov   | Year    |
+| -------------------- | ----- | ------- | ----- | ------- |
+| game-stats today     | 2,880 | 2,976   | 2,880 | 35,040  |
+| one pass per cluster | 56    | 92      | 76    | 240     |
+| removed              | 98%   | **97%** | 97%   | **99%** |
 
 **Do it LATE, and prefer weekly — CFBD's admin, recorded in Item 110:** _"I will always do a 'final'
 data reconciliation on Sundays for that week's games."_ The current 24h window closes Sunday noon for
@@ -2065,16 +2078,16 @@ at the route. Closes this and the pre-existing eligibility hazard together.
 
 Every path to a label/id misalignment, each checked rather than argued:
 
-| Path | Result |
-| --- | --- |
-| Provider inverts home/away | 20,828 games over six seasons: **0 inversions, 0 changes**; pid assignment stable across pulls five years apart |
-| Provider omits a game id | **0 of 22,760 rows** across seven seasons — no missing, non-numeric, or beyond-safe-integer ids |
-| Provider sends duplicate ids | postseason sets are fully distinct: 139/139, 54/54, 86/86 |
-| Provider sends placeholders | **0** placeholder-looking rows in three postseason slates; CFBD publishes a game only once the matchup is settled |
-| Two rows share an id | rejected at `canonicalSlate.ts:345` BEFORE source-item metadata is read |
-| Two rows have different ids | never merged — `isIncompatibleCollision` rule 1, the guard PLATFORM-086H3E4 produced |
-| The app's own `cfp-*` placeholder shells | participants unresolved, so `mergedParticipants` never takes their orientation |
-| An override creates a row | it cannot — `applyManualOverride` patches an existing candidate |
+| Path                                     | Result                                                                                                            |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Provider inverts home/away               | 20,828 games over six seasons: **0 inversions, 0 changes**; pid assignment stable across pulls five years apart   |
+| Provider omits a game id                 | **0 of 22,760 rows** across seven seasons — no missing, non-numeric, or beyond-safe-integer ids                   |
+| Provider sends duplicate ids             | postseason sets are fully distinct: 139/139, 54/54, 86/86                                                         |
+| Provider sends placeholders              | **0** placeholder-looking rows in three postseason slates; CFBD publishes a game only once the matchup is settled |
+| Two rows share an id                     | rejected at `canonicalSlate.ts:345` BEFORE source-item metadata is read                                           |
+| Two rows have different ids              | never merged — `isIncompatibleCollision` rule 1, the guard PLATFORM-086H3E4 produced                              |
+| The app's own `cfp-*` placeholder shells | participants unresolved, so `mergedParticipants` never takes their orientation                                    |
+| An override creates a row                | it cannot — `applyManualOverride` patches an existing candidate                                                   |
 
 **`AppGame` has no `homeId`/`awayId` fields at all**, so issue #548's proposed fix — swap them in the
 merge return — could not be written as described. The numeric ids live on `CanonicalGame`, stamped
@@ -2099,12 +2112,12 @@ stats are what conference crews revise for days.
 several hours afterward. I will always do a 'final' data reconciliation on Sundays for that week's
 games."_
 
-| | scores | game stats |
-| --- | --- | --- |
-| Divergence detected? | yes — `differenceCount` | **no** |
-| Correction applied? | no, deliberately | no |
-| Surfaced anywhere? | weakly, as receipt detail | **not at all** |
-| Observed in production | **0 differences** | unmeasurable — nothing counts it |
+|                        | scores                    | game stats                       |
+| ---------------------- | ------------------------- | -------------------------------- |
+| Divergence detected?   | yes — `differenceCount`   | **no**                           |
+| Correction applied?    | no, deliberately          | no                               |
+| Surfaced anywhere?     | weakly, as receipt detail | **not at all**                   |
+| Observed in production | **0 differences**         | unmeasurable — nothing counts it |
 
 #### The stats gap — the primary concern
 
@@ -2615,12 +2628,12 @@ Ships dormant.
   **The floor's cost, computed 2026-09-05** (`*/3` = 480 runs/day, `*/15` = 96; armed 17% annually,
   74% in October):
 
-  | job | today | windows-only | with hourly floor |
-  | --- | --- | --- | --- |
-  | live-scores, annual | 480/day | 82 | **102 (79% below today)** |
-  | live-scores, October | 480/day | 355 | **361 (25% below today)** |
-  | game-stats, annual | 96/day | 16 | **36 (62% below today)** |
-  | game-stats, October | 96/day | 71 | **77 (20% below today)** |
+  | job                  | today   | windows-only | with hourly floor         |
+  | -------------------- | ------- | ------------ | ------------------------- |
+  | live-scores, annual  | 480/day | 82           | **102 (79% below today)** |
+  | live-scores, October | 480/day | 355          | **361 (25% below today)** |
+  | game-stats, annual   | 96/day  | 16           | **36 (62% below today)**  |
+  | game-stats, October  | 96/day  | 71           | **77 (20% below today)**  |
 
   The floor costs ~20 runs/day against windows-only in the annual case and ~6/day in October. Update
   `docs/campaigns/vercel-active-cpu.md` with these figures when slice 2 ships rather than leaving the
@@ -2773,7 +2786,7 @@ smaller.**
   code, which showed what we SEND, not what QStash does with it. `POST /v2/schedules/{id}/pause` and
   `/resume` exist; a paused schedule "remains in the system and stays retrievable"; pausing an
   already-paused schedule "has no effect", so a daily re-pause is idempotent. **And `GET
-  /v2/schedules/{id}` returns an `isPaused` boolean**, which is MORE than the decision assumed —
+/v2/schedules/{id}` returns an `isPaused` boolean**, which is MORE than the decision assumed —
   `inspect` can compare pause state as a fact rather than merely confirming the schedule exists.
   Slice 4 must wire `isPaused` into `evaluateScheduleContract`, or a schedule that should be paused
   but is running is indistinguishable from one correctly armed. Also validated: the create endpoint
@@ -3000,14 +3013,14 @@ repeated.
 
 **What the dashboard says, and what it hides.**
 
-| | Mobile | Desktop |
-| --- | --- | --- |
-| Real Experience Score | 95 (Great) | 76 (Needs Improvement) |
-| **First Contentful Paint** | **2.31s (amber)** | **3.50s (poor)** |
-| Largest Contentful Paint | 2.47s green | 3.89s amber |
-| INP / CLS / FID | 88ms / 0.05 / 30ms — all green | 64ms / 0.03 / 4ms — all green |
-| `/league/[slug]` | 93 (137 samples) | 74 (90 samples) |
-| TTFB | 0.31s | — |
+|                            | Mobile                         | Desktop                       |
+| -------------------------- | ------------------------------ | ----------------------------- |
+| Real Experience Score      | 95 (Great)                     | 76 (Needs Improvement)        |
+| **First Contentful Paint** | **2.31s (amber)**              | **3.50s (poor)**              |
+| Largest Contentful Paint   | 2.47s green                    | 3.89s amber                   |
+| INP / CLS / FID            | 88ms / 0.05 / 30ms — all green | 64ms / 0.03 / 4ms — all green |
+| `/league/[slug]`           | 93 (137 samples)               | 74 (90 samples)               |
+| TTFB                       | 0.31s                          | —                             |
 
 **Mobile RES 95 is a composite carried by green INP/CLS/FID. FCP is the only non-green metric on
 either device, and FCP is literally "how long until content appears".** Do not read 95 as "this is
@@ -3037,12 +3050,12 @@ remaining league-page-paint work begins at 98c.
 `/api/schedule?year=2026&seasonType=all` returns **2,764,786 bytes** (245 KB gzipped). Of its 3,676
 rows:
 
-| Pairing | Rows |
-| --- | --- |
+| Pairing              | Rows          |
+| -------------------- | ------------- |
 | involves an FBS team | **888 (24%)** |
-| iii/iii | 1,158 |
-| ii/ii | 811 |
-| fcs/fcs | 651 |
+| iii/iii              | 1,158         |
+| ii/ii                | 811           |
+| fcs/fcs              | 651           |
 
 **The client already discards them** — `src/lib/schedule.ts:758` filters with `isTrackedGame(...)`
 immediately after parsing. So filtering server-side is not a behaviour change; it moves an existing
@@ -3057,10 +3070,10 @@ is provably lossless. Expect ~2.76 MB → ~670 KB parsed.
 **Measured 2026-08-31 — the cost is row processing, not bytes.** `buildScheduleFromApi`
 (`schedule.ts:345`) against the real production payload, 5 runs after a warm-up, median:
 
-| Input | Median | Range |
-| --- | --- | --- |
-| all 3,676 rows | **1267 ms** | 1233-1605 |
-| 888 FBS-involving rows | **353 ms** | 316-1369 |
+| Input                  | Median      | Range     |
+| ---------------------- | ----------- | --------- |
+| all 3,676 rows         | **1267 ms** | 1233-1605 |
+| 888 FBS-involving rows | **353 ms**  | 316-1369  |
 
 **~915 ms of main-thread work removed**, on laptop-class hardware.
 
@@ -3629,6 +3642,17 @@ PLATFORM-114 stopped this reaching eligibility by classifying from the provider'
 new seasons no longer track phantom games. It is forward-only: it does not repair archives, and the
 collision still reaches `buildPairKey`, score attachment, and roster/owner mapping.
 
+**Item 139 adds a second consumer, deferred here by owner ruling 2026-09-07.** Its reconciliation
+validates a score row's participants before the score may establish conclusion or contribute an
+outcome, but today's name resolver can still call a colliding label equal. The concrete
+`Missouri S&T` / `Missouri State` probe returns a false direct match. Measured reachability keeps this
+out of Item 139: only 6 of 22,761 production 2026 provider IDs carry any participant disagreement
+(5 side reversals and wrong-opponent `401858427`), none involves a colliding identity; Missouri S&T
+has zero score rows, and all nine of its 2026 games are Division II vs Division II and absent from the
+FBS score feed. Do not add a raw-name heuristic to shared score attachment. This item's numeric CFBD
+participant-ID design is the one fix that serves both consumers, and the additional consumer raises
+its priority.
+
 **Also in scope: the row primary key falls back to a name.** `ScheduleItem.id` is
 ``String(game.id ?? `${week}-${homeTeam}-${awayTeam}`)`` (`src/lib/schedule/cfbdSchedule.ts:730`,
 unchanged since 2026-03-13 and untouched by PLATFORM-114). So a row's identity is
@@ -3822,8 +3846,7 @@ Remaining root cause:
 
 - The same conceptual object still has multiple renderers. Slices 1–4 moved Overview Live,
   Featured, Recent finals, and Watchlist onto the shared scoreboard anatomy, and slice 5 moved
-  Schedule. `GameSummaryList` remains bespoke on Matchups and the recap primitives; Matchups is Item
-  117.
+  Schedule. `GameSummaryList` remains bespoke on Matchups and the recap primitives; Matchups is Item 117.
 
 **Settled decisions (owner, 2026-08-29).** The governing criterion for any marker is that it be
 TRUE and VALUABLE to the reader; scarcity is not the test, and chips are not capped. See `DESIGN.md`
@@ -3962,16 +3985,16 @@ Sequencing: a natural companion to Item 60's two low-severity follow-ups since b
 
 Still at `timeoutMs: 12_000`:
 
-| Call site | Notes |
-|---|---|
-| `src/lib/rankings/refreshAuthority.ts:105` | **Worst configured.** `maxAttempts: 3`, and `fetchUpstream.ts:158` retries timeouts regardless of `retryOnHttpStatuses`, so each failure burns THREE billed calls. 3 x 12s matches the observed 36838ms almost exactly. |
-| `src/app/api/schedule/route.ts:345` | |
-| `src/lib/schedule/fullSeasonScheduleFetch.ts:61` | September 1's 37,124 ms weekly failure is the production signal; exact timeout/partition remains an inference because Item 126's evidence was not retained. |
-| `src/lib/schedule/schedulePresentationRefresh.ts:275`, `:516` | |
-| `src/app/api/conferences/route.ts:166` | |
-| `src/app/api/game-stats/route.ts:325` | non-cron path |
-| `src/app/api/admin/cache-historical-scores/route.ts:53` | |
-| `src/lib/odds/oddsRefreshExecutor.ts:422` | **Different provider** (The Odds API), which stayed healthy through the CFBD degradation. Decide separately; do not sweep it in on pattern-match alone. |
+| Call site                                                     | Notes                                                                                                                                                                                                                   |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/lib/rankings/refreshAuthority.ts:105`                    | **Worst configured.** `maxAttempts: 3`, and `fetchUpstream.ts:158` retries timeouts regardless of `retryOnHttpStatuses`, so each failure burns THREE billed calls. 3 x 12s matches the observed 36838ms almost exactly. |
+| `src/app/api/schedule/route.ts:345`                           |                                                                                                                                                                                                                         |
+| `src/lib/schedule/fullSeasonScheduleFetch.ts:61`              | September 1's 37,124 ms weekly failure is the production signal; exact timeout/partition remains an inference because Item 126's evidence was not retained.                                                             |
+| `src/lib/schedule/schedulePresentationRefresh.ts:275`, `:516` |                                                                                                                                                                                                                         |
+| `src/app/api/conferences/route.ts:166`                        |                                                                                                                                                                                                                         |
+| `src/app/api/game-stats/route.ts:325`                         | non-cron path                                                                                                                                                                                                           |
+| `src/app/api/admin/cache-historical-scores/route.ts:53`       |                                                                                                                                                                                                                         |
+| `src/lib/odds/oddsRefreshExecutor.ts:422`                     | **Different provider** (The Odds API), which stayed healthy through the CFBD degradation. Decide separately; do not sweep it in on pattern-match alone.                                                                 |
 
 `src/app/api/admin/team-database/route.ts:33` sits at 15s — same question, different value.
 
@@ -4072,11 +4095,11 @@ These are valid future campaigns but are not activated implementation work:
   2026-09-02: there are now THREE CFBD-derived team snapshots, not two**, and none reports drift
   against the others:
 
-  | Snapshot | Scope | Contents | Refresh |
-  | --- | --- | --- | --- |
-  | `src/data/teams.json` | 138 FBS | stripped seed — no `providerId`, no `id` | `npm run fetch:teams` |
-  | durable `team-database` | 138 FBS | full: `providerId`, mascot, classification, colours, logos, alts | admin sync |
-  | `src/data/odds-team-mascots.ts` | **928, all divisions** | school, mascot, classification, alts | **no script at all** |
+  | Snapshot                        | Scope                  | Contents                                                         | Refresh               |
+  | ------------------------------- | ---------------------- | ---------------------------------------------------------------- | --------------------- |
+  | `src/data/teams.json`           | 138 FBS                | stripped seed — no `providerId`, no `id`                         | `npm run fetch:teams` |
+  | durable `team-database`         | 138 FBS                | full: `providerId`, mascot, classification, colours, logos, alts | admin sync            |
+  | `src/data/odds-team-mascots.ts` | **928, all divisions** | school, mascot, classification, alts                             | **no script at all**  |
 
   The third arrived with PLATFORM-122 and is the least governed of them. It was kept separate for a
   real reason — the catalog is the FBS IDENTITY AUTHORITY, `buildScheduleFromApi` treats an empty
@@ -4092,7 +4115,6 @@ These are valid future campaigns but are not activated implementation work:
   join makes sense.** This is the sharper framing, and it may REDUCE the campaign rather than widen
   it. Three failures in one day all came from name- or catalog-mediated joins, not from having three
   snapshots:
-
   - Item 106 — odds matching went canonical name → catalog metadata, and the FBS-only catalog could
     not strip a non-FBS mascot. 48 events discarded.
   - Item 87 slice 4 — the records join was specified as canonical name → catalog `providerId` →
@@ -4114,6 +4136,7 @@ These are valid future campaigns but are not activated implementation work:
   and complete from 2021 (100%). 2019-2020 are uncached. A pid-keyed join reaching into history hits
   that wall; a current-season one does not. See Item 105 for the deferred backfill and why it was not
   taken.
+
 - **Server Fetch Architecture** — scoped low-priority fixes for internal HTTP context loaders; do not
   perform a broad rewrite.
 - **League State vs Season State** — deliberate product/architecture fork, not a 2026 blocker.
@@ -4159,6 +4182,11 @@ These are valid future campaigns but are not activated implementation work:
 This is the canonical deferral register. These items are explicitly not scheduled. Resolved entries
 are removed rather than retained with strikethrough; their outcomes live in `docs/completed-work.md`.
 
+- **Team-record reconciliation log volume.** Persistent equal-time score conflicts or participant
+  mismatches emit one structured error on every request to each of five dynamic league routes. The
+  failure must remain distinguishable from a legitimate empty reconciliation, so any rate limit or
+  deduplication needs an observability design that preserves first occurrence, counts suppressed
+  repeats, and re-emits when the affected provider-ID set changes.
 - **Require `seasonContext` at the Overview boundary.** Its optional fallback is unreached by all
   current league routes and wrong for an abandoned-game final season. Optional defaults also let a
   future route compile while silently rendering a finished season as live. Making the prop required
