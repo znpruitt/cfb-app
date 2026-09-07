@@ -188,11 +188,32 @@ Closeout is a separate pre-merge commit after review convergence: registry entry
 repairing it is **Item 144**. If you find a stale claim not already on 144, name it in the report so
 it can be added there.
 
-**Do NOT push `preview`.** `AGENTS.md:662` — Codex does not push `preview` or any other preview
-branch. Your v2 receipt caught this instruction surviving from a Claude-lane template; `AGENTS.md`
-governs. Verify locally on **port 3010** (both worktrees default to 3000, and a killed dev server can
-orphan a `next-server` child that then serves stale code). Your work reaches the owner as a branch to
-pull and run.
+**PUSH `preview` — a deliberate, SLICE-SCOPED exception to `AGENTS.md:662`, granted by the owner
+2026-09-07.** You were right to flag the contradiction; the resolution is the exception rather than
+the instruction being wrong.
+
+`AGENTS.md:662` ends: _"This decision is due for review if Codex takes a slice with a user-visible
+surface; a deployed URL is how the owner has caught defects that reviews did not."_ **Item 117 is that
+trigger** — the first user-visible work in this campaign since slice 5b, and a visual one: bronze
+pills, card-owner tints, converted row anatomy. Twice in this campaign the owner walking the app has
+found defects no review did.
+
+**The rule's own reason is absent right now.** It exists because two worktrees force-pushing one
+branch made `preview` ambiguous — it would show whichever agent committed last, changing under the
+owner mid-review. **The Claude lane is idle**, so nothing competes for it.
+
+**Terms, all four binding:**
+
+1. **This slice only.** It does not generalise, and it lapses when 117 merges.
+2. **Push branch and `preview` in the same breath, every commit** — including docs and closeout, or
+   `preview` silently falls a commit behind what you are asking the owner to look at.
+3. **If the Claude lane takes work while you hold `preview`, say so immediately.** Two writers is the
+   exact ambiguity the rule prevents, and the owner needs to know which branch is on screen.
+4. **Still verify locally too**, on **port 3010** — both worktrees default to 3000, and a killed dev
+   server can orphan a `next-server` child that then serves stale code from that port.
+
+`preview` currently holds `claude/102-slice-4-activation`, which merged this afternoon. Overwriting a
+merged branch there is housekeeping, not a loss.
 
 Merge is delegated to this lane under `CLAUDE.md` → **Worktrees and session roles**, including the
 four conditions. Promotion is not.
