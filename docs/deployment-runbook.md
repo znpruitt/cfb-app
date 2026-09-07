@@ -22,8 +22,8 @@ it is historical evidence, not a procedure to replay.
 - CFBD supplies schedules, scores, rankings, conferences, and game statistics. The Odds API supplies
   betting lines.
 - Vercel Cron owns the two daily lifecycle jobs declared in `vercel.json`.
-- QStash runs the ten externally scheduled jobs in §8 — eight provider jobs plus the two
-  reconciliation (slow) schedules — and the daily polling planner that rewrites four of them.
+- QStash runs the ten externally scheduled jobs in §8: seven provider jobs, the two reconciliation
+  (slow) schedules, and the daily polling planner that rewrites four of them.
 
 | Scheduler | Route | Cadence (UTC) | Owner |
 | --- | --- | --- | --- |
@@ -668,7 +668,7 @@ stop condition as every other job.
 > unprovisioned schedule, not evidence that another job regressed — the same case the `team-records`
 > note above pre-empts.
 
-### §8n) Polling-window planner (PLATFORM-102 slice 4) — provision after merge
+### §8n) Polling-window planner (PLATFORM-102 slice 4) — provision after PROMOTION
 
 `GET /api/cron/polling-planner`, driven by the QStash schedule `turfwar-polling-planner-daily` at
 `50 23 * * *`. Manage it with `tsx scripts/manage-polling-planner-schedule.ts`; `inspect` is
@@ -685,6 +685,11 @@ of each. **It is the only job that writes to another job's QStash schedule**, wh
 an expression installed after midnight leaves the new day's first hours governed by yesterday's hour
 set. The installed dense expression also carries any of the CURRENT day's armed hours that have not
 yet elapsed, so the swap cannot go dark over the tail of a live game.
+
+**Provision after PROMOTION, not after merge.** Auto-promotion is off, so a merged build does not
+ship until it is explicitly promoted (§6b) and QStash reaches the PROMOTED deployment. Provisioning
+the planner schedule against an unpromoted build calls a route that does not exist there — a 404
+every night until promotion, visible only as the planner's own row going `late`.
 
 **Provisioning order matters — the planner is provisioned LAST.**
 
@@ -716,6 +721,16 @@ A `401` is the same stop condition as every other job.
 start reading the recorded one — `every 3 min at 19:00–23:00 UTC, hourly (:01) at 00:00 UTC` on a
 game day. On a quiet day their delivery cell reads a gray **Nothing due** rather than a yellow
 warning, and the issues list stays empty.
+
+**⚠️ RE-ENABLING A HELD DATASET DOES NOT RESTORE COVERAGE — read this before using the single-job
+stop on `live-scores` or `game-stats`.** The planner OBEYS the stop: when `scores` or `game-stats` is
+disabled, or global pause is on, it skips that job entirely and leaves both of its schedules exactly
+where you left them. That is what makes "resume in reverse" find what it expects — but it also means
+the schedules keep whatever cron they carried when the hold went on. **Re-enable `scores` on a
+Thursday morning and the dense schedule still holds the stale expression until 23:50 that night, so
+Thursday's games go unpolled.** For these two jobs, step "resume the schedule" no longer restores
+correct coverage on its own. Either re-enable the day before you need coverage, or run the planner
+manually straight after re-enabling and confirm from its receipt.
 
 **If the planner stops, nothing else reports it.** A planner that fails leaves the schedules it last
 installed in place — and a dense schedule paused on a dead day stays paused into the next game day.
