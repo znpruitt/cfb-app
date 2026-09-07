@@ -679,7 +679,7 @@ canonical schedule cache, synthesizes each planner-owned job's dense and slow cr
 brings four schedules to that state — `turfwar-live-scores-3m`, `turfwar-live-scores-slow`,
 `turfwar-game-stats-15m` and `turfwar-game-stats-slow` — then records what it derived and what became
 of each. **It is the only job that writes to another job's QStash schedule**, which is why
-`QSTASH_TOKEN` is now in the Vercel environment (§4).
+`QSTASH_TOKEN` — and `QSTASH_URL` beside it — are now in the Vercel environment (§4).
 
 **It runs at 23:50, ten minutes before the day it plans, deliberately.** A cron has no date field, so
 an expression installed after midnight leaves the new day's first hours governed by yesterday's hour
@@ -691,12 +691,48 @@ ship until it is explicitly promoted (§6b) and QStash reaches the PROMOTED depl
 the planner schedule against an unpromoted build calls a route that does not exist there — a 404
 every night until promotion, visible only as the planner's own row going `late`.
 
+**`QSTASH_URL` MUST BE IN VERCEL TOO, NOT JUST `QSTASH_TOKEN`. Found the hard way on 2026-09-07 —
+it cost two redeploys and three wrong diagnoses.**
+
+The operator token is issued against a REGIONAL endpoint —
+`.env.local` carries `QSTASH_URL=https://qstash-us-east-1.upstash.io`. With the variable absent,
+`resolveQstashBase` (`qstashSchedule.ts:148`) falls back to `DEFAULT_QSTASH_BASE`
+(`https://qstash.upstash.io`), and the regional token presented to the canonical host is **rejected**.
+
+**The symptom is indistinguishable from a bad token**, which is why it took three attempts:
+
+```json
+{ "day": "…", "schedulesApplied": 0, "schedulesUnchanged": 0, "schedulesFailed": 4 }
+```
+
+with every schedule recording `action: "skipped"`, `outcome: "failed"`, `previousCron: null` — the
+null because even the READ 401s. Nothing distinguishes it from a missing token, a mistyped token, a
+token with the dotenv quotes included, or a token scoped to Preview. **Do not debug this by
+re-entering the token.** The operator CLI keeps working throughout, because it reads `QSTASH_URL`
+from `.env.local` and the deployment never had it — so "the CLI works but the route does not" is the
+tell, and comparing the two environments is the FIRST check, not the last.
+
+Set `QSTASH_URL` in Vercel, Production scope, NOT sensitive — it is a hostname, not a secret, and you
+want it readable when diagnosing exactly this. A regional host is accepted by design: the allowlist
+is `qstash(-<region>)?.upstash.io`.
+
+**The failure is safe.** `schedulesApplied: 0` on every failed attempt; production schedules are
+untouched and keep their previous crons. Fail-closed means a misconfigured planner changes nothing.
+
 **Provisioning order matters — the planner is provisioned LAST.**
 
-1. `npm run manage:live-scores-slow-schedule -- upsert --apply`
-2. `npm run manage:game-stats-slow-schedule -- upsert --apply`
-3. `npm run manage:polling-planner-schedule -- upsert --apply`
-4. Inspect all three and require the exact contracts and one redacted Authorization header.
+1. `QSTASH_TOKEN` **and** `QSTASH_URL` in Vercel (Production), then redeploy AND promote. Env vars
+   reach only deployments built after they are set, and auto-promotion is off, so a redeploy alone
+   leaves the old build serving.
+2. `npm run manage:live-scores-slow-schedule -- upsert --apply`
+3. `npm run manage:game-stats-slow-schedule -- upsert --apply`
+4. `npm run manage:polling-planner-schedule -- upsert --apply`
+5. Inspect all three and require the exact contracts and one redacted Authorization header.
+6. Trigger the planner once by hand rather than waiting for 23:50 —
+   `curl -sS -H "Authorization: Bearer $CRON_SECRET" https://turfwar.games/api/cron/polling-planner`.
+   **Only safe after steps 2–4**: with the slow schedules absent, `applySchedule` treats an armed day
+   as an ordinary upsert and the planner CREATES them itself, at its derived cron, with no operator
+   inspection in between. Expect `schedulesApplied: 4`, `schedulesFailed: 0`.
 
 Steps 1 and 2 come first so the two new schedules are created by the AUDITED CLI path, with an
 `inspect` available before the planner ever touches them. The planner does not depend on that

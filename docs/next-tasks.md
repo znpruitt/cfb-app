@@ -2828,6 +2828,28 @@ Also filed: `providerUsageSeries` misreports an unreadable-prior abort as `not-r
 ROLLBACK also fails (`appStateStore` re-wraps the throw, and a bare `instanceof` misses it). Slice 3a
 fixed the identical defect in its own classifier; the twin is untouched.
 
+**SLICE 4 IS PROVISIONED AND RUNNING IN PRODUCTION — 2026-09-07 ~19:55 UTC.** Promoted in
+`d51e4803`, all four schedules applied and confirmed on the first successful manual trigger:
+
+| schedule | before | after |
+| --- | --- | --- |
+| `turfwar-live-scores-3m` | `*/3 * * * *` | `*/3 0,1,2,3,4,5,6,7,23 * * *` |
+| `turfwar-live-scores-slow` | `1 * * * *` | `1 8,9,10,11,12,13,14,15,16,17,18,19,20,21,22 * * *` |
+| `turfwar-game-stats-15m` | `*/15 * * * *` | `*/15 0,1,2,3,4,5,6,7,23 * * *` |
+| `turfwar-game-stats-slow` | `1 * * * *` | `1 8,…,22 * * *` |
+
+Receipt `result=success / reason=plan-applied`; every `previousCron` recorded. **Hour 23 is the
+round-3 cutover carry working on a real game** — SMU @ Florida State, 23:30 UTC — with hours 0–7
+covering it past midnight. The saving is now live rather than projected.
+
+**Provisioning cost two redeploys and three wrong diagnoses, all from ONE missing variable:
+`QSTASH_URL`.** The operator token is regional (`qstash-us-east-1.upstash.io`); production fell back
+to the canonical host and every call 401'd. It is indistinguishable from a bad token, and the operator
+CLI keeps working the whole time because it reads the variable from `.env.local`. **"The CLI works but
+the deployed route does not" means COMPARE THE TWO ENVIRONMENTS FIRST** — I proposed quote-stripping,
+base64 padding and a sensitive-variable hypothesis before doing that, and the environment diff found
+it in one command. Written into `docs/deployment-runbook.md` §8n so the next person does not repeat it.
+
 **Slice 4 — activation.** Small, because everything it needs is already built and tested by then.
 
 **The two blocking specification items are RESOLVED — owner decisions 2026-09-07. Both made slice 4
