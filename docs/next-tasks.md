@@ -855,7 +855,24 @@ that matters** — counts range **1 to 17** (16 teams at 9, 179 at 12, 32 at 14,
 at 17), spanning teams that missed a bowl, played a conference championship, and ran deep into the
 playoff. A variable postseason cannot break the derivation because it **never compares against an
 expected total** — each team is compared against itself.
-**Kickoff:** `docs/prompts/platform-139-record-reconciliation-v1.md`.
+**Kickoff:** `docs/prompts/platform-139-record-reconciliation-v2.md`.
+
+**v1 (`716bb6d1`) ABANDONED 2026-09-07 — computed in the browser.** To count finished games client-side
+it shipped the whole schedule there, taking the payload from **~263 KB to ~738 KB across five dynamic
+pages**. Wrong side of the boundary, not a patchable bug. The server already holds the schedule, the
+scores and the records together; it computes the answer and ships two numbers per team. That also
+dissolves v1's "hidden non-FBS games" finding, since the server sees every game.
+
+**The withholding ruling is WITHDRAWN — it was made without measuring the population.** v1 grew a
+withholding policy, null-kickoff ordering rules and a blast-radius argument to handle a finished game
+whose score cannot be read. Measured on production 2025: **3,829 of 3,831 completed games have a usable
+final score; 2 do not** — 0.05%, with zero missing score rows and zero non-final rows. Skip an
+unreadable game and fold the rest. Two rows a season being wrong by one game does not warrant a
+mechanism, and certainly not blanking a team's record everywhere it appears.
+
+**One v1 finding is carried verbatim:** `hasUsableFinalScore` (`gameStatus.ts:96`) does two jobs —
+detecting that a game concluded, and validating that its outcome is readable. Conflating them is why a
+game marked final with a null score slipped past.
 
 **A cache-invalidation trigger was tried and is the wrong layer — do not repeat it.** Slice 5's
 `onGamesFinalized` gate discarded game identity, so it blanked every team's record for one final,
