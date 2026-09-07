@@ -98,11 +98,28 @@ extrapolating. Nothing writes a record and no schedule is planner-owned. **This 
 3. **`upsert` answers to the record, not the fixed contract — and this is SMALLER than it sounds.**
    Verified on `main` 2026-09-07: `runInspect` (`:742`) already calls `resolveExpectedContract`, but
    the upsert dispatch (`:887`) calls `buildUpsertRequest(contract, …)` with the **raw fixed
-   contract**, never the resolver. So `inspect` blesses recorded intent while `upsert` writes the
-   fixed cron — a planner-owned schedule that goes absent gets reprovisioned at the fixed cadence,
-   which the next `inspect` then refuses. **Do not rebuild the authority machinery; slice 3a shipped
-   it.** Route `upsert` through the resolver that already exists, and say what that does to the
-   refusal branches, which today only `inspect` can reach.
+   contract** (the call is at `:892`; `:887` is the dispatch check), never the resolver. So `inspect`
+   blesses recorded intent while `upsert` writes the fixed cron — a planner-owned schedule that goes
+   absent gets reprovisioned at the fixed cadence, which the next `inspect` then refuses. **Do not
+   rebuild the authority machinery; slice 3a shipped it.** Route `upsert` through the existing
+   resolver.
+
+   **Two refusal branches change meaning on a mutating path — both RULED 2026-09-07 from your
+   receipt, which raised them correctly.**
+
+   - **`absent` → `fixed` is correct on the upsert path too, and it is the bootstrap.** The first
+     planner run has no prior record, so upsert must be allowed to write the fixed contract or the
+     planner can never take ownership. It is also the right behaviour AFTER the planner is live: if
+     the record store is wiped, upsert falls back to the dense fixed cadence, which over-approximates.
+     **Over-approximation is this item's stated safety direction** — the handler guards remain the
+     correctness protection, so the fallback costs CPU, not correctness. Assert both readings.
+   - **`indeterminate` (exit 4) must NOT refuse on the upsert path.** On `inspect` a refusal is a
+     diagnosis. On `upsert` it means never retrying the one operation whose outcome is unknown, so a
+     single exit 4 wedges the planner until a human intervenes — and the daily cron would re-refuse
+     every morning. **The upsert is idempotent under a pinned `Upstash-Schedule-Id`, which is what
+     makes re-issuing safe; VERIFY that against Upstash's management API before relying on it** and
+     stop and report if it does not hold. A per-action divergence in how one refusal reason is
+     treated must be explicit in the code, not implicit in a call order.
 
 4. **`QSTASH_TOKEN` into the Vercel environment — collision 3.** **Check first whether QStash offers a
    scoped management token** limited to the two schedules the planner touches; if it does, use it.
@@ -119,15 +136,32 @@ extrapolating. Nothing writes a record and no schedule is planner-owned. **This 
    already exists in the state layer.** Do not redo it.
 
    What is left is that a healthy idle job currently renders a **yellow row labelled "Unavailable"**:
-   `deliveryRowStatus` (`systemHealthPresentation.ts:119`) is `state === 'on-time' ? 'green' :
-   'yellow'`, and `deliveryStateDisplay` (`:137`) maps `unavailable` to the word "Unavailable". Both
-   are wrong for this case — the colour says warning and the word says broken, when the job is doing
-   exactly what it was told.
+   `deliveryRowStatus` (`systemHealthPresentation.ts:120`) is `state === 'on-time' ? 'green' :
+   'yellow'`, and `deliveryStateDisplay` (`:124`, `unavailable` case at `:138`) returns the word
+   "Unavailable". **Its TONE is already `muted`, so only the LABEL is wrong there** — an earlier
+   version of this prompt said both signalled fault, which overstated it. The yellow comes entirely
+   from `deliveryRowStatus`.
 
-   **The discriminator already exists: `planUnavailableReason`.** It is `null` when nothing is due,
-   and non-null (`plan-unreadable`, `plan-store-failed`, `plan-incomplete`, exit-4) when the plan
-   genuinely cannot be read. Those must STAY yellow. So both functions need the reason alongside the
-   state.
+   **The discriminator is the RECEIPT, not the reason — corrected 2026-09-07 from your receipt, and
+   the correction is load-bearing.** This prompt and Item 102 both said `planUnavailableReason === null`
+   identifies nothing-due. It does not. **Four** branches reach `unavailable`, and the null-reason case
+   is not unique:
+
+   | line | branch | reason | receipt | fault? |
+   | --- | --- | --- | --- | --- |
+   | `:1326` | receipt-scope read failed | **may be null** | `null` | **YES** |
+   | `:1334` | no receipt for this job, plan faulted | non-null | `null` | yes |
+   | `:1351` | plan faulted beside a published receipt | non-null | present | yes |
+   | `:1370` | nothing due | null | **present** | **no** |
+
+   `unavailable` + null reason is true for BOTH `:1326` and `:1370`, so a `deliveryRowStatus` widened
+   to take only the reason paints a receipt-store OUTAGE as healthy. **Nothing-due is uniquely
+   `reason === null && receipt !== null`** — it reached `:1370` through `entriesByJob.has(job)`, so it
+   always carries a parsed receipt; the scope failure never does.
+
+   **This is the branch family's own failure shape, committed in the prompt that warns about it** —
+   a guard on what the state MEANS while which branch produced it goes unchecked. Assert `:1326`
+   explicitly; it is the case that turns a real outage green.
 
    **Slice 3b's final review filed exactly this**, and it named the target: **`PanelStatus` already
    has `gray`.** Its argument is the one that matters — the row renders a yellow dot while the page

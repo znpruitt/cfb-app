@@ -2519,8 +2519,8 @@ October against today's 480; `game-stats` 28.8 and 45.1 against 96. **These supe
 table above**, which was computed on the pre-slice-1 `kickoff + 24h` arming rule rather than slice 1's
 clusters; see the campaign doc.
 
-**Slices 3a and 3b are both merged. Slice 4 is next, and it has TWO BLOCKING SPECIFICATION ITEMS**
-— see the slice-4 entry below. 3a (`d1b46db4`) stores what the planner derived and sent; 3b
+**Slices 3a and 3b are both merged. Slice 4 is next, and its two blocking specification items are
+RESOLVED** — see the slice-4 entry below; both decisions made it smaller. 3a (`d1b46db4`) stores what the planner derived and sent; 3b
 (`7ada7781`) makes delivery health read it. Both are dormant against production output.
 
 **Slice 3 inherits four things, three of them found by review on slice 2:**
@@ -2658,8 +2658,14 @@ smaller.**
   "no evidence this job ever ran" already exists.
   **What is left is the colour and the word.** `deliveryRowStatus` maps every non-`on-time` state to
   yellow and `deliveryStateDisplay` labels `unavailable` as "Unavailable", so a healthy idle job
-  renders a yellow row saying it is broken. The discriminator already exists: `planUnavailableReason`
-  is `null` for nothing-due and non-null for a genuinely unreadable plan, which must STAY yellow.
+  renders a yellow row saying it is broken.
+  **The discriminator is the RECEIPT, not the reason — corrected 2026-09-07.** An earlier version of
+  this bullet said `planUnavailableReason === null` identifies nothing-due. It does not: `:1326`
+  (the receipt-scope read failed) also returns `unavailable` with a possibly-null reason, and that is
+  a real outage. Nothing-due is uniquely **`reason === null && receipt !== null`** — it reaches
+  `:1370` through `entriesByJob.has(job)` so it always carries a parsed receipt, and the scope failure
+  never does. `deliveryStateDisplay`'s tone is ALREADY `muted`; only its label and
+  `deliveryRowStatus`'s colour are wrong.
   `PanelStatus` already has `gray`, which may serve better than green — the ruling was that a healthy
   idle job must not read as a fault, not that it must match a measured on-time delivery. **Both
   functions are among the four `SchedulerDeliveryState` consumers; widening their signatures is the
@@ -2682,17 +2688,20 @@ smaller.**
   stale QStash state, and planner mistakes. The planner reduces wakeups; it must never become the
   only correctness or quota protection.
 
-**TWO BLOCKING SPECIFICATION ITEMS — slice 4 must resolve both BEFORE activating.** Both are
-invisible today and arrive the moment the planner writes its first record, which is what makes them
-blockers rather than ordinary follow-ups: nothing-due and dense-less days are unreachable while every
-row falls back to a fixed contract that always has something due.
+**TWO BLOCKING SPECIFICATION ITEMS — BOTH RESOLVED 2026-09-07 by the owner decisions recorded in the
+slice-4 entry above. Nothing here blocks slice 4 any more; the two items are retained for their
+analysis, which slice 4 still needs.** They were correctly classified as blockers rather than ordinary
+follow-ups: both are invisible today and arrive the moment the planner writes its first record, since
+nothing-due and dense-less days are unreachable while every row falls back to a fixed contract that
+always has something due.
 
-1. **`dense: null` conflates "no dense phase today" with "this schedule is deliberately off"** —
-   carried from slice 3a, unchanged. Slice 3b took the reading COMMON to both (a schedule not expected
-   to fire contributes no required slot, which cannot raise a false alarm) and did not decide between
-   them. **What the ambiguity costs delivery health:** if slice 4 leaves a stale dense schedule
-   installed on a dense-less day, that schedule is still firing and **its failure is invisible until
-   the next day with a dense phase**. The record must be able to express whatever slice 4 decides.
+1. **`dense: null` — RESOLVED 2026-09-07 by the pause decision recorded in the slice-4 entry above.
+   This item is closed; it is retained for the argument in its last sentence, which is now the case
+   FOR pausing.** Carried from slice 3a, it asked slice 4 to decide between "no dense phase today" and
+   "deliberately off". Pausing dissolves the question — the planner never expresses "off", QStash
+   holds it. **What the ambiguity cost delivery health, and what pausing buys:** a stale dense
+   schedule left installed on a dense-less day **is still firing, and its failure is invisible until
+   the next day with a dense phase**. Pausing is what keeps a dead schedule's silence meaningful.
 2. **A yellow row with an empty issues list — filed 2026-09-07 from slice 3b's final review.**
    `deliveryRowStatus` maps every non-`on-time` state to yellow, and slice 3b deliberately raises NO
    issue for "nothing is due yet" because nothing is wrong. So the row renders a yellow dot while the
