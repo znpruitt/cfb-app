@@ -181,11 +181,19 @@ function GameRow({
     (slateGame.ownerTeamSide === 'away' && opponentBelongsToCardOwner);
   const awayRanking = rankingsByTeamId?.get(awayTeamId);
   const homeRanking = rankingsByTeamId?.get(homeTeamId);
+  const opponentClassification =
+    slateGame.ownerTeamSide === 'away'
+      ? slateGame.game.homeClassification
+      : slateGame.game.awayClassification;
+  const opponentRanking = slateGame.ownerTeamSide === 'away' ? homeRanking : awayRanking;
+  const scoreboardShowsOpponentFcsMarker =
+    opponentClassification === 'fcs' && opponentRanking?.rank == null;
   const matchupLabel = formatGameMatchupLabel(slateGame.game, {
     homeAwaySeparator: scheduledSeparator,
   });
   const hideOpponentDescriptor =
     opponentDescriptor === 'NoClaim (FBS)' ||
+    (opponentDescriptor === 'FCS' && scoreboardShowsOpponentFcsMarker) ||
     (slateGame.opponentOwner != null && displayOwner(slateGame.opponentOwner) === null);
   const metadataEntries: string[] = [];
   if (!hideOpponentDescriptor) metadataEntries.push(opponentDescriptor);
@@ -205,7 +213,13 @@ function GameRow({
     <li className={`rounded-md transition-colors ${rowClasses}`}>
       <CompactGameScoreboard
         state={scoreboardState}
-        clock={statusTone === 'scheduled' ? scheduledKickoff : (liveClockLabel ?? undefined)}
+        clock={
+          scoreboardState === 'scheduled'
+            ? scheduledKickoff
+            : scoreboardState === 'live'
+              ? (liveClockLabel ?? undefined)
+              : undefined
+        }
         neutralSite={slateGame.game.neutral}
         matchupLabel={matchupLabel}
         contextSlot={
@@ -222,7 +236,7 @@ function GameRow({
           rank: awayRanking?.rank,
           rankSource: awayRanking?.rankSource,
           classification: slateGame.game.awayClassification,
-          score: awayScore ?? null,
+          score: scoreboardState === 'scheduled' ? null : (awayScore ?? null),
         }}
         home={{
           teamName: homeTeamName,
@@ -231,7 +245,7 @@ function GameRow({
           rank: homeRanking?.rank,
           rankSource: homeRanking?.rankSource,
           classification: slateGame.game.homeClassification,
-          score: homeScore ?? null,
+          score: scoreboardState === 'scheduled' ? null : (homeScore ?? null),
         }}
         tier2Slot={
           tier2Content ? (
@@ -354,7 +368,7 @@ function OwnerCard({
         ))}
       </div>
 
-      <ul id={gameListId}>
+      <ul id={gameListId} className="[&>li:last-child>article]:border-b-0">
         {visibleGames.map((slateGame) => (
           <GameRow
             key={`${slate.owner}:${slateGame.game.key}`}

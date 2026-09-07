@@ -91,6 +91,8 @@ function game(overrides: Partial<AppGame>): AppGame {
     canHome: overrides.canHome ?? overrides.csvHome ?? 'Home',
     awayConf: overrides.awayConf ?? 'SEC',
     homeConf: overrides.homeConf ?? 'SEC',
+    awayClassification: overrides.awayClassification,
+    homeClassification: overrides.homeClassification,
     sources: overrides.sources,
     startTimeTBD: overrides.startTimeTBD,
   };
@@ -384,12 +386,47 @@ test('matchups panel keeps status text non-redundant for completed games', () =>
     />
   );
 
-  assert.equal((html.match(/>Final<\/span>/g) ?? []).length, 2);
-  assert.doesNotMatch(html, /Final: /);
-  assert.doesNotMatch(html, /Kickoff /);
   const scoreboard = scoreboardMarkup(ownerCardMarkup(html, 'Lane'), 'Iowa @ Nebraska');
+  assert.equal(
+    (scoreboard.match(/Final/g) ?? []).length,
+    1,
+    'one completed scoreboard must render one final status and no final clock'
+  );
+  assert.doesNotMatch(scoreboard, />Final Final<\/span>|>final<\/span>/);
+  assert.doesNotMatch(scoreboard, /Final: /);
+  assert.doesNotMatch(scoreboard, /Kickoff /);
   assert.match(participantMarkup(scoreboard, 'away'), /data-scoreboard-value="away">31/);
   assert.match(participantMarkup(scoreboard, 'home'), /data-scoreboard-value="home">24/);
+});
+
+test('disrupted games never derive hidden score leadership in scheduled presentation', () => {
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[game({ key: 'g-suspended', csvAway: 'Iowa', csvHome: 'Nebraska' })]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'g-suspended': {
+          status: 'Suspended',
+          time: null,
+          home: { team: 'Nebraska', score: 7 },
+          away: { team: 'Iowa', score: 14 },
+        },
+      }}
+      rosterByTeam={
+        new Map([
+          ['Iowa', 'Lane'],
+          ['Nebraska', 'Mira'],
+        ])
+      }
+      displayTimeZone="America/New_York"
+    />
+  );
+
+  const scoreboard = scoreboardMarkup(ownerCardMarkup(html, 'Lane'), 'Iowa @ Nebraska');
+  assert.match(scoreboard, /data-scoreboard-state="scheduled"/);
+  assert.equal((scoreboard.match(/data-scoreboard-leading="false"/g) ?? []).length, 2);
+  assert.doesNotMatch(scoreboard, /data-scoreboard-leading="true"/);
+  assert.doesNotMatch(scoreboard, /data-scoreboard-value-kind="score"/);
 });
 
 test('scheduled rows keep matchup primary and score out of metadata', () => {
@@ -580,7 +617,11 @@ test('shared row conversion preserves the complete bespoke GameRow fact inventor
   assert.match(scheduledScoreboard, /Kickoff Sat, Aug 30, 8:00 PM/);
   assert.match(scheduledScoreboard, /data-scoreboard-team="away">Oregon/);
   assert.match(scheduledScoreboard, /data-scoreboard-team="home">Portland State/);
-  assert.match(scheduledScoreboard, />FCS<\/span>/);
+  assert.equal(
+    (scheduledScoreboard.match(/>FCS<\/span>/g) ?? []).length,
+    1,
+    'provider-classified FCS must render once beside the team name'
+  );
   assert.doesNotMatch(scheduledScoreboard, /data-scoreboard-value-kind="score"/);
 
   // Records, broadcast, and textual odds were not bespoke GameRow facts and
@@ -589,6 +630,58 @@ test('shared row conversion preserves the complete bespoke GameRow fact inventor
   assert.doesNotMatch(aliceCard, /DraftKings/);
   assert.doesNotMatch(aliceCard, /Georgia -7\.5/);
   assert.doesNotMatch(aliceCard, /data-scoreboard-broadcast/);
+});
+
+test('provider-classified FCS renders once while conference-only FCS retains its fallback', () => {
+  const renderFcsScoreboard = (homeClassification?: 'fcs'): string => {
+    const html = renderToStaticMarkup(
+      <MatchupsWeekPanel
+        games={[
+          game({
+            key: 'fcs-fallback',
+            csvAway: 'Oregon',
+            csvHome: 'Portland State',
+            homeConf: 'Big Sky',
+            homeClassification,
+          }),
+        ]}
+        oddsByKey={{}}
+        scoresByKey={{}}
+        rosterByTeam={new Map([['Oregon', 'Alice']])}
+        displayTimeZone="UTC"
+      />
+    );
+    return scoreboardMarkup(ownerCardMarkup(html, 'Alice'), 'Oregon @ Portland State');
+  };
+
+  const classified = renderFcsScoreboard('fcs');
+  assert.match(classified, /data-scoreboard-classification="home">FCS<\/span>/);
+  assert.equal((classified.match(/>FCS<\/span>/g) ?? []).length, 1);
+
+  const conferenceFallback = renderFcsScoreboard();
+  assert.doesNotMatch(conferenceFallback, /data-scoreboard-classification="home"/);
+  assert.equal((conferenceFallback.match(/>FCS<\/span>/g) ?? []).length, 1);
+});
+
+test('the final scoreboard in each owner game list drops its trailing divider', () => {
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[game({ key: 'last-divider', csvAway: 'Iowa', csvHome: 'Nebraska' })]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={
+        new Map([
+          ['Iowa', 'Lane'],
+          ['Nebraska', 'Mira'],
+        ])
+      }
+      displayTimeZone="America/New_York"
+    />
+  );
+
+  const laneCard = ownerCardMarkup(html, 'Lane');
+  assert.match(laneCard, /<ul[^>]*border-b-0[^>]*>/);
+  assert.match(scoreboardMarkup(laneCard, 'Iowa @ Nebraska'), /class="border-b py-3/);
 });
 
 test('every rendered eyebrow tag uses the settled bronze hairline treatment with no fill', () => {
