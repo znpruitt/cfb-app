@@ -94,7 +94,7 @@ import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
 import {
   EMPTY_TEAM_RECORDS_BY_PROVIDER_GAME_ID,
   type TeamRecordsByProviderGameId,
-} from '../lib/selectors/teamRecordsClient';
+} from '../lib/teamRecords/clientProjection';
 import {
   isWeeklyRecapActiveSeason,
   selectWeeklyRecapTileState,

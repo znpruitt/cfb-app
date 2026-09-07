@@ -63,7 +63,7 @@ import {
   EMPTY_TEAM_RECORDS_BY_PROVIDER_GAME_ID,
   type GameTeamRecordsClient,
   type TeamRecordsByProviderGameId,
-} from '../lib/selectors/teamRecordsClient';
+} from '../lib/teamRecords/clientProjection';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
 
 const EMPTY_OVERVIEW_ODDS_BY_KEY: Record<string, CombinedOdds> = {};

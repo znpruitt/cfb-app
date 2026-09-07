@@ -470,13 +470,13 @@ test('every league route mounting CFBScheduleApp supplies team-record props', as
     mountingPages.push(path.relative(routeRoot, pageFile));
     assert.match(
       source,
-      /\{\.\.\.teamRecordsClientProps\(scheduleItems, teamRecords\)\}/,
-      `${path.relative(routeRoot, pageFile)} must project records at the CFBScheduleApp boundary`
+      /\{\.\.\.teamRecordProps\}/,
+      `${path.relative(routeRoot, pageFile)} must pass the server-projected records at the CFBScheduleApp boundary`
     );
     assert.match(
       source,
-      /Promise\.allSettled\(\[\s*loadCachedScheduleItems\(enrichmentYear\),\s*readTeamRecordsCache\(enrichmentYear\),?\s*\]\)/,
-      `${path.relative(routeRoot, pageFile)} must isolate only the optional enrichment reads`
+      /loadTeamRecordsClientProps\(\{ leagueSlug: slug, year: enrichmentYear \}\)/,
+      `${path.relative(routeRoot, pageFile)} must use the shared server reconciliation loader`
     );
     assert.match(
       source,
@@ -486,6 +486,22 @@ test('every league route mounting CFBScheduleApp supplies team-record props', as
   }
 
   assert.ok(mountingPages.length > 0, 'fixture must discover a CFBScheduleApp route mount');
+
+  const loaderSource = await readFile(
+    path.join(process.cwd(), 'src', 'lib', 'server', 'teamRecordsClient.ts'),
+    'utf8'
+  );
+  assert.doesNotMatch(loaderSource, /assembleSeasonScoredBuild|buildScheduleFromApi/);
+  assert.doesNotMatch(loaderSource, /unstable_cache|revalidateTag|revalidatePath/);
+
+  for (const clientFile of ['CFBScheduleApp.tsx', 'OverviewPanel.tsx']) {
+    const clientSource = await readFile(
+      path.join(process.cwd(), 'src', 'components', clientFile),
+      'utf8'
+    );
+    assert.match(clientSource, /lib\/teamRecords\/clientProjection/);
+    assert.doesNotMatch(clientSource, /selectors\/teamRecordsClient/);
+  }
 });
 
 test('a finished season reaches the client as `final`, not the default', async () => {
