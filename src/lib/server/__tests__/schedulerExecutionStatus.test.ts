@@ -29,6 +29,11 @@ import {
 } from '@/lib/server/schedulerExecutionStatus';
 
 import {
+  cleanRankingsYearOutcome,
+  cleanScheduleYearOutcome,
+} from '@/test/schedulerYearOutcomeFixtures';
+
+import {
   installSchedulerReceiptDeferrer,
   RECEIPT_KEYS,
   readSchedulerReceipt,
@@ -139,6 +144,21 @@ test('createSchedulerInvocationId returns a UUID-shaped identity', () => {
 });
 
 // 2 — all job-compatible target shapes persist with exact target key sets.
+// PLATFORM-126B — the exact sorted per-year key sets of the two MULTI-YEAR
+// targets. Shared by the exact-key pin below so the two jobs cannot drift apart.
+const YEAR_OUTCOME_KEYS = [
+  'attemptedSeasonTypes',
+  'dataChanged',
+  'failedPartitions',
+  'providerCallAttempted',
+  'reason',
+  'result',
+  'rowsCommitted',
+  'rowsReceived',
+] as const;
+const SCHEDULE_YEAR_KEYS = [...YEAR_OUTCOME_KEYS, 'operation', 'year'].sort();
+const RANKINGS_YEAR_KEYS = [...YEAR_OUTCOME_KEYS, 'publicationWindow', 'year'].sort();
+
 test('all job target shapes persist with exact allowlisted target keys', async () => {
   const inputs: SchedulerExecutionReceiptInput[] = [
     liveScoresInput({
@@ -188,6 +208,7 @@ test('all job target shapes persist with exact allowlisted target keys', async (
             scoreSweepFailedPartitions: [],
             scoreSweepCannotTellCount: 0,
             kickoffsChanged: 0,
+            ...cleanScheduleYearOutcome(),
           },
           {
             year: 2026,
@@ -197,6 +218,7 @@ test('all job target shapes persist with exact allowlisted target keys', async (
             scoreSweepFailedPartitions: [],
             scoreSweepCannotTellCount: 0,
             kickoffsChanged: 0,
+            ...cleanScheduleYearOutcome(),
           },
         ],
         0
@@ -207,7 +229,10 @@ test('all job target shapes persist with exact allowlisted target keys', async (
       result: 'success',
       reason: 'year-results',
       providerCallAttempted: true,
-      target: rankingsYearsTarget([{ year: 2026, publicationWindow: 'weekly-ap-coaches' }], 0),
+      target: rankingsYearsTarget(
+        [{ year: 2026, publicationWindow: 'weekly-ap-coaches', ...cleanRankingsYearOutcome() }],
+        0
+      ),
     }),
   ];
   for (const input of inputs) {
@@ -266,10 +291,10 @@ test('all job target shapes persist with exact allowlisted target keys', async (
         .slice()
         .sort()
     ),
-    [
-      ['operation', 'year'],
-      ['operation', 'year'],
-    ]
+    // PLATFORM-126B — the widened per-year outcome. This list is the point of
+    // this assertion: a field reaching the durable store without being added
+    // here is exactly the leak the exact-key pin exists to catch.
+    [SCHEDULE_YEAR_KEYS, SCHEDULE_YEAR_KEYS]
   );
   const rankings = await readSchedulerReceipt('rankings');
   assert.deepEqual(
@@ -278,7 +303,7 @@ test('all job target shapes persist with exact allowlisted target keys', async (
         .slice()
         .sort()
     ),
-    [['publicationWindow', 'year']]
+    [RANKINGS_YEAR_KEYS]
   );
 });
 
@@ -312,6 +337,7 @@ test('all nine jobs derive the correct source and persist their target shape', a
             scoreSweepFailedPartitions: [],
             scoreSweepCannotTellCount: 0,
             kickoffsChanged: 0,
+            ...cleanScheduleYearOutcome(),
           },
         ],
         0
@@ -319,7 +345,10 @@ test('all nine jobs derive the correct source and persist their target shape', a
     }),
     liveScoresInput({
       job: 'rankings',
-      target: rankingsYearsTarget([{ year: 2026, publicationWindow: null }], 0),
+      target: rankingsYearsTarget(
+        [{ year: 2026, publicationWindow: null, ...cleanRankingsYearOutcome() }],
+        0
+      ),
     }),
     liveScoresInput({
       job: 'usage-sample',
@@ -615,6 +644,7 @@ test('multi-year targets cap at eight entries with truthful totalYears and trunc
     scoreSweepFailedPartitions: [],
     scoreSweepCannotTellCount: 0,
     kickoffsChanged: 0,
+    ...cleanScheduleYearOutcome(),
   }));
   const capped = scheduleYearsTarget(many, 0);
   assert.equal(capped.totalYears, 10);
@@ -628,8 +658,8 @@ test('multi-year targets cap at eight entries with truthful totalYears and trunc
 
   const few = rankingsYearsTarget(
     [
-      { year: 2025, publicationWindow: null },
-      { year: 2026, publicationWindow: 'cfp-publication' },
+      { year: 2025, publicationWindow: null, ...cleanRankingsYearOutcome() },
+      { year: 2026, publicationWindow: 'cfp-publication', ...cleanRankingsYearOutcome() },
     ],
     0
   );

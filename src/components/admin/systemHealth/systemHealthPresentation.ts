@@ -12,6 +12,7 @@
  */
 
 import { formatRelativeTimestamp } from '@/lib/freshness';
+import { formatYearFailureEvidence } from '@/lib/server/schedulerYearEvidence';
 import type {
   ExternalSchedulerJob,
   SchedulerExecutionReceipt,
@@ -313,10 +314,18 @@ export function summarizeReceiptTarget(target: SchedulerExecutionReceipt['target
       // recorded dangling-colon deferral: an all-refused receipt would otherwise
       // render `0 year(s): ` with nothing after the separator. The rankings and
       // rollover branches still carry it and are deliberately untouched here.
+      // PLATFORM-126B — a FAILED or PARTIAL year now names its stable reason and
+      // the partitions that caused it, each with its retained transport class.
+      // A successful year, and every legacy entry, renders exactly as before.
       const yearDetail =
         target.years.length > 0
           ? `: ${target.years
-              .map((y) => `${y.year}${y.operation ? ` (${y.operation})` : ''}`)
+              .map((y) => {
+                const evidence = formatYearFailureEvidence(y);
+                return `${y.year}${y.operation ? ` (${y.operation})` : ''}${
+                  evidence ? ` — ${evidence}` : ''
+                }`;
+              })
               .join(', ')}`
           : '';
       const unusable =
@@ -343,10 +352,17 @@ export function summarizeReceiptTarget(target: SchedulerExecutionReceipt['target
       // recorded dangling-colon deferral: an all-refused receipt would otherwise
       // render `0 year(s): ` with nothing after the separator. The rollover
       // branch still carries it and is deliberately untouched here (F2H1R4's).
+      // PLATFORM-126B — same treatment as the schedule branch above, from the
+      // same shared formatter: one vocabulary across both multi-year jobs.
       const yearDetail =
         target.years.length > 0
           ? `: ${target.years
-              .map((y) => `${y.year}${y.publicationWindow ? ` (${y.publicationWindow})` : ''}`)
+              .map((y) => {
+                const evidence = formatYearFailureEvidence(y);
+                return `${y.year}${y.publicationWindow ? ` (${y.publicationWindow})` : ''}${
+                  evidence ? ` — ${evidence}` : ''
+                }`;
+              })
               .join(', ')}`
           : '';
       const unusable =

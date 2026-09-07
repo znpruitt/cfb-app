@@ -31,7 +31,12 @@ import type {
   SchedulerDeliveryHealthSnapshot,
   SchedulerPlanUnavailableReason,
 } from './schedulerDeliveryHealth.ts';
-import { EXTERNAL_SCHEDULER_JOBS, type ExternalSchedulerJob } from './schedulerExecutionStatus.ts';
+import {
+  EXTERNAL_SCHEDULER_JOBS,
+  type ExternalSchedulerJob,
+  type SchedulerExecutionReceipt,
+} from './schedulerExecutionStatus.ts';
+import { formatYearFailureEvidence } from './schedulerYearEvidence.ts';
 import {
   getProviderDatasetDescriptor,
   PROVIDER_DATASETS,
@@ -494,6 +499,39 @@ function schedulerDeliveryIssues(
   return issues;
 }
 
+/**
+ * PLATFORM-126B — the retained per-year failure evidence from a MULTI-YEAR job's
+ * receipt, or null when there is none to show.
+ *
+ * Null for every single-unit job (their run-level result/reason already names
+ * what failed — owner decision 2026-09-04, deliberately not widened), for a
+ * legacy receipt whose year entries carry no outcome, and for a run that failed
+ * before any year executed. In each of those the explanation below stays exactly
+ * the sentence it was.
+ */
+function receiptYearFailureEvidence(target: SchedulerExecutionReceipt['target']): string | null {
+  if (target.kind !== 'schedule-years' && target.kind !== 'rankings-years') return null;
+  const detail = target.years
+    .map((entry) => {
+      const evidence = formatYearFailureEvidence(entry);
+      return evidence ? `${entry.year}: ${evidence}` : null;
+    })
+    .filter((entry): entry is string => entry !== null);
+  return detail.length > 0 ? detail.join('; ') : null;
+}
+
+/**
+ * The evidence clause appended to an execution-fault explanation. The caveat is
+ * load-bearing, not boilerplate: a receipt records what the RUN reported, and
+ * saying more than that would make observability metadata read as canonical data
+ * truth — which the cache-state and provider-freshness rows own instead.
+ */
+function evidenceClause(evidence: string | null): string {
+  return evidence === null
+    ? ''
+    : ` Retained receipt evidence — ${evidence}. That is what the run recorded; it does not describe what the cache now holds.`;
+}
+
 function schedulerExecutionIssues(snapshot: SchedulerDeliveryHealthSnapshot): SystemHealthIssue[] {
   // Execution outcome is inspected from the safely-parsed receipt INDEPENDENTLY
   // of delivery timeliness: a late-but-successful run raises no execution fault,
@@ -509,13 +547,19 @@ function schedulerExecutionIssues(snapshot: SchedulerDeliveryHealthSnapshot): Sy
     const repair = JOBS_WITHOUT_EXECUTION_REPAIR.has(row.job)
       ? null
       : repairFor('data-maintenance');
+    // PLATFORM-126B — the SEVERITY, code, subject and repair are unchanged and
+    // still derive from `receipt.result` alone. Only the explanation is enriched:
+    // a run-level result cannot say which year failed when a run spans several,
+    // and until now the operator's entire durable account of the September 1,
+    // 2026 failure was this one generic sentence.
+    const evidence = evidenceClause(receiptYearFailureEvidence(receipt.target));
     if (receipt.result === 'failure') {
       issues.push({
         code: 'scheduler-execution-failed',
         severity: 'warning',
         subject: { axis: 'job', id: row.job },
         title: `${row.job} execution failed`,
-        explanation: `The most recent ${row.job} invocation reported a failed execution result.`,
+        explanation: `The most recent ${row.job} invocation reported a failed execution result.${evidence}`,
         repair,
       });
     } else if (receipt.result === 'partial') {
@@ -524,7 +568,7 @@ function schedulerExecutionIssues(snapshot: SchedulerDeliveryHealthSnapshot): Sy
         severity: 'warning',
         subject: { axis: 'job', id: row.job },
         title: `${row.job} execution was partial`,
-        explanation: `The most recent ${row.job} invocation reported a partial execution result.`,
+        explanation: `The most recent ${row.job} invocation reported a partial execution result.${evidence}`,
         repair,
       });
     }

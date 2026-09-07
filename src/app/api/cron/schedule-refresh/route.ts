@@ -123,6 +123,9 @@ function yearEntryFromRefresh(
     result,
     reason: scoreSweepFailed ? 'score-sweep-failed' : refresh.reason,
     providerCallAttempted: refresh.providerCallAttempted,
+    // PLATFORM-126B — copied verbatim from the authority, never re-derived.
+    attemptedSeasonTypes: refresh.attemptedSeasonTypes,
+    failedPartitions: refresh.failedPartitions,
     rowsReceived: refresh.rowsReceived,
     rowsCommitted: refresh.rowsCommitted,
     dataChanged: refresh.dataChanged,
@@ -449,6 +452,10 @@ export async function GET(req: Request): Promise<Response> {
           result: 'failure',
           reason: 'canonical-context-unavailable',
           providerCallAttempted: false,
+          // No provider request was made, so there is nothing attempted and
+          // nothing failed at the partition level.
+          attemptedSeasonTypes: [],
+          failedPartitions: [],
           rowsReceived: 0,
           rowsCommitted: 0,
           dataChanged: false,
@@ -472,6 +479,10 @@ export async function GET(req: Request): Promise<Response> {
           result: 'skipped',
           reason: 'season-transition-owner',
           providerCallAttempted: false,
+          // No provider request was made, so there is nothing attempted and
+          // nothing failed at the partition level.
+          attemptedSeasonTypes: [],
+          failedPartitions: [],
           rowsReceived: 0,
           rowsCommitted: 0,
           dataChanged: false,
@@ -493,6 +504,10 @@ export async function GET(req: Request): Promise<Response> {
           result: 'skipped',
           reason: 'automation-paused-or-disabled',
           providerCallAttempted: false,
+          // No provider request was made, so there is nothing attempted and
+          // nothing failed at the partition level.
+          attemptedSeasonTypes: [],
+          failedPartitions: [],
           rowsReceived: 0,
           rowsCommitted: 0,
           dataChanged: false,
@@ -513,6 +528,10 @@ export async function GET(req: Request): Promise<Response> {
           result: 'failure',
           reason: 'settings-unavailable',
           providerCallAttempted: false,
+          // No provider request was made, so there is nothing attempted and
+          // nothing failed at the partition level.
+          attemptedSeasonTypes: [],
+          failedPartitions: [],
           rowsReceived: 0,
           rowsCommitted: 0,
           dataChanged: false,

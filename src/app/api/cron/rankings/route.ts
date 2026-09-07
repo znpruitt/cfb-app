@@ -94,6 +94,8 @@ function inertYearEntry(
     quotaChecked: quota.checked,
     quotaRemaining: quota.remaining,
     attemptedSeasonTypes: [],
+    // No provider request was made, so nothing failed at the partition level.
+    failedPartitions: [],
     providerCallAttempted: false,
     rowsReceived: 0,
     rowsCommitted: 0,
@@ -133,6 +135,8 @@ function yearEntryFromRefresh(
     quotaChecked: true,
     quotaRemaining,
     attemptedSeasonTypes: refresh.attemptedSeasonTypes,
+    // PLATFORM-126B — copied verbatim from the authority, never re-derived.
+    failedPartitions: refresh.failedPartitions,
     providerCallAttempted: refresh.providerCallAttempted,
     rowsReceived: refresh.rowsReceived,
     rowsCommitted: refresh.rowsCommitted,

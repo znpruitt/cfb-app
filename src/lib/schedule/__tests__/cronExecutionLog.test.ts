@@ -23,6 +23,8 @@ function entry(
     year: 2031,
     operation: null,
     providerCallAttempted: false,
+    attemptedSeasonTypes: [],
+    failedPartitions: [],
     rowsReceived: 0,
     rowsCommitted: 0,
     dataChanged: false,

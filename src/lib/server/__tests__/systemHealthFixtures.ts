@@ -21,6 +21,10 @@ import type {
   SchedulerDeliveryHealthSnapshot,
   SchedulerPlanUnavailableReason,
 } from '../schedulerDeliveryHealth.ts';
+import {
+  cleanRankingsYearOutcome,
+  cleanScheduleYearOutcome,
+} from '../../../test/schedulerYearOutcomeFixtures.ts';
 import { requiredStartedAtForJob, schedulerDeliveryPolicy } from '../schedulerDeliveryHealth.ts';
 import {
   buildSchedulerExecutionReceipt,
@@ -93,12 +97,16 @@ function targetFor(job: ExternalSchedulerJob, refusals = 0): SchedulerExecutionT
             scoreSweepFailedPartitions: [],
             scoreSweepCannotTellCount: 0,
             kickoffsChanged: 0,
+            ...cleanScheduleYearOutcome(),
           },
         ],
         refusals
       );
     case 'rankings':
-      return rankingsYearsTarget([{ year: YEAR, publicationWindow: null }], refusals);
+      return rankingsYearsTarget(
+        [{ year: YEAR, publicationWindow: null, ...cleanRankingsYearOutcome() }],
+        refusals
+      );
     case 'season-transition':
       return seasonTransitionYearsTarget(
         [{ year: YEAR, targetLeagues: 1, probed: true, transitionedLeagues: 0 }],

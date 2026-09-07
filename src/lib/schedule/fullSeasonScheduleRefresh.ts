@@ -362,7 +362,7 @@ export async function refreshFullSeasonSchedule(params: {
     );
     if (uncertainOutcomes.length > 0) {
       // Reason is taken from the FIRST uncertain partition (regular before
-      // postseason); `failedSeasonTypes` reports EVERY uncertain partition so the
+      // postseason); `failedPartitions` reports EVERY uncertain partition so the
       // caller sees the full failure set. Any uncertain required partition rejects
       // the aggregate — a partial is never published.
       const first = uncertainOutcomes[0]!;
@@ -372,7 +372,15 @@ export async function refreshFullSeasonSchedule(params: {
           : first.kind === 'invalid-payload'
             ? ('partition-invalid-payload' as const)
             : ('partition-schema-drift' as const);
-      const failedSeasonTypes = uncertainOutcomes.map((o) => o.seasonType);
+      // PLATFORM-126B — each uncertain partition keeps its OWN retained transport
+      // class. Only a `fetch-failed` partition has one; `invalid-payload` and
+      // `schema-drift` failed AFTER a successful fetch, so their transport was
+      // fine and the year `reason` already names what went wrong.
+      const failedPartitions = uncertainOutcomes.map((o) => ({
+        seasonType: o.seasonType,
+        upstream: o.kind === 'fetch-failed' ? o.upstream : null,
+      }));
+      const failedSeasonTypes = failedPartitions.map((p) => p.seasonType);
       await recordProviderRefreshFailure('schedule', scope, {
         attempt,
         error: `schedule ${year}: ${failedSeasonTypes.join(', ')} partition ${reason}`,
@@ -387,7 +395,7 @@ export async function refreshFullSeasonSchedule(params: {
         reason,
         requestedYear: year,
         attemptedSeasonTypes,
-        failedSeasonTypes,
+        failedPartitions,
         rowsReceived,
         providerCallAttempted,
         observedAt,

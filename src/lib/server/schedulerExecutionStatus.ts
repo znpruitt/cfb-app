@@ -1,6 +1,11 @@
 import { after } from 'next/server';
 
 import type { CfbdSeasonType } from '@/lib/cfbd';
+import {
+  isStoredUpstreamFaultClass,
+  rebuildUpstreamFaultClass,
+  type UpstreamFaultClass,
+} from '@/lib/api/upstreamFaultClass';
 import type { GameStatsCronExecutionReason } from '@/lib/gameStats/cronExecutionLog';
 import type {
   LiveScoresCronExecutionReason,
@@ -8,8 +13,14 @@ import type {
 } from '@/lib/liveScores/cronExecutionLog';
 import type { OddsCronCadence, OddsCronExecutionReason } from '@/lib/odds/cronExecutionLog';
 import type { RankingsPublicationWindowKind } from '@/lib/rankings/publicationPolicy';
-import type { RankingsCronExecutionReason } from '@/lib/rankings/cronExecutionLog';
-import type { ScheduleRefreshCronExecutionReason } from '@/lib/schedule/cronExecutionLog';
+import type {
+  RankingsCronExecutionReason,
+  RankingsCronYearExecution,
+} from '@/lib/rankings/cronExecutionLog';
+import type {
+  ScheduleRefreshCronExecutionReason,
+  ScheduleRefreshCronYearExecution,
+} from '@/lib/schedule/cronExecutionLog';
 import type { WeeklyScheduleRefreshOperation } from '@/lib/schedule/weeklyRefreshOperation';
 import type { TeamRecordsCronExecutionReason } from '@/lib/teamRecords/cronExecutionLog';
 import type {
@@ -73,6 +84,15 @@ export const SCHEDULER_EXECUTION_STATUS_SCOPE = 'scheduler-execution-status';
 
 /** Bounded multi-year target summaries store at most this many entries. */
 export const MAX_SCHEDULER_TARGET_YEARS = 8;
+
+/**
+ * PLATFORM-126B — the per-year partition lists are bounded like everything
+ * else that reaches this store. Both multi-year jobs cover exactly the two
+ * CFBD partitions (regular, postseason), so two is the real maximum; the
+ * constant exists so a corrupt stored row cannot render an arbitrarily long
+ * list, not because a third partition is anticipated.
+ */
+export const MAX_RECEIPT_PARTITIONS = 2;
 
 /**
  * The canonical, ordered list of every externally scheduled job. Readers (F2E2B)
@@ -156,6 +176,57 @@ export type SchedulerExecutionReason =
   | SeasonRolloverCronExecutionReason
   | UsageSampleCronExecutionReason
   | PollingPlannerCronExecutionReason;
+
+/**
+ * PLATFORM-126B — the per-year outcome the two MULTI-YEAR jobs record.
+ *
+ * ## Why only these two jobs
+ *
+ * `schedule-refresh` and `rankings` are the only jobs whose one run can span
+ * several years, so their run-level `result`/`reason` cannot say WHICH year
+ * failed. The four single-unit jobs (`live-scores`, `game-stats`, `odds`,
+ * `team-records`) process one unit per run and are deliberately NOT widened —
+ * owner decision 2026-09-04.
+ *
+ * ## Why every field is nullable, and why `null` is not `0` or `false`
+ *
+ * A receipt written before this shape existed carries none of them. They
+ * normalize to `null`, never to a zero or a `false`, because `rowsCommitted: 0`
+ * and `dataChanged: false` are real observations a run can make: defaulting an
+ * ABSENT field to them would manufacture evidence that the September 1, 2026
+ * postmortem is the standing proof of the cost of. `null` reads as "this writer
+ * did not record it", which is the truth.
+ */
+type SchedulerYearOutcome<Reason extends string> = {
+  /** The per-year result, or null on a legacy receipt. */
+  result: SchedulerExecutionResult | null;
+  /** The per-year stable reason, or null on a legacy receipt. */
+  reason: Reason | null;
+  providerCallAttempted: boolean | null;
+  rowsReceived: number | null;
+  rowsCommitted: number | null;
+  dataChanged: boolean | null;
+  /** Partitions this year actually requested. Empty on a pre-fetch exit AND on a legacy receipt. */
+  attemptedSeasonTypes: SchedulerReceiptSeasonType[];
+  /**
+   * Partitions that caused the rejection, each with its own retained upstream
+   * class. The SINGLE home for "which partition failed and why" — there is
+   * deliberately no second per-year class (owner ruling, 2026-09-07), because a
+   * year with one partition committed and one timed out is a real state that a
+   * per-year class could only express through a lossy tie-break.
+   */
+  failedPartitions: SchedulerFailedPartition[];
+};
+
+/** The two CFBD partitions both multi-year jobs cover. */
+export type SchedulerReceiptSeasonType = 'regular' | 'postseason';
+
+/** One failed partition and its retained, secret-safe transport class. */
+export type SchedulerFailedPartition = {
+  seasonType: SchedulerReceiptSeasonType;
+  /** Non-null only for a transport failure; null for a payload/drift/coverage rejection. */
+  upstream: UpstreamFaultClass | null;
+};
 
 /** The allowlisted, bounded per-job target summary variants. */
 export type SchedulerExecutionTarget =
@@ -243,10 +314,12 @@ export type SchedulerExecutionTarget =
        * receipt omits it and the rebuild normalizes to 0).
        */
       invalidLifecycleTargets: number;
-      years: Array<{
-        year: number;
-        operation: WeeklyScheduleRefreshOperation | null;
-      }>;
+      years: Array<
+        {
+          year: number;
+          operation: WeeklyScheduleRefreshOperation | null;
+        } & SchedulerYearOutcome<ScheduleRefreshCronYearExecution['reason']>
+      >;
     }
   | {
       kind: 'rankings-years';
@@ -259,10 +332,12 @@ export type SchedulerExecutionTarget =
        * receipt omits it and the rebuild normalizes to 0).
        */
       invalidLifecycleTargets: number;
-      years: Array<{
-        year: number;
-        publicationWindow: RankingsPublicationWindowKind | null;
-      }>;
+      years: Array<
+        {
+          year: number;
+          publicationWindow: RankingsPublicationWindowKind | null;
+        } & SchedulerYearOutcome<RankingsCronYearExecution['reason']>
+      >;
     }
   | {
       kind: 'season-transition-years';
@@ -376,6 +451,37 @@ export function createSchedulerInvocationId(): string | null {
   }
 }
 
+/**
+ * Project one route year entry onto the durable per-year outcome. Field-by-field
+ * through the allowlist, and the transport class through its own rebuilder, so
+ * neither an attached property nor an error message can reach the store.
+ * Partitions are bounded so a corrupt or future caller cannot inflate a receipt.
+ */
+function yearOutcome<Reason extends string>(entry: {
+  result: SchedulerExecutionResult;
+  reason: Reason;
+  providerCallAttempted: boolean;
+  rowsReceived: number;
+  rowsCommitted: number;
+  dataChanged: boolean;
+  attemptedSeasonTypes: ReadonlyArray<SchedulerReceiptSeasonType>;
+  failedPartitions: ReadonlyArray<SchedulerFailedPartition>;
+}): SchedulerYearOutcome<Reason> {
+  return {
+    result: entry.result,
+    reason: entry.reason,
+    providerCallAttempted: entry.providerCallAttempted,
+    rowsReceived: entry.rowsReceived,
+    rowsCommitted: entry.rowsCommitted,
+    dataChanged: entry.dataChanged,
+    attemptedSeasonTypes: entry.attemptedSeasonTypes.slice(0, MAX_RECEIPT_PARTITIONS),
+    failedPartitions: entry.failedPartitions.slice(0, MAX_RECEIPT_PARTITIONS).map((partition) => ({
+      seasonType: partition.seasonType,
+      upstream: rebuildUpstreamFaultClass(partition.upstream),
+    })),
+  };
+}
+
 /** The bounded `schedule-years` summary from the route's per-year entries. */
 export function scheduleYearsTarget(
   // REQUIRED metrics: omitting any one would let a new caller silently erase
@@ -388,14 +494,28 @@ export function scheduleYearsTarget(
     scoreSweepFailedPartitions: ReadonlyArray<unknown>;
     scoreSweepCannotTellCount: number;
     kickoffsChanged: number;
+    // PLATFORM-126B — the per-year outcome. REQUIRED for the same reason the
+    // metrics above are: a caller that reconstructed this target without them
+    // would silently record a year whose result nothing can now establish, which
+    // is precisely the September 1, 2026 failure mode.
+    result: ScheduleRefreshCronYearExecution['result'];
+    reason: ScheduleRefreshCronYearExecution['reason'];
+    providerCallAttempted: boolean;
+    rowsReceived: number;
+    rowsCommitted: number;
+    dataChanged: boolean;
+    attemptedSeasonTypes: ReadonlyArray<SchedulerReceiptSeasonType>;
+    failedPartitions: ReadonlyArray<SchedulerFailedPartition>;
   }>,
   // REQUIRED: a defaulted parameter would let a caller that reconstructs this
   // target silently record zero refusals with no compiler signal.
   invalidLifecycleTargets: number
 ): Extract<SchedulerExecutionTarget, { kind: 'schedule-years' }> {
-  const years = entries
-    .slice(0, MAX_SCHEDULER_TARGET_YEARS)
-    .map((entry) => ({ year: entry.year, operation: entry.operation }));
+  const years = entries.slice(0, MAX_SCHEDULER_TARGET_YEARS).map((entry) => ({
+    year: entry.year,
+    operation: entry.operation,
+    ...yearOutcome(entry),
+  }));
   return {
     kind: 'schedule-years',
     totalYears: entries.length,
@@ -418,14 +538,28 @@ export function scheduleYearsTarget(
 
 /** The bounded `rankings-years` summary from the route's per-year entries. */
 export function rankingsYearsTarget(
-  entries: ReadonlyArray<{ year: number; publicationWindow: RankingsPublicationWindowKind | null }>,
+  entries: ReadonlyArray<{
+    year: number;
+    publicationWindow: RankingsPublicationWindowKind | null;
+    // PLATFORM-126B — REQUIRED, exactly as for the schedule builder above.
+    result: RankingsCronYearExecution['result'];
+    reason: RankingsCronYearExecution['reason'];
+    providerCallAttempted: boolean;
+    rowsReceived: number;
+    rowsCommitted: number;
+    dataChanged: boolean;
+    attemptedSeasonTypes: ReadonlyArray<SchedulerReceiptSeasonType>;
+    failedPartitions: ReadonlyArray<SchedulerFailedPartition>;
+  }>,
   // REQUIRED: a defaulted parameter would let a caller that reconstructs this
   // target silently record zero refusals with no compiler signal.
   invalidLifecycleTargets: number
 ): Extract<SchedulerExecutionTarget, { kind: 'rankings-years' }> {
-  const years = entries
-    .slice(0, MAX_SCHEDULER_TARGET_YEARS)
-    .map((entry) => ({ year: entry.year, publicationWindow: entry.publicationWindow }));
+  const years = entries.slice(0, MAX_SCHEDULER_TARGET_YEARS).map((entry) => ({
+    year: entry.year,
+    publicationWindow: entry.publicationWindow,
+    ...yearOutcome(entry),
+  }));
   return {
     kind: 'rankings-years',
     totalYears: entries.length,
@@ -750,9 +884,11 @@ function rebuildTarget(target: SchedulerExecutionTarget): SchedulerExecutionTarg
         scoreSweepFailures: target.scoreSweepFailures ?? 0,
         scoreSweepCannotTellCount: target.scoreSweepCannotTellCount ?? 0,
         kickoffsChanged: target.kickoffsChanged ?? 0,
-        years: target.years
-          .slice(0, MAX_SCHEDULER_TARGET_YEARS)
-          .map((entry) => ({ year: entry.year, operation: entry.operation })),
+        years: target.years.slice(0, MAX_SCHEDULER_TARGET_YEARS).map((entry) => ({
+          year: entry.year,
+          operation: entry.operation,
+          ...rebuildYearOutcome(entry),
+        })),
       };
     case 'rankings-years':
       return {
@@ -763,9 +899,11 @@ function rebuildTarget(target: SchedulerExecutionTarget): SchedulerExecutionTarg
         // already-stored valid row keeps parsing instead of degrading the
         // System Health row to `invalid` until the next cron run rewrites it.
         invalidLifecycleTargets: target.invalidLifecycleTargets ?? 0,
-        years: target.years
-          .slice(0, MAX_SCHEDULER_TARGET_YEARS)
-          .map((entry) => ({ year: entry.year, publicationWindow: entry.publicationWindow })),
+        years: target.years.slice(0, MAX_SCHEDULER_TARGET_YEARS).map((entry) => ({
+          year: entry.year,
+          publicationWindow: entry.publicationWindow,
+          ...rebuildYearOutcome(entry),
+        })),
       };
     case 'season-transition-years':
       return {
@@ -808,6 +946,118 @@ function rebuildTarget(target: SchedulerExecutionTarget): SchedulerExecutionTarg
   }
 }
 
+/**
+ * PLATFORM-126B — rebuild one stored per-year outcome.
+ *
+ * Every field normalizes to `null`/`[]` when absent, so a receipt written before
+ * this shape existed keeps parsing rather than degrading the whole row to
+ * `invalid` — the same legacy-tolerance every prior widening in this file used
+ * (`invalidLifecycleTargets`, the H1B dispositions, the sweeper counters). The
+ * cost of getting this wrong is disproportionate and already documented at the
+ * `buildCommitSha` guard: a rejected receipt loses `reason`, `target` and both
+ * timestamps, discarding the entire forensic surface of a run.
+ *
+ * `null` is NOT `0`/`false`. See {@link SchedulerYearOutcome}.
+ */
+function rebuildYearOutcome<Reason extends string>(entry: {
+  result?: SchedulerExecutionResult | null;
+  reason?: Reason | null;
+  providerCallAttempted?: boolean | null;
+  rowsReceived?: number | null;
+  rowsCommitted?: number | null;
+  dataChanged?: boolean | null;
+  attemptedSeasonTypes?: SchedulerReceiptSeasonType[];
+  failedPartitions?: SchedulerFailedPartition[];
+}): SchedulerYearOutcome<Reason> {
+  return {
+    result: entry.result ?? null,
+    reason: entry.reason ?? null,
+    providerCallAttempted: entry.providerCallAttempted ?? null,
+    rowsReceived: entry.rowsReceived ?? null,
+    rowsCommitted: entry.rowsCommitted ?? null,
+    dataChanged: entry.dataChanged ?? null,
+    attemptedSeasonTypes: (entry.attemptedSeasonTypes ?? []).slice(0, MAX_RECEIPT_PARTITIONS),
+    failedPartitions: (entry.failedPartitions ?? [])
+      .slice(0, MAX_RECEIPT_PARTITIONS)
+      .map((partition) => ({
+        seasonType: partition.seasonType,
+        upstream: rebuildUpstreamFaultClass(partition.upstream),
+      })),
+  };
+}
+
+/**
+ * A stored per-year reason. Validated as a BOUNDED lowercase token rather than
+ * against an enumerated union, for the reason the top-level `reason` guard
+ * already states: enumerating would re-declare several cross-module unions here
+ * and go stale the first time one of them gains a member — and a receipt whose
+ * reason this file has not heard of is still a truthful record of a run.
+ *
+ * The charset is the point. Every reason either job produces is kebab-case
+ * (`partition-fetch-failed`, `quota-below-reserve`, `written-clean`), so a token
+ * matching this cannot contain a space, a slash, a colon, a query string, or any
+ * other shape an error message, URL, or payload fragment would take. This is
+ * STRICTER than the top-level field, which accepts any nonempty string.
+ */
+const YEAR_REASON_PATTERN = /^[a-z][a-z0-9-]{0,63}$/;
+
+/** Validate one stored per-year outcome. Absent is legacy; present-but-bad rejects. */
+function isValidStoredYearOutcome(row: Record<string, unknown>): boolean {
+  if (
+    row.result !== undefined &&
+    row.result !== null &&
+    !(typeof row.result === 'string' && RESULT_VALUES.has(row.result))
+  ) {
+    return false;
+  }
+  if (
+    row.reason !== undefined &&
+    row.reason !== null &&
+    !(typeof row.reason === 'string' && YEAR_REASON_PATTERN.test(row.reason))
+  ) {
+    return false;
+  }
+  for (const field of ['providerCallAttempted', 'dataChanged'] as const) {
+    const value = row[field];
+    if (value !== undefined && value !== null && typeof value !== 'boolean') return false;
+  }
+  for (const field of ['rowsReceived', 'rowsCommitted'] as const) {
+    const value = row[field];
+    if (value !== undefined && value !== null && !isNonNegativeInteger(value)) return false;
+  }
+  if (row.attemptedSeasonTypes !== undefined) {
+    if (!Array.isArray(row.attemptedSeasonTypes)) return false;
+    if (row.attemptedSeasonTypes.length > MAX_RECEIPT_PARTITIONS) return false;
+    if (
+      !row.attemptedSeasonTypes.every(
+        (value) => typeof value === 'string' && SEASON_TYPES.has(value)
+      )
+    ) {
+      return false;
+    }
+  }
+  if (row.failedPartitions !== undefined) {
+    if (!Array.isArray(row.failedPartitions)) return false;
+    if (row.failedPartitions.length > MAX_RECEIPT_PARTITIONS) return false;
+    if (
+      !row.failedPartitions.every((value) => {
+        if (typeof value !== 'object' || value === null) return false;
+        const partition = value as Record<string, unknown>;
+        if (typeof partition.seasonType !== 'string' || !SEASON_TYPES.has(partition.seasonType)) {
+          return false;
+        }
+        // Absent or null is a partition with no transport fault to name — a
+        // payload/drift/coverage rejection, or a legacy writer.
+        if (partition.upstream === undefined || partition.upstream === null) return true;
+        return isStoredUpstreamFaultClass(partition.upstream);
+      })
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /** Rebuild the full receipt from the explicit allowlist; `null` when unusable. */
 function rebuildReceipt(receipt: SchedulerExecutionReceipt): SchedulerExecutionReceipt | null {
   if (JOB_TARGET_KIND[receipt.job] !== receipt.target?.kind) return null;
@@ -847,7 +1097,9 @@ function isValidYearEntries(
     const row = entry as Record<string, unknown>;
     if (!isFiniteNumber(row.year)) return false;
     const field = row[entryField];
-    return field === null || (typeof field === 'string' && allowedValues.has(field));
+    if (field !== null && !(typeof field === 'string' && allowedValues.has(field))) return false;
+    // PLATFORM-126B — the per-year outcome, absent on every legacy receipt.
+    return isValidStoredYearOutcome(row);
   });
 }
 

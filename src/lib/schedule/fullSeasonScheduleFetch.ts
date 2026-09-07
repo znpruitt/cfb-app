@@ -1,4 +1,5 @@
 import { fetchUpstreamJson } from '@/lib/api/fetchUpstream';
+import { classifyUpstreamFault, type UpstreamFaultClass } from '@/lib/api/upstreamFaultClass';
 import { buildCfbdGamesUrl } from '@/lib/cfbd';
 
 import {
@@ -37,7 +38,13 @@ export type FullSeasonSchedulePartitionFetchOutcome =
       scoreCannotTellCount: number;
       scoreCannotTellPartitions: Array<{ week: number; seasonType: SeasonType }>;
     }
-  | { kind: 'fetch-failed'; seasonType: SeasonType }
+  /**
+   * PLATFORM-126B — the transport fault is RETAINED as the shared closed
+   * class instead of collapsing to the bare token. `null` means the throw
+   * did not come from the shared upstream helper and carries no honest
+   * classification; it is never defaulted to a member.
+   */
+  | { kind: 'fetch-failed'; seasonType: SeasonType; upstream: UpstreamFaultClass | null }
   | { kind: 'invalid-payload'; seasonType: SeasonType }
   | { kind: 'schema-drift'; seasonType: SeasonType };
 
@@ -63,8 +70,10 @@ export async function fetchFullSeasonSchedulePartition(params: {
       retry: CFBD_RETRY_POLICY,
       pacing: CFBD_PACING_POLICY,
     });
-  } catch {
-    return { kind: 'fetch-failed', seasonType };
+  } catch (error) {
+    // Only `kind` and `status` cross this boundary — never the caught error,
+    // its message, the URL, or an HTTP response body.
+    return { kind: 'fetch-failed', seasonType, upstream: classifyUpstreamFault(error) };
   }
 
   if (!Array.isArray(upstream)) {
