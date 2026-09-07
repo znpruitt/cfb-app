@@ -824,6 +824,58 @@ not be read as a requirement on the other.**
 
 - Backlog slug: `PLATFORM-SCHEDULE-REFRESH-FORENSICS-v1`
 
+### Item 140 — stamp when a game first reads final, so the reconciliation tail can be sized
+
+**The ask:** record, per game, the first observation at which it read final. Nothing else — no change
+to polling, eligibility, or any rendered output. This is the measurement that turns the tail length
+from an inherited guess into a number.
+
+**Why now — an owner-supplied data point, 2026-09-07.** CFBD's developer posted at 08:49 Sunday
+following Week 1 that the _"Sunday refresh for already completed week 0 and 1 games is mostly
+completed. There are a few small things to clean up and look into. I am AFK again for most of the
+day."_ That says the provider's data settles on a **human's Sunday**, not on each game's clock — a
+scheduled batch, then a cleanup pass of unpredictable length. Our tail is `kickoff + 24h`
+(`RECONCILIATION_GUARANTEE_MS`), anchored per game. The two clocks drift apart by kickoff time.
+
+**Measured against production `2025-all-all`, 2026-09-07.** 3,831 games, 3,536 kicking Saturday ET:
+
+| CFBD settles at | Saturday games whose 24h window has already closed |
+| --- | --- |
+| Sun 09:00 | **0** of 3,536 |
+| Sun 15:00 | 2,042 (57.7%) |
+| Sun 18:00 | 2,800 (79.2%) |
+| Sun 20:00 | 3,326 (94.1%) |
+
+**The 08:49 batch is fully covered**, and that conclusion is timezone-independent — the earliest any
+Saturday window closes is Sun 11:00 ET, so no plausible posting timezone puts the batch outside it.
+**The cleanup pass is the exposure**, and it is the pass that fixes the anomalous games — the ones
+most likely to still be wrong on our side. This is the probable mechanism behind PLATFORM-105A's
+finding that `kickoff+24h` reconciliation gives up on late-arriving finals.
+
+**Why the tail cannot be resized today.** Nothing durable records when a game first read final:
+`ScorePack` (`src/lib/scores/types.ts:25`) carries no finalization timestamp, and the cache holds only
+a partition-level `effectiveRowTimestamp`. So no retrospective query can produce a settle-time
+distribution. The entire empirical base is **Item 108's six games** — which measured the NORMAL path
+(`kickoff + 3.40h..4.75h`) and sized the DENSE window. **The straggler path, the only reason the tail
+exists, has never been measured.** One post about one weekend — and the season's FIRST weekend, when a
+dataset carries the most cleanup — gives the mechanism, not a distribution. Treating it as one repeats
+Item 108's error at larger scale.
+
+**Do NOT resize the tail as part of this item, and do not fold it into Item 102 slice 4.** The tail is
+pinned to `pollingTarget`'s `POLLING_WINDOW_AFTER_KICKOFF_MS`, and `pollingWindows.ts:54-62` forbids
+the planner closing before the handler's eligibility window. Moving it changes what the handler will
+poll at all — a correctness change with its own review, not a scheduling tweak. Slice 4 ships on the
+inherited 24h.
+
+**What the number is likely to buy, once we have it.** Probably not a longer uniform tail: extending
+to 36h costs an hourly wakeup on every game to catch a handful. A Sunday-afternoon re-check anchored to
+the WALL CLOCK covers the same exposure far cheaper. Do not design that here — measure first.
+
+**Scope:** the score writer's final-observation seam plus one durable stamp. Observation-only.
+
+**Blocker:** none. Independent of Item 102's slices; parallel-safe against both lanes. Its VALUE
+depends on running through live weekends, so the sooner it lands the sooner the tail can be settled.
+
 ### Item 139 — a final can show a pre-game record; reconcile records against completed games
 
 **The ask:** make a final always carry the record INCLUDING the result being read, on every surface.
