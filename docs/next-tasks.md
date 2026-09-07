@@ -868,11 +868,30 @@ Thursday through Monday, which is also the highest-traffic window. The cheap che
 it (is any week eligible?) needs only game dates and `now`, and it runs AFTER the build rather than
 before.
 
-**NOT MEASURED, and that is the first task.** The CPU cost per render and the Insights page's actual
-request volume are both unknown. Item 102 established that `/api/cron/live-scores` is 75% of Vercel
-Active CPU at 1.20 s per invocation; whether this route is a rounding error beside that or a second
-source is exactly the open question. **Measure before designing** — the Item 139 v3 reconstruction
-exists because two attempts designed a caching layer before measuring what it had to survive.
+**MEASURED 2026-09-07 — this is NOT a cost item, and the entry originally implied it was.** Vercel Web
+Analytics, 2026-08-31 → 09-07, by route:
+
+| route | pageviews |
+| --- | --- |
+| `/league/[slug]` | 128 |
+| `/league/[slug]/standings` | 51 |
+| `/` | 36 |
+| `/admin/diagnostics` | 21 |
+| `/league/[slug]/draft/summary` | 12 |
+| **`/league/[slug]/insights`** | **3** |
+
+**Three pageviews in a week**, ~1% of 272 total. Against a monthly 4-hour Fluid allowance that is
+seconds, while `/api/cron/live-scores` alone runs 480×/day at 1.20 s — roughly the whole allowance.
+**Insights is not a second source of CPU pressure; it is noise.** Do not schedule this against Item
+102's cost work or cite it in a CPU argument.
+
+_Caveat on the number:_ Web Analytics counts client-side pageviews, so router prefetches that reach
+the server without recording a view are not included. Actual renders may exceed 3 — not by the orders
+of magnitude that would change the conclusion.
+
+**So the real cost is LATENCY, borne by the one person who opens the page.** A full-season build runs
+before first byte, on a `force-dynamic` route, and on game days it produces nothing at all. That is a
+user-experience defect on a rarely-visited page — worth fixing cheaply, never worth a caching layer.
 
 **Cross-reference — do NOT let this become precedent.** Item 139 v3's defining constraint is no
 full-season build on a request or cron path. This item is the counter-example that already exists;
@@ -888,8 +907,10 @@ relative to the build; possibly narrowing `WeeklyRecapContext` to what `composeW
 reads. NOT `assembleSeasonScoredBuild`
 itself — rollover and analytics depend on it unchanged.
 
-**Blocker:** none, but it should follow Item 139 v3's design pass, which may establish a cheaper way
-to get season-scoped facts that this item can reuse.
+**Blocker:** none. **Low priority** — measured as ~1% of traffic, so this is a latency polish item, not
+a cost item. It should still follow Item 139 v3's design pass, which may establish a cheaper way to
+get season-scoped facts that this item can simply reuse. If the eligibility hoist above turns out to
+be a few lines, take it on its own; anything larger should wait for v3.
 
 ### Item 140 — stamp when a game first reads final, so the reconciliation tail can be sized
 
