@@ -10,6 +10,42 @@ import type { CanonicalStandings } from '../../lib/selectors/leagueStandings';
 import type { LiveDelta } from '../../lib/selectors/liveDelta';
 import MatchupsWeekPanel from '../MatchupsWeekPanel';
 
+function ownerCardMarkup(html: string, owner: string): string {
+  const marker = `data-owner-card="${owner}"`;
+  const markerIndex = html.indexOf(marker);
+  assert.ok(markerIndex >= 0, `${owner} owner card must render`);
+  const start = html.lastIndexOf('<article', markerIndex);
+  const nextMarkerIndex = html.indexOf('data-owner-card="', markerIndex + marker.length);
+  const end = nextMarkerIndex >= 0 ? html.lastIndexOf('<article', nextMarkerIndex) : html.length;
+  return html.slice(start, end);
+}
+
+function scoreboardMarkup(cardMarkup: string, matchupLabel: string): string {
+  const marker = `aria-label="${matchupLabel}"`;
+  const markerIndex = cardMarkup.indexOf(marker);
+  assert.ok(markerIndex >= 0, `${matchupLabel} scoreboard must render`);
+  const start = cardMarkup.lastIndexOf('<article', markerIndex);
+  const end = cardMarkup.indexOf('</article>', markerIndex);
+  assert.ok(start >= 0 && end >= 0, `${matchupLabel} scoreboard markup must be bounded`);
+  return cardMarkup.slice(start, end + '</article>'.length);
+}
+
+function participantMarkup(scoreboard: string, side: 'away' | 'home'): string {
+  const row = scoreboard.match(
+    new RegExp(`<div(?=[^>]*data-scoreboard-side="${side}")[^>]*>[\\s\\S]*?<\\/div>`)
+  )?.[0];
+  assert.ok(row, `${side} participant row must render`);
+  return row;
+}
+
+function participantOpeningTag(scoreboard: string, side: 'away' | 'home'): string {
+  const row = scoreboard.match(
+    new RegExp(`<div(?=[^>]*data-scoreboard-side="${side}")[^>]*>`)
+  )?.[0];
+  assert.ok(row, `${side} participant row opening tag must render`);
+  return row;
+}
+
 function game(overrides: Partial<AppGame>): AppGame {
   return {
     key: overrides.key ?? 'g',
@@ -60,7 +96,80 @@ function game(overrides: Partial<AppGame>): AppGame {
   };
 }
 
-test('matchups panel renders owner-centric cards and duplicates owner-vs-owner game into both slates', () => {
+function renderCompleteGameRowFactInventory(): string {
+  return renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[
+        game({
+          key: 'fact-final',
+          label: 'Rivalry Showcase',
+          csvAway: 'Alabama',
+          csvHome: 'Georgia',
+          neutral: true,
+        }),
+        game({ key: 'fact-live', csvAway: 'Clemson', csvHome: 'Miami' }),
+        game({
+          key: 'fact-scheduled',
+          csvAway: 'Oregon',
+          csvHome: 'Portland State',
+          homeConf: 'Big Sky',
+          homeClassification: 'fcs',
+        }),
+      ]}
+      oddsByKey={{
+        'fact-final': {
+          favorite: 'Georgia',
+          spread: -7.5,
+          homeSpread: -7.5,
+          awaySpread: 7.5,
+          spreadPriceHome: -110,
+          spreadPriceAway: -110,
+          total: 51.5,
+          mlHome: -250,
+          mlAway: 210,
+          overPrice: -108,
+          underPrice: -112,
+          source: 'DraftKings',
+          bookmakerKey: 'draftkings',
+          capturedAt: '2025-08-30T18:00:00.000Z',
+          lineSourceStatus: 'latest',
+        },
+      }}
+      scoresByKey={{
+        'fact-final': {
+          status: 'final',
+          time: 'Final',
+          home: { team: 'Georgia', score: 17 },
+          away: { team: 'Alabama', score: 24 },
+        },
+        'fact-live': {
+          status: 'in progress',
+          time: 'Q3 8:14',
+          home: { team: 'Miami', score: null },
+          away: { team: 'Clemson', score: 21 },
+        },
+      }}
+      rosterByTeam={
+        new Map([
+          ['Alabama', 'Alice'],
+          ['Georgia', 'Bob'],
+          ['Clemson', 'Alice'],
+          ['Miami', 'Carol'],
+          ['Oregon', 'Alice'],
+        ])
+      }
+      rankingsByTeamId={
+        new Map([
+          ['a', { rank: 10, rankSource: 'ap' }],
+          ['h', { rank: 2, rankSource: 'ap' }],
+        ])
+      }
+      displayTimeZone="UTC"
+    />
+  );
+}
+
+test('matchups cards map each visible team directly to its owner and tint only the card owner team', () => {
   const html = renderToStaticMarkup(
     <MatchupsWeekPanel
       games={[
@@ -114,7 +223,29 @@ test('matchups panel renders owner-centric cards and duplicates owner-vs-owner g
   // "vs Bob" opponent badge while the unowned FBS game has no owner badge.
   assert.match(html, /vs Bob/);
   assert.doesNotMatch(html, /NoClaim/);
-  assert.match(html, /Alabama[\s\S]*24[\s\S]*–[\s\S]*17[\s\S]*Georgia/);
+  const aliceScoreboard = scoreboardMarkup(ownerCardMarkup(html, 'Alice'), 'Alabama @ Georgia');
+  const bobScoreboard = scoreboardMarkup(ownerCardMarkup(html, 'Bob'), 'Alabama @ Georgia');
+  const aliceAway = participantMarkup(aliceScoreboard, 'away');
+  const aliceHome = participantMarkup(aliceScoreboard, 'home');
+
+  // This is the owner→team defect assertion: the participant rows themselves
+  // say which owner holds Alabama and which holds Georgia. It does not infer
+  // ownership from tint classes or from the separate `vs Bob` descriptor.
+  assert.match(aliceAway, /data-scoreboard-team="away">Alabama/);
+  assert.match(aliceAway, /data-scoreboard-owner="away">Alice/);
+  assert.match(aliceHome, /data-scoreboard-team="home">Georgia/);
+  assert.match(aliceHome, /data-scoreboard-owner="home">Bob/);
+  assert.match(aliceAway, /data-scoreboard-value="away">24/);
+  assert.match(aliceHome, /data-scoreboard-value="home">17/);
+
+  const aliceAwayTag = participantOpeningTag(aliceScoreboard, 'away');
+  const aliceHomeTag = participantOpeningTag(aliceScoreboard, 'home');
+  const bobAwayTag = participantOpeningTag(bobScoreboard, 'away');
+  const bobHomeTag = participantOpeningTag(bobScoreboard, 'home');
+  assert.match(aliceAwayTag, /after:rounded-\[4px\]/);
+  assert.doesNotMatch(aliceHomeTag, /after:rounded/);
+  assert.doesNotMatch(bobAwayTag, /after:rounded/);
+  assert.match(bobHomeTag, /after:rounded-\[4px\]/);
   assert.match(html, /05:00/);
   assert.doesNotMatch(html, /Leading 24-17/);
   assert.doesNotMatch(html, /Trailing 24-17/);
@@ -207,12 +338,27 @@ test('matchups panel summarizes self-matchups as Self', () => {
   // self-tone border, and the absence of Leading/Trailing phrasing.
   assert.match(html, /1–1/);
   assert.equal((html.match(/>Self</g) ?? []).length, 1);
-  assert.match(html, /Texas[\s\S]*28[\s\S]*–[\s\S]*21[\s\S]*Oklahoma/);
+  const selfScoreboard = scoreboardMarkup(ownerCardMarkup(html, 'Alex'), 'Texas @ Oklahoma');
+  const awayRow = participantMarkup(selfScoreboard, 'away');
+  const homeRow = participantMarkup(selfScoreboard, 'home');
+  assert.match(awayRow, /data-scoreboard-team="away">Texas/);
+  assert.match(awayRow, /data-scoreboard-owner="away">Alex/);
+  assert.match(awayRow, /data-scoreboard-value="away">28/);
+  assert.match(homeRow, /data-scoreboard-team="home">Oklahoma/);
+  assert.match(homeRow, /data-scoreboard-owner="home">Alex/);
+  assert.match(homeRow, /data-scoreboard-value="home">21/);
+
+  const awayTag = participantOpeningTag(selfScoreboard, 'away');
+  const homeTag = participantOpeningTag(selfScoreboard, 'home');
+  assert.match(awayTag, /after:rounded-t-\[4px\]/);
+  assert.doesNotMatch(awayTag, /after:rounded-\[4px\]/);
+  assert.match(homeTag, /after:rounded-b-\[4px\]/);
+  assert.doesNotMatch(homeTag, /after:rounded-\[4px\]/);
   assert.match(html, /border-l-violet-400\/80 bg-gray-50\/40/);
   assert.doesNotMatch(html, /border-l-violet-400\/80 bg-violet-50\/40/);
   assert.doesNotMatch(html, /Leading 28-21/);
   assert.doesNotMatch(html, /Trailing 28-21/);
-  assert.equal((html.match(/Texas/g) ?? []).length, 1);
+  assert.equal((html.match(/data-scoreboard-team="away">Texas/g) ?? []).length, 1);
 });
 
 test('matchups panel keeps status text non-redundant for completed games', () => {
@@ -238,10 +384,12 @@ test('matchups panel keeps status text non-redundant for completed games', () =>
     />
   );
 
-  assert.equal((html.match(/>FINAL</g) ?? []).length, 2);
+  assert.equal((html.match(/>Final<\/span>/g) ?? []).length, 2);
   assert.doesNotMatch(html, /Final: /);
   assert.doesNotMatch(html, /Kickoff /);
-  assert.match(html, /Iowa[\s\S]*31[\s\S]*–[\s\S]*24[\s\S]*Nebraska/);
+  const scoreboard = scoreboardMarkup(ownerCardMarkup(html, 'Lane'), 'Iowa @ Nebraska');
+  assert.match(participantMarkup(scoreboard, 'away'), /data-scoreboard-value="away">31/);
+  assert.match(participantMarkup(scoreboard, 'home'), /data-scoreboard-value="home">24/);
 });
 
 test('scheduled rows keep matchup primary and score out of metadata', () => {
@@ -260,12 +408,11 @@ test('scheduled rows keep matchup primary and score out of metadata', () => {
     />
   );
 
-  assert.match(
-    html,
-    /Rutgers<\/span><span class="text-gray-400 dark:text-zinc-500">@<\/span><span class="font-medium">Maryland/
-  );
+  const scoreboard = scoreboardMarkup(ownerCardMarkup(html, 'Nia'), 'Rutgers @ Maryland');
+  assert.match(scoreboard, /data-scoreboard-team="away">Rutgers/);
+  assert.match(scoreboard, /data-scoreboard-team="home">Maryland/);
   assert.match(html, /Kickoff Sat, Aug 30, 4:00 PM/);
-  assert.doesNotMatch(html, /tabular-nums">0</);
+  assert.doesNotMatch(scoreboard, /data-scoreboard-value-kind="score"/);
 });
 
 test('scheduled neutral rows use vs separator instead of @', () => {
@@ -286,14 +433,8 @@ test('scheduled neutral rows use vs separator instead of @', () => {
     />
   );
 
-  assert.match(
-    html,
-    /Texas<\/span><span class="text-gray-400 dark:text-zinc-500">vs<\/span><span class="font-medium">Ohio State/
-  );
-  assert.doesNotMatch(
-    html,
-    /Texas<\/span><span class="text-gray-400 dark:text-zinc-500">@<\/span><span class="font-medium">Ohio State/
-  );
+  assert.match(html, /aria-label="Texas vs Ohio State"/);
+  assert.doesNotMatch(html, /aria-label="Texas @ Ohio State"/);
   assert.match(html, /Neutral site/);
 });
 
@@ -327,10 +468,17 @@ test('long-name live rows keep canonical ordering with inline scoreline', () => 
     />
   );
 
-  assert.match(
-    html,
-    /Very Long Away Team Name University<\/span><span class="inline-flex min-w-\[2ch\] justify-end font-semibold tabular-nums">21<\/span><span class="text-gray-400 dark:text-zinc-500">–<\/span><span class="inline-flex min-w-\[2ch\] justify-start font-semibold tabular-nums">17<\/span><span class="font-medium">Extremely Long Home Team Name College/
+  const scoreboard = scoreboardMarkup(
+    ownerCardMarkup(html, 'Pat'),
+    'Very Long Away Team Name University vs Extremely Long Home Team Name College'
   );
+  const awayRow = participantMarkup(scoreboard, 'away');
+  const homeRow = participantMarkup(scoreboard, 'home');
+  assert.match(awayRow, /Very Long Away Team Name University/);
+  assert.match(awayRow, /data-scoreboard-value="away">21/);
+  assert.match(homeRow, /Extremely Long Home Team Name College/);
+  assert.match(homeRow, /data-scoreboard-value="home">17/);
+  assert.ok(scoreboard.indexOf(awayRow) < scoreboard.indexOf(homeRow), 'away row must stay first');
   assert.match(html, /Q3 8:14/);
   assert.match(html, /Neutral site/);
 });
@@ -358,7 +506,9 @@ test('live rows do not render ISO kickoff timestamps as live clock metadata', ()
     />
   );
 
-  assert.match(html, /Utah[\s\S]*21[\s\S]*–[\s\S]*17[\s\S]*Arizona/);
+  const scoreboard = scoreboardMarkup(ownerCardMarkup(html, 'Kai'), 'Utah @ Arizona');
+  assert.match(participantMarkup(scoreboard, 'away'), /data-scoreboard-value="away">21/);
+  assert.match(participantMarkup(scoreboard, 'home'), /data-scoreboard-value="home">17/);
   assert.match(html, /vs Lee/);
   assert.match(html, /Sat, Aug 30, 4:00 PM/);
   assert.doesNotMatch(html, /2026-09-12T23:00:00.000Z/);
@@ -389,6 +539,126 @@ test('live rows still render real in-game clock values', () => {
 
   assert.match(html, /Q3 8:14/);
   assert.match(html, /vs Ned/);
+});
+
+test('shared row conversion preserves the complete bespoke GameRow fact inventory', () => {
+  const html = renderCompleteGameRowFactInventory();
+  const aliceCard = ownerCardMarkup(html, 'Alice');
+  const finalScoreboard = scoreboardMarkup(aliceCard, 'Alabama vs Georgia');
+  const liveScoreboard = scoreboardMarkup(aliceCard, 'Clemson @ Miami');
+  const scheduledScoreboard = scoreboardMarkup(aliceCard, 'Oregon @ Portland State');
+
+  // Event label; state; neutral-site fact; team names; rankings and sources;
+  // owner mapping; scores; primary/secondary tags; opponent descriptor; and
+  // the shipped non-scheduled kickoff metadata all survive the final row.
+  assert.match(finalScoreboard, /data-scoreboard-context-slot[\s\S]*Rivalry Showcase/);
+  assert.match(finalScoreboard, /data-scoreboard-state="final"/);
+  assert.match(finalScoreboard, />Final<\/span>/);
+  assert.match(finalScoreboard, /data-scoreboard-neutral-site[\s\S]*Neutral site/);
+  assert.match(finalScoreboard, /title="AP rank #10">#10/);
+  assert.match(finalScoreboard, /title="AP rank #2">#2/);
+  assert.match(participantMarkup(finalScoreboard, 'away'), /Alabama[\s\S]*Alice[\s\S]*>24</);
+  assert.match(participantMarkup(finalScoreboard, 'home'), /Georgia[\s\S]*Bob[\s\S]*>17</);
+  assert.match(finalScoreboard, /data-matchups-eyebrow-tag[^>]*>Upset<\/span>/);
+  assert.match(finalScoreboard, /data-matchups-eyebrow-tag[^>]*>Top 25<\/span>/);
+  assert.match(finalScoreboard, />vs Bob<\/span>/);
+  assert.match(finalScoreboard, /Sat, Aug 30, 8:00 PM/);
+
+  // The live row keeps the live state, real clock, score fallback, teams,
+  // opponent descriptor, and the same non-scheduled kickoff fact.
+  assert.match(liveScoreboard, /data-scoreboard-state="live"/);
+  assert.match(liveScoreboard, />Live<\/span>/);
+  assert.match(liveScoreboard, /Q3 8:14/);
+  assert.match(participantMarkup(liveScoreboard, 'away'), /Clemson[\s\S]*Alice[\s\S]*>21</);
+  assert.match(participantMarkup(liveScoreboard, 'home'), /Miami[\s\S]*Carol[\s\S]*>—</);
+  assert.match(liveScoreboard, />vs Carol<\/span>/);
+  assert.match(liveScoreboard, /Sat, Aug 30, 8:00 PM/);
+
+  // The scheduled row keeps the matchup relationship, participant names,
+  // FCS distinction, and prefixed kickoff while continuing to hide scores.
+  assert.match(scheduledScoreboard, /data-scoreboard-state="scheduled"/);
+  assert.match(scheduledScoreboard, /Kickoff Sat, Aug 30, 8:00 PM/);
+  assert.match(scheduledScoreboard, /data-scoreboard-team="away">Oregon/);
+  assert.match(scheduledScoreboard, /data-scoreboard-team="home">Portland State/);
+  assert.match(scheduledScoreboard, />FCS<\/span>/);
+  assert.doesNotMatch(scheduledScoreboard, /data-scoreboard-value-kind="score"/);
+
+  // Records, broadcast, and textual odds were not bespoke GameRow facts and
+  // remain absent even though odds still legitimately produce the tags above.
+  assert.doesNotMatch(aliceCard, /data-scoreboard-record/);
+  assert.doesNotMatch(aliceCard, /DraftKings/);
+  assert.doesNotMatch(aliceCard, /Georgia -7\.5/);
+  assert.doesNotMatch(aliceCard, /data-scoreboard-broadcast/);
+});
+
+test('every rendered eyebrow tag uses the settled bronze hairline treatment with no fill', () => {
+  const scoreboard = scoreboardMarkup(
+    ownerCardMarkup(renderCompleteGameRowFactInventory(), 'Alice'),
+    'Alabama vs Georgia'
+  );
+  const tags = Array.from(
+    scoreboard.matchAll(/<span(?=[^>]*data-matchups-eyebrow-tag)[^>]*>/g),
+    (match) => match[0]
+  );
+
+  assert.equal(tags.length, 2, 'fixture must render both primary and secondary tags');
+  for (const tag of tags) {
+    assert.match(tag, /border-\[0\.5px\]/);
+    assert.match(tag, /border-\[rgba\(201,166,107,0\.40\)\]/);
+    assert.match(tag, /text-\[#dbc190\]/);
+    assert.doesNotMatch(tag, /(?:^|\s)(?:dark:)?bg-/);
+    assert.doesNotMatch(tag, /blue/);
+  }
+});
+
+test('outcome rail and neutral card-owner tint coexist as distinguishable row treatments', () => {
+  const scoreboard = scoreboardMarkup(
+    ownerCardMarkup(renderCompleteGameRowFactInventory(), 'Alice'),
+    'Alabama vs Georgia'
+  );
+  const ownerCard = ownerCardMarkup(renderCompleteGameRowFactInventory(), 'Alice');
+  const finalRowTag = ownerCard.match(/<li[^>]*dark:border-l-emerald-500\/70[^>]*>/)?.[0];
+  assert.ok(finalRowTag, 'winning outcome rail must remain on the wrapper');
+
+  const awayTag = participantOpeningTag(scoreboard, 'away');
+  const homeTag = participantOpeningTag(scoreboard, 'home');
+  assert.match(awayTag, /dark:after:bg-\[rgba\(255,255,255,0\.055\)\]/);
+  assert.match(awayTag, /after:rounded-\[4px\]/);
+  assert.doesNotMatch(awayTag, /emerald|rose/);
+  assert.doesNotMatch(homeTag, /dark:after:bg-/);
+});
+
+test('shared scoreboard public prop surfaces remain exactly unchanged', () => {
+  const source = readFileSync(new URL('../CompactGameScoreboard.tsx', import.meta.url), 'utf8');
+  const fieldsFor = (typeName: string): string[] => {
+    const body = source.match(new RegExp(`export type ${typeName} = \\{([\\s\\S]*?)\\n\\};`))?.[1];
+    assert.ok(body, `${typeName} must remain exported`);
+    return Array.from(body.matchAll(/^\s{2}([A-Za-z][A-Za-z0-9]*)\??:/gm), (match) => match[1]);
+  };
+
+  assert.deepEqual(fieldsFor('CompactScoreboardParticipant'), [
+    'teamName',
+    'owner',
+    'isCardOwnerTeam',
+    'rank',
+    'rankSource',
+    'classification',
+    'record',
+    'score',
+  ]);
+  assert.deepEqual(fieldsFor('CompactGameScoreboardProps'), [
+    'state',
+    'clock',
+    'broadcast',
+    'neutralSite',
+    'scheduleNotice',
+    'matchupLabel',
+    'away',
+    'home',
+    'contextSlot',
+    'footerSlot',
+    'tier2Slot',
+  ]);
 });
 
 test('owner slates count final owned-vs-owned, NoClaim, and FCS results from owned-team participations', () => {
@@ -449,7 +719,7 @@ test('owner slates count final owned-vs-owned, NoClaim, and FCS results from own
   assert.match(html, /2–1/);
   // Avery's three owned participations surface FCS and the owner-vs-owner
   // "vs Blair" badge; the unowned FBS game has no owner badge.
-  const averyCard = html.match(/data-owner-card="Avery"[\s\S]*?<\/article>/)?.[0] ?? '';
+  const averyCard = ownerCardMarkup(html, 'Avery');
   assert.match(averyCard, /FCS/);
   assert.doesNotMatch(averyCard, /NoClaim/);
   assert.match(averyCard, /vs Blair/);
@@ -517,7 +787,7 @@ test('scheduled and live games do not change owner final record summaries', () =
   assert.match(html, /1–0 · 1 live/);
   // The final/live/scheduled mix shows three opponent badges on Casey's card;
   // only the final game contributes to the record summary above.
-  const caseyCard = html.match(/data-owner-card="Casey"[\s\S]*?<\/article>/)?.[0] ?? '';
+  const caseyCard = ownerCardMarkup(html, 'Casey');
   assert.match(caseyCard, /vs Evan/);
   assert.doesNotMatch(caseyCard, /NoClaim/);
   assert.match(caseyCard, /vs Dana/);
@@ -566,7 +836,7 @@ test('owner slate shows final record when one game is final and another is still
   assert.match(html, /1–0/);
   // Record summary reflects only the final game; the scheduled game still
   // appears as an opponent badge but does not alter the summary text.
-  const caseyCard = html.match(/data-owner-card="Casey"[\s\S]*?<\/article>/)?.[0] ?? '';
+  const caseyCard = ownerCardMarkup(html, 'Casey');
   assert.match(caseyCard, /vs Evan/);
   assert.match(caseyCard, /vs Dana/);
   assert.doesNotMatch(html, /1 final/);
@@ -731,9 +1001,11 @@ test('unexpected final ties do not surface as supported matchup record semantics
     />
   );
 
-  assert.match(html, /Texas[\s\S]*24[\s\S]*–[\s\S]*24[\s\S]*Oklahoma/);
-  // Item 135 retarget: one self game is one row, so one FINAL pill. Was 2.
-  assert.equal((html.match(/>FINAL</g) ?? []).length, 1);
+  const scoreboard = scoreboardMarkup(ownerCardMarkup(html, 'Alex'), 'Texas @ Oklahoma');
+  assert.match(participantMarkup(scoreboard, 'away'), /data-scoreboard-value="away">24/);
+  assert.match(participantMarkup(scoreboard, 'home'), /data-scoreboard-value="home">24/);
+  // Item 135 retarget: one self game is one row, so one Final label. Was 2.
+  assert.equal((html.match(/>Final<\/span>/g) ?? []).length, 1);
   assert.doesNotMatch(html, /Counts as 1W \/ 1L/);
   assert.doesNotMatch(html, /1–1–1/);
 });
@@ -809,37 +1081,43 @@ function makeLiveDelta(params: { inProgressGameKey?: string; isStale?: boolean }
   };
 }
 
-test('matchups panel renders fresh-LIVE indicator when liveDelta confirms in-progress and is not stale', () => {
-  const html = renderToStaticMarkup(
-    <MatchupsWeekPanel
-      games={[game({ key: 'g-live', csvAway: 'Alabama', csvHome: 'Georgia' })]}
-      oddsByKey={{}}
-      scoresByKey={{
-        'g-live': {
-          status: 'in progress',
-          time: '05:00',
-          home: { team: 'Georgia', score: 17 },
-          away: { team: 'Alabama', score: 24 },
-        },
-      }}
-      rosterByTeam={
-        new Map([
-          ['Alabama', 'Alice'],
-          ['Georgia', 'Bob'],
-        ])
-      }
-      displayTimeZone="UTC"
-      liveDelta={makeLiveDelta({ inProgressGameKey: 'g-live' })}
-    />
-  );
+test('matchups uses the shared live marker unchanged while freshness behavior remains Item 143', () => {
+  const liveDeltas = [
+    makeLiveDelta({ inProgressGameKey: 'g-live' }),
+    makeLiveDelta({ inProgressGameKey: 'g-live', isStale: true }),
+    makeLiveDelta({}),
+    null,
+  ];
 
-  assert.match(html, /data-matchups-live-indicator="g-live"/);
-  assert.match(
-    html,
-    /dark:text-zinc-300"><span[^>]+data-matchups-live-indicator="g-live"[^>]+animate-pulse[^>]*><\/span>LIVE<\/span>/,
-    'fresh Matchups live status must keep a neutral label with its pulse'
-  );
-  assert.doesNotMatch(html, /amber/);
+  for (const liveDelta of liveDeltas) {
+    const html = renderToStaticMarkup(
+      <MatchupsWeekPanel
+        games={[game({ key: 'g-live', csvAway: 'Alabama', csvHome: 'Georgia' })]}
+        oddsByKey={{}}
+        scoresByKey={{
+          'g-live': {
+            status: 'in progress',
+            time: '05:00',
+            home: { team: 'Georgia', score: 17 },
+            away: { team: 'Alabama', score: 24 },
+          },
+        }}
+        rosterByTeam={
+          new Map([
+            ['Alabama', 'Alice'],
+            ['Georgia', 'Bob'],
+          ])
+        }
+        displayTimeZone="UTC"
+        liveDelta={liveDelta}
+      />
+    );
+
+    assert.match(html, /data-scoreboard-state="live"/);
+    assert.match(html, /dark:text-emerald-400[\s\S]*bg-current[\s\S]*>Live<\/span>/);
+    assert.doesNotMatch(html, /data-matchups-live-indicator/);
+    assert.doesNotMatch(html, /amber/);
+  }
 });
 
 test('matchups status color vocabulary reserves one emerald and one rose source token for outcomes', () => {
@@ -857,86 +1135,6 @@ test('matchups status color vocabulary reserves one emerald and one rose source 
   );
   assert.doesNotMatch(source, /amber/);
   assert.doesNotMatch(source, /function performanceClasses/);
-});
-
-test('matchups panel suppresses fresh-LIVE indicator when liveDelta is stale', () => {
-  const html = renderToStaticMarkup(
-    <MatchupsWeekPanel
-      games={[game({ key: 'g-live', csvAway: 'Alabama', csvHome: 'Georgia' })]}
-      oddsByKey={{}}
-      scoresByKey={{
-        'g-live': {
-          status: 'in progress',
-          time: '05:00',
-          home: { team: 'Georgia', score: 17 },
-          away: { team: 'Alabama', score: 24 },
-        },
-      }}
-      rosterByTeam={
-        new Map([
-          ['Alabama', 'Alice'],
-          ['Georgia', 'Bob'],
-        ])
-      }
-      displayTimeZone="UTC"
-      liveDelta={makeLiveDelta({ inProgressGameKey: 'g-live', isStale: true })}
-    />
-  );
-
-  assert.doesNotMatch(html, /data-matchups-live-indicator/);
-});
-
-test('matchups panel omits fresh-LIVE indicator for games not in liveDelta byGame', () => {
-  const html = renderToStaticMarkup(
-    <MatchupsWeekPanel
-      games={[game({ key: 'g-live', csvAway: 'Alabama', csvHome: 'Georgia' })]}
-      oddsByKey={{}}
-      scoresByKey={{
-        'g-live': {
-          status: 'in progress',
-          time: '05:00',
-          home: { team: 'Georgia', score: 17 },
-          away: { team: 'Alabama', score: 24 },
-        },
-      }}
-      rosterByTeam={
-        new Map([
-          ['Alabama', 'Alice'],
-          ['Georgia', 'Bob'],
-        ])
-      }
-      displayTimeZone="UTC"
-      liveDelta={makeLiveDelta({})}
-    />
-  );
-
-  assert.doesNotMatch(html, /data-matchups-live-indicator/);
-});
-
-test('matchups panel omits fresh-LIVE indicator when liveDelta is null', () => {
-  const html = renderToStaticMarkup(
-    <MatchupsWeekPanel
-      games={[game({ key: 'g-live', csvAway: 'Alabama', csvHome: 'Georgia' })]}
-      oddsByKey={{}}
-      scoresByKey={{
-        'g-live': {
-          status: 'in progress',
-          time: '05:00',
-          home: { team: 'Georgia', score: 17 },
-          away: { team: 'Alabama', score: 24 },
-        },
-      }}
-      rosterByTeam={
-        new Map([
-          ['Alabama', 'Alice'],
-          ['Georgia', 'Bob'],
-        ])
-      }
-      displayTimeZone="UTC"
-    />
-  );
-
-  assert.doesNotMatch(html, /data-matchups-live-indicator/);
 });
 
 test('matchups panel reorders owner cards to canonical owner identity when canonical is provided', () => {
