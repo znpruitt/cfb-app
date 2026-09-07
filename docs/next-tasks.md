@@ -2470,46 +2470,50 @@ a new store. **3b: the delivery-health consumer** — the four inherited items, 
 health path calls. 3a first, because 3b reads the record 3a writes.
 **Kickoff:** `docs/prompts/platform-102-slice-3a-planner-record-claude-v1.md`.
 
-**Slice 3 — the durable planner record, and `inspect` divergence against it.** The reconstructibility
-replacement, which **must exist before slice 4 takes cron ownership** — otherwise the tampering signal
-is gone for the window between them.
+**Slice 3a SHIPPED 2026-09-06** — `claude/102-slice-3a-planner-record` at `0e294603`, dormant.
+A bounded per-job durable series (`src/lib/server/pollingPlannerRecord.ts`, ~400 runs ≈ 13 months)
+holding the input windows, both synthesized crons, the previous cron, applied-or-skipped, the outcome
+and a nullable `invocationId`; plus `inspect` diffing live QStash state against the last recorded
+intent through an INJECTED reader, so `scripts/lib/qstashSchedule.ts` still carries no store, no
+database and no application import. **Nothing writes a record in production and no `manage-*` CLI
+supplies a reader**, so all seven schedules resolve `absent` and behave exactly as before.
+Collision 1 is resolved. Owner rulings that shaped it: `inspect` distinguishes THREE states (absent
+falls back to the constant; present-and-readable is diffed against; present-but-unreadable or a store
+read failure REFUSES), the record keeps bounded history rather than latest-only, and 3a exposes the
+store's read while 3b owns interpretation.
 
-- Durable record of every planner run: input windows, generated cron, previous cron, applied-or-
-  skipped, outcome, and the invocation id (Item 126 Tier A correlation).
-- **Slice 3 also OWNS THE DELIVERY-HEALTH CONSUMER — scope widened 2026-09-05.** Writing the record is
-  half the job; delivery health reading it is the other half, and it is what actually fixes the
-  defect below. Two consumers:
-  1. **`previousScheduleSlotMs` must stop extrapolating.** It walks backwards through TODAY's cron as
-     if the cron were eternal. A planner-owned cron is **rewritten daily**, so on any day whose plan
-     differs from yesterday's it computes a slot that never existed. Measured on the real parser: a
-     game day of `*/3 19,20,21,22,23` after a dead day of `0 * * * *` reports **false `late` for
-     ~19 hours** — collision 2's exact failure, reintroduced by the fix for collision 2. The record
-     already stores `previous cron`, so the row can read what was ACTUALLY in force rather than
-     predict it.
-  2. **The row must carry BOTH crons**, taking `max(previousSlot(dense), previousSlot(slow))`. One
-     row with one cron cannot describe two schedules: the cadence label is untrue, and a slow-schedule
-     delivery failure is invisible for a measured **15.0 h**. With the record, the row knows both
-     because the planner wrote both.
+**Slice 3b — the delivery-health consumer.** The four inherited items above, touching functions every
+health path calls. It reads the record 3a writes.
 
-  **This is why slice 2 does NOT reinstate the "floor cadence."** An eternal hourly slow schedule
-  would make backward extrapolation accidentally correct — a workaround for a dashboard that cannot
-  see history. Slice 3 removes the need to predict history, which is the actual fix. Slice 2's gate
-  already draws that line: it stops if "making the policy derivable requires the health row to read
-  durable state." That boundary was right and points here.
+**Slice 3b inherits, beyond the four:**
 
-  **Neither defect reaches production**: slice 2 ships dormant, and slice 3 precedes slice 4, which is
-  what activates any of it. **That ordering is now load-bearing for correctness, not just for the
-  tampering signal.** **Durable, not a runtime
-  log** — Vercel logs expire too fast to be incident history, and rebuilding that defect here is
-  explicitly out of bounds.
-- **Allowlisted projection only.** `buildUpsertRequest` headers carry TWO secrets —
-  `Authorization: Bearer <QSTASH_TOKEN>` and `Upstash-Forward-Authorization: Bearer <CRON_SECRET>`.
-  Record cron, `scheduleId`, destination, method, retries and derived windows. Never `headers`, never
-  a raw request, never a response body.
-- Rewrite `qstashSchedule.ts:342` to diff live QStash state against the planner's **last recorded
-  intent** rather than the FIXED constant — **collision 1**. With no record present it must fall back
-  to the constant, so `inspect` keeps working before slice 4 ever runs.
-- **Must not:** apply an upsert, or make the cron planner-owned. Records are written by tests only.
+- **A planned dense-schedule absence cannot be expressed — the most consequential finding of slice
+  3a's three review rounds, and a MODEL question, not a bug.** `dense: null` conflates "no dense phase
+  today" with "this schedule is deliberately off", and the intent lookup walks past a null dense to an
+  OLDER dense intent. A stale dense cron left active would then match that older intent and `inspect`
+  would exit 0. Deciding what a dense-less day does to a live schedule is **slice 4's**, and the record
+  must be able to express whatever it decides — so this is a blocking specification item for slice 4,
+  not a defect fixable inside 3a.
+- **`action` and `outcome` can contradict each other** (`skipped` + `confirmed` both validate), so the
+  type admits impossible states. Encode the valid combinations rather than validating the two fields
+  independently.
+
+**Deferred out of slice 3a, filed 2026-09-06 — one item, both stores.** `pollingPlannerRecord` and
+`providerUsageSeries` are twins: each drops individually unparseable ROWS tolerantly and refuses only
+when a present value yields NOTHING. Two consequences, and changing one twin without the other would
+leave two behaviours for one problem, so neither belongs to 3b (delivery health has no business
+setting store semantics):
+
+1. **Preserve the unparsed rows** rather than pruning them. Below the refusal threshold a write
+   reports success while history shrinks; 3a now COUNTS the loss (`droppedRuns`) so it is visible, but
+   counting is not preserving.
+2. **The aggregate refusal wedges the writer** when every stored row is unparseable — most reachable
+   when a series is one or two rows old. Every subsequent run repeats the refusal until someone edits
+   the row by hand.
+
+Also filed: `providerUsageSeries` misreports an unreadable-prior abort as `not-recorded` when the
+ROLLBACK also fails (`appStateStore` re-wraps the throw, and a bare `instanceof` misses it). Slice 3a
+fixed the identical defect in its own classifier; the twin is untouched.
 
 **Slice 4 — activation.** Small, because everything it needs is already built and tested by then.
 
@@ -2519,6 +2523,11 @@ is gone for the window between them.
   schedule.ts` headers — or the repo lies about its own security posture. Collision 3.
 - The daily cron that derives → synthesizes → records → upserts, and the cutover of `live-scores` and
   `game-stats` to planner-owned crons.
+- **`upsert` still answers to the FIXED contract while `inspect` answers to the record** — slice 3a
+  deliberately left it there, because choosing `upsert`'s authority IS the planner-ownership decision.
+  Once a reader is wired, a planner-owned schedule that goes absent makes `inspect` print "not
+  provisioned. Run `upsert --apply` first", which provisions the fixed cron that the next `inspect`
+  then refuses. Resolve it here, not before.
 - **Existing handler guards stay.** They are the defence against kickoff changes, postponements,
   stale QStash state, and planner mistakes. The planner reduces wakeups; it must never become the
   only correctness or quota protection.

@@ -224,6 +224,70 @@ Rules:
   `manage:usage-sample-schedule upsert --apply` requires the owner's `QSTASH_TOKEN`. Until it runs,
   System Health correctly reports `usage-sample` with a scheduler-delivery warning.
 
+### PLATFORM-102-SLICE-3A-PLANNER-RECORD-v1
+
+- Purpose: Item 102 slice 3a — a durable record of what the polling planner derived and sent, and
+  `inspect` diffing live QStash state against that recorded intent instead of a fixed constant
+  (collision 1). The reconstructibility replacement that must exist before slice 4 takes cron
+  ownership. Ships dormant; nothing writes a record and no CLI supplies a reader.
+- Scope: new `src/lib/server/pollingPlannerRecord.ts` and two suites; an injected recorded-intent
+  reader in `scripts/lib/qstashSchedule.ts` and its suite. NOT `schedulerDeliveryHealth.ts` (slice
+  3b). No route, cron, QStash call, `QSTASH_TOKEN`, or component.
+- Outcome: a bounded per-job series (~400 runs ≈ 13 months) carrying the input windows, BOTH
+  synthesized crons, the previous cron, applied-or-skipped, the outcome, and a nullable
+  `invocationId` — `createSchedulerInvocationId` returns null on UUID failure and a record must not be
+  lost to that. The projection is an explicit per-field allowlist enforced at the SINK: a denylist
+  fails open the moment a header is added, and `buildUpsertRequest` carries both
+  `Authorization: Bearer <QSTASH_TOKEN>` and `Upstash-Forward-Authorization: Bearer <CRON_SECRET>`.
+  `inspect` distinguishes THREE states — absent falls back to the fixed constant, present-and-readable
+  is diffed against, present-but-unreadable or a store read failure REFUSES — because collapsing
+  absence and unreadability turns a broken record into a permanent false "correct" on the job that
+  most needs a tampering signal. Only `cron` is substituted into the comparison basis, since
+  `SynthesizedCron` produces nothing else; a record disagreeing with the contract on
+  destination/method/retries is REFUSED with exit 2, not ignored, because the planner cannot produce
+  one and its existence is itself the signal. Owner decisions during the branch: bounded history over
+  latest-only ("when did this cron start diverging" is the question the record exists to answer), and
+  a `droppedRuns` counter so a partial parse loss stops being silent without changing drop semantics.
+- **One recurring root across three review rounds, and it is the useful part of this entry.** Every
+  round's most severe finding was the same asymmetry, one level in each time: a guarantee enforced
+  where a caller MAY pass rather than where every value MUST. Round 1 — the excess-property allowlist
+  sat in an optional constructor, so a run assembled from a variable reached the durable write with
+  its headers intact (both reviewers found this independently). Round 3 — round 2's new FIELD
+  contracts sat on the read side only, so the write path accepted `at` values the read path rejects,
+  and `sortAndBound` orders by the RAW string. Read as two roots it looks like bad luck; named as one
+  it is a pattern a reader can recognise on their own branch. The final shape admits through
+  `parseRun` ITSELF, so write and read cannot diverge because they are the same function.
+- **The generated-space rule paid off sideways.** Ranging over the TYPE's contract rather than a
+  caller's output did not just find bad values — it revealed that the type ADMITS IMPOSSIBLE STATES
+  (`action: 'skipped'` with `outcome: 'confirmed'` both validate). That is a stronger result than
+  finding a reachable defect, and it is an argument `AGENTS.md`'s rule does not currently make.
+- Two corrections recorded because a ledger that lists only fixes gets trusted further than it should:
+  (1) the round-3 review predicted the non-ISO `at` case would be REJECTED; the actual behaviour is
+  admission-then-normalization, since `Date.parse` accepts JavaScript's own `toString` form — the
+  ordering hazard is closed by rewriting the value, not by refusing it. (2) The first assertion written
+  for that test was timezone-dependent (it pinned the weekday name, which `toString` renders in local
+  time); the real property is that a weekday name outranks a digit. Also refuted in round 1: the claim
+  that a redirected stderr loses the divergence authority — the authority phrase and the mismatch list
+  are one string on one stream.
+- **What the shared character table proved, not merely that it exists.** Round 2 claimed "a test pins
+  the two `hasUnsafeCharacter` implementations against the same table" while the two suites carried
+  independently hand-maintained lists that HAD ALREADY DRIFTED — the CLI's was missing `0x009f` and
+  `0x2069`, so mutating that twin would have passed silently. One frozen
+  `__tests__/unsafeCharacterTable.ts` now drives both, and mutating EITHER twin alone fails. The
+  claim was false and it was hiding a live gap; the table closed it rather than preventing a
+  hypothetical. The two implementations stay separate because the operator CLI carries no application
+  import — it references the table by name in its docstring; only the tests import it.
+- Review / verification: three cycles, both reviewers against each commit, 29 findings raised. `a33d1cab`
+  — `/code-review` eight (one refuted with evidence), Codex two, one duplicate pair. `aed26d19` —
+  `/code-review` seven, Codex three; remediated as one derivation (validate each field against its
+  CONSUMER's contract) rather than four patches, which is what stopped the next round finding the next
+  character class. `909ec242` — `/code-review` six, Codex three; round 3 authorized by the owner under
+  `AGENTS.md` step 6 and limited to the five defects round 2 caused. Final `0e294603`. Twenty-one
+  mutation runs, each proven red and restored, across the branch. `npx tsc --noEmit` exit 0; `npm run lint:all` exit
+  0; `npm test` exit 1 with exactly the two known `writer-convergence` failures (Item 137 baseline),
+  4,769/4,771 — each gate run separately. Test delta +57.
+- Status: pre-merge closeout on `claude/102-slice-3a-planner-record` at `0e294603`.
+
 ### PLATFORM-102-SLICE-2-CRON-SYNTHESIS-v1
 
 - Purpose: Item 102 slice 2 — two pure functions over slice 1's polling windows: synthesize the cron
