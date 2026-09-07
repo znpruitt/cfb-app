@@ -711,8 +711,11 @@ crosses **two**. They cannot ship as one PR.
   [`docs/prompts/platform-126b-incident-evidence-claude-v1.md`](prompts/platform-126b-incident-evidence-claude-v1.md).
   Taken first because it is the tier that would have explained the September 1 failure. Tier A's value
   is capped anyway: it correlates runtime logs that expire.
-- **Tier A remains open** — `invocationId` on every structured cron runtime event. Verified
-  2026-09-07: **0 of 7** `cronExecutionLog` modules carry it.
+- **Tier A remains open** — `invocationId` on every structured cron runtime event. **0 of NINE
+  modules carry it**, corrected 2026-09-07: my "0 of 7" came from `find -name cronExecutionLog.ts`,
+  which misses `lifecycleCronExecutionLog.ts` and `pollingPlannerCronLog.ts` — both real cron logs
+  with different filenames. `EXTERNAL_SCHEDULER_JOBS` is **ten** jobs. The direction held; the count
+  did not, and **Tier A is sized off that count.**
 
 **Layer 3 is no longer a prediction — production has realised it.** Read 2026-09-07, 153 hours after
 the incident: `provider-refresh-status` for `schedule:year:2026` now holds
@@ -724,8 +727,14 @@ evidence is unrecoverable; the entire surviving record is `failure / year-result
 **And the loss at layer 1 is two problems, not one** — verified at `schedulerExecutionStatus.ts:380`.
 `scheduleYearsTarget` RECEIVES `scoreRepairs`, `scoreDifferenceCount`, `scoreSweepFailedPartitions`,
 `scoreSweepCannotTellCount` and `kickoffsChanged` per entry and discards them to run level at `:396`;
-it never receives `result`, `reason`, `providerCallAttempted`, `failedSeasonTypes`, `rowsReceived`,
-`rowsCommitted` or `dataChanged` at all. The fixes differ.
+it never receives `result`, `reason`, `providerCallAttempted`, `rowsReceived`, `rowsCommitted` or
+`dataChanged` at all. The fixes differ.
+
+**And `failedSeasonTypes` is a THIRD case, one layer earlier — found 2026-09-07.** This entry listed
+it with the never-received group, which is wrong: it is not on `ScheduleRefreshCronYearExecution`
+either, so widening the target builder cannot reach it. The authorities already compute it
+(`fullSeasonScheduleRefreshResult.ts:69`, `refreshAuthority.ts:443`); the ROUTE drops it when
+building its year entry. Reaching it changes the runtime event too.
 
 **Filed 2026-09-03 from `SCHEDULE-REFRESH-FAILURE-DIAG`.** The September 1, 2026 12:00 UTC weekly
 schedule refresh is the production proof of the gap. QStash successfully delivered the request and

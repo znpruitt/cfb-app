@@ -73,7 +73,9 @@ Report these, then **STOP and wait**.
    different problems and the fix differs.
 3. **Quote both collapse sites.** Say what distinguishes them, if anything, and what a shared
    closed class would have to express to serve both.
-4. **The receipt is a DURABLE CONTRACT with a parser and four consumers.** Name them, and say what a
+4. **The receipt is a DURABLE CONTRACT with a parser and FIVE read sites** — your count, accepted
+   over mine; the contract covers all five, including the writer's own prior-parse, which is the one
+   that decides replaceability. Name them, and say what a
    reader on the old shape does when it meets a widened year entry. A migration that assumes
    simultaneous deploy is wrong.
 5. Anything in the references that CONTRADICTS or narrows what you were handed. If nothing, say so
@@ -92,15 +94,28 @@ is the exact ambiguity that rule exists to prevent. If you believe you need it, 
    `failedSeasonTypes`, `providerCallAttempted`, `rowsReceived`, `rowsCommitted` and `dataChanged`
    the authority already produces. **A run-level result cannot say which year failed when a run
    spans several** — that is the whole item.
-2. **Preserve a closed upstream class** in place of the `fetch-failed` collapse: `timeout`,
-   `network`, `http` with a numeric status, or `parse`. Both jobs, one shared vocabulary.
-3. **Let System Health show the retained reason and partition evidence** instead of only the generic
+2. **Preserve a closed upstream class** in place of the `fetch-failed` collapse. **RULED 2026-09-07
+   from your receipt — FIVE members, mirroring `UpstreamErrorKind` exactly:** `timeout`, `aborted`,
+   `network`, `http` with a numeric status, `parse`. My "four" came from the item's prose;
+   `fetchUpstream.ts:1` says five and **the code wins**. Your argument decided it: collapsing
+   `aborted` onto `network` is precisely the lossy mapping this item exists to remove, and inventing
+   it inside the module whose job is not losing things would be self-defeating. Construct the class
+   from `details.kind` and `details.status` ONLY — never spread `UpstreamError`, which carries
+   `message`, `statusText`, `url` and `responseBody`.
+3. **Record the class PER FAILED PARTITION, not once per year — RULED 2026-09-07.** You were right
+   that the prompt did not settle this and right not to pick silently. Partitions fail
+   independently, so a year with regular succeeding and postseason timing out is a real state that
+   one class per year cannot express without a lossy tie-break. **This resolves together with your
+   finding (a):** `failedSeasonTypes` is dropped a layer earlier than layer 1 described, so the fix
+   is one shape — each failed season type carries its own class. Do not add a per-year class as
+   well; one home for the fact.
+4. **Let System Health show the retained reason and partition evidence** instead of only the generic
    "execution failed" copy — without treating observability metadata as canonical data truth.
 </task>
 
 <gate>
 **NEVER persist a raw error, a response body, a URL, a header, or a payload.** The upstream class is
-closed and secret-safe by construction: four members, one optional numeric status. A branch that
+closed and secret-safe by construction: **five** members, one optional numeric status. A branch that
 records an error message to be helpful has created an exfiltration path in a durable store.
 
 **Do NOT generalise per-target outcome structures into the single-unit jobs.** `live-scores`,
@@ -124,8 +139,10 @@ shape, or if the two jobs' fault taxonomies do not actually unify.
 <completeness_contract>
 - **A multi-year run with ONE failing year names that year and its reason.** The headline; assert it
   directly, with a run spanning at least three years so a single-year fixture cannot pass by accident.
-- **Each of the four upstream classes survives to the durable record**, asserted per class. A test
-  that only exercises `timeout` proves one branch of four.
+- **Each of the FIVE upstream classes survives to the durable record**, asserted per class. A test
+  that only exercises `timeout` proves one branch of five.
+- **A year with ONE failed partition and one succeeding one records exactly that** — the mixed pair
+  is the case a per-year class could not express, so it is the case that proves the ruling.
 - **No secret reaches the store.** Positive control: feed a real error carrying a URL and a response
   body through the classifier and assert the durable value contains neither — and that the scan can
   see them if the classifier is removed.
