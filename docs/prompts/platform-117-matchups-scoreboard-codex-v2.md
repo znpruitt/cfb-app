@@ -183,9 +183,17 @@ did not do.
 change in this campaign since slice 5b, and the report should read as a product change, not a
 refactor.
 
-Closeout is a separate pre-merge commit after review convergence: registry entry, Item 117 status,
-and **correcting the stale claims in the Matchups design doc rather than only listing them.**
+Closeout is a separate pre-merge commit after review convergence: registry entry and Item 117 status.
+**You do NOT correct the design document** — your v2 receipt caught this surviving from v1, and
+repairing it is **Item 144**. If you find a stale claim not already on 144, name it in the report so
+it can be added there.
 
-Push branch and `preview` together. Merge is delegated to this lane under `CLAUDE.md` →
-**Worktrees and session roles**, including the four conditions. Promotion is not.
+**Do NOT push `preview`.** `AGENTS.md:662` — Codex does not push `preview` or any other preview
+branch. Your v2 receipt caught this instruction surviving from a Claude-lane template; `AGENTS.md`
+governs. Verify locally on **port 3010** (both worktrees default to 3000, and a killed dev server can
+orphan a `next-server` child that then serves stale code). Your work reaches the owner as a branch to
+pull and run.
+
+Merge is delegated to this lane under `CLAUDE.md` → **Worktrees and session roles**, including the
+four conditions. Promotion is not.
 </output_contract>

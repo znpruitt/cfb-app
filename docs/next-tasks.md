@@ -1876,7 +1876,8 @@ consumer** — the only references outside the component are its own tests. This
 **Filed 2026-09-03.** Design: `docs/campaigns/item-87-followon-matchups-schedule-design.md` →
 _Matchups — design decisions_, and `mockups/matchups-schedule-mockup.html`. `MatchupsWeekPanel`'s
 bespoke `GameRow` (`:140`) becomes `CompactGameScoreboard`, rendered expanded inline with no collapse
-and the odds footer on. **Carries a correctness fix, not only a restyle:** the shipped row reads
+and the odds footer at the component's existing behaviour — **v2 narrowed this; the footer's
+live/final content is Item 143.** **Carries a correctness fix, not only a restyle:** the shipped row reads
 `Colorado @ Georgia Tech` over `vs BHooper` and never says which team belongs to which owner — the
 same owner→team mapping defect the Overview redesign fixed. Not in slice 5's scope, which touches
 this file only for the `ownerOutcomeRowClasses` carry-over. Depends on **Item 87 slice 5a**.
@@ -1888,21 +1889,23 @@ Dimming and owner colour remain rejected. See
 `docs/campaigns/item-87-followon-team-highlight.md`; this item supplies the first consumer rather
 than widening the component again.
 
-**Eyebrow tags convert to bronze — a LIVE `DESIGN.md:148` violation today.** `MatchupsWeekPanel.tsx:267`
+**Eyebrow tags convert to bronze — a LIVE `DESIGN.md:147` violation today.** `MatchupsWeekPanel.tsx:267`
 renders `UPSET` / `TOP 25` as **filled blue pills**
-(`dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-200`). `DESIGN.md:148` states blue signals
+(`dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-200`). `DESIGN.md:147` states blue signals
 interactivity or active state only — _"never use blue to mean 'featured' or 'important'"_ — and those
 tags are exactly an importance signal. So this is a correction to shipped, not a preference. The
 settled treatment is a **hairline-bordered bronze pill, no fill**:
 `border: 0.5px solid rgba(201,166,107,0.40)`, text `#dbc190`, per
 `docs/campaigns/item-87-followon-matchups-schedule-design.md` § _Eyebrow tags_ and the mockup at
 `matchups-schedule-mockup.html:73-76`. The mockup also right-aligns tags in the status row with
-`flex-wrap: nowrap`, so a tagged card gains no line.
+`flex-wrap: nowrap` — **that PLACEMENT is Item 143, not this item.** `contextSlot` renders above the
+header row, so tags injected there add a line; Item 117 changes the COLOUR only and leaves them
+where they render today.
 
 **The design doc's _Matchups — design decisions_ section is STALE on one point.** It still reads
 "**Open — card-owner treatment**" and describes a dimming toggle. That was settled 2026-09-05 as the
 neutral tint above, with dimming rejected. `docs/campaigns/item-87-followon-team-highlight.md` wins.
-This is the third stale claim found in that document — it predates the slice 5a/5b rulings, so treat
+This is one of TEN stale claims found in that document (Item 144) — it predates the slice 5a/5b rulings, so treat
 its state-behaviour and treatment statements as needing a check against `DESIGN.md` and the
 team-highlight doc rather than as canonical.
 
