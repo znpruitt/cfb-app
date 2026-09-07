@@ -2998,10 +2998,32 @@ What needs deciding is whether two schedules of the same job family should be ab
 generations simultaneously, and whether a walk-back should be allowed to cross a cutover boundary at
 all when the current expression arms no hour.
 
-**Falsifiable prediction: the two rows converge once the cutover is more than ~2 hours old**, because
-both walk-backs then land wholly inside the post-cutover span. **Check after ~21:40 UTC.** If they
-still disagree, the asymmetry is not transient and the multi-schedule required-slot derivation needs
-a look.
+**RESOLVED 2026-09-07 — NOT A DEFECT. The prediction was right in mechanism and wrong on timing.**
+
+The 21:42 check read `NO CONVERGENCE`, but it fired ~20 minutes early. Simulated forward through the
+real reader with the store injected:
+
+| time | `live-scores` | required slot |
+| --- | --- | --- |
+| 21:42 | on-time | 19:39 — the stale slot |
+| 22:05 | on-time | **20:01** — advanced |
+| 23:05 | on-time | 21:01 |
+
+**The stale dense slot self-clears when the SLOW schedule's advancing slot OVERTAKES it** — at
+`19:39 + 120 min` of grace ≈ **22:01**. The right formulation was never "2 hours after the cutover",
+it was "2 hours after the first slow slot following the cutover".
+
+**Detection is intact, which was the real question.** With `live-scores` frozen at 21:01 to simulate
+the job dying, the row reads **`late` by 23:35** — 2.5 h, the correct grace for an hourly schedule. A
+permanently frozen required slot would have meant a dead job reading healthy indefinitely. It does
+not happen.
+
+**And the trigger is far narrower than this entry first claimed.** It needs a dense schedule
+**narrowed but NOT paused** to hours excluding the current one, applied **during** an unarmed hour —
+which is the manual mid-afternoon trigger, not the nightly cutover. At 23:50 on a game day the new
+dense expression arms hour 23 immediately; on a dead day dense is **paused**, and a paused schedule
+contributes no required slot at all. **So it does not recur nightly, and the "recurs at 23:50 every
+night" claim below is withdrawn.**
 
 **SECOND FOLLOW-UP, same row — the cadence label reads as its wrong half. Owner misread it in
 production 2026-09-07, which is the evidence.**
@@ -3025,11 +3047,11 @@ defect alone is survivable; together they make a healthy row unreadable.
 this is a change to how one string is ordered, not to what it knows. **Decide it with the
 required-slot question, not separately** — the row is either readable or it is not.
 
-**Even if transient, there is a question worth answering:** whether a few hours of asymmetric
-delivery states immediately after every daily cutover is acceptable. It recurs at 23:50 every night,
-it is invisible in tests because no fixture spans a cron change with two different step sizes, and
-an operator seeing one planner-owned job green and its twin gray has no way to tell that from a
-fault. Not urgent — neither state raises an issue, and neither is wrong about its own job.
+**What survives, and it is small.** For a few hours after a mid-window narrowing, one planner-owned
+row can read `on-time` against a slot from a replaced cron while its twin reads `Nothing due`. No
+fixture spans a cron change with two different step sizes, so tests cannot see it. Neither state
+raises an issue and neither is wrong about its own job. **Worth a regression test more than a fix** —
+the behaviour is correct and undocumented, which is how it gets "fixed" into a defect later.
 
 **Slice 4 — activation.** Small, because everything it needs is already built and tested by then.
 
