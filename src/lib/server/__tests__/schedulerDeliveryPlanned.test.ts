@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import {
+  deliveryNothingDue,
+  deliveryRowStatus,
+  deliveryStateDisplay,
+} from '../../../components/admin/systemHealth/systemHealthPresentation';
+
 import type {
   PlannerScheduleAction,
   PlannerScheduleOutcome,
@@ -1723,6 +1729,14 @@ test('nothing due never reads on-time, however stale the receipt', async () => {
   assert.equal(row.planUnavailableReason, null, 'and it is not a plan fault');
   assert.ok(row.receipt, 'the receipt travels, so the row still shows the last run');
 
+  // PLATFORM-102 slice 4: and it does not RENDER as one either. This is the whole
+  // reachability argument for the colour change — the row above is produced by the
+  // real reader on the shape `slowHoursFor` emits routinely, so the gray dot is
+  // reached by a live path rather than by a hand-built fixture.
+  assert.equal(deliveryNothingDue(row), true);
+  assert.equal(deliveryRowStatus(row), 'gray');
+  assert.equal(deliveryStateDisplay(row).label, 'Nothing due');
+
   // Positive control: once a slot HAS come due, the same stale receipt is late —
   // so the state above is "not yet assessable", not a blanket refusal to judge.
   const due = rowOf(
@@ -1734,6 +1748,7 @@ test('nothing due never reads on-time, however stale the receipt', async () => {
     'live-scores'
   );
   assert.equal(due.deliveryState, 'late');
+  assert.equal(deliveryRowStatus(due), 'yellow', 'and a real overdue slot is still a warning');
 });
 
 // REGRESSION TEST. "Daily" is the CALENDAR's word; the single firing is the

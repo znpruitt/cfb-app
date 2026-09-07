@@ -41,6 +41,8 @@ import {
 } from './providerRefreshSettings.ts';
 import {
   readSchedulerDeliveryHealth,
+  isPlannerOwnedJob,
+  PLAN_UNAVAILABLE_CADENCE_LABEL,
   schedulerDeliveryPolicies,
   type SchedulerDeliveryHealthRow,
   type SchedulerDeliveryHealthSnapshot,
@@ -299,39 +301,73 @@ function unavailableDelivery(nowMs: number): SchedulerDeliveryHealthSnapshot {
   const generatedAt = new Date(nowMs).toISOString();
   return {
     generatedAt,
-    jobs: schedulerDeliveryPolicies().map((policy) => ({
-      job: policy.job,
-      source: policy.source,
-      cron: policy.cron,
-      cadenceLabel: policy.cadenceLabel,
-      graceMs: policy.graceMs,
-      // NO SLOT IS CLAIMED. This path is reached when the delivery reader itself
-      // failed or timed out, so nothing was measured — and publishing `now` here
-      // rendered "Required slot: … (just now)" on a row that knows nothing, a
-      // deadline that moved on every reload.
-      requiredStartedAt: null,
-      // NOT a plan fallback: no planner record was read, so nothing about a plan
-      // is asserted or discarded, and `planUnavailableReason` stays null — the
-      // reason this row is unavailable is the reader, not the record. The
+    jobs: schedulerDeliveryPolicies().map((policy) => {
+      // PLATFORM-102 slice 4, and this note was left here FOR slice 4: "the
       // published cadence is the fixed contract, which stops being true for the
-      // two planner-owned jobs once slice 4 lands; carried as a slice-4 item.
+      // two planner-owned jobs once slice 4 lands".
       //
-      // The entry is published rather than omitted because `schedules` is
-      // documented "never empty" and the branch's own fixture guard enforces it:
-      // production's fallback was the one row violating its own contract.
-      schedules: [
-        {
-          schedule: 'fixed' as const,
-          cron: policy.cron,
-          graceMs: policy.graceMs,
-          requiredStartedAt: null,
-          unavailableReason: null,
-        },
-      ],
-      deliveryState: 'unavailable',
-      planUnavailableReason: null,
-      receipt: null,
-    })),
+      // It has landed. `*/3 * * * *` is now the cadence the planner REPLACED, so
+      // publishing it here rendered "Live scores · every 3 minutes" for a schedule
+      // the planner had deliberately paused — the one claim `buildDeliveryRow` and
+      // `resolveDeliverySchedules` go out of their way never to make. This path is
+      // reached when the READER failed, so nothing about the plan is known and
+      // nothing about it is claimed: no cron, no grace, and a label that says so.
+      //
+      // `planUnavailableReason` still stays null on both branches, because the
+      // reason this row is unavailable is the reader and not the record.
+      const planner = isPlannerOwnedJob(policy.job);
+      return {
+        job: policy.job,
+        source: policy.source,
+        cron: planner ? null : policy.cron,
+        cadenceLabel: planner
+          ? PLAN_UNAVAILABLE_CADENCE_LABEL['plan-store-failed']
+          : policy.cadenceLabel,
+        graceMs: planner ? null : policy.graceMs,
+        // NO SLOT IS CLAIMED. This path is reached when the delivery reader itself
+        // failed or timed out, so nothing was measured — and publishing `now` here
+        // rendered "Required slot: … (just now)" on a row that knows nothing, a
+        // deadline that moved on every reload.
+        requiredStartedAt: null,
+        // The entry is published rather than omitted because `schedules` is
+        // documented "never empty" and the branch's own fixture guard enforces it:
+        // production's fallback was the one row violating its own contract.
+        //
+        // A planner-owned job runs TWO schedules and has no `fixed` one, so naming
+        // a `fixed` entry here would invent a schedule it does not have. Both are
+        // published carrying the same reason as the row, which is the shape
+        // `resolveDeliverySchedules`' own refusal emits.
+        schedules: planner
+          ? [
+              {
+                schedule: 'dense' as const,
+                cron: null,
+                graceMs: null,
+                requiredStartedAt: null,
+                unavailableReason: 'plan-store-failed' as const,
+              },
+              {
+                schedule: 'slow' as const,
+                cron: null,
+                graceMs: null,
+                requiredStartedAt: null,
+                unavailableReason: 'plan-store-failed' as const,
+              },
+            ]
+          : [
+              {
+                schedule: 'fixed' as const,
+                cron: policy.cron,
+                graceMs: policy.graceMs,
+                requiredStartedAt: null,
+                unavailableReason: null,
+              },
+            ],
+        deliveryState: 'unavailable' as const,
+        planUnavailableReason: planner ? ('plan-store-failed' as const) : null,
+        receipt: null,
+      };
+    }),
   };
 }
 

@@ -247,6 +247,88 @@ Rules:
   `manage:usage-sample-schedule upsert --apply` requires the owner's `QSTASH_TOKEN`. Until it runs,
   System Health correctly reports `usage-sample` with a scheduler-delivery warning.
 
+### PLATFORM-102-SLICE-4-ACTIVATION-v1
+
+- Purpose: Item 102 slice 4 — activate the planner. A daily cron derives the next UTC day's polling
+  windows from the canonical schedule, synthesizes each planner-owned job's dense and slow crons,
+  records what it derived and sent, and applies it to QStash. The slice where the saving lands, and
+  the first in the campaign that is NOT dormant.
+- Scope: `src/app/api/cron/polling-planner/route.ts`, `pollingPlanner.ts`, `pollingPlannerApply.ts`,
+  `pollingPlannerCronLog.ts`; `scripts/lib/qstashSchedule.ts` for `upsert`'s authority plus three new
+  `scripts/lib/` modules and three new manage CLIs; the nothing-due display; the seven credential
+  statements. NOT `pollingWindows.ts`, `pollingCron.ts` or `pollingPlannerRecord.ts`.
+- Outcome: `live-scores` 480 → **214.5 firings/day in October (−55.3%)**, 57.3 annual (−88.1%);
+  `game-stats` 96 → **49.4 in October (−48.6%)**, 13.4 annual (−86.0%). October is the binding month
+  (the Hobby allowance is monthly) and is quoted first deliberately. **214.5 is a SNAPSHOT worst
+  case**, not the realized figure — see the TBD note below.
+- Diffstat 36 files / +4,579 −328, over the sizing signal and approved as such; test delta **+64**
+  (4,825 → 4,889).
+
+- **The October gap from slice 2's 190.7 is TBD coverage, not the cutover carry.** Measured
+  decomposition against production `2026-all-all`: confirmed kickoffs only, no carry → **190.68**
+  (reproducing slice 2 exactly); + whole-day arming of the 421 kickoffs with no published time →
+  212.06 (+21.4, 90% of the gap); + the carry → 214.52 (+2.5, 10%). The owner's hypothesis that the
+  carry cost ~20/day was checked and refuted.
+- **214.5 is a snapshot; the realized figure is near 193/day (−60%).** Whole-day arming is paid only
+  for a game still TBD on its OWN day, and the planner re-derives daily. Measured 2026-09-07: **0 of
+  1,070 kickoffs in the next three weeks are TBD**, against 12–16% at four-plus weeks and 32%/60% at
+  twelve and thirteen. TBD resolves as the date approaches, so applying today's TBD set to every
+  future day — which the 214.5 figure does — is a worst case by construction.
+- **The recurring failure of this branch family appeared three more times, all one root: a guard on
+  what something MEANS while what it IS goes unchecked.** An ABSENT season cache read as a verified
+  dead day and paused both dense schedules (`loadCachedScheduleItems` returns `[]` and never throws,
+  so a try/catch guarded the failure that does not happen); an UNCONFIRMED pause recorded as
+  `dense: null`, which `installedState` reads as "not expected to fire", so a schedule still firing
+  every three minutes was recorded as deliberately off; and `deliveryNothingDue` keyed on the row-level
+  reason while a faulted per-schedule entry went unchecked, rendering gray "Nothing due" for a job
+  half of which could not be checked — confirmed by running it.
+- **THE PLANNER MAY ONLY TURN POLLING OFF ON POSITIVE EVIDENCE** is the sentence round 1 turns on.
+  `AGENTS.md` settles the reading of an empty season record — "a schedule is never committed empty" —
+  so zero usable kickoffs means the record was never established, never that the season has no games.
+  Silence is now emitted only on a confirmed pause, an `isPaused: true` readback, or a schedule that
+  does not exist; an unconfirmed pause records the cron that is still firing.
+- **The durable record stored the WHOLE SEASON's windows every run** — 479 windows, 46,014 bytes,
+  ~18 MB per job key at the store's 400-run bound, rewritten in a transaction daily and re-parsed on
+  every System Health render, of a field no consumer reads. On an item whose purpose is cutting Active
+  CPU. It records only the planning day's windows; the derivation still runs season-wide, because a
+  pre-filter would move cluster boundaries.
+- **A fix in round 1 widened a credential boundary, which round 2 closed.** Loading
+  `.env.operator.local` in `runScheduleCli` put the full-privilege production `DATABASE_URL` — which
+  that file holds alongside the read-only one — into all ten CLIs, six of which never touch the store,
+  and disabled `appStateStore`'s local-file fallback so a stray store call would have written to
+  PRODUCTION. `operatorReadOnlyEnv` now takes the one key it needs through dotenv's `processEnv`, and
+  `plannerRecordConnectionString` has NO fallback to the write credential: a preference is not a
+  guarantee.
+- **`systemHealth.ts` carried a note written FOR this slice and it was missed until round 2**: "the
+  published cadence is the fixed contract, which stops being true for the two planner-owned jobs once
+  slice 4 lands". The reader-failure fallback was rendering "Live scores · every 3 minutes" for a
+  schedule the planner had deliberately paused.
+- **The operator emergency stop needed no new state, and that is the round-3 design.** The runbook's
+  single-job stop is already "enable global pause, disable its dataset, pause its schedule" — the
+  first two steps write durable operator-owned settings before the third touches QStash, and the
+  planner was ignoring them, so its next run undid step three. It cannot tell its own pause from an
+  operator's by looking at QStash, so inference was never available. It now reads the SAME
+  `provider-refresh-settings` switch each handler gates itself on, so planner and route cannot
+  disagree; a held job is skipped ENTIRELY and an unreadable settings store holds everything.
+- **A held run writes no per-job record**, because `PlannerScheduleOutcome` has no `held` member and
+  `pollingPlannerRecord.ts` is slice 3a's. The hold is recorded on the planner's own receipt
+  (`jobsHeld`, and `no-op / plan-held` when all are held) — `no-op` deliberately, since
+  `schedulerExecutionIssues` raises nothing for it and a deliberate stop must not page anyone.
+- **`dotenv` is a devDependency, so the CLI wrapper had to move out of the policy module** before a
+  Next.js route could import it. `qstashScheduleCli.ts` is that split; it is load-bearing, not tidying.
+- **Reachability cut both ways.** Refuted with production data: the `startTimeTBD` fail-open worry (421
+  `true`, 3,259 `false`, **0 missing**); the cutover-carry gap (**0 occurrences** across 2026); and a
+  reviewer's "a game moves onto a dead day" P1 — no weekday is structurally dead in season (Wed 24 and
+  Tue 7 kickoffs), and dead days are calendar gaps spread 7–13 across every weekday. Against that: on
+  the last round the same discipline lapsed, and a recommendation to revert the dead-day cadence —
+  giving up 17.4 wakeups/day, the entire value of the pause rule — was made on an unchecked scenario
+  and withdrawn after the owner challenged it.
+- **Verified by running the app, not by tests.** With QStash gated two ways and the gate proven first:
+  401 on bad auth; an absent cache sending NOTHING and writing no state; a seeded season recording 2
+  windows rather than 3; an established dead day with QStash unreachable recording `outcome: failed`
+  rather than silence; a secret scan over record, receipt, responses and logs with a positive control;
+  and `manage-live-scores-schedule inspect` at EXIT=0 where reviewers had measured EXIT=3.
+
 ### PLATFORM-102-SLICE-3B-DELIVERY-CONSUMER-v1
 
 - Purpose: Item 102 slice 3b — delivery health reads what the planner ACTUALLY scheduled from slice

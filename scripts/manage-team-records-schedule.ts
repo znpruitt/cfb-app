@@ -15,7 +15,6 @@ import {
   redactHeaderNames,
   resolveQstashBase,
   runManageSchedule as runManageScheduleShared,
-  runScheduleCli,
   scrubSecrets,
   summarizeSchedule as summarizeScheduleShared,
   type QstashRequest,
@@ -23,6 +22,7 @@ import {
   type ScheduleContract,
   type ScheduleReadback,
 } from './lib/qstashSchedule.ts';
+import { runScheduleCli } from './lib/qstashScheduleCli.ts';
 
 export const SCHEDULE_ID = 'turfwar-team-records-hourly';
 export const DESTINATION = 'https://turfwar.games/api/cron/team-records';

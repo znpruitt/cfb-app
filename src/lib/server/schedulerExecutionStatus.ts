@@ -17,6 +17,7 @@ import type {
   SeasonTransitionCronExecutionReason,
 } from '@/lib/lifecycleCronExecutionLog';
 import type { UsageSampleCronExecutionReason } from '../providerUsage/cronExecutionLog.ts';
+import type { PollingPlannerCronExecutionReason } from '../schedule/pollingPlannerCronLog.ts';
 import { withAppStateKeyTransaction } from '@/lib/server/appStateStore';
 
 /**
@@ -88,6 +89,16 @@ export const EXTERNAL_SCHEDULER_JOBS = [
   'season-transition',
   'season-rollover',
   'usage-sample',
+  /**
+   * PLATFORM-102 slice 4. The polling planner is the job that rewrites
+   * `live-scores`' and `game-stats`' QStash schedules once a day, so it is the
+   * one job whose SILENCE is not merely a missing datapoint: a planner that stops
+   * leaves whatever it installed last in place, and a dense schedule PAUSED on a
+   * dead day stays paused into the next game day. Nothing else on this page would
+   * show that — the two rows it owns would read against a plan the record still
+   * describes as current — so the planner carries its own receipt.
+   */
+  'polling-planner',
 ] as const;
 
 export type ExternalSchedulerJob = (typeof EXTERNAL_SCHEDULER_JOBS)[number];
@@ -113,6 +124,7 @@ const JOB_SOURCE: Record<ExternalSchedulerJob, SchedulerSource> = {
   'season-transition': 'vercel-cron',
   'season-rollover': 'vercel-cron',
   'usage-sample': 'qstash',
+  'polling-planner': 'qstash',
 };
 
 /** The configured scheduler owner for a job — the single derivation of `source`. */
@@ -142,7 +154,8 @@ export type SchedulerExecutionReason =
   | RankingsCronExecutionReason
   | SeasonTransitionCronExecutionReason
   | SeasonRolloverCronExecutionReason
-  | UsageSampleCronExecutionReason;
+  | UsageSampleCronExecutionReason
+  | PollingPlannerCronExecutionReason;
 
 /** The allowlisted, bounded per-job target summary variants. */
 export type SchedulerExecutionTarget =
@@ -170,6 +183,33 @@ export type SchedulerExecutionTarget =
       day: string | null;
       /** Whether the durable series write succeeded. */
       recorded: boolean | null;
+    }
+  /**
+   * PLATFORM-102 slice 4 — one daily planner run. Its target is the UTC DAY it
+   * planned, and the counts describe what it did to the four schedules it owns.
+   *
+   * `schedulesApplied` counts schedules it actually wrote or paused;
+   * `schedulesUnchanged` counts the ones already in the desired state, which is
+   * the modal outcome and must not read as "nothing happened"; `schedulesFailed`
+   * counts the ones left in an unknown or unwanted state. No cron expression,
+   * schedule id, header or request appears here — the durable planner record is
+   * the place that holds the intent, under its own allowlist.
+   */
+  | {
+      kind: 'polling-planner';
+      /** Midnight-UTC calendar day planned (`YYYY-MM-DD`), or null on an early exit. */
+      day: string | null;
+      schedulesApplied: number;
+      schedulesUnchanged: number;
+      schedulesFailed: number;
+      /** Planner-owned jobs whose durable record write did not confirm. */
+      recordsNotWritten: number;
+      /**
+       * Planner-owned jobs an operator holds, which the planner skipped entirely.
+       * Its own field so a held job is never counted as applied, unchanged or
+       * failed — telling a deliberate stop from a fault is what it is for.
+       */
+      jobsHeld: number;
     }
   | {
       kind: 'game-stats';
@@ -633,6 +673,7 @@ const JOB_TARGET_KIND: Record<ExternalSchedulerJob, SchedulerExecutionTarget['ki
   'season-transition': 'season-transition-years',
   'season-rollover': 'season-rollover-years',
   'usage-sample': 'usage-sample',
+  'polling-planner': 'polling-planner',
 };
 
 function isFiniteNumber(value: unknown): value is number {
@@ -668,6 +709,16 @@ function rebuildTarget(target: SchedulerExecutionTarget): SchedulerExecutionTarg
         kind: 'usage-sample',
         day: target.day,
         recorded: target.recorded,
+      };
+    case 'polling-planner':
+      return {
+        kind: 'polling-planner',
+        day: target.day,
+        schedulesApplied: target.schedulesApplied,
+        schedulesUnchanged: target.schedulesUnchanged,
+        schedulesFailed: target.schedulesFailed,
+        recordsNotWritten: target.recordsNotWritten,
+        jobsHeld: target.jobsHeld,
       };
     case 'game-stats':
       return {
@@ -844,6 +895,19 @@ function isValidStoredTarget(value: unknown, job: ExternalSchedulerJob): boolean
         (target.day === null
           ? target.recorded === false
           : typeof target.day === 'string' && isUtcCalendarDay(target.day))
+      );
+    case 'polling-planner':
+      // A present `day` must be a real UTC calendar date. The counts are
+      // non-negative integers and are REQUIRED even when zero: a receipt whose
+      // counts were merely absent would render as a planner that touched nothing,
+      // which is also what a completely successful unchanged day looks like.
+      return (
+        (target.day === null || (typeof target.day === 'string' && isUtcCalendarDay(target.day))) &&
+        isNonNegativeInteger(target.schedulesApplied) &&
+        isNonNegativeInteger(target.schedulesUnchanged) &&
+        isNonNegativeInteger(target.schedulesFailed) &&
+        isNonNegativeInteger(target.recordsNotWritten) &&
+        isNonNegativeInteger(target.jobsHeld)
       );
     case 'game-stats':
       return (
