@@ -41,10 +41,15 @@ it is unprovable *because of the four gaps below*. Do not treat it as settled fa
    RECEIVES `scoreRepairs`, `scoreDifferenceCount`, `scoreSweepFailedPartitions`,
    `scoreSweepCannotTellCount` and `kickoffsChanged` per entry, then maps to
    `{ year, operation }` and aggregates the rest to run level (`:396`). The per-year `result`,
-   `reason`, `providerCallAttempted`, `failedSeasonTypes`, `rowsReceived`, `rowsCommitted` and
-   `dataChanged` never reach it at all.
-2. **Runtime events lack `invocationId`** — verified: **0 of 7** `cronExecutionLog` modules carry it.
-   **That is Tier A and NOT yours.** Noted so you do not solve it here.
+   `reason`, `providerCallAttempted`, `rowsReceived`, `rowsCommitted` and `dataChanged` never reach
+   it at all. **`failedSeasonTypes` is a THIRD case, corrected from your receipt: it is not on the
+   cron year entry either, so widening this builder cannot reach it — the ROUTE drops it one layer
+   earlier.** The authorities already compute it (`fullSeasonScheduleRefreshResult.ts:69`,
+   `refreshAuthority.ts:443`).
+2. **Runtime events lack `invocationId`** — **0 of NINE** modules, corrected from your receipt. My
+   "0 of 7" came from a `-name cronExecutionLog.ts` glob that misses `lifecycleCronExecutionLog.ts`
+   and `pollingPlannerCronLog.ts`. **That is Tier A and NOT yours.** Noted so you do not solve it
+   here, and because Tier A is sized off that count.
 3. **`provider-refresh-status` is latest-only.** Shown above, already realised.
 4. **The upstream class collapses to `fetch-failed`**, identically in both jobs:
    `schedule/fullSeasonScheduleFetch.ts:67` and `rankings/refreshAuthority.ts:111` are the same line
