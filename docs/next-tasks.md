@@ -2573,6 +2573,30 @@ fixed the identical defect in its own classifier; the twin is untouched.
 
 **Slice 4 — activation.** Small, because everything it needs is already built and tested by then.
 
+**The two blocking specification items are RESOLVED — owner decisions 2026-09-07. Both made slice 4
+smaller.**
+
+- **A dead day PAUSES the schedule; it does not emit a keep-alive cron.** We had reasoned that a
+  zero-window day still needs some expression because "no cron can mean never". True of cron syntax —
+  but **QStash supports pausing**, and the CLI already carries `pause` / `resume` actions
+  (`qstashSchedule.ts:85`, `buildPauseRequest` `:222`). So "never" IS expressible; we were not using
+  the mechanism that expresses it. The rule: **games today** → dense over the game hours, slow over
+  the tail; **no games but yesterday's tail still open** → slow only, dense paused; **nothing at all**
+  (mid-week, offseason) → both paused.
+  **Pause, never delete.** A paused schedule still exists, so `inspect` can still check it and the
+  tamper signal survives; deleting makes the schedule vanish and reappear daily as a new one, which
+  undermines what slices 3a and 3b were built to protect.
+  **This dissolves the `dense: null` blocker.** The planner no longer needs to express "deliberately
+  off" — _paused_ is the state, visible in QStash rather than inferred from a missing field.
+- **Nothing due renders GREEN.** If nothing is due, the job is doing exactly what it was told, and
+  that is the healthy state — not "unknown", not a warning. The wrinkle slice 3b found is real and
+  argues for a different fix: a job **dead for five days** rendered green because nothing had been due
+  in that window, while a job with **no receipt at all** raised a warning. Absence warned; staleness
+  did not. But a row answers _"is this job healthy?"_, and "nothing is due, last run was fine" is
+  healthy. **The row must distinguish "nothing due yet" from "no evidence this job has ever run"** —
+  a display distinction, which keeps it away from the four `SchedulerDeliveryState` consumers Item 102
+  has twice designed around.
+
 - `QSTASH_TOKEN` into the Vercel environment. **Check first whether QStash offers a scoped management
   token** limited to the two schedules the planner touches; if it does, use it. **Update all five
   statements in the same PR** — `docs/deployment-runbook.md:88` and the four `scripts/manage-*-
