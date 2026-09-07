@@ -329,20 +329,6 @@ const SCHEDULE_ID_PATTERN = /^[A-Za-z0-9._-]+$/;
 const METHOD_PATTERN = /^[A-Z]{3,10}$/;
 
 /**
- * C0 controls, DEL, and the C1 range. Checked EXPLICITLY rather than left to the
- * field patterns, because one field is not pattern-matched at all.
- *
- * `parseDestination` validates through `new URL()`, and `new URL()` SILENTLY
- * ACCEPTS embedded control characters — it strips `\n`, `\r` and `\t` and
- * percent-encodes ESC when producing `.href`, but the constructor does not throw.
- * The parser then returned the ORIGINAL string, so the normalization never
- * touched the value that was stored and later printed. Measured:
- * `https://turfwar.games/a\nREFUSED: forged line` parses clean, and
- * `inspect`'s divergence message interpolates it verbatim — letting a corrupt
- * record forge an output line or emit terminal escapes during the exact
- * diagnosis that output exists for.
- */
-/**
  * Characters that are unsafe in the CONSUMER of these strings — an operator's
  * terminal — rather than characters that merely look unusual.
  *
@@ -661,9 +647,20 @@ export function readPollingPlannerRunsForWrite(
 // ---------------------------------------------------------------------------
 
 /**
- * Is this thrown value our own refusal, at any wrapping depth? `appStateStore`
- * may wrap a callback throw once (cleanup failure) or twice (cleanup + retained
- * lock failure), and both carry the original on `cause`.
+ * Is this thrown value our own refusal, at any wrapping depth?
+ *
+ * FROM THIS STORE the maximum depth is ONE: `appStateStore` wraps a callback
+ * throw in `AppStateTxnCleanupError` when the ROLLBACK also fails, and the second
+ * wrapper — `AppStateTxnCallbackLockError` — is only constructed when a retained
+ * `lockKey` failure coincides, which `recordPollingPlannerRun` cannot produce
+ * because it never calls `txn.lockKey`. An earlier version of this comment
+ * claimed "once or twice"; the loop is DEFENSIVE against a future `lockKey`
+ * here, not a description of a reachable second wrap today.
+ *
+ * The `uncertain` classification below deliberately does NOT unwrap, and the
+ * asymmetry is intentional rather than an oversight: it reads `writeAttempted`
+ * off the wrapper that OWNS that fact, and a cause nested inside carries no
+ * durability information about the transaction that wrapped it.
  */
 function isUnreadableRefusal(error: unknown): boolean {
   let current: unknown = error;
@@ -692,12 +689,50 @@ export type PollingPlannerWriteOutcome =
   | 'recorded'
   | 'not-recorded'
   | 'indeterminate'
-  | 'unreadable';
+  | 'unreadable'
+  /**
+   * The CALLER's run would not survive this module's own read path, so nothing
+   * was written. Distinct from `not-recorded`, which is a durable failure: this
+   * is a defect in what was handed to the store, and reporting it as a store
+   * failure would send an operator to the database instead of to the planner.
+   */
+  | 'rejected';
+
+/**
+ * The WRITE gate, and the third appearance of one recurring root.
+ *
+ * Round 1 moved the excess-property ALLOWLIST from an optional constructor to the
+ * sink, because a guarantee enforced where a caller may or may not pass is a
+ * convention rather than a property. Round 2 then tightened the FIELD CONTRACTS —
+ * the future-skew bound on `at`, the exact-midnight rule on `dayStartMs` — and
+ * left them on the read side only. The same asymmetry, one level in: the write
+ * path accepted values the read path rejects.
+ *
+ * That is not merely untidy. `sortAndBound` orders by the RAW stored string, so a
+ * caller bypassing {@link buildPollingPlannerRun} and passing
+ * `at: new Date().toString()` writes `"Sun Sep 06 2026 …"`, which sorts above
+ * every ISO instant (`'S' > '2'`) and pins the newest end of the series — exactly
+ * the failure the future-skew bound exists to prevent, reached through the door
+ * beside it. And because the read path normalizes what the write path stored, the
+ * stored order and the read-back order would silently disagree.
+ *
+ * So the gate is `parseRun` ITSELF — not a second validator that has to be kept
+ * in step with it. Write and read cannot diverge, because they are the same
+ * function.
+ */
+export function admitPollingPlannerRun(
+  run: PollingPlannerRun,
+  nowMs: number = Date.now()
+): PollingPlannerRun | null {
+  return parseRun(projectPollingPlannerRun(run), nowMs);
+}
 
 export async function recordPollingPlannerRun(
   job: ExternalSchedulerJob,
   run: PollingPlannerRun
 ): Promise<PollingPlannerWriteOutcome> {
+  const admissible = admitPollingPlannerRun(run);
+  if (admissible === null) return 'rejected';
   try {
     // Read, append and write inside one key transaction. Read-modify-write
     // outside a lock is last-write-wins: Postgres upserts do not compare, and the
@@ -712,7 +747,7 @@ export async function recordPollingPlannerRun(
         // read. The throw rolls the transaction back, so the stored value is left
         // exactly as found for an operator to inspect.
         if (!prior.ok) throw new PollingPlannerRecordUnreadableError();
-        await txn.write(appendPollingPlannerRun(prior.series, run));
+        await txn.write(appendPollingPlannerRun(prior.series, admissible));
       }
     );
     return 'recorded';

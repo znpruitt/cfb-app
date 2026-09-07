@@ -347,3 +347,95 @@ test('an unreadable prior stays UNREADABLE even when the rollback also fails', a
     __resetAppStateForTests();
   }
 });
+
+// ---------------------------------------------------------------------------
+// Remediation round 3 (final)
+// ---------------------------------------------------------------------------
+
+test('the write path refuses what the read path would reject — same function', async () => {
+  // The recurring root, third appearance. Round 1 moved the excess-property
+  // allowlist to the sink; round 2 then added FIELD contracts on the read side
+  // only, so the write path accepted values the read path rejects. `sortAndBound`
+  // orders by the raw stored string, so `new Date().toString()` sorts above every
+  // ISO instant ('S' > '2') and pins the newest end — the exact failure the
+  // future-skew bound exists to prevent, through the door beside it.
+  //
+  // The gate is `parseRun` itself, so write and read cannot diverge.
+  await reset();
+  const good = run('2026-09-05T04:00:00.000Z', '*/3 19 * * *');
+
+  const inadmissible: Array<[string, PollingPlannerRun]> = [
+    ['a day start that is not UTC midnight', { ...good, dayStartMs: 1_764_028_800_001 }],
+    ['an unparseable instant', { ...good, at: 'not-a-date' }],
+    [
+      'a destination carrying a line separator',
+      {
+        ...good,
+        slow: {
+          ...good.slow,
+          intent: { ...good.slow.intent, destination: 'https://turfwar.games/a b' },
+        },
+      },
+    ],
+  ];
+
+  for (const [name, candidate] of inadmissible) {
+    assert.equal(await recordPollingPlannerRun(JOB, candidate), 'rejected', name);
+  }
+  assert.equal(
+    (await readPollingPlannerRuns(JOB)).kind,
+    'absent',
+    'and none of them reached durable storage'
+  );
+
+  // Positive control on the same harness: the admissible run IS written.
+  assert.equal(await recordPollingPlannerRun(JOB, good), 'recorded');
+});
+
+test('a rejected run is NOT reported as a durable failure', async () => {
+  // `rejected` and `not-recorded` must stay distinguishable: one sends an
+  // operator to the planner, the other to the database. Collapsing them is the
+  // same class of mistake as reporting a store outage as a corrupt row.
+  await reset();
+  const outcome = await recordPollingPlannerRun(JOB, {
+    ...run('2026-09-05T04:00:00.000Z', '*/3 19 * * *'),
+    dayStartMs: 1_764_028_800_001,
+  });
+
+  assert.equal(outcome, 'rejected');
+  assert.notEqual(outcome, 'not-recorded');
+});
+
+test('the stored `at` is NORMALIZED, so a raw form can never pin the ordering', async () => {
+  // The half of the asymmetry that resolves by normalization rather than refusal,
+  // and the distinction is worth stating because the review's scenario predicted
+  // a rejection. `Date.parse` accepts JavaScript's own `Date.prototype.toString`
+  // form, so `new Date().toString()` is ADMISSIBLE — but admission rewrites it to
+  // the canonical ISO instant before the write. `sortAndBound` therefore never
+  // sees `"Sat Sep 05 2026 …"`, which would have sorted above every ISO instant
+  // ('S' > '2') and pinned the newest end of the series indefinitely.
+  await reset();
+  const good = run('2026-09-05T04:00:00.000Z', '*/3 19 * * *');
+  const nonIso = new Date(Date.parse(good.at)).toString();
+  // The property is that a weekday NAME outranks a digit, not that the name is
+  // any particular one — `toString()` renders in local time, so the weekday
+  // depends on the machine's zone and pinning it would make this pass or fail by
+  // timezone rather than by the behaviour under test.
+  assert.ok(
+    (nonIso[0] ?? '') > '2',
+    `the raw form must sort above an ISO instant; got ${JSON.stringify(nonIso)}`
+  );
+
+  await recordPollingPlannerRun(JOB, { ...good, at: nonIso });
+  await recordPollingPlannerRun(JOB, run('2026-09-05T16:00:00.000Z', '*/3 20 * * *'));
+
+  const stored = await getAppState<{ runs: Array<{ at: string }> }>(
+    POLLING_PLANNER_RECORD_SCOPE,
+    KEY
+  );
+  assert.deepEqual(
+    stored?.value.runs.map((entry) => entry.at),
+    ['2026-09-05T04:00:00.000Z', '2026-09-05T16:00:00.000Z'],
+    'stored canonically and in true chronological order'
+  );
+});

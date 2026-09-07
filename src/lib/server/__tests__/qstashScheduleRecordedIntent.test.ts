@@ -9,6 +9,7 @@ import type {
   ScheduleReadback,
 } from '../../../../scripts/lib/qstashSchedule';
 import type { PlannerScheduleIntent } from '../pollingPlannerRecord';
+import { UNSAFE_CHARACTER_CODES } from './unsafeCharacterTable';
 import * as gameStats from '../../../../scripts/manage-game-stats-schedule';
 import * as liveScores from '../../../../scripts/manage-live-scores-schedule';
 import * as odds from '../../../../scripts/manage-odds-schedule';
@@ -430,7 +431,12 @@ test('ONLY the cron is substituted — the planner does not own the other fields
     })) as RunDeps['readRecordedIntent']
   );
 
-  assert.equal(await SUBJECT.run(deps), 3, out.join(' | '));
+  // Exit 2, not 3: this is a DEFINITE divergence, and the module's vocabulary
+  // reserves 2 for that. A monitor keyed on 2 is what fires on a tampering
+  // signal; emitting 3 would have it never fire on the one signal this slice
+  // exists to raise, while a wrapper treating 3 as transient retried forever.
+  assert.equal(await SUBJECT.run(deps), 2, out.join(' | '));
+  assert.match(err.join('\n'), /^REFUSED: /m);
   assert.match(err.join('\n'), /field the planner does not own/);
   assert.equal(
     out.some((line) => line.includes('verified:')),
@@ -453,7 +459,8 @@ test('a record contradicting the contract is REFUSED, not quietly ignored', asyn
       intent: { ...recordedIntent(), ...override },
     })) as RunDeps['readRecordedIntent']);
 
-    assert.equal(await SUBJECT.run(deps), 3, `accepted ${JSON.stringify(override)}`);
+    assert.equal(await SUBJECT.run(deps), 2, `accepted ${JSON.stringify(override)}`);
+    assert.match(err.join('\n'), /^REFUSED: /m);
     assert.match(err.join('\n'), /disagrees with the fixed contract/);
   }
 
@@ -498,7 +505,7 @@ test('a malformed reader RESULT refuses with its message instead of throwing', a
 test('the CLI and the store agree on the unsafe-character class', async () => {
   // The two scans are re-declared rather than shared, because the CLI carries no
   // application import. This pins them against one table so they cannot drift.
-  for (const code of [0x0000, 0x001f, 0x007f, 0x0085, 0x2028, 0x2029, 0x202a, 0x202e, 0x2066]) {
+  for (const code of UNSAFE_CHARACTER_CODES) {
     const destination = `https://turfwar.games/a${String.fromCharCode(code)}b`;
     const { deps, err } = harness(readbackFor(SUBJECT, { cron: PLANNER_CRON }), (async () => ({
       kind: 'intent' as const,
@@ -512,4 +519,44 @@ test('the CLI and the store agree on the unsafe-character class', async () => {
     );
     assert.match(err.join('\n'), /shape this CLI will not print/);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Remediation round 3 (final)
+// ---------------------------------------------------------------------------
+
+test('a DEFINITE divergence exits 2; only "cannot determine" exits 3', async () => {
+  // The module's own vocabulary: `2 = refused (… an absent/DIVERGENT schedule on
+  // inspect) — nothing mutated`, `3 = management unreachable / fail closed`. The
+  // severity of getting this wrong is low; the consequence is not — the
+  // deliverable is a tampering signal, and a monitor keyed on 2 never fires if
+  // the signal exits 3, while a wrapper treating 3 as transient retries a
+  // deterministic result forever.
+  const cannotDetermine: Array<[string, RunDeps['readRecordedIntent']]> = [
+    ['unreadable', reader({ kind: 'unreadable' })],
+    ['unavailable', reader({ kind: 'unavailable' })],
+    ['indeterminate', reader({ kind: 'indeterminate' })],
+    ['store threw', throwingReader()],
+    [
+      'foreign',
+      reader({
+        kind: 'intent',
+        intent: recordedIntent({ scheduleId: 'turfwar-something-else' }),
+      }),
+    ],
+  ];
+
+  for (const [name, readRecordedIntent] of cannotDetermine) {
+    const { deps, err } = harness(readbackFor(SUBJECT), readRecordedIntent);
+    assert.equal(await SUBJECT.run(deps), 3, `${name} should stay 3`);
+    assert.match(err.join('\n'), /^FAILED: /m, `${name} should read as FAILED`);
+  }
+
+  // The one definite negative, for contrast on the same harness.
+  const { deps, err } = harness(readbackFor(SUBJECT, { cron: PLANNER_CRON }), (async () => ({
+    kind: 'intent' as const,
+    intent: { ...recordedIntent(), retries: 3 },
+  })) as RunDeps['readRecordedIntent']);
+  assert.equal(await SUBJECT.run(deps), 2);
+  assert.match(err.join('\n'), /^REFUSED: /m);
 });

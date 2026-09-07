@@ -561,17 +561,6 @@ async function readSchedule(
 }
 
 /**
- * The contract `inspect` judges the live schedule against, resolved BEFORE any
- * management request is sent — so an unreadable record fails closed without the
- * credential ever leaving the process, the same ordering `resolveQstashBase`
- * already establishes for a poisoned base.
- *
- * A returned intent whose `scheduleId` is not the one being read is refused
- * rather than applied: the schedule was fetched BY `contract.scheduleId`, so
- * substituting a different identity would compare schedule A against intent B and
- * report a divergence that means nothing.
- */
-/**
  * Why a recorded intent could not be used. Each refuses; each says something
  * different, because they send the operator somewhere different.
  */
@@ -582,6 +571,27 @@ type IntentRefusal =
   | 'foreign'
   | 'malformed'
   | 'contradicts-contract';
+
+/**
+ * Which exit code a refusal earns, and it is not a detail: this module's own
+ * vocabulary says `2 = refused (… an absent/DIVERGENT schedule on inspect) —
+ * nothing mutated` and `3 = management unreachable / a required credential
+ * missing (fail closed)`. `contradicts-contract` is a DEFINITE, reproducible
+ * divergence — a record that disagrees with the repo's own constants on a field
+ * the planner cannot vary — so it belongs with the other divergences. Emitting it
+ * as 3 meant a wrapper treating 3 as transient would retry it forever, while a
+ * monitor keyed on 2 (the divergence/tamper code) never fired on the ONE signal
+ * this slice exists to raise. The rest genuinely cannot determine an answer, so
+ * they stay 3.
+ */
+const INTENT_REFUSAL_EXIT: Record<IntentRefusal, 2 | 3> = {
+  unreadable: 3,
+  unavailable: 3,
+  indeterminate: 3,
+  foreign: 3,
+  malformed: 3,
+  'contradicts-contract': 2,
+};
 
 const INTENT_REFUSAL_DETAIL: Record<IntentRefusal, string> = {
   unreadable: 'is present but could not be read',
@@ -600,8 +610,12 @@ const INTENT_REFUSAL_DETAIL: Record<IntentRefusal, string> = {
  * contract that governs it, not "looks like a control character". C0, DEL, C1,
  * the U+2028/U+2029 line separators, and the bidi overrides and isolates.
  * `new URL()` accepts every one of them, so it backstops none of this. Kept
- * byte-identical to the durable store's `hasUnsafeCharacter`, and a test pins the
- * two against the same table.
+ * byte-identical to the durable store's `hasUnsafeCharacter`, and both are driven
+ * by the single frozen `UNSAFE_CHARACTER_CODES` table in
+ * `src/lib/server/__tests__/unsafeCharacterTable.ts` — one table, so the claim
+ * that they cannot drift is true by construction rather than by discipline. An
+ * earlier version of this sentence claimed the pinning while two hand-maintained
+ * lists had ALREADY drifted.
  */
 function hasUnsafeCharacter(value: string): boolean {
   for (let index = 0; index < value.length; index += 1) {
@@ -652,6 +666,17 @@ function usableIntent(intent: RecordedScheduleIntent): boolean {
   return url.protocol === 'https:' && !url.username && !url.password;
 }
 
+/**
+ * The contract `inspect` judges the live schedule against, resolved BEFORE any
+ * management request is sent — so an unreadable record fails closed without the
+ * credential ever leaving the process, the same ordering `resolveQstashBase`
+ * already establishes for a poisoned base.
+ *
+ * A returned intent whose `scheduleId` is not the one being read is refused
+ * rather than applied: the schedule was fetched BY `contract.scheduleId`, so
+ * substituting a different identity would compare schedule A against intent B and
+ * report a divergence that means nothing.
+ */
 async function resolveExpectedContract(
   contract: ScheduleContract,
   deps: RunDeps
@@ -716,13 +741,14 @@ async function runInspect(
 ): Promise<number> {
   const expected = await resolveExpectedContract(contract, deps);
   if (expected.kind === 'refused') {
+    const exit = INTENT_REFUSAL_EXIT[expected.reason];
     deps.errorLog(
-      `FAILED: the planner's recorded intent for \`${contract.scheduleId}\` ` +
-        `${INTENT_REFUSAL_DETAIL[expected.reason]}. Refusing rather than falling back to the fixed ` +
-        'contract — a planner-owned cron would then read as verified against a constant it no ' +
-        'longer follows. No change made.'
+      `${exit === 2 ? 'REFUSED' : 'FAILED'}: the planner's recorded intent for ` +
+        `\`${contract.scheduleId}\` ${INTENT_REFUSAL_DETAIL[expected.reason]}. Refusing rather ` +
+        'than falling back to the fixed contract — a planner-owned cron would then read as ' +
+        'verified against a constant it no longer follows. No change made.'
     );
-    return 3;
+    return exit;
   }
   const expectedContract = expected.contract;
   const read = await readSchedule(contract, deps, base, token);

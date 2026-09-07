@@ -20,6 +20,7 @@ import {
   type PollingPlannerRun,
   type PollingPlannerRunSeries,
 } from '../pollingPlannerRecord';
+import { SAFE_CHARACTER_SAMPLES, UNSAFE_CHARACTER_CODES } from './unsafeCharacterTable';
 
 /**
  * PLATFORM-102 slice 3a — the durable planner record.
@@ -854,11 +855,8 @@ test('the unsafe-character class is the TERMINAL’s contract, not ASCII intuiti
   // suggests — and missed the Unicode line separators and the bidi overrides.
   // Measured: `new URL()` ACCEPTS every one of these, so it backstops none of it.
   const good = minimalRun('2026-09-06T06:00:00.000Z');
-  const unsafe = [
-    0x0000, 0x001f, 0x007f, 0x0085, 0x009f, 0x2028, 0x2029, 0x202a, 0x202e, 0x2066, 0x2069,
-  ];
 
-  for (const code of unsafe) {
+  for (const code of UNSAFE_CHARACTER_CODES) {
     const destination = `https://turfwar.games/a${String.fromCharCode(code)}b`;
     assert.doesNotThrow(
       () => new URL(destination),
@@ -871,12 +869,17 @@ test('the unsafe-character class is the TERMINAL’s contract, not ASCII intuiti
       `accepted U+${code.toString(16).padStart(4, '0')}`
     );
   }
-  // Positive control: an ordinary non-ASCII character is NOT rejected — the rule
-  // is about what a terminal does with a character, not about it being unusual.
-  const accented = { ...good.slow.intent, destination: 'https://turfwar.games/café' };
-  assert.equal(
-    parsePollingPlannerRuns({ runs: [{ ...good, slow: { ...good.slow, intent: accented } }] }).runs
-      .length,
-    1
-  );
+  // Positive control: ordinary characters are NOT rejected — the rule is about
+  // what a terminal does with a character, not about it being unusual. Without
+  // this the table above is satisfiable by refusing everything non-ASCII.
+  for (const sample of SAFE_CHARACTER_SAMPLES) {
+    const destination = `https://turfwar.games/${sample}`;
+    const intentValue = { ...good.slow.intent, destination };
+    assert.equal(
+      parsePollingPlannerRuns({ runs: [{ ...good, slow: { ...good.slow, intent: intentValue } }] })
+        .runs.length,
+      1,
+      `refused a safe character: ${sample}`
+    );
+  }
 });
