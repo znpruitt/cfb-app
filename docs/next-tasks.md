@@ -703,6 +703,30 @@ any provider outcome.
 
 ### Item 126 — schedule-refresh incident evidence is not durable enough to explain the failure
 
+**SPLIT 2026-09-07, and the split is MANDATORY, not preference.** `AGENTS.md` → **Scope and sizing**
+requires a planning split when work crosses separate automation jobs. Tier A crosses **seven**; Tier B
+crosses **two**. They cannot ship as one PR.
+
+- **Tier B is RUNNING** — kickoff
+  [`docs/prompts/platform-126b-incident-evidence-claude-v1.md`](prompts/platform-126b-incident-evidence-claude-v1.md).
+  Taken first because it is the tier that would have explained the September 1 failure. Tier A's value
+  is capped anyway: it correlates runtime logs that expire.
+- **Tier A remains open** — `invocationId` on every structured cron runtime event. Verified
+  2026-09-07: **0 of 7** `cronExecutionLog` modules carry it.
+
+**Layer 3 is no longer a prediction — production has realised it.** Read 2026-09-07, 153 hours after
+the incident: `provider-refresh-status` for `schedule:year:2026` now holds
+`lastError: null, lastSuccessAt: 2026-09-07T14:03:14.993Z`. A later success **overwrote the failed
+attempt whose details the postmortem needed**, exactly as this item predicted. The September 1
+evidence is unrecoverable; the entire surviving record is `failure / year-results` over
+`years: [{ year: 2026, operation: "ordinary-maintenance" }]`.
+
+**And the loss at layer 1 is two problems, not one** — verified at `schedulerExecutionStatus.ts:380`.
+`scheduleYearsTarget` RECEIVES `scoreRepairs`, `scoreDifferenceCount`, `scoreSweepFailedPartitions`,
+`scoreSweepCannotTellCount` and `kickoffsChanged` per entry and discards them to run level at `:396`;
+it never receives `result`, `reason`, `providerCallAttempted`, `failedSeasonTypes`, `rowsReceived`,
+`rowsCommitted` or `dataChanged` at all. The fixes differ.
+
 **Filed 2026-09-03 from `SCHEDULE-REFRESH-FAILURE-DIAG`.** The September 1, 2026 12:00 UTC weekly
 schedule refresh is the production proof of the gap. QStash successfully delivered the request and
 received HTTP 200, while TurfWar durably recorded invocation
