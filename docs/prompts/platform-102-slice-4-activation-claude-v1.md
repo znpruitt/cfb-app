@@ -129,12 +129,73 @@ extrapolating. Nothing writes a record and no schedule is planner-owned. **This 
    genuinely cannot be read. Those must STAY yellow. So both functions need the reason alongside the
    state.
 
-   **Both are among the four `SchedulerDeliveryState` consumers this campaign has twice avoided
-   touching, so widening their signatures is a REPORTABLE change** — report it, do not treat it as
-   incidental. **Still no sixth state member.** If you conclude the owner's "green" should instead be
-   a neutral/muted tone that is simply not a warning, say so with reasoning — the decision was that a
-   healthy idle job must not read as a fault, not that it must be the same green as a measured
-   on-time delivery.
+   **Slice 3b's final review filed exactly this**, and it named the target: **`PanelStatus` already
+   has `gray`.** Its argument is the one that matters — the row renders a yellow dot while the page
+   reads healthy and the issues list is EMPTY, arriving on cutover morning on a shape `slowHoursFor`
+   emits routinely. _"A dashboard that renders yellow for routine states teaches operators to ignore
+   yellow, which is worse than the false `late` this whole item exists to prevent."_
+
+   **The owner's word was "green"; `gray` may serve the decision better** — the ruling was that a
+   healthy idle job must not read as a fault, not that it must be the same green as a measured on-time
+   delivery. Argue it either way, but argue it.
+
+   **Both functions are among the four `SchedulerDeliveryState` consumers this campaign has twice
+   avoided touching, so widening their signatures is a REPORTABLE change** — the recorded finding
+   calls that out as "the decision, and it belongs with the slice that makes the state reachable",
+   which is you. **Still no sixth state member.**
+
+## Carried forward from slice 3b — READ THIS, it is most of the risk
+
+Slice 3b filed **seven follow-ups**, all recorded on Item 102 and all classified _ordinary, not
+blocking_ **at the time**. That classification was made against a `main` where **nothing writes a
+planner record**. You are the slice that makes records exist, so several of them stop being
+theoretical the moment this ships. Judge each against the world AFTER your cutover, not the world
+that filed it.
+
+**One is assigned to you outright.**
+
+- **Slice 2's `plan` parameter on `schedulerDeliveryPolicy` is dead — remove it.** It was the seam
+  slice 3 was expected to wire; 3b wired the RECORD instead, so it is now the predictive path with no
+  production caller. It was left because removing it churns slice 2's tests. **`AGENTS.md`: a module
+  left with no production consumer must say why in the code — or go.** This one goes.
+
+**Four are unreachable today and reachable after you.** For each: say whether you handled it, or why
+it can wait, and do not silently inherit it.
+
+- **A dropped NEWEST planner run reads as no run at all.** The tolerant parser drops a malformed row,
+  leaves `droppedRuns` nonzero, and the timeline treats the prior cron as current. 3b argued a dropped
+  row surfaces as a `previousCron` contradiction — **that holds only for a drop BETWEEN two retained
+  runs.** A dropped newest run has nothing after it to contradict it. **The reasoning was wrong, not
+  just the code**, which is why it is recorded. Your daily writer produces exactly the newest run.
+- **A STALLED planner read stalls the whole snapshot.** A promise that never settles blocks the
+  enclosing `Promise.all`, and System Health's 8 s timeout then replaces all nine rows. Same failure
+  mode the receipt scope read already carried — but **the amplification is real: one durable read on
+  this path became three**, and until now all three answered `absent` immediately. Yours are the first
+  that do real work.
+- **The all-unavailable global short-circuit drops per-schedule plan faults.** When the receipt scope
+  read fails every row is `unavailable` and the function returns before the per-schedule scan, so a
+  simultaneously corrupt planner record raises no issue at all.
+- **Mixed per-schedule reasons collapse to the first.** A dense `plan-indeterminate` beside a slow
+  `plan-unreadable` tells the operator both have the same cause — losing the planner-vs-database
+  distinction `PLAN_UNAVAILABLE_EXPLANATION` exists to preserve. Two schedules per job is your
+  normal case.
+
+**Three are NOT yours. Do not fix them and do not let them widen this branch.**
+
+- The **two-store deferral** (`pollingPlannerRecord` + `providerUsageSeries`): preserve unparsed rows
+  rather than pruning, and the aggregate refusal that wedges the writer when every stored row is
+  unparseable. Filed as one item across both twins deliberately — changing one leaves two behaviours
+  for one problem.
+- **The record read filters future-skewed rows against `Date.now()`** rather than the snapshot's
+  pinned clock. In slice 3a's store.
+- **`hourly (:01) at 00:00, 12:00 UTC` overstates a twice-daily schedule.** Not a shape
+  `synthesizePollingCrons` emits.
+
+**And one argument from Item 102 supports the pause rule — carry it.** If slice 4 leaves a stale
+dense schedule installed on a dense-less day, that schedule **is still firing, and its failure is
+invisible until the next day that has a dense phase.** Pausing is not only tidier; it is what keeps a
+dead schedule's silence meaningful.
+
 </task>
 
 <gate>
@@ -172,6 +233,8 @@ you actually find. Also stop if pausing a schedule loses state `inspect` needs.
   asserted, discriminated by `planUnavailableReason`. Assert `missing` is untouched — "no receipt at
   all" must keep warning.
 - **Generate over the type's contract** (`AGENTS.md`), not over the shapes today's schedule produces.
+- **`schedulerDeliveryPolicy`'s dead `plan` parameter is gone**, and slice 2's tests are updated
+  rather than deleted.
 - Test count delta reported as a measured number.
 </completeness_contract>
 
@@ -187,6 +250,9 @@ failures and no others.
 <output_contract>
 Report: what changed and where; the measured test delta; the mutation proving pause is not delete and
 the one proving no secret escapes; and anything you deliberately did not do.
+
+**Answer the four newly-reachable slice-3b follow-ups one by one** — handled, or deferred with the
+reason. A blanket "inherited unchanged" is not an answer for a defect this slice makes reachable.
 
 **This slice is NOT dormant — say so plainly and say what it changes on the first run.** Slices 2, 3a
 and 3b all shipped dormant; this one writes to an external system and takes ownership of two live

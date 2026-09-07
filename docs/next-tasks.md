@@ -2649,19 +2649,28 @@ smaller.**
   undermines what slices 3a and 3b were built to protect.
   **This dissolves the `dense: null` blocker.** The planner no longer needs to express "deliberately
   off" — _paused_ is the state, visible in QStash rather than inferred from a missing field.
-- **Nothing due renders GREEN.** If nothing is due, the job is doing exactly what it was told, and
-  that is the healthy state — not "unknown", not a warning. The wrinkle slice 3b found is real and
-  argues for a different fix: a job **dead for five days** rendered green because nothing had been due
-  in that window, while a job with **no receipt at all** raised a warning. Absence warned; staleness
-  did not. But a row answers _"is this job healthy?"_, and "nothing is due, last run was fine" is
-  healthy. **The row must distinguish "nothing due yet" from "no evidence this job has ever run"** —
-  a display distinction, which keeps it away from the four `SchedulerDeliveryState` consumers Item 102
-  has twice designed around.
+- **Nothing due must not read as a FAULT.** If nothing is due, the job is doing exactly what it was
+  told, and that is the healthy state.
+  **Verified against `main` 2026-09-07: the state layer is already correct and slice 4 must not redo
+  it.** Slice 3b's reasoning stands — nothing-due must NOT be `on-time`, because `on-time` asserts a
+  timeliness nothing measured (`schedulerDeliveryHealth.ts:1353-1370`). It resolves to `unavailable`,
+  while `missing` still covers "no receipt at all", so the distinction between "nothing due yet" and
+  "no evidence this job ever ran" already exists.
+  **What is left is the colour and the word.** `deliveryRowStatus` maps every non-`on-time` state to
+  yellow and `deliveryStateDisplay` labels `unavailable` as "Unavailable", so a healthy idle job
+  renders a yellow row saying it is broken. The discriminator already exists: `planUnavailableReason`
+  is `null` for nothing-due and non-null for a genuinely unreadable plan, which must STAY yellow.
+  `PanelStatus` already has `gray`, which may serve better than green — the ruling was that a healthy
+  idle job must not read as a fault, not that it must match a measured on-time delivery. **Both
+  functions are among the four `SchedulerDeliveryState` consumers; widening their signatures is the
+  reportable part.** No sixth state member.
 
 - `QSTASH_TOKEN` into the Vercel environment. **Check first whether QStash offers a scoped management
-  token** limited to the two schedules the planner touches; if it does, use it. **Update all five
-  statements in the same PR** — `docs/deployment-runbook.md:88` and the four `scripts/manage-*-
-  schedule.ts` headers — or the repo lies about its own security posture. Collision 3.
+  token** limited to the two schedules the planner touches; if it does, use it. **Update all SEVEN
+  statements in the same PR** — `docs/deployment-runbook.md:89` plus **six** `manage-*-schedule.ts`
+  headers (`odds`, `rankings`, `schedule-refresh`, `live-scores`, `game-stats`, `usage-sample`;
+  `team-records` carries none) — or the repo lies about its own security posture. Counted 2026-09-07;
+  an earlier note said five and four. Collision 3.
 - The daily cron that derives → synthesizes → records → upserts, and the cutover of `live-scores` and
   `game-stats` to planner-owned crons.
 - **`upsert` still answers to the FIXED contract while `inspect` answers to the record** — slice 3a
