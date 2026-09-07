@@ -187,8 +187,6 @@ export default function SchedulerHealthSection({
   );
 }
 
-/** Execution-column text when there is no parsed receipt — reserving "no receipt"
- *  for a genuinely missing delivery, distinct from a malformed or unreadable one. */
 /**
  * WHY a row has no required slot. Four distinct facts share the empty value, and
  * keying only on `deliveryState` printed "nothing is due" over a schedule that
@@ -207,6 +205,8 @@ function requiredSlotAbsenceLabel(row: SchedulerDeliveryHealthRow): string {
   return 'none — nothing is due yet';
 }
 
+/** Execution-column text when there is no parsed receipt — reserving "no receipt"
+ *  for a genuinely missing delivery, distinct from a malformed or unreadable one. */
 function noReceiptExecutionLabel(
   deliveryState: SchedulerDeliveryHealthRow['deliveryState']
 ): string {

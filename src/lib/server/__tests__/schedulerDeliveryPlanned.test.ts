@@ -1735,3 +1735,27 @@ test('nothing due never reads on-time, however stale the receipt', async () => {
   );
   assert.equal(due.deliveryState, 'late');
 });
+
+// REGRESSION TEST. "Daily" is the CALENDAR's word; the single firing is the
+// CLOCK's fact. Gating the whole phrase on `everyDay` sent a weekly expression
+// back to the "hourly" fallback — twenty-four firings promised where there is
+// one a week.
+test('a single-hour schedule says it fires once, whatever its calendar', async () => {
+  const label = async (cron: string) =>
+    rowOf(
+      await rowsFor({
+        nowMs: ms('2026-10-03T18:00:00.000Z'),
+        records: {
+          'live-scores': okRecord(
+            run('2026-10-01T00:02:00.000Z', null, schedule(cron, { previousCron: cron }))
+          ),
+        },
+      }),
+      'live-scores'
+    ).cadenceLabel;
+
+  assert.equal(await label('0 12 * * 2'), 'once at 12:00 UTC, on selected days');
+  assert.equal(await label('1 0 * * *'), 'once daily (00:01 UTC)');
+  // Neither says "hourly", which is what both used to say.
+  assert.doesNotMatch(await label('0 12 * * 2'), /hourly/);
+});

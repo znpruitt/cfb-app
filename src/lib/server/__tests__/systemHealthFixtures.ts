@@ -377,20 +377,6 @@ export function assertRowIsClassifiable(row: SchedulerDeliveryHealthRow): void {
 }
 
 /**
- * THE CHOKE POINT. Every row reaching `deriveSystemHealthIssues` passes through
- * here, so validating at this boundary catches an incoherent row however it was
- * produced — built by hand, spread and overridden inline, or hoisted into a
- * variable and overridden later.
- *
- * Checking only inside `deliveryRow` was not enough: the helper has already
- * returned by the time a caller spreads its result and replaces a timestamp, and
- * that spread is exactly how the shipped defect's fixture was written. A source
- * scan for the bypass was tried and removed — it matched syntax rather than
- * meaning, missed the hoisted form, and AGENTS.md is explicit that proof
- * machinery is a last resort when an invariant cannot be observed behaviorally.
- * This one can.
- */
-/**
  * A row whose PLAN could not be established — the per-row `unavailable` slice 3b
  * introduced. The receipt is irrelevant to it by construction: this state says
  * nothing about the receipt at all.
@@ -429,6 +415,20 @@ export function planUnavailableRow(
   return row;
 }
 
+/**
+ * THE CHOKE POINT. Every row reaching `deriveSystemHealthIssues` passes through
+ * here, so validating at this boundary catches an incoherent row however it was
+ * produced — built by hand, spread and overridden inline, or hoisted into a
+ * variable and overridden later.
+ *
+ * Checking only inside `deliveryRow` was not enough: the helper has already
+ * returned by the time a caller spreads its result and replaces a timestamp, and
+ * that spread is exactly how the shipped defect's fixture was written. A source
+ * scan for the bypass was tried and removed — it matched syntax rather than
+ * meaning, missed the hoisted form, and AGENTS.md is explicit that proof
+ * machinery is a last resort when an invariant cannot be observed behaviorally.
+ * This one can.
+ */
 export function deliverySnapshot(
   rows: SchedulerDeliveryHealthRow[]
 ): SchedulerDeliveryHealthSnapshot {

@@ -972,9 +972,17 @@ function describeRecorded(schedule: RecordedSchedule | null): string {
   // IDLE_SLOW_HOUR, "a single daily slot, one wakeup") — so the label an
   // operator reads most often on a quiet day promised twenty-four firings where
   // there is one.
-  if (hourly && schedule.hours.length === 1 && schedule.everyDay) {
+  if (hourly && schedule.hours.length === 1) {
     const hour = String(schedule.hours[0] ?? 0).padStart(2, '0');
-    return `once daily (${hour}:${minute} UTC)`;
+    // "Daily" is the CALENDAR's word and only the calendar may say it; the
+    // single firing is the CLOCK's fact and is true either way. Gating the whole
+    // phrase on `everyDay` sent a weekly `0 12 * * 2` back to the "hourly"
+    // fallback — twenty-four firings promised where there is one a week, the
+    // same overstatement this branch was added to remove, one shape over.
+    const once = schedule.everyDay
+      ? `once daily (${hour}:${minute} UTC)`
+      : `once at ${hour}:${minute} UTC`;
+    return schedule.everyDay ? once : `${once}, on selected days`;
   }
   const cadence = hourly ? `hourly (:${minute})` : `every ${schedule.stepMinutes} min`;
   const clock =
