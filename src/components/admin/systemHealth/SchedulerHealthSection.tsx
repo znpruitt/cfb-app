@@ -123,11 +123,7 @@ export default function SchedulerHealthSection({
                       // be established has no slot BECAUSE it has no schedule,
                       // and telling the operator nothing is due there is a
                       // statement the row itself disclaims.
-                      value={
-                        row.deliveryState === 'unavailable'
-                          ? 'unknown — delivery cannot be checked'
-                          : 'none — nothing is due'
-                      }
+                      value={requiredSlotAbsenceLabel(row)}
                     />
                   )}
                   {receipt && <Detail label="Reason" value={receipt.reason} />}
@@ -193,6 +189,24 @@ export default function SchedulerHealthSection({
 
 /** Execution-column text when there is no parsed receipt — reserving "no receipt"
  *  for a genuinely missing delivery, distinct from a malformed or unreadable one. */
+/**
+ * WHY a row has no required slot. Four distinct facts share the empty value, and
+ * keying only on `deliveryState` printed "nothing is due" over a schedule that
+ * could not be checked at all.
+ */
+function requiredSlotAbsenceLabel(row: SchedulerDeliveryHealthRow): string {
+  if (row.schedules.some((entry) => entry.unavailableReason !== null)) {
+    return 'unknown — schedule cannot be checked';
+  }
+  if (row.cron === null) return 'unknown — no schedule';
+  // A row with a known schedule, no receipt and no slot is the delivery reader
+  // itself having failed; with a receipt it is simply not due yet.
+  if (row.deliveryState === 'unavailable' && row.receipt === null) {
+    return 'unknown — delivery cannot be checked';
+  }
+  return 'none — nothing is due yet';
+}
+
 function noReceiptExecutionLabel(
   deliveryState: SchedulerDeliveryHealthRow['deliveryState']
 ): string {

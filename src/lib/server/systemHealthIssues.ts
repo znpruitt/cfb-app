@@ -387,7 +387,7 @@ function schedulerDeliveryIssues(
         title: whole
           ? `${row.job} delivery status is unavailable`
           : `${row.job} ${named} schedule cannot be checked`,
-        explanation: `${PLAN_UNAVAILABLE_EXPLANATION[reason]} so the ${whole ? `schedule ${row.job} is measured against is` : `${named} schedule is`} unknown and its delivery timeliness cannot be judged.`,
+        explanation: `${PLAN_UNAVAILABLE_EXPLANATION[reason]} so the ${whole ? `schedule ${row.job} is measured against is` : `${named} schedule${faulted.length > 1 ? 's are' : ' is'}`} unknown and its delivery timeliness cannot be judged.`,
       });
     }
 
@@ -471,36 +471,21 @@ function schedulerDeliveryIssues(
         });
         break;
       case 'unavailable':
-        // Already reported above whenever the cause is the PLAN. What is left
-        // here is the receipt-scope failure, which the all-unavailable branch
-        // answers globally — so this per-job path is defensive.
-        if (row.planUnavailableReason !== null) break;
-        // REACHABLE PER JOB since PLATFORM-102 slice 3b. It was not before: the
-        // receipt scope read fails all-or-none, and the comment here said so.
-        // A planner-owned job now also reads a durable PLAN, and that read fails
-        // on its own — so the explanation had to stop naming the receipt. It
-        // said "the execution receipt could not be read" for a row whose receipt
-        // parsed perfectly, which is the same false claim about a good receipt
-        // that kept `invalid` out of this state in the first place.
+        // NO ISSUE FROM HERE, and the three ways to reach this state are why.
         //
-        // The STATE and its four consumers are unchanged; only the sentence
-        // branches, on the companion field that carries WHY.
+        // A PLAN fault is already reported above, per schedule, by the `faulted`
+        // loop — reporting it twice would put two warnings on one fact.
         //
-        // It says nothing ABOUT the receipt either way. An earlier version added
-        // "Its execution receipt is unaffected", which was a reassurance nothing
-        // here had checked — the receipt can be malformed or failed at the same
-        // time, and those faults raise their own issues from `row.receipt`.
+        // NOTHING DUE YET is not a fault at all: every schedule is known and none
+        // has come due, which is slice 4's cutover morning. The row is muted and
+        // carries its receipt, so an operator sees when the job last ran; a
+        // warning here would be the false alarm this slice exists to remove.
         //
-        // The `null` branch is defensive only: a receipt-scope failure makes
-        // EVERY row unavailable and is answered by the global issue above, so a
-        // per-job unavailable row reaching here always carries a reason.
-        issues.push({
-          ...base,
-          code: 'scheduler-delivery-unavailable',
-          severity: 'warning',
-          title: `${row.job} delivery status is unavailable`,
-          explanation: `The ${row.job} execution receipt could not be read.`,
-        });
+        // A RECEIPT-SCOPE failure takes every row at once and is answered by the
+        // global issue above, which returns before this loop. The per-job
+        // wording that used to sit here — "the execution receipt could not be
+        // read" — was therefore unreachable AND, once the other two causes
+        // existed, false for both of them.
         break;
       case 'on-time':
         break;

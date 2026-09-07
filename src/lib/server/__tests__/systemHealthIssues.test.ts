@@ -1399,22 +1399,6 @@ test('a plan-unavailable row names the planner record, never the receipt', () =>
   }
 });
 
-test('a receipt-caused unavailable row still names the receipt', () => {
-  // Positive control for the branch above: the same state, no plan reason, and
-  // the original sentence is what an operator gets.
-  const rows = EXTERNAL_SCHEDULER_JOBS.map((job) =>
-    job === 'live-scores'
-      ? deliveryRow(job, 'unavailable', null)
-      : deliveryRow(job, 'on-time', receiptFor(job, 'success'))
-  );
-  const issues = deriveSystemHealthIssues(
-    baseInputs({ schedulerDelivery: deliverySnapshot(rows) })
-  );
-  const unavailable = issues.filter((i) => i.code === 'scheduler-delivery-unavailable');
-  assert.equal(unavailable.length, 1);
-  assert.equal(unavailable[0]!.explanation, 'The live-scores execution receipt could not be read.');
-});
-
 test('the fixture guard rejects a plan-unavailable row that still publishes a schedule', () => {
   // Positive control for the guard itself: it must detect the incoherent row,
   // or the two tests above are resting on an observer that sees nothing.

@@ -630,11 +630,56 @@ test('the required-slot detail separates an unknown schedule from nothing being 
   const html = renderToStaticMarkup(
     <SchedulerHealthSection jobs={model.schedulerJobs} nowMs={NOW} />
   );
-  assert.ok(html.includes('none — nothing is due'), 'a known schedule with no obligation');
+  assert.ok(html.includes('none — nothing is due yet'), 'a known schedule with no obligation');
   // A row that cannot be checked at all must not be reported as one with nothing
-  // due — two different facts share a null slot, and only one of them is benign.
+  // due — four different facts share a null slot, and only one of them is benign.
   assert.ok(
-    html.includes('unknown — delivery cannot be checked'),
-    'and a row whose delivery could not be established'
+    html.includes('unknown — schedule cannot be checked'),
+    'and a row whose schedule could not be established'
   );
+});
+
+// One schedule of two can be unavailable while the row itself resolves. Keying
+// the empty-slot wording on `deliveryState` alone printed "nothing is due" over
+// a row whose dense schedule could not be checked at all.
+test('a partly unavailable row does not report its slot as nothing being due', async () => {
+  const partial = {
+    ...deliveryRow('live-scores', 'missing', null),
+    requiredStartedAt: null,
+    cron: '1 * * * *',
+    graceMs: 2 * 60 * 60_000,
+    schedules: [
+      {
+        schedule: 'dense' as const,
+        cron: null,
+        graceMs: null,
+        requiredStartedAt: null,
+        unavailableReason: 'plan-indeterminate' as const,
+      },
+      {
+        schedule: 'slow' as const,
+        cron: '1 * * * *',
+        graceMs: 2 * 60 * 60_000,
+        requiredStartedAt: null,
+        unavailableReason: null,
+      },
+    ],
+  };
+  const model = await buildModel({
+    schedulerDelivery: () =>
+      Promise.resolve(
+        deliverySnapshot(
+          EXTERNAL_SCHEDULER_JOBS.map((job) =>
+            job === 'live-scores'
+              ? partial
+              : deliveryRow(job, 'on-time', receiptFor(job, 'success'))
+          )
+        )
+      ),
+  });
+  const html = renderToStaticMarkup(
+    <SchedulerHealthSection jobs={model.schedulerJobs} nowMs={NOW} />
+  );
+  assert.ok(html.includes('unknown — schedule cannot be checked'));
+  assert.ok(!html.includes('none — nothing is due yet'), 'and never as nothing being due');
 });

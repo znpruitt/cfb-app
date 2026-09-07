@@ -1343,10 +1343,23 @@ function buildDeliveryRow(
     return { ...base, deliveryState: 'unavailable', receipt };
   }
   if (base.requiredStartedAt === null) {
-    // NOTHING IS DUE. Every schedule is known and none has a slot whose grace has
-    // expired — the planner's first hours. A row with no obligation cannot be
-    // late, and it is not the same as having no basis.
-    return { ...base, deliveryState: 'on-time', receipt };
+    // NOTHING IS DUE — every schedule is known and none has a slot whose grace
+    // has expired. A row with no obligation cannot be LATE, and an earlier
+    // version concluded from that it must be `on-time`. It must not: `on-time`
+    // asserts delivery is timely, and nothing here measured that.
+    //
+    // The asymmetry is what settles it. The same shape with NO receipt reports
+    // `missing`, so absence raised a warning while a receipt five days stale
+    // rendered a green "On time" dot — measured across thirteen hours of slice
+    // 4's cutover morning, on the idle-slot shape `slowHoursFor` emits on any
+    // day with dense hours and no reconciliation tail. That is the false alarm
+    // this slice exists to remove, pointing the other way.
+    //
+    // `unavailable` is not a fault here; it is this module's word for "no basis
+    // to judge", which is exactly the fact. The receipt travels with it, so the
+    // row still shows when the job last ran, and no issue is raised for a state
+    // nothing is wrong with.
+    return { ...base, deliveryState: 'unavailable', receipt };
   }
   // Delivery timeliness is `startedAt` vs the required slot ONLY — never the
   // execution result/reason/provider flag/target, and never `updatedAt`.

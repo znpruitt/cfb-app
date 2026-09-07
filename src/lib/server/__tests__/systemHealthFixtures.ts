@@ -317,9 +317,15 @@ export function assertRowIsClassifiable(row: SchedulerDeliveryHealthRow): void {
   }
 
   if (row.deliveryState === 'missing' || row.deliveryState === 'unavailable') {
-    // A plan-unavailable row DOES carry its receipt: only the delivery timing
-    // lost its basis, and execution/lifecycle faults still read from it.
-    if (row.receipt !== null && row.planUnavailableReason === null) {
+    // TWO `unavailable` shapes carry a receipt, and both are states where only
+    // the TIMING lost its basis: a plan fault (execution and lifecycle faults
+    // still read from the receipt), and a row with a known schedule that has
+    // nothing due yet. `missing` never carries one — it is defined by not having
+    // one.
+    const mayCarryReceipt =
+      row.deliveryState === 'unavailable' &&
+      (row.planUnavailableReason !== null || row.requiredStartedAt === null);
+    if (row.receipt !== null && !mayCarryReceipt) {
       fail(`'${row.deliveryState}' must carry no receipt`);
     }
     return;

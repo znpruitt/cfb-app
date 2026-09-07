@@ -1206,7 +1206,7 @@ test('one schedule losing its basis costs the row that schedule, not its sibling
 // unknown and the slow grace has not cleared the first in-span slot. Pre-fix
 // that produced 176 measured minutes of `unavailable`; an unknown PAST cannot
 // create an obligation, so the honest answer is that nothing is due yet.
-test('the planner first run is never unavailable — an unknown past creates no obligation', async () => {
+test('the planner first run keeps its schedule and raises no plan fault', async () => {
   const record = okRecord(
     run('2026-09-04T00:05:00.000Z', null, schedule('1 * * * *', { previousCron: null }))
   );
@@ -1224,7 +1224,7 @@ test('the planner first run is never unavailable — an unknown past creates no 
     if (row.planUnavailableReason !== null) blanked += 1;
     sampled += 1;
   }
-  assert.equal(blanked, 0, 'not one minute of the cutover morning is blanked');
+  assert.equal(blanked, 0, 'not one minute of the cutover morning raises a plan fault');
   assert.ok(sampled > 60, 'and the whole morning was sampled');
 
   // Before its first slot comes due the row has no required slot at all — which
@@ -1240,8 +1240,13 @@ test('the planner first run is never unavailable — an unknown past creates no 
     'live-scores'
   );
   assert.equal(early.requiredStartedAt, null);
-  assert.equal(early.deliveryState, 'on-time', 'a row with no obligation cannot be late');
-  assert.equal(early.cron, '1 * * * *', 'and it still names what the job is scheduled to run');
+  // NOT `on-time`: nothing measured delivery, and claiming timeliness from a
+  // schedule that has not come due is the false alarm pointing the other way.
+  assert.equal(early.deliveryState, 'unavailable', 'no basis, and no claim of one');
+  assert.notEqual(early.deliveryState, 'late', 'a row with no obligation cannot be late');
+  assert.equal(early.planUnavailableReason, null, 'and it is not a plan fault');
+  assert.equal(early.cron, '1 * * * *', 'it still names what the job is scheduled to run');
+  assert.ok(early.receipt, 'and still shows when the job last ran');
 });
 
 // REGRESSION TEST. An eight-day probe cannot separate "fires never" from "fires
@@ -1667,4 +1672,66 @@ test('a weekly expression is not labelled once daily', async () => {
   assert.match(await label('0 12 * * 2'), /on selected days/);
   // Positive control: a genuinely once-a-day expression keeps the wording.
   assert.equal(await label('1 0 * * *'), 'once daily (00:01 UTC)');
+});
+
+// REGRESSION TEST. A row with nothing due used to classify `on-time`, because a
+// row with no obligation cannot be LATE — but `on-time` asserts timeliness, and
+// nothing measured it. The asymmetry is what settles it: the identical shape
+// with NO receipt reports `missing`, so absence raised a warning while a receipt
+// five days stale rendered a green "On time" dot.
+test('nothing due never reads on-time, however stale the receipt', async () => {
+  // Slice 4's cutover: a first run, `previousCron` null on both schedules, and
+  // the idle slot `slowHoursFor` emits on a day with dense hours and no tail.
+  const cutover = okRecord(
+    run(
+      '2026-09-04T06:00:00.000Z',
+      schedule(GAME_DAY_DENSE, { previousCron: null }),
+      schedule('1 0 * * *', { previousCron: null })
+    )
+  );
+  const stale = {
+    key: 'live-scores',
+    value: receiptFor('live-scores', ms('2026-08-30T00:00:00.000Z')),
+  };
+
+  let green = 0;
+  let sampled = 0;
+  for (
+    let now = ms('2026-09-04T06:00:00.000Z');
+    now <= ms('2026-09-04T19:05:00.000Z');
+    now += 30 * MIN
+  ) {
+    const row = rowOf(
+      await rowsFor({ nowMs: now, records: { 'live-scores': cutover }, receipts: [stale] }),
+      'live-scores'
+    );
+    if (row.deliveryState === 'on-time') green += 1;
+    sampled += 1;
+  }
+  assert.equal(green, 0, 'not one sample of a five-day-dead job renders healthy');
+  assert.ok(sampled > 20, 'and the whole thirteen-hour span was sampled');
+
+  const row = rowOf(
+    await rowsFor({
+      nowMs: ms('2026-09-04T12:00:00.000Z'),
+      records: { 'live-scores': cutover },
+      receipts: [stale],
+    }),
+    'live-scores'
+  );
+  assert.equal(row.deliveryState, 'unavailable', 'no basis to judge, and no claim of one');
+  assert.equal(row.planUnavailableReason, null, 'and it is not a plan fault');
+  assert.ok(row.receipt, 'the receipt travels, so the row still shows the last run');
+
+  // Positive control: once a slot HAS come due, the same stale receipt is late —
+  // so the state above is "not yet assessable", not a blanket refusal to judge.
+  const due = rowOf(
+    await rowsFor({
+      nowMs: ms('2026-09-04T19:30:00.000Z'),
+      records: { 'live-scores': cutover },
+      receipts: [stale],
+    }),
+    'live-scores'
+  );
+  assert.equal(due.deliveryState, 'late');
 });
