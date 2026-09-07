@@ -9,7 +9,13 @@ import test from 'node:test';
 
 import { buildSystemHealthViewModel, type SystemHealthLoaders } from '../systemHealth.ts';
 import { readProviderRefreshHealth } from '../providerRefreshHealth.ts';
-import { readSchedulerDeliveryHealth } from '../schedulerDeliveryHealth.ts';
+import {
+  isPlannerOwnedJob,
+  PLANNER_OWNED_JOBS,
+  PLAN_UNAVAILABLE_CADENCE_LABEL,
+  readSchedulerDeliveryHealth,
+  schedulerDeliveryPolicy,
+} from '../schedulerDeliveryHealth.ts';
 import type { ProviderRefreshSettings } from '../providerRefreshSettings.ts';
 import type { ProviderDataDiagnosticsResult } from '../providerDataDiagnostics.ts';
 import type { CfbdUsage } from '../../api/cfbdUsage.ts';
@@ -672,10 +678,79 @@ test('the delivery-loader fallback emits rows that satisfy the row contract', as
   for (const row of model.schedulerJobs) {
     assert.equal(row.deliveryState, 'unavailable', row.job);
     assert.equal(row.requiredStartedAt, null, `${row.job} claims no slot it did not measure`);
-    assert.equal(row.schedules.length, 1, `${row.job} publishes the schedule it knows`);
-    assert.equal(row.schedules[0]!.requiredStartedAt, null, row.job);
-    assert.equal(row.schedules[0]!.cron, row.cron, row.job);
+    assert.ok(row.schedules.length >= 1, `${row.job} publishes the schedules it has`);
+    for (const schedule of row.schedules) {
+      assert.equal(schedule.requiredStartedAt, null, row.job);
+    }
     // The guard production's own rows are held to.
     assertRowIsClassifiable(row);
+  }
+});
+
+// PLATFORM-102 slice 4. `systemHealth.ts` carried this note FOR slice 4: "the
+// published cadence is the fixed contract, which stops being true for the two
+// planner-owned jobs once slice 4 lands; carried as a slice-4 item."
+test('the delivery-loader fallback never restates the cadence the planner replaced', async () => {
+  // `*/3 * * * *` is what the planner REPLACED. Publishing it here rendered
+  // "Live scores · every 3 minutes" for a schedule the planner had deliberately
+  // paused — the one claim every other path goes out of its way not to make.
+  //
+  // Mutation target: drop the `planner` branch in `unavailableDelivery` and the
+  // two planner-owned rows below start asserting a fixed cadence again.
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders({
+      schedulerDelivery: () => Promise.reject(new Error('loader boom')),
+    }),
+  });
+
+  for (const job of PLANNER_OWNED_JOBS) {
+    const row = model.schedulerJobs.find((entry) => entry.job === job)!;
+    assert.equal(row.cron, null, `${job} asserts no cron it did not read`);
+    assert.equal(row.graceMs, null, job);
+    assert.equal(row.cadenceLabel, PLAN_UNAVAILABLE_CADENCE_LABEL['plan-store-failed'], job);
+    // A planner-owned job runs TWO schedules and has no `fixed` one, so naming a
+    // `fixed` entry would invent a schedule it does not have.
+    assert.deepEqual(
+      row.schedules.map((schedule) => schedule.schedule),
+      ['dense', 'slow'],
+      job
+    );
+    for (const schedule of row.schedules) {
+      assert.equal(schedule.cron, null, job);
+      assert.equal(schedule.graceMs, null, job);
+    }
+    // `readSchedulerDeliveryHealth` is the function that performs the planner
+    // record reads, so when it fails the record genuinely was not read.
+    assert.equal(row.planUnavailableReason, 'plan-store-failed', job);
+    // And no NEW issue comes of it: every row here is `unavailable`, so the issue
+    // builder short-circuits to one global issue.
+    assert.equal(
+      model.issues.filter((issue) => issue.code === 'scheduler-delivery-unavailable').length,
+      1
+    );
+  }
+
+  // POSITIVE CONTROL: the eight jobs the planner does NOT own still publish their
+  // fixed contract, which is still true of them.
+  // And no NEW issue comes of it: every row here is `unavailable`, so the issue
+  // builder short-circuits to one global issue rather than one per planner job.
+  assert.equal(
+    model.issues.filter((issue) => issue.code === 'scheduler-delivery-unavailable').length,
+    1
+  );
+
+  for (const row of model.schedulerJobs) {
+    if (isPlannerOwnedJob(row.job)) continue;
+    assert.equal(row.cron, schedulerDeliveryPolicy(row.job).cron, row.job);
+    assert.equal(row.cadenceLabel, schedulerDeliveryPolicy(row.job).cadenceLabel, row.job);
+    assert.equal(row.planUnavailableReason, null, row.job);
+    assert.equal(row.planUnavailableReason, null, row.job);
+    assert.deepEqual(
+      row.schedules.map((schedule) => schedule.schedule),
+      ['fixed'],
+      row.job
+    );
   }
 });

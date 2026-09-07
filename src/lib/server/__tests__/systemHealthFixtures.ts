@@ -68,6 +68,16 @@ function targetFor(job: ExternalSchedulerJob, refusals = 0): SchedulerExecutionT
       return { kind: 'team-records', year: YEAR };
     case 'usage-sample':
       return { kind: 'usage-sample', day: '2026-10-15', recorded: true };
+    case 'polling-planner':
+      return {
+        kind: 'polling-planner',
+        day: '2026-10-15',
+        schedulesApplied: 0,
+        schedulesUnchanged: 4,
+        schedulesFailed: 0,
+        recordsNotWritten: 0,
+        jobsHeld: 0,
+      };
     case 'game-stats':
       return { kind: 'game-stats', year: YEAR, week: null, seasonType: null };
     case 'odds':
@@ -112,6 +122,7 @@ const REASON_FOR: Record<ExternalSchedulerJob, SchedulerExecutionReceiptInput['r
   'season-transition': 'no-preseason-leagues',
   'season-rollover': 'no-season-leagues',
   'usage-sample': 'sample-recorded',
+  'polling-planner': 'plan-unchanged',
 };
 
 /** A valid receipt for `job` with the given result (started shortly before NOW). */

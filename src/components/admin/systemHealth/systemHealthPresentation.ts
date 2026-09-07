@@ -17,7 +17,7 @@ import type {
   SchedulerExecutionReceipt,
   SchedulerSource,
 } from '@/lib/server/schedulerExecutionStatus';
-import type { SchedulerDeliveryState } from '@/lib/server/schedulerDeliveryHealth';
+import type { SchedulerDeliveryHealthRow } from '@/lib/server/schedulerDeliveryHealth';
 import type { ProviderCacheAvailability } from '@/lib/server/providerCacheState';
 import type { SystemHealthOverallState } from '@/lib/server/systemHealthIssues';
 import type { PanelStatus } from '@/lib/server/systemHealthPanels';
@@ -110,32 +110,110 @@ const SCHEDULER_JOB_LABELS: Record<ExternalSchedulerJob, string> = {
   'season-transition': 'Season transition',
   'usage-sample': 'CFBD usage sample',
   'season-rollover': 'Season rollover',
+  'polling-planner': 'Polling planner',
 };
 
 export function schedulerJobLabel(job: ExternalSchedulerJob): string {
   return SCHEDULER_JOB_LABELS[job];
 }
 
-/** Row-level delivery stoplight: a 1:1 map of the delivery FACT to a color. */
-export function deliveryRowStatus(state: SchedulerDeliveryState): PanelStatus {
-  return state === 'on-time' ? 'green' : 'yellow';
+/**
+ * The facts a delivery row's colour and word are decided from — PLATFORM-102
+ * slice 4, and the reason both signatures widened.
+ *
+ * The STATE alone is not enough, and this is the second time this campaign that a
+ * guard on what something MEANS missed what it IS. `unavailable` is reached by
+ * FOUR branches of `buildDeliveryRow`, and the tempting discriminator
+ * (`planUnavailableReason === null`) does not separate them:
+ *
+ *   | branch                              | reason   | receipt | a fault? |
+ *   | receipt-scope read failed           | may be null | null | YES      |
+ *   | no receipt for this job, plan faulted | non-null | null | yes      |
+ *   | plan faulted beside a receipt        | non-null | present | yes    |
+ *   | NOTHING DUE                          | null     | present | no     |
+ *
+ * `unavailable` with a null reason is true of the FIRST row and the LAST, so a
+ * mapping keyed on the reason alone paints a receipt-store OUTAGE as healthy.
+ * The receipt separates those two: nothing-due is reached through
+ * `entriesByJob.has(job)`, so it always carries a parsed receipt, and the scope
+ * failure never does.
+ *
+ * AND THE RECEIPT IS STILL NOT ENOUGH — a FIFTH path, found by review and
+ * confirmed by running it. `planUnavailableReason` is a ROW-level field derived
+ * from `governingSchedule`, which picks the entry with a cron when no slot is due;
+ * so a job whose DENSE schedule is faulted (`plan-indeterminate`) and whose SLOW
+ * schedule is known and not yet due produces `reason: null` with a receipt
+ * present, and rendered gray "Nothing due" while half the job could not be checked
+ * at all. That is this campaign's recurring failure a third time — a guard on what
+ * the row MEANS while the per-schedule facts go unchecked — so the predicate reads
+ * the entries too. Nothing is due only when EVERY schedule is accounted for.
+ */
+export type DeliveryRowFacts = Pick<
+  SchedulerDeliveryHealthRow,
+  'deliveryState' | 'planUnavailableReason' | 'receipt' | 'schedules'
+>;
+
+/**
+ * The healthy idle state: every schedule is known, none has a slot whose grace
+ * has expired, and the job's last receipt is right there.
+ *
+ * NOT a sixth `SchedulerDeliveryState` — Item 102 has declined to widen that
+ * union three times and this is presentation, not a new fact. It is derived from
+ * the row rather than stored on it for the same reason.
+ */
+export function deliveryNothingDue(row: DeliveryRowFacts): boolean {
+  return (
+    row.deliveryState === 'unavailable' &&
+    row.planUnavailableReason === null &&
+    row.receipt !== null &&
+    row.schedules.every((schedule) => schedule.unavailableReason === null)
+  );
 }
 
-export function deliveryStateDisplay(state: SchedulerDeliveryState): {
+/**
+ * Row-level delivery stoplight.
+ *
+ * GRAY FOR NOTHING DUE, and the owner's word was "green". The ruling was that a
+ * healthy idle job must not read as a FAULT, which both colours satisfy; gray is
+ * the one that does not overshoot. Green is this dashboard's word for a MEASURED
+ * on-time delivery, and nothing-due measured nothing — the state layer was
+ * careful not to call it `on-time` for exactly that reason
+ * (`schedulerDeliveryHealth.ts`: "`on-time` asserts delivery is timely, and
+ * nothing here measured that"), and painting it green re-asserts one layer down
+ * the claim the layer above declined to make. On a quiet offseason day both
+ * planner-owned rows are idle by design; two green dots would say their deliveries
+ * were timely, when what is true is that none was owed. Gray says that.
+ *
+ * Everything else keeps its colour, and the FAULTS keep yellow — including the
+ * receipt-scope outage, which is `unavailable` with a null reason and would have
+ * gone gray under the discriminator this slice was handed.
+ */
+export function deliveryRowStatus(row: DeliveryRowFacts): PanelStatus {
+  if (row.deliveryState === 'on-time') return 'green';
+  return deliveryNothingDue(row) ? 'gray' : 'yellow';
+}
+
+export function deliveryStateDisplay(row: DeliveryRowFacts): {
   label: string;
   tone: StateTone;
 } {
-  switch (state) {
+  switch (row.deliveryState) {
     case 'on-time':
       return { label: 'On time', tone: 'ok' };
     case 'late':
       return { label: 'Late', tone: 'warn' };
     case 'missing':
+      // UNTOUCHED. "No receipt at all" is a different fact from "nothing is due",
+      // and it must keep warning: a job that has never delivered is not idle.
       return { label: 'No recent delivery', tone: 'warn' };
     case 'invalid':
       return { label: 'Receipt invalid', tone: 'warn' };
     case 'unavailable':
-      return { label: 'Unavailable', tone: 'muted' };
+      // The tone was ALREADY `muted` here, so only the word changes: "Unavailable"
+      // reads as broken, and a job doing exactly what it was told is not.
+      return deliveryNothingDue(row)
+        ? { label: 'Nothing due', tone: 'muted' }
+        : { label: 'Unavailable', tone: 'muted' };
   }
 }
 
@@ -210,6 +288,15 @@ export function summarizeReceiptTarget(target: SchedulerExecutionReceipt['target
           : target.recorded
             ? 'recorded'
             : 'not recorded'
+      }`;
+    case 'polling-planner':
+      // Counts, never expressions. An operator reading this needs to know how
+      // many schedules moved and how many did not; WHICH cron each one holds is
+      // the durable planner record's, under its allowlist.
+      return `${target.day ?? 'no day'} · ${target.schedulesApplied} applied, ${
+        target.schedulesUnchanged
+      } unchanged, ${target.schedulesFailed} failed${
+        target.recordsNotWritten > 0 ? ` · ${target.recordsNotWritten} record(s) not written` : ''
       }`;
     case 'game-stats':
       return `${target.year}${target.week != null ? ` · week ${target.week}` : ''}${target.seasonType ? ` · ${target.seasonType}` : ''}`;

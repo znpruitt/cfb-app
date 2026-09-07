@@ -11,7 +11,10 @@ import type {
 import type { PlannerScheduleIntent } from '../pollingPlannerRecord';
 import { UNSAFE_CHARACTER_CODES } from './unsafeCharacterTable';
 import * as gameStats from '../../../../scripts/manage-game-stats-schedule';
+import * as gameStatsSlow from '../../../../scripts/manage-game-stats-slow-schedule';
 import * as liveScores from '../../../../scripts/manage-live-scores-schedule';
+import * as liveScoresSlow from '../../../../scripts/manage-live-scores-slow-schedule';
+import * as pollingPlanner from '../../../../scripts/manage-polling-planner-schedule';
 import * as odds from '../../../../scripts/manage-odds-schedule';
 import * as rankings from '../../../../scripts/manage-rankings-schedule';
 import * as scheduleRefresh from '../../../../scripts/manage-schedule-refresh-schedule';
@@ -74,6 +77,12 @@ const CLIS: Cli[] = [
   cliFor('schedule-refresh', scheduleRefresh),
   cliFor('team-records', teamRecords),
   cliFor('usage-sample', usageSample),
+  // PLATFORM-102 slice 4 — the two reconciliation schedules and the planner's own
+  // trigger. Their `runManageSchedule` export takes injected deps with NO reader,
+  // exactly like the other seven, so the fallback assertions below cover all ten.
+  cliFor('game-stats-slow', gameStatsSlow),
+  cliFor('live-scores-slow', liveScoresSlow),
+  cliFor('polling-planner', pollingPlanner),
 ];
 
 function readbackFor(cli: Cli, overrides: Partial<ScheduleReadback> = {}): ScheduleReadback {
@@ -121,11 +130,11 @@ function summaryFrom(out: string[]): Record<string, unknown> {
 // The fallback: all seven CLIs, unchanged
 // ---------------------------------------------------------------------------
 
-test('all seven manage CLIs still inspect against their FIXED contract', async () => {
+test('all ten manage CLIs still inspect against their FIXED contract', async () => {
   // The mutation target for the fallback. Break `resolveExpectedContract` — have
   // the no-reader branch return `{kind: 'unreadable'}`, or drop the `absent`
   // branch — and every case here goes red with exit 3 instead of 0.
-  assert.equal(CLIS.length, 7, 'seven management CLIs exist; assert them, do not assume');
+  assert.equal(CLIS.length, 10, 'ten management CLIs exist; assert them, do not assume');
 
   for (const cli of CLIS) {
     const { deps, out, err } = harness(readbackFor(cli));
@@ -171,7 +180,7 @@ test('all seven manage CLIs still inspect against their FIXED contract', async (
   }
 });
 
-test('all seven still REFUSE a divergent schedule against the fixed constants', async () => {
+test('all ten still REFUSE a divergent schedule against the fixed constants', async () => {
   // Positive control for the test above: exit 0 there must mean the contract was
   // actually compared, not that the comparison was skipped.
   for (const cli of CLIS) {
@@ -559,4 +568,157 @@ test('a DEFINITE divergence exits 2; only "cannot determine" exits 3', async () 
   })) as RunDeps['readRecordedIntent']);
   assert.equal(await SUBJECT.run(deps), 2);
   assert.match(err.join('\n'), /^REFUSED: /m);
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-102 slice 4 — `upsert` answers to the same authority `inspect` does
+// ---------------------------------------------------------------------------
+
+/**
+ * The upsert harness. Separate from `harness` because upsert MUTATES: the GET is
+ * never made, the POST is, and what matters is the request that goes out.
+ */
+function upsertHarness(readRecordedIntent?: RunDeps['readRecordedIntent']): {
+  deps: RunDeps;
+  out: string[];
+  err: string[];
+  calls: Array<{ url: string; method: string; headers: Record<string, string> }>;
+} {
+  const out: string[] = [];
+  const err: string[] = [];
+  const calls: Array<{ url: string; method: string; headers: Record<string, string> }> = [];
+  const fetchImpl: FetchLike = async (url, init) => {
+    calls.push({ url, method: init.method, headers: init.headers });
+    return { status: 200, json: async () => ({ scheduleId: SUBJECT.scheduleId }) };
+  };
+  return {
+    deps: {
+      argv: ['upsert', '--apply'],
+      env: { QSTASH_TOKEN: TOKEN, CRON_SECRET: CRON_SECRET_VALUE },
+      fetchImpl,
+      log: (line) => out.push(line),
+      errorLog: (line) => err.push(line),
+      ...(readRecordedIntent ? { readRecordedIntent } : {}),
+    },
+    out,
+    err,
+    calls,
+  };
+}
+
+test('THE LOOP IS CLOSED: upsert writes the RECORDED cron, so the next inspect verifies it', async () => {
+  // Slice 3a wired `inspect` to the record and left `upsert` writing the fixed
+  // constant, so one process held two authorities: a planner-owned schedule that
+  // went absent was reprovisioned at the fixed cadence, which the next `inspect`
+  // then refused. This is that loop, asserted end to end.
+  const { deps, calls, out } = upsertHarness(reader({ kind: 'intent', intent: recordedIntent() }));
+  assert.equal(await SUBJECT.run(deps), 0);
+
+  const upsert = calls.find((call) => call.method === 'POST')!;
+  assert.equal(upsert.headers['Upstash-Cron'], PLANNER_CRON, 'the RECORDED cron is what is sent');
+  assert.notEqual(upsert.headers['Upstash-Cron'], SUBJECT.cron);
+  assert.ok(out.some((line) => line.includes("writing the planner's last recorded intent")));
+
+  // AND THE LOOP CLOSES: inspect the schedule that upsert just produced, against
+  // the same record, and it verifies instead of refusing.
+  const after = harness(
+    readbackFor(SUBJECT, { cron: upsert.headers['Upstash-Cron']! }),
+    reader({
+      kind: 'intent',
+      intent: recordedIntent(),
+    })
+  );
+  assert.equal(await SUBJECT.run(after.deps), 0, after.err.join(' | '));
+
+  // POSITIVE CONTROL: what the OLD behaviour wrote — the fixed constant — is
+  // exactly what that same inspect refuses. Without this the assertion above
+  // would pass for a build where nothing changed.
+  const oldBehaviour = harness(
+    readbackFor(SUBJECT, { cron: SUBJECT.cron }),
+    reader({
+      kind: 'intent',
+      intent: recordedIntent(),
+    })
+  );
+  assert.equal(await SUBJECT.run(oldBehaviour.deps), 2);
+});
+
+test('upsert REFUSES on a record it cannot read, rather than clobbering the planner', async () => {
+  // The mirror of the `inspect` rule, and the reason it matters more here:
+  // `inspect` refusing costs a diagnosis, `upsert` writing the fixed constant
+  // costs the planner its cron and makes the next inspect refuse what this run
+  // just wrote.
+  for (const [name, lookup] of [
+    ['unreadable', reader({ kind: 'unreadable' })],
+    ['unavailable', reader({ kind: 'unavailable' })],
+    ['store threw', throwingReader()],
+    ['foreign', reader({ kind: 'intent', intent: recordedIntent({ scheduleId: 'other' }) })],
+  ] as Array<[string, RunDeps['readRecordedIntent']]>) {
+    const { deps, err, calls } = upsertHarness(lookup);
+    assert.equal(await SUBJECT.run(deps), 3, `${name} should refuse`);
+    assert.equal(calls.length, 0, `${name}: nothing is sent, so neither secret leaves the process`);
+    assert.match(err.join('\n'), /clobber a cron the planner owns/);
+  }
+
+  // `contradicts-contract` is a DEFINITE divergence and keeps exit 2.
+  const contradicts = upsertHarness((async () => ({
+    kind: 'intent' as const,
+    intent: { ...recordedIntent(), retries: 3 },
+  })) as RunDeps['readRecordedIntent']);
+  assert.equal(await SUBJECT.run(contradicts.deps), 2);
+  assert.equal(contradicts.calls.length, 0);
+});
+
+test('INDETERMINATE diverges by ACTION, and the divergence is explicit', async () => {
+  // On `inspect` a refusal is a diagnosis. On `upsert` it means never retrying the
+  // one operation whose outcome is unknown, so a single exit 4 wedges
+  // reprovisioning until a human intervenes — and making an unknown state definite
+  // is exactly what an operator reaches for `upsert` to do. QStash documents the
+  // create endpoint as an UPDATE when the schedule id already exists, so
+  // re-issuing is not a duplicate.
+  const lookup = reader({ kind: 'indeterminate' });
+
+  const inspected = harness(readbackFor(SUBJECT), lookup);
+  assert.equal(await SUBJECT.run(inspected.deps), 3, 'inspect still refuses');
+  assert.equal(inspected.calls.length, 0);
+
+  const upserted = upsertHarness(lookup);
+  assert.equal(await SUBJECT.run(upserted.deps), 0, 'upsert proceeds');
+  const sent = upserted.calls.find((call) => call.method === 'POST')!;
+  // It falls back to the FIXED contract, which over-approximates; the next planner
+  // run overwrites it, so the exposure is at most one cycle.
+  assert.equal(sent.headers['Upstash-Cron'], SUBJECT.cron);
+});
+
+test('ABSENT is the BOOTSTRAP: upsert writes the fixed contract and sends it', async () => {
+  // An operator upserting a planner-owned job before the planner has ever run has
+  // nothing else to write, and after cutover a wiped record store gives the same
+  // fallback. It over-approximates, the handler guards remain the correctness
+  // protection, and the next planner run narrows it.
+  const { deps, calls } = upsertHarness(reader({ kind: 'absent' }));
+  assert.equal(await SUBJECT.run(deps), 0);
+  const sent = calls.find((call) => call.method === 'POST')!;
+  assert.equal(sent.headers['Upstash-Cron'], SUBJECT.cron);
+  assert.equal(sent.headers['Upstash-Forward-Authorization'], `Bearer ${CRON_SECRET_VALUE}`);
+});
+
+test('the resolver runs BEFORE a credential is attached, on the upsert path too', async () => {
+  // `resolveQstashBase` establishes this ordering for a poisoned base and the
+  // record read must not undo it: a refusal has to land before `QSTASH_TOKEN` or
+  // the forwarded `CRON_SECRET` is put on a request.
+  const { deps, calls } = upsertHarness(reader({ kind: 'unreadable' }));
+  await SUBJECT.run(deps);
+  assert.equal(calls.length, 0);
+
+  // And a missing CRON_SECRET still fails closed ahead of the resolver, so a
+  // record read is never even attempted without the credential the write needs.
+  let readerCalled = false;
+  const noSecret = upsertHarness((async () => {
+    readerCalled = true;
+    return { kind: 'absent' as const };
+  }) as RunDeps['readRecordedIntent']);
+  noSecret.deps.env = { QSTASH_TOKEN: TOKEN };
+  assert.equal(await SUBJECT.run(noSecret.deps), 3);
+  assert.equal(readerCalled, false);
+  assert.equal(noSecret.calls.length, 0);
 });

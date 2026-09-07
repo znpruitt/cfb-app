@@ -22,7 +22,8 @@ it is historical evidence, not a procedure to replay.
 - CFBD supplies schedules, scores, rankings, conferences, and game statistics. The Odds API supplies
   betting lines.
 - Vercel Cron owns the two daily lifecycle jobs declared in `vercel.json`.
-- QStash runs the seven externally scheduled provider jobs in §8.
+- QStash runs the ten externally scheduled jobs in §8: seven provider jobs, the two reconciliation
+  (slow) schedules, and the daily polling planner that rewrites four of them.
 
 | Scheduler | Route | Cadence (UTC) | Owner |
 | --- | --- | --- | --- |
@@ -42,7 +43,7 @@ it is historical evidence, not a procedure to replay.
 > receipts name the promoted production build. Their repository definitions, cadence, and
 > lifecycle-critical policy are unchanged.
 
-All nine routes require the same deployed `CRON_SECRET`. The seven QStash schedules are intentionally
+All ten routes require the same deployed `CRON_SECRET`. The ten QStash schedules are intentionally
 absent from `vercel.json`.
 
 ## 2) Create or reconnect the hosted project
@@ -86,12 +87,21 @@ secret and should not replace Clerk for normal admin use.
 Optional variables: `NEXT_PUBLIC_SEASON`, `PGSSLMODE`, `NEXT_PUBLIC_DEBUG`, `DEBUG_CFBD`, and
 `DEBUG_UPSTREAM`. Leave debug variables unset in normal production.
 
-`QSTASH_TOKEN` is different from `CRON_SECRET`: it is an operator-held management credential used
-by the seven schedule-manager scripts. Never commit it or configure it in Vercel. The deployed
-`CRON_SECRET` is the credential QStash forwards. If `CRON_SECRET` is missing or mismatched, all nine
-cron routes fail closed with `401`, stopping lifecycle reconciliation, statistics ingestion,
-live-score polling, team-record refresh, odds polling, weekly schedule maintenance, rankings
-publication, and CFBD usage sampling.
+`QSTASH_TOKEN` is different from `CRON_SECRET`: it is the QStash MANAGEMENT credential, used by the
+ten schedule-manager scripts and — since PLATFORM-102 slice 4 — by the deployed polling planner.
+**Never commit it. It IS configured in Vercel** (Production), because the planner rewrites the
+`live-scores` and `game-stats` schedules once a day from inside the application. That is a change of
+security posture and was an owner decision, recorded on Item 102: Upstash documents no scoped or
+per-schedule management token, so the deployed copy is full-privilege — it can retime, pause or
+delete every schedule. The accepted mitigation is that such tampering is OBSERVABLE (System Health
+reads the planner's durable record and `inspect` diffs live state against it) and RECOVERABLE (every
+schedule is reprovisionable from the repo's fixed contracts). Rotate it if a deployment is ever
+compromised, not only if a laptop is.
+
+The deployed `CRON_SECRET` is the credential QStash forwards. If `CRON_SECRET` is missing or
+mismatched, all ten cron routes fail closed with `401`, stopping lifecycle reconciliation, statistics
+ingestion, live-score polling, team-record refresh, odds polling, weekly schedule maintenance,
+rankings publication, CFBD usage sampling, and polling-window planning.
 
 ## 5) Configure authentication
 
@@ -329,8 +339,8 @@ release. For a narrow routine promotion, run the impacted subset plus the first 
 6. Schedule data loads through the API-backed route.
 7. Scores and odds public reads succeed without triggering unauthorized provider fetches.
 8. Owners upload/repair, alias editing, and diagnostics still load where the release touches them.
-9. The two Vercel lifecycle cron definitions remain present and the seven QStash routes remain absent
-   from `vercel.json`.
+9. The two Vercel lifecycle cron definitions remain present and the QStash-delivered routes remain
+   absent from `vercel.json`.
 10. Each affected scheduler has a recent truthful receipt and **Built from** identifies the promoted
     deployment.
 
@@ -588,20 +598,27 @@ Before step 3, System Health will report the newly known `team-records` delivery
 expected provisioning state, not evidence that another job regressed. For an incident after
 activation: global pause on, Team records automation off, pause and inspect the schedule.
 
-### §8l) Rotate `CRON_SECRET` across all seven QStash schedules
+### §8l) Rotate `CRON_SECRET` across all ten QStash schedules
 
-All seven schedules forward the same secret, so rotation is one coordinated operation:
+All ten schedules forward the same secret, so rotation is one coordinated operation. PLATFORM-102
+slice 4 added three: `turfwar-live-scores-slow`, `turfwar-game-stats-slow` and
+`turfwar-polling-planner-daily`. Rotating only the original seven leaves those three forwarding the
+retired secret — and the planner is the one whose 401 freezes the other schedules at whatever they
+last held.
 
 1. Enable global pause.
 2. Disable automatic game-stats, scores, records, odds, schedule, and rankings refresh. The usage
    sampler has no dataset toggle — it reads `/info` only and writes no canonical data.
-3. Pause all seven managers with `pause --apply`; inspect all seven and confirm they are paused. In a
+3. Pause all ten managers with `pause --apply`; inspect all ten and confirm they are paused. In a
    postseason-boundary window, this Schedule pause—not its dataset toggle—is the critical stop.
 4. Update `CRON_SECRET` in Vercel Production, trigger a fresh production deployment, wait for it to
    become Ready, and promote it. Environment-variable changes do not alter an already-built runtime.
 5. With the matching new `CRON_SECRET` and operator-held `QSTASH_TOKEN` local, run `upsert --apply`
-   for all seven managers. This forwards the new bearer value and reapplies redaction.
-6. Inspect all seven. Require the exact contracts, paused state, and one redacted Authorization
+   for all ten managers. This forwards the new bearer value and reapplies redaction. The four
+   planner-owned managers additionally need `DATABASE_URL_RO` in `.env.operator.local` — they read the
+   planner's recorded intent so `upsert` writes the cron the planner owns instead of the fixed
+   fallback, and they REFUSE (exit 3) rather than clobber it if that record cannot be read.
+6. Inspect all ten. Require the exact contracts, paused state, and one redacted Authorization
    header. Exit `4` remains indeterminate: inspect and stop.
 7. Resume each schedule only long enough to obtain its gates-closed authentication delivery. Require
    HTTP 200 and no provider attempt/quota change for the five noncritical gated jobs and ordinary
@@ -613,12 +630,12 @@ All seven schedules forward the same secret, so rotation is one coordinated oper
    §8m's proof instead (HTTP 200 plus a new entry under `provider-usage / cfbd-observations`); `/info`
    is unbilled, so quota must still not move. A `401` or any policy-divergent activity is a stop
    condition.
-8. Pause again immediately if any proof fails. Otherwise resume all seven, re-enable their datasets,
+8. Pause again immediately if any proof fails. Otherwise resume all ten, re-enable their datasets,
    and clear global pause last.
 9. Confirm the two Vercel lifecycle routes also return authenticated results with the new secret at
    their next run or through an authorized operator invocation.
 
-Do not rotate only one external schedule: that leaves the other six forwarding the retired secret.
+Do not rotate only one external schedule: that leaves the other nine forwarding the retired secret.
 
 ### §8m) CFBD usage sampler (Item 127)
 
@@ -651,6 +668,80 @@ stop condition as every other job.
 > unprovisioned schedule, not evidence that another job regressed — the same case the `team-records`
 > note above pre-empts.
 
+### §8n) Polling-window planner (PLATFORM-102 slice 4) — provision after PROMOTION
+
+`GET /api/cron/polling-planner`, driven by the QStash schedule `turfwar-polling-planner-daily` at
+`50 23 * * *`. Manage it with `tsx scripts/manage-polling-planner-schedule.ts`; `inspect` is
+read-only.
+
+**What it does, once a day.** It derives the polling windows for the UTC day about to begin from the
+canonical schedule cache, synthesizes each planner-owned job's dense and slow cron expressions, and
+brings four schedules to that state — `turfwar-live-scores-3m`, `turfwar-live-scores-slow`,
+`turfwar-game-stats-15m` and `turfwar-game-stats-slow` — then records what it derived and what became
+of each. **It is the only job that writes to another job's QStash schedule**, which is why
+`QSTASH_TOKEN` is now in the Vercel environment (§4).
+
+**It runs at 23:50, ten minutes before the day it plans, deliberately.** A cron has no date field, so
+an expression installed after midnight leaves the new day's first hours governed by yesterday's hour
+set. The installed dense expression also carries any of the CURRENT day's armed hours that have not
+yet elapsed, so the swap cannot go dark over the tail of a live game.
+
+**Provision after PROMOTION, not after merge.** Auto-promotion is off, so a merged build does not
+ship until it is explicitly promoted (§6b) and QStash reaches the PROMOTED deployment. Provisioning
+the planner schedule against an unpromoted build calls a route that does not exist there — a 404
+every night until promotion, visible only as the planner's own row going `late`.
+
+**Provisioning order matters — the planner is provisioned LAST.**
+
+1. `npm run manage:live-scores-slow-schedule -- upsert --apply`
+2. `npm run manage:game-stats-slow-schedule -- upsert --apply`
+3. `npm run manage:polling-planner-schedule -- upsert --apply`
+4. Inspect all three and require the exact contracts and one redacted Authorization header.
+
+Steps 1 and 2 come first so the two new schedules are created by the AUDITED CLI path, with an
+`inspect` available before the planner ever touches them. The planner does not depend on that
+ordering — `applySchedule` treats an absent schedule on an armed day as an ordinary upsert, so a
+planner provisioned first would CREATE both slow schedules itself, at the derived cron, with no
+operator check in between. That is the reason to keep the order, and it is the opposite of the reason
+an earlier revision of this section gave. The two DENSE schedules already exist and are not
+re-provisioned — the planner narrows them in place on its first run.
+
+**The four planner-owned managers need `DATABASE_URL_RO`** in `.env.operator.local`. They read the
+planner's recorded intent so `inspect` judges the live schedule against what the planner last wrote
+rather than against a constant it no longer follows, and so `upsert` re-writes that same intent
+instead of clobbering it with the fixed fallback. Without a readable record they REFUSE (exit 3)
+rather than guess. The other six managers are unaffected and need no database access.
+
+**Authentication proof:** resume the schedule, confirm one HTTP 200 delivery, and verify a new
+`polling-planner` receipt on System Health with a `<day> · N applied, M unchanged, 0 failed` target.
+A `401` is the same stop condition as every other job.
+
+**What an operator should see the morning after the first run.** A **Polling planner** row, `daily
+(23:50 UTC)`, green. The **Live scores** and **Game stats** rows stop reading their fixed cadence and
+start reading the recorded one — `every 3 min at 19:00–23:00 UTC, hourly (:01) at 00:00 UTC` on a
+game day. On a quiet day their delivery cell reads a gray **Nothing due** rather than a yellow
+warning, and the issues list stays empty.
+
+**⚠️ RE-ENABLING A HELD DATASET DOES NOT RESTORE COVERAGE — read this before using the single-job
+stop on `live-scores` or `game-stats`.** The planner OBEYS the stop: when `scores` or `game-stats` is
+disabled, or global pause is on, it skips that job entirely and leaves both of its schedules exactly
+where you left them. That is what makes "resume in reverse" find what it expects — but it also means
+the schedules keep whatever cron they carried when the hold went on. **Re-enable `scores` on a
+Thursday morning and the dense schedule still holds the stale expression until 23:50 that night, so
+Thursday's games go unpolled.** For these two jobs, step "resume the schedule" no longer restores
+correct coverage on its own. Either re-enable the day before you need coverage, or run the planner
+manually straight after re-enabling and confirm from its receipt.
+
+**If the planner stops, nothing else reports it.** A planner that fails leaves the schedules it last
+installed in place — and a dense schedule paused on a dead day stays paused into the next game day.
+That is why it carries its own receipt. A `failure / schedule-unreadable` receipt means the season's
+schedule cache could not be read or is empty; the planner deliberately sends NOTHING in that case
+rather than pause on an absence, so repair the schedule cache and the next run recovers.
+
+> **Expected until provisioned:** from the moment this ships until step 3 runs, System Health reports
+> `polling-planner` with a scheduler-delivery warning. That is the correct reading of an
+> unprovisioned schedule, not evidence that another job regressed.
+
 ## 9) Common failure diagnosis
 
 ### A merge is Ready but the site still shows old behavior
@@ -668,7 +759,7 @@ receipts (§6c); inspect production before diagnosing a production outage.
 
 1. Confirm `CRON_SECRET` is present in the promoted Vercel Production deployment.
 2. For QStash, inspect the relevant schedule and require exactly one redacted Authorization header.
-3. If the secret was rotated, follow the complete seven-schedule procedure in §8l.
+3. If the secret was rotated, follow the complete ten-schedule procedure in §8l.
 4. Keep gates closed until an HTTP 200 provider-free authentication proof succeeds.
 
 ### Clerk sign-in fails or redirects repeatedly

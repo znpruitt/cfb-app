@@ -1779,6 +1779,15 @@ a filter. Additive functionality — scoped after **Item 87 slice 5**, not insid
 
 ### Item 117 — Matchups adopts the shared scoreboard
 
+**Kickoff:** [`docs/prompts/platform-117-matchups-scoreboard-codex-v1.md`](prompts/platform-117-matchups-scoreboard-codex-v1.md).
+**Runnable now — it does NOT depend on Item 139.** Its only recorded dependency is Item 87 slice 5a
+(merged); the card-owner seam came with slice 5b (merged). An earlier verbal claim that 117 consumes
+139's records work was wrong and is corrected here: records reach Matchups separately, exactly as
+they will reach Schedule.
+
+**Verified 2026-09-07: `isCardOwnerTeam` (`CompactGameScoreboard.tsx:11`) has NO production
+consumer** — the only references outside the component are its own tests. This item is that consumer.
+
 **Filed 2026-09-03.** Design: `docs/campaigns/item-87-followon-matchups-schedule-design.md` →
 _Matchups — design decisions_, and `mockups/matchups-schedule-mockup.html`. `MatchupsWeekPanel`'s
 bespoke `GameRow` (`:140`) becomes `CompactGameScoreboard`, rendered expanded inline with no collapse
@@ -2710,6 +2719,57 @@ Collision 1 is resolved. Owner rulings that shaped it: `inspect` distinguishes T
 falls back to the constant; present-and-readable is diffed against; present-but-unreadable or a store
 read failure REFUSES), the record keeps bounded history rather than latest-only, and 3a exposes the
 store's read while 3b owns interpretation.
+
+**Slice 4 SHIPPED 2026-09-07** — `claude/102-slice-4-activation`, **NOT dormant: it writes to an
+external system and takes ownership of two live crons.** Registry:
+[`PLATFORM-102-SLICE-4-ACTIVATION-v1`](prompt-registry.md). Three remediation rounds, the third
+authorized as a deliberate ruling under `AGENTS.md:348` (narrow defects around sound production code
+are not the reconstruction clause's subject).
+
+**The saving, October first because the Hobby allowance is monthly.** `live-scores` 480 → **214.5
+firings/day (−55.3%)**, `game-stats` 96 → **49.4 (−48.6%)**. Annual 57.3 (−88.1%) and 13.4 (−86.0%).
+
+**214.5 is a SNAPSHOT WORST CASE; realized October should be near 193/day (−60%).** The gap from
+slice 2's projected 190.7 is whole-day arming of kickoffs with no published time (+21.4/day, 90% of
+it), not the cutover carry (+2.5/day). That cost is paid only for a game still TBD on its OWN day and
+the planner re-derives daily — measured 2026-09-07, **0 of 1,070 kickoffs in the next three weeks are
+TBD**, against 12–16% at four-plus weeks and 32%/60% at twelve and thirteen. Applying today's TBD set
+to every future day, which the 214.5 figure does, is a worst case by construction. Record both and
+label which is which.
+
+**What the first run does.** It derives the day about to begin, creates `turfwar-live-scores-slow` and
+`turfwar-game-stats-slow`, and NARROWS `turfwar-live-scores-3m` and `turfwar-game-stats-15m` from
+always-on to that day's armed hours — or pauses them. The morning after, System Health shows a
+**Polling planner** row (`daily (23:50 UTC)`) and the two owned rows reading their recorded cadence
+instead of a fixed contract; on a quiet day their delivery cell reads a gray **Nothing due**.
+
+**⚠️ RE-ENABLING A HELD DATASET DOES NOT RESTORE COVERAGE.** A held job is skipped entirely, so its
+schedules keep whatever cron they had when the hold went on. Re-enable `scores` on a Thursday morning
+and the dense schedule still carries the stale expression until the next planner run at 23:50 — so
+Thursday's games go unpolled. **The runbook's "resume the schedule" step no longer restores correct
+coverage for these two jobs.** Either wait for the next planner run before relying on coverage, or
+run the planner manually after re-enabling.
+
+**Slice-4 follow-ups, filed 2026-09-07 and NOT fixed** (round limit spent by owner ruling; findings on
+the final commit are follow-ups by the same ruling):
+
+- **`Upstash-Retries: 3` for the planner schedule only.** Evidence gathered: QStash's default is 3 and
+  this repo's 0 is a deliberate reduction; the documented reason — a retry colliding with the next run
+  of a FREQUENT job causes a duplicate billed CFBD call — provably does not apply to a once-daily job
+  that makes no provider calls. Backoff (~+12s/+2.5min/+30min) lands inside the planned day. Highest
+  value on this list.
+- **The unbounded-wait family**, one coherent piece across three call sites: no deadline on QStash
+  management requests, none on the schedule read, and slice 3b's stalled-snapshot item.
+- **`latestRecordedIntentForSchedule` walks past `dense: null`** and returns an older ARMED intent, so
+  §8l's "upsert --apply all ten, then resume all ten" would write a stale cron over a paused dense
+  schedule. Self-clears at the next planner run.
+- **A held job's DELIVERY ROW is unchanged** — the hold shows on the planner's receipt, not on the
+  held job's row. Deliberately out of round 3's scope (no sixth `SchedulerDeliveryState`).
+- **Two code comments contradict the lines they justify**: the `planUnavailableReason` note in
+  `systemHealth.ts` and the New Year boundary claim in the planner route (the real boundary is
+  30 June → 1 July).
+- **`action: 'applied'` is recorded when the CLI sent nothing**; `action` is deliberately never read,
+  so this is record accuracy only.
 
 **Slice 3b SHIPPED 2026-09-07** — `claude/102-slice-3b-delivery-consumer` at `7ada7781`, **live read
 and dormant output**. Registry:

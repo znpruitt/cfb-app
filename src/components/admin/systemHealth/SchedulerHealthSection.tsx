@@ -46,8 +46,10 @@ export default function SchedulerHealthSection({
       </h2>
       <ul className="divide-y divide-gray-200 dark:divide-zinc-800">
         {jobs.map((row) => {
-          const delivery = deliveryStateDisplay(row.deliveryState);
-          const deliveryStatus = deliveryRowStatus(row.deliveryState);
+          // The ROW, not the state: `unavailable` is four different facts and
+          // only one of them ("nothing is due") is healthy. See `DeliveryRowFacts`.
+          const delivery = deliveryStateDisplay(row);
+          const deliveryStatus = deliveryRowStatus(row);
           const receipt = row.receipt;
           const execution = receipt ? executionResultDisplay(receipt.result) : null;
           return (
