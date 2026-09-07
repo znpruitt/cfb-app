@@ -81,6 +81,8 @@ export type MatchResult =
       trace: ScoreAttachmentDiagnostic['trace'];
     };
 
+export type ValidatedScoreOrientation = 'direct' | 'reversed' | null;
+
 export function normalizeProviderTeamName(name: string): string {
   // Provider-row canonicalization only (CFBD payload cleanup for attachment keys).
   // Team-vs-team equivalence comparisons should use teamIdentity resolver helpers.
@@ -154,6 +156,36 @@ export function resolveCanonicalTeamIdentity(
     canonicalName: null,
     resolutionSource: 'unresolved',
   };
+}
+
+/**
+ * Validate a score row's participant order against two known schedule teams.
+ *
+ * Provider event id identifies the game, but never proves side orientation: CFBD
+ * has emitted both side-reversed rows and rows carrying the wrong opponent under
+ * an otherwise-valid event id. All participant equivalence therefore flows
+ * through the centralized identity resolver. `null` means the row is unsafe to
+ * credit; callers must not fall back to positional scores.
+ */
+export function validateScoreParticipantOrientation(params: {
+  scheduleHomeTeam: string;
+  scheduleAwayTeam: string;
+  scoreHomeTeam: string;
+  scoreAwayTeam: string;
+  resolver: TeamIdentityResolver;
+}): ValidatedScoreOrientation {
+  const { scheduleHomeTeam, scheduleAwayTeam, scoreHomeTeam, scoreAwayTeam, resolver } = params;
+  const scheduleHomeKey = resolver.resolveName(scheduleHomeTeam).identityKey;
+  const scheduleAwayKey = resolver.resolveName(scheduleAwayTeam).identityKey;
+  const scoreHomeKey = resolveCanonicalTeamIdentity(scoreHomeTeam, resolver).identityKey;
+  const scoreAwayKey = resolveCanonicalTeamIdentity(scoreAwayTeam, resolver).identityKey;
+
+  if (!scheduleHomeKey || !scheduleAwayKey || !scoreHomeKey || !scoreAwayKey) return null;
+
+  const direct = scoreHomeKey === scheduleHomeKey && scoreAwayKey === scheduleAwayKey;
+  const reversed = scoreHomeKey === scheduleAwayKey && scoreAwayKey === scheduleHomeKey;
+  if (direct === reversed) return null;
+  return direct ? 'direct' : 'reversed';
 }
 
 export function buildScheduleIndex(

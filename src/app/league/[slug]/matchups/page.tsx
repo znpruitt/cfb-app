@@ -5,10 +5,11 @@ import { listSeasonArchives } from '../../../../lib/seasonArchive';
 import { canonicalStandingsClientProps } from '../../../../lib/selectors/canonicalStandingsClient';
 import { getCanonicalStandings } from '../../../../lib/selectors/leagueStandings';
 import { resolveDisplayLeagueStatus } from '../../../../lib/selectors/leagueLifecycle';
-import { teamRecordsClientProps } from '../../../../lib/selectors/teamRecordsClient';
 import { isPlatformAdminSession } from '../../../../lib/server/adminAuth';
-import { loadCachedScheduleItems } from '../../../../lib/server/canonicalScheduleCache';
-import { readTeamRecordsCache } from '../../../../lib/teamRecords/teamRecordsCache';
+import {
+  EMPTY_TEAM_RECORDS_CLIENT_PROPS,
+  loadTeamRecordsClientProps,
+} from '../../../../lib/server/teamRecordsClient';
 import { renderLeagueGateIfBlocked } from '../leagueGate';
 
 export const dynamic = 'force-dynamic';
@@ -22,30 +23,22 @@ export default async function LeagueMatchupsPage({
   const gate = await renderLeagueGateIfBlocked(slug);
   if (gate) return gate;
   const leaguePromise = getLeague(slug);
-  const teamRecordInputsPromise = leaguePromise.then(async (league) => {
-    if (!league) return { scheduleItems: [], teamRecords: null };
+  const teamRecordPropsPromise = leaguePromise.then(async (league) => {
+    if (!league) return EMPTY_TEAM_RECORDS_CLIENT_PROPS;
     const enrichmentYear = resolveLeagueSeason({
       leagueStatus: resolveDisplayLeagueStatus(league),
       leagueYear: league.year,
       defaultSeason: league.year,
     });
-    const [scheduleItems, teamRecords] = await Promise.allSettled([
-      loadCachedScheduleItems(enrichmentYear),
-      readTeamRecordsCache(enrichmentYear),
-    ]);
-    return {
-      scheduleItems: scheduleItems.status === 'fulfilled' ? scheduleItems.value : [],
-      teamRecords: teamRecords.status === 'fulfilled' ? teamRecords.value : null,
-    };
+    return loadTeamRecordsClientProps({ leagueSlug: slug, year: enrichmentYear });
   });
-  const [league, archiveYears, canonicalStandings, isAdmin, teamRecordInputs] = await Promise.all([
+  const [league, archiveYears, canonicalStandings, isAdmin, teamRecordProps] = await Promise.all([
     leaguePromise,
     listSeasonArchives(slug),
     getCanonicalStandings({ slug }),
     isPlatformAdminSession(),
-    teamRecordInputsPromise,
+    teamRecordPropsPromise,
   ]);
-  const { scheduleItems, teamRecords } = teamRecordInputs;
   // Passing `leagueStatus` made the offseason header branch reachable here, and
   // that branch reads this prop — without it these two routes would render
   // `Offseason` where the other three render `{year} Final Standings`.
@@ -61,7 +54,7 @@ export default async function LeagueMatchupsPage({
         assignmentMethod={league?.assignmentMethod}
         mostRecentArchivedYear={mostRecentArchivedYear}
         {...canonicalStandingsClientProps(canonicalStandings)}
-        {...teamRecordsClientProps(scheduleItems, teamRecords)}
+        {...teamRecordProps}
         initialWeekViewMode="matchups"
         isAdmin={isAdmin}
       />

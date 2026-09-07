@@ -67,6 +67,20 @@ export type ReconciledSeasonScores = {
   contributorCount: number;
 };
 
+type SeasonScoreEntryRecord = Awaited<ReturnType<typeof getAppStateEntries<CacheEntry>>>[number];
+
+export type ProviderIdScoreFact = {
+  score: ScorePack;
+  effectiveAt: number;
+};
+
+export type ProviderIdSeasonScoreFacts = {
+  byProviderGameId: Map<string, ProviderIdScoreFact>;
+  ambiguousProviderGameIds: Set<string>;
+  entryCount: number;
+  itemOccurrences: number;
+};
+
 /**
  * Whether an app-state `scores` key is a season-wide or week-scoped entry for
  * this (year, seasonType) — `${year}-all-${seasonType}` or
@@ -78,6 +92,102 @@ export function isScoresKeyForSeason(key: string, year: number, seasonType: Seas
   if (!key.startsWith(prefix) || !key.endsWith(suffix)) return false;
   const middle = key.slice(prefix.length, key.length - suffix.length);
   return middle === 'all' || /^\d+$/.test(middle);
+}
+
+function isScoreEntryForYear(key: string, year: number): boolean {
+  return (
+    isScoresKeyForSeason(key, year, 'regular') || isScoresKeyForSeason(key, year, 'postseason')
+  );
+}
+
+async function loadSeasonScoreEntryRecords(year: number): Promise<SeasonScoreEntryRecord[]> {
+  return getAppStateEntries<CacheEntry>('scores', `${year}-`);
+}
+
+function materiallyEqualScorePack(left: ScorePack, right: ScorePack): boolean {
+  return (
+    left.id === right.id &&
+    left.seasonType === right.seasonType &&
+    left.startDate === right.startDate &&
+    left.week === right.week &&
+    left.status === right.status &&
+    left.time === right.time &&
+    left.home.team === right.home.team &&
+    left.home.score === right.home.score &&
+    left.away.team === right.away.team &&
+    left.away.score === right.away.score
+  );
+}
+
+/**
+ * Project the shared season score-entry read by exact provider game id.
+ *
+ * Team-record reconciliation joins the raw CFBD schedule and `/records` rows on
+ * their shared numeric participant ids. It needs score status for conclusion
+ * evidence and participant-validated scores only for the unreflected suffix; it
+ * does not need canonical identity over every cached score row. This projection
+ * still reads every supported season-wide/week contributor through this module's
+ * one cache-only authority and applies the same per-row effective timestamps.
+ *
+ * Same-id rows at the newest timestamp must agree materially. An equal-time
+ * conflict is explicit uncertainty rather than insertion-order last-wins.
+ */
+export function projectProviderIdSeasonScoreFacts(
+  records: ReadonlyArray<SeasonScoreEntryRecord>,
+  year: number
+): ProviderIdSeasonScoreFacts {
+  const candidates = new Map<string, ProviderIdScoreFact & { ambiguous: boolean }>();
+  let entryCount = 0;
+  let itemOccurrences = 0;
+
+  for (const record of records) {
+    if (!record.value || !isScoreEntryForYear(record.key, year)) continue;
+    entryCount += 1;
+    itemOccurrences += record.value.items.length;
+    for (const score of record.value.items) {
+      const providerGameId = score.id?.trim();
+      if (!providerGameId) continue;
+      const effectiveAt = effectiveRowTimestamp(record.value, score);
+      const existing = candidates.get(providerGameId);
+      if (!existing || effectiveAt > existing.effectiveAt) {
+        candidates.set(providerGameId, { score, effectiveAt, ambiguous: false });
+        continue;
+      }
+      if (
+        effectiveAt === existing.effectiveAt &&
+        !materiallyEqualScorePack(existing.score, score)
+      ) {
+        existing.ambiguous = true;
+      }
+    }
+  }
+
+  const byProviderGameId = new Map<string, ProviderIdScoreFact>();
+  const ambiguousProviderGameIds = new Set<string>();
+  for (const [providerGameId, candidate] of candidates) {
+    if (candidate.ambiguous) {
+      ambiguousProviderGameIds.add(providerGameId);
+      continue;
+    }
+    byProviderGameId.set(providerGameId, {
+      score: candidate.score,
+      effectiveAt: candidate.effectiveAt,
+    });
+  }
+
+  return {
+    byProviderGameId,
+    ambiguousProviderGameIds,
+    entryCount,
+    itemOccurrences,
+  };
+}
+
+/** Cache-only, uncached provider-id projection for team-record reconciliation. */
+export async function loadProviderIdSeasonScoreFacts(
+  year: number
+): Promise<ProviderIdSeasonScoreFacts> {
+  return projectProviderIdSeasonScoreFacts(await loadSeasonScoreEntryRecords(year), year);
 }
 
 /**
@@ -220,7 +330,7 @@ export async function loadReconciledSeasonScores(params: {
 }): Promise<ReconciledSeasonScores> {
   const { year, seasonType, teams, aliasMap } = params;
 
-  const records = await getAppStateEntries<CacheEntry>('scores', `${year}-`);
+  const records = await loadSeasonScoreEntryRecords(year);
   const contributors: CacheEntry[] = [];
   for (const record of records) {
     if (!record.value) continue;
@@ -254,7 +364,7 @@ export async function loadReconciledWeekScores(params: {
 
   // Same read + season-type filter as loadReconciledSeasonScores (all `${year}-`
   // entries), so provider-week / canonical-week alias children both contribute.
-  const records = await getAppStateEntries<CacheEntry>('scores', `${year}-`);
+  const records = await loadSeasonScoreEntryRecords(year);
   const contributors: CacheEntry[] = [];
   for (const record of records) {
     if (!record.value) continue;
@@ -307,7 +417,7 @@ export async function loadReconciledSeasonScoresByType(params: {
 }): Promise<{ regular: ReconciledSeasonScores; postseason: ReconciledSeasonScores }> {
   const { year, teams, aliasMap } = params;
 
-  const records = await getAppStateEntries<CacheEntry>('scores', `${year}-`);
+  const records = await loadSeasonScoreEntryRecords(year);
   const regular: CacheEntry[] = [];
   const postseason: CacheEntry[] = [];
   for (const record of records) {

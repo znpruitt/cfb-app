@@ -225,6 +225,13 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   and final; markup order rank → team → record → owner) lives in
   `docs/campaigns/item-87-live-watchlist-scoreboard.md` §_Records across scoreboard states — resolved_,
   which stays canonical for placement. Neither supersedes the other; they answer different questions.
+  **Item 139 implements the rule on Overview at the server boundary:** before `{ wins, losses }` is
+  sent to the browser, the stored season total is advanced through every readable concluded result it
+  does not yet cover, including ties and a score-confirmed final whose schedule cache has not flipped.
+  Score-only conclusion evidence must first match the schedule participants; an unreadable outcome is
+  skipped. If the score store is unavailable, the stored record still renders and the uncertainty is
+  logged; if the team-record store is unavailable, no record renders. Records remain intentionally
+  absent from Schedule until that surface adopts the same projection as separate reviewed work.
 - Compact scoreboard order is always away → home. Position communicates home/away; font weight,
   never reordering, marks the live leader or final winner
 - Compact scoreboard state variants share that row anatomy: scheduled uses its metadata header,

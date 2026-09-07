@@ -126,6 +126,14 @@ function toSubdivision(level?: string | null): TeamSubdivision {
 
 const REGISTRY_CACHE = new Map<string, Map<string, TeamIdentity>>();
 
+export function __getTeamIdentityRegistryCacheSizeForTests(): number {
+  return REGISTRY_CACHE.size;
+}
+
+export function __resetTeamIdentityRegistryCacheForTests(): void {
+  REGISTRY_CACHE.clear();
+}
+
 const TEAM_DISPLAY_OVERRIDES: Record<string, Partial<TeamDisplayInfo>> = {
   mississippi: {
     displayName: 'Mississippi',
@@ -297,27 +305,33 @@ export function createTeamIdentityResolver(params: {
   teams: TeamCatalogItem[];
   observedNames?: string[];
   ownersByTeamId?: Map<string, string>;
+  /** Disable the process-global registry cache for request-varying inputs. */
+  cache?: boolean;
 }): TeamIdentityResolver {
-  const { aliasMap, teams, observedNames, ownersByTeamId } = params;
-  const cacheKey = JSON.stringify({
-    teams: teams.map((t) => [
-      t.school,
-      t.displayName,
-      t.shortDisplayName,
-      t.abbreviation,
-      t.level,
-      t.subdivision,
-      t.conference,
-      t.alts?.join('|') ?? '',
-    ]),
-    aliases: Object.entries(aliasMap).sort((a, b) => a[0].localeCompare(b[0])),
-    observedNames: [...(observedNames ?? [])].sort((a, b) => a.localeCompare(b)),
-  });
-
-  const registry =
-    REGISTRY_CACHE.get(cacheKey) ??
-    buildCanonicalRegistry({ teams, aliasMap, observedNames, ownersByTeamId });
-  REGISTRY_CACHE.set(cacheKey, registry);
+  const { aliasMap, teams, observedNames, ownersByTeamId, cache: cacheRegistry = true } = params;
+  let registry: Map<string, TeamIdentity>;
+  if (!cacheRegistry) {
+    registry = buildCanonicalRegistry({ teams, aliasMap, observedNames, ownersByTeamId });
+  } else {
+    const cacheKey = JSON.stringify({
+      teams: teams.map((t) => [
+        t.school,
+        t.displayName,
+        t.shortDisplayName,
+        t.abbreviation,
+        t.level,
+        t.subdivision,
+        t.conference,
+        t.alts?.join('|') ?? '',
+      ]),
+      aliases: Object.entries(aliasMap).sort((a, b) => a[0].localeCompare(b[0])),
+      observedNames: [...(observedNames ?? [])].sort((a, b) => a.localeCompare(b)),
+    });
+    registry =
+      REGISTRY_CACHE.get(cacheKey) ??
+      buildCanonicalRegistry({ teams, aliasMap, observedNames, ownersByTeamId });
+    REGISTRY_CACHE.set(cacheKey, registry);
+  }
 
   const resolveName = (rawInput: string): TeamResolution => {
     const raw = rawInput.trim();

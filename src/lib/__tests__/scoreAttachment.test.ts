@@ -7,6 +7,7 @@ import {
   matchScoreRowToSchedule,
   normalizeProviderTeamName,
   resolveCanonicalTeamIdentity,
+  validateScoreParticipantOrientation,
   type NormalizedScoreRow,
   type ScheduleGameForIndex,
 } from '../scoreAttachment.ts';
@@ -37,6 +38,39 @@ const teams = [
 function makeResolver(aliasMap: Record<string, string> = {}) {
   return createTeamIdentityResolver({ aliasMap, teams });
 }
+
+test('participant orientation validation distinguishes direct, reversed, and wrong-opponent rows', () => {
+  const resolver = makeResolver();
+  const base = {
+    scheduleHomeTeam: 'Army',
+    scheduleAwayTeam: 'Navy',
+    resolver,
+  };
+  assert.equal(
+    validateScoreParticipantOrientation({
+      ...base,
+      scoreHomeTeam: 'Army',
+      scoreAwayTeam: 'Navy',
+    }),
+    'direct'
+  );
+  assert.equal(
+    validateScoreParticipantOrientation({
+      ...base,
+      scoreHomeTeam: 'Navy',
+      scoreAwayTeam: 'Army',
+    }),
+    'reversed'
+  );
+  assert.equal(
+    validateScoreParticipantOrientation({
+      ...base,
+      scoreHomeTeam: 'Army',
+      scoreAwayTeam: 'Southern',
+    }),
+    null
+  );
+});
 
 function game(
   input: Partial<ScheduleGameForIndex> &

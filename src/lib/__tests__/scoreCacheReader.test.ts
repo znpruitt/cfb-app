@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   loadReconciledSeasonScores,
   loadReconciledSeasonScoresByType,
+  projectProviderIdSeasonScoreFacts,
 } from '../server/scoreCacheReader.ts';
 import type { CacheEntry } from '../scores/cache.ts';
 import type { ScorePack } from '../scores/types.ts';
@@ -65,6 +66,70 @@ async function seedEntry(key: string, at: number, items: ScorePack[]): Promise<v
 // an empty catalog so rows key by their stable `id:` fallback — enough to prove
 // the read/merge/dedup/filter/failure behavior of the shared reader.
 const NO_TEAMS = { teams: [], aliasMap: {} };
+
+function cacheEntry(at: number, items: ScorePack[]): CacheEntry {
+  return { at, items, source: 'cfbd', cfbdFallbackReason: 'none' };
+}
+
+test('provider-id projection chooses the newer week row for five reversals and one wrong opponent', () => {
+  const ids = [
+    '401858438',
+    'reversed-production-2',
+    'reversed-production-3',
+    'reversed-production-4',
+    'reversed-production-5',
+    '401858427',
+  ];
+  const aggregateRows = ids.map((id, index) =>
+    index < 5
+      ? pack(id, `Away ${index}`, `Home ${index}`, 10, 27)
+      : pack(id, 'Maryland', 'Howard', 27, 10)
+  );
+  const weekRows = ids.map((id, index) =>
+    index < 5
+      ? pack(id, `Home ${index}`, `Away ${index}`, 27, 10)
+      : pack(id, 'Maryland', 'Hampton', 27, 10)
+  );
+
+  const projected = projectProviderIdSeasonScoreFacts(
+    [
+      { key: '2027-all-regular', value: cacheEntry(1000, aggregateRows), updatedAt: 'ignored' },
+      { key: '2027-1-regular', value: cacheEntry(2000, weekRows), updatedAt: 'ignored' },
+    ],
+    2027
+  );
+
+  assert.equal(projected.entryCount, 2);
+  assert.equal(projected.itemOccurrences, 12);
+  assert.equal(projected.ambiguousProviderGameIds.size, 0);
+  for (let index = 0; index < 5; index += 1) {
+    const selected = projected.byProviderGameId.get(ids[index]!)?.score;
+    assert.equal(selected?.home.team, `Home ${index}`);
+    assert.equal(selected?.away.team, `Away ${index}`);
+  }
+  assert.equal(projected.byProviderGameId.get(ids[5]!)?.score.away.team, 'Hampton');
+});
+
+test('provider-id projection makes a newest equal-time conflict explicitly ambiguous', () => {
+  const projected = projectProviderIdSeasonScoreFacts(
+    [
+      {
+        key: '2027-all-regular',
+        value: cacheEntry(1000, [pack('ambiguous', 'Home', 'Away', 20, 10)]),
+        updatedAt: 'ignored',
+      },
+      {
+        key: '2027-1-regular',
+        value: cacheEntry(1000, [pack('ambiguous', 'Home', 'Different', 20, 10)]),
+        updatedAt: 'ignored',
+      },
+    ],
+    2027
+  );
+
+  assert.equal(projected.byProviderGameId.has('ambiguous'), false);
+  assert.deepEqual([...projected.ambiguousProviderGameIds], ['ambiguous']);
+});
 
 // ---------------------------------------------------------------------------
 // PLATFORM-084B — shared cache-only season score reconciler. Canonical
