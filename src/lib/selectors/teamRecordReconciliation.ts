@@ -17,6 +17,11 @@ export type TeamRecordScoreFact = {
   score: ScorePack;
 };
 
+export type ScoreConclusionValidation = {
+  validatedProviderGameIds: Set<string>;
+  rejectedProviderGameIds: Set<string>;
+};
+
 type TailParticipation = {
   providerGameId: string;
   kickoffMs: number;
@@ -43,6 +48,60 @@ function normalizedProviderGameId(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
 }
 
+/** Select schedule rows that need score evidence to establish conclusion. */
+export function selectScoreConclusionCandidates(params: {
+  scheduleItems: ReadonlyArray<ScheduleWireItem>;
+  scoreFactsByProviderGameId: ReadonlyMap<string, TeamRecordScoreFact>;
+}): ScheduleWireItem[] {
+  const { scheduleItems, scoreFactsByProviderGameId } = params;
+  return scheduleItems.filter((item) => {
+    if (!item || typeof item !== 'object' || item.completed === true) return false;
+    const providerGameId = normalizedProviderGameId(item.id);
+    if (!providerGameId) return false;
+    return (
+      classifyScorePackStatus(scoreFactsByProviderGameId.get(providerGameId)?.score) === 'final'
+    );
+  });
+}
+
+/**
+ * Validate score-only conclusion evidence before it can affect positional
+ * record coverage. A provider game id identifies a candidate but does not prove
+ * its participants: durable CFBD rows have carried both reversed sides and a
+ * different opponent under an otherwise-valid id.
+ */
+export function validateScoreConclusionCandidates(params: {
+  scheduleItems: ReadonlyArray<ScheduleWireItem>;
+  scoreFactsByProviderGameId: ReadonlyMap<string, TeamRecordScoreFact>;
+  resolver: TeamIdentityResolver;
+}): ScoreConclusionValidation {
+  const { scheduleItems, scoreFactsByProviderGameId, resolver } = params;
+  const validatedProviderGameIds = new Set<string>();
+  const rejectedProviderGameIds = new Set<string>();
+
+  for (const item of selectScoreConclusionCandidates({
+    scheduleItems,
+    scoreFactsByProviderGameId,
+  })) {
+    const providerGameId = normalizedProviderGameId(item.id);
+    if (!providerGameId) continue;
+    const score = scoreFactsByProviderGameId.get(providerGameId)?.score;
+    if (!score) continue;
+
+    const orientation = validateScoreParticipantOrientation({
+      scheduleHomeTeam: item.homeTeam,
+      scheduleAwayTeam: item.awayTeam,
+      scoreHomeTeam: score.home.team,
+      scoreAwayTeam: score.away.team,
+      resolver,
+    });
+    if (orientation) validatedProviderGameIds.add(providerGameId);
+    else rejectedProviderGameIds.add(providerGameId);
+  }
+
+  return { validatedProviderGameIds, rejectedProviderGameIds };
+}
+
 function addParticipation(
   target: Map<number, TailParticipation[]>,
   recordsByTeamId: ReadonlyMap<number, TeamRecordTotal>,
@@ -65,9 +124,13 @@ function addParticipation(
 export function buildTeamRecordReconciliationPlan(params: {
   scheduleItems: ReadonlyArray<ScheduleWireItem>;
   recordCache: TeamRecordsCacheRead;
-  scoreFactsByProviderGameId: ReadonlyMap<string, TeamRecordScoreFact>;
+  validatedScoreConclusionProviderGameIds?: ReadonlySet<string>;
 }): TeamRecordReconciliationPlan {
-  const { scheduleItems, recordCache, scoreFactsByProviderGameId } = params;
+  const {
+    scheduleItems,
+    recordCache,
+    validatedScoreConclusionProviderGameIds = new Set<string>(),
+  } = params;
   const recordsByTeamId = new Map(
     recordCache.items.map((record) => [record.teamId, record.total] as const)
   );
@@ -87,10 +150,11 @@ export function buildTeamRecordReconciliationPlan(params: {
     }
     scheduleByProviderGameId.set(providerGameId, item);
 
-    const score = scoreFactsByProviderGameId.get(providerGameId)?.score;
     // Conclusion membership and outcome readability are deliberately separate.
-    // A final with a null score still occupies its chronological position.
-    if (item.completed !== true && classifyScorePackStatus(score) !== 'final') continue;
+    // Only participant-validated score evidence may supplement the schedule.
+    if (item.completed !== true && !validatedScoreConclusionProviderGameIds.has(providerGameId)) {
+      continue;
+    }
 
     const kickoffMs = Date.parse(item.startDate ?? '');
     if (!Number.isFinite(kickoffMs)) {

@@ -10,6 +10,7 @@ import {
   buildTeamRecordReconciliationPlan,
   type AvailableTeamRecordReconciliationPlan,
   type TeamRecordScoreFact,
+  validateScoreConclusionCandidates,
 } from '../teamRecordReconciliation.ts';
 
 const YEAR = 2026;
@@ -77,7 +78,7 @@ function recordCache(items: TeamRecordItem[]): TeamRecordsCacheRead {
 
 function resolverFor(scheduleItems: ReadonlyArray<ScheduleWireItem>) {
   const observedNames = scheduleItems.flatMap((item) => [item.homeTeam, item.awayTeam]);
-  return createTeamIdentityResolver({ teams: [], aliasMap: {}, observedNames });
+  return createTeamIdentityResolver({ teams: [], aliasMap: {}, observedNames, cache: false });
 }
 
 function reconcile(params: {
@@ -85,17 +86,23 @@ function reconcile(params: {
   records: TeamRecordsCacheRead;
   facts: Map<string, TeamRecordScoreFact>;
 }) {
+  const resolver = resolverFor(params.scheduleItems);
+  const scoreConclusions = validateScoreConclusionCandidates({
+    scheduleItems: params.scheduleItems,
+    scoreFactsByProviderGameId: params.facts,
+    resolver,
+  });
   const plan = buildTeamRecordReconciliationPlan({
     scheduleItems: params.scheduleItems,
     recordCache: params.records,
-    scoreFactsByProviderGameId: params.facts,
+    validatedScoreConclusionProviderGameIds: scoreConclusions.validatedProviderGameIds,
   });
   assert.equal(plan.status, 'available');
   return applyTeamRecordReconciliationPlan({
     plan: plan as AvailableTeamRecordReconciliationPlan,
     recordCache: params.records,
     scoreFactsByProviderGameId: params.facts,
-    resolver: resolverFor(params.scheduleItems),
+    resolver,
   });
 }
 
@@ -279,7 +286,6 @@ test('duplicate provider IDs and unparseable concluded kickoffs fail the enrichm
   const duplicatePlan = buildTeamRecordReconciliationPlan({
     scheduleItems: [duplicate, { ...duplicate }],
     recordCache: records,
-    scoreFactsByProviderGameId: new Map(),
   });
   assert.deepEqual(duplicatePlan, {
     status: 'unavailable',
@@ -289,7 +295,6 @@ test('duplicate provider IDs and unparseable concluded kickoffs fail the enrichm
   const invalidKickoffPlan = buildTeamRecordReconciliationPlan({
     scheduleItems: [{ ...duplicate, id: 'undated', startDate: null }],
     recordCache: records,
-    scoreFactsByProviderGameId: new Map(),
   });
   assert.deepEqual(invalidKickoffPlan, {
     status: 'unavailable',
@@ -298,7 +303,13 @@ test('duplicate provider IDs and unparseable concluded kickoffs fail the enrichm
 });
 
 test('participant validation supports a safe reversal and rejects a wrong opponent', () => {
-  const game = scheduleGame({ id: 'orientation', kickoffIndex: 0, awayId: 70, homeId: 71 });
+  const game = scheduleGame({
+    id: 'orientation',
+    kickoffIndex: 0,
+    awayId: 70,
+    homeId: 71,
+    completed: false,
+  });
   const reversed = score(game, 10, 27);
   reversed.score = {
     ...reversed.score,
@@ -327,6 +338,57 @@ test('participant validation supports a safe reversal and rejects a wrong oppone
   assert.deepEqual(rejectedResult.totalsByTeamId.get(70), {
     games: 0,
     wins: 0,
+    losses: 0,
+    ties: 0,
+  });
+});
+
+test('a wrong-game final cannot enter the prefix and displace the real unreflected result', () => {
+  const wrongGame = scheduleGame({
+    id: '401858427',
+    kickoffIndex: 0,
+    awayId: 80,
+    homeId: 90,
+    completed: false,
+  });
+  const credited = scheduleGame({
+    id: 'credited-after-wrong',
+    kickoffIndex: 1,
+    awayId: 80,
+    homeId: 91,
+  });
+  const unreflected = scheduleGame({
+    id: 'unreflected-after-wrong',
+    kickoffIndex: 2,
+    awayId: 80,
+    homeId: 92,
+  });
+  const wrongScore = score(wrongGame, 10, 27);
+  wrongScore.score.away.team = 'Howard';
+  const scheduleItems = [wrongGame, credited, unreflected];
+  const facts = new Map([
+    [wrongGame.id, wrongScore],
+    [credited.id, score(credited, 21, 7)],
+    [unreflected.id, score(unreflected, 24, 10)],
+  ]);
+  const resolver = resolverFor(scheduleItems);
+  const validation = validateScoreConclusionCandidates({
+    scheduleItems,
+    scoreFactsByProviderGameId: facts,
+    resolver,
+  });
+  assert.deepEqual([...validation.rejectedProviderGameIds], ['401858427']);
+
+  const result = reconcile({
+    scheduleItems,
+    records: recordCache([
+      record(80, wrongGame.awayTeam, { games: 1, wins: 1, losses: 0, ties: 0 }),
+    ]),
+    facts,
+  });
+  assert.deepEqual(result.totalsByTeamId.get(80), {
+    games: 2,
+    wins: 2,
     losses: 0,
     ties: 0,
   });

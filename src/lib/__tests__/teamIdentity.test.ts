@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 
 import { normalizeTeamName } from '../teamNormalization.ts';
 import {
+  __getTeamIdentityRegistryCacheSizeForTests,
+  __resetTeamIdentityRegistryCacheForTests,
   areTeamNamesEquivalent,
   createTeamIdentityResolver,
   getTeamDisplayLabel,
@@ -19,6 +21,25 @@ test('normalization cases', () => {
   assert.equal(normalizeTeamName('Miami (FL)'), 'miamifl');
   assert.equal(normalizeTeamName('Texas A&M'), 'texasam');
   assert.equal(normalizeTeamName('Ole Miss'), 'olemiss');
+});
+
+test('an uncached resolver never inserts request-varying observed names into REGISTRY_CACHE', () => {
+  __resetTeamIdentityRegistryCacheForTests();
+  try {
+    const resolver = createTeamIdentityResolver({
+      teams: [{ school: 'Army', level: 'FBS' }],
+      aliasMap: {},
+      observedNames: ['Tail Opponent'],
+      cache: false,
+    });
+    assert.equal(resolver.resolveName('Tail Opponent').identityKey, 'tailopponent');
+    assert.equal(__getTeamIdentityRegistryCacheSizeForTests(), 0);
+
+    createTeamIdentityResolver({ teams: [{ school: 'Army', level: 'FBS' }], aliasMap: {} });
+    assert.equal(__getTeamIdentityRegistryCacheSizeForTests(), 1);
+  } finally {
+    __resetTeamIdentityRegistryCacheForTests();
+  }
 });
 
 test('team identity helpers normalize equivalent labels consistently', () => {
