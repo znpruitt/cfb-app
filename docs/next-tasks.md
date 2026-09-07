@@ -824,6 +824,88 @@ not be read as a requirement on the other.**
 
 - Backlog slug: `PLATFORM-SCHEDULE-REFRESH-FORENSICS-v1`
 
+### Item 144 — reconcile the Item 87 design-document set before the presentation follow-on
+
+**The ask:** make the design documents say what is currently true, so a prompt written from them
+stops inheriting overturned claims. **This BLOCKS Item 143** and should precede it.
+
+**Owner diagnosis, 2026-09-07 — structural, not a set of typos.** Roughly **fifteen additive
+follow-on documents** were written, each superseding parts of earlier ones **without editing them**,
+on the reasoning that editing committed docs loses history. The result: the newest statement is
+correct, the older ones still read as current, and **nothing errors when a rule is overridden**. So
+deciding anything from the design doc means deciding from claims that three later documents have
+already reversed.
+
+**Ten stale claims found in one read** of `item-87-followon-matchups-schedule-design.md` — the fourth
+time that document has produced a wrong prompt:
+
+- the "Contract widenings — currently unrecorded" section (classification/FCS, neutral-site metadata,
+  non-final broadcast and tier 2 are all implemented and in `DESIGN.md`)
+- "renders `#rank` only today" and "no neutral-site marker"
+- "no precedence rule is needed" — the canonical rule is that rank wins a ranked-FCS collision
+- present-tense Schedule defect claims about the collapsed owner line, `NoClaim`, lowercase fallback
+  and amber `cardEmphasisClasses` — all describing retired code
+- "the Schedule filter already cuts it to the live handful" — that is Item 118, unbuilt
+- "Open — card-owner treatment" and its dimming choice — settled as a neutral tint 2026-09-05
+- "the row treatment is now identical" / "only two things vary per consumer"
+- "suppressed on Schedule" — narrow to "the odds FOOTER is suppressed"; Schedule keeps odds in tier 2
+- the recommended sequence — the widening and the Schedule conversion have shipped
+
+**And the mockup has the same disease.** `matchups-schedule-mockup.html` carried a pill rule setting
+`#dbc190` and a later typography rule restating it as `#c9a66b`, so it rendered one value while the
+document stated another. **Owner fixed that one 2026-09-07** (the typography rule no longer sets
+colour). The rest are the same shape — narrow-layout wrapping against the unconditional nowrap rule,
+stale green live treatment, rejected outcome-coloured tints, negative vertical tint bleed.
+
+**INTERIM AUTHORITY, owner ruling 2026-09-07, until this pass is done:** the **mockup is
+authoritative for layout and structure**; the **document set is authoritative for values**. Do not
+read a colour off the mockup or a layout off the prose.
+
+**Two acceptable shapes — owner's choice:** correct the stale claims in place with a note of what
+superseded each, or add a status header to each section naming the document that overrides it. The
+first is cleaner to read; the second preserves the history the additive approach was protecting.
+
+**Blocker:** none, but **Item 143 should not be written until this lands**, or the follow-on inherits
+the same problem.
+
+### Item 143 — Matchups presentation: four divergences the shared component cannot express
+
+**The ask:** decide, against the component's actual seams, how Matchups renders its status pill, live
+indicator, eyebrow tags and odds. **Split out of Item 117 on 2026-09-07** after the receipt gate found
+that none of the four fits an existing slot.
+
+**These are not wrong decisions — they are decisions specified without checking the surface they land
+on.** Recorded so the follow-on is designed against the component's real shape rather than
+re-deriving the requirement and hitting the same wall:
+
+| divergence | why it fits neither slot, verified on `main` |
+| --- | --- |
+| **eyebrow tags in the status row** | `contextSlot` renders in its own `div` ABOVE the header (`CompactGameScoreboard.tsx:121`), so tags there ADD A LINE — the exact defect the presentation doc says to avoid, now caused by the injection point rather than the markup |
+| **odds on live/final** | `footerSlot` is gated `state === 'scheduled'` (`:243`). Note `GameRow` renders NO odds text today, so this is new work, not preservation |
+| **status pill** | the component owns `statusLabel`; Matchups' `SCH`/`LIVE`/`FINAL` cannot be injected |
+| **live indicator** | the component's is hardcoded; Matchups requires a neutral, freshness-gated pulse |
+
+**The seams are the constraint.** Any option here is either a component widening or a Matchups
+concession, and `CompactGameScoreboard` has already been widened once by slice 5a and once by 5b — a
+third and fourth driven by one consumer is how a shared component becomes the union of its callers.
+
+**Blocker: Item 144.** The document that would settle these is the one with ten stale claims in it.
+
+### Item 142 — Matchups prints kickoff metadata on rows `DESIGN.md` says must not carry it
+
+**The ask:** stop `GameRow` rendering kickoff time on every non-scheduled row.
+
+**Found 2026-09-07** during Item 117's read receipt, unprompted. `DESIGN.md` forbids time on final
+rows; `MatchupsWeekPanel`'s `GameRow` prints kickoff metadata on every row that is not `scheduled` —
+so live and final rows both carry it. **A correction to shipped, member-visible.**
+
+**Filed separately rather than folded into Item 117 — owner decision, same reasoning as Item 138's
+`NoClaim`:** small, member-visible, and independent of the scoreboard transition. Folding a second
+defect into a conversion makes the conversion's diff unreadable and couples a trivial fix to a
+blocked one.
+
+**Blocker:** none. Independent of 117, 143 and 144.
+
 ### Item 141 — the Insights page does a full-season build on every request
 
 **The ask:** stop `/league/<slug>/insights` rebuilding ~3,700 games per render. Cache the recap
@@ -1779,7 +1861,10 @@ a filter. Additive functionality — scoped after **Item 87 slice 5**, not insid
 
 ### Item 117 — Matchups adopts the shared scoreboard
 
-**Kickoff:** [`docs/prompts/platform-117-matchups-scoreboard-codex-v1.md`](prompts/platform-117-matchups-scoreboard-codex-v1.md).
+**Kickoff:** [`docs/prompts/platform-117-matchups-scoreboard-codex-v2.md`](prompts/platform-117-matchups-scoreboard-codex-v2.md).
+**NARROWED 2026-09-07 by the v1 read receipt** — four presentation divergences split to **Item 143**,
+because none fits a `CompactGameScoreboard` seam. What remains needs no new seam and so cannot be
+blocked by that question: card-owner marking, the bronze tag COLOUR, and the anatomy conversion.
 **Runnable now — it does NOT depend on Item 139.** Its only recorded dependency is Item 87 slice 5a
 (merged); the card-owner seam came with slice 5b (merged). An earlier verbal claim that 117 consumes
 139's records work was wrong and is corrected here: records reach Matchups separately, exactly as

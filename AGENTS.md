@@ -271,6 +271,19 @@ When practical, verify key runtime flows still behave:
      second lossy copy, and the implementer cannot tell it from the original. Slice 5a v1's rule came
      from the queue entry, which was itself correct — the defect was introduced by re-expanding its
      shorthand instead of reading the source that had already ruled that expansion out.
+   - **AND THE DESIGN DOCUMENT IS NOT ENOUGH: every claim about what SHIPPED comes from the CODE.**
+     Added 2026-09-07, correcting the rule above, which was insufficient. A design document says what
+     was DECIDED; only the code says what EXISTS. Item 117's prompt listed records, broadcast and odds
+     as "facts the shipped row shows" and told the implementer to preserve them — `GameRow` renders
+     none of the three. The same prompt forbade adding records to Matchups, so followed literally it
+     would have produced the thing it banned. **The receipt gate caught the instance; a gate cannot
+     catch the habit.**
+     It is the SAME mechanism that makes a design document go stale: roughly fifteen additive
+     follow-on documents each superseded parts of earlier ones without editing them, so the newest
+     statement is correct while the older ones still read as current. A prompt written from that set
+     inherits every overturned claim. **So: quote the design document for what was DECIDED, grep the
+     code for what EXISTS, and when they disagree the code is the fact and the disagreement is a
+     finding.**
    - **Run-order entries carry a `Design:` line** naming the canonical documents and mockups, or
      stating explicitly that none exists — in which case the item needs an owner design pass before
      dispatch, not a prompt written from the queue prose.
