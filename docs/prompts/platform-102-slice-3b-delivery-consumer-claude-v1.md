@@ -63,9 +63,22 @@ Four inherited items, all recorded on Item 102:
 2. **The row carries BOTH crons**, taking `max(previousSlot(dense), previousSlot(slow))`. One cron
    cannot describe two schedules: the cadence label is untrue, and a slow-schedule delivery failure is
    invisible for a measured **15.0 h**.
-3. **A corrupt stored plan surfaces rather than falling back.** Falling back to the fixed contract
-   claims a firing every three minutes while the real schedule is dark, so a corrupt plan reads `late`
-   continuously — a false alarm dressed as a real one.
+3. **A corrupt stored plan surfaces rather than falling back. RULED 2026-09-07, after your receipt.**
+   Falling back to the fixed contract claims a firing every three minutes while the real schedule is
+   dark, so a corrupt plan reads `late` continuously — a false alarm dressed as a real one.
+
+   **Your finding 1 is correct and Item 102's wording was unusable.** `invalid` means the RECEIPT did
+   not parse and renders "Receipt invalid"; using it for a corrupt plan makes the UI assert something
+   false about a receipt that parsed fine. The reason it does not fit: **`deliveryState` describes the
+   RECEIPT**, and plan corruption is orthogonal — a row can have a good receipt and a corrupt plan.
+   Item 3 asked one field to carry two facts.
+
+   **The ruling: reuse `unavailable` for the state, and carry the reason in a SEPARATE field.**
+   `unavailable` already means "no basis to judge" and renders muted; extending it from scope-wide to
+   per-row is consistent with that meaning, not a redefinition. A companion field distinguishes
+   `unreadable` (the plan is corrupt — send the operator to the planner) from `failed` (the store read
+   threw — send them to the database), preserving exactly the distinction slice 3a kept for the same
+   reason. **No sixth `SchedulerDeliveryState` member. None of its four consumers change.**
 4. **Thread the plan through `SchedulerDeliveryHealthOptions`.** The policy functions take a plan;
    `buildDeliveryRow` and `requiredStartedAtForJob` do not. A partial wiring displays one schedule and
    measures against another, **with no test failing**.
@@ -133,8 +146,12 @@ those two, or stop and report.
 Report: what changed and where; the measured test delta; the mutation proving the false-`late` fix and
 the one proving the seven untouched jobs; and anything you deliberately did not do.
 
-**State plainly whether this ships dormant or live.** Slices 2 and 3a both shipped dormant; this one
-changes a path System Health calls on every load, so say which it is rather than leaving it inferred.
+**"Live read, dormant output" is the right framing — your finding 4, accepted.** Slices 2 and 3a added
+no read; this one makes `readSchedulerDeliveryHealth` perform a new durable read per planner-owned job
+on a path `buildSystemHealthViewModel` calls on **every** System Health load. Even with zero records in
+production, the read is live: new latency, a new failure mode, and a new store the health page depends
+on. Report it that way, and report **how many additional durable reads** a System Health load now
+performs.
 
 **Carry item 5 forward as a blocking specification item for slice 4**, with what the ambiguity costs
 delivery health — not a proposed answer.
