@@ -3699,6 +3699,7 @@ consumers: CFBD supplies exact numeric participant ids. Do not add a collision h
 | score rows whose participants disagree with the schedule | **6 of 22,761** — 5 side reversals (same two teams), 1 wrong opponent (`401858427`, Howard vs Hampton) |
 | do any of those 6 COLLIDE, i.e. would falsely validate? | **0.** Howard/Hampton normalize apart, so validation catches it — which is what Item 139's regression test asserts |
 | `Missouri S&T` (2402) score rows in 2026 | **0.** All 9 of its games are D-II vs D-II, which the FBS score feed does not cover |
+| the resolver probed directly on the pair | **returns a FALSE DIRECT MATCH.** The collision is confirmed by running it, not inferred from this entry |
 
 **The 716→716 figure does NOT disprove this item, and must not be quoted as if it does.** This item's
 collision is between a school's label and ANOTHER school's ALIAS (`Missouri S&T` → `missourist`, the
