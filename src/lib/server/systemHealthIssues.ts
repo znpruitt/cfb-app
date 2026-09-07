@@ -27,7 +27,10 @@ import {
 } from './scoreGapDiagnostics.ts';
 import { INTERRUPTED_ATTEMPT_AFTER_MS } from '../providerRefreshConstants.ts';
 import type { SafeProviderRefreshStatus } from './providerRefreshHealth.ts';
-import type { SchedulerDeliveryHealthSnapshot } from './schedulerDeliveryHealth.ts';
+import type {
+  SchedulerDeliveryHealthSnapshot,
+  SchedulerPlanUnavailableReason,
+} from './schedulerDeliveryHealth.ts';
 import { EXTERNAL_SCHEDULER_JOBS, type ExternalSchedulerJob } from './schedulerExecutionStatus.ts';
 import {
   getProviderDatasetDescriptor,
@@ -324,6 +327,19 @@ export function utcInstant(iso: string): string {
     .replace(/:\d{2}\.\d{3}Z$/, ' UTC');
 }
 
+/**
+ * Where the operator should look, per planner-record failure. The distinction is
+ * the point: a corrupt record sends them to the planner, a store failure sends
+ * them to the database, and neither is "no plan yet".
+ */
+const PLAN_UNAVAILABLE_EXPLANATION: Record<SchedulerPlanUnavailableReason, string> = {
+  'plan-unreadable': 'The stored polling-planner record could not be parsed,',
+  'plan-store-failed': 'The polling-planner record could not be read from durable storage,',
+  'plan-incomplete': 'No polling-planner run records which schedule is currently in force,',
+  'plan-indeterminate':
+    'The last polling-planner run could not confirm whether its schedule change was applied,',
+};
+
 function schedulerDeliveryIssues(
   snapshot: SchedulerDeliveryHealthSnapshot,
   nowMs: number
@@ -413,14 +429,25 @@ function schedulerDeliveryIssues(
         });
         break;
       case 'unavailable':
-        // Defensive: the reader marks delivery unavailable all-or-none, so this
-        // per-job path is unreachable when only some rows are unavailable.
+        // REACHABLE PER JOB since PLATFORM-102 slice 3b. It was not before: the
+        // receipt scope read fails all-or-none, and the comment here said so.
+        // A planner-owned job now also reads a durable PLAN, and that read fails
+        // on its own — so the explanation had to stop naming the receipt. It
+        // said "the execution receipt could not be read" for a row whose receipt
+        // parsed perfectly, which is the same false claim about a good receipt
+        // that kept `invalid` out of this state in the first place.
+        //
+        // The STATE and its four consumers are unchanged; only the sentence
+        // branches, on the companion field that carries WHY.
         issues.push({
           ...base,
           code: 'scheduler-delivery-unavailable',
           severity: 'warning',
           title: `${row.job} delivery status is unavailable`,
-          explanation: `The ${row.job} execution receipt could not be read.`,
+          explanation:
+            row.planUnavailableReason === null
+              ? `The ${row.job} execution receipt could not be read.`
+              : `${PLAN_UNAVAILABLE_EXPLANATION[row.planUnavailableReason]} so the schedule ${row.job} is measured against is unknown and its delivery timeliness cannot be judged. Its execution receipt is unaffected.`,
         });
         break;
       case 'on-time':

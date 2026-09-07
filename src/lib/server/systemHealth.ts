@@ -306,7 +306,16 @@ function unavailableDelivery(nowMs: number): SchedulerDeliveryHealthSnapshot {
       cadenceLabel: policy.cadenceLabel,
       graceMs: policy.graceMs,
       requiredStartedAt: generatedAt,
+      // NOT a plan fallback: this path is reached when the delivery reader
+      // itself failed, so no planner record was read and nothing about a plan is
+      // being asserted or discarded. `planUnavailableReason` stays null for the
+      // same reason — the reason this row is unavailable is the reader, not the
+      // record. The published cadence is the fixed contract, which stops being
+      // true for the two planner-owned jobs once slice 4 lands; carried as a
+      // slice-4 item rather than guessed at here.
+      schedules: [],
       deliveryState: 'unavailable',
+      planUnavailableReason: null,
       receipt: null,
     })),
   };

@@ -24,6 +24,7 @@ import {
   NOW,
   receiptFor,
   lateReceiptFor,
+  planUnavailableRow,
   receiptWithRefusals,
   refreshSnapshot,
   safeStatus,
@@ -1351,5 +1352,79 @@ test('an incoherent row cannot enter a snapshot, however it was built', () => {
     deliverySnapshot([
       deliveryRow('live-scores', 'late', ok(), new Date(NOW - 60_000).toISOString()),
     ])
+  );
+});
+
+// PLATFORM-102 slice 3b — the per-row `unavailable` a planner-record failure
+// produces. The row's receipt is fine, so the explanation must not name it.
+test('a plan-unavailable row names the planner record, never the receipt', () => {
+  const reasons = [
+    'plan-unreadable',
+    'plan-store-failed',
+    'plan-incomplete',
+    'plan-indeterminate',
+  ] as const;
+  for (const reason of reasons) {
+    const rows = EXTERNAL_SCHEDULER_JOBS.map((job) =>
+      job === 'live-scores'
+        ? planUnavailableRow(job, reason)
+        : deliveryRow(job, 'on-time', receiptFor(job, 'success'))
+    );
+    const issues = deriveSystemHealthIssues(
+      baseInputs({ schedulerDelivery: deliverySnapshot(rows) })
+    );
+    const unavailable = issues.filter((i) => i.code === 'scheduler-delivery-unavailable');
+    assert.equal(unavailable.length, 1, reason);
+    assert.equal(unavailable[0]!.subject.axis, 'job', reason);
+    assert.equal(unavailable[0]!.subject.id, 'live-scores', reason);
+    assert.ok(
+      /polling-planner/.test(unavailable[0]!.explanation),
+      `${reason}: the explanation names the planner record`
+    );
+    assert.ok(
+      !/execution receipt could not be read/.test(unavailable[0]!.explanation),
+      `${reason}: and does NOT claim the receipt could not be read`
+    );
+    assert.ok(
+      /execution receipt is unaffected/.test(unavailable[0]!.explanation),
+      `${reason}: it says so explicitly`
+    );
+  }
+});
+
+test('a receipt-caused unavailable row still names the receipt', () => {
+  // Positive control for the branch above: the same state, no plan reason, and
+  // the original sentence is what an operator gets.
+  const rows = EXTERNAL_SCHEDULER_JOBS.map((job) =>
+    job === 'live-scores'
+      ? deliveryRow(job, 'unavailable', null)
+      : deliveryRow(job, 'on-time', receiptFor(job, 'success'))
+  );
+  const issues = deriveSystemHealthIssues(
+    baseInputs({ schedulerDelivery: deliverySnapshot(rows) })
+  );
+  const unavailable = issues.filter((i) => i.code === 'scheduler-delivery-unavailable');
+  assert.equal(unavailable.length, 1);
+  assert.equal(unavailable[0]!.explanation, 'The live-scores execution receipt could not be read.');
+});
+
+test('the fixture guard rejects a plan-unavailable row that still publishes a schedule', () => {
+  // Positive control for the guard itself: it must detect the incoherent row,
+  // or the two tests above are resting on an observer that sees nothing.
+  assert.throws(
+    () =>
+      assertRowIsClassifiable({
+        ...planUnavailableRow('live-scores', 'plan-unreadable'),
+        cron: '*/3 * * * *',
+      }),
+    /must publish no schedule/
+  );
+  assert.throws(
+    () =>
+      assertRowIsClassifiable({
+        ...deliveryRow('live-scores', 'on-time', receiptFor('live-scores', 'success')),
+        planUnavailableReason: 'plan-unreadable',
+      }),
+    /cannot carry a plan-unavailable reason/
   );
 });

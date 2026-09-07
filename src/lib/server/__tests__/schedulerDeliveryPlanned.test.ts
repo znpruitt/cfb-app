@@ -1,0 +1,830 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import type {
+  PlannerScheduleAction,
+  PlannerScheduleOutcome,
+  PlannerScheduleRun,
+  PollingPlannerReadResult,
+  PollingPlannerRun,
+} from '@/lib/server/pollingPlannerRecord';
+import {
+  isPlannerOwnedJob,
+  PLANNER_OWNED_JOBS,
+  previousScheduleSlotMs,
+  readSchedulerDeliveryHealth,
+  requiredStartedAtForJob,
+  schedulerDeliveryPolicy,
+  type PlannerOwnedJob,
+  type PlannerRecordLoader,
+  type SchedulerDeliveryHealthRow,
+} from '@/lib/server/schedulerDeliveryHealth';
+import {
+  buildSchedulerExecutionReceipt,
+  EXTERNAL_SCHEDULER_JOBS,
+  type ExternalSchedulerJob,
+  type SchedulerExecutionReceipt,
+} from '@/lib/server/schedulerExecutionStatus';
+
+// PLATFORM-102 slice 3b — delivery health reading the planner record instead of
+// extrapolating today's cron backwards. All instants are fixed UTC; nothing here
+// reads the machine clock.
+
+const MIN = 60_000;
+const HOUR = 60 * MIN;
+
+const ms = (iso: string): number => Date.parse(iso);
+const at = (instantMs: number): string => new Date(instantMs).toISOString();
+
+// The shapes the record holds on a real pair of days. Written as literals rather
+// than synthesized: this slice's whole point is that the row reads what was
+// RECORDED, so a fixture that re-derives them would test the synthesizer.
+const DEAD_DAY_SLOW = '0 * * * *';
+const GAME_DAY_DENSE = '*/3 19,20,21,22,23 * * *';
+const GAME_DAY_SLOW = '1 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18 * * *';
+const MORNING_DENSE = '*/3 6,7,8 * * *';
+const MORNING_SLOW = '1 0,1,2,3,4,5,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23 * * *';
+
+function schedule(
+  cron: string,
+  overrides: {
+    previousCron?: string | null;
+    action?: PlannerScheduleAction;
+    outcome?: PlannerScheduleOutcome;
+  } = {}
+): PlannerScheduleRun {
+  return {
+    intent: {
+      scheduleId: 'turfwar-live-scores-dense',
+      destination: 'https://example.test/api/cron/live-scores',
+      cron,
+      method: 'POST',
+      retries: 1,
+    },
+    previousCron: overrides.previousCron ?? null,
+    action: overrides.action ?? 'applied',
+    outcome: overrides.outcome ?? 'confirmed',
+  };
+}
+
+function run(
+  atIso: string,
+  dense: PlannerScheduleRun | null,
+  slow: PlannerScheduleRun
+): PollingPlannerRun {
+  return {
+    at: atIso,
+    invocationId: null,
+    dayStartMs: ms(`${atIso.slice(0, 10)}T00:00:00.000Z`),
+    // Deliberately EMPTY. The reader takes the recorded expressions, never the
+    // stored windows re-synthesized, so a fixture supplying windows would let a
+    // re-derivation pass unnoticed.
+    windows: [],
+    dense,
+    slow,
+  };
+}
+
+function okRecord(...runs: PollingPlannerRun[]): PollingPlannerReadResult {
+  return { kind: 'ok', series: { runs, droppedRuns: 0 } };
+}
+
+function receiptFor(job: PlannerOwnedJob, startedAtMs: number): SchedulerExecutionReceipt {
+  const receipt = buildSchedulerExecutionReceipt({
+    job,
+    invocationId: `id-${job}-${startedAtMs}`,
+    startedAtMs,
+    completedAtMs: startedAtMs + 1000,
+    result: 'skipped',
+    reason: 'no-polling-target',
+    providerCallAttempted: false,
+    target:
+      job === 'live-scores'
+        ? { kind: 'live-scores', year: 2026, mode: null, targetGames: 0, targetPartitions: 0 }
+        : { kind: 'game-stats', year: 2026, week: null, seasonType: null },
+  });
+  assert.ok(receipt, 'the fixture receipt builds');
+  return receipt;
+}
+
+type Snapshot = Map<ExternalSchedulerJob, SchedulerDeliveryHealthRow>;
+
+async function rowsFor(options: {
+  nowMs: number;
+  records?: Partial<Record<PlannerOwnedJob, PollingPlannerReadResult>>;
+  loadPlannerRecord?: PlannerRecordLoader;
+  receipts?: Array<{ key: string; value: unknown }>;
+}): Promise<Snapshot> {
+  const snapshot = await readSchedulerDeliveryHealth({
+    nowMs: options.nowMs,
+    loadEntries: () => Promise.resolve(options.receipts ?? []),
+    loadPlannerRecord:
+      options.loadPlannerRecord ??
+      ((job) => Promise.resolve(options.records?.[job] ?? { kind: 'absent' })),
+  });
+  return new Map(snapshot.jobs.map((row) => [row.job, row] as const));
+}
+
+const rowOf = (snapshot: Snapshot, job: ExternalSchedulerJob): SchedulerDeliveryHealthRow => {
+  const row = snapshot.get(job);
+  assert.ok(row, `${job} has a row`);
+  return row;
+};
+
+// ── 1. The headline: a game day after a differently-armed day ────────────────
+//
+// REGRESSION TEST. Verified failing against the pre-fix behaviour by replacing
+// the recorded-timeline walk with `previousScheduleSlotMs(currentCron, cutoff)`
+// — the extrapolation this slice removes — which turns this row `late`.
+test('a game day following a dead day reads on-time, not nineteen hours of false late', async () => {
+  const now = ms('2026-10-03T00:06:00.000Z');
+  // The dead day genuinely last fired at 23:00 under its hourly slow schedule.
+  const lastRealFire = ms('2026-10-02T23:00:00.000Z');
+  const record = okRecord(
+    run(
+      '2026-10-02T00:02:00.000Z',
+      null,
+      schedule(DEAD_DAY_SLOW, {
+        previousCron: DEAD_DAY_SLOW,
+        action: 'skipped',
+        outcome: 'unchanged',
+      })
+    ),
+    run(
+      '2026-10-03T00:02:00.000Z',
+      schedule(GAME_DAY_DENSE),
+      schedule(GAME_DAY_SLOW, { previousCron: DEAD_DAY_SLOW })
+    )
+  );
+
+  const rows = await rowsFor({
+    nowMs: now,
+    records: { 'live-scores': record },
+    receipts: [{ key: 'live-scores', value: receiptFor('live-scores', lastRealFire) }],
+  });
+  const row = rowOf(rows, 'live-scores');
+
+  assert.equal(row.deliveryState, 'on-time');
+  assert.equal(row.planUnavailableReason, null);
+  // The required slot is a firing of the cron that was ACTUALLY in force, on the
+  // day it was in force — not a slot of today's expression projected backwards.
+  assert.equal(row.requiredStartedAt, '2026-10-02T22:00:00.000Z');
+  assert.deepEqual(
+    row.schedules.map((entry) => entry.cron),
+    [DEAD_DAY_SLOW]
+  );
+  // The dense schedule is armed for tonight and simply not due yet, so it
+  // contributes no slot while still governing what the row DISPLAYS.
+  assert.equal(row.cron, GAME_DAY_DENSE);
+  assert.equal(row.graceMs, 6 * MIN);
+
+  // The magnitude of the defect, measured on this module's own parser: the
+  // extrapolation demands a slot at 23:57 that the dead day never fired.
+  assert.equal(
+    previousScheduleSlotMs(GAME_DAY_DENSE, now - 6 * MIN),
+    ms('2026-10-02T23:57:00.000Z')
+  );
+  assert.ok(ms('2026-10-02T23:57:00.000Z') > lastRealFire, 'which is after the last real firing');
+});
+
+// The span, MEASURED rather than asserted from the campaign note. It needs one
+// precondition, and the precondition is a slice-4 decision: the planner must
+// rewrite AFTER the day's first slow slot has already passed. An armed day with
+// no reconciliation tail takes the idle slot at hour 0 (`pollingCron.ts`
+// IDLE_SLOW_HOUR), which fires at :01, so a rewrite at 00:02 leaves the day dark
+// from the rewrite until the dense window opens — and the receipt frozen at
+// yesterday's last firing across the whole of it.
+const YESTERDAY_DENSE = '*/3 12,13,14,15,16,17,18,19 * * *';
+const YESTERDAY_IDLE_SLOW = '1 20 * * *';
+const TODAY_IDLE_SLOW = '1 0 * * *';
+
+test('the extrapolation is false-late across a measured nineteen-hour span', () => {
+  // Yesterday's last real firing: its idle slow slot at 20:01. Nothing fires
+  // again until today's dense window opens at 19:00.
+  const receiptMs = ms('2026-10-02T20:01:00.000Z');
+  const dayStart = ms('2026-10-03T00:00:00.000Z');
+  const rewrite = ms('2026-10-03T00:02:00.000Z');
+
+  let falseLateMinutes = 0;
+  let firstFalseLate: number | null = null;
+  let lastFalseLate: number | null = null;
+  for (let now = rewrite; now < dayStart + 24 * HOUR; now += MIN) {
+    // What the pre-fix classifier computes: today's dense expression walked
+    // backwards as if it had always been in force.
+    const demanded = previousScheduleSlotMs(GAME_DAY_DENSE, now - 6 * MIN);
+    // FALSE, specifically: the demanded slot predates the rewrite, so this
+    // expression was not in force when it supposedly fired — and no real firing
+    // can ever reach it. Once the dense window genuinely opens at 19:00 the same
+    // comparison becomes a TRUE late, which is not what is being counted.
+    if (demanded < rewrite && demanded > receiptMs) {
+      firstFalseLate ??= now;
+      lastFalseLate = now;
+      falseLateMinutes += 1;
+    }
+  }
+  assert.equal(firstFalseLate, rewrite);
+  assert.equal(lastFalseLate, ms('2026-10-03T19:05:00.000Z'));
+  assert.equal(falseLateMinutes, 1144, 'contiguous, and 19h04m long');
+  assert.equal(
+    lastFalseLate - firstFalseLate + MIN,
+    falseLateMinutes * MIN,
+    'contiguous: no on-time minute inside the span'
+  );
+});
+
+test('the record reads on-time across that whole span', async () => {
+  const receiptMs = ms('2026-10-02T20:01:00.000Z');
+  const record = okRecord(
+    run(
+      '2026-10-02T00:02:00.000Z',
+      schedule(YESTERDAY_DENSE, { previousCron: DEAD_DAY_SLOW }),
+      schedule(YESTERDAY_IDLE_SLOW, { previousCron: DEAD_DAY_SLOW })
+    ),
+    run(
+      '2026-10-03T00:02:00.000Z',
+      schedule(GAME_DAY_DENSE, { previousCron: YESTERDAY_DENSE }),
+      schedule(TODAY_IDLE_SLOW, { previousCron: YESTERDAY_IDLE_SLOW })
+    )
+  );
+  const receipts = [{ key: 'live-scores', value: receiptFor('live-scores', receiptMs) }];
+  let checked = 0;
+  for (
+    let now = ms('2026-10-03T00:02:00.000Z');
+    now <= ms('2026-10-03T19:05:00.000Z');
+    now += 15 * MIN
+  ) {
+    const row = rowOf(
+      await rowsFor({ nowMs: now, records: { 'live-scores': record }, receipts }),
+      'live-scores'
+    );
+    assert.equal(row.deliveryState, 'on-time', at(now));
+    // Both schedules resolve to what was in force YESTERDAY, because neither of
+    // today's expressions has come due yet.
+    assert.deepEqual(
+      row.schedules.map((entry) => entry.cron).sort(),
+      [YESTERDAY_DENSE, YESTERDAY_IDLE_SLOW].sort(),
+      at(now)
+    );
+    assert.equal(row.requiredStartedAt, at(receiptMs), at(now));
+    checked += 1;
+  }
+  assert.equal(checked, 77, 'the whole span was sampled, not one instant');
+});
+
+// ── 2. One row, two schedules — asserted in BOTH directions ──────────────────
+test('a dense-schedule failure inside the window is caught', async () => {
+  const now = ms('2026-10-03T20:30:00.000Z');
+  const record = okRecord(
+    run(
+      '2026-10-03T00:02:00.000Z',
+      schedule(GAME_DAY_DENSE),
+      schedule(GAME_DAY_SLOW, { previousCron: DEAD_DAY_SLOW })
+    )
+  );
+  // The dense schedule stopped delivering at 19:00; the slow one is not due in
+  // hour 20 at all, so only the dense expectation can catch this.
+  const receiptMs = ms('2026-10-03T19:00:00.000Z');
+  const rows = await rowsFor({
+    nowMs: now,
+    records: { 'live-scores': record },
+    receipts: [{ key: 'live-scores', value: receiptFor('live-scores', receiptMs) }],
+  });
+  const row = rowOf(rows, 'live-scores');
+
+  assert.equal(row.deliveryState, 'late');
+  assert.equal(row.requiredStartedAt, '2026-10-03T20:24:00.000Z');
+  const byCron = new Map(row.schedules.map((entry) => [entry.cron, entry]));
+  assert.ok(
+    ms(byCron.get(GAME_DAY_DENSE)!.requiredStartedAt) > receiptMs,
+    'the dense schedule is the one that catches it'
+  );
+  assert.ok(
+    ms(byCron.get(GAME_DAY_SLOW)!.requiredStartedAt) <= receiptMs,
+    'and the slow schedule alone would have read this on-time'
+  );
+});
+
+test('a slow-schedule failure inside the reconciliation tail is caught', async () => {
+  // The direction that is invisible today: a morning cluster, and a receipt from
+  // the last dense firing standing all afternoon.
+  const now = ms('2026-10-03T14:00:00.000Z');
+  const record = okRecord(
+    run(
+      '2026-10-03T00:02:00.000Z',
+      schedule(MORNING_DENSE),
+      schedule(MORNING_SLOW, { previousCron: DEAD_DAY_SLOW })
+    )
+  );
+  const receiptMs = ms('2026-10-03T08:57:00.000Z');
+  const rows = await rowsFor({
+    nowMs: now,
+    records: { 'live-scores': record },
+    receipts: [{ key: 'live-scores', value: receiptFor('live-scores', receiptMs) }],
+  });
+  const row = rowOf(rows, 'live-scores');
+
+  assert.equal(row.deliveryState, 'late');
+  assert.equal(row.requiredStartedAt, '2026-10-03T11:01:00.000Z');
+  const byCron = new Map(row.schedules.map((entry) => [entry.cron, entry]));
+  assert.equal(byCron.get(MORNING_DENSE)!.requiredStartedAt, '2026-10-03T08:57:00.000Z');
+  assert.ok(
+    ms(byCron.get(MORNING_DENSE)!.requiredStartedAt) <= receiptMs,
+    'the dense schedule alone reads this on-time — the fifteen-hour blind spot'
+  );
+
+  // The measured blind spot the single-cron row leaves open: the dense-governed
+  // expectation still points at 08:57 at one minute to midnight.
+  assert.equal(
+    previousScheduleSlotMs(MORNING_DENSE, ms('2026-10-03T23:59:00.000Z') - 6 * MIN),
+    receiptMs
+  );
+});
+
+// ── 3. The seven jobs the planner does not own ──────────────────────────────
+test('the seven unowned jobs are never asked for a record and are byte-identical', async () => {
+  const now = ms('2026-10-03T14:33:17.000Z');
+  const asked: ExternalSchedulerJob[] = [];
+  const record = okRecord(
+    run('2026-10-03T00:02:00.000Z', schedule(GAME_DAY_DENSE), schedule(GAME_DAY_SLOW))
+  );
+
+  const withRecords = await rowsFor({
+    nowMs: now,
+    loadPlannerRecord: (job) => {
+      asked.push(job);
+      return Promise.resolve(record);
+    },
+  });
+  const withoutRecords = await rowsFor({ nowMs: now });
+
+  assert.deepEqual([...asked].sort(), [...PLANNER_OWNED_JOBS].sort());
+  assert.equal(asked.length, 2, 'one read per planner-owned job, and no more');
+
+  for (const job of EXTERNAL_SCHEDULER_JOBS) {
+    if (isPlannerOwnedJob(job)) continue;
+    assert.deepEqual(
+      rowOf(withRecords, job),
+      rowOf(withoutRecords, job),
+      `${job} is unaffected by a planner record`
+    );
+    assert.equal(rowOf(withRecords, job).cron, schedulerDeliveryPolicy(job).cron);
+    assert.equal(rowOf(withRecords, job).graceMs, schedulerDeliveryPolicy(job).graceMs);
+    assert.equal(rowOf(withRecords, job).cadenceLabel, schedulerDeliveryPolicy(job).cadenceLabel);
+  }
+  // Positive control: the two that ARE owned did change, so the loop above is
+  // asserting stability rather than measuring a snapshot nothing could move.
+  for (const job of PLANNER_OWNED_JOBS) {
+    assert.notDeepEqual(rowOf(withRecords, job), rowOf(withoutRecords, job), job);
+  }
+});
+
+// ── 4. Partial wiring is detectable, not merely avoided ─────────────────────
+test('every row measures against exactly the schedules it publishes', async () => {
+  const now = ms('2026-10-03T20:30:00.000Z');
+  const record = okRecord(
+    run(
+      '2026-10-03T00:02:00.000Z',
+      schedule(GAME_DAY_DENSE),
+      schedule(GAME_DAY_SLOW, { previousCron: DEAD_DAY_SLOW })
+    )
+  );
+  const rows = await rowsFor({
+    nowMs: now,
+    records: { 'live-scores': record, 'game-stats': record },
+    receipts: [
+      { key: 'live-scores', value: receiptFor('live-scores', now - 2 * MIN) },
+      { key: 'game-stats', value: receiptFor('game-stats', now - 2 * MIN) },
+    ],
+  });
+
+  for (const job of EXTERNAL_SCHEDULER_JOBS) {
+    const row = rowOf(rows, job);
+    assert.ok(row.schedules.length > 0, `${job} publishes what it measured`);
+    assert.equal(
+      ms(row.requiredStartedAt),
+      Math.max(...row.schedules.map((entry) => ms(entry.requiredStartedAt))),
+      `${job}: the required slot is the max over the published schedules`
+    );
+    for (const entry of row.schedules) {
+      // The published slot is a real firing of the published expression.
+      assert.equal(
+        previousScheduleSlotMs(entry.cron, ms(entry.requiredStartedAt)),
+        ms(entry.requiredStartedAt),
+        `${job}: ${entry.cron} fires at its own required slot`
+      );
+    }
+  }
+
+  // Display moved WITH measurement: a planner-owned row shows the recorded
+  // expressions and a cadence that is not the fixed constant.
+  for (const job of PLANNER_OWNED_JOBS) {
+    const row = rowOf(rows, job);
+    assert.equal(row.cron, GAME_DAY_DENSE);
+    assert.notEqual(row.cadenceLabel, schedulerDeliveryPolicy(job).cadenceLabel);
+    assert.deepEqual(
+      row.schedules.map((entry) => entry.cron).sort(),
+      [GAME_DAY_DENSE, GAME_DAY_SLOW].sort()
+    );
+  }
+});
+
+test('requiredStartedAtForJob is the row production builds on the fixed branch', async () => {
+  for (const now of [
+    ms('2026-03-15T12:07:30.000Z'),
+    ms('2026-10-03T00:00:00.000Z'),
+    ms('2026-12-31T23:59:59.000Z'),
+  ]) {
+    const rows = await rowsFor({ nowMs: now });
+    for (const job of EXTERNAL_SCHEDULER_JOBS) {
+      assert.equal(
+        at(requiredStartedAtForJob(job, now)),
+        rowOf(rows, job).requiredStartedAt,
+        `${job} at ${at(now)}`
+      );
+    }
+  }
+});
+
+// ── 5. The four read states ─────────────────────────────────────────────────
+test('a corrupt or unreadable record surfaces instead of falling back', async () => {
+  const now = ms('2026-10-03T20:30:00.000Z');
+  const cases: Array<[PollingPlannerReadResult, string]> = [
+    [{ kind: 'unreadable' }, 'plan-unreadable'],
+    [{ kind: 'failed' }, 'plan-store-failed'],
+    [{ kind: 'ok', series: { runs: [], droppedRuns: 0 } }, 'plan-incomplete'],
+  ];
+  for (const [record, reason] of cases) {
+    const rows = await rowsFor({
+      nowMs: now,
+      records: { 'live-scores': record },
+      // A perfectly good receipt: the plan is the problem, and the row must not
+      // claim anything about the receipt.
+      receipts: [{ key: 'live-scores', value: receiptFor('live-scores', now - MIN) }],
+    });
+    const row = rowOf(rows, 'live-scores');
+    assert.equal(row.deliveryState, 'unavailable', reason);
+    assert.equal(row.planUnavailableReason, reason);
+    assert.equal(row.cron, null, `${reason}: no cadence is claimed`);
+    assert.equal(row.graceMs, null);
+    assert.deepEqual(row.schedules, []);
+    assert.notEqual(
+      row.cadenceLabel,
+      schedulerDeliveryPolicy('live-scores').cadenceLabel,
+      `${reason}: the fixed contract is NOT restated`
+    );
+    assert.equal(row.receipt, null);
+    // The other planner-owned job is untouched: one row degrades, not the page.
+    assert.equal(rowOf(rows, 'game-stats').deliveryState, 'missing');
+    assert.equal(rowOf(rows, 'game-stats').planUnavailableReason, null);
+  }
+});
+
+test('absence is the only read state that licenses the fixed contract', async () => {
+  const now = ms('2026-10-03T20:30:00.000Z');
+  const absent = await rowsFor({ nowMs: now, records: { 'live-scores': { kind: 'absent' } } });
+  const unreadable = await rowsFor({
+    nowMs: now,
+    records: { 'live-scores': { kind: 'unreadable' } },
+  });
+  assert.equal(rowOf(absent, 'live-scores').cron, schedulerDeliveryPolicy('live-scores').cron);
+  assert.equal(rowOf(absent, 'live-scores').planUnavailableReason, null);
+  assert.notEqual(
+    rowOf(unreadable, 'live-scores').cron,
+    rowOf(absent, 'live-scores').cron,
+    'a present-but-corrupt record is not absence'
+  );
+});
+
+test('a throwing record reader degrades one row and never rejects', async () => {
+  const now = ms('2026-10-03T20:30:00.000Z');
+  const calls: ExternalSchedulerJob[] = [];
+  const rows = await rowsFor({
+    nowMs: now,
+    loadPlannerRecord: (job) => {
+      calls.push(job);
+      if (job === 'live-scores') return Promise.reject(new Error('durable read exploded'));
+      return Promise.resolve(
+        okRecord(run('2026-10-03T00:02:00.000Z', schedule(GAME_DAY_DENSE), schedule(GAME_DAY_SLOW)))
+      );
+    },
+  });
+  // Positive control: the throwing branch was actually taken.
+  assert.ok(calls.includes('live-scores'), 'the throwing loader ran');
+  assert.equal(rowOf(rows, 'live-scores').planUnavailableReason, 'plan-store-failed');
+  assert.equal(rowOf(rows, 'game-stats').planUnavailableReason, null);
+  assert.equal(rowOf(rows, 'game-stats').cron, GAME_DAY_DENSE);
+  assert.equal(rowOf(rows, 'odds').deliveryState, 'missing');
+});
+
+// ── 6. Outcome vocabulary ───────────────────────────────────────────────────
+test('indeterminate refuses rather than rounding to either side', async () => {
+  const now = ms('2026-10-03T20:30:00.000Z');
+  const reached = await rowsFor({
+    nowMs: now,
+    records: {
+      'live-scores': okRecord(
+        run(
+          '2026-10-03T00:02:00.000Z',
+          schedule(GAME_DAY_DENSE),
+          schedule(GAME_DAY_SLOW, { previousCron: DEAD_DAY_SLOW, outcome: 'indeterminate' })
+        )
+      ),
+    },
+  });
+  assert.equal(rowOf(reached, 'live-scores').planUnavailableReason, 'plan-indeterminate');
+
+  // An indeterminate run the walk never reaches does not poison a later one.
+  const superseded = await rowsFor({
+    nowMs: now,
+    records: {
+      'live-scores': okRecord(
+        run(
+          '2026-10-01T00:02:00.000Z',
+          schedule(GAME_DAY_DENSE, { outcome: 'indeterminate' }),
+          schedule(GAME_DAY_SLOW, { outcome: 'indeterminate' })
+        ),
+        run(
+          '2026-10-03T00:02:00.000Z',
+          schedule(GAME_DAY_DENSE),
+          schedule(GAME_DAY_SLOW, { previousCron: DEAD_DAY_SLOW })
+        )
+      ),
+    },
+  });
+  assert.equal(rowOf(superseded, 'live-scores').planUnavailableReason, null);
+  assert.equal(rowOf(superseded, 'live-scores').cron, GAME_DAY_DENSE);
+});
+
+test('a refused or failed run leaves the previous cron in force', async () => {
+  const now = ms('2026-10-03T20:30:00.000Z');
+  for (const outcome of ['refused', 'failed'] as const) {
+    const rows = await rowsFor({
+      nowMs: now,
+      records: {
+        'live-scores': okRecord(
+          run(
+            '2026-10-03T00:02:00.000Z',
+            // The planner DERIVED a narrow evening cron and sent nothing, so the
+            // dead day's hourly schedule is what QStash still holds.
+            schedule(GAME_DAY_DENSE, { previousCron: DEAD_DAY_SLOW, outcome }),
+            schedule(GAME_DAY_SLOW, { previousCron: DEAD_DAY_SLOW, outcome })
+          )
+        ),
+      },
+      receipts: [
+        { key: 'live-scores', value: receiptFor('live-scores', ms('2026-10-03T20:00:00.000Z')) },
+      ],
+    });
+    const row = rowOf(rows, 'live-scores');
+    assert.equal(row.cron, DEAD_DAY_SLOW, `${outcome}: the cron in force, not the intent`);
+    assert.equal(row.deliveryState, 'on-time', outcome);
+    assert.deepEqual(
+      row.schedules.map((entry) => entry.cron),
+      [DEAD_DAY_SLOW, DEAD_DAY_SLOW],
+      `${outcome}: both schedules resolve to what was left in force`
+    );
+  }
+});
+
+test('a refusal with no recorded previous cron has no basis', async () => {
+  const rows = await rowsFor({
+    nowMs: ms('2026-10-03T20:30:00.000Z'),
+    records: {
+      'live-scores': okRecord(
+        run(
+          '2026-10-03T00:02:00.000Z',
+          schedule(GAME_DAY_DENSE, { previousCron: null, outcome: 'failed' }),
+          schedule(GAME_DAY_SLOW, { previousCron: null, outcome: 'failed' })
+        )
+      ),
+    },
+  });
+  assert.equal(rowOf(rows, 'live-scores').planUnavailableReason, 'plan-incomplete');
+});
+
+// The contract-space check for Item 102's model item 6: the type admits
+// contradictory action/outcome pairs, and this consumer is immune because what
+// was left in force is a property of the OUTCOME alone.
+test('action is not read: every action/outcome pair resolves on the outcome', async () => {
+  const now = ms('2026-10-03T20:30:00.000Z');
+  const outcomes: PlannerScheduleOutcome[] = [
+    'confirmed',
+    'unchanged',
+    'refused',
+    'failed',
+    'indeterminate',
+  ];
+  let compared = 0;
+  for (const outcome of outcomes) {
+    const build = (action: PlannerScheduleAction) =>
+      rowsFor({
+        nowMs: now,
+        records: {
+          'live-scores': okRecord(
+            run(
+              '2026-10-03T00:02:00.000Z',
+              schedule(GAME_DAY_DENSE, { previousCron: DEAD_DAY_SLOW, action, outcome }),
+              schedule(GAME_DAY_SLOW, { previousCron: DEAD_DAY_SLOW, action, outcome })
+            )
+          ),
+        },
+      });
+    const applied = rowOf(await build('applied'), 'live-scores');
+    const skipped = rowOf(await build('skipped'), 'live-scores');
+    assert.deepEqual(applied, skipped, `${outcome} resolves identically for both actions`);
+    compared += 1;
+  }
+  assert.equal(compared, outcomes.length, 'every outcome was compared across both actions');
+});
+
+// ── 7. dense: null — the day with no dense phase ────────────────────────────
+test('a dense-less day is carried by the slow schedule alone', async () => {
+  const now = ms('2026-06-15T14:00:00.000Z');
+  const record = okRecord(
+    run('2026-06-15T00:02:00.000Z', null, schedule(DEAD_DAY_SLOW, { previousCron: DEAD_DAY_SLOW }))
+  );
+  const onTime = await rowsFor({
+    nowMs: now,
+    records: { 'live-scores': record },
+    receipts: [
+      { key: 'live-scores', value: receiptFor('live-scores', ms('2026-06-15T13:00:00.000Z')) },
+    ],
+  });
+  const row = rowOf(onTime, 'live-scores');
+  assert.equal(row.deliveryState, 'on-time');
+  assert.equal(row.cron, DEAD_DAY_SLOW, 'the slow schedule governs when there is no dense phase');
+  assert.equal(row.schedules.length, 1);
+
+  // Detection continues: the slow schedule still catches an outage.
+  const late = await rowsFor({
+    nowMs: now,
+    records: { 'live-scores': record },
+    receipts: [
+      { key: 'live-scores', value: receiptFor('live-scores', ms('2026-06-15T09:00:00.000Z')) },
+    ],
+  });
+  assert.equal(rowOf(late, 'live-scores').deliveryState, 'late');
+});
+
+// ── 8. The reader takes the recorded expression, not the stored windows ─────
+test('the recorded cron is read even when the stored windows disagree with it', async () => {
+  const now = ms('2026-10-03T20:30:00.000Z');
+  const withWindows: PollingPlannerRun = {
+    ...run('2026-10-03T00:02:00.000Z', schedule(GAME_DAY_DENSE), schedule(GAME_DAY_SLOW)),
+    // Windows that would synthesize a completely different pair of crons.
+    windows: [
+      {
+        startMs: ms('2026-10-03T02:00:00.000Z'),
+        denseEndMs: ms('2026-10-03T04:00:00.000Z'),
+        slowEndMs: ms('2026-10-03T06:00:00.000Z'),
+        kickoffCount: 1,
+      },
+    ],
+  };
+  const rows = await rowsFor({
+    nowMs: now,
+    records: { 'live-scores': okRecord(withWindows) },
+  });
+  assert.equal(rowOf(rows, 'live-scores').cron, GAME_DAY_DENSE);
+});
+
+// ── 9. Generated over the TYPE'S contract, not over slice 2's output ────────
+//
+// The axes are the ones `PollingPlannerRun` and `PlannerScheduleRun` admit —
+// dense present or null, every outcome, a recorded previous cron or none, one
+// run or two — crossed with expressions this module's parser ACCEPTS, including
+// shapes the synthesizer never emits and two that match no instant at all. A
+// generator seeded from `synthesizePollingCrons` output would test slice 2.
+test('every shape the record type admits yields a coherent row', async () => {
+  const denseCrons: Array<string | null> = [
+    null,
+    GAME_DAY_DENSE,
+    '*/7 * * * *',
+    '0,30 6,7 * * *',
+    'nonsense',
+    '99 * * * *',
+  ];
+  const slowCrons = ['1 * * * *', '1 0,1,2 * * *', '5 3 * * *', '* * * * 1'];
+  const outcomes: PlannerScheduleOutcome[] = [
+    'confirmed',
+    'unchanged',
+    'refused',
+    'failed',
+    'indeterminate',
+  ];
+  const previousCrons: Array<string | null> = [null, DEAD_DAY_SLOW];
+  const clocks = [
+    ms('2026-10-03T00:00:00.000Z'),
+    ms('2026-10-03T00:02:00.000Z'),
+    ms('2026-10-03T13:37:41.000Z'),
+    ms('2026-10-03T23:59:59.999Z'),
+  ];
+
+  const fixedRows = new Map<ExternalSchedulerJob, Map<number, SchedulerDeliveryHealthRow>>();
+  for (const job of EXTERNAL_SCHEDULER_JOBS) fixedRows.set(job, new Map());
+  for (const now of clocks) {
+    const snapshot = await rowsFor({ nowMs: now });
+    for (const job of EXTERNAL_SCHEDULER_JOBS) fixedRows.get(job)!.set(now, rowOf(snapshot, job));
+  }
+
+  const reasonsSeen = new Set<string>();
+  let resolved = 0;
+  let unresolved = 0;
+  let shapes = 0;
+
+  for (const denseCron of denseCrons) {
+    for (const slowCron of slowCrons) {
+      for (const outcome of outcomes) {
+        for (const previousCron of previousCrons) {
+          for (const runCount of [1, 2]) {
+            const runs: PollingPlannerRun[] = [];
+            if (runCount === 2) {
+              runs.push(
+                run(
+                  '2026-10-02T00:02:00.000Z',
+                  schedule(DEAD_DAY_SLOW, { previousCron: DEAD_DAY_SLOW }),
+                  schedule(DEAD_DAY_SLOW, { previousCron: DEAD_DAY_SLOW })
+                )
+              );
+            }
+            runs.push(
+              run(
+                '2026-10-03T00:02:00.000Z',
+                denseCron === null ? null : schedule(denseCron, { previousCron, outcome }),
+                schedule(slowCron, { previousCron, outcome })
+              )
+            );
+            const record = okRecord(...runs);
+            for (const now of clocks) {
+              shapes += 1;
+              const snapshot = await rowsFor({
+                nowMs: now,
+                records: { 'live-scores': record, 'game-stats': record },
+              });
+
+              for (const job of EXTERNAL_SCHEDULER_JOBS) {
+                const row = rowOf(snapshot, job);
+                const label = `${job} dense=${denseCron} slow=${slowCron} ${outcome} prev=${previousCron} runs=${runCount} @${at(now)}`;
+
+                if (!isPlannerOwnedJob(job)) {
+                  // No record is ever read for these, whatever is stored.
+                  assert.deepEqual(row, fixedRows.get(job)!.get(now), label);
+                  continue;
+                }
+
+                if (row.planUnavailableReason !== null) {
+                  unresolved += 1;
+                  reasonsSeen.add(row.planUnavailableReason);
+                  assert.equal(row.deliveryState, 'unavailable', label);
+                  assert.equal(row.cron, null, label);
+                  assert.equal(row.graceMs, null, label);
+                  assert.deepEqual(row.schedules, [], label);
+                  assert.equal(row.receipt, null, label);
+                  // NEVER the fixed contract: that is inherited item 3.
+                  assert.notEqual(
+                    row.cadenceLabel,
+                    schedulerDeliveryPolicy(job).cadenceLabel,
+                    label
+                  );
+                  continue;
+                }
+
+                resolved += 1;
+                assert.ok(row.schedules.length > 0, label);
+                assert.ok(row.cron !== null && row.graceMs !== null, label);
+                // With no receipts loaded, a resolved row is `missing` — never
+                // an on-time/late verdict invented out of the plan alone.
+                assert.equal(row.deliveryState, 'missing', label);
+                assert.equal(
+                  ms(row.requiredStartedAt),
+                  Math.max(...row.schedules.map((entry) => ms(entry.requiredStartedAt))),
+                  label
+                );
+                for (const entry of row.schedules) {
+                  assert.equal(
+                    previousScheduleSlotMs(entry.cron, ms(entry.requiredStartedAt)),
+                    ms(entry.requiredStartedAt),
+                    `${label}: ${entry.cron} fires at its own slot`
+                  );
+                  assert.ok(
+                    ms(entry.requiredStartedAt) <= Math.floor((now - entry.graceMs) / MIN) * MIN,
+                    `${label}: the slot is at or before now minus its own grace`
+                  );
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  assert.equal(shapes, 6 * 4 * 5 * 2 * 2 * 4, 'the whole product was swept');
+  // The sweep proves nothing about a branch it never entered.
+  assert.ok(resolved > 0 && unresolved > 0, 'both outcomes were reached');
+  assert.deepEqual(
+    [...reasonsSeen].sort(),
+    ['plan-incomplete', 'plan-indeterminate', 'plan-unreadable'],
+    'every reason the record path can produce was reached'
+  );
+});

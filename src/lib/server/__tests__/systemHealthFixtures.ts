@@ -19,6 +19,7 @@ import type {
 import type {
   SchedulerDeliveryHealthRow,
   SchedulerDeliveryHealthSnapshot,
+  SchedulerPlanUnavailableReason,
 } from '../schedulerDeliveryHealth.ts';
 import { requiredStartedAtForJob, schedulerDeliveryPolicy } from '../schedulerDeliveryHealth.ts';
 import {
@@ -226,7 +227,17 @@ export function deliveryRow(
     cadenceLabel: 'test cadence',
     graceMs: schedulerDeliveryPolicy(job).graceMs,
     requiredStartedAt: requiredStartedAt ?? derived,
+    // The fixed contract measures against exactly one schedule, and `derived`
+    // came from the same resolver production uses, so this is that schedule.
+    schedules: [
+      {
+        cron: schedulerDeliveryPolicy(job).cron,
+        graceMs: schedulerDeliveryPolicy(job).graceMs,
+        requiredStartedAt: derived,
+      },
+    ],
     deliveryState,
+    planUnavailableReason: null,
     receipt,
   };
   assertRowIsClassifiable(row);
@@ -247,7 +258,19 @@ export function assertRowIsClassifiable(row: SchedulerDeliveryHealthRow): void {
 
   if (row.deliveryState === 'missing' || row.deliveryState === 'unavailable') {
     if (row.receipt !== null) fail(`'${row.deliveryState}' must carry no receipt`);
+    // PLATFORM-102 slice 3b: a row unavailable because its PLAN could not be
+    // established publishes no schedule at all. A fixture that kept the fixed
+    // cron beside a plan reason would be a row `buildDeliveryRow` never emits —
+    // and would let a test certify the fallback the slice exists to remove.
+    if (row.planUnavailableReason !== null) {
+      if (row.cron !== null || row.graceMs !== null || row.schedules.length > 0) {
+        fail(`a plan-unavailable row must publish no schedule`);
+      }
+    }
     return;
+  }
+  if (row.planUnavailableReason !== null) {
+    fail(`'${row.deliveryState}' cannot carry a plan-unavailable reason`);
   }
   // `buildDeliveryRow` nulls the receipt whenever the parse fails, so an INVALID
   // row with a receipt attached is unreachable — and accepted, it emits both
@@ -297,6 +320,31 @@ export function assertRowIsClassifiable(row: SchedulerDeliveryHealthRow): void {
  * machinery is a last resort when an invariant cannot be observed behaviorally.
  * This one can.
  */
+/**
+ * A row whose PLAN could not be established — the per-row `unavailable` slice 3b
+ * introduced. The receipt is irrelevant to it by construction: this state says
+ * nothing about the receipt at all.
+ */
+export function planUnavailableRow(
+  job: ExternalSchedulerJob,
+  planUnavailableReason: SchedulerPlanUnavailableReason
+): SchedulerDeliveryHealthRow {
+  const row: SchedulerDeliveryHealthRow = {
+    job,
+    source: schedulerSourceForJob(job),
+    cron: null,
+    cadenceLabel: 'schedule unknown',
+    graceMs: null,
+    requiredStartedAt: new Date(NOW).toISOString(),
+    schedules: [],
+    deliveryState: 'unavailable',
+    planUnavailableReason,
+    receipt: null,
+  };
+  assertRowIsClassifiable(row);
+  return row;
+}
+
 export function deliverySnapshot(
   rows: SchedulerDeliveryHealthRow[]
 ): SchedulerDeliveryHealthSnapshot {
