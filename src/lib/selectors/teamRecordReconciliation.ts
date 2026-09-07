@@ -10,7 +10,7 @@ export type TeamRecordReconciliationWork = {
   concludedParticipations: number;
   tailGames: number;
   tailParticipations: number;
-  tailScoreRowsValidated: number;
+  tailScoreRowsInspected: number;
 };
 
 export type TeamRecordScoreFact = {
@@ -32,7 +32,7 @@ export type AvailableTeamRecordReconciliationPlan = {
   status: 'available';
   tailByTeamId: Map<number, TailParticipation[]>;
   tailScheduleByProviderGameId: Map<string, ScheduleWireItem>;
-  work: Omit<TeamRecordReconciliationWork, 'tailScoreRowsValidated'>;
+  work: Omit<TeamRecordReconciliationWork, 'tailScoreRowsInspected'>;
 };
 
 export type TeamRecordReconciliationPlan =
@@ -273,11 +273,11 @@ export function applyTeamRecordReconciliationPlan(params: {
 } {
   const { plan, recordCache, scoreFactsByProviderGameId, resolver } = params;
   const outcomesByProviderGameId = new Map<string, GameOutcomes>();
-  let tailScoreRowsValidated = 0;
+  let tailScoreRowsInspected = 0;
 
   for (const [providerGameId, scheduleItem] of plan.tailScheduleByProviderGameId) {
     const scoreFact = scoreFactsByProviderGameId.get(providerGameId);
-    if (scoreFact) tailScoreRowsValidated += 1;
+    if (scoreFact) tailScoreRowsInspected += 1;
     outcomesByProviderGameId.set(
       providerGameId,
       outcomesForTailGame({ scheduleItem, scoreFact, resolver })
@@ -298,6 +298,6 @@ export function applyTeamRecordReconciliationPlan(params: {
 
   return {
     totalsByTeamId,
-    work: { ...plan.work, tailScoreRowsValidated },
+    work: { ...plan.work, tailScoreRowsInspected },
   };
 }

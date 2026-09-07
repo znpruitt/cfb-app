@@ -158,7 +158,7 @@ test('a current record is unchanged and validates no score rows', () => {
 
   assert.deepEqual(result.totalsByTeamId.get(30), { games: 1, wins: 1, losses: 0, ties: 0 });
   assert.equal(result.work.tailGames, 0);
-  assert.equal(result.work.tailScoreRowsValidated, 0);
+  assert.equal(result.work.tailScoreRowsInspected, 0);
 });
 
 test('an unreadable tail game is skipped while later readable games still fold', () => {
@@ -179,7 +179,7 @@ test('an unreadable tail game is skipped while later readable games still fold',
   });
 
   assert.deepEqual(result.totalsByTeamId.get(40), { games: 2, wins: 2, losses: 0, ties: 0 });
-  assert.equal(result.work.tailScoreRowsValidated, 2);
+  assert.equal(result.work.tailScoreRowsInspected, 2);
 });
 
 test('generated reconciliation covers game counts, lag, ties, and unreadable tail rows', () => {
@@ -242,7 +242,7 @@ test('generated reconciliation covers game counts, lag, ties, and unreadable tai
   assert.equal(scenarios, 405);
 });
 
-test('Saturday-scale cold work validates only a 300-game six-hour tail', () => {
+test('Saturday-scale cold work inspects only a 300-game six-hour tail', () => {
   const tailGames = Array.from({ length: 300 }, (_, index) =>
     scheduleGame({
       id: `tail-${index}`,
@@ -274,7 +274,7 @@ test('Saturday-scale cold work validates only a 300-game six-hour tail', () => {
     concludedParticipations: 600,
     tailGames: 300,
     tailParticipations: 600,
-    tailScoreRowsValidated: 300,
+    tailScoreRowsInspected: 300,
   });
 });
 
