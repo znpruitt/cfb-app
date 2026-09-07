@@ -2864,11 +2864,27 @@ at the same instant, with identical slow crons. Measured inputs at 19:57:
 | dense `previousCron` | `*/3 * * * *` | `*/15 * * * *` |
 | runs in series / dropped | 3 / 0 | 3 / 0 |
 
-**The likely explanation is slice 3b's timeline working as designed, not a defect.** The required slot
-is judged against what was in force AT THE SLOT TIME, and grace is per-span at `2 × stepMinutes`. The
-two jobs differ ONLY in dense step size — 3 vs 15 minutes, so 6 vs 30 minutes of grace — which lands
-their walk-backs on **opposite sides of the 19:39:13 cutover**, in spans where the dense cron was
-still the unnarrowed `*/3 * * * *` / `*/15 * * * *`. Same input, different span, different answer.
+**MEASURED through the real reader at 20:02, with the store injected over the read-only rail** — not
+inferred from the screenshot. Per-schedule detail:
+
+| job | dense cron JUDGED AGAINST | grace | dense required slot | state |
+| --- | --- | --- | --- | --- |
+| `live-scores` | **`*/3 * * * *`** — the expression REPLACED at 19:39:13 | 6 min | `19:39:00` | `on-time` |
+| `game-stats` | **`*/15 0,…,7,23`** — the current expression | 30 min | `null` | `unavailable` |
+
+Both slow schedules contribute `null`; both `planUnavailableReason` are `null`, so this is the
+nothing-due path and not a plan fault.
+
+**The two jobs are being judged against DIFFERENT CRON GENERATIONS at the same instant.** That is the
+finding, and it is sharper than "the rows disagree". `live-scores`'s shorter grace puts its cutoff at
+19:56, finds no armed hour under the narrowed expression, and walks back across the 19:39:13 boundary
+into the pre-cutover span — so it is judged against a cron that no longer exists. `game-stats`'s
+30-minute grace lands elsewhere and yields nothing due.
+
+Judging a slot against the cron in force WHEN IT FELL DUE is slice 3b's whole design and is correct.
+What needs deciding is whether two schedules of the same job family should be able to sit in different
+generations simultaneously, and whether a walk-back should be allowed to cross a cutover boundary at
+all when the current expression arms no hour.
 
 **Falsifiable prediction: the two rows converge once the cutover is more than ~2 hours old**, because
 both walk-backs then land wholly inside the post-cutover span. **Check after ~21:40 UTC.** If they
