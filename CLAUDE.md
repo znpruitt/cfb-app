@@ -210,5 +210,16 @@ writes scheduler receipts there. System Health on preview always reports schedul
 and provider data as stale — correct about its snapshot, and silent about production. Diagnose
 platform health on production only; `docs/deployment-runbook.md` §6c has the detail.
 
+**THE PLANNING SESSION NEVER PUSHES `preview`.** Added 2026-09-07 after violating it about ten times
+in one session. The rule above says "every commit on a FEATURE BRANCH", and the planning worktree is
+on `main` — so a planning `git push origin HEAD:preview` publishes production to preview AND silently
+clobbers whichever implementation branch was there, leaving the owner nothing to click through and no
+error to notice. `preview` belongs to the implementation lane that currently holds it. If it needs
+restoring, push that lane's branch to it explicitly, never `HEAD`.
+
+**Only one lane can hold `preview` at a time.** Two implementation worktrees run concurrently; the
+branch on `preview` is whichever the owner is currently reviewing. Say which one it is when it
+changes.
+
 `preview` is a throwaway surface, so the force push is intentional. Never open a PR from `preview`;
 never merge `preview` into `main`. Do not push unreviewed work there.
