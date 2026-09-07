@@ -3683,6 +3683,28 @@ model; a rename-only reading of that flag is wrong.
 
 ### Item 83 — team-identity normalization collides distinct schools onto one key
 
+**A SECOND CONSUMER arrived 2026-09-07 — this raises the item's priority.** Item 139 v3's tail score
+attachment validates a score row's participants against the schedule row before crediting it, and
+Codex's confirming review found that a collision can make that validation mistake two distinct
+schools for a match and credit a corrupt score. **Deferred to this item by owner ruling, on measured
+reachability** — see the measurements below. The fix Item 83 already names is the right one for both
+consumers: CFBD supplies exact numeric participant ids. Do not add a collision heuristic to
+`scoreAttachment.ts` for one caller.
+
+**Measured against production 2026 on 2026-09-07, so the deferral rests on evidence:**
+
+| measurement | result |
+| --- | --- |
+| 2026 schedule labels → distinct identity keys | **716 → 716.** No two SCHEDULE LABELS collide. |
+| score rows whose participants disagree with the schedule | **6 of 22,761** — 5 side reversals (same two teams), 1 wrong opponent (`401858427`, Howard vs Hampton) |
+| do any of those 6 COLLIDE, i.e. would falsely validate? | **0.** Howard/Hampton normalize apart, so validation catches it — which is what Item 139's regression test asserts |
+| `Missouri S&T` (2402) score rows in 2026 | **0.** All 9 of its games are D-II vs D-II, which the FBS score feed does not cover |
+
+**The 716→716 figure does NOT disprove this item, and must not be quoted as if it does.** This item's
+collision is between a school's label and ANOTHER school's ALIAS (`Missouri S&T` → `missourist`, the
+key `Missouri State` claims via its `missouri st` alt). The scan above compared labels to labels only.
+The alias population is unmeasured and is this item's own work.
+
 `normalizeTeamName` expands `&` to " and " and then strips the standalone "and", so `Missouri S&T`
 collapses to `missourist` — the key `Missouri State` already claims through its `missouri st` alt.
 `resolveName` therefore returns a resolved, ownable FBS identity for a Division II school, and the
