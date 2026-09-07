@@ -2891,6 +2891,28 @@ both walk-backs then land wholly inside the post-cutover span. **Check after ~21
 still disagree, the asymmetry is not transient and the multi-schedule required-slot derivation needs
 a look.
 
+**SECOND FOLLOW-UP, same row — the cadence label reads as its wrong half. Owner misread it in
+production 2026-09-07, which is the evidence.**
+
+`cadenceLabel` now renders the day's real shape, which is the improvement slice 4 shipped and it is
+working: _"every 3 min at 00:00–07:00, 23:00 UTC, hourly (:01) at 08:00–22:00 UTC"_. Two clauses, one
+per phase, accurate and complete.
+
+**But it states the whole day and leaves the reader to work out which half is live.** At 20:0x the
+governing clause is the second one; the owner read the first and asked why it said every 3 minutes.
+The person who commissioned the label misread it on first pass — that is as strong as UI evidence
+gets, and it is not a comprehension failure, it is a label that puts a non-applicable clause first.
+
+**It compounds the required-slot issue directly above it**, and that is why these are one item.
+Read as "every 3 min", the row shows a job that fires every three minutes, was last required at
+19:39, and last ran at 20:01 — three numbers that cannot be reconciled under that reading. Each
+defect alone is survivable; together they make a healthy row unreadable.
+
+**Candidate fix, small:** lead with the clause in force and demote the rest — _"hourly (:01) — dense
+00:00–07:00, 23:00"_ — or mark the active phase. The planner already computes everything needed;
+this is a change to how one string is ordered, not to what it knows. **Decide it with the
+required-slot question, not separately** — the row is either readable or it is not.
+
 **Even if transient, there is a question worth answering:** whether a few hours of asymmetric
 delivery states immediately after every daily cutover is acceptable. It recurs at 23:50 every night,
 it is invisible in tests because no fixture spans a cron change with two different step sizes, and
