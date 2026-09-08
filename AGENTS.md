@@ -568,28 +568,49 @@ the result. This is the mirror of the absence rule above — that one guards cla
 exists, this one guards claims that something is used — and it is cheaper than either, because the
 compiler answers in one command.
 
-**LOCAL CHANGE, NON-LOCAL EFFECT: WHEN THE FEEDBACK POINTS SOMEWHERE OTHER THAN THE CAUSE, STOP
-BEING CAREFUL AND CHANGE THE DEFAULT.** Named 2026-09-08. A family of defects shares one property:
-**the error surfaces far from the edit that caused it, at code that did not change and is not
-wrong.** So the diff looks clean, the failures look pre-existing, and every instinct points at the
-wrong file.
+**THE PROXY THAT ARGUES FOR ITSELF: FEEDBACK CONSISTENT WITH A WRONG MODEL.** Named 2026-09-08. This
+is not a rule beside the grep-versus-mutation rule above — **it is the case that rule exists for, and
+the hardest one.** The shared property is precise: **the output you get back is consistent with the
+wrong model you already hold, so the model is REINFORCED rather than questioned.**
 
-- **`MD049` emphasis style.** A single `*italic*` added anywhere flips the file's INFERRED style, and
-  markdownlint then reports every _conforming_ line as the violation — in this session, three lines
-  240 lines above the edit, and once nineteen untouched lines at once. **Seven occurrences before the
-  mechanism was diagnosed**, because the reported location never once pointed at the cause.
-- **`z-index: -1` without `isolation: isolate`.** The pseudo-element paints behind the STACKING
-  CONTEXT rather than behind its parent, so the owner tint vanishes under the card background — and
-  the obvious workaround, `position: relative` on row content, re-anchors and shifts every team
-  colour bar (`item-87-reference-game-row.md` §7, §16).
-- The owner names a third — a `padding` shorthand resetting `padding-left`. **Not recorded in this
-  repo**, so it is listed as an example of the shape rather than as a case with a citation here.
+**That is worse than silence, and the difference is the whole point.** Silence leaves you with no
+model and a reason to go looking. Feedback consistent with a wrong model leaves you with a CONFIDENT
+one, and confident models cost far more to dislodge — seven repetitions in one case below, and in
+another it took a second person reading the file.
 
-**The response is a DEFAULT, not more care.** Care fails by construction: the edit site is not where
-the error appears, so attention spent there buys nothing. Use `_underscores_` for italics in every
-markdown file rather than matching each file's style; declare `isolation: isolate` wherever a
-negative `z-index` is used. **This is the same argument as the pre-push hook beating remembering to
-run lint** — a mechanism that does not depend on noticing.
+- **A grep returning matches.** The canonical instance, already ruled on above: matches _feel_ like
+  verification, and the feeling reaches the sentence instead of the result.
+- **A figure supporting a sound conclusion.** It does not merely go unchecked — **the conclusion
+  actively teaches you the number is fine.** Three in one campaign, each with a conclusion that
+  survives the correction.
+- **A coherent reading of a document that has two.** The results-based account of Featured explained
+  everything the reader had seen, so nobody went looking for the must-watch reading beside it
+  (Item 113).
+- **A complete model built from secondhand accounts.** `team-highlight.md` was marked SUPERSEDED twice
+  by readers who never opened it. **The failure was not an absent model — it was a complete one with
+  nothing to contradict it**, because it explained every observation available.
+- **`MD049` emphasis style.** A single `*italic*` flips a file's INFERRED style, and markdownlint then
+  reports every _conforming_ line as the violation — 240 lines from the edit, once nineteen untouched
+  lines at once. **Seven occurrences before the mechanism was diagnosed**, because each failure taught
+  "this file is inconsistent" rather than "my edit changed what consistent means".
+- **`z-index: -1` without `isolation: isolate`.** Paints behind the STACKING CONTEXT, not the parent,
+  so the tint vanishes under the card — and the obvious workaround shifts every team colour bar
+  (`item-87-reference-game-row.md` §7, §16).
+- **A `padding` shorthand resetting `padding-left`.** Three `.sb-line` rules accumulated in
+  `mockups/matchups-schedule-mockup.html` as features landed; the last used the shorthand and silently
+  cleared a `padding-left` set two rules earlier, so the team colour bar rendered on top of the first
+  letter of every team name. **Nothing errored, and the earlier rule was still there and still correct
+  in isolation.** Now written as `padding: 1px 0 1px 15px` (`:170`), the left value back in the
+  shorthand.
+
+**The instruction is the one already on the books — verify against the THING, not a proxy — and this
+family is where the proxy argues for itself.** So the practical response is a DEFAULT rather than more
+care: care fails by construction when the feedback is confirming what you already believe. Use
+`_underscores_` for italics in every markdown file rather than matching each file's style; declare
+`isolation: isolate` wherever a negative `z-index` is used; write every side of a `padding` shorthand;
+recompute a figure you agree with. **This is the same argument as the pre-push hook beating remembering
+to run lint** — a mechanism that does not depend on noticing, deployed exactly where noticing is what
+fails.
 
 **TO VERIFY A DEPLOYED SURFACE, LOOK FOR WHAT THE NEW CODE MAKES IMPOSSIBLE.** Added 2026-09-08, and
 it is the mutation rule aimed at a running deployment. Confirming the new thing is PRESENT fails softly
