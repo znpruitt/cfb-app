@@ -284,6 +284,22 @@ When practical, verify key runtime flows still behave:
      inherits every overturned claim. **So: quote the design document for what was DECIDED, grep the
      code for what EXISTS, and when they disagree the code is the fact and the disagreement is a
      finding.**
+   - **A CAMPAIGN THAT ACCUMULATES FOLLOW-ON DOCUMENTS NEEDS AN INDEX FROM THE START — not
+     retrofitted at fifteen.** Owner decision 2026-09-08, after Item 87's follow-on set produced three
+     wrong statements in two days and one of them reached production.
+     **The failure is not that individual claims go stale. It is that nothing in a document tells a
+     reader another one overrides it.** Additive follow-ons are written that way for a sound reason —
+     editing a committed document loses history — but the conclusion drawn from it is wrong:
+     **history is preserved by marking what a document no longer governs, not by leaving it silent.**
+     **One index, not per-document headers.** With fifteen files, a supersession header in each has to
+     know about every later document, so landing one new follow-on means editing fourteen others. That
+     maintenance cost is what guarantees it stops happening. Each document instead carries a generic
+     one-liner pointing at the index; only the index changes.
+     **Three status marks, not two** — most documents are MIXED rather than dead. A `PARTLY SUPERSEDED`
+     entry names which sections still govern and which do not, because marking a mixed document wholly
+     superseded loses the part that is still load-bearing.
+     Worked example: [`docs/campaigns/item-87-INDEX.md`](docs/campaigns/item-87-INDEX.md).
+     **The threshold is roughly three follow-ons.** Below that, read them all; above it, nobody does.
    - **Run-order entries carry a `Design:` line** naming the canonical documents and mockups, or
      stating explicitly that none exists — in which case the item needs an owner design pass before
      dispatch, not a prompt written from the queue prose.
