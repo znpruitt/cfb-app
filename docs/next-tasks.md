@@ -1010,6 +1010,12 @@ slot designed against a single consumer fits that consumer's shape and nothing e
 tag slot that works on scheduled rows and needs a second widening for finals. Deriving from both
 states now costs nothing.
 
+**A third undecided divergence, surfaced by Item 144's read:** the mockup omits **broadcast** on
+Matchups rows while showing it on the Schedule copy of the same game (`mockup:606`). **No document
+decides this.** `CompactGameScoreboard` shows broadcast on any non-final state, so Matchups either
+passes it or does not — and neither choice is recorded. Settle it here rather than leaving two
+surfaces to diverge again.
+
 **The shape most likely to be missed — put it in the acceptance contract.** The recap's status row is
 frequently **tag-only**: after the derivability rule, **six of seven mockup rows carry no metadata at
 all**, just the pill. So the slot must handle an **empty left group without collapsing the tag's right
@@ -1270,6 +1276,55 @@ resolving it silently, which was right. Someone has to pick the number; the othe
 corrected to match rather than averaged.
 
 **Blocker:** none. Related to Item 134 (Overview's tier) but a different grid and a different number.
+
+### Item 153 — three surfaces, three eyebrow treatments, and one is still the blue violation
+
+**The ask:** one eyebrow treatment across Overview, Schedule and Matchups. **Overview is still the
+`DESIGN.md` violation Item 117 fixed elsewhere.**
+
+**Measured 2026-09-08:**
+
+| surface | treatment | state |
+| --- | --- | --- |
+| Overview (`OverviewPanel.tsx:755`) | `text-blue-700 dark:text-blue-300` | **LIVE VIOLATION** of `DESIGN.md` — blue signals interactivity or active state only, never "featured" or "important" |
+| Schedule (`GameWeekPanel.tsx:18`) | `border-[#c9a66b]/40`, `text-[10px]` | bronze, one syntax |
+| Matchups (`MatchupsWeekPanel.tsx:35`) | `border-[0.5px] border-[rgba(201,166,107,0.40)]`, `text-xs` | bronze, another syntax and a different size |
+
+**Filed as ONE item, not two, and the reason is the drift itself.** Codex flagged the
+Schedule-versus-Matchups divergence during Item 117 and correctly scoped it out of that slice. But
+fixing Overview alone would produce a third bronze spelling; unifying Schedule and Matchups without
+Overview would leave the violation. **The three are one decision: pick the treatment, put it in one
+constant, use it in three places.**
+
+**The divergence is the same shape Item 143 exists for** — two implementations of one treatment drift
+because nothing shared holds it. A single exported constant is the fix; three near-identical string
+literals is the defect.
+
+**Not blocked by Item 143.** That item owns where the tag SITS in the row; this owns what it looks
+like. Independent, and this one carries a live violation.
+
+**Blocker:** none.
+
+### Item 154 — postseason round grouping is specified in three documents and has no item
+
+**The ask:** file the postseason round-grouping work, or record why it is not being done.
+
+**Found 2026-09-08 by Item 144's read.** Three documents carry its rules — `postseason-context.md`,
+`postseason-grouping-notes.md` and `postseason-refinements.md` — including acceptance criteria and a
+first-round handling decision. **Nothing in this queue tracks it**, so the specification exists and
+the work does not.
+
+The INDEX's CARRY block holds the obligations (rows 32–35), which is where a prompt author will meet
+them — but an obligation with no item is a decision nobody has scheduled.
+
+**One concrete blocker recorded inside those documents:** `postseason-context.md:57` requires widening
+the round union or matching on string; `schedule.ts:124` still omits `'first-round'`. So the first
+piece of work is identified and unstarted.
+
+**Decide the disposition rather than leaving it implicit.** Postseason is months away, and "not now"
+is a fine answer — but it should be an entry saying so, not silence across three documents.
+
+**Blocker:** none. Seasonally distant.
 
 ### Item 145 — the upstream debug logger writes provider URLs and headers to the server log
 
@@ -2288,6 +2343,19 @@ Neither is a defect and neither affects the complete coverage above. Recorded he
 follow-on assume `#161616`. One constant, before (1) ships.
 
 - Backlog slug: `POLISH-TEAM-COLOUR-BAR-v1`
+
+**LEDGER GAP CLOSED 2026-09-08, from Item 144's read.** This entry did not record the **slice 5b
+`isolation` dependency**: `team-colour-regression.md:58` requires it be noted against this item.
+`team-highlight.md:37-39` is the reason — a pseudo-element at `z-index: -1` paints behind the
+stacking context, so the row needs `isolation: isolate`; and lifting row content with
+`position: relative` **breaks the team-colour bar**, because the bar is absolutely positioned against
+`.sb-line` and making `.who` positioned re-anchors it. **`isolation` removes the need for that rule
+entirely** — which is why this item depends on 5b having shipped it, and why a future "simplify the
+stacking" change would silently shift every bar.
+
+**Also unrecorded:** the slice 5 registry entry does not mention the team-colour removal, and CARRY
+row 4 — the amber border retired as a deliberate decision with the eyebrow pill carrying its emphasis
+forward — is still absent from `DESIGN.md`.
 
 ### Item 118 — Schedule status filter with counts
 
