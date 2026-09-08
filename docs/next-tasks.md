@@ -5179,7 +5179,9 @@ are removed rather than retained with strikethrough; their outcomes live in `doc
   refresh so a cold cache does not report false zeros. Remove only after extracting a shared score
   refresh authority.
 
-### Item 157 — two tag vocabularies say the same thing in two voices
+### Item 157 — DONE: two tag vocabularies said the same thing in two voices
+
+**Shipped on `claude/157-162-163-tag-vocabulary` (`a008b39c`, `1f4b83a4`, `ca2a13f9`, `2e9c7468`, `3da3c42e`, `0d741e81` + this closeout), merge pending.** `LEAGUE_TAG_LABELS` renders `Top 25 Matchup` on Schedule and Matchups; the identifier is unchanged. `Ranked Team` retired. **Two things the filing did not have.** The highlight family's `top25` was gated on `rank != null` with NO bound, so the rename put one user-facing label behind two different predicates — both are now `isRankedTop25`, bounded 1–25 at **both** ends, since nothing upstream rejects a rank of 0 and the watchlist now sorts on the average of two ranks. And `Ranked Team` had been doing curation nobody had noticed: it supplied 70 to `watchlistPriority` on every one-ranked game, so retiring it could drop ranked games off the six-card board — restored as the signal `hasTop25RankedTeam` by owner ruling, with no chip. Registry: `PLATFORM-157-162-163-TAG-VOCABULARY-CLAUDE-v2`.
 
 **Found during Item 153**, which converted Overview's chips to bronze and exposed why they were a
 different colour: they are a **different tag family**. `gameTags.ts:475` `LEAGUE_TAG_LABELS` produces
@@ -5295,7 +5297,9 @@ decision reached every surface it governs.**
 
 **Blocker:** none. **A few minutes**, and it makes the omission checkable rather than rediscoverable.
 
-### Item 162 — `Contender Watch` is owner standing rendered as a chip
+### Item 162 — DONE: `Contender Watch` was owner standing rendered as a chip
+
+**Shipped on `claude/157-162-163-tag-vocabulary` (`a008b39c`, `1f4b83a4`, `ca2a13f9`, `2e9c7468`, `3da3c42e`, `0d741e81` + this closeout), merge pending.** Retired, and the whole owner-standing input path went with it — `topOwnerNames` existed only to carry `standingsLeaders.slice(0, 3)` into the tag selector, and `tsc` confirmed it had no other reader. Nothing about who leads the league now reaches `deriveGameHighlightTags`. **The five-of-six observation was never reproduced and did not need to be:** the mechanism is stronger than frequency — at priority 90 the tag was also a watchlist SORT KEY, sorting its own games to the top of a six-card list, so a high count follows from the ordering rather than from a high base rate. `DESIGN.md` → the marker rules now carry the vocabulary as game facts only.
 
 **Found 2026-09-08** in the owner's Week 2 preview walkthrough, while confirming Item 153. **Not part
 of Item 160** — that item is placement and layout; this is the tag itself.
@@ -5326,7 +5330,9 @@ retires a third. Worth doing together — after all three, the vocabulary is gam
 
 **Blocker:** none. Independent of Item 143.
 
-### Item 163 — the `vs <owner>` pill repeats a name already on the row
+### Item 163 — DONE: the `vs <owner>` pill repeated a name already on the row
+
+**Shipped on `claude/157-162-163-tag-vocabulary` (`a008b39c`, `1f4b83a4`, `ca2a13f9`, `2e9c7468`, `3da3c42e`, `0d741e81` + this closeout), merge pending.** **Owner ruling 2026-09-08: retire the owner branch.** `DESIGN.md`'s permission for a restating chip is about WAYFINDING, and the pill sat in tier 2 **below** both team rows while the scoreboard printed that owner inline on the opponent's row — a marker after the content it restates cannot help a reader find the row. That reasoning is now a `DESIGN.md` rule rather than a one-off. Suppressed at the **render seam**, not in `deriveOpponentDescriptor`: the selector's other consumer groups opponents for a summary that renders no scoreboard, where the owner label is the only thing naming them. All four non-`vs` branches survive — `Self`, placeholder/derived, `FCS`, `NoClaim (FBS)`. The filing named three; `Self` was the missed one.
 
 **Found 2026-09-08**, owner question. **Nothing owned this** — it is not in the queue or any campaign
 document, so no filed item was going to drop it.
@@ -5505,6 +5511,68 @@ gap, and its size is currently unknown.
 only lists divergences has not delivered the thing this item exists for.
 
 **Blocker:** none — the audit is observation. **Acting on the residue may block behind 143.**
+
+### Item 168 — `Close` has no game-state guard, and the watchlist is scheduled-only
+
+**Found by `/code-review` during PLATFORM-157-162-163.** `DESIGN.md` → the marker rules state
+_"'Close' applies to live and final games only. On a scheduled game it is a projection, not a fact."_
+`deriveGameHighlightTags` gates it on `margin != null && margin <= 7` with **no state check**, and
+`gameMargin` reads `item.score?.away.score`, which is `number | null`.
+
+**The reachable path:** `gameStateFromScore` routes postponed, delayed and scheduled labels all to
+`'scheduled'`, which is exactly what the watchlist's `featuredCandidates` admits. So a scheduled or
+postponed row whose cached `ScorePack` carries numeric `0`/`0` takes a bronze `CLOSE` chip before
+kickoff — and 80 points of watchlist priority with it.
+
+**The ask:** enumerate the states `close` applies to, per the design's own rule against defining
+behaviour by negation.
+
+**Pre-existing** — not introduced by 157/162/163, which is why it was reported rather than fixed
+there. That slice did rewrite the tag condition set and documented `close` as "needs a score margin"
+without adding the guard, so it is filed rather than left in a review comment.
+
+**NOT MEASURED.** Nobody has checked how many cached scheduled/postponed rows carry numeric scores.
+Do that first — the read-only rail answers it, and the count may decide the item.
+
+**Blocker:** none. **Small.**
+
+### Item 169 — retiring the `vs <owner>` pill left the owner name inside a truncating span
+
+**Found by `/code-review` during PLATFORM-163, and it is a genuine cost of that retirement.** The
+justification for dropping the pill is that the shared scoreboard renders each team's owner inline on
+its own row. It does — but in `CompactGameScoreboard` the team name, the inline record and the owner
+suffix all sit inside **one** `min-w-0 truncate` span, with the owner **last**. On a narrow card with
+a long provider label and a record (`Southern Mississippi (3-4) Bob`), the owner is the first thing
+the ellipsis eats, and there is no longer a tier-2 fallback naming it. The retired pill was
+`shrink-0` in a wrapping row and could not be lost this way.
+
+**The ask:** decide whether the owner suffix needs its own shrink protection.
+
+**Blocked on Item 143**, which owns the `CompactGameScoreboard` status-row seam in the Codex lane.
+PLATFORM-163's gate forbade touching that file, which is why this is a filed item and not a fix.
+
+**Blocker:** Item 143.
+
+### Item 170 — `rankedHighlight` now feeds nothing
+
+**Found by `/code-review` during PLATFORM-157-162-163 and mutation-confirmed by the implementer.**
+Restoring one-ranked curation as `hasTop25RankedTeam` (70) made `item.isRankedSpotlight ? 70 : 0`
+dead in `watchlistPriority`: the spotlight implies a top-25 rank, which the new signal already scores
+70, so the term can no longer change the `Math.max`. Neutralising it to `? 0 : 0` leaves 122
+overview/section/panel tests green. Nothing renders `isRankedSpotlight`, so
+`deriveOverviewHighlightSignals`'s ~25-line `rankedHighlight` block and
+`OverviewHighlightSignals.rankedHighlightKey` now produce no output.
+
+**The ask:** delete `rankedHighlight`, `rankedHighlightKey` and `isRankedSpotlight`, or keep them and
+say what consumes them.
+
+**Deliberately retained for now, recorded in the code rather than silently left** — `isRankedSpotlight`
+is still a TRUE and distinct fact (the one game the slate's ranked spotlight landed on), and the
+watchlist ordering tests use it to discriminate WHICH mechanism produced a result. Removing the block
+is a deletion with its own test surface and did not belong at the end of that branch.
+
+**Blocker:** none. **Small**, and it is a deletion, so `npm run build` plus the selector suites are
+the gate.
 
 ## Hosted deployment runbook
 
