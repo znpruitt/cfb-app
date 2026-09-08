@@ -106,6 +106,9 @@ function prioritized(itemValue: OverviewGameItem, priority = 0): PrioritizedOver
     isRankedSpotlight: priority >= 70 && priority < 90,
     highlightLabel: priority >= 90 ? 'Game of the Week' : null,
     highlightTags: priority > 0 ? [{ id: 'top25', text: 'Top 25 Matchup', priority }] : [],
+    // This suite exercises SECTION ROUTING, which never reads the watchlist sort
+    // key — `selectOverviewGameSections` consumes the candidate order it is given.
+    top25AverageRank: null,
   };
 }
 

@@ -428,6 +428,37 @@ export function deriveOverviewHighlightSignals(params: {
 }
 
 /**
+ * The average of the two ranks in a Top 25 Matchup, or null when the game is not
+ * one. Owner decision 2026-09-08: every top-25 matchup carries the tag and every
+ * one outranks every non-top-25 game on the watchlist, so the remaining question
+ * is which top-25 matchup leads — and the answer is the strongest pair, measured
+ * as the LOWEST average of the two ranks. #2 vs #6 (4) leads #1 vs #15 (8).
+ *
+ * Both sides must be INSIDE the top 25, not merely ranked. `computeGameTags` has
+ * always bounded the league family with `isRankedTop25`; the two predicates
+ * disagreed silently while they rendered different strings (`Top 25 Matchup` here,
+ * `Top 25` there), and Item 157 made them render the SAME string, so a divergence
+ * would now put one claim behind two predicates. Latent rather than live when that
+ * was closed: every stored poll entry in production — 18 weeks, 726 entries across
+ * ap/coaches/cfp — tops out at rank 25, so no real game reaches the difference.
+ *
+ * Returning the average rather than a boolean is what keeps the tag and the sort
+ * key on ONE predicate: `deriveGameHighlightTags` tags exactly when this is
+ * non-null, so a game can never be tagged and unranked for ordering, or ordered as
+ * a marquee matchup without the tag.
+ */
+export function top25MatchupAverageRank(params: {
+  item: OverviewGameItem;
+  rankingsByTeamId: Map<string, TeamRankingEnrichment>;
+}): number | null {
+  const { item, rankingsByTeamId } = params;
+  const awayRank = teamRankForGameSide(item, 'away', rankingsByTeamId);
+  const homeRank = teamRankForGameSide(item, 'home', rankingsByTeamId);
+  if (!isRankedTop25(awayRank) || !isRankedTop25(homeRank)) return null;
+  return (awayRank + homeRank) / 2;
+}
+
+/**
  * The highlight vocabulary is GAME FACTS ONLY (Items 157 and 162).
  *
  * `ranked` (`Ranked Team`) restated a rank the row already prints inline beside
@@ -444,20 +475,13 @@ export function deriveGameHighlightTags(params: {
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
 }): GameHighlightTag[] {
   const { item, rankingsByTeamId } = params;
-  const awayRank = teamRankForGameSide(item, 'away', rankingsByTeamId);
-  const homeRank = teamRankForGameSide(item, 'home', rankingsByTeamId);
   const margin = gameMargin(item);
   const tags: GameHighlightTag[] = [];
 
-  // Both sides must be INSIDE the top 25, not merely ranked. `computeGameTags`
-  // has always used `isRankedTop25` for the league family; the two disagreed
-  // silently while they rendered different strings (`Top 25 Matchup` here,
-  // `Top 25` there). Item 157 made them render the SAME string, so a divergence
-  // would now have two surfaces printing one claim from two predicates.
-  // Latent rather than live at the time of the change: every stored poll entry
-  // in production — 18 weeks, 726 entries across ap/coaches/cfp — tops out at
-  // rank 25, so no game reaches the difference today.
-  if (isRankedTop25(awayRank) && isRankedTop25(homeRank)) {
+  // ONE predicate decides the tag and the watchlist sort key, so they cannot
+  // disagree. `top25MatchupAverageRank` returns null for anything that is not a
+  // Top 25 Matchup, which is exactly the tag's condition.
+  if (top25MatchupAverageRank({ item, rankingsByTeamId }) != null) {
     tags.push({
       id: 'top25',
       text: 'Top 25 Matchup',

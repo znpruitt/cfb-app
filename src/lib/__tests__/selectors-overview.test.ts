@@ -269,6 +269,99 @@ test('retiring Contender Watch drops a leader-owned game to the kickoff tie-brea
 });
 
 /**
+ * Owner decision 2026-09-08, all three parts of it, on one slate.
+ *
+ * 1. EVERY top-25 matchup carries the tag. Unlike `rankedHighlightKey`, which names
+ *    a single game, the tag has no cap across games — three qualify here and three
+ *    are tagged.
+ * 2. EVERY top-25 matchup outranks every non-top-25 game. `top25` scores 100 and
+ *    nothing else on a scheduled watchlist reaches it: `isUpsetWatch` requires an
+ *    in-progress game and is unreachable here, so the nearest rival is
+ *    `isGameOfSlate` at 90 — which `gotw-unranked` carries, and still loses.
+ * 3. AMONG top-25 matchups, the lowest average rank leads. The kickoffs are ordered
+ *    against the ranks on purpose: sorted by kickoff these would run
+ *    strong → weak → mid, so any order that comes out by average rank cannot be the
+ *    kickoff tie-break in disguise.
+ *
+ *    #2/#6 avg 4 · #4/#10 avg 7 · #1/#22 avg 11.5 — note the third contains the
+ *    single best rank on the board and still places last, which is the whole point
+ *    of averaging the PAIR rather than taking the better team.
+ */
+test('every Top 25 Matchup is tagged, outranks non-top-25 games, and leads by best average rank', () => {
+  const ranked = (key: string, date: string, awayId: string, homeId: string) => {
+    const base = item(key, date, {
+      participants: {
+        away: {
+          kind: 'team',
+          teamId: awayId,
+          displayName: awayId,
+          canonicalName: awayId,
+          rawName: awayId,
+        },
+        home: {
+          kind: 'team',
+          teamId: homeId,
+          displayName: homeId,
+          canonicalName: homeId,
+          rawName: homeId,
+        },
+      },
+    });
+    return { ...base, bucket: { ...base.bucket, homeOwner: undefined }, priority: 1 };
+  };
+
+  // Owner-vs-owner and earliest, so it wins `gameOfSlate` and carries 90 — the
+  // strongest non-top-25 signal a scheduled card can have.
+  const gotwUnranked = item('gotw-unranked', '2026-09-01T12:00:00.000Z');
+
+  const strong = ranked('t25-strong', '2026-09-01T13:00:00.000Z', 's-away', 's-home'); // avg 4
+  const weak = ranked('t25-weak', '2026-09-01T14:00:00.000Z', 'w-away', 'w-home'); // avg 11.5
+  const mid = ranked('t25-mid', '2026-09-01T15:00:00.000Z', 'm-away', 'm-home'); // avg 7
+
+  const model = selectOverviewViewModel({
+    standingsLeaders: [],
+    standingsCoverage: { state: 'partial', message: null },
+    context: { scopeDetail: 'Week 1' },
+    liveItems: [],
+    keyMatchups: [gotwUnranked, strong, weak, mid],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map([
+      ['s-away', { rank: 2, rankSource: 'ap' as const }],
+      ['s-home', { rank: 6, rankSource: 'ap' as const }],
+      ['w-away', { rank: 1, rankSource: 'ap' as const }],
+      ['w-home', { rank: 22, rankSource: 'ap' as const }],
+      ['m-away', { rank: 4, rankSource: 'ap' as const }],
+      ['m-home', { rank: 10, rankSource: 'ap' as const }],
+    ]),
+  });
+
+  assert.deepEqual(
+    model.watchlistCandidates.map((entry) => entry.item.bucket.game.key),
+    ['t25-strong', 't25-mid', 't25-weak', 'gotw-unranked']
+  );
+
+  // (1) all three tagged, and the unranked game is not
+  assert.deepEqual(
+    model.watchlistCandidates.map((entry) => entry.highlightTags.map((tag) => tag.text)),
+    [['Top 25 Matchup'], ['Top 25 Matchup'], ['Top 25 Matchup'], []]
+  );
+
+  // (2) the losing card really does hold the strongest rival signal, so its last
+  // place is the top-25 rule rather than an absent competitor.
+  assert.equal(
+    model.watchlistCandidates.at(-1)?.isGameOfSlate,
+    true,
+    'the Game of the Week must be the game that top-25 matchups outrank'
+  );
+
+  // (3) the sort key itself, so a future reader can see what the order came from
+  assert.deepEqual(
+    model.watchlistCandidates.map((entry) => entry.top25AverageRank),
+    [4, 7, 11.5, null]
+  );
+});
+
+/**
  * The SECOND half of the ordering delta, and the half the leader-demotion test
  * above does not cover.
  *

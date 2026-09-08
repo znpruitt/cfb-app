@@ -1,6 +1,7 @@
 import {
   deriveGameHighlightTags,
   deriveOverviewHighlightSignals,
+  top25MatchupAverageRank,
   type OverviewHighlightSignals,
 } from '../gameTags';
 import { hasUsableFinalScore } from '../gameStatus';
@@ -44,6 +45,8 @@ export type PrioritizedOverviewItem = {
   isRankedSpotlight: boolean;
   highlightLabel: string | null;
   highlightTags: ReturnType<typeof deriveGameHighlightTags>;
+  /** Lower is stronger. Null for anything that is not a Top 25 Matchup. */
+  top25AverageRank: number | null;
 };
 
 export type OverviewViewModel = {
@@ -316,6 +319,7 @@ export function prioritizeOverviewItems(params: {
       isUpsetWatch,
       isRankedSpotlight,
       highlightTags,
+      top25AverageRank: top25MatchupAverageRank({ item, rankingsByTeamId }),
       highlightLabel: isUpsetWatch ? 'Upset watch' : isGameOfSlate ? 'Game of the Week' : null,
     };
   });
@@ -355,6 +359,21 @@ function comparePrioritizedWatchlistItems(
 ): number {
   const priorityDifference = watchlistPriority(b) - watchlistPriority(a);
   if (priorityDifference !== 0) return priorityDifference;
+
+  // Owner decision 2026-09-08. Every Top 25 Matchup scores 100, which already puts
+  // all of them above every non-top-25 game — nothing else on a SCHEDULED watchlist
+  // reaches it (`isUpsetWatch` needs an in-progress game and cannot apply here, so
+  // the nearest rival is `isGameOfSlate` at 90). What that leaves undecided is which
+  // top-25 matchup leads, and kickoff order is not an answer to that. The strongest
+  // pair leads, measured as the lowest average of the two ranks.
+  //
+  // Only reachable when both are top-25 matchups: any other pairing has already been
+  // separated by priority above, and two non-top-25 games are both null here and fall
+  // through to the kickoff tie-break unchanged.
+  const aTop25 = a.top25AverageRank;
+  const bTop25 = b.top25AverageRank;
+  if (aTop25 != null && bTop25 != null && aTop25 !== bTop25) return aTop25 - bTop25;
+
   return compareWatchlistItems(a.item, b.item);
 }
 
