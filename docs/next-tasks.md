@@ -5220,6 +5220,37 @@ decision reached every surface it governs.**
 
 **Blocker:** none. **A few minutes**, and it makes the omission checkable rather than rediscoverable.
 
+### Item 162 — `Contender Watch` is owner standing rendered as a chip
+
+**Found 2026-09-08** in the owner's Week 2 preview walkthrough, while confirming Item 153. **Not part
+of Item 160** — that item is placement and layout; this is the tag itself.
+
+**`DESIGN.md:295` already forbids it:** _Owner standing appears inline beside the owner name, never as
+a chip — it is true on every row, so as a marker it would carry no signal._ `Contender Watch` is owner
+standing as a chip. **Same class as the blue eyebrow Item 153 corrected: a live violation of a rule on
+the books, not a preference.**
+
+**The mechanism makes it structurally frequent.** `selectors/overview.ts:496` builds `topOwnerNames`
+from `standingsLeaders.slice(0, 3)`, and `gameTags.ts:63` fires the tag when **either** participant is
+owned by one of those three. Two participants against three of roughly a dozen owners is a high hit
+rate by construction, not by coincidence.
+
+**Observed, one slate, not a measured rate:** five of the six watchlist cards carried it on the Week 2
+board — including **Rutgers 0–1 against Boston College 0–1**. After one week, "top three in the
+standings" is one game's worth of noise, so the chip asserts a contender race that does not exist yet.
+
+**It also sits in the wrong row.** Its neighbours — `Top 25 Matchup`, `Ranked Team`, `Close` — are
+facts about the GAME. This one is a fact about an OWNER, which is the distinction `DESIGN.md:295`
+draws.
+
+**The ask:** retire it, or move owner standing inline where the rule puts it. **Retiring is the
+smaller change** and is what the rule implies.
+
+**Relationship to the other tag items:** Item 157 renames `Top 25` and retires `Ranked Team`; this
+retires a third. Worth doing together — after all three, the vocabulary is game facts only.
+
+**Blocker:** none. Independent of Item 143.
+
 ## Hosted deployment runbook
 
 Use `docs/deployment-runbook.md` for hosted environment setup, activation, production observations,

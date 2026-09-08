@@ -826,6 +826,17 @@ Differing hashes mean the worktree's copy is stale; re-copy `.env.local` from th
 which is the step `CLAUDE.md` → **Worktrees and session roles** already requires at worktree creation.
 A worktree's env files are gitignored, so nothing propagates a rotation to them.
 
+**The static preview alias can serve a stale build while the branch is current.** Observed 2026-09-08:
+`origin/preview` sat at the branch tip for ~40 minutes while `cfb-app-preview.vercel.app` still served
+the previous deployment, and the deployment-specific URL showed the new build correctly. **A green
+`git push origin HEAD:preview --force` is not evidence that the stable URL serves that commit.** The
+tell is cheap — pick any element the branch changed and check it on both URLs; if they disagree, the
+alias has not followed. **When they disagree, trust the deployment-specific URL** and re-alias or
+redeploy. This cost an hour of chasing a defect that did not exist, twice reaching the wrong
+conclusion from correct code. Related: `AGENTS.md` already records that a docs-only push advances the
+ref without redeploying; **this is the other direction — a code push that deployed but was not
+aliased.**
+
 **Editor settings do not travel between worktrees.** `.vscode/` is gitignored (`.gitignore:50`), so a
 workspace setting fixed in one worktree is absent in the other two. Same class as the Clerk key above:
 git does not carry it, and nothing reports its absence.
