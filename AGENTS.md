@@ -305,9 +305,9 @@ When practical, verify key runtime flows still behave:
      **STALENESS** — a claim that stopped being true. Supersession marks fix it.
      **DEPTH** — a claim that is TRUE and that nobody reads far enough to find. **Marks do nothing for
      it**, because the entry reads CURRENT and the reader still never reaches the line.
-     Named failure case: *"State this in the implementation prompt: a build with records absent or
+     Named failure case: _"State this in the implementation prompt: a build with records absent or
      stale will not match the mockup, and a reviewer comparing them must read that as a sequenced
-     dependency rather than a defect."* That sat in the campaign's CANONICAL document, in bold,
+     dependency rather than a defect."_ That sat in the campaign's CANONICAL document, in bold,
      addressed to the prompt author — and in a second document besides. It was carried into no prompt,
      and on 2026-09-08 the owner compared a build to the mockup and read absent records as a defect,
      which is the sequence it predicts verbatim. **Depth is not obscurity. Prompts get written from
