@@ -166,7 +166,7 @@ the colour bars, 134 the third tier, 115 counts and caps together.
 **If only one thing gets done, 143** — it is the long pole and unblocks the most. (This line read _166_ before that item was found already complete.)
 
 **Kickoffs written 2026-09-08 and ready to dispatch:**
-`platform-143-matchups-status-row-codex-v1.md` (UI spine) and
+`platform-143-matchups-status-row-codex-v3.md` (UI spine) and
 `platform-157-162-163-tag-vocabulary-claude-v2.md` (Platform, one prompt for all three per owner call).
 **`preview` is granted to 143**; the tag-vocabulary kickoff suspends the push-`preview` instruction for
 its branch, which is what preserves the single-writer condition.
@@ -1008,7 +1008,7 @@ the same problem.
 indicator, eyebrow tags and odds. **Split out of Item 117 on 2026-09-07** after the receipt gate found
 that none of the four fits an existing slot.
 
-**Kickoff:** [`docs/prompts/platform-143-matchups-status-row-codex-v1.md`](prompts/platform-143-matchups-status-row-codex-v1.md).
+**Kickoff:** [`docs/prompts/platform-143-matchups-status-row-codex-v3.md`](prompts/platform-143-matchups-status-row-codex-v3.md).
 
 > **THE TABLE BELOW IS STALE — re-verified against `main` at `0ab9b76d`, 2026-09-08, and TWO of the
 > four have moved.** **Odds on live/final is RESOLVED**: Item 155 replaced the `state === 'scheduled'`
@@ -1026,7 +1026,7 @@ re-deriving the requirement and hitting the same wall:
 | divergence | why it fits neither slot, verified on `main` |
 | --- | --- |
 | **eyebrow tags in the status row** | `contextSlot` renders in its own `div` ABOVE the header (`CompactGameScoreboard.tsx:121`), so tags there ADD A LINE — the exact defect the presentation doc says to avoid, now caused by the injection point rather than the markup |
-| **odds on live/final** | `footerSlot` is gated `state === 'scheduled'` (`:243`). Note `GameRow` renders NO odds text today, so this is new work, not preservation |
+| ~~**odds on live/final**~~ **NOT A DIVERGENCE — corrected 2026-09-08** | **This row was the origin of a wording that reached four documents.** It recorded a component GATE as a presentation REQUIREMENT. The mockup carries **no odds on live or final rows** (all six `sb-odds` elements sit in scheduled blocks), and the design document names no state. Item 155 removed the gate (`:245`, content-based). **The scheduled half is real and is Item 168.** |
 | **status pill** | the component owns `statusLabel`; Matchups' `SCH`/`LIVE`/`FINAL` cannot be injected |
 | **live indicator** | the component's is hardcoded; Matchups requires a neutral, freshness-gated pulse |
 
@@ -5512,67 +5512,84 @@ only lists divergences has not delivered the thing this item exists for.
 
 **Blocker:** none — the audit is observation. **Acting on the residue may block behind 143.**
 
-### Item 168 — `Close` has no game-state guard, and the watchlist is scheduled-only
+### Item 168 — Matchups renders no odds, and the mockup says scheduled rows carry them
 
-**Found by `/code-review` during PLATFORM-157-162-163.** `DESIGN.md` → the marker rules state
-_"'Close' applies to live and final games only. On a scheduled game it is a projection, not a fact."_
-`deriveGameHighlightTags` gates it on `margin != null && margin <= 7` with **no state check**, and
-`gameMargin` reads `item.score?.away.score`, which is `number | null`.
+**Split out of Item 143 on 2026-09-08**, after an implementer's read receipt stopped on the odds
+divergence and the ruling narrowed it. **This is the live half of widening 4**; the "live and final"
+half never existed (INDEX CARRY row 29, corrected).
 
-**The reachable path:** `gameStateFromScore` routes postponed, delayed and scheduled labels all to
-`'scheduled'`, which is exactly what the watchlist's `featuredCandidates` admits. So a scheduled or
-postponed row whose cached `ScorePack` carries numeric `0`/`0` takes a bronze `CLOSE` chip before
-kickoff — and 80 points of watchlist priority with it.
+**The ask:** render odds on **scheduled** Matchups rows, with `Line not posted` when there is no line.
 
-**The ask:** enumerate the states `close` applies to, per the design's own rule against defining
-behaviour by negation.
+**The data is already there.** `MatchupsWeekPanel` receives `oddsByKey` and reads it at `:158`; it
+simply never passes `footerSlot`. **The seam is open too** — Item 155 made the footer content-gated
+(`CompactGameScoreboard.tsx:245`), so any state may carry one. **This is caller work only.**
 
-**Pre-existing** — not introduced by 157/162/163, which is why it was reported rather than fixed
-there. That slice did rewrite the tag condition set and documented `close` as "needs a score margin"
-without adding the guard, so it is filed rather than left in a review comment.
+**The empty state is specified and is not a spacer.** The mockup renders `Line not posted` as
+CONTENT on rows with no line (`:409`, `:433`). That is deliberately different from Item 155's ruling,
+which removed a reserved empty BAND from Matchups: a vertical list has no peer to align with, so it
+does not reserve height — but every scheduled row carrying a real string means the rows are uniform
+because they all have content, not because one is padded. **Do not reintroduce a reserved band.**
 
-**NOT MEASURED.** Nobody has checked how many cached scheduled/postponed rows carry numeric scores.
-Do that first — the read-only rail answers it, and the count may decide the item.
+**Live and final rows carry no odds.** Measured: all six `sb-odds` elements in the mockup sit in
+scheduled blocks. Do not add them elsewhere.
 
-**Blocker:** none. **Small.**
+**Blocker:** none. Independent of Item 143 — that slice is the status-row seam and this needs no seam.
 
-### Item 169 — retiring the `vs <owner>` pill left the owner name inside a truncating span
+### Item 169 — `Close` can fire on a game that has not been played
 
-**Found by `/code-review` during PLATFORM-163, and it is a genuine cost of that retirement.** The
-justification for dropping the pill is that the shared scoreboard renders each team's owner inline on
-its own row. It does — but in `CompactGameScoreboard` the team name, the inline record and the owner
-suffix all sit inside **one** `min-w-0 truncate` span, with the owner **last**. On a narrow card with
-a long provider label and a record (`Southern Mississippi (3-4) Bob`), the owner is the first thing
-the ellipsis eats, and there is no longer a tier-2 fallback naming it. The retired pill was
-`shrink-0` in a wrapping row and could not be lost this way.
+**Reported from the 157/162/163 branch, 2026-09-08. Pre-existing, not caused by it.**
 
-**The ask:** decide whether the owner suffix needs its own shrink protection.
+`DESIGN.md:298`: _"Close" applies to live and final games only. On a scheduled game it is a
+projection, not a fact._ **`gameTags.ts` does not check state.** `gameMargin` (`:70`) reads
+`item.score?.away.score` and `item.score?.home.score` and returns their difference; the `close`
+branch (`:548`) fires on `margin != null && margin <= 7`.
 
-**Blocked on Item 143**, which owns the `CompactGameScoreboard` status-row seam in the Codex lane.
-PLATFORM-163's gate forbade touching that file, which is why this is a filed item and not a fix.
+**So a scheduled row carrying a cached `0-0` score pack yields margin 0, takes the chip, and takes 80
+points of `watchlistPriority`** — sorting an unplayed game up a six-card list.
 
-**Blocker:** Item 143.
+**The ask:** guard `close` on live-or-final, per the rule.
 
-### Item 170 — `rankedHighlight` now feeds nothing
+**Why it needs an item rather than a fix in passing:** it is a behaviour change on a shipped surface,
+and the reachability depends on whether a scheduled game can hold a score pack at all. **Establish
+that first** — if it cannot, this is a latent guard rather than a live defect, and the item should say
+which.
 
-**Found by `/code-review` during PLATFORM-157-162-163 and mutation-confirmed by the implementer.**
-Restoring one-ranked curation as `hasTop25RankedTeam` (70) made `item.isRankedSpotlight ? 70 : 0`
-dead in `watchlistPriority`: the spotlight implies a top-25 rank, which the new signal already scores
-70, so the term can no longer change the `Math.max`. Neutralising it to `? 0 : 0` leaves 122
-overview/section/panel tests green. Nothing renders `isRankedSpotlight`, so
-`deriveOverviewHighlightSignals`'s ~25-line `rankedHighlight` block and
-`OverviewHighlightSignals.rankedHighlightKey` now produce no output.
+**Blocker:** none.
 
-**The ask:** delete `rankedHighlight`, `rankedHighlightKey` and `isRankedSpotlight`, or keep them and
-say what consumes them.
+### Item 170 — the owner name has no fallback now that the `vs` pill is gone
 
-**Deliberately retained for now, recorded in the code rather than silently left** — `isRankedSpotlight`
-is still a TRUE and distinct fact (the one game the slate's ranked spotlight landed on), and the
-watchlist ordering tests use it to discriminate WHICH mechanism produced a result. Removing the block
-is a deletion with its own test surface and did not belong at the end of that branch.
+**Reported from the 157/162/163 branch, 2026-09-08 — a real cost of Item 163's retirement, correctly
+reported rather than fixed across a lane boundary.**
 
-**Blocker:** none. **Small**, and it is a deletion, so `npm run build` plus the selector suites are
-the gate.
+The opponent owner used to appear twice: inline on the team line, and in the tier-2 `vs <owner>` pill.
+Retiring the pill was right — it duplicated a name already on the row — but it also removed the
+fallback. **The owner now lives only inside a truncating span**, so on a narrow card it is the first
+element to ellipsize and nothing carries it.
+
+**The ask:** decide whether the owner suffix needs protection from truncation, and if so, give it some.
+
+**This belongs to Item 143's lane, not to a follow-up here.** The fix is in
+`CompactGameScoreboard.tsx`, which Item 143 currently owns; the branch that found it was gated out of
+that file and reported instead. **Fold it into 143 if that slice is still open when this is picked
+up.**
+
+**Blocker:** Item 143, by file ownership rather than by dependency.
+
+### Item 171 — a dead scoring term in the watchlist sort
+
+**Reported from the 157/162/163 branch, and proven by mutation rather than accepted on report:**
+neutralising `isRankedSpotlight ? 70 : 0` in `watchlistPriority` (`selectors/overview.ts`) leaves
+**122 tests green**, so the term never changes an outcome.
+
+**The ask:** delete `rankedHighlight` / `rankedHighlightKey` and the dead term, or record why they stay.
+
+**Left in place deliberately for now**, and the reason is worth keeping: `isRankedSpotlight` is still a
+**true, distinct fact** that the ordering tests use to discriminate WHICH mechanism produced a given
+result. Removing the fields outright is a separate deletion with its own test surface, and doing it
+inside a tag-vocabulary branch would have mixed two unrelated risks.
+
+**Blocker:** none. **Small**, but it is a deletion — enumerate what the fields do besides feed this
+term before removing them.
 
 ## Hosted deployment runbook
 

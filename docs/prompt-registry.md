@@ -88,7 +88,7 @@ Rules:
   measurements of one population sat in one file with nothing marking which was current; and
   `PrioritizedOverviewItem.hasRankedTeam` collided by name with `gameWeek.ts`'s UNBOUNDED
   `hasRankedTeam`, reintroducing by naming the divergence the item removed. All corrected in
-  `0d741e81`. Two reported and not fixed, now Items 168 and 169. **Measured, read-only replica,
+  `0d741e81`. Two reported and not fixed, now Items 169 and 170; the dead scoring term is Item 171. **Measured, read-only replica,
   2026-09-08:** 19 stored weeks, none with zero poll entries, 777 entries across ap/coaches/cfp, all
   integers, min 1 max 25 — so both bounds are latent, not live. Gates at `0d741e81`, each run
   separately: `npx tsc --noEmit` exit 0; `npm run lint:all` exit 0; `npm test` exit 1 with 4,979 of

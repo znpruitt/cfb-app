@@ -105,8 +105,13 @@ The design doc has said "suppressed on Schedule"; the mockup places spread/O/U/M
 
 > **HALF DISCHARGED (verified 2026-09-08):** the Schedule half shipped — `oddsSummary` renders inside the tier-2
 > `<details>` (`GameWeekPanel.tsx:182`, selector `gameWeek.ts:262`). The Matchups half did NOT: Item 117 shipped no
-> odds text, and the component's odds footer is gated to `scheduled` rows, so "inline on Matchups" for live and
-> final rows is one of the four Item 143 divergences. LIVE for Matchups.
+> odds text. **CORRECTED 2026-09-08 — the rest of this note was wrong and it propagated.** It read that because the
+> component's odds footer was gated to `scheduled` rows, "inline on Matchups" for **live and final** rows was an
+> Item 143 divergence. **That inferred a REQUIREMENT from a CODE CONSTRAINT.** The widening above names no state,
+> and the mockup names them: **all six `sb-odds` elements sit in SCHEDULED blocks — none on live, none on final** —
+> with `Line not posted` as the explicit empty case. The wrong sentence reached INDEX CARRY row 29 and then Item
+> 143's divergence table before an implementer's read receipt stopped on it. **LIVE for Matchups, scheduled rows
+> only — now Item 168.**
 
 ### 5. Amber `upset` card border — needs an explicit decision
 
@@ -252,6 +257,13 @@ That is a cleaner story than the earlier draft, which had three different collap
 > (odds sit in Schedule's tier 2; only the odds FOOTER is suppressed). "Identical across Overview, Matchups and
 > Schedule" is overridden by Item 143, which records four Matchups divergences the shared component cannot express
 > (status pill, live indicator, eyebrow placement, odds on live/final).
+>
+> **CORRECTED 2026-09-08 — that count of four is now TWO, and this was the FOURTH copy of the live/final
+> wording**, found by an implementer's read receipt after the other three were corrected. `odds on live/final`
+> was never a requirement — see the corrected note under widening 4; the mockup carries none on live or final,
+> and the scheduled half is **Item 168**. The live indicator is option-forwarding, not a divergence: `gameUi.ts`
+> already supports neutral hue and `pulse | static | none`. **The two live divergences are the eyebrow placement
+> and the status pill.**
 
 ---
 
