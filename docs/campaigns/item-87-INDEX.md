@@ -1,5 +1,24 @@
 # Item 87 — document index
 
+## CARRY THIS — copy into any Item 87 prompt before writing it
+
+**This block is first because the failure it fixes is positional.** The sequenced-dependency warning
+below sits in the canonical document, in bold, addressed to the prompt author by name — and in a
+second document besides. Both were ignored. **Prominence is not the variable; position relative to
+where prompt-writing actually reads from is.** Anything below the first screen may as well not exist.
+
+**Copy the LIVE rows verbatim into the prompt. Do not summarise them.**
+
+| # | state | obligation |
+| --- | --- | --- |
+| 1 | **LIVE** | A build with records absent or stale **will not match the mockup**, and a reviewer comparing them must read that as a **sequenced dependency, not a defect**. State this in the prompt. (`live-watchlist-scoreboard.md:236`, `records.md:42`) |
+| 2 | **LIVE** | Item 92 refreshes in the **live-scores cron**. Never hook `handleGamesFinalized` — a per-browser client callback, which inverts the cron-spends / client-reads split of PLATFORM-086B2B and PLATFORM-075. (`records.md:51`) |
+| 3 | DISCHARGED | Record the `CompactGameScoreboard` contract widenings before any consumer is built — **done**; classification, neutral-site, non-final broadcast and tier 2 are implemented and in `DESIGN.md`. Reported as a *stale claim* by a reviewer because nothing marked it complete. |
+| 4 | UNVERIFIED | Slice 5 records the border as deliberately retired, eyebrow pill carrying its emphasis forward. (`matchups-schedule-design.md:216`) |
+| 5 | UNVERIFIED | Record the component-family enforcement clause. (`live-watchlist-scoreboard.md:454`) |
+
+---
+
 > **Read this before any `item-87-*` document.** Fifteen documents accumulated across this campaign, each additive, none editing its predecessors. This index is the only place that records what overrides what.
 >
 > **Maintenance rule:** a new follow-on updates *this file only*. Per-document headers stay generic so that landing a document does not require editing every other one.
@@ -119,7 +138,15 @@ One line at the top of every `item-87-*` document. Generic by design — it does
 
 ---
 
-## Obligations promoted out of the documents — read this section before writing any Item 87 prompt
+## What went wrong, recorded once
+
+Every document here was written additively, on the reasoning that editing a committed document loses history. That reasoning is sound and the conclusion drawn from it was not: history is preserved by *marking* what a document no longer governs, not by leaving it silent.
+
+The cost was not abstract. Three wrong statements came out of this set in two days — a records/broadcast/odds list, the card-owner treatment, and the column count — and the second of those reached shipped code.
+
+---
+
+## Why the block at the top exists — the three failure modes
 
 **Why these are here.** Owner diagnosis 2026-09-08: a document can fail two ways, and supersession
 marks only fix one. **STALENESS** is a claim that stopped being true — marks fix it. **DEPTH** is a
@@ -144,11 +171,3 @@ re-litigated.
 **Obligation 1 is the one with a cost already paid.** It is not obscure — it sits in the campaign's
 canonical document, in bold, addressed to the prompt author by name. Depth is not about obscurity; it
 is about the fact that prompts get written from the top of a file.
-
----
-
-## What went wrong, recorded once
-
-Every document here was written additively, on the reasoning that editing a committed document loses history. That reasoning is sound and the conclusion drawn from it was not: history is preserved by *marking* what a document no longer governs, not by leaving it silent.
-
-The cost was not abstract. Three wrong statements came out of this set in two days — a records/broadcast/odds list, the card-owner treatment, and the column count — and the second of those reached shipped code.

@@ -107,7 +107,20 @@ Every generated prompt begins with:
 PROMPT_ID: <CAMPAIGN>-<###>-<SHORT_NAME>-v<version>
 PURPOSE: <1–2 sentences>
 SCOPE: <files/modules + constraints>
+CARRIES: <every LIVE obligation from the campaign index, verbatim — or NONE, having checked>
 ```
+
+**`CARRIES:` is required and `NONE` is a claim, not a default.** Added 2026-09-08. A campaign index's
+obligations are useless if the prompt author never scrolls to them, and that is not hypothetical: the
+Item 87 sequenced-dependency warning sits in the canonical document, in bold, addressed to the prompt
+author by name, **and in a second document besides** — and was carried into no prompt. The owner then
+compared a build to the mockup and read absent records as a defect, which is the sequence it predicts
+verbatim.
+
+**Prominence is not the variable. Position relative to where prompt-writing reads from is.** A header
+field is the only place that cannot be scrolled past, because its absence is visible in the artifact
+and the read receipt can ask about it. Copy the obligations **verbatim** — a paraphrase is a second
+lossy copy and the implementer cannot tell it from the original.
 
 Campaign prefixes: `INSIGHTS`, `DRAFT`, `PLATFORM`, `POLISH`, `DOCS`. Split work may use a lettered
 sub-sequence (`PLATFORM-079a`/`079b`). Existing `P{n}` IDs are grandfathered — do not renumber.
