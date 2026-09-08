@@ -58,6 +58,8 @@ Fixed. A row missing a broadcast has a shorter left side, not a differently orde
 
 **Broadcast** appears on scheduled and live rows. A completed game's broadcast is dead information.
 
+**No qualifier prefix.** `Streaming · ACC Extra` becomes `ACC Extra` — the prefix does not help a reader who does not recognise the name and is redundant for one who does. It is also inconsistent, since FOX and ESPN2 carry no equivalent, so the label appears only when the answer is less familiar. It is the longest metadata string on the surface and the first to truncate.
+
 ### Mobile: the row wraps below one column
 
 The single-line contract is **scoped to multi-column layouts**, not absolute. It exists to stop a wrapping header desynchronising team rows across a grid row; at one column there is no adjacent card to desynchronise from, so the reason does not apply.
@@ -72,9 +74,11 @@ It matters on phones. At 375–430px portrait, minus page and block padding, a r
 
 `#dbc190` text, `rgba(201,166,107,0.40)` border at 0.5px, 10px, `0.08em` tracking.
 
-**Bronze, not blue.** `DESIGN.md:153` (re-derived 2026-09-08) forbids blue for "featured" or "important", and a tag means exactly that — the shipped blue was non-compliant, so bronze is a correction rather than a preference.
+**Bronze, not blue.** `DESIGN.md:153` forbids blue for "featured" or "important", and a tag means exactly that — the shipped blue was non-compliant, so bronze is a correction rather than a preference.
 
-**Bronze does not collide with champion amber**, because the champion treatment does not render until a title is awarded — podium cards for #1–#3 are neutral all season. At season end the two remain distinguishable as a desaturated tan against a dark saturated gold. **Known limitation:** their luminance separation is **2.13:1** — pill text `#dbc190` against champion `#BA7517`, recomputed 2026-09-08 — so they differ by hue and saturation more than by luminance. *Corrected: this section previously stated 1.32:1, which is the pill BORDER against the pill TEXT, an internal pair no reader compares. The conclusion is unchanged, which is exactly why three readers passed over the wrong number (`AGENTS.md` → a stated figure must reproduce).*
+**Bronze does not collide with champion amber**, because the champion treatment does not render until a title is awarded — podium cards for #1–#3 are neutral all season. At season end the two remain distinguishable as a desaturated tan against a dark saturated gold. **Known limitation:** bronze pill text against champion amber measures **2.13:1**, so the pair is distinguishable but not strongly. Recorded rather than argued away.
+
+*An earlier draft of this document cited 1.32:1 here. That figure is real but measures the pill **border** against the pill **text** — a pair nobody reads across. It is the third non-reproducing figure in this campaign, and like the other two the conclusion it supported was sound, which is precisely why nobody rechecked it.*
 
 **One treatment, no per-class variation.** An earlier draft gave outcome tags a pill and selection tags plain text, reasoning that they are different classes. The distinction is real but **undecodable** — a reader cannot learn "pill means outcome" from looking. Rejected.
 
@@ -97,17 +101,11 @@ An outcome tag cannot render on a game that has not been played. An implementati
 
 ### Cap
 
-Two. Three pills crowd the metadata out entirely at column width even without wrapping. `prioritizeGameTags` chooses which survive.
+Two. Three pills crowd the metadata out entirely at column width even without wrapping — the tag slot is `flex: none`, so at three tags the metadata absorbs the whole squeeze and ellipses to nothing.
 
-> **UNRESOLVED — three sources disagree, surfaced 2026-09-08 by consolidating them here, and this
-> document is NOT the place it gets settled.** `item-87-followon-recap-scoreboard.md:29` states the cap
-> of two and is what this section carries. **`DESIGN.md:293` states the opposite** — *"Chips are not
-> capped. As many as are true — several ranked matchups on one slate all carry the chip."* **And the
-> code implements neither:** `prioritizeGameTags` (`gameTags.ts:644`) dedupes and orders by priority,
-> returning `primary` plus **all** `secondary`; the only thing resembling a limit is Matchups hiding
-> secondary tags below the `sm` breakpoint, which is responsive behaviour rather than a cap.
-> **`DESIGN.md` is canonical for UI, so as written it wins — but the cap is the later and more specific
-> decision, with a stated reason.** Needs an owner ruling; filed as **Item 165**.
+**The selector applies the cap, not the renderer** (`DESIGN.md:293`, amended). A render-time truncation of a list the selector still builds in full leaves the cap invisible to anything testing the selector. `prioritizeGameTags` chooses which two survive.
+
+**Item 166 owns adding it, and is ordered ahead of the tag retirements** — after those land, real data may never again produce three qualifying tags, and the test fixture becomes artificial. Its acceptance criterion is a game carrying three qualifying tags, not "the cap is applied".
 
 ---
 
@@ -361,6 +359,10 @@ Groups run in calendar order, which interleaves: first round, then non-CFP bowls
 **CFP group membership is `playoffCompetition === 'cfp'`** — a positive test on provider data. A round that fails to parse loses its subgroup, not its bracket, and cannot fall into non-CFP Bowls even by accident.
 
 **Reuse `deriveFeaturedGameBadge`** for round labels rather than re-deriving them. It returns `null` for non-CFP bowls, which independently confirms the bowl name belongs in the row eyebrow rather than as a round badge.
+
+**Identity collision — Item 121.** All four CFP first-round games share `eventKey: "cfp-first-round"`, and therefore one `eventId`. The key composes `cfp-${round}` and appends a bowl name; first-round games are campus-hosted and have none. `eventId` is also the React list key and the operator label-override key, so four identical keys land in one list.
+
+The fix is not adding a team id to the composed key. `eventKey` is doing two jobs — naming a bracket **slot** before teams are known, and identifying a **resolved** game after. `cfp-first-round` is a correct slot name; the defect is resolved games inheriting it. Prefer `providerGameId` once a real game exists, keep the round key for the TBD slot. That fix changes a game's key mid-lifecycle, so anything holding the old key across resolution must survive or migrate it.
 
 **Typing trap:** `schedule.ts` omits `'first-round'` from the named union while the wire type includes it. The value survives at runtime through the `| string` arm, so a grouping `switch` written against the named union silently drops all four first-round games — and a test suite generated from that union would pass.
 

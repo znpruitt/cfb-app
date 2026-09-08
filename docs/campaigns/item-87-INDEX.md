@@ -286,6 +286,27 @@ wrapping rule is RECONCILED** — owner ruling recorded as an amendment in `DESI
 tagged scheduled rows at phone width — and the **1320px arithmetic does not reproduce** (Item 152; no number chosen
 here). Everything decided here is unbuilt on Matchups (Item 143).
 
+**`item-87-reference-overview-composition.md`** (112 lines, new 2026-09-08) — **CURRENT — REFERENCE, not input;
+§7 is PROPOSED SCOPE, NOT FINDINGS**
+Overview at the PAGE level only: section order and why it is static rather than conditional, one-game-one-place with
+Featured as the exception that proves it, the elevated timely-content zone, progressive disclosure and its two
+controls, the recap tile's two states.
+
+**Deliberately not an element-by-element Overview reference.** Those elements are the game row, already covered by
+`reference-game-row.md`; duplicating them would produce two documents saying the same thing and drifting apart —
+**the exact failure this INDEX exists to prevent.** Standings and the insights feed are named as out of scope so a
+reader knows they were EXCLUDED rather than forgotten.
+
+**§7 is an audit brief that has NOT been run.** Eleven checks, seven at row level and four at page level. Do not
+read it as a defect list. **Its stated value is the residue:** most divergences will map to Items 115, 119, 134,
+143, 157 or 162 and belong recorded against those, so what matters is anything mapping to NOTHING — that is a
+back-application gap of unknown size, and the reason to run it rather than assume the watchlist was the only
+casualty. Filed as **Item 167**.
+
+**Verified on intake, 2026-09-08.** §6's recap cutoffs reproduce in code: `weeklyRecapFacts.ts:327` states the
+window as `[next-day 06:00 ET, Thursday 06:00 ET)` and `:155` identifies the daily 06:00 ET boundary — calendar-only,
+as described.
+
 **`item-87-reference-game-row.md`** (374 lines, new 2026-09-08) — **CURRENT — REFERENCE, not input**
 The shared game row consolidated element by element: sixteen sections across all four consumers, plus Featured
 and postseason. **It adds nothing new and is not a source of decisions.** Everything in it is recorded elsewhere

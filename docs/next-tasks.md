@@ -5414,6 +5414,29 @@ from the cases that happen to be available passes while the actual case goes unt
 
 **Blocker:** none. **Small** — a slice in the selector plus that test. **Ordered ahead of 157 and 162.**
 
+### Item 167 — audit Overview's other sections against the row reference
+
+**Design:** `item-87-reference-overview-composition.md` §7, which is the brief. **Eleven checks**, seven at
+row level and four at page level. **That section has not been run** — it is proposed scope, not findings.
+
+**The ask:** run the audit across **Live, Recent finals, Featured and the watchlist**.
+
+**Why, and it is not "more documentation".** The watchlist's six divergences (Item 160) all came from ONE
+omission — decisions made during the Schedule and Matchups work were recorded as Schedule decisions and never
+applied back. **If back-application missed the watchlist, it plausibly missed the other sections, and nobody
+has looked.** This determines whether more work is needed at all.
+
+**THE VALUE IS THE RESIDUE — owner, and it governs how findings are handled.** Most divergences should
+already be attributable to a filed item: **115** counts and caps, **119** colour bars, **134** the third
+tier, **143** the tag seam, **157** and **162** tag vocabulary. **Those get recorded against those items,
+not filed again.** What matters is **anything that maps to no item** — that is a genuine back-application
+gap, and its size is currently unknown.
+
+**Report the mapping explicitly**, item by item, including the count that mapped to nothing. A report that
+only lists divergences has not delivered the thing this item exists for.
+
+**Blocker:** none — the audit is observation. **Acting on the residue may block behind 143.**
+
 ## Hosted deployment runbook
 
 Use `docs/deployment-runbook.md` for hosted environment setup, activation, production observations,
