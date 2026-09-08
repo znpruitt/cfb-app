@@ -86,7 +86,16 @@ export function isStoredUpstreamFaultClass(value: unknown): boolean {
   const record = value as Record<string, unknown>;
   if (typeof record.kind !== 'string' || !UPSTREAM_FAULT_KIND_VALUES.has(record.kind)) return false;
   // Absent is accepted (a writer that only ever recorded non-HTTP faults may
-  // omit it); present-but-unusable rejects, matching every other stored field.
+  // omit it); a present-but-unusable status on an `http` fault rejects, matching
+  // every other stored field.
+  //
+  // For every OTHER kind the status is ignored rather than rejected: the rebuild
+  // discards it unconditionally, so it can never be rendered, while rejecting
+  // would fail the whole receipt — the job then reports as having no recent
+  // invocation and loses `reason`, `target` and both timestamps. That is the
+  // disproportionate-rejection cost already documented at the `buildCommitSha`
+  // guard, paid for a value nothing could ever read. (Review finding.)
+  if (record.kind !== 'http') return true;
   if (record.status === undefined || record.status === null) return true;
   return isHttpStatus(record.status);
 }

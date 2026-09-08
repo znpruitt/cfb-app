@@ -469,3 +469,28 @@ test('a widened receipt written by a NEW build survives a round trip through the
   assert.ok(reread);
   assert.deepEqual(reread.value.target, written, 'no field is lost or reshaped by the round trip');
 });
+
+// ── Pre-provider exits never fabricate attempted partitions ─────────────────
+
+test('a MISSING CFBD key records no attempted partitions — the receipt cannot claim a call it never made', async () => {
+  // Regression test. Before the review fix the authority filled
+  // `attemptedSeasonTypes` at function entry, so this exit wrote
+  // `providerCallAttempted: false` beside `attemptedSeasonTypes:
+  // ['regular','postseason']` — a self-contradicting durable row, in the record
+  // this item exists to make trustworthy. Verified failing against the pre-fix
+  // authority (the assertion below read `['regular','postseason']`).
+  await seedYear(2031);
+  delete MUTABLE_ENV.CFBD_API_KEY;
+
+  const target = await storedTarget();
+  const year = target.years[0]!;
+  assert.equal(year.result, 'failure');
+  assert.equal(year.reason, 'cfbd-api-key-missing');
+  assert.equal(year.providerCallAttempted, false, 'no provider request was made');
+  assert.deepEqual(year.attemptedSeasonTypes, [], 'and none is claimed');
+  assert.deepEqual(year.failedPartitions, [], 'nothing failed at the partition level');
+  // POSITIVE CONTROL for the observer: the same harness DOES record both
+  // partitions on a run that genuinely reached the provider (the mixed-pair and
+  // class tests above), so an empty list here is the code's answer, not the
+  // harness failing to look.
+});

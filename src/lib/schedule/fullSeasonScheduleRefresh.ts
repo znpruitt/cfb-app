@@ -262,7 +262,15 @@ export async function refreshFullSeasonSchedule(params: {
 }): Promise<FullSeasonScheduleRefreshResult> {
   const { year } = params;
   const now = params.now ?? Date.now();
-  const attemptedSeasonTypes = [...FULL_SEASON_SEASON_TYPES];
+  // PLATFORM-126B review — populated ONLY when the provider-fetch stage actually
+  // begins (alongside `providerCallAttempted`), so a pre-fetch exit — missing
+  // credentials, or any throw before the fetch pair such as a failing
+  // `loadScheduleDisappearanceFallback` — never fabricates attempted partitions.
+  // Both exits previously returned the eagerly-filled list beside
+  // `providerCallAttempted: false`, contradicting this field's own contract; the
+  // rankings authority already did it this way. All three reviewers found it,
+  // and this branch is what made it DURABLE.
+  let attemptedSeasonTypes: SeasonType[] = [];
 
   // Step 1 — fail fast if the prior durable schedule state cannot be read. A read
   // outage means we cannot safely classify empty responses or order observations,
@@ -342,6 +350,7 @@ export async function refreshFullSeasonSchedule(params: {
     // Step 5-7 — fetch both partitions with bounded concurrency (the shared CFBD
     // pacing key still serializes the two requests) and apply the completeness gate.
     providerCallAttempted = true;
+    attemptedSeasonTypes = [...FULL_SEASON_SEASON_TYPES];
     const outcomes = await Promise.all(
       FULL_SEASON_SEASON_TYPES.map((seasonType) =>
         fetchFullSeasonSchedulePartition({ year, seasonType, apiKey })

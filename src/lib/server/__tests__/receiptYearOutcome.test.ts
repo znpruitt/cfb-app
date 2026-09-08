@@ -17,6 +17,7 @@ import {
   scheduleYearsTarget,
   type SchedulerExecutionReceipt,
   type SchedulerFailedPartition,
+  YEAR_REASON_PATTERN,
 } from '../schedulerExecutionStatus.ts';
 import { formatYearFailureEvidence } from '../schedulerYearEvidence.ts';
 import {
@@ -454,6 +455,29 @@ test('the rankings target carries the same widened shape as the schedule target'
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 
+/** Comments carry apostrophes and semicolons that would truncate or poison extraction. */
+function stripComments(source: string): string {
+  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+}
+
+/**
+ * The literal members of an INLINE field union inside a type declaration — e.g.
+ * `ScheduleRefreshCronYearExecution['reason']`, which is the union the schedule
+ * receipt actually persists and which is declared nowhere else.
+ */
+function inlineFieldUnionMembers(relativePath: string, typeName: string, field: string): string[] {
+  const source = stripComments(readFileSync(path.join(REPO_ROOT, relativePath), 'utf8'));
+  const typeStart = source.indexOf(`export type ${typeName} =`);
+  assert.ok(typeStart >= 0, `${typeName} is declared in ${relativePath}`);
+  const fieldStart = source.indexOf(`${field}:`, typeStart);
+  assert.ok(fieldStart > typeStart, `${typeName}.${field} exists`);
+  const end = source.indexOf(';', fieldStart);
+  assert.ok(end > fieldStart, `${typeName}.${field} terminates`);
+  const members = [...source.slice(fieldStart, end).matchAll(/'([^']+)'/g)].map((m) => m[1]!);
+  assert.ok(members.length > 0, `${typeName}.${field} has literal members`);
+  return members;
+}
+
 /**
  * The literal members of one exported string union, read from its source.
  *
@@ -463,9 +487,7 @@ const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..
  * a passing pin over three members instead of forty.
  */
 function unionMembers(relativePath: string, typeName: string): string[] {
-  const source = readFileSync(path.join(REPO_ROOT, relativePath), 'utf8')
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/\/\/[^\n]*/g, '');
+  const source = stripComments(readFileSync(path.join(REPO_ROOT, relativePath), 'utf8'));
   const start = source.indexOf(`export type ${typeName} =`);
   assert.ok(start >= 0, `${typeName} is declared in ${relativePath}`);
   const end = source.indexOf(';', start);
@@ -487,11 +509,23 @@ function unionMembers(relativePath: string, typeName: string): string[] {
  * same thing here — and would look completely harmless in its own diff.
  */
 test('STRUCTURAL PIN: every per-year reason both jobs can produce is a storable token', () => {
-  const pattern = /^[a-z][a-z0-9-]{0,63}$/;
+  // IMPORTED, not re-declared: a re-declared copy would keep passing if the
+  // parser's own pattern were tightened, which is precisely the drift this pin
+  // exists to catch. (Review finding.)
+  const pattern = YEAR_REASON_PATTERN;
   const reasons = [
     ...unionMembers(
       'src/lib/schedule/fullSeasonScheduleRefreshResult.ts',
       'FullSeasonScheduleRefreshReason'
+    ),
+    // The PERSISTED schedule per-year union is inline on the year-entry type —
+    // NOT the run-level `ScheduleRefreshCronExecutionReason` this test used to
+    // scan, which omits the year-only member `score-sweep-failed`. The pin was
+    // silently narrower than its own name. (Review finding, both reviewers.)
+    ...inlineFieldUnionMembers(
+      'src/lib/schedule/cronExecutionLog.ts',
+      'ScheduleRefreshCronYearExecution',
+      'reason'
     ),
     ...unionMembers('src/lib/schedule/cronExecutionLog.ts', 'ScheduleRefreshCronExecutionReason'),
     ...unionMembers('src/lib/rankings/refreshResult.ts', 'RankingsRefreshReason'),

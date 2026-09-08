@@ -999,7 +999,7 @@ function rebuildYearOutcome<Reason extends string>(entry: {
  * other shape an error message, URL, or payload fragment would take. This is
  * STRICTER than the top-level field, which accepts any nonempty string.
  */
-const YEAR_REASON_PATTERN = /^[a-z][a-z0-9-]{0,63}$/;
+export const YEAR_REASON_PATTERN = /^[a-z][a-z0-9-]{0,63}$/;
 
 /** Validate one stored per-year outcome. Absent is legacy; present-but-bad rejects. */
 function isValidStoredYearOutcome(row: Record<string, unknown>): boolean {

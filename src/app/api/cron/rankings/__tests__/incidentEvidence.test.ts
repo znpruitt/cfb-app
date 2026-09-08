@@ -371,3 +371,55 @@ test('a rankings receipt stored in the PRE-widening shape still parses and rende
     'a legacy receipt is byte-identical on the System Health surface'
   );
 });
+
+// ── The response body is a separate contract from the receipt ───────────────
+
+test('the response body per-year keys are byte-preserved — the retained class is receipt-only', async (t) => {
+  // Regression test. `years: exec.years` was returned verbatim, so widening the
+  // shared year-entry type silently added `failedPartitions` to the QStash
+  // response — contradicting this slice's own invariant in
+  // `/api/schedule/route.ts` and unpinned by anything, which is exactly why it
+  // shipped. Nothing pinned the RESPONSE body; the log-event keys were pinned
+  // and passed. Verified failing against the pre-fix route.
+  t.mock.timers.enable({ apis: ['Date'], now: SLOT_WEEKLY_MS });
+  await seedLeague(YEAR);
+  await seedSchedule(YEAR, FIRST_KICKOFF);
+  stubProvider({ postseason: { kind: 'throw', error: upstreamThrow('timeout') } });
+
+  const res = await GET(request());
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { years: Array<Record<string, unknown>> };
+  assert.equal(body.years.length, 1);
+  assert.deepEqual(
+    Object.keys(body.years[0]!).sort(),
+    [
+      'attemptedSeasonTypes',
+      'dataChanged',
+      'lifecycle',
+      'providerCallAttempted',
+      'publicationKey',
+      'publicationWindow',
+      'quotaChecked',
+      'quotaRemaining',
+      'reason',
+      'result',
+      'rowsCommitted',
+      'rowsReceived',
+      'year',
+    ],
+    'exactly the pre-126B key set — no failedPartitions'
+  );
+  assert.ok(
+    !JSON.stringify(body).includes('failedPartitions'),
+    'the retained class does not reach the delivery response'
+  );
+
+  // POSITIVE CONTROL — the same run DID record it durably, so the absence above
+  // is the projector working, not the evidence going missing.
+  await deferrer.flush();
+  const stored = await readSchedulerReceipt('rankings');
+  assert.ok(stored);
+  assert.deepEqual((stored.value.target as RankingsYearsTarget).years[0]!.failedPartitions, [
+    { seasonType: 'postseason', upstream: { kind: 'timeout', status: null } },
+  ]);
+});

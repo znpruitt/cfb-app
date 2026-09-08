@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { UpstreamFetchError, type UpstreamErrorKind } from '../fetchUpstream.ts';
 import {
@@ -28,18 +31,37 @@ function upstreamError(kind: UpstreamErrorKind, status?: number): UpstreamFetchE
   });
 }
 
-test('the closed class mirrors UpstreamErrorKind exactly — five members, not four', () => {
+test('the closed class mirrors UpstreamErrorKind exactly — read from the AUTHORITY, not a copy', () => {
   // The item's prose named four and omitted `aborted`. `fetchUpstream.ts` is the
   // authority and says five; collapsing `aborted` onto `network` is exactly the
   // lossy mapping this work removes (owner ruling, 2026-09-07).
-  assert.deepEqual([...UPSTREAM_FAULT_KINDS].sort(), [
-    'aborted',
-    'http',
-    'network',
-    'parse',
-    'timeout',
-  ]);
-  assert.equal(UPSTREAM_FAULT_KINDS.length, 5);
+  //
+  // This used to compare two independently hard-coded lists, which proved nothing
+  // in the direction that matters: a SIXTH kind added to `UpstreamErrorKind` would
+  // have left it green while `classifyUpstreamFault` silently returned `null` for
+  // that kind, quietly losing exactly the evidence this item adds. The expected
+  // set is now read from the source union. (Review finding.)
+  const source = readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), '../fetchUpstream.ts'),
+    'utf8'
+  );
+  const declaration = /export type UpstreamErrorKind =([^;]+);/.exec(source);
+  assert.ok(declaration, 'UpstreamErrorKind is declared in fetchUpstream.ts');
+  const authority = [...declaration[1]!.matchAll(/'([^']+)'/g)].map((match) => match[1]!);
+  assert.ok(authority.length > 0, 'the scan found its members');
+
+  assert.deepEqual(
+    [...UPSTREAM_FAULT_KINDS].sort(),
+    [...authority].sort(),
+    'the closed class and the upstream authority name exactly the same kinds'
+  );
+  // And every one of them actually classifies — parity of names is not parity of
+  // behaviour if the classifier drops one.
+  for (const kind of authority) {
+    const classified = classifyUpstreamFault(upstreamError(kind as UpstreamErrorKind));
+    assert.ok(classified, `${kind} is classifiable, not silently null`);
+    assert.equal(classified.kind, kind);
+  }
 });
 
 test('every one of the five kinds classifies to itself', () => {

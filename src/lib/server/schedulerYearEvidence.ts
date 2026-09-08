@@ -25,7 +25,10 @@ export function formatYearFailureEvidence(entry: {
         ? partition.seasonType
         : `${partition.seasonType} ${upstreamFaultLabel(partition.upstream)}`
     )
-    .join(', ');
+    // ' · ', not ', ': `summarizeReceiptTarget` joins YEARS with ', ', so a comma
+    // here made two failing years' evidence run together with no way to tell
+    // where one ended. '·' is already this surface's atom separator. (Review finding.)
+    .join(' · ');
   const reason = entry.reason === null ? entry.result : `${entry.result} / ${entry.reason}`;
   return partitions.length > 0 ? `${reason} · ${partitions}` : reason;
 }
