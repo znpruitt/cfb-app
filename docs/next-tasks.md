@@ -1043,6 +1043,48 @@ distinct from **Item 142**.
 **Blocker:** none. Whether this rides with 143's presentation pass or ships alone is a sequencing
 call, not a dependency.
 
+### Item 151 — `buildCfbdGamesUrl`'s `division` parameter is inert; CFBD ignores it
+
+**The ask:** `buildCfbdGamesUrl` sends `division`, which CFBD silently ignores. The working parameter
+is `classification`. Fix the name, or delete the parameter.
+
+**Measured against the live API 2026-09-08**, `/games?year=2026&seasonType=regular&week=1`:
+
+| call | returned | verdict |
+| --- | --- | --- |
+| `&division=fbs` | **456 games** — 110 iii-vs-iii, 109 ii-vs-ii, 73 fcs-vs-fcs, 51 fbs-vs-fbs, 48 fbs-vs-fcs | **identical to unfiltered — ignored** |
+| `&classification=fbs` | **99 games** — 51 fbs-vs-fbs, 48 fbs-vs-fcs | works, either-participant |
+
+**The surface:** `cfbd.ts:7` types `division?: 'fbs' | 'fcs'`; `:15-16` sets it on the URL. The
+**scoreboard** builder thirty lines below at `:62` uses `classification` **correctly**, so the right
+name was known in the same file.
+
+**Why nothing caught it — three reasons, and the third is the interesting one.**
+
+1. **No caller supplies it.** All three call sites omit it
+   (`api/schedule/route.ts:325`, `api/scores/route.ts:399`,
+   `api/admin/cache-historical-scores/route.ts:50`), so the code path has never run in production.
+2. **It is a silent no-op, not an error.** CFBD returns 200 with the full population. A caller would
+   get every division back and nothing would indicate the filter had not applied.
+3. **A test exists and CANNOT catch it.** `cfbd.test.ts:7` — _"CFBD games URL builder does not include
+   division by default"_ — asserts `searchParams.get('division') === null`. **A URL-builder test
+   asserts what we SEND, never what the provider HONOURS.** A test written the other way, asserting
+   the URL carries `division=fbs`, would pass just as confidently while the parameter did nothing. The
+   defect is unfalsifiable from inside the suite by construction.
+
+**Filed separately from Item 150 deliberately.** 150 is a scoping change with two datasets and its own
+stop-and-report conditions; this is a two-character-class bug in a shared builder that predates it and
+would outlive it. Bundling would hide a defect inside a feature.
+
+**Decide which fix.** Renaming to `classification` makes the parameter work and is what Item 150
+needs. Deleting it is also defensible — an unused parameter that has never worked is not a capability.
+**Do not leave both a working `classification` and a dead `division`.**
+
+**Verify by the response, not by the URL.** Whatever the fix, the test that proves it must assert on
+what comes back for a known week — 99 versus 456 — or it repeats the failure that let this sit.
+
+**Blocker:** none, but Item 150 depends on it and should not re-derive it.
+
 ### Item 150 — stop ingesting D-II/D-III: schedule fetch filter and records prune
 
 **The ask:** implement Item 149's ruling. Two datasets, two mechanisms, one place each.
