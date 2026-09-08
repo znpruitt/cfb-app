@@ -1614,7 +1614,8 @@ test('schedule cards use primary tag priority (upset watch over top-25) with sub
 
   assert.match(html, /data-primary-tag="upset_watch"/);
   assert.match(html, /Upset watch/);
-  assert.match(html, /Top 25/);
+  assert.match(html, /data-eyebrow-tag[^>]*>Top 25 Matchup<\/span>/);
+  assert.doesNotMatch(html, /data-eyebrow-tag[^>]*>Top 25<\/span>/);
   assert.equal(bronzeEyebrows(html).length, 2);
 });
 
@@ -1639,7 +1640,8 @@ test('single-tag cards render only a primary tag without any secondary tag chips
   );
 
   assert.match(html, /data-primary-tag="top_25_matchup"/);
-  assert.match(html, /Top 25/);
+  assert.match(html, /data-eyebrow-tag[^>]*>Top 25 Matchup<\/span>/);
+  assert.doesNotMatch(html, /data-eyebrow-tag[^>]*>Top 25<\/span>/);
   assert.equal(bronzeEyebrows(html).length, 1);
 });
 

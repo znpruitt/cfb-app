@@ -15,7 +15,7 @@ export type Insight = {
 };
 
 export type GameHighlightTag = {
-  id: 'top25' | 'contenderWatch' | 'close' | 'ranked';
+  id: 'top25' | 'close';
   text: string;
   priority: number;
 };
@@ -35,6 +35,20 @@ type LeagueInsightsInput = {
 };
 
 const TOP_INSIGHT_LIMIT = 3;
+// `DESIGN.md:293` caps chips at two, and the cap must live in the selector rather
+// than the renderer. It is a FORWARD GUARD as of PLATFORM-157-162-163: retiring
+// `ranked` and `contenderWatch` left `deriveGameHighlightTags` producing at most
+// `top25` and `close`, so the `.slice()` below can no longer bind on any input.
+// Do not delete it — `DESIGN.md:293` requires the cap, and an implementation
+// removed because it is currently unreachable would leave that canonical rule
+// with nothing behind it.
+//
+// Precisely what would make it bind again: a third tag that can CO-FIRE with the
+// two survivors on one game. `top25` needs two ranks and `close` needs a score
+// margin, which are independent, so they already reach two together — a third tag
+// on a further independent axis is what crosses the cap. A third tag that is
+// mutually exclusive with either survivor would leave it unreachable, so "any new
+// tag hits this" would be the wrong thing to conclude.
 const TOP_BADGE_LIMIT = 2;
 type OwnerMovementDelta = {
   owner: string;
@@ -327,7 +341,6 @@ export function deriveOverviewHighlightSignals(params: {
       )
     )
     .map((item) => {
-      const { awayRank, homeRank } = rankingPairForItem(item, rankingsByTeamId);
       const margin = gameMargin(item);
       const ownedVsOwned = Boolean(
         item.bucket.awayOwner &&
@@ -336,8 +349,10 @@ export function deriveOverviewHighlightSignals(params: {
       );
       const closeGame = margin != null && margin <= 7;
       const isLive = gameStateFromScore(item.score) === 'inprogress';
-      const rankedBonus =
-        awayRank != null && homeRank != null ? 2 : awayRank != null || homeRank != null ? 1 : 0;
+      // Same bound as the tag and the watchlist sort key. Before 2026-09-08 this
+      // counted any non-null rank, so an out-of-range poll value could win the
+      // game-of-the-slate tiebreak on a game carrying no chip to explain it.
+      const rankedBonus = top25RanksForItem({ item, rankingsByTeamId }).length;
 
       return {
         item,
@@ -389,8 +404,10 @@ export function deriveOverviewHighlightSignals(params: {
 
   const rankedHighlight = displayedItems
     .map((item) => {
-      const { awayRank, homeRank } = rankingPairForItem(item, rankingsByTeamId);
-      const ranks = [awayRank, homeRank].filter((rank): rank is number => rank != null);
+      // Bounded identically: the spotlight must not land on a game whose only
+      // "rank" is outside the top 25, which would give it priority 70 on the
+      // watchlist while rendering no chip saying why it is there.
+      const ranks = top25RanksForItem({ item, rankingsByTeamId });
       if (ranks.length === 0) return null;
       const bestRank = Math.min(...ranks);
       const hasTwoRanked = ranks.length === 2;
@@ -413,36 +430,118 @@ export function deriveOverviewHighlightSignals(params: {
   };
 }
 
+/**
+ * The participants' ranks, keeping only those INSIDE the top 25.
+ *
+ * Every TOP-25 MEMBERSHIP decision reads through here, so that bound is stated once:
+ * `top25MatchupAverageRank` (both sides), `hasTop25RankedTeam` (either side),
+ * `rankedHighlight` and `gameOfSlate`'s `rankedBonus`. Four callers, four different
+ * claims, one notion of "ranked".
+ *
+ * **It does NOT cover every rank read in this file, and the difference is
+ * deliberate.** `upsetWatch`, `isRankUpset` and `rankingTension` read raw ranks
+ * through `rankingPairForItem`, because they ask which side is FAVOURED — a
+ * RELATIVE question, where a rank outside the top 25 still orders two teams
+ * correctly, and where discarding it would silently turn a ranked-vs-unranked game
+ * into an unranked one. Membership is bounded; relative strength is not. An earlier
+ * version of this comment claimed the bound covered the whole file, which was false
+ * — recorded because a comment overstating its code is the failure this campaign
+ * keeps shipping.
+ *
+ * The consequence of that split, stated so it is not rediscovered as a surprise:
+ * a rank of 0 or 26 cannot mint a `Top 25 Matchup`, but could still decide an
+ * `Upset` or `Upset watch`. Latent on the measurement below; tracked rather than
+ * changed here, because bounding a favouritism predicate is a product decision.
+ */
+function top25RanksForItem(params: {
+  item: OverviewGameItem;
+  rankingsByTeamId: Map<string, TeamRankingEnrichment>;
+}): number[] {
+  const { item, rankingsByTeamId } = params;
+  return [
+    teamRankForGameSide(item, 'away', rankingsByTeamId),
+    teamRankForGameSide(item, 'home', rankingsByTeamId),
+  ].filter(isRankedTop25);
+}
+
+/**
+ * The average of the two ranks in a Top 25 Matchup, or null when the game is not
+ * one. Owner decision 2026-09-08: every top-25 matchup carries the tag and every
+ * one outranks every non-top-25 game on the watchlist, so the remaining question
+ * is which top-25 matchup leads — and the answer is the strongest pair, measured
+ * as the LOWEST average of the two ranks. #2 vs #6 (4) leads #1 vs #15 (8).
+ *
+ * Both sides must be INSIDE the top 25, not merely ranked. `computeGameTags` has
+ * always bounded the league family with `isRankedTop25`; the two predicates
+ * disagreed silently while they rendered different strings (`Top 25 Matchup` here,
+ * `Top 25` there), and Item 157 made them render the SAME string, so a divergence
+ * would now put one claim behind two predicates. That divergence is latent rather
+ * than live — see the single production measurement on `isRankedTop25`, which is
+ * the only place this file states one.
+ *
+ * Returning the average rather than a boolean is what keeps the tag and the sort
+ * key on ONE predicate: `deriveGameHighlightTags` tags exactly when this is
+ * non-null, so a game can never be tagged and unranked for ordering, or ordered as
+ * a marquee matchup without the tag.
+ */
+export function top25MatchupAverageRank(params: {
+  item: OverviewGameItem;
+  rankingsByTeamId: Map<string, TeamRankingEnrichment>;
+}): number | null {
+  const ranks = top25RanksForItem(params);
+  if (ranks.length < 2) return null;
+  return (ranks[0] + ranks[1]) / 2;
+}
+
+/**
+ * Whether EITHER participant is ranked inside the top 25.
+ *
+ * Owner decision 2026-09-08. `Ranked Team` was doing curation work as a side
+ * effect of being a chip: it fired on every one-ranked game and supplied 70 to
+ * `watchlistPriority`. Retiring the chip (Item 157) removed the curation with it,
+ * and `isRankedSpotlight` is not a replacement — it names exactly ONE game, so a
+ * slate's second one-ranked game fell in among the unranked and could drop off the
+ * six-card board.
+ *
+ * This restores the priority WITHOUT restoring the chip: a ranked game outranks an
+ * unranked one, and nothing is printed on the row about it. The retirement stands;
+ * only the ordering it took with it comes back.
+ */
+export function hasTop25RankedTeam(params: {
+  item: OverviewGameItem;
+  rankingsByTeamId: Map<string, TeamRankingEnrichment>;
+}): boolean {
+  return top25RanksForItem(params).length > 0;
+}
+
+/**
+ * The highlight vocabulary is GAME FACTS ONLY (Items 157 and 162).
+ *
+ * `ranked` (`Ranked Team`) restated a rank the row already prints inline beside
+ * the team name, and `contenderWatch` (`Contender Watch`) was owner standing
+ * rendered as a chip, which `DESIGN.md:296-297` forbids outright. Both retired
+ * here. `topOwners` went with `contenderWatch`: nothing about who is leading the
+ * league may reach this selector, which is the whole of Item 162.
+ *
+ * `top25` fires only when BOTH teams are ranked, so its label must stay
+ * `Top 25 Matchup` — see `LEAGUE_TAG_LABELS` below, which now agrees.
+ */
 export function deriveGameHighlightTags(params: {
   item: OverviewGameItem;
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
-  topOwners: Set<string>;
 }): GameHighlightTag[] {
-  const { item, rankingsByTeamId, topOwners } = params;
-  const awayRank = teamRankForGameSide(item, 'away', rankingsByTeamId);
-  const homeRank = teamRankForGameSide(item, 'home', rankingsByTeamId);
+  const { item, rankingsByTeamId } = params;
   const margin = gameMargin(item);
   const tags: GameHighlightTag[] = [];
 
-  if (awayRank != null && homeRank != null) {
+  // ONE predicate decides the tag and the watchlist sort key, so they cannot
+  // disagree. `top25MatchupAverageRank` returns null for anything that is not a
+  // Top 25 Matchup, which is exactly the tag's condition.
+  if (top25MatchupAverageRank({ item, rankingsByTeamId }) != null) {
     tags.push({
       id: 'top25',
       text: 'Top 25 Matchup',
       priority: 100,
-    });
-  } else if (awayRank != null || homeRank != null) {
-    tags.push({
-      id: 'ranked',
-      text: 'Ranked Team',
-      priority: 70,
-    });
-  }
-
-  if (isTopOwnerGame(item, topOwners)) {
-    tags.push({
-      id: 'contenderWatch',
-      text: 'Contender Watch',
-      priority: 90,
     });
   }
 
@@ -475,7 +574,7 @@ export const LEAGUE_TAG_PRIORITY: Record<LeagueGameTag, number> = {
 export const LEAGUE_TAG_LABELS: Record<LeagueGameTag, string> = {
   upset: 'Upset',
   upset_watch: 'Upset watch',
-  top_25_matchup: 'Top 25',
+  top_25_matchup: 'Top 25 Matchup',
 };
 
 function getState(score?: ScorePack): 'scheduled' | 'inprogress' | 'final' | 'unknown' {
@@ -560,8 +659,28 @@ function winnerSide(score: ScorePack): 'away' | 'home' | null {
   return awayScore > homeScore ? 'away' : 'home';
 }
 
+/**
+ * A poll position inside the top 25 — bounded at BOTH ends.
+ *
+ * Nothing upstream constrains the value: `toCanonicalPollEntries`
+ * (`src/lib/server/rankings.ts:100`) rejects only `rank == null`, so whatever a
+ * provider sends becomes a rank. The upper bound has always been here; the lower
+ * bound was added 2026-09-08 because a rank of 0 or below is not a position and,
+ * since the watchlist began sorting on the AVERAGE of two ranks, a bogus low value
+ * no longer merely over-admits a tag — it drags a game to the front of the board
+ * (`0`/`25` averages 12.5 and outranks a genuine `#13`/`#13`).
+ *
+ * MEASUREMENT, read-only replica, 2026-09-08 — the one figure this file states, so
+ * a later reader comparing two numbers cannot be left guessing which is current:
+ * 19 stored weeks, none with zero poll entries, 777 entries across ap/coaches/cfp,
+ * all integers, min 1 and max 25. It is a point-in-time reading of a live cache and
+ * moves as the rankings cron runs; an earlier reading in this same branch saw 18
+ * weeks and 726 entries, which was equally true a few hours before. Re-measure
+ * rather than trusting the number, and if it disagrees the cache grew — not the
+ * bound.
+ */
 function isRankedTop25(rank: number | null): rank is number {
-  return rank != null && rank <= 25;
+  return rank != null && rank >= 1 && rank <= 25;
 }
 
 function isRankUpset(params: { winnerRank: number | null; loserRank: number | null }): boolean {

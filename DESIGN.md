@@ -295,6 +295,21 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   Matchup") rather than repeating the numbers
 - Owner standing appears inline beside the owner name, never as a chip — it is true on every row, so
   as a marker it would carry no signal
+- **A marker restates nothing the row already shows, and POSITION decides whether restatement aids
+  scanning.** **Added 2026-09-08**, and recorded as an amendment because it narrows the permission
+  three bullets above: that line allows a chip to restate inline content _when it lets the reader
+  find the row without reading it_, which is a claim about wayfinding, not about redundancy being
+  harmless. A marker placed **after** the content it restates cannot do that job — the reader has
+  already met the fact. Three markers were retired on this rule (Items 157, 162, 163): `Ranked Team`
+  beside an inline `#25`, `Contender Watch` for owner standing the bullet above already forbids, and
+  Matchups' `vs <owner>` pill, which sat in tier 2 **below** both team rows while the shared
+  scoreboard printed that same owner inline on the opponent's row. A marker that names something
+  absent from the row still earns its place: `FCS`, `Self`, and placeholder/derived opponents all
+  survive, because nothing else on the row says them
+- **The game-marker vocabulary is GAME FACTS ONLY.** After the three retirements above, every marker
+  describes the game — never an owner, never a standing, never the reader. This is what makes the
+  markers a single readable class rather than a mixed bag, and it is the test a proposed new marker
+  has to pass
 - "Close" applies to live and final games only. On a scheduled game it is a projection, not a fact
 - A single-game editorial designation (the best game on a slate) uses vocabulary distinct from the
   category chips, so the two can never be read as the same claim
@@ -302,6 +317,13 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 - **Bronze and champion amber are held apart by the CALENDAR, not by contrast.** Champion treatment does not render until a title is awarded — podium cards for #1–#3 are neutral all season — so the two are never on screen together until season end. **Measured: pill text `#dbc190` against champion `#BA7517` is 2.13:1**, essentially no luminance separation, distinguished by hue and saturation alone. **The condition that makes this live is a champion or podium treatment rendering beside a chip.** If it ever must survive a viewer with reduced colour discrimination, **the instrument is a luminance step, not a different hue** — the reservation binds a token to a purpose, not a hue neighbourhood. Reasoning: `item-87-followon-matchups-schedule-design.md` → _Eyebrow tags_.
 - The amber `upset` card border is **retired, deliberately** — the bronze chip carries that emphasis forward. It was exempted from the Item 87 transition as "emphasis, out of scope for every slice" and the transition then deleted the card chrome it lived on, so without this line the exemption would have lapsed by side effect rather than by choice. **State the cost plainly: a chip is quieter than a border around a card.** A border catches the eye across sixty rows and an eyebrow does not; if upsets must stay prominent, the instrument is a hue assigned in `INSIGHTS-017-PALETTE`, not a shape difference. Retired by PLATFORM-087 slice 5, recorded by PLATFORM-153.
 - Game selection is context-aware: postseason surfaces playoff/bowl games, in-season surfaces current week
+- **On the Overview watchlist, every Top 25 Matchup outranks every game that is not one, and the
+  strongest PAIR leads.** Owner decision 2026-09-08. Strength is the **lowest average of the two
+  ranks**, so `#2` vs `#6` (4) leads `#4` vs `#10` (7) leads `#1` vs `#22` (11.5) — note the last
+  holds the best single rank on the board and still places last, which is the point of averaging the
+  pair rather than taking the better team. Below that band, a game with **either** team ranked
+  outranks a game with neither; kickoff order decides only among equals. Ranking is CURATION and
+  renders nothing of its own — a game is not marked because it sorted high
 - First Round CFP games are identified by neutral site = false (campus games)
 - A weekly-recap mini scoreboard is compact evidence, not a game card: no surface tint, border, or
   team-color accent. Each team is the primary label, its owner is a tertiary inline suffix, and the

@@ -86,20 +86,22 @@ It matters on phones. At 375–430px portrait, minus page and block padding, a r
 
 | Class | Examples | Valid on |
 |---|---|---|
-| **Selection** — why the game was surfaced | Game of the Week, Contender Watch, Top 25 Matchup | any state |
+| **Selection** — why the game was surfaced | Game of the Week, Top 25 Matchup | any state |
 | **Outcome** — what happened | Upset | **final only** |
 
 An outcome tag cannot render on a game that has not been played. An implementation treating these as one undifferentiated list will render `Upset` on a scheduled game.
 
-**Constraint on the taxonomy, and it bounds what a cap can ever do.** The two `LeagueGameTag` outcome/tension tags are **mutually exclusive by state**: `upset` requires `state === 'final'` (`gameTags.ts:597`) and `upset_watch` requires `state !== 'final'` (`:611`). With `top_25_matchup` as the only other member, **the league family can never carry more than two tags.** So a cap in `prioritizeGameTags` would be unreachable code, and any test written for it could not use real data. Recorded here rather than only in closed Item 166, because the next reader to compare that function against the cap rule will otherwise rediscover it. **The Overview highlight family is the one the cap governs** — `deriveGameHighlightTags` can reach three (`top25`/`ranked`, `contenderWatch`, `close`) and slices to `TOP_BADGE_LIMIT = 2` at `gameTags.ts:457`.
+**Constraint on the taxonomy, and it bounds what a cap can ever do.** The two `LeagueGameTag` outcome/tension tags are **mutually exclusive by state**: `upset` requires `state === 'final'` (`gameTags.ts:716`) and `upset_watch` requires `state !== 'final'` (`:730`). With `top_25_matchup` as the only other member, **the league family can never carry more than two tags.** So a cap in `prioritizeGameTags` would be unreachable code, and any test written for it could not use real data. Recorded here rather than only in closed Item 166, because the next reader to compare that function against the cap rule will otherwise rediscover it.
+
+**UPDATED 2026-09-08 by Items 157 and 162 — the cap is now unreachable on BOTH sides.** This paragraph previously said the Overview highlight family was the one the cap governs, because `deriveGameHighlightTags` could reach three (`top25`/`ranked`, `contenderWatch`, `close`). Retiring `ranked` and `contenderWatch` leaves `top25` and `close`, so that family also tops out at two and `TOP_BADGE_LIMIT` binds on no input anywhere. **The cap is retained as a documented forward guard, not deleted** — `DESIGN.md` requires it, and removing an implementation because it is currently unreachable would leave that rule with nothing behind it. What makes it bind again is a third tag able to CO-FIRE with both survivors; one mutually exclusive with either would leave it unreachable. `TOP_BADGE_LIMIT = 2` at `gameTags.ts:52`, applied at `:556`.
 
 ### Two suppression rules
 
 **A tag that restates its container is suppressed.** A section titled *Head-to-head results* must not tag every row `HEAD-TO-HEAD`. The tag's job is to distinguish *within* the section; when every row shares the reason, it carries nothing and the distinguishing fact gets demoted to prose.
 
-**A tag that restates the row is suppressed.** `RANKED TEAM` beside `#25 Missouri` adds nothing — the rank is on the row.
+**A tag that restates the row is suppressed.** `RANKED TEAM` beside `#25 Missouri` adds nothing — the rank is on the row. **Applied 2026-09-08 (Item 157): `Ranked Team` is retired.** The rule was stated here and violated in the code for as long as both existed. Item 163 extended it to Matchups' `vs <owner>` pill and added the reason the rule needs: **position decides whether restatement aids scanning**, and a marker sitting after the content it restates cannot do that job. `DESIGN.md` now carries both halves.
 
-**`Top 25 Matchup` is not shortened to `Top 25`.** The two tags encode different facts: both teams ranked versus one. "Top 25" reads as a property of the game and would fire on `#1 Ohio State` against an unranked opponent. "Both ranked" is not derivable at a glance the way one visible rank is, so "Matchup" is the word carrying the information.
+**`Top 25 Matchup` is not shortened to `Top 25`. Shipped 2026-09-08 (Item 157)** — `LEAGUE_TAG_LABELS` had rendered the short form on Schedule and Matchups, so this rule and the code disagreed while it was written. Both surfaces now render the long label, and the tag is bounded to ranks 1–25 on both sides (`isRankedTop25`, `gameTags.ts:682`) rather than merely "has a rank". The two tags encode different facts: both teams ranked versus one. "Top 25" reads as a property of the game and would fire on `#1 Ohio State` against an unranked opponent. "Both ranked" is not derivable at a glance the way one visible rank is, so "Matchup" is the word carrying the information.
 
 ### Cap
 
@@ -107,11 +109,18 @@ Two. Three pills crowd the metadata out entirely at column width even without wr
 
 **The selector applies the cap, not the renderer** (`DESIGN.md:293`, amended). A render-time truncation of a list the selector still builds in full leaves the cap invisible to anything testing the selector. `prioritizeGameTags` chooses which two survive.
 
-**Already implemented — `TOP_BADGE_LIMIT = 2` (`gameTags.ts:38`), applied in
-`deriveGameHighlightTags` at `:457`, with `gameTags.test.ts:941` asserting it against a game
-carrying three qualifying tags.** Item 166 was filed to add it and closed unworked on 2026-09-08.
-`prioritizeGameTags` needs none: `upset` and `upset_watch` are mutually exclusive by state, so the
-league family cannot reach three.
+**Already implemented — `TOP_BADGE_LIMIT = 2` (`gameTags.ts:52`), applied in
+`deriveGameHighlightTags` at `:556`.** Item 166 was filed to add it and closed unworked on
+2026-09-08. `prioritizeGameTags` needs none: `upset` and `upset_watch` are mutually exclusive by
+state, so the league family cannot reach three.
+
+**Its test no longer proves the cap, and that is recorded rather than papered over.**
+`gameTags.test.ts:941` had asserted the cap against a game carrying three qualifying tags; after the
+Item 157 and 162 retirements no input reaches three, so the assertion was **deleted rather than left
+passing vacuously** and the test renamed to the tag SET it still pins (`:956`). Be precise about the
+remaining limit: the two survivors are pushed in priority order, so that test does not discriminate
+the sort either. A fixture built to keep a cap test green is the vacuous-test failure this campaign
+has shipped four times, and it was not built here.
 
 ---
 

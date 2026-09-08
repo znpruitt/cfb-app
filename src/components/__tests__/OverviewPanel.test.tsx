@@ -400,7 +400,10 @@ test('overview watchlist uses the shared scoreboard with records and one odds fo
   assert.match(scoreboard, /data-watchlist-reason-row/);
   assert.match(scoreboard, /<div(?=[^>]*data-watchlist-reason-row)(?=[^>]*min-h-\[22px\])[^>]*>/);
   assert.match(scoreboard, /Game of the Week/);
-  assert.match(scoreboard, /Contender Watch/);
+  // Item 162 retired `Contender Watch`. `Game of the Week` above is the positive
+  // control: the reason row on THIS card still renders content, so the absence
+  // below is the retirement rather than a row that stopped rendering entirely.
+  assert.doesNotMatch(scoreboard, /Contender Watch/);
   assert.match(scoreboard, /Thu, Sep 3, 10:00 PM/);
   assert.match(scoreboard, /ESPN/);
   assert.match(scoreboard, />Postponed<\/span>/);
@@ -414,6 +417,114 @@ test('overview watchlist uses the shared scoreboard with records and one odds fo
   );
   assert.match(scoreboard, /data-scoreboard-odds-footer[^>]*>Buffalo -20\.5 · O\/U 55\.5<\/div>/);
   assert.doesNotMatch(scoreboard, />Scheduled<\/span>|———/);
+});
+
+/**
+ * RENDERED-OUTPUT proof of both retirements, on the one surface that renders the
+ * highlight family: the Overview watchlist. `FeaturedGamesList` never renders
+ * `highlightTags`, so this component is the whole rendered consumer set.
+ *
+ * Both games have `Alice` away and `Bob` home (the `item()` helper), and `Alice`
+ * is the only row in `standingsLeaders` and so was in `topOwnerNames`. Before
+ * Items 157 and 162 the one-ranked card carried `Ranked Team` and
+ * `Contender Watch`, and the both-ranked card carried `Top 25 Matchup` and
+ * `Contender Watch`.
+ *
+ * The two owners being DISTINCT is load-bearing rather than incidental:
+ * `gameOfSlate` filters to games with two different owners, which is why the
+ * both-ranked card also draws the `Game of the Week` reason label while the
+ * one-ranked card's reason row is genuinely empty — the tagged/untagged pair the
+ * `min-h-[22px]` assertion below is about.
+ *
+ * The both-ranked card is the POSITIVE CONTROL: it proves this harness can see an
+ * eyebrow tag in the watchlist reason row, so the absences asserted on the
+ * one-ranked card are the retirements rather than a row that renders nothing.
+ */
+test('overview watchlist renders no tag for one ranked team and none for a leader-owned game', () => {
+  const participants = (awayId: string, homeId: string) =>
+    ({
+      away: {
+        kind: 'team' as const,
+        teamId: awayId,
+        displayName: awayId,
+        canonicalName: awayId,
+        rawName: awayId,
+      },
+      home: {
+        kind: 'team' as const,
+        teamId: homeId,
+        displayName: homeId,
+        canonicalName: homeId,
+        rawName: homeId,
+      },
+    }) satisfies AppGame['participants'];
+
+  const oneRanked = game({
+    key: 'one-ranked',
+    csvAway: 'Missouri',
+    csvHome: 'Vanderbilt',
+    participants: participants('missouri', 'vanderbilt'),
+  });
+  const bothRanked = game({
+    key: 'both-ranked',
+    csvAway: 'Georgia',
+    csvHome: 'Texas',
+    date: '2026-09-02T17:00:00.000Z',
+    participants: participants('georgia', 'texas'),
+  });
+
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[item(oneRanked), item(bothRanked)]}
+      rankingsByTeamId={
+        new Map([
+          ['missouri', { rank: 25, rankSource: 'ap' }],
+          ['georgia', { rank: 3, rankSource: 'ap' }],
+          ['texas', { rank: 8, rankSource: 'ap' }],
+        ])
+      }
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  const scoreboardFor = (label: string) =>
+    html.match(
+      new RegExp(
+        `<article(?=[^>]*aria-label="${label}")(?=[^>]*data-scoreboard-state="scheduled")[\\s\\S]*?</article>`
+      )
+    )?.[0];
+
+  const oneRankedCard = scoreboardFor('Missouri at Vanderbilt');
+  const bothRankedCard = scoreboardFor('Georgia at Texas');
+  assert.ok(oneRankedCard, 'the one-ranked fixture must reach the watchlist');
+  assert.ok(bothRankedCard, 'the both-ranked fixture must reach the watchlist');
+
+  // Positive control first: the harness CAN see a tag in this row.
+  assert.match(bothRankedCard, /data-eyebrow-tag[^>]*>Top 25 Matchup<\/span>/);
+
+  // Item 157: one visible rank earns no tag. The rank itself still renders inline.
+  assert.doesNotMatch(oneRankedCard, /data-eyebrow-tag/);
+  assert.match(oneRankedCard, /#25/);
+
+  // Item 162: owner standing earns no tag on either card.
+  assert.doesNotMatch(html, /Contender Watch/);
+  assert.doesNotMatch(html, /Ranked Team/);
+
+  // RULING 2: the reason-row reservation stays. One card carries a tag and one does
+  // not, which is exactly the case the reserved band keeps level across the grid.
+  assert.match(
+    oneRankedCard,
+    /<div(?=[^>]*data-watchlist-reason-row)(?=[^>]*min-h-\[22px\])[^>]*>/
+  );
+  assert.match(
+    bothRankedCard,
+    /<div(?=[^>]*data-watchlist-reason-row)(?=[^>]*min-h-\[22px\])[^>]*>/
+  );
 });
 
 test('overview watchlist leaves record anchors blank when record enrichment is absent', () => {
@@ -2043,7 +2154,12 @@ test('overview panel suppresses redundant movement chips in completed-season pod
   assert.doesNotMatch(html, /\(\+\d+ wins\)|Biggest drop:/);
 });
 
-test('overview watchlist prefers Top 25 Matchup and Contender Watch chips over lower categories', () => {
+// RENAMED (PLATFORM-157-162-163). The old name claimed this test preferred
+// `Top 25 Matchup` and `Contender Watch` chips over lower categories; its body
+// asserted neither, and could not — the fixture is a FINAL, which routes to
+// Featured, and `FeaturedGamesList` renders no highlight tags at all. Renamed to
+// what it proves, and given assertions that discriminate it.
+test('a completed ranked game renders in Featured with inline ranks and no category chip', () => {
   const rankedCloseTopGame = itemWithScore(
     game({
       key: 'badge-priority',
@@ -2137,6 +2253,8 @@ test('overview watchlist prefers Top 25 Matchup and Contender Watch chips over l
   assert.match(html, /Ohio State/);
   assert.match(html, /Oregon/);
   assert.doesNotMatch(html, />Close</);
+  assert.doesNotMatch(html, />Top 25 Matchup</);
+  assert.doesNotMatch(html, />Contender Watch</);
 });
 
 test('overview highlights consume shared insights instead of matchup-derived headline copy', () => {

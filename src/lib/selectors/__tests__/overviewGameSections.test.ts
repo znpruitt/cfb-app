@@ -106,6 +106,13 @@ function prioritized(itemValue: OverviewGameItem, priority = 0): PrioritizedOver
     isRankedSpotlight: priority >= 70 && priority < 90,
     highlightLabel: priority >= 90 ? 'Game of the Week' : null,
     highlightTags: priority > 0 ? [{ id: 'top25', text: 'Top 25 Matchup', priority }] : [],
+    // Derived from the same condition as the tag rather than hardcoded. This suite
+    // exercises SECTION ROUTING and never reads these fields, but a fixture that
+    // emits a `Top 25 Matchup` tag while reporting `top25AverageRank: null` is an
+    // object production cannot build — and an impossible fixture is exactly what
+    // lets a later regression test pass for the wrong reason.
+    top25AverageRank: priority > 0 ? 10 : null,
+    hasTop25RankedTeam: priority > 0,
   };
 }
 

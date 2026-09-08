@@ -51,6 +51,53 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-157-162-163-TAG-VOCABULARY-CLAUDE-v2
+
+- Purpose: Items 157, 162 and 163 as ONE decision about what the game-marker vocabulary IS — three
+  markers each restating something already on the row. v2 after the read receipt corrected the
+  prompt's `DESIGN.md` citations and two contract errors.
+- Scope: `src/lib/gameTags.ts`, `src/lib/selectors/overview.ts`, `MatchupsWeekPanel.tsx`, their
+  tests, and this closeout. NOT tag placement (Item 143, concurrent in the Codex lane), NOT the
+  treatment (Item 153).
+- Outcome: `LEAGUE_TAG_LABELS` renders `Top 25 Matchup`; the identifier is unchanged. `Ranked Team`,
+  `Contender Watch` and Matchups' `vs <owner>` pill are retired, and `topOwnerNames` went with the
+  second — nothing about who leads the league reaches the tag selector now. **The receipt corrected
+  the prompt in five places**, all of them the author's own: `DESIGN.md:284`/`:295` are the
+  bowl-badge and rankings-inline lines (the rules are `:289` and `:296-297`), `gameTags.ts:596`/`:609`
+  are `:597`/`:611`, `CARRIES:` was not verbatim in three of three rows, `deriveOpponentDescriptor`
+  has FIVE branches not four (`Self` was missed), and the contract asked for `NoClaim (FBS)` to be
+  asserted on rendered output when it never renders. **Three things nobody had:** after the rename
+  ONE label sat behind TWO predicates, since the highlight family's `top25` was gated on
+  `rank != null` with no bound at all — now `isRankedTop25` on both sides, bounded 1–25 at both ends;
+  `Ranked Team` had been supplying 70 to `watchlistPriority` on every one-ranked game, so retiring it
+  could drop ranked games off the six-card board (restored by owner ruling as the signal
+  `hasTop25RankedTeam`, no chip); and `Contender Watch`'s five-of-six was never reproduced and did
+  not need to be, because at priority 90 it was also a SORT KEY feeding a six-card list. Owner
+  additions mid-branch: every Top 25 Matchup outranks every non-top-25 game and the strongest PAIR
+  leads, by lowest average rank. `DESIGN.md` gains three rules — position decides whether a
+  restating marker aids scanning, the vocabulary is game facts only, and the watchlist ranking band.
+  Reference §2 corrected in four places; `item-87-INDEX.md` CARRY row 72 DISCHARGED.
+- Review / verification: four passes. Round 1 (`a008b39c`): no P0/P1; remediated in `1f4b83a4` —
+  `top25` bounded to match `computeGameTags`, a false ownership claim in a test docblock, and a
+  `TOP_BADGE_LIMIT` comment claiming "the next tag added hits it" when only a tag able to CO-FIRE
+  with both survivors would. Round 2 (`ca2a13f9`) found the bound had no LOWER end and that two more
+  rank readers were unbounded; both closed in `3da3c42e`. Round 3 (`3da3c42e`): **Codex clean**;
+  `/code-review` returned one MEDIUM and five LOW, all about CLAIMS rather than logic — my "one bound
+  for every rank read" comment was false, since `upsetWatch`/`isRankUpset`/`rankingTension`
+  deliberately keep raw ranks (favouritism is relative, membership is bounded); two production
+  measurements of one population sat in one file with nothing marking which was current; and
+  `PrioritizedOverviewItem.hasRankedTeam` collided by name with `gameWeek.ts`'s UNBOUNDED
+  `hasRankedTeam`, reintroducing by naming the divergence the item removed. All corrected in
+  `0d741e81`. Two reported and not fixed, now Items 169 and 170; the dead scoring term is Item 171. **Measured, read-only replica,
+  2026-09-08:** 19 stored weeks, none with zero poll entries, 777 entries across ap/coaches/cfp, all
+  integers, min 1 max 25 — so both bounds are latent, not live. Gates at `0d741e81`, each run
+  separately: `npx tsc --noEmit` exit 0; `npm run lint:all` exit 0; `npm test` exit 1 with 4,979 of
+  4,981 passing and exactly the two standing Item 137 `writer-convergence` failures. Test delta
+  measured per file against `origin/main` in the same worktree: **+9 tests** (4,972 → 4,981), none
+  removed, none weakened. Diffstat 10 files, +945/−62.
+- Status: Implemented on `claude/157-162-163-tag-vocabulary` (`a008b39c`, `1f4b83a4`, `ca2a13f9`,
+  `2e9c7468`, `3da3c42e`, `0d741e81` + this closeout); merge pending.
+
 ### PLATFORM-153-EYEBROW-TREATMENT-CLAUDE-v1
 
 - Purpose: collapse three eyebrow treatments into one across Overview, Schedule and Matchups, and

@@ -117,7 +117,6 @@ test('prioritizeOverviewItems retains quality labels without changing caller-pro
       rankedHighlightKey: 'middle-ranked',
     },
     rankingsByTeamId: new Map(),
-    topOwnerNames: new Set(),
   });
 
   assert.deepEqual(
@@ -193,6 +192,345 @@ test('selectOverviewViewModel prioritises marquee watchlist games before kickoff
     model.watchlistCandidates.find((entry) => entry.item.bucket.game.key === 'later-top')
       ?.highlightLabel,
     'Game of the Week'
+  );
+});
+
+/**
+ * ORDERING DELTA from retiring `Contender Watch` (Item 162), asserted rather than
+ * only described.
+ *
+ * `watchlistPriority` is a `Math.max` over four signals, one of which is
+ * `highlightTags[0].priority`. `contenderWatch` carried 90, so a game owned by a
+ * standings leader sorted ahead of an untagged game regardless of kickoff. With the
+ * tag retired that input is gone and both games fall to 0, where the kickoff
+ * tie-break decides.
+ *
+ * The fixture is built so the delta is visible and nothing else supplies 90 or 70:
+ * both games are SINGLE-owned, so `gameOfSlateKey` (which needs two distinct
+ * owners) is null, and neither carries a rank, so `isRankedSpotlight` is false.
+ * Under the pre-retirement selector this exact input ordered
+ * `['zz-contender', 'aa-plain']`; verified by restoring the `contenderWatch` branch
+ * and watching this test go red.
+ */
+test('retiring Contender Watch drops a leader-owned game to the kickoff tie-break', () => {
+  const contenderBase = item('zz-contender', '2026-09-06T17:00:00.000Z');
+  const contender = {
+    ...contenderBase,
+    // Single-owned by Alex, who leads the standings below. This was the input that
+    // produced `Contender Watch` and its priority of 90.
+    bucket: { ...contenderBase.bucket, awayOwner: 'Alex', homeOwner: undefined },
+    priority: 1,
+  };
+  const plainBase = item('aa-plain', '2026-09-01T17:00:00.000Z');
+  const plain = {
+    ...plainBase,
+    bucket: { ...plainBase.bucket, awayOwner: 'Casey', homeOwner: undefined },
+    priority: 1,
+  };
+
+  const standingsRow = (owner: string, wins: number) => ({
+    owner,
+    wins,
+    losses: 9 - wins,
+    winPct: wins / 9,
+    pointsFor: 0,
+    pointsAgainst: 0,
+    pointDifferential: 0,
+    gamesBack: 0,
+    finalGames: 9,
+  });
+
+  const model = selectOverviewViewModel({
+    standingsLeaders: [
+      standingsRow('Alex', 8),
+      standingsRow('Blake', 7),
+      standingsRow('Dana', 6),
+      standingsRow('Casey', 2),
+    ],
+    standingsCoverage: { state: 'partial', message: null },
+    context: { scopeDetail: 'Week 1' },
+    liveItems: [],
+    // Producer order puts the leader-owned game first, so a stable sort alone would
+    // keep it ahead — the assertion below only holds if the comparator reorders.
+    keyMatchups: [contender, plain],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.deepEqual(
+    model.watchlistCandidates.map((entry) => entry.item.bucket.game.key),
+    ['aa-plain', 'zz-contender']
+  );
+  assert.deepEqual(
+    model.watchlistCandidates.flatMap((entry) => entry.highlightTags.map((tag) => tag.text)),
+    [],
+    'owner standing earns no tag on either card'
+  );
+});
+
+/**
+ * Owner decision 2026-09-08, all three parts of it, on one slate.
+ *
+ * 1. EVERY top-25 matchup carries the tag. Unlike `rankedHighlightKey`, which names
+ *    a single game, the tag has no cap across games — three qualify here and three
+ *    are tagged.
+ * 2. EVERY top-25 matchup outranks every non-top-25 game. `top25` scores 100 and
+ *    nothing else on a scheduled watchlist reaches it: `isUpsetWatch` requires an
+ *    in-progress game and is unreachable here, so the nearest rival is
+ *    `isGameOfSlate` at 90 — which `gotw-unranked` carries, and still loses.
+ * 3. AMONG top-25 matchups, the lowest average rank leads. The kickoffs are ordered
+ *    against the ranks on purpose: sorted by kickoff these would run
+ *    strong → weak → mid, so any order that comes out by average rank cannot be the
+ *    kickoff tie-break in disguise.
+ *
+ *    #2/#6 avg 4 · #4/#10 avg 7 · #1/#22 avg 11.5 — note the third contains the
+ *    single best rank on the board and still places last, which is the whole point
+ *    of averaging the PAIR rather than taking the better team.
+ */
+test('every Top 25 Matchup is tagged, outranks non-top-25 games, and leads by best average rank', () => {
+  const ranked = (key: string, date: string, awayId: string, homeId: string) => {
+    const base = item(key, date, {
+      participants: {
+        away: {
+          kind: 'team',
+          teamId: awayId,
+          displayName: awayId,
+          canonicalName: awayId,
+          rawName: awayId,
+        },
+        home: {
+          kind: 'team',
+          teamId: homeId,
+          displayName: homeId,
+          canonicalName: homeId,
+          rawName: homeId,
+        },
+      },
+    });
+    return { ...base, bucket: { ...base.bucket, homeOwner: undefined }, priority: 1 };
+  };
+
+  // Owner-vs-owner and earliest, so it wins `gameOfSlate` and carries 90 — the
+  // strongest non-top-25 signal a scheduled card can have.
+  const gotwUnranked = item('gotw-unranked', '2026-09-01T12:00:00.000Z');
+
+  const strong = ranked('t25-strong', '2026-09-01T13:00:00.000Z', 's-away', 's-home'); // avg 4
+  const weak = ranked('t25-weak', '2026-09-01T14:00:00.000Z', 'w-away', 'w-home'); // avg 11.5
+  const mid = ranked('t25-mid', '2026-09-01T15:00:00.000Z', 'm-away', 'm-home'); // avg 7
+
+  const model = selectOverviewViewModel({
+    standingsLeaders: [],
+    standingsCoverage: { state: 'partial', message: null },
+    context: { scopeDetail: 'Week 1' },
+    liveItems: [],
+    keyMatchups: [gotwUnranked, strong, weak, mid],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map([
+      ['s-away', { rank: 2, rankSource: 'ap' as const }],
+      ['s-home', { rank: 6, rankSource: 'ap' as const }],
+      ['w-away', { rank: 1, rankSource: 'ap' as const }],
+      ['w-home', { rank: 22, rankSource: 'ap' as const }],
+      ['m-away', { rank: 4, rankSource: 'ap' as const }],
+      ['m-home', { rank: 10, rankSource: 'ap' as const }],
+    ]),
+  });
+
+  assert.deepEqual(
+    model.watchlistCandidates.map((entry) => entry.item.bucket.game.key),
+    ['t25-strong', 't25-mid', 't25-weak', 'gotw-unranked']
+  );
+
+  // (1) all three tagged, and the unranked game is not
+  assert.deepEqual(
+    model.watchlistCandidates.map((entry) => entry.highlightTags.map((tag) => tag.text)),
+    [['Top 25 Matchup'], ['Top 25 Matchup'], ['Top 25 Matchup'], []]
+  );
+
+  // (2) the losing card really does hold the strongest rival signal, so its last
+  // place is the top-25 rule rather than an absent competitor.
+  assert.equal(
+    model.watchlistCandidates.at(-1)?.isGameOfSlate,
+    true,
+    'the Game of the Week must be the game that top-25 matchups outrank'
+  );
+
+  // (3) the sort key itself, so a future reader can see what the order came from
+  assert.deepEqual(
+    model.watchlistCandidates.map((entry) => entry.top25AverageRank),
+    [4, 7, 11.5, null]
+  );
+});
+
+/**
+ * The SECOND mechanism behind the one-ranked curation gap, found by `/code-review`
+ * and independent of the "spotlight names one game" one.
+ *
+ * `deriveOverviewHighlightSignals` runs over ALL `keyMatchups` — finals and live
+ * games included — while the watchlist is filtered to scheduled games only. So
+ * `rankedHighlightKey` can land on a game that is not on the watchlist at all, and
+ * before `hasTop25RankedTeam` existed that left NO scheduled card carrying any
+ * rank-derived priority, however many ranked games were still to be played.
+ *
+ * Here the best-ranked matchup is a FINAL (#1 vs #3, already played), so it takes
+ * the spotlight and is routed away from the watchlist. The scheduled ranked game
+ * kicks off last, so kickoff order alone would bury it behind the unranked pair.
+ */
+test('a spotlight that landed on a final still leaves scheduled ranked games ahead of unranked ones', () => {
+  const single = (key: string, date: string, awayId?: string, homeId?: string) => {
+    const base = item(
+      key,
+      date,
+      awayId && homeId
+        ? {
+            participants: {
+              away: {
+                kind: 'team',
+                teamId: awayId,
+                displayName: awayId,
+                canonicalName: awayId,
+                rawName: awayId,
+              },
+              home: {
+                kind: 'team',
+                teamId: homeId,
+                displayName: homeId,
+                canonicalName: homeId,
+                rawName: homeId,
+              },
+            },
+          }
+        : {}
+    );
+    return { ...base, bucket: { ...base.bucket, homeOwner: undefined }, priority: 1 };
+  };
+
+  const playedMarquee = single('played-marquee', '2026-09-01T12:00:00.000Z', 'f-away', 'f-home');
+  playedMarquee.score = {
+    status: 'Final',
+    time: null,
+    away: { team: 'f-away', score: 31 },
+    home: { team: 'f-home', score: 10 },
+  };
+  const scheduledRanked = single('sched-ranked', '2026-09-06T18:00:00.000Z', 's-away', 's-home');
+  const plainEarly = single('plain-a', '2026-09-01T17:00:00.000Z');
+  const plainLate = single('plain-b', '2026-09-01T18:00:00.000Z');
+
+  const model = selectOverviewViewModel({
+    standingsLeaders: [],
+    standingsCoverage: { state: 'partial', message: null },
+    context: { scopeDetail: 'Week 1' },
+    liveItems: [],
+    keyMatchups: [playedMarquee, scheduledRanked, plainEarly, plainLate],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map([
+      ['f-away', { rank: 1, rankSource: 'ap' as const }],
+      ['f-home', { rank: 3, rankSource: 'ap' as const }],
+      ['s-away', { rank: 18, rankSource: 'ap' as const }],
+    ]),
+  });
+
+  const watchlist = model.watchlistCandidates.filter(
+    (entry) => entry.item.bucket.game.key !== 'played-marquee'
+  );
+
+  // The final really did take the spotlight — otherwise the scheduled game would
+  // have had `isRankedSpotlight` and this would prove nothing about `hasTop25RankedTeam`.
+  assert.equal(
+    watchlist.find((entry) => entry.item.bucket.game.key === 'sched-ranked')?.isRankedSpotlight,
+    false,
+    'the spotlight must have landed on the final for this test to mean anything'
+  );
+
+  assert.deepEqual(
+    watchlist.map((entry) => entry.item.bucket.game.key),
+    ['sched-ranked', 'plain-a', 'plain-b']
+  );
+});
+
+/**
+ * The one-ranked curation signal, RESTORED (owner ruling 2026-09-08) after the
+ * retirement removed it as a side effect.
+ *
+ * `Ranked Team` supplied 70 to `watchlistPriority` on every one-ranked game.
+ * Retiring the chip took that with it, leaving only `isRankedSpotlight` — which
+ * names exactly ONE game, so a slate's second one-ranked game fell in among the
+ * unranked and could drop off the six-card board. `hasTop25RankedTeam` puts the 70 back
+ * as a signal, with nothing printed on the row.
+ *
+ * The fixture is built so the signal is the only thing that can produce this order:
+ * both ranked games kick off LAST, so kickoff order alone would put them behind
+ * both unranked games. Single-owned throughout, so `gameOfSlateKey` is null and
+ * cannot supply its own 90.
+ */
+test('every one-ranked game outranks unranked games, not just the ranked spotlight', () => {
+  const single = (key: string, date: string, awayId?: string, homeId?: string) => {
+    const base = item(
+      key,
+      date,
+      awayId && homeId
+        ? {
+            participants: {
+              away: {
+                kind: 'team',
+                teamId: awayId,
+                displayName: awayId,
+                canonicalName: awayId,
+                rawName: awayId,
+              },
+              home: {
+                kind: 'team',
+                teamId: homeId,
+                displayName: homeId,
+                canonicalName: homeId,
+                rawName: homeId,
+              },
+            },
+          }
+        : {}
+    );
+    return { ...base, bucket: { ...base.bucket, homeOwner: undefined }, priority: 1 };
+  };
+
+  const spotlight = single('r1-spotlight', '2026-09-06T17:00:00.000Z', 'r1-away', 'r1-home');
+  const secondRanked = single('r2-ranked', '2026-09-06T18:00:00.000Z', 'r2-away', 'r2-home');
+  const plainEarly = single('plain-a', '2026-09-01T17:00:00.000Z');
+  const plainLate = single('plain-b', '2026-09-01T18:00:00.000Z');
+
+  const model = selectOverviewViewModel({
+    standingsLeaders: [],
+    standingsCoverage: { state: 'partial', message: null },
+    context: { scopeDetail: 'Week 1' },
+    liveItems: [],
+    keyMatchups: [spotlight, secondRanked, plainEarly, plainLate],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map([
+      ['r1-away', { rank: 5, rankSource: 'ap' as const }],
+      ['r2-away', { rank: 20, rankSource: 'ap' as const }],
+    ]),
+  });
+
+  assert.deepEqual(
+    model.watchlistCandidates.map((entry) => entry.item.bucket.game.key),
+    ['r1-spotlight', 'r2-ranked', 'plain-a', 'plain-b']
+  );
+
+  // The second ranked game is NOT the spotlight — that names one game — so its
+  // place above the unranked pair comes from `hasTop25RankedTeam` and nothing else.
+  assert.equal(
+    model.watchlistCandidates.find((entry) => entry.item.bucket.game.key === 'r2-ranked')
+      ?.isRankedSpotlight,
+    false
+  );
+  assert.deepEqual(
+    model.watchlistCandidates.map((entry) => entry.hasTop25RankedTeam),
+    [true, true, false, false]
+  );
+
+  // Still no CHIP: the curation came back, the vocabulary did not.
+  assert.deepEqual(
+    model.watchlistCandidates.flatMap((entry) => entry.highlightTags.map((tag) => tag.text)),
+    [],
+    'a single ranked team earns priority but no tag'
   );
 });
 

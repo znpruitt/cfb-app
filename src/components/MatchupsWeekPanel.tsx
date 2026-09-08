@@ -203,10 +203,28 @@ function GameRow({
   const matchupLabel = formatGameMatchupLabel(slateGame.game, {
     homeAwaySeparator: scheduledSeparator,
   });
+  // Item 163, owner ruling 2026-09-08: the `vs <owner>` form is retired from the
+  // card. The scoreboard renders each team's owner inline on its own row, so
+  // whenever this descriptor named an opponent's owner it printed a name already
+  // two lines above it. `DESIGN.md:289` permits a marker that restates inline
+  // content WHERE IT AIDS SCANNING, and this one does not: it sits in tier 2 below
+  // both team lines, so the reader meets the inline name first. The mockup carries
+  // no such pill.
+  //
+  // Suppressed HERE rather than in `deriveOpponentDescriptor` because the
+  // duplication is a property of this card, not of the descriptor: the selector's
+  // other consumer groups opponents for a summary that renders no scoreboard, where
+  // the owner label is the only thing identifying them.
+  //
+  // `Self` survives — it names a relationship, not a person, and duplicates nothing.
+  // So do `FCS`, `NoClaim (FBS)` and placeholder/derived participant names, none of
+  // which appears anywhere else on the row.
+  const opponentOwnedBySomeoneElse =
+    slateGame.opponentOwner != null && slateGame.opponentOwner !== slateGame.owner;
   const hideOpponentDescriptor =
+    opponentOwnedBySomeoneElse ||
     opponentDescriptor === 'NoClaim (FBS)' ||
-    (opponentDescriptor === 'FCS' && scoreboardShowsOpponentFcsMarker) ||
-    (slateGame.opponentOwner != null && displayOwner(slateGame.opponentOwner) === null);
+    (opponentDescriptor === 'FCS' && scoreboardShowsOpponentFcsMarker);
   const metadataEntries: string[] = [];
   if (!hideOpponentDescriptor) metadataEntries.push(opponentDescriptor);
   if (statusTone !== 'scheduled') {

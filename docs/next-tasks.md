@@ -5179,7 +5179,9 @@ are removed rather than retained with strikethrough; their outcomes live in `doc
   refresh so a cold cache does not report false zeros. Remove only after extracting a shared score
   refresh authority.
 
-### Item 157 — two tag vocabularies say the same thing in two voices
+### Item 157 — DONE: two tag vocabularies said the same thing in two voices
+
+**Shipped on `claude/157-162-163-tag-vocabulary` (`a008b39c`, `1f4b83a4`, `ca2a13f9`, `2e9c7468`, `3da3c42e`, `0d741e81` + this closeout), merge pending.** `LEAGUE_TAG_LABELS` renders `Top 25 Matchup` on Schedule and Matchups; the identifier is unchanged. `Ranked Team` retired. **Two things the filing did not have.** The highlight family's `top25` was gated on `rank != null` with NO bound, so the rename put one user-facing label behind two different predicates — both are now `isRankedTop25`, bounded 1–25 at **both** ends, since nothing upstream rejects a rank of 0 and the watchlist now sorts on the average of two ranks. And `Ranked Team` had been doing curation nobody had noticed: it supplied 70 to `watchlistPriority` on every one-ranked game, so retiring it could drop ranked games off the six-card board — restored as the signal `hasTop25RankedTeam` by owner ruling, with no chip. Registry: `PLATFORM-157-162-163-TAG-VOCABULARY-CLAUDE-v2`.
 
 **Found during Item 153**, which converted Overview's chips to bronze and exposed why they were a
 different colour: they are a **different tag family**. `gameTags.ts:475` `LEAGUE_TAG_LABELS` produces
@@ -5295,7 +5297,9 @@ decision reached every surface it governs.**
 
 **Blocker:** none. **A few minutes**, and it makes the omission checkable rather than rediscoverable.
 
-### Item 162 — `Contender Watch` is owner standing rendered as a chip
+### Item 162 — DONE: `Contender Watch` was owner standing rendered as a chip
+
+**Shipped on `claude/157-162-163-tag-vocabulary` (`a008b39c`, `1f4b83a4`, `ca2a13f9`, `2e9c7468`, `3da3c42e`, `0d741e81` + this closeout), merge pending.** Retired, and the whole owner-standing input path went with it — `topOwnerNames` existed only to carry `standingsLeaders.slice(0, 3)` into the tag selector, and `tsc` confirmed it had no other reader. Nothing about who leads the league now reaches `deriveGameHighlightTags`. **The five-of-six observation was never reproduced and did not need to be:** the mechanism is stronger than frequency — at priority 90 the tag was also a watchlist SORT KEY, sorting its own games to the top of a six-card list, so a high count follows from the ordering rather than from a high base rate. `DESIGN.md` → the marker rules now carry the vocabulary as game facts only.
 
 **Found 2026-09-08** in the owner's Week 2 preview walkthrough, while confirming Item 153. **Not part
 of Item 160** — that item is placement and layout; this is the tag itself.
@@ -5326,7 +5330,9 @@ retires a third. Worth doing together — after all three, the vocabulary is gam
 
 **Blocker:** none. Independent of Item 143.
 
-### Item 163 — the `vs <owner>` pill repeats a name already on the row
+### Item 163 — DONE: the `vs <owner>` pill repeated a name already on the row
+
+**Shipped on `claude/157-162-163-tag-vocabulary` (`a008b39c`, `1f4b83a4`, `ca2a13f9`, `2e9c7468`, `3da3c42e`, `0d741e81` + this closeout), merge pending.** **Owner ruling 2026-09-08: retire the owner branch.** `DESIGN.md`'s permission for a restating chip is about WAYFINDING, and the pill sat in tier 2 **below** both team rows while the scoreboard printed that owner inline on the opponent's row — a marker after the content it restates cannot help a reader find the row. That reasoning is now a `DESIGN.md` rule rather than a one-off. Suppressed at the **render seam**, not in `deriveOpponentDescriptor`: the selector's other consumer groups opponents for a summary that renders no scoreboard, where the owner label is the only thing naming them. All four non-`vs` branches survive — `Self`, placeholder/derived, `FCS`, `NoClaim (FBS)`. The filing named three; `Self` was the missed one.
 
 **Found 2026-09-08**, owner question. **Nothing owned this** — it is not in the queue or any campaign
 document, so no filed item was going to drop it.

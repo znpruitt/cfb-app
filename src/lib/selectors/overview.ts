@@ -1,6 +1,8 @@
 import {
   deriveGameHighlightTags,
   deriveOverviewHighlightSignals,
+  hasTop25RankedTeam,
+  top25MatchupAverageRank,
   type OverviewHighlightSignals,
 } from '../gameTags';
 import { hasUsableFinalScore } from '../gameStatus';
@@ -44,6 +46,17 @@ export type PrioritizedOverviewItem = {
   isRankedSpotlight: boolean;
   highlightLabel: string | null;
   highlightTags: ReturnType<typeof deriveGameHighlightTags>;
+  /** Lower is stronger. Null for anything that is not a Top 25 Matchup. */
+  top25AverageRank: number | null;
+  /**
+   * Either participant ranked INSIDE the top 25. Curation only — nothing renders it.
+   *
+   * Named for the bound on purpose: `selectors/gameWeek.ts` carries its own
+   * `hasRankedTeam`, unbounded (`rank != null`), feeding Schedule's
+   * `data-ranked-game`. Two same-named predicates disagreeing about "ranked" is the
+   * divergence Item 157 existed to remove, so this one says which it means.
+   */
+  hasTop25RankedTeam: boolean;
 };
 
 export type OverviewViewModel = {
@@ -292,16 +305,16 @@ export function prioritizeOverviewItems(params: {
   items: OverviewGameItem[];
   highlightSignals: OverviewHighlightSignals;
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
-  topOwnerNames: Set<string>;
 }): PrioritizedOverviewItem[] {
-  const { items, highlightSignals, rankingsByTeamId, topOwnerNames } = params;
+  const { items, highlightSignals, rankingsByTeamId } = params;
   const upsetWatchSet = new Set(highlightSignals.upsetWatchKeys);
 
   return items.map((item) => {
+    // No owner-standing input: `Contender Watch` was retired with Item 162, and
+    // `topOwnerNames` existed only to feed it.
     const highlightTags = deriveGameHighlightTags({
       item,
       rankingsByTeamId,
-      topOwners: topOwnerNames,
     });
     const isGameOfSlate = highlightSignals.gameOfSlateKey === item.bucket.game.key;
     const isUpsetWatch = upsetWatchSet.has(item.bucket.game.key);
@@ -316,6 +329,8 @@ export function prioritizeOverviewItems(params: {
       isUpsetWatch,
       isRankedSpotlight,
       highlightTags,
+      top25AverageRank: top25MatchupAverageRank({ item, rankingsByTeamId }),
+      hasTop25RankedTeam: hasTop25RankedTeam({ item, rankingsByTeamId }),
       highlightLabel: isUpsetWatch ? 'Upset watch' : isGameOfSlate ? 'Game of the Week' : null,
     };
   });
@@ -345,6 +360,23 @@ function watchlistPriority(item: PrioritizedOverviewItem): number {
     item.highlightTags[0]?.priority ?? 0,
     item.isUpsetWatch ? 95 : 0,
     item.isGameOfSlate ? 90 : 0,
+    // 70 is the value the retired `Ranked Team` chip supplied, restored deliberately
+    // as a SIGNAL rather than a tag (owner decision 2026-09-08), so the ordering
+    // relative to `isGameOfSlate` is exactly what it was before Item 157 rather than
+    // a fresh re-ranking. It subsumes `isRankedSpotlight`'s contribution below, which
+    // is kept because the spotlight is still a distinct fact about one game.
+    item.hasTop25RankedTeam ? 70 : 0,
+    // DEAD as of 2026-09-08, retained deliberately and recorded rather than deleted.
+    // `isRankedSpotlight` implies `rankedHighlightKey === key`, and `rankedHighlight`
+    // only survives items with a top-25 rank — which is exactly the line above, also
+    // at 70 — so this term can no longer change the `Math.max`. Mutation-confirmed:
+    // neutralising it to `? 0 : 0` leaves all 122 overview/section/panel tests green.
+    // `isRankedSpotlight` is still a true and distinct FACT (this is the one game the
+    // slate's ranked spotlight landed on) and the tests above use it to discriminate
+    // which mechanism produced an ordering, so it is not dead data — only its
+    // contribution HERE is. Removing `rankedHighlight` and `rankedHighlightKey`
+    // outright is a separate deletion with its own test surface; filed rather than
+    // folded into this branch.
     item.isRankedSpotlight ? 70 : 0
   );
 }
@@ -355,6 +387,21 @@ function comparePrioritizedWatchlistItems(
 ): number {
   const priorityDifference = watchlistPriority(b) - watchlistPriority(a);
   if (priorityDifference !== 0) return priorityDifference;
+
+  // Owner decision 2026-09-08. Every Top 25 Matchup scores 100, which already puts
+  // all of them above every non-top-25 game — nothing else on a SCHEDULED watchlist
+  // reaches it (`isUpsetWatch` needs an in-progress game and cannot apply here, so
+  // the nearest rival is `isGameOfSlate` at 90). What that leaves undecided is which
+  // top-25 matchup leads, and kickoff order is not an answer to that. The strongest
+  // pair leads, measured as the lowest average of the two ranks.
+  //
+  // Only reachable when both are top-25 matchups: any other pairing has already been
+  // separated by priority above, and two non-top-25 games are both null here and fall
+  // through to the kickoff tie-break unchanged.
+  const aTop25 = a.top25AverageRank;
+  const bTop25 = b.top25AverageRank;
+  if (aTop25 != null && bTop25 != null && aTop25 !== bTop25) return aTop25 - bTop25;
+
   return compareWatchlistItems(a.item, b.item);
 }
 
@@ -493,7 +540,6 @@ export function selectOverviewViewModel(params: {
   // via OverviewPanel.
   const resolvedCurrent = resolvedMovement.latest ?? standingsLeaders;
   const previousStandings = resolvedMovement.previous;
-  const topOwnerNames = new Set(standingsLeaders.slice(0, 3).map((row) => row.owner));
   const overviewMatchupCandidates = keyMatchups;
   const featuredCandidates = overviewMatchupCandidates.filter((item) => {
     const gameState = gameStateFromScore(item.score);
@@ -510,13 +556,11 @@ export function selectOverviewViewModel(params: {
     items: featuredCandidates,
     highlightSignals,
     rankingsByTeamId,
-    topOwnerNames,
   }).sort(comparePrioritizedWatchlistItems);
   const prioritizedResults = prioritizeOverviewItems({
     items: resultCandidates,
     highlightSignals,
     rankingsByTeamId,
-    topOwnerNames,
   });
   const recentResults = selectFeaturedGames(prioritizedResults, resultsLimit);
   const gamesBackTrend = standingsHistory ? selectGamesBackTrend({ standingsHistory }) : [];
