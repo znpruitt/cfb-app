@@ -28,6 +28,10 @@ import type { ScorePack } from '../lib/scores';
 import type { AppGame } from '../lib/schedule';
 import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
 import type { LiveDelta } from '../lib/selectors/liveDelta';
+import {
+  EMPTY_TEAM_RECORDS_BY_PROVIDER_GAME_ID,
+  type TeamRecordsByProviderGameId,
+} from '../lib/teamRecords/clientProjection';
 import CompactGameScoreboard from './CompactGameScoreboard';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
 
@@ -42,6 +46,7 @@ type MatchupsWeekPanelProps = {
   displayTimeZone?: string;
   sections?: WeekMatchupSections;
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
+  teamRecordsByProviderGameId?: TeamRecordsByProviderGameId;
   focusedOwner?: string | null;
   focusedOwnerPair?: [string, string] | null;
   /**
@@ -137,6 +142,7 @@ function GameRow({
   rosterByTeam,
   displayTimeZone,
   rankingsByTeamId,
+  teamRecordsByProviderGameId,
 }: {
   slateGame: OwnerSlateGame;
   scoresByKey: Record<string, ScorePack>;
@@ -144,6 +150,7 @@ function GameRow({
   rosterByTeam: Map<string, string>;
   displayTimeZone: string;
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
+  teamRecordsByProviderGameId: TeamRecordsByProviderGameId;
 }): React.ReactElement {
   const score = scoresByKey[slateGame.game.key];
   const odds = oddsByKey[slateGame.game.key];
@@ -181,6 +188,9 @@ function GameRow({
     (slateGame.ownerTeamSide === 'away' && opponentBelongsToCardOwner);
   const awayRanking = rankingsByTeamId?.get(awayTeamId);
   const homeRanking = rankingsByTeamId?.get(homeTeamId);
+  const teamRecords = slateGame.game.providerGameId
+    ? (teamRecordsByProviderGameId[String(slateGame.game.providerGameId).trim()] ?? null)
+    : null;
   const opponentClassification =
     slateGame.ownerTeamSide === 'away'
       ? slateGame.game.homeClassification
@@ -236,6 +246,7 @@ function GameRow({
           rank: awayRanking?.rank,
           rankSource: awayRanking?.rankSource,
           classification: slateGame.game.awayClassification,
+          record: teamRecords?.away,
           score: scoreboardState === 'scheduled' ? null : (awayScore ?? null),
         }}
         home={{
@@ -245,6 +256,7 @@ function GameRow({
           rank: homeRanking?.rank,
           rankSource: homeRanking?.rankSource,
           classification: slateGame.game.homeClassification,
+          record: teamRecords?.home,
           score: scoreboardState === 'scheduled' ? null : (homeScore ?? null),
         }}
         tier2Slot={
@@ -304,6 +316,7 @@ function OwnerCard({
   rosterByTeam,
   displayTimeZone,
   rankingsByTeamId,
+  teamRecordsByProviderGameId,
   isFocused = false,
   onRegisterRef,
 }: {
@@ -314,6 +327,7 @@ function OwnerCard({
   rosterByTeam: Map<string, string>;
   displayTimeZone: string;
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
+  teamRecordsByProviderGameId: TeamRecordsByProviderGameId;
   isFocused?: boolean;
   onRegisterRef?: (element: HTMLElement | null) => void;
 }): React.ReactElement {
@@ -378,6 +392,7 @@ function OwnerCard({
             rosterByTeam={rosterByTeam}
             displayTimeZone={displayTimeZone}
             rankingsByTeamId={rankingsByTeamId}
+            teamRecordsByProviderGameId={teamRecordsByProviderGameId}
           />
         ))}
       </ul>
@@ -407,6 +422,7 @@ export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.
     rosterByTeam,
     displayTimeZone = getPresentationTimeZone(),
     rankingsByTeamId = new Map(),
+    teamRecordsByProviderGameId = EMPTY_TEAM_RECORDS_BY_PROVIDER_GAME_ID,
     focusedOwner = null,
     focusedOwnerPair = null,
     canonicalStandings = null,
@@ -469,6 +485,7 @@ export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.
                 rosterByTeam={rosterByTeam}
                 displayTimeZone={displayTimeZone}
                 rankingsByTeamId={rankingsByTeamId}
+                teamRecordsByProviderGameId={teamRecordsByProviderGameId}
                 onRegisterRef={(element) => {
                   if (!element) {
                     ownerCardRefs.current.delete(slate.owner);

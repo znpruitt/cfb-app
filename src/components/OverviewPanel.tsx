@@ -154,6 +154,10 @@ function watchlistOddsFooter(odds: CombinedOdds | undefined): string | null {
   return parts.length > 0 ? parts.join(' · ') : null;
 }
 
+function WatchlistOddsFooterSlot({ odds }: { odds: CombinedOdds | undefined }): React.ReactNode {
+  return watchlistOddsFooter(odds);
+}
+
 function deriveFeaturedGameBadge(game: AppGame): { label: string; classes: string } | null {
   const role = game.postseasonRole;
 
@@ -730,6 +734,9 @@ function WatchlistScoreboardList({
         const teamRecords = teamRecordsForGame(game, teamRecordsByProviderGameId);
         const highlightTags = prioritized.highlightTags;
         const hasReason = Boolean(prioritized.highlightLabel || highlightTags.length > 0);
+        // Overview's two-column grid explicitly requests this band even when the slot resolves to
+        // null, keeping scheduled peer cards aligned when only one has displayable odds.
+        const footerSlot = <WatchlistOddsFooterSlot odds={oddsByKey[game.key]} />;
 
         return (
           <CompactGameScoreboard
@@ -782,7 +789,7 @@ function WatchlistScoreboardList({
               record: teamRecords?.home,
               score: null,
             }}
-            footerSlot={watchlistOddsFooter(oddsByKey[game.key])}
+            footerSlot={footerSlot}
           />
         );
       })}

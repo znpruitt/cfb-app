@@ -1898,6 +1898,7 @@ export default function CFBScheduleApp({
                     selectedTab === 'postseason' ? postseasonMatchupSections : matchupSections
                   }
                   rankingsByTeamId={rankingsByTeamId}
+                  teamRecordsByProviderGameId={teamRecordsByProviderGameId}
                   focusedOwner={focusedOwner}
                   focusedOwnerPair={focusedOwnerPair}
                   canonicalStandings={canonicalStandings}

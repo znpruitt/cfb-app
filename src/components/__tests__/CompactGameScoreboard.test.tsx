@@ -47,6 +47,18 @@ function participantOpeningTag(html: string, side: 'away' | 'home'): string {
   return row;
 }
 
+function participantMarkup(html: string, side: 'away' | 'home'): string {
+  const row = html.match(
+    new RegExp(`<div(?=[^>]*data-scoreboard-side="${side}")[^>]*>[\\s\\S]*?<\\/div>`)
+  )?.[0];
+  assert.ok(row, `${side} participant row must render`);
+  return row;
+}
+
+function EmptyFooterSlot(): null {
+  return null;
+}
+
 const SCOREBOARD_STATES = ['scheduled', 'live', 'awaiting', 'final'] as const;
 type Participant = React.ComponentProps<typeof CompactGameScoreboard>['away'];
 type CardOwnerFlag = boolean | undefined | 'absent';
@@ -330,6 +342,58 @@ test('live scoreboard renders the same owner as each team suffix when one owner 
 
   assert.match(html, /data-scoreboard-owner="away">Whited<\/span>/);
   assert.match(html, /data-scoreboard-owner="home">Whited<\/span>/);
+});
+
+test('explicit record states stay equivalent to the former non-scheduled rule across both participants', () => {
+  for (const state of SCOREBOARD_STATES) {
+    for (const awayHasRecord of [false, true]) {
+      for (const homeHasRecord of [false, true]) {
+        const html = renderScoreboard({
+          state,
+          away: {
+            teamName: 'Michigan',
+            owner: 'Alex',
+            isCardOwnerTeam: true,
+            record: awayHasRecord ? { wins: 3, losses: 1 } : null,
+            score: state === 'scheduled' ? null : 17,
+          },
+          home: {
+            teamName: 'Ohio State',
+            owner: 'Alex',
+            isCardOwnerTeam: true,
+            record: homeHasRecord ? { wins: 4, losses: 0 } : null,
+            score: state === 'scheduled' ? null : 24,
+          },
+        });
+        const formerlyShowedInlineRecord = state !== 'scheduled';
+
+        for (const [side, hasRecord] of [
+          ['away', awayHasRecord],
+          ['home', homeHasRecord],
+        ] as const) {
+          const row = participantMarkup(html, side);
+          assert.equal(
+            occurrenceCount(row, `data-scoreboard-record="${side}"`),
+            hasRecord && formerlyShowedInlineRecord ? 1 : 0,
+            `${state} ${side} must remain equivalent to the former inline-record rule`
+          );
+          assert.equal(
+            occurrenceCount(row, 'data-scoreboard-value-kind="record"'),
+            hasRecord && state === 'scheduled' ? 1 : 0,
+            `${state} ${side} must preserve its scheduled record anchor`
+          );
+          assert.equal(
+            occurrenceCount(row, 'data-scoreboard-value-kind="score"'),
+            state === 'scheduled' ? 0 : 1,
+            `${state} ${side} must preserve its state-owned score anchor`
+          );
+        }
+
+        assert.match(participantOpeningTag(html, 'away'), /dark:after:bg-/);
+        assert.match(participantOpeningTag(html, 'home'), /dark:after:bg-/);
+      }
+    }
+  }
 });
 
 test('every scoreboard state adds an isolated neutral tint only to the marked participant row', () => {
@@ -644,13 +708,19 @@ test('optional wrappers reject React-empty content recursively while preserving 
   ];
 
   for (const emptySlot of emptySlots) {
-    const html = renderScoreboard({ contextSlot: emptySlot, tier2Slot: emptySlot });
+    const html = renderScoreboard({
+      contextSlot: emptySlot,
+      footerSlot: emptySlot,
+      tier2Slot: emptySlot,
+    });
     assert.doesNotMatch(html, /data-scoreboard-context-slot/);
+    assert.doesNotMatch(html, /data-scoreboard-odds-footer/);
     assert.doesNotMatch(html, /data-scoreboard-tier2-slot/);
   }
 
-  const zeroHtml = renderScoreboard({ contextSlot: 0, tier2Slot: 0 });
+  const zeroHtml = renderScoreboard({ contextSlot: 0, footerSlot: 0, tier2Slot: 0 });
   assert.match(zeroHtml, /data-scoreboard-context-slot[^>]*>0<\/div>/);
+  assert.match(zeroHtml, /data-scoreboard-odds-footer[^>]*>0<\/div>/);
   assert.match(zeroHtml, /data-scoreboard-tier2-slot[^>]*>0<\/div>/);
 
   const nestedContentHtml = renderScoreboard({
@@ -675,7 +745,7 @@ test('optional wrappers reject React-empty content recursively while preserving 
   assert.match(nestedContentHtml, /data-scoreboard-tier2-slot[^>]*>[\s\S]*Tier 2/);
 });
 
-test('scheduled peers reserve equal odds bands with and without odds across tier-2 states', () => {
+test('caller-requested peers reserve equal odds bands with and without rendered odds', () => {
   const tier2Cases: Array<{
     withOdds: React.ReactNode;
     withoutOdds: React.ReactNode;
@@ -707,7 +777,7 @@ test('scheduled peers reserve equal odds bands with and without odds across tier
           matchupLabel="Away at Home without odds"
           away={{ teamName: 'Away', score: null }}
           home={{ teamName: 'Home', score: null }}
-          footerSlot={null}
+          footerSlot={<EmptyFooterSlot />}
           tier2Slot={withoutOdds}
         />
       </div>
@@ -719,11 +789,11 @@ test('scheduled peers reserve equal odds bands with and without odds across tier
       const footerOpeningTag = scoreboard.match(
         /<div(?=[^>]*class="[^"]*")(?=[^>]*data-scoreboard-odds-footer)[^>]*>/
       )?.[0];
-      assert.ok(footerOpeningTag, 'every scheduled peer must render its odds footer');
+      assert.ok(footerOpeningTag, 'every caller-requested peer must render its odds footer');
       assert.equal(
         occurrenceCount(scoreboard, 'data-scoreboard-odds-footer'),
         1,
-        'every scheduled peer reserves exactly one odds band'
+        'every caller-requested peer reserves exactly one odds band'
       );
       // Static markup cannot measure layout height. This exact token is the structural pin for the
       // minimum-height reservation that keeps empty and populated peer bands aligned.
