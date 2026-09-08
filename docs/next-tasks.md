@@ -2461,7 +2461,19 @@ tint alone, and the short bars visible beside each team row are THIS item's 8px 
 different element. Extending the background would entrench the thing that is slated for deletion and
 make this item harder, which is what CARRY row 20's "do not entrench it either" clause exists to stop.
 
-**Retiring the rail removes the mismatch.** That is the precondition, and it is already decided.
+**CORRECTED — the rail cannot be retired on its own, and my first note here said it could.** The
+authority is `item-87-followon-presentation-decisions.md` → _The tint tracks state across the game's
+whole life_, marked **CURRENT and UNBUILT**, whose own words are: _"Shipped code renders the neutral
+tint only (slice 5b, Item 117) and still draws the outcome rail beside it."_ **The rail exists BECAUSE
+the tint's outcome states are unbuilt.** Delete it today and nothing carries outcome at all.
+
+**So row 20 is one change, not two** — build the tint's live and final states (green/red base,
+travelling band while live, static at final) **and** retire the rail in the same slice.
+
+**The tint itself is never in question, on either axis.** `team-highlight.md` decides the IDENTITY
+axis — it marks the card owner's team in the matchup, and is never owner colour — and the lifecycle
+table above decides the OUTCOME axis. **Nothing in this campaign proposes removing the owned-team
+tint**, and a prompt that reads "retire the rail" as touching it has misread the row.
 
 **Decision parked:** the normalisation target — the incumbent is tuned to `#0A0A0A`, the mockup and
 follow-on assume `#161616`. One constant, before (1) ships.
