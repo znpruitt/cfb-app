@@ -5251,6 +5251,37 @@ retires a third. Worth doing together — after all three, the vocabulary is gam
 
 **Blocker:** none. Independent of Item 143.
 
+### Item 163 — the `vs <owner>` pill repeats a name already on the row
+
+**Found 2026-09-08**, owner question. **Nothing owned this** — it is not in the queue or any campaign
+document, so no filed item was going to drop it.
+
+`selectors/matchups.ts:48` returns `` `vs ${opponentOwner}` `` and `MatchupsWeekPanel.tsx:286` renders
+it as a pill in the metadata row. **But the shared scoreboard already renders each team's owner inline
+on its own row** (`owner: awayOwner` / `owner: homeOwner`, `MatchupsWeekPanel.tsx:244`/`:254`). So
+whenever the opponent has a displayable owner, **that owner's name appears twice on one card** — beside
+their team, and again in the pill.
+
+**It reads as a leftover.** Before Matchups adopted the compact scoreboard (PLATFORM-087 slice 5,
+`9bd9dc41`), the row did not carry owners and the descriptor was the only place the opponent's owner
+appeared. Adopting the scoreboard made it redundant and nothing revisited it — **the same
+recorded-and-unapplied shape as Item 160**, one surface further along.
+
+**The ask:** decide whether the pill still earns its place, and drop it if not.
+
+**Why this needs a ruling rather than an automatic retirement.** `DESIGN.md:284` is explicit that _a
+chip that restates inline content is legitimate when it lets the reader find the row without reading
+it_ — restating is not disqualifying on its own. The question is whether a reader scanning an owner
+card benefits from the opponent owner being pill-shaped when it is already two lines down. **The
+descriptor also carries the non-owner cases** (`FCS`, `NoClaim (FBS)`, placeholder and derived
+participants), which are NOT duplicative and must survive whatever is decided about the owner case.
+
+**Related, and worth ruling together:** this is the third marker found today that restates a visible
+fact — `Ranked Team` beside `#25 Missouri` (Item 157), `Contender Watch` as owner standing (Item 162),
+and this. **Three instances is a pattern about the tag vocabulary, not three coincidences.**
+
+**Blocker:** none. Independent of Item 143.
+
 ## Hosted deployment runbook
 
 Use `docs/deployment-runbook.md` for hosted environment setup, activation, production observations,
