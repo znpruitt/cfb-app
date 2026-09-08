@@ -362,6 +362,92 @@ test('every Top 25 Matchup is tagged, outranks non-top-25 games, and leads by be
 });
 
 /**
+ * The SECOND mechanism behind the one-ranked curation gap, found by `/code-review`
+ * and independent of the "spotlight names one game" one.
+ *
+ * `deriveOverviewHighlightSignals` runs over ALL `keyMatchups` — finals and live
+ * games included — while the watchlist is filtered to scheduled games only. So
+ * `rankedHighlightKey` can land on a game that is not on the watchlist at all, and
+ * before `hasRankedTeam` existed that left NO scheduled card carrying any
+ * rank-derived priority, however many ranked games were still to be played.
+ *
+ * Here the best-ranked matchup is a FINAL (#1 vs #3, already played), so it takes
+ * the spotlight and is routed away from the watchlist. The scheduled ranked game
+ * kicks off last, so kickoff order alone would bury it behind the unranked pair.
+ */
+test('a spotlight that landed on a final still leaves scheduled ranked games ahead of unranked ones', () => {
+  const single = (key: string, date: string, awayId?: string, homeId?: string) => {
+    const base = item(
+      key,
+      date,
+      awayId && homeId
+        ? {
+            participants: {
+              away: {
+                kind: 'team',
+                teamId: awayId,
+                displayName: awayId,
+                canonicalName: awayId,
+                rawName: awayId,
+              },
+              home: {
+                kind: 'team',
+                teamId: homeId,
+                displayName: homeId,
+                canonicalName: homeId,
+                rawName: homeId,
+              },
+            },
+          }
+        : {}
+    );
+    return { ...base, bucket: { ...base.bucket, homeOwner: undefined }, priority: 1 };
+  };
+
+  const playedMarquee = single('played-marquee', '2026-09-01T12:00:00.000Z', 'f-away', 'f-home');
+  playedMarquee.score = {
+    status: 'Final',
+    time: null,
+    away: { team: 'f-away', score: 31 },
+    home: { team: 'f-home', score: 10 },
+  };
+  const scheduledRanked = single('sched-ranked', '2026-09-06T18:00:00.000Z', 's-away', 's-home');
+  const plainEarly = single('plain-a', '2026-09-01T17:00:00.000Z');
+  const plainLate = single('plain-b', '2026-09-01T18:00:00.000Z');
+
+  const model = selectOverviewViewModel({
+    standingsLeaders: [],
+    standingsCoverage: { state: 'partial', message: null },
+    context: { scopeDetail: 'Week 1' },
+    liveItems: [],
+    keyMatchups: [playedMarquee, scheduledRanked, plainEarly, plainLate],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map([
+      ['f-away', { rank: 1, rankSource: 'ap' as const }],
+      ['f-home', { rank: 3, rankSource: 'ap' as const }],
+      ['s-away', { rank: 18, rankSource: 'ap' as const }],
+    ]),
+  });
+
+  const watchlist = model.watchlistCandidates.filter(
+    (entry) => entry.item.bucket.game.key !== 'played-marquee'
+  );
+
+  // The final really did take the spotlight — otherwise the scheduled game would
+  // have had `isRankedSpotlight` and this would prove nothing about `hasRankedTeam`.
+  assert.equal(
+    watchlist.find((entry) => entry.item.bucket.game.key === 'sched-ranked')?.isRankedSpotlight,
+    false,
+    'the spotlight must have landed on the final for this test to mean anything'
+  );
+
+  assert.deepEqual(
+    watchlist.map((entry) => entry.item.bucket.game.key),
+    ['sched-ranked', 'plain-a', 'plain-b']
+  );
+});
+
+/**
  * The one-ranked curation signal, RESTORED (owner ruling 2026-09-08) after the
  * retirement removed it as a side effect.
  *

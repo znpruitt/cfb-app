@@ -1051,10 +1051,17 @@ test('deriveGameHighlightTags requires both teams INSIDE the top 25, not merely 
   // production poll reaches rank 26 today, so this pins the predicate rather than
   // a live case — `computeGameTags` bounds the league family the same way, and
   // both now render the identical `Top 25 Matchup`.
+  // Both ends. A rank of 0 or below is not a poll position, and nothing upstream
+  // rejects one — `toCanonicalPollEntries` checks only for null. Since the watchlist
+  // sorts on the AVERAGE of the two ranks, an unbounded low value would not merely
+  // over-admit the tag, it would sort the game to the front.
   for (const ranks of [
     [26, 12],
     [12, 26],
     [26, 30],
+    [0, 25],
+    [12, 0],
+    [-3, 4],
   ] as const) {
     assert.deepEqual(
       deriveGameHighlightTags({

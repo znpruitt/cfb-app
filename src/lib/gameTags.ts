@@ -341,7 +341,6 @@ export function deriveOverviewHighlightSignals(params: {
       )
     )
     .map((item) => {
-      const { awayRank, homeRank } = rankingPairForItem(item, rankingsByTeamId);
       const margin = gameMargin(item);
       const ownedVsOwned = Boolean(
         item.bucket.awayOwner &&
@@ -350,8 +349,10 @@ export function deriveOverviewHighlightSignals(params: {
       );
       const closeGame = margin != null && margin <= 7;
       const isLive = gameStateFromScore(item.score) === 'inprogress';
-      const rankedBonus =
-        awayRank != null && homeRank != null ? 2 : awayRank != null || homeRank != null ? 1 : 0;
+      // Same bound as the tag and the watchlist sort key. Before 2026-09-08 this
+      // counted any non-null rank, so an out-of-range poll value could win the
+      // game-of-the-slate tiebreak on a game carrying no chip to explain it.
+      const rankedBonus = top25RanksForItem({ item, rankingsByTeamId }).length;
 
       return {
         item,
@@ -403,8 +404,10 @@ export function deriveOverviewHighlightSignals(params: {
 
   const rankedHighlight = displayedItems
     .map((item) => {
-      const { awayRank, homeRank } = rankingPairForItem(item, rankingsByTeamId);
-      const ranks = [awayRank, homeRank].filter((rank): rank is number => rank != null);
+      // Bounded identically: the spotlight must not land on a game whose only
+      // "rank" is outside the top 25, which would give it priority 70 on the
+      // watchlist while rendering no chip saying why it is there.
+      const ranks = top25RanksForItem({ item, rankingsByTeamId });
       if (ranks.length === 0) return null;
       const bestRank = Math.min(...ranks);
       const hasTwoRanked = ranks.length === 2;
@@ -641,8 +644,23 @@ function winnerSide(score: ScorePack): 'away' | 'home' | null {
   return awayScore > homeScore ? 'away' : 'home';
 }
 
+/**
+ * A poll position inside the top 25 — bounded at BOTH ends.
+ *
+ * Nothing upstream constrains the value: `toCanonicalPollEntries`
+ * (`src/lib/server/rankings.ts:100`) rejects only `rank == null`, so whatever a
+ * provider sends becomes a rank. The upper bound has always been here; the lower
+ * bound was added 2026-09-08 because a rank of 0 or below is not a position and,
+ * since the watchlist began sorting on the AVERAGE of two ranks, a bogus low value
+ * no longer merely over-admits a tag — it drags a game to the front of the board
+ * (`0`/`25` averages 12.5 and outranks a genuine `#13`/`#13`).
+ *
+ * Latent rather than live when the bound was added, measured on the read-only
+ * replica: 19 stored weeks, none with zero poll entries, 777 entries across
+ * ap/coaches/cfp, all integers, min 1 and max 25.
+ */
 function isRankedTop25(rank: number | null): rank is number {
-  return rank != null && rank <= 25;
+  return rank != null && rank >= 1 && rank <= 25;
 }
 
 function isRankUpset(params: { winnerRank: number | null; loserRank: number | null }): boolean {
