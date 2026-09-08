@@ -286,6 +286,31 @@ wrapping rule is RECONCILED** — owner ruling recorded as an amendment in `DESI
 tagged scheduled rows at phone width — and the **1320px arithmetic does not reproduce** (Item 152; no number chosen
 here). Everything decided here is unbuilt on Matchups (Item 143).
 
+**`item-87-reference-game-row.md`** (374 lines, new 2026-09-08) — **CURRENT — REFERENCE, not input**
+The shared game row consolidated element by element: sixteen sections across all four consumers, plus Featured
+and postseason. **It adds nothing new and is not a source of decisions.** Everything in it is recorded elsewhere
+in this set; where it and another document disagree, **this INDEX arbitrates and the reference yields.** A claim
+in it that no other document supports is a DEFECT in that file — report it, do not build on it.
+
+**Read §11 and §16 first.** §11 is the consumer matrix, and its rule that *a slot a surface does not pass renders
+nothing* is what would have settled the Item 155 footer-band contradiction before it blocked a slice. Three of its
+rows explain most per-surface variation: the owner tint is Matchups-only, date grouping is Schedule-only (hence
+Schedule cannot reorder finals to the end), and the recap renders no records (hence its status rows are frequently
+tag-only, a case no other consumer exercises). §16 collects seven defects that **produce no error** — a missing
+`min-width: 0` clips the wrong element, block layout drops separation at one breakpoint only, a negated state
+condition silently admits states nobody named.
+
+**It also preserves superseded reasoning where the current reason is stronger** — the finals-no-date rationale,
+the tint's opacity-versus-motion distinction, the mixed-pill rejection — so a reader meeting the old argument in
+an earlier document does not read it as a contradiction.
+
+**Verified on intake, 2026-09-08.** §13's account of Featured is **accurate**: Item 113 is unresolved, and
+`selectFeaturedGames` is finals-only as described (`overview.ts:470`, `hasUsableFinalScore`). Two claims were
+corrected in place — a stale `DESIGN.md:147` citation (now `:153`) and a contrast figure of 1.32:1, which is the
+pill border against the pill text rather than bronze against champion amber (**2.13:1**). **One conflict it
+surfaced is genuine and stays open:** the two-tag cap, where `recap-scoreboard.md:29`, `DESIGN.md:293` and the
+code all disagree — **Item 165**.
+
 **`item-87-followon-overview-back-application.md`** (new 2026-09-08) — **CURRENT, unapplied input**
 Overview's watchlist against the mockup: **six divergences that are one omission.** Every one was decided during
 the Schedule and Matchups work, recorded in `presentation-decisions.md`, and never applied back — **the decisions

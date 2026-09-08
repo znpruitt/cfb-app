@@ -40,7 +40,7 @@ Two team lines, always. Never one, never three.
   <span class="sb-meta"> state · time · broadcast </span>
   <span class="eyebrow"> TAG </span>
 </div>
-```text
+```
 
 **One flexible left group, one fixed tag pinned right.**
 
@@ -72,9 +72,9 @@ It matters on phones. At 375–430px portrait, minus page and block padding, a r
 
 `#dbc190` text, `rgba(201,166,107,0.40)` border at 0.5px, 10px, `0.08em` tracking.
 
-**Bronze, not blue.** `DESIGN.md:147` forbids blue for "featured" or "important", and a tag means exactly that — the shipped blue was non-compliant, so bronze is a correction rather than a preference.
+**Bronze, not blue.** `DESIGN.md:153` (re-derived 2026-09-08) forbids blue for "featured" or "important", and a tag means exactly that — the shipped blue was non-compliant, so bronze is a correction rather than a preference.
 
-**Bronze does not collide with champion amber**, because the champion treatment does not render until a title is awarded — podium cards for #1–#3 are neutral all season. At season end the two remain distinguishable as a desaturated tan against a dark saturated gold. **Known limitation:** their luminance separation is 1.32:1, so they differ by hue and saturation only. Recorded rather than argued away.
+**Bronze does not collide with champion amber**, because the champion treatment does not render until a title is awarded — podium cards for #1–#3 are neutral all season. At season end the two remain distinguishable as a desaturated tan against a dark saturated gold. **Known limitation:** their luminance separation is **2.13:1** — pill text `#dbc190` against champion `#BA7517`, recomputed 2026-09-08 — so they differ by hue and saturation more than by luminance. *Corrected: this section previously stated 1.32:1, which is the pill BORDER against the pill TEXT, an internal pair no reader compares. The conclusion is unchanged, which is exactly why three readers passed over the wrong number (`AGENTS.md` → a stated figure must reproduce).*
 
 **One treatment, no per-class variation.** An earlier draft gave outcome tags a pill and selection tags plain text, reasoning that they are different classes. The distinction is real but **undecodable** — a reader cannot learn "pill means outcome" from looking. Rejected.
 
@@ -98,6 +98,16 @@ An outcome tag cannot render on a game that has not been played. An implementati
 ### Cap
 
 Two. Three pills crowd the metadata out entirely at column width even without wrapping. `prioritizeGameTags` chooses which survive.
+
+> **UNRESOLVED — three sources disagree, surfaced 2026-09-08 by consolidating them here, and this
+> document is NOT the place it gets settled.** `item-87-followon-recap-scoreboard.md:29` states the cap
+> of two and is what this section carries. **`DESIGN.md:293` states the opposite** — *"Chips are not
+> capped. As many as are true — several ranked matchups on one slate all carry the chip."* **And the
+> code implements neither:** `prioritizeGameTags` (`gameTags.ts:644`) dedupes and orders by priority,
+> returning `primary` plus **all** `secondary`; the only thing resembling a limit is Matchups hiding
+> secondary tags below the `sm` breakpoint, which is responsive behaviour rather than a cap.
+> **`DESIGN.md` is canonical for UI, so as written it wins — but the cap is the later and more specific
+> decision, with a stated reason.** Needs an owner ruling; filed as **Item 165**.
 
 ---
 
@@ -254,3 +264,122 @@ Suppressed on live games: dimming a team down three in the first quarter oversta
 **The watchlist keeps its priority key** — it is a *curated* list, so ordering by the reason for curation is legible rather than hidden, and it is where notable games that miss Featured's cap land.
 
 **Matchups differs from Schedule for a structural reason:** Schedule is date-grouped, so chronology is structural there and moving finals to the end would tear games out of their date headings. A Matchups card has no grouping — one owner, one week, one list — so nothing structural depends on its order. The rule reduces to plain kickoff once a week completes.
+
+---
+
+## 11. Consumer matrix
+
+Which slots each surface supplies. **A slot a surface does not pass renders nothing** — it does not reserve space, and it does not fall back.
+
+| | Overview | Matchups | Schedule | Recap |
+|---|---|---|---|---|
+| **States rendered** | scheduled, live, final, awaiting | scheduled, live, final | scheduled, live, final | final only |
+| **Status row** | yes | yes | yes | yes |
+| **Tag slot** | yes | yes | yes | yes |
+| **Team colour bar** | yes | yes | yes | yes |
+| **Rank / FCS prefix** | yes | yes | yes | yes |
+| **Record** | yes | yes | yes | no |
+| **Owner suffix** | yes | yes | yes | yes |
+| **Anchor** | record / score / `–` | record / score | record / score | score |
+| **Odds footer** | yes | yes | tier-2 body | no |
+| **Tier-2 expansion** | no | no | yes | no |
+| **Owner tint** | no | **yes** | no | no |
+| **Broadcast** | scheduled, live | scheduled, live | scheduled, live | n/a |
+| **Date grouping** | no | no | **yes** | no |
+| **Week scoping** | no | **yes** (tab) | no | **yes** (week) |
+
+**Three rows in that table are the whole reason it exists.** The owner tint is Matchups-only because a card is scoped to one owner. Date grouping is Schedule-only, which is why Schedule cannot reorder finals to the end. And the recap renders no records, which is why its status rows are frequently tag-only — a case no other consumer exercises.
+
+---
+
+## 12. Overview sections
+
+Overview is the only surface that partitions by state. The others render one list and let each row declare its own state.
+
+**Section order: Featured → Live → Recent finals → Upcoming watchlist.** Ordered by temporal distance from now — happening, just happened, coming up. Live sits above the watchlist because live games are the only content with a deadline; upcoming games are stable all week, and placing stable content above volatile content buries the thing that expires.
+
+**The order is self-managing.** Empty sections hide, so outside a slate Live disappears and the watchlist rises without any conditional logic. The order asserts itself only when Live has content, which is exactly when it should.
+
+**Section counts are totals, not visible counts** — but *not yet*. The current `.length`-after-`.slice` reads false, and making it a true total before Item 115 ships would state that ten games exist while four remain unreachable. The real defect is the silent cap; the count is only how it surfaces. Both land together.
+
+**Recent finals uses displacement, not clearing.** It holds the N most recent completed games, displaced by newer results. No clearing event, no duration to calibrate. Week 0 solves itself.
+
+**Awaiting score** is a distinct state: past kickoff, no score available, `–` on both anchors, routed to Live by kickoff time. It persists up to `GAME_MAX_DURATION_MS` — eight hours — so Live can show blank rows for an afternoon, not a brief gap. Item 115's cap work must handle scoreless rows specifically rather than treating cap as a volume problem.
+
+---
+
+## 13. Featured
+
+**A separate axis from state**, not a fourth section. A featured game enters when selected and stays through scheduled → live → final, appearing **only** in the Featured tile and excluded from the state sections — preserving one game, one place.
+
+That orthogonality is the whole point: every other section moves games between partitions as they progress; Featured exempts a game from that movement. It sits still while everything else flows past.
+
+**Capped at four**, settled on the CFP-round argument.
+
+**Selection belongs to the insights pipeline**, not to this component. Only pair-anchored insights qualify. The reason label occupies the tag slot and inherits its palette from `INSIGHTS-017-PALETTE`.
+
+**Unresolved — Item 113.** The shipped Featured is *results-based*: filtered to completed games, rendered in recency order, which makes it close to a second Recent finals. The design intent is *must-watch*: selected before kickoff on insight criteria. These are different features sharing a name, with unrelated selection pipelines. Until 113 resolves it, do not build against either reading.
+
+**The CFP round badge is slate, not bronze** — `deriveFeaturedGameBadge` has two branches and the sibling is already slate. Bronze there would split one badge family by hue with nothing a reader could decode.
+
+---
+
+## 14. The recap
+
+**All rows are final.** No state variation, no live badge, no awaiting-score handling, no odds footer. This is an argument *for* using the shared component, not against: it exercises a subset of the states, passes nothing for the slots it does not need, and gets the anatomy free. A component with props unused by one consumer is unremarkable; a row rendering differently on one surface is the actual defect.
+
+**Metadata carries only what the row cannot state itself.** "38-point margin" beside scores of 48 and 10 restates arithmetic already on screen. Margin, combined points and "zero points allowed" are all dropped as derivable. An upset's spread survives — the line is not visible anywhere.
+
+The test is not whether a fact is interesting. Margin *is* interesting. It is whether the row already states it. Restating a visible fact costs a line and teaches the reader that the metadata slot is decorative.
+
+**Consequence: most status rows are tag-only.** Six of seven in the mockup carry no metadata at all. The left group must hold open so the tag stays right-aligned — a case no other consumer exercises, since Matchups and Schedule always have a state label holding the left side.
+
+**Adoption is blocked on Item 143.** The recap needs a tag in the status row and metadata beside it; neither seam exists. `contextSlot` renders *above* the header row and would add a line; `footerSlot` is scheduled-only. These are the same four "fits neither slot" findings that stopped Matchups — checked before scoping this time rather than after.
+
+**Section titles name what they contain, not why games were selected.** *Notable results*, not *Head-to-head results* — which then tags every row `HEAD-TO-HEAD` and states one fact twice.
+
+---
+
+## 15. Postseason
+
+Not yet built. **Item 154**, specified across three documents.
+
+**Group by round; label the bowl on the row.** Round and bowl are two attributes, not one taxonomy — under the 12-team format the quarterfinals and semifinals *are* bowl games, so "Bowls" and "CFP rounds" are not disjoint and cannot both be group headings.
+
+| Group | Bowl names present |
+|---|---|
+| CFP First Round | no — campus sites |
+| Bowls (non-CFP) | yes |
+| CFP Quarterfinals | yes — the game *is* a bowl |
+| CFP Semifinals | yes |
+| National Championship | no |
+
+Groups run in calendar order, which interleaves: first round, then non-CFP bowls, then quarterfinals. **The bowl name is a per-game eyebrow**, in the tag slot — so a row reads *Rose Bowl* under a *CFP Quarterfinals* heading, and both facts survive.
+
+**Group from `playoffRound` and `postseasonSubtype`; order from `startDate`. Never from `week`** — postseason week 1 spans first-round games, non-CFP bowls *and* the championship.
+
+**CFP group membership is `playoffCompetition === 'cfp'`** — a positive test on provider data. A round that fails to parse loses its subgroup, not its bracket, and cannot fall into non-CFP Bowls even by accident.
+
+**Reuse `deriveFeaturedGameBadge`** for round labels rather than re-deriving them. It returns `null` for non-CFP bowls, which independently confirms the bowl name belongs in the row eyebrow rather than as a round badge.
+
+**Typing trap:** `schedule.ts` omits `'first-round'` from the named union while the wire type includes it. The value survives at runtime through the `| string` arm, so a grouping `switch` written against the named union silently drops all four first-round games — and a test suite generated from that union would pass.
+
+---
+
+## 16. What is easy to ship wrong
+
+Collected because each was found the hard way.
+
+**State defined by negation.** `!== 'scheduled'` means every state not named inherits the branch. Enumerate per state.
+
+**Block layout ignores grid `gap`.** At one column the grids become `display: block` and stack with no separation. Needs adjacent-sibling margins. Appears at one breakpoint only.
+
+**`margin-left: auto` on the tag.** Silently does nothing when the row overflows, which is the common case at column width.
+
+**Missing `min-width: 0`.** The tag clips instead of the metadata, being last in DOM order — backwards.
+
+**`z-index: -1` without `isolation: isolate`.** The tint paints behind the card, not behind the row. And the obvious workaround shifts every colour bar.
+
+**Reserving a footer band a surface never fills.** Not alignment; dead space.
+
+**A breakpoint derived from row anatomy, then anatomy changing.** Every tier moves when the row does. Logos in the line-start slot are the next one.

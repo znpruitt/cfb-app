@@ -5347,6 +5347,33 @@ this defect is horizontal.** They are unrelated, and this one is independently f
 
 **Blocker:** none. **One class**, plus a test that asserts the block contains the bleed on both edges.
 
+### Item 165 — the tag cap: three sources, three answers
+
+**Surfaced 2026-09-08** by `item-87-reference-game-row.md` putting the claims side by side. Invisible
+while they sat in separate files.
+
+| source | says |
+| --- | --- |
+| `item-87-followon-recap-scoreboard.md:29` | **a hard cap of two**, because three pills crowd the metadata out entirely at column width |
+| `DESIGN.md:293` | **not capped** — _As many as are true — several ranked matchups on one slate all carry the chip_ |
+| `gameTags.ts:644` `prioritizeGameTags` | **neither** — dedupes and orders by priority, returns `primary` plus **all** `secondary` |
+
+**The ask:** rule which governs, and make the other two agree with it.
+
+**Why it is not obvious.** `DESIGN.md` is canonical for UI, so as written it wins. But the cap is the
+**later and more specific** decision and carries a stated reason, which is the shape of a decision that
+should have amended `DESIGN.md` and did not. **This is the amendment-versus-application distinction the
+campaign has hit before**, so the ruling should say which it is rather than only picking a number.
+
+**The code is not evidence for either.** It caps nothing. The nearest thing to a limit is Matchups
+hiding secondary tags below the `sm` breakpoint (`MatchupsWeekPanel.tsx`, `hidden sm:inline-flex`),
+which is responsive behaviour, not a cap — **do not read it as the decision already having been made.**
+
+**Related:** Items 157, 162 and 163 all retire or rename a tag. **If they land first the cap may never
+bind in practice** — but the rule still has to say something, because the next tag added would hit it.
+
+**Blocker:** none.
+
 ## Hosted deployment runbook
 
 Use `docs/deployment-runbook.md` for hosted environment setup, activation, production observations,
