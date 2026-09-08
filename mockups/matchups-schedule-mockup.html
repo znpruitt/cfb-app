@@ -110,11 +110,11 @@
   /* The tint tracks state across the game's life:
        scheduled       neutral   — no outcome exists yet
        live, level     neutral   — no direction yet
-       live, ahead     green 7%  — provisional, rendered provisionally
-       live, behind    red 7%
-       final, won      green 14% — settled, rendered at full strength
-       final, lost     red 14%
-     Opacity carries certainty; hue carries direction. */
+       live, ahead     green 9% + travelling band — motion carries "not settled"
+       live, behind    red 9% + travelling band
+       final, won      green 19%, static — settled
+       final, lost     red 19%, static
+     Hue carries direction; motion carries certainty. */
   body.hl-outcome .sb-line.mine::after        { background: rgba(255,255,255,0.055); }
   /* Live rows: a brighter band travels along the tint. Hue says which way the game is
      going; movement says it is not settled. Final rows hold the same hue as a static
@@ -432,8 +432,7 @@
     </div>
 <div class="card-footer"><button class="linkbtn">Show 6 more games &darr;</button></div>
   </div>
-  </body>
-</html>
+  
   <div class="owner-card" style="--ocol:#8FD6A0">
     <div class="owner-head"><span class="name">Chamness</span><span class="rec num">2&ndash;1</span></div>
     <div class="stat-strip">
@@ -455,7 +454,7 @@
     </div>
     <div class="scoreboard">
       <div class="sb-status"><span class="state">Final</span></div>
-      <div class="sb-line loser" style="--tcol:#4A78C4"><span class="who"><span class="tc"></span><span class="team">Sacramento State</span><span class="rec num">(2&ndash;6)</span><span class="owner self">Chamness</span></span><span class="score num">13</span></div>
+      <div class="sb-line loser mine lost" style="--tcol:#4A78C4"><span class="who"><span class="tc"></span><span class="team">Sacramento State</span><span class="rec num">(2&ndash;6)</span><span class="owner self">Chamness</span></span><span class="score num">13</span></div>
       <div class="sb-line" style="--tcol:#3FA36B"><span class="who"><span class="tc"></span><span class="team">Eastern Michigan</span><span class="rec num">(4&ndash;4)</span><span class="owner">Jackson</span></span><span class="score num">30</span></div>
     </div>
     <div class="card-footer"><button class="linkbtn">Show 8 more games &darr;</button></div>
@@ -745,7 +744,7 @@
     <li><strong>Preserved metadata:</strong> FCS marker (prefix slot), rank prefix, Top-25 / Ranked-spotlight eyebrow, neutral site, kickoff time, per-owner stat strip. The stat strip sits outside the scoreboard and is unchanged.</li>
     <li><strong>Sorted strictly by kickoff time, ascending, within each date group.</strong> A schedule's contract is time order, so live games are <em>not</em> floated to the top the way the Overview promotion model does &mdash; the filter covers "show me what's live" without breaking the one guarantee the view makes. Kickoff times therefore render on every row including finals: with the sort keyed to a value, hiding that value on two-thirds of the rows makes the order look arbitrary.</li>
     <li><strong>Open &mdash; landing position.</strong> Ascending order means a mid-Saturday visit opens on the morning's finals with live games below the fold. That is a scroll-position question rather than a sort question: options are to leave it, scroll to the first non-final game on load, or anchor the current date group. Worth deciding separately from the sort.</li>
-    <li><strong>Two-column Schedule</strong> matches the Overview grid, row-major, container query at 760px. Matchups keeps its two-column owner-card grid.</li>
+    <li><strong>Two-column Schedule</strong> matches the Overview grid, row-major, container query at 760px. Matchups owner cards tier at 1372px — 3 &times; (400px inner + 44px card padding) + 2 &times; 20px gap. Higher than Schedule’s 1320 because each card carries its own padding.</li>
     <li><strong>Records shown throughout</strong> &mdash; anchor on scheduled rows, inline parenthetical on live and final rows, per the records follow-on. These depend on the CFBD records integration; until it lands, scheduled rows anchor on the spread and live/final rows omit the parenthetical.</li>
     <li><strong>FCS teams are never owned</strong> &mdash; they appear only as the unowned opponent in an FBS-vs-FCS game, so an FCS line renders team-only with no owner suffix, exactly like the unowned-FBS case. FCS-vs-FCS games cannot exist in the league and are not drawn.</li>
     <li><strong>The FCS marker is not redundant with "no owner".</strong> A 14-owner league holds fewer teams than the FBS contains, so unowned FBS opponents exist too &mdash; Purdue in the Schedule list is one. The marker distinguishes an FCS opponent from a merely-unowned FBS opponent, which matters because a win over each means something different. Both render without an owner suffix; only one carries the marker.</li>
@@ -758,5 +757,5 @@
 
 </div>
 </div>
-
-
+</body>
+</html>

@@ -1215,6 +1215,34 @@ consumer must remember is the wrong answer for both.
 140 (tail sizing) — both would get cheaper or clearer, and neither should be measured again until
 this is settled.
 
+### Item 152 — the Schedule three-column breakpoint reproduces nowhere
+
+**The ask:** pick the Schedule grid's three-column breakpoint and correct the two statements that
+disagree with it. **One number, three sources, no two alike.**
+
+**Found 2026-09-08 during Item 144's read.** The Schedule tier is documented as 1320px, and the
+arithmetic behind it does not reproduce:
+
+| source | arithmetic | result |
+| --- | --- | --- |
+| `presentation-decisions.md:72` | 3 × (400 + 24) + 2 × 16 | **1304** |
+| `matchups-schedule-mockup.html:320` (comment) | 3 × (400 + 24) + 2 × 20 | **1312** |
+| the mockup's own CSS — 10px block padding (`:278`), 16px gap (`:306`) | derived | **1300** |
+| stated everywhere | — | **1320** |
+
+**So "derived, not chosen" is currently FALSE for Schedule.** It is true for Matchups, where the
+1372px figure reproduces from its stated inputs (`mockup:210-212`).
+
+**Same class as the 1300-versus-1280 error in Item 134**, where the breakpoint's headroom turned out
+to be exactly what Item 119 would consume. A breakpoint whose arithmetic does not reproduce cannot be
+checked against a change to the anatomy it measures.
+
+**Deliberately NOT chosen during the 144 edit pass** — the implementer flagged it rather than
+resolving it silently, which was right. Someone has to pick the number; the other two then get
+corrected to match rather than averaged.
+
+**Blocker:** none. Related to Item 134 (Overview's tier) but a different grid and a different number.
+
 ### Item 145 — the upstream debug logger writes provider URLs and headers to the server log
 
 **The ask:** stop `NEXT_PUBLIC_DEBUG=1` logging `statusText`, the provider URL and response headers.
@@ -1262,8 +1290,26 @@ widened scan finds something.
 **The ask:** stop `GameRow` rendering kickoff time on every non-scheduled row.
 
 **Found 2026-09-07** during Item 117's read receipt, unprompted. `DESIGN.md` forbids time on final
-rows; `MatchupsWeekPanel`'s `GameRow` prints kickoff metadata on every row that is not `scheduled` —
-so live and final rows both carry it. **A correction to shipped, member-visible.**
+rows; Matchups prints kickoff metadata on every row that is not `scheduled` — so live and final rows
+both carry it. **A correction to shipped, member-visible.**
+
+**MECHANISM CORRECTED 2026-09-08, after two agents disagreed and both were half right.** The kickoff
+does **not** arrive via the `clock` prop — that is correctly `undefined` on finals
+(`MatchupsWeekPanel.tsx:216-221`), which is why a check of `clock` alone reported no defect. It
+arrives through **`metadataEntries` in the `contextSlot`**, at `:200-204`:
+
+    if (statusTone !== 'scheduled') {
+      metadataEntries.push(formatExpandedKickoff(...));
+    }
+
+**`DESIGN.md:250-252` was stale about the ROUTE only** — it blamed `deriveExpandedMetadataLines`,
+which no longer exists. Corrected there. **The behaviour is unchanged and the policy is unchanged:
+finals show no date or time.**
+
+**And the gate is `!== 'scheduled'` — opt-out, not opt-in.** Live, final and `awaiting` all inherit
+it without anyone deciding they should. That is now a `DESIGN.md` rule in its own right: state-
+dependent rendering is enumerated per state, never defined by negation. Fixing this one by adding
+`&& statusTone !== 'final'` would repeat the shape; enumerate instead.
 
 **Filed separately rather than folded into Item 117 — owner decision, same reasoning as Item 138's
 `NoClaim`:** small, member-visible, and independent of the scoreboard transition. Folding a second

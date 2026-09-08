@@ -91,6 +91,12 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 
 ## List row width discipline
 
+- **State-dependent rendering is ENUMERATED PER STATE, never defined by negation.** Added
+  2026-09-08 after three defects traced to one habit: the kickoff gated `!== 'scheduled'`, the odds
+  footer wrapper rendering unconditionally, and the right-edge anchor assuming a value exists. **A
+  rule written by exclusion silently adopts every state added later** — `awaiting` inherited all
+  three without anyone deciding it should. Name the states a behaviour applies to; a state absent
+  from the list gets nothing
 - Earned-width rule: a row's content must fill its allotted width — short primary content + short right-anchored value should either restructure to multi-line (so line 2 fills width) or sit in a narrower container
 - Right-edge anchor rule: every row needs a right-edge anchor — a colored numeric value (delta in green/red, score, count in amber), a routing arrow (→), or a small icon (trend chip, status indicator)
 - Rows that trail into whitespace with no visual terminus drift — the eye loses the row's left-to-right relationship and the section reads as disconnected names instead of structured data
@@ -248,9 +254,20 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   that Featured results keep an expanded kickoff beside `Final`; the reasoning is in
   `docs/campaigns/item-87-followon-section-ordering-resolutions.md` §3. **Implemented on Overview
   only so far** — Matchups (`MatchupsWeekPanel.tsx`, the non-scheduled metadata branch) and Schedule
-  (`deriveExpandedMetadataLines`) still print a kickoff on final rows, and the postseason tab has no
-  temporal container at all, which Item 87's postseason follow-on answers. Header rows never wrap and
-  ellipsize when constrained so peer team lines remain aligned
+  still print a kickoff on final rows, and the postseason tab has no
+  temporal container at all, which Item 87's postseason follow-on answers.
+  **Route corrected 2026-09-08:** `deriveExpandedMetadataLines` no longer exists, and it is not the
+  `clock` prop either — `clock` is correctly `undefined` on finals. The kickoff reaches a final row
+  through `metadataEntries` in the `contextSlot` (`MatchupsWeekPanel.tsx:200-204`), gated
+  `statusTone !== 'scheduled'`. **The behaviour is unchanged and still wrong; only this line's
+  account of the mechanism was stale.** Item 142.
+  Header rows **never wrap and ellipsize when constrained so peer team lines remain aligned — EXCEPT
+  at single-column layouts**, where cards stack and there is no neighbouring row to desynchronise
+  from. **Amended 2026-09-08**, and recorded as an amendment rather than an application: the
+  single-line contract exists to stop a wrapping header pushing team rows out of alignment ACROSS a
+  grid row, and that failure cannot occur when nothing sits beside the card. Narrowly: the collision
+  is **tagged scheduled rows at phone width** — an untagged row has roughly 131px more room and fits.
+  This buys a kickoff time on tagged rows on phones; it is not a general licence to wrap
 - Rankings display inline with team names — "#4 Oregon vs #2 Indiana"
 - Use W16 CFP rankings for postseason game cards — not Final Poll rankings
 - CFP round badges use full words — "CFP Quarterfinal" not "CFP QF"
