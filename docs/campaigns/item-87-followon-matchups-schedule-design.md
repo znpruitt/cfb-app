@@ -261,9 +261,24 @@ That is a cleaner story than the earlier draft, which had three different collap
 
 ### Colour: bronze, a correction to the shipped blue
 
-Bronze was decided earlier in this campaign, ranked above sky, neutral and fuchsia. An intermediate mockup reverted it to the shipped `text-blue-300` after a review flagged gold as champion-reserved. **That flag bundled two claims and only one holds.**
+**Blue is not a weaker choice — it is NON-COMPLIANT, and that is the whole argument.** `DESIGN.md:153`
+(re-derived 2026-09-08) states *"Blue signals interactivity or active state only — never use blue to mean
+'featured' or 'important'."* An eyebrow tag is exactly a featured/important signal, so the shipped
+`text-blue-300` violates a rule already on the books — `OverviewPanel.tsx:755` for the reason row, `:195`
+for the chip. **Bronze is a CORRECTION to shipped, not a preference deviating from it.** The secondary
+objection — that blue is the interactive token, so eyebrows would share a colour with links and controls
+— is true but subordinate to the rule.
 
-*"Shipped is blue"* is descriptive. A mockup proposing a change is precisely what deviates from what ships, so this is not an argument against bronze.
+> **REFRAMED 2026-09-08, and the earlier framing is retired rather than merely supplemented.** This
+> section previously opened by rebutting *"shipped is blue"* as descriptive, and reached the
+> non-compliance finding four paragraphs down, below the status callout. **A prompt author reading the
+> top of the section got the weak version** — the same position-not-prominence failure this campaign
+> documented elsewhere. The non-compliance claim now leads because it is the claim that settles the
+> question; everything below it answers objections that no longer decide anything.
+
+Bronze was decided earlier in this campaign, ranked above sky, neutral and fuchsia. An intermediate mockup reverted it to the shipped `text-blue-300` after a review flagged gold as champion-reserved. **That flag bundled two claims and neither survives.**
+
+*"Shipped is blue"* is descriptive, and it is now moot: what ships is non-compliant, so matching it is not a goal. A mockup proposing a change is precisely what deviates from what ships, which was never an argument against bronze even before the rule was found.
 
 *"Gold is champion-reserved"* is answered by temporal separation. The champion treatment does not render until a title is awarded — podium cards for #1–#3 are neutral all season, confirmed by inspection — so bronze is uncontested through the year. At season end the two remain distinguishable: bronze is a desaturated tan, champion amber (`#BA7517`) a dark saturated gold. The reservation binds a token to a purpose, not a hue neighbourhood.
 
@@ -278,8 +293,6 @@ different hue.
 > (`GameWeekPanel.tsx:17-18`: border `#c9a66b` at 40%, text `#dbc190`) and Matchups (Item 117, PR #581). Overview's
 > reason row is still `text-blue-300` (`OverviewPanel.tsx:755`; the chip at `:195`) and no item owns its
 > conversion — an Item 144 queue finding.
-
-**Blue is not merely a weaker choice — it is non-compliant.** `DESIGN.md:148` states *"Blue signals interactivity or active state only — never use blue to mean 'featured' or 'important'."* An eyebrow tag is exactly a featured/important signal, so the shipped `text-blue-300` violates a rule already on the books (`OverviewPanel.tsx:781`; `:196` carries the same token on the chip). Bronze is therefore a **correction to shipped**, not a preference deviating from it. The secondary objection — that blue is the interactive token, so eyebrows would share a colour with links and controls — is true but subordinate to the rule.
 
 ### Treatment: pills, uniformly
 
