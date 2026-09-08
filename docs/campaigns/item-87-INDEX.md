@@ -32,15 +32,15 @@ The campaign addendum. Component contract, slices, colour sequencing.
 **`item-87-followon-records.md`** — **PARTLY SUPERSEDED**
 Records across scoreboard states; the anchor rule per state.
 
-- **`:44` predicted the exact confusion of 2026-09-08 and the prompt did not carry it:** _"Item 87's
+- **`:44` predicted the exact confusion of 2026-09-08 and the prompt did not carry it:** *"Item 87's
   shipped appearance will differ from the mockup until Item 92 lands. The implementation prompt must
   state this explicitly, or a reviewer comparing the build against the reference will read the absent
-  records as a defect rather than a sequenced dependency."_ Item 117's v2 prompt omitted it; the owner
+  records as a defect rather than a sequenced dependency."* Item 117's v2 prompt omitted it; the owner
   compared the build to the mockup and read absent records as a defect. **Any prompt touching a
   scoreboard surface must carry this sentence until Item 92 lands.**
 - The **records rule is CURRENT** and load-bearing: the record is the anchor on scheduled rows. `matchups-gap-analysis.md` §1.1 shows what breaks without it.
 - Its **`:37` "live and final rows omit the inline parenthetical"** is NOT superseded and NOT a
-  contradiction of `:15`/`:17` — **verified 2026-09-08.** It sits under _Consequence — Item 92_ and
+  contradiction of `:15`/`:17` — **verified 2026-09-08.** It sits under *Consequence — Item 92* and
   states the **DEGRADATION** rule for when records are unavailable, while `:15`/`:17` state the
   normal case. It reads as a contradiction only because the fallback is written in the same voice as
   the primary rule, three sections apart. **Fix the voice, not the status.**
