@@ -1,8 +1,15 @@
 # Item 87 — Follow-on input: section ordering, resolutions
 
+> **Check `item-87-INDEX.md` before deciding from this document.** Parts of it may be superseded.
+>
 > **Status:** §1, §2 and §3 are shipped — POLISH-023, merged via PR #563 (`1546bbc8`), 2026-09-04. §3 is landed on Overview only and
 > is now recorded in `DESIGN.md`, which previously said the opposite. §4 (Matchups slate ordering) and
 > §5 (counts, deferred to Item 115) remain unbuilt. The sort rules below were added on 2026-09-04.
+>
+> **INDEX (verified 2026-09-08 against the code): CURRENT.** §1–§2 confirmed — `compareOverviewLiveItems`
+> (`overviewGameSections.ts:155-161`) is kickoff ascending with a key tiebreak and nothing else. §4 is still
+> unbuilt after Item 117 (no slate sort in `selectors/matchups.ts`). §5 confirmed unbuilt (`OverviewPanel.tsx:1475`).
+> The one open call under §3 is answered by `item-87-followon-postseason-context.md` (marked below).
 
 **Child of `item-87-followon-section-ordering.md`** — that document recorded six decisions found living only in mockup markup and left four items open. This one answers those four, plus the sequencing question on section counts. Read the parent first. Written after CLI verification established that five of the six section-ordering decisions were change requests against shipped behaviour, not documentation.
 
@@ -41,6 +48,11 @@ An earlier draft proposed a contextual rule — omit the date where a container 
 **Residual, accepted:** a week spans several game days, so the week tab recovers *which week* but not *which day* a final was played. Judged acceptable — for a completed game inside an owner's slate the result is the information, and the day is partially inferable from position under the rule below.
 
 **One place the scoping argument does not hold — verified, needs a call.** `CFBScheduleApp.tsx:1896` passes `games={selectedTab === 'postseason' ? postseasonGames : filteredWeekGames}`. Only the regular-season path is week-filtered; the **postseason tab is not scoped to a week at all** — one card spans bowls and every CFP round. A postseason final there carries no date, no time, and no week, so nothing on the surface says when it was played. Either accept that too, or let the postseason tab keep a date on final rows.
+
+> **ANSWERED (verified 2026-09-08):** neither — give the postseason tab a temporal container by grouping it by
+> round, with the bowl name as a row eyebrow (`item-87-followon-postseason-context.md`, refined in
+> `-postseason-grouping-notes.md` and `-postseason-refinements.md`). The date fallback is recorded there as NOT
+> NEEDED. That work has no item number yet — an Item 144 queue finding.
 
 ---
 
@@ -134,6 +146,9 @@ this is the **third** place the sentinel is read as a real owner, after `showOwn
 (`gameWeek.ts:152`) and the render seams POLISH-021 fixed. Three instances argue that `displayOwner()`
 — or an equivalent guard — belongs at the data seam rather than only at render seams. Not built here;
 recorded so the next occurrence is the fourth data point rather than a fresh discovery.
+
+> **LIVE, unfiled (verified 2026-09-08):** still only recorded here; the guard remains at the render seams
+> (`GameWeekPanel.tsx:101-102`, `MatchupsWeekPanel.tsx:171-172`). Listed in the INDEX CARRY block.
 
 ---
 

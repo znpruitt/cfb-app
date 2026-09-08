@@ -1,6 +1,12 @@
 # Item 87 — Follow-on input: clarifying what "Featured" means
 
+> **Check `item-87-INDEX.md` before deciding from this document.** Parts of it may be superseded.
+>
 > **Status:** input for review, not applied. Nothing here is recorded in the base addendum or `DESIGN.md` until stated otherwise.
+>
+> **INDEX (verified 2026-09-08): CURRENT.** The CLI facts still hold (`stateBadgeClasses` has zero occurrences in
+> `src/`; the base addendum still carries both readings, now marked there). Cap is four. The recommendation and
+> "do not ship both" are LIVE obligations on Item 113, which owns the route.
 
 **Cross-references Item 113**, which files the same contradiction from the code side. This doc supplies the product intent; 113 owns the reconciliation. Do not duplicate.
 

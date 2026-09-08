@@ -1,11 +1,24 @@
 # Item 87 — Addendum: Live / Watchlist Scoreboard Treatment
 
+> **Check `item-87-INDEX.md` before deciding from this document.** Parts of it may be superseded.
+
 **Status:** Slices 1–2 shipped via POLISH-016 / PR #535 and POLISH-017 / PR #537; Item 91 shipped via
 PLATFORM-116 / PR #539; Item 90 shipped via POLISH-018 / PR #541; the records prerequisite is
 implemented by PLATFORM-117. Slice 3 shipped via POLISH-019 / PR #549 (`751a86b4`), 2026-09-01;
 slices 4–5 remain planned.
+
+> **STATUS SUPERSEDED (verified 2026-09-08):** "slices 4–5 remain planned" is stale. Slice 4 merged via PR #558
+> (`c730b4d0`), slice 5a via PLATFORM-087 / PR #570 (`4caa1a79`, 2026-09-05), slice 5 via
+> PLATFORM-087-SLICE-5-ITEM-112 / PR #572 (`f424222a`, 2026-09-05), and slice 5b via PR #575 (`fef083ae`,
+> 2026-09-06). The slice table under *Implementation slices* and the *Sequencing across campaigns* table are the
+> record; this header is not. Only Item 119 (team colour), Item 115 (expansion), Item 134 (third column tier) and
+> the Item 143 Matchups divergences remain open on this surface.
+
 **Reference mockup:** `mockups/live-scoreboard-mockup.html`
 **Related:** `INSIGHTS-026b-RECAP-LAYOUT-v1` (dispatched). Shares the scoreboard micro-component — see Sequencing.
+
+> **SUPERSEDED (verified 2026-09-08):** "dispatched" is stale — 026a–026f have all merged; see *Sequencing — the recap
+> campaign* below. The recap's adoption of the shared row is now `item-87-followon-recap-scoreboard.md` (2026-09-08).
 
 ---
 
@@ -26,6 +39,12 @@ Replaces sentence-style game rows in all three states. Shared with the recap's n
 - **Row order is always away → home** in every state including Final. Ordering and emphasis are separable: position is fixed by home/away, weight marks the leader (live) or winner (final).
 - Unowned opponents render team-only. An owner holding both sides renders correctly with no special handling.
 - **The team-record anchor joins on provider team id, never on name.** The row resolves each side's W-L through `ScheduleItem.homeId` / `awayId` (`src/lib/schedule/cfbdSchedule.ts:133`, populated at `:737` and persisted in the durable schedule cache) against the year-scoped records cache, which is keyed by the same `teamId`. **When the id is null, render no anchor** — do not fall back to a name lookup. A name-keyed join would walk straight back into the collision surface PLATFORM-114 closed: `Missouri S&T` normalises onto `Missouri State`, so a D-II school's opponent would render an FBS team's record on an FBS matchup. Absent and `0-0` are different facts and must render differently; a Week 1 scheduled game legitimately shows `0-0`.
+
+> **DISCHARGED (verified 2026-09-08):** the exact-id join ships at the server boundary, not in the row —
+> `src/lib/selectors/teamRecordsClient.ts:58-59` resolves each side through `awayId` / `homeId` against the
+> `teamId`-keyed cache, names are never a fallback, and a side whose provider id is absent is omitted (no anchor).
+> The browser receives `{ wins, losses }` per provider game id (PLATFORM-139 v3; `DESIGN.md` → *A team record is
+> ALWAYS the team's record TODAY*).
 
 #### CFBD id namespaces — verified live 2026-08-31
 
@@ -59,10 +78,25 @@ Slice 5 makes Schedule the component's third consumer. Its surface carries state
 
 - **`disrupted`** — postponed / canceled / suspended / delayed. Currently `GameScoreboard:54-78` matches these by regex on `score.status` ahead of the state switch. Rose.
 - **`placeholder`** — an unfilled bracket slot with no resolved teams. Violet.
+
+> **SUPERSEDED (verified 2026-09-08):** neither `disrupted` nor `placeholder` shipped as a scoreboard state. Slice 5
+> (PLATFORM-087-SLICE-5-ITEM-112, PR #572) measured 11,311 production schedule rows across 2024–2026, found no
+> provider disrupted status, and the owner rejected both branches as unreachable rather than contractual (registry
+> entry). The shipped state set is `scheduled | live | final | awaiting` (`src/lib/selectors/gameWeek.ts:18`); a
+> placeholder bracket slot renders as `scheduled` with the admin override behind tier 2. `GameScoreboard:54-78`
+> no longer exists — that component was deleted wholesale by slice 5.
+
 - **Disclosure.** Schedule rows are `<details>`/`<summary>` with a collapsed summary and an expanded body (`GameWeekPanel:268` uses `group-open:hidden`). The row must support an optional expanded region without the collapsed form changing shape. Overview and recap pass no expanded content and render exactly as they do today.
+  > **DISCHARGED (verified 2026-09-08):** shipped as the non-reserving `tier2Slot` (`CompactGameScoreboard.tsx:30`,
+  > `:254-255`, slice 5a) consumed by Schedule's More/Less `<details>` (`GameWeekPanel.tsx:182`).
 - **Slot passthrough.** Schedule attaches odds, a debug affordance, byes, postseason grouping, and an admin postseason-override control. These are Schedule's, not the row's: the row exposes slots, and does not learn about any of them.
 
 `disrupted` and `placeholder` are **states, not emphasis** — distinct from `cardEmphasisClasses` (`GameWeekPanel:39-50`), where amber means `upset` alongside `upset_watch`→orange and `top_25_matchup`→indigo. That function is emphasis and is out of scope for every slice here.
+
+> **SUPERSEDED (verified 2026-09-08):** the exemption is retired. Slice 5 deleted `cardEmphasisClasses` with the card
+> chrome it lived on (zero occurrences in `src/`); the eyebrow pill carries `upset` emphasis forward
+> (`item-87-followon-matchups-schedule-design.md` → *This answers the amber `upset` border*). Recording that
+> retirement as a decision in `DESIGN.md` or the registry is still open — INDEX CARRY row 4.
 
 ### Promotion model
 
@@ -158,6 +192,12 @@ Reason title row → date / kickoff / broadcast → team lines anchored by **per
 - **The anchor holds a record, and the record belongs to the line's primary identifier.** Team-primary line (this scoreboard, any state) → *team* record. Owner-primary line (recap week records, standings, movement) → *owner* record. Position stays constant app-wide; context disambiguates, so no label is needed and the team line stays at three elements plus an anchor, matching live and final rows exactly.
 - **Spread and O/U share the odds footer.** Games with no posted line render the reason there instead.
 
+> **SUPERSEDED (verified 2026-09-08):** "team lines anchored by **per-team spread**" in the card spec above is the
+> superseded side; the anchor bullet two lines below it and the owner decision of 2026-09-02 (next section) put the
+> **record** in the anchor, and the owner ruling of 2026-09-08 (recorded under that decision) leaves the anchor
+> **blank** when no record is available. "Games with no posted line render the reason there instead" is also
+> superseded: the odds footer renders **empty** (2026-09-02, below).
+
 #### Owner decision, 2026-09-02 — the record anchors, and a missing line is simply empty
 
 Settles the slice-4 gating question ("what do the team-line anchors show when both record and spread
@@ -190,6 +230,25 @@ down.
 The earlier reading of a record → spread → fallback LADDER was a misreading of the card spec above:
 the spread substitutes for the anchor only when a record is genuinely unavailable, which the
 measurement shows does not occur for FBS teams.
+
+**Owner ruling, 2026-09-08 — blank governs, and it is the settled rule.** Reaffirmed during Item 144 after the
+spread fallback was found still stated at four places in this document (the card spec above, *Consequence* in the
+next section, the slice-5 *Sequencing* note, and the slice table's row 4). Each is now marked. The reasoning to
+carry: **the anchor holds one kind of fact per state**, and a spread sitting in a record's slot misrepresents what
+the slot means — a reader cannot tell a record from a line. **Missing data beats wrong data.**
+
+**But the two "unavailable" conditions are NOT the same and must not be collapsed.**
+
+- A **store failure** is transient. It needs no item; the anchor is blank until the next read succeeds.
+- **"Not wired to this surface"** is a **sequencing state**. It needs a filed item, and the dependency must be
+  stated in the prompt (INDEX CARRY row 1). Collapsing the two licenses shipping a permanently blank column and
+  calling it correct degradation.
+
+**What Week 2 forced, recorded so it is not re-derived:** a rule written for occasional failure behaves
+differently when it applies to every row on a surface. On Matchups in Week 2 (all scheduled, records unwired) every
+anchor was blank, and "correct degradation" and "shipped incomplete" rendered identically — nobody could tell
+them apart (`item-87-followon-matchups-gap-analysis.md` §1.1). That argues for **sequencing records before a
+surface ships**, not for accepting the blank.
 
 ### Records across scoreboard states — resolved
 
@@ -228,20 +287,36 @@ in the anchor or inline.
 **Consequence — the records dependency is now campaign-wide, not watchlist-only.** When the CFBD
 integration was split out it fed one section; records now appear in every scoreboard state.
 PLATFORM-117 (PR #543, `9376521e`) has since landed the data and a cache-only reader, so this is a
-wiring dependency rather than a blocker. Degradation stays clean in both directions — live and final
+wiring dependency rather than a blocker. Degradation — **which applies only when a record is unavailable, never in
+the normal case** — stays clean in both directions — live and final
 rows omit the inline parenthetical, scheduled rows anchor on per-team spread with O/U alone on the
 footer — and no row loses its right-edge anchor.
+
+> **PARTLY SUPERSEDED (verified 2026-09-08):** the live/final half stands (omit the inline parenthetical). The
+> scheduled half is overridden by the owner decision of 2026-09-02 and the ruling of 2026-09-08 above: a scheduled
+> row with no record renders a **blank anchor**, not the spread, and that row **does** lose its right-edge anchor —
+> a deliberate, recorded exception to `DESIGN.md` → *Right-edge anchor rule*. Shipped behaviour agrees: "if the
+> team-record store is unavailable, no record renders" (`DESIGN.md` → *A team record is ALWAYS…*).
 
 **State this in the implementation prompt:** a build with records absent or stale will not match the
 mockup, and a reviewer comparing them must read that as a sequenced dependency rather than a defect.
 PLATFORM-118 closes the two record-freshness gaps that made this dependency concrete; see its v2
 entry in `docs/prompt-registry.md`.
 
+> **LIVE OBLIGATION (verified 2026-09-08) — INDEX CARRY row 1.** Records render on Overview only. `DESIGN.md`
+> records them intentionally absent from Schedule until that surface adopts the Item 139 projection, and Item 117
+> shipped Matchups with records out of scope. Both surfaces are in the "not wired" sequencing state defined by the
+> 2026-09-08 ruling above, so every prompt touching them carries this sentence.
+
 ### Layout
 
 - **Two-column game grid**, following existing precedent rather than introducing it — `FeaturedGamesList` already ships `grid-cols-1 sm:grid-cols-2` on this surface. Row-major flow, matching `RecapPrimitives.tsx:75`.
+  > **EXTENDED, not superseded (verified 2026-09-08):** `item-87-followon-three-column-tier.md` adds a third tier
+  > above 1300px on Overview (Item 134, unbuilt). Two columns between 760px and 1300px stand.
 - **Container query at 760px**, per DESIGN.md `:120` preferring container over viewport queries. The doc specifies the mechanism but no value; three disagree in code (640 `FeaturedGamesList`, 821 recap, 760 here). 760 is chosen on content width — below it each card gets under ~350px, which clips team + owner + anchor on the longest rows. See Proposed amendments.
 - **Progressive disclosure per section:** bounded default, expands in place. Header link → Matchups tab; footer control expands this week's slate.
+  > **CURRENT and UNBUILT (verified 2026-09-08):** sections hard-cap at six with no expand control (Item 115). Section
+  > counts stay visible-only until it lands — `item-87-followon-section-ordering-resolutions.md` §5.
 - **Header rows single-line by contract** (nowrap + ellipsis). Any wrap desynchronises team rows across a grid row.
 - Cards with no precedence reason **reserve the title row and hide it** to keep team lines aligned.
 - **Section titles are 17px/650**, a deliberate exception to `:224` (15px/500) — at the documented size the boundary reads weakly against dense two-column content across three stacked sections.
@@ -280,6 +355,13 @@ The original addendum inverted the risk. Corrected:
 
 Live and Featured now share `CompactGameScoreboard`; only the watchlist remains bespoke. Selection
 and precedence remain selector-owned. **Must not be forked.**
+
+> **SUPERSEDED (verified 2026-09-08):** the table and "only the watchlist remains bespoke" describe the state before
+> slice 4. `GameSummaryList` was removed by slice 4 (PR #558); the watchlist, Live, Featured and Recent finals on
+> Overview, Schedule (slice 5, PR #572) and Matchups (Item 117, PR #581) all consume `CompactGameScoreboard`. The
+> recap's own `RecapPrimitives` scoreboard is the last bespoke game row, and
+> `item-87-followon-recap-scoreboard.md` (2026-09-08) brings it onto the shared contract. The **must-not-fork** rule
+> is standing and unchanged.
 
 ---
 
@@ -327,6 +409,9 @@ Five bodies of work surfaced during this design that are **not** Item 87's surfa
 **Correction to the filed item.** `docs/next-tasks.md` Item 90 states POLISH-016/017 removed Overview's live-amber and its `stateBadgeClasses` green-final. They removed them from the Live and Featured sections only — the *Upcoming watchlist* still calls `stateBadgeClasses` at `:816`. The item also omits `gameUi.ts` and miscites `GameWeekPanel:42` as a live site when that line is `upset`.
 
 **Accepted residual:** Schedule keeps green-`final` and amber-live until slice 5 lands.
+
+> **DISCHARGED (verified 2026-09-08):** slice 5 landed (PR #572); Schedule renders the shared neutral-final /
+> green-live row and the legacy `GameScoreboard` family is deleted.
 
 **Implemented outcome:** POLISH-018 extracted the four-tone label, converted all four narrowed
 consumers, deleted the dead and bespoke status-class helpers, preserved Matchups' neutral
@@ -396,11 +481,20 @@ The semantic border hues survived and nothing renders wrongly; the `/10` tint is
 
 **Resolve it either way — restore both tints, or drop `finalSelf`'s for symmetry — but resolve it.** Do not leave the three inconsistent. State the reason for whichever is chosen in the closeout, so the next reader is not left re-deriving it.
 
+> **DISCHARGED (verified 2026-09-08):** resolved for symmetry by slice 5 ("the declared Matchups result-tint
+> correction", registry PLATFORM-087-SLICE-5-ITEM-112). All three final tones now carry `dark:bg-zinc-950/10` with
+> only the border hue differing (`src/components/MatchupsWeekPanel.tsx:96-102`). The rail itself is the subject of
+> `item-87-followon-matchups-gap-analysis.md` §2 (retire it so Item 119 has the left edge).
+
 **The process note is the more useful half:** the criterion was a proxy for "green means one thing in this component", and optimising the proxy changed the thing the exclusion existed to protect. A count over a file is a proxy — write the invariant, not the count.
 
 **Sequencing.** Implement after slices 3 and 4; its *contract requirements* are folded in above so
 slice 3 does not lock a three-state row. PLATFORM-117 now supplies the scheduled-state record cache;
 the spread remains the normal fallback when a record is unavailable.
+
+> **PARTLY SUPERSEDED (verified 2026-09-08):** the ordering held (slice 5 shipped after 3 and 4). "The spread remains
+> the normal fallback" is overridden by the 2026-09-02 decision and the 2026-09-08 ruling under *Watchlist card*:
+> a missing record leaves the anchor blank.
 
 ---
 
@@ -413,15 +507,19 @@ Ordered so colour settles once rather than shipping neutral live and flipping it
 | ✅ 1 | Scoreboard component + Live section | Merged via POLISH-016 / PR #535 (`5fd59d39`), 2026-08-30. The component shipped with its first live consumer and no speculative state variants. |
 | ✅ 2 | Featured conversion + retire its `stateBadgeClasses` call + green-live flip | Merged via POLISH-017 / PR #537 (`e0a7b8ab`), 2026-08-30. Featured now consumes the neutral-final variant, and green-live is unambiguous on Overview. |
 | ✅ 3 | Recent finals + promotion model | Merged via POLISH-019 / PR #549 (`751a86b4`), 2026-09-01. |
-| 4 | Watchlist | Riskiest — consumes PLATFORM-117's cache by exact `teamId`, with the spread fallback when a record is unavailable. |
+| ✅ 4 | Watchlist | Merged via PR #558 (`c730b4d0`). Consumes PLATFORM-117's cache by exact `teamId`. *(Was: "with the spread fallback when a record is unavailable" — superseded 2026-09-02 / 2026-09-08: a missing record leaves the anchor blank.)* |
 | ✅ 5a | Shared-component contract widening | Merged via PLATFORM-087 / PR #570 (`4caa1a79`), 2026-09-05. `CompactGameScoreboard` gained the mutually exclusive rank/FCS prefix, neutral-site metadata, broadcast across its settled state set, and a non-reserving tier-2 slot. Overview stayed structurally identical; the contract is in `DESIGN.md`. |
-| 5 | Schedule rework | Filed 2026-08-30 (was *Not filed*). Schedule adopts the scoreboard row, two-column and all, and its colour settles as part of the rework rather than via Item 90. Needs the widened state variants above. |
+| ✅ 5 | Schedule rework | Merged via PLATFORM-087-SLICE-5-ITEM-112 / PR #572 (`f424222a`), 2026-09-05. Filed 2026-08-30 (was *Not filed*). Schedule adopts the scoreboard row, two-column and all, and its colour settles as part of the rework rather than via Item 90. Shipped WITHOUT the `disrupted` / `placeholder` state variants (rejected as unreachable, see above). |
+| ✅ 5b | Card-owner row modifier | Merged via PLATFORM-087-SLICE-5B-CARD-OWNER-ROW / PR #575 (`fef083ae`), 2026-09-06. `isCardOwnerTeam` neutral tint with squared facing corners; consumed by Item 117 (PR #581). |
 
 **Risk order:** watchlist anchor (external data) > promotion model (state transitions mid-slate, section migration) > two-column grid against the header-nowrap contract. Slices 1–2 are low-risk and independently verifiable.
 
 **Pre-agreed split point:** if Item 87 exceeds sizing signals mid-build, break after slice 2. Agreeing this now rather than discovering it at review.
 
 **Acceptance boundary on the Featured double-touch:** slice 2's conversion must leave a slot the insights work fills, so the second pass is additive rather than a rewrite. State this explicitly in the implementation prompt.
+
+> **DISCHARGED (verified 2026-09-08):** POLISH-017 shipped the conversion with the additive `contextSlot`
+> (`DESIGN.md` → *An optional context slot immediately before the status row*). The insights pass is Item 113.
 
 ---
 
@@ -437,7 +535,8 @@ Ordered so colour settles once rather than shipping neutral live and flipping it
 | Runnable | **Item 42 wiring pass** | All fact families and the consumed final-row scoreboard variant now exist; no Item 87 dependency remains. |
 | Done | **PLATFORM-116 / Item 91** | Tied/stale/scoreless standings signal and pill removal merged via PR #539. |
 | Done | **Item 90 / POLISH-018** | Shared label and neutral-final re-cut merged via PR #541. Schedule remains with slice 5. |
-| Done → next | **PLATFORM-117** → **87 slice 4** | Records cache implemented; the watchlist owns the first consumer. |
+| Done | **PLATFORM-117** → **87 slice 4** | Records cache implemented; the watchlist owns the first consumer. *("Done → next" corrected 2026-09-08: slice 4 merged via PR #558.)* |
+| Done | **87 slice 5a / 5 / 5b** | Contract widening (PR #570), Schedule rework (PR #572), card-owner row (PR #575). Matchups adopted the row as Item 117 (PR #581, 2026-09-07). |
 | 6 | **017-PALETTE** | Reason and category hues. |
 
 **The former data blocker is resolved:** PLATFORM-117 supplies the watchlist record anchor.
@@ -454,6 +553,7 @@ blocker. Items 87 and 90 are independent.
    compact-scoreboard live treatment, and record the component-family enforcement clause.
 3. **Partially landed — §Containerization:** the two-column game grid is documented; per-section
    progressive disclosure remains with the promotion/watchlist slices.
+   > **Still open (verified 2026-09-08):** no slice built the expansion; it is Item 115.
 4. **Landed — §Responsive column degradation:** the game grid's container breakpoint is 760px.
 
 ### Design-time amendment outcomes
@@ -493,6 +593,9 @@ stage" this document previously referenced does not exist as pending work.**
 dependency, so every Item 42 portion is now independently runnable. That keeps surface boundaries
 clean without blocking the rest of the wiring.
 
+> **See also (2026-09-08):** `item-87-followon-recap-scoreboard.md` records the owner ruling that the recap's results
+> section adopts the shared row anatomy. That document is indexed on its own landing, not here.
+
 ## Palette allocation — input to INSIGHTS-017-PALETTE
 
 Two findings from this design fed the palette work. The component-family rule is now decided and
@@ -522,6 +625,9 @@ family; context scopes meaning across families, never within one.* That makes th
 `inprogress` amber. Item 90 was narrowed away from that family before implementation; Item 87 slice
 5 owns both colors as part of the Schedule rework.
 
+> **DISCHARGED (verified 2026-09-08):** slice 5 deleted `GameScoreboard.tsx`; no green-final or amber-live remains
+> on Schedule. The same applies to the two *residual* paragraphs later in this section.
+
 **Scope correction — the collision was on Item 87's own surface.** `GameScoreboard` still renders on
 Matchups and Postseason, but that is a different component family. On Overview, POLISH-016 removed
 the Live badge call. POLISH-015 had already made the surviving watchlist call scheduled/unknown-only
@@ -534,9 +640,15 @@ could render green-final, and POLISH-017 retired exactly that call.
 
 The tile states the reason with substance ("Whited leads Chamness 44–25"), not a bare label: a game earns promotion out of the weekly slate only if the reason is worth reading. **Capped at three** — at five it is another list with a nicer name, and the fourth competing list this campaign exists to remove. Games that do not make the cut still carry their notoriety tags in the watchlist, so nothing is hidden by the cap.
 
+> **SUPERSEDED (verified 2026-09-08):** the cap is **four**, settled 2026-09-03 via PR #559 (`ce75380b`) on the
+> CFP-round argument — see *Open decisions* item 1 above and `item-87-followon-featured-intent.md`.
+
 **This retires the only remaining `stateBadgeClasses` call site reachable by a final game.** The
 watchlist call remains until slice 4, but its selector can supply only scheduled/unknown rows.
-Overview therefore carries no green-final. The insights work retains ownership of Featured's
+Overview therefore carries no green-final.
+
+> **DISCHARGED (verified 2026-09-08):** slice 4 removed the watchlist call; `stateBadgeClasses` has zero
+> occurrences in `src/`. The insights work retains ownership of Featured's
 *selection and labelling*; Item 87 owns only how its rows render.
 
 **Featured — what belongs in Item 87 and what does not.**
@@ -595,6 +707,12 @@ explicitly owned by the filed rework.
 
 **Rationale for neutral `final` still holds:** under the promotion model sections carry state, so a Final chip is redundant reinforcement and neutral is the correct resting treatment.
 
+> **ADOPTED (verified 2026-09-08):** bronze is the settled eyebrow treatment, as pills — decided in
+> `item-87-followon-matchups-schedule-design.md` → *Eyebrow tags — bronze, rendered as pills*, shipped on Schedule
+> (`GameWeekPanel.tsx:17-18`, `#c9a66b` / `#dbc190`) and Matchups (Item 117). **Overview's eyebrow is still
+> `text-blue-300`** (`OverviewPanel.tsx:755`, chip `:195`) and no item owns that conversion — a queue finding from
+> Item 144. Final hue assignment for insight categories remains with 017-PALETTE.
+
 **1b. Proposed treatment for this surface: bronze eyebrow (`#c9a66b`) with green live.** Ranked bronze > sky > neutral > fuchsia. Bronze is not champion amber (`#BA7517`) — desaturated tan against dark saturated gold — and the champion signal is largely an end-of-season artefact, so the two barely co-occur during the season. **Confirmed dormant in-season:** the live league page renders #1–#3 podium cards in neutral chrome with no champion treatment, so amber does not appear until a title is awarded. Bronze is uncontested through the season. Fuchsia is rejected: complementary clash against green live, and it already sits between TRAJECTORY and HISTORICAL. Final assignment belongs to 017; this is a ranked recommendation into it.
 
 **2. Reservations should be re-cut by value, not defended by adjacency.** A reservation binds a token to a purpose; it does not fence off a hue neighbourhood. Bronze (`#c9a66b`) is not champion amber (`#BA7517`); sky (`#7dd3fc`) is not interactive blue (`#60a5fa`). Ranked by how much colour contributes:
@@ -628,6 +746,10 @@ The green badge is direction-neutral by design — "in progress" has no negative
 ## Label semantics — placeholder warning
 
 The mockup renders `Top matchup` and `Ranked spotlight` as eyebrow and title-row strings. **These are placeholders.** Item 87 (committed `dc1b934a`) records `Top matchup` as false: `gameTags.ts:441` fires it from `isTopOwnerGame` — true when *either* owner is top-three — while an identically-worded eyebrow elsewhere means "best game on the slate," and the two contradicted in production. Implementation must consume the renamed labels, not these strings. Hues are deferred to `INSIGHTS-017-PALETTE`; semantics are fixed by the Item 87 rename.
+
+> **DISCHARGED (verified 2026-09-08):** slice 4 shipped the renamed highlight/chip labels (PR #558); neither
+> `Top matchup` nor `Ranked spotlight` appears as a literal anywhere in `src/`. The mockups still carry the
+> placeholder strings, as this warning says they would.
 
 ---
 

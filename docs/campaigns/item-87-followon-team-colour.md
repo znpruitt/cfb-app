@@ -1,8 +1,20 @@
 # Item 87 — Follow-on input: team colour bar and normalisation
 
+> **Check `item-87-INDEX.md` before deciding from this document.** Parts of it may be superseded.
+>
 > **Status:** input for review, not applied. Nothing here is recorded in the base addendum or `DESIGN.md` until stated otherwise.
+>
+> **INDEX (verified 2026-09-08): PARTLY SUPERSEDED.** The DECISION is current — solid 8px muted bar at ~72% in the
+> line-start slot, gradient and band rejected, HSL first and OKLCH only if measured. The FRAMING is superseded: the
+> incumbent this document proposes widening was deleted by slice 5, so Item 119 builds from nothing on the shared
+> row (`item-87-followon-team-colour-regression.md`). Marks below.
 
 **This proposes replacing a working normaliser, not introducing one.** `src/lib/teamColors.ts` already ships: `getSafeScoreboardTeamColor(ById)` softens HSL (S ∈ [0.32, 0.78], L ∈ [0.34, 0.68], yellow-gold carve-out at hue 42–72), lifts lightness to ≥3:1 against `#0A0A0A`, and rejects unusable results via `isReasonableScoreboardAccent`. `GameScoreboard` consumes it per team line as a 2–3px left border (`:82, :195`); `GameWeekPanel` resolves it by `teamCatalogById`. An earlier draft of this document described the shipped treatment as top/bottom card borders — that was wrong, and `DESIGN.md:163` carries the same stale claim.
+
+> **SUPERSEDED (verified 2026-09-08):** "`GameScoreboard` consumes it per team line as a 2–3px left border" is no
+> longer true — slice 5 deleted `GameScoreboard.tsx`, and `teamColors.ts` has zero production consumers (its
+> header says so and names Item 119). `DESIGN.md` has been corrected and now states that game cards render no
+> team-colour accent pending Item 119.
 
 ---
 
@@ -13,6 +25,10 @@ Two separable changes. **Ship them separately.**
 ### A. Widen the bar (visual, cheap)
 
 The incumbent renders 2–3px. The proposal is a solid 8px muted bar at ~72% opacity. Same position — the line-start slot reserved for future logos — same absence of conflict with the row's emphasis system, but enough width to register as colour rather than a hint.
+
+> **FRAMING SUPERSEDED, DECISION CURRENT (verified 2026-09-08):** there is no incumbent to widen; Item 119 is a
+> restoration on `CompactGameScoreboard` across Overview, Matchups and Schedule
+> (`item-87-followon-team-colour-regression.md` §1). The bar's spec in this paragraph is what it builds.
 
 **Rejected — gradient and full-width band.** Both sit *behind* the text and conflict with the row's most important signal: the scoreboard encodes result through text weight, so a losing team with a bright primary can visually outweigh a winner with a dark one. Avoiding that would require dimming on the trailing side, at which point the colour carries outcome as well as identity and stops being identity. The band was worse — being uniform it sits at full strength under the score rather than receding.
 
@@ -82,6 +98,10 @@ Alongside the catalog: compute when `teamCatalogById` is memoised (`CFBScheduleA
 1. Decide the background constant.
 2. Widen the bar to 8px on the **existing** normaliser. Visual change only.
 3. Measure whether HSL normalisation actually produces bad output at that width. If it does, port to OKLCH with the reserved-hue guard. If not, leave it.
+
+> **LIVE, adjusted (verified 2026-09-08):** all three steps are Item 119's. Step 3 has no rendered baseline to
+> compare against any more, so it becomes an evaluation after 119 ships
+> (`item-87-followon-team-colour-regression.md` §2). Step 1 — the background constant — is still undecided.
 
 ---
 

@@ -1,6 +1,12 @@
 # Item 87 — Follow-on input: postseason round grouping, implementation notes
 
+> **Check `item-87-INDEX.md` before deciding from this document.** Parts of it may be superseded.
+>
 > **Status:** input for review, not applied. Nothing here is recorded in the base addendum or `DESIGN.md` until stated otherwise.
+>
+> **INDEX (verified 2026-09-08): CURRENT**, with §3's negative rule refined into a positive one by
+> `item-87-followon-postseason-refinements.md` §1 (marked below). §1, §2, §4 and the acceptance criteria are LIVE
+> obligations on the unfiled round-grouping item. The `eventKey` collision was filed as Item 121.
 
 Child of `item-87-followon-postseason-context.md`. That document proposed grouping the postseason tab by round with the bowl name as a row eyebrow, and flagged a data dependency. **The dependency is confirmed satisfied** — this records the verification and four implementation constraints that came out of it.
 
@@ -48,6 +54,10 @@ That is sanctioned — `cfbdSchedule.ts:23-31` permits text-inferred rounds to i
 **Rule:** a game with `postseasonSubtype: 'playoff'` whose round cannot be resolved falls into a generic **College Football Playoff** group, ordered by `startDate` alongside the others. It must not vanish, and it must not fall through into the non-CFP Bowls group, which would be a false statement about the game.
 
 Same principle as the `unknown` game state: an unresolvable value gets a truthful home rather than being dropped or guessed into a wrong one.
+
+> **REFINED (verified 2026-09-08):** keep the outcome, change the test — CFP group membership is the positive
+> `playoffCompetition === 'cfp'`, not a parse failure (`item-87-followon-postseason-refinements.md` §1). Falling into
+> non-CFP Bowls then becomes structurally impossible rather than forbidden.
 
 ---
 
@@ -124,6 +134,9 @@ Not this item's subject; recorded so it is not lost.
 All four 2025 first-round rows carry the identical `eventKey: "cfp-first-round"`, because `playoffEventKey` (`cfbdSchedule.ts:366-370`) returns `cfp-${round}` when there is no bowl name to disambiguate. `schedule.ts:485-486` then builds `eventId = ${season}-${eventKey}`, so all four become `2025-cfp-first-round`. Quarterfinals and semifinals are safe — the bowl name suffixes their keys — and the championship is singular by definition. **First round is the one round the scheme cannot separate, and the 12-team format made it four games.**
 
 The reachable consumer is the operator label override: `GameWeekPanel.tsx:340` saves by `g.eventId`, and `schedulePostseasonHelpers.ts:372-377` applies it to every candidate where `candidate.eventId === eventId`. On that path one label edit would apply to all four games. Stated as the code path plus the measured key collision — **not** traced end-to-end through a running app, so it needs its own investigation before it is called a confirmed defect.
+
+> **DISCHARGED (verified 2026-09-08):** filed as Item 121 (`item-87-followon-postseason-refinements.md` §3), which
+> also confirmed the React-key consequence and that 2024 collides the same way.
 
 ---
 

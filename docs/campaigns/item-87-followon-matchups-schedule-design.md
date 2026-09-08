@@ -1,6 +1,14 @@
 # Item 87 — Follow-on input: Matchups and Schedule design decisions
 
+> **Check `item-87-INDEX.md` before deciding from this document.** Parts of it may be superseded.
+>
 > **Status:** input for review, not applied. Nothing here is recorded in the base addendum or `DESIGN.md` until stated otherwise.
+>
+> **INDEX (verified 2026-09-08 against the code): PARTLY SUPERSEDED — and mostly DISCHARGED, not stale.** The
+> three defects, the four contract widenings, the Schedule tier/sort/disclosure decisions, the bronze pills and
+> steps 1–5 of the recommended order all shipped (POLISH-021, slice 5a PR #570, slice 5 PR #572, Item 117
+> PR #581). Superseded: *Open — card-owner treatment* (team-highlight tint), *Same component, different
+> consumption* (both claims), and "the filter cuts it" (Item 118, unbuilt). Each is marked in place below.
 
 **Additive.** References but does not modify the base addendum. **Correction:** an earlier draft cited `item-87-followon-matchups-schedule.md` as a predecessor holding the contract additions. **That file was never committed and does not exist in git.** The additions it was said to carry are therefore recorded nowhere — they are written down below instead. This is the same failure mode that produced the Featured contradiction: a decision referenced as settled that no document actually holds.
 
@@ -24,19 +32,37 @@ The Schedule shows "NoClaim vs LHooper" on the Massachusetts–Rutgers row. `NoC
 
 This is a small, visible, self-contained fix. It should not wait on a cosmetic transition.
 
+> **DISCHARGED (verified 2026-09-08):** POLISH-021-NOCLAIM-PRESENTATION shipped `displayOwner()` in
+> `src/lib/gameOwnership.ts`; Schedule (`GameWeekPanel.tsx:101-102`) and Matchups (`MatchupsWeekPanel.tsx:171-172`,
+> `:415`) render through it. The sentinel stays in the data model, as this section required. A third read of the
+> sentinel as an owner was later found in the owner-count sort key and deleted
+> (`item-87-followon-section-ordering-resolutions.md` → *Noted while removing the owner-count keys*).
+
 ### 2. The collapsed row drops the owner when only one side is owned
 
 The shipped Schedule renders UAlbany at Buffalo with no owner, though Buffalo is Jackson's; the owner line appears to fire only for owner-vs-owner games. **Low severity** — Matchups is the purpose-built view for an owner's full slate — but still an inconsistency. The transition resolves it as a side effect, since the scoreboard lists owners unconditionally.
 
+> **DISCHARGED (verified 2026-09-08):** slice 5 (PR #572) — every Schedule row renders both owner suffixes through
+> the shared row.
+
 ### 3. Inconsistent team naming within one card
 
 The shipped expanded view renders "ualbany" lowercase against "BUF" abbreviated in the same card, suggesting two naming sources feeding one view. **Verified:** `GameWeekPanel.participantDisplayInfo` (`:57-68`) falls back to `participant.displayName`, which is the canonical id slug (`schedule.ts:706`) when `labels` is undefined for a non-catalog team; catalog teams get `labels.scoreboardName` via `pickDisplayLabel` (`teamIdentity.ts:171-176`) → `BUF`. **Fix:** fall back to `csvAway`/`rawName` (`schedule.ts:715`), the proper-cased provider name, not the id. A few lines. **Bundle with the `NoClaim` fix** — both are presentation-layer, tiny, and visible today.
+
+> **DISCHARGED (verified 2026-09-08):** `participantDisplayInfo` no longer exists; the Schedule selector falls back
+> to `participant.rawName` before `displayName` (`src/lib/selectors/gameWeek.ts:113`).
 
 ---
 
 ## Contract widenings — currently unrecorded, must be written down before implementation
 
 `CompactGameScoreboard` does not support these today. None is in the base addendum or `DESIGN.md`. **Record them before any consumer is built**, or a second campaign will discover them the way this one did.
+
+> **DISCHARGED (verified 2026-09-08):** recorded and built as slice 5a (PLATFORM-087 / PR #570, 2026-09-05) before
+> slice 5 and Item 117 consumed them. `DESIGN.md` → *Cards and game results* carries the prefix rule, the header
+> metadata order with broadcast on scheduled/live/awaiting, the neutral-site label, and the non-reserving tier-2
+> slot. A reviewer reported this section as a stale claim because nothing had marked it done — it is the named
+> DISCHARGE case in `AGENTS.md`. Per-widening marks follow.
 
 ### 1. Prefix slot accepts a classification marker
 
@@ -48,23 +74,49 @@ That makes the prefix slot a single-valued classification marker: rank if ranked
 
 **Guard worth keeping anyway:** if a rank ever appears on an FCS team it indicates a data defect upstream, not a display case. Rendering the rank and letting it look wrong is preferable to silently masking it.
 
+> **DISCHARGED and CURRENT (verified 2026-09-08):** `rank`, `rankSource` and `classification` are all on the
+> participant props (`CompactGameScoreboard.tsx:12-14`); the render is rank first, else `FCS`, else nothing
+> (`:189-193`). "No precedence rule is needed" is NOT stale: the mutual-exclusion claim about the data still holds,
+> and the display guard in the paragraph above is exactly what `DESIGN.md` records ("a ranked-FCS collision is an
+> upstream-data defect, and the defensive display rule lets rank win"). Item 117 pinned that precedence by test.
+
 ### 2. Neutral-site marker
 
 `usesNeutralSiteSemantics` (`gameUi.ts:5`) already drives the `vs` separator on `GameWeekPanel`, and `neutralSite` / `neutralSiteDisplay` flow through `schedule.ts:79, :133` → `AppGame.neutral` / `neutralDisplay`. `CompactGameScoreboard` has no marker. Nominal away/home are always populated, so **away → home ordering is unchanged** and this is purely a metadata marker on the date line.
 
 **Postseason forces this independently of the transition** — conference championships arrive first, then bowls and the CFP. Worth shipping as a standalone widening rather than waiting.
 
+> **DISCHARGED (verified 2026-09-08):** `neutralSite` prop at `CompactGameScoreboard.tsx:23`, defaulted `:85`,
+> rendered `:151` as the trailing `Neutral site` header label (slice 5a). Schedule passes
+> `usesNeutralSiteSemantics(g)`; Matchups passes `game.neutral`.
+
 ### 3. Broadcast on live rows
 
 `CompactGameScoreboard.tsx:16-19` gates broadcast on `state === 'scheduled'`. The design calls for it on **scheduled and live** rows, and not on finals — a completed game's broadcast is dead information. Third widening, previously unstated.
+
+> **DISCHARGED, with the state set widened (verified 2026-09-08):** shipped as `showsBroadcast = state !== 'final'`
+> (`CompactGameScoreboard.tsx:111`), so **awaiting** carries broadcast too — the owner ruling recorded in `DESIGN.md`
+> and in the correction under *Broadcast network is tier 1* below. `DESIGN.md` has since ruled that state-dependent
+> rendering is enumerated per state, never by negation; the enumerated set is scheduled, live, awaiting.
 
 ### 4. Odds position — three conflicting positions on record
 
 The design doc has said "suppressed on Schedule"; the mockup places spread/O/U/ML in tier 2; the base addendum's slice-5 contract says "Schedule attaches odds… the row exposes slots." **Settled here: odds live in the tier-2 expanded body on Schedule** — present but not competing with sixty rows of tier-1 content — and inline on Matchups, where nine games per card justify them. This supersedes "suppressed on Schedule."
 
+> **HALF DISCHARGED (verified 2026-09-08):** the Schedule half shipped — `oddsSummary` renders inside the tier-2
+> `<details>` (`GameWeekPanel.tsx:182`, selector `gameWeek.ts:262`). The Matchups half did NOT: Item 117 shipped no
+> odds text, and the component's odds footer is gated to `scheduled` rows, so "inline on Matchups" for live and
+> final rows is one of the four Item 143 divergences. LIVE for Matchups.
+
 ### 5. Amber `upset` card border — needs an explicit decision
 
 `GameWeekPanel.tsx:42` `cardEmphasisClasses` renders an amber border for upsets, which is a reserved-colour violation. **But the base addendum explicitly exempts it** as "emphasis, out of scope for every slice." The transition deletes the card chrome it lives on, so the exemption becomes moot by accident. Either re-scope the exemption or record that the transition retires it deliberately — do not let it lapse silently.
+
+> **HALF DISCHARGED (verified 2026-09-08):** the border is gone — slice 5 deleted `cardEmphasisClasses` and the
+> registry entry records "the retired one-line/card-emphasis implementation". What is still missing is the
+> DECISION: neither the registry nor `DESIGN.md` says the border was deliberately retired with the eyebrow pill
+> carrying its emphasis forward (`DESIGN.md` never mentions `upset`). INDEX CARRY row 4 stays LIVE for that half;
+> the base addendum's exemption is marked retired.
 
 ---
 
@@ -98,13 +150,22 @@ The shipped collapse hides the wrong tier. **Tier 1** is teams, owners, records,
 
 Now the scoreboard always renders and only tier 2 sits behind a "More" affordance.
 
+> **DISCHARGED (verified 2026-09-08):** slice 5 (PR #572) — tier 1 always visible, tier 2 (venue, odds,
+> conference, admin override) behind More/Less (`GameWeekPanel.tsx:182-200`).
+
 **Cost:** roughly double the scroll — two columns at ~60 games a week approaches 2,000px. Acceptable because the filter cuts it to the live handful in one click, and because the alternative hid scores on a results view.
+
+> **CURRENT but its premise is UNBUILT (verified 2026-09-08):** there is no state filter on Schedule; "the filter
+> cuts it to the live handful" is Item 118. The scroll cost is being paid today without the mitigation.
 
 **Expansion may not survive.** What remains behind it is venue and city (mildly useful), moneyline (niche) and conference matchup (inferable from the teams). If unused it can go entirely, leaving a plain scoreboard with no interaction. Retained for now because removing information that exists today should be a decision, not a side effect.
 
 ### Broadcast network is tier 1
 
 "Can I watch this" is the question a schedule answers, so the network sits in the status row beside the kickoff or game clock. It renders on **scheduled, live and awaiting rows — not finals**. A completed game's broadcast is dead information, and the row's job at that point is the result.
+
+> **DISCHARGED (verified 2026-09-08):** broadcast renders in the status row on scheduled, live and awaiting rows
+> (`CompactGameScoreboard.tsx:111`, selector `gameWeek.ts:260`).
 
 **Correction 2026-09-05.** This section previously said "scheduled and live rows only", omitting `awaiting`. That predates the owner ruling now recorded at `DESIGN.md:182`: *awaiting is an indeterminate post-kickoff subset of live, and a broadcast label names the game's carrier rather than claiming the game is currently on air.* `DESIGN.md` governs. Same principle as the anchor: the status row carries what is actionable for that state. Games with no listed broadcast omit it rather than rendering a placeholder.
 
@@ -115,6 +176,9 @@ Not appended to the odds string, where it read as an afterthought and coupled tw
 **Same-conference games collapse** to "ACC matchup" rather than "ACC vs ACC". Conference is strictly a team attribute, so the "X vs Y" form is a game-level summary of two facts and needs this special case.
 
 **FCS is a classification, not a conference.** The conference line must name the actual conference (United Athletic, Coastal Athletic, Big Sky); the FCS marker lives in the prefix slot. Easy for a classification to leak into a conference field — worth checking the data distinguishes them.
+
+> **DISCHARGED (verified 2026-09-08):** the tier-2 conference line shipped as `conferenceSummary`
+> (`gameWeek.ts:263`). The leak check this paragraph asks for is not recorded anywhere; treat it as unverified.
 
 **Alternative if conference proves tier 1:** abbreviate it (ACC, B1G, MW) and place it inline on the team line. Rejected for now — that line already carries a colour bar, rank or FCS marker, team, record and owner, and conference would be the sixth element. If the page-level filter makes members expect it per row, the inline form is the fallback and something else has to give way.
 
@@ -141,6 +205,10 @@ hidden.
 
 **Open — landing position.** Ascending order means a mid-Saturday visit opens on the morning's finals with live games below the fold. Options: leave it, scroll to the first non-final game on load, or anchor the current date group. A scroll-position question, not a sort question.
 
+> **DISCHARGED above, OPEN here (verified 2026-09-08):** the kickoff sort and the per-state status value shipped in
+> slice 5 (`gameWeek.ts:254-259`: clock on live, kickoff on scheduled, nothing on final). Landing position is still
+> undecided and unowned — INDEX CARRY block.
+
 ### The status key becomes a real filter
 
 The FINAL / IN PROGRESS / SCHEDULED pills were a colour key for the status-coloured cards — useless before this transition and meaningless after it, since the colours they explained are gone. Replaced with single-select state filtering.
@@ -152,6 +220,9 @@ The FINAL / IN PROGRESS / SCHEDULED pills were a colour key for the status-colou
 
 **This is additive functionality**, not part of the transition proper, and should be scoped as such.
 
+> **DISCHARGED as a scoping instruction, UNBUILT as a feature (verified 2026-09-08):** filed as Item 118 — Schedule
+> status filter with counts. The legacy FINAL / IN PROGRESS / SCHEDULED pills went with the card chrome.
+
 ---
 
 ## Matchups — design decisions
@@ -159,6 +230,12 @@ The FINAL / IN PROGRESS / SCHEDULED pills were a colour key for the status-colou
 Owner cards and the stat strip are unchanged; the game list becomes scoreboards, rendered **expanded inline with no collapse**. Roughly nine games per card does not justify hiding them, and reading a slate at once is the point of the view.
 
 **Open — card-owner treatment.** On an owner-scoped card the card owner's name repeats on one line of every scoreboard. The mockup carries a toggle comparing full weight against dimmed: dimming reduces noise and makes the opponent easier to scan; full weight keeps the component identical to every other surface. This is the only place the component meets a pre-scoped container.
+
+> **SUPERSEDED (verified 2026-09-08):** decided as a neutral background tint on the card owner's row, dimming
+> rejected — `item-87-followon-team-highlight.md` (identity axis: never owner colour), with the tint's outcome hue
+> over the game's life in `item-87-followon-presentation-decisions.md` → *Owner highlight on Matchups*. The neutral
+> tint shipped (slice 5b, Item 117); the outcome hue has not, and the outcome rail it replaces is still rendered —
+> `item-87-followon-matchups-gap-analysis.md` §2.
 
 ---
 
@@ -170,6 +247,11 @@ The row treatment is now identical across Overview, Matchups and Schedule. Only 
 - **Tier-2 expansion.** Schedule only, and possibly not for long.
 
 That is a cleaner story than the earlier draft, which had three different collapse behaviours.
+
+> **SUPERSEDED (verified 2026-09-08), both claims.** "Suppressed on Schedule" is overridden by widening 4 above
+> (odds sit in Schedule's tier 2; only the odds FOOTER is suppressed). "Identical across Overview, Matchups and
+> Schedule" is overridden by Item 143, which records four Matchups divergences the shared component cannot express
+> (status pill, live indicator, eyebrow placement, odds on live/final).
 
 ---
 
@@ -191,6 +273,11 @@ the one moment the two sit adjacent, and it is the case that fails for a viewer 
 discrimination. Temporal separation covers the rest of the year; this is precisely what it does not
 cover. If the pairing ever needs to survive that viewer, the instrument is a luminance step, not a
 different hue.
+
+> **DISCHARGED on Schedule and Matchups, OPEN on Overview (verified 2026-09-08):** bronze pills ship on Schedule
+> (`GameWeekPanel.tsx:17-18`: border `#c9a66b` at 40%, text `#dbc190`) and Matchups (Item 117, PR #581). Overview's
+> reason row is still `text-blue-300` (`OverviewPanel.tsx:755`; the chip at `:195`) and no item owns its
+> conversion — an Item 144 queue finding.
 
 **Blue is not merely a weaker choice — it is non-compliant.** `DESIGN.md:148` states *"Blue signals interactivity or active state only — never use blue to mean 'featured' or 'important'."* An eyebrow tag is exactly a featured/important signal, so the shipped `text-blue-300` violates a rule already on the books (`OverviewPanel.tsx:781`; `:196` carries the same token on the chip). Bronze is therefore a **correction to shipped**, not a preference deviating from it. The secondary objection — that blue is the interactive token, so eyebrows would share a colour with links and controls — is true but subordinate to the rule.
 
@@ -215,6 +302,10 @@ The base addendum exempts that border as *"emphasis, out of scope for every slic
 
 **Slice 5 should record the border as deliberately retired, with the eyebrow pill carrying its emphasis forward.**
 
+> **LIVE — the recording half (verified 2026-09-08):** the border is retired in code and the registry records the
+> deletion, but no document states the retirement as a decision with the pill carrying the emphasis. INDEX CARRY
+> row 4.
+
 **State the cost plainly:** a pill is quieter than a border around a card. A border catches the eye across sixty rows; an eyebrow does not. That is acceptable if Schedule is a reference surface and making games jump out belongs to Featured and the recap — but it is a real reduction, not a like-for-like replacement. If upsets should stay prominent, the honest instrument is a hue assigned in `INSIGHTS-017-PALETTE`, not a shape difference.
 
 ### Not applied to the Featured reason row
@@ -236,6 +327,11 @@ The Featured tile's reason row (`sb-title`) stays plain bronze text. It is a car
 5. **Matchups** (new item).
 6. **Team colour** — after 3, since it lands in the shared component.
 
+> **DISCHARGED 1–5, LIVE 6 (verified 2026-09-08):** 1 = POLISH-021; 2 = `DESIGN.md` (slice 5a closeout); 3 = slice
+> 5a, PR #570; 4 = slice 5, PR #572 (the filter went to Item 118 rather than shipping with it); 5 = Item 117, PR
+> #581. 6 is Item 119, unbuilt — and it is now a restoration, not a widening
+> (`item-87-followon-team-colour-regression.md`).
+
 ## Questions for the CLI
 
 1. Where does `NoClaim` enter the presentation layer, and are there other surfaces rendering it as an owner besides Schedule?
@@ -244,3 +340,6 @@ The Featured tile's reason row (`sb-title`) stays plain bronze text. It is a car
 4. Does the schedule wire item carry `neutralSite` to presentation, with nominal away/home populated?
 5. Item numbers: the `NoClaim` fix (recommend filing and dispatching independently), and the Matchups/Schedule transition.
 6. Confirm item numbering for: the `NoClaim` + naming fix (next free is 116), the `CompactGameScoreboard` widenings slice, and the Matchups transition.
+
+> **DISCHARGED (verified 2026-09-08):** questions 1–4 are answered in place above (*Verified* paragraphs under each
+> defect, and widening 2); 5–6 resolved as POLISH-021, slice 5a and Item 117.

@@ -1,10 +1,19 @@
 # Item 87 — Follow-on input: decisions that existed only in mockup markup
 
+> **Check `item-87-INDEX.md` before deciding from this document.** Parts of it may be superseded.
+>
 > **Status:** partly shipped. Decision 1 (section order) merged as POLISH-022, PR #562 (`f4e13ad0`);
 > decisions 2, 3 and 6 merged as POLISH-023, PR #563 (`1546bbc8`), with 6 landed on Overview only and
 > now recorded in `DESIGN.md`. Decision 4 was documentation only. Decision 5 ("Today" as the sole
 > relative label) is unbuilt and constrains Item 87 slice 5. The four questions this document left
 > open are answered in `item-87-followon-section-ordering-resolutions.md`.
+>
+> **CORRECTED (verified 2026-09-08 against the code): decision 3 did NOT merge.** POLISH-023 shipped the
+> resolutions document's §1–§3 — the Live kickoff sort, the owner-count removal, and no date or time on finals —
+> which are this document's decisions **2 and 6**. Decision 3 (counts are totals) is unbuilt: `liveTitle` still
+> reads `gameSections.live.length` (`OverviewPanel.tsx:1475`) after the slice at `overviewGameSections.ts:230`, so
+> it is a visible count, deferred to Item 115 (resolutions §5). Decision 5 ("Today") HAS shipped, in slice 5
+> (`src/lib/selectors/gameWeek.ts:211`). INDEX: PARTLY SUPERSEDED — the status lines only; the six decisions stand.
 
 Records six decisions that existed only in mockup markup, never in any document. Filed in response to a CLI report that Live's placement above the watchlist was never dictated by the plan; an audit of both mockups against the doc set found five more.
 
@@ -29,6 +38,9 @@ These were conflated, and only the first was specified.
 > watchlist JSX below Recent finals, mutation-proven and order-pinned by a test with positive
 > controls. Decisions 2, 3, 5 and 6 remain unbuilt; decision 4 was documentation only. The table
 > below records the state at filing and is not a live view of `main`.
+>
+> **SUPERSEDED (verified 2026-09-08):** "2, 3, 5 and 6 remain unbuilt" is older than the status line at the top.
+> Current state: 2 and 6 built (POLISH-023, PR #563), 5 built (slice 5, `gameWeek.ts:211`), 3 unbuilt (Item 115).
 
 Ordered by temporal distance from now: happening, just happened, coming up. That matches what a member is looking for at the moment they open the page during a slate.
 
@@ -84,7 +96,7 @@ The CLI report was about **shipped behaviour**, read from `OverviewPanel.tsx` ra
 | 2 | Live sorts by kickoff; progress not a sort input | `compareOverviewLiveItems` (`overviewGameSections.ts:124`) sorts in-progress before awaiting-score FIRST, then real-owner count DESC, then kickoff | Change request; deletes two existing sort keys |
 | 3 | Counts are totals | `liveTitle` reads `gameSections.live.length` AFTER `.slice(0, OVERVIEW_LIVE_LIMIT)`, so it is a visible count | Change request, and see below |
 | 4 | No "Why these →" link | Never shipped; the string appears nowhere in `src/` | Documentation only |
-| 5 | "Today" is the only relative label | No relative label ships at all; every date is absolute | Additive; constrains Item 87 slice 5 |
+| 5 | "Today" is the only relative label | No relative label ships at all; every date is absolute | Additive; constrains Item 87 slice 5 — **DISCHARGED**, slice 5 labels today's group `Today` (`gameWeek.ts:211`) and no other relative label exists |
 | 6 | Final rows show no date or time | Recent finals already compliant (`clock: undefined`); Featured is not | Change request scoped to Featured |
 
 **Decision 3 is also a live truth defect, not only a labelling preference.** There is no expand control on Overview today — Item 115 is unbuilt — so each section hard-caps at six and the surplus is dropped silently. "Live · 6" with ten live games is currently a false count with no affordance that reveals the other four. Making the count a total before the expand control exists states the truth but leaves four games unreachable; the honest pairing is decision 3 landing with Item 115, or the count staying visible-only until it does.
@@ -110,3 +122,7 @@ The CLI report was about **shipped behaviour**, read from `OverviewPanel.tsx` ra
 This is now six decisions found living only in mockup markup — one reported by the CLI, five more surfaced by auditing the mockups against the doc set afterwards. It follows the Featured contradiction and the contract widenings that referenced a document never committed. A mockup is a visual reference, and readers reasonably treat everything in it as decided, including choices made by default while arranging a page.
 
 **Suggested check:** when a mockup is committed, anything in it that is not stated in a companion document is not a decision. Either write it down or mark it in the markup as unresolved, the way the Featured reason lines were tagged out-of-scope. The cost of missing one is a plan and an implementation that disagree without either side being wrong.
+
+> **LIVE, unadopted (verified 2026-09-08):** `AGENTS.md` requires visual references to exist and be read, and
+> requires a campaign index, but carries no rule that an unstated mockup choice is not a decision. Reported to
+> planning as an Item 144 governance finding.
