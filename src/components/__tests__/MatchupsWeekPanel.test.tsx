@@ -311,7 +311,14 @@ test('matchups panel keeps an owner-only empty state without an excluded-games s
 test('matchups panel summarizes self-matchups as Self', () => {
   const html = renderToStaticMarkup(
     <MatchupsWeekPanel
-      games={[game({ key: 'g-self', csvAway: 'Texas', csvHome: 'Oklahoma' })]}
+      games={[
+        game({
+          key: 'g-self',
+          providerGameId: 'g-self-provider',
+          csvAway: 'Texas',
+          csvHome: 'Oklahoma',
+        }),
+      ]}
       oddsByKey={{}}
       scoresByKey={{
         'g-self': {
@@ -327,6 +334,12 @@ test('matchups panel summarizes self-matchups as Self', () => {
           ['Oklahoma', 'Alex'],
         ])
       }
+      teamRecordsByProviderGameId={{
+        'g-self-provider': {
+          away: { wins: 10, losses: 2 },
+          home: { wins: 8, losses: 4 },
+        },
+      }}
       displayTimeZone="America/New_York"
     />
   );
@@ -345,9 +358,11 @@ test('matchups panel summarizes self-matchups as Self', () => {
   const homeRow = participantMarkup(selfScoreboard, 'home');
   assert.match(awayRow, /data-scoreboard-team="away">Texas/);
   assert.match(awayRow, /data-scoreboard-owner="away">Alex/);
+  assert.match(awayRow, /data-scoreboard-record="away">\(10–2\)<\/span>/);
   assert.match(awayRow, /data-scoreboard-value="away">28/);
   assert.match(homeRow, /data-scoreboard-team="home">Oklahoma/);
   assert.match(homeRow, /data-scoreboard-owner="home">Alex/);
+  assert.match(homeRow, /data-scoreboard-record="home">\(8–4\)<\/span>/);
   assert.match(homeRow, /data-scoreboard-value="home">21/);
 
   const awayTag = participantOpeningTag(selfScoreboard, 'away');
@@ -450,6 +465,163 @@ test('scheduled rows keep matchup primary and score out of metadata', () => {
   assert.match(scoreboard, /data-scoreboard-team="home">Maryland/);
   assert.match(html, /Kickoff Sat, Aug 30, 4:00 PM/);
   assert.doesNotMatch(scoreboard, /data-scoreboard-value-kind="score"/);
+});
+
+test('matchups threads current records to both participants across scheduled, live, and final rows', () => {
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[
+        game({
+          key: 'record-scheduled',
+          providerGameId: 'record-scheduled-provider',
+          csvAway: 'Army',
+          csvHome: 'Navy',
+        }),
+        game({
+          key: 'record-live',
+          providerGameId: 'record-live-provider',
+          csvAway: 'Georgia',
+          csvHome: 'Clemson',
+        }),
+        game({
+          key: 'record-final',
+          providerGameId: 'record-final-provider',
+          csvAway: 'Texas',
+          csvHome: 'Rice',
+        }),
+      ]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'record-live': {
+          status: 'in progress',
+          time: 'Q2 4:10',
+          away: { team: 'Georgia', score: 14 },
+          home: { team: 'Clemson', score: 10 },
+        },
+        'record-final': {
+          status: 'final',
+          time: 'Final',
+          away: { team: 'Texas', score: 31 },
+          home: { team: 'Rice', score: 17 },
+        },
+      }}
+      rosterByTeam={
+        new Map([
+          ['Army', 'Alice'],
+          ['Navy', 'Bob'],
+          ['Georgia', 'Alice'],
+          ['Clemson', 'Carol'],
+          ['Texas', 'Alice'],
+          ['Rice', 'Dana'],
+        ])
+      }
+      teamRecordsByProviderGameId={{
+        'record-scheduled-provider': {
+          away: { wins: 1, losses: 0 },
+          home: { wins: 2, losses: 1 },
+        },
+        'record-live-provider': {
+          away: { wins: 3, losses: 0 },
+          home: { wins: 2, losses: 2 },
+        },
+        'record-final-provider': {
+          away: { wins: 4, losses: 0 },
+          home: { wins: 1, losses: 3 },
+        },
+      }}
+      displayTimeZone="UTC"
+    />
+  );
+  const aliceCard = ownerCardMarkup(html, 'Alice');
+  const scheduled = scoreboardMarkup(aliceCard, 'Army @ Navy');
+  const live = scoreboardMarkup(aliceCard, 'Georgia @ Clemson');
+  const final = scoreboardMarkup(aliceCard, 'Texas @ Rice');
+
+  for (const [side, record] of [
+    ['away', '1–0'],
+    ['home', '2–1'],
+  ] as const) {
+    const row = participantMarkup(scheduled, side);
+    assert.match(
+      row,
+      new RegExp(`data-scoreboard-value-kind="record" data-scoreboard-value="${side}">${record}`)
+    );
+    assert.doesNotMatch(row, /data-scoreboard-record/);
+  }
+  for (const [scoreboard, expected] of [
+    [live, { records: { away: '3–0', home: '2–2' }, scores: { away: 14, home: 10 } }],
+    [final, { records: { away: '4–0', home: '1–3' }, scores: { away: 31, home: 17 } }],
+  ] as const) {
+    for (const side of ['away', 'home'] as const) {
+      const row = participantMarkup(scoreboard, side);
+      assert.match(
+        row,
+        new RegExp(`data-scoreboard-record="${side}">\\(${expected.records[side]}\\)`)
+      );
+      assert.match(
+        row,
+        new RegExp(
+          `data-scoreboard-value-kind="score" data-scoreboard-value="${side}">${expected.scores[side]}`
+        )
+      );
+      assert.doesNotMatch(row, /data-scoreboard-value-kind="record"/);
+    }
+  }
+});
+
+test('scheduled Matchups keeps a missing record anchor blank even when a spread is available', () => {
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[
+        game({
+          key: 'recordless-spread',
+          providerGameId: 'recordless-spread-provider',
+          csvAway: 'Virginia Tech',
+          csvHome: 'Virginia',
+        }),
+      ]}
+      oddsByKey={{
+        'recordless-spread': {
+          favorite: 'Virginia Tech',
+          spread: -7.5,
+          homeSpread: 7.5,
+          awaySpread: -7.5,
+          spreadPriceHome: -110,
+          spreadPriceAway: -110,
+          total: 49.5,
+          mlHome: 220,
+          mlAway: -260,
+          overPrice: -108,
+          underPrice: -112,
+          source: 'DraftKings',
+          bookmakerKey: 'draftkings',
+          capturedAt: '2026-09-08T12:00:00.000Z',
+          lineSourceStatus: 'latest',
+        },
+      }}
+      scoresByKey={{}}
+      rosterByTeam={
+        new Map([
+          ['Virginia Tech', 'Alice'],
+          ['Virginia', 'Bob'],
+        ])
+      }
+      teamRecordsByProviderGameId={{
+        'recordless-spread-provider': {
+          away: null,
+          home: { wins: 2, losses: 0 },
+        },
+      }}
+      displayTimeZone="UTC"
+    />
+  );
+  const scoreboard = scoreboardMarkup(ownerCardMarkup(html, 'Alice'), 'Virginia Tech @ Virginia');
+  const awayRow = participantMarkup(scoreboard, 'away');
+  const homeRow = participantMarkup(scoreboard, 'home');
+
+  assert.doesNotMatch(awayRow, /data-scoreboard-record|data-scoreboard-value="away"|-7\.5|7\.5|—/);
+  assert.match(homeRow, /data-scoreboard-value-kind="record" data-scoreboard-value="home">2–0<\//);
+  assert.doesNotMatch(scoreboard, /data-scoreboard-odds-footer|DraftKings|O\/U 49\.5/);
 });
 
 test('scheduled neutral rows use vs separator instead of @', () => {
@@ -785,6 +957,18 @@ test('shared scoreboard public prop surfaces remain exactly unchanged', () => {
     'footerSlot',
     'tier2Slot',
   ]);
+});
+
+test('CFBScheduleApp forwards the server-projected record map into MatchupsWeekPanel', () => {
+  const source = readFileSync(new URL('../CFBScheduleApp.tsx', import.meta.url), 'utf8');
+  const matchupsCall = source.match(/<MatchupsWeekPanel[\s\S]*?\/>/)?.[0];
+
+  assert.ok(matchupsCall, 'the MatchupsWeekPanel call site must remain present');
+  assert.match(
+    matchupsCall,
+    /teamRecordsByProviderGameId=\{teamRecordsByProviderGameId\}/,
+    'the server-projected record map must cross the CFBScheduleApp boundary'
+  );
 });
 
 test('owner slates count final owned-vs-owned, NoClaim, and FCS results from owned-team participations', () => {

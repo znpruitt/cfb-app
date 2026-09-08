@@ -1364,10 +1364,23 @@ a tinted descendant would paint over that ring, which is why the card-owner tint
 Schedule. Records are not the tint and should not collide — but the ring is the reason Schedule was
 excluded once already, so confirm it rather than inherit the exclusion.
 
-**Blocked on Item 155**, not by dependency but by sequencing: 155 establishes the threading pattern and
-the blank-anchor behaviour, and doing Schedule first would mean deciding both twice.
+**Sequenced after Item 155.** Item 155 is implemented and review-complete; this item becomes unblocked
+when that merge lands. Its review also found the provider-game-id lookup duplicated between Overview
+and Matchups. When Schedule becomes the third records consumer, establish or reuse one shared lookup
+helper so the exact-key normalization cannot drift by surface.
+
+Until this ships, a blank Schedule anchor remains observationally identical between a transiently
+unavailable record and the surface's not-wired state. Item 156 removes the not-wired state; it does not
+add a second member-facing placeholder or error treatment.
 
 ### Item 155 — the Matchups scheduled row: records as the anchor, and the dead footer
+
+**IMPLEMENTED — review complete, awaiting merge.** Code head `00ab9d69` threads the existing record
+projection through `CFBScheduleApp` into both Matchups participants, moves footer reservation to the
+requesting consumer, and preserves Overview's rendered alignment band. Five focused tests were added;
+both independent reviews found no correctness defect, and runtime verification exercised the real app
+data path. Closeout is recorded under `PLATFORM-155-MATCHUPS-SCHEDULED-ROW-CODEX-v2` in the prompt
+registry.
 
 **Kickoff:** [`docs/prompts/platform-155-matchups-scheduled-row-codex-v2.md`](prompts/platform-155-matchups-scheduled-row-codex-v2.md).
 **v2 answers a blocking finding from the implementer, who was right and stopped before editing.** v1

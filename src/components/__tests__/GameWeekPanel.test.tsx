@@ -259,6 +259,52 @@ test('shared scoreboard preserves canonical schedule status when score data is m
   assert.doesNotMatch(html, /MATCHUP SET/);
 });
 
+test('scheduled Schedule cards omit the unrequested odds-footer band without losing row content', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'scheduled-no-footer',
+          csvAway: 'Michigan',
+          csvHome: 'Ohio State',
+          date: '2026-09-12T23:30:00.000Z',
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{
+        'scheduled-no-footer': {
+          favorite: 'Ohio State',
+          spread: -3.5,
+          homeSpread: -3.5,
+          awaySpread: 3.5,
+          spreadPriceHome: -110,
+          spreadPriceAway: -110,
+          total: 48.5,
+          mlHome: -150,
+          mlAway: 130,
+          overPrice: -108,
+          underPrice: -112,
+          source: 'DraftKings',
+          bookmakerKey: 'draftkings',
+          capturedAt: '2026-09-08T12:00:00.000Z',
+          lineSourceStatus: 'latest',
+        },
+      }}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /data-scoreboard-state="scheduled"/);
+  assert.match(html, /data-scoreboard-team="away">Michigan/);
+  assert.match(html, /data-scoreboard-team="home">Ohio State/);
+  assert.match(html, /Ohio State -3\.5/);
+  assert.doesNotMatch(html, /data-scoreboard-odds-footer/);
+});
+
 test('schedule-only rows map to shared scoreboard states', () => {
   const html = renderToStaticMarkup(
     <GameWeekPanel

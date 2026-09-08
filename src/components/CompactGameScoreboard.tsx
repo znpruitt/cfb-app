@@ -110,7 +110,9 @@ export default function CompactGameScoreboard({
   const hasHeaderLead = Boolean(statusLabel) || hasScheduleNotice || Boolean(clockLabel);
   const showsBroadcast = state !== 'final' && Boolean(broadcastLabel);
   const hasContextSlot = hasRenderableContent(contextSlot);
+  const hasFooterSlot = hasRenderableContent(footerSlot);
   const hasTier2Slot = hasRenderableContent(tier2Slot);
+  const showsInlineRecord = state === 'live' || state === 'final' || state === 'awaiting';
 
   return (
     <article
@@ -200,7 +202,7 @@ export default function CompactGameScoreboard({
               ) : null}
               <span className="min-w-0 truncate">
                 <span data-scoreboard-team={side}>{participant.teamName}</span>
-                {state !== 'scheduled' && teamRecord ? (
+                {showsInlineRecord && teamRecord ? (
                   <span
                     className="ml-1.5 text-[12.5px] font-normal tabular-nums dark:text-zinc-400"
                     data-scoreboard-record={side}
@@ -240,13 +242,13 @@ export default function CompactGameScoreboard({
           </div>
         );
       })}
-      {state === 'scheduled' ? (
+      {hasFooterSlot ? (
         <div
           className="mt-1.5 min-h-4 overflow-hidden whitespace-nowrap text-xs text-gray-500 dark:text-zinc-400"
           data-scoreboard-odds-footer
         >
-          {/* This wrapper always reserves peer-card height. React handles empty footer children;
-              a content predicate here would be render-equivalent and therefore unobservable. */}
+          {/* Rendering this band is an explicit caller request. A caller may pass a component that
+              resolves to null when peer-card alignment still requires the reserved height. */}
           {footerSlot}
         </div>
       ) : null}

@@ -1,7 +1,7 @@
 # Prompt Registry
 
 Status: Current ledger
-Last verified: 2026-09-07
+Last verified: 2026-09-08
 Owner: Project documentation
 Canonical for: prompt ledger / historical implementation record (not an active backlog)
 Supersedes: (none)
@@ -50,6 +50,31 @@ Rules:
 ---
 
 ## Prompt ledger (most recent first)
+
+### PLATFORM-155-MATCHUPS-SCHEDULED-ROW-CODEX-v2
+
+- Purpose: wire the already-loaded team-record projection into Matchups and make the compact
+  scoreboard's scheduled odds band an explicit consumer request; v2 superseded v1's mistaken
+  assumption that the reservation itself was accidental.
+- Scope: `CFBScheduleApp`, `MatchupsWeekPanel`, `CompactGameScoreboard`, Overview's sole production
+  `footerSlot` call site, and focused component tests. No selector, route loading, shared scoreboard
+  prop, Schedule-record wiring, outcome-rail, or promotion change.
+- Outcome: Matchups passes both participants' current records into the shared scoreboard, so scheduled
+  rows use records as right-edge anchors and live/final/awaiting rows retain the equivalent inline
+  placement. Missing records stay blank. Footer height is now reserved only when a caller supplies a
+  slot: Overview explicitly preserves its two-column alignment band, while Matchups and Schedule drop
+  their dead scheduled space; Schedule odds remain in tier 2.
+- Review / verification: implementation `00ab9d69`; focused component tests 179/179 (+5 from the
+  measured base), TypeScript and `lint:all` exit 0, and full `npm test` is 4,965/4,967 with exactly the
+  two standing Item 137 failures. Mutations proved blank-anchor behavior despite available spread,
+  caller-owned footer rendering, awaiting-state equivalence, and unchanged Overview markup. Both
+  independent reviews found no correctness defect; runtime verification exercised the real app data
+  path, orientation, five route payloads, and cross-year isolation. The accepted normalization-drift
+  P3 is carried to Item 156. The other two lows—the Overview reservation already guarded by two
+  comments plus its unchanged test, and the source-text forwarding pin—were evaluated as requiring no
+  remediation.
+- Status: Implemented and reviewed on `codex/155-matchups-scheduled-row` (`00ab9d69` + this closeout);
+  merge pending.
 
 ### PLATFORM-144-ITEM-87-DOC-RECONCILIATION-CLAUDE-v1
 
