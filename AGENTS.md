@@ -568,6 +568,29 @@ the result. This is the mirror of the absence rule above — that one guards cla
 exists, this one guards claims that something is used — and it is cheaper than either, because the
 compiler answers in one command.
 
+**LOCAL CHANGE, NON-LOCAL EFFECT: WHEN THE FEEDBACK POINTS SOMEWHERE OTHER THAN THE CAUSE, STOP
+BEING CAREFUL AND CHANGE THE DEFAULT.** Named 2026-09-08. A family of defects shares one property:
+**the error surfaces far from the edit that caused it, at code that did not change and is not
+wrong.** So the diff looks clean, the failures look pre-existing, and every instinct points at the
+wrong file.
+
+- **`MD049` emphasis style.** A single `*italic*` added anywhere flips the file's INFERRED style, and
+  markdownlint then reports every _conforming_ line as the violation — in this session, three lines
+  240 lines above the edit, and once nineteen untouched lines at once. **Seven occurrences before the
+  mechanism was diagnosed**, because the reported location never once pointed at the cause.
+- **`z-index: -1` without `isolation: isolate`.** The pseudo-element paints behind the STACKING
+  CONTEXT rather than behind its parent, so the owner tint vanishes under the card background — and
+  the obvious workaround, `position: relative` on row content, re-anchors and shifts every team
+  colour bar (`item-87-reference-game-row.md` §7, §16).
+- The owner names a third — a `padding` shorthand resetting `padding-left`. **Not recorded in this
+  repo**, so it is listed as an example of the shape rather than as a case with a citation here.
+
+**The response is a DEFAULT, not more care.** Care fails by construction: the edit site is not where
+the error appears, so attention spent there buys nothing. Use `_underscores_` for italics in every
+markdown file rather than matching each file's style; declare `isolation: isolate` wherever a
+negative `z-index` is used. **This is the same argument as the pre-push hook beating remembering to
+run lint** — a mechanism that does not depend on noticing.
+
 **TO VERIFY A DEPLOYED SURFACE, LOOK FOR WHAT THE NEW CODE MAKES IMPOSSIBLE.** Added 2026-09-08, and
 it is the mutation rule aimed at a running deployment. Confirming the new thing is PRESENT fails softly
 — "I cannot tell whether that is bronze" is evidence in neither direction, and an hour went to exactly

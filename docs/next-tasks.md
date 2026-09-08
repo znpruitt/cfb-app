@@ -5391,6 +5391,29 @@ bind in practice** — but the rule still has to say something, because the next
 
 **Blocker:** none.
 
+### Item 166 — `prioritizeGameTags` caps nothing, and must run BEFORE the tag retirements
+
+**From the Item 165 ruling.** `DESIGN.md:293` now caps chips at two; `gameTags.ts:644` still dedupes
+and orders, returning `primary` plus **all** `secondary`. The rule exists and the code does not
+implement it.
+
+**The cap belongs in the SELECTOR, not the renderer.** A render-time truncation of a list the selector
+still builds in full is a different behaviour wearing the same number: consumers disagree about how
+many tags exist, `secondary` carries tags nothing will show, and Matchups' `hidden sm:inline-flex`
+breakpoint rule begins interacting with a cap it was never designed against.
+
+**SEQUENCE THIS BEFORE ITEMS 157 AND 162 — owner, and the reason is about testability.** Those items
+retire `Ranked Team` and `Contender Watch`. **If the cap lands after them, real data may never again
+produce three qualifying tags, so the test must construct three artificially.** If it lands first,
+three still co-occur naturally and the test can use real data — after which the retirements merely
+reduce how often the cap fires, which is the safe direction.
+
+**Acceptance criterion, explicitly: a game carrying THREE qualifying tags.** Not "the cap is applied".
+**Same shape as the postseason first-round typing trap** (`reference-game-row.md` §15): a suite built
+from the cases that happen to be available passes while the actual case goes untested.
+
+**Blocker:** none. **Small** — a slice in the selector plus that test. **Ordered ahead of 157 and 162.**
+
 ## Hosted deployment runbook
 
 Use `docs/deployment-runbook.md` for hosted environment setup, activation, production observations,
