@@ -1369,7 +1369,15 @@ the blank-anchor behaviour, and doing Schedule first would mean deciding both tw
 
 ### Item 155 — the Matchups scheduled row: records as the anchor, and the dead footer
 
-**Kickoff:** [`docs/prompts/platform-155-matchups-scheduled-row-codex-v1.md`](prompts/platform-155-matchups-scheduled-row-codex-v1.md).
+**Kickoff:** [`docs/prompts/platform-155-matchups-scheduled-row-codex-v2.md`](prompts/platform-155-matchups-scheduled-row-codex-v2.md).
+**v2 answers a blocking finding from the implementer, who was right and stopped before editing.** v1
+framed the empty odds-footer reservation as an accident; it is deliberate, documented in `DESIGN.md`,
+and asserted by an Overview test. **Ruled caller-specific on structural grounds:** the band keeps two
+grid cards level when one has odds and the other does not, so it earns its place on Overview — the only
+`footerSlot` caller in the repo — and does nothing on Matchups (a vertical list) or Schedule (a grid
+that never passes a footer at all). The component now reserves nothing on its own and the consumer that
+needs the band asks for it. `DESIGN.md` amended the same day. **Schedule changes visibly and that is
+intended**, so the old byte-identical contract line was replaced.
 **RECORDS-ON-MATCHUPS DECIDED 2026-09-08 — owner: yes.** So this is one slice, not two, and it is
 smaller than filed: `matchups/page.tsx:33` already calls `loadTeamRecordsClientProps` and `:57` already
 spreads `{...teamRecordProps}`, identical to Overview. `MatchupsWeekPanel` simply never accepts them,

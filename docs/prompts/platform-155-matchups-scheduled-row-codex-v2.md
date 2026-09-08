@@ -1,4 +1,4 @@
-PROMPT_ID: PLATFORM-155-MATCHUPS-SCHEDULED-ROW-CODEX-v1
+PROMPT_ID: PLATFORM-155-MATCHUPS-SCHEDULED-ROW-CODEX-v2
 PURPOSE: Item 155 — give Matchups rows their records, and stop reserving an empty odds footer. Every row on that surface is scheduled right now, and every one has no right-edge anchor and a ~40px hole under it.
 SCOPE: `src/components/MatchupsWeekPanel.tsx`, whatever threads props from `CFBScheduleApp`, and the odds-footer condition in `src/components/CompactGameScoreboard.tsx`. Tests for each. NOT the records selector, NOT the Matchups page's data loading — both already work.
 CARRIES: `item-87-INDEX.md` CARRY rows 1, 7 and 8, verbatim in the task block. Row 20 is a sequencing constraint on this slice and is quoted too.
@@ -76,9 +76,10 @@ Report these, then **STOP and wait**. Branch checkout only.
 2. **Name every prop `MatchupsWeekPanel` accepts today**, and say which one carries records. Then name
    what `OverviewPanel` receives that it does not. **The gap is the slice**; if it is larger than a
    prop, say so now.
-3. **Quote the odds-footer condition in `CompactGameScoreboard`** and say exactly what renders when a
-   caller passes no `footerSlot`. Then say why changing it to a content test rather than adding a
-   state to the condition is what `DESIGN.md` now requires.
+3. **Already answered by your blocking report and accepted — skip it.** Your finding that the
+   reservation is deliberate, documented, and asserted by an Overview test is confirmed and is now the
+   ruling above. Do not re-derive it. Instead: **quote the AMENDED `DESIGN.md` band rule with its
+   current line number**, and name every consumer whose rendered output moves under the ruling.
 4. **A scheduled row with no record renders a blank anchor, by ruling.** Say what a reader sees, and
    whether anything on the row distinguishes *this record is unavailable* from *this surface has no
    records wired*. **If nothing does, that is a finding** — the two conditions were ruled distinct on
@@ -99,10 +100,34 @@ which will not push it.
 <task>
 1. **Thread records into `MatchupsWeekPanel` and pass them per participant.** The component places
    them per state; you supply them. Both participants, every state.
-2. **Suppress the empty odds-footer reservation.** Matchups passes no `footerSlot`, and the wrapper
-   reserves `min-h-4` on `state === 'scheduled'` regardless. **Test for content, do not add a state to
-   the condition** — `DESIGN.md` now requires state-dependent rendering be enumerated per state rather
-   than defined by negation, and this wrapper is one of the three defects that rule was written from.
+2. **Move the odds-footer reservation to the consumer that needs it — OWNER RULING 2026-09-08,
+   answering your blocking question, and your reading of the contradiction was correct.** The v1
+   framing was wrong: the reservation is deliberate and documented, not an accident, and you were
+   right to stop rather than proceed.
+
+   **The ruling is caller-specific, and it is structural rather than a preference.** The reservation
+   exists so two cards **side by side in a grid** stay equal height when one has odds and the other
+   does not — the component's own comment says "reserves peer-card height". **Overview is that grid**
+   (`grid grid-cols-2`), and it is **the only `footerSlot` caller in the repo** (`OverviewPanel.tsx:785`),
+   so it is the only surface where the band does any work. **Matchups is a vertical list inside one
+   owner card** (`<ul>`/`<li>`) — no peer to align with. **Schedule is a grid but never passes
+   `footerSlot` at all**, so its band is empty on every card and aligns nothing.
+
+   So: **the component reserves nothing on its own, and a consumer that needs the band asks for it.**
+   Overview asks; Matchups and Schedule do not. That removes the `state === 'scheduled'` test rather
+   than adding to it, which is what the enumerate-per-state rule requires.
+
+   **`DESIGN.md` has been amended accordingly (`main`, 2026-09-08) — pull before you start.** It no
+   longer says the footer "always" reserves the band; it says the consumer that needs peer alignment
+   passes it. **Rebase onto that commit and cite the amended text, not the old line.**
+
+   **Mechanism is yours, under two constraints:** no new state test inside the scoreboard, and the
+   grid-alignment reason must be legible at Overview's call site rather than implied. **Do not widen
+   the scoreboard with a `reserve` flag** — a caller passing what it wants is the point.
+
+   **Overview's existing test is the proof, and it must pass UNCHANGED.**
+   `OverviewPanel.test.tsx:537` — *"preserves an empty odds row"* — still holds, because Overview
+   still asks for the row. If that test needs editing, the mechanism is wrong.
 3. **Say in the report what a member sees** on a scheduled Matchups row before and after.
 </task>
 
@@ -110,7 +135,10 @@ which will not push it.
 **Do NOT restore records to Schedule.** Item 87 slice 5 removed them deliberately; Schedule is still in
 the not-wired state and getting it out is a separate slice with its own review.
 
-**Do NOT fork the scoreboard, and do NOT widen it** beyond the footer condition. Four consumers plus
+**Do NOT fork the scoreboard, and do NOT widen it** beyond the footer condition — a `reserveFooter`
+flag is a widening and is refused by the ruling.
+
+**Do NOT change Overview's rendering or edit its tests.** Overview asks for the band and keeps it. Four consumers plus
 the recap depend on it. If records need placement work, that contradicts this prompt — stop and report.
 
 **Do NOT give a recordless scheduled row a spread, an em-dash, or a placeholder.** Blank is the ruling.
@@ -133,7 +161,13 @@ threading them forces a change to a shared type.
 - **An empty footer reserves no height.** Assert on the rendered output, not on the prop.
 - **A footer WITH content still renders** — the suppression must not remove the slot for consumers
   that use it. Schedule does.
-- **Overview and Schedule are byte-identical.** Prove by mutation; you are changing a shared component.
+- **Overview is byte-identical.** Prove by mutation; you are changing a shared component, and Overview
+  is the one consumer whose rendering must not move.
+- **Schedule changes visibly, and that is intended.** Every scheduled Schedule card loses an always-
+  empty band. **Do not preserve it, and do not mutation-prove it identical** — the v1 contract said
+  byte-identical and was written before the ruling. **Report the change as a visible change**, with what
+  a member sees on a scheduled Schedule card before and after. If it looks like more than removed dead
+  space, stop and report.
 - **Generate over the type's contract** (`AGENTS.md`), varying state, record presence, and both
   participants independently — a self game tints both rows and both carry records.
 - Test count delta reported as a measured number.
