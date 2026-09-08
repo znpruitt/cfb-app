@@ -770,7 +770,10 @@ test('shared row conversion preserves the complete bespoke GameRow fact inventor
   assert.match(participantMarkup(finalScoreboard, 'away'), /Alabama[\s\S]*Alice[\s\S]*>24</);
   assert.match(participantMarkup(finalScoreboard, 'home'), /Georgia[\s\S]*Bob[\s\S]*>17</);
   assert.match(finalScoreboard, /data-eyebrow-tag[^>]*>Upset<\/span>/);
-  assert.match(finalScoreboard, /data-eyebrow-tag[^>]*>Top 25<\/span>/);
+  assert.match(finalScoreboard, /data-eyebrow-tag[^>]*>Top 25 Matchup<\/span>/);
+  // Item 157: the shortened `Top 25` read as a property of the game, while the tag
+  // fires only when BOTH teams are ranked. The old label must not survive anywhere.
+  assert.doesNotMatch(finalScoreboard, /data-eyebrow-tag[^>]*>Top 25<\/span>/);
   assert.match(finalScoreboard, />vs Bob<\/span>/);
   assert.match(finalScoreboard, /Sat, Aug 30, 8:00 PM/);
 

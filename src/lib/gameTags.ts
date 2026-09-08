@@ -15,7 +15,7 @@ export type Insight = {
 };
 
 export type GameHighlightTag = {
-  id: 'top25' | 'contenderWatch' | 'close' | 'ranked';
+  id: 'top25' | 'close';
   text: string;
   priority: number;
 };
@@ -35,6 +35,13 @@ type LeagueInsightsInput = {
 };
 
 const TOP_INSIGHT_LIMIT = 3;
+// `DESIGN.md:293` caps chips at two, and the cap must live in the selector rather
+// than the renderer. It is a FORWARD GUARD as of PLATFORM-157-162-163: retiring
+// `ranked` and `contenderWatch` left `deriveGameHighlightTags` producing at most
+// `top25` and `close`, so the `.slice()` below can no longer bind on any input.
+// Do not delete it — `DESIGN.md:293` requires the cap, and an implementation
+// removed because it is currently unreachable would leave that canonical rule
+// with nothing behind it. The next tag added to the family hits it.
 const TOP_BADGE_LIMIT = 2;
 type OwnerMovementDelta = {
   owner: string;
@@ -413,12 +420,23 @@ export function deriveOverviewHighlightSignals(params: {
   };
 }
 
+/**
+ * The highlight vocabulary is GAME FACTS ONLY (Items 157 and 162).
+ *
+ * `ranked` (`Ranked Team`) restated a rank the row already prints inline beside
+ * the team name, and `contenderWatch` (`Contender Watch`) was owner standing
+ * rendered as a chip, which `DESIGN.md:296-297` forbids outright. Both retired
+ * here. `topOwners` went with `contenderWatch`: nothing about who is leading the
+ * league may reach this selector, which is the whole of Item 162.
+ *
+ * `top25` fires only when BOTH teams are ranked, so its label must stay
+ * `Top 25 Matchup` — see `LEAGUE_TAG_LABELS` below, which now agrees.
+ */
 export function deriveGameHighlightTags(params: {
   item: OverviewGameItem;
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
-  topOwners: Set<string>;
 }): GameHighlightTag[] {
-  const { item, rankingsByTeamId, topOwners } = params;
+  const { item, rankingsByTeamId } = params;
   const awayRank = teamRankForGameSide(item, 'away', rankingsByTeamId);
   const homeRank = teamRankForGameSide(item, 'home', rankingsByTeamId);
   const margin = gameMargin(item);
@@ -429,20 +447,6 @@ export function deriveGameHighlightTags(params: {
       id: 'top25',
       text: 'Top 25 Matchup',
       priority: 100,
-    });
-  } else if (awayRank != null || homeRank != null) {
-    tags.push({
-      id: 'ranked',
-      text: 'Ranked Team',
-      priority: 70,
-    });
-  }
-
-  if (isTopOwnerGame(item, topOwners)) {
-    tags.push({
-      id: 'contenderWatch',
-      text: 'Contender Watch',
-      priority: 90,
     });
   }
 
@@ -475,7 +479,7 @@ export const LEAGUE_TAG_PRIORITY: Record<LeagueGameTag, number> = {
 export const LEAGUE_TAG_LABELS: Record<LeagueGameTag, string> = {
   upset: 'Upset',
   upset_watch: 'Upset watch',
-  top_25_matchup: 'Top 25',
+  top_25_matchup: 'Top 25 Matchup',
 };
 
 function getState(score?: ScorePack): 'scheduled' | 'inprogress' | 'final' | 'unknown' {

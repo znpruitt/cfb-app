@@ -117,7 +117,6 @@ test('prioritizeOverviewItems retains quality labels without changing caller-pro
       rankedHighlightKey: 'middle-ranked',
     },
     rankingsByTeamId: new Map(),
-    topOwnerNames: new Set(),
   });
 
   assert.deepEqual(
@@ -193,6 +192,79 @@ test('selectOverviewViewModel prioritises marquee watchlist games before kickoff
     model.watchlistCandidates.find((entry) => entry.item.bucket.game.key === 'later-top')
       ?.highlightLabel,
     'Game of the Week'
+  );
+});
+
+/**
+ * ORDERING DELTA from retiring `Contender Watch` (Item 162), asserted rather than
+ * only described.
+ *
+ * `watchlistPriority` is a `Math.max` over four signals, one of which is
+ * `highlightTags[0].priority`. `contenderWatch` carried 90, so a game owned by a
+ * standings leader sorted ahead of an untagged game regardless of kickoff. With the
+ * tag retired that input is gone and both games fall to 0, where the kickoff
+ * tie-break decides.
+ *
+ * The fixture is built so the delta is visible and nothing else supplies 90 or 70:
+ * both games are SINGLE-owned, so `gameOfSlateKey` (which needs two distinct
+ * owners) is null, and neither carries a rank, so `isRankedSpotlight` is false.
+ * Under the pre-retirement selector this exact input ordered
+ * `['zz-contender', 'aa-plain']`; verified by restoring the `contenderWatch` branch
+ * and watching this test go red.
+ */
+test('retiring Contender Watch drops a leader-owned game to the kickoff tie-break', () => {
+  const contenderBase = item('zz-contender', '2026-09-06T17:00:00.000Z');
+  const contender = {
+    ...contenderBase,
+    // Single-owned by Alex, who leads the standings below. This was the input that
+    // produced `Contender Watch` and its priority of 90.
+    bucket: { ...contenderBase.bucket, awayOwner: 'Alex', homeOwner: undefined },
+    priority: 1,
+  };
+  const plainBase = item('aa-plain', '2026-09-01T17:00:00.000Z');
+  const plain = {
+    ...plainBase,
+    bucket: { ...plainBase.bucket, awayOwner: 'Casey', homeOwner: undefined },
+    priority: 1,
+  };
+
+  const standingsRow = (owner: string, wins: number) => ({
+    owner,
+    wins,
+    losses: 9 - wins,
+    winPct: wins / 9,
+    pointsFor: 0,
+    pointsAgainst: 0,
+    pointDifferential: 0,
+    gamesBack: 0,
+    finalGames: 9,
+  });
+
+  const model = selectOverviewViewModel({
+    standingsLeaders: [
+      standingsRow('Alex', 8),
+      standingsRow('Blake', 7),
+      standingsRow('Dana', 6),
+      standingsRow('Casey', 2),
+    ],
+    standingsCoverage: { state: 'partial', message: null },
+    context: { scopeDetail: 'Week 1' },
+    liveItems: [],
+    // Producer order puts the leader-owned game first, so a stable sort alone would
+    // keep it ahead — the assertion below only holds if the comparator reorders.
+    keyMatchups: [contender, plain],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.deepEqual(
+    model.watchlistCandidates.map((entry) => entry.item.bucket.game.key),
+    ['aa-plain', 'zz-contender']
+  );
+  assert.deepEqual(
+    model.watchlistCandidates.flatMap((entry) => entry.highlightTags.map((tag) => tag.text)),
+    [],
+    'owner standing earns no tag on either card'
   );
 });
 

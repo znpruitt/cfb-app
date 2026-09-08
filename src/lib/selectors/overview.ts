@@ -292,16 +292,16 @@ export function prioritizeOverviewItems(params: {
   items: OverviewGameItem[];
   highlightSignals: OverviewHighlightSignals;
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
-  topOwnerNames: Set<string>;
 }): PrioritizedOverviewItem[] {
-  const { items, highlightSignals, rankingsByTeamId, topOwnerNames } = params;
+  const { items, highlightSignals, rankingsByTeamId } = params;
   const upsetWatchSet = new Set(highlightSignals.upsetWatchKeys);
 
   return items.map((item) => {
+    // No owner-standing input: `Contender Watch` was retired with Item 162, and
+    // `topOwnerNames` existed only to feed it.
     const highlightTags = deriveGameHighlightTags({
       item,
       rankingsByTeamId,
-      topOwners: topOwnerNames,
     });
     const isGameOfSlate = highlightSignals.gameOfSlateKey === item.bucket.game.key;
     const isUpsetWatch = upsetWatchSet.has(item.bucket.game.key);
@@ -493,7 +493,6 @@ export function selectOverviewViewModel(params: {
   // via OverviewPanel.
   const resolvedCurrent = resolvedMovement.latest ?? standingsLeaders;
   const previousStandings = resolvedMovement.previous;
-  const topOwnerNames = new Set(standingsLeaders.slice(0, 3).map((row) => row.owner));
   const overviewMatchupCandidates = keyMatchups;
   const featuredCandidates = overviewMatchupCandidates.filter((item) => {
     const gameState = gameStateFromScore(item.score);
@@ -510,13 +509,11 @@ export function selectOverviewViewModel(params: {
     items: featuredCandidates,
     highlightSignals,
     rankingsByTeamId,
-    topOwnerNames,
   }).sort(comparePrioritizedWatchlistItems);
   const prioritizedResults = prioritizeOverviewItems({
     items: resultCandidates,
     highlightSignals,
     rankingsByTeamId,
-    topOwnerNames,
   });
   const recentResults = selectFeaturedGames(prioritizedResults, resultsLimit);
   const gamesBackTrend = standingsHistory ? selectGamesBackTrend({ standingsHistory }) : [];

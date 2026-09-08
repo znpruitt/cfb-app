@@ -938,7 +938,18 @@ test('prioritizeGameTags applies upset > upset_watch > top_25_matchup ordering w
   assert.deepEqual(prioritized.secondary, ['upset_watch', 'top_25_matchup']);
 });
 
-test('deriveGameHighlightTags prioritizes Top 25 Matchup then Contender Watch and caps tags', () => {
+/**
+ * WAS the cap's only test, and it no longer is. PLATFORM-157-162-163 retired
+ * `ranked` and `contenderWatch`, so this fixture — both teams ranked, both owners
+ * top-three, three-point final margin — now yields TWO tags where it once yielded
+ * three, and `TOP_BADGE_LIMIT` cannot bind on it or on any other input.
+ *
+ * What still discriminates is PRIORITY ORDERING: `top25` (100) must precede
+ * `close` (80). That is what this now asserts and what it is now named for. The
+ * cap assertion is deleted rather than left passing vacuously; the cap itself
+ * stays as a documented forward guard (`gameTags.ts`, `TOP_BADGE_LIMIT`).
+ */
+test('deriveGameHighlightTags orders Top 25 Matchup above Close', () => {
   const rankedCloseGame = item(
     game({
       key: 'badge-game',
@@ -975,16 +986,95 @@ test('deriveGameHighlightTags prioritizes Top 25 Matchup then Contender Watch an
       ['away', { rank: 6, rankSource: 'ap' }],
       ['home', { rank: 11, rankSource: 'ap' }],
     ]),
-    topOwners: new Set(['Pruitt', 'Maleski', 'Whited']),
   });
 
   assert.deepEqual(
     tags.map(({ id, text }) => ({ id, text })),
     [
       { id: 'top25', text: 'Top 25 Matchup' },
-      { id: 'contenderWatch', text: 'Contender Watch' },
+      { id: 'close', text: 'Close' },
     ]
   );
+});
+
+test('deriveGameHighlightTags emits NO tag for a game with only one ranked team', () => {
+  const oneRankedGame = item(
+    game({
+      key: 'one-ranked',
+      participants: {
+        away: {
+          kind: 'team',
+          teamId: 'away',
+          displayName: 'Away',
+          canonicalName: 'Away',
+          rawName: 'Away',
+        },
+        home: {
+          kind: 'team',
+          teamId: 'home',
+          displayName: 'Home',
+          canonicalName: 'Home',
+          rawName: 'Home',
+        },
+      },
+    }),
+    'Pruitt',
+    'Maleski'
+  );
+  // A 21-point final, so `close` cannot fire and the assertion is about the
+  // retired `ranked` tag alone.
+  oneRankedGame.score = {
+    status: 'FINAL',
+    away: { team: 'Away', score: 45 },
+    home: { team: 'Home', score: 24 },
+    time: null,
+  };
+
+  const tags = deriveGameHighlightTags({
+    item: oneRankedGame,
+    rankingsByTeamId: new Map([['away', { rank: 25, rankSource: 'ap' }]]),
+  });
+
+  // Positive control: the SAME harness sees a tag when both teams are ranked, so
+  // an empty result here is the retirement rather than a fixture that cannot
+  // reach the tag path at all.
+  const bothRanked = deriveGameHighlightTags({
+    item: oneRankedGame,
+    rankingsByTeamId: new Map([
+      ['away', { rank: 25, rankSource: 'ap' }],
+      ['home', { rank: 12, rankSource: 'ap' }],
+    ]),
+  });
+  assert.deepEqual(
+    bothRanked.map(({ id }) => id),
+    ['top25']
+  );
+
+  assert.deepEqual(tags, [], 'Ranked Team is retired: one visible rank earns no tag');
+});
+
+test('deriveGameHighlightTags emits NO tag for a game owned by a standings leader', () => {
+  const topOwnerGame = item(
+    game({ key: 'top-owner', canAway: 'away', canHome: 'home' }),
+    'Pruitt',
+    'Maleski'
+  );
+  // A 21-point final again: no `close`, no ranks, and both owners would have been
+  // `topOwners` before Item 162. The selector no longer accepts owner standing at
+  // all, so there is no input that could reintroduce the tag.
+  topOwnerGame.score = {
+    status: 'FINAL',
+    away: { team: 'Away', score: 45 },
+    home: { team: 'Home', score: 24 },
+    time: null,
+  };
+
+  const tags = deriveGameHighlightTags({
+    item: topOwnerGame,
+    rankingsByTeamId: new Map(),
+  });
+
+  assert.deepEqual(tags, [], 'Contender Watch is retired: owner standing is not a game fact');
 });
 
 test('deriveGameHighlightTags adds close tag for seven-point margin when no higher tags exist', () => {
@@ -1003,7 +1093,6 @@ test('deriveGameHighlightTags adds close tag for seven-point margin when no high
   const tags = deriveGameHighlightTags({
     item: closeGame,
     rankingsByTeamId: new Map(),
-    topOwners: new Set(['Pruitt', 'Maleski', 'Whited']),
   });
 
   assert.equal(tags[0]?.text, 'Close');

@@ -143,6 +143,42 @@ test('selector summarizes exclusions deterministically', () => {
   );
 });
 
+/**
+ * Item 163 pins the descriptor's FIVE branches while the `vs <owner>` ruling is
+ * open. Three already have tests below — placeholder/derived, `FCS`, and
+ * `NoClaim (FBS)`. This covers the two that did not: `Self`, and the `vs <owner>`
+ * form itself.
+ *
+ * `NoClaim (FBS)` is asserted AT THE SELECTOR by design and cannot be asserted on
+ * rendered output: `MatchupsWeekPanel`'s `hideOpponentDescriptor` suppresses it
+ * unconditionally, so it has no rendered form to compare against.
+ */
+test('deriveOpponentDescriptor distinguishes Self from the vs <owner> form', () => {
+  assert.equal(
+    deriveOpponentDescriptor(
+      slateGame({
+        owner: 'Alex',
+        opponentOwner: 'Alex',
+        isOwnerVsOwner: true,
+        isOpponentUnownedOrNonLeague: false,
+      })
+    ),
+    'Self'
+  );
+
+  assert.equal(
+    deriveOpponentDescriptor(
+      slateGame({
+        owner: 'Alex',
+        opponentOwner: 'Bob',
+        isOwnerVsOwner: true,
+        isOpponentUnownedOrNonLeague: false,
+      })
+    ),
+    'vs Bob'
+  );
+});
+
 test('deriveOpponentDescriptor uses non-owner fallback labels', () => {
   const descriptor = deriveOpponentDescriptor(
     slateGame({
