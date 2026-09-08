@@ -612,15 +612,18 @@ test('shared row conversion preserves the complete bespoke GameRow fact inventor
   assert.match(liveScoreboard, /Sat, Aug 30, 8:00 PM/);
 
   // The scheduled row keeps the matchup relationship, participant names,
-  // FCS distinction, and prefixed kickoff while continuing to hide scores.
+  // ranked-FCS distinction through its descriptor fallback, and prefixed
+  // kickoff while continuing to hide scores.
   assert.match(scheduledScoreboard, /data-scoreboard-state="scheduled"/);
   assert.match(scheduledScoreboard, /Kickoff Sat, Aug 30, 8:00 PM/);
   assert.match(scheduledScoreboard, /data-scoreboard-team="away">Oregon/);
   assert.match(scheduledScoreboard, /data-scoreboard-team="home">Portland State/);
+  assert.match(scheduledScoreboard, /title="AP rank #2">#2/);
+  assert.doesNotMatch(scheduledScoreboard, /data-scoreboard-classification="home"/);
   assert.equal(
     (scheduledScoreboard.match(/>FCS<\/span>/g) ?? []).length,
     1,
-    'provider-classified FCS must render once beside the team name'
+    'ranked FCS must keep one descriptor while rank occupies the inline prefix'
   );
   assert.doesNotMatch(scheduledScoreboard, /data-scoreboard-value-kind="score"/);
 
@@ -661,6 +664,36 @@ test('provider-classified FCS renders once while conference-only FCS retains its
   const conferenceFallback = renderFcsScoreboard();
   assert.doesNotMatch(conferenceFallback, /data-scoreboard-classification="home"/);
   assert.equal((conferenceFallback.match(/>FCS<\/span>/g) ?? []).length, 1);
+});
+
+test('ranked provider-classified FCS keeps one descriptor when rank wins inline precedence', () => {
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[
+        game({
+          key: 'ranked-fcs',
+          csvAway: 'Oregon',
+          csvHome: 'Portland State',
+          homeConf: 'Big Sky',
+          homeClassification: 'fcs',
+        }),
+      ]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map([['Oregon', 'Alice']])}
+      rankingsByTeamId={new Map([['h', { rank: 3, rankSource: 'ap' }]])}
+      displayTimeZone="UTC"
+    />
+  );
+
+  const scoreboard = scoreboardMarkup(ownerCardMarkup(html, 'Alice'), 'Oregon @ Portland State');
+  assert.match(scoreboard, /title="AP rank #3">#3/);
+  assert.doesNotMatch(scoreboard, /data-scoreboard-classification="home"/);
+  assert.equal(
+    (scoreboard.match(/>FCS<\/span>/g) ?? []).length,
+    1,
+    'ranked FCS must retain the descriptor when the inline prefix is occupied by rank'
+  );
 });
 
 test('the final scoreboard in each owner game list drops its trailing divider', () => {
