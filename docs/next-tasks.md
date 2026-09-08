@@ -984,9 +984,37 @@ re-deriving the requirement and hitting the same wall:
 | **status pill** | the component owns `statusLabel`; Matchups' `SCH`/`LIVE`/`FINAL` cannot be injected |
 | **live indicator** | the component's is hardcoded; Matchups requires a neutral, freshness-gated pulse |
 
-**The seams are the constraint.** Any option here is either a component widening or a Matchups
+**The seams are the constraint.** Any option here is either a component widening or a consumer
 concession, and `CompactGameScoreboard` has already been widened once by slice 5a and once by 5b — a
 third and fourth driven by one consumer is how a shared component becomes the union of its callers.
+
+**SECOND CONSUMER, added 2026-09-08: the WEEKLY RECAP.** Owner ruling — the recap adopts the same
+component rather than shared primitives, because it built its own scoreboard before the component
+existed and has since drifted: stacked tags instead of right-aligned, per-category hues instead of
+the bronze pill, no colour bar, metadata restating the scores. **None of that was decided; it is what
+a parallel implementation does when the shared one moves.** Primitives would not have prevented it —
+they only make divergence cheaper to write.
+
+**Seams verified against the code BEFORE scoping, 2026-09-08** — the lesson from Item 117's round,
+where four "fits neither slot" findings surfaced only at the receipt gate. The recap needs **a tag in
+the status row** and **metadata beside it**. The header row (`CompactGameScoreboard.tsx:127-131`) is
+entirely component-owned — `statusLabel`, schedule notice, `clockLabel`, broadcast, `neutralSite`,
+scalar props in fixed order, **no injection point.** So both recap requirements are this item's
+existing tag-placement divergence. **The recap adoption is BLOCKED on this item** and would otherwise
+reproduce Matchups' findings exactly.
+
+**DERIVE THE SLOT FROM BOTH CONSUMERS, NOT ONE — this is the reason the second consumer matters.** A
+slot designed against a single consumer fits that consumer's shape and nothing else, which is how
+`contextSlot` ended up ABOVE the header row rather than inside it. Matchups needs the tag on
+**scheduled** rows; the recap is **all finals**. Scoping from Matchups alone would likely produce a
+tag slot that works on scheduled rows and needs a second widening for finals. Deriving from both
+states now costs nothing.
+
+**The shape most likely to be missed — put it in the acceptance contract.** The recap's status row is
+frequently **tag-only**: after the derivability rule, **six of seven mockup rows carry no metadata at
+all**, just the pill. So the slot must handle an **empty left group without collapsing the tag's right
+alignment.** Matchups never exercises this — it always has a state label holding the left side open.
+A real shape, not a hypothetical.
 
 **Blocker: Item 144.** The document that would settle these is the one with ten stale claims in it.
 

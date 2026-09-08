@@ -67,18 +67,37 @@
      upset / margin (blowout, shutout) / drama (nailbiter, shootout).
      Hues are PLACEHOLDERS — final values assigned against the full category
      token registry in the enrichment stage. */
-  .tag-upset { color: #e879f9; }           /* fuchsia — clear of all known tokens */
-  .tag-blowout, .tag-shutout { color: #a3e635; }    /* lime — nearest neighbor is delta green; judge in strip */
-  .tag-nailbiter, .tag-shootout { color: #2dd4bf; } /* teal — clear of all known tokens */
 
   /* ---------- Mini scoreboard (notable results) ---------- */
   .scoreboard { padding: 10px 0; border-bottom: 0.5px solid var(--hairline); }
   .scoreboard:last-child { border-bottom: none; }
-  .sb-tag { margin-bottom: 6px; font-size: 12px; color: var(--text-tertiary); }
-  .sb-tag .tag { margin-right: 6px; }
+  /* Status row on the shared contract: metadata left in a growing group, tag pinned
+     right as a bronze pill. Tags never stack above the row — that adds a line to tagged
+     entries only and desynchronises the two-column grid. */
+  .sb-tag {
+    display: flex; align-items: center; gap: 7px;
+    margin-bottom: 5px; font-size: 12px; color: var(--text-tertiary);
+  }
+  /* Metadata carries only what the row cannot state itself. Margin, combined points and
+     shutout are all derivable from the two scores, so they are dropped — the pill names
+     the category and the scoreboard supplies the arithmetic. An upset's spread is not on
+     screen, so it survives. Empty metadata still holds the left group open so the tag
+     stays right-aligned. */
+  .sb-tag .sb-meta { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sb-tag .tag {
+    flex: none; margin: 0;
+    font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+    color: #dbc190; border: 0.5px solid rgba(201,166,107,0.40);
+    border-radius: 3px; padding: 1px 5px;
+  }
   .sb-line {
     display: flex; align-items: baseline; justify-content: space-between;
-    font-size: 14px; padding: 1px 0;
+    font-size: 14px; padding: 1px 0 1px 15px;
+    position: relative; isolation: isolate;
+  }
+  .sb-line .tc {
+    display: block; position: absolute; left: 0; top: 2px; bottom: 2px;
+    width: 8px; border-radius: 2px; background: var(--tcol); opacity: 0.72;
   }
   .sb-line .who { display: flex; align-items: baseline; gap: 6px; overflow: hidden; white-space: nowrap; margin-right: 12px; }
   .sb-line .who > span { overflow: hidden; text-overflow: ellipsis; }
@@ -196,29 +215,29 @@
           <div class="dek">Owner J's 251 leads the scoreboard; five owners on the move.</div>
           <div class="opt3-notables">
             <div class="scoreboard">
-              <div class="sb-tag"><span class="tag tag-upset">Upset</span>Won as +9.5 underdog</div>
-              <div class="sb-line winner"><span class="who"><span class="team">Washington</span><span class="owner">Owner E</span></span><span class="score num">38</span></div>
-              <div class="sb-line loser"><span class="who"><span class="team">Boise State</span><span class="owner">Owner J</span></span><span class="score num">10</span></div>
+              <div class="sb-tag"><span class="sb-meta">Won as +9.5 underdog</span><span class="tag">Upset</span></div>
+              <div class="sb-line winner" style="--tcol:#8B5FC4"><span class="who"><span class="tc"></span><span class="team">Washington</span><span class="owner">Owner E</span></span><span class="score num">38</span></div>
+              <div class="sb-line loser" style="--tcol:#3FA36B"><span class="who"><span class="tc"></span><span class="team">Boise State</span><span class="owner">Owner J</span></span><span class="score num">10</span></div>
             </div>
             <div class="scoreboard">
-              <div class="sb-tag"><span class="tag tag-blowout">Blowout</span>35-point margin</div>
-              <div class="sb-line loser"><span class="who"><span class="team">Alabama</span><span class="owner">Owner N</span></span><span class="score num">3</span></div>
+              <div class="sb-tag"><span class="sb-meta"></span><span class="tag">Blowout</span></div>
+              <div class="sb-line loser" style="--tcol:#E04545"><span class="who"><span class="tc"></span><span class="team">Alabama</span><span class="owner">Owner N</span></span><span class="score num">3</span></div>
               <div class="sb-line winner"><span class="who"><span class="team">Indiana</span><span class="owner">Owner J</span></span><span class="score num">38</span></div>
             </div>
             <div class="scoreboard">
-              <div class="sb-tag"><span class="tag tag-nailbiter">Nailbiter</span>2-point margin</div>
-              <div class="sb-line winner"><span class="who"><span class="team">Illinois</span><span class="owner">Owner H</span></span><span class="score num">30</span></div>
+              <div class="sb-tag"><span class="sb-meta"></span><span class="tag">Nailbiter</span></div>
+              <div class="sb-line winner" style="--tcol:#E85050"><span class="who"><span class="tc"></span><span class="team">Illinois</span><span class="owner">Owner H</span></span><span class="score num">30</span></div>
               <div class="sb-line loser"><span class="who"><span class="team">Tennessee</span><span class="owner">Owner L</span></span><span class="score num">28</span></div>
             </div>
           </div>
             <div class="scoreboard">
-              <div class="sb-tag"><span class="tag tag-blowout">Blowout</span>35-point margin</div>
+              <div class="sb-tag"><span class="sb-meta"></span><span class="tag">Blowout</span></div>
               <div class="sb-line winner"><span class="who"><span class="team">Indiana</span><span class="owner">Owner J</span></span><span class="score num">38</span></div>
-              <div class="sb-line loser"><span class="who"><span class="team">Alabama</span><span class="owner">Owner N</span></span><span class="score num">3</span></div>
+              <div class="sb-line loser" style="--tcol:#E04545"><span class="who"><span class="tc"></span><span class="team">Alabama</span><span class="owner">Owner N</span></span><span class="score num">3</span></div>
             </div>
             <div class="scoreboard">
-              <div class="sb-tag"><span class="tag tag-nailbiter">Nailbiter</span>2-point margin</div>
-              <div class="sb-line winner"><span class="who"><span class="team">Illinois</span><span class="owner">Owner H</span></span><span class="score num">30</span></div>
+              <div class="sb-tag"><span class="sb-meta"></span><span class="tag">Nailbiter</span></div>
+              <div class="sb-line winner" style="--tcol:#E85050"><span class="who"><span class="tc"></span><span class="team">Illinois</span><span class="owner">Owner H</span></span><span class="score num">30</span></div>
               <div class="sb-line loser"><span class="who"><span class="team">Tennessee</span><span class="owner">Owner L</span></span><span class="score num">28</span></div>
             </div>
           </div>
@@ -290,13 +309,13 @@
   ];
   // [cls, label, detail, awayTeam, awayOwner, awayScore, homeTeam, homeOwner, homeScore, winner]
   const NOTABLES = [
-    ["upset","Upset","Won as +9.5 underdog","Washington","Owner E",38,"Boise State","Owner J",10,"away"],
-    ["blowout","Blowout","37-point margin","UTSA","Owner H",57,"Florida International","Owner I",20,"away"],
-    ["blowout","Blowout","35-point margin","Alabama","Owner N",3,"Indiana","Owner J",38,"home"],
-    ["blowout","Blowout","39-point margin","Purdue","",6,"Penn State","Owner A",45,"home"],
-    ["shutout","Shutout","Zero points allowed","Texas Tech","Owner K",0,"Oregon","Owner I",23,"home"],
-    ["shootout","Shootout","85 combined points","James Madison","Owner H",34,"Oregon","Owner I",51,"home"],
-    ["nailbiter","Nailbiter","2-point margin","Illinois","Owner H",30,"Tennessee","Owner L",28,"away"]
+    ["upset","Upset","+9.5 underdog","Washington","Owner E",38,"Boise State","Owner J",10,"away"],
+    ["blowout","Blowout","","UTSA","Owner H",57,"Florida International","Owner I",20,"away"],
+    ["blowout","Blowout","","Alabama","Owner N",3,"Indiana","Owner J",38,"home"],
+    ["blowout","Blowout","","Purdue","",6,"Penn State","Owner A",45,"home"],
+    ["shutout","Shutout","","Texas Tech","Owner K",0,"Oregon","Owner I",23,"home"],
+    ["shootout","Shootout","","James Madison","Owner H",34,"Oregon","Owner I",51,"home"],
+    ["nailbiter","Nailbiter","","Illinois","Owner H",30,"Tennessee","Owner L",28,"away"]
   ];
   function recordRow([n,wl,pfpa]){
     return `<div class="row"><div class="line1"><span>${n}</span><span class="num">${wl}</span></div><div class="line2 num">${pfpa}</div></div>`;
@@ -306,12 +325,20 @@
     const arrow = dir==="up" ? "\u25b2" : "\u25bc";
     return `<div class="row"><div class="line1"><span>${n}</span><span class="${cls} num">${arrow} ${pl}</span></div><div class="line2 num">${shift}</div></div>`;
   }
+  /* Luminance-normalised team primaries. FCS and unknown teams render no bar —
+     absence is the signal, never a default grey. */
+  const TEAM_COLOR = {
+    "Washington":"#8B5FC4","Boise State":"#3FA36B","UTSA":"#5578B5","Florida International":"#5A85B5",
+    "Alabama":"#E04545","Indiana":"#C25050","Purdue":"#D8C68C","Penn State":"#5E7BB5",
+    "Texas Tech":"#E04545","Oregon":"#3F9B72","James Madison":"#5E7BB5","Illinois":"#E85050",
+    "Tennessee":"#E0A84A"
+  };
   function scoreboard([cls,label,detail,at,ao,as_,ht,ho,hs,winner]){
-    const who = (team, owner) => `<span class="who"><span class="team">${team}</span>${owner ? `<span class="owner">${owner}</span>` : ``}</span>`;
+    const who = (team, owner) => `<span class="who">${TEAM_COLOR[team] ? `<span class="tc"></span>` : ``}<span class="team">${team}</span>${owner ? `<span class="owner">${owner}</span>` : ``}</span>`;
     const line = (team, owner, score, isWinner) =>
-      `<div class="sb-line ${isWinner ? "winner" : "loser"}">${who(team,owner)}<span class="score num">${score}</span></div>`;
+      `<div class="sb-line ${isWinner ? "winner" : "loser"}"${TEAM_COLOR[team] ? ` style="--tcol:${TEAM_COLOR[team]}"` : ``}>${who(team,owner)}<span class="score num">${score}</span></div>`;
     return `<div class="scoreboard">
-      <div class="sb-tag"><span class="tag tag-${cls}">${label}</span>${detail}</div>
+      <div class="sb-tag"><span class="sb-meta">${detail}</span><span class="tag">${label}</span></div>
       ${line(at,ao,as_,winner==="away")}
       ${line(ht,ho,hs,winner==="home")}
     </div>`;
