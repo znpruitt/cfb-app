@@ -166,7 +166,7 @@ the colour bars, 134 the third tier, 115 counts and caps together.
 **If only one thing gets done, 143** — it is the long pole and unblocks the most. (This line read _166_ before that item was found already complete.)
 
 **Kickoffs written 2026-09-08 and ready to dispatch:**
-`platform-143-matchups-status-row-codex-v1.md` (UI spine) and
+`platform-143-matchups-status-row-codex-v2.md` (UI spine) and
 `platform-157-162-163-tag-vocabulary-claude-v2.md` (Platform, one prompt for all three per owner call).
 **`preview` is granted to 143**; the tag-vocabulary kickoff suspends the push-`preview` instruction for
 its branch, which is what preserves the single-writer condition.
@@ -1008,7 +1008,7 @@ the same problem.
 indicator, eyebrow tags and odds. **Split out of Item 117 on 2026-09-07** after the receipt gate found
 that none of the four fits an existing slot.
 
-**Kickoff:** [`docs/prompts/platform-143-matchups-status-row-codex-v1.md`](prompts/platform-143-matchups-status-row-codex-v1.md).
+**Kickoff:** [`docs/prompts/platform-143-matchups-status-row-codex-v2.md`](prompts/platform-143-matchups-status-row-codex-v2.md).
 
 > **THE TABLE BELOW IS STALE — re-verified against `main` at `0ab9b76d`, 2026-09-08, and TWO of the
 > four have moved.** **Odds on live/final is RESOLVED**: Item 155 replaced the `state === 'scheduled'`

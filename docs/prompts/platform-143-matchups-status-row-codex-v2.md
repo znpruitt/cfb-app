@@ -1,4 +1,4 @@
-PROMPT_ID: PLATFORM-143-MATCHUPS-STATUS-ROW-CODEX-v1
+PROMPT_ID: PLATFORM-143-MATCHUPS-STATUS-ROW-CODEX-v2
 PURPOSE: Item 143 — give the shared scoreboard the seams Matchups needs, so tags sit IN the status row instead of adding a line above it. This unblocks the recap adoption, the Matchups reconciliation, and three of the six Overview back-application items.
 SCOPE: `src/components/CompactGameScoreboard.tsx`, `src/lib/gameUi.ts`, `src/components/MatchupsWeekPanel.tsx`, and tests for each. NOT the recap. NOT Overview's or Schedule's rendering. NOT the outcome rail.
 CARRIES: `item-87-INDEX.md` CARRY rows 7, 8, 20, 25 and 26, verbatim in the task block.
@@ -23,8 +23,8 @@ changed the component underneath it.
 
 | divergence | status on `main` TODAY |
 | --- | --- |
-| **eyebrow tags in the status row** | **LIVE, and it is the item.** `contextSlot` renders in its own `div` ABOVE the header (`CompactGameScoreboard.tsx:124-128`), so tags placed there ADD A LINE — the exact defect the presentation document exists to prevent, caused by the injection point rather than by the markup |
-| **odds on live/final** | **RESOLVED by Item 155.** `footerSlot` is no longer gated on `state === 'scheduled'`; it is content-gated at `:245` (`hasFooterSlot`). A caller may pass a footer in any state today. **Nothing to do.** |
+| **eyebrow tags in the status row** | **LIVE, and it is the item — but v1 named the wrong slot.** Matchups' tags render through **`tier2Slot`** (`MatchupsWeekPanel.tsx:264`), BELOW both participant rows, not through `contextSlot`. A two-tag row is four structural rows today: header, away, home, tier-2. `contextSlot` is the slot that would ADD a row above the header (`CompactGameScoreboard.tsx:124-128`) and is where `game.label` goes. **The target is unchanged — tags belong IN the header row — but you are moving them UP from tier 2, not down from context.** |
+| **odds on live/final** | **NOT A REQUIREMENT — the divergence was miscategorised at filing, owner ruling 2026-09-08.** Measured against `mockups/matchups-schedule-mockup.html`: **all six `sb-odds` lines belong to `scheduled` blocks. Zero on live. Zero on final.** The live block carries status plus two team lines and nothing else. So the filed row recorded a COMPONENT CONSTRAINT (`footerSlot` gated by state) as a PRESENTATION REQUIREMENT. Item 155 removed the constraint (`:245`, content-gated). **There is no caller work and none is wanted. Do not add odds to Matchups live or final rows.** |
 | **status pill `SCH`/`LIVE`/`FINAL`** | **LIVE.** `statusLabel` is `null` when scheduled (`:104-107`) and the component owns the text, so Matchups cannot render `SCH` |
 | **live indicator** | **PARTLY RESOLVED, and smaller than filed.** `gameUi.ts:118` `gameStatusLabelPresentation` ALREADY accepts `liveHue: 'neutral'` and `liveDot: 'pulse' \| 'static' \| 'none'`. The scoreboard calls it with **no options** (`:107`), so a caller cannot reach them. **This is prop forwarding, not a redesign.** |
 
@@ -44,15 +44,36 @@ Report these, then **STOP and wait**. Branch checkout only.
 2. **Quote the `contextSlot` render block and the header `div` that follows it**, with current line
    numbers re-derived. Then say **exactly what a Matchups row renders today** for a game with two
    tags — how many lines, and which element sits on each.
-3. **Name every consumer of `CompactGameScoreboard`** and say, for each, what changes and what does
-   not under your plan. **Four consumers plus the recap depend on it** (CARRY row 8). A change that
-   moves Overview or Schedule is a finding, not a step.
-4. **Say whether the four-row table above is correct**, item by item. **Two of its four claims say
-   work is already done** — if either is wrong the scope is larger than this prompt says, and that is
-   a stop-and-report.
+3. **Already answered by your v1 receipt and accepted — skip it.** You established **five direct
+   renderers** (Overview `GameCardList` serving two sections, `WatchlistScoreboardList`,
+   `FeaturedGamesList`, `GameWeekPanel`, Matchups `GameRow`) and that **the recap is not yet a
+   consumer** — `RecapPrimitives.tsx:277` still defines a bespoke `GameScoreboard`. **CARRY row 8's
+   "four consumers plus the recap" was wrong on both halves and is corrected on `main`.**
+4. **Confirm the CORRECTED table above**, item by item — v1's version was wrong in two places and you
+   found both. Say specifically whether the mockup measurement holds: **six odds lines, all on
+   scheduled blocks, none on live or final.** It is mine and it is checkable.
 5. Anything that CONTRADICTS what you were handed.
 
 A receipt that summarises without quoting is not a receipt.
+
+## RULINGS ON YOUR v1 RECEIPT — all three corrections accepted
+
+**You were right on every count, and two of the errors changed the work.**
+
+**1. The tags are in `tier2Slot`, not `contextSlot`.** My error. I read that block myself while writing
+the prompt and still wrote the wrong slot. **The item is unchanged — tags belong in the header row —
+but the direction is up from tier 2, not down from context**, and step 4 now says so. Your four-row
+structural account is adopted into the table.
+
+**2. Five direct renderers, and the recap is not one.** Accepted, and **`item-87-INDEX.md` CARRY row 8
+is corrected on `main`** — it claimed "four consumers plus the recap" and was wrong on both halves.
+That is the INDEX's own text, not a paraphrase I introduced.
+
+**3. Odds on live/final — you asked the right question and the answer removes the scope.** You noted
+"resolved" holds only as component capability. **Measured against the mockup: all six `sb-odds` lines
+sit in `scheduled` blocks; zero on live, zero on final.** The filed divergence recorded a component
+constraint as a presentation requirement. **Nothing is wanted here — do not add odds to Matchups live
+or final rows.** If you find a document that DOES require them, that is a stop-and-report.
 
 ## Branch
 
@@ -75,7 +96,7 @@ push-`preview` instruction for that branch. The grant lapses on merge.
    in `gameUi.ts`; the scoreboard must let a caller reach them. Matchups wants neutral hue and a
    freshness-gated pulse. **The freshness GATE is Matchups' to compute — the component only renders
    what it is told.**
-4. **Wire Matchups to all three.** Its tags move off `contextSlot` and into the status row.
+4. **Wire Matchups to all three.** Its tags move **off `tier2Slot`** and into the status row. Opponent and kickoff metadata **stay in tier 2**; `contextSlot` stays available for `game.label`.
 
 **CARRIED OBLIGATIONS — verbatim:**
 
