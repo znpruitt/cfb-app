@@ -91,6 +91,8 @@ It matters on phones. At 375–430px portrait, minus page and block padding, a r
 
 An outcome tag cannot render on a game that has not been played. An implementation treating these as one undifferentiated list will render `Upset` on a scheduled game.
 
+**Constraint on the taxonomy, and it bounds what a cap can ever do.** The two `LeagueGameTag` outcome/tension tags are **mutually exclusive by state**: `upset` requires `state === 'final'` (`gameTags.ts:596`) and `upset_watch` requires `state !== 'final'` (`:609`). With `top_25_matchup` as the only other member, **the league family can never carry more than two tags.** So a cap in `prioritizeGameTags` would be unreachable code, and any test written for it could not use real data. Recorded here rather than only in closed Item 166, because the next reader to compare that function against the cap rule will otherwise rediscover it. **The Overview highlight family is the one the cap governs** — `deriveGameHighlightTags` can reach three (`top25`/`ranked`, `contenderWatch`, `close`) and slices to `TOP_BADGE_LIMIT = 2` at `gameTags.ts:457`.
+
 ### Two suppression rules
 
 **A tag that restates its container is suppressed.** A section titled *Head-to-head results* must not tag every row `HEAD-TO-HEAD`. The tag's job is to distinguish *within* the section; when every row shares the reason, it carries nothing and the distinguishing fact gets demoted to prose.
