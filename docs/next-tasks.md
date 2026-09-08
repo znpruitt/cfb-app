@@ -867,7 +867,32 @@ not be read as a requirement on the other.**
 ### Item 144 — reconcile the Item 87 design-document set before the presentation follow-on
 
 **The ask:** make the design documents say what is currently true, so a prompt written from them
-stops inheriting overturned claims. **This BLOCKS Item 143** and should precede it.
+stops inheriting overturned claims. **This BLOCKS Item 143, and after 2026-09-08 it blocks the whole
+remaining spine queue — 115, 119, 134, 118.**
+
+**ESCALATED 2026-09-08: the stale documents have now produced SHIPPED CODE, not just wrong
+statements.** Three errors traced to this file set in two days, and the third is a different kind:
+
+1. The records/broadcast/odds list in Item 117's v1 prompt — caught at the receipt gate.
+2. The Matchups column count — the mockup's prose says two columns while its own CSS ships a
+   three-column tier at 1372px. Caught in conversation, after I had repeated the prose.
+3. **The owner-row tint.** `item-87-followon-team-highlight.md` reads as "neutral tint, outcome
+   colouring rejected". `item-87-followon-presentation-decisions.md:90-115` **supersedes it** with the
+   full lifecycle — the tint tracks state across the game's whole life, directional on live and final,
+   with a sweep animation and a reduced-motion fallback, and `:115` states plainly that the owner-row
+   tint already carries direction. **Item 117 shipped the superseded reading**: a grey tint plus a
+   coloured left rail.
+
+**Errors 1 and 2 cost a correction. Error 3 is in production and blocks Item 119**, because the left
+rail occupies the line-start slot 119's team-colour bar needs, and outcome is now stated twice.
+
+**Full analysis:**
+[`docs/campaigns/item-87-followon-matchups-gap-analysis.md`](campaigns/item-87-followon-matchups-gap-analysis.md),
+owner-authored 2026-09-08, ordered by member impact rather than item ownership — deliberately, because
+sorting by item is what let these accumulate. It also resolves a question this ledger had left open:
+**"records stay off Matchups" and `DESIGN.md:95` cannot both hold**, because the anchor holds the
+record when a game is scheduled. Deferring records leaves the majority of rows structurally
+incomplete.
 
 **Owner diagnosis, 2026-09-07 — structural, not a set of typos.** Roughly **fifteen additive
 follow-on documents** were written, each superseding parts of earlier ones **without editing them**,
