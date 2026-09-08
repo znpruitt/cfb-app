@@ -294,6 +294,28 @@ When practical, verify key runtime flows still behave:
    - **The receipt must ask what CONTRADICTS the relay message.** This is the part that earns the
      gate: the agent reconciles the sources rather than confirming it looked at them, and a wrong
      premise surfaces before it has a branch built on top of it.
+   - **WRITE EVERY ITEM AS A QUESTION WHOSE ANSWER CAN CONTRADICT THE PROMPT — not one that confirms
+     the prompt was read.** Owner decision 2026-09-07, from measuring what the gate actually catches.
+     Six receipts were posted that day and **every one found an error in the PROMPT**, not a gap in
+     the implementer's reading. The gate was built to check the READER; it functions as a review of
+     the WRITER, before any code exists. Write it for that.
+     **The distinction is mechanical, not stylistic.** An item that asks the agent to restate the
+     prompt gets the prompt back — the author wrote it, so a paraphrase reflects it. An item that
+     sends the agent to a SOURCE and asks it to report what it finds produces a comparison, and
+     disagreements fall out of it. Every finding on 2026-09-07 came from a quoted source line; none
+     came from a summary.
+     **Prefer:** _"Name every consumer of X"_ (answer came back "five, not four"). _"Quote the
+     parameter list and say which fields it discards"_ (answer separated two different losses the
+     prompt had merged). _"Name every field on this type"_ (answer found a five-member union the
+     prompt called four). **Avoid:** _"Confirm you have read Y"_, _"Summarise the decision in Z"_,
+     _"State the rule from the design doc"_ — all satisfiable without opening anything the author did
+     not already quote.
+     **Ask for COUNTS and ENUMERATIONS specifically.** They are falsifiable in one line and they are
+     what caught the prompt errors: seven modules that were nine, four consumers that were five, four
+     union members that were five, one loss that was three. A count is the cheapest question that can
+     come back wrong.
+     **And accept the answer over the prompt when they disagree.** The receipt is only worth its
+     round trip if a contradiction changes the prompt rather than being explained away.
    - **The implementer stops there and waits** — receipt first, no code. A blocked dispatch costs one
      message; a wrong premise costs a build and two review cycles.
 

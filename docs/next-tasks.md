@@ -707,7 +707,19 @@ any provider outcome.
 requires a planning split when work crosses separate automation jobs. Tier A crosses **seven**; Tier B
 crosses **two**. They cannot ship as one PR.
 
-- **Tier B is RUNNING** — kickoff
+- **Tier B is BUILT and remediated at `1556739a`** — three reviews converged on six findings, all
+  fixed, each regression test verified by reverting its own pre-fix code one at a time.
+  **SCOPE APPROVED 2026-09-07 by the owner**, per `AGENTS.md` → Scope and sizing, which requires the
+  approval and the diffstat be recorded here: **31 files, +2,693/−96** (corrected 2026-09-07 — I first recorded +2,709/−112, taken from a
+  relayed message rather than from the `git diff --shortstat` I had myself run minutes earlier; the
+  registry entry must carry the measured figure), crossing both
+  stop-and-reassess signals. Approved because the breakdown is **870 lines of production against
+  1,919 of tests** — the production surface is well inside the 1,500 threshold, and the test bulk is
+  the same document's "every surface a PR touches must carry its own tests" applied across two
+  automation jobs. Splitting a cohesive 870-line change because its tests are thorough would set the
+  rule against itself.
+  Two findings deliberately scoped out and filed instead: **Item 145** (debug logger) and
+  **Item 146** (secret-scan population). Kickoff
   [`docs/prompts/platform-126b-incident-evidence-claude-v1.md`](prompts/platform-126b-incident-evidence-claude-v1.md).
   Taken first because it is the tier that would have explained the September 1 failure. Tier A's value
   is capped anyway: it correlates runtime logs that expire.
@@ -923,6 +935,68 @@ concession, and `CompactGameScoreboard` has already been widened once by slice 5
 third and fourth driven by one consumer is how a shared component becomes the union of its callers.
 
 **Blocker: Item 144.** The document that would settle these is the one with ten stale claims in it.
+
+### Item 147 — nothing pins the schedule cron's response-body keys
+
+**The ask:** pin the `schedule-refresh` cron's response-body keys, as `rankings` now is.
+
+**Filed 2026-09-07 from Item 126B's confirming review, and it is half a fix rather than new work.**
+126B's finding 2 was a leak into the **QStash response body** — the rankings cron returned
+`exec.years` verbatim, so `failedPartitions` crossed into the body. It shipped because **only the
+log-event keys were pinned; nothing pinned the body.** The fix added an allowlist projector and a body
+key pin — **for rankings.** `responseYearEntry` on the schedule side is referenced by no test.
+
+**So the two jobs now differ in a way nothing records as deliberate**: one is pinned against exactly
+the leak that occurred, the other is not, and the unpinned one is the job the whole item was written
+about.
+
+**Pre-existing rather than caused by 126B's remediation round**, which is why it was correctly
+excluded from that round's scope under `AGENTS.md`. Filed so the asymmetry is a decision rather than
+a gap.
+
+**Blocker:** none. Small, and it mirrors a pin that already exists.
+
+### Item 145 — the upstream debug logger writes provider URLs and headers to the server log
+
+**The ask:** stop `NEXT_PUBLIC_DEBUG=1` logging `statusText`, the provider URL and response headers.
+
+**Found 2026-09-07 during Item 126B's `/verify`, by driving the running route — not by reading.**
+`collegefootballdata` appeared four times in the server log. The credential itself was correctly
+redacted to `Bearer ***`; the URL, `statusText` and headers were not.
+
+**`NEXT_PUBLIC_DEBUG=1` IS SET in this repo's own `.env.local`**, so this is live in local
+development today, not a hypothetical behind a flag nobody sets.
+
+**Pre-existing on `main` and correctly scoped OUT of 126B** — it is a LOG, not the durable store
+126B's gate governs, and folding it in would have widened a branch already at both stop-and-reassess
+signals. Filed rather than fixed, per that gate.
+
+**Scope:** the upstream debug logger only. Decide what a debug log may carry: a URL is arguably
+diagnostic rather than secret, but response headers are not, and the two are emitted together.
+
+**Blocker:** none. Independent of 126.
+
+### Item 146 — the secret scan covers the receipt; a run writes seven durable keys
+
+**The ask:** widen the secret-scan test population from the receipt to every durable key a run writes.
+
+**Found 2026-09-07 by the Item 126B implementer, raised by no reviewer.** A `schedule-refresh` run
+writes **seven** durable keys. 126B's secret-scan tests scanned only the **receipt** — so the tests
+proved a property about one of seven writes and were named as though they proved it about the run.
+
+**The concrete instance is benign and that is why it is worth filing.** The same run writes a
+free-text `"message"` into `provider-refresh-status`:
+`"schedule 2026: regular, postseason partition partition-fetch-failed"`. Constructed, secret-free, no
+leak. **The defect is the test population, not the value** — a scan whose scope is narrower than the
+risk it names will keep passing while an unscanned writer changes.
+
+**Same shape as the vacuous-test findings this campaign keeps producing:** the test named the run and
+measured one write. It passes today for the right reason and would pass tomorrow for the wrong one.
+
+**Scope:** the secret-scan test helpers and their population. Not a production change unless the
+widened scan finds something.
+
+**Blocker:** none, but it should follow 126B so it can cover what that branch adds.
 
 ### Item 142 — Matchups prints kickoff metadata on rows `DESIGN.md` says must not carry it
 
