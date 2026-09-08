@@ -14,6 +14,7 @@ where prompt-writing actually reads from is.** Anything below the first screen m
 | 1 | **LIVE** | A build with records absent or stale **will not match the mockup**, and a reviewer comparing them must read that as a **sequenced dependency, not a defect**. State this in the prompt. (`live-watchlist-scoreboard.md:236`, `records.md:42`) |
 | 2 | **LIVE** | Item 92 refreshes in the **live-scores cron**. Never hook `handleGamesFinalized` — a per-browser client callback, which inverts the cron-spends / client-reads split of PLATFORM-086B2B and PLATFORM-075. (`records.md:51`) |
 | 3 | DISCHARGED | Record the `CompactGameScoreboard` contract widenings before any consumer is built — **done**; classification, neutral-site, non-final broadcast and tier 2 are implemented and in `DESIGN.md`. Reported as a *stale claim* by a reviewer because nothing marked it complete. |
+| 6 | **LIVE** | **Do not "restore" the mockup's tint inset.** The mockup specifies `inset: -1px -8px`; the implementation ships `0 -8px` plus squared facing corners. **Anyone reconciling the two changes the MOCKUP, not the code** — the mockup's value predates the both-rows-tint rule and produces a darker stripe at the seam. (`team-highlight.md:59-62`, owner decision 2026-09-06) |
 | 4 | UNVERIFIED | Slice 5 records the border as deliberately retired, eyebrow pill carrying its emphasis forward. (`matchups-schedule-design.md:216`) |
 | 5 | UNVERIFIED | Record the component-family enforcement clause. (`live-watchlist-scoreboard.md:454`) |
 
@@ -103,10 +104,31 @@ Key the generic CFP group on `playoffCompetition === 'cfp'` — a positive test 
 **`item-87-followon-team-colour-regression.md`** — **CURRENT**
 Item 119 is a restoration, not a widening. `teamColors.ts` orphaned. `DESIGN.md` correction. Covers Overview, Matchups and Schedule.
 
-**`item-87-followon-team-highlight.md`** — **SUPERSEDED**
-> **Do not decide from this document.** Its neutral-tint conclusion predates the owner's decision to have the tint carry outcome across the game's lifecycle. Reading it as current has already produced one wrong review conclusion and, downstream, shipped code that encodes outcome twice. The lifecycle table in `presentation-decisions.md` is authoritative.
+**`item-87-followon-team-highlight.md`** — **CURRENT.** *Status corrected 2026-09-08 after the file
+was read end to end. It was previously marked SUPERSEDED — by both of us, from second-hand accounts.
+Neither had opened it.*
 
-Still current in it: the buildable/not-buildable analysis (no user↔owner mapping exists), and the two stacking bugs recorded as implementation notes.
+**It does NOT conflict with `presentation-decisions.md`; the two govern different axes.**
+`:23` rejects **owner-IDENTITY colour** — *"Neutral rather than owner colour"*, on the `DESIGN.md:321`
+legend reasoning. `presentation-decisions.md:90` gives the tint **OUTCOME direction** across the
+game's life. Not owner-coloured, and outcome-coloured once a direction exists: both hold.
+
+**It carries two of the set's LATEST decisions, dated 2026-09-06** — squared facing corners at the
+seam of two adjacent tints (`:43-62`), and the horizontal-bleed / focus-ring constraint (`:64-74`).
+Its own status line reads *"decision settled; component seam merged via PR #575; UI adoption remains
+Item 117."*
+
+**`:59-62` is a LIVE obligation** — see CARRY row 6. Do not restore the mockup's `-1px` inset.
+
+Also current: the buildable/not-buildable analysis (no user↔owner mapping exists), the residual at
+`:76-80` (the feedback asked for *my* teams; this ships *the card owner's* teams), and the two
+stacking bugs at `:35-39`.
+
+**What this corrects downstream.** The rail/tint collision in shipped code is real and unchanged —
+a coloured left rail plus a grey tint states outcome twice and spends the slot Item 119 needs. But
+its cause is not "a stale document was read as current." It is that the tint's outcome-tracking was
+never implemented and the rail was never retired. **No document was wrong. Two readers asserted the
+contents of a ninety-line file neither had opened.**
 
 ### Layout and presentation
 

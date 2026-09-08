@@ -870,21 +870,49 @@ not be read as a requirement on the other.**
 stops inheriting overturned claims. **This BLOCKS Item 143, and after 2026-09-08 it blocks the whole
 remaining spine queue — 115, 119, 134, 118.**
 
-**ESCALATED 2026-09-08: the stale documents have now produced SHIPPED CODE, not just wrong
-statements.** Three errors traced to this file set in two days, and the third is a different kind:
+**WHAT THIS IS, PLAINLY: a session's work, no shipped output, and it unblocks 115, 119, 134 and
+118.** Not a tidy-up. Do not squeeze it between implementation slices.
 
-1. The records/broadcast/odds list in Item 117's v1 prompt — caught at the receipt gate.
-2. The Matchups column count — the mockup's prose says two columns while its own CSS ships a
-   three-column tier at 1372px. Caught in conversation, after I had repeated the prose.
-3. **The owner-row tint.** `item-87-followon-team-highlight.md` reads as "neutral tint, outcome
-   colouring rejected". `item-87-followon-presentation-decisions.md:90-115` **supersedes it** with the
-   full lifecycle — the tint tracks state across the game's whole life, directional on live and final,
-   with a sweep animation and a reduced-motion fallback, and `:115` states plainly that the owner-row
-   tint already carries direction. **Item 117 shipped the superseded reading**: a grey tint plus a
-   coloured left rail.
+**Scope — 2,273 lines across 16 documents, of which perhaps 350 have ever been read.**
+`live-watchlist-scoreboard.md` alone is **651 lines** and three of them have been read; every "canonical
+for X" claim made about placement or the record rule rests on those three spots. **This is not a
+document set with some stale entries. It is a document set that has never been read.**
 
-**Errors 1 and 2 cost a correction. Error 3 is in production and blocks Item 119**, because the left
-rail occupies the line-start slot 119's team-colour bar needs, and outcome is now stated twice.
+**READ ORDER — owner decision 2026-09-08, and the first choice was corrected.**
+
+1. **`live-watchlist-scoreboard.md` (651 lines) FIRST.** It is canonical, so until it is read end to
+   end every claim about what is canonical is unverified — **including the ones this index rests on.**
+2. `team-highlight.md` (90 lines) — the one whose status mark was already wrong.
+3. The remaining thirteen.
+
+**OUTPUT IS EDITS, NOT A REPORT.** A report is a sixteenth document describing fifteen others and goes
+stale the same way. **Mark each claim in place** — current / superseded / discharged — and promote the
+index entries from "the owner's best knowledge" to **verified**. That is what makes the reading
+something the next person inherits rather than redoes.
+
+**THREE VERDICTS, and discharge is the one that saves time.** Of the ten known claims in
+`matchups-schedule-design.md`, **at least five are DISCHARGED rather than stale** — the work was done
+and nothing marked it: `rank`/`rankSource` both exist, `neutralSite` is at `CompactGameScoreboard:23`,
+the contract widenings are in `DESIGN.md`, the recommended sequence has shipped. **An obligation
+satisfied and unmarked gets re-litigated as an error**, and one already was.
+
+**Do NOT transfer that ratio to the unread 1,900 lines.** The owner sized the item as "roughly half"
+on that arithmetic and withdrew it: it is a ratio measured on a sample of identified claims and says
+nothing about the population nobody has read.
+
+**A correction to this entry's own earlier escalation, recorded rather than edited away.** It
+previously read _"the stale documents have now produced SHIPPED CODE"_, citing the owner-row tint. That
+was wrong. `team-highlight.md` is **CURRENT** and does not conflict with `presentation-decisions.md` —
+`:23` rejects owner-IDENTITY colour while `presentation-decisions.md:90` gives the tint OUTCOME
+direction; different axes, both hold. **No document was wrong. Two readers asserted the contents of a
+ninety-line file neither had opened.** The rail/tint collision in shipped code is real and still blocks
+Item 119; its cause is that the tint's outcome-tracking was never implemented and the rail never
+retired.
+
+**WHY THIS HAS NOT HAPPENED, because the same pressure will apply again.** A full read costs a large
+chunk of context and produces no commit and no shipped fix, while every individual question along the
+way was answerable by grepping the specific claim. **Each grep looked like the efficient choice.** The
+cost only appeared in aggregate — three wrong statements and one wrong implementation.
 
 **Full analysis:**
 [`docs/campaigns/item-87-followon-matchups-gap-analysis.md`](campaigns/item-87-followon-matchups-gap-analysis.md),
