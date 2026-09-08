@@ -561,6 +561,17 @@ the result. This is the mirror of the absence rule above — that one guards cla
 exists, this one guards claims that something is used — and it is cheaper than either, because the
 compiler answers in one command.
 
+**TO VERIFY A DEPLOYED SURFACE, LOOK FOR WHAT THE NEW CODE MAKES IMPOSSIBLE.** Added 2026-09-08, and
+it is the mutation rule aimed at a running deployment. Confirming the new thing is PRESENT fails softly
+— "I cannot tell whether that is bronze" is evidence in neither direction, and an hour went to exactly
+that, across three wrong conclusions drawn from correct code. **Pick instead an artifact the new code
+CANNOT produce.** PLATFORM-153's chip constant contains no `bg-` class, so a filled chip could only come
+from the old CSS; seeing one **proves** the output is stale regardless of what any ref or URL claims.
+**The presence of an impossible artifact is a fact about the deployment, not an interpretation of
+pixels** — and absence is hard to see where an impossibility is not. Operational detail, including the
+stale-alias case that produced it, is in `docs/deployment-runbook.md` → _A worktree 404s on every
+browser navigation_.
+
 **A MEASUREMENT'S COVERAGE IS PART OF ITS RESULT.** Added 2026-09-08, and it is the corollary to the
 rule above: that one says a grep cannot prove a read, this one says **a tool returning zero because it
 did not look is indistinguishable from one that looked and found nothing** — unless you report what it
