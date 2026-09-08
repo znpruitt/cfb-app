@@ -707,19 +707,23 @@ any provider outcome.
 requires a planning split when work crosses separate automation jobs. Tier A crosses **seven**; Tier B
 crosses **two**. They cannot ship as one PR.
 
-- **Tier B is BUILT and remediated at `1556739a`** — three reviews converged on six findings, all
-  fixed, each regression test verified by reverting its own pre-fix code one at a time.
+- **Tier B is COMPLETE.** Execution record:
+  [`docs/prompt-registry.md`](prompt-registry.md) → `PLATFORM-126B-INCIDENT-EVIDENCE-CLAUDE-v1`.
   **SCOPE APPROVED 2026-09-07 by the owner**, per `AGENTS.md` → Scope and sizing, which requires the
-  approval and the diffstat be recorded here: **31 files, +2,693/−96** (corrected 2026-09-07 — I first recorded +2,709/−112, taken from a
-  relayed message rather than from the `git diff --shortstat` I had myself run minutes earlier; the
-  registry entry must carry the measured figure), crossing both
-  stop-and-reassess signals. Approved because the breakdown is **870 lines of production against
-  1,919 of tests** — the production surface is well inside the 1,500 threshold, and the test bulk is
-  the same document's "every surface a PR touches must carry its own tests" applied across two
-  automation jobs. Splitting a cohesive 870-line change because its tests are thorough would set the
-  rule against itself.
+  approval and the diffstat be recorded here. Approved at **+2,693/−96**, and the figure moved once
+  more when the owner authorized a second remediation round; the shipped measurement is **31 files
+  under `src/`, +2,817/−96 — 16 production files (+739/−57) against 15 test files (+2,078/−39)**.
+  Both stop-and-reassess signals are crossed. Approved because production is well inside the 1,500
+  threshold and the test bulk is the same document's "every surface a PR touches must carry its own
+  tests" applied across two automation jobs; splitting a cohesive production change because its
+  tests are thorough would set the rule against itself. A further split was also rejected on the
+  implementer's argument that it breaks the item's own contract — one shared vocabulary across both
+  jobs, and route coverage for both in the same PR.
+  (An earlier +2,709/−112 was recorded from a relayed message rather than a `git diff --shortstat`
+  and corrected 2026-09-07. Every figure above is measured at the shipped commit.)
   Two findings deliberately scoped out and filed instead: **Item 145** (debug logger) and
-  **Item 146** (secret-scan population). Kickoff
+  **Item 146** (secret-scan population). **Item 147 closed inside this slice** — the owner ruled it
+  in rather than leave the two jobs' response-body pins asymmetric. Kickoff
   [`docs/prompts/platform-126b-incident-evidence-claude-v1.md`](prompts/platform-126b-incident-evidence-claude-v1.md).
   Taken first because it is the tier that would have explained the September 1 failure. Tier A's value
   is capped anyway: it correlates runtime logs that expire.
@@ -936,7 +940,7 @@ third and fourth driven by one consumer is how a shared component becomes the un
 
 **Blocker: Item 144.** The document that would settle these is the one with ten stale claims in it.
 
-### Item 147 — nothing pins the schedule cron's response-body keys
+### Item 147 — DONE: the schedule cron's response-body keys are pinned
 
 **The ask:** pin the `schedule-refresh` cron's response-body keys, as `rankings` now is.
 
@@ -954,7 +958,10 @@ about.
 excluded from that round's scope under `AGENTS.md`. Filed so the asymmetry is a decision rather than
 a gap.
 
-**Blocker:** none. Small, and it mirrors a pin that already exists.
+**Blocker:** none. **Closed 2026-09-07 inside Item 126B's second remediation round** — the owner
+ruled it in against the letter of `AGENTS.md`'s follow-up rule, because leaving it would have
+recorded the asymmetry as a decision nobody made. See
+[`docs/prompt-registry.md`](prompt-registry.md) → `PLATFORM-126B-INCIDENT-EVIDENCE-CLAUDE-v1`.
 
 ### Item 145 — the upstream debug logger writes provider URLs and headers to the server log
 

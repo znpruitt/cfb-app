@@ -299,6 +299,64 @@ null` through response, receipt target, validator and UI, which renders a third 
   `manage:usage-sample-schedule upsert --apply` requires the owner's `QSTASH_TOKEN`. Until it runs,
   System Health correctly reports `usage-sample` with a scheduler-delivery warning.
 
+### PLATFORM-126B-INCIDENT-EVIDENCE-CLAUDE-v1
+
+- Purpose: Item 126 Tier B — make a failed multi-year refresh durably say WHICH year failed, WHY,
+  which CFBD partition, and what class of upstream fault caused it. The September 1, 2026 12:00 UTC
+  weekly schedule failure is the production proof: 153 hours later the entire surviving record was
+  `failure / year-results` over `years: [{ year: 2026, operation: "ordinary-maintenance" }]`, and
+  `provider-refresh-status` had already been overwritten by a later success.
+- Scope: `schedule-refresh` and `rankings` — the two multi-year jobs — their two authorities, the
+  receipt target builder/parser, and the System Health copy that reads it. NOT Tier A
+  (`invocationId` on runtime events, still open). NOT the four single-unit jobs, which are pinned
+  byte-identical by a mutation-proven test.
+- Outcome: one shared closed upstream class (`src/lib/api/upstreamFaultClass.ts`) replaces the
+  `fetch-failed` collapse that existed as the same line of code in both jobs. **FIVE members
+  mirroring `UpstreamErrorKind` exactly** — `timeout`, `aborted`, `network`, `http` with a bounded
+  status, `parse` — built from `details.kind` and `details.status` ONLY, never by spreading
+  `UpstreamError` (which carries `message`, `statusText`, `url` and the full `responseBody`). The
+  item's prose said four and omitted `aborted`; the code won, on the implementer's argument that
+  collapsing `aborted` onto `network` is the lossy mapping this work exists to remove (owner ruling
+  2026-09-07). The class is recorded **per failed partition**, not once per year, because a year with
+  one partition committed and one timed out is a real state a per-year class could only express
+  through a lossy tie-break (owner ruling 2026-09-07); `failedSeasonTypes` on both authority results
+  became `failedPartitions`, one home for the fact. Each receipt year entry gained the per-year
+  `result`, `reason`, `providerCallAttempted`, `rowsReceived`, `rowsCommitted`, `dataChanged`,
+  `attemptedSeasonTypes` and `failedPartitions`. Absent fields normalize to `null`/`[]`, never
+  `0`/`false` — a zero row count is a real observation, and defaulting an absent field to it would
+  manufacture the evidence this item exists to stop fabricating.
+- Review / verification: three independent reviews plus a runtime pass, all against `cd1f6901`;
+  six findings accepted and remediated, then two confirming reviews against `1556739a` returned
+  **no P0/P1/P2** and three LOW findings, which the owner approved as a second round. **All three
+  reviewers independently found the same first defect** — `attemptedSeasonTypes` was filled at
+  function entry, so two pre-provider exits wrote both partitions beside
+  `providerCallAttempted: false`. Its cause was pre-existing on `main`; THIS branch is what made it
+  durable, because the field never reached the receipt before. A `/verify` run against a live dev
+  server with an invalid CFBD key **confirmed a second finding at the surface**: the rankings cron
+  returned `exec.years` verbatim, so `failedPartitions` had leaked into the QStash response body,
+  contradicting this slice's own invariant two files away. Two further findings were defects in the
+  branch's OWN tests — a structural pin that scanned the run-level union and so missed the year-only
+  `score-sweep-failed`, and a parity test comparing two hard-coded lists that a sixth
+  `UpstreamErrorKind` member would have passed. Every regression test was verified failing against
+  its own pre-fix code, reverted one at a time; the two test fixes are mutation-proven against the
+  exact case each previously missed. Legacy tolerance was verified by EXECUTING the pre-widening
+  parser (`0834d21e`) against widened rows and by seeding a pre-widening receipt into a live run and
+  observing it preserved — which it could only be if it parsed. Gates at the shipped commit, each its
+  own command on a clean tree: `npx tsc --noEmit` 0, `npm run lint:all` 0, `npm test` 1 with exactly
+  the two known Item 137 `writer-convergence` failures and none elsewhere. Test delta **+47, none
+  removed**; two assertions were retargeted by the round-2 status change and strengthened rather than
+  weakened (from "rejects" to "accepted AND normalized AND renders as the bare kind").
+  **Diffstat, approved 2026-09-07 and measured at the shipped implementation commit: 31 files under
+  `src/`, +2,817/−96** — 739 lines of production against 2,078 of tests. Scope approval was granted
+  at +2,693/−96 and the owner-authorized second round added the rest; both stop-and-reassess signals
+  are crossed, and a further split was rejected because the item requires one shared vocabulary
+  across both jobs and route coverage for both in the same PR.
+- Status: implemented and reviewed; Tier A remains open. Follow-ups filed rather than folded in:
+  **Item 145** (the upstream debug logger writes provider URLs and headers to the server log,
+  observed live because `NEXT_PUBLIC_DEBUG=1` is set in this repo's `.env.local`), **Item 146** (the
+  secret-scan tests covered the receipt while a run writes seven durable keys), and **Item 147**,
+  which the owner ruled INTO the second round rather than leaving as a gap.
+
 ### PLATFORM-102-SLICE-4-ACTIVATION-v1
 
 - Purpose: Item 102 slice 4 — activate the planner. A daily cron derives the next UTC day's polling
