@@ -2449,6 +2449,20 @@ Neither is a defect and neither affects the complete coverage above. Recorded he
 2. **OKLCH port — only if (1) measures badly** at 8px, with the reserved-hue guard the follow-on
    specifies. Not a dependency of (1).
 
+**OBSERVED SYMPTOM 2026-09-08, and it is evidence for the precondition rather than a new item.** The
+owner compared production against the mockup and found the **outcome rail overrunning the row tint** —
+the rail is block-height, the tint is one row, so they visibly disagree.
+`MatchupsWeekPanel.tsx:98-110` is the rail: `border-l-2` in emerald / rose / violet / zinc for win /
+loss / self / live, applied to the whole game block.
+
+**Do NOT fix this by extending the background to match the rail.** CARRY row 20 retires the rail and
+lets the tint carry outcome, and **the mockup has no rail at all** — outcome is carried by the row
+tint alone, and the short bars visible beside each team row are THIS item's 8px team-colour bars, a
+different element. Extending the background would entrench the thing that is slated for deletion and
+make this item harder, which is what CARRY row 20's "do not entrench it either" clause exists to stop.
+
+**Retiring the rail removes the mismatch.** That is the precondition, and it is already decided.
+
 **Decision parked:** the normalisation target — the incumbent is tuned to `#0A0A0A`, the mockup and
 follow-on assume `#161616`. One constant, before (1) ships.
 
@@ -5283,6 +5297,11 @@ fact — `Ranked Team` beside `#25 Missouri` (Item 157), `Contender Watch` as ow
 and this. **Three instances is a pattern about the tag vocabulary, not three coincidences.**
 
 **Blocker:** none. Independent of Item 143.
+
+**MOCKUP EVIDENCE, 2026-09-08.** `mockups/matchups-schedule-mockup.html` carries **no `vs <owner>`
+pill**. The opponent's owner appears inline on the team row — "Georgia Tech BHooper" — which is
+precisely what the pill repeats. The mockup is not authoritative on geometry, but it is the record of
+what the row was designed to contain, and this element is absent from it.
 
 ## Hosted deployment runbook
 
