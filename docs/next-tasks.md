@@ -870,6 +870,12 @@ not be read as a requirement on the other.**
 stops inheriting overturned claims. **This BLOCKS Item 143, and after 2026-09-08 it blocks the whole
 remaining spine queue — 115, 119, 134, 118.**
 
+**Kickoff:** [`docs/prompts/platform-144-item-87-doc-reconciliation-claude-v1.md`](prompts/platform-144-item-87-doc-reconciliation-claude-v1.md)
+— **assigned to the IMPLEMENTATION Claude lane by owner exception 2026-09-08**, recorded in
+`CLAUDE.md` → **Worktrees and session roles**. `docs/` normally belongs to planning; the exception is
+conditional on the planning lane standing off `docs/campaigns/item-87-*` and this entry's own Item 87
+neighbours for the duration.
+
 **WHAT THIS IS, PLAINLY: a session's work, no shipped output, and it unblocks 115, 119, 134 and
 118.** Not a tidy-up. Do not squeeze it between implementation slices.
 

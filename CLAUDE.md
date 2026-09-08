@@ -76,6 +76,15 @@ first commit; if you are not where this table says you should be, stop and say s
      thought, an unexpected diff, a ledger wording you were unsure of — is a stop-and-report, not a
      decision. The merge is delegated; the judgement is not.
 - **Planning Claude never edits `src/`.** Queue, prompts, governance and closeout documents only.
+- **`docs/` work MAY go to an implementation lane, by exception, when it is a large read.** Owner
+  decision 2026-09-08, first taken for **Item 144** (2,273 lines across 16 campaign documents). The
+  table's rule exists because two sessions sharing a checkout collide — **the real requirement is file
+  DISJOINTNESS, not file ownership.** Two reasons an implementation lane is the better home for one of
+  these: the planning session's context holds the queue and the cross-item rulings, which a full read
+  would consume; and verifying a documented claim against the code is an implementation lane's natural
+  mode. **The exception is conditional on the planning lane standing off the same files for the
+  duration, and saying so in the prompt.** `docs/prompts/` and `docs/next-tasks.md` stay with planning
+  regardless — that is what keeps the two disjoint.
 - **Prefer explicit paths over `git add -A`** in every session. `-A` is what makes a shared or
   mistaken checkout destructive rather than merely confusing.
 - A new worktree needs what git does not carry: `npm ci`, plus `.env.local` and `.env.operator.local`
