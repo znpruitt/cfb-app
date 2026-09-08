@@ -1056,16 +1056,37 @@ record.
 
 | dataset | lever | drop | keep |
 | --- | --- | --- | --- |
-| schedule | **`division` on the fetch** — already on the URL builder (`cfbd.ts:15-17`) and **no caller supplies it**, verified 2026-09-08 | 2,070 of 3,680 rows (56%) | FBS + FCS |
+| schedule | **`classification=fbs` on the fetch** — NOT `division`; see the defect below | 2,792 of 3,680 rows (76%) | FBS + FCS-against-FBS |
 | team records | **prune at the WRITE.** `/records` takes only `year` (`cfbd.ts:26-27`); there is no division filter to pass | 432 of 687 entries (63%) | fbs + fcs |
 
 Schedule: 2.69 MB → ~1.18 MB. Records: ~113 KB per year, seven years stored.
 
-**The schedule lever is one argument at three call sites** — `api/schedule/route.ts:325`,
-`api/scores/route.ts:399`, `api/admin/cache-historical-scores/route.ts:50`. **Check whether CFBD's
-`division` accepts a set or a single value before assuming one call covers FBS+FCS**; if it is
-single-valued, this becomes two requests per partition and the quota arithmetic changes. That is the
-first thing to establish, not the last.
+**MEASURED AGAINST THE LIVE API 2026-09-08, and it resolved the open question — ONE request, and the
+parameter name in our code is WRONG.**
+
+| call | games returned | contents |
+| --- | --- | --- |
+| `?division=fbs` | **456** — the full unfiltered week | 110 iii-vs-iii, 109 ii-vs-ii, 73 fcs-vs-fcs, 51 fbs-vs-fbs, 48 fbs-vs-fcs, 37 with a null classification |
+| `?classification=fbs` | **99** | **51 fbs-vs-fbs + 48 fbs-vs-fcs** |
+
+**`division` IS SILENTLY IGNORED. `classification` is the working parameter, and it is
+either-participant** — one call returns FBS games AND the FBS-vs-FCS games we render. **The owner's
+read was right: calling FBS schedules gives us the FCS games we care about.** No second request, no
+quota change.
+
+**LATENT DEFECT, and it is why nobody noticed.** `buildCfbdGamesUrl` (`cfbd.ts:15-17`) sets
+`division`, which CFBD ignores. The scoreboard builder at `:62` already uses `classification`
+correctly. The wrong name has never been exercised because **no caller supplies it** — a parameter
+that exists, is typed, and does nothing. Fix the builder as part of this item; a caller passing
+`division` and getting the full population back is a worse failure than not filtering at all.
+
+**Three call sites** — `api/schedule/route.ts:325`, `api/scores/route.ts:399`,
+`api/admin/cache-historical-scores/route.ts:50`.
+
+**The null-classification worry is MOOT under this filter.** The unfiltered week carries 37 games with
+a null classification on one side — Marian (IN), Kentucky Christian, Texas Wesleyan and similar — and
+every one drops out under `classification=fbs`. **Do not build null-handling for a population the
+filter removes.**
 
 **The records prune is a WRITE-path filter and must not become a read-path one.** Filtering at read
 leaves the full payload in the store and adds a consumer every future reader must remember.
