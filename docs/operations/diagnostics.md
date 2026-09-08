@@ -198,13 +198,35 @@ separate:
   and provider work, so it must not be used to explain the authenticated September 1 incident unless
   new evidence establishes a configuration change between the two executions.
 
-The diagnostic limitation is structural. The runtime event carries per-year result/reason and row
-counts but is retained only for the platform's short runtime-log window; it does not carry the
-invocation id or failed season types. The durable scheduler receipt carries the invocation id but
-its schedule-year target drops per-year result/reason, provider-attempt, row, data-change, and failed
-partition detail. Provider-refresh status is latest-only, and the schedule partition adapter
-collapses secret-safe timeout/network/HTTP/parse errors into `fetch-failed`. A historical invocation
-can therefore remain known to have failed without retaining enough evidence to establish why.
+The diagnostic limitation was structural, and Item 126B (`PLATFORM-126B-INCIDENT-EVIDENCE-CLAUDE-v1`)
+closed half of it. The four layers, and where each now stands:
+
+| Layer | Status |
+| --- | --- |
+| 1. The receipt's year entries dropped per-year outcome | **CLOSED for the two multi-year jobs.** Each `schedule-years` / `rankings-years` year entry now carries `result`, `reason`, `providerCallAttempted`, `rowsReceived`, `rowsCommitted`, `dataChanged`, `attemptedSeasonTypes` and `failedPartitions`. The four single-unit jobs are deliberately unchanged — one unit per run means the run-level result already identifies what failed. |
+| 2. Runtime events lack `invocationId` | **OPEN — Item 126 Tier A**, across nine `cronExecutionLog` modules. Until it lands, a runtime log still cannot be correlated with its durable receipt. |
+| 3. `provider-refresh-status` is latest-only | **OPEN, and split out of Item 126** as a universal retention question rather than a receipt-field one. A later success still overwrites the failed attempt for any dataset. |
+| 4. The upstream class collapsed to `fetch-failed` | **CLOSED for the two multi-year jobs.** One shared closed class (`src/lib/api/upstreamFaultClass.ts`) mirrors `UpstreamErrorKind` exactly — `timeout`, `aborted`, `network`, `http` with a bounded status, `parse` — recorded **per failed partition**, so a year whose regular partition committed while postseason timed out records exactly that. |
+
+**What an operator would now see for a September 1-shaped failure**, in place of `failure /
+year-results` and nothing else:
+
+```text
+2026 (postseason-boundary) [failure / partition-fetch-failed · regular http 401 · postseason http 401]
+```
+
+That line was produced by driving the running cron against a live CFBD 401, not composed by hand.
+
+**The class is secret-safe by construction, not by care at the call site.** It is built from exactly
+`kind` and `status`; `UpstreamError`'s `message`, `statusText`, `url` and full `responseBody` never
+cross into it, and a throw the shared helper did not produce classifies to `null` rather than to a
+fabricated member. Separately, the upstream DEBUG logger does write the provider URL, `statusText`
+and response headers to the server log under `NEXT_PUBLIC_DEBUG=1` — that is a log rather than this
+durable store, and is tracked as Item 145.
+
+Because layers 2 and 3 remain open, a historical invocation of any job OTHER than `schedule-refresh`
+and `rankings` can still be known to have failed without enough retained evidence to establish why,
+and for every job the provider-status record still reflects only the latest attempt.
 
 Future implementation scope and acceptance criteria are maintained only in
 [`../next-tasks.md`](../next-tasks.md#item-126--schedule-refresh-incident-evidence-is-not-durable-enough-to-explain-the-failure).

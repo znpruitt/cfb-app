@@ -31,6 +31,7 @@ import {
   RECEIPT_KEYS,
 } from '../../../../../lib/server/__tests__/schedulerReceiptTestHarness.ts';
 import type { ScheduleRefreshCronExecutionEvent } from '../../../../../lib/schedule/cronExecutionLog.ts';
+import { legacyYearOutcome } from '../../../../../test/schedulerYearOutcomeFixtures.ts';
 
 // PLATFORM-086F2E1 — durable execution receipts for the weekly schedule cron.
 // The runtime event, responses, aggregation, and provider semantics stay pinned
@@ -267,7 +268,7 @@ async function seedPriorReceipt() {
       scoreSweepFailures: 0,
       scoreSweepCannotTellCount: 0,
       kickoffsChanged: 0,
-      years: [{ year: 2031, operation: 'ordinary-maintenance' }],
+      years: [{ year: 2031, operation: 'ordinary-maintenance', ...legacyYearOutcome() }],
     },
   });
   assert.ok(receipt);
@@ -739,7 +740,7 @@ test('R2 contract pin: a legacy schedule receipt without the count parses as zer
       totalYears: 1,
       truncated: false,
       // NOTE: `invalidLifecycleTargets` deliberately ABSENT.
-      years: [{ year: 2020, operation: 'ordinary-maintenance' }],
+      years: [{ year: 2020, operation: 'ordinary-maintenance', ...legacyYearOutcome() }],
     },
   };
   const parsed = parseSchedulerExecutionReceipt(legacy, 'schedule-refresh', Date.now());
@@ -778,7 +779,7 @@ test('R2 regression: a present but invalid count rejects the stored receipt', ()
       totalYears: 1,
       truncated: false,
       invalidLifecycleTargets: -1,
-      years: [{ year: 2020, operation: 'ordinary-maintenance' }],
+      years: [{ year: 2020, operation: 'ordinary-maintenance', ...legacyYearOutcome() }],
     },
   };
 
@@ -807,7 +808,7 @@ test('PLATFORM-107: an invalid present sweep counter rejects the stored receipt'
       scoreSweepFailures: 0,
       scoreSweepCannotTellCount: 0,
       kickoffsChanged: 0,
-      years: [{ year: 2020, operation: 'ordinary-maintenance' }],
+      years: [{ year: 2020, operation: 'ordinary-maintenance', ...legacyYearOutcome() }],
     },
   };
   assert.equal(parseSchedulerExecutionReceipt(bad, 'schedule-refresh', Date.now()), null);
@@ -834,7 +835,7 @@ test('R2: the System Health schedule summary renders the refusal count', async (
       scoreSweepFailures: 0,
       scoreSweepCannotTellCount: 0,
       kickoffsChanged: 0,
-      years: [{ year: 2020, operation: 'ordinary-maintenance' }],
+      years: [{ year: 2020, operation: 'ordinary-maintenance', ...legacyYearOutcome() }],
     }),
     '1 year(s): 2020 (ordinary-maintenance)'
   );
@@ -851,7 +852,7 @@ test('R2: the System Health schedule summary renders the refusal count', async (
       scoreSweepFailures: 0,
       scoreSweepCannotTellCount: 0,
       kickoffsChanged: 0,
-      years: [{ year: 2020, operation: 'ordinary-maintenance' }],
+      years: [{ year: 2020, operation: 'ordinary-maintenance', ...legacyYearOutcome() }],
     }),
     '1 year(s): 2020 (ordinary-maintenance) · 2 unusable lifecycle target(s)'
   );
@@ -886,7 +887,7 @@ test('R2: the System Health schedule summary renders the refusal count', async (
       scoreSweepFailures: 1,
       scoreSweepCannotTellCount: 1,
       kickoffsChanged: 3,
-      years: [{ year: 2020, operation: 'ordinary-maintenance' }],
+      years: [{ year: 2020, operation: 'ordinary-maintenance', ...legacyYearOutcome() }],
     }),
     '1 year(s): 2020 (ordinary-maintenance) · 2 score repair(s) · 1 score difference(s) · 1 score sweep failure(s) · 3 kickoff change(s)'
   );

@@ -175,7 +175,10 @@ test('a thrown partition preserves prior-good and records failure', async () => 
   const result = await refreshFullSeasonSchedule({ year: YEAR, now: T0 });
   assert.equal(result.status, 'failure');
   assert.equal(result.reason, 'partition-fetch-failed');
-  assert.deepEqual(result.failedSeasonTypes, ['postseason']);
+  assert.deepEqual(
+    result.failedPartitions.map((p) => p.seasonType),
+    ['postseason']
+  );
 
   const stored = await getAppState<CacheEntry>('schedule', `${YEAR}-all-all`);
   assert.equal(stored?.value?.items?.[0]?.id, 'prior', 'prior-good retained');
@@ -199,7 +202,10 @@ test('a non-array partition is invalid payload and preserves prior-good', async 
   const result = await refreshFullSeasonSchedule({ year: YEAR, now: T0 });
   assert.equal(result.status, 'failure');
   assert.equal(result.reason, 'partition-invalid-payload');
-  assert.deepEqual(result.failedSeasonTypes, ['regular']);
+  assert.deepEqual(
+    result.failedPartitions.map((p) => p.seasonType),
+    ['regular']
+  );
 
   const stored = await getAppState<CacheEntry>('schedule', `${YEAR}-all-all`);
   assert.equal(stored?.value?.items?.[0]?.id, 'prior', 'prior-good retained');
@@ -215,7 +221,10 @@ test('a nonempty payload normalizing to zero rows is schema drift', async () => 
   const result = await refreshFullSeasonSchedule({ year: YEAR, now: T0 });
   assert.equal(result.status, 'failure');
   assert.equal(result.reason, 'partition-schema-drift');
-  assert.deepEqual(result.failedSeasonTypes, ['regular']);
+  assert.deepEqual(
+    result.failedPartitions.map((p) => p.seasonType),
+    ['regular']
+  );
   assert.equal(await getAppState('schedule', `${YEAR}-all-all`), null, 'nothing committed');
 });
 

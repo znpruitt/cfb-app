@@ -23,7 +23,12 @@
 
 import type { QuotaRefusalReason } from '../gameStats/quotaPolicy.ts';
 import type { RankingsPublicationWindowKind } from './publicationPolicy.ts';
-import type { RankingsRefreshReason, RankingsSeasonType } from './refreshResult.ts';
+import { rebuildUpstreamFaultClass } from '../api/upstreamFaultClass.ts';
+import type {
+  FailedRankingsPartition,
+  RankingsRefreshReason,
+  RankingsSeasonType,
+} from './refreshResult.ts';
 
 export type RankingsCronExecutionResult =
   | 'skipped'
@@ -90,6 +95,12 @@ export type RankingsCronYearExecution = {
   /** Trustworthy remaining CFBD calls observed by the probe, when known. */
   quotaRemaining: number | null;
   attemptedSeasonTypes: RankingsSeasonType[];
+  /**
+   * PLATFORM-126B — the partitions that caused the rejection, each carrying its
+   * own retained upstream class. Empty for every non-partition outcome. The same
+   * shape the weekly schedule job records: one shared vocabulary, two jobs.
+   */
+  failedPartitions: ReadonlyArray<FailedRankingsPartition>;
   providerCallAttempted: boolean;
   rowsReceived: number;
   rowsCommitted: number;
@@ -200,6 +211,12 @@ export function emitRankingsCronExecutionEvent(
         quotaChecked: entry.quotaChecked,
         quotaRemaining: entry.quotaRemaining,
         attemptedSeasonTypes: [...entry.attemptedSeasonTypes],
+        // Rebuilt field-by-field, and the class through its own rebuilder, so no
+        // attached property can ride into a log line.
+        failedPartitions: entry.failedPartitions.map((partition) => ({
+          seasonType: partition.seasonType,
+          upstream: rebuildUpstreamFaultClass(partition.upstream),
+        })),
         providerCallAttempted: entry.providerCallAttempted,
         rowsReceived: entry.rowsReceived,
         rowsCommitted: entry.rowsCommitted,

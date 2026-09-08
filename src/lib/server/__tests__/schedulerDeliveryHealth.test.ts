@@ -44,6 +44,10 @@ import {
   type SchedulerDeliveryState,
 } from '@/lib/server/schedulerDeliveryHealth';
 import { derivePollingWindows } from '@/lib/schedule/pollingWindows';
+import {
+  cleanRankingsYearOutcome,
+  cleanScheduleYearOutcome,
+} from '@/test/schedulerYearOutcomeFixtures';
 
 // PLATFORM-086F2E2B — the cache-only reader + schedule-slot delivery classifier.
 // All boundary tests use FIXED UTC instants (never the machine clock).
@@ -87,12 +91,16 @@ function targetFor(job: ExternalSchedulerJob): SchedulerExecutionTarget {
             scoreSweepFailedPartitions: [],
             scoreSweepCannotTellCount: 0,
             kickoffsChanged: 0,
+            ...cleanScheduleYearOutcome(),
           },
         ],
         0
       );
     case 'rankings':
-      return rankingsYearsTarget([{ year: 2026, publicationWindow: null }], 0);
+      return rankingsYearsTarget(
+        [{ year: 2026, publicationWindow: null, ...cleanRankingsYearOutcome() }],
+        0
+      );
     case 'season-transition':
       return seasonTransitionYearsTarget(
         [{ year: 2026, targetLeagues: 1, probed: true, transitionedLeagues: 0 }],
@@ -520,7 +528,25 @@ test('extra top-level, target, and nested target-entry fields never appear in ou
     target: {
       ...good.target,
       LEAK_TARGET: 'target-MARKER',
-      years: [{ year: 2026, operation: null, LEAK_NESTED: 'nested-MARKER' }],
+      // PLATFORM-126B — the widened entry adds TWO new nesting levels a canary
+      // can hide in: the failed-partition object, and the upstream class inside
+      // it. Both are rebuilt field-by-field, so both are canaried here.
+      years: [
+        {
+          year: 2026,
+          operation: null,
+          LEAK_NESTED: 'nested-MARKER',
+          result: 'failure',
+          reason: 'partition-fetch-failed',
+          failedPartitions: [
+            {
+              seasonType: 'postseason',
+              LEAK_PARTITION: 'partition-MARKER',
+              upstream: { kind: 'http', status: 503, LEAK_FAULT: 'fault-MARKER' },
+            },
+          ],
+        },
+      ],
     },
   };
   const snap = await readSchedulerDeliveryHealth({
@@ -549,7 +575,32 @@ test('extra top-level, target, and nested target-entry fields never appear in ou
     'version',
   ]);
   const target = row.receipt!.target as { years: Array<Record<string, unknown>> };
-  assert.deepEqual(Object.keys(target.years[0]!).sort(), ['operation', 'year']);
+  const year = target.years[0]!;
+  assert.deepEqual(Object.keys(year).sort(), [
+    'attemptedSeasonTypes',
+    'dataChanged',
+    'failedPartitions',
+    'operation',
+    'providerCallAttempted',
+    'reason',
+    'result',
+    'rowsCommitted',
+    'rowsReceived',
+    'year',
+  ]);
+  // PLATFORM-126B — the fields this stored entry omitted normalize to `null`,
+  // NOT to `0`/`false`: a zero row count and an unchanged flag are observations a
+  // run can genuinely make, and defaulting an absent field to them would
+  // manufacture the kind of evidence this item exists to stop fabricating.
+  assert.equal(year.rowsReceived, null);
+  assert.equal(year.rowsCommitted, null);
+  assert.equal(year.dataChanged, null);
+  assert.equal(year.providerCallAttempted, null);
+  assert.deepEqual(year.attemptedSeasonTypes, []);
+  // The two new nesting levels survive with ONLY their allowlisted keys.
+  assert.deepEqual(year.failedPartitions, [
+    { seasonType: 'postseason', upstream: { kind: 'http', status: 503 } },
+  ]);
 });
 
 // ── 17. An invalid row does not contaminate valid siblings ───────────────────

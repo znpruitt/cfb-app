@@ -34,6 +34,7 @@
  * stack, or arbitrary error message.
  */
 
+import type { UpstreamFaultClass } from '../api/upstreamFaultClass.ts';
 import type { RankingsResponse } from '../rankings.ts';
 
 export type RankingsRefreshTrigger = 'manual' | 'automatic';
@@ -63,6 +64,13 @@ export type RankingsRefreshReason =
   | 'durable-commit-failed' // the rankings-key commit transaction failed
   | 'unexpected-error'; // an unclassified internal error
 
+/** One partition that caused a rejection, with its retained transport class. */
+export type FailedRankingsPartition = {
+  seasonType: RankingsSeasonType;
+  /** The closed upstream class, or null when the failure was not a transport fault. */
+  upstream: UpstreamFaultClass | null;
+};
+
 export type RankingsRefreshResult = {
   status: RankingsRefreshStatus;
   reason: RankingsRefreshReason;
@@ -84,8 +92,16 @@ export type RankingsRefreshResult = {
    * on fetch/payload/drift failures, or the partitions whose prior-good coverage
    * the incoming aggregate would lose on `rankings-partition-incomplete`. Empty
    * for every other outcome.
+   *
+   * PLATFORM-126B — each entry carries its OWN retained upstream class, the same
+   * shape the schedule job uses, so a mixed pair (regular committed, postseason
+   * timed out) records exactly that. `upstream` is non-null only for a transport
+   * failure: a payload/drift rejection fetched successfully, and a coverage-loss
+   * rejection never contacted the provider for that partition at all. This is
+   * the SINGLE home for "which partition failed and why" — there is deliberately
+   * no second per-year class (owner ruling, 2026-09-07).
    */
-  failedSeasonTypes: RankingsSeasonType[];
+  failedPartitions: ReadonlyArray<FailedRankingsPartition>;
   /**
    * Whether THIS refresh started the rankings provider-fetch stage. `false` for
    * every pre-provider exit — lease contention, store failure, missing CFBD
@@ -180,7 +196,7 @@ export function rankingsRefreshResult(params: {
   trigger: RankingsRefreshTrigger;
   observedAt: string;
   attemptedSeasonTypes?: RankingsSeasonType[];
-  failedSeasonTypes?: RankingsSeasonType[];
+  failedPartitions?: ReadonlyArray<FailedRankingsPartition>;
   providerCallAttempted?: boolean;
   rowsReceived?: number;
   rowsCommitted?: number;
@@ -196,7 +212,7 @@ export function rankingsRefreshResult(params: {
     year: params.year,
     trigger: params.trigger,
     attemptedSeasonTypes: params.attemptedSeasonTypes ?? [],
-    failedSeasonTypes: params.failedSeasonTypes ?? [],
+    failedPartitions: params.failedPartitions ?? [],
     providerCallAttempted: params.providerCallAttempted ?? false,
     rowsReceived: params.rowsReceived ?? 0,
     rowsCommitted: params.rowsCommitted ?? 0,

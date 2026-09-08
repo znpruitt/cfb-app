@@ -465,9 +465,16 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
             // the transition this run; the next run retries.
             if (refresh.status === 'failure') {
               yearResult.partialFailure = true;
-              if (refresh.failedSeasonTypes.length > 0) {
-                yearResult.failedSeasonTypes = refresh.failedSeasonTypes;
-                yearEntry.failedSeasonTypes = [...refresh.failedSeasonTypes];
+              // PLATFORM-126B widened the authority's field to carry a
+              // per-partition upstream class. The lifecycle job is NOT in Tier
+              // B's scope, so its response body, runtime event, and receipt are
+              // unchanged: it still records the plain season-type list.
+              if (refresh.failedPartitions.length > 0) {
+                const failedSeasonTypes = refresh.failedPartitions.map(
+                  (partition) => partition.seasonType
+                );
+                yearResult.failedSeasonTypes = failedSeasonTypes;
+                yearEntry.failedSeasonTypes = [...failedSeasonTypes];
               }
               // A genuine store outage (prior-state read or durable commit) surfaces as
               // a 500 (pre-migration behavior), while still recording this year's

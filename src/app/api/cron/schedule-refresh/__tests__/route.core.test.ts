@@ -418,7 +418,10 @@ test('exactly one structured event per invocation with only approved keys', asyn
     assert.deepEqual(
       Object.keys(year).sort(),
       [
+        // PLATFORM-126B — the per-year outcome evidence.
+        'attemptedSeasonTypes',
         'dataChanged',
+        'failedPartitions',
         'kickoffsChanged',
         'operation',
         'providerCallAttempted',

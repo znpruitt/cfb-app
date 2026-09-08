@@ -23,6 +23,7 @@
 
 import teamsCatalog from '../../data/teams.json';
 import { fetchUpstreamJson } from '../api/fetchUpstream.ts';
+import { classifyUpstreamFault, type UpstreamFaultClass } from '../api/upstreamFaultClass.ts';
 import { buildCfbdRankingsUrl } from '../cfbd.ts';
 import { yearScope } from '../providerRefreshScope.ts';
 import type { RankingsResponse, RankingsWeek } from '../rankings.ts';
@@ -76,7 +77,16 @@ const RANKINGS_SEASON_TYPES: readonly RankingsSeasonType[] = ['regular', 'postse
 
 type PartitionFetchOutcome =
   | { kind: 'rows'; seasonType: RankingsSeasonType; weeks: RankingsWeek[] }
-  | { kind: 'fetch-failed'; seasonType: RankingsSeasonType }
+  /**
+   * PLATFORM-126B — the transport fault is RETAINED as the shared closed
+   * class, identically to the schedule partition fetch this line used to
+   * duplicate. `null` means the throw carries no honest classification.
+   */
+  | {
+      kind: 'fetch-failed';
+      seasonType: RankingsSeasonType;
+      upstream: UpstreamFaultClass | null;
+    }
   | { kind: 'invalid-payload'; seasonType: RankingsSeasonType }
   | { kind: 'schema-drift'; seasonType: RankingsSeasonType };
 
@@ -107,8 +117,10 @@ async function fetchPartition(params: {
       retry: CFBD_RETRY_POLICY,
       pacing: CFBD_PACING_POLICY,
     });
-  } catch {
-    return { kind: 'fetch-failed', seasonType };
+  } catch (error) {
+    // Only `kind` and `status` cross this boundary — never the caught error,
+    // its message, the URL, or an HTTP response body.
+    return { kind: 'fetch-failed', seasonType, upstream: classifyUpstreamFault(error) };
   }
 
   // A non-array top-level payload is uncertainty (shape change), NOT absence —
@@ -409,7 +421,7 @@ export async function refreshSeasonRankings(params: {
     );
     if (uncertain.length > 0) {
       // Reason from the FIRST uncertain partition (regular before postseason);
-      // `failedSeasonTypes` reports every uncertain partition.
+      // `failedPartitions` reports every uncertain partition, each with its class.
       const first = uncertain[0]!;
       const reason =
         first.kind === 'fetch-failed'
@@ -417,7 +429,15 @@ export async function refreshSeasonRankings(params: {
           : first.kind === 'invalid-payload'
             ? ('invalid-provider-payload' as const)
             : ('rankings-partition-schema-drift' as const);
-      const failedSeasonTypes = uncertain.map((o) => o.seasonType);
+      // PLATFORM-126B — each uncertain partition keeps its OWN retained transport
+      // class. Only a `fetch-failed` partition has one; `invalid-payload` and
+      // `schema-drift` failed AFTER a successful fetch, so their transport was
+      // fine and the year `reason` already names what went wrong.
+      const failedPartitions = uncertain.map((o) => ({
+        seasonType: o.seasonType,
+        upstream: o.kind === 'fetch-failed' ? o.upstream : null,
+      }));
+      const failedSeasonTypes = failedPartitions.map((partition) => partition.seasonType);
       await recordProviderRefreshFailure('rankings', scope, {
         attempt,
         error: `rankings ${year}: ${failedSeasonTypes.join(', ')} partition ${reason}`,
@@ -440,7 +460,7 @@ export async function refreshSeasonRankings(params: {
         trigger,
         observedAt: observedAtIso,
         attemptedSeasonTypes,
-        failedSeasonTypes,
+        failedPartitions,
         providerCallAttempted,
         rowsReceived,
         response: retained ? priorGoodStaleResponse(retained) : null,
@@ -545,7 +565,13 @@ export async function refreshSeasonRankings(params: {
           trigger,
           observedAt: observedAtIso,
           attemptedSeasonTypes,
-          failedSeasonTypes: commit.failedSeasonTypes,
+          // A coverage-loss rejection is decided at COMMIT time from content the
+          // provider returned successfully, so no partition here has a transport
+          // fault to name — `upstream` is null by construction, not by omission.
+          failedPartitions: commit.failedSeasonTypes.map((seasonType) => ({
+            seasonType,
+            upstream: null,
+          })),
           providerCallAttempted,
           rowsReceived,
           response: priorGoodStaleResponse(commit.prior),

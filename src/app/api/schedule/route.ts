@@ -576,8 +576,16 @@ async function fullSeasonRefreshResponse(
       {
         error: 'schedule refresh failed',
         code: result.reason,
-        ...(result.failedSeasonTypes.length > 0
-          ? { detail: { failedSeasonTypes: result.failedSeasonTypes } }
+        // PLATFORM-126B widened the authority's field to carry a per-partition
+        // upstream class. This PUBLIC response body is byte-preserved: it still
+        // emits the plain season-type list and never the retained class, which
+        // is durable diagnostic evidence for operators, not member-facing data.
+        ...(result.failedPartitions.length > 0
+          ? {
+              detail: {
+                failedSeasonTypes: result.failedPartitions.map((partition) => partition.seasonType),
+              },
+            }
           : {}),
       },
       { status: result.httpStatus }
