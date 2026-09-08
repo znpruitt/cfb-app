@@ -1043,6 +1043,48 @@ distinct from **Item 142**.
 **Blocker:** none. Whether this rides with 143's presentation pass or ships alone is a sequencing
 call, not a dependency.
 
+### Item 150 — stop ingesting D-II/D-III: schedule fetch filter and records prune
+
+**The ask:** implement Item 149's ruling. Two datasets, two mechanisms, one place each.
+**Item 149 is the decision and the evidence; this is the build.**
+
+**Owner ruling 2026-09-08:** D-II and D-III are never used in-app. FCS appears only against FBS
+schools and **stays** — 127 FBS-vs-FCS games in 2026, and those rows render the FCS opponent with its
+record.
+
+**Two mechanisms, because the endpoints differ:**
+
+| dataset | lever | drop | keep |
+| --- | --- | --- | --- |
+| schedule | **`division` on the fetch** — already on the URL builder (`cfbd.ts:15-17`) and **no caller supplies it**, verified 2026-09-08 | 2,070 of 3,680 rows (56%) | FBS + FCS |
+| team records | **prune at the WRITE.** `/records` takes only `year` (`cfbd.ts:26-27`); there is no division filter to pass | 432 of 687 entries (63%) | fbs + fcs |
+
+Schedule: 2.69 MB → ~1.18 MB. Records: ~113 KB per year, seven years stored.
+
+**The schedule lever is one argument at three call sites** — `api/schedule/route.ts:325`,
+`api/scores/route.ts:399`, `api/admin/cache-historical-scores/route.ts:50`. **Check whether CFBD's
+`division` accepts a set or a single value before assuming one call covers FBS+FCS**; if it is
+single-valued, this becomes two requests per partition and the quota arithmetic changes. That is the
+first thing to establish, not the last.
+
+**The records prune is a WRITE-path filter and must not become a read-path one.** Filtering at read
+leaves the full payload in the store and adds a consumer every future reader must remember.
+
+**STOP-AND-REPORT conditions, both real:**
+
+1. **Historical years already stored carry the full population.** Pruning the fetch does not prune
+   2018–2025. Decide whether stored years are backfilled, left as-is, or pruned on next write — and
+   note that Item 139's positional counting reads historical records.
+2. **`teamRecordsCache`'s `uncreditableTeamIds` derives from `wins + losses + ties !== games`.**
+   Confirm a pruned population does not change which teams are uncreditable before shipping.
+
+**What this unblocks or clarifies, and none of it should be re-measured first:** Item 141 (Insights
+rebuilds the season per request) gets ~56% cheaper on the same code; Item 140's tail sizing is
+currently computed over a population that is majority invisible; and every "N completed games" figure
+in this ledger means roughly a fifth of N once this lands.
+
+**Blocker:** none. Independent of the Item 87 document work and of both lanes' current slices.
+
 ### Item 149 — 56% of the schedule is D-II/D-III games nothing displays
 
 **The ask:** decide whether the canonical schedule should carry games with no FBS or FCS participant.
