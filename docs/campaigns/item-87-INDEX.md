@@ -110,6 +110,8 @@ Rows 1–6 keep the numbers earlier prompts cited; rows 7 onward were promoted b
 | --- | --- | --- | --- |
 | 69 | Does Schedule adopt the three-column tier? | `presentation-decisions.md` → *Three-column tier at 1320px* (number: Item 152) | `three-column-tier.md` → *Open* (100%) |
 | 70 | Postseason finals: keep a date, or accept no temporal context? | `postseason-context.md` (group by round) | `section-ordering-resolutions.md` §3 (29%) |
+| 71 | **LIVE — durable** | **A shared-row decision NAMES THE SURFACES IT GOVERNS at the point it is recorded** — Overview, Matchups, Schedule, recap. Added 2026-09-08 after Overview was found six decisions behind, every one recorded as a "Schedule decision" while being a property of the shared row. **`presentation-decisions.md` reads as a Schedule/Matchups document because that is where the work happened; every decision in it about the status row, the tag slot or row anatomy applies to all four surfaces.** Without the line a later reader must ASSUME rather than CHECK, and the omission surfaces in a screenshot weeks later. | `overview-back-application.md` → *The durable fix* (owner, 2026-09-08) |
+| 72 | Item 157 | **`Top 25` is a LOSSY label already shipped on Schedule and Matchups.** `gameTags.ts:586` computes `isRankedTop25(away) && isRankedTop25(home)` — **both ranked** — and `LEAGUE_TAG_LABELS` renders it `'Top 25'`, which reads as a property of the game and would be understood to fire on #1 vs unranked. **`Top 25 Matchup` is the correct label and must not be shortened** (owner ruling 2026-09-08); "both ranked" is not derivable at a glance the way one visible rank is, so *Matchup* is the word carrying the information. Retire `Ranked Team` instead — it restates a rank already on the row. | `overview-back-application.md` → *Two label cuts*; verified against `gameTags.ts:586` |
 
 **How the count reconciles.** The Item 144 receipt counted **81 obligation occurrences** across the files; the
 tables above hold 70 rows because a restatement of one obligation in a second or third document is collapsed into
@@ -283,6 +285,21 @@ table**; weight emphasis suppressed on live. Three implementation traps (rows 25
 wrapping rule is RECONCILED** — owner ruling recorded as an amendment in `DESIGN.md` on 2026-09-08, narrowed to
 tagged scheduled rows at phone width — and the **1320px arithmetic does not reproduce** (Item 152; no number chosen
 here). Everything decided here is unbuilt on Matchups (Item 143).
+
+**`item-87-followon-overview-back-application.md`** (new 2026-09-08) — **CURRENT, unapplied input**
+Overview's watchlist against the mockup: **six divergences that are one omission.** Every one was decided during
+the Schedule and Matchups work, recorded in `presentation-decisions.md`, and never applied back — **the decisions
+were recorded as Schedule decisions because that is where the work happened, though each is a property of the
+SHARED row.** Also carries two agreed label cuts (retire `Ranked Team`; `Streaming · ACC Extra` → `ACC Extra`) and
+the `margin-left: auto` trap, which bites harder here because some watchlist rows are tag-only and have no
+metadata to hold the left group open.
+
+**This is the discharge problem inverted, and the INDEX had no row for it.** Discharge is work COMPLETED and
+unmarked; this is a decision RECORDED and unapplied. Same gap underneath: **nothing tracked whether a
+cross-surface decision reached every surface it governs.** Row 71 is the durable fix.
+
+Sequencing: items 1–3 need the tag-in-status-row seam (**Item 143**), item 4 is **Item 157**, item 5 is **Item
+119**. Order it after 143.
 
 **`item-87-followon-matchups-gap-analysis.md`** (98 → 126 lines) — **CURRENT, two corrections marked**
 Shipped Matchups against the mockup, ordered by member impact. §1.1 (records as the scheduled anchor) is answered

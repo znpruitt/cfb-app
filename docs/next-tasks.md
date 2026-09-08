@@ -5112,7 +5112,21 @@ different colour: they are a **different tag family**. `gameTags.ts:475` `LEAGUE
 **`Top 25 Matchup`** / `Ranked Team` / `Close` for Overview. **Two systems, near-identical claims,
 different wording.**
 
-**The ask:** decide whether these are one vocabulary or genuinely two, and if one, collapse them.
+**CORRECTED 2026-09-08 — my filing premise was wrong, and the correction makes this a live defect
+rather than a tidy-up.** These are not the same claim in two voices. The highlight family
+distinguishes **both ranked** (`Top 25 Matchup`) from **one ranked** (`Ranked Team`). The league
+family tags only both-ranked — `gameTags.ts:586`, `isRankedTop25(away) && isRankedTop25(home)` — and
+**labels it `'Top 25'`**.
+
+**So Schedule and Matchups already ship a lossy label.** `Top 25` reads as a property of the game and
+would be understood to fire on #1 Ohio State against an unranked opponent. **Owner ruling 2026-09-08:
+`Top 25 Matchup` is correct and must NOT be shortened** — "both ranked" is not derivable at a glance
+the way one visible rank is, so _Matchup_ is the word carrying the information. The shortening looks
+obviously right until you check, which is why the ruling is recorded rather than assumed.
+
+**The ask:** rename the league label to `Top 25 Matchup`, and **retire `Ranked Team`** — it restates a
+rank already visible inline on the row. After both, the two families tag the same condition under the
+same label and the question of collapsing them is a refactor, not a user-visible decision.
 
 **Why it matters:** Item 153 unified the chips' APPEARANCE across three surfaces. A reader now sees the
 same treatment carrying `Top 25` on one surface and `Top 25 Matchup` on another, which reads as an
@@ -5162,6 +5176,49 @@ deliberately so reverting that one file restores theme-awareness; they are a pre
 dead code.
 
 **Blocker:** none. **Small.**
+
+### Item 160 — Overview never received the shared-row decisions
+
+**Design:** [`docs/campaigns/item-87-followon-overview-back-application.md`](campaigns/item-87-followon-overview-back-application.md),
+which is canonical for this item. **INDEX row added; CARRY rows 71 and 72 come from it.**
+
+**The ask:** apply the six shared-row decisions to Overview's watchlist.
+
+**It is ONE omission, not six divergences.** All six were decided during the Schedule and Matchups
+work, recorded in `presentation-decisions.md`, and never applied back — **because the decisions were
+recorded as Schedule decisions, though every one is a property of the SHARED row.** Overview had
+shipped and nothing prompted a revisit.
+
+**Only the first is visible at a glance.** Tags stacking above the row make a two-tag card a line
+taller than a one-tag card, so grid columns fall out of alignment — Oklahoma/Michigan sits at a
+different height from Ohio State/Texas beside it in the current build. The other five need inspection.
+
+**Sequence it after Item 143.** Items 1–3 need the tag-in-status-row seam, which does not exist yet;
+item 4 is **Item 157**; item 5 is **Item 119**.
+
+**Carry the `margin-left: auto` trap** (CARRY row 25). It bites harder here than elsewhere: some
+watchlist rows are **tag-only**, with no metadata to hold the left group open.
+
+**The durable fix is filed separately as CARRY row 71** and is the part worth acting on — this item
+closes one instance and does nothing about the next.
+
+### Item 161 — record the surfaces a shared-row decision governs
+
+**Owner, 2026-09-08.** A shared-row decision should **name the surfaces it governs at the point it is
+recorded** — Overview, Matchups, Schedule, recap — so a later reader can **check rather than assume**.
+
+**The ask:** add a surfaces line to each section of `item-87-followon-presentation-decisions.md`.
+
+**Why it matters:** that document reads as a Schedule and Matchups document because that is where the
+work happened, but **every decision in it about the status row, the tag slot or row anatomy applies to
+all four surfaces.** Item 160 is what its absence cost — six decisions that reached one surface and
+not another, found in a screenshot weeks later.
+
+**This is the discharge problem inverted.** Discharge is work completed and unmarked; this is a
+decision recorded and unapplied. **Same gap underneath: nothing tracks whether a cross-surface
+decision reached every surface it governs.**
+
+**Blocker:** none. **A few minutes**, and it makes the omission checkable rather than rediscoverable.
 
 ## Hosted deployment runbook
 

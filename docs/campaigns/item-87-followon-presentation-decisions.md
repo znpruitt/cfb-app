@@ -18,6 +18,8 @@ Additive to `item-87-followon-matchups-schedule-design.md`, which covers the str
 
 ## Status row
 
+> **Surfaces governed:** **Overview, Matchups, Schedule, recap — all four.** — added 2026-09-08 per `item-87-INDEX.md` CARRY row 71. This is shared-row anatomy; it reads as a Schedule decision only because that is where the work happened. **Overview was found six such decisions behind** (Item 160).
+
 ### Structure: growing left group, tag pinned right
 
 ```html
@@ -65,6 +67,8 @@ It matters on phones. At 375–430px portrait, minus page and block padding, a r
 
 ## Tags
 
+> **Surfaces governed:** **Overview, Matchups, Schedule, recap — all four.** — added 2026-09-08 per `item-87-INDEX.md` CARRY row 71. A property of the tag SLOT, not of any one surface: any surface rendering a tag must not render an outcome tag on a game that has not kicked off.
+
 ### Outcome tags only exist on final rows
 
 *Upset*, and anything else describing what happened, cannot render on a scheduled or live game. *Ranked spotlight* and *Top matchup* are selection reasons and may appear in any state.
@@ -74,6 +78,8 @@ Same slot, but the valid value set depends on state. An implementation treating 
 ---
 
 ## Schedule layout
+
+> **Surfaces governed:** **Schedule only.** — added 2026-09-08 per `item-87-INDEX.md` CARRY row 71. Genuinely scoped — discrete blocks, date headings and the block tier are Schedule's own structure, not shared-row anatomy. Overview's column tier is `three-column-tier.md` (Item 134).
 
 ### Games are discrete blocks
 
@@ -106,6 +112,8 @@ Three changes, and the third does most of the work:
 
 ## Owner highlight on Matchups
 
+> **Surfaces governed:** **Matchups** for the tint and its motion — **but see the exception below.** — added 2026-09-08 per `item-87-INDEX.md` CARRY row 71. *Weight emphasis is suppressed on live games* is filed here and is **NOT Matchups-scoped**: dimming the trailing side overstates on any live row, on every surface. The owner tint is named there only as a partly-redundant reinforcement. **It is misfiled under this heading for exactly the reason row 71 exists.**
+
 ### The tint tracks state across the game's whole life
 
 | State | Treatment |
@@ -134,6 +142,8 @@ Band at ~15% alpha over ~70% of the row width. **Wide and soft rather than narro
 
 ### Weight emphasis is suppressed on live games
 
+> **Surfaces governed: all four**, despite this section's parent heading — the rule is about live rows, not about owner highlighting. See the parent's surfaces line.
+
 Dimming the trailing side is a claim about a **settled** result. On a live game it overstates — a team down three in the first quarter is not the loser, and rendering them like one says more than the score does. Finals keep it.
 
 The owner-row tint already carries direction on live games, so the dimming was also partly redundant there.
@@ -141,6 +151,8 @@ The owner-row tint already carries direction on live games, so the dimming was a
 ---
 
 ## Not defects
+
+> **Surfaces governed:** **Overview, Matchups, Schedule, recap — all four.** — added 2026-09-08 per `item-87-INDEX.md` CARRY row 71. Reading absent or stale records as a defect rather than a sequenced dependency is a reviewer failure available on every surface (CARRY row 1).
 
 Records and team-colour bars absent from shipped rows are expected: Item 119 and the records wiring have not landed.
 
