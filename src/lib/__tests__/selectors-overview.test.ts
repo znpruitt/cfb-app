@@ -368,7 +368,7 @@ test('every Top 25 Matchup is tagged, outranks non-top-25 games, and leads by be
  * `deriveOverviewHighlightSignals` runs over ALL `keyMatchups` — finals and live
  * games included — while the watchlist is filtered to scheduled games only. So
  * `rankedHighlightKey` can land on a game that is not on the watchlist at all, and
- * before `hasRankedTeam` existed that left NO scheduled card carrying any
+ * before `hasTop25RankedTeam` existed that left NO scheduled card carrying any
  * rank-derived priority, however many ranked games were still to be played.
  *
  * Here the best-ranked matchup is a FINAL (#1 vs #3, already played), so it takes
@@ -434,7 +434,7 @@ test('a spotlight that landed on a final still leaves scheduled ranked games ahe
   );
 
   // The final really did take the spotlight — otherwise the scheduled game would
-  // have had `isRankedSpotlight` and this would prove nothing about `hasRankedTeam`.
+  // have had `isRankedSpotlight` and this would prove nothing about `hasTop25RankedTeam`.
   assert.equal(
     watchlist.find((entry) => entry.item.bucket.game.key === 'sched-ranked')?.isRankedSpotlight,
     false,
@@ -454,7 +454,7 @@ test('a spotlight that landed on a final still leaves scheduled ranked games ahe
  * `Ranked Team` supplied 70 to `watchlistPriority` on every one-ranked game.
  * Retiring the chip took that with it, leaving only `isRankedSpotlight` — which
  * names exactly ONE game, so a slate's second one-ranked game fell in among the
- * unranked and could drop off the six-card board. `hasRankedTeam` puts the 70 back
+ * unranked and could drop off the six-card board. `hasTop25RankedTeam` puts the 70 back
  * as a signal, with nothing printed on the row.
  *
  * The fixture is built so the signal is the only thing that can produce this order:
@@ -515,14 +515,14 @@ test('every one-ranked game outranks unranked games, not just the ranked spotlig
   );
 
   // The second ranked game is NOT the spotlight — that names one game — so its
-  // place above the unranked pair comes from `hasRankedTeam` and nothing else.
+  // place above the unranked pair comes from `hasTop25RankedTeam` and nothing else.
   assert.equal(
     model.watchlistCandidates.find((entry) => entry.item.bucket.game.key === 'r2-ranked')
       ?.isRankedSpotlight,
     false
   );
   assert.deepEqual(
-    model.watchlistCandidates.map((entry) => entry.hasRankedTeam),
+    model.watchlistCandidates.map((entry) => entry.hasTop25RankedTeam),
     [true, true, false, false]
   );
 

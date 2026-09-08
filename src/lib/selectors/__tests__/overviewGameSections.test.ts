@@ -112,7 +112,7 @@ function prioritized(itemValue: OverviewGameItem, priority = 0): PrioritizedOver
     // object production cannot build — and an impossible fixture is exactly what
     // lets a later regression test pass for the wrong reason.
     top25AverageRank: priority > 0 ? 10 : null,
-    hasRankedTeam: priority > 0,
+    hasTop25RankedTeam: priority > 0,
   };
 }
 

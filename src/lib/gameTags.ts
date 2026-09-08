@@ -433,10 +433,25 @@ export function deriveOverviewHighlightSignals(params: {
 /**
  * The participants' ranks, keeping only those INSIDE the top 25.
  *
- * Every rank-derived highlight decision reads through here, so the `<= 25` bound is
- * stated once. Two callers make two DIFFERENT claims from it — `top25MatchupAverageRank`
- * needs both sides, `hasTop25RankedTeam` needs either — and neither can drift from
- * the other's notion of "ranked".
+ * Every TOP-25 MEMBERSHIP decision reads through here, so that bound is stated once:
+ * `top25MatchupAverageRank` (both sides), `hasTop25RankedTeam` (either side),
+ * `rankedHighlight` and `gameOfSlate`'s `rankedBonus`. Four callers, four different
+ * claims, one notion of "ranked".
+ *
+ * **It does NOT cover every rank read in this file, and the difference is
+ * deliberate.** `upsetWatch`, `isRankUpset` and `rankingTension` read raw ranks
+ * through `rankingPairForItem`, because they ask which side is FAVOURED — a
+ * RELATIVE question, where a rank outside the top 25 still orders two teams
+ * correctly, and where discarding it would silently turn a ranked-vs-unranked game
+ * into an unranked one. Membership is bounded; relative strength is not. An earlier
+ * version of this comment claimed the bound covered the whole file, which was false
+ * — recorded because a comment overstating its code is the failure this campaign
+ * keeps shipping.
+ *
+ * The consequence of that split, stated so it is not rediscovered as a surprise:
+ * a rank of 0 or 26 cannot mint a `Top 25 Matchup`, but could still decide an
+ * `Upset` or `Upset watch`. Latent on the measurement below; tracked rather than
+ * changed here, because bounding a favouritism predicate is a product decision.
  */
 function top25RanksForItem(params: {
   item: OverviewGameItem;
@@ -460,9 +475,9 @@ function top25RanksForItem(params: {
  * always bounded the league family with `isRankedTop25`; the two predicates
  * disagreed silently while they rendered different strings (`Top 25 Matchup` here,
  * `Top 25` there), and Item 157 made them render the SAME string, so a divergence
- * would now put one claim behind two predicates. Latent rather than live when that
- * was closed: every stored poll entry in production — 18 weeks, 726 entries across
- * ap/coaches/cfp — tops out at rank 25, so no real game reaches the difference.
+ * would now put one claim behind two predicates. That divergence is latent rather
+ * than live — see the single production measurement on `isRankedTop25`, which is
+ * the only place this file states one.
  *
  * Returning the average rather than a boolean is what keeps the tag and the sort
  * key on ONE predicate: `deriveGameHighlightTags` tags exactly when this is
@@ -655,9 +670,14 @@ function winnerSide(score: ScorePack): 'away' | 'home' | null {
  * no longer merely over-admits a tag — it drags a game to the front of the board
  * (`0`/`25` averages 12.5 and outranks a genuine `#13`/`#13`).
  *
- * Latent rather than live when the bound was added, measured on the read-only
- * replica: 19 stored weeks, none with zero poll entries, 777 entries across
- * ap/coaches/cfp, all integers, min 1 and max 25.
+ * MEASUREMENT, read-only replica, 2026-09-08 — the one figure this file states, so
+ * a later reader comparing two numbers cannot be left guessing which is current:
+ * 19 stored weeks, none with zero poll entries, 777 entries across ap/coaches/cfp,
+ * all integers, min 1 and max 25. It is a point-in-time reading of a live cache and
+ * moves as the rankings cron runs; an earlier reading in this same branch saw 18
+ * weeks and 726 entries, which was equally true a few hours before. Re-measure
+ * rather than trusting the number, and if it disagrees the cache grew — not the
+ * bound.
  */
 function isRankedTop25(rank: number | null): rank is number {
   return rank != null && rank >= 1 && rank <= 25;

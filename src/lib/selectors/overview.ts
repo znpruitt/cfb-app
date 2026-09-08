@@ -48,8 +48,15 @@ export type PrioritizedOverviewItem = {
   highlightTags: ReturnType<typeof deriveGameHighlightTags>;
   /** Lower is stronger. Null for anything that is not a Top 25 Matchup. */
   top25AverageRank: number | null;
-  /** Either participant ranked inside the top 25. Curation only — nothing renders it. */
-  hasRankedTeam: boolean;
+  /**
+   * Either participant ranked INSIDE the top 25. Curation only — nothing renders it.
+   *
+   * Named for the bound on purpose: `selectors/gameWeek.ts` carries its own
+   * `hasRankedTeam`, unbounded (`rank != null`), feeding Schedule's
+   * `data-ranked-game`. Two same-named predicates disagreeing about "ranked" is the
+   * divergence Item 157 existed to remove, so this one says which it means.
+   */
+  hasTop25RankedTeam: boolean;
 };
 
 export type OverviewViewModel = {
@@ -323,7 +330,7 @@ export function prioritizeOverviewItems(params: {
       isRankedSpotlight,
       highlightTags,
       top25AverageRank: top25MatchupAverageRank({ item, rankingsByTeamId }),
-      hasRankedTeam: hasTop25RankedTeam({ item, rankingsByTeamId }),
+      hasTop25RankedTeam: hasTop25RankedTeam({ item, rankingsByTeamId }),
       highlightLabel: isUpsetWatch ? 'Upset watch' : isGameOfSlate ? 'Game of the Week' : null,
     };
   });
@@ -358,7 +365,18 @@ function watchlistPriority(item: PrioritizedOverviewItem): number {
     // relative to `isGameOfSlate` is exactly what it was before Item 157 rather than
     // a fresh re-ranking. It subsumes `isRankedSpotlight`'s contribution below, which
     // is kept because the spotlight is still a distinct fact about one game.
-    item.hasRankedTeam ? 70 : 0,
+    item.hasTop25RankedTeam ? 70 : 0,
+    // DEAD as of 2026-09-08, retained deliberately and recorded rather than deleted.
+    // `isRankedSpotlight` implies `rankedHighlightKey === key`, and `rankedHighlight`
+    // only survives items with a top-25 rank — which is exactly the line above, also
+    // at 70 — so this term can no longer change the `Math.max`. Mutation-confirmed:
+    // neutralising it to `? 0 : 0` leaves all 122 overview/section/panel tests green.
+    // `isRankedSpotlight` is still a true and distinct FACT (this is the one game the
+    // slate's ranked spotlight landed on) and the tests above use it to discriminate
+    // which mechanism produced an ordering, so it is not dead data — only its
+    // contribution HERE is. Removing `rankedHighlight` and `rankedHighlightKey`
+    // outright is a separate deletion with its own test surface; filed rather than
+    // folded into this branch.
     item.isRankedSpotlight ? 70 : 0
   );
 }
