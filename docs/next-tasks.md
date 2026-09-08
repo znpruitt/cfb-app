@@ -5529,6 +5529,62 @@ scheduled blocks. Do not add them elsewhere.
 
 **Blocker:** none. Independent of Item 143 — that slice is the status-row seam and this needs no seam.
 
+### Item 169 — `Close` can fire on a game that has not been played
+
+**Reported from the 157/162/163 branch, 2026-09-08. Pre-existing, not caused by it.**
+
+`DESIGN.md:298`: _"Close" applies to live and final games only. On a scheduled game it is a
+projection, not a fact._ **`gameTags.ts` does not check state.** `gameMargin` (`:70`) reads
+`item.score?.away.score` and `item.score?.home.score` and returns their difference; the `close`
+branch (`:548`) fires on `margin != null && margin <= 7`.
+
+**So a scheduled row carrying a cached `0-0` score pack yields margin 0, takes the chip, and takes 80
+points of `watchlistPriority`** — sorting an unplayed game up a six-card list.
+
+**The ask:** guard `close` on live-or-final, per the rule.
+
+**Why it needs an item rather than a fix in passing:** it is a behaviour change on a shipped surface,
+and the reachability depends on whether a scheduled game can hold a score pack at all. **Establish
+that first** — if it cannot, this is a latent guard rather than a live defect, and the item should say
+which.
+
+**Blocker:** none.
+
+### Item 170 — the owner name has no fallback now that the `vs` pill is gone
+
+**Reported from the 157/162/163 branch, 2026-09-08 — a real cost of Item 163's retirement, correctly
+reported rather than fixed across a lane boundary.**
+
+The opponent owner used to appear twice: inline on the team line, and in the tier-2 `vs <owner>` pill.
+Retiring the pill was right — it duplicated a name already on the row — but it also removed the
+fallback. **The owner now lives only inside a truncating span**, so on a narrow card it is the first
+element to ellipsize and nothing carries it.
+
+**The ask:** decide whether the owner suffix needs protection from truncation, and if so, give it some.
+
+**This belongs to Item 143's lane, not to a follow-up here.** The fix is in
+`CompactGameScoreboard.tsx`, which Item 143 currently owns; the branch that found it was gated out of
+that file and reported instead. **Fold it into 143 if that slice is still open when this is picked
+up.**
+
+**Blocker:** Item 143, by file ownership rather than by dependency.
+
+### Item 171 — a dead scoring term in the watchlist sort
+
+**Reported from the 157/162/163 branch, and proven by mutation rather than accepted on report:**
+neutralising `isRankedSpotlight ? 70 : 0` in `watchlistPriority` (`selectors/overview.ts`) leaves
+**122 tests green**, so the term never changes an outcome.
+
+**The ask:** delete `rankedHighlight` / `rankedHighlightKey` and the dead term, or record why they stay.
+
+**Left in place deliberately for now**, and the reason is worth keeping: `isRankedSpotlight` is still a
+**true, distinct fact** that the ordering tests use to discriminate WHICH mechanism produced a given
+result. Removing the fields outright is a separate deletion with its own test surface, and doing it
+inside a tag-vocabulary branch would have mixed two unrelated risks.
+
+**Blocker:** none. **Small**, but it is a deletion — enumerate what the fields do besides feed this
+term before removing them.
+
 ## Hosted deployment runbook
 
 Use `docs/deployment-runbook.md` for hosted environment setup, activation, production observations,
