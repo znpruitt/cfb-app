@@ -963,6 +963,36 @@ ruled it in against the letter of `AGENTS.md`'s follow-up rule, because leaving 
 recorded the asymmetry as a decision nobody made. See
 [`docs/prompt-registry.md`](prompt-registry.md) → `PLATFORM-126B-INCIDENT-EVIDENCE-CLAUDE-v1`.
 
+### Item 148 — only Overview can render `awaiting`; Schedule and Matchups cannot
+
+**The ask:** let Schedule and Matchups express the `awaiting` scoreboard state, as Overview does.
+
+**Measured 2026-09-07:** `awaiting` appears **twice** in `OverviewPanel.tsx` and **zero** times in
+`GameWeekPanel.tsx` and `MatchupsWeekPanel.tsx`. So one of three surfaces can say a game is underway
+but indeterminate; the other two render it as not yet started.
+
+**The owner ruled on what `awaiting` means, 2026-09-03:** _"awaiting is a subset of live — it was
+supposed to start and is in an indeterminate state — it should show the broadcast info."_ That ruling
+is honoured on Overview and unreachable on the other two.
+
+**A live instance arrived the same day this was found.** SMU @ Florida State kicked 23:30 UTC on
+2026-09-07; a stadium power failure took the press-box stat feed down, and CFBD reported
+`status: "scheduled"` with `points: null` for **two and a half hours** while the game was being played
+and broadcast. Everything venue-originated was null (points, lineScores, period, clock, possession,
+attendance); everything externally sourced was present (weather, betting lines, TV). **That is exactly
+`awaiting`** — and on two of three surfaces it would have read as a game that had not kicked.
+
+**NOT caused by Item 117 and correctly excluded from its remediation** — Matchups inherited the gap
+from its bespoke row, and Schedule has never had it either. Filed so it is a decision rather than an
+omission.
+
+**Cross-reference:** distinct from **Item 143**, which owns the four seam divergences (status pill,
+live indicator, tag placement, odds). This is a missing STATE, not a presentation variant. Also
+distinct from **Item 142**.
+
+**Blocker:** none. Whether this rides with 143's presentation pass or ships alone is a sequencing
+call, not a dependency.
+
 ### Item 145 — the upstream debug logger writes provider URLs and headers to the server log
 
 **The ask:** stop `NEXT_PUBLIC_DEBUG=1` logging `statusText`, the provider URL and response headers.
