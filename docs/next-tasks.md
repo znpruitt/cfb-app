@@ -2449,9 +2449,10 @@ Neither is a defect and neither affects the complete coverage above. Recorded he
 2. **OKLCH port — only if (1) measures badly** at 8px, with the reserved-hue guard the follow-on
    specifies. Not a dependency of (1).
 
-**OBSERVED SYMPTOM 2026-09-08, and it is evidence for the precondition rather than a new item.** The
-owner compared production against the mockup and found the **outcome rail overrunning the row tint** —
-the rail is block-height, the tint is one row, so they visibly disagree.
+**OBSERVED 2026-09-08 — MY observation, not the owner's, and I first misattributed it.** The owner's
+report was the horizontal padding defect now filed as **Item 164**, which has nothing to do with the
+rail. What follows is a separate and real duplication I noticed in the same screenshot: **the rail is
+block-height and the tint is one row, so they visibly disagree.**
 `MatchupsWeekPanel.tsx:98-110` is the rail: `border-l-2` in emerald / rose / violet / zinc for win /
 loss / self / live, applied to the whole game block.
 
@@ -5314,6 +5315,37 @@ and this. **Three instances is a pattern about the tag vocabulary, not three coi
 pill**. The opponent's owner appears inline on the team row — "Georgia Tech BHooper" — which is
 precisely what the pill repeats. The mockup is not authoritative on geometry, but it is the record of
 what the row was designed to contain, and this element is absent from it.
+
+### Item 164 — the owner tint bleeds 8px into padding the block does not have
+
+**Owner report 2026-09-08, from a zoomed crop of production.** On a Matchups card the block's dark
+background stops flush against the scores while the owned-team tint clears them by 8px, so the two
+regions disagree at the right edge.
+
+**Diagnosed, one asymmetry:**
+
+- `CompactGameScoreboard.tsx:56` gives the owner tint `after:inset-[0_-8px]` — it bleeds **8px left AND
+  right** beyond the row's content box. **This is deliberate and must not be changed:** CARRY row 6
+  states the shipped `0 -8px` is correct and that anyone reconciling it against the mockup changes the
+  MOCKUP, not the code.
+- `MatchupsWeekPanel.tsx:213` renders the block as `<li>` carrying `ownerOutcomeRowClasses`, which is
+  `… bg-zinc-950/10 pl-2` — **`pl-2` and no `pr-2`.**
+
+So the left bleed lands exactly on the block's left edge and **the right bleed has nothing to land
+in.** The background is painted on the `<li>` box, which ends where the content ends.
+
+**The ask:** give the block the right-side padding its left side already has, so the background
+contains the bleed on both edges.
+
+**Scope check — this is Matchups only.** The tint is driven by `isCardOwnerTeam`, which Overview does
+not pass (`OverviewPanel.tsx` supplies `teamName`, `owner`, `rank`, `rankSource`, `record`, `score` and
+no card-owner flag). **Verify that before widening the fix**, and verify Schedule the same way.
+
+**NOT the outcome rail.** I first read this report as the rail overrunning the tint and attached it to
+Item 119; that was wrong and is corrected there. **The rail is a vertical, block-height element and
+this defect is horizontal.** They are unrelated, and this one is independently fixable today.
+
+**Blocker:** none. **One class**, plus a test that asserts the block contains the bleed on both edges.
 
 ## Hosted deployment runbook
 
