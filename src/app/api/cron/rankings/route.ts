@@ -94,6 +94,8 @@ function inertYearEntry(
     quotaChecked: quota.checked,
     quotaRemaining: quota.remaining,
     attemptedSeasonTypes: [],
+    // No provider request was made, so nothing failed at the partition level.
+    failedPartitions: [],
     providerCallAttempted: false,
     rowsReceived: 0,
     rowsCommitted: 0,
@@ -133,10 +135,45 @@ function yearEntryFromRefresh(
     quotaChecked: true,
     quotaRemaining,
     attemptedSeasonTypes: refresh.attemptedSeasonTypes,
+    // PLATFORM-126B — copied verbatim from the authority, never re-derived.
+    failedPartitions: refresh.failedPartitions,
     providerCallAttempted: refresh.providerCallAttempted,
     rowsReceived: refresh.rowsReceived,
     rowsCommitted: refresh.rowsCommitted,
     dataChanged: refresh.dataChanged,
+  };
+}
+
+/**
+ * PLATFORM-126B review — the response body's per-year allowlist.
+ *
+ * The route previously returned `exec.years` verbatim, so widening the shared
+ * year-entry type silently added `failedPartitions` — and, on a real provider
+ * fault, the retained upstream class — to the QStash response. That contradicted
+ * this slice's own stated invariant two files away (`/api/schedule/route.ts`),
+ * where the public 502 body is deliberately byte-preserved; the sibling schedule
+ * cron avoids it with exactly this projector. The retained class is durable
+ * diagnostic evidence for an operator, not part of a delivery response contract.
+ *
+ * Every key below is one the pre-126B body already carried; the ONLY difference
+ * is that `failedPartitions` is withheld. Found by `/code-review` and confirmed
+ * by driving the running route.
+ */
+function responseYearEntry(entry: RankingsCronYearExecution) {
+  return {
+    year: entry.year,
+    lifecycle: entry.lifecycle,
+    publicationWindow: entry.publicationWindow,
+    publicationKey: entry.publicationKey,
+    result: entry.result,
+    reason: entry.reason,
+    quotaChecked: entry.quotaChecked,
+    quotaRemaining: entry.quotaRemaining,
+    attemptedSeasonTypes: entry.attemptedSeasonTypes,
+    providerCallAttempted: entry.providerCallAttempted,
+    rowsReceived: entry.rowsReceived,
+    rowsCommitted: entry.rowsCommitted,
+    dataChanged: entry.dataChanged,
   };
 }
 
@@ -424,7 +461,7 @@ export async function GET(req: Request): Promise<Response> {
     return NextResponse.json({
       result: exec.result,
       reason: exec.reason,
-      years: exec.years,
+      years: exec.years.map(responseYearEntry),
       invalidLifecycleTargets: exec.invalidLifecycleTargets,
     });
   } finally {

@@ -262,7 +262,15 @@ export async function refreshFullSeasonSchedule(params: {
 }): Promise<FullSeasonScheduleRefreshResult> {
   const { year } = params;
   const now = params.now ?? Date.now();
-  const attemptedSeasonTypes = [...FULL_SEASON_SEASON_TYPES];
+  // PLATFORM-126B review — populated ONLY when the provider-fetch stage actually
+  // begins (alongside `providerCallAttempted`), so a pre-fetch exit — missing
+  // credentials, or any throw before the fetch pair such as a failing
+  // `loadScheduleDisappearanceFallback` — never fabricates attempted partitions.
+  // Both exits previously returned the eagerly-filled list beside
+  // `providerCallAttempted: false`, contradicting this field's own contract; the
+  // rankings authority already did it this way. All three reviewers found it,
+  // and this branch is what made it DURABLE.
+  let attemptedSeasonTypes: SeasonType[] = [];
 
   // Step 1 — fail fast if the prior durable schedule state cannot be read. A read
   // outage means we cannot safely classify empty responses or order observations,
@@ -342,6 +350,7 @@ export async function refreshFullSeasonSchedule(params: {
     // Step 5-7 — fetch both partitions with bounded concurrency (the shared CFBD
     // pacing key still serializes the two requests) and apply the completeness gate.
     providerCallAttempted = true;
+    attemptedSeasonTypes = [...FULL_SEASON_SEASON_TYPES];
     const outcomes = await Promise.all(
       FULL_SEASON_SEASON_TYPES.map((seasonType) =>
         fetchFullSeasonSchedulePartition({ year, seasonType, apiKey })
@@ -362,7 +371,7 @@ export async function refreshFullSeasonSchedule(params: {
     );
     if (uncertainOutcomes.length > 0) {
       // Reason is taken from the FIRST uncertain partition (regular before
-      // postseason); `failedSeasonTypes` reports EVERY uncertain partition so the
+      // postseason); `failedPartitions` reports EVERY uncertain partition so the
       // caller sees the full failure set. Any uncertain required partition rejects
       // the aggregate — a partial is never published.
       const first = uncertainOutcomes[0]!;
@@ -372,7 +381,15 @@ export async function refreshFullSeasonSchedule(params: {
           : first.kind === 'invalid-payload'
             ? ('partition-invalid-payload' as const)
             : ('partition-schema-drift' as const);
-      const failedSeasonTypes = uncertainOutcomes.map((o) => o.seasonType);
+      // PLATFORM-126B — each uncertain partition keeps its OWN retained transport
+      // class. Only a `fetch-failed` partition has one; `invalid-payload` and
+      // `schema-drift` failed AFTER a successful fetch, so their transport was
+      // fine and the year `reason` already names what went wrong.
+      const failedPartitions = uncertainOutcomes.map((o) => ({
+        seasonType: o.seasonType,
+        upstream: o.kind === 'fetch-failed' ? o.upstream : null,
+      }));
+      const failedSeasonTypes = failedPartitions.map((p) => p.seasonType);
       await recordProviderRefreshFailure('schedule', scope, {
         attempt,
         error: `schedule ${year}: ${failedSeasonTypes.join(', ')} partition ${reason}`,
@@ -387,7 +404,7 @@ export async function refreshFullSeasonSchedule(params: {
         reason,
         requestedYear: year,
         attemptedSeasonTypes,
-        failedSeasonTypes,
+        failedPartitions,
         rowsReceived,
         providerCallAttempted,
         observedAt,

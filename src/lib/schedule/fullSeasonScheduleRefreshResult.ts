@@ -27,6 +27,7 @@
  */
 
 import type { CacheEntry } from '@/app/api/schedule/cache';
+import type { UpstreamFaultClass } from '@/lib/api/upstreamFaultClass';
 import type { SeasonType } from '@/lib/schedule/cfbdSchedule';
 import type { FinalScoreDifferenceIdentity } from '@/lib/schedule/finalScoreSweep';
 
@@ -51,6 +52,13 @@ export type FullSeasonScheduleRefreshReason =
   | 'unchanged-clean' // recomputed items equal prior-good; only observation metadata committed
   | 'written-clean'; // fresh rows were durably committed
 
+/** One partition that caused a rejection, with its retained transport class. */
+export type FailedSchedulePartition = {
+  seasonType: SeasonType;
+  /** The closed upstream class, or null when the failure was not a transport fault. */
+  upstream: UpstreamFaultClass | null;
+};
+
 export type FullSeasonScheduleRefreshResult = {
   status: FullSeasonScheduleRefreshStatus;
   reason: FullSeasonScheduleRefreshReason;
@@ -65,8 +73,17 @@ export type FullSeasonScheduleRefreshResult = {
    * schema-drift) and caused an aggregate `partition-*` rejection. Empty for every
    * other outcome. Lets the season-transition cron report exactly which partition
    * failed without re-deriving it from an HTTP response.
+   *
+   * PLATFORM-126B — each entry now carries its OWN retained upstream class, so a
+   * year whose regular partition succeeded while postseason timed out records
+   * exactly that. `upstream` is non-null only for a transport failure: an
+   * `invalid-payload` or `schema-drift` partition failed after a successful
+   * fetch and has no transport fault to name, and the year `reason` already
+   * distinguishes those. This is the SINGLE home for "which partition failed and
+   * why" — there is deliberately no second per-year class (owner ruling,
+   * 2026-09-07).
    */
-  failedSeasonTypes: SeasonType[];
+  failedPartitions: ReadonlyArray<FailedSchedulePartition>;
   /** Total usable rows received across attempted partitions (0 before any fetch). */
   rowsReceived: number;
   /** Rows durably committed — nonzero only on `written-clean`. */
@@ -159,7 +176,7 @@ export function fullSeasonScheduleRefreshResult(params: {
   reason: FullSeasonScheduleRefreshReason;
   requestedYear: number;
   attemptedSeasonTypes?: SeasonType[];
-  failedSeasonTypes?: SeasonType[];
+  failedPartitions?: ReadonlyArray<FailedSchedulePartition>;
   rowsReceived?: number;
   rowsCommitted?: number;
   dataChanged?: boolean;
@@ -183,7 +200,7 @@ export function fullSeasonScheduleRefreshResult(params: {
     httpStatus: params.httpStatusOverride ?? REASON_HTTP_STATUS[params.reason],
     requestedYear: params.requestedYear,
     attemptedSeasonTypes: params.attemptedSeasonTypes ?? [],
-    failedSeasonTypes: params.failedSeasonTypes ?? [],
+    failedPartitions: params.failedPartitions ?? [],
     rowsReceived: params.rowsReceived ?? 0,
     rowsCommitted: params.rowsCommitted ?? 0,
     dataChanged: params.dataChanged ?? false,

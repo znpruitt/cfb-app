@@ -294,6 +294,28 @@ When practical, verify key runtime flows still behave:
    - **The receipt must ask what CONTRADICTS the relay message.** This is the part that earns the
      gate: the agent reconciles the sources rather than confirming it looked at them, and a wrong
      premise surfaces before it has a branch built on top of it.
+   - **WRITE EVERY ITEM AS A QUESTION WHOSE ANSWER CAN CONTRADICT THE PROMPT — not one that confirms
+     the prompt was read.** Owner decision 2026-09-07, from measuring what the gate actually catches.
+     Six receipts were posted that day and **every one found an error in the PROMPT**, not a gap in
+     the implementer's reading. The gate was built to check the READER; it functions as a review of
+     the WRITER, before any code exists. Write it for that.
+     **The distinction is mechanical, not stylistic.** An item that asks the agent to restate the
+     prompt gets the prompt back — the author wrote it, so a paraphrase reflects it. An item that
+     sends the agent to a SOURCE and asks it to report what it finds produces a comparison, and
+     disagreements fall out of it. Every finding on 2026-09-07 came from a quoted source line; none
+     came from a summary.
+     **Prefer:** _"Name every consumer of X"_ (answer came back "five, not four"). _"Quote the
+     parameter list and say which fields it discards"_ (answer separated two different losses the
+     prompt had merged). _"Name every field on this type"_ (answer found a five-member union the
+     prompt called four). **Avoid:** _"Confirm you have read Y"_, _"Summarise the decision in Z"_,
+     _"State the rule from the design doc"_ — all satisfiable without opening anything the author did
+     not already quote.
+     **Ask for COUNTS and ENUMERATIONS specifically.** They are falsifiable in one line and they are
+     what caught the prompt errors: seven modules that were nine, four consumers that were five, four
+     union members that were five, one loss that was three. A count is the cheapest question that can
+     come back wrong.
+     **And accept the answer over the prompt when they disagree.** The receipt is only worth its
+     round trip if a contradiction changes the prompt rather than being explained away.
    - **The implementer stops there and waits** — receipt first, no code. A blocked dispatch costs one
      message; a wrong premise costs a build and two review cycles.
 
@@ -659,7 +681,7 @@ git push origin HEAD                 # the branch
 git push origin HEAD:preview --force # and preview, same breath
 ```
 
-**Codex does not push `preview`, or any other preview branch.** Decided 2026-08-18, when parallel worktrees (`cfb-app` and `cfb-app-codex`) made a single force-pushed branch ambiguous: it shows whichever agent committed last, changing under the owner mid-review with no indication of which branch is on screen. Codex verifies locally instead, and its work reaches the owner as a branch to pull and run rather than as a URL. Run the Codex worktree's dev server on port 3010 — both worktrees default to 3000, and killing a dev server can orphan the `next-server` child, which then serves stale code from that port. **This decision is due for review if Codex takes a slice with a user-visible surface**; a deployed URL is how the owner has caught defects that reviews did not. **That review has now happened once, and the answer was a SLICE-SCOPED exception rather than an amendment — Item 117, granted 2026-09-07.** The reasoning, so the next grant is judged the same way: the rule exists because two worktrees force-pushing one branch make `preview` ambiguous, and that reason was ABSENT because the Claude lane was idle. **A grant is conditional on exactly that** — one active writer — and lapses when the slice merges. If the second lane takes work mid-slice, the holder says so immediately. Do not read this as a general permission; read it as the rule's review clause working.
+**Codex does not push `preview`, or any other preview branch.** Decided 2026-08-18, when parallel worktrees (`cfb-app` and `cfb-app-codex`) made a single force-pushed branch ambiguous: it shows whichever agent committed last, changing under the owner mid-review with no indication of which branch is on screen. Codex verifies locally instead, and its work reaches the owner as a branch to pull and run rather than as a URL. Run the Codex worktree's dev server on port 3010 — both worktrees default to 3000, and killing a dev server can orphan the `next-server` child, which then serves stale code from that port. **This decision is due for review if Codex takes a slice with a user-visible surface**; a deployed URL is how the owner has caught defects that reviews did not. **That review has now happened once, and the answer was a SLICE-SCOPED exception rather than an amendment — Item 117, granted 2026-09-07.** The reasoning, so the next grant is judged the same way: the rule exists because two worktrees force-pushing one branch make `preview` ambiguous, and that reason was ABSENT because the Claude lane was idle. **A grant is conditional on exactly that** — one writer TO `preview`, which is not the same as one active lane, and my first wording of this conflated them (corrected 2026-09-07 after the Claude lane correctly flagged the ambiguity). A second lane may take work while a grant stands, **provided its kickoff explicitly suspends `CLAUDE.md`'s push-`preview` instruction for that branch**; the single-writer property is preserved by that suspension, not by lane idleness. The grant lapses when the slice merges. **Notify the holder whenever the second lane starts** — it does not revoke the grant, but the holder must know a suspension is now load-bearing rather than theoretical. Do not read this as a general permission; read it as the rule's review clause working.
 
 **A docs-only push advances the ref without redeploying, and nothing says so.** `vercel.json`'s `ignoreCommand` skips the build for any commit touching only `^docs/` or `*.md` — see `docs/deployment-runbook.md` §6d, which is canonical for the gate. So for a closeout commit the push above succeeds, no build runs, and the preview URL keeps serving the previous deployment. Push both anyway: the rule is one habit rather than a judgement call about which commits count, and the ref staying current is what makes the next code commit deploy the right tree. Just do not read a green push as a redeployed surface. A skipped build shows in the Vercel dashboard as `Canceled` after a few seconds, with no alias assigned.
 

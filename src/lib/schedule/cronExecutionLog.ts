@@ -1,5 +1,9 @@
-import type { FullSeasonScheduleRefreshReason } from './fullSeasonScheduleRefreshResult.ts';
+import type {
+  FailedSchedulePartition,
+  FullSeasonScheduleRefreshReason,
+} from './fullSeasonScheduleRefreshResult.ts';
 import type { FinalScoreDifferenceIdentity } from './finalScoreSweep.ts';
+import { rebuildUpstreamFaultClass } from '../api/upstreamFaultClass.ts';
 import type { SeasonType } from './cfbdSchedule.ts';
 import type { WeeklyScheduleRefreshOperation } from './weeklyRefreshOperation.ts';
 
@@ -73,6 +77,18 @@ export type ScheduleRefreshCronYearExecution = {
     | 'settings-unavailable'
     | 'score-sweep-failed';
   providerCallAttempted: boolean;
+  /**
+   * PLATFORM-126B — the partitions this year's refresh actually requested, empty
+   * on every pre-fetch exit. Copied from the authority, never re-derived: it is
+   * what separates "failed before contacting CFBD" from "asked and was refused".
+   */
+  attemptedSeasonTypes: ReadonlyArray<SeasonType>;
+  /**
+   * PLATFORM-126B — the partitions that caused the rejection, each carrying its
+   * own retained upstream class. Empty for every non-partition outcome. This is
+   * the evidence the September 1, 2026 postmortem needed and did not have.
+   */
+  failedPartitions: ReadonlyArray<FailedSchedulePartition>;
   rowsReceived: number;
   rowsCommitted: number;
   dataChanged: boolean;
@@ -201,6 +217,13 @@ export function emitScheduleRefreshCronExecutionEvent(
         result: entry.result,
         reason: entry.reason,
         providerCallAttempted: entry.providerCallAttempted,
+        attemptedSeasonTypes: [...entry.attemptedSeasonTypes],
+        // Rebuilt field-by-field, and the class through its own rebuilder, so no
+        // attached property can ride into a log line.
+        failedPartitions: entry.failedPartitions.map((partition) => ({
+          seasonType: partition.seasonType,
+          upstream: rebuildUpstreamFaultClass(partition.upstream),
+        })),
         rowsReceived: entry.rowsReceived,
         rowsCommitted: entry.rowsCommitted,
         dataChanged: entry.dataChanged,

@@ -980,6 +980,8 @@ test('exactly one event with the exact allowlisted keys and no credential canari
   assert.deepEqual(Object.keys(event.years[0]!).sort(), [
     'attemptedSeasonTypes',
     'dataChanged',
+    // PLATFORM-126B — the per-partition failure evidence.
+    'failedPartitions',
     'lifecycle',
     'providerCallAttempted',
     'publicationKey',

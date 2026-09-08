@@ -698,12 +698,31 @@ any provider outcome.
 requires a planning split when work crosses separate automation jobs. Tier A crosses **seven**; Tier B
 crosses **two**. They cannot ship as one PR.
 
-- **Tier B is RUNNING** — kickoff
+- **Tier B is COMPLETE.** Execution record:
+  [`docs/prompt-registry.md`](prompt-registry.md) → `PLATFORM-126B-INCIDENT-EVIDENCE-CLAUDE-v1`.
+  **SCOPE APPROVED 2026-09-07 by the owner**, per `AGENTS.md` → Scope and sizing, which requires the
+  approval and the diffstat be recorded here. Approved at **+2,693/−96**, and the figure moved once
+  more when the owner authorized a second remediation round; the shipped measurement is **31 files
+  under `src/`, +2,817/−96 — 16 production files (+739/−57) against 15 test files (+2,078/−39)**.
+  Both stop-and-reassess signals are crossed. Approved because production is well inside the 1,500
+  threshold and the test bulk is the same document's "every surface a PR touches must carry its own
+  tests" applied across two automation jobs; splitting a cohesive production change because its
+  tests are thorough would set the rule against itself. A further split was also rejected on the
+  implementer's argument that it breaks the item's own contract — one shared vocabulary across both
+  jobs, and route coverage for both in the same PR.
+  (An earlier +2,709/−112 was recorded from a relayed message rather than a `git diff --shortstat`
+  and corrected 2026-09-07. Every figure above is measured at the shipped commit.)
+  Two findings deliberately scoped out and filed instead: **Item 145** (debug logger) and
+  **Item 146** (secret-scan population). **Item 147 closed inside this slice** — the owner ruled it
+  in rather than leave the two jobs' response-body pins asymmetric. Kickoff
   [`docs/prompts/platform-126b-incident-evidence-claude-v1.md`](prompts/platform-126b-incident-evidence-claude-v1.md).
   Taken first because it is the tier that would have explained the September 1 failure. Tier A's value
   is capped anyway: it correlates runtime logs that expire.
-- **Tier A remains open** — `invocationId` on every structured cron runtime event. Verified
-  2026-09-07: **0 of 7** `cronExecutionLog` modules carry it.
+- **Tier A remains open** — `invocationId` on every structured cron runtime event. **0 of NINE
+  modules carry it**, corrected 2026-09-07: my "0 of 7" came from `find -name cronExecutionLog.ts`,
+  which misses `lifecycleCronExecutionLog.ts` and `pollingPlannerCronLog.ts` — both real cron logs
+  with different filenames. `EXTERNAL_SCHEDULER_JOBS` is **ten** jobs. The direction held; the count
+  did not, and **Tier A is sized off that count.**
 
 **Layer 3 is no longer a prediction — production has realised it.** Read 2026-09-07, 153 hours after
 the incident: `provider-refresh-status` for `schedule:year:2026` now holds
@@ -715,8 +734,14 @@ evidence is unrecoverable; the entire surviving record is `failure / year-result
 **And the loss at layer 1 is two problems, not one** — verified at `schedulerExecutionStatus.ts:380`.
 `scheduleYearsTarget` RECEIVES `scoreRepairs`, `scoreDifferenceCount`, `scoreSweepFailedPartitions`,
 `scoreSweepCannotTellCount` and `kickoffsChanged` per entry and discards them to run level at `:396`;
-it never receives `result`, `reason`, `providerCallAttempted`, `failedSeasonTypes`, `rowsReceived`,
-`rowsCommitted` or `dataChanged` at all. The fixes differ.
+it never receives `result`, `reason`, `providerCallAttempted`, `rowsReceived`, `rowsCommitted` or
+`dataChanged` at all. The fixes differ.
+
+**And `failedSeasonTypes` is a THIRD case, one layer earlier — found 2026-09-07.** This entry listed
+it with the never-received group, which is wrong: it is not on `ScheduleRefreshCronYearExecution`
+either, so widening the target builder cannot reach it. The authorities already compute it
+(`fullSeasonScheduleRefreshResult.ts:69`, `refreshAuthority.ts:443`); the ROUTE drops it when
+building its year entry. Reaching it changes the runtime event too.
 
 **Filed 2026-09-03 from `SCHEDULE-REFRESH-FAILURE-DIAG`.** The September 1, 2026 12:00 UTC weekly
 schedule refresh is the production proof of the gap. QStash successfully delivered the request and
@@ -905,6 +930,101 @@ concession, and `CompactGameScoreboard` has already been widened once by slice 5
 third and fourth driven by one consumer is how a shared component becomes the union of its callers.
 
 **Blocker: Item 144.** The document that would settle these is the one with ten stale claims in it.
+
+### Item 147 — DONE: the schedule cron's response-body keys are pinned
+
+**The ask:** pin the `schedule-refresh` cron's response-body keys, as `rankings` now is.
+
+**Filed 2026-09-07 from Item 126B's confirming review, and it is half a fix rather than new work.**
+126B's finding 2 was a leak into the **QStash response body** — the rankings cron returned
+`exec.years` verbatim, so `failedPartitions` crossed into the body. It shipped because **only the
+log-event keys were pinned; nothing pinned the body.** The fix added an allowlist projector and a body
+key pin — **for rankings.** `responseYearEntry` on the schedule side is referenced by no test.
+
+**So the two jobs now differ in a way nothing records as deliberate**: one is pinned against exactly
+the leak that occurred, the other is not, and the unpinned one is the job the whole item was written
+about.
+
+**Pre-existing rather than caused by 126B's remediation round**, which is why it was correctly
+excluded from that round's scope under `AGENTS.md`. Filed so the asymmetry is a decision rather than
+a gap.
+
+**Blocker:** none. **Closed 2026-09-07 inside Item 126B's second remediation round** — the owner
+ruled it in against the letter of `AGENTS.md`'s follow-up rule, because leaving it would have
+recorded the asymmetry as a decision nobody made. See
+[`docs/prompt-registry.md`](prompt-registry.md) → `PLATFORM-126B-INCIDENT-EVIDENCE-CLAUDE-v1`.
+
+### Item 148 — only Overview can render `awaiting`; Schedule and Matchups cannot
+
+**The ask:** let Schedule and Matchups express the `awaiting` scoreboard state, as Overview does.
+
+**Measured 2026-09-07:** `awaiting` appears **twice** in `OverviewPanel.tsx` and **zero** times in
+`GameWeekPanel.tsx` and `MatchupsWeekPanel.tsx`. So one of three surfaces can say a game is underway
+but indeterminate; the other two render it as not yet started.
+
+**The owner ruled on what `awaiting` means, 2026-09-03:** _"awaiting is a subset of live — it was
+supposed to start and is in an indeterminate state — it should show the broadcast info."_ That ruling
+is honoured on Overview and unreachable on the other two.
+
+**A live instance arrived the same day this was found.** SMU @ Florida State kicked 23:30 UTC on
+2026-09-07; a stadium power failure took the press-box stat feed down, and CFBD reported
+`status: "scheduled"` with `points: null` for **two and a half hours** while the game was being played
+and broadcast. Everything venue-originated was null (points, lineScores, period, clock, possession,
+attendance); everything externally sourced was present (weather, betting lines, TV). **That is exactly
+`awaiting`** — and on two of three surfaces it would have read as a game that had not kicked.
+
+**NOT caused by Item 117 and correctly excluded from its remediation** — Matchups inherited the gap
+from its bespoke row, and Schedule has never had it either. Filed so it is a decision rather than an
+omission.
+
+**Cross-reference:** distinct from **Item 143**, which owns the four seam divergences (status pill,
+live indicator, tag placement, odds). This is a missing STATE, not a presentation variant. Also
+distinct from **Item 142**.
+
+**Blocker:** none. Whether this rides with 143's presentation pass or ships alone is a sequencing
+call, not a dependency.
+
+### Item 145 — the upstream debug logger writes provider URLs and headers to the server log
+
+**The ask:** stop `NEXT_PUBLIC_DEBUG=1` logging `statusText`, the provider URL and response headers.
+
+**Found 2026-09-07 during Item 126B's `/verify`, by driving the running route — not by reading.**
+`collegefootballdata` appeared four times in the server log. The credential itself was correctly
+redacted to `Bearer ***`; the URL, `statusText` and headers were not.
+
+**`NEXT_PUBLIC_DEBUG=1` IS SET in this repo's own `.env.local`**, so this is live in local
+development today, not a hypothetical behind a flag nobody sets.
+
+**Pre-existing on `main` and correctly scoped OUT of 126B** — it is a LOG, not the durable store
+126B's gate governs, and folding it in would have widened a branch already at both stop-and-reassess
+signals. Filed rather than fixed, per that gate.
+
+**Scope:** the upstream debug logger only. Decide what a debug log may carry: a URL is arguably
+diagnostic rather than secret, but response headers are not, and the two are emitted together.
+
+**Blocker:** none. Independent of 126.
+
+### Item 146 — the secret scan covers the receipt; a run writes seven durable keys
+
+**The ask:** widen the secret-scan test population from the receipt to every durable key a run writes.
+
+**Found 2026-09-07 by the Item 126B implementer, raised by no reviewer.** A `schedule-refresh` run
+writes **seven** durable keys. 126B's secret-scan tests scanned only the **receipt** — so the tests
+proved a property about one of seven writes and were named as though they proved it about the run.
+
+**The concrete instance is benign and that is why it is worth filing.** The same run writes a
+free-text `"message"` into `provider-refresh-status`:
+`"schedule 2026: regular, postseason partition partition-fetch-failed"`. Constructed, secret-free, no
+leak. **The defect is the test population, not the value** — a scan whose scope is narrower than the
+risk it names will keep passing while an unscanned writer changes.
+
+**Same shape as the vacuous-test findings this campaign keeps producing:** the test named the run and
+measured one write. It passes today for the right reason and would pass tomorrow for the wrong one.
+
+**Scope:** the secret-scan test helpers and their population. Not a production change unless the
+widened scan finds something.
+
+**Blocker:** none, but it should follow 126B so it can cover what that branch adds.
 
 ### Item 142 — Matchups prints kickoff metadata on rows `DESIGN.md` says must not carry it
 

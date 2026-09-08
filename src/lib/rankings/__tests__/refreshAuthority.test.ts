@@ -123,7 +123,10 @@ test('written-clean: fresh weeks commit durably and publish the memo after commi
   assert.equal(result.httpStatus, 200);
   assert.equal(result.trigger, 'manual');
   assert.deepEqual(result.attemptedSeasonTypes, ['regular', 'postseason']);
-  assert.deepEqual(result.failedSeasonTypes, []);
+  assert.deepEqual(
+    result.failedPartitions.map((p) => p.seasonType),
+    []
+  );
   assert.equal(result.providerCallAttempted, true);
   assert.equal(result.rowsReceived, 1);
   assert.equal(result.rowsCommitted, 1);
@@ -310,7 +313,10 @@ test('a payload labeled with a different season is rejected, never committed as 
   const mislabeled = await refresh(T2);
   assert.equal(mislabeled.status, 'failure');
   assert.equal(mislabeled.reason, 'rankings-partition-schema-drift');
-  assert.deepEqual(mislabeled.failedSeasonTypes, ['regular']);
+  assert.deepEqual(
+    mislabeled.failedPartitions.map((p) => p.seasonType),
+    ['regular']
+  );
   const durable = await durableEntry();
   assert.equal(durable?.at, T1, 'prior-good untouched');
   assert.equal(durable?.response.weeks[0]?.teams[0]?.teamName, 'Georgia');
@@ -354,7 +360,10 @@ test('regular schema drift rejects the aggregate and retains prior-good', async 
   assert.equal(result.status, 'failure');
   assert.equal(result.reason, 'rankings-partition-schema-drift');
   assert.equal(result.httpStatus, 200, 'prior-good is served');
-  assert.deepEqual(result.failedSeasonTypes, ['regular']);
+  assert.deepEqual(
+    result.failedPartitions.map((p) => p.seasonType),
+    ['regular']
+  );
   assert.equal(result.rowsReceived, 1, 'the usable postseason rows are still counted');
   assert.equal(result.response?.meta.stale, true);
   assert.equal(result.response?.weeks.length, 1, 'prior-good served, not a partial commit');
@@ -378,7 +387,10 @@ test('postseason schema drift with no prior-good is a hard failure with nothing 
   assert.equal(result.reason, 'rankings-partition-schema-drift');
   assert.equal(result.httpStatus, 500, 'no prior-good to serve');
   assert.equal(result.response, null);
-  assert.deepEqual(result.failedSeasonTypes, ['postseason']);
+  assert.deepEqual(
+    result.failedPartitions.map((p) => p.seasonType),
+    ['postseason']
+  );
   assert.equal(await durableEntry(), null, 'nothing committed');
 
   const status = await getProviderRefreshStatus('rankings', yearScope(YEAR));
@@ -396,7 +408,10 @@ test('a non-array partition payload rejects the aggregate as invalid-provider-pa
   assert.equal(result.status, 'failure');
   assert.equal(result.reason, 'invalid-provider-payload');
   assert.equal(result.httpStatus, 500);
-  assert.deepEqual(result.failedSeasonTypes, ['regular']);
+  assert.deepEqual(
+    result.failedPartitions.map((p) => p.seasonType),
+    ['regular']
+  );
   assert.equal(await durableEntry(), null);
 
   const status = await getProviderRefreshStatus('rankings', yearScope(YEAR));
@@ -417,7 +432,10 @@ test('a transport failure rejects the aggregate while rowsReceived counts the fu
   assert.equal(result.status, 'failure');
   assert.equal(result.reason, 'provider-fetch-failed');
   assert.equal(result.providerCallAttempted, true);
-  assert.deepEqual(result.failedSeasonTypes, ['postseason']);
+  assert.deepEqual(
+    result.failedPartitions.map((p) => p.seasonType),
+    ['postseason']
+  );
   assert.equal(result.rowsReceived, 2, 'fulfilled regular rows are still counted');
   assert.equal(result.rowsCommitted, 0);
   assert.equal(await durableEntry(), null, 'nothing committed from a rejected aggregate');
@@ -447,7 +465,10 @@ test('a raw-empty regular partition over prior regular rankings is rejected as i
   assert.equal(result.status, 'failure');
   assert.equal(result.reason, 'rankings-partition-incomplete');
   assert.equal(result.httpStatus, 200, 'prior-good is served');
-  assert.deepEqual(result.failedSeasonTypes, ['regular']);
+  assert.deepEqual(
+    result.failedPartitions.map((p) => p.seasonType),
+    ['regular']
+  );
   assert.equal(result.response?.meta.stale, true);
 
   const durable = await durableEntry();
@@ -476,7 +497,10 @@ test('a missing prior week is rejected as rankings-partition-incomplete', async 
   });
   const result = await refresh(T2);
   assert.equal(result.reason, 'rankings-partition-incomplete');
-  assert.deepEqual(result.failedSeasonTypes, ['regular']);
+  assert.deepEqual(
+    result.failedPartitions.map((p) => p.seasonType),
+    ['regular']
+  );
   assert.equal((await durableEntry())?.response.weeks.length, 2, 'both prior weeks retained');
 });
 
@@ -496,7 +520,10 @@ test('a missing prior populated poll source is rejected as rankings-partition-in
   });
   const result = await refresh(T2);
   assert.equal(result.reason, 'rankings-partition-incomplete');
-  assert.deepEqual(result.failedSeasonTypes, ['regular']);
+  assert.deepEqual(
+    result.failedPartitions.map((p) => p.seasonType),
+    ['regular']
+  );
 
   const durable = await durableEntry();
   assert.equal(durable?.at, T1);

@@ -22,6 +22,7 @@ import {
   recordSchedulerExecutionReceipt,
 } from '../../../../../lib/server/schedulerExecutionStatus.ts';
 import { summarizeReceiptTarget } from '../../../../../components/admin/systemHealth/systemHealthPresentation.ts';
+import { legacyYearOutcome } from '../../../../../test/schedulerYearOutcomeFixtures.ts';
 import {
   installSchedulerReceiptDeferrer,
   readSchedulerReceipt,
@@ -207,7 +208,7 @@ async function seedPriorReceipt() {
       totalYears: 1,
       truncated: false,
       invalidLifecycleTargets: 0,
-      years: [{ year: YEAR, publicationWindow: 'weekly-ap-coaches' }],
+      years: [{ year: YEAR, publicationWindow: 'weekly-ap-coaches', ...legacyYearOutcome() }],
     },
   });
   assert.ok(receipt);
@@ -272,12 +273,27 @@ test('a due window provider refresh records success with the bounded rankings-ye
   assert.ok(stored);
   assert.equal(stored.value.result, 'success');
   assert.equal(stored.value.providerCallAttempted, true);
+  // PLATFORM-126B — the year entry now carries the outcome the E2A authority
+  // reported, copied verbatim and never re-derived.
   assert.deepEqual(stored.value.target, {
     kind: 'rankings-years',
     totalYears: 1,
     truncated: false,
     invalidLifecycleTargets: 0,
-    years: [{ year: YEAR, publicationWindow: 'weekly-ap-coaches' }],
+    years: [
+      {
+        year: YEAR,
+        publicationWindow: 'weekly-ap-coaches',
+        result: 'success',
+        reason: 'written-clean',
+        providerCallAttempted: true,
+        rowsReceived: 1,
+        rowsCommitted: 1,
+        dataChanged: true,
+        attemptedSeasonTypes: ['regular', 'postseason'],
+        failedPartitions: [],
+      },
+    ],
   });
   // The window durably completed (unchanged behavior) and the receipt exists.
   assert.ok((await getAppState('rankings', String(YEAR))) !== null);
@@ -416,12 +432,27 @@ test('T4 regression: a mixed run stores only the production year in the receipt 
   assert.ok(stored);
   assert.equal(stored.value.result, 'success');
   assert.equal(stored.value.providerCallAttempted, true);
+  // PLATFORM-126B — the year entry now carries the outcome the E2A authority
+  // reported, copied verbatim and never re-derived.
   assert.deepEqual(stored.value.target, {
     kind: 'rankings-years',
     totalYears: 1,
     truncated: false,
     invalidLifecycleTargets: 0,
-    years: [{ year: YEAR, publicationWindow: 'weekly-ap-coaches' }],
+    years: [
+      {
+        year: YEAR,
+        publicationWindow: 'weekly-ap-coaches',
+        result: 'success',
+        reason: 'written-clean',
+        providerCallAttempted: true,
+        rowsReceived: 1,
+        rowsCommitted: 1,
+        dataChanged: true,
+        attemptedSeasonTypes: ['regular', 'postseason'],
+        failedPartitions: [],
+      },
+    ],
   });
   assert.deepEqual(fetchLog.rankings.sort(), [`${YEAR}:postseason`, `${YEAR}:regular`]);
   assert.ok(!providerUrlLog.some((url) => url.includes(`year=${DEMO_YEAR}`)));
@@ -552,7 +583,7 @@ test('R3 contract pin: a legacy receipt omitting the count parses and normalizes
       totalYears: 1,
       truncated: false,
       // `invalidLifecycleTargets` DELIBERATELY absent — this is the pre-R3 shape.
-      years: [{ year: 2031, publicationWindow: 'weekly-ap-coaches' }],
+      years: [{ year: 2031, publicationWindow: 'weekly-ap-coaches', ...legacyYearOutcome() }],
     },
   };
   const parsed = parseSchedulerExecutionReceipt(legacy, 'rankings', PARSE_NOW_MS);
@@ -583,7 +614,7 @@ test('R3 regression: an invalid present count rejects the receipt', () => {
         totalYears: 1,
         truncated: false,
         invalidLifecycleTargets: bad,
-        years: [{ year: 2031, publicationWindow: 'weekly-ap-coaches' }],
+        years: [{ year: 2031, publicationWindow: 'weekly-ap-coaches', ...legacyYearOutcome() }],
       },
     };
     assert.equal(
@@ -605,7 +636,7 @@ test('R3 regression: the rankings target summary handles clean, mixed, and all-r
       totalYears: 1,
       truncated: false,
       invalidLifecycleTargets: 0,
-      years: [{ year: 2031, publicationWindow: 'weekly-ap-coaches' }],
+      years: [{ year: 2031, publicationWindow: 'weekly-ap-coaches', ...legacyYearOutcome() }],
     }),
     '1 year(s): 2031 (weekly-ap-coaches)',
     'a clean run renders exactly as it did pre-R3'
@@ -616,7 +647,7 @@ test('R3 regression: the rankings target summary handles clean, mixed, and all-r
       totalYears: 1,
       truncated: false,
       invalidLifecycleTargets: 2,
-      years: [{ year: 2031, publicationWindow: 'weekly-ap-coaches' }],
+      years: [{ year: 2031, publicationWindow: 'weekly-ap-coaches', ...legacyYearOutcome() }],
     }),
     '1 year(s): 2031 (weekly-ap-coaches) · 2 unusable lifecycle target(s)',
     'mixed appends the count at RUN level'
