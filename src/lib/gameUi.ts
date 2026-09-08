@@ -161,16 +161,18 @@ export function pillClass(): string {
  *
  * `rounded-full`, `px-1.5 py-0.5` and `tracking-wide` are held as shipped and
  * DELIBERATELY diverge from the mockup's `3px` radius, `1px 5px` padding and
- * `0.08em` tracking. Owner ruling 2026-09-08: those three mockup values were set
- * incrementally while building it and were never derived, so the mockup is not
- * authoritative on them. Item 143 picks them against a real slate.
+ * `0.08em` tracking. `AGENTS.md` rules the mockup NON-AUTHORITATIVE on those
+ * three: they were set incrementally while it was built and were never derived.
+ * Item 143 picks them against a real slate. Border width and colour are the
+ * mockup's and are settled here; radius, padding and tracking are not its call.
  *
- * Layout is the caller's: display and flex utilities are composed at each call
- * site because Matchups hides its secondary tags below the `sm` breakpoint, which
- * a baked-in `inline-flex` would fight.
+ * `shrink-0` is part of the treatment, not layout — the mockup gives every tag
+ * `flex: none` so a label can never compress or wrap inside its own pill. Only
+ * DISPLAY is the caller's, because Matchups hides its secondary tags below the
+ * `sm` breakpoint and a baked-in `inline-flex` would fight that.
  */
 export const EYEBROW_TAG_CLASSES =
-  'rounded-full border-[0.5px] border-[rgba(201,166,107,0.40)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#dbc190]';
+  'shrink-0 rounded-full border-[0.5px] border-[rgba(201,166,107,0.40)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#dbc190]';
 
 /**
  * The reason-row companion to {@link EYEBROW_TAG_CLASSES} — plain bronze text, no

@@ -200,11 +200,15 @@ function deriveFeaturedGameBadge(game: AppGame): { label: string; classes: strin
     const label = conf ? `${conf} Champ` : 'Conf. Champ';
     return {
       label,
-      // Neutral slate, matching the CFP branch above. `DESIGN.md` → *Color* reserves
-      // slate/gray for postseason round badges and forbids blue as a "featured" or
-      // "important" signal, which this badge is. Bronze was considered and rejected:
-      // it would split one two-branch badge family by hue with nothing a reader can
-      // decode from the difference. See PLATFORM-153.
+      // Neutral slate, matching the CFP branch above. Two rules meet here and only
+      // one of them names this badge: `DESIGN.md` → *Color* forbids blue as a
+      // "featured" or "important" signal, which this badge is, and separately
+      // reserves neutral slate/gray for CFP ROUND badges — which a conference
+      // championship is not. Adopting the CFP branch's neutral is therefore a
+      // DECISION, not a rule being applied, and `DESIGN.md` records it alongside
+      // the CFP line. Bronze was considered and rejected: it would split one
+      // two-branch badge family by hue with nothing a reader can decode from the
+      // difference. PLATFORM-153.
       classes:
         'border-slate-300 bg-slate-100 text-slate-700 dark:border-slate-600 dark:bg-slate-800/50 dark:text-slate-300',
     };
@@ -779,7 +783,7 @@ function WatchlistScoreboardList({
                 {highlightTags.map((tag) => (
                   <span
                     key={tag.id}
-                    className={`inline-flex shrink-0 ${EYEBROW_TAG_CLASSES}`}
+                    className={`inline-flex ${EYEBROW_TAG_CLASSES}`}
                     data-eyebrow-tag
                   >
                     {tag.text}

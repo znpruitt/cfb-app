@@ -11,7 +11,7 @@
  * compares the three rendered results to each other can.
  */
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -212,11 +212,16 @@ function renderOverview(): string {
 }
 
 /**
- * Display and flex utilities are the caller's, not the treatment's: Matchups hides
- * its secondary tags below `sm`, which a display class baked into the shared constant
- * would fight. Everything else on an eyebrow must come from the constant.
+ * DISPLAY is the caller's, and only display: Matchups hides its secondary tags below
+ * `sm`, which a display class baked into the shared constant would fight. Everything
+ * else on an eyebrow must come from the constant.
+ *
+ * `shrink-0` was briefly exempted here and that was wrong — it let Matchups ship
+ * without it while Schedule and Overview had it, so a label could compress and wrap
+ * inside its own pill on one surface and not the others. Exempting a class is how an
+ * equality test stops testing equality; keep this set to display alone.
  */
-const LAYOUT_ONLY_CLASSES = new Set(['inline-flex', 'hidden', 'sm:inline-flex', 'shrink-0']);
+const LAYOUT_ONLY_CLASSES = new Set(['inline-flex', 'hidden', 'sm:inline-flex']);
 
 function eyebrowTags(html: string): string[] {
   return Array.from(
@@ -285,21 +290,78 @@ test('no eyebrow on any surface renders blue', () => {
   assert.match(featuredBadge, /slate/);
 });
 
-test('the shared constant is the only bronze in any surface that renders an eyebrow', () => {
-  const surfaces = [
-    'src/components/OverviewPanel.tsx',
-    'src/components/GameWeekPanel.tsx',
-    'src/components/MatchupsWeekPanel.tsx',
-  ];
+/** Every bronze spelling that has ever appeared in this repo. */
+const BRONZE_LITERALS = [/#c9a66b/i, /#dbc190/i, /201\s*,\s*166\s*,\s*107/];
 
-  for (const path of surfaces) {
-    const source = readFileSync(path, 'utf8');
-    // A future fourth consumer cannot add its own literal silently: the bronze values
-    // exist in exactly one file, and this fails the moment one is pasted back.
-    assert.doesNotMatch(source, /#c9a66b/i, `${path} must not carry its own bronze literal`);
-    assert.doesNotMatch(source, /#dbc190/i, `${path} must not carry its own bronze literal`);
-    assert.doesNotMatch(source, /201\s*,\s*166\s*,\s*107/, `${path} must not carry its own bronze`);
+/**
+ * `src/lib/gameUi.ts` DEFINES the treatment and `eyebrowTreatment.test.tsx` PINS it.
+ * Those two files are the only places a bronze value may be written down. Every other
+ * file in `src` — including a surface that does not exist yet — must go through the
+ * constant.
+ */
+const BRONZE_DEFINITION_FILES = new Set([
+  'lib/gameUi.ts',
+  'components/__tests__/eyebrowTreatment.test.tsx',
+]);
+
+const SRC_ROOT = new URL('../../', import.meta.url);
+
+function sourceFilesUnderSrc(): string[] {
+  const found: string[] = [];
+  const walk = (relative: string): void => {
+    for (const entry of readdirSync(new URL(relative, SRC_ROOT), { withFileTypes: true })) {
+      const next = `${relative}${entry.name}`;
+      if (entry.isDirectory()) walk(`${next}/`);
+      else if (/\.tsx?$/.test(entry.name)) found.push(next);
+    }
+  };
+  walk('');
+  return found;
+}
+
+test('the shared constant is the only bronze anywhere in src', () => {
+  const files = sourceFilesUnderSrc();
+
+  // A scan that names its own targets cannot catch a file that did not exist when it
+  // was written, which is exactly the consumer this guard is for.
+  assert.ok(
+    files.length > 100,
+    `expected a repository-wide scan, walked only ${files.length} files`
+  );
+  for (const definition of BRONZE_DEFINITION_FILES) {
+    assert.ok(files.includes(definition), `the walk must reach ${definition}`);
   }
+
+  const offenders = files
+    .filter((relative) => !BRONZE_DEFINITION_FILES.has(relative))
+    .filter((relative) => {
+      const source = readFileSync(new URL(relative, SRC_ROOT), 'utf8');
+      return BRONZE_LITERALS.some((pattern) => pattern.test(source));
+    });
+
+  assert.deepEqual(
+    offenders,
+    [],
+    `these files carry their own bronze literal instead of importing the shared constant: ${offenders.join(', ')}`
+  );
+});
+
+test('the shared constant pins the settled bronze values', () => {
+  // The one place the values themselves are asserted. Every other test compares a
+  // render to this constant, so without this test a change to the constant would be
+  // invisible everywhere except the no-blue assertion.
+  //
+  // Border width and colour are the mockup's and are settled. Radius, padding and
+  // tracking deliberately are NOT the mockup's — `AGENTS.md` rules it non-authoritative
+  // on those three, so they are pinned here as SHIPPED, pending Item 143.
+  assert.equal(
+    EYEBROW_TAG_CLASSES,
+    'shrink-0 rounded-full border-[0.5px] border-[rgba(201,166,107,0.40)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#dbc190]'
+  );
+  assert.equal(
+    EYEBROW_REASON_CLASSES,
+    'text-[10px] font-semibold uppercase tracking-wide text-[#c9a66b]'
+  );
 });
 
 test('interactive blue survives the eyebrow conversion', () => {

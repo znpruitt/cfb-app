@@ -159,7 +159,7 @@ export default function GameWeekPanel({
                             {tags.map((tag) => (
                               <span
                                 key={`${g.key}:${tag}`}
-                                className={`inline-flex shrink-0 ${EYEBROW_TAG_CLASSES}`}
+                                className={`inline-flex ${EYEBROW_TAG_CLASSES}`}
                                 data-eyebrow-tag
                               >
                                 {LEAGUE_TAG_LABELS[tag]}

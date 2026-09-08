@@ -6,6 +6,33 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import type { AppGame } from '../../lib/schedule';
 import type { VenueInfo } from '../../lib/schedule/cfbdSchedule';
 import { EYEBROW_TAG_CLASSES } from '../../lib/gameUi';
+
+/**
+ * Counting the MARKER alone would keep these assertions green if the shared bronze
+ * treatment were changed to anything at all, including blue. Count only spans that
+ * carry the marker AND the treatment, so the count itself carries the styling signal.
+ */
+function eyebrowClasses(html: string): string[] {
+  return Array.from(
+    html.matchAll(/<span(?=[^>]*data-eyebrow-tag)[^>]*class="([^"]*)"[^>]*>/g),
+    (match) => match[1] ?? ''
+  );
+}
+
+function bronzeEyebrows(html: string): string[] {
+  return eyebrowClasses(html).filter((classAttr) => classAttr.includes(EYEBROW_TAG_CLASSES));
+}
+
+/** No eyebrow renders without the shared treatment — the invariant, not a count. */
+function assertEveryEyebrowIsBronze(html: string): void {
+  const all = eyebrowClasses(html);
+  assert.ok(all.length > 0, 'expected at least one eyebrow to render');
+  assert.deepEqual(
+    all.filter((classAttr) => !classAttr.includes(EYEBROW_TAG_CLASSES)),
+    [],
+    'every rendered eyebrow must carry the shared bronze treatment'
+  );
+}
 import GameWeekPanel from '../GameWeekPanel';
 
 function game(overrides: Partial<AppGame>): AppGame {
@@ -1588,7 +1615,7 @@ test('schedule cards use primary tag priority (upset watch over top-25) with sub
   assert.match(html, /data-primary-tag="upset_watch"/);
   assert.match(html, /Upset watch/);
   assert.match(html, /Top 25/);
-  assert.equal((html.match(/data-eyebrow-tag/g) ?? []).length, 2);
+  assert.equal(bronzeEyebrows(html).length, 2);
 });
 
 test('single-tag cards render only a primary tag without any secondary tag chips', () => {
@@ -1613,7 +1640,7 @@ test('single-tag cards render only a primary tag without any secondary tag chips
 
   assert.match(html, /data-primary-tag="top_25_matchup"/);
   assert.match(html, /Top 25/);
-  assert.equal((html.match(/data-eyebrow-tag/g) ?? []).length, 1);
+  assert.equal(bronzeEyebrows(html).length, 1);
 });
 
 test('cards without qualifying tags render no expanded tag chips', () => {
@@ -1632,7 +1659,7 @@ test('cards without qualifying tags render no expanded tag chips', () => {
 
   assert.match(html, /data-game-card-id="zero-tag"/);
   assert.match(html, /data-primary-tag=""/);
-  assert.doesNotMatch(html, /data-eyebrow-tag/);
+  assert.equal(bronzeEyebrows(html).length, 0);
 });
 
 test('collapsed and expanded tag presentation stay aligned to the same primary tag', () => {
@@ -1683,6 +1710,7 @@ test('collapsed and expanded tag presentation stay aligned to the same primary t
   assert.match(html, /data-game-card-id="tag-consistency"/);
   assert.match(html, /data-primary-tag="upset_watch"/);
   assert.match(html, /data-eyebrow-tag[^>]*>Upset watch/);
+  assertEveryEyebrowIsBronze(html);
 });
 
 test('upset cards keep their bronze eyebrow but render no retired amber border', () => {
@@ -1755,12 +1783,7 @@ test('upset cards keep their bronze eyebrow but render no retired amber border',
 
   assert.match(html, /data-primary-tag="upset"/);
   assert.match(html, /data-eyebrow-tag[^>]*>Upset<\/span>/);
-  const upsetEyebrow = html.match(/<span(?=[^>]*data-eyebrow-tag)[^>]*>/)?.[0];
-  assert.ok(upsetEyebrow, 'the upset eyebrow must render');
-  assert.ok(
-    upsetEyebrow.includes(EYEBROW_TAG_CLASSES),
-    'the upset eyebrow must carry the shared bronze treatment verbatim'
-  );
+  assertEveryEyebrowIsBronze(html);
   assert.doesNotMatch(html, /border-amber-300\/80/);
   assert.match(html, /data-primary-tag=""/);
 });
