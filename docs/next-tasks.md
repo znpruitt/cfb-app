@@ -1075,15 +1075,36 @@ exists for what the live feed does not cover, and that is overwhelmingly games n
 4. **The 2 unreadable finals that shaped Item 139's withholding ruling are in this bucket.** The
    ruling stands; the denominator it was argued against was 54% invisible.
 
-**The counter-argument, which is why this is a decision.** FBS teams play FCS opponents, and an FCS
-opponent's other games may matter for records and rankings context. The third bucket is the one with
-no such path — a D-III game between two D-III teams cannot reach any rendered surface. **But that
-must be verified, not assumed**: check whether any consumer resolves an opponent's opponent before
-concluding the rows are inert.
+**RESOLVED 2026-09-08 — owner ruling: D-II and D-III are never used in-app. FCS appears only in the
+context of games against FBS schools. Drop D-II/D-III; keep FCS.**
 
-**Do NOT filter at read time as a workaround.** If these rows should not be stored, the fix is the
-fetch's `division` parameter, not a filter every consumer must remember. A read-time filter is a
-fifth consumer of the same population.
+**AND THE RECORDS CACHE HAS THE SAME SHAPE — this is two datasets, not one.** `/records` is fetched
+**unfiltered** (`cfbd.ts:25`). Measured on `team-records/2018`, 687 entries:
+
+| classification | teams | keep? |
+| --- | --- | --- |
+| fbs | 130 | yes |
+| fcs | 125 | **yes** — FCS records RENDER on an FBS opponent's row |
+| ii | 179 | no |
+| iii | 253 | no |
+
+**432 of 687 teams — 63% — are never displayed.** Cache is ~113 KB per year across seven years.
+
+**Why FCS stays, in both datasets.** 2026 has **127 FBS-vs-FCS games** and 2025 has 126. Those rows
+render an FCS opponent with its record — the mockup shows `FCS Norfolk State … 1–7`. Dropping FCS
+breaks a rendered surface; dropping D-II/D-III cannot, because **no FBS team plays one.**
+
+**Measurement limitation, stated so it is not over-quoted.** The FBS-opponent split is verifiable for
+**2025 and 2026 only** — `awayClassification` / `homeClassification` do not exist on the 2021–2024
+blobs, which predate the provider division label. Both measurable seasons show FBS opponents as
+exclusively `fbs` and `fcs`, zero otherwise. The ruling rests on product knowledge; the measurement
+corroborates two seasons of it.
+
+**Do NOT filter at read time as a workaround — but the two datasets need different mechanisms.**
+Schedule has a `division` parameter on the fetch (`cfbd.ts:9-19`); that is the right lever.
+**`/records` takes only `year`** — no division filter exists — so records must be pruned **at the
+write, before caching**, not at every read. Either way it is ONE place, and a read-time filter every
+consumer must remember is the wrong answer for both.
 
 **Blocker:** none, but it interacts with Item 141 (Insights rebuilds the season per request) and Item
 140 (tail sizing) — both would get cheaper or clearer, and neither should be measured again until
