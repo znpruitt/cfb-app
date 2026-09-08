@@ -223,11 +223,53 @@ test('a present-but-invalid per-year field rejects the record, as every other st
       'unknown fault kind',
       { failedPartitions: [{ seasonType: 'regular', upstream: { kind: 'dns' } }] },
     ],
-    [
-      'fault with an unusable status',
-      { failedPartitions: [{ seasonType: 'regular', upstream: { kind: 'http', status: 700 } }] },
-    ],
   ];
+
+  // NOT in the list, deliberately: a fault whose STATUS is unusable. Round 2
+  // moved it out — rejecting cost the whole run's forensic surface for a value
+  // `rebuildUpstreamFaultClass` discards anyway. Its accept-and-normalize
+  // behaviour is asserted in `upstreamFaultClass.test.ts`; here we prove the
+  // receipt survives it rather than degrading to `invalid`.
+  const survives = parseSchedulerExecutionReceipt(
+    {
+      version: 1,
+      job: 'schedule-refresh',
+      source: 'qstash',
+      invocationId: 'corrupt-status',
+      startedAt: '2026-09-01T12:00:01.664Z',
+      completedAt: '2026-09-01T12:00:38.788Z',
+      durationMs: 1,
+      result: 'failure',
+      reason: 'year-results',
+      providerCallAttempted: true,
+      target: {
+        kind: 'schedule-years',
+        totalYears: 1,
+        truncated: false,
+        invalidLifecycleTargets: 0,
+        years: [
+          {
+            year: 2026,
+            operation: 'ordinary-maintenance',
+            result: 'failure',
+            reason: 'partition-fetch-failed',
+            failedPartitions: [{ seasonType: 'regular', upstream: { kind: 'http', status: 700 } }],
+          },
+        ],
+      },
+    },
+    'schedule-refresh',
+    NOW
+  );
+  assert.ok(survives, 'a corrupt status does not discard the whole run');
+  assert.equal(survives.reason, 'year-results', 'the run-level reason is retained');
+  const survivingYear = (
+    survives.target as Extract<SchedulerExecutionReceipt['target'], { kind: 'schedule-years' }>
+  ).years[0]!;
+  assert.equal(survivingYear.reason, 'partition-fetch-failed', 'and the per-year reason');
+  assert.deepEqual(survivingYear.failedPartitions, [
+    { seasonType: 'regular', upstream: { kind: 'http', status: null } },
+  ]);
 
   for (const [label, override] of badEntries) {
     const parsed = parseSchedulerExecutionReceipt(
@@ -447,7 +489,7 @@ test('the rankings target carries the same widened shape as the schedule target'
   assert.deepEqual(parsed.target, target);
   assert.equal(
     summarizeReceiptTarget(parsed.target),
-    '1 year(s): 2026 (weekly-ap-coaches) — failure / provider-fetch-failed · regular parse'
+    '1 year(s): 2026 (weekly-ap-coaches) [failure / provider-fetch-failed · regular parse]'
   );
 });
 

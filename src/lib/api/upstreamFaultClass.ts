@@ -85,19 +85,23 @@ export function isStoredUpstreamFaultClass(value: unknown): boolean {
   if (typeof value !== 'object' || value === null) return false;
   const record = value as Record<string, unknown>;
   if (typeof record.kind !== 'string' || !UPSTREAM_FAULT_KIND_VALUES.has(record.kind)) return false;
-  // Absent is accepted (a writer that only ever recorded non-HTTP faults may
-  // omit it); a present-but-unusable status on an `http` fault rejects, matching
-  // every other stored field.
+  // The STATUS never rejects a record, on any kind.
   //
-  // For every OTHER kind the status is ignored rather than rejected: the rebuild
-  // discards it unconditionally, so it can never be rendered, while rejecting
-  // would fail the whole receipt — the job then reports as having no recent
-  // invocation and loses `reason`, `target` and both timestamps. That is the
-  // disproportionate-rejection cost already documented at the `buildCommitSha`
-  // guard, paid for a value nothing could ever read. (Review finding.)
-  if (record.kind !== 'http') return true;
-  if (record.status === undefined || record.status === null) return true;
-  return isHttpStatus(record.status);
+  // Rejecting here fails the whole receipt: `isValidStoredYearOutcome` →
+  // `isValidYearEntries` → `parseSchedulerExecutionReceipt` returns null, the
+  // System Health row degrades to `invalid`, and the run loses `result`,
+  // `reason`, `target` and BOTH timestamps. That is the same whole-record
+  // rejection identified as this widening's migration hazard, and it would
+  // discard exactly the forensic surface this item exists to preserve — over an
+  // observability-only integer.
+  //
+  // Nothing is lost by accepting: `rebuildUpstreamFaultClass` normalizes an
+  // out-of-range or wrong-kind status to null, so the worst a corrupt row can
+  // render is the bare, truthful label `http`. Round 2 corrected round 1 here,
+  // which had left `http` strict while relaxing every other kind — an asymmetry
+  // that was incoherent in either direction. Same reasoning as the
+  // `buildCommitSha` guard, which this file already documents.
+  return true;
 }
 
 /**

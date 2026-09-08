@@ -140,13 +140,38 @@ test('stored-shape validation accepts the closed set and rejects everything else
     { kind: 'TIMEOUT' },
     { kind: 'dns' },
     { kind: '' },
+  ]) {
+    assert.equal(isStoredUpstreamFaultClass(bad), false, JSON.stringify(bad));
+  }
+});
+
+test('a corrupt STATUS never rejects a record — it is accepted and normalized away', () => {
+  // Round 2. These four used to be in the reject list above. Rejecting fails the
+  // WHOLE receipt (`isValidStoredYearOutcome` → `isValidYearEntries` →
+  // `parseSchedulerExecutionReceipt` → null), so the run loses `result`,
+  // `reason`, `target` and both timestamps — discarding the forensic surface this
+  // item exists to preserve, over an observability-only integer that the rebuild
+  // was going to drop regardless.
+  //
+  // The assertion is not weakened, it is INVERTED and strengthened: each case is
+  // now asserted to be accepted AND to normalize to a truthful `status: null`,
+  // which the old test never checked.
+  for (const corrupt of [
     { kind: 'http', status: '503' },
     { kind: 'http', status: 99 },
     { kind: 'http', status: 600 },
     { kind: 'http', status: 1.5 },
+    { kind: 'timeout', status: 503 },
+    { kind: 'parse', status: 99999 },
   ]) {
-    assert.equal(isStoredUpstreamFaultClass(bad), false, JSON.stringify(bad));
+    assert.equal(isStoredUpstreamFaultClass(corrupt), true, JSON.stringify(corrupt));
+    const rebuilt = rebuildUpstreamFaultClass(corrupt as never);
+    assert.deepEqual(rebuilt, { kind: corrupt.kind, status: null }, JSON.stringify(corrupt));
+    // And it renders as the bare, truthful kind — never a fabricated status.
+    assert.equal(upstreamFaultLabel(rebuilt!), corrupt.kind);
   }
+  // The KIND still rejects. Strictness stays where a bad value could mislead.
+  assert.equal(isStoredUpstreamFaultClass({ kind: 'dns', status: 503 }), false);
 });
 
 test('the rebuild drops extra properties and any status a non-http member claims', () => {

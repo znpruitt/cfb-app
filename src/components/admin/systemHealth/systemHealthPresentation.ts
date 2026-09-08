@@ -322,8 +322,15 @@ export function summarizeReceiptTarget(target: SchedulerExecutionReceipt['target
           ? `: ${target.years
               .map((y) => {
                 const evidence = formatYearFailureEvidence(y);
+                // BRACKETED, not dash-prefixed: the run-level suffixes appended
+                // after `yearDetail` (`unusable`, `sweepDetail`) use the same
+                // ` · ` atom separator the evidence does, so an open-ended tail
+                // ran the last year's partitions straight into the run counters.
+                // A self-closing delimiter ends the separator arms race — round 1
+                // fixed a ', ' collision with the YEAR separator and merely moved
+                // the ambiguity one level out. (Round 2 review finding.)
                 return `${y.year}${y.operation ? ` (${y.operation})` : ''}${
-                  evidence ? ` — ${evidence}` : ''
+                  evidence ? ` [${evidence}]` : ''
                 }`;
               })
               .join(', ')}`
@@ -359,8 +366,9 @@ export function summarizeReceiptTarget(target: SchedulerExecutionReceipt['target
           ? `: ${target.years
               .map((y) => {
                 const evidence = formatYearFailureEvidence(y);
+                // Bracketed for the same reason as the schedule branch above.
                 return `${y.year}${y.publicationWindow ? ` (${y.publicationWindow})` : ''}${
-                  evidence ? ` — ${evidence}` : ''
+                  evidence ? ` [${evidence}]` : ''
                 }`;
               })
               .join(', ')}`

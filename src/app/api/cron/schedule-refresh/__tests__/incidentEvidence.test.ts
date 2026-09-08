@@ -268,7 +268,7 @@ test('the System Health target summary shows the failing year and hides the heal
   const target = await storedTarget();
   assert.equal(
     summarizeReceiptTarget(target),
-    '2 year(s): 2030 (postseason-boundary), 2031 (postseason-boundary) — failure / partition-fetch-failed · regular http 503',
+    '2 year(s): 2030 (postseason-boundary), 2031 (postseason-boundary) [failure / partition-fetch-failed · regular http 503]',
     'the failing year names its evidence; the healthy year renders exactly as before'
   );
 });
@@ -493,4 +493,49 @@ test('a MISSING CFBD key records no attempted partitions — the receipt cannot 
   // partitions on a run that genuinely reached the provider (the mixed-pair and
   // class tests above), so an empty list here is the code's answer, not the
   // harness failing to look.
+});
+
+// ── The response body is a separate contract from the receipt ───────────────
+
+test('the response body per-year keys are byte-preserved — the retained class is receipt-only', async () => {
+  // Item 147. The SIBLING job's body leaked `failedPartitions` because only its
+  // log-event keys were pinned and nothing pinned the body; that fix added a
+  // projector and a pin for rankings and left this one — the job the whole item
+  // was written about — unpinned. `responseYearEntry` is correct today; this
+  // makes the two jobs symmetric so a future widening plus a `...entry` spread
+  // cannot reproduce the same defect unobserved.
+  await seedYear(2031);
+  stubProvider({ 2031: { regular: { kind: 'throw', error: upstreamThrow('timeout') } } });
+
+  const res = await runRoute();
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { years: Array<Record<string, unknown>> };
+  assert.equal(body.years.length, 1);
+  assert.deepEqual(
+    Object.keys(body.years[0]!).sort(),
+    [
+      'dataChanged',
+      'operation',
+      'providerCallAttempted',
+      'reason',
+      'result',
+      'rowsCommitted',
+      'rowsReceived',
+      'year',
+    ],
+    'exactly the pre-126B key set — no attemptedSeasonTypes, no failedPartitions'
+  );
+  assert.ok(
+    !JSON.stringify(body).includes('failedPartitions'),
+    'the retained class does not reach the delivery response'
+  );
+
+  // POSITIVE CONTROL — the same run DID record it durably, so the absence above
+  // is the projector working, not the evidence going missing.
+  await deferrer.flush();
+  const stored = await readSchedulerReceipt('schedule-refresh');
+  assert.ok(stored);
+  assert.deepEqual((stored.value.target as ScheduleYearsTarget).years[0]!.failedPartitions, [
+    { seasonType: 'regular', upstream: { kind: 'timeout', status: null } },
+  ]);
 });
