@@ -100,9 +100,17 @@
   body.hl-neutral .sb-line.mine::after,
   body.hl-outcome .sb-line.mine::after,
   body.hl-owner .sb-line.mine::after {
-    content: ""; position: absolute; inset: -1px -8px -1px 12px;
+    content: ""; position: absolute; inset: 0 -8px 0 12px;
     border-radius: 4px; pointer-events: none; z-index: -1;
   }
+  /* Reconciled 2026-09-08 to the shipped component (Item 87 slice 5b, PR #575): zero vertical
+     bleed, and when two adjacent rows are both tinted the touching corners square off so the pair
+     reads as one block with rounded outer corners only. The earlier value here was -1px -8px,
+     which overlapped two 5.5% layers into a darker stripe at the seam — ruled out, see
+     docs/campaigns/item-87-followon-team-highlight.md "Adjacent tinted rows". The code is the
+     reference; do not "restore" -1px. */
+  .sb-line.mine:has(+ .sb-line.mine)::after { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+  .sb-line.mine + .sb-line.mine::after      { border-top-left-radius: 0; border-top-right-radius: 0; }
   body.hl-neutral .sb-line.mine::after { background: rgba(255,255,255,0.055); }
   /* Outcome variant: the tint marks which row is the card owner's; its hue says how
      the game went. Neutral while scheduled or live — no outcome exists yet. Left edge
@@ -319,6 +327,11 @@
   }
   /* 1320 = 3 x (400px minimum row + 24px block padding) + 2 x 20px gap. Higher than the
      Overview game grid's 1300 because each block now carries its own padding. */
+  /* Item 152 (found 2026-09-08): this arithmetic does NOT reproduce its own number. As written it
+     gives 1312; presentation-decisions.md's version (2 x 16px gap) gives 1304; and this file's
+     actual CSS (.grow padding 7px 10px = 20px horizontal, .sched-grid column gap 16px) gives 1300.
+     The number is deliberately left unchanged here — Item 152 picks it and corrects the two
+     statements that disagree with it. */
   @container (min-width: 1320px) { .sched-grid { grid-template-columns: 1fr 1fr 1fr; } }
 
   /* ---------- Mockup scaffolding (not part of design) ---------- */
@@ -409,7 +422,7 @@
     </div>
 
                 <div class="scoreboard is-live">
-      <div class="sb-status"><span class="live-badge">Live</span><span>Q3 8:12</span></div>
+      <div class="sb-status"><span class="live-badge">Live</span><span>Q3 8:12 &middot; <span class="tv">ESPN2</span></span></div>
       <div class="sb-line trailing" style="--tcol:#E0546B"><span class="who"><span class="tc"></span><span class="team">Arkansas State</span><span class="rec num">(3&ndash;5)</span><span class="owner">Pruitt</span></span><span class="score num">10</span></div>
       <div class="sb-line mine ahead" style="--tcol:#4A78C4"><span class="who"><span class="tc"></span><span class="team">Memphis</span><span class="rec num">(4&ndash;4)</span><span class="owner self">BHooper</span></span><span class="score num">24</span></div>
     </div>
@@ -420,7 +433,7 @@
       <div class="sb-odds num">Line not posted</div>
     </div>
     <div class="scoreboard">
-      <div class="sb-status"><span class="sb-meta"><span>Sun, Sep 6 &middot; 6:30 PM &middot; Neutral site</span></span><span class="eyebrow">Ranked spotlight</span></div>
+      <div class="sb-status"><span class="sb-meta"><span class="state">Scheduled</span><span>Sun, Sep 6 &middot; 6:30 PM &middot; Neutral site</span></span><span class="eyebrow">Ranked spotlight</span></div>
       <div class="sb-line" style="--tcol:#8B5FC4"><span class="who"><span class="tc"></span><span class="rank">#24</span><span class="team">Louisville</span><span class="owner">Stevens</span></span><span class="anchor-soft num">5&ndash;1</span></div>
       <div class="sb-line mine" style="--tcol:#C25050"><span class="who"><span class="tc"></span><span class="rank">#9</span><span class="team">Ole Miss</span><span class="owner self">BHooper</span></span><span class="anchor-soft num">6&ndash;1</span></div>
       <div class="sb-odds num">Ole Miss &minus;6.5 &middot; O/U 49.5</div>
@@ -711,7 +724,7 @@
 <div class="mockup-notes">
   <strong>Mockup notes (not part of the design)</strong>
   <ul>
-    <li><strong>Same component, no fork.</strong> Both views consume the scoreboard shipped in Item 87 slices 1&ndash;4. Nothing here is a new row shape &mdash; the additions are the two contract widenings recorded separately: the prefix slot accepting an FCS marker as well as a rank, and a neutral-site marker on the meta line.</li>
+    <li><strong>Same component, no fork.</strong> Both views consume the scoreboard shipped in Item 87 slices 1&ndash;4. Nothing here is a new row shape &mdash; the additions are the two contract widenings recorded separately: the prefix slot accepting an FCS marker as well as a rank, and a neutral-site marker on the meta line. <em>[Reconciled 2026-09-08: four widenings shipped as slice 5a, not two &mdash; also broadcast on live/awaiting rows and the non-reserving tier-2 slot. Recorded in DESIGN.md.]</em></li>
     <li><strong>Matchups gains a correctness fix, not just a restyle.</strong> The shipped row reads <code>Colorado @ Georgia Tech</code> with <code>vs BHooper</code> beneath it, which never says which team belongs to which owner. Team-primary with an owner suffix resolves it structurally &mdash; the same defect and the same fix as the Overview redesign.</li>
     <li><strong>Eyebrows are bronze (#c9a66b), a deliberate deviation from the shipped blue.</strong> Bronze was decided earlier in this campaign, ranked above sky, neutral and fuchsia. An intermediate mockup reverted it to the shipped <code>text-blue-300</code> after a reviewer flagged gold as champion-reserved &mdash; that bundled two claims, and only one holds. <em>Shipped is blue</em> is descriptive, and a mockup proposing a change is what deviates from it. <em>Gold is champion-reserved</em> is answered by temporal separation: the champion treatment does not render until a title is awarded &mdash; podium cards for #1&ndash;#3 are neutral all season &mdash; so bronze is uncontested through the year, and at season end the two remain distinguishable, since bronze is a desaturated tan against a dark saturated gold. The reservation binds a token to a purpose, not a hue neighbourhood.</li>
     <li><strong>Blue would also have been a poor choice independently</strong> &mdash; it is the interactive token, so eyebrows would share a colour with links and controls.</li>
@@ -730,7 +743,7 @@
     <li><strong>Residual:</strong> the feedback asked for "my teams". On a member's own card the card owner and the member coincide, so this answers it; on another owner's card it highlights <em>their</em> teams. Highlighting the viewing member's teams anywhere requires a user&harr;owner mapping that does not exist &mdash; filed separately.</li>
     <li><strong>The scoreboard is the default Schedule row &mdash; no one-line collapse.</strong> The shipped collapse hides the wrong tier. Tier 1 is teams, owners, records and score, which is what a schedule is <em>for</em>; tier 2 is venue, moneyline and conference, which genuinely is secondary. Collapsing to one line hid tier 1 to protect against tier 2. Now the scoreboard always renders and only tier 2 sits behind "More". Scores and owner mapping are visible without interaction, and the row treatment matches Matchups and Overview exactly.</li>
     <li><strong>The cost is roughly double the scroll</strong> &mdash; two columns and around 60 games a week puts a full slate near 2,000px. That is acceptable given the filter cuts it to the live handful in one click, and given the alternative was hiding scores behind a click on a results view. Judge the density here against a real slate before accepting it.</li>
-    <li><strong>Broadcast network is tier 1 on a schedule.</strong> "Can I watch this" is the question the view answers, so the network sits in the status row beside the kickoff time rather than behind an expand. It renders on <em>scheduled</em> and <em>live</em> rows only &mdash; a final's broadcast is dead information, since the row's job at that point is the result. Same principle as the anchor: the status row carries what is actionable for that state.</li>
+    <li><strong>Broadcast network is tier 1 on a schedule.</strong> "Can I watch this" is the question the view answers, so the network sits in the status row beside the kickoff time rather than behind an expand. It renders on <em>scheduled</em> and <em>live</em> rows only &mdash; a final's broadcast is dead information, since the row's job at that point is the result. Same principle as the anchor: the status row carries what is actionable for that state. <em>[Superseded 2026-09-08: the settled set is scheduled, live AND awaiting &mdash; owner ruling in DESIGN.md, corrected in matchups-schedule-design.md "Broadcast network is tier 1". Note also that this file's Matchups cards omit broadcast on every row while the same games on Schedule carry it; no document decides that, so it is flagged here for Item 143 rather than changed.]</em></li>
     <li><strong>Games without a listed broadcast</strong> simply omit it rather than rendering a placeholder; several FCS matchups have none.</li>
     <li><strong>Conference sits in tier 2 on its own line, not appended to the odds.</strong> It is context rather than something a member acts on, and the page already carries a conference <em>filter</em>, so the dimension is handled at page level &mdash; the row only needs to state it. Appending it to the odds string made it read as an afterthought and coupled two unrelated facts.</li>
     <li><strong>Same-conference games collapse.</strong> "ACC vs ACC" is nonsense; those render "ACC matchup". Conference is strictly a team attribute, so the "X vs Y" form is a game-level summary of two facts and needs this special case.</li>
@@ -743,9 +756,11 @@
     <li><strong>Matchups differs deliberately.</strong> An owner card holds roughly nine games, so scoreboards render expanded inline with no collapse &mdash; the volume does not justify hiding them, and the whole point of that view is reading a slate at once. Same component, different consumption. Odds show there for the same reason and are suppressed on Schedule's collapsed rows.</li>
     <li><strong>Preserved metadata:</strong> FCS marker (prefix slot), rank prefix, Top-25 / Ranked-spotlight eyebrow, neutral site, kickoff time, per-owner stat strip. The stat strip sits outside the scoreboard and is unchanged.</li>
     <li><strong>Sorted strictly by kickoff time, ascending, within each date group.</strong> A schedule's contract is time order, so live games are <em>not</em> floated to the top the way the Overview promotion model does &mdash; the filter covers "show me what's live" without breaking the one guarantee the view makes. Kickoff times therefore render on every row including finals: with the sort keyed to a value, hiding that value on two-thirds of the rows makes the order look arbitrary.</li>
+    <li><em>[Superseded 2026-09-08: the previous sentence is wrong and this file's own final rows already contradict it &mdash; they carry no time. A final row carries no date and no time (DESIGN.md, owner decision 2026-09-04); scheduled rows carry the kickoff, live rows the clock. Corrected in matchups-schedule-design.md "Sorted strictly by kickoff".]</em></li>
     <li><strong>Open &mdash; landing position.</strong> Ascending order means a mid-Saturday visit opens on the morning's finals with live games below the fold. That is a scroll-position question rather than a sort question: options are to leave it, scroll to the first non-final game on load, or anchor the current date group. Worth deciding separately from the sort.</li>
     <li><strong>Two-column Schedule</strong> matches the Overview grid, row-major, container query at 760px. Matchups owner cards tier at 1372px — 3 &times; (400px inner + 44px card padding) + 2 &times; 20px gap. Higher than Schedule’s 1320 because each card carries its own padding.</li>
     <li><strong>Records shown throughout</strong> &mdash; anchor on scheduled rows, inline parenthetical on live and final rows, per the records follow-on. These depend on the CFBD records integration; until it lands, scheduled rows anchor on the spread and live/final rows omit the parenthetical.</li>
+    <li><em>[Superseded 2026-09-08: the records integration landed (PLATFORM-117) but is wired to Overview only. Where a record is unavailable a scheduled row's anchor is left BLANK, never given the spread &mdash; owner decision 2026-09-02 and ruling 2026-09-08 in item-87-live-watchlist-scoreboard.md "Watchlist card". Live/final rows omitting the parenthetical stands.]</em></li>
     <li><strong>FCS teams are never owned</strong> &mdash; they appear only as the unowned opponent in an FBS-vs-FCS game, so an FCS line renders team-only with no owner suffix, exactly like the unowned-FBS case. FCS-vs-FCS games cannot exist in the league and are not drawn.</li>
     <li><strong>The FCS marker is not redundant with "no owner".</strong> A 14-owner league holds fewer teams than the FBS contains, so unowned FBS opponents exist too &mdash; Purdue in the Schedule list is one. The marker distinguishes an FCS opponent from a merely-unowned FBS opponent, which matters because a win over each means something different. Both render without an owner suffix; only one carries the marker.</li>
     <li><strong>Defect &mdash; the sentinel <code>NoClaim</code> is rendered to members as an owner.</strong> The shipped Schedule shows "NoClaim vs LHooper" on the Massachusetts&ndash;Rutgers row. <code>NoClaim</code> is the league's internal convention for an unowned team, not a person; displayed as an owner name it reads as a fourteenth member. <strong>Rule: a <code>NoClaim</code> owner renders no owner suffix at all</strong> &mdash; the absence is the signal, exactly as it is for FCS opponents. Corrected throughout here (Massachusetts, Purdue).</li>

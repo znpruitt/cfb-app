@@ -1,8 +1,14 @@
 # Item 87 — Follow-on input: three-column tier
 
+> **Check `item-87-INDEX.md` before deciding from this document.** Parts of it may be superseded.
+>
 > **Status:** input for review, not applied.
 
 Adds a third column tier to the game-list grid on Overview. Extends the tiering recorded in `item-87-followon-matchups-schedule-design.md`, which established the container-query mechanism and the 760px single-column breakpoint.
+
+> **INDEX (verified 2026-09-08): CURRENT** for Overview (Item 134, unbuilt), with one mis-citation: the container
+> query and the 760px breakpoint were established in `item-87-live-watchlist-scoreboard.md` → *Layout*, not in the
+> Matchups/Schedule design document.
 
 ---
 
@@ -40,8 +46,17 @@ The requirement is arithmetic and the 20px on top is a choice, stated so it is n
 
 **Matchups and Schedule are separate questions.** This tier is specified for Overview's game lists. Schedule carries far more rows and its own density argument; Matchups uses a two-column owner-card grid whose cards are wider than a scoreboard row. Neither inherits this automatically.
 
+> **SUPERSEDED for Matchups (verified 2026-09-08):** the mockup ships a three-column owner-card tier at 1372px with
+> its arithmetic (`mockups/matchups-schedule-mockup.html:218-220`, the `.owner-grid` container query); shipped code is still `lg:grid-cols-2`
+> (`item-87-followon-matchups-gap-analysis.md` §3.4). Schedule's tier is stated at 1320px in
+> `item-87-followon-presentation-decisions.md`, with arithmetic that does not reproduce — Item 152.
+
 ---
 
 ## Open
 
 Whether Schedule adopts the same tier. Its rows are the same component, so the 1300px arithmetic holds, but sixty-plus games across three columns is a different reading problem from six — and Schedule's date grouping means each group renders its own partial final row.
+
+> **ANSWERED (verified 2026-09-08):** Schedule adopts a three-column tier of its own, higher than 1300 because each
+> block carries padding — `item-87-followon-presentation-decisions.md` → *Three-column tier at 1320px*. The exact
+> number is Item 152's.

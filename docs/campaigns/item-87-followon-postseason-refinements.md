@@ -1,6 +1,11 @@
 # Item 87 — Follow-on input: postseason grouping, refinements
 
+> **Check `item-87-INDEX.md` before deciding from this document.** Parts of it may be superseded.
+>
 > **Status:** input for review, not applied.
+>
+> **INDEX (verified 2026-09-08): CURRENT.** §1 is the rule the grouping item builds against; §3 is filed (Item 121)
+> and Item 120 is refiled below. Nothing here is overridden.
 
 Child of `item-87-followon-postseason-grouping-notes.md`. Records three refinements from the provider-string verification.
 

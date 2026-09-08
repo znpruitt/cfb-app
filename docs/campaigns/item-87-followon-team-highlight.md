@@ -1,6 +1,13 @@
 # Item 87 — Follow-on input: card-owner team highlight on Matchups
 
+> **Check `item-87-INDEX.md` before deciding from this document.** Parts of it may be superseded.
+>
 > **Status:** decision settled; component seam merged via PR #575; UI adoption remains Item 117.
+>
+> **INDEX (verified 2026-09-08 after a full read): CURRENT.** Nothing later overrides any decision here. Item 117
+> has since shipped the adoption (PR #581, 2026-09-07). This file was twice marked SUPERSEDED by readers who had not
+> opened it; the reading that `presentation-decisions.md` supersedes it is wrong and is marked at the paragraph it
+> concerns.
 
 Origin: member feedback on the Matchups page — *"this screen should color my teams."*
 
@@ -21,6 +28,14 @@ That distinction is why this is a Matchups-only feature rather than an app-wide 
 **Background, not text weight.** Weight already carries winner/loser on final rows. Emphasising the owner's team that way would render a losing team of theirs bold-and-dimmed — two signals arguing on one row. A tint sits behind the text and leaves the outcome hierarchy intact. Same reasoning that rejected the team-colour gradient, applied in the other direction.
 
 **Neutral rather than owner colour.** `DESIGN.md` reserves owner colour for lists acting as a chart legend, so using it here would be a rule change rather than an application of one. It would also be a third identity colour on a single row, alongside the team-colour bar at line start. The mockup keeps an owner-colour variant behind a toggle for comparison only.
+
+> **CURRENT — and it is the IDENTITY axis only (verified 2026-09-08).** "Neutral" here rejects OWNER colour: the
+> whole argument is the legend reservation and a third identity colour. `item-87-followon-presentation-decisions.md`
+> → *The tint tracks state across the game's whole life* gives the same tint an OUTCOME hue once a direction exists
+> (neutral while scheduled or level; green/red ahead, behind, won, lost). Not owner-coloured, and outcome-coloured
+> once a direction exists: both hold, and that document extends this one rather than superseding it. "The
+> team-colour bar at line start" is a dependency, not a fact about shipped code — slice 5 deleted the bar and Item
+> 119 restores it (`item-87-followon-team-colour-regression.md`).
 
 Owner colour is reserved for lists acting as a legend for an adjacent chart. `DESIGN.md:321` records Standings rank numbers as an exception, carrying owner line colour — but that is the rule's rationale applying, not a hole in it: that list is functionally a legend for the chart beside it. The exception sits exactly where the reservation's reasoning holds, which makes it a test. A Matchups row tint has no chart to key to, so it fails the test the exception passes.
 
@@ -61,11 +76,21 @@ The component already knows both participants, so the condition is available wit
 the two should change the mockup, not the code — the mockup's value predates the both-rows-tint rule
 and produces the darker stripe above.
 
+> **LIVE OBLIGATION — INDEX CARRY row 6 (verified 2026-09-08), and applied to the mockup on this pass:**
+> `mockups/matchups-schedule-mockup.html` now carries `inset: 0 -8px 0 12px` with squared facing corners between
+> adjacent tinted rows, matching the shipped component (`DESIGN.md` → *The optional `isCardOwnerTeam` participant
+> modifier*). The code was not touched.
+
 ## Horizontal bleed and flush focus rings
 
 **Owner decision 2026-09-06.** Keep the 8px horizontal bleed and accept a caller constraint rather
 than changing this slice. Item 117's intended Matchups owner card has 14–16px horizontal padding, so
-the tint stops 6–8px before that card's outer focus ring. `GameWeekPanel` places its ring flush around
+the tint stops 6–8px before that card's outer focus ring.
+
+> **CURRENT (verified 2026-09-08):** Item 117 shipped (PR #581) and `DESIGN.md` records the same constraint under
+> *Horizontal-bleed integration constraint*. Schedule still supplies no `isCardOwnerTeam` flag.
+
+Continuing the 2026-09-06 decision: `GameWeekPanel` places its ring flush around
 the scoreboard and a tinted descendant would paint over it, but Schedule supplies no
 `isCardOwnerTeam` flag and is not a consumer of this feature.
 
@@ -88,3 +113,8 @@ Worth being explicit about that when it lands, rather than treating the feedback
 **Blocked on a user↔owner mapping.** That linkage is presumably in scope for the multi-tenant work; if so, this is a concrete consumer of it worth noting there rather than a hypothetical benefit.
 
 Filed now despite being unbuildable, so the dependency is recorded in the direction that matters: not "this feature is blocked," but "identity linkage unlocks this."
+
+> **NOT IN THE QUEUE (verified 2026-09-08):** "filed" means this section; `docs/next-tasks.md` carries no item for
+> the viewing-member highlight or the user↔owner mapping it needs. Reported to planning as an Item 144 queue
+> finding. The residual above ("this ships the legibility fix, not the request") is likewise unrecorded in the
+> Item 117 closeout.

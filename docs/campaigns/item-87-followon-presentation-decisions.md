@@ -1,6 +1,14 @@
 # Item 87 — Follow-on input: Matchups and Schedule presentation decisions
 
+> **Check `item-87-INDEX.md` before deciding from this document.** Parts of it may be superseded.
+>
 > **Status:** input for review, not applied. Nothing here is recorded in the base addendum or `DESIGN.md` until stated otherwise.
+>
+> **INDEX (verified 2026-09-08): CURRENT.** Nothing overrides it. Two things have moved since it was written and are
+> marked inline: the mobile wrapping rule is now RECONCILED into `DESIGN.md` as an amendment (2026-09-08), and the
+> Schedule 1320px arithmetic is Item 152's to settle. The status-row structure, the tint lifecycle and the
+> weight-suppression rule are decided and UNBUILT (Item 143 for Matchups; the rail retirement is Item 119's
+> precondition).
 
 **Reference mockup:** `mockups/matchups-schedule-mockup.html` — carries all of this. Where the mockup and this document disagree, the mockup is newer; say so rather than guessing.
 
@@ -47,6 +55,12 @@ It matters on phones. At 375–430px portrait, minus page and block padding, a r
 
 **Rule:** below the single-column breakpoint the status row wraps and the tag drops to its own line. Both survive intact.
 
+> **RECONCILED (verified 2026-09-08):** owner ruling, recorded as an amendment in `DESIGN.md` → *Cards and game
+> results* ("Header rows never wrap … EXCEPT at single-column layouts"). Narrowed as the owner did: the collision is
+> **tagged scheduled rows at phone width**; an untagged row has roughly 131px more room and fits. It buys a kickoff
+> time on tagged rows on phones and is not a general licence to wrap. The shipped component still ellipsizes
+> (`CompactGameScoreboard` header is `whitespace-nowrap`); building the exception is Item 143's.
+
 ---
 
 ## Tags
@@ -70,6 +84,11 @@ Subtle neutral fill (`rgba(255,255,255,0.022)`), 5px radius, 7px/10px padding. D
 ### Three-column tier at 1320px
 
 `3 × (400px minimum row + 24px block padding) + 2 × 16px gap = 1320`. Higher than the Overview game grid's 1300 because each block now carries its own padding — **a consequence of the boxing decision**, not an independent choice. If the fill is ever dropped, the number returns to 1300.
+
+> **DOES NOT REPRODUCE — Item 152 (verified 2026-09-08).** The arithmetic as written gives **1304**, the mockup's
+> comment (2 × 20px gap) gives **1312**, and the mockup's own CSS (10px block padding, 16px column gap) gives
+> **1300**. No number is chosen here; Item 152 picks one and corrects the two statements that disagree with it.
+> The Matchups figure (1372px) does reproduce from its inputs and lives only in the mockup (`:218-220`, the `.owner-grid` container query).
 
 ### Block layouts need margin, not gap
 
@@ -98,6 +117,11 @@ Three changes, and the third does most of the work:
 | Final, won | static green |
 | Final, lost | static red |
 
+> **CURRENT and UNBUILT (verified 2026-09-08):** this is the settled lifecycle; the mockup's `hl-outcome` mode is the
+> reference. It does not conflict with `item-87-followon-team-highlight.md`, which decides the IDENTITY axis (the
+> tint is never owner colour); this table decides the OUTCOME axis. Shipped code renders the neutral tint only
+> (slice 5b, Item 117) and still draws the outcome rail beside it — `item-87-followon-matchups-gap-analysis.md` §2.
+
 **Hue carries direction; motion carries certainty.** An earlier version distinguished live from final by opacity alone (11% vs 19%), which read as one of them being slightly wrong rather than as two states. Motion makes them different in kind.
 
 ### Motion specification
@@ -119,3 +143,7 @@ The owner-row tint already carries direction on live games, so the dimming was a
 ## Not defects
 
 Records and team-colour bars absent from shipped rows are expected: Item 119 and the records wiring have not landed.
+
+> **LIVE — the reviewer-facing form of INDEX CARRY row 1 (verified 2026-09-08).** Records on Matchups and Schedule
+> are a sequencing state, not a defect; the 2026-09-08 ruling in `item-87-live-watchlist-scoreboard.md` → *Watchlist
+> card* says what that state requires.

@@ -1,26 +1,125 @@
 # Item 87 — document index
 
+> **Verified 2026-09-08 (Item 144, PLATFORM-144-ITEM-87-DOC-RECONCILIATION-CLAUDE-v1).** Every mark below comes from
+> the file being open, end to end, and every DISCHARGED verdict from the code or `DESIGN.md`. See *Maintenance* at
+> the bottom for what the pass covered and what it did not.
+
 ## CARRY THIS — copy into any Item 87 prompt before writing it
 
 **This block is first because the failure it fixes is positional.** The sequenced-dependency warning
-below sits in the canonical document, in bold, addressed to the prompt author by name — and in a
-second document besides. Both were ignored. **Prominence is not the variable; position relative to
+in row 1 sits in the canonical document, in bold, addressed to the prompt author by name — and in two
+other documents besides. All three were ignored. **Prominence is not the variable; position relative to
 where prompt-writing actually reads from is.** Anything below the first screen may as well not exist.
+The depth column below records where each obligation sat: **68 of the 81 found sit past line 40 of
+their file, and 52 sit in the bottom half.**
 
-**Copy the LIVE rows verbatim into the prompt. Do not summarise them.**
+**Copy the LIVE rows for the surface you are touching verbatim into the prompt. Do not summarise them.**
+Rows 1–6 keep the numbers earlier prompts cited; rows 7 onward were promoted by Item 144.
 
-| # | state | obligation |
+### Standing rules — binding on every Item 87 prompt
+
+| # | state | obligation | source (depth) |
+| --- | --- | --- | --- |
+| 1 | **LIVE** | A build with records absent or stale **will not match the mockup**, and a reviewer comparing them must read that as a **sequenced dependency, not a defect**. State this in the prompt. **Owner ruling 2026-09-08:** a missing record leaves the anchor **blank**, never the spread — and a **store failure** (transient, no item) is NOT the same condition as **"not wired to this surface"** (a sequencing state that needs a filed item and this sentence in the prompt). Records are wired on Overview only; Matchups and Schedule are in the second state. | `live-watchlist-scoreboard.md` → *State this in the implementation prompt* (36%); `records.md:42` (81%); `presentation-decisions.md` → *Not defects* (100%) |
+| 2 | **DISCHARGED — standing invariant** | Item 92 refreshes in the **live-scores cron**. Never hook `handleGamesFinalized` — a per-browser client callback, which inverts the cron-spends / client-reads split of PLATFORM-086B2B and PLATFORM-075. **Built as specified** (`cron/live-scores/route.ts:460`, `cron/team-records/route.ts:89`; nothing hooks the callback). Keep it as an invariant for anyone touching that path. | `records.md:51` (98%) |
+| 3 | DISCHARGED | Record the `CompactGameScoreboard` contract widenings before any consumer is built — **done** in slice 5a (PR #570) and `DESIGN.md`; the prefix rule, broadcast on scheduled/live/awaiting, neutral site, and the non-reserving tier-2 slot. Reported as a *stale claim* by a reviewer because nothing marked it complete. | `matchups-schedule-design.md` → *Contract widenings* (16%), restated at *Recommended order* (94%) |
+| 4 | **LIVE — the recording half** | Slice 5 records the amber `upset` border as **deliberately retired**, the eyebrow pill carrying its emphasis forward. The border IS gone (`cardEmphasisClasses` deleted, registry records the deletion); **no document states it as a decision** — `DESIGN.md` never mentions `upset`. Planning's to record. | `matchups-schedule-design.md` → *This answers the amber `upset` border* (88%); mockup notes (95%) |
+| 5 | DISCHARGED | Record the **component-family enforcement clause** — done; `DESIGN.md` → *Color* ("A hue carries exactly one meaning within a component family"). The canonical document itself marks it *Landed*. | `live-watchlist-scoreboard.md` → *DESIGN.md amendment tracking* (70%) |
+| 6 | **LIVE** | **Do not "restore" the mockup's tint inset.** The implementation ships `0 -8px` plus squared facing corners; the mockup's former `-1px -8px` produced a darker stripe at the seam. **Anyone reconciling the two changes the MOCKUP, not the code.** *(Applied 2026-09-08: `matchups-schedule-mockup.html` now carries `0 -8px 0 12px` plus squared facing corners.)* | `team-highlight.md` → *Deviation from the mockup* (66%) |
+| 7 | **LIVE** | **Do not read campaign status from the canonical document**, and **re-derive every line-number citation** before putting it in a prompt — they have been stale at least twice, and `DESIGN.md` moved again on 2026-09-08. | `live-watchlist-scoreboard.md` → *Existing code — do not fork* (42%), *Sequencing — the recap campaign* (73%) |
+| 8 | **LIVE** | Selection and precedence stay selector-owned; the scoreboard **must not be forked**. Now four consumers plus the recap. | `live-watchlist-scoreboard.md` → *Existing code — do not fork* (43%) |
+| 9 | **LIVE** | **Never suppress individual finals against recap content**, and do not reintroduce a subtler version. Recent finals is complete; the recap is curated. | `live-watchlist-scoreboard.md` → *No per-game recap deduplication* (16%) |
+
+### LIVE obligations by owning item
+
+| # | owner | obligation | source (depth) |
+| --- | --- | --- | --- |
+| 10 | Item 113 | An insight surfaced in Featured **must not also appear in the feed** that week. | `live-watchlist-scoreboard.md` → *New rule needed — suppress the feed duplicate* (88%) |
+| 11 | Item 113 | **Remove the results-based Featured rather than reworking it**, and **do not ship both** tiles. Route is 113's call. | `featured-intent.md` → *Recommendation* (82–91%) |
+| 12 | Item 113 | **Specify what DOES promote** — an unclaimed slot is how owner count got in. | `section-ordering-resolutions.md` → *Sort rules* (71%) |
+| 13 | Item 113 / recap | Recap notable-results records: **work in later as an additive change**, uncoupled from the records cache. | `live-watchlist-scoreboard.md` → *Open decisions* 2 (45%) |
+| 14 | Item 115 | **Counts become totals in the same change that makes the surplus reachable**; visible-only until then. | `section-ordering-resolutions.md` §5 (46%); `section-ordering.md` → *Resolved* (80%) |
+| 15 | Item 115 / 134 | Caps are counts, not rows; decide whether they become tier-dependent or stay ragged. | `three-column-tier.md` → *Caps interact with the tier* (83%) |
+| 16 | Item 119 | **Ship the bar and the OKLCH port separately**; bar first on the existing HSL normaliser; port only if measured to matter. | `team-colour.md` → *Two separable changes* (11%), §B (23%), *Recommended sequence* (84%) |
+| 17 | Item 119 | **Pick one background constant and state it** (`#0A0A0A` vs `#161616`) before either change ships. | `team-colour.md` → *One background constant* (50%) |
+| 18 | Item 119 | If OKLCH ships, the reserved-hue guard is **chroma reduction**, not a hue shift. | `team-colour.md` → *Reserved-hue guard is required* (46%) |
+| 19 | Item 119 | It is a **restoration on the shared row**, across Overview, Matchups and Schedule — not a widening; there is no incumbent. | `team-colour-regression.md` §1 (30%), *Mockup status* (100%); `matchups-schedule-design.md` → *Recommended order* 6 (96%) |
+| 20 | Item 119 | **Retire the outcome rail on Matchups and let the tint carry outcome** — a precondition, not polish; decide it with records (row 1) before anything else on Matchups moves. | `matchups-gap-analysis.md` §2 (49%), *Sequencing note* (98%) |
+| 21 | Item 119 (queue) | Record the **slice 5b `isolation: isolate` dependency** against Item 119 — still absent from its queue entry. | `team-colour-regression.md` → *Item 119 depends on slice 5b* (74%) |
+| 22 | Item 119 (registry) | Add to the slice 5 closeout that a **rendered team-colour treatment was removed pending Item 119** — the registry entry still does not say so. | `team-colour-regression.md` → *What the closeout should have said* (87%) |
+| 23 | Item 134 | **Confirm orphan rows sit on the right**, not centred. | `three-column-tier.md` → *Orphan rows* (79%) |
+| 24 | Item 142 | Matchups finals still carry a kickoff, through `metadataEntries` in the `contextSlot`, not `clock`. | `matchups-gap-analysis.md` §3.1 (56%) |
+| 25 | Item 143 | **State the `margin-left: auto` trap in the prompt**: the left group must grow (`flex: 1 1 auto; min-width: 0`), tag `flex: none`. | `presentation-decisions.md` → *Implementation note* (28%) |
+| 26 | Item 143 | Build the **single-column wrap exception** as the owner narrowed it: tagged scheduled rows at phone width; not a general licence to wrap (`DESIGN.md` amendment 2026-09-08). | `presentation-decisions.md` → *Mobile* (40%) |
+| 27 | Item 143 | At block layout, **adjacent-sibling margins**, because block layout ignores grid `gap`. | `presentation-decisions.md` → *Block layouts need margin* (63%) |
+| 28 | Item 143 | `prefers-reduced-motion` drops the sweep; if losing the provisional marker matters, reinstate an opacity step for those users. | `presentation-decisions.md` → *Motion specification* (90%) |
+| 29 | Item 143 | **Odds inline on Matchups**, including live and final rows — the Schedule half shipped, this half did not. | `matchups-schedule-design.md` → widening 4 (26%) |
+| 30 | Item 143 | Decide whether **Matchups rows carry broadcast**: the mockup omits it on every Matchups row while the same games on Schedule carry it; no document decides it. | mockup notes (95%); `postseason-context.md` → *Correction acknowledged* (100%) |
+| 31 | Item 152 | Pick the **Schedule three-column breakpoint**; the 1320 arithmetic reproduces nowhere. | `presentation-decisions.md` → *Three-column tier at 1320px* (58%); mockup CSS |
+| 32 | round grouping (**UNFILED**) | Postseason round grouping **must carry its own item**. | `postseason-context.md` → *Scope* (92%) |
+| 33 | round grouping | Group from `playoffRound` + `postseasonSubtype`, **order from `startDate`, never `week`**; reuse `deriveFeaturedGameBadge`. | `postseason-grouping-notes.md` §1–§2 (21–29%) |
+| 34 | round grouping | **CFP group membership is `playoffCompetition === 'cfp'`**; an unparsed round lands in the generic CFP group, never in Bowls. | `postseason-refinements.md` §1 (17%); `postseason-grouping-notes.md` §3 (36%); `postseason-context.md` (71%) |
+| 35 | round grouping | **Widen `playoffRound` to include `'first-round'`** (still absent at `schedule.ts:124`) and **test a first-round game** specifically. | `postseason-grouping-notes.md` §4 (45%); `postseason-context.md` → *One typing trap* (74%) |
+| 36 | Item 120 | Scope: does any consumer read `completed` / classifications for a historical season? If none, it is a refresh, not an item. | `postseason-refinements.md` → *Correction* (90%) |
+| 37 | Item 117 closeout (planning) | Say plainly that the card-owner tint **ships the legibility fix, not the request** ("my teams"). Item 117 shipped without saying it. | `team-highlight.md` → *Residual* (89%) |
+
+### Findings recorded in the set and NOT in the queue — planning to file or decline
+
+| # | finding | source (depth) |
 | --- | --- | --- |
-| 1 | **LIVE** | A build with records absent or stale **will not match the mockup**, and a reviewer comparing them must read that as a **sequenced dependency, not a defect**. State this in the prompt. (`live-watchlist-scoreboard.md:236`, `records.md:42`) |
-| 2 | **LIVE** | Item 92 refreshes in the **live-scores cron**. Never hook `handleGamesFinalized` — a per-browser client callback, which inverts the cron-spends / client-reads split of PLATFORM-086B2B and PLATFORM-075. (`records.md:51`) |
-| 3 | DISCHARGED | Record the `CompactGameScoreboard` contract widenings before any consumer is built — **done**; classification, neutral-site, non-final broadcast and tier 2 are implemented and in `DESIGN.md`. Reported as a *stale claim* by a reviewer because nothing marked it complete. |
-| 6 | **LIVE** | **Do not "restore" the mockup's tint inset.** The mockup specifies `inset: -1px -8px`; the implementation ships `0 -8px` plus squared facing corners. **Anyone reconciling the two changes the MOCKUP, not the code** — the mockup's value predates the both-rows-tint rule and produces a darker stripe at the seam. (`team-highlight.md:59-62`, owner decision 2026-09-06) |
-| 4 | UNVERIFIED | Slice 5 records the border as deliberately retired, eyebrow pill carrying its emphasis forward. (`matchups-schedule-design.md:216`) |
-| 5 | UNVERIFIED | Record the component-family enforcement clause. (`live-watchlist-scoreboard.md:454`) |
+| 38 | Viewing-member highlight on every surface, blocked on a user↔owner mapping. | `team-highlight.md` → *The blocked feature, filed* (93%) |
+| 39 | Owner header should read `0–0`, not `Scheduled`. | `matchups-gap-analysis.md` §4 (84%) |
+| 40 | `displayOwner()` belongs at the data seam; three render-seam reads of the sentinel so far. | `section-ordering-resolutions.md` → *Noted while removing the owner-count keys* (92%) |
+| 41 | Schedule **landing position** on a mid-slate visit — scroll question, undecided. | `matchups-schedule-design.md` → *Open — landing position* (58%); mockup notes (98%) |
+| 42 | Overview's Featured eyebrow is still `text-blue-300` (`OverviewPanel.tsx:755`, chip `:195`); bronze shipped on Schedule and Matchups only. Blue is non-compliant per `DESIGN.md` → *Color*. | `matchups-schedule-design.md` → *Colour: bronze* (79%) |
+| 43 | Check the data never leaks a classification into the conference field — asked, never recorded as done. | `matchups-schedule-design.md` → *FCS is a classification* (48%) |
+| 44 | Governance: when a mockup is committed, anything not stated in a companion document is not a decision. Not in `AGENTS.md`. | `section-ordering.md` → *The pattern worth fixing* (100%) |
+| 45 | Reviewer instruction: judge Schedule's doubled scroll against a real slate; the filter that mitigates it is Item 118, unbuilt. | mockup notes (96%); `matchups-schedule-design.md` → *Cost* (41%) |
+
+### DISCHARGED — the work was done; nothing had marked it
+
+| # | obligation | done where | source (depth) |
+| --- | --- | --- | --- |
+| 46 | Null team id → no anchor, never a name lookup. | `selectors/teamRecordsClient.ts:58-59` (server-side exact-id join) | canonical *Scoreboard micro-component* (4%) |
+| 47 | Keep the disruption guard; build no tone around it. | slice 5 left the branches unpatched as unreachable | canonical *Promotion model* (14%) |
+| 48 | File spun-off item A, cross-reference both ways. | Item 90 / POLISH-018 | canonical *Live state* (23%) |
+| 49 | Emerald/rose exactly once in Matchups; leave champion amber alone. | POLISH-018 (PR #541) | canonical *A → Item 90* (50%) |
+| 50 | Resolve the `finalSelf` tint asymmetry and state why. | slice 5, symmetric (`MatchupsWeekPanel.tsx:96-102`) | canonical *Carried over from POLISH-018* (61%) |
+| 51 | Slice 5 after slices 3 and 4. | held | canonical *Sequencing* (62%) |
+| 52 | Featured double-touch: leave an additive slot. | POLISH-017 `contextSlot` | canonical *Acceptance boundary* (65%) |
+| 53 | Consume the renamed labels, not `Top matchup` / `Ranked spotlight`. | slice 4; no literal in `src/` | canonical *Label semantics* (97%) |
+| 54 | Row disclosure without the collapsed form changing shape. | `tier2Slot` (slice 5a) | canonical *State variants* (10%) |
+| 55 | Apply the records decision into the base document. | 2026-08-31 | `records.md:3` (6%) |
+| 56 | Update the blocker list for Item 92. | PLATFORM-117 shipped | `records.md:44` (85%) |
+| 57 | `NoClaim` renders no owner suffix, via one `displayOwner()` helper. | POLISH-021 | `matchups-schedule-design.md` §1 (9%) |
+| 58 | Lowercase-id fallback → `rawName`. | `selectors/gameWeek.ts:113` | `matchups-schedule-design.md` §3 (13%) |
+| 59 | Render the rank on a ranked-FCS row. | `CompactGameScoreboard.tsx:189-193`; `DESIGN.md` | `matchups-schedule-design.md` widening 1 (20%) |
+| 60 | Ship the neutral-site marker standalone. | slice 5a | widening 2 (22%) |
+| 61 | Odds in Schedule's tier 2 (the Schedule half of widening 4). | `GameWeekPanel.tsx:182` | widening 4 (26%) |
+| 62 | Scope the status filter as additive work. | Item 118 filed | `matchups-schedule-design.md` → *The status key* (62%) |
+| 63 | Recommended order steps 1–5. | POLISH-021, `DESIGN.md`, PR #570, PR #572, PR #581 | *Recommended order* (94%) |
+| 64 | Questions for the CLI 1–6. | answered in-document | *Questions for the CLI* (97–100%) |
+| 65 | "Today" as the sole relative label on Schedule. | slice 5, `selectors/gameWeek.ts:211` | `section-ordering.md` decision 5 (78%) |
+| 66 | Investigate the `eventKey` collision. | Item 121 | `postseason-grouping-notes.md` (95%); `postseason-refinements.md` §3 (59%) |
+| 67 | Guard comment on `teamColors.ts` naming Item 119. | file header | `team-colour-regression.md` §3 (54%) |
+| 68 | Grep `DESIGN.md` when a slice deletes a treatment; correct `DESIGN.md:165`. | `AGENTS.md` → *Documentation closeout timing*; `DESIGN.md` → *Cards* | `team-colour-regression.md` (67%) |
+
+### ANSWERED by a later document
+
+| # | question | answered in | source (depth) |
+| --- | --- | --- | --- |
+| 69 | Does Schedule adopt the three-column tier? | `presentation-decisions.md` → *Three-column tier at 1320px* (number: Item 152) | `three-column-tier.md` → *Open* (100%) |
+| 70 | Postseason finals: keep a date, or accept no temporal context? | `postseason-context.md` (group by round) | `section-ordering-resolutions.md` §3 (29%) |
+
+**How the count reconciles.** The Item 144 receipt counted **81 obligation occurrences** across the files; the
+tables above hold 70 rows because a restatement of one obligation in a second or third document is collapsed into
+one row (rows 1, 4, 7, 11, 14, 16, 20, 34, 35, 41, 49 and 66 each stand for two or three occurrences), and four
+rows (24, 29, 31, 42) were promoted from receipt findings rather than counted there as obligations. The depth
+figures in the opening paragraph are over the 81 occurrences.
 
 ---
 
-> **Read this before any `item-87-*` document.** Fifteen documents accumulated across this campaign, each additive, none editing its predecessors. This index is the only place that records what overrides what.
+> **Read this before any `item-87-*` document.** Sixteen documents accumulated across this campaign, each additive, none editing its predecessors. This index is the only place that records what overrides what.
 >
 > **Maintenance rule:** a new follow-on updates *this file only*. Per-document headers stay generic so that landing a document does not require editing every other one.
 
@@ -33,126 +132,185 @@ where prompt-writing actually reads from is.** Anything below the first screen m
 | **CURRENT** | Authoritative. Nothing overrides it. |
 | **PARTLY SUPERSEDED** | Some sections overridden — the entry names which. |
 | **SUPERSEDED** | Do not decide from this document. Kept for history. |
+| **DISCHARGED** | (claims only) An obligation that was satisfied; the mark says where. |
+
+None of the sixteen is wholly SUPERSEDED. Every claim-level mark is in the document itself, at the claim.
 
 ---
 
-## The documents
+## The documents — verified 2026-09-08
 
 ### Base
 
-**`item-87-live-watchlist-scoreboard.md`** — **PARTLY SUPERSEDED**
-The campaign addendum. Component contract, slices, colour sequencing.
+**`item-87-live-watchlist-scoreboard.md`** (651 → 772 lines) — **PARTLY SUPERSEDED**
+The campaign addendum. Component contract, promotion model, records placement, slices, colour sequencing.
 
-- Contains **both** readings of Featured — the "neutral-final scoreboard" table entry and the "separate axis from state" block. That contradiction is **Item 113**'s, and `featured-intent.md` supplies the product intent.
-- Line references throughout are stale; `overview.ts` has been restructured since.
-- The amber `upset` border exemption is **retired** — see `matchups-schedule-design.md` and the eyebrow decision.
+- **CURRENT and load-bearing:** the scoreboard contract (*Scoreboard micro-component*, the id-namespace note); the
+  promotion model and the awaiting-score treatment; *Watchlist card* including the **2026-09-02 owner decision
+  (record anchors, empty odds row, blank anchor on a failed read) and the 2026-09-08 ruling (blank governs; store
+  failure ≠ not wired)**; *Records across scoreboard states — resolved* for **placement** (`DESIGN.md` is canonical
+  for the RULE; neither supersedes the other); *Layout*; the open decisions; the spun-off records; *DESIGN.md
+  amendment tracking*; *Featured is a separate axis from state*; the palette input (bronze now adopted).
+- **SUPERSEDED, marked in place:** the **status header** ("slices 4–5 remain planned") and the *Related* line;
+  the `disrupted` / `placeholder` state variants (rejected as unreachable by slice 5); the `cardEmphasisClasses`
+  exemption (deleted); the **spread-fallback wording at four places** — the card spec ("anchored by per-team
+  spread"), *Consequence* in the records section, the slice-5 *Sequencing* note, and slice-table row 4; the
+  *Existing code* table ("only the watchlist remains bespoke"); "Capped at three" (four); the Schedule green-final
+  residual paragraphs.
+- **DISCHARGED, marked in place:** the null-id anchor rule; disclosure; the Item 90 asks; the `finalSelf`
+  asymmetry; the Featured double-touch slot; the renamed labels; the `stateBadgeClasses` watchlist call.
+- It contains **both** readings of Featured — the "neutral-final scoreboard" table entry and the "separate axis
+  from state" block. That contradiction is **Item 113**'s; `featured-intent.md` supplies the product intent.
+- Line references throughout are stale (`overview.ts` was restructured; `GameScoreboard` is gone). Row 7.
+- **Does it say what everyone assumed?** For record PLACEMENT, yes. For record DEGRADATION it said the opposite in
+  the three most-read places until this pass; the 2026-09-02 decision at ~28% in was the only correct statement.
 
 ### Scoreboard contract
 
-**`item-87-followon-records.md`** — **PARTLY SUPERSEDED**
+**`item-87-followon-records.md`** (52 → 79 lines) — **PARTLY SUPERSEDED**
 Records across scoreboard states; the anchor rule per state.
 
-- **`:44` predicted the exact confusion of 2026-09-08 and the prompt did not carry it:** *"Item 87's
-  shipped appearance will differ from the mockup until Item 92 lands. The implementation prompt must
-  state this explicitly, or a reviewer comparing the build against the reference will read the absent
-  records as a defect rather than a sequenced dependency."* Item 117's v2 prompt omitted it; the owner
-  compared the build to the mockup and read absent records as a defect. **Any prompt touching a
-  scoreboard surface must carry this sentence until Item 92 lands.**
-- The **records rule is CURRENT** and load-bearing: the record is the anchor on scheduled rows. `matchups-gap-analysis.md` §1.1 shows what breaks without it.
-- Its **`:37` "live and final rows omit the inline parenthetical"** is NOT superseded and NOT a
-  contradiction of `:15`/`:17` — **verified 2026-09-08.** It sits under *Consequence — Item 92* and
-  states the **DEGRADATION** rule for when records are unavailable, while `:15`/`:17` state the
-  normal case. It reads as a contradiction only because the fallback is written in the same voice as
-  the primary rule, three sections apart. **Fix the voice, not the status.**
-- **There is no finals-clearing document, and none was deleted** — searched `docs/` and git history.
-  The **displacement rule** does exist (`item-87-followon-section-ordering.md:39`) but governs the
-  **Recent finals SECTION emptying on Overview**, not records on final rows. Two subjects sharing the
-  word "finals".
+- **CURRENT:** the decision table, the post-game record, *Carried forward unchanged*. The **records rule** is
+  load-bearing: the record is the anchor on scheduled rows (`matchups-gap-analysis.md` §1.1 shows what breaks).
+- **SUPERSEDED:** *Consequence* → "scheduled rows anchor on the per-team spread" and "no row loses its
+  right-edge anchor" (blank anchor; deliberate exception to `DESIGN.md` → *Right-edge anchor rule*).
+- **Voice fixed 2026-09-08:** *Degradation* now reads as the conditional rule it is ("only when a record is
+  unavailable"), so `:37` no longer reads as a contradiction of the table.
+- Obligations: row 1 LIVE (`:42`), row 2 DISCHARGED in code (`:51`).
+- There is no finals-clearing document, and none was deleted — searched `docs/` and git history. The
+  **displacement rule** (`section-ordering.md` → *Why Recent finals above the watchlist*) governs the Recent finals
+  SECTION emptying on Overview, not records on final rows.
 
-**`item-87-followon-featured-intent.md`** — **CURRENT**
-The two Featured concepts and the product intent. Cross-references Item 113, which owns reconciliation. Cap is **four**.
+**`item-87-followon-featured-intent.md`** (66 → 72 lines) — **CURRENT**
+The two Featured concepts and the product intent. Cross-references Item 113, which owns reconciliation. Cap is
+**four**. Rows 11 LIVE.
 
 ### Ordering
 
-**`item-87-followon-section-ordering.md`** — **PARTLY SUPERSEDED**
-Six decisions found living only in mockup markup. Per-decision status in its own header. All four open items are answered by its child.
+**`item-87-followon-section-ordering.md`** (112 → 128 lines) — **PARTLY SUPERSEDED — status lines only**
+Six decisions found living only in mockup markup. The six decisions stand; both of its status statements were
+wrong in opposite directions and are marked: decision 3 (counts as totals) did NOT merge in POLISH-023 (visible
+count still, `OverviewPanel.tsx:1475`), while decision 5 ("Today") DID ship in slice 5. Its four open items are
+answered by its child.
 
-**`item-87-followon-section-ordering-resolutions.md`** — **CURRENT**
-Live sorts by kickoff alone; owner-count key removed; no date or time on final rows; Matchups sorts kickoff with finals last; counts wait for Item 115. Carries the sort-rules table for all four sections.
+**`item-87-followon-section-ordering-resolutions.md`** (146 → 161 lines) — **CURRENT**
+Live sorts by kickoff alone (confirmed: `overviewGameSections.ts:155-161`); owner-count key removed; no date or
+time on final rows; Matchups sorts kickoff with finals last (§4, still unbuilt after Item 117); counts wait for
+Item 115. Carries the sort-rules table for all four sections. The §3 postseason call is ANSWERED by
+`postseason-context.md`.
 
 ### Postseason
 
-**`item-87-followon-postseason-context.md`** — **PARTLY SUPERSEDED**
-Establishes that finals carry no date *because the container supplies temporal context*.
+**`item-87-followon-postseason-context.md`** (77 → 93 lines) — **CURRENT** *(was marked PARTLY SUPERSEDED from a
+second-hand account; corrected after the read)*
+Finals carry no date because the container supplies temporal context; the postseason tab gets one by grouping
+by round. The disjoint Bowls/CFP grouping was corrected in this document itself, and the container rationale
+coexists with the sort-order rationale (`DESIGN.md` records both). The implementer notes are LIVE (rows 32–35);
+the item it asks for is unfiled. Its ESPN2 restoration was re-applied to the mockup on 2026-09-08.
 
-- The **grouping proposal is superseded**: it treated Bowls and CFP rounds as disjoint groups, which they are not — quarterfinals and semifinals *are* bowls. Corrected in `postseason-grouping-notes.md`.
-- The **rationale is also superseded**, and by a better one: kickoff order is inferable from the sort, which holds regardless of container. Recorded in `matchups-gap-analysis.md` §3.1.
+**`item-87-followon-postseason-grouping-notes.md`** (132 → 145 lines) — **CURRENT**
+Group from `playoffRound` and `postseasonSubtype`, order from `startDate`, never from `week`. Reuse
+`deriveFeaturedGameBadge`. The `'first-round'` typing trap (still open at `schedule.ts:124`). §3 refined by its
+child (positive key). `eventKey` collision filed as Item 121.
 
-**`item-87-followon-postseason-grouping-notes.md`** — **CURRENT**
-Group from `playoffRound` and `postseasonSubtype`, order from `startDate`, never from `week`. Reuse `deriveFeaturedGameBadge`. The `'first-round'` typing trap.
-
-**`item-87-followon-postseason-refinements.md`** — **CURRENT**
-Key the generic CFP group on `playoffCompetition === 'cfp'` — a positive test on provider data, superseding the parse-failure condition in the notes doc. Parser evidence across five seasons. The `eventKey` collision.
+**`item-87-followon-postseason-refinements.md`** (86 → 91 lines) — **CURRENT**
+Key the generic CFP group on `playoffCompetition === 'cfp'`. Parser evidence across five seasons. Items 120 and
+121 filed from here.
 
 ### Colour
 
-**`item-87-followon-team-colour.md`** — **PARTLY SUPERSEDED**
+**`item-87-followon-team-colour.md`** (98 → 118 lines) — **PARTLY SUPERSEDED**
 
-- The **decision is CURRENT**: solid 8px muted bar at ~72% in the line-start slot; gradient and full-width band rejected; ship on the existing HSL normaliser before considering OKLCH.
-- The **framing is superseded**. §A describes widening a 2–3px incumbent. There is no incumbent — slice 5 deleted it. See `team-colour-regression.md`.
+- The **decision is CURRENT**: solid 8px muted bar at ~72% in the line-start slot; gradient and full-width band
+  rejected; ship on the existing HSL normaliser before considering OKLCH. Rows 16–18 LIVE.
+- The **framing is SUPERSEDED** (marked): §A describes widening a 2–3px incumbent, and the opening paragraph says
+  `GameScoreboard` renders it. There is no incumbent — slice 5 deleted it. See `team-colour-regression.md`.
 
-**`item-87-followon-team-colour-regression.md`** — **CURRENT**
-Item 119 is a restoration, not a widening. `teamColors.ts` orphaned. `DESIGN.md` correction. Covers Overview, Matchups and Schedule.
+**`item-87-followon-team-colour-regression.md`** (78 → 100 lines) — **CURRENT**
+Item 119 is a restoration, not a widening, across Overview, Matchups and Schedule. Two asks DISCHARGED (guard
+comment; `DESIGN.md` correction and the closeout-check rule, now in `AGENTS.md`), two LIVE (rows 21–22).
 
-**`item-87-followon-team-highlight.md`** — **CURRENT.** *Status corrected 2026-09-08 after the file
-was read end to end. It was previously marked SUPERSEDED — by both of us, from second-hand accounts.
-Neither had opened it.*
+**`item-87-followon-team-highlight.md`** (90 → 120 lines) — **CURRENT.** *Status corrected 2026-09-08 after the
+file was read end to end. It was previously marked SUPERSEDED — by two readers, from second-hand accounts.
+Neither had opened it. Reaffirmed by the owner on the same day after Item 144's full read.*
 
-**It does NOT conflict with `presentation-decisions.md`; the two govern different axes.**
-`:23` rejects **owner-IDENTITY colour** — *"Neutral rather than owner colour"*, on the `DESIGN.md:321`
-legend reasoning. `presentation-decisions.md:90` gives the tint **OUTCOME direction** across the
-game's life. Not owner-coloured, and outcome-coloured once a direction exists: both hold.
+**It does NOT conflict with `presentation-decisions.md`; the two govern different axes.** `:23` rejects
+**owner-IDENTITY colour** — *"Neutral rather than owner colour"*, on the legend-reservation reasoning.
+`presentation-decisions.md` → *The tint tracks state across the game's whole life* gives the tint **OUTCOME
+direction** once one exists. Not owner-coloured, and outcome-coloured once a direction exists: both hold, and
+the later document **extends** this one. The one sentence in the set that said "supersedes"
+(`matchups-gap-analysis.md` §2) is marked corrected.
 
-**It carries two of the set's LATEST decisions, dated 2026-09-06** — squared facing corners at the
-seam of two adjacent tints (`:43-62`), and the horizontal-bleed / focus-ring constraint (`:64-74`).
-Its own status line reads *"decision settled; component seam merged via PR #575; UI adoption remains
-Item 117."*
+It carries two of the set's LATEST decisions, dated 2026-09-06 — squared facing corners at the seam of two
+adjacent tints, and the horizontal-bleed / focus-ring constraint — both shipped in slice 5b and recorded in
+`DESIGN.md`. Item 117 has since shipped the adoption (PR #581). Row 6 is its LIVE obligation; row 37 and finding
+38 are what its closeout and the queue still lack.
 
-**`:59-62` is a LIVE obligation** — see CARRY row 6. Do not restore the mockup's `-1px` inset.
-
-Also current: the buildable/not-buildable analysis (no user↔owner mapping exists), the residual at
-`:76-80` (the feedback asked for *my* teams; this ships *the card owner's* teams), and the two
-stacking bugs at `:35-39`.
-
-**What this corrects downstream.** The rail/tint collision in shipped code is real and unchanged —
-a coloured left rail plus a grey tint states outcome twice and spends the slot Item 119 needs. But
-its cause is not "a stale document was read as current." It is that the tint's outcome-tracking was
-never implemented and the rail was never retired. **No document was wrong. Two readers asserted the
-contents of a ninety-line file neither had opened.**
+**What this corrects downstream.** The rail/tint collision in shipped code is real and unchanged — a coloured
+left rail plus a grey tint states outcome twice and spends the slot Item 119 needs (row 20). Its cause is not "a
+stale document was read as current"; it is that the tint's outcome-tracking was never implemented and the rail
+never retired. **No document was wrong. Two readers asserted the contents of a ninety-line file neither had
+opened.**
 
 ### Layout and presentation
 
-**`item-87-followon-matchups-schedule-design.md`** — **PARTLY SUPERSEDED**
-Structural design for both views, the three unowned states, the defect list. **The most stale document in the set — eleven known wrong claims.**
+**`item-87-followon-matchups-schedule-design.md`** (246 → 345 lines) — **PARTLY SUPERSEDED, and mostly DISCHARGED**
+Structural design for both views, the three unowned states, the defect list. The queue counted ten stale claims
+here; read against the code, **most were obligations that had been met**:
 
-- **"Matchups keeps its two-column owner-card grid" is stale.** See `three-column-tier.md`.
-- Presentation details throughout are superseded by `presentation-decisions.md`.
-- *CLI: this document needs the reconciliation pass (Item 144) before anything else is decided from it.*
+- **DISCHARGED (marked):** all three defects (POLISH-021, slice 5); the four contract widenings (slice 5a) —
+  including "no precedence rule is needed", which is NOT stale (its own guard paragraph is the rank-wins rule
+  `DESIGN.md` records); the Schedule tier/sort/disclosure/conference decisions (slice 5); the bronze pills on
+  Schedule and Matchups; the recommended order, steps 1–5; the CLI questions.
+- **SUPERSEDED (marked):** *Open — card-owner treatment* and its dimming option (→ `team-highlight.md` tint);
+  *Same component, different consumption* — both "suppressed on Schedule" (odds sit in tier 2; only the footer is
+  suppressed) and "identical across the three surfaces" (→ Item 143's four divergences).
+- **CURRENT but its premise is unbuilt:** "the filter cuts it to the live handful" — Item 118.
+- **LIVE:** the Matchups half of widening 4 (row 29); the border-retirement recording (row 4); step 6 (Item 119);
+  landing position (finding 41); the Overview eyebrow (finding 42).
+- **The "Matchups keeps its two-column owner-card grid" line was never in this document.** It was in the mockup's
+  notes block, and the owner replaced it with the 1372 arithmetic on 2026-09-08.
 
-**`item-87-followon-three-column-tier.md`** — **CURRENT**
-Overview grid tiers: 1 / 2 / 3 columns, third above 1300px, derived. Matchups owner cards at 1372px; Schedule blocks at 1320px are in `presentation-decisions.md`.
+**`item-87-followon-three-column-tier.md`** (47 → 62 lines) — **CURRENT for Overview** (Item 134)
+Overview grid tiers: 1 / 2 / 3 columns, third above 1300px, derived (1280 + 20px headroom). Two marks: its
+"Matchups uses a two-column owner-card grid" is superseded by the mockup's 1372px tier (recorded only there,
+`mockup:218-220`, the `.owner-grid` container query), and its *Open* question is answered by `presentation-decisions.md`. Its citation of the 760px
+breakpoint to the Matchups/Schedule document is wrong — that decision is the canonical document's *Layout*.
 
-**`item-87-followon-presentation-decisions.md`** — **CURRENT**
-Status-row structure with right-aligned tags; Schedule as discrete blocks; date dividers; mobile wrapping; **the lifecycle tint table**; weight emphasis suppressed on live. Three implementation traps: `margin-left: auto` failing at column width, block layout ignoring grid `gap`, and `min-width: 0` deciding whether the tag or the metadata clips.
+**`item-87-followon-presentation-decisions.md`** (121 → 149 lines) — **CURRENT**
+Status-row structure with right-aligned tags; Schedule as discrete blocks; date dividers; **the lifecycle tint
+table**; weight emphasis suppressed on live. Three implementation traps (rows 25–27). Two marks: the **mobile
+wrapping rule is RECONCILED** — owner ruling recorded as an amendment in `DESIGN.md` on 2026-09-08, narrowed to
+tagged scheduled rows at phone width — and the **1320px arithmetic does not reproduce** (Item 152; no number chosen
+here). Everything decided here is unbuilt on Matchups (Item 143).
 
-**`item-87-followon-matchups-gap-analysis.md`** — **CURRENT**
-Shipped Matchups against the mockup, ordered by member impact. The rail/tint collision blocking Item 119. Records as the scheduled anchor. The owner-header status word.
+**`item-87-followon-matchups-gap-analysis.md`** (98 → 126 lines) — **CURRENT, two corrections marked**
+Shipped Matchups against the mockup, ordered by member impact. §1.1 (records as the scheduled anchor) is answered
+by the 2026-09-08 ruling. §2's "supersedes" sentence is corrected by the owner. §3.1 is Item 142 (mechanism:
+`contextSlot`, not `clock`). §3.4's "recorded in the tier document" is corrected (the mockup). §4 (`0–0`) is not in
+the queue (finding 39).
+
+### Mockup
+
+**`mockups/matchups-schedule-mockup.html`** — **RECONCILED 2026-09-08**, owner and Item 144 together. Owner: the
+mid-file `</body></html>`, Chamness's untinted final row, the tint comment contradicting its own CSS, the
+two-column prose replaced with the 1372 arithmetic. Item 144: tint inset to `0 -8px 0 12px` with squared facing
+corners (row 6); the missing `Scheduled` state label on the neutral-site row; `ESPN2` restored on the owner-card
+live row; four stale notes marked (widening count, broadcast state set, kickoff on finals, spread fallback); the
+1320 comment annotated for Item 152. **Still open there:** broadcast on Matchups rows (row 30), the 1320 number
+(row 31). Interim authority ruling of 2026-09-07 stands: the mockup for layout and structure, the documents for
+values.
+
+**`item-87-followon-recap-scoreboard.md`** (landed 2026-09-08 with Item 143's second-consumer ruling) — **its row
+belongs to its own landing**, not to the Item 144 pass, which read it only to keep the canonical document's recap
+pointers accurate.
 
 ---
 
-## Per-document header to add
+## Per-document header
 
-One line at the top of every `item-87-*` document. Generic by design — it does not name what supersedes it, so landing a new document never requires editing this line anywhere.
+One line at the top of every `item-87-*` document — **added to all fifteen on 2026-09-08**. Generic by design — it
+does not name what supersedes it, so landing a new document never requires editing this line anywhere.
 
 ```text
 > **Check `item-87-INDEX.md` before deciding from this document.** Parts of it may be superseded.
@@ -166,6 +324,14 @@ Every document here was written additively, on the reasoning that editing a comm
 
 The cost was not abstract. Three wrong statements came out of this set in two days — a records/broadcast/odds list, the card-owner treatment, and the column count — and the second of those reached shipped code.
 
+**What the full read added (2026-09-08).** The rot was smaller and differently shaped than the sample suggested:
+of 81 obligations found, 24 were **discharged and unmarked**, 2 were answered by a later document, and 55 are
+live — most of them owned by items already in the queue. The dangerous claims were not the stale ones in the
+"most stale" document; they were the **four restatements of a superseded degradation rule inside the canonical
+document itself**, in the places a prompt author reads first, contradicting the owner decision recorded 28% of the
+way in. Staleness in a follow-on is caught by an index; staleness in the base document's own status header and
+slice table is not, because the index pointed readers there.
+
 ---
 
 ## Why the block at the top exists — the three failure modes
@@ -178,18 +344,34 @@ belongs here, not only in the document that reasoned it out.** The reasoning sta
 the obligation moves to where it gets seen.
 
 **A third mode found while cataloguing these: DISCHARGE.** An obligation that was satisfied and never
-marked reads to the next reader as a stale claim — `matchups-schedule-design.md:39` was reported as
-stale by a reviewer when in fact the work had been done. Mark obligations complete, or they are
-re-litigated.
-
-| # | Obligation | Source | State |
-| --- | --- | --- | --- |
-| 1 | **Any prompt touching a scoreboard surface must state that a build with records absent or stale will NOT match the mockup, and that a reviewer must read that as a sequenced dependency rather than a defect.** | `live-watchlist-scoreboard.md:236` (36% in) **and** `records.md:42` (80% in) | **LIVE.** Stated twice, carried zero times. Item 117's v2 prompt omitted it and the predicted confusion occurred on 2026-09-08. |
-| 2 | Record the `CompactGameScoreboard` contract widenings in the base addendum and `DESIGN.md` **before any consumer is built**. | `matchups-schedule-design.md:39`, restated `:233` | **DISCHARGED** — classification/FCS, neutral-site metadata, non-final broadcast and tier 2 are implemented and in `DESIGN.md`. Reported as a stale claim by a reviewer because nothing marked it done. |
-| 3 | Item 92 must refresh in the **live-scores cron**, and must **not** hook `handleGamesFinalized` — a client callback firing per browser, which would invert the cron-spends / client-reads split of PLATFORM-086B2B and PLATFORM-075. | `records.md:51` | **LIVE** — binding on whoever builds Item 92. |
-| 4 | Slice 5 should record the border as **deliberately retired**, with the eyebrow pill carrying its emphasis forward. | `matchups-schedule-design.md:216` | **UNVERIFIED** — slice 5 shipped; whether this was recorded is unchecked. |
-| 5 | Record the **component-family enforcement clause**. | `live-watchlist-scoreboard.md:454` | **UNVERIFIED.** |
+marked reads to the next reader as a stale claim — `matchups-schedule-design.md` → *Contract widenings* was
+reported as stale by a reviewer when in fact the work had been done. Mark obligations complete, or they are
+re-litigated. The full read found 24 of these.
 
 **Obligation 1 is the one with a cost already paid.** It is not obscure — it sits in the campaign's
 canonical document, in bold, addressed to the prompt author by name. Depth is not about obscurity; it
-is about the fact that prompts get written from the top of a file.
+is about the fact that prompts get written from the top of a file. The CARRY block above is the single
+obligations table; an earlier version of this file carried two with their row numbers swapped.
+
+---
+
+## Maintenance
+
+**Verified as of 2026-09-08**, Item 144 (`PLATFORM-144-ITEM-87-DOC-RECONCILIATION-CLAUDE-v1`), against `main`
+at the commit the branch merged from. What the pass covered:
+
+- All sixteen documents read end to end, in the order: canonical document, this index, `team-highlight.md`,
+  `presentation-decisions.md`, `records.md`, `matchups-schedule-design.md`, `three-column-tier.md`,
+  `matchups-gap-analysis.md`, `featured-intent.md`, `section-ordering.md`, `section-ordering-resolutions.md`,
+  `postseason-context.md`, `postseason-grouping-notes.md`, `postseason-refinements.md`, `team-colour.md`,
+  `team-colour-regression.md`, then the mockup in full.
+- Every DISCHARGED verdict checked against `src/`, `DESIGN.md`, `AGENTS.md` or the registry — none from another
+  document's account.
+- Every claim-level mark placed in the document that makes the claim; nothing deleted.
+- Not covered: `item-87-followon-recap-scoreboard.md` (indexed on its own landing), `DESIGN.md` and the queue
+  (planning's; the owner applied the `DESIGN.md` half of the 2026-09-08 rulings), and the Schedule breakpoint
+  number (Item 152).
+
+**Keeping it verified:** a new follow-on adds its row here and, if it overrides an earlier claim, a mark at that
+claim. A slice that discharges a row moves it to the DISCHARGED table with where the work landed. A mark without
+the file open is how this index was wrong twice before this pass.

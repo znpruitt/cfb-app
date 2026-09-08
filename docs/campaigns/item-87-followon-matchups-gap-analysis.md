@@ -1,8 +1,16 @@
 # Item 87 — Follow-on input: Matchups implementation gap analysis
 
+> **Check `item-87-INDEX.md` before deciding from this document.** Parts of it may be superseded.
+>
 > **Status:** input for review, not applied.
 >
 > **Supersession:** where this document and any earlier follow-on disagree, this one is newer. It specifically corrects the reading that the outcome tint was rejected — see §2.
+>
+> **INDEX (verified 2026-09-08): CURRENT, with two corrections marked inline** — §2's claim that
+> `presentation-decisions.md` supersedes `team-highlight.md` (it extends it; different axes), and §3.4's claim about
+> where the 1372px tier is recorded (the mockup, not the tier document). §1.1 is answered by the 2026-09-08 ruling in
+> `item-87-live-watchlist-scoreboard.md` → *Watchlist card*: blank governs, and "not wired" is a sequencing state that
+> needs a filed item.
 
 Gap analysis of the shipped Matchups view against `mockups/matchups-schedule-mockup.html`, from screenshots of Week 1 (all final) and Week 2 (all scheduled).
 
@@ -45,6 +53,12 @@ The mockup moved outcome into the tint specifically so the line-start slot could
 
 **Correction to an earlier reading:** the outcome-coloured tint was **not rejected**. `item-87-followon-team-highlight.md` predates the decision; `item-87-followon-presentation-decisions.md` supersedes it and specifies the full lifecycle — neutral when scheduled, an in-progress treatment when live, a static outcome treatment when final. The mockup's `hl-outcome` is the settled treatment.
 
+> **CORRECTED by the owner, 2026-09-08:** "supersedes it" is wrong, and "predates" is not the relationship either —
+> both files date from 2026-09-05/06. `team-highlight.md:23` decides the IDENTITY axis (the tint is never owner
+> colour) and stays CURRENT; `presentation-decisions.md:90` decides the OUTCOME axis (the hue the tint takes once a
+> direction exists). The two hold together. Everything else in this paragraph stands: the outcome tint was not
+> rejected, and `hl-outcome` is the settled treatment.
+
 **Resolution:** retire the left rail, keep the tint, and let the tint carry outcome per the lifecycle table. That frees the line-start slot for 119.
 
 ---
@@ -54,6 +68,11 @@ The mockup moved outcome into the tint specifically so the line-start slot could
 ### 3.1 Final rows carry dates
 
 Every final shows `vs BHooper · Thu, Sep 3, 7:00 PM`. Finals show no date or time on any surface — settled, and reaffirmed on the grounds that kickoff order is inferable from the sort.
+
+> **CURRENT — Item 142 (verified 2026-09-08):** still shipped. The kickoff does not arrive through the `clock` prop
+> (correctly `undefined` on finals) but through `metadataEntries` in the `contextSlot`
+> (`MatchupsWeekPanel.tsx:200-204`), gated `statusTone !== 'scheduled'`. `DESIGN.md` corrected its account of the
+> mechanism on 2026-09-08; the behaviour is unchanged and still wrong.
 
 ### 3.2 Tags are absent
 
@@ -69,6 +88,12 @@ Shipped is `lg:grid-cols-2` with no third tier. The three-column tier at 1372px 
 
 *The prose line in the Matchups design doc saying "Matchups keeps its two-column owner-card grid" is the stale side of that contradiction. The CSS and the tier doc are correct.*
 
+> **CORRECTED (verified 2026-09-08):** the 1372px figure and its arithmetic (3 × (400 + 44) + 2 × 20) are recorded
+> only in `mockups/matchups-schedule-mockup.html:218-220`, the `.owner-grid` container query; `three-column-tier.md` specifies Overview's 1300px tier and
+> says Matchups is a separate question. The stale prose line lived in the mockup's notes block, not in
+> `matchups-schedule-design.md`; the owner replaced it with the 1372 arithmetic on 2026-09-08, so that contradiction
+> is DISCHARGED. The Schedule tier's number is Item 152.
+
 ---
 
 ## Tier 4 — new, previously unrecorded
@@ -82,6 +107,9 @@ Two different kinds of fact in one slot. **"Scheduled" is not a record**, and th
 **Recommend `0–0`.** A week with no results has a record; it is nil. Showing the record shape unconditionally means the header slot holds one kind of fact, and the eye learns one place to find it.
 
 This is not in any document, in the mockup, or in any item. Filing it here as a new finding.
+
+> **NOT IN THE QUEUE (verified 2026-09-08):** still recorded only here. Reported to planning as an Item 144 queue
+> finding alongside the other cheap items in the sequencing note.
 
 ---
 

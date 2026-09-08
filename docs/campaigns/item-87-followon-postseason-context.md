@@ -1,6 +1,14 @@
 # Item 87 — Follow-on input: postseason temporal context
 
+> **Check `item-87-INDEX.md` before deciding from this document.** Parts of it may be superseded.
+>
 > **Status:** input for review, not applied. Nothing here is recorded in the base addendum or `DESIGN.md` until stated otherwise.
+>
+> **INDEX (verified 2026-09-08): CURRENT.** The earlier INDEX entry called the grouping proposal and the rationale
+> superseded; neither is. The disjoint Bowls/CFP grouping was corrected in THIS document ("An earlier draft of this
+> document proposed exactly that and was wrong"), and the container rationale coexists with the sort-order
+> rationale in `matchups-gap-analysis.md` §3.1 — `DESIGN.md` records both. The three implementer notes and the
+> union widening are LIVE (`schedule.ts:124` still omits `'first-round'`); the item this asks for is unfiled.
 
 Answers the residual added to §3 of `item-87-followon-section-ordering-resolutions.md`: the postseason tab is not week-scoped (`CFBScheduleApp.tsx:1896` passes `postseasonGames` unfiltered), so a postseason final carries no date, no time and no week, and nothing on the surface says when it was played.
 
@@ -70,8 +78,16 @@ Less good, because a surface-specific exception to a universal rule is what rots
 
 Round grouping is additive to the postseason tab and does not touch the scoreboard component or any other consumer. It is not part of the Matchups or Schedule transitions and should carry its own item.
 
+> **LIVE, unfiled (verified 2026-09-08):** `docs/next-tasks.md` has no item for postseason round grouping; it is
+> mentioned only in passing under Item 121. Reported to planning as an Item 144 queue finding.
+
 ---
 
 ## Correction acknowledged
 
 The `ESPN2` broadcast removed from the owner-card live row was an error on my part, not a decision — it left the mockup internally inconsistent, since the Schedule section's live row in the same file still carried broadcast, and Item 87 slice 5a explicitly widens the contract to put broadcast on live rows. The CLI's restoration is correct and should stand.
+
+> **RE-APPLIED 2026-09-08:** the restoration did not survive — the owner-card rebuild of 2026-09-06 (`305e939e`)
+> dropped `ESPN2` from that row again while the Schedule copy of the same game kept it. Item 144 restored it in the
+> mockup. The Matchups SCHEDULED rows in the same mockup carry no broadcast either, while the same games on
+> Schedule do; no document decides that, so it is flagged in the mockup notes for Item 143 rather than changed.

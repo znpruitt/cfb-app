@@ -51,6 +51,39 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-144-ITEM-87-DOC-RECONCILIATION-CLAUDE-v1
+
+- Purpose: read the sixteen-document Item 87 design set end to end and mark every claim in place —
+  current, superseded, or discharged — so the next prompt author reads a corrected source instead of
+  a summary of one; promote every obligation into the index's CARRY block with its state.
+- Scope: `docs/campaigns/item-87-*.md` (15 documents + the index) and
+  `mockups/matchups-schedule-mockup.html`. Docs and mockup only; no `src/`, no `docs/prompts/`, no
+  `docs/next-tasks.md`. Assigned to the implementation lane by owner exception (2026-09-08).
+- Outcome: 80 claim-level marks across the 15 documents (30 discharged, 17 superseded, 8
+  current/extended/adopted, 11 live obligations, 14 corrections, answers and rulings), each placed at
+  the claim in the document that makes it; 13 index-level verdicts replacing the earlier
+  best-knowledge marks (no document wholly superseded; `team-highlight.md` and
+  `postseason-context.md` corrected to CURRENT). The index CARRY block now holds 70 rows covering the
+  81 obligation occurrences found (24 discharged, 2 answered, the rest live, 8 of them unfiled
+  queue findings). Two owner rulings recorded in the canonical document: blank anchor governs and
+  the spread fallback is marked superseded at its four restatements; a store failure is not the
+  same condition as "not wired to this surface". `records.md`'s degradation rule made visibly
+  conditional. Mockup reconciled: tint inset to `0 -8px` with squared facing corners (CARRY row 6),
+  missing state label, owner-card `ESPN2` restored, four stale notes marked, the 1320 arithmetic
+  annotated for Item 152 (owner had already fixed the mid-file `</body>`, the untinted row, the tint
+  comment, and the two-column prose). Every DISCHARGED verdict checked against `src/`, `DESIGN.md`,
+  `AGENTS.md` or this registry.
+- Review / verification: docs-only change, no review round (nothing to review against the code).
+  Gates against `62f9c6a5` on a clean tree: `npm run lint:all` exit 0; `npx tsc --noEmit` exit 0;
+  `npm test` exit 1 with 4,960 of 4,962 passing and exactly the two standing Item 137
+  `writer-convergence` failures — the baseline, unchanged, as a docs-only branch requires.
+  Queue findings reported to planning rather than filed: postseason round grouping has no item;
+  Overview's Featured eyebrow is still `text-blue-300`; the `0–0` owner header, the viewing-member
+  highlight and the data-seam `displayOwner` guard are recorded only in the set; the Item 119 entry
+  lacks the slice 5b dependency and the slice 5 closeout lacks the team-colour removal; `DESIGN.md`
+  line citations across the set drifted again on 2026-09-08.
+- Status: Implemented on `claude/144-item-87-doc-reconciliation` (`62f9c6a5` + this closeout); merge pending.
+
 ### PLATFORM-117-MATCHUPS-SCOREBOARD-CODEX-v2
 
 - Purpose: replace Matchups' bespoke game row with the shared compact scoreboard while correcting
