@@ -1326,6 +1326,46 @@ is a fine answer — but it should be an entry saying so, not silence across thr
 
 **Blocker:** none. Seasonally distant.
 
+### Item 155 — the Matchups scheduled row: records as the anchor, and the dead footer
+
+**The ask:** give scheduled Matchups rows a right-edge anchor and stop reserving an empty odds
+footer. **This is what members see right now** — Week 1 is over, Week 2 does not start until Thursday,
+so every row on the surface is scheduled.
+
+**REQUIRED BY OWNER RULING 2026-09-02, restated 2026-09-08.** Blank governs when the record store
+fails — that is a transient condition needing no item. **"Not wired to this surface" is a SEQUENCING
+state and needs a filed item with the dependency stated in the prompt.** This is that item. Without
+it, a permanently blank column ships as "correct degradation".
+
+**ONE COMPOUND FAILURE, NOT TWO DEFECTS — owner framing, and it changes the fix.** No right-edge
+anchor plus roughly 40px of dead footer under every game. Separately each is small; together the row
+reads as a **rendering error** rather than as sparse. **Fixing one without the other will not change
+how it reads.**
+
+| half | cause | fix |
+| --- | --- | --- |
+| **no anchor** | records deferred off Matchups; a scheduled row has no score, no record, no odds | records as the anchor — the mockup's answer (`3–5` on scheduled rows) |
+| **dead footer** | Matchups passes no `footerSlot`, but `CompactGameScoreboard:243` reserves `min-h-4` on `state === 'scheduled'` regardless | suppress the reservation when nothing is passed — **one conditional, no decision needed** |
+
+**The anchor half settles a question this ledger left open.** `DESIGN.md`'s right-edge anchor rule and
+"records stay off Matchups" cannot both hold, because **the anchor holds the record when a game is
+scheduled** — that is why it holds different content per state. Item 139 shipped the reconciliation,
+so the data exists; 139's entry names Schedule only.
+
+**The footer half can ship alone and immediately.** It needs no seam, no decision, and no document.
+If the anchor half waits on scheduling, take the footer anyway — it removes the visible gap while the
+rest is decided.
+
+**The empty-footer reservation is the enumeration defect** `DESIGN.md` now names: the wrapper renders
+on `state === 'scheduled'` whether or not content exists. Fix by asking whether there is content, not
+by adding another state to the condition.
+
+**Cross-references, so this does not absorb them:** kickoff on NON-scheduled rows is **Item 142**;
+where the tag sits is **Item 143**; what the tag looks like is **Item 153**.
+
+**Blocker:** none for the footer. The anchor half needs the records-on-Matchups decision, which is
+this item's own first question.
+
 ### Item 145 — the upstream debug logger writes provider URLs and headers to the server log
 
 **The ask:** stop `NEXT_PUBLIC_DEBUG=1` logging `statusText`, the provider URL and response headers.
