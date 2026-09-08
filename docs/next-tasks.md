@@ -710,7 +710,9 @@ crosses **two**. They cannot ship as one PR.
 - **Tier B is BUILT and remediated at `1556739a`** — three reviews converged on six findings, all
   fixed, each regression test verified by reverting its own pre-fix code one at a time.
   **SCOPE APPROVED 2026-09-07 by the owner**, per `AGENTS.md` → Scope and sizing, which requires the
-  approval and the diffstat be recorded here: **31 files, +2,709/−112**, crossing both
+  approval and the diffstat be recorded here: **31 files, +2,693/−96** (corrected 2026-09-07 — I first recorded +2,709/−112, taken from a
+  relayed message rather than from the `git diff --shortstat` I had myself run minutes earlier; the
+  registry entry must carry the measured figure), crossing both
   stop-and-reassess signals. Approved because the breakdown is **870 lines of production against
   1,919 of tests** — the production surface is well inside the 1,500 threshold, and the test bulk is
   the same document's "every surface a PR touches must carry its own tests" applied across two
@@ -933,6 +935,26 @@ concession, and `CompactGameScoreboard` has already been widened once by slice 5
 third and fourth driven by one consumer is how a shared component becomes the union of its callers.
 
 **Blocker: Item 144.** The document that would settle these is the one with ten stale claims in it.
+
+### Item 147 — nothing pins the schedule cron's response-body keys
+
+**The ask:** pin the `schedule-refresh` cron's response-body keys, as `rankings` now is.
+
+**Filed 2026-09-07 from Item 126B's confirming review, and it is half a fix rather than new work.**
+126B's finding 2 was a leak into the **QStash response body** — the rankings cron returned
+`exec.years` verbatim, so `failedPartitions` crossed into the body. It shipped because **only the
+log-event keys were pinned; nothing pinned the body.** The fix added an allowlist projector and a body
+key pin — **for rankings.** `responseYearEntry` on the schedule side is referenced by no test.
+
+**So the two jobs now differ in a way nothing records as deliberate**: one is pinned against exactly
+the leak that occurred, the other is not, and the unpinned one is the job the whole item was written
+about.
+
+**Pre-existing rather than caused by 126B's remediation round**, which is why it was correctly
+excluded from that round's scope under `AGENTS.md`. Filed so the asymmetry is a decision rather than
+a gap.
+
+**Blocker:** none. Small, and it mirrors a pin that already exists.
 
 ### Item 145 — the upstream debug logger writes provider URLs and headers to the server log
 
