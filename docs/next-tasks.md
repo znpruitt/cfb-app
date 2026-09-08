@@ -1043,6 +1043,52 @@ distinct from **Item 142**.
 **Blocker:** none. Whether this rides with 143's presentation pass or ships alone is a sequencing
 call, not a dependency.
 
+### Item 149 — 56% of the schedule is D-II/D-III games nothing displays
+
+**The ask:** decide whether the canonical schedule should carry games with no FBS or FCS participant.
+This is a scoping question, not a bug — **answer it before shrinking anything.**
+
+**Measured against production `2026-all-all`, 2026-09-08:**
+
+| population | games | share |
+| --- | --- | --- |
+| FBS-involving | 888 | 24.1% |
+| FCS-involving (no FBS) | 722 | 19.6% |
+| **neither FBS nor FCS — D-II, D-III, other** | **2,070** | **56.3%** |
+
+3,680 games, **2.69 MB**. Dropping the third bucket alone would take the blob to **~1.18 MB, 56%
+smaller**. That bucket spans **47 distinct conferences**.
+
+**Found by asking what the weekly sweep actually repaired.** The 2026-09-08 refresh reported **355
+score repairs**, which reads as significant until the population is split. Of 456 COMPLETED games:
+**99 involve an FBS team, all scored, zero missing**; **247 are D-II/D-III**, and the season's only
+**2** missing scores are both in that bucket. FBS games are scored live by the `*/3` feed; the sweep
+exists for what the live feed does not cover, and that is overwhelmingly games no member sees.
+
+**Why it is worth a decision rather than a shrug — four consumers pay for it:**
+
+1. **The blob is read by five `force-dynamic` routes.** 2.69 MB where 1.18 MB would do.
+2. **The weekly sweep works the whole population**, and the run that surfaced this took 44.6 s.
+3. **Every measurement in this campaign was computed against it.** Item 139's positional counting,
+   Item 140's tail sizing, the polling-window derivation. None is WRONG — they operate per team and
+   per game — but "456 completed games" means 99 that matter, and a future reader will not know that.
+4. **The 2 unreadable finals that shaped Item 139's withholding ruling are in this bucket.** The
+   ruling stands; the denominator it was argued against was 54% invisible.
+
+**The counter-argument, which is why this is a decision.** FBS teams play FCS opponents, and an FCS
+opponent's other games may matter for records and rankings context. The third bucket is the one with
+no such path — a D-III game between two D-III teams cannot reach any rendered surface. **But that
+must be verified, not assumed**: check whether any consumer resolves an opponent's opponent before
+concluding the rows are inert.
+
+**Do NOT filter at read time as a workaround.** If these rows should not be stored, the fix is the
+fetch's `division` parameter, not a filter every consumer must remember. A read-time filter is a
+fifth consumer of the same population.
+
+**Blocker:** none, but it interacts with Item 141 (Insights rebuilds the season per request) and Item
+140 (tail sizing) — both would get cheaper or clearer, and neither should be measured again until
+this is settled.
+
 ### Item 145 — the upstream debug logger writes provider URLs and headers to the server log
 
 **The ask:** stop `NEXT_PUBLIC_DEBUG=1` logging `statusText`, the provider URL and response headers.
