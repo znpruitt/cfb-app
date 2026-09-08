@@ -1278,6 +1278,12 @@ corrected to match rather than averaged.
 **Blocker:** none. Related to Item 134 (Overview's tier) but a different grid and a different number.
 
 ### Item 153 — three surfaces, three eyebrow treatments, and one is still the blue violation
+**Kickoff:** [`docs/prompts/platform-153-eyebrow-treatment-claude-v1.md`](prompts/platform-153-eyebrow-treatment-claude-v1.md).
+**Four blue spots, not one** — `OverviewPanel.tsx:195` (the chip) and `:755` (the reason row); the
+receipt separates eyebrows from legitimate interactive blue. Also carries **CARRY row 4**: this is the
+natural place to record the amber `upset` border as deliberately retired, since the slice makes the
+pill the single emphasis instrument across three surfaces.
+
 
 **The ask:** one eyebrow treatment across Overview, Schedule and Matchups. **Overview is still the
 `DESIGN.md` violation Item 117 fixed elsewhere.**
@@ -1327,6 +1333,12 @@ is a fine answer — but it should be an entry saying so, not silence across thr
 **Blocker:** none. Seasonally distant.
 
 ### Item 155 — the Matchups scheduled row: records as the anchor, and the dead footer
+**Kickoff:** [`docs/prompts/platform-155-matchups-scheduled-row-codex-v1.md`](prompts/platform-155-matchups-scheduled-row-codex-v1.md).
+**RECORDS-ON-MATCHUPS DECIDED 2026-09-08 — owner: yes.** So this is one slice, not two, and it is
+smaller than filed: `matchups/page.tsx:33` already calls `loadTeamRecordsClientProps` and `:57` already
+spreads `{...teamRecordProps}`, identical to Overview. `MatchupsWeekPanel` simply never accepts them,
+and `CompactGameScoreboard` already implements both placements. **A threading job, not a wiring job.**
+
 
 **The ask:** give scheduled Matchups rows a right-edge anchor and stop reserving an empty odds
 footer. **This is what members see right now** — Week 1 is over, Week 2 does not start until Thursday,
