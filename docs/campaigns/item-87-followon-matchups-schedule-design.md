@@ -282,8 +282,20 @@ Bronze was decided earlier in this campaign, ranked above sky, neutral and fuchs
 
 *"Gold is champion-reserved"* is answered by temporal separation. The champion treatment does not render until a title is awarded — podium cards for #1–#3 are neutral all season, confirmed by inspection — so bronze is uncontested through the year. At season end the two remain distinguishable: bronze is a desaturated tan, champion amber (`#BA7517`) a dark saturated gold. The reservation binds a token to a purpose, not a hue neighbourhood.
 
-**The known weakness, measured rather than asserted.** Bronze against champion gold is **1.37:1** —
-essentially no luminance contrast, so the separation is carried by hue and saturation alone. That is
+**The known weakness, measured rather than asserted.** **CORRECTED 2026-09-08 — the figure previously
+stated here (1.37:1) reproduces as none of the candidate pairs, and the conclusion drawn from it is
+what stopped anyone rechecking it (`AGENTS.md` → a stated figure must reproduce).** This section names
+two bronzes with roles, so "bronze against champion gold" was ambiguous. Recomputed, sRGB relative
+luminance, `(L1+0.05)/(L2+0.05)`:
+
+| pair | ratio |
+| --- | --- |
+| **pill TEXT `#dbc190` vs champion `#BA7517` — what a viewer actually sees** | **2.13:1** |
+| base bronze `#c9a66b` vs champion `#BA7517` | 1.62:1 |
+| pill border `#c9a66b` vs pill text `#dbc190` — an internal pair nobody reads across | 1.32:1 |
+
+**The operative number is 2.13:1**, and the conclusion is unchanged: essentially no luminance
+separation, so the distinction is carried by hue and saturation alone. That is
 the one moment the two sit adjacent, and it is the case that fails for a viewer with reduced colour
 discrimination. Temporal separation covers the rest of the year; this is precisely what it does not
 cover. If the pairing ever needs to survive that viewer, the instrument is a luminance step, not a
