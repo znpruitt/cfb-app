@@ -167,7 +167,7 @@ the colour bars, 134 the third tier, 115 counts and caps together.
 
 **Kickoffs written 2026-09-08 and ready to dispatch:**
 `platform-143-matchups-status-row-codex-v1.md` (UI spine) and
-`platform-157-162-163-tag-vocabulary-claude-v1.md` (Platform, one prompt for all three per owner call).
+`platform-157-162-163-tag-vocabulary-claude-v2.md` (Platform, one prompt for all three per owner call).
 **`preview` is granted to 143**; the tag-vocabulary kickoff suspends the push-`preview` instruction for
 its branch, which is what preserves the single-writer condition.
 
@@ -5453,8 +5453,8 @@ family `DESIGN.md`'s chip block actually names (_Top 25 Matchup_, _Close_).
 exactly two survive in priority order.
 
 **`prioritizeGameTags` needs no cap either.** `LeagueGameTag` has three members and two are mutually
-exclusive by construction: `upset` requires `state === 'final'` (`gameTags.ts:596`), `upset_watch`
-requires `state !== 'final'` (`:609`). **The maximum reachable is two.** A cap there would be
+exclusive by construction: `upset` requires `state === 'final'` (`gameTags.ts:597`), `upset_watch`
+requires `state !== 'final'` (`:611`). **The maximum reachable is two.** A cap there would be
 unreachable code, and the acceptance criterion could never be met with real data — not after the
 retirements, but today.
 

@@ -1,4 +1,4 @@
-PROMPT_ID: PLATFORM-157-162-163-TAG-VOCABULARY-CLAUDE-v1
+PROMPT_ID: PLATFORM-157-162-163-TAG-VOCABULARY-CLAUDE-v2
 PURPOSE: Items 157, 162 and 163 — one decision about what the tag vocabulary IS. Three markers each restate something already visible on the row; after this slice the vocabulary is game facts only.
 SCOPE: `src/lib/gameTags.ts`, `src/lib/selectors/matchups.ts`, `src/components/MatchupsWeekPanel.tsx`, and tests for each. NOT tag PLACEMENT (Item 143, running concurrently in the other lane). NOT the tag treatment (Item 153, shipped).
 CARRIES: `item-87-INDEX.md` CARRY rows 7, 8 and 72, verbatim in the task block.
@@ -35,7 +35,7 @@ information. **The shortening looks obviously right until you check** — which 
 
 ### 162 — `Contender Watch` is owner standing rendered as a chip
 
-**`DESIGN.md:295` forbids it outright:** *Owner standing appears inline beside the owner name, never
+**`DESIGN.md:296-297` forbids it outright:** *Owner standing appears inline beside the owner name, never
 as a chip — it is true on every row, so as a marker it would carry no signal.*
 
 **Structurally high-frequency, by construction.** `selectors/overview.ts:496` builds `topOwnerNames`
@@ -45,7 +45,7 @@ measured rate — including **Rutgers 0–1 against Boston College 0–1**, wher
 worth of noise.
 
 **It is also a fact about an OWNER sitting in a row of facts about the GAME.** That is the distinction
-`DESIGN.md:295` draws.
+`DESIGN.md:296-297` draws.
 
 ### 163 — the `vs <owner>` pill, and this one is a RULING, not a retirement
 
@@ -55,7 +55,7 @@ opponent has a displayable owner that name appears **twice on one card**. The mo
 pill. It reads as a leftover from before Matchups adopted the shared scoreboard, when the descriptor
 was the only place the opponent's owner appeared.
 
-**But `DESIGN.md:284` is explicit that a chip restating inline content is legitimate WHEN IT AIDS
+**But `DESIGN.md:289` is explicit that a chip restating inline content is legitimate WHEN IT AIDS
 SCANNING**, so redundancy alone does not settle it. **Bring the question back with what you find; do
 not decide it in the diff.**
 
@@ -82,8 +82,8 @@ it is receipt item 4.
 Report these, then **STOP and wait**. Branch checkout only.
 
 1. The `PROMPT_ID:` line of THIS document, verbatim.
-2. **Quote `DESIGN.md:284` and `:295` with re-derived line numbers.** Say which of the three items
-   each governs, and whether either governs the `vs <owner>` pill. **`:284` may permit it.**
+2. **Quote `DESIGN.md:289` and `:296-297` with re-derived line numbers.** Say which of the three items
+   each governs, and whether either governs the `vs <owner>` pill. **`:289` may permit it.**
 3. **Enumerate every consumer of every label you change** — `LEAGUE_TAG_LABELS`, `GameHighlightTag`
    text, `deriveOpponentDescriptor`. **A label appearing in a test assertion is a consumer.** Say what
    breaks.
@@ -94,6 +94,72 @@ Report these, then **STOP and wait**. Branch checkout only.
    predicate and the twice-rendered owner name are all mine and all checkable — check them.**
 
 A receipt that summarises without quoting is not a receipt.
+
+## RULINGS ON YOUR RECEIPT — v2, and three of your corrections are mine
+
+**Your receipt is accepted in full. Every citation you corrected was wrong and every one was mine.**
+`DESIGN.md:284`/`:295` are the bowl-badge and rankings-inline lines; the rules are `:289` and
+`:296-297`, corrected above. `gameTags.ts:596`/`:609` are `:597`/`:611` — **I wrote those into the
+reference document and the Item 166 entry today, in the same commit that carried CARRY row 7.** Both
+corrected on `main`. And **`CARRIES:` was not verbatim in three of three rows**; that is a `CLAUDE.md`
+violation and the rows below are now copied exactly.
+
+**`deriveOpponentDescriptor` has FIVE branches, not four** — `Self` is the one I missed, and it joins
+the survives-regardless set. **And the completeness contract asked for something unassertable:**
+`NoClaim (FBS)` never renders, because `hideOpponentDescriptor` suppresses it unconditionally, so it is
+assertable at the selector only. Contract corrected below. **That `getOpponentBadgeClasses` therefore
+has a dead `NoClaim (FBS)` branch is a finding — report it, do not delete it here.**
+
+### RULING 1 — the vacuous cap test: report it, retarget what still discriminates, keep the code
+
+**Your analysis is right and the gate holds: do not fabricate a third tag.** But do not leave a test
+whose name claims it caps while its body cannot.
+
+- **Split the assertion.** Priority ORDERING between `top25` and `close` still discriminates — keep
+  that, and rename the test to what it actually proves.
+- **Delete the cap assertion** rather than leave it passing vacuously, and **say in a comment at
+  `TOP_BADGE_LIMIT` that the family can no longer reach it**, naming this slice.
+- **Do NOT delete `TOP_BADGE_LIMIT` or the `.slice()`.** `DESIGN.md:293` was amended on 2026-09-08 to
+  require the cap; deleting its implementation would leave a canonical rule with nothing behind it —
+  **the exact "never true" failure that amendment exists to correct.** It stays as a forward guard,
+  documented as one, which is the same shape as `AGENTS.md`'s rule that a module with no consumer must
+  say why in the code.
+
+### RULING 2 — the empty watchlist reason row: KEEP the reservation
+
+**Same ruling as the odds band on 2026-09-08, for the same structural reason.** Overview renders the
+watchlist as a **grid**, and after the retirements **some cards carry `top25` and some carry nothing**
+— which is precisely the case where a reserved band earns its place, keeping two side-by-side cards
+level. It becomes dead space only if it goes empty on EVERY card, which is Schedule's case and not
+this one. **Do not touch `min-h-[22px]`.**
+
+### RULING 3 — the ordering change is IN SCOPE, and must be reported
+
+You found that `highlightTags[0].priority` feeds `watchlistPriority`. **Retiring two tags therefore
+changes watchlist ORDER, not only labels** — which no filed item mentions.
+
+**It does not collapse, and the prompt's gate does not forbid it.** `watchlistPriority`
+(`selectors/overview.ts:343-350`) is a `Math.max` over four signals: `highlightTags[0].priority`,
+`isUpsetWatch` 95, `isGameOfSlate` 90, `isRankedSpotlight` 70. Removing `contenderWatch` (90) and
+`ranked` (70) removes one input to that max; `isGameOfSlate` also supplies 90 and `isRankedSpotlight`
+also supplies 70. **"Do not change precedence" means do not re-rank the tags that remain** — it never
+meant a retirement must leave ordering untouched, which is impossible.
+
+**Report the ordering delta explicitly**, with a before/after on a real slate if you can reach one.
+
+### Your findings that become work in this slice
+
+- **`GameWeekPanel.test.tsx:1617` and `:1642` assert `/Top 25/`**, which `Top 25 Matchup` also
+  satisfies. **Tighten them** — they discriminate nothing today and would discriminate nothing after.
+- **`OverviewPanel.test.tsx:2046`'s name claims it prefers Top 25 Matchup and Contender Watch chips
+  and its body asserts neither.** Fix the test to match its name, or rename it to what it proves.
+
+### Your findings that are NOT this slice — report, do not act
+
+- The dead `NoClaim (FBS)` branch in `getOpponentBadgeClasses`.
+- `formatSlateSummaryText` being test-only with no production caller.
+- Whether the reference document's §2 entries need updating — **that is closeout**, and you are right
+  that they are not defects now.
 
 ## Branch
 
@@ -119,9 +185,12 @@ single-writer condition the grant depends on.
 > shortened** (owner ruling 2026-09-08). Retire `Ranked Team` instead — it restates a rank already on
 > the row.
 
-> **Row 8 — LIVE.** Selection and precedence stay selector-owned; the scoreboard must not be forked.
+> **Row 8 — LIVE.** Selection and precedence stay selector-owned; the scoreboard **must not be
+> forked**. Now four consumers plus the recap.
 
-> **Row 7 — LIVE.** Re-derive every line-number citation before putting it in a document.
+> **Row 7 — LIVE.** **Do not read campaign status from the canonical document**, and **re-derive every
+> line-number citation** before putting it in a prompt — they have been stale at least twice, and
+> `DESIGN.md` moved again on 2026-09-08.
 </task>
 
 <gate>
@@ -151,8 +220,12 @@ expects one.
 - **`Top 25 Matchup` renders where `Top 25` did**, on Schedule and Matchups both.
 - **A one-ranked game renders NO rank tag** after `Ranked Team` retires — assert the absence, and
   mutation-prove it by restoring the tag and showing a named test go red.
-- **The `vs <owner>` pill is unchanged** unless the ruling says otherwise, and **`FCS`,
-  `NoClaim (FBS)` and placeholder descriptors are unchanged regardless.** Assert each.
+- **The `vs <owner>` pill is unchanged** unless the ruling says otherwise, and **all FOUR non-`vs`
+  branches are unchanged regardless** — `Self`, placeholder/derived `displayName`, `FCS`, and
+  `NoClaim (FBS)`. **Assert `NoClaim (FBS)` AT THE SELECTOR, not on rendered output** — it never
+  renders, because `hideOpponentDescriptor` suppresses it unconditionally.
+- **Watchlist ordering: report the delta.** Assert the new order on a fixture that would have sorted
+  differently before.
 - **The cap's existing test still reaches three qualifying tags**, or the report says plainly that it
   cannot and why.
 - Test count delta reported as a measured number.
