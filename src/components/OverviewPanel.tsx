@@ -15,7 +15,12 @@ import {
 import { buildWeekLabelMap, formatWeekLabel } from '../lib/weekLabel';
 import { formatExpandedKickoff, formatPrimaryBroadcastLabel } from '../lib/gameCardPresentation';
 import { displayOwner } from '../lib/gameOwnership';
-import { formatGameMatchupLabel, formatLiveGameClock } from '../lib/gameUi';
+import {
+  EYEBROW_REASON_CLASSES,
+  EYEBROW_TAG_CLASSES,
+  formatGameMatchupLabel,
+  formatLiveGameClock,
+} from '../lib/gameUi';
 import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import {
   deriveLeagueInsights,
@@ -195,8 +200,13 @@ function deriveFeaturedGameBadge(game: AppGame): { label: string; classes: strin
     const label = conf ? `${conf} Champ` : 'Conf. Champ';
     return {
       label,
+      // Neutral slate, matching the CFP branch above. `DESIGN.md` → *Color* reserves
+      // slate/gray for postseason round badges and forbids blue as a "featured" or
+      // "important" signal, which this badge is. Bronze was considered and rejected:
+      // it would split one two-branch badge family by hue with nothing a reader can
+      // decode from the difference. See PLATFORM-153.
       classes:
-        'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300',
+        'border-slate-300 bg-slate-100 text-slate-700 dark:border-slate-600 dark:bg-slate-800/50 dark:text-slate-300',
     };
   }
 
@@ -759,14 +769,18 @@ function WatchlistScoreboardList({
                 data-watchlist-reason-row
               >
                 {prioritized.highlightLabel ? (
-                  <span className="min-w-0 truncate text-xs font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">
+                  <span
+                    className={`min-w-0 truncate ${EYEBROW_REASON_CLASSES}`}
+                    data-watchlist-reason-label
+                  >
                     {prioritized.highlightLabel}
                   </span>
                 ) : null}
                 {highlightTags.map((tag) => (
                   <span
                     key={tag.id}
-                    className="inline-flex shrink-0 rounded-full border border-gray-300 bg-white px-1.5 py-0.5 text-xs font-semibold text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+                    className={`inline-flex shrink-0 ${EYEBROW_TAG_CLASSES}`}
+                    data-eyebrow-tag
                   >
                     {tag.text}
                   </span>
@@ -842,6 +856,7 @@ function FeaturedGamesList({
               gameBadge ? (
                 <span
                   className={`inline-flex rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${gameBadge.classes}`}
+                  data-featured-game-badge
                 >
                   {gameBadge.label}
                 </span>

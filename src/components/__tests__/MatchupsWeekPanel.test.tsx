@@ -768,8 +768,8 @@ test('shared row conversion preserves the complete bespoke GameRow fact inventor
   assert.match(finalScoreboard, /title="AP rank #2">#2/);
   assert.match(participantMarkup(finalScoreboard, 'away'), /Alabama[\s\S]*Alice[\s\S]*>24</);
   assert.match(participantMarkup(finalScoreboard, 'home'), /Georgia[\s\S]*Bob[\s\S]*>17</);
-  assert.match(finalScoreboard, /data-matchups-eyebrow-tag[^>]*>Upset<\/span>/);
-  assert.match(finalScoreboard, /data-matchups-eyebrow-tag[^>]*>Top 25<\/span>/);
+  assert.match(finalScoreboard, /data-eyebrow-tag[^>]*>Upset<\/span>/);
+  assert.match(finalScoreboard, /data-eyebrow-tag[^>]*>Top 25<\/span>/);
   assert.match(finalScoreboard, />vs Bob<\/span>/);
   assert.match(finalScoreboard, /Sat, Aug 30, 8:00 PM/);
 
@@ -895,7 +895,7 @@ test('every rendered eyebrow tag uses the settled bronze hairline treatment with
     'Alabama vs Georgia'
   );
   const tags = Array.from(
-    scoreboard.matchAll(/<span(?=[^>]*data-matchups-eyebrow-tag)[^>]*>/g),
+    scoreboard.matchAll(/<span(?=[^>]*data-eyebrow-tag)[^>]*>/g),
     (match) => match[0]
   );
 

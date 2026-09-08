@@ -142,3 +142,47 @@ export function chipClass(): string {
 export function pillClass(): string {
   return 'text-xs border rounded px-1 py-0.5 bg-white text-gray-700 border-gray-300 dark:bg-zinc-800 dark:text-zinc-100 dark:border-zinc-600';
 }
+
+/**
+ * The eyebrow-tag treatment — ONE definition, consumed by Overview, Schedule and
+ * Matchups (PLATFORM-153). Do not inline a bronze literal at a call site: three
+ * near-identical string literals is exactly how Schedule and Matchups drifted
+ * apart, and how Overview kept a non-compliant blue after both were corrected.
+ *
+ * Bronze, not blue. `DESIGN.md` → *Color*: "Blue signals interactivity or active
+ * state only — never use blue to mean 'featured' or 'important'." An eyebrow tag
+ * is precisely a featured/important signal, so blue here was non-compliant rather
+ * than merely a weaker choice.
+ *
+ * Border `rgba(201,166,107,0.40)` at 0.5px and text `#dbc190` are the settled
+ * values (`mockups/matchups-schedule-mockup.html`, `mockups/weekly-recap-mockup.html`).
+ * Each shipped surface previously had exactly one of the two right: Schedule ran a
+ * 1px border with 10px text, Matchups a 0.5px border with 12px text.
+ *
+ * `rounded-full`, `px-1.5 py-0.5` and `tracking-wide` are held as shipped and
+ * DELIBERATELY diverge from the mockup's `3px` radius, `1px 5px` padding and
+ * `0.08em` tracking. Owner ruling 2026-09-08: those three mockup values were set
+ * incrementally while building it and were never derived, so the mockup is not
+ * authoritative on them. Item 143 picks them against a real slate.
+ *
+ * Layout is the caller's: display and flex utilities are composed at each call
+ * site because Matchups hides its secondary tags below the `sm` breakpoint, which
+ * a baked-in `inline-flex` would fight.
+ */
+export const EYEBROW_TAG_CLASSES =
+  'rounded-full border-[0.5px] border-[rgba(201,166,107,0.40)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#dbc190]';
+
+/**
+ * The reason-row companion to {@link EYEBROW_TAG_CLASSES} — plain bronze text, no
+ * pill. Overview's watchlist reason row ("Upset watch", "Game of the Week") names
+ * why the whole card was selected rather than tagging a fact about the game, and
+ * `item-87-followon-matchups-schedule-design.md` → *Not applied to the Featured
+ * reason row* keeps it plain: a border there reads as chrome on a tile that has
+ * some already.
+ *
+ * Base bronze `#c9a66b` (8.63:1 on the dark composition) rather than the pill's
+ * brighter `#dbc190` (11.35:1), matching the mockup's `.sb-title` under its bronze
+ * option.
+ */
+export const EYEBROW_REASON_CLASSES =
+  'text-[10px] font-semibold uppercase tracking-wide text-[#c9a66b]';

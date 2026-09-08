@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 import type { AppGame } from '../../lib/schedule';
 import type { VenueInfo } from '../../lib/schedule/cfbdSchedule';
+import { EYEBROW_TAG_CLASSES } from '../../lib/gameUi';
 import GameWeekPanel from '../GameWeekPanel';
 
 function game(overrides: Partial<AppGame>): AppGame {
@@ -1587,7 +1588,7 @@ test('schedule cards use primary tag priority (upset watch over top-25) with sub
   assert.match(html, /data-primary-tag="upset_watch"/);
   assert.match(html, /Upset watch/);
   assert.match(html, /Top 25/);
-  assert.equal((html.match(/border-\[#c9a66b\]\/40/g) ?? []).length, 2);
+  assert.equal((html.match(/data-eyebrow-tag/g) ?? []).length, 2);
 });
 
 test('single-tag cards render only a primary tag without any secondary tag chips', () => {
@@ -1612,7 +1613,7 @@ test('single-tag cards render only a primary tag without any secondary tag chips
 
   assert.match(html, /data-primary-tag="top_25_matchup"/);
   assert.match(html, /Top 25/);
-  assert.equal((html.match(/border-\[#c9a66b\]\/40/g) ?? []).length, 1);
+  assert.equal((html.match(/data-eyebrow-tag/g) ?? []).length, 1);
 });
 
 test('cards without qualifying tags render no expanded tag chips', () => {
@@ -1631,7 +1632,7 @@ test('cards without qualifying tags render no expanded tag chips', () => {
 
   assert.match(html, /data-game-card-id="zero-tag"/);
   assert.match(html, /data-primary-tag=""/);
-  assert.doesNotMatch(html, /border-\[#c9a66b\]\/40/);
+  assert.doesNotMatch(html, /data-eyebrow-tag/);
 });
 
 test('collapsed and expanded tag presentation stay aligned to the same primary tag', () => {
@@ -1681,7 +1682,7 @@ test('collapsed and expanded tag presentation stay aligned to the same primary t
 
   assert.match(html, /data-game-card-id="tag-consistency"/);
   assert.match(html, /data-primary-tag="upset_watch"/);
-  assert.match(html, /border-\[#c9a66b\]\/40[^>]*>Upset watch/);
+  assert.match(html, /data-eyebrow-tag[^>]*>Upset watch/);
 });
 
 test('upset cards keep their bronze eyebrow but render no retired amber border', () => {
@@ -1753,7 +1754,13 @@ test('upset cards keep their bronze eyebrow but render no retired amber border',
   );
 
   assert.match(html, /data-primary-tag="upset"/);
-  assert.match(html, /border-\[#c9a66b\]\/40[^>]*>Upset<\/span>/);
+  assert.match(html, /data-eyebrow-tag[^>]*>Upset<\/span>/);
+  const upsetEyebrow = html.match(/<span(?=[^>]*data-eyebrow-tag)[^>]*>/)?.[0];
+  assert.ok(upsetEyebrow, 'the upset eyebrow must render');
+  assert.ok(
+    upsetEyebrow.includes(EYEBROW_TAG_CLASSES),
+    'the upset eyebrow must carry the shared bronze treatment verbatim'
+  );
   assert.doesNotMatch(html, /border-amber-300\/80/);
   assert.match(html, /data-primary-tag=""/);
 });
