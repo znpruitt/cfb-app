@@ -805,6 +805,32 @@ receipts (§6c); inspect production before diagnosing a production outage.
 3. Confirm the session token includes `publicMetadata`.
 4. Obtain a fresh session after claim changes.
 
+### A worktree 404s on every browser navigation, but its tests and builds pass
+
+**Two local hazards that no gate reports.** Both cost real time during Item 153 and neither shows up
+in `npx tsc --noEmit`, `npm test`, `npm run lint:all` or `npm run build`.
+
+**A stale or invalid Clerk secret in a worktree's `.env.local`.** Every browser navigation fails with
+`Handshake token verification failed` and lands on a 404. **Server rendering, tests and builds are
+unaffected**, which is exactly why every gate stays green — so the symptom is "nobody can click
+through this worktree" and the diagnosis is not obvious from any command output. Compare the key's
+fingerprint against the primary worktree rather than reading it:
+
+```bash
+for w in cfb-app cfb-app-claude; do
+  echo "$w $(grep -m1 '^CLERK_SECRET_KEY=' ~/$w/.env.local | shasum | cut -c1-12)"
+done
+```
+
+Differing hashes mean the worktree's copy is stale; re-copy `.env.local` from the primary worktree,
+which is the step `CLAUDE.md` → **Worktrees and session roles** already requires at worktree creation.
+A worktree's env files are gitignored, so nothing propagates a rotation to them.
+
+**A review agent regenerating `.next` under a running dev server.** Deleting and rebuilding `.next`
+while `npm run dev` holds it produces blank screenshots rather than an error, so the failure looks like
+a rendering defect in whatever is being reviewed. **If a review and a dev server overlap, expect
+this** — stop the dev server before a review that rebuilds, or discard screenshots taken across one.
+
 ### A signed-in user cannot open `/admin`
 
 Confirm Clerk Public metadata contains `{ "role": "platform_admin" }`, the customized session token

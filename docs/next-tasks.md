@@ -5104,6 +5104,39 @@ are removed rather than retained with strikethrough; their outcomes live in `doc
   refresh so a cold cache does not report false zeros. Remove only after extracting a shared score
   refresh authority.
 
+### Item 157 — two tag vocabularies say the same thing in two voices
+
+**Found during Item 153**, which converted Overview's chips to bronze and exposed why they were a
+different colour: they are a **different tag family**. `gameTags.ts:475` `LEAGUE_TAG_LABELS` produces
+`Upset` / `Upset watch` / **`Top 25`** for Schedule and Matchups; `gameTags.ts:430` produces
+**`Top 25 Matchup`** / `Ranked Team` / `Close` for Overview. **Two systems, near-identical claims,
+different wording.**
+
+**The ask:** decide whether these are one vocabulary or genuinely two, and if one, collapse them.
+
+**Why it matters:** Item 153 unified the chips' APPEARANCE across three surfaces. A reader now sees the
+same treatment carrying `Top 25` on one surface and `Top 25 Matchup` on another, which reads as an
+inconsistency rather than a distinction. Unifying colour without unifying vocabulary is half the job,
+and the colour drift Item 153 fixed grew from exactly this kind of split.
+
+**Blocker:** none. **Not urgent** — the surfaces are individually coherent.
+
+### Item 158 — Overview renders two chip shapes in the same slot
+
+**Found during Item 153, confirmed by pixel sampling.** The championship badge keeps a 1px border and
+a fill; the watchlist chip a few lines below is a 0.5px hairline with no fill. **Both are
+`contextSlot` content on the same page**, so a week with a Featured final and a watchlist game shows
+both at once. The campaign's settled treatment is hairline, no fill.
+
+**The ask:** reconcile the two shapes, or record why the badge is deliberately a different object.
+
+**Why it matters:** Item 153 was scoped to colour and explicitly barred from the champion amber token,
+so shape was out of its reach. But the two shapes sit inches apart in the same slot, which is where a
+reader judges consistency.
+
+**Blocker:** none. Item 153 must land first — it is what made the colours match and left shape as the
+only visible difference.
+
 ## Hosted deployment runbook
 
 Use `docs/deployment-runbook.md` for hosted environment setup, activation, production observations,
