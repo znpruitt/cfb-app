@@ -271,6 +271,18 @@ When practical, verify key runtime flows still behave:
      second lossy copy, and the implementer cannot tell it from the original. Slice 5a v1's rule came
      from the queue entry, which was itself correct — the defect was introduced by re-expanding its
      shorthand instead of reading the source that had already ruled that expansion out.
+   - **A STATED FIGURE MUST REPRODUCE, AND AGREEING WITH ITS CONCLUSION IS NOT CHECKING IT.** Added
+     2026-09-08 after the second non-reproducing number in one campaign. A three-column breakpoint
+     documented as 1320px reproduces as 1304, 1312 or 1300 depending on which stated inputs you use
+     (Item 152). A contrast ratio documented as 1.37:1 computes to **1.62:1** — and 1.32:1 turns out to
+     be a DIFFERENT PAIR, border against text, which nobody looks at.
+     **Both times the figure was wrong and the conclusion drawn from it was fine, which is exactly why
+     neither was caught.** A reader who agrees with "essentially no luminance separation" does not
+     recompute the ratio; a reader who agrees with "three columns need about 1300px" does not redo the
+     arithmetic. **The conclusion vouches for the number, and nothing vouches for the conclusion.**
+     So: when a document states a measurement, **recompute it before citing it**, and when you state
+     one, **show the inputs** so the next reader can. A figure that cannot be reproduced cannot be
+     rechecked when the thing it measures changes — which is the whole reason to have measured it.
    - **AND THE DESIGN DOCUMENT IS NOT ENOUGH: every claim about what SHIPPED comes from the CODE.**
      Added 2026-09-07, correcting the rule above, which was insufficient. A design document says what
      was DECIDED; only the code says what EXISTS. Item 117's prompt listed records, broadcast and odds

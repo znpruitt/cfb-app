@@ -1010,6 +1010,19 @@ slot designed against a single consumer fits that consumer's shape and nothing e
 tag slot that works on scheduled rows and needs a second widening for finals. Deriving from both
 states now costs nothing.
 
+**THE MOCKUP IS NOT AUTHORITATIVE ON RADIUS, PADDING OR TRACKING — owner, 2026-09-08. This narrows
+the interim authority ruling.** That ruling said mockup for **layout and structure**, documents for
+**values** — and radius and padding read as layout, so it would otherwise cover them. It does not:
+**`3px` radius and `1px 5px` padding were set incrementally while building the mockup and were never
+derived.** They are not settled decisions.
+
+So Item 143 must **pick whichever reads better on a real slate and record the reason**, not inherit the
+mockup's numbers because the mockup is authoritative elsewhere. **Being right about colour and
+placement does not make a file right about every dimension it happens to specify.**
+
+Concretely divergent today, all three deliberately left alone by Item 153 as out of its scope:
+`rounded-full` vs `3px`; `px-1.5 py-0.5` vs `1px 5px`; `tracking-wide` (0.025em) vs `0.08em`.
+
 **A third undecided divergence, surfaced by Item 144's read:** the mockup omits **broadcast** on
 Matchups rows while showing it on the Schedule copy of the same game (`mockup:606`). **No document
 decides this.** `CompactGameScoreboard` shows broadcast on any non-final state, so Matchups either
