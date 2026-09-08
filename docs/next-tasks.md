@@ -1026,7 +1026,7 @@ re-deriving the requirement and hitting the same wall:
 | divergence | why it fits neither slot, verified on `main` |
 | --- | --- |
 | **eyebrow tags in the status row** | `contextSlot` renders in its own `div` ABOVE the header (`CompactGameScoreboard.tsx:121`), so tags there ADD A LINE — the exact defect the presentation doc says to avoid, now caused by the injection point rather than the markup |
-| **odds on live/final** | `footerSlot` is gated `state === 'scheduled'` (`:243`). Note `GameRow` renders NO odds text today, so this is new work, not preservation |
+| ~~**odds on live/final**~~ **NOT A DIVERGENCE — corrected 2026-09-08** | **This row was the origin of a wording that reached four documents.** It recorded a component GATE as a presentation REQUIREMENT. The mockup carries **no odds on live or final rows** (all six `sb-odds` elements sit in scheduled blocks), and the design document names no state. Item 155 removed the gate (`:245`, content-based). **The scheduled half is real and is Item 168.** |
 | **status pill** | the component owns `statusLabel`; Matchups' `SCH`/`LIVE`/`FINAL` cannot be injected |
 | **live indicator** | the component's is hardcoded; Matchups requires a neutral, freshness-gated pulse |
 
