@@ -277,7 +277,14 @@ When practical, verify key runtime flows still behave:
      (Item 152). A contrast ratio documented as 1.37:1 computes to **1.62:1** — and 1.32:1 turns out to
      be a DIFFERENT PAIR, border against text, which nobody looks at.
      **Both times the figure was wrong and the conclusion drawn from it was fine, which is exactly why
-     neither was caught.** A reader who agrees with "essentially no luminance separation" does not
+     neither was caught. State that as the rule, because it runs backwards from intuition: A FIGURE
+     SUPPORTING A SOUND CONCLUSION IS _MORE_ LIKELY TO GO UNCHECKED, NOT LESS.** The conclusion
+     vouches for the number, so agreement removes the only prompt to recompute. A third instance
+     landed 2026-09-08 and is the sharpest: a bronze-versus-champion contrast stated as **1.32:1**,
+     which is real but is the pill BORDER against the pill TEXT — **a pair no reader ever compares**.
+     The operative pair measures **2.13:1**. Three readers passed it because "essentially no luminance
+     separation" is true either way. **Treat a number you agree with as the one most needing the
+     arithmetic.** A reader who agrees with "essentially no luminance separation" does not
      recompute the ratio; a reader who agrees with "three columns need about 1300px" does not redo the
      arithmetic. **The conclusion vouches for the number, and nothing vouches for the conclusion.**
      So: when a document states a measurement, **recompute it before citing it**, and when you state
@@ -642,6 +649,7 @@ When a test is retargeted because an API was retired, preserve every assertion a
 - Finalize documentation **immediately before merge, after code review/remediation is complete**, so the docs describe the actual shipped behavior — not the plan. Do not mark work "complete" in governance/registry/roadmap docs while review findings remain open.
 - When a change resolves or supersedes a previously-documented risk or follow-up, update that earlier note; when it leaves a known risk unresolved, keep it documented as unresolved rather than quietly dropping it.
 - **When a slice DELETES a rendered treatment, grep `DESIGN.md` for it before merging.** A removal leaves the doc claim standing, and `DESIGN.md` is canonical for UI — so the file then describes a treatment nothing renders, and the next reader trusts it. Named failure case: `PLATFORM-087` slice 5 removed the line-start team-colour accent along with the orphaned legacy tile, leaving `DESIGN.md:165` asserting a per-line accent with **zero production consumers**. That was the SECOND false team-colour claim in the same file from the same mechanism; the first described the treatment as top-and-bottom card borders and stood long enough that a design comparison was built on it. This is cheap and mechanical — the deletion is in the diff, so the grep terms are too.
+- **A CAMPAIGN DECISION THAT CONTRADICTS `DESIGN.md` IS NOT SETTLED UNTIL `DESIGN.md` CHANGES.** Owner rule, 2026-09-08. Recording it in a campaign document instead produces a conflict that surfaces only when somebody consolidates — and one did, months later, when a reference document put the two claims side by side (Item 165: `recap-scoreboard.md` capped tags at two, `DESIGN.md` said chips are not capped, and the code capped nothing). **"Canonical unless something more recent disagrees" is not a rule anyone can apply**: it means every reader must know the whole document set before trusting the canonical one, which is the opposite of what canonical means. So a decision that overrides `DESIGN.md` amends it in the same closeout, marked as an amendment with its reason. The campaign document keeps the reasoning; `DESIGN.md` carries the rule.
 - **A module left with no production consumer must say why in the code.** Zero consumers is exactly the signature a dead-code sweep acts on, and a reviewer declining to delete it is one agent's judgement on one branch, not a durable signal. Name the item that will consume it. `src/lib/teamColors.ts` is the live example: orphaned by slice 5, retained for Item 119.
 
 ### Ledger ownership during closeout

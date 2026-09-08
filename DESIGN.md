@@ -290,7 +290,7 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 - A chip must be TRUE, name a CATEGORY rather than an instance, mean exactly what it says, and have
   something to show when its row is expanded. A chip with no payload behind it is not carrying
   information
-- Chips are not capped. As many as are true — several ranked matchups on one slate all carry the chip
+- **Chips are capped at two.** **Amended 2026-09-08**, and recorded as an amendment: this line previously read _"Chips are not capped. As many as are true — several ranked matchups on one slate all carry the chip."_ **It is superseded by the layout it predates, not wrong on its own terms.** The tag slot is `flex: none` and now sits IN the status row, so at three tags the metadata absorbs the entire squeeze and ellipses to nothing — the uncapped rule was written while the tag was not yet a fixed-width competitor for that space. Reason recorded in `item-87-followon-recap-scoreboard.md`; ruled by the owner on Item 165. **The selector must apply the cap, not the renderer** — a render-time truncation of a list the selector still builds in full is a different behaviour wearing the same number
 - Rankings appear inline in team names per CFB convention; the chip names the category ("Top 25
   Matchup") rather than repeating the numbers
 - Owner standing appears inline beside the owner name, never as a chip — it is true on every row, so

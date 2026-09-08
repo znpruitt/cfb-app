@@ -5358,7 +5358,24 @@ while they sat in separate files.
 | `DESIGN.md:293` | **not capped** — _As many as are true — several ranked matchups on one slate all carry the chip_ |
 | `gameTags.ts:644` `prioritizeGameTags` | **neither** — dedupes and orders by priority, returns `primary` plus **all** `secondary` |
 
-**The ask:** rule which governs, and make the other two agree with it.
+**RULED 2026-09-08 — the cap is TWO, and `DESIGN.md:293` is amended to say so.** Done in this commit;
+the amendment is marked as an amendment and carries its reason. **The uncapped rule is superseded by
+the layout it predates, not wrong on its own terms:** the tag slot is `flex: none` and now sits IN the
+status row, so at three tags the metadata absorbs the whole squeeze and ellipses to nothing. It was
+written while the tag was not yet a fixed-width competitor for that space.
+
+**Remaining work — the code.** `prioritizeGameTags` must apply the cap, **in the selector, not the
+renderer.** A render-time truncation of a list the selector still builds in full is a different
+behaviour wearing the same number: consumers disagree about how many tags exist, `secondary` keeps
+carrying tags nothing will show, and the Matchups `hidden sm:inline-flex` breakpoint rule starts
+interacting with a cap it was never designed against.
+
+**THE PROCESS FAILURE MATTERS MORE THAN THE VALUE — owner, and it is now a closeout rule.** A decision
+that contradicts `DESIGN.md` **is not settled until `DESIGN.md` changes.** Recording it in a campaign
+document instead produces exactly this: a conflict visible only when somebody consolidates.
+**"Canonical unless something more recent disagrees" is not a rule anyone can apply** — it means every
+reader must know the whole document set before trusting the canonical one, which is the opposite of
+what canonical means. Landed in `AGENTS.md` → **Documentation closeout timing**.
 
 **Why it is not obvious.** `DESIGN.md` is canonical for UI, so as written it wins. But the cap is the
 **later and more specific** decision and carries a stated reason, which is the shape of a decision that
