@@ -73,13 +73,16 @@ Rules:
   annotated for Item 152 (owner had already fixed the mid-file `</body>`, the untinted row, the tint
   comment, and the two-column prose). Every DISCHARGED verdict checked against `src/`, `DESIGN.md`,
   `AGENTS.md` or this registry.
-- Review / verification: docs-only change; gate results and the SHA they ran against are recorded
-  in the closeout amendment to this entry. Queue findings reported to planning rather than filed: postseason round grouping has no item;
+- Review / verification: docs-only change, no review round (nothing to review against the code).
+  Gates against `62f9c6a5` on a clean tree: `npm run lint:all` exit 0; `npx tsc --noEmit` exit 0;
+  `npm test` exit 1 with 4,960 of 4,962 passing and exactly the two standing Item 137
+  `writer-convergence` failures — the baseline, unchanged, as a docs-only branch requires.
+  Queue findings reported to planning rather than filed: postseason round grouping has no item;
   Overview's Featured eyebrow is still `text-blue-300`; the `0–0` owner header, the viewing-member
   highlight and the data-seam `displayOwner` guard are recorded only in the set; the Item 119 entry
   lacks the slice 5b dependency and the slice 5 closeout lacks the team-colour removal; `DESIGN.md`
   line citations across the set drifted again on 2026-09-08.
-- Status: Implemented on `claude/144-item-87-doc-reconciliation`; gates and merge pending.
+- Status: Implemented on `claude/144-item-87-doc-reconciliation` (`62f9c6a5` + this closeout); merge pending.
 
 ### PLATFORM-117-MATCHUPS-SCOREBOARD-CODEX-v2
 
