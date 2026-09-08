@@ -119,6 +119,34 @@ One line at the top of every `item-87-*` document. Generic by design — it does
 
 ---
 
+## Obligations promoted out of the documents — read this section before writing any Item 87 prompt
+
+**Why these are here.** Owner diagnosis 2026-09-08: a document can fail two ways, and supersession
+marks only fix one. **STALENESS** is a claim that stopped being true — marks fix it. **DEPTH** is a
+claim that is true and that nobody reads far enough to find — marks do nothing, because the entry
+reads CURRENT and the reader still never reaches the line. **Anything a PROMPT AUTHOR must carry
+belongs here, not only in the document that reasoned it out.** The reasoning stays where it belongs;
+the obligation moves to where it gets seen.
+
+**A third mode found while cataloguing these: DISCHARGE.** An obligation that was satisfied and never
+marked reads to the next reader as a stale claim — `matchups-schedule-design.md:39` was reported as
+stale by a reviewer when in fact the work had been done. Mark obligations complete, or they are
+re-litigated.
+
+| # | Obligation | Source | State |
+| --- | --- | --- | --- |
+| 1 | **Any prompt touching a scoreboard surface must state that a build with records absent or stale will NOT match the mockup, and that a reviewer must read that as a sequenced dependency rather than a defect.** | `live-watchlist-scoreboard.md:236` (36% in) **and** `records.md:42` (80% in) | **LIVE.** Stated twice, carried zero times. Item 117's v2 prompt omitted it and the predicted confusion occurred on 2026-09-08. |
+| 2 | Record the `CompactGameScoreboard` contract widenings in the base addendum and `DESIGN.md` **before any consumer is built**. | `matchups-schedule-design.md:39`, restated `:233` | **DISCHARGED** — classification/FCS, neutral-site metadata, non-final broadcast and tier 2 are implemented and in `DESIGN.md`. Reported as a stale claim by a reviewer because nothing marked it done. |
+| 3 | Item 92 must refresh in the **live-scores cron**, and must **not** hook `handleGamesFinalized` — a client callback firing per browser, which would invert the cron-spends / client-reads split of PLATFORM-086B2B and PLATFORM-075. | `records.md:51` | **LIVE** — binding on whoever builds Item 92. |
+| 4 | Slice 5 should record the border as **deliberately retired**, with the eyebrow pill carrying its emphasis forward. | `matchups-schedule-design.md:216` | **UNVERIFIED** — slice 5 shipped; whether this was recorded is unchecked. |
+| 5 | Record the **component-family enforcement clause**. | `live-watchlist-scoreboard.md:454` | **UNVERIFIED.** |
+
+**Obligation 1 is the one with a cost already paid.** It is not obscure — it sits in the campaign's
+canonical document, in bold, addressed to the prompt author by name. Depth is not about obscurity; it
+is about the fact that prompts get written from the top of a file.
+
+---
+
 ## What went wrong, recorded once
 
 Every document here was written additively, on the reasoning that editing a committed document loses history. That reasoning is sound and the conclusion drawn from it was not: history is preserved by *marking* what a document no longer governs, not by leaving it silent.

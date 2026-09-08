@@ -300,6 +300,23 @@ When practical, verify key runtime flows still behave:
      superseded loses the part that is still load-bearing.
      Worked example: [`docs/campaigns/item-87-INDEX.md`](docs/campaigns/item-87-INDEX.md).
      **The threshold is roughly three follow-ons.** Below that, read them all; above it, nobody does.
+     **AND THE INDEX MUST CARRY OBLIGATIONS, NOT ONLY SUPERSESSION.** Owner diagnosis 2026-09-08, and
+     it names two failure modes that had been conflated:
+     **STALENESS** — a claim that stopped being true. Supersession marks fix it.
+     **DEPTH** — a claim that is TRUE and that nobody reads far enough to find. **Marks do nothing for
+     it**, because the entry reads CURRENT and the reader still never reaches the line.
+     Named failure case: *"State this in the implementation prompt: a build with records absent or
+     stale will not match the mockup, and a reviewer comparing them must read that as a sequenced
+     dependency rather than a defect."* That sat in the campaign's CANONICAL document, in bold,
+     addressed to the prompt author — and in a second document besides. It was carried into no prompt,
+     and on 2026-09-08 the owner compared a build to the mockup and read absent records as a defect,
+     which is the sequence it predicts verbatim. **Depth is not obscurity. Prompts get written from
+     the top of a file.**
+     **So: anything a PROMPT AUTHOR must carry belongs in the index.** The reasoning stays in the
+     document that worked it out; the obligation moves to where it gets seen.
+     **A third mode, found while cataloguing: DISCHARGE.** An obligation that was satisfied and never
+     marked reads to the next reader as a stale claim — one was reported as stale by a reviewer when
+     the work had in fact been done. Mark obligations complete, or they get re-litigated.
    - **Run-order entries carry a `Design:` line** naming the canonical documents and mockups, or
      stating explicitly that none exists — in which case the item needs an owner design pass before
      dispatch, not a prompt written from the queue prose.
