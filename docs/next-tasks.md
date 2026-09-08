@@ -5137,6 +5137,32 @@ reader judges consistency.
 **Blocker:** none. Item 153 must land first — it is what made the colours match and left shape as the
 only visible difference.
 
+### Item 159 — `tailwind.config.ts` is never loaded, and states the opposite of what ships
+
+**Found 2026-09-08** while confirming whether ~100 `tailwindcss-intellisense` `cssConflict` hints on
+`OverviewPanel.tsx` were false positives. They are not — the extension is correct — and the reason is
+this file.
+
+Tailwind v4 loads a JS/TS config **only** through an `@config` directive. `globals.css:2` does a plain
+`@import 'tailwindcss'` and **no `@config` exists anywhere in the repo** (the single grep hit is inside
+a comment). So `tailwind.config.ts` is inert. What actually governs is `globals.css:41`
+`@custom-variant dark (&)`, which makes every `dark:` utility match unconditionally — the POLISH-010
+dark-only theme.
+
+**The ask:** delete the file, or make it load and tell the truth.
+
+**Why it matters:** the file asserts `darkMode: 'media'`. That is not merely unused, it is **false** —
+`dark:` is unconditional, not media-driven. And **six `package.json` scripts lint and prettier-check
+it**, so it carries every signal of a maintained, live config. A reader deciding how theming works has
+one file that answers plainly and wrongly, and one CSS line 40 lines into a stylesheet that answers
+correctly.
+
+**Do NOT strip the base light-palette classes** while resolving this. `globals.css:10-12` retains them
+deliberately so reverting that one file restores theme-awareness; they are a preserved palette, not
+dead code.
+
+**Blocker:** none. **Small.**
+
 ## Hosted deployment runbook
 
 Use `docs/deployment-runbook.md` for hosted environment setup, activation, production observations,

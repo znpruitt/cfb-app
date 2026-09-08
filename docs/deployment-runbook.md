@@ -826,6 +826,10 @@ Differing hashes mean the worktree's copy is stale; re-copy `.env.local` from th
 which is the step `CLAUDE.md` → **Worktrees and session roles** already requires at worktree creation.
 A worktree's env files are gitignored, so nothing propagates a rotation to them.
 
+**Editor settings do not travel between worktrees.** `.vscode/` is gitignored (`.gitignore:50`), so a
+workspace setting fixed in one worktree is absent in the other two. Same class as the Clerk key above:
+git does not carry it, and nothing reports its absence.
+
 **A review agent regenerating `.next` under a running dev server.** Deleting and rebuilding `.next`
 while `npm run dev` holds it produces blank screenshots rather than an error, so the failure looks like
 a rendering defect in whatever is being reviewed. **If a review and a dev server overlap, expect
