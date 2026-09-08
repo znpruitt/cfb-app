@@ -8,6 +8,7 @@ import type { AppGame } from '../../lib/schedule';
 import { deriveOwnerWeekSlates } from '../../lib/matchups';
 import type { CanonicalStandings } from '../../lib/selectors/leagueStandings';
 import type { LiveDelta } from '../../lib/selectors/liveDelta';
+import { EYEBROW_TAG_CLASSES } from '../../lib/gameUi';
 import MatchupsWeekPanel from '../MatchupsWeekPanel';
 
 function ownerCardMarkup(html: string, owner: string): string {
@@ -768,8 +769,8 @@ test('shared row conversion preserves the complete bespoke GameRow fact inventor
   assert.match(finalScoreboard, /title="AP rank #2">#2/);
   assert.match(participantMarkup(finalScoreboard, 'away'), /Alabama[\s\S]*Alice[\s\S]*>24</);
   assert.match(participantMarkup(finalScoreboard, 'home'), /Georgia[\s\S]*Bob[\s\S]*>17</);
-  assert.match(finalScoreboard, /data-matchups-eyebrow-tag[^>]*>Upset<\/span>/);
-  assert.match(finalScoreboard, /data-matchups-eyebrow-tag[^>]*>Top 25<\/span>/);
+  assert.match(finalScoreboard, /data-eyebrow-tag[^>]*>Upset<\/span>/);
+  assert.match(finalScoreboard, /data-eyebrow-tag[^>]*>Top 25<\/span>/);
   assert.match(finalScoreboard, />vs Bob<\/span>/);
   assert.match(finalScoreboard, /Sat, Aug 30, 8:00 PM/);
 
@@ -895,15 +896,15 @@ test('every rendered eyebrow tag uses the settled bronze hairline treatment with
     'Alabama vs Georgia'
   );
   const tags = Array.from(
-    scoreboard.matchAll(/<span(?=[^>]*data-matchups-eyebrow-tag)[^>]*>/g),
+    scoreboard.matchAll(/<span(?=[^>]*data-eyebrow-tag)[^>]*>/g),
     (match) => match[0]
   );
 
   assert.equal(tags.length, 2, 'fixture must render both primary and secondary tags');
   for (const tag of tags) {
-    assert.match(tag, /border-\[0\.5px\]/);
-    assert.match(tag, /border-\[rgba\(201,166,107,0\.40\)\]/);
-    assert.match(tag, /text-\[#dbc190\]/);
+    // The bronze values themselves are pinned once, in `eyebrowTreatment.test.tsx`.
+    // Restating them here is what let Schedule and Matchups drift apart.
+    assert.ok(tag.includes(EYEBROW_TAG_CLASSES), `tag missing the shared treatment: ${tag}`);
     assert.doesNotMatch(tag, /(?:^|\s)(?:dark:)?bg-/);
     assert.doesNotMatch(tag, /blue/);
   }

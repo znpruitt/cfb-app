@@ -141,7 +141,7 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 
 ## Color
 
-- Amber/gold is reserved exclusively for champion/podium signals — not a general accent color
+- Amber/gold is reserved exclusively for champion/podium signals — not a general accent color. **Bronze (see Chips) is a separate token in active use and is adjacent to it; the two are separated by season phase rather than by contrast.**
 - A hue carries exactly one meaning **within a component family**; context scopes meaning _across_
   families, never within one. Green can therefore mean a positive delta in a delta family and live
   status in the shared game-status-label family, but one component family cannot use green for both
@@ -156,6 +156,7 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   surface. The public landing briefly carried a scoped turf-accent exception; it was removed with the
   vector element that consumed it, and the landing's colour now comes entirely from a photograph.
 - CFP round badges use neutral slate/gray — distinct from status colors
+- The conference-championship badge uses that same neutral slate. This is a DECISION, not the CFP rule applied: a conference championship is not a CFP round, so no rule named its colour. It shipped blue, which the blue rule above forbids for a featured signal. Bronze was rejected because it would split one two-branch postseason badge family by hue with nothing a reader can decode from the difference. PLATFORM-153.
 
 ## Interaction model
 
@@ -297,7 +298,9 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 - "Close" applies to live and final games only. On a scheduled game it is a projection, not a fact
 - A single-game editorial designation (the best game on a slate) uses vocabulary distinct from the
   category chips, so the two can never be read as the same claim
-- Chips use neutral slate — blue remains interactivity-only, amber remains champion/podium
+- Chips use **bronze** — pill text `#dbc190`, pill border `#c9a66b` at 40% opacity, hairline `0.5px`. Blue remains interactivity-only, amber remains champion/podium. **Amended 2026-09-08**, recorded as an amendment: "neutral slate" was the default fill chosen before the campaign ranked bronze above sky, neutral and fuchsia. Both reservations in this line are unaffected, because bronze is neither. Applied by PLATFORM-153 across Overview, Schedule and Matchups.
+- **Bronze and champion amber are held apart by the CALENDAR, not by contrast.** Champion treatment does not render until a title is awarded — podium cards for #1–#3 are neutral all season — so the two are never on screen together until season end. **Measured: pill text `#dbc190` against champion `#BA7517` is 2.13:1**, essentially no luminance separation, distinguished by hue and saturation alone. **The condition that makes this live is a champion or podium treatment rendering beside a chip.** If it ever must survive a viewer with reduced colour discrimination, **the instrument is a luminance step, not a different hue** — the reservation binds a token to a purpose, not a hue neighbourhood. Reasoning: `item-87-followon-matchups-schedule-design.md` → _Eyebrow tags_.
+- The amber `upset` card border is **retired, deliberately** — the bronze chip carries that emphasis forward. It was exempted from the Item 87 transition as "emphasis, out of scope for every slice" and the transition then deleted the card chrome it lived on, so without this line the exemption would have lapsed by side effect rather than by choice. **State the cost plainly: a chip is quieter than a border around a card.** A border catches the eye across sixty rows and an eyebrow does not; if upsets must stay prominent, the instrument is a hue assigned in `INSIGHTS-017-PALETTE`, not a shape difference. Retired by PLATFORM-087 slice 5, recorded by PLATFORM-153.
 - Game selection is context-aware: postseason surfaces playoff/bowl games, in-season surfaces current week
 - First Round CFP games are identified by neutral site = false (campus games)
 - A weekly-recap mini scoreboard is compact evidence, not a game card: no surface tint, border, or

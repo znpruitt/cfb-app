@@ -4,7 +4,12 @@ import { formatExpandedKickoff } from '../lib/gameCardPresentation';
 import { classifyScorePackStatus } from '../lib/gameStatus';
 import { displayOwner } from '../lib/gameOwnership';
 import type { CombinedOdds } from '../lib/odds';
-import { formatGameMatchupLabel, pillClass, usesNeutralSiteSemantics } from '../lib/gameUi';
+import {
+  EYEBROW_TAG_CLASSES,
+  formatGameMatchupLabel,
+  pillClass,
+  usesNeutralSiteSemantics,
+} from '../lib/gameUi';
 import {
   computeGameTags,
   computeStandings,
@@ -34,9 +39,6 @@ import {
 } from '../lib/teamRecords/clientProjection';
 import CompactGameScoreboard from './CompactGameScoreboard';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
-
-const EYEBROW_TAG_CLASSES =
-  'rounded-full border-[0.5px] border-[rgba(201,166,107,0.40)] px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-[#dbc190]';
 
 type MatchupsWeekPanelProps = {
   games: AppGame[];
@@ -264,14 +266,14 @@ function GameRow({
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-5 text-gray-500 dark:text-zinc-400">
               {primary ? (
                 <span className="inline-flex flex-wrap gap-1">
-                  <span className={`inline-flex ${EYEBROW_TAG_CLASSES}`} data-matchups-eyebrow-tag>
+                  <span className={`inline-flex ${EYEBROW_TAG_CLASSES}`} data-eyebrow-tag>
                     {LEAGUE_TAG_LABELS[primary]}
                   </span>
                   {secondary.map((tag) => (
                     <span
                       key={`${slateGame.game.key}:tag:${tag}`}
                       className={`hidden sm:inline-flex ${EYEBROW_TAG_CLASSES}`}
-                      data-matchups-eyebrow-tag
+                      data-eyebrow-tag
                     >
                       {LEAGUE_TAG_LABELS[tag]}
                     </span>

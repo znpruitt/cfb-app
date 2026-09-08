@@ -1290,7 +1290,9 @@ corrected to match rather than averaged.
 
 **Blocker:** none. Related to Item 134 (Overview's tier) but a different grid and a different number.
 
-### Item 153 — three surfaces, three eyebrow treatments, and one is still the blue violation
+### Item 153 — DONE: three surfaces, three eyebrow treatments, and one was the blue violation
+
+**Shipped on `claude/153-eyebrow-treatment` (`8cb888e9` + `10d0e046`), merge pending.** One shared constant in `src/lib/gameUi.ts`; no component carries a bronze literal. Reconciled on `0.5px` border and 10px text, so **Schedule's border visibly changed from 1px** — each surface had had exactly one of the two right. Overview's reason row is plain bronze and its conference-championship badge is neutral slate, not bronze. Radius, padding and tracking held as shipped per `AGENTS.md`. `DESIGN.md` amended in four places, including the amber `upset` border recorded as deliberately retired (CARRY row 4). **Two things the prompt did not have:** there were five blue spots in the three files, not four, and a fourth eyebrow spelling — Overview's neutral chips — which the conversion also made uppercase and unfilled. Follow-ons filed as Items 157 and 158. Registry: `PLATFORM-153-EYEBROW-TREATMENT-CLAUDE-v1`.
 
 **Kickoff:** [`docs/prompts/platform-153-eyebrow-treatment-claude-v1.md`](prompts/platform-153-eyebrow-treatment-claude-v1.md).
 **Four blue spots, not one** — `OverviewPanel.tsx:195` (the chip) and `:755` (the reason row); the

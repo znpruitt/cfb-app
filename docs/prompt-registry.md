@@ -51,6 +51,48 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-153-EYEBROW-TREATMENT-CLAUDE-v1
+
+- Purpose: collapse three eyebrow treatments into one across Overview, Schedule and Matchups, and
+  correct Overview's blue — a live `DESIGN.md` violation Item 117 had already fixed on the other two
+  surfaces.
+- Scope: `src/lib/gameUi.ts` (the shared constants), `OverviewPanel.tsx`, `GameWeekPanel.tsx`,
+  `MatchupsWeekPanel.tsx`, their tests, and this closeout. NOT tag selection, NOT tag placement
+  (Item 143), NOT the champion amber token.
+- Outcome: `EYEBROW_TAG_CLASSES` and `EYEBROW_REASON_CLASSES` are the single source; no component
+  carries a bronze literal. Reconciled on the value each surface already had right — Matchups'
+  `0.5px rgba(201,166,107,0.40)` border and Schedule's 10px text — so **Schedule's border visibly
+  changed from 1px**. Radius, padding and tracking held as shipped, deliberately diverging from the
+  mockup, which `AGENTS.md` rules non-authoritative on those three. **The receipt found more than the
+  prompt stated:** five blue spots in the three files rather than four, and a FOURTH eyebrow spelling
+  the prompt did not list — Overview's watchlist chips, neutral gray with a fill, which also gained
+  `uppercase` and lost their fill in the conversion. Overview's reason row went plain bronze
+  `#c9a66b`; its conference-championship badge went neutral slate rather than bronze, matching the
+  CFP branch of the same two-branch family. `DESIGN.md` amended in four places: the chip rule to
+  bronze, the amber reservation gains a pointer to the adjacent token, the conference-championship
+  colour recorded as a decision, and the amber `upset` border recorded as deliberately retired
+  (INDEX CARRY row 4). **The campaign's 1.37:1 figure did not reproduce** — recomputed at 2.13:1 for
+  pill text against champion amber, corrected on `main` at `67224b39`; 1.32:1 is border against text,
+  a pair nobody looks at.
+- Review / verification: both reviewers against `59f7003e`; neither found a runtime or correctness
+  bug in the production diff. Seven findings, all remediated in `10d0e046`: the chip conversion
+  contradicted `DESIGN.md`'s chip rule (owner ruled amend, not revert); the single-source guard named
+  three paths and so could not see a fourth consumer (now repository-wide over `src`, excluding only
+  the defining and pinning files); `shrink-0` was exempted in the equality test's allowlist and is
+  now part of the constant; cwd-relative reads moved to `import.meta.url`; four Schedule assertions
+  regained a styling signal; the badge comment's citation narrowed. **Runtime verification** drove
+  the three panels in the running app: all four arbitrary utilities are emitted from `src/lib`
+  (`border-[0.5px]`, `border-[rgba(201,166,107,0.40)]`, `text-[#dbc190]`, `text-[#c9a66b]`), and
+  sampled glyph pixels read `#c9a66b`, `#dbc190` and `slate-300` exactly. Gates on the remediated
+  branch, each run separately: `npx tsc --noEmit` exit 0; `npm run lint:all` exit 0; `npm test`
+  exit 1 with 4,965 of 4,967 passing and exactly the two standing Item 137 `writer-convergence`
+  failures. Test delta measured against `main` in the same worktree: 4,962 → 4,967.
+  Two findings filed rather than fixed: Overview's featured badge keeps a 1px border and a fill
+  beside a hairline chip in the same slot, and `MatchupsWeekPanel.tsx:346` is a separate blue
+  violation on the owner-card summary.
+- Status: Implemented on `claude/153-eyebrow-treatment` (`8cb888e9`, `10d0e046` + this closeout);
+  merge pending.
+
 ### PLATFORM-155-MATCHUPS-SCHEDULED-ROW-CODEX-v2
 
 - Purpose: wire the already-loaded team-record projection into Matchups and make the compact

@@ -3,7 +3,11 @@ import React from 'react';
 import { deriveDisplayEventName } from '../lib/gameEventName';
 import { displayOwner } from '../lib/gameOwnership';
 import type { CombinedOdds } from '../lib/odds';
-import { formatGameMatchupLabel, usesNeutralSiteSemantics } from '../lib/gameUi';
+import {
+  EYEBROW_TAG_CLASSES,
+  formatGameMatchupLabel,
+  usesNeutralSiteSemantics,
+} from '../lib/gameUi';
 import { LEAGUE_TAG_LABELS } from '../lib/gameTags';
 import { deriveGameWeekPanelViewModel } from '../lib/selectors/gameWeek';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
@@ -13,9 +17,6 @@ import type { AppGame } from '../lib/schedule';
 import CompactGameScoreboard from './CompactGameScoreboard';
 
 type Game = AppGame;
-
-const EYEBROW_TAG_CLASSES =
-  'inline-flex shrink-0 rounded-full border border-[#c9a66b]/40 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#dbc190]';
 
 type GameWeekPanelProps = {
   games: Game[];
@@ -156,7 +157,11 @@ export default function GameWeekPanel({
                               </span>
                             ) : null}
                             {tags.map((tag) => (
-                              <span key={`${g.key}:${tag}`} className={EYEBROW_TAG_CLASSES}>
+                              <span
+                                key={`${g.key}:${tag}`}
+                                className={`inline-flex ${EYEBROW_TAG_CLASSES}`}
+                                data-eyebrow-tag
+                              >
                                 {LEAGUE_TAG_LABELS[tag]}
                               </span>
                             ))}
