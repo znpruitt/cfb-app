@@ -144,16 +144,22 @@ test('selector summarizes exclusions deterministically', () => {
 });
 
 /**
- * Item 163 pins the descriptor's FIVE branches while the `vs <owner>` ruling is
- * open. Three already have tests below — placeholder/derived, `FCS`, and
- * `NoClaim (FBS)`. This covers the two that did not: `Self`, and the `vs <owner>`
- * form itself.
+ * Item 163 pins the descriptor's FIVE branches. Three already have tests below —
+ * placeholder/derived, `FCS`, and `NoClaim (FBS)`. This covers the two that did
+ * not: `Self`, and the `vs <owner>` form.
+ *
+ * The `vs <owner>` form is deliberately still PRODUCED after the owner ruling of
+ * 2026-09-08 retired it from the Matchups card. The ruling is about a duplicated
+ * name on a row that also renders owners inline; this selector's other consumer
+ * groups opponents for a summary with no scoreboard, where the owner label is the
+ * only thing naming them. `MatchupsWeekPanel` suppresses it at the render seam —
+ * see the exactly-once assertions in that component's suite.
  *
  * `NoClaim (FBS)` is asserted AT THE SELECTOR by design and cannot be asserted on
- * rendered output: `MatchupsWeekPanel`'s `hideOpponentDescriptor` suppresses it
- * unconditionally, so it has no rendered form to compare against.
+ * rendered output: `hideOpponentDescriptor` suppresses it unconditionally, so it
+ * has no rendered form to compare against.
  */
-test('deriveOpponentDescriptor distinguishes Self from the vs <owner> form', () => {
+test('deriveOpponentDescriptor still produces Self and the vs <owner> form for the summary path', () => {
   assert.equal(
     deriveOpponentDescriptor(
       slateGame({

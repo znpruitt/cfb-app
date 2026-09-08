@@ -362,20 +362,21 @@ test('every Top 25 Matchup is tagged, outranks non-top-25 games, and leads by be
 });
 
 /**
- * The SECOND half of the ordering delta, and the half the leader-demotion test
- * above does not cover.
+ * The one-ranked curation signal, RESTORED (owner ruling 2026-09-08) after the
+ * retirement removed it as a side effect.
  *
- * `ranked` fired on EVERY game with one ranked team and supplied 70. Its nearest
- * surviving analogue, `isRankedSpotlight`, is not equivalent: it names exactly ONE
- * game — `rankedHighlightKey` — so on a slate with two one-ranked games the second
- * now scores nothing and falls behind earlier unranked games.
+ * `Ranked Team` supplied 70 to `watchlistPriority` on every one-ranked game.
+ * Retiring the chip took that with it, leaving only `isRankedSpotlight` — which
+ * names exactly ONE game, so a slate's second one-ranked game fell in among the
+ * unranked and could drop off the six-card board. `hasRankedTeam` puts the 70 back
+ * as a signal, with nothing printed on the row.
  *
- * That is an ORDERING assertion here, but it decides INCLUSION downstream:
- * `selectOverviewGameSections` walks this list in order and stops at
- * `OVERVIEW_WATCHLIST_LIMIT` (6), so a ranked game pushed far enough down leaves
- * the board. Pinned so the tradeoff is visible if it is ever revisited.
+ * The fixture is built so the signal is the only thing that can produce this order:
+ * both ranked games kick off LAST, so kickoff order alone would put them behind
+ * both unranked games. Single-owned throughout, so `gameOfSlateKey` is null and
+ * cannot supply its own 90.
  */
-test('only the ranked spotlight keeps a priority: a second ranked game falls to kickoff order', () => {
+test('every one-ranked game outranks unranked games, not just the ranked spotlight', () => {
   const single = (key: string, date: string, awayId?: string, homeId?: string) => {
     const base = item(
       key,
@@ -401,8 +402,6 @@ test('only the ranked spotlight keeps a priority: a second ranked game falls to 
           }
         : {}
     );
-    // Single-owned throughout, so `gameOfSlateKey` (which needs two distinct
-    // owners) is null and cannot supply its own 90 to any row.
     return { ...base, bucket: { ...base.bucket, homeOwner: undefined }, priority: 1 };
   };
 
@@ -419,7 +418,6 @@ test('only the ranked spotlight keeps a priority: a second ranked game falls to 
     keyMatchups: [spotlight, secondRanked, plainEarly, plainLate],
     matchupMatrix: { owners: [], rows: [] },
     rankingsByTeamId: new Map([
-      // Best rank wins the single spotlight slot.
       ['r1-away', { rank: 5, rankSource: 'ap' as const }],
       ['r2-away', { rank: 20, rankSource: 'ap' as const }],
     ]),
@@ -427,18 +425,26 @@ test('only the ranked spotlight keeps a priority: a second ranked game falls to 
 
   assert.deepEqual(
     model.watchlistCandidates.map((entry) => entry.item.bucket.game.key),
-    ['r1-spotlight', 'plain-a', 'plain-b', 'r2-ranked']
+    ['r1-spotlight', 'r2-ranked', 'plain-a', 'plain-b']
   );
-  assert.equal(
-    model.watchlistCandidates.find((entry) => entry.item.bucket.game.key === 'r1-spotlight')
-      ?.isRankedSpotlight,
-    true
-  );
+
+  // The second ranked game is NOT the spotlight — that names one game — so its
+  // place above the unranked pair comes from `hasRankedTeam` and nothing else.
   assert.equal(
     model.watchlistCandidates.find((entry) => entry.item.bucket.game.key === 'r2-ranked')
       ?.isRankedSpotlight,
-    false,
-    'the spotlight names one game, so the second ranked game carries no priority'
+    false
+  );
+  assert.deepEqual(
+    model.watchlistCandidates.map((entry) => entry.hasRankedTeam),
+    [true, true, false, false]
+  );
+
+  // Still no CHIP: the curation came back, the vocabulary did not.
+  assert.deepEqual(
+    model.watchlistCandidates.flatMap((entry) => entry.highlightTags.map((tag) => tag.text)),
+    [],
+    'a single ranked team earns priority but no tag'
   );
 });
 

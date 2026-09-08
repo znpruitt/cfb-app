@@ -109,6 +109,7 @@ function prioritized(itemValue: OverviewGameItem, priority = 0): PrioritizedOver
     // This suite exercises SECTION ROUTING, which never reads the watchlist sort
     // key — `selectOverviewGameSections` consumes the candidate order it is given.
     top25AverageRank: null,
+    hasRankedTeam: false,
   };
 }
 

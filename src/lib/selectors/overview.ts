@@ -1,6 +1,7 @@
 import {
   deriveGameHighlightTags,
   deriveOverviewHighlightSignals,
+  hasTop25RankedTeam,
   top25MatchupAverageRank,
   type OverviewHighlightSignals,
 } from '../gameTags';
@@ -47,6 +48,8 @@ export type PrioritizedOverviewItem = {
   highlightTags: ReturnType<typeof deriveGameHighlightTags>;
   /** Lower is stronger. Null for anything that is not a Top 25 Matchup. */
   top25AverageRank: number | null;
+  /** Either participant ranked inside the top 25. Curation only — nothing renders it. */
+  hasRankedTeam: boolean;
 };
 
 export type OverviewViewModel = {
@@ -320,6 +323,7 @@ export function prioritizeOverviewItems(params: {
       isRankedSpotlight,
       highlightTags,
       top25AverageRank: top25MatchupAverageRank({ item, rankingsByTeamId }),
+      hasRankedTeam: hasTop25RankedTeam({ item, rankingsByTeamId }),
       highlightLabel: isUpsetWatch ? 'Upset watch' : isGameOfSlate ? 'Game of the Week' : null,
     };
   });
@@ -349,6 +353,12 @@ function watchlistPriority(item: PrioritizedOverviewItem): number {
     item.highlightTags[0]?.priority ?? 0,
     item.isUpsetWatch ? 95 : 0,
     item.isGameOfSlate ? 90 : 0,
+    // 70 is the value the retired `Ranked Team` chip supplied, restored deliberately
+    // as a SIGNAL rather than a tag (owner decision 2026-09-08), so the ordering
+    // relative to `isGameOfSlate` is exactly what it was before Item 157 rather than
+    // a fresh re-ranking. It subsumes `isRankedSpotlight`'s contribution below, which
+    // is kept because the spotlight is still a distinct fact about one game.
+    item.hasRankedTeam ? 70 : 0,
     item.isRankedSpotlight ? 70 : 0
   );
 }

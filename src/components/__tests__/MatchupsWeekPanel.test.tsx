@@ -222,9 +222,10 @@ test('matchups cards map each visible team directly to its owner and tint only t
   assert.match(html, /Alice/);
   assert.match(html, /Bob/);
   assert.match(html, /0–0 · 1 live/);
-  // Owner-vs-owner game is duplicated into both slates: Alice's card carries a
-  // "vs Bob" opponent badge while the unowned FBS game has no owner badge.
-  assert.match(html, /vs Bob/);
+  // Owner-vs-owner game is duplicated into both slates. Item 163 retired the
+  // "vs Bob" badge; the owner→team mapping is asserted below on the participant
+  // rows themselves, which is where it now lives exclusively.
+  assert.doesNotMatch(html, /vs Bob/);
   assert.doesNotMatch(html, /NoClaim/);
   const aliceScoreboard = scoreboardMarkup(ownerCardMarkup(html, 'Alice'), 'Alabama @ Georgia');
   const bobScoreboard = scoreboardMarkup(ownerCardMarkup(html, 'Bob'), 'Alabama @ Georgia');
@@ -719,7 +720,8 @@ test('live rows do not render ISO kickoff timestamps as live clock metadata', ()
   const scoreboard = scoreboardMarkup(ownerCardMarkup(html, 'Kai'), 'Utah @ Arizona');
   assert.match(participantMarkup(scoreboard, 'away'), /data-scoreboard-value="away">21/);
   assert.match(participantMarkup(scoreboard, 'home'), /data-scoreboard-value="home">17/);
-  assert.match(html, /vs Lee/);
+  assert.match(html, /data-scoreboard-owner="(?:away|home)">Lee</);
+  assert.doesNotMatch(html, /vs Lee/);
   assert.match(html, /Sat, Aug 30, 4:00 PM/);
   assert.doesNotMatch(html, /2026-09-12T23:00:00.000Z/);
 });
@@ -748,7 +750,8 @@ test('live rows still render real in-game clock values', () => {
   );
 
   assert.match(html, /Q3 8:14/);
-  assert.match(html, /vs Ned/);
+  assert.match(html, /data-scoreboard-owner="(?:away|home)">Ned</);
+  assert.doesNotMatch(html, /vs Ned/);
 });
 
 test('shared row conversion preserves the complete bespoke GameRow fact inventory', () => {
@@ -774,7 +777,17 @@ test('shared row conversion preserves the complete bespoke GameRow fact inventor
   // Item 157: the shortened `Top 25` read as a property of the game, while the tag
   // fires only when BOTH teams are ranked. The old label must not survive anywhere.
   assert.doesNotMatch(finalScoreboard, /data-eyebrow-tag[^>]*>Top 25<\/span>/);
-  assert.match(finalScoreboard, />vs Bob<\/span>/);
+  // Item 163, owner ruling 2026-09-08: the `vs <owner>` pill is retired. `Bob` is
+  // still on the card — as the home team's inline owner suffix, asserted above —
+  // and now appears there EXACTLY ONCE rather than twice. Counting is the assertion
+  // that matters: a bare `doesNotMatch` on the pill would also pass if the inline
+  // suffix had disappeared too, which would be a regression wearing the same green.
+  assert.doesNotMatch(finalScoreboard, />vs Bob<\/span>/);
+  assert.equal(
+    (finalScoreboard.match(/Bob/g) ?? []).length,
+    1,
+    'the opponent owner renders once, on their own team row'
+  );
   assert.match(finalScoreboard, /Sat, Aug 30, 8:00 PM/);
 
   // The live row keeps the live state, real clock, score fallback, teams,
@@ -784,7 +797,12 @@ test('shared row conversion preserves the complete bespoke GameRow fact inventor
   assert.match(liveScoreboard, /Q3 8:14/);
   assert.match(participantMarkup(liveScoreboard, 'away'), /Clemson[\s\S]*Alice[\s\S]*>21</);
   assert.match(participantMarkup(liveScoreboard, 'home'), /Miami[\s\S]*Carol[\s\S]*>—</);
-  assert.match(liveScoreboard, />vs Carol<\/span>/);
+  assert.doesNotMatch(liveScoreboard, />vs Carol<\/span>/);
+  assert.equal(
+    (liveScoreboard.match(/Carol/g) ?? []).length,
+    1,
+    'the opponent owner renders once on a live row too'
+  );
   assert.match(liveScoreboard, /Sat, Aug 30, 8:00 PM/);
 
   // The scheduled row keeps the matchup relationship, participant names,
@@ -1032,11 +1050,13 @@ test('owner slates count final owned-vs-owned, NoClaim, and FCS results from own
   assert.doesNotMatch(html, /data-owner-card="NoClaim"/);
   assert.match(html, /2–1/);
   // Avery's three owned participations surface FCS and the owner-vs-owner
-  // "vs Blair" badge; the unowned FBS game has no owner badge.
+  // relationship; the unowned FBS game has no owner at all. Item 163 moved that
+  // relationship out of a badge and onto the participant row.
   const averyCard = ownerCardMarkup(html, 'Avery');
   assert.match(averyCard, /FCS/);
   assert.doesNotMatch(averyCard, /NoClaim/);
-  assert.match(averyCard, /vs Blair/);
+  assert.match(averyCard, /data-scoreboard-owner="(?:away|home)">Blair</);
+  assert.doesNotMatch(averyCard, /vs Blair/);
   assert.match(
     html,
     /rounded-xl border p-3\.5 shadow-sm sm:p-4 border-gray-300\/90 bg-white dark:border-zinc-700/
@@ -1099,12 +1119,14 @@ test('scheduled and live games do not change owner final record summaries', () =
 
   assert.match(html, /data-owner-card="Casey"/);
   assert.match(html, /1–0 · 1 live/);
-  // The final/live/scheduled mix shows three opponent badges on Casey's card;
-  // only the final game contributes to the record summary above.
+  // The final/live/scheduled mix puts three opponents on Casey's card; only the
+  // final game contributes to the record summary above. Item 163: opponents are
+  // identified on their own rows, not by a badge.
   const caseyCard = ownerCardMarkup(html, 'Casey');
-  assert.match(caseyCard, /vs Evan/);
+  assert.match(caseyCard, /data-scoreboard-owner="(?:away|home)">Evan</);
   assert.doesNotMatch(caseyCard, /NoClaim/);
-  assert.match(caseyCard, /vs Dana/);
+  assert.match(caseyCard, /data-scoreboard-owner="(?:away|home)">Dana</);
+  assert.doesNotMatch(caseyCard, /vs Evan|vs Dana/);
 });
 
 test('owner slate shows final record when one game is final and another is still scheduled', () => {
@@ -1148,11 +1170,12 @@ test('owner slate shows final record when one game is final and another is still
 
   assert.match(html, /data-owner-card="Casey"/);
   assert.match(html, /1–0/);
-  // Record summary reflects only the final game; the scheduled game still
-  // appears as an opponent badge but does not alter the summary text.
+  // Record summary reflects only the final game; the scheduled game still appears
+  // on the card — as its opponent's own row — but does not alter the summary text.
   const caseyCard = ownerCardMarkup(html, 'Casey');
-  assert.match(caseyCard, /vs Evan/);
-  assert.match(caseyCard, /vs Dana/);
+  assert.match(caseyCard, /data-scoreboard-owner="(?:away|home)">Evan</);
+  assert.match(caseyCard, /data-scoreboard-owner="(?:away|home)">Dana</);
+  assert.doesNotMatch(caseyCard, /vs Evan|vs Dana/);
   assert.doesNotMatch(html, /1 final/);
   assert.doesNotMatch(html, /1 scheduled/);
 });

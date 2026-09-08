@@ -428,6 +428,25 @@ export function deriveOverviewHighlightSignals(params: {
 }
 
 /**
+ * The participants' ranks, keeping only those INSIDE the top 25.
+ *
+ * Every rank-derived highlight decision reads through here, so the `<= 25` bound is
+ * stated once. Two callers make two DIFFERENT claims from it — `top25MatchupAverageRank`
+ * needs both sides, `hasTop25RankedTeam` needs either — and neither can drift from
+ * the other's notion of "ranked".
+ */
+function top25RanksForItem(params: {
+  item: OverviewGameItem;
+  rankingsByTeamId: Map<string, TeamRankingEnrichment>;
+}): number[] {
+  const { item, rankingsByTeamId } = params;
+  return [
+    teamRankForGameSide(item, 'away', rankingsByTeamId),
+    teamRankForGameSide(item, 'home', rankingsByTeamId),
+  ].filter(isRankedTop25);
+}
+
+/**
  * The average of the two ranks in a Top 25 Matchup, or null when the game is not
  * one. Owner decision 2026-09-08: every top-25 matchup carries the tag and every
  * one outranks every non-top-25 game on the watchlist, so the remaining question
@@ -451,11 +470,30 @@ export function top25MatchupAverageRank(params: {
   item: OverviewGameItem;
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
 }): number | null {
-  const { item, rankingsByTeamId } = params;
-  const awayRank = teamRankForGameSide(item, 'away', rankingsByTeamId);
-  const homeRank = teamRankForGameSide(item, 'home', rankingsByTeamId);
-  if (!isRankedTop25(awayRank) || !isRankedTop25(homeRank)) return null;
-  return (awayRank + homeRank) / 2;
+  const ranks = top25RanksForItem(params);
+  if (ranks.length < 2) return null;
+  return (ranks[0] + ranks[1]) / 2;
+}
+
+/**
+ * Whether EITHER participant is ranked inside the top 25.
+ *
+ * Owner decision 2026-09-08. `Ranked Team` was doing curation work as a side
+ * effect of being a chip: it fired on every one-ranked game and supplied 70 to
+ * `watchlistPriority`. Retiring the chip (Item 157) removed the curation with it,
+ * and `isRankedSpotlight` is not a replacement — it names exactly ONE game, so a
+ * slate's second one-ranked game fell in among the unranked and could drop off the
+ * six-card board.
+ *
+ * This restores the priority WITHOUT restoring the chip: a ranked game outranks an
+ * unranked one, and nothing is printed on the row about it. The retirement stands;
+ * only the ordering it took with it comes back.
+ */
+export function hasTop25RankedTeam(params: {
+  item: OverviewGameItem;
+  rankingsByTeamId: Map<string, TeamRankingEnrichment>;
+}): boolean {
+  return top25RanksForItem(params).length > 0;
 }
 
 /**
