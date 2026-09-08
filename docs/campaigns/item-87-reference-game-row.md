@@ -105,7 +105,11 @@ Two. Three pills crowd the metadata out entirely at column width even without wr
 
 **The selector applies the cap, not the renderer** (`DESIGN.md:293`, amended). A render-time truncation of a list the selector still builds in full leaves the cap invisible to anything testing the selector. `prioritizeGameTags` chooses which two survive.
 
-**Item 166 owns adding it, and is ordered ahead of the tag retirements** — after those land, real data may never again produce three qualifying tags, and the test fixture becomes artificial. Its acceptance criterion is a game carrying three qualifying tags, not "the cap is applied".
+**Already implemented — `TOP_BADGE_LIMIT = 2` (`gameTags.ts:38`), applied in
+`deriveGameHighlightTags` at `:457`, with `gameTags.test.ts:941` asserting it against a game
+carrying three qualifying tags.** Item 166 was filed to add it and closed unworked on 2026-09-08.
+`prioritizeGameTags` needs none: `upset` and `upset_watch` are mutually exclusive by state, so the
+league family cannot reach three.
 
 ---
 

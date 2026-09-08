@@ -143,7 +143,36 @@ the UI spine do not touch each other, so they can run concurrently:
   (`schedule/cfbdSchedule.ts`, `schedule.ts`, `schedulePostseasonHelpers.ts` — pipeline, not
   components), and Items 84, 86, 111. **Item 123 shipped 2026-09-04** via PR #565.
 
+### DISPATCH ORDER — owner, 2026-09-08, superseding the sequences in the table below
+
+> **CORRECTED 2026-09-08, minutes after recording: 166 IS ALREADY DONE.** It led this order as the one
+> sequencing constraint. It is closed unworked — `TOP_BADGE_LIMIT = 2` caps in the selector at
+> `gameTags.ts:457` and `gameTags.test.ts:941` already asserts it against a game carrying three
+> qualifying tags. **The ordering constraint it created does not exist**, so 157 and 162 are free to go
+> first. The reasoning was sound and the premise was wrong; see Item 166 for how.
+
+**157 and 162 next.** After both, the tag vocabulary is game facts only. **No ordering constraint
+binds them** now that 166 is closed.
+
+**167 whenever a lane is free.** It blocks nothing, but **it is the only item scoped to find out
+whether the scoping is complete.** Its residue count — divergences mapping to no filed item — is what
+says whether more back-application work exists. Everything else on this board is known work; **167
+measures the unknown.**
+
+**Then the spine: 143 → 119 → 134 → 115.** 143 unblocks the tag seam, which unblocks the recap
+adoption, the Matchups reconciliation, and three of the six Overview back-application items. 119 is
+the colour bars, 134 the third tier, 115 counts and caps together.
+
+**If only one thing gets done, 143** — it is the long pole and unblocks the most. (This line read _166_ before that item was found already complete.)
+
+**Lane recommendation (mine, not the owner's):** **143** to the **UI spine** lane — the long pole,
+blocking the most — and **157 + 162 + 163** paired in the **Platform** lane, since all three are tag
+vocabulary in `gameTags.ts` and share a root. **167** to whichever frees first.
+
 ### Two-lane assignment (2026-09-05) — measured, not inferred
+
+> **Sequences below are SUPERSEDED by the dispatch order above (2026-09-08).** The lane split and its
+> reasoning still hold; the item sequences in the table are spent — 102, 129 and 126 have shipped.
 
 Two implementation worktrees run concurrently (`CLAUDE.md` → **Worktrees and session roles**). The UI
 spine is strictly serial with itself, so it occupies ONE lane entirely; the other lane takes work that
@@ -5391,11 +5420,34 @@ bind in practice** — but the rule still has to say something, because the next
 
 **Blocker:** none.
 
-### Item 166 — `prioritizeGameTags` caps nothing, and must run BEFORE the tag retirements
+### Item 166 — CLOSED, ALREADY SATISFIED. The cap ships, in the selector, with the test
 
-**From the Item 165 ruling.** `DESIGN.md:293` now caps chips at two; `gameTags.ts:644` still dedupes
-and orders, returning `primary` plus **all** `secondary`. The rule exists and the code does not
-implement it.
+**CLOSED 2026-09-08 without work, and the item existed because I checked the wrong function.**
+Everything below is retained as the record of the error.
+
+**What actually ships.** `gameTags.ts:38` — `const TOP_BADGE_LIMIT = 2` — applied at `:457`:
+`tags.sort((a, b) => b.priority - a.priority).slice(0, TOP_BADGE_LIMIT)` inside
+**`deriveGameHighlightTags`**. The cap is two, it is applied **in the selector**, and it governs the
+family `DESIGN.md`'s chip block actually names (_Top 25 Matchup_, _Close_).
+
+**The test exists too, and it is exactly the acceptance criterion I wrote.**
+`gameTags.test.ts:941` builds a game with both teams ranked (`top25`), both owners in `topOwners`
+(`contenderWatch`) and a three-point final margin (`close`) — **three qualifying tags** — and asserts
+exactly two survive in priority order.
+
+**`prioritizeGameTags` needs no cap either.** `LeagueGameTag` has three members and two are mutually
+exclusive by construction: `upset` requires `state === 'final'` (`gameTags.ts:596`), `upset_watch`
+requires `state !== 'final'` (`:609`). **The maximum reachable is two.** A cap there would be
+unreachable code, and the acceptance criterion could never be met with real data — not after the
+retirements, but today.
+
+**The error, recorded because it is the campaign's named failure mode.** I grepped
+`prioritizeGameTags`, found no cap, and reported to the owner that _the code implements neither_. I
+never checked `deriveGameHighlightTags`. **That is the proxy that argues for itself** (`AGENTS.md`):
+a coherent model from a partial look, with nothing available to contradict it. The Item 165 ruling
+itself stands — `DESIGN.md:293` needed amending, because it contradicted both the campaign document
+and the shipped code — but it was a **two-source** conflict, not three, and the code was never the
+outlier.
 
 **The cap belongs in the SELECTOR, not the renderer.** A render-time truncation of a list the selector
 still builds in full is a different behaviour wearing the same number: consumers disagree about how
