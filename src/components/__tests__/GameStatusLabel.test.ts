@@ -2,11 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-const DIRECT_CONSUMERS = [
-  'CompactGameScoreboard.tsx',
-  'MatchupsWeekPanel.tsx',
-  'OwnerPanel.tsx',
-] as const;
+const DIRECT_CONSUMERS = ['CompactGameScoreboard.tsx', 'OwnerPanel.tsx'] as const;
 
 test('in-scope game surfaces consume the shared status label directly or through the scoreboard', () => {
   for (const file of DIRECT_CONSUMERS) {
@@ -24,6 +20,11 @@ test('in-scope game surfaces consume the shared status label directly or through
     /<CompactGameScoreboard\b/,
     'OverviewPanel.tsx must delegate its game states to the shared scoreboard'
   );
+  assert.match(
+    matchupsSource,
+    /<CompactGameScoreboard\b/,
+    'MatchupsWeekPanel.tsx must delegate its game states to the shared scoreboard'
+  );
   assert.doesNotMatch(
     overviewSource,
     /gameStatusLabelPresentation\(/,
@@ -32,5 +33,6 @@ test('in-scope game surfaces consume the shared status label directly or through
   assert.doesNotMatch(gameUiSource, /function statusClasses/);
   assert.doesNotMatch(ownerSource, /function toneClasses/);
   assert.doesNotMatch(overviewSource, /function stateBadgeClasses/);
+  assert.doesNotMatch(matchupsSource, /gameStatusLabelPresentation\(/);
   assert.doesNotMatch(matchupsSource, /function performanceClasses/);
 });

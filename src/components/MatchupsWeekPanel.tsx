@@ -4,12 +4,7 @@ import { formatExpandedKickoff } from '../lib/gameCardPresentation';
 import { classifyScorePackStatus } from '../lib/gameStatus';
 import { displayOwner } from '../lib/gameOwnership';
 import type { CombinedOdds } from '../lib/odds';
-import {
-  gameStatusLabelPresentation,
-  pillClass,
-  usesNeutralSiteSemantics,
-  type GameStatusLabelTone,
-} from '../lib/gameUi';
+import { formatGameMatchupLabel, pillClass, usesNeutralSiteSemantics } from '../lib/gameUi';
 import {
   computeGameTags,
   computeStandings,
@@ -33,8 +28,11 @@ import type { ScorePack } from '../lib/scores';
 import type { AppGame } from '../lib/schedule';
 import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
 import type { LiveDelta } from '../lib/selectors/liveDelta';
-import RankedTeamName from './RankedTeamName';
+import CompactGameScoreboard from './CompactGameScoreboard';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
+
+const EYEBROW_TAG_CLASSES =
+  'rounded-full border-[0.5px] border-[rgba(201,166,107,0.40)] px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-[#dbc190]';
 
 type MatchupsWeekPanelProps = {
   games: AppGame[];
@@ -54,10 +52,9 @@ type MatchupsWeekPanelProps = {
    */
   canonicalStandings?: CanonicalStandings | null;
   /**
-   * Client-side partial-week overlay derived from polled scores. Drives the
-   * fresh-LIVE dot beside the LIVE pill on in-progress games. Suppressed when
-   * `liveDelta.isStale` is true so users don't see stale data presented as
-   * fresh.
+   * Client-side partial-week overlay retained on this public surface for Item
+   * 143, which owns the decision about Matchups' freshness-gated live marker.
+   * The shared scoreboard currently owns its live indicator behavior.
    */
   liveDelta?: LiveDelta | null;
 };
@@ -140,7 +137,6 @@ function GameRow({
   rosterByTeam,
   displayTimeZone,
   rankingsByTeamId,
-  liveDelta,
 }: {
   slateGame: OwnerSlateGame;
   scoresByKey: Record<string, ScorePack>;
@@ -148,7 +144,6 @@ function GameRow({
   rosterByTeam: Map<string, string>;
   displayTimeZone: string;
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
-  liveDelta?: LiveDelta | null;
 }): React.ReactElement {
   const score = scoresByKey[slateGame.game.key];
   const odds = oddsByKey[slateGame.game.key];
@@ -168,129 +163,127 @@ function GameRow({
     slateGame.ownerTeamSide === 'home' ? slateGame.ownerTeamId : slateGame.opponentTeamId;
   const awayScore = score?.away.score;
   const homeScore = score?.home.score;
-  const hasPrimaryScoreline =
-    (statusTone === 'final' || statusTone === 'inprogress') &&
-    (awayScore != null || homeScore != null);
   const scheduledSeparator =
     usesNeutralSiteSemantics(slateGame.game) || slateGame.game.neutral ? 'vs' : '@';
   const liveClockLabel = buildLiveClockLabel(score);
-  // Confirm in-progress via the liveDelta selector and require a non-stale
-  // overlay before signaling "fresh live" to the user. Suppressing on stale
-  // avoids painting a polled-15-minutes-ago game as if it were updating now.
-  const liveGameDelta = liveDelta?.byGame[slateGame.game.key];
-  const showLiveIndicator =
-    statusTone === 'inprogress' &&
-    liveGameDelta?.status === 'inprogress' &&
-    liveDelta?.isStale === false;
-  const statusLabelTone: GameStatusLabelTone = statusTone === 'inprogress' ? 'live' : statusTone;
-  const statusLabel = gameStatusLabelPresentation(statusLabelTone, {
-    liveHue: 'neutral',
-    liveDot: showLiveIndicator ? 'pulse' : 'none',
+  const scoreboardState =
+    statusTone === 'inprogress' ? 'live' : statusTone === 'final' ? 'final' : 'scheduled';
+  const cardOwner = displayOwner(slateGame.owner);
+  const opponentOwner = displayOwner(slateGame.opponentOwner);
+  const opponentBelongsToCardOwner = slateGame.opponentOwner === slateGame.owner;
+  const awayOwner = slateGame.ownerTeamSide === 'away' ? cardOwner : opponentOwner;
+  const homeOwner = slateGame.ownerTeamSide === 'home' ? cardOwner : opponentOwner;
+  const awayIsCardOwnerTeam =
+    slateGame.ownerTeamSide === 'away' ||
+    (slateGame.ownerTeamSide === 'home' && opponentBelongsToCardOwner);
+  const homeIsCardOwnerTeam =
+    slateGame.ownerTeamSide === 'home' ||
+    (slateGame.ownerTeamSide === 'away' && opponentBelongsToCardOwner);
+  const awayRanking = rankingsByTeamId?.get(awayTeamId);
+  const homeRanking = rankingsByTeamId?.get(homeTeamId);
+  const opponentClassification =
+    slateGame.ownerTeamSide === 'away'
+      ? slateGame.game.homeClassification
+      : slateGame.game.awayClassification;
+  const opponentRanking = slateGame.ownerTeamSide === 'away' ? homeRanking : awayRanking;
+  const scoreboardShowsOpponentFcsMarker =
+    opponentClassification === 'fcs' && opponentRanking?.rank == null;
+  const matchupLabel = formatGameMatchupLabel(slateGame.game, {
+    homeAwaySeparator: scheduledSeparator,
   });
   const hideOpponentDescriptor =
     opponentDescriptor === 'NoClaim (FBS)' ||
+    (opponentDescriptor === 'FCS' && scoreboardShowsOpponentFcsMarker) ||
     (slateGame.opponentOwner != null && displayOwner(slateGame.opponentOwner) === null);
   const metadataEntries: string[] = [];
-  if (statusTone === 'inprogress' && liveClockLabel) metadataEntries.push(liveClockLabel);
   if (!hideOpponentDescriptor) metadataEntries.push(opponentDescriptor);
-  if (statusTone === 'scheduled') {
-    metadataEntries.push(
-      `Kickoff ${formatExpandedKickoff(slateGame.game.date, displayTimeZone, slateGame.game.startTimeTBD)}`
-    );
-  } else {
+  if (statusTone !== 'scheduled') {
     metadataEntries.push(
       formatExpandedKickoff(slateGame.game.date, displayTimeZone, slateGame.game.startTimeTBD)
     );
   }
-  if (slateGame.game.neutral) {
-    metadataEntries.push('Neutral site');
-  }
+  const scheduledKickoff = `Kickoff ${formatExpandedKickoff(
+    slateGame.game.date,
+    displayTimeZone,
+    slateGame.game.startTimeTBD
+  )}`;
+  const tier2Content = primary || metadataEntries.length > 0;
 
   return (
-    <li className={`rounded-md py-2 transition-colors ${rowClasses}`}>
-      <div className="min-w-0 space-y-1">
-        <div className="flex flex-wrap items-center gap-1.5 text-sm leading-5 text-gray-900 dark:text-zinc-100">
-          {slateGame.game.label ? (
+    <li className={`rounded-md transition-colors ${rowClasses}`}>
+      <CompactGameScoreboard
+        state={scoreboardState}
+        clock={
+          scoreboardState === 'scheduled'
+            ? scheduledKickoff
+            : scoreboardState === 'live'
+              ? (liveClockLabel ?? undefined)
+              : undefined
+        }
+        neutralSite={slateGame.game.neutral}
+        matchupLabel={matchupLabel}
+        contextSlot={
+          slateGame.game.label ? (
             <span className="text-xs font-semibold text-violet-700 dark:text-violet-300">
               {slateGame.game.label}
             </span>
-          ) : null}
-          {hasPrimaryScoreline ? (
-            <>
-              <RankedTeamName
-                className="font-medium"
-                teamName={awayTeamName}
-                ranking={rankingsByTeamId?.get(awayTeamId)}
-              />
-              <span className="inline-flex min-w-[2ch] justify-end font-semibold tabular-nums">
-                {awayScore ?? '—'}
-              </span>
-              <span className="text-gray-400 dark:text-zinc-500">–</span>
-              <span className="inline-flex min-w-[2ch] justify-start font-semibold tabular-nums">
-                {homeScore ?? '—'}
-              </span>
-              <RankedTeamName
-                className="font-medium"
-                teamName={homeTeamName}
-                ranking={rankingsByTeamId?.get(homeTeamId)}
-              />
-            </>
-          ) : (
-            <>
-              <RankedTeamName
-                className="font-medium"
-                teamName={awayTeamName}
-                ranking={rankingsByTeamId?.get(awayTeamId)}
-              />
-              <span className="text-gray-400 dark:text-zinc-500">{scheduledSeparator}</span>
-              <RankedTeamName
-                className="font-medium"
-                teamName={homeTeamName}
-                ranking={rankingsByTeamId?.get(homeTeamId)}
-              />
-            </>
-          )}
-          <span className={statusLabel.className}>
-            {statusLabel.dotClassName ? (
-              <span
-                aria-hidden="true"
-                data-matchups-live-indicator={slateGame.game.key}
-                className={statusLabel.dotClassName}
-              />
-            ) : null}
-            {statusTone === 'final' ? 'FINAL' : statusTone === 'inprogress' ? 'LIVE' : 'SCH'}
-          </span>
-        </div>
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-5 text-gray-500 dark:text-zinc-400">
-          {primary ? (
-            <span className="inline-flex flex-wrap gap-1">
-              <span className="rounded-full border border-blue-300 bg-blue-100 px-1.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-blue-800 dark:border-blue-700 dark:bg-blue-900/30 dark:text-blue-200">
-                {LEAGUE_TAG_LABELS[primary]}
-              </span>
-              {secondary.map((tag) => (
-                <span
-                  key={`${slateGame.game.key}:tag:${tag}`}
-                  className="hidden rounded-full border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-xs font-medium uppercase tracking-wide text-gray-600 sm:inline-flex dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
-                >
-                  {LEAGUE_TAG_LABELS[tag]}
+          ) : undefined
+        }
+        away={{
+          teamName: awayTeamName,
+          owner: awayOwner,
+          isCardOwnerTeam: awayIsCardOwnerTeam,
+          rank: awayRanking?.rank,
+          rankSource: awayRanking?.rankSource,
+          classification: slateGame.game.awayClassification,
+          score: scoreboardState === 'scheduled' ? null : (awayScore ?? null),
+        }}
+        home={{
+          teamName: homeTeamName,
+          owner: homeOwner,
+          isCardOwnerTeam: homeIsCardOwnerTeam,
+          rank: homeRanking?.rank,
+          rankSource: homeRanking?.rankSource,
+          classification: slateGame.game.homeClassification,
+          score: scoreboardState === 'scheduled' ? null : (homeScore ?? null),
+        }}
+        tier2Slot={
+          tier2Content ? (
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-5 text-gray-500 dark:text-zinc-400">
+              {primary ? (
+                <span className="inline-flex flex-wrap gap-1">
+                  <span className={`inline-flex ${EYEBROW_TAG_CLASSES}`} data-matchups-eyebrow-tag>
+                    {LEAGUE_TAG_LABELS[primary]}
+                  </span>
+                  {secondary.map((tag) => (
+                    <span
+                      key={`${slateGame.game.key}:tag:${tag}`}
+                      className={`hidden sm:inline-flex ${EYEBROW_TAG_CLASSES}`}
+                      data-matchups-eyebrow-tag
+                    >
+                      {LEAGUE_TAG_LABELS[tag]}
+                    </span>
+                  ))}
                 </span>
+              ) : null}
+              {metadataEntries.map((entry, index) => (
+                <React.Fragment key={`${slateGame.game.key}:meta:${entry}`}>
+                  {index > 0 || primary ? <span>•</span> : null}
+                  {entry === opponentDescriptor ? (
+                    <span
+                      className={`${pillClass()} ${getOpponentBadgeClasses(opponentDescriptor)}`}
+                    >
+                      {entry}
+                    </span>
+                  ) : (
+                    <span>{entry}</span>
+                  )}
+                </React.Fragment>
               ))}
-            </span>
-          ) : null}
-          {metadataEntries.map((entry, index) => (
-            <React.Fragment key={`${slateGame.game.key}:meta:${entry}`}>
-              {index > 0 ? <span>•</span> : null}
-              {entry === opponentDescriptor ? (
-                <span className={`${pillClass()} ${getOpponentBadgeClasses(opponentDescriptor)}`}>
-                  {entry}
-                </span>
-              ) : (
-                <span>{entry}</span>
-              )}
-            </React.Fragment>
-          ))}
-        </div>
-      </div>
+            </div>
+          ) : undefined
+        }
+      />
     </li>
   );
 }
@@ -313,7 +306,6 @@ function OwnerCard({
   rankingsByTeamId,
   isFocused = false,
   onRegisterRef,
-  liveDelta,
 }: {
   slate: OwnerWeekSlate;
   ownerStanding?: ReturnType<typeof computeStandings>[number];
@@ -324,7 +316,6 @@ function OwnerCard({
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
   isFocused?: boolean;
   onRegisterRef?: (element: HTMLElement | null) => void;
-  liveDelta?: LiveDelta | null;
 }): React.ReactElement {
   const [isExpanded, setIsExpanded] = React.useState(false);
   const gameListId = `${React.useId()}-games`;
@@ -377,7 +368,7 @@ function OwnerCard({
         ))}
       </div>
 
-      <ul id={gameListId} className="divide-y divide-gray-200 dark:divide-zinc-700">
+      <ul id={gameListId} className="[&>li:last-child>article]:border-b-0">
         {visibleGames.map((slateGame) => (
           <GameRow
             key={`${slate.owner}:${slateGame.game.key}`}
@@ -387,7 +378,6 @@ function OwnerCard({
             rosterByTeam={rosterByTeam}
             displayTimeZone={displayTimeZone}
             rankingsByTeamId={rankingsByTeamId}
-            liveDelta={liveDelta}
           />
         ))}
       </ul>
@@ -420,7 +410,6 @@ export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.
     focusedOwner = null,
     focusedOwnerPair = null,
     canonicalStandings = null,
-    liveDelta = null,
   } = props;
   const rawOwnerSlates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey);
   const visibleOwnerSlates = rawOwnerSlates.filter((slate) => displayOwner(slate.owner) !== null);
@@ -480,7 +469,6 @@ export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.
                 rosterByTeam={rosterByTeam}
                 displayTimeZone={displayTimeZone}
                 rankingsByTeamId={rankingsByTeamId}
-                liveDelta={liveDelta}
                 onRegisterRef={(element) => {
                   if (!element) {
                     ownerCardRefs.current.delete(slate.owner);

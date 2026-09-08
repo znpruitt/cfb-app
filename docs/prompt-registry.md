@@ -51,6 +51,24 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-117-MATCHUPS-SCOREBOARD-CODEX-v2
+
+- Purpose: replace Matchups' bespoke game row with the shared compact scoreboard while correcting
+  the ambiguous owner-to-team mapping and blue importance pills.
+- Scope: `MatchupsWeekPanel` and focused component tests only; no shared-scoreboard widening,
+  selector/data change, records work, or Item 142/143/148 behavior.
+- Outcome: the campaign's first user-visible change since slice 5b gives each participant its owner
+  suffix, neutrally tints the card owner's team (both teams for self matchups), preserves the outcome
+  rail, and converts `UPSET` / `TOP 25` to bronze hairline no-fill tags. Review remediation removed
+  redundant final status, hidden disrupted-game leadership, duplicate FCS labeling, and the trailing
+  divider; ranked FCS keeps one descriptor when rank occupies the inline prefix.
+- Review / verification: implementation `9bd9dc41`, remediation `20a04858`, and test-only ranked-FCS
+  coverage `75edbb0f`; both review lanes converged. Matchups tests are 30/30 (+5), TypeScript and
+  `lint:all` pass, and full `npm test` is 4,913/4,915 with exactly the two standing Item 137 failures.
+  Mutations proved owner mapping, all four rendered-output fixes, and ranked-FCS precedence; local
+  port 3010 and the Ready preview were also verified.
+- Status: Complete and reviewed; merge approved 2026-09-07.
+
 ### PLATFORM-139-RECORD-RECONCILIATION-v3
 
 - Purpose: make an Overview final carry the team record including that result during the six-to-
