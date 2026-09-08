@@ -200,7 +200,15 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   begins with that label. Broadcast renders for scheduled, live, and awaiting rows, but not finals.
   `Awaiting score` is an indeterminate post-kickoff subset of live for this presentation rule, and a
   broadcast label names the game's carrier rather than claiming it is currently on air
-- The scheduled odds footer always reserves its tier-1 band, even with no odds. The optional tier-2
+- The scheduled odds footer reserves its tier-1 band **for consumers that need peer-card alignment,
+  and those consumers ask for it** — the component reserves nothing on its own. **Amended 2026-09-08**,
+  and the amendment is the reason rather than a preference: the reservation exists so two cards
+  **side by side in a grid** stay equal height when one has odds and the other does not. **Overview is
+  such a grid** (`grid grid-cols-2`); **Matchups is a vertical list inside one owner card**, where
+  there is no peer to align with and the band is dead space under every scheduled game. A consumer
+  that wants the band passes it; a consumer that does not, does not. This replaces a state test
+  (`state === 'scheduled'`) that assigned the behaviour by negation — the pattern this document now
+  forbids — and it makes the reservation legible at the call site that has the reason for it. The optional tier-2
   expansion slot follows the primary rows — and the odds band on scheduled rows — and reserves
   nothing: it is variable-height content, so an empty wrapper would add only margin and could not
   align with real expansion content. The wrapper is suppressed when the slot is statically known to
