@@ -561,6 +561,29 @@ the result. This is the mirror of the absence rule above — that one guards cla
 exists, this one guards claims that something is used — and it is cheaper than either, because the
 compiler answers in one command.
 
+**A MEASUREMENT'S COVERAGE IS PART OF ITS RESULT.** Added 2026-09-08, and it is the corollary to the
+rule above: that one says a grep cannot prove a read, this one says **a tool returning zero because it
+did not look is indistinguishable from one that looked and found nothing** — unless you report what it
+examined. So when you state a measured result, state **what the measurement covered and what it could
+not reach**, in the same sentence as the number.
+
+Named failure case, 2026-09-08. A scan of `OverviewPanel.tsx` for genuine same-condition Tailwind class
+collisions took **three passes to become worth anything**. The first reported 21 hits, every one an
+artifact of a bad property mapper — `px-4`/`py-4` are different properties, so are
+`items-center`/`justify-between`. The second reported **zero, having silently skipped padding and margin
+entirely**, because the axis regex required a dash that `px-1` does not have — that is, it reported
+clean on precisely the utilities where a duplicate was most likely to hide. Only the third covered them.
+**Passes two and three printed the same headline number and meant completely different things.**
+
+Two practices follow, both cheap:
+
+- **Print the classification rate and the unclassified items**, not just the finding. The skipped
+  padding tokens were visible in pass two's own output and were the thing that exposed it; a scan that
+  reports only its conclusion cannot be audited by the person reading it, including you.
+- **State the population the number covers.** That scan could not resolve 52 template literals
+  containing `${…}`. **"Zero in the statically analysable set" is a different claim from "zero", and it
+  is the honest one.** A qualifier that narrows a result is not hedging; dropping it is overclaiming.
+
 Named failure cases, all 2026-09-04, one per instrument:
 
 - **Grep for a read.** POLISH-024, three times in one branch. `highlightsTitle` was described in
