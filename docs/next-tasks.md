@@ -1345,6 +1345,28 @@ is a fine answer — but it should be an entry saying so, not silence across thr
 
 **Blocker:** none. Seasonally distant.
 
+### Item 156 — Schedule is the last surface with records not wired
+
+**The ask:** wire records into Schedule, as Item 155 does for Matchups. **Required to exist by the
+2026-09-08 ruling**, which states that "not wired to this surface" is a sequencing state needing a
+filed item — not a transient condition. Once Item 155 merges, Schedule is the only surface still in it.
+
+**Item 87 slice 5 removed records from Schedule deliberately**, pending Item 139's reconciliation.
+139 shipped. So the dependency that justified the removal is closed and nothing has restored them.
+
+**Expect it to be small, for the reason Item 155 was.** Verify rather than assume: 155 found the
+Matchups page already loading records and already spreading them into the shell, with only the panel
+never accepting the prop. Check whether Schedule's page does the same before scoping.
+
+**One thing Schedule has that Matchups does not**, and it is a real difference rather than a detail:
+`GameWeekPanel` places its focus ring **flush around the scoreboard**. `team-highlight.md` records that
+a tinted descendant would paint over that ring, which is why the card-owner tint was scoped away from
+Schedule. Records are not the tint and should not collide — but the ring is the reason Schedule was
+excluded once already, so confirm it rather than inherit the exclusion.
+
+**Blocked on Item 155**, not by dependency but by sequencing: 155 establishes the threading pattern and
+the blank-anchor behaviour, and doing Schedule first would mean deciding both twice.
+
 ### Item 155 — the Matchups scheduled row: records as the anchor, and the dead footer
 
 **Kickoff:** [`docs/prompts/platform-155-matchups-scheduled-row-codex-v1.md`](prompts/platform-155-matchups-scheduled-row-codex-v1.md).
