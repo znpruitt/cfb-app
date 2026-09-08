@@ -166,7 +166,7 @@ the colour bars, 134 the third tier, 115 counts and caps together.
 **If only one thing gets done, 143** — it is the long pole and unblocks the most. (This line read _166_ before that item was found already complete.)
 
 **Kickoffs written 2026-09-08 and ready to dispatch:**
-`platform-143-matchups-status-row-codex-v2.md` (UI spine) and
+`platform-143-matchups-status-row-codex-v3.md` (UI spine) and
 `platform-157-162-163-tag-vocabulary-claude-v2.md` (Platform, one prompt for all three per owner call).
 **`preview` is granted to 143**; the tag-vocabulary kickoff suspends the push-`preview` instruction for
 its branch, which is what preserves the single-writer condition.
@@ -1008,7 +1008,7 @@ the same problem.
 indicator, eyebrow tags and odds. **Split out of Item 117 on 2026-09-07** after the receipt gate found
 that none of the four fits an existing slot.
 
-**Kickoff:** [`docs/prompts/platform-143-matchups-status-row-codex-v2.md`](prompts/platform-143-matchups-status-row-codex-v2.md).
+**Kickoff:** [`docs/prompts/platform-143-matchups-status-row-codex-v3.md`](prompts/platform-143-matchups-status-row-codex-v3.md).
 
 > **THE TABLE BELOW IS STALE — re-verified against `main` at `0ab9b76d`, 2026-09-08, and TWO of the
 > four have moved.** **Odds on live/final is RESOLVED**: Item 155 replaced the `state === 'scheduled'`
@@ -5505,6 +5505,29 @@ gap, and its size is currently unknown.
 only lists divergences has not delivered the thing this item exists for.
 
 **Blocker:** none — the audit is observation. **Acting on the residue may block behind 143.**
+
+### Item 168 — Matchups renders no odds, and the mockup says scheduled rows carry them
+
+**Split out of Item 143 on 2026-09-08**, after an implementer's read receipt stopped on the odds
+divergence and the ruling narrowed it. **This is the live half of widening 4**; the "live and final"
+half never existed (INDEX CARRY row 29, corrected).
+
+**The ask:** render odds on **scheduled** Matchups rows, with `Line not posted` when there is no line.
+
+**The data is already there.** `MatchupsWeekPanel` receives `oddsByKey` and reads it at `:158`; it
+simply never passes `footerSlot`. **The seam is open too** — Item 155 made the footer content-gated
+(`CompactGameScoreboard.tsx:245`), so any state may carry one. **This is caller work only.**
+
+**The empty state is specified and is not a spacer.** The mockup renders `Line not posted` as
+CONTENT on rows with no line (`:409`, `:433`). That is deliberately different from Item 155's ruling,
+which removed a reserved empty BAND from Matchups: a vertical list has no peer to align with, so it
+does not reserve height — but every scheduled row carrying a real string means the rows are uniform
+because they all have content, not because one is padded. **Do not reintroduce a reserved band.**
+
+**Live and final rows carry no odds.** Measured: all six `sb-odds` elements in the mockup sit in
+scheduled blocks. Do not add them elsewhere.
+
+**Blocker:** none. Independent of Item 143 — that slice is the status-row seam and this needs no seam.
 
 ## Hosted deployment runbook
 

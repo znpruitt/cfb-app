@@ -1,5 +1,5 @@
-PROMPT_ID: PLATFORM-143-MATCHUPS-STATUS-ROW-CODEX-v2
-PURPOSE: Item 143 — give the shared scoreboard the seams Matchups needs, so tags sit IN the status row instead of adding a line above it. This unblocks the recap adoption, the Matchups reconciliation, and three of the six Overview back-application items.
+PROMPT_ID: PLATFORM-143-MATCHUPS-STATUS-ROW-CODEX-v3
+PURPOSE: Item 143 — give the shared scoreboard the seams Matchups needs, so tags sit IN the status row instead of on a tier-2 line BELOW the team rows, where they are today. This unblocks the recap adoption, the Matchups reconciliation, and three of the six Overview back-application items.
 SCOPE: `src/components/CompactGameScoreboard.tsx`, `src/lib/gameUi.ts`, `src/components/MatchupsWeekPanel.tsx`, and tests for each. NOT the recap. NOT Overview's or Schedule's rendering. NOT the outcome rail.
 CARRIES: `item-87-INDEX.md` CARRY rows 7, 8, 20, 25 and 26, verbatim in the task block.
 
@@ -24,7 +24,7 @@ changed the component underneath it.
 | divergence | status on `main` TODAY |
 | --- | --- |
 | **eyebrow tags in the status row** | **LIVE, and it is the item — but v1 named the wrong slot.** Matchups' tags render through **`tier2Slot`** (`MatchupsWeekPanel.tsx:264`), BELOW both participant rows, not through `contextSlot`. A two-tag row is four structural rows today: header, away, home, tier-2. `contextSlot` is the slot that would ADD a row above the header (`CompactGameScoreboard.tsx:124-128`) and is where `game.label` goes. **The target is unchanged — tags belong IN the header row — but you are moving them UP from tier 2, not down from context.** |
-| **odds on live/final** | **NOT A REQUIREMENT — the divergence was miscategorised at filing, owner ruling 2026-09-08.** Measured against `mockups/matchups-schedule-mockup.html`: **all six `sb-odds` lines belong to `scheduled` blocks. Zero on live. Zero on final.** The live block carries status plus two team lines and nothing else. So the filed row recorded a COMPONENT CONSTRAINT (`footerSlot` gated by state) as a PRESENTATION REQUIREMENT. Item 155 removed the constraint (`:245`, content-gated). **There is no caller work and none is wanted. Do not add odds to Matchups live or final rows.** |
+| **odds on live/final** | **NOT A REQUIREMENT — the divergence was miscategorised at filing, owner ruling 2026-09-08.** Measured against `mockups/matchups-schedule-mockup.html`: **all six `sb-odds` lines belong to `scheduled` blocks. Zero on live. Zero on final.** The live block carries status plus two team lines and nothing else. So the filed row recorded a COMPONENT CONSTRAINT (`footerSlot` gated by state) as a PRESENTATION REQUIREMENT. Item 155 removed the constraint (`:245`, content-gated). **Do not add odds to Matchups live or final rows.** The SCHEDULED half is real, unbuilt, and is now **Item 168** — out of this slice, and it needs no seam from you. |
 | **status pill `SCH`/`LIVE`/`FINAL`** | **LIVE.** `statusLabel` is `null` when scheduled (`:104-107`) and the component owns the text, so Matchups cannot render `SCH` |
 | **live indicator** | **PARTLY RESOLVED, and smaller than filed.** `gameUi.ts:118` `gameStatusLabelPresentation` ALREADY accepts `liveHue: 'neutral'` and `liveDot: 'pulse' \| 'static' \| 'none'`. The scoreboard calls it with **no options** (`:107`), so a caller cannot reach them. **This is prop forwarding, not a redesign.** |
 
@@ -75,6 +75,38 @@ sit in `scheduled` blocks; zero on live, zero on final.** The filed divergence r
 constraint as a presentation requirement. **Nothing is wanted here — do not add odds to Matchups live
 or final rows.** If you find a document that DOES require them, that is a stop-and-report.
 
+## RULINGS ON YOUR v2 RECEIPT — the stop was correct, and it found a propagated error
+
+**You were right to stop, and right that the prompt contradicted indexed authority.** The resolution
+is neither of the two you framed.
+
+**The design document never said "live and final".** `matchups-schedule-design.md:104` says only *odds
+live in the tier-2 expanded body on Schedule … and inline on Matchups, where nine games per card
+justify them.* **No state is named.** The phrase you found comes from the **discharge note beneath it**,
+added 2026-09-08, which reasoned that because the component's footer was gated to `scheduled`, "inline
+on Matchups" must be outstanding for live and final. **That inferred a requirement from a code
+constraint.** It then propagated into INDEX CARRY row 29 and from there into Item 143's divergence
+table — three documents carrying one bad sentence, stopped by your receipt.
+
+**So the document and the mockup agree.** The document says WHERE; the mockup says WHICH STATES. Both
+corrected on `main`: CARRY row 29 and the discharge note now say scheduled-only and name the error.
+
+**The real live half is scheduled-row odds, and it is NOT yours.** Matchups renders no odds at all
+although it already receives `oddsByKey` (`MatchupsWeekPanel.tsx:158`), and the mockup gives the empty
+case an explicit `Line not posted`. **Filed as Item 168**, independent of this slice — the seam is
+already open, so it needs nothing from you.
+
+**Two more prompt errors you caught, both fixed above.** The carried CARRY row 8 block still said
+"four consumers plus the recap" after I corrected the INDEX — **a carried obligation is only as good as
+its last copy**, which is the failure the verbatim rule exists to prevent, committed inside the field
+that exists to prevent it. And `PURPOSE` said tags add a line *above* the status row when they sit in
+tier 2 below it.
+
+**Your "four structural rows" qualification is accepted** — that count holds for a game with no
+`game.label`; with one, `contextSlot` adds a fifth above the header, and the repository's existing
+two-tag fixture has such a label. Worth knowing when you pick the fixture for the equal-height
+assertion.
+
 ## Branch
 
 `codex/143-matchups-status-row` from current `origin/main`, in `/Users/zach/cfb-app-codex`.
@@ -112,8 +144,13 @@ signal, the date is recoverable from the heading above.
 > **Row 26 — Item 143.** Build the single-column wrap exception as the owner narrowed it: tagged
 > scheduled rows at phone width; not a general licence to wrap (`DESIGN.md` amendment 2026-09-08).
 
-> **Row 8 — LIVE.** Selection and precedence stay selector-owned; the scoreboard must not be forked.
-> Now four consumers plus the recap.
+> **Row 8 — LIVE.** Selection and precedence stay selector-owned; the scoreboard **must not be
+> forked**. **CORRECTED 2026-09-08 — "four consumers plus the recap" was wrong on both halves.** There
+> are **five direct renderers**: Overview `GameCardList` (serving Live AND Recent finals), Overview
+> `WatchlistScoreboardList`, Overview `FeaturedGamesList`, `GameWeekPanel`, and Matchups `GameRow` —
+> three importing modules, six rendered contexts. **And the recap is NOT a consumer**:
+> `RecapPrimitives.tsx:277` still defines a bespoke `GameScoreboard`, which is what this slice creates
+> the seam for.
 
 > **Row 7 — LIVE.** Re-derive every line-number citation before putting it in a prompt or a document.
 
