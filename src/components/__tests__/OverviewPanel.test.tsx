@@ -424,10 +424,17 @@ test('overview watchlist uses the shared scoreboard with records and one odds fo
  * highlight family: the Overview watchlist. `FeaturedGamesList` never renders
  * `highlightTags`, so this component is the whole rendered consumer set.
  *
- * Both games are owned by `Alice`, who is the only row in `standingsLeaders` and
- * therefore was in `topOwnerNames`. Before Items 157 and 162 the one-ranked card
- * carried `Ranked Team` and `Contender Watch`, and the both-ranked card carried
- * `Top 25 Matchup` and `Contender Watch`.
+ * Both games have `Alice` away and `Bob` home (the `item()` helper), and `Alice`
+ * is the only row in `standingsLeaders` and so was in `topOwnerNames`. Before
+ * Items 157 and 162 the one-ranked card carried `Ranked Team` and
+ * `Contender Watch`, and the both-ranked card carried `Top 25 Matchup` and
+ * `Contender Watch`.
+ *
+ * The two owners being DISTINCT is load-bearing rather than incidental:
+ * `gameOfSlate` filters to games with two different owners, which is why the
+ * both-ranked card also draws the `Game of the Week` reason label while the
+ * one-ranked card's reason row is genuinely empty — the tagged/untagged pair the
+ * `min-h-[22px]` assertion below is about.
  *
  * The both-ranked card is the POSITIVE CONTROL: it proves this harness can see an
  * eyebrow tag in the watchlist reason row, so the absences asserted on the

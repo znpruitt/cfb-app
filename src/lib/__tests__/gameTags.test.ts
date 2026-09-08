@@ -944,12 +944,16 @@ test('prioritizeGameTags applies upset > upset_watch > top_25_matchup ordering w
  * top-three, three-point final margin — now yields TWO tags where it once yielded
  * three, and `TOP_BADGE_LIMIT` cannot bind on it or on any other input.
  *
- * What still discriminates is PRIORITY ORDERING: `top25` (100) must precede
- * `close` (80). That is what this now asserts and what it is now named for. The
- * cap assertion is deleted rather than left passing vacuously; the cap itself
- * stays as a documented forward guard (`gameTags.ts`, `TOP_BADGE_LIMIT`).
+ * What it still asserts is the exact tag SET and the order it is emitted in. Be
+ * precise about the limit of that: the two survivors are pushed `top25` then
+ * `close` in source order, so deleting the `.sort()` would leave this green too.
+ * No reachable input discriminates the sort while the family has two members
+ * pushed in priority order — naming this test for ordering would claim more than
+ * it proves. The cap assertion is deleted rather than left passing vacuously;
+ * the cap itself stays as a documented forward guard (`gameTags.ts`,
+ * `TOP_BADGE_LIMIT`).
  */
-test('deriveGameHighlightTags orders Top 25 Matchup above Close', () => {
+test('deriveGameHighlightTags emits exactly Top 25 Matchup and Close for a ranked, close final', () => {
   const rankedCloseGame = item(
     game({
       key: 'badge-game',
@@ -995,6 +999,75 @@ test('deriveGameHighlightTags orders Top 25 Matchup above Close', () => {
       { id: 'close', text: 'Close' },
     ]
   );
+});
+
+test('deriveGameHighlightTags requires both teams INSIDE the top 25, not merely ranked', () => {
+  const deepRanks = item(
+    game({
+      key: 'deep-ranks',
+      participants: {
+        away: {
+          kind: 'team',
+          teamId: 'away',
+          displayName: 'Away',
+          canonicalName: 'Away',
+          rawName: 'Away',
+        },
+        home: {
+          kind: 'team',
+          teamId: 'home',
+          displayName: 'Home',
+          canonicalName: 'Home',
+          rawName: 'Home',
+        },
+      },
+    }),
+    'Pruitt',
+    'Maleski'
+  );
+  // 21-point final, so `close` cannot fire and the assertion is about the rank
+  // bound alone.
+  deepRanks.score = {
+    status: 'FINAL',
+    away: { team: 'Away', score: 45 },
+    home: { team: 'Home', score: 24 },
+    time: null,
+  };
+
+  // Positive control at the boundary: 25 and 25 DO earn the tag, so an empty
+  // result below is the bound rather than a fixture that cannot reach the branch.
+  assert.deepEqual(
+    deriveGameHighlightTags({
+      item: deepRanks,
+      rankingsByTeamId: new Map([
+        ['away', { rank: 25, rankSource: 'ap' }],
+        ['home', { rank: 25, rankSource: 'ap' }],
+      ]),
+    }).map(({ id }) => id),
+    ['top25']
+  );
+
+  // One step past the boundary on either side is enough to withhold it. No
+  // production poll reaches rank 26 today, so this pins the predicate rather than
+  // a live case — `computeGameTags` bounds the league family the same way, and
+  // both now render the identical `Top 25 Matchup`.
+  for (const ranks of [
+    [26, 12],
+    [12, 26],
+    [26, 30],
+  ] as const) {
+    assert.deepEqual(
+      deriveGameHighlightTags({
+        item: deepRanks,
+        rankingsByTeamId: new Map([
+          ['away', { rank: ranks[0], rankSource: 'ap' }],
+          ['home', { rank: ranks[1], rankSource: 'ap' }],
+        ]),
+      }),
+      [],
+      `ranks ${ranks[0]}/${ranks[1]} are outside the top 25 and earn no tag`
+    );
+  }
 });
 
 test('deriveGameHighlightTags emits NO tag for a game with only one ranked team', () => {

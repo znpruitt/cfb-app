@@ -41,7 +41,14 @@ const TOP_INSIGHT_LIMIT = 3;
 // `top25` and `close`, so the `.slice()` below can no longer bind on any input.
 // Do not delete it — `DESIGN.md:293` requires the cap, and an implementation
 // removed because it is currently unreachable would leave that canonical rule
-// with nothing behind it. The next tag added to the family hits it.
+// with nothing behind it.
+//
+// Precisely what would make it bind again: a third tag that can CO-FIRE with the
+// two survivors on one game. `top25` needs two ranks and `close` needs a score
+// margin, which are independent, so they already reach two together — a third tag
+// on a further independent axis is what crosses the cap. A third tag that is
+// mutually exclusive with either survivor would leave it unreachable, so "any new
+// tag hits this" would be the wrong thing to conclude.
 const TOP_BADGE_LIMIT = 2;
 type OwnerMovementDelta = {
   owner: string;
@@ -442,7 +449,15 @@ export function deriveGameHighlightTags(params: {
   const margin = gameMargin(item);
   const tags: GameHighlightTag[] = [];
 
-  if (awayRank != null && homeRank != null) {
+  // Both sides must be INSIDE the top 25, not merely ranked. `computeGameTags`
+  // has always used `isRankedTop25` for the league family; the two disagreed
+  // silently while they rendered different strings (`Top 25 Matchup` here,
+  // `Top 25` there). Item 157 made them render the SAME string, so a divergence
+  // would now have two surfaces printing one claim from two predicates.
+  // Latent rather than live at the time of the change: every stored poll entry
+  // in production — 18 weeks, 726 entries across ap/coaches/cfp — tops out at
+  // rank 25, so no game reaches the difference today.
+  if (isRankedTop25(awayRank) && isRankedTop25(homeRank)) {
     tags.push({
       id: 'top25',
       text: 'Top 25 Matchup',

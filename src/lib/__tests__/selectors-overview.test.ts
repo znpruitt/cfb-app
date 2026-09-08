@@ -268,6 +268,87 @@ test('retiring Contender Watch drops a leader-owned game to the kickoff tie-brea
   );
 });
 
+/**
+ * The SECOND half of the ordering delta, and the half the leader-demotion test
+ * above does not cover.
+ *
+ * `ranked` fired on EVERY game with one ranked team and supplied 70. Its nearest
+ * surviving analogue, `isRankedSpotlight`, is not equivalent: it names exactly ONE
+ * game — `rankedHighlightKey` — so on a slate with two one-ranked games the second
+ * now scores nothing and falls behind earlier unranked games.
+ *
+ * That is an ORDERING assertion here, but it decides INCLUSION downstream:
+ * `selectOverviewGameSections` walks this list in order and stops at
+ * `OVERVIEW_WATCHLIST_LIMIT` (6), so a ranked game pushed far enough down leaves
+ * the board. Pinned so the tradeoff is visible if it is ever revisited.
+ */
+test('only the ranked spotlight keeps a priority: a second ranked game falls to kickoff order', () => {
+  const single = (key: string, date: string, awayId?: string, homeId?: string) => {
+    const base = item(
+      key,
+      date,
+      awayId && homeId
+        ? {
+            participants: {
+              away: {
+                kind: 'team',
+                teamId: awayId,
+                displayName: awayId,
+                canonicalName: awayId,
+                rawName: awayId,
+              },
+              home: {
+                kind: 'team',
+                teamId: homeId,
+                displayName: homeId,
+                canonicalName: homeId,
+                rawName: homeId,
+              },
+            },
+          }
+        : {}
+    );
+    // Single-owned throughout, so `gameOfSlateKey` (which needs two distinct
+    // owners) is null and cannot supply its own 90 to any row.
+    return { ...base, bucket: { ...base.bucket, homeOwner: undefined }, priority: 1 };
+  };
+
+  const spotlight = single('r1-spotlight', '2026-09-06T17:00:00.000Z', 'r1-away', 'r1-home');
+  const secondRanked = single('r2-ranked', '2026-09-06T18:00:00.000Z', 'r2-away', 'r2-home');
+  const plainEarly = single('plain-a', '2026-09-01T17:00:00.000Z');
+  const plainLate = single('plain-b', '2026-09-01T18:00:00.000Z');
+
+  const model = selectOverviewViewModel({
+    standingsLeaders: [],
+    standingsCoverage: { state: 'partial', message: null },
+    context: { scopeDetail: 'Week 1' },
+    liveItems: [],
+    keyMatchups: [spotlight, secondRanked, plainEarly, plainLate],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map([
+      // Best rank wins the single spotlight slot.
+      ['r1-away', { rank: 5, rankSource: 'ap' as const }],
+      ['r2-away', { rank: 20, rankSource: 'ap' as const }],
+    ]),
+  });
+
+  assert.deepEqual(
+    model.watchlistCandidates.map((entry) => entry.item.bucket.game.key),
+    ['r1-spotlight', 'plain-a', 'plain-b', 'r2-ranked']
+  );
+  assert.equal(
+    model.watchlistCandidates.find((entry) => entry.item.bucket.game.key === 'r1-spotlight')
+      ?.isRankedSpotlight,
+    true
+  );
+  assert.equal(
+    model.watchlistCandidates.find((entry) => entry.item.bucket.game.key === 'r2-ranked')
+      ?.isRankedSpotlight,
+    false,
+    'the spotlight names one game, so the second ranked game carries no priority'
+  );
+});
+
 test('Featured ties break on the game key, and owner count cannot displace at the cap', () => {
   // Section-ordering resolutions §2, extended to Featured by the owner 2026-09-04.
   // `selectFeaturedGames` slices this order without re-sorting, so the removed
