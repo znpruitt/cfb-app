@@ -617,7 +617,15 @@ recompute a figure you agree with. **This is the same argument as the pre-push h
 to run lint** — a mechanism that does not depend on noticing, deployed exactly where noticing is what
 fails.
 
-**TO VERIFY A DEPLOYED SURFACE, LOOK FOR WHAT THE NEW CODE MAKES IMPOSSIBLE.** Added 2026-09-08, and
+**TO VERIFY A DEPLOYED SURFACE, PREFER A ONE-GLANCE POSITIVE. FALL BACK TO IMPOSSIBILITY WHEN THE
+POSITIVE IS AMBIGUOUS.** **Narrowed 2026-09-09** — the owner's correction, and the original wording
+was too broad. **Checking for an absence is harder than it sounds:** it requires knowing every place
+the artifact could appear and being sure you looked at all of them, and _I don't see it_ is
+indistinguishable from _I haven't found it yet_. **A change that is obvious at a glance on the first
+screen — a heading that is visibly larger, a section that is simply gone — is a better test than a
+thorough hunt for something missing.**
+
+**Impossibility is the right instrument in one specific case: when the POSITIVE is a judgement.** Added 2026-09-08, and
 it is the mutation rule aimed at a running deployment. Confirming the new thing is PRESENT fails softly
 — "I cannot tell whether that is bronze" is evidence in neither direction, and an hour went to exactly
 that, across three wrong conclusions drawn from correct code. **Pick instead an artifact the new code
