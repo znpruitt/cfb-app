@@ -26,6 +26,7 @@
     "cleanup:legacy-aliases": "tsx scripts/cleanup-legacy-league-aliases.ts",
     "init:writer-control": "tsx scripts/init-game-stats-writer-control.ts",
     "transition:writer-control": "tsx scripts/transition-game-stats-writer-control.ts",
+    "recover:game-stats": "tsx scripts/recover-game-stats.ts",
     "manage:game-stats-schedule": "tsx scripts/manage-game-stats-schedule.ts",
     "manage:live-scores-schedule": "tsx scripts/manage-live-scores-schedule.ts",
     "manage:odds-schedule": "tsx scripts/manage-odds-schedule.ts",
