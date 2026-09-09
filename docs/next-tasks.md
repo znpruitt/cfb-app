@@ -5989,6 +5989,63 @@ against Matchups' status row while 143 v4 is rewriting it, which the exclusions 
 
 **Blocker:** none.
 
+### Item 182 — two unreachable empty branches on Overview
+
+**Reported from the 174-180 branch.** `FeaturedGamesList`'s `emptyMessage` ("No recent results yet.")
+became unreachable when Item 176 made the section hide, joining `WatchlistScoreboardList`'s, which
+already was — its section is gated on `.length > 0`.
+
+**Left in place deliberately.** Deleting is its own change with its own test surface and was not in the
+ruling; an unreachable BRANCH is also not an orphaned MODULE, so `AGENTS.md`'s no-consumer rule does
+not reach it.
+
+**The ask:** remove both, or record why an empty-state message is retained for a section that cannot
+render empty.
+
+**Blocker:** none. **Small**, but enumerate what each branch does besides print its message first.
+
+### Item 183 — a vacuous assertion on the Schedule streaming test
+
+**Found while cutting the prefix.** `GameWeekPanel.test.tsx:2020` asserts
+`doesNotMatch(html, /Streaming ·/)` **on a fixture carrying no media at all**, so it passed identically
+before and after Item 180 and could never have caught the prefix.
+
+**Its own subject is missing enrichment, so it is not wrong** — it is testing something else and the
+regex is decoration. **The real Schedule coverage is the new test beside it**, which supplies the
+positive control this one lacked.
+
+**The ask:** remove the decorative assertion, or give it a fixture that could fail.
+
+**Why file it rather than fix it in passing:** a passing assertion that cannot fail is the vacuous-test
+family this campaign has shipped four times, and removing one silently teaches nothing. **This is the
+cheapest possible instance to point at** — the fixture is two lines away from the thing it claims to
+check.
+
+**Blocker:** none. **Trivial.**
+
+### Item 184 — a failing assertion can present as a file-level timeout with no subtest output
+
+**Observed on the 174-180 branch, mechanism NOT established, and reported as an observation for that
+reason.** With four assertions failing mid-build in `OverviewPanel.test.tsx`, `npm run test:file`
+reported the **whole file cancelled after 30 seconds and named no test.** Skipping those four ran the
+file in under a second; retargeted, it passes in 465ms.
+
+**It reads as a hang and misattributes the cause** — the natural response is to look for an infinite
+loop or a slow render, not for an assertion. It cost the implementer real time.
+
+**A synthetic large-TSX reproduction did NOT reproduce it**, so there is no mechanism to state and none
+is claimed.
+
+**The ask:** reproduce it deliberately, or record that it could not be reproduced and what was tried.
+
+**Why it matters beyond the annoyance:** the harness is the instrument every gate reads. **An
+instrument that reports "cancelled, no test named" for "your assertion failed" will send the next
+person looking in the wrong place**, and this session has already spent an hour on a diagnosis that
+pointed away from its cause.
+
+**Blocker:** none. **Investigation, not a fix** — it may end in a recorded non-reproduction, which is a
+complete answer.
+
 ## Hosted deployment runbook
 
 Use `docs/deployment-runbook.md` for hosted environment setup, activation, production observations,
