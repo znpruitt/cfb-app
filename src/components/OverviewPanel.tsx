@@ -892,6 +892,7 @@ function FeaturedGamesList({
         const game = item.bucket.game;
         const score = item.score;
         const gameBadge = deriveFeaturedGameBadge(game);
+        const highlightTags = prioritized.highlightTags;
         const awayTeamId = getGameParticipantTeamId(game, 'away') ?? game.canAway;
         const homeTeamId = getGameParticipantTeamId(game, 'home') ?? game.canHome;
         const awayRanking = getTeamRanking(rankingsByTeamId, awayTeamId);
@@ -908,14 +909,30 @@ function FeaturedGamesList({
             // and Featured was the holdout — the rule is repo-wide, but Matchups and
             // Schedule still print a kickoff on final rows and are not changed here.
             matchupLabel={formatGameMatchupLabel(game)}
-            contextSlot={
-              gameBadge ? (
-                <span
-                  className={`inline-flex rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${gameBadge.classes}`}
-                  data-featured-game-badge
-                >
-                  {gameBadge.label}
-                </span>
+            tagSlot={
+              gameBadge || highlightTags.length > 0 ? (
+                <>
+                  {/* The status-row slot applies `leading-none`; `leading-normal`
+                      preserves the badge's former inherited 1.5 line-height so this
+                      move changes its position without changing its rendered metrics. */}
+                  {gameBadge ? (
+                    <span
+                      className={`inline-flex rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-normal uppercase tracking-wide ${gameBadge.classes}`}
+                      data-featured-game-badge
+                    >
+                      {gameBadge.label}
+                    </span>
+                  ) : null}
+                  {highlightTags.map((tag) => (
+                    <span
+                      key={tag.id}
+                      className={`inline-flex ${EYEBROW_TAG_CLASSES}`}
+                      data-eyebrow-tag
+                    >
+                      {tag.text}
+                    </span>
+                  ))}
+                </>
               ) : undefined
             }
             away={{

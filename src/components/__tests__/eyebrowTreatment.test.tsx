@@ -13,6 +13,7 @@
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import test from 'node:test';
+import { JSDOM } from 'jsdom';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
@@ -281,14 +282,18 @@ test('every eyebrow across Overview, Schedule and Matchups renders one identical
  */
 test('the watchlist reason label renders the same treatment as a tag beside it', () => {
   const overview = renderOverview();
+  const watchlist = new JSDOM(overview).window.document.querySelector(
+    '[data-watchlist-scoreboard-grid]'
+  )?.outerHTML;
+  assert.ok(watchlist, 'the Overview fixture must render its watchlist grid');
 
-  const reasonLabel = overview.match(
+  const reasonLabel = watchlist.match(
     /<span(?=[^>]*\sdata-watchlist-reason-label)[^>]*\sclass="([^"]*)"[^>]*>/
   )?.[1];
-  const tags = eyebrowTags(overview);
+  const tags = eyebrowTags(watchlist);
 
   assert.ok(reasonLabel, 'the watchlist reason label must render');
-  assert.ok(tags.length > 0, 'the Overview fixture must render at least one eyebrow tag');
+  assert.ok(tags.length > 0, 'the watchlist fixture must render at least one eyebrow tag');
 
   // Compared to each other, not to a constant: this is the assertion that catches
   // a fifth spelling of bronze.

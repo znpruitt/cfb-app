@@ -948,7 +948,7 @@ test('overview Live section treats STATUS_LIVE as a generic state label', () => 
   assert.doesNotMatch(html, /STATUS_LIVE/);
 });
 
-test('overview Featured renders a home-won final through the neutral compact scoreboard', () => {
+test('overview Featured renders its badge and existing tag in the final status row', () => {
   const neutralGame = game({
     csvAway: 'Texas',
     csvHome: 'Ohio State',
@@ -994,7 +994,7 @@ test('overview Featured renders a home-won final through the neutral compact sco
   )?.[0];
   assert.ok(finalScoreboard, 'Featured final must render through CompactGameScoreboard');
   assert.match(finalScoreboard, /aria-label="Texas vs Ohio State"/);
-  assert.match(finalScoreboard, /data-scoreboard-context-slot/);
+  assert.doesNotMatch(finalScoreboard, /data-scoreboard-context-slot/);
   assert.match(finalScoreboard, /CFP Quarterfinal/);
   // Owner decision 2026-09-04, section-ordering resolutions §3: a final row carries no
   // date and no time — for a completed game the result is the information.
@@ -1005,11 +1005,15 @@ test('overview Featured renders a home-won final through the neutral compact sco
   const finalHeader = finalScoreboard.match(/<div[^>]*data-scoreboard-header[\s\S]*?<\/div>/)?.[0];
   assert.ok(finalHeader, 'the final row must still render a status header');
   assert.match(finalHeader, />Final</, 'positive control: the header carries the Final status');
-  assert.equal(
-    (finalHeader.match(/<span/g) ?? []).length,
-    1,
-    'the header holds the Final status span and nothing else — no kickoff, no clock'
-  );
+  const finalTagSlot = finalHeader.match(
+    /<span[^>]*data-scoreboard-tag-slot[^>]*>[\s\S]*<\/span>/
+  )?.[0];
+  assert.ok(finalTagSlot, 'Featured badge and tags must use the status-row tag seam');
+  assert.match(finalTagSlot, /data-featured-game-badge[^>]*>[\s\S]*CFP Quarterfinal/);
+  assert.match(finalTagSlot, /data-eyebrow-tag[^>]*>[\s\S]*Close/);
+  assert.match(finalTagSlot, /data-featured-game-badge[\s\S]*data-eyebrow-tag/);
+  assert.match(finalTagSlot, /leading-normal/);
+  assert.doesNotMatch(finalHeader, /Dec 19|7:00 PM/);
   assert.match(
     finalScoreboard,
     /data-scoreboard-side="away" data-scoreboard-leading="false"[\s\S]*data-scoreboard-team="away">Texas<\/span>[\s\S]*data-scoreboard-value="away">21<\//
@@ -2471,12 +2475,7 @@ test('overview panel suppresses redundant movement chips in completed-season pod
   assert.doesNotMatch(html, /\(\+\d+ wins\)|Biggest drop:/);
 });
 
-// RENAMED (PLATFORM-157-162-163). The old name claimed this test preferred
-// `Top 25 Matchup` and `Contender Watch` chips over lower categories; its body
-// asserted neither, and could not — the fixture is a FINAL, which routes to
-// Featured, and `FeaturedGamesList` renders no highlight tags at all. Renamed to
-// what it proves, and given assertions that discriminate it.
-test('a completed ranked game renders in Featured with inline ranks and no category chip', () => {
+test('a ranked close final renders its two selector-owned tags in Featured', () => {
   const rankedCloseTopGame = itemWithScore(
     game({
       key: 'badge-priority',
@@ -2561,16 +2560,22 @@ test('a completed ranked game renders in Featured with inline ranks and no categ
     />
   );
 
-  // After the redesign, a completed ranked game renders in the Featured games
-  // section with both teams' rankings inlined on their names (#6 Ohio State,
-  // #11 Oregon). Watchlist category chips are not emitted for a final result,
-  // so no spurious "Close" chip appears.
+  // The selector already emits these tags in priority order. This assertion pins
+  // the Featured wiring: removing `tagSlot` or its map makes this named test fail.
   assert.match(html, /#6/);
   assert.match(html, /#11/);
   assert.match(html, /Ohio State/);
   assert.match(html, /Oregon/);
-  assert.doesNotMatch(html, />Close</);
-  assert.doesNotMatch(html, />Top 25 Matchup</);
+  const featuredScoreboard = html.match(
+    /<article(?=[^>]*data-scoreboard-state="final")[\s\S]*?<\/article>/
+  )?.[0];
+  assert.ok(featuredScoreboard, 'the ranked final must render in Featured');
+  const tagSlot = featuredScoreboard.match(
+    /<span[^>]*data-scoreboard-tag-slot[^>]*>[\s\S]*<\/span>/
+  )?.[0];
+  assert.ok(tagSlot, 'the existing Featured tags must reach the status-row seam');
+  assert.equal((tagSlot.match(/data-eyebrow-tag/g) ?? []).length, 2);
+  assert.match(tagSlot, />Top 25 Matchup<\/[\s\S]*>Close<\//);
   assert.doesNotMatch(html, />Contender Watch</);
 });
 
