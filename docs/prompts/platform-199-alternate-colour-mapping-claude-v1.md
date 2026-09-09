@@ -88,10 +88,25 @@ provider shape is wrong.
 **Do NOT change `teamColors.ts`.** The primary → alt → fallback chain is correct and this slice is the
 input it was always waiting for.
 
-**Do NOT decide when a team should fall back to its alternate.** That is **Item 198**, and it has real
-design content — an alternate is more VISIBLE, not automatically more CORRECT. **Army rendering gold
-instead of black is a different claim about the team than Army rendering nothing.** This slice makes
-the colour available; 198 rules on the rule.
+**THIS SLICE DOES CHANGE WHAT RENDERS — corrected 2026-09-09, and the earlier wording here was wrong.**
+It said this item only makes the colour available and leaves the rule to Item 198. **The rule already
+exists in code and fires the moment an alternate is present.** `resolveTeamColorCandidate` rejects a
+primary whose raw luminance is below **0.015** — outright, before any lift is attempted — and the chain
+then takes the alternate.
+
+**Exactly 13 of 138 teams sit below that floor**, and every one renders no bar today: Akron, App State,
+Army, California, Cincinnati, Florida International, Georgia Southern, Iowa, Nevada, Penn State, UCF,
+UConn, Vanderbilt.
+
+**All 13 gain a bar from this slice, in their ALTERNATE colour. For 7 of them that is the wrong
+colour.** Their primaries are dark navies that OKLCH lifts to 3:1 composited with ~0.1° of hue drift —
+**Penn State is navy, not its alternate.** Only the six pure blacks have nothing to lift and genuinely
+want the alternate.
+
+**So report the 13 and what each would render, and STOP before merging.** Whether seven teams should
+show alternates for however long piece 2 takes is the owner's call, not a consequence to discover on
+preview. **The `< 0.015` floor is an HSL-era guard that rejects colours OKLCH handles** — lowering it
+belongs to piece 2, not here.
 
 **Do NOT run the refresh against production without saying so first.** If the refresh is an operator
 action rather than a test fixture, **report what it would do and stop** — the same shape as Item 110A.

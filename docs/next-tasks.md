@@ -176,6 +176,20 @@ each other.**
 | 3 | **20** | bounded database waits |
 | 4 | **47** | admin authorization for the Insights diagnostic bypass |
 
+> **199 AND PIECE 2 INTERACT — found 2026-09-09 by the owner asking whether 199 changes the Item 119
+> picture. It does, and my 199 prompt said it did not.** `resolveTeamColorCandidate` rejects a primary
+> below **0.015 raw luminance** outright and takes the alternate. **13 of 138 teams sit below that floor
+> and render no bar today** — the same 13 the Item 119 lane reported. **199 gives all 13 a bar in their
+> ALTERNATE, and for 7 that is the wrong colour**: their primaries are dark navies OKLCH lifts with
+> ~0.1° of hue drift. Only the 6 pure blacks genuinely want the alternate.
+>
+> **Neither item alone is right.** 199 alone dresses seven teams in the wrong colour; piece 2 alone
+> leaves six with no bar. **The right end state needs both, plus lowering the 0.015 floor** — an
+> HSL-era guard that rejects colours OKLCH handles.
+>
+> **The 199 prompt now requires the 13 be reported and the merge held**, so whether seven teams show
+> alternates for however long piece 2 takes is a decision rather than something discovered on preview.
+
 **199 IS NEXT — owner decision 2026-09-09, ahead of the remaining audit items.** It is a one-word
 mapping fix with a confirmed diagnosis and a measured payoff, and **it unblocks a UI item that is live
 on preview right now**: Item 119's bars are missing on California and Nevada, and the alternate colour
