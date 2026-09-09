@@ -139,13 +139,16 @@ Rules:
   raw-only ones (`mergeRawEvidence` replaces an existing category only when
   `parseCategoryValue(...).status === 'valid'`, and `tackles`/`sacks`/`qbHurries`/`yardsPerPass`/
   `completionAttempts` are all `unknown-category`), so replaying the same capture now returns
-  `unchanged`; **Item 194** — `provider-refresh-status` for this partition still claims the
+  `unchanged`. **No reader is affected** — `RECOGNIZED_GAME_STAT_CATEGORIES`, the list
+  `publicProjection.ts` loops over to build the exposed raw record, derives from the same specs as
+  the parsers, so those categories are stored and never projected. Storage hygiene, not wrong data
+  reaching anyone; it belongs to 110B. Acceptance for 110A is met; **Item 194** — `provider-refresh-status` for this partition still claims the
   2026-09-08 cron's 203-row success and is false until a cron success overwrites it; **Item 192** —
   `.env.operator.local` carries a production read-write credential that this repo's own tooling
   loads on startup in every worktree.
 - Status: Implemented on `claude/110a-game-stat-recovery` (`03cf0d90`, `b04ce2b9` + this closeout);
-  reviews resolved, production apply authorized and performed by the owner, merge pending at time of
-  writing.
+  reviews resolved, production apply authorized and performed by the owner, merged to `main`.
+  Promotion stays with the owner.
 
 ### PLATFORM-174-175-176-178-180-OVERVIEW-CONFORMANCE-CLAUDE-v3
 

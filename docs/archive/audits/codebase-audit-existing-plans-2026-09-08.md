@@ -285,41 +285,29 @@ adjudication.
 The separate final-score sweep repairs missing usable finals but reports differences against existing
 finals without replacing them. No final-score difference was observed in this comparison.
 
-> **RECOVERY RAN — 2026-09-09.** Item 110A
-> (`PLATFORM-110A-GAME-STAT-RECOVERY-CLAUDE-v1`) re-observed the five named provider IDs through a
-> bounded path over the existing ingestion authority. A capture at `2026-09-09T05:43:43.425Z`
-> confirmed **all five still differed**; the owner applied it at `2026-09-09T05:57:02.928Z` —
-> `written-clean`, five rows updated, 202 retained untouched, new fence
-> `2026-09-09T05:43:43.425Z`.
+> **Two consequences of the recovery, recorded here because a C3 reader will look for them.**
 >
-> **Three corrections to the measurements above, established while building the recovery:**
+> **The repair is partial, and permanently so on this path — Item 193.** `mergeRawEvidence`
+> (`durableMerge.ts`) replaces an EXISTING raw category only when
+> `parseCategoryValue(...).status === 'valid'`, and `tackles`, `sacks`, `qbHurries`,
+> `tacklesForLoss`, `passesDeflected`, `totalFumbles`, `yardsPerPass`, `yardsPerRushAttempt` and
+> `completionAttempts` all return `unknown-category`. So the five rows now carry corrected modelled
+> statistics beside stale raw-only ones — `401858212` holds `totalYards: 324` next to
+> `tackles: "0"`. **Replaying the same capture cannot fix it:** the fence now matches and the merge
+> returns `unchanged`. **No reader is affected** — `RECOGNIZED_GAME_STAT_CATEGORIES`, which
+> `publicProjection.ts` loops over to build the exposed raw record, derives from the same specs as
+> the parsers, so these categories are stored and never projected. Storage hygiene, not wrong data
+> reaching anyone; it belongs to Item 110B, which should decide whether unparsed evidence is worth
+> carrying at all.
 >
-> 1. **These records were not left stale since kickoff.** `provider-refresh-status` shows a
->    successful game-stats commit of **203 rows** at `2026-09-08T04:45:12.739Z` — the stored values
->    this section compared were written by an app refresh that same day, and CFBD revised the five
->    again afterwards. That is a different finding from the one recorded above, and it strengthens
->    110B's case rather than weakening it: the partition WAS visited, and satisfaction still left it
->    wrong.
-> 2. **"Outside ordinary polling eligibility at measurement time" does not hold for `401858212`.**
->    SMU at Florida State kicked off `2026-09-07T23:30Z`; its stored fence was kickoff **+5h15m**,
->    inside the `[3h, 24h)` window. Its window closed `2026-09-08T23:30Z`. Relatedly, `401868170`
->    was **20h past its own window** when that same run wrote its row — the cron fetches and merges
->    a whole PARTITION once any single game in it is eligible, so per-game eligibility never gated
->    the write.
-> 3. **The partition holds 207 games, not the 203 compared.** Four rows carry older fences and were
->    absent from the 09-08 response — `401868288`, `401891332`, `401913104`
->    (`2026-08-30T06:00:14.291Z`) and `401868284` (`2026-09-06T12:45:00.807Z`). Prior-good retention
->    working as specified; recorded so the before/after row counts are not misread as a discrepancy.
+> **The measured before/after understated what the write changed.** The approved table compared
+> NORMALIZED fields and listed 26 deltas; the merge also rewrote roughly thirty raw-only categories
+> it did not show, including Florida State `tackles 0 → 33`. Every delta it listed was backed by a
+> present raw category — checked, not assumed — so nothing in it was false, but a production data
+> change was approved against a table that understated the diff. The tool now compares raw category
+> dictionaries, which is the unit the merge operates on.
 >
-> **The recovery is partial, and permanently so on this path (Item 193).** `mergeRawEvidence`
-> replaces an existing raw category only when `parseCategoryValue(...).status === 'valid'`, and
-> `tackles`, `sacks`, `qbHurries`, `tacklesForLoss`, `passesDeflected`, `totalFumbles`,
-> `yardsPerPass`, `yardsPerRushAttempt` and `completionAttempts` are all `unknown-category`. So the
-> five rows now carry corrected modelled statistics beside stale raw-only ones — `401858212` holds
-> `totalYards: 324` next to `tackles: "0"` and `completionAttempts: "12-23"`. Replaying the capture
-> cannot fix it: the fence now matches and the merge returns `unchanged`.
->
-> **`provider-refresh-status` for this partition is false as of this note (Item 194)** — it still
+> **`provider-refresh-status` for this partition is false as of this note — Item 194.** It still
 > reports the 2026-09-08 cron's 203-row success, because the applied script recorded no scoped
 > status. It stays wrong until a cron success overwrites it.
 
