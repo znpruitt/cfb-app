@@ -6404,9 +6404,61 @@ prevent.
 **Related: Item 110A**, whose production apply is gated on owner approval precisely because the
 mechanism is available without it.
 
+**ESCALATED 2026-09-09.** During 110A's review the lane could not rule out that one of its own review
+agents had written to production — the write turned out to be the owner's own authorized apply, but
+**the investigation was reasonable precisely because nothing made it impossible.** A review agent is
+forked from the lane's context, inherits the worktree, and this repo's own tooling loads
+`.env.operator.local` on startup. **A process nobody dispatched can therefore reach the production
+primary by running an ordinary `npm run` script.** That is the exposure, independent of whether it has
+ever fired.
+
 **Blocker:** none. **Small**, once the consumers are enumerated.
 
-## Hosted deployment runbook
+### Item 193 — the merge repairs modelled categories and never raw-only ones
+
+**Found 2026-09-09 by the Item 110A lane, after the recovery applied. Verified against the replica.**
+
+`mergeRawEvidence` overwrites a raw category only when `parseCategoryValue(...).status === 'valid'`.
+Categories with no strict parser — `tackles`, `sacks`, `qbHurries`, `completionAttempts`,
+`tacklesForLoss`, `passesDeflected`, `totalFumbles`, `yardsPerPass`, `yardsPerRushAttempt` — return
+`unknown-category` and are **preserved at their old values**.
+
+**Production now holds half-repaired rows.** `401858212` reads modelled `totalYards: 324` (corrected)
+beside raw `tackles: "0"`, `sacks: "0"`, `completionAttempts: "12-23"` (stale). Both verified.
+
+**Re-applying the same capture cannot fix it.** The stored fence now equals the capture's, so the merge
+returns `unchanged`. **A second observation at a newer fence would be needed, and it would repair only
+the modelled half again.**
+
+**The ask:** decide whether raw-only categories should be repairable, and if so how a merge distinguishes
+"no parser" from "no data".
+
+**This is Item 110B's problem, not a patch on 110A.** A recovery tool that reached past the merge
+authority to write raw fields directly would be exactly the bypass the writer fence exists to prevent.
+
+**Blocker:** none. Belongs with **110B**.
+
+### Item 194 — `provider-refresh-status` is false after an out-of-band partition write
+
+**Found 2026-09-09, verified.** `game-stats:week:2026:1:regular` reads
+`lastSuccessAt: 2026-09-08T04:45:12.739Z`, `rowsCommitted: 203`, `outcome: succeeded`. **The partition
+changed on 2026-09-09** — five rows, new fence. The status record describes a state that no longer
+exists.
+
+**Cause: the recovery script recorded no status.** The route and the cron both do; the pre-remediation
+script did not. **The remediation on `b04ce2b9` adds scoped recording**, so the next such write is
+honest — but **the currently stored record is stale and nothing will correct it** until the next cron
+success overwrites it.
+
+**Two asks, and they are different.** Correct the stored record now, or accept it will self-correct on
+the next successful game-stats refresh. **And decide whether any writer to a partition must record
+status** — the invariant that would have prevented it, rather than the instance.
+
+**Why it matters beyond tidiness:** System Health and the provider-data panel read this record. **A
+false `lastSuccessAt` is exactly the signal an operator uses to decide whether a partition is current**,
+and it currently says the partition is a day older than it is.
+
+**Blocker:** none. **Small**, but the invariant question is the useful half.
 
 Use `docs/deployment-runbook.md` for hosted environment setup, activation, production observations,
 and operator checkpoints. Operational observations are not implementation queue items unless they
