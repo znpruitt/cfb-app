@@ -3045,6 +3045,31 @@ only if Item 87 slice 4's record join reaches historical seasons.
 > 2 and month 7.6. **It is insurance, and its own run records must be able to retire it within a
 > season.** Build it so they can.
 >
+> **TWO DESIGN RULINGS, 2026-09-09, both raised by the lane at review rather than decided silently.**
+>
+> **1. Reconciliation REQUIRES the partition to be satisfied. Gate it.** The prompt's scope said so —
+> _"it revisits SATISFIED partitions; ordinary polling already covers the rest"_ — and the lane
+> correctly reported that it had widened this during design without saying so. **The safety-net
+> argument is the one to reject:** a reconciliation that quietly fills a partition the poller never
+> collected **masks the collection gap instead of surfacing it**, which is the exact failure this
+> entire audit was spent on. A never-collected partition is a HEALTH problem — Item 132's scope — and
+> making reconciliation paper over it would remove the only evidence anyone would ever see.
+>
+> **2. Reconciliation DOES record `provider-refresh-status`, under a scope kind `game-stats` does not
+> own.** Neither of the two options offered is right. Not recording loses the failure entirely — the
+> ledger holds it but nothing reads the ledger — and teaching the health reader to ignore old-week
+> reconciliation attempts adds a special case to a reader that already has the general mechanism.
+>
+> **`DATASET_ACTIVITY_SCOPE_KINDS` (`providerRefreshHealth.ts:285-301`) already gates activity
+> eligibility by scope KIND**, and its docblock states the purpose in these words: _a structurally-valid
+> but MISROUTED record must not become that dataset's latest activity_. `game-stats` owns
+> `year`, `season-partition` and `week-partition`. **A reconciliation writing under a new kind is
+> recorded, readable, and ineligible as latest activity BY CONSTRUCTION** — Root 3 cannot fire, Item
+> 194's every-writer-records-status direction is preserved, and the health reader learns nothing new.
+>
+> **It costs a scope kind and its parser. Pay it** — the alternative is either a blind spot or a
+> special case, and this codebase already chose this mechanism for this exact problem.
+>
 > **A full-history sweep is independently impossible, not merely expensive — see Item 196.** 96 of 97
 > partitions are legacy rows that `computeWeeklyGameStatsMerge` classifies `updated` unconditionally,
 > so a sweep would report every game as changed while changing nothing.
