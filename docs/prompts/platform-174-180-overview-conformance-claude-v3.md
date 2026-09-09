@@ -1,4 +1,4 @@
-PROMPT_ID: PLATFORM-174-175-176-178-180-OVERVIEW-CONFORMANCE-CLAUDE-v2
+PROMPT_ID: PLATFORM-174-175-176-178-180-OVERVIEW-CONFORMANCE-CLAUDE-v3
 PURPOSE: Items 174, 175, 176, 178 and 180 — four Overview divergences the audit found and the owner has already ruled on. Every decision is made; none of them is yours to re-litigate.
 SCOPE: `src/components/OverviewPanel.tsx`, `src/lib/gameUi.ts`, `src/lib/gameCardPresentation.ts`, `DESIGN.md`, and tests for each. **NOT `CompactGameScoreboard.tsx` — Item 143 has it open in the other lane.** NOT tag selection or precedence.
 CARRIES: `item-87-INDEX.md` CARRY rows 7 and 8, verbatim in the task block.
@@ -96,6 +96,67 @@ retired only when the RULE is wrong, never because the code disagrees.**
 
 **Scope it to those four headers.** `SectionHeader` may serve others — check before changing it
 globally.
+
+## RULINGS ON YOUR RECEIPT — five, and none of them changes the five items
+
+**Every claim reproduces**, including both contrast figures (8.63:1 and 11.35:1 against `#0a0a0a`),
+which you recomputed rather than citing from the comment you are deleting. That is the right instinct
+and it is now the third figure this campaign has had to re-derive.
+
+### RULING 1 — `SectionHeader` opt-in. Your approach, adopted as reasoned.
+
+You found the fifth caller — **GB Race**, a standings section `DESIGN.md:392-393` explicitly excludes.
+**Opt-in is correct and your reason is the right one:** a sixth section added later inherits the
+DEFAULT rather than the exception, which is the direction _"not a new default elsewhere"_ asks for.
+Opt-out would invert it and require every future caller to remember to decline.
+
+**Assert the four non-`SectionHeader` 15px headers stay at 15px**, as you proposed — "no other header
+changes" is half the contract and those are where it would break silently.
+
+### RULING 2 — leave both empty branches. Report them; planning files.
+
+`FeaturedGamesList`'s `emptyMessage` becomes unreachable under 176, joining
+`WatchlistScoreboardList`'s. **Leave both.** Deleting is its own change with its own test surface and
+is not in the ruling — and an unreachable BRANCH is not the same thing as an orphaned MODULE, so
+`AGENTS.md`'s no-consumer rule does not reach it. **Report the pair; I will file it.**
+
+### RULING 3 — retain `EYEBROW_REASON_CLASSES` and name Item 113. Your proposal, approved.
+
+You are right that the prompt was wrong: **the Featured plain-text row is not on the page.** It is
+Item 113's unbuilt work, and the constant has exactly one production consumer — the label this slice
+converts. So it is orphaned by this slice.
+
+**`AGENTS.md` binds directly:** _a module left with no production consumer must say why in the code…
+Name the item that will consume it_, with `teamColors.ts` as the precedent. **Delete the mis-citation
+as instructed, retain the constant, and write one line naming Item 113.** That is not a repointing —
+it makes no claim about the Featured exemption, only about who is waiting on the token.
+
+### RULING 4 — the `showsBroadcast` negation is Codex's, not yours. Correctly reported.
+
+`CompactGameScoreboard.tsx:111` — `state !== 'final' && Boolean(broadcastLabel)` — is a state rule
+defined by negation, in the file Item 143 v4 holds. **Your approach neither adds to it nor depends on
+it**, because the `final` caller passes nothing, so the negation is never what suppresses the label.
+**Carried to the Codex lane; do not touch it.**
+
+### RULING 5 — Item 180's condition is DISCHARGED. Apply the cut.
+
+Your enumeration answers the owner's condition properly: **10 distinct reachable `web` outlets, every
+one reading as a streaming service without its prefix**, with `ACC Extra` being the worked example in
+the contract itself. **The cut is approved.**
+
+**Two things in that measurement worth keeping**, and both are why it is trustworthy: you reported that
+your own normalizer manufactured the `ESPN+`/`ESPN` near-collision rather than leading with a
+collision count; and you noted that `Radio ·` renders on **zero** games today because both radio rows
+sit on games that also carry TV, which outranks it — **which is the right reason to keep the branch: it
+is a guard, not a live label.**
+
+### Two corrections to the prompt, both mine
+
+- **The mockup cannot back Item 174.** You are right — zero of its live cards carry a network. The
+  authority is `DESIGN.md:201` and §11. **Do not let the closeout claim otherwise.**
+- **The mockup's two defects are repaired on `main`** (`5c1c3d11`). The dangling `body[data-c="2"]`
+  selector was the orphaned remnant of a rule for the retired `.sb-title` — traced through history
+  rather than guessed — so the fix was deleting it, not restoring a rule. **Pull before you start.**
 
 ## STOP — post a READ RECEIPT before writing any code
 
