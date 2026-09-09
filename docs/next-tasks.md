@@ -7014,8 +7014,45 @@ the path the resync click takes. And doing it properly means a typed reader over
 field, or reject the file — which is a policy question with its own blast radius across the 17 catalog
 readers 204 enumerated.
 
-**The ask:** validate the durable catalog on read, and rule on field-level failure policy.
-**Blocker:** Item 204, whose receipt is the reader enumeration this needs.
+**SCOPE GREW 2026-09-09, and Item 204 is what grew it.** `readSourceCatalogFallback`
+(`teamDatabaseStore.ts:88-104`) collapses three distinct states into one `[]`: a transient FS read
+failure, a genuinely absent file, and a corrupt one. **That conflation was survivable while an empty
+catalog merely degraded standings. Item 204's guard makes it fatal** — `leagueStandings` now throws on
+`teams.length === 0`, so a transient read error on the seed file takes standings down rather than
+degrading it.
+
+**That is the correct trade and it is not a regression.** `/code-review` argued for the old behaviour on
+the grounds that it preserved degraded-but-usable standings; degraded standings from an empty identity
+catalog are the wrong-output-cached harm Item 204 exists to stop, and PLATFORM-084A settles it — cache
+valid absence, never cache uncertainty. **The Item 204 lane checked reachability rather than accepting
+the finding: `teams.json` is statically imported in 8 places and read via `process.cwd()` by
+`/api/scores` and `/api/odds`, both working in production**, so the cwd read is sound and the trigger is
+a transient error, not a systematic one.
+
+**Why it lands here and not in 204:** rethrowing from that catch changes behaviour for every catalog
+reader, which is wider than a guard slice should take unreviewed.
+
+**The ask:** validate the durable catalog on read, rule on field-level failure policy, and separate
+absence from failure in the seed fallback. **Blocker:** Item 204, whose receipt is the reader
+enumeration this needs.
+
+### Item 206 — a refused catalog sync leaves no durable record
+
+**Filed 2026-09-09 from the Item 204 review.** Item 204 makes the admin team-database sync refuse a bad
+CFBD body instead of committing it. **The refusal is visible only as a transient red span in the admin
+panel.** Reload the page and it is gone.
+
+**The schedule precedent does more.** That path calls `recordProviderRefreshFailure`, so a refusal
+enters `providerRefreshStatus` and becomes visible to System Health and to any later audit. **This route
+has no `providerRefreshStatus` integration at all** — not on refusal, and not on success either.
+
+**Why it matters beyond tidiness:** the catalog is the identity authority for 17 readers. A sync that
+has been quietly refusing for a week looks identical to one nobody has run, and the operator surface
+that would say otherwise is a span that disappeared on the first reload.
+
+**The ask:** record catalog sync attempts and refusals under a scope the Provider data panel reads.
+**Blocker:** Item 204. **Pre-existing** — this is not a gap 204 introduced, only one it makes worth
+closing.
 
 **Do this as its own slice with its own review.** A reformat that silently alters a binding rule is
 worse than the unreadable version, and a diff this large hides a one-word change perfectly. **The
