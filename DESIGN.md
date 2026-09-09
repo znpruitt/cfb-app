@@ -336,7 +336,16 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   built on was for a different row** — the Featured tile's reason row, a card title on its own line,
   where a border reads as chrome on a tile that already has some — and that row is unbuilt (Item 113).
   **A marker inline beside a pill is functioning as a tag and takes the tag's treatment**; a card
-  title on its own line is the only plain-text bronze the design calls for
+  title on its own line is the only plain-text bronze the design calls for.
+  **KNOWN GAP, recorded rather than fixed here, because the fix is in tag selection and this slice was
+  scoped out of it:** the two-chip cap in the bullet above is applied by the selector over the CATEGORY
+  chips (`TOP_BADGE_LIMIT` in `deriveGameHighlightTags`), and the editorial designation is not counted
+  by it. Unifying the treatment therefore brought a third chip under a cap that still counts two, so a
+  watchlist row can render `Game of the Week` + `Top 25 Matchup` + `Close` — verified by render, not
+  argued. It is reachable today only through the `Close`-on-a-scheduled-game defect (Item 169), which
+  is the same row's other violation of the "Close applies to live and final games only" rule above.
+  Stated here so this file does not assert a cap the code does not enforce over every marker it now
+  calls a chip — the failure mode Item 165 was ruled on
 - Chips use **bronze** — pill text `#dbc190`, pill border `#c9a66b` at 40% opacity, hairline `0.5px`. Blue remains interactivity-only, amber remains champion/podium. **Amended 2026-09-08**, recorded as an amendment: "neutral slate" was the default fill chosen before the campaign ranked bronze above sky, neutral and fuchsia. Both reservations in this line are unaffected, because bronze is neither. Applied by PLATFORM-153 across Overview, Schedule and Matchups.
 - **Bronze and champion amber are held apart by the CALENDAR, not by contrast.** Champion treatment does not render until a title is awarded — podium cards for #1–#3 are neutral all season — so the two are never on screen together until season end. **Measured: pill text `#dbc190` against champion `#BA7517` is 2.13:1**, essentially no luminance separation, distinguished by hue and saturation alone. **The condition that makes this live is a champion or podium treatment rendering beside a chip.** If it ever must survive a viewer with reduced colour discrimination, **the instrument is a luminance step, not a different hue** — the reservation binds a token to a purpose, not a hue neighbourhood. Reasoning: `item-87-followon-matchups-schedule-design.md` → _Eyebrow tags_.
 - The amber `upset` card border is **retired, deliberately** — the bronze chip carries that emphasis forward. It was exempted from the Item 87 transition as "emphasis, out of scope for every slice" and the transition then deleted the card chrome it lived on, so without this line the exemption would have lapsed by side effect rather than by choice. **State the cost plainly: a chip is quieter than a border around a card.** A border catches the eye across sixty rows and an eyebrow does not; if upsets must stay prominent, the instrument is a hue assigned in `INSIGHTS-017-PALETTE`, not a shape difference. Retired by PLATFORM-087 slice 5, recorded by PLATFORM-153.

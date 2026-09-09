@@ -700,13 +700,22 @@ function GameCardList({
         // scheduled, live and awaiting rows, but not finals — a completed game's
         // carrier is dead information (`item-87-reference-game-row.md` §1).
         //
-        // ENUMERATED at the call site, per state, rather than suppressed inside the
-        // shared scoreboard. This list serves Live and Recent finals from one
-        // component, so the rule that differs between them is the CALLER's: the
-        // `final` branch supplies no label and a final row therefore renders none
-        // because this surface does not pass the slot (§11), not because a shared
-        // component negates a state. `state === 'live'` is the branch that resolves
-        // to `live` OR `awaiting`, which is exactly the pair the rule names.
+        // ENUMERATED at the call site, per state. This list serves Live and Recent
+        // finals from one component, so the rule that differs between them is the
+        // CALLER's: the `final` branch supplies no label, and `state === 'live'` is
+        // the branch resolving to `live` OR `awaiting` — exactly the pair the rule
+        // names, rather than "not final".
+        //
+        // BE PRECISE ABOUT WHAT THIS GATE BUYS, because an earlier version of this
+        // comment overstated it and review caught it. `CompactGameScoreboard` ALSO
+        // suppresses broadcast on finals (`state !== 'final'`, its own line), so
+        // deleting this gate changes NO rendered output today and the two callers
+        // are indistinguishable at the DOM. What the gate buys is that Overview
+        // satisfies `DESIGN.md` → *List row width discipline* (enumerate per state,
+        // never define by negation) at the layer this surface owns, and does not
+        // depend on a negation living in a file Item 143 is currently changing. A
+        // structural pin in `OverviewPanel.test.tsx` is what fails if it is
+        // simplified away, since no behavioural test can see the difference.
         const broadcast = state === 'live' ? formatPrimaryBroadcastLabel(game.media) : undefined;
 
         return (

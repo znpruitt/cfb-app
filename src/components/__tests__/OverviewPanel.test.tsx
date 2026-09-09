@@ -865,17 +865,26 @@ test('overview renders broadcast on live and awaiting rows and never on a final'
  *
  * RETIRE THIS when the shared component stops deciding broadcast by state — at
  * that point the behavioural test above becomes discriminating on its own.
+ *
+ * The window bounds are asserted rather than assumed: a source scan that reads the
+ * wrong region reports an absence about code it never looked at.
  */
 test('GameCardList enumerates the states that carry a broadcast rather than passing it always', () => {
   const source = readFileSync(new URL('../OverviewPanel.tsx', import.meta.url), 'utf8');
 
-  const gameCardList = source.slice(
-    source.indexOf('function GameCardList('),
-    source.indexOf('function WatchlistScoreboardList(')
-  );
-  // Positive control: the slice really is `GameCardList`, so an absence below is a
-  // fact about the code rather than about a rename that emptied the window.
-  assert.ok(gameCardList.length > 0, 'the GameCardList source window must be found');
+  const start = source.indexOf('function GameCardList(');
+  const end = source.indexOf('function WatchlistScoreboardList(');
+
+  // BOTH BOUNDS ARE ASSERTED, and `length > 0` alone was not enough — review found
+  // the hole. A renamed `WatchlistScoreboardList` makes `indexOf` return -1, and
+  // `slice(start, -1)` silently WIDENS the window to the rest of the file rather
+  // than failing; a reordered one makes `end < start` and empties it. Only the
+  // second is caught by a length check, so the window's own integrity is asserted
+  // before anything is read from it.
+  assert.ok(start >= 0, 'the GameCardList declaration must be found');
+  assert.ok(end > start, 'the window must end at WatchlistScoreboardList, after GameCardList');
+
+  const gameCardList = source.slice(start, end);
   assert.match(gameCardList, /broadcast=\{broadcast\}/, 'it must pass the slot at all');
 
   assert.match(
@@ -1989,16 +1998,29 @@ test('the four game-section headers take the 17px/650 exception and no other hea
     />
   );
 
-  const headings = Array.from(
-    html.matchAll(/<h2 class="([^"]*)"[^>]*>([^<]*)<\/h2>/g),
-    (match) => ({
-      classAttr: match[1] ?? '',
-      text: match[2] ?? '',
-      // Token membership, not a substring or a `\b` boundary: `text-[17px]` ends in
-      // `]`, which is not a word character, so `\b` after it never matches a
-      // following space and the assertion would fail on a class that is present.
-      tokens: new Set((match[1] ?? '').split(/\s+/).filter(Boolean)),
-    })
+  // MATCH EVERY `<h2>`, then read its class — not `<h2 class="...">`, which review
+  // found silently drops any heading whose `class` is not the first attribute or
+  // whose content wraps a child element. The claim below is about the rendered
+  // POPULATION, so an instrument that cannot see all of it reports clean because it
+  // did not look (`AGENTS.md` → a measurement's coverage is part of its result).
+  const headings = Array.from(html.matchAll(/<h2\b([^>]*)>([\s\S]*?)<\/h2>/g), (match) => ({
+    classAttr: /class="([^"]*)"/.exec(match[1] ?? '')?.[1] ?? '',
+    text: (match[2] ?? '').replace(/<[^>]*>/g, ''),
+    // Token membership, not a substring or a `\b` boundary: `text-[17px]` ends in
+    // `]`, which is not a word character, so `\b` after it never matches a
+    // following space and the assertion would fail on a class that is present.
+    tokens: new Set(
+      (/class="([^"]*)"/.exec(match[1] ?? '')?.[1] ?? '').split(/\s+/).filter(Boolean)
+    ),
+  }));
+
+  // The count is the coverage check. Four game sections plus GB Race render here;
+  // if a heading is added, moved into a child component, or stops matching, this
+  // fails instead of the population quietly shrinking to the ones that still do.
+  assert.equal(
+    headings.length,
+    5,
+    `expected 5 <h2> headings, saw ${headings.length}: ${JSON.stringify(headings.map((h) => h.text))}`
   );
 
   const GAME_SECTIONS = ['Featured games', 'Live · 1', 'Recent finals', 'Upcoming watchlist'];
@@ -2080,8 +2102,11 @@ test('overview hides every game section, Featured included, on a zero-game rende
   assert.doesNotMatch(html, /No recent results yet\./);
   assert.doesNotMatch(html, /No featured matchups yet for this slate\./);
   assert.doesNotMatch(html, /data-featured-scoreboard-grid/);
-  // Its CTA goes with it: `All results →` is Featured's own header action, so a
-  // surviving CTA is how a hidden-but-rendered section would show up here.
+  // Its CTA goes with it. `All results →` is NOT Featured-specific — Recent finals
+  // renders the identical string — so this assertion covers both of them, and it
+  // holds here because this fixture has zero games and neither section renders. Do
+  // not read it as a Featured-only probe: the Featured-specific evidence is the
+  // heading and `data-featured-scoreboard-grid` above.
   assert.doesNotMatch(html, /All results →/);
   // The other three sections were already gated on length and stay absent.
   assert.doesNotMatch(html, /Live · /);
