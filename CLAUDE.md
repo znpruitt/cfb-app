@@ -113,7 +113,12 @@ first commit; if you are not where this table says you should be, stop and say s
 - `/code-review` is **user-invocable only** in this environment — Claude cannot call it. When a
   workflow requires it, run everything else, then stop and ask the user to invoke it against the
   exact commit. Report the limitation; never substitute a self-review and call it the same thing.
-- `/codex:review` can be started by Claude in the background.
+- **`/codex:review` is ALSO user-invocable only.** Corrected 2026-09-09: this line used to say Claude
+  could start it in the background. Both `commands/review.md` and `commands/adversarial-review.md`
+  carry `disable-model-invocation: true`, so the model cannot invoke either. **Calling the underlying
+  `codex-companion.mjs` script directly is reaching around that flag — do not.** Ask the owner, the
+  same as `/code-review`. Found by the Item 204 lane, which flagged the stale instruction instead of
+  working around it.
 - Both reviews must run against the **same commit**, and both must be gathered before any
   remediation — see `AGENTS.md` → **Review and remediation limits**.
 
