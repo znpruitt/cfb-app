@@ -5997,8 +5997,7 @@ prohibits. **Neither item named the other until the audit put them side by side.
 
 **SPLIT 2026-09-09, on the implementer's receipt.** They are different slices:
 
-**173a — Featured. IMPLEMENTED AND REVIEWED on `codex/173-overview-tags` (`05873bc0`, `64497b51` +
-closeout), merge pending.** This was wiring: Featured now passes the `highlightTags` it already
+**173a — Featured. ✅ MERGED 2026-09-09 — PR #588, `00e3fccc`.** This was wiring: Featured now passes the `highlightTags` it already
 received to Item 143's `tagSlot`, and its postseason badge moved from `contextSlot` into that same
 status-row seam. The badge retains its slate treatment and fits the seam without adding a line.
 Items 187 and 195 own the accepted review follow-ups. Kickoff:
