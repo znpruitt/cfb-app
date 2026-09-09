@@ -163,6 +163,22 @@ measures the unknown.**
 adoption, the Matchups reconciliation, and three of the six Overview back-application items. 119 is
 the colour bars, 134 the third tier, 115 counts and caps together.
 
+**The four items 157/162/163 left behind, placed 2026-09-08 so they do not sit unscheduled:**
+
+- **170 — the owner name truncating — GOES INTO 143 NOW.** It is filed as its own item only because
+  the branch that found it was gated out of `CompactGameScoreboard.tsx`. **That file is open in the
+  Codex lane today**, so folding it in costs almost nothing and filing it as separate work would mean
+  re-entering the same file later. **Tell the 143 lane.**
+- **168 — Matchups scheduled-row odds.** Visible, caller work only, needs no seam. **Good next work for
+  the Platform lane** after 167, or before it if a visible win is wanted sooner.
+- **169 — `Close` on an unplayed game.** **Establish reachability BEFORE designing the guard** — the
+  item says so and it changes the urgency completely. If a scheduled game can never hold a score pack
+  in production, this is a latent guard; if it can, members are seeing a chip on games nobody played.
+  **That question is answerable against the read-only replica in an hour**, and it should be answered
+  before this is scheduled at all.
+- **171 — the dead scoring term.** Smallest of the four and a deletion. **Fillerable any time**, but
+  enumerate what `rankedHighlight` / `rankedHighlightKey` do besides feed the dead term first.
+
 **If only one thing gets done, 143** — it is the long pole and unblocks the most. (This line read _166_ before that item was found already complete.)
 
 **Kickoffs written 2026-09-08 and ready to dispatch:**
