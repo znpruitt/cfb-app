@@ -1,4 +1,4 @@
-PROMPT_ID: PLATFORM-119-TEAM-COLOUR-BAR-CODEX-v1
+PROMPT_ID: PLATFORM-119-TEAM-COLOUR-BAR-CODEX-v2
 PURPOSE: Item 119 piece 1 — render the 8px team-colour bar at the line-start slot, on the existing normaliser, and render NO accent for a team with no catalog colour. That second half is a bug fix, not a rule.
 SCOPE: `src/components/CompactGameScoreboard.tsx`, wherever the colour is computed and threaded, and tests. NOT the OKLCH port. NOT the outcome rail. NOT the owner tint.
 CARRIES: `item-87-INDEX.md` CARRY rows 7, 8 and 20, verbatim in the task block.
@@ -37,10 +37,11 @@ measuring badly.
 
 **A team with no catalog colour renders NO BAR.** Not a grey bar, not a muted default — nothing.
 
-**`getSafeScoreboardTeamColor` currently returns `FALLBACK_BASE = '#059669'`** (`teamColors.ts:40`,
-returned at `:283`) when it has nothing. **That is a green, on a surface where green already means LIVE
-within the scoreboard family** (`DESIGN.md` → Color). Shipping the bar without handling this paints
-every FCS row green.
+**`getSafeScoreboardTeamColor` returns `buildTreatment(FALLBACK_BASE, 'fallback')`** (`teamColors.ts:283`)
+when it has nothing. `FALLBACK_BASE` is `#059669` but **the normaliser returns `#139A70`** — corrected
+from the receipt. **Still a green, on a surface where green already means LIVE within the scoreboard
+family** (`DESIGN.md` → Color). Shipping the bar without handling this paints every FCS row green.
+**Gate on `source !== 'fallback'`, not on the colour.**
 
 **And it is not a rare case.** `item-87-followon-team-colour.md:78`: the team-database refresh uses
 `/teams/fbs`, so `TeamCatalogItem.color` is **FBS-only by construction**, and the checked-in seed has
@@ -58,6 +59,50 @@ normalised.
 
 **NOT build-time** — the seed carries no colours. **NOT per-request** — this is a per-row lookup on
 every row of every surface.
+
+## RULINGS ON YOUR RECEIPT — all five accepted, and three change the work
+
+**Every finding reproduces. Three of them are mine and two are defects in the reference document.**
+
+### RULING 1 — `source: 'fallback'` is the distinction. No sentinel.
+
+Accepted, and it makes receipt item 2 moot: absence is already expressible. **Gate the bar on
+`source !== 'fallback'`**, not on the colour value.
+
+**Your `#139A70` correction stands** — `FALLBACK_BASE` is the seed, the normaliser returns `#139A70`.
+Still green, so the premise holds and the prompt's colour was the wrong one to cite.
+
+### RULING 2 — introduce the memo. It is in scope.
+
+**`teamCatalogById` does not exist** — verified, zero matches, and `CFBScheduleApp.tsx:651` is
+`filteredWeekGames`. The design doc's citation is stale. **"Compute at catalog memoisation" requires
+the memo to exist, so creating it is part of this slice, not a scope widening.** Your O(T) + two O(1)
+lookups is the right shape.
+
+### RULING 3 — establish the slot. My "reserved space already exists" was wrong.
+
+**Verified: the participant row has no left padding.** The structural insertion point exists; the
+physical space does not. **Creating it is in scope**, and so is making the row a containing block —
+the source comment already assigns that to this item, and you are right that `relative isolate` is
+currently conditional on the Matchups owner tint.
+
+**Do not let the row get wider overall.** The slot comes out of existing space, not added to it.
+
+### RULING 4 — §11's recap row was a FORECAST. Marked on `main`.
+
+You caught a table describing a surface that does not consume the component at all. **Corrected** — the
+recap cell now carries a footnote saying its `yes` is post-adoption and blocked behind Item 143.
+**Item 119 does not give the recap a bar.**
+
+### RULING 5 — §3 said "Work in OKLCH, not HSL". That was the document overreaching, and it is corrected.
+
+**This is the sharpest finding in the receipt.** §3 stated the endpoint as an instruction while the
+settled decision is **staged**: piece 1 on the existing HSL normaliser, piece 2 conditional on piece 1
+measuring badly. **A reference document is meant to consolidate settled decisions, and what is settled
+is the staging.** Corrected on `main`, with the reason.
+
+**Follow the prompt: HSL first. The OKLCH shape and its reserved-hue guard are preserved in §3 for
+piece 2, if piece 2 happens — and your report is what decides that.**
 
 ## STOP — post a READ RECEIPT before writing any code
 
@@ -115,7 +160,8 @@ tint is not in question on either axis.
 
 **Do NOT compute per-request or at build time.** Both are ruled out, for stated reasons.
 
-**Do NOT widen the row.** The slot is reserved space that already exists, not new space.
+**Do NOT widen the row overall.** The slot must be ESTABLISHED — the participant row has no left
+padding today, corrected from the receipt — but it comes out of existing space rather than adding to it.
 
 STOP and report if the line-start slot cannot be positioned without changing a container that another
 item owns.

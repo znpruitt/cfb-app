@@ -138,7 +138,11 @@ Nominal away/home hold on neutral-site games; the neutral marker goes on the met
 
 **Why a bar and not a background.** Gradient and full-width band were both rejected: they sit *behind* the text and conflict with the row's most important signal, since a losing team with a bright primary can visually outweigh a winner with a dark one. Avoiding that would mean dimming on the trailing side, at which point the colour carries outcome as well as identity and stops being identity.
 
-**Luminance normalisation is required, not polish.** Roughly a fifth of the FBS has a primary invisible on a dark background — Penn State `#041E42`, Hawai'i `#024731`, Virginia `#232D4B`. Work in OKLCH, not HSL: clamp lightness into band, cap chroma, preserve hue, clamp rather than scale. A reserved-hue guard is required so a gold team's bar does not read as champion amber.
+**Luminance normalisation is required, not polish.** Roughly a fifth of the FBS has a primary invisible on a dark background — Penn State `#041E42`, Hawai'i `#024731`, Virginia `#232D4B`.
+
+> **CORRECTED 2026-09-09 — this paragraph said "Work in OKLCH, not HSL" as an instruction, and the decision is STAGED.** `item-87-followon-team-colour.md` splits Item 119 into two separately shippable pieces: **(1) the 8px bar on the EXISTING HSL normaliser**, contrast-lifted to ≥3:1, and **(2) an OKLCH port ONLY IF (1) measures badly at 8px**, with the reserved-hue guard. **Piece 2 is conditional and is not a dependency of piece 1.** This document stated the endpoint as though it were the requirement — the reference is meant to consolidate settled decisions, and what is settled is the staging. Found by the Item 119 lane at its read receipt.
+
+The OKLCH shape, when and if piece 2 happens: clamp lightness into band, cap chroma, preserve hue, clamp rather than scale. **A reserved-hue guard is required so a gold team's bar does not read as champion amber.**
 
 **No colour, no bar.** FCS teams have none in the data (the refresh uses `/teams/fbs`). An absent bar reads as missing data; a grey bar reads as a team whose colour is grey.
 
@@ -308,7 +312,8 @@ Which slots each surface supplies. **A slot a surface does not pass renders noth
 > apply to a date-grouped surface. Do not extend this row by symmetry.
 | **Status row** | yes | yes | yes | yes |
 | **Tag slot** | yes | yes | yes | yes |
-| **Team colour bar** | yes | yes | yes | yes |
+| **Team colour bar** | yes | yes | yes | yes* |
+
 | **Rank / FCS prefix** | yes | yes | yes | yes |
 | **Record** | yes | yes | yes | no |
 | **Owner suffix** | yes | yes | yes | yes |
@@ -319,6 +324,8 @@ Which slots each surface supplies. **A slot a surface does not pass renders noth
 | **Broadcast** | scheduled, live | scheduled, live | scheduled, live | n/a |
 | **Date grouping** | no | no | **yes** | no |
 | **Week scoping** | no | **yes** (tab) | no | **yes** (week) |
+
+> **\* The recap's `yes` is a FORECAST, not current — marked 2026-09-09.** The recap is not a consumer of this component at all: `RecapPrimitives.tsx:277` still defines a bespoke `GameScoreboard`. Its row describes what it would supply after adoption, which is blocked behind Item 143's seam. **Item 119 does not give the recap a bar**, and a reader comparing this table to the code should not read the gap as a defect.
 
 **Three rows in that table are the whole reason it exists.** The owner tint is Matchups-only because a card is scoped to one owner. Date grouping is Schedule-only, which is why Schedule cannot reorder finals to the end. And the recap renders no records, which is why its status rows are frequently tag-only — a case no other consumer exercises.
 
