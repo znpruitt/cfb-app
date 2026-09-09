@@ -32,9 +32,11 @@ per-game eyebrow, in the tag slot.**
 
 ### RULING 1 — split. Featured only. Live and Recent finals become 173b.
 
-**Your characterisation is exactly right and I verified it.** `routesByKey` holds unprioritized
-`OverviewGameItem`s (`overviewGameSections.ts:196-198`), and the prioritized inputs — `highlightSignals`,
-rankings, `topOwnerNames` — never reach `deriveOverviewSections`. Giving Live and Recent finals tags is a
+**Your characterisation is exactly right and I verified it.** `selectOverviewGameSections`
+(`overviewGameSections.ts:188`) takes `sectionItems: OverviewGameItem[]` — **unprioritized** — and
+`routesByKey` (`:196-198`) carries them through unchanged. `prioritizeOverviewItems` needs
+`highlightSignals` and `rankingsByTeamId`; **`topOwnerNames` is NOT among them, having been retired
+with Item 162** (`overview.ts:312-314`). Giving Live and Recent finals tags is a
 **signature change on the section builder**, touching ordering and section composition, which is Item
 115's neighbourhood.
 
@@ -119,7 +121,7 @@ one badge family by hue gives a reader nothing to decode.
 and 187.
 
 **Do NOT touch `overviewGameSections.ts` or Live/Recent finals.** That is **Item 173b**, filed, and it
-needs the prioritized inputs threaded into `deriveOverviewSections` — a signature change with its own
+needs the prioritized inputs threaded into `selectOverviewGameSections` — a signature change with its own
 review.
 
 STOP and report if passing Featured's tags requires any selector change at all.
@@ -144,7 +146,7 @@ Run each separately and report its own exit code — never chained behind `&&`, 
 </verification>
 
 <output_contract>
-Report: what changed and where; the measured test delta; the mutation proving the Live case now renders;
+Report: what changed and where; the measured test delta; the mutation proving a Featured tag now renders;
 the mutation proving the watchlist is untouched; and anything you deliberately did not do.
 
 **Say what a member sees per section, before and after.**
