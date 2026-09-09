@@ -6658,6 +6658,46 @@ panel inside a remediation round is how a slice stops converging.
 **Blocker:** Item 110B must land first — its receipt classification is what this would supplement or
 replace. Related: **Item 132** (partition-scoped health), which may be the right home.
 
+### Item 198 — a colour that fails normalisation is indistinguishable from no colour
+
+**Observed on preview 2026-09-09 by the owner, then measured against the production catalog.** Item
+119's bars render, and **California and Nevada carry none.**
+
+**They are not missing a colour.** Both hold `#041E42` — **the exact value the design doc names as
+Penn State's**, cited there as the canonical example of a primary invisible on a dark background. The
+normaliser cannot lift it, returns `buildTreatment(FALLBACK_BASE, 'fallback')`, and Item 119's rule
+correctly suppresses the bar for `source: 'fallback'`.
+
+**So two different states render identically: NO COLOUR, and A COLOUR WE COULD NOT USE.** The first is
+the documented rule — FCS teams have no catalog colour and an absent bar reads as missing data. The
+second is a normaliser limitation being reported as missing data.
+
+**Measured against the production `team-database`, 138 teams, all carrying a colour:**
+
+| | |
+| --- | --- |
+| raw colour below 3:1 on `#0A0A0A` | **91 of 138** |
+| pure `#000000` — unliftable while preserving hue | **6** |
+| teams sharing `#041E42` (1.20:1) | 4 |
+
+**The design doc estimated "roughly a fifth of the FBS". It is two thirds.** The lift succeeds for most
+of them — the preview shows bars on 14 of 16 rows — but where it fails it fails silently.
+
+**This is Item 119 piece 1 measuring badly, which is the documented trigger for piece 2** — the OKLCH
+port with its reserved-hue guard, which `item-87-followon-team-colour.md` made conditional on exactly
+this outcome. **Piece 2 is now warranted, on evidence rather than preference.**
+
+**Two things to decide, and they are separable:**
+
+1. **Should the two states render differently at all?** A team whose colour cannot be used is arguably
+   entitled to something — but the argument against a grey bar still holds: it reads as a team whose
+   colour is grey. **Distinguishing them in the DATA is not the same as distinguishing them on screen.**
+2. **Does OKLCH actually rescue `#041E42` and `#000000`?** Clamping lightness into band preserves hue,
+   and **black has no hue to preserve.** Piece 2 may fix the navies and leave the six blacks exactly
+   where they are. **Measure before building.**
+
+**Blocker:** none for Item 119 piece 1, which is correct as specified. This is the follow-on it named.
+
 ## Out of scope for this queue
 
 - New matching systems or changes to schedule-first identity rules.
