@@ -287,7 +287,7 @@ export default function CompactGameScoreboard({
                 data-scoreboard-value-kind="score"
                 data-scoreboard-value={side}
               >
-                {participant.score ?? '—'}
+                {participant.score ?? '–'}
               </span>
             )}
           </div>

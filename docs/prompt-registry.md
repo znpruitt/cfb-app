@@ -51,6 +51,26 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-179-AWAITING-ANCHOR-CODEX-v2
+
+- Purpose: Item 179 — replace the awaiting scoreboard anchor's em dash with the en dash specified by
+  the shared-row contract. Item 170 was paired at kickoff but closed without code when its trade
+  confirmed that owner-first clipping is the intended primary/tertiary hierarchy.
+- Scope: `CompactGameScoreboard.tsx`, its existing Matchups render assertions, and this closeout. No
+  owner-layout, retired-pill, tag-seam, selection, outcome-rail, or owner-tint change.
+- Outcome: the shared non-scheduled null-score fallback now renders `–` (U+2013). Awaiting rows match
+  `item-87-reference-game-row.md` §4 and §11; because the fallback is shared, a live row with
+  only one populated score uses the en dash too. Final presentation requires both scores. The two
+  old-glyph assertions were retargeted exactly, and the scheduled blank-anchor guard was strengthened
+  to reject either dash.
+- Review / verification: independent review of `6d3014fc` was clean with no correctness findings and
+  confirmed all three changed literals as U+2013, no stray em dash in the component, and no other
+  consumer pin requiring a change. Test delta 0; both old-glyph assertions failed before retargeting.
+  TypeScript and `lint:all` exited 0, component tests passed 663/663, and full `npm test` matched the
+  standing Item 137 baseline exactly (5,023/5,025; two writer-convergence failures).
+- Status: Implemented on `codex/170-179-scoreboard-row` (`6d3014fc` + this closeout); reviews resolved,
+  merge pending at time of writing.
+
 ### PLATFORM-173A-FEATURED-TAG-SLOT-CODEX-v2
 
 - Purpose: back-apply the shared status-row tag seam to Featured, which already received prioritized

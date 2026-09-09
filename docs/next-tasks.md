@@ -5816,6 +5816,10 @@ row level and four at page level. **That section has not been run** — it is pr
 > **173a discharge, 2026-09-09:** Featured now renders its existing tags, closing the Featured part of
 > R3, and its postseason badge moved into the status row, closing R4. Live and Recent finals remain
 > the 173b selector slice. Items 187 and 195 own the two follow-ups accepted during 173a's review.
+>
+> **179 discharge, 2026-09-09:** R8 was one of the original eight and is now removed by Item 179.
+> The historical residue count remains **8** — it was the audit's measured deliverable, not a live
+> counter — and this annotation records what removed that finding rather than silently shrinking it.
 
 **The ask:** run the audit across **Live, Recent finals, Featured and the watchlist**.
 
@@ -6206,9 +6210,16 @@ true**, not deleting it. Retire the rule only if the rule is wrong — never bec
 
 **Blocker:** none. **One class string** if it is built.
 
-### Item 179 — the awaiting anchor renders an em dash where the contract specifies an en dash
+### Item 179 — DONE: the awaiting anchor renders the contract's en dash
 
-**Item 167 residue R8.** `CompactGameScoreboard` renders `—` on awaiting rows;
+**Implemented on `codex/170-179-scoreboard-row` (`6d3014fc` + this closeout); review clean, merge
+pending.** The shared non-scheduled null-score fallback now renders `–` (U+2013), matching
+`reference-game-row.md` §4 and §11. That shared fallback also covers a live row with only one score
+populated, so the same glyph changes there; final presentation requires both scores and does not
+reach the fallback. Item 170 closed without code: the team name remains primary, the owner remains
+the tertiary suffix that clips first, and Item 163's retired `vs <owner>` pill stays retired.
+
+**Item 167 residue R8, at filing.** `CompactGameScoreboard` rendered `—` on awaiting rows;
 `reference-game-row.md` §4 and §11 and the mockup all specify `–`.
 
 Trivial in size, real against the contract, **and filed rather than folded so the residue count is not
