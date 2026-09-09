@@ -42,9 +42,19 @@ const MUTABLE_ENV = process.env as Record<string, string | undefined>;
 const ADMIN_TOKEN = 'test-admin-token';
 
 // A minimal CFBD teams payload; buildTeamDatabaseFile keys off `school`.
+// Colours are in the PROVIDER's shape: CFBD sends `alternateColor`, never
+// `altColor` (PLATFORM-199). A fixture without colours cannot see the mapping at
+// all, which is how a route-level suite stayed green while every one of the 138
+// production alternates was being discarded.
 const CFBD_ROWS = [
-  { school: 'Alpha State', classification: 'fbs', mascot: 'Aces' },
-  { school: 'Beta Tech', classification: 'fbs', mascot: 'Bots' },
+  {
+    school: 'Alpha State',
+    classification: 'fbs',
+    mascot: 'Aces',
+    color: '#000000',
+    alternateColor: '#ffcd00',
+  },
+  { school: 'Beta Tech', classification: 'fbs', mascot: 'Bots', color: '#041e42' },
 ];
 
 function makeLeague(slug: string): League {
@@ -131,6 +141,34 @@ test('a successful sync busts the shared standings tag and persists the new cata
   const stored = await getTeamDatabaseFile();
   const schools = stored.items.map((i) => i.school).sort();
   assert.deepEqual(schools, ['Alpha State', 'Beta Tech']);
+});
+
+test('PLATFORM-199: the sync carries provider alternateColor into the durable altColor', async () => {
+  stubFetchOk(CFBD_ROWS);
+
+  // `revalidateTag` needs the harness's static-generation store, exactly as the
+  // sibling success-path tests do.
+  const { result: res } = await runCapturingTags(() => POST(postRequest()));
+
+  // Read the body once: `assert.equal`'s message argument is evaluated eagerly,
+  // so `await res.text()` there would consume it before `res.json()` below.
+  const body = (await res.json()) as {
+    summary: { withColorCount: number; withAltColorCount: number };
+  };
+  assert.equal(res.status, 200, JSON.stringify(body));
+
+  // The witness the operator actually reads (ReferenceDataPanel). It reported 0
+  // on every production sync while the ingest read a field CFBD does not send.
+  assert.equal(body.summary.withColorCount, 2);
+  assert.equal(body.summary.withAltColorCount, 1);
+
+  const stored = await getTeamDatabaseFile();
+  const alpha = stored.items.find((i) => i.school === 'Alpha State');
+  const beta = stored.items.find((i) => i.school === 'Beta Tech');
+  assert.equal(alpha?.color, '#000000');
+  assert.equal(alpha?.altColor, '#FFCD00', 'alternateColor survives fetch → normalize → durable');
+  assert.equal(beta?.color, '#041E42');
+  assert.equal(beta?.altColor, null, 'a provider row with no alternate stores none');
 });
 
 test('a successful sync busts the shared tag even with no registered leagues', async () => {

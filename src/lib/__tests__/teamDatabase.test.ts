@@ -6,6 +6,7 @@ import {
   buildDerivedTeamAliases,
   buildTeamDatabaseFile,
   normalizeCfbdTeamRecord,
+  type CfbdTeamRecord,
 } from '../teamDatabase.ts';
 
 test('normalizes CFBD team metadata into local team reference shape', () => {
@@ -19,7 +20,7 @@ test('normalizes CFBD team metadata into local team reference shape', () => {
     conference: 'SEC',
     classification: 'fbs',
     color: 'bf5700',
-    altColor: '#FFFFFF',
+    alternateColor: '#FFFFFF',
     logos: ['https://example.com/texas.svg'],
   });
 
@@ -44,7 +45,7 @@ test('normalization keeps missing colors safe and reports skipped rows', () => {
         school: 'Rice',
         mascot: 'Owls',
         color: null,
-        altColor: 'not-a-color',
+        alternateColor: 'not-a-color',
       },
       {
         id: 2,
@@ -74,7 +75,7 @@ test('sync summary tracks updated rows against previous durable items', () => {
     mascot: 'Longhorns',
     conference: 'SEC',
     color: '#BF5700',
-    altColor: '#FFFFFF',
+    alternateColor: '#FFFFFF',
   }).item;
 
   assert.ok(previousTexas);
@@ -89,7 +90,7 @@ test('sync summary tracks updated rows against previous durable items', () => {
         mascot: 'Longhorns',
         conference: 'SEC',
         color: '#BF5700',
-        altColor: '#FFFFFF',
+        alternateColor: '#FFFFFF',
       },
       {
         id: 99,
@@ -102,6 +103,104 @@ test('sync summary tracks updated rows against previous durable items', () => {
 
   assert.equal(summary.writtenCount, 2);
   assert.equal(summary.updatedCount, 1);
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-199: the provider field is `alternateColor`. `CfbdTeamRecord` used to
+// declare `altColor` — a name CFBD does not send on `GET /teams/fbs` — so every
+// alternate was read as `undefined` and discarded. Measured 2026-09-09: 138 of
+// 138 provider rows carry `alternateColor`, none carries `altColor`, and the
+// production catalog held 138 primaries and 0 alternates.
+//
+// Both directions are pinned, because a fixture using the wrong input name makes
+// the positive test pass against the PRE-FIX code and prove nothing.
+// ---------------------------------------------------------------------------
+
+test('PLATFORM-199: a provider alternateColor becomes the stored altColor', () => {
+  const normalized = normalizeCfbdTeamRecord({
+    id: 26,
+    school: 'California',
+    mascot: 'Golden Bears',
+    conference: 'ACC',
+    classification: 'fbs',
+    color: '#041e42',
+    alternateColor: '#ffc72c',
+  });
+
+  // `alternateColor` in, `altColor` stored — one mapping, not a rename. The
+  // stored name is what teamIdentity/teamDatabaseStore/teamColors all read.
+  assert.equal(normalized.item?.color, '#041E42');
+  assert.equal(normalized.item?.altColor, '#FFC72C');
+});
+
+test('PLATFORM-199: the retired altColor provider name yields no stored alternate', () => {
+  // The cast is deliberate: `altColor` is no longer part of `CfbdTeamRecord`, so
+  // the only way to build this row is to force it. That is the bug's own shape —
+  // pre-fix this record produced `altColor: '#FFFFFF'`, which is why the previous
+  // fixture passed while every real provider row resolved undefined.
+  const retiredShape = {
+    id: 42,
+    school: 'Texas',
+    mascot: 'Longhorns',
+    color: '#BF5700',
+    altColor: '#FFFFFF',
+  } as unknown as CfbdTeamRecord;
+
+  const normalized = normalizeCfbdTeamRecord(retiredShape);
+
+  assert.equal(normalized.item?.color, '#BF5700', 'the primary still maps');
+  assert.equal(
+    normalized.item?.altColor,
+    null,
+    'the retired provider name must not be read as an alternate'
+  );
+});
+
+test('PLATFORM-199: withAltColorCount counts alternates read from alternateColor', () => {
+  const records: CfbdTeamRecord[] = [
+    // Two rows in the real provider shape.
+    {
+      id: 1,
+      school: 'Iowa',
+      mascot: 'Hawkeyes',
+      classification: 'fbs',
+      color: '#000000',
+      alternateColor: '#ffcd00',
+    },
+    {
+      id: 2,
+      school: 'Vanderbilt',
+      mascot: 'Commodores',
+      classification: 'fbs',
+      color: '#000000',
+      alternateColor: '#cfae70',
+    },
+    // One row carrying ONLY the retired name: it contributes a primary and no
+    // alternate, so the witness separates the two field names rather than just
+    // counting rows.
+    {
+      id: 3,
+      school: 'Rice',
+      mascot: 'Owls',
+      classification: 'fbs',
+      color: '#00205B',
+      altColor: '#ffffff',
+    } as unknown as CfbdTeamRecord,
+  ];
+
+  const { file, summary } = buildTeamDatabaseFile({ records });
+
+  assert.equal(summary.writtenCount, 3);
+  assert.equal(summary.withColorCount, 3);
+  // The sync summary's own witness, surfaced to the operator in
+  // ReferenceDataPanel. It reported 0 for every production sync before the fix.
+  assert.equal(summary.withAltColorCount, 2);
+  assert.equal(summary.missingColorCount, 0);
+
+  const byId = new Map(file.items.map((item) => [item.id, item]));
+  assert.equal(byId.get('iowa')?.altColor, '#FFCD00');
+  assert.equal(byId.get('vanderbilt')?.altColor, '#CFAE70');
+  assert.equal(byId.get('rice')?.altColor, null);
 });
 
 // ---------------------------------------------------------------------------
