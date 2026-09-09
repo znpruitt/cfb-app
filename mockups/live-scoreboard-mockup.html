@@ -127,7 +127,10 @@
      Green live is constant across previews 1-4; only the eyebrow hue varies. ---- */
   body[data-c]:not([data-c="0"]) .live-badge { color: #4ade80; }
   body[data-c]:not([data-c="0"]) .live-badge::before { background: #4ade80; }
-  body[data-c="2"]
+  /* data-c="2" (bronze) needs no override — the base .eyebrow rule above IS bronze, which is the
+     shipped decision. An orphaned `body[data-c="2"]` selector sat here after `.sb-title` was retired:
+     its declaration block went with the class and the selector did not, which silently swallowed the
+     rule below into `body[data-c="2"] body[data-c="3"] …` and killed the sky option too. */
   body[data-c="3"] .sb-status .eyebrow { color: #7dd3fc; }
   body[data-c="4"] .sb-status .eyebrow { color: #e879f9; }
 
@@ -376,10 +379,10 @@
   <div class="option-note">Last card (Fresno State at Nevada) shows the no-line-posted fallback.</div>
 
   <div class="mockup-notes">
-    <li><strong>Watchlist cards are on the shared status-row contract.</strong> An earlier version of this file rendered them as three lines &mdash; a title row, a metadata row, then the team lines &mdash; which is the pre-back-application layout Item 160 records as a defect. The audit found this file being used as the reference for a layout it contradicted. Collapsed to one status row: metadata left in a growing group, tag pinned right as a bronze pill.</li>
-    <li><strong><code>.sb-title</code> is retired.</strong> That class named the watchlist's reason label here while Featured used <code>.fx-reason</code>; a reader matching on "title" landed on the wrong row and applied Featured's plain-text exemption to the watchlist. The Featured reason row is now <code>.fx-reason-row</code> and is the only plain-text bronze on the page &mdash; it is a card title on its own line, not an inline tag. The watchlist's <code>Game of the Week</code> is an inline tag beside a pill and renders as a pill.</li>
     <strong>Mockup notes (not part of the design)</strong>
     <ul>
+    <li><strong>Watchlist cards are on the shared status-row contract.</strong> An earlier version of this file rendered them as three lines &mdash; a title row, a metadata row, then the team lines &mdash; which is the pre-back-application layout Item 160 records as a defect. The audit found this file being used as the reference for a layout it contradicted. Collapsed to one status row: metadata left in a growing group, tag pinned right as a bronze pill.</li>
+    <li><strong><code>.sb-title</code> is retired.</strong> That class named the watchlist's reason label here while Featured used <code>.fx-reason</code>; a reader matching on "title" landed on the wrong row and applied Featured's plain-text exemption to the watchlist. The Featured reason row is now <code>.fx-reason-row</code> and is the only plain-text bronze on the page &mdash; it is a card title on its own line, not an inline tag. The watchlist's <code>Game of the Week</code> is an inline tag beside a pill and renders as a pill.</li>
       <li><strong>What this proposes:</strong> the scoreboard micro-component with three rendered state variants (live, final, scheduled), the promotion model &mdash; a game occupies exactly one section instead of rendering in both watchlist and live as it does today (overview.ts:1009 filters <code>!== 'final'</code>, admitting in-progress by omission; Item 82 records it as a defect) &mdash; a two-column grid, and progressive disclosure per section.</li>
       <li><strong>Live state is neutral text plus a neutral dot,</strong> per the amber reservations in DESIGN.md :135, :215 and :281, none of which admit a live exception. (POLISH-007 governs the league-header confidence signal and owned-team-row copy, not game-card badges &mdash; it is not the authority here.) Two pieces of shipped amber are drift and must both go: the clock badges, and the amber card borders on live cards (OverviewPanel.tsx:734, <code>border-amber-200/80 … dark:border-amber-900/70</code>), which additionally collide with DESIGN.md :195 reserving card chrome for meaningful border signals.</li>
       <li><strong>Prefix slot is a classification marker, not just a rank.</strong> It holds an AP rank when the team is ranked, or an FCS marker when the opponent is FCS &mdash; mutually exclusive, since AP Top 25 is FBS-only. This preserves the FCS flag the Matchups panel surfaces today, which is real information: an FBS win over an FCS opponent means something different.</li>
