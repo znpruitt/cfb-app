@@ -1024,8 +1024,27 @@ the same problem.
 indicator, eyebrow tags and odds. **Split out of Item 117 on 2026-09-07** after the receipt gate found
 that none of the four fits an existing slot.
 
-**Kickoff:** [`docs/prompts/platform-143-matchups-status-row-codex-v3.md`](prompts/platform-143-matchups-status-row-codex-v3.md).
+**Kickoff:** [`docs/prompts/platform-143-matchups-status-row-codex-v4.md`](prompts/platform-143-matchups-status-row-codex-v4.md).
 
+> **v3 STOPPED AND RECONSTRUCTED, 2026-09-08.** Branch `codex/143-matchups-status-row` at `7d6c28ca`
+> did not converge: three rounds, both remediation rounds exhausted, four findings still open. **The
+> implementer called the stop itself and was right** — the round-3 MEDIUM is the same defect class as
+> round 1's, _a local label asserting more than the classifier established_, which is this campaign's
+> recorded signal that the MODEL is wrong rather than the patch.
+>
+> **The measurement that explains why, which the v3 prompt could not carry because it predates it:**
+> the branch added **23 references to disrupted / suspended / postponed / cancelled against 3 for
+> `awaiting`** — and **Item 172 established the same day that disrupted statuses do not exist in
+> production.** 22,761 schedule rows are all `scheduled`; score packs are only `final` or `scheduled`.
+> **Two remediation rounds and most of the added surface hardened a state the provider never emits**,
+> while the reachable defect — a post-kickoff row with no score rendering `SCH` — surfaced only in
+> round 3 and remains open.
+>
+> **Nothing about the reviews was wasted; the code is what is discarded.** Confirmed correct and
+> carried into v4: the tag flex seam, scheduled-only phone wrapping, and the ruling that neutral live
+> hue stays (motion is the differentiator, not colour). `statusMetadataSlot` is scope residue with no
+> caller and does not return.
+>
 > **THE TABLE BELOW IS STALE — re-verified against `main` at `0ab9b76d`, 2026-09-08, and TWO of the
 > four have moved.** **Odds on live/final is RESOLVED**: Item 155 replaced the `state === 'scheduled'`
 > gate with a content test (`CompactGameScoreboard.tsx:245`, `hasFooterSlot`), so a caller may pass a
