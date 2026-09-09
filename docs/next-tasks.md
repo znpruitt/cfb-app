@@ -7054,6 +7054,43 @@ that would say otherwise is a span that disappeared on the first reload.
 **Blocker:** Item 204. **Pre-existing** — this is not a gap 204 introduced, only one it makes worth
 closing.
 
+### Item 207 — the polling-planner suite flakes on `plan-held`, and `reset()` is not holding
+
+**Observed 2026-09-09 during Item 204's merge gate.** Four tests in
+`src/app/api/cron/polling-planner/__tests__/route.test.ts` failed on one full-suite run and passed on
+the next, same commit:
+
+    405 - a dead day PAUSES both dense schedules and records what it did
+    406 - a game day ARMS both dense schedules with the derived expression
+    407 - an ABSENT or EMPTY season record sends nothing — absence is not a dead day
+    409 - the durable record stores only the PLANNING DAY's windows
+
+**The mechanism is in the failing run's own log:**
+`{"result":"no-op","reason":"plan-held","day":"2026-09-09","jobsHeld":2}`. The planner found a plan
+record already held for the planning day and no-op'd, so `pauses.length` was 0 instead of 2. **Durable
+state, not logic.**
+
+**What the Item 204 lane ruled out:** cross-file contamination — `run-tests.mjs:91` sets
+`APP_STATE_TEST_ISOLATION=1`, keying the backing file by pid, with no stale temp files on disk. The
+planner's tests are sequential and each calls `reset()`, which explicitly nulls the planner scope; its
+own comment says a neighbour's data would otherwise decide the outcome. **So a record exists after
+`reset()` nulled it, which is the part nobody can currently explain.**
+
+**Hypothesis worth testing first: an un-awaited write from a prior test in the same file landing AFTER
+`reset()`.** That would explain the nondeterminism, the ~1-in-3 rate, and why `reset()` appears not to
+work despite running. Sequential tests do not protect against a promise nobody awaited.
+
+**IMPORT-REACHABILITY DOES NOT CLEAR A TIMING-DEPENDENT FLAKE, and the Item 204 analysis should not be
+carried forward as if it did.** The lane established that the planner imports nothing from its diff,
+which is true and rules out a logic path. **It does not rule out perturbation:** Item 204 added 12
+tests, and anything changing execution order or duration can change whether a late write lands before
+or after a `reset()`. **The distinction matters — "this diff cannot cause it" is established, "this
+diff cannot make it more likely" is not.**
+
+**The ask:** find why a plan record survives `reset()`, and fix the isolation rather than the
+assertion. **Blocker:** none. **A flaky test in the pre-merge gate is worse than a failing one** — it
+trains every lane to re-run until green, which is how the next real regression gets merged.
+
 **Do this as its own slice with its own review.** A reformat that silently alters a binding rule is
 worse than the unreadable version, and a diff this large hides a one-word change perfectly. **The
 review's job is to prove no rule changed**, which likely means a normalized-text comparison rather than
