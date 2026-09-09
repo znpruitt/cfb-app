@@ -528,7 +528,7 @@ test('shared kickoff projection renders SCH before kickoff and Awaiting score at
   assert.match(atKickoff, /data-scoreboard-state="awaiting"/);
   assert.match(scoreboardHeaderMarkup(atKickoff), />Awaiting score<\/span>/);
   assert.doesNotMatch(scoreboardHeaderMarkup(atKickoff), />SCH<\/span>/);
-  assert.equal((atKickoff.match(/data-scoreboard-value="(?:away|home)">—/g) ?? []).length, 2);
+  assert.equal((atKickoff.match(/data-scoreboard-value="(?:away|home)">–/g) ?? []).length, 2);
 });
 
 test('matchups threads current records to both participants across scheduled, live, and final rows', () => {
@@ -683,7 +683,10 @@ test('scheduled Matchups keeps a missing record anchor blank even when a spread 
   const awayRow = participantMarkup(scoreboard, 'away');
   const homeRow = participantMarkup(scoreboard, 'home');
 
-  assert.doesNotMatch(awayRow, /data-scoreboard-record|data-scoreboard-value="away"|-7\.5|7\.5|—/);
+  assert.doesNotMatch(
+    awayRow,
+    /data-scoreboard-record|data-scoreboard-value="away"|-7\.5|7\.5|[—–]/
+  );
   assert.match(homeRow, /data-scoreboard-value-kind="record" data-scoreboard-value="home">2–0<\//);
   assert.doesNotMatch(scoreboard, /data-scoreboard-odds-footer|DraftKings|O\/U 49\.5/);
 });
@@ -858,7 +861,7 @@ test('shared row conversion preserves the complete bespoke GameRow fact inventor
   assert.match(liveScoreboard, />Live<\/span>/);
   assert.match(liveScoreboard, /Q3 8:14/);
   assert.match(participantMarkup(liveScoreboard, 'away'), /Clemson[\s\S]*Alice[\s\S]*>21</);
-  assert.match(participantMarkup(liveScoreboard, 'home'), /Miami[\s\S]*Carol[\s\S]*>—</);
+  assert.match(participantMarkup(liveScoreboard, 'home'), /Miami[\s\S]*Carol[\s\S]*>–</);
   assert.doesNotMatch(liveScoreboard, />vs Carol<\/span>/);
   assert.equal(
     (liveScoreboard.match(/Carol/g) ?? []).length,
