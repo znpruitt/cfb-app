@@ -1,8 +1,19 @@
 # Vercel Fluid Active CPU — finding, validation, and remediation
 
-**Status:** Open. Diagnosis complete; the two-reader build filter and week-0 deletion shipped through
-PR #551 on 2026-09-02. Both high-frequency QStash schedules are manually paused as of 2026-09-01
-~18:00 UTC and will be resumed by hand for each game window until the planner (Item 102) lands.
+**Status: IMPLEMENTED. Corrected 2026-09-09** — the opening below described the planner as future work
+for a week after it shipped. Diagnosis complete; the two-reader build filter and week-0 deletion shipped
+through PR #551 on 2026-09-02, and **Item 102's planner shipped and is live** — its slice-4 activation
+merged and the planner has been running unattended since. **The high-frequency schedules are no longer
+paused by hand:** the planner derives each day's windows from the canonical schedule and pauses or
+resumes the dense jobs itself. The 2026-09-08 audit observed it planning September 9 with four applied
+schedules, zero failures, both dense jobs intentionally paused for an empty window and both slow jobs
+active.
+
+**The savings figures in this document remain PROJECTIONS.** No invoice or billing record has been
+compared against them, and historical Vercel CPU queries for September 1-8 were rejected with
+`payment_required` (Observability Plus required). **Do not cite them as realized savings** — obtaining
+actual cost evidence is a standing validation gate in
+[`docs/next-tasks.md`](../next-tasks.md) → the audit-first dispatch order.
 
 **Owner decision, revised 2026-09-02 after the complete reader audit:** remediate with an
 FBS-relevance filter at the live-score and game-stats canonical builds (Item 99) plus a
@@ -11,7 +22,9 @@ consumers use it as an expectation oracle and schedule-eligibility diagnostics r
 rows. A third option — a cheap in-route gate before the canonical context load — was proposed and
 **dropped** once measurement showed it redundant against the selected changes.
 
-This document carries the evidence. Item 99 is complete; Item 102 remains in `docs/next-tasks.md`.
+This document carries the evidence. **Item 99 and Item 102 are both complete** — corrected 2026-09-09;
+this line previously said Item 102 remained queued. Remaining CPU and collection questions are
+Items 131 and 141, which are scoped separately.
 
 ---
 

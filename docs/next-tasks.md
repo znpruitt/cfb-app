@@ -143,53 +143,67 @@ the UI spine do not touch each other, so they can run concurrently:
   (`schedule/cfbdSchedule.ts`, `schedule.ts`, `schedulePostseasonHelpers.ts` — pipeline, not
   components), and Items 84, 86, 111. **Item 123 shipped 2026-09-04** via PR #565.
 
-### DISPATCH ORDER — owner, 2026-09-08, superseding the sequences in the table below
+### DISPATCH ORDER — AUDIT-FIRST, owner decision 2026-09-09
 
-> **CORRECTED 2026-09-08, minutes after recording: 166 IS ALREADY DONE.** It led this order as the one
-> sequencing constraint. It is closed unworked — `TOP_BADGE_LIMIT = 2` caps in the selector at
-> `gameTags.ts:457` and `gameTags.test.ts:941` already asserts it against a game carrying three
-> qualifying tags. **The ordering constraint it created does not exist**, so 157 and 162 are free to go
-> first. The reasoning was sound and the premise was wrong; see Item 166 for how.
+**Evidence:** [`docs/archive/audits/codebase-audit-existing-plans-2026-09-08.md`](archive/audits/codebase-audit-existing-plans-2026-09-08.md)
+— the single dated record. **Queue entries stay concise and link there; the narrative is not duplicated
+into this file.**
 
-**157 and 162 next.** After both, the tag vocabulary is game facts only. **No ordering constraint
-binds them** now that 166 is closed.
+**This is the one authoritative execution order.** Anything below that schedules work differently is
+historical reasoning, not an instruction.
 
-**167 whenever a lane is free.** It blocks nothing, but **it is the only item scoped to find out
-whether the scoping is complete.** Its residue count — divergences mapping to no filed item — is what
-says whether more back-application work exists. Everything else on this board is known work; **167
-measures the unknown.**
+**Finish work already in progress first.** Then take the seven immediate items across both lanes
+**before** dispatching further presentation work.
 
-**Then the spine: 143 → 119 → 134 → 115.** 143 unblocks the tag seam, which unblocks the recap
-adoption, the Matchups reconciliation, and three of the six Overview back-application items. 119 is
-the colour bars, 134 the third tier, 115 counts and caps together.
+| # | item | what |
+| --- | --- | --- |
+| 1 | **110A** | bounded recovery of the five measured game-stat discrepancies |
+| 2 | **110B** | recurring correction reconciliation — separately designed and reviewed |
+| 3 | **188** | provider deadlines carried through body consumption |
+| 4 | **20** | bounded database waits |
+| 5 | **189** | truthful planner settings-unavailable failures |
+| 6 | **190** | observable, replayable standings invalidation |
+| 7 | **47** | admin authorization for the Insights diagnostic bypass |
 
-**The four items 157/162/163 left behind, placed 2026-09-08 so they do not sit unscheduled:**
+**Then the immediate validation gates**, which authorize no configuration or data change on their own:
+verify the effective preview database endpoint, Neon branch and role; compare deployed cached standings
+against a fresh canonical rebuild using an authorized session (link the result to **190**); and obtain
+actual cost evidence rather than labelling projections as realized savings.
 
-- **170 — the owner name truncating — GOES INTO 143 NOW.** It is filed as its own item only because
-  the branch that found it was gated out of `CompactGameScoreboard.tsx`. **That file is open in the
-  Codex lane today**, so folding it in costs almost nothing and filing it as separate work would mean
-  re-entering the same file later. **Tell the 143 lane.**
-- **168 — Matchups scheduled-row odds.** Visible, caller work only, needs no seam. **Good next work for
-  the Platform lane** after 167, or before it if a visible win is wanted sooner.
-- **169 — `Close` on an unplayed game.** **Establish reachability BEFORE designing the guard** — the
-  item says so and it changes the urgency completely. If a scheduled game can never hold a score pack
-  in production, this is a latent guard; if it can, members are seeing a chip on games nobody played.
-  **That question is answerable against the read-only replica in an hour**, and it should be answered
-  before this is scheduled at all.
-- **171 — the dead scoring term.** Smallest of the four and a deletion. **Fillerable any time**, but
-  enumerate what `rankedHighlight` / `rankedHighlightKey` do besides feed the dead term first.
+**Then near-term integrity and readiness**, in dependency order rather than as a list: identity
+collisions (**83/85**) before historical repair; **191** targeted schedule convergence; **CFP identity
+gates first-round ingestion**; **archive completeness gates rollover** (**68**); partition-scoped health
+(**132**) and invocation correlation (**126A**); **expected-position validation gates expanded draft
+participation**.
 
-**If only one thing gets done, 143** — it is the long pole and unblocks the most. (This line read _166_ before that item was found already complete.)
+**Presentation work continues beneath all of the above, with its existing dependencies intact —
+notably 119 before 134.** The Item 87 queue as it stood on 2026-09-08 (173, 179, 181, the recap
+adoption) is not cancelled; it is sequenced after the audit items.
 
-**Kickoffs written 2026-09-08 and ready to dispatch:**
-`platform-143-matchups-status-row-codex-v3.md` (UI spine) and
-`platform-157-162-163-tag-vocabulary-claude-v2.md` (Platform, one prompt for all three per owner call).
-**`preview` is granted to 143**; the tag-vocabulary kickoff suspends the push-`preview` instruction for
-its branch, which is what preserves the single-writer condition.
+**No P0 was established.** Most findings are P2. **Immediate scheduling priority does not make a finding
+P1**, and the queue should not be read as though it did.
 
-**Lane recommendation (mine, not the owner's):** **143** to the **UI spine** lane — the long pole,
-blocking the most — and **157 + 162 + 163** paired in the **Platform** lane, since all three are tag
-vocabulary in `gameTags.ts` and share a root. **167** to whichever frees first.
+#### Deliberately kept open
+
+These are decisions, not omissions. **Do not invent values for them:**
+
+- **Reconciliation cadence** for 110B.
+- **Database timeout values** for Item 20 — the bound must fit the invocation budget, and the numbers
+  are unset.
+- **Historical repair policy** — what is corrected, and with what before/after evidence.
+- **Preview isolation**, the deployed-standings comparison, and actual-cost validation.
+
+#### Boundaries the audit fixed, which the queue must not blur
+
+- **Item 140 stays score-observation measurement.** It measures when a SCORE first reads final and is
+  **not** a prerequisite for statistics correction.
+- **Item 131 stays a collection/cadence decision**, separate from correction.
+- **"Repeatable reconciliation" permits legitimate observation-timestamp updates without duplicate
+  statistics.** Repeatability is not "zero database writes".
+- **Stale statistics are not score disagreement.** All 454 comparable finals agreed.
+- **`NoClaim` duplication is not two competing real owners.**
+- **A shared environment-variable template is not proof of effective preview database identity** — in
+  either direction.
 
 ### Two-lane assignment (2026-09-05) — measured, not inferred
 
@@ -200,13 +214,17 @@ Two implementation worktrees run concurrently (`CLAUDE.md` → **Worktrees and s
 spine is strictly serial with itself, so it occupies ONE lane entirely; the other lane takes work that
 touches no component file.
 
-| lane         | worktree         | sequence                                    |
-| ------------ | ---------------- | ------------------------------------------- |
-| **UI spine** | `cfb-app-codex`  | 115 → 119 → 134 → 118                       |
-| **Platform** | `cfb-app-claude` | 102 slice 2 → slice 3 → slice 4 → 129 → 126 |
+| lane | worktree | what it takes |
+| --- | --- | --- |
+| **UI spine** | `cfb-app-codex` | work that touches component files, strictly serial with itself |
+| **Platform** | `cfb-app-claude` | work that touches no component file |
+
+> **The item sequences that used to sit in this table are REMOVED, not superseded** — every entry in
+> them has shipped (102 slices 2-4, 129, 126B), and a spent sequence reads as an instruction to
+> whoever scans the table. **The current order is the audit-first dispatch above.** The lane SPLIT and
+> its reasoning stand; only the queue contents moved.
 
 **Kickoffs are named `<item>-<agent>-v<n>.md`** so the target lane is legible from the filename.
-Written and ready: `platform-102-slice-2-cron-synthesis-claude-v1.md`.
 
 **Fillers, safe against both lanes, any order:** Item 136 and Item 138 (both `matchups.ts`, worth
 pairing — same file, same `NoClaim` root), Item 137 (the red-`main` time bombs, test-only), Item 133a
@@ -223,20 +241,8 @@ which inherits its place as the first filler — same file, same 39 affected gam
 
 **Three collisions, measured 2026-09-05. Two were not previously recorded:**
 
-1. **Item 129 collides with Item 102 slice 2 — NEW.** 129's second half edits the `usage-sample`
-   grace in `DELIVERY_POLICIES`, and slice 2 rewrites that same structure to derive the delivery
-   expectation from planner windows (collision 2). Same file, same declaration. They cannot run
-   concurrently; 129 follows 102 in the platform lane.
-2. **Item 133 splits along the spine boundary — NEW.** Its 184 `zinc-500` uses are not evenly spread:
-   only **20** are in spine files (`OverviewPanel` 14, `MatchupsWeekPanel` 4, `GameWeekPanel` 2;
-   `CompactGameScoreboard` is already 0, done by slice 5a). The other ~164 sit in `components/admin`,
-   `components/history`, `components/draft` and `components/admin/systemHealth`, which no spine slice
-   touches. So **133a (non-spine) is fully parallel-safe**, and **133b (the 20)** must fold into the
-   spine slices that touch those files or follow the spine. **133a is not small** — it is a
-   ~164-occurrence classification pass across ~70 files, and the entry forbids bulk replacement. Good
-   filler for a blocked lane; not a third concurrent workstream.
-3. **Item 126 after Item 102** — already recorded above; `schedulerDeliveryHealth.ts` imports
-   `schedulerExecutionStatus.ts` and `systemHealthIssues.ts` consumes both.
+1. ~~**Item 129 collides with Item 102 slice 2.**~~ **RESOLVED — both shipped.** Retained only so
+   the numbering below is stable; it schedules nothing.
 
 **Item 135 was NOT selector-only — that claim was disproved by the build.** This entry previously read
 "selector-only, verified: `MatchupsWeekPanel` consumes `opponentSummaryEntries` for `.length` alone,
@@ -1724,6 +1730,10 @@ be a few lines, take it on its own; anything larger should wait for v3.
 
 ### Item 140 — stamp when a game first reads final, so the reconciliation tail can be sized
 
+> **SCOPE PROTECTED 2026-09-09.** [the 2026-09-08 audit](archive/audits/codebase-audit-existing-plans-2026-09-08.md) → **C3** records that this item measures when a **SCORE** first
+> reads final. **It cannot measure when STATISTICS stop changing, and it is NOT a prerequisite for
+> Item 110A or 110B.** Recorded because the two are easy to conflate and the audit ruled them apart.
+
 **The ask:** record, per game, the first observation at which it read final. Nothing else — no change
 to polling, eligibility, or any rendered output. This is the measurement that turns the tail length
 from an inherited guess into a number.
@@ -2220,6 +2230,10 @@ correction rejects. It costs 356 wakeups in October and keeps the guarantee.
 - Backlog slug: `PLATFORM-LIVE-CADENCE-CLUSTERS-v1`
 
 ### Item 131 — game-stats polls 21 hours per game for data nothing reads live
+
+> **SCOPE PROTECTED 2026-09-09.** [the 2026-09-08 audit](archive/audits/codebase-audit-existing-plans-2026-09-08.md) → **C3** keeps this a **collection and cost** decision,
+> separate from correction. **Item 110B owns revisiting satisfied partitions**; this item owns whether
+> the initial collection window is the right shape. Do not merge them.
 
 **Filed 2026-09-05.** Depends on Item 102 for the same capability as Item 130. Separate item because
 it is a separate automation job (`AGENTS.md` scope rule), and it is the largest proportional saving
@@ -2913,6 +2927,34 @@ only if Item 87 slice 4's record join reaches historical seasons.
 - Backlog slug: `PLATFORM-OVERRIDE-PAYLOAD-VALIDATION-v1`
 
 ### Item 110 — game stats have no correction path, and nothing detects that they diverged
+
+> **MEASURED IN PRODUCTION 2026-09-08 — this is no longer a latent gap.** Evidence: [the 2026-09-08 audit](archive/audits/codebase-audit-existing-plans-2026-09-08.md) → **C3**.
+> Five stored game-stat records disagree with newer CFBD observations, **three of them FBS games already
+> classified "satisfied"** and outside ordinary polling eligibility, stored observation fence
+> `2026-09-08T04:45:06.949Z`. Largest: Georgia Southern total yards **424 → 513**.
+>
+> **Split into two items under this identity, because recovery and prevention have different risk
+> profiles and must be reviewed separately:**
+>
+> **110A — bounded recovery. Dispatch position 1.** Re-observe and correct the five measured records
+> **through the existing authorized partition writer**, retaining before/after evidence. Preserve
+> canonical identity, writer fencing, prior-good retention, quota controls and truthful outcomes.
+> **Acceptance:** the five named provider IDs agree with a fresh observation, with the before/after
+> recorded. **Bounded** — this is not a season-wide sweep.
+>
+> **110B — recurring correction reconciliation. Dispatch position 2, designed and reviewed separately.**
+> Revisit **satisfied** partitions on a cadence, record changed games and failures, and support
+> missed-run recovery. **Extending the initial polling window alone is insufficient** — satisfaction
+> establishes usability, not an immutable final provider revision.
+>
+> **Kept open deliberately: the cadence.** Do not invent one.
+>
+> **Boundaries that must not blur.** **Item 140 is score-observation measurement and is NOT a
+> prerequisite here** — it measures when a SCORE first reads final, which cannot measure when
+> STATISTICS stop changing. **Item 131 is a collection/cost decision**, not correction.
+> **"Repeatable" permits a legitimate observation-timestamp update without duplicate statistics**; it
+> does not mean zero database writes. And this is **stale statistics, not score disagreement** — all
+> **454** comparable finals agreed.
 
 **Reframed 2026-09-02.** First filed about SCORES. The owner's observation — that a provider revising
 "game data" is far more likely to mean box-score stats than final scores — is supported by the one
@@ -4294,6 +4336,20 @@ Move nonessential reads behind the cheap authoritative refusal checks.
 
 ### Item 20 — database waits are unbounded
 
+> **CONFIRMED WITH LIVE CONFIGURATION 2026-09-09 — dispatch position 4.** Evidence: [the 2026-09-08 audit](archive/audits/codebase-audit-existing-plans-2026-09-08.md) → **R4**.
+> The application role reports `statement_timeout` **0**, `lock_timeout` **0**,
+> `idle_in_transaction_session_timeout` **5min**, `idle_session_timeout` **0**, and
+> `pg_db_role_setting` returned no role/database overrides. The pool caps at **three** connections with
+> no connection timeout, and transactional paths take blocking advisory locks. Vercel's default function
+> timeout is **300s** with Fluid enabled, and **the idle-transaction timeout does not protect a running
+> query or a lock wait.**
+>
+> **Acceptance:** connection, lock and statement bounds that fit the invocation budget; verified
+> rollback, client disposal and pool recovery; distinguishable failure reporting. **Raising the pool
+> size is not a substitute.**
+>
+> **The values are DELIBERATELY OPEN.** Do not invent them.
+
 The pool is small and has no `connectionTimeoutMillis`; database `statement_timeout` and
 `lock_timeout` are zero. A caller waiting on the advisory lock is not idle, so the database's idle
 transaction timeout does not protect it. Add checkout, lock, and statement bounds with explicit
@@ -4310,6 +4366,17 @@ adoption. At minimum, prevent already-archived past-season adoption from trigger
 rollover before multi-tenant creation is exposed.
 
 ### Item 47 — public `bypassSuppression` is an invariant and cost bypass
+
+> **CONFIRMED 2026-09-09 — dispatch position 7.** Evidence: [the 2026-09-08 audit](archive/audits/codebase-audit-existing-plans-2026-09-08.md) → **S1**, reproduced by the planning
+> session. `src/app/api/insights/[slug]/route.ts` gates on `isAuthorizedForLeague(slug, req)` — **league
+> access, not administrative authorization** — and then reads `bypassSuppression` from the query string.
+> **On a passwordless league that includes anonymous callers.**
+>
+> **Scoped honestly: this exposes withheld editorial output and extra computation. It is NOT an
+> established arbitrary-write vulnerability.**
+>
+> **Acceptance:** admin-gate the diagnostic option, and keep the public correctness guards independent
+> of the suppression control so removing the bypass cannot weaken them.
 
 `/api/insights/[slug]?bypassSuppression=1` bypasses the output cache and suppression rules. On a
 passwordless league anyone can force full context rebuilds and request claims normally withheld for
@@ -6162,6 +6229,79 @@ one** — if the answer is yes, `TOP_BADGE_LIMIT` is being applied to the wrong 
 
 **Blocker:** none, but it interacts with **169** and **186**; the three are one conversation about what
 the slot holds.
+
+### Item 188 — the provider deadline ends before the response body downloads
+
+**Dispatch position 3.** Evidence: [the 2026-09-08 audit](archive/audits/codebase-audit-existing-plans-2026-09-08.md) → **R1**, independently reproduced by the planning session
+2026-09-08.
+
+`fetchUpstreamResponse` (`src/lib/api/fetchUpstream.ts:279`) returns the response, and its
+`finally { clearTimeout(timeoutHandle) }` fires on that return. `fetchUpstreamJson` (`:409`) then
+awaits `response.json()` **outside the deadline**. The audit's reproduction completed an ~80ms body
+successfully against a **5ms** timeout, elapsed 81ms.
+
+**Body failures also fall outside the fetch retry boundary** and can be given inaccurate parsing
+classifications.
+
+**The ask:** carry the deadline through body consumption, preserve timeout-versus-network
+classification, and cover delayed **and truncated** bodies. **Prior-good data must survive failure.**
+
+**Blocker:** none.
+
+### Item 189 — an unreadable planner settings store reports itself as an operator pause
+
+**Dispatch position 5.** Evidence: [the 2026-09-08 audit](archive/audits/codebase-audit-existing-plans-2026-09-08.md) → **R2**. Confirmed in code; no settings outage was observed.
+
+The planner catches a settings-store failure as `null`, counts every job as held, and records
+`no-op / plan-held`. **Its test explicitly expects that classification**, so the wrong outcome is
+pinned.
+
+**Refusing to mutate schedules under uncertain settings is correct. Reporting that uncertainty as an
+operator-requested pause is not** — it is indistinguishable from a deliberate hold on the surface an
+operator reads.
+
+**The ask:** keep the fail-closed mutation behaviour, emit a **distinct settings-unavailable failure**,
+preserve the previous plan, and expose the recovery action.
+
+**Blocker:** none.
+
+### Item 190 — a failed standings invalidation can leave results stale indefinitely
+
+**Dispatch position 6.** Evidence: [the 2026-09-08 audit](archive/audits/codebase-audit-existing-plans-2026-09-08.md) → **R3**.
+
+Schedule refresh paths swallow lookup and invalidation errors while canonical standings use
+`revalidate: false`. **The code comment promising natural cache turnover does not match tag-only
+caching**, and a later unchanged provider refresh need not retry the missed invalidation.
+
+**Current user-visible impact is UNRESOLVED, not absent.** Fresh canonical rebuilds succeeded for TSC
+and Pruitt (15 and 8 owner rows), but deployed page requests returned the league-password gate, so no
+cached-versus-fresh comparison was completed. **That comparison is one of the immediate validation
+gates, and its result attaches here.**
+
+**The ask:** report post-commit invalidation failure separately from the commit, and support replay
+**without another provider fetch**.
+
+**Blocker:** none. The validation gate informs the design but does not block starting.
+
+### Item 191 — targeted schedule repairs never converge on the whole-season snapshot
+
+**Near-term integrity.** Evidence: [the 2026-09-08 audit](archive/audits/codebase-audit-existing-plans-2026-09-08.md) → **A1**. Confirmed defect; **no current production divergence
+found.**
+
+`loadCachedScheduleItems` (`src/lib/server/canonicalScheduleCache.ts`) returns a populated
+`year-all-all` immediately, and otherwise reads whole regular/postseason partitions — **it never
+reconciles week partitions.** The schedule API supports targeted child writes, so a corrected week can
+stay invisible to whole-season readers and a newer season-type repair can hide beneath an older
+aggregate. Standings and Insights keep the old schedule.
+
+**Why it is not urgent, stated precisely:** the production inventory held exactly seven schedule keys —
+whole-year aggregates for 2018 and 2021-2026 — and **no child entries at all**, so there is currently
+no persisted repair for the defect to hide. **A local probe did reproduce the precedence problem.**
+
+**The ask:** define an authoritative convergence contract for targeted repairs, preserving completeness,
+observation ordering, concurrency protection and dependent-view invalidation.
+
+**Blocker:** none.
 
 ## Hosted deployment runbook
 

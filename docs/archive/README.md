@@ -30,6 +30,7 @@ The prompt ledger ([`docs/prompt-registry.md`](../prompt-registry.md)) and the c
 ## What belongs here
 
 - **`audits/`** — point-in-time audit prompts and their findings (e.g. game-stats endpoint audit, Overview feature audit, the P2C foundation/standings-history audits). Superseded by whatever shipped afterward; retained to explain *why* a change was made.
+  - **[`codebase-audit-existing-plans-2026-09-08.md`](audits/codebase-audit-existing-plans-2026-09-08.md) — CURRENT EVIDENCE, not superseded.** The consolidated codebase and production audit: audited main `4ff239ec`, production `3e2385e6`. **It is the single dated record behind the audit-first dispatch order in [`docs/next-tasks.md`](../next-tasks.md)**, and the queue links here rather than restating it. Unlike the rest of this directory it is live evidence — the work it prioritises has not shipped.
 - **`designs/`** — historical design specs and phase design docs (History redesign spec; the Phase 3–6 design docs). The behavior they describe has either shipped (see `docs/completed-work.md` and the current architecture docs) or been superseded.
 - **`prompts/`** — standalone historical implementation-prompt artifacts (e.g. the Phase 2 Overview-revision prompt).
 - **`governance/`** — the original prompt-governance model (`cfb-engineering-operating-instructions.md`), superseded by `AGENTS.md` (binding rules) + `CLAUDE.md` (Claude workflow); retained for context/section references.

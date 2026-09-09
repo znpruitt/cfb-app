@@ -1577,6 +1577,34 @@ null` through response, receipt target, validator and UI, which renders a third 
   preserving `baseCachedAt`, verifying the production path end to end.
 - Status: Merged via PR #514 (merge commit `dc8b3528`), 2026-08-26.
 
+### DOCS-019-AUDIT-QUEUE-RECONCILIATION-v1
+
+- Purpose: reconcile `docs/next-tasks.md` around the consolidated 2026-09-08 codebase and production
+  audit, establishing one authoritative audit-first execution order and storing the audit's detail once
+  as dated evidence.
+- Scope: documentation only. No repairs, code changes, configuration changes, deployments, or agent
+  dispatches. `docs/next-tasks.md`, `docs/campaigns/vercel-active-cpu.md`, `docs/archive/README.md`, and
+  the new `docs/archive/audits/codebase-audit-existing-plans-2026-09-08.md`.
+- Outcome: one dispatch section, audit-first after work in progress — 110A, 110B, 188, 20, 189, 190, 47
+  — with the validation gates and near-term integrity sequence beneath it, and presentation work
+  preserved with 119 before 134. Item 110 split into recovery (110A) and prevention (110B) under its
+  existing identity. Four new entries: 188 body deadlines, 189 planner failure classification, 190
+  invalidation recovery, 191 targeted schedule convergence. Items 20, 47, 140 and 131 annotated with
+  classification, evidence link and acceptance boundary; 140 and 131 explicitly scope-protected against
+  absorption into 110. Spent lane sequences REMOVED rather than marked superseded, since every entry had
+  shipped and a spent sequence reads as an instruction. The Active CPU campaign's opening corrected —
+  it described the planner as future work for a week after it shipped — with its savings figures kept
+  labelled as projections.
+- Deliberately left open, recorded as decisions rather than omissions: 110B's reconciliation cadence,
+  Item 20's timeout values, historical repair policy, preview isolation, the deployed-standings
+  comparison, and actual-cost validation.
+- Review / verification: two of the audit's code-level claims were independently reproduced by the
+  planning session before the queue was touched — R1's body-outside-deadline in
+  `src/lib/api/fetchUpstream.ts`, and S1's league-not-admin gate in the Insights route. The audit's own
+  release checks are retained as dated evidence; **no new runtime verification is claimed and no repair
+  was performed.** `npm run lint:all` clean, plus an explicit markdownlint pass on the archived audit
+  file and the archive index, which the normal glob excludes.
+
 ### DOCS-018-CURRENT-AUTHORITY-RECONCILIATION-v1
 
 - Purpose: remove completed rollout/migration history and stale provider/auth claims from documents
