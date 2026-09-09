@@ -300,12 +300,25 @@ finals without replacing them. No final-score difference was observed in this co
 > reaching anyone; it belongs to Item 110B, which should decide whether unparsed evidence is worth
 > carrying at all.
 >
-> **The measured before/after understated what the write changed.** The approved table compared
-> NORMALIZED fields and listed 26 deltas; the merge also rewrote roughly thirty raw-only categories
-> it did not show, including Florida State `tackles 0 → 33`. Every delta it listed was backed by a
-> present raw category — checked, not assumed — so nothing in it was false, but a production data
-> change was approved against a table that understated the diff. The tool now compares raw category
-> dictionaries, which is the unit the merge operates on.
+> **The measured before/after understated what DIFFERED — not what the write changed.**
+> **CORRECTED 2026-09-09; the earlier wording of this paragraph contradicted the one above it.** It
+> said the merge "also rewrote roughly thirty raw-only categories… including Florida State
+> `tackles 0 → 33`". **It did not and could not** — `tackles` is `unknown-category`, so the paragraph
+> above is right and Florida State's stored `tackles` is still `"0"`, verified by query at the
+> repair's own fence.
+>
+> What is true is narrower: the approved table compared NORMALIZED fields and listed 26 deltas, while
+> the cache and the observation **differed** in roughly thirty further raw-only categories the table
+> never showed. **The merge changed only the recognized ones.** Every delta the table listed was
+> backed by a present raw category — checked, not assumed — so nothing in it was false, but a
+> production data change was approved against a table that understated how far the two sides
+> diverged. The tool now compares raw category dictionaries, which is the unit the merge operates on.
+>
+> **How the error was made, since it is the kind that survives review:** the implementation lane
+> reported that its table "missed ~30 raw-only changes", meaning differences between cache and
+> observation. The planning session wrote that up as categories the merge had rewritten. **One noun
+> moved and the sentence became a false claim about what a production write did** — caught by the next
+> lane reading C3, not by anything mechanical.
 >
 > **`provider-refresh-status` for this partition is false as of this note — Item 194.** It still
 > reports the 2026-09-08 cron's 203-row success, because the applied script recorded no scoped

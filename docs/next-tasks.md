@@ -3024,7 +3024,30 @@ only if Item 87 slice 4's record join reaches historical seasons.
 > missed-run recovery. **Extending the initial polling window alone is insufficient** — satisfaction
 > establishes usability, not an immutable final provider revision.
 >
-> **Kept open deliberately: the cadence.** Do not invent one.
+> **CADENCE RULED 2026-09-09, on measurement rather than judgement.** The Item 110B lane spent **3
+> billed CFBD calls** across three partitions and reported: **zero recognized-category changes in 203
+> games** at +34h in `2026:1:regular`, and **byte-identical category dictionaries** in two historical
+> partitions after **44 days** and **146 days**. **Revisions arrive fast and settle fast.**
+>
+> **Ruled: one pass per current-season partition at ~kickoff +48h, one cheap second pass at +7 days,
+> then never. Historical seasons are never swept.** ~20 calls per season per pass, ~40 total, one call
+> per run.
+>
+> **What the number rules out, each rejected on evidence:** a recurring season-wide or full-history
+> sweep (146 games byte-identical after months); a perpetual reconciliation with no horizon; a tight
+> hourly or daily-forever cadence (zero new revisions arrived between +25h and +34h); per-game `gameId`
+> fetches (203 calls to find 5, and the 5 cannot be named before fetching); and a pass at ~24h, which
+> the ordinary cron already owns.
+>
+> **The +7d pass is the half the measurement does NOT support, and it is labelled as such.** The
+> interval from ~2 days to ~44 days is unmeasured — both historical partitions were first observed 7.6
+> months after their games, so they prove nothing changed between months 7.6 and 12.4, not between day
+> 2 and month 7.6. **It is insurance, and its own run records must be able to retire it within a
+> season.** Build it so they can.
+>
+> **A full-history sweep is independently impossible, not merely expensive — see Item 196.** 96 of 97
+> partitions are legacy rows that `computeWeeklyGameStatsMerge` classifies `updated` unconditionally,
+> so a sweep would report every game as changed while changing nothing.
 >
 > **Boundaries that must not blur.** **Item 140 is score-observation measurement and is NOT a
 > prerequisite here** — it measures when a SCORE first reads final, which cannot measure when
@@ -6513,6 +6536,30 @@ and it currently says the partition is a day older than it is.
 Use `docs/deployment-runbook.md` for hosted environment setup, activation, production observations,
 and operator checkpoints. Operational observations are not implementation queue items unless they
 surface a defect.
+
+### Item 196 — 96 of 97 game-stat partitions are legacy schema
+
+**Measured 2026-09-09 by the Item 110B lane.** 96 of 97 `game-stats` partitions are **legacy rows** —
+no `fetchStartedAt`, no `schemaVersion`. The single exception is `2025:16:regular`, written
+`2026-07-27` in v2. Everything else was backfilled `2026-04-16`.
+
+**The hazard is in the merge, not the storage.** `computeWeeklyGameStatsMerge`
+(`durableMerge.ts:598-606`) classifies a legacy row **`updated` unconditionally**, with no content
+comparison. **So any sweep over historical partitions would rewrite all 96 and report every game as
+changed while changing nothing** — which makes truthful outcome reporting unachievable on that path,
+independently of the call cost.
+
+**This is why Item 110B does not sweep history**, and it is not a reason to build around it.
+
+**The ask:** decide whether to migrate the 96 to v2. **It is a MIGRATION, not a reconciliation** — the
+lane drew that distinction itself and did not conflate them.
+
+**What it would buy:** upgrading those rows would backfill categories absent at legacy-write time and
+make future comparisons on historical data meaningful rather than uniformly `updated`. **What it
+costs:** ~96 CFBD calls once, plus a merge path that can tell "legacy row, no basis for comparison"
+from "content changed".
+
+**Blocker:** none. **Do not fold it into 110B.**
 
 ## Out of scope for this queue
 
