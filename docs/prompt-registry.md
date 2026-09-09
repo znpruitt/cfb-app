@@ -51,6 +51,36 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-199-ALTERNATE-COLOUR-MAPPING-CLAUDE-v1
+
+- Purpose: Item 199 — the catalog ingest read `record.altColor`, a field CFBD does not send on
+  `GET /teams/fbs`, so every alternate colour was discarded and the durable catalog held 138
+  primaries and zero alternates.
+- Scope: `teamDatabase.ts` (the `CfbdTeamRecord` provider type and its read), the normaliser and
+  admin-sync route suites, and this closeout. The stored `altColor` name, `teamColors.ts`, the
+  fallback rule and the seed script were all out of scope and untouched.
+- Outcome: `record.alternateColor` in, `altColor` stored — a two-line production change. No rendering
+  logic changed and nothing renders differently from this commit: `getSafeScoreboardTeamColor` was
+  already correct (`primary → alt → fallback`) and has zero production consumers, so the payoff is
+  ordering — Item 119 renders the bar and ships correct because this landed first. A resync will move
+  the sync summary's `withAltColorCount` from 0 to 138; running it against production is the owner's
+  action and was deliberately not performed, so the live catalog stays colourless until then.
+- Review / verification: measured before writing — CFBD `GET /teams/fbs` returned HTTP 200 / 138 rows
+  with `alternateColor` on every row and `altColor` on none, and `DATABASE_URL_RO` reproduced the
+  138/138/0 catalog. Executing the resolver over all 138 rows: 13 teams fall back today, 3 after
+  (navy primary + `#ffffff` alternate, rejected as an extreme neutral), so 10 gain a colour including
+  all six pure blacks — the limit Item 198 attributed to OKLCH. Test delta +4 (three normaliser, one
+  end-to-end through the route); four existing provider fixtures retargeted with every assertion
+  preserved, one of which had been asserting the defect. All five verified failing against the
+  reverted fix, each on its own assertion, including `expected null, actual '#FFFFFF'` — the retired
+  name being read. The stored name's immovability was proven by mutation (19 errors across 8 files,
+  4 of them production, versus 4 in 1 file for the provider rename). Both independent reviews of
+  `d8007afe` returned no findings. Against `d8007afe` with a clean worktree: `npx tsc --noEmit` 0,
+  `lint:all` 0, and `npm test` 5,091/5,093 — exactly the standing Item 137 baseline, two
+  writer-convergence failures and nothing else.
+- Status: Implemented on `claude/199-alternate-colour-mapping` (`d8007afe` + this closeout); reviews
+  resolved, merge pending at time of writing.
+
 ### PLATFORM-179-AWAITING-ANCHOR-CODEX-v2
 
 - Purpose: Item 179 — replace the awaiting scoreboard anchor's em dash with the en dash specified by

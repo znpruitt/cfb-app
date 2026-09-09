@@ -14,7 +14,15 @@ export type CfbdTeamRecord = {
   classification?: string | null;
   division?: string | null;
   color?: string | null;
-  altColor?: string | null;
+  /**
+   * CFBD's field name on `GET /teams/fbs` is `alternateColor`, NOT `altColor`.
+   * Measured 2026-09-09 (HTTP 200, 138 rows): every row carries `alternateColor`
+   * and NO row carries an `altColor` key, so the previous declaration resolved
+   * `undefined` on all 138 and the durable catalog held 138 primaries and zero
+   * alternates. This is the PROVIDER name; the name this project persists and
+   * reads stays `altColor` (`TeamCatalogItem`) and must not be renamed.
+   */
+  alternateColor?: string | null;
   logos?: string[] | null;
 };
 
@@ -230,7 +238,7 @@ export function normalizeCfbdTeamRecord(record: CfbdTeamRecord): {
       level: pickLevel(record),
       classification: record.classification?.trim() || record.division?.trim() || null,
       color: normalizeColor(record.color),
-      altColor: normalizeColor(record.altColor),
+      altColor: normalizeColor(record.alternateColor),
       logos: Array.isArray(record.logos)
         ? record.logos.map((logo) => logo?.trim()).filter((logo): logo is string => Boolean(logo))
         : [],
