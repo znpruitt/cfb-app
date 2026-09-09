@@ -2971,6 +2971,25 @@ only if Item 87 slice 4's record join reaches historical seasons.
 > **Split into two items under this identity, because recovery and prevention have different risk
 > profiles and must be reviewed separately:**
 >
+> **110A — bounded recovery. ✅ RECOVERED 2026-09-09** (`PLATFORM-110A-GAME-STAT-RECOVERY-CLAUDE-v1`).
+> Five records re-observed and applied, owner-authorized, verified against the replica: five updated,
+> 202 retained untouched, `written-clean`. One CFBD call.
+>
+> **The acceptance criterion said "the five agree with a fresh observation", and the lane correctly held
+> the merge to ask whether a PARTIAL repair meets it** — raw-only categories are not repairable through
+> the merge authority (Item 193). **Ruled met, and the reason is structural rather than a concession:**
+> `mergeRawEvidence` writes a raw category only where a parser exists, and
+> `RECOGNIZED_GAME_STAT_CATEGORIES` — the list `publicProjection.ts:137` loops over to build the exposed
+> `raw` record — is derived from the same specs. **The categories the merge cannot repair are exactly the
+> categories the projection never exposes.** `tackles`, `sacks`, `qbHurries` and `completionAttempts`
+> are stored and unreachable by Insights or the archive. **Acceptance is met for every field a consumer
+> can read.**
+>
+> **The evidence table the owner approved was incomplete, and that is recorded rather than folded into a
+> caveat.** It listed 26 normalized deltas; the merge also rewrote roughly thirty raw-only categories it
+> never showed. Every delta in it was backed by a present category, so nothing in it was false — **but
+> "not wrong" is not the standard for the sole basis of a production data change.**
+>
 > **110A — bounded recovery. Dispatch position 1.** Re-observe and correct the five measured records
 > **through the existing authorized partition writer**, retaining before/after evidence. Preserve
 > canonical identity, writer fencing, prior-good retention, quota controls and truthful outcomes.
@@ -2978,6 +2997,29 @@ only if Item 87 slice 4's record join reaches historical seasons.
 > recorded. **Bounded** — this is not a season-wide sweep.
 >
 > **110B — recurring correction reconciliation. Dispatch position 2, designed and reviewed separately.**
+>
+> **IMPACT ESTABLISHED 2026-09-09, after a demotion was proposed and withdrawn.** The planning session
+> argued 110B down on the grounds that game stats touch only Insights and archives, that Insights
+> measured about three pageviews a week, and that archives are rebuildable. **Two of those three were
+> wrong, and the third does not carry the weight it was given.**
+>
+> **The insights feed loads with the APP SHELL, not on a tab.** `useInsightsFeed` is called from
+> `CFBScheduleApp.tsx:1069`, so stats-derived content renders wherever the app renders. The three
+> pageviews a week measured the Insights TAB, which is not the population that sees the feed — the same
+> ingests-versus-renders error this project has recorded before.
+>
+> **The claims are ATTRIBUTIONS, not numbers.** `insights/generators/stats.ts` emits named awards —
+> `Ball security leader`, `Defensive takeaway king`, and a `yardsPerWin` ranking — each naming an owner.
+> **`Defensive takeaway king` is computed from turnovers, and turnovers were among the corrupted
+> fields** (Charleston Southern, 1 against 2). A wrong stat does not surface as a wrong number; it
+> surfaces as the wrong member being credited.
+>
+> **Archives being rebuildable is true and remains true** — `saveSeasonArchive` overwrites and
+> `buildSeasonArchive` reads the caches live, so a corrected season can be re-archived for roughly 16
+> CFBD calls. **That bounds the permanence of the damage. It does not reduce the weekly exposure**, which
+> is the part that reaches members.
+>
+> **Owner ruling: keep 110B in the near-term queue.** Closing the gap now is proportionate.
 > Revisit **satisfied** partitions on a cadence, record changed games and failures, and support
 > missed-run recovery. **Extending the initial polling window alone is insufficient** — satisfaction
 > establishes usability, not an immutable final provider revision.
@@ -5925,7 +5967,23 @@ fire on Live, Recent finals or Featured because this item's three sections pass 
 watchlist it fires only through 169's `0-0` scheduled pack, which `DESIGN.md:313` prohibits. **Neither
 item named the other until the audit put them side by side.**
 
-**Blocker:** Item 143 for placement. Supplying the tags at all is independent.
+**SPLIT 2026-09-09, on the implementer's receipt.** They are different slices:
+
+**173a — Featured. WIRING, in flight.** `PrioritizedOverviewItem` already carries `highlightTags`
+(`overview.ts:42`) and Featured already receives prioritized items (`OverviewPanel.tsx:1730`) — it
+simply never passes them to Item 143's `tagSlot`. Its badge also moves off `contextSlot` into the seam.
+Kickoff: `platform-173a-featured-tag-slot-codex-v2.md`.
+
+**173b — Live and Recent finals. SELECTOR SLICE, not yet dispatched.** `selectOverviewGameSections`
+(`overviewGameSections.ts:188`) takes `sectionItems: OverviewGameItem[]` — **unprioritized** — and its
+`routesByKey` (`:196-198`) carries them straight through. The prioritized inputs
+`prioritizeOverviewItems` needs are `highlightSignals` and `rankingsByTeamId`. **`topOwnerNames` is NOT
+one of them — it was retired with Item 162** and survives only in comments and tests
+(`overview.ts:312-314`). **Giving these two sections tags is a signature change on the section builder**, touching ordering and section composition, which is Item
+115's neighbourhood. **It gets its own review.**
+
+**Blocker:** 173a none. **173b interacts with Item 115** — both change what the section builder
+produces, and they should be sequenced rather than run concurrently.
 
 ### Item 174 — DONE: Live rows render no broadcast
 
@@ -6338,7 +6396,94 @@ observation ordering, concurrency protection and dependent-view invalidation.
 
 **Blocker:** none.
 
-## Hosted deployment runbook
+### Item 192 — the operator env file carries a production write credential
+
+**Found 2026-09-09** by the Item 110A lane while discharging its read receipt. **Not found by any
+gate.**
+
+`.env.operator.local` contains **both** `DATABASE_URL_RO` (the documented `audit_ro` rail) **and a
+production read-write `DATABASE_URL`** — `neondb_owner` on the primary endpoint. `CLAUDE.md` described
+that file as the home of the read-only rail and said the rail exists so an agent **never needs the
+production secret set**. **It was set the whole time.** Corrected 2026-09-09.
+
+**The exposure is not hypothetical and not about trust.** `CLAUDE.md` instructs copying
+`.env.operator.local` into every new worktree, so the write credential is present in both
+implementation lanes by instruction. **The guardrail against an unauthorized production write is
+therefore agent compliance rather than an absent credential** — which is what the corrected wording now
+says.
+
+**The ask:** split the write credential out of the operator file, or record why it must stay.
+
+**Do not simply delete it before checking what needs it.** Operator scripts that legitimately write —
+`scripts/init-game-stats-writer-control.ts`, `scripts/transition-game-stats-writer-control.ts` — may
+read from this file today. **Enumerate the consumers first**; a credential removed from under a working
+tool is how the next operator reaches for `vercel env pull`, which is the thing the rail exists to
+prevent.
+
+**Related: Item 110A**, whose production apply is gated on owner approval precisely because the
+mechanism is available without it.
+
+**ESCALATED 2026-09-09.** During 110A's review the lane could not rule out that one of its own review
+agents had written to production — the write turned out to be the owner's own authorized apply, but
+**the investigation was reasonable precisely because nothing made it impossible.** A review agent is
+forked from the lane's context, inherits the worktree, and this repo's own tooling loads
+`.env.operator.local` on startup. **A process nobody dispatched can therefore reach the production
+primary by running an ordinary `npm run` script.** That is the exposure, independent of whether it has
+ever fired.
+
+**Blocker:** none. **Small**, once the consumers are enumerated.
+
+### Item 193 — the merge repairs modelled categories and never raw-only ones
+
+**Found 2026-09-09 by the Item 110A lane, after the recovery applied. Verified against the replica.**
+
+`mergeRawEvidence` overwrites a raw category only when `parseCategoryValue(...).status === 'valid'`.
+Categories with no strict parser — `tackles`, `sacks`, `qbHurries`, `completionAttempts`,
+`tacklesForLoss`, `passesDeflected`, `totalFumbles`, `yardsPerPass`, `yardsPerRushAttempt` — return
+`unknown-category` and are **preserved at their old values**.
+
+**Production now holds half-repaired rows.** `401858212` reads modelled `totalYards: 324` (corrected)
+beside raw `tackles: "0"`, `sacks: "0"`, `completionAttempts: "12-23"` (stale). Both verified.
+
+**Re-applying the same capture cannot fix it.** The stored fence now equals the capture's, so the merge
+returns `unchanged`. **A second observation at a newer fence would be needed, and it would repair only
+the modelled half again.**
+
+**The ask:** decide whether raw-only categories should be repairable, and if so how a merge distinguishes
+"no parser" from "no data".
+
+**This is Item 110B's problem, not a patch on 110A.** A recovery tool that reached past the merge
+authority to write raw fields directly would be exactly the bypass the writer fence exists to prevent.
+
+**PRIORITY LOWERED 2026-09-09 — no consumer can see the affected fields.** `mergeRawEvidence` writes
+where a parser exists; `publicProjection.ts:137` exposes where a parser exists. **Same set.** So the
+unrepairable categories are stored and never projected — unreachable by Insights, the archive, or any
+reader. **This is storage hygiene, not wrong data reaching anyone.** It still belongs with 110B,
+because a recurring reconciliation should decide whether unparsed evidence is worth carrying at all.
+
+**Blocker:** none. Belongs with **110B**.
+
+### Item 194 — `provider-refresh-status` is false after an out-of-band partition write
+
+**Found 2026-09-09, verified.** `game-stats:week:2026:1:regular` reads
+`lastSuccessAt: 2026-09-08T04:45:12.739Z`, `rowsCommitted: 203`, `outcome: succeeded`. **The partition
+changed on 2026-09-09** — five rows, new fence. The status record describes a state that no longer
+exists.
+
+**Cause: the recovery script recorded no status.** The route and the cron both do; the pre-remediation
+script did not. **The remediation on `b04ce2b9` adds scoped recording**, so the next such write is
+honest — but **the currently stored record is stale and nothing will correct it** until the next cron
+success overwrites it.
+
+**Two asks, and they are different.** Correct the stored record now, or accept it will self-correct on
+the next successful game-stats refresh. **And decide whether any writer to a partition must record
+status** — the invariant that would have prevented it, rather than the instance.
+
+**Why it matters beyond tidiness:** System Health and the provider-data panel read this record. **A
+false `lastSuccessAt` is exactly the signal an operator uses to decide whether a partition is current**,
+and it currently says the partition is a day older than it is.
+
+**Blocker:** none. **Small**, but the invariant question is the useful half.
 
 Use `docs/deployment-runbook.md` for hosted environment setup, activation, production observations,
 and operator checkpoints. Operational observations are not implementation queue items unless they

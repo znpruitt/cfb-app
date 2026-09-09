@@ -236,6 +236,48 @@ The fresh comparison covered 2026 regular-season Week 1:
 The three FBS records were already satisfied and outside ordinary polling eligibility at measurement
 time. Their stored observation fence was `2026-09-08T04:45:06.949Z`.
 
+> **CORRECTED 2026-09-09 by the Item 110A lane, against production. Three corrections, and the third
+> changes the mechanism.**
+>
+> **1. The eligibility claim is wrong for `401858212`.** SMU at Florida State kicked off
+> `2026-09-07T23:30Z` and its stored fence is `2026-09-08T04:45:06.949Z` — **kickoff +5h15m, squarely
+> inside the `[3h, 24h)` window** when the stored observation was written. It is outside now; its window
+> closed `2026-09-08T23:30Z`.
+>
+> **2. Per-game eligibility never gated the write at all.** The cron fetches and merges a WHOLE
+> PARTITION once any single game in it is eligible, so `401868170` had its row written while **20 hours
+> past its own window**. The satisfaction and window gates select the PARTITION, not the rows.
+>
+> **3. These records were not left stale since kickoff — they were written by a SUCCESSFUL refresh on
+> the audit day.** `provider-refresh-status` / `game-stats:week:2026:1:regular` records
+> `lastSuccessAt: 2026-09-08T04:45:12.739Z`, `rowsCommitted: 203`, `latestAttemptOutcome: succeeded`,
+> `source: cfbd`. **So the finding is "CFBD keeps revising after satisfaction", not "the cache was never
+> refreshed"** — which strengthens the case for Item 110B rather than weakening it, and is a different
+> problem from the one the original wording describes.
+>
+> **Also recorded so a later row count is not misread:** the partition holds **207 games, not 203**.
+> Four rows carry older fences and were absent from the 09-08 response — `401868288`, `401891332`,
+> `401913104` (all `2026-08-30T06:00:14.291Z`) and `401868284` (`2026-09-06T12:45:00.807Z`).
+> **Prior-good retention is working as specified.**
+>
+> **RECOVERED 2026-09-09. Item 110A applied, owner-authorized, and verified independently of the tool
+> that wrote it.** All five still differed at apply time — 5 requested, 5 differ, 0 identical, 0
+> unreachable — against a replayed fence of `2026-09-09T05:43:43.425Z`. Merge outcome `written-clean`:
+> **5 updated, 202 retained untouched, no conflicts, nothing stale.**
+>
+> **Two of the diffs were far larger than the examples above.** `401868170` moved Georgia Southern's
+> possession time **1439 → 2156 seconds** — 24:00 to 35:56, a twelve-minute error in a sixty-minute
+> game — and Charleston Southern's total yards **35 → 117**, with a turnover gained. **That record was
+> badly wrong, not slightly stale.** `401858212` differed in **seven** fields across both sides, not
+> the three listed.
+>
+> **Verified by the planning session against the read-only replica after the write**, not taken from
+> the script's own report: 12 of 12 spot-checked fields match the intended values, the five fences
+> advanced and no others did, and the partition still holds **207** rows across exactly four distinct
+> fences — the three older ones intact. **The bound held where it was supposed to.**
+>
+> **The cost was one CFBD call**, spent at capture; the apply replayed it and spent none.
+
 The comparison covered normalized fields, not raw-stat dictionaries. A difference establishes that the
 cache disagrees with the newer authoritative observation; it is not independent play-by-play
 adjudication.

@@ -1,6 +1,6 @@
-PROMPT_ID: PLATFORM-173-OVERVIEW-TAGS-CODEX-v1
-PURPOSE: Item 173 — Live, Recent finals and Featured render no tags at all, and Featured's badge sits above the status row. Item 143 built the seam; this converts it.
-SCOPE: `src/components/OverviewPanel.tsx`, `src/lib/selectors/overview.ts` if the tags are not already reaching the sections, and tests. NOT the shared scoreboard's contract. NOT tag SELECTION or precedence.
+PROMPT_ID: PLATFORM-173A-FEATURED-TAG-SLOT-CODEX-v2
+PURPOSE: Item 173a — Featured already HAS its tags and never passes them, and its badge sits above the status row. Wiring only. Live and Recent finals are split out as 173b, a selector slice.
+SCOPE: `src/components/OverviewPanel.tsx` and tests. **NOT `overviewGameSections.ts`** — that is 173b. NOT the shared scoreboard's contract. NOT tag SELECTION or precedence.
 CARRIES: `item-87-INDEX.md` CARRY rows 7 and 8, verbatim in the task block.
 
 Read `AGENTS.md` first, then **`DESIGN.md`**. Nothing in either is restated.
@@ -25,6 +25,42 @@ finals. The mockup carries `Top matchup` eyebrows on Live cards.
 which renders in its own `div` **above** `data-scoreboard-header` — so it adds a line, which is the
 defect the presentation work exists to remove. `reference-game-row.md` §15: **the bowl name is a
 per-game eyebrow, in the tag slot.**
+
+## RULINGS ON YOUR RECEIPT — the gate fired correctly and this slice is now half the size
+
+**Both findings accepted, and the scope error was mine.**
+
+### RULING 1 — split. Featured only. Live and Recent finals become 173b.
+
+**Your characterisation is exactly right and I verified it.** `selectOverviewGameSections`
+(`overviewGameSections.ts:188`) takes `sectionItems: OverviewGameItem[]` — **unprioritized** — and
+`routesByKey` (`:196-198`) carries them through unchanged. `prioritizeOverviewItems` needs
+`highlightSignals` and `rankingsByTeamId`; **`topOwnerNames` is NOT among them, having been retired
+with Item 162** (`overview.ts:312-314`). Giving Live and Recent finals tags is a
+**signature change on the section builder**, touching ordering and section composition, which is Item
+115's neighbourhood.
+
+**My own gate said a selector change is "a selector slice with its own review", so it gets one.** Widening
+this prompt's scope to reach it would be me stepping over a boundary I wrote three hours ago.
+
+**What you build now is Featured, and it is genuinely wiring:** `PrioritizedOverviewItem` carries
+`highlightTags` (`overview.ts:42`), Featured receives prioritized items (`OverviewPanel.tsx:1730`), and
+it simply never passes them to `tagSlot`.
+
+### RULING 2 — the scope line was wrong, and you were right to name it
+
+The prompt named `src/lib/selectors/overview.ts`. **The data is lost in `overviewGameSections.ts`**,
+which was not in scope. Corrected above by removing the file rather than adding it — 173b owns it.
+
+### RULING 3 — the badge's line-height. Your point 4 is the sharpest thing in the receipt.
+
+**Preserving the class string is NOT sufficient**, exactly as you say: the tag-slot wrapper applies
+`leading-none`, so a literal move changes inherited metrics while every class stays identical. **That is
+a silent visual change that would pass a class-name assertion.**
+
+**Assert the rendered metrics, not the classes** — slate colour, border, fill, typography, padding and
+line-height preserved, position changed. If the only way to keep the line-height is an explicit override
+on the badge, that is acceptable and should be commented with this reason.
 
 ## STOP — post a READ RECEIPT before writing any code
 
@@ -55,9 +91,10 @@ you broke** — see `docs/deployment-runbook.md`. Push anyway; the ref matters e
 refused.
 
 <task>
-1. **Give Live, Recent finals and Featured their tags**, through 143's status-row seam.
-2. **Move Featured's badge off `contextSlot` into the tag seam**, unchanged in appearance.
-3. **Report what a member sees per section, before and after.**
+1. **Pass Featured's existing `highlightTags` to `tagSlot`.**
+2. **Move Featured's badge off `contextSlot` into the tag seam**, unchanged in RENDERED APPEARANCE —
+   see RULING 3; the class string is not the test.
+3. **Report what a member sees on Featured, before and after.**
 
 **CARRIED OBLIGATIONS — verbatim:**
 
@@ -83,18 +120,20 @@ one badge family by hue gives a reader nothing to decode.
 **Do NOT touch the watchlist.** Its tags already render; its remaining divergences are Items 160, 186
 and 187.
 
-STOP and report if the three sections never compute tags at all — that is a selector slice with its own
-review, not a wiring change.
+**Do NOT touch `overviewGameSections.ts` or Live/Recent finals.** That is **Item 173b**, filed, and it
+needs the prioritized inputs threaded into `selectOverviewGameSections` — a signature change with its own
+review.
+
+STOP and report if passing Featured's tags requires any selector change at all.
 </gate>
 
 <completeness_contract>
-- **A Live game that qualifies for a tag renders it.** The audit's probe rendered `[]` for a game that
-  was both Top 25 Matchup and Close; that exact case must now render. **Mutation-prove it.**
-- **A final row renders an outcome tag.** `Upset` has never reached Recent finals.
-- **Featured's badge renders IN the status row and is unchanged in appearance.** Assert both halves —
-  position and treatment — or the test proves half the rule.
-- **No section gains a line.** A tagged row and an untagged row are the same height.
-- **The watchlist is byte-identical.** Prove by mutation.
+- **A Featured game carrying a highlight tag renders it in the status row.** Mutation-prove it.
+- **Featured's badge renders IN the status row with its RENDERED METRICS unchanged** — colour, border,
+  fill, typography, padding and line-height. **A class-string assertion does not satisfy this**; the
+  slot's `leading-none` is why.
+- **Featured gains no line.** A badged row and an unbadged row are the same height.
+- **Live, Recent finals and the watchlist are byte-identical.** Prove by mutation.
 - Test count delta reported as a measured number.
 </completeness_contract>
 
@@ -107,7 +146,7 @@ Run each separately and report its own exit code — never chained behind `&&`, 
 </verification>
 
 <output_contract>
-Report: what changed and where; the measured test delta; the mutation proving the Live case now renders;
+Report: what changed and where; the measured test delta; the mutation proving a Featured tag now renders;
 the mutation proving the watchlist is untouched; and anything you deliberately did not do.
 
 **Say what a member sees per section, before and after.**
