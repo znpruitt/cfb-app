@@ -6338,6 +6338,35 @@ observation ordering, concurrency protection and dependent-view invalidation.
 
 **Blocker:** none.
 
+### Item 192 — the operator env file carries a production write credential
+
+**Found 2026-09-09** by the Item 110A lane while discharging its read receipt. **Not found by any
+gate.**
+
+`.env.operator.local` contains **both** `DATABASE_URL_RO` (the documented `audit_ro` rail) **and a
+production read-write `DATABASE_URL`** — `neondb_owner` on the primary endpoint. `CLAUDE.md` described
+that file as the home of the read-only rail and said the rail exists so an agent **never needs the
+production secret set**. **It was set the whole time.** Corrected 2026-09-09.
+
+**The exposure is not hypothetical and not about trust.** `CLAUDE.md` instructs copying
+`.env.operator.local` into every new worktree, so the write credential is present in both
+implementation lanes by instruction. **The guardrail against an unauthorized production write is
+therefore agent compliance rather than an absent credential** — which is what the corrected wording now
+says.
+
+**The ask:** split the write credential out of the operator file, or record why it must stay.
+
+**Do not simply delete it before checking what needs it.** Operator scripts that legitimately write —
+`scripts/init-game-stats-writer-control.ts`, `scripts/transition-game-stats-writer-control.ts` — may
+read from this file today. **Enumerate the consumers first**; a credential removed from under a working
+tool is how the next operator reaches for `vercel env pull`, which is the thing the rail exists to
+prevent.
+
+**Related: Item 110A**, whose production apply is gated on owner approval precisely because the
+mechanism is available without it.
+
+**Blocker:** none. **Small**, once the consumers are enumerated.
+
 ## Hosted deployment runbook
 
 Use `docs/deployment-runbook.md` for hosted environment setup, activation, production observations,

@@ -236,6 +236,34 @@ The fresh comparison covered 2026 regular-season Week 1:
 The three FBS records were already satisfied and outside ordinary polling eligibility at measurement
 time. Their stored observation fence was `2026-09-08T04:45:06.949Z`.
 
+> **CORRECTED 2026-09-09 by the Item 110A lane, against production. Three corrections, and the third
+> changes the mechanism.**
+>
+> **1. The eligibility claim is wrong for `401858212`.** SMU at Florida State kicked off
+> `2026-09-07T23:30Z` and its stored fence is `2026-09-08T04:45:06.949Z` — **kickoff +5h15m, squarely
+> inside the `[3h, 24h)` window** when the stored observation was written. It is outside now; its window
+> closed `2026-09-08T23:30Z`.
+>
+> **2. Per-game eligibility never gated the write at all.** The cron fetches and merges a WHOLE
+> PARTITION once any single game in it is eligible, so `401868170` had its row written while **20 hours
+> past its own window**. The satisfaction and window gates select the PARTITION, not the rows.
+>
+> **3. These records were not left stale since kickoff — they were written by a SUCCESSFUL refresh on
+> the audit day.** `provider-refresh-status` / `game-stats:week:2026:1:regular` records
+> `lastSuccessAt: 2026-09-08T04:45:12.739Z`, `rowsCommitted: 203`, `latestAttemptOutcome: succeeded`,
+> `source: cfbd`. **So the finding is "CFBD keeps revising after satisfaction", not "the cache was never
+> refreshed"** — which strengthens the case for Item 110B rather than weakening it, and is a different
+> problem from the one the original wording describes.
+>
+> **Also recorded so a later row count is not misread:** the partition holds **207 games, not 203**.
+> Four rows carry older fences and were absent from the 09-08 response — `401868288`, `401891332`,
+> `401913104` (all `2026-08-30T06:00:14.291Z`) and `401868284` (`2026-09-06T12:45:00.807Z`).
+> **Prior-good retention is working as specified.**
+>
+> **All five stored values were re-verified on 2026-09-09 and still match the "cached" column above
+> exactly.** Whether they still DIFFER from CFBD is unmeasured — that needs the fetch Item 110A will
+> make.
+
 The comparison covered normalized fields, not raw-stat dictionaries. A difference establishes that the
 cache disagrees with the newer authoritative observation; it is not independent play-by-play
 adjudication.

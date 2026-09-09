@@ -175,9 +175,25 @@ node -e "…new pg.Client({ connectionString: env.DATABASE_URL_RO })…"
 ```
 
 There is deliberately **no `DATABASE_URL` in `.env.local`**: Next.js auto-loads that file, so one
-there would point `npm run dev` at production. The rail exists so an agent never needs the
-production secret set to answer a question about live data — reaching for `vercel env pull` instead
+there would point `npm run dev` at production. The rail exists so an agent does not need the
+production secret to answer a question about live data — reaching for `vercel env pull` instead
 puts every credential on disk to do a job a `SELECT` already does.
+
+> **CORRECTED 2026-09-09, and the correction matters more than the wording.** This section used to say
+> the rail exists so an agent **never needs the production secret set**. **That is not the state of the
+> machine: `.env.operator.local` contains BOTH `DATABASE_URL_RO` and a production read-WRITE
+> `DATABASE_URL`** (`neondb_owner` on the primary endpoint). Found by the Item 110A lane while
+> discharging a receipt, not by any gate.
+>
+> **Two consequences worth stating plainly.** The write credential is present in every worktree,
+> because the setup instruction above tells you to copy that file into each new one. And the guardrail
+> against an unauthorized production write is therefore **agent compliance, not an absent credential** —
+> which is a materially weaker guarantee than the sentence implied, and the reason it is being corrected
+> rather than softened.
+>
+> **The rail still stands and is still the rule: read through `DATABASE_URL_RO`.** Never open a
+> connection with `DATABASE_URL` from a worktree. **Splitting the write credential out of this file is
+> filed as Item 192.**
 
 `docs/deployment-runbook.md` is canonical for the contract, the autosuspend behaviour, and the
 privilege probe. The application must never read through this rail; `src/` contains no reference to
