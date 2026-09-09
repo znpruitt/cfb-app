@@ -6046,6 +6046,71 @@ pointed away from its cause.
 **Blocker:** none. **Investigation, not a fix** — it may end in a recorded non-reproduction, which is a
 complete answer.
 
+### Item 185 — two web fonts are downloaded on every page and neither is used
+
+**Found during the 174-180 review, ranked first by the implementer, and it is bigger than the header
+question that surfaced it.**
+
+`app/layout.tsx:3` imports `Geist` and `Geist_Mono` from `next/font/google`; `:10` and `:15` define
+`--font-geist-sans` and `--font-geist-mono`; `:31` applies both variable classes to `<body>`.
+**`--font-geist-sans` is consumed by nothing** — its only occurrence in `src/` is its own definition. **Geist Mono is dead too:** the `font-mono` classes in the admin pages resolve to Tailwind's DEFAULT mono stack, because nothing maps `--font-geist-mono` to it and `tailwind.config.ts` is inert (Item 159).
+`globals.css:48-61` sets the body to a pure system stack: `ui-sans-serif, system-ui, -apple-system, …`
+
+**So every page load fetches two web fonts that render nothing.** Live, pre-existing, app-wide.
+
+**It is also why Item 178's `font-[650]` cannot render as specified.** System families are static
+400/700, and CSS font matching for a target above 500 searches weights ≥ target ascending — so 650
+resolves to **700**. A variable family expresses 650; the one that is loaded is never applied.
+
+**The ask:** either apply Geist, or stop downloading it. **Both are defensible and they are different
+decisions** — one is a design choice about the app's typeface, the other is removing dead weight.
+
+**Do not fold this into Item 178.** 178 built what `DESIGN.md` specifies and proved it compiles; the
+ruling was build-it-not-retract-it. **Whether the platform can express 650 is a property of the font
+stack and affects every weight token in the app** — the previous `font-medium` rendered 400 on those
+same platforms, not 500. Fixing the stack fixes the class of problem; changing 650 to 600 hides one
+instance of it.
+
+**Blocker:** none. Related: **178**, whose rendered weight depends on the answer.
+
+### Item 186 — the watchlist reason row has no overflow valve
+
+**Raised by both reviewers, in two separate rounds, with the remedy blocked both times.** That
+rhyming is the reason it is filed rather than patched.
+
+After Item 175 the reason label is a pill, so a card carrying a reason **and** a tag holds two
+`shrink-0` pills in a row that is `overflow-hidden whitespace-nowrap`. At narrow widths it **clips
+rather than ellipsizing**. Both reviewers measured it latent — roughly 270px of chips in a ~360px
+column — so it is not currently reachable.
+
+**The suggested remedy is mechanically blocked, and deliberately.** Adding `min-w-0` to the label turns
+`eyebrowTreatment.test.tsx` red on _the watchlist reason label renders the same treatment as a tag
+beside it_. `LAYOUT_ONLY_CLASSES` is `{inline-flex, hidden, sm:inline-flex}` and its docblock says
+_"exempting a class is how an equality test stops testing equality; keep this set to display alone."_
+**The implementer tried the fix rather than arguing about it, and reverted.**
+
+**This belongs to whoever owns the tag slot's overflow behaviour — Item 143.** The contract that blocks
+the local fix is the same contract that makes the treatment uniform; the valve has to live where the
+slot is defined, not at one caller.
+
+**Blocker:** Item 143.
+
+### Item 187 — the third chip is uncounted
+
+**Raised in review of the 174-180 branch.** A watchlist card can carry a reason label **and** two tags
+under `TOP_BADGE_LIMIT = 2` — three chips in a slot whose cap counts two, because the reason label is
+not a tag and does not pass through `prioritizeGameTags`.
+
+**Reachable only through Item 169's unguarded `Close`** in practice, and **169's own production
+measurement bounds that: zero FBS instances across seven seasons**; the six real cases were D-II
+cancellations left `scheduled` at `0-0`.
+
+**The ask:** decide whether the cap counts the reason label. **It is a cap question, not a rendering
+one** — if the answer is yes, `TOP_BADGE_LIMIT` is being applied to the wrong population.
+
+**Blocker:** none, but it interacts with **169** and **186**; the three are one conversation about what
+the slot holds.
+
 ## Hosted deployment runbook
 
 Use `docs/deployment-runbook.md` for hosted environment setup, activation, production observations,
