@@ -475,6 +475,8 @@ roots, call patterns, or framework behavior outside the acceptance contract.
 
 **Verification binds to an exact commit.** Report the SHA the gates ran against, and confirm the worktree was clean and `HEAD` unchanged at that moment. Results never carry forward across a commit: after any change to the tree, re-run every required gate against the new commit before reporting.
 
+**NEVER PASS A DOM NODE TO `assert.equal`/`assert.deepEqual`. THE TEST WILL HANG, NOT FAIL.** Found 2026-09-09 by the Item 204 lane, and found only because it ran the mutation. `assert.equal(queryByText(...), null)` against a jsdom element makes node's assertion diff `util.inspect` the node, which walks `ownerDocument → defaultView → window` and does not return; the test consumes the full timeout instead of failing. **A 30-second timeout reads as flake, so the caught regression is reported as infrastructure noise and dismissed.** Compare a boolean or a string — `assert.equal(queryByText(...) === null, true)` — so the failure names its own assertion in seconds. This is a general trap in every component test in this repo, not a property of that one file.
+
 **A regression test must be verified failing against its own pre-fix code**, reverting one fix at a time. A multi-fix revert that breaks compilation fails the whole file and proves nothing. State explicitly that this was done. A test whose stated discriminating property is false is worse than no test.
 
 **A negative assertion requires a proven observer.** A test claiming that nothing was written,
