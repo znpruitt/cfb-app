@@ -17,6 +17,7 @@ import {
   type PollingTarget,
 } from '@/lib/gameStats/pollingTarget';
 import {
+  reachedMergeVerdict,
   resolveReconciliationRun,
   type ReconciliationReport,
   type ReconciliationRun,
@@ -30,7 +31,7 @@ import {
 } from '@/lib/gameStats/cronExecutionLog';
 import { getAppState } from '@/lib/server/appStateStore';
 import { isAutoRefreshAllowed } from '@/lib/server/providerRefreshSettings';
-import { weekPartitionScope } from '@/lib/providerRefreshScope';
+import { weekPartitionScope, weekReconciliationScope } from '@/lib/providerRefreshScope';
 import {
   beginProviderRefreshAttempt,
   nextProviderCommitSeq,
@@ -316,7 +317,17 @@ export async function GET(req: Request) {
     // Partition fields are known only now that an exact target is resolved.
     exec.week = week;
     exec.seasonType = seasonType;
-    const weekScope = weekPartitionScope(year, week, seasonType);
+    // PLATFORM-110B: a correction pass records under its OWN scope kind. It
+    // targets a partition whose window closed weeks ago, so recorded under
+    // `week-partition` its attempt would be the dataset's most RECENT and would
+    // report game-stats' health from the least current data it touches — a
+    // week-1 correction failing in week 10 raising "Game stats refresh failed"
+    // for a healthy dataset. `DATASET_ACTIVITY_SCOPE_KINDS` already gates
+    // eligibility by kind, and game-stats does not own this one, so the record
+    // is written and readable but never `latestScopedActivity`.
+    const weekScope = reconciliation
+      ? weekReconciliationScope(year, week, seasonType)
+      : weekPartitionScope(year, week, seasonType);
     const attempt = await beginProviderRefreshAttempt('game-stats', weekScope, {
       startedAt: new Date().toISOString(),
     });
@@ -399,6 +410,39 @@ export async function GET(req: Request) {
       );
     }
 
+    // PLATFORM-110B — RESERVE BEFORE THE SPEND. The reconciliation attempt is
+    // committed durably before the provider request, so a store that cannot
+    // record cannot spend. Appending afterwards meant a persistent write failure
+    // (or a full season row) recorded nothing, left the pass due, and billed one
+    // CFBD call on every subsequent run forever. Placed AFTER the quota and
+    // credential gates so a refusal there burns no attempt, and it also enforces
+    // the attempt cap inside the ledger transaction, where two overlapping
+    // invocations cannot each pass a check made against their own snapshot.
+    if (reconciliation && !(await reconciliation.reserve())) {
+      const reservation = reconciliationReport?.reservation ?? 'write-failed';
+      await recordProviderRefreshFailure('game-stats', weekScope, {
+        attempt,
+        error: `correction reconciliation could not reserve an attempt: ${reservation}`,
+        code: `game-stats-reconciliation-${reservation}`,
+        status: 503,
+      });
+      exec.result = 'failure';
+      exec.reason = 'reconciliation-unreserved';
+      return NextResponse.json(
+        {
+          year,
+          week,
+          seasonType,
+          outcome: 'failure',
+          reason: 'reconciliation-unreserved',
+          committedGames: 0,
+          ...(reconciliationReport ? { reconciliation: reconciliationReport } : {}),
+          durable: await projectDurableBlock(resolution.slateResult, year, week, seasonType),
+        } satisfies CronResult & { durable: unknown },
+        { status: 503 }
+      );
+    }
+
     // Observation fence before provider access; at most ONE partition fetch. The
     // provider transport and the downstream ingestion/interpretation are fenced
     // into SEPARATE try blocks so their failures classify distinctly — a
@@ -429,11 +473,11 @@ export async function GET(req: Request) {
       // Only the stable generic reason is logged — never the thrown message.
       exec.result = 'failure';
       exec.reason = 'provider-fetch-failed';
-      // A request WAS issued, so the attempt is recorded — but it never reached
-      // ingestion, so the pass stays OPEN and a later run retries it, bounded by
+      // The reserved attempt is settled as a failure that reached NO merge
+      // verdict, so the pass stays OPEN and a later run retries it — bounded by
       // the attempt cap rather than left to refetch forever.
-      await reconciliation?.record({
-        reachedIngestion: false,
+      await reconciliation?.settle({
+        reachedVerdict: false,
         outcome: 'failure',
         reason: 'provider-fetch-failed',
         corrected: 0,
@@ -509,12 +553,12 @@ export async function GET(req: Request) {
       exec.reason = interpretation.reason;
       exec.committedGames = committedGames;
 
-      // The provider answered and the merge authority ruled, whatever it ruled —
-      // asking again would spend a call to be told the same thing, so THIS is
-      // what closes the pass. Recorded AFTER the merge, never before: a crash in
-      // between must cost one repeated call, never a skipped correction.
-      await reconciliation?.record({
-        reachedIngestion: true,
+      // Closure is keyed on whether the merge authority actually COMPARED the
+      // partition — never on "ingestion returned a typed result", which is also
+      // true of an `unavailable` refusal that read nothing. A writer-control
+      // transition must not consume the season's corrections.
+      await reconciliation?.settle({
+        reachedVerdict: reachedMergeVerdict(result),
         outcome: interpretation.kind,
         reason: interpretation.reason,
         corrected: correctedGames,
@@ -560,11 +604,11 @@ export async function GET(req: Request) {
       // Only the stable generic reason is logged — never the thrown message.
       exec.result = 'failure';
       exec.reason = 'ingestion-failed';
-      // The interpreter never ruled, so this does NOT close the pass — an
+      // The merge never returned a verdict, so this does NOT close the pass — an
       // unexpected ingestion defect must not permanently consume a correction.
       // The attempt cap is what stops it repeating without end.
-      await reconciliation?.record({
-        reachedIngestion: false,
+      await reconciliation?.settle({
+        reachedVerdict: false,
         outcome: 'failure',
         reason: 'ingestion-failed',
         corrected: 0,
@@ -613,6 +657,7 @@ export async function GET(req: Request) {
           year: exec.year,
           week: exec.week,
           seasonType: exec.seasonType,
+          mode: exec.mode,
         },
       });
     }

@@ -250,7 +250,14 @@ test('all job target shapes persist with exact allowlisted target keys', async (
       keys: ['kind', 'mode', 'targetGames', 'targetPartitions', 'year'].sort(),
     },
     { job: 'team-records', kind: 'team-records', keys: ['kind', 'year'].sort() },
-    { job: 'game-stats', kind: 'game-stats', keys: ['kind', 'seasonType', 'week', 'year'].sort() },
+    {
+      job: 'game-stats',
+      kind: 'game-stats',
+      // PLATFORM-110B — `mode` names which job ran (poll vs correction pass) and
+      // is present after a parse even when a legacy receipt omits it, because the
+      // rebuild normalizes it to null. Same shape as `live-scores` above.
+      keys: ['kind', 'mode', 'seasonType', 'week', 'year'].sort(),
+    },
     { job: 'odds', kind: 'odds', keys: ['cadence', 'eligibleGames', 'kind', 'year'].sort() },
     {
       job: 'schedule-refresh',

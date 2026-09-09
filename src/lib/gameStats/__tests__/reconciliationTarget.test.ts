@@ -6,6 +6,7 @@ import { POLLING_MAX_KICKOFF_AGE_MS, listKickoffWindowPartitions } from '../poll
 import {
   RECONCILIATION_MAX_ATTEMPTS,
   RECONCILIATION_PASS_OFFSETS_MS,
+  isReconcilablePartitionState,
   listReconciliationCandidates,
   reconciliationPartitionKey,
   reconciliationPassKey,
@@ -128,7 +129,7 @@ test('the anchor is the LATEST stat-applicable kickoff, never the earliest', () 
 test('p2 falls due at +7d, and only after that — p1 due-ness alone never selects it', () => {
   const atFourDays = slate([{ id: 1, agoHours: 96 }]);
   const closedP1 = passStateOf([
-    { week: 3, pass: 'p1', state: { attempts: 1, reachedIngestion: true } },
+    { week: 3, pass: 'p1', state: { attempts: 1, reachedVerdict: true } },
   ]);
   assert.equal(
     selectReconciliationTarget({ slate: atFourDays, now: NOW, passState: closedP1 }),
@@ -159,9 +160,7 @@ test('both passes due selects p1 first; after p1 closes the same slate yields p2
   const second = selectReconciliationTarget({
     slate: old,
     now: NOW,
-    passState: passStateOf([
-      { week: 3, pass: 'p1', state: { attempts: 1, reachedIngestion: true } },
-    ]),
+    passState: passStateOf([{ week: 3, pass: 'p1', state: { attempts: 1, reachedVerdict: true } }]),
   });
   assert.equal(second?.pass, 'p2');
 
@@ -169,8 +168,8 @@ test('both passes due selects p1 first; after p1 closes the same slate yields p2
     slate: old,
     now: NOW,
     passState: passStateOf([
-      { week: 3, pass: 'p1', state: { attempts: 1, reachedIngestion: true } },
-      { week: 3, pass: 'p2', state: { attempts: 1, reachedIngestion: true } },
+      { week: 3, pass: 'p1', state: { attempts: 1, reachedVerdict: true } },
+      { week: 3, pass: 'p2', state: { attempts: 1, reachedVerdict: true } },
     ]),
   });
   assert.equal(third, null, 'then never again — the horizon terminates');
@@ -236,9 +235,7 @@ test('a closed pass is never reselected, whatever it concluded', () => {
     const candidates = listReconciliationCandidates({
       slate: old,
       now: NOW,
-      passState: passStateOf([
-        { week: 3, pass: 'p1', state: { attempts, reachedIngestion: true } },
-      ]),
+      passState: passStateOf([{ week: 3, pass: 'p1', state: { attempts, reachedVerdict: true } }]),
     });
     assert.deepEqual(
       candidates.map((c) => c.pass),
@@ -254,9 +251,7 @@ test('an open pass stays due below the attempt cap and is abandoned at it', () =
     const candidates = listReconciliationCandidates({
       slate: old,
       now: NOW,
-      passState: passStateOf([
-        { week: 3, pass: 'p1', state: { attempts, reachedIngestion: false } },
-      ]),
+      passState: passStateOf([{ week: 3, pass: 'p1', state: { attempts, reachedVerdict: false } }]),
     });
     assert.equal(candidates[0]?.pass, 'p1', `p1 is still due after ${attempts} failed attempts`);
   }
@@ -268,7 +263,7 @@ test('an open pass stays due below the attempt cap and is abandoned at it', () =
       {
         week: 3,
         pass: 'p1',
-        state: { attempts: RECONCILIATION_MAX_ATTEMPTS, reachedIngestion: false },
+        state: { attempts: RECONCILIATION_MAX_ATTEMPTS, reachedVerdict: false },
       },
     ]),
   });
@@ -401,4 +396,18 @@ test('no reconciliation candidate is ever a kickoff-window partition — swept o
       'the disjointness would be vacuous'
   );
   assert.ok(candidatesSeen === checked);
+});
+
+// === The satisfaction gate (owner ruling, 2026-09-09) ===
+
+test('ONLY complete coverage is reconcilable — every other state is a collection gap', () => {
+  assert.equal(isReconcilablePartitionState('complete'), true);
+  for (const state of ['partial', 'absent', 'blocked', 'manual-only', 'not-applicable'] as const) {
+    assert.equal(
+      isReconcilablePartitionState(state),
+      false,
+      `${state} must not be reconciled — filling it would MASK the collection gap ` +
+        'rather than surface it, which is the failure this audit was spent on'
+    );
+  }
 });

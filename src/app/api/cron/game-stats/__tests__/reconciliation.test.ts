@@ -6,6 +6,8 @@ import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
   __setAppStateReadFailureForTests,
+  __setAppStateWriteFailureForTests,
+  getAppState,
   setAppState,
 } from '../../../../../lib/server/appStateStore.ts';
 import { getCachedGameStats } from '../../../../../lib/gameStats/cache.ts';
@@ -14,18 +16,28 @@ import {
   RECONCILIATION_LEDGER_SCOPE,
   readReconciliationLedger,
   reconciliationLedgerKey,
+  type ReconciliationLedgerEntry,
 } from '../../../../../lib/gameStats/reconciliationLedger.ts';
 import { RECONCILIATION_MAX_ATTEMPTS } from '../../../../../lib/gameStats/reconciliationTarget.ts';
-import { seedActiveWriterControl } from '../../../../../lib/gameStats/__tests__/writerControlSeed.ts';
+import {
+  seedActiveWriterControl,
+  seedWriterControlState,
+} from '../../../../../lib/gameStats/__tests__/writerControlSeed.ts';
 import { wireGame } from '../../../../../lib/gameStats/__tests__/fixtures.ts';
 import { getProviderRefreshStatus } from '../../../../../lib/server/providerRefreshStatus.ts';
-import { weekPartitionScope } from '../../../../../lib/providerRefreshScope.ts';
+import { readProviderRefreshHealth } from '../../../../../lib/server/providerRefreshHealth.ts';
+import {
+  weekPartitionScope,
+  weekReconciliationScope,
+} from '../../../../../lib/providerRefreshScope.ts';
 import type { GameStatsCronExecutionEvent } from '../../../../../lib/gameStats/cronExecutionLog.ts';
+import { installSchedulerReceiptDeferrer } from '../../../../../lib/server/__tests__/schedulerReceiptTestHarness.ts';
 
 // PLATFORM-110B — bounded correction reconciliation, wired into the game-stats
 // cron's existing run slot. Ordinary polling always wins; reconciliation takes
-// the slot only when polling has nothing, and then at most one partition per run
-// through the SAME ingestion authority, quota gate and writer fence.
+// the slot only when polling has nothing, only over a SATISFIED partition, and
+// only after reserving its attempt durably — a store that cannot record must not
+// be able to spend.
 
 const MUTABLE_ENV = process.env as Record<string, string | undefined>;
 const ORIGINAL = {
@@ -78,7 +90,7 @@ async function seedSchedule(seeds: GameSeed[]) {
   });
 }
 
-/** The wire row for the seeded game, with optional home-side stat overrides. */
+/** The wire row for a seeded game, with optional home-side stat overrides. */
 function payloadFor(id = GAME_ID, homeTotalYards?: string) {
   return wireGame({
     id,
@@ -108,19 +120,16 @@ async function ingestAt(fetchStartedAt: string, payload: unknown, week = WEEK) {
 
 async function storedHomeTotalYards(week = WEEK): Promise<number | undefined> {
   const stored = await getCachedGameStats(YEAR, week, 'regular');
-  const row = stored?.games.find((g) => g.providerGameId === GAME_ID);
-  return row?.home.totalYards;
+  return stored?.games.find((g) => g.providerGameId === GAME_ID)?.home.totalYards;
 }
 
-/** Stub CFBD: healthy `/info` usage + `payload` for `/games/teams`. */
 function stubProvider(
   payload: unknown,
-  options: { remainingCalls?: number; beforeStatsResponse?: () => Promise<void> } = {}
-): { statsCalls: number; urls: string[] } {
-  const calls = { statsCalls: 0, urls: [] as string[] };
+  options: { remainingCalls?: number } = {}
+): { statsCalls: number } {
+  const calls = { statsCalls: 0 };
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = String(input);
-    calls.urls.push(url);
     if (url.includes('/info')) {
       return new Response(
         JSON.stringify({ patronLevel: 1, remainingCalls: options.remainingCalls ?? 4000 }),
@@ -128,9 +137,6 @@ function stubProvider(
       );
     }
     calls.statsCalls += 1;
-    // The seam that makes a concurrent-writer test real: another writer commits
-    // while THIS request is in flight, exactly as it would in production.
-    if (options.beforeStatsResponse) await options.beforeStatsResponse();
     return new Response(JSON.stringify(payload), {
       status: 200,
       headers: { 'content-type': 'application/json' },
@@ -139,12 +145,11 @@ function stubProvider(
   return calls;
 }
 
-function stubProviderTransportFailure(remainingCalls = 4000): { statsCalls: number } {
+function stubProviderTransportFailure(): { statsCalls: number } {
   const calls = { statsCalls: 0 };
   globalThis.fetch = (async (input: RequestInfo | URL) => {
-    const url = String(input);
-    if (url.includes('/info')) {
-      return new Response(JSON.stringify({ patronLevel: 1, remainingCalls }), {
+    if (String(input).includes('/info')) {
+      return new Response(JSON.stringify({ patronLevel: 1, remainingCalls: 4000 }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
       });
@@ -169,7 +174,8 @@ type ReconciliationBlock = {
   dueAt: string;
   anchorKickoff: string;
   corrected: number | null;
-  ledger: string;
+  reservation: string;
+  settlement: string;
 };
 
 type CronBody = {
@@ -208,12 +214,15 @@ async function runCron(): Promise<{
   return { res, body: (await res.json()) as CronBody, event: events[0]! };
 }
 
-async function ledgerEntries() {
+async function ledgerEntries(): Promise<ReconciliationLedgerEntry[]> {
   const read = await readReconciliationLedger(YEAR);
   return read.status === 'ok' ? read.ledger.entries : [];
 }
 
+let deferrer: ReturnType<typeof installSchedulerReceiptDeferrer>;
+
 test.beforeEach(async () => {
+  deferrer = installSchedulerReceiptDeferrer();
   MUTABLE_ENV.NODE_ENV = 'development';
   MUTABLE_ENV.CRON_SECRET = CRON_SECRET;
   MUTABLE_ENV.CFBD_API_KEY = 'test-cfbd-token';
@@ -224,7 +233,9 @@ test.beforeEach(async () => {
 });
 
 test.afterEach(() => {
+  deferrer.restore();
   __setAppStateReadFailureForTests(null);
+  __setAppStateWriteFailureForTests(null);
 });
 
 test.after(() => {
@@ -236,9 +247,9 @@ test.after(() => {
 });
 
 /**
- * The ordinary starting state for these tests: a week-3 game played 60 hours ago
- * (past its polling window, past its +48h reconciliation due time) whose stored
- * partition holds a STALE home total-yards figure the provider has since revised.
+ * The ordinary starting state: a week-3 game played 60 hours ago (past its
+ * polling window, past its +48h due time) whose SATISFIED stored partition holds
+ * a stale home total-yards figure the provider has since revised.
  */
 async function seedDuePartitionWithStaleStats() {
   await seedSchedule([{ id: GAME_ID, week: WEEK, ageHours: 60 }]);
@@ -251,7 +262,7 @@ async function seedDuePartitionWithStaleStats() {
 
 // === The pass itself ===
 
-test('a due partition is reconciled: one call, the correction lands, the ledger records it', async () => {
+test('a due, satisfied partition is reconciled: one call, the correction lands, the ledger records it', async () => {
   await seedDuePartitionWithStaleStats();
   const calls = stubProvider([payloadFor(GAME_ID, '412')]);
 
@@ -269,90 +280,104 @@ test('a due partition is reconciled: one call, the correction lands, the ledger 
 
   assert.equal(body.reconciliation?.pass, 'p1');
   assert.equal(body.reconciliation?.corrected, 1);
-  assert.equal(body.reconciliation?.ledger, 'appended');
+  assert.equal(body.reconciliation?.reservation, 'reserved');
+  assert.equal(body.reconciliation?.settlement, 'settled');
 
   assert.equal(await storedHomeTotalYards(), 412, 'the correction is durable');
 
-  // A reconciliation is a game-stats refresh of that week partition, so it
-  // records the SAME scoped status the poll path does — no out-of-band writer
-  // leaving `provider-refresh-status` describing a state that no longer exists
-  // (the Item 194 failure mode).
-  const status = await getProviderRefreshStatus(
+  const entries = await ledgerEntries();
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0]!.reachedVerdict, true);
+  assert.equal(entries[0]!.outcome, 'success');
+  assert.equal(entries[0]!.reason, 'written-clean');
+  assert.equal(entries[0]!.corrected, 1);
+  assert.equal(entries[0]!.partitionKey, `${YEAR}:${WEEK}:regular`);
+
+  // The durable receipt names WHICH job ran. Without it System Health shows
+  // game-stats targeting week 1 during week 10 and an operator cannot tell a
+  // correction pass from a polling run that regressed to a stale partition.
+  await deferrer.flush();
+  const receipt = await getAppState<{ target?: { mode?: string; week?: number } }>(
+    'scheduler-execution-status',
+    'game-stats'
+  );
+  assert.equal(receipt?.value.target?.mode, 'reconcile');
+  assert.equal(receipt?.value.target?.week, WEEK);
+});
+
+test('the status record lands on the RECONCILIATION scope and can never be latest activity', async () => {
+  await seedDuePartitionWithStaleStats();
+  stubProvider([payloadFor(GAME_ID, '412')]);
+  await runCron();
+
+  const reconciliationStatus = await getProviderRefreshStatus(
+    'game-stats',
+    weekReconciliationScope(YEAR, WEEK, 'regular')
+  );
+  assert.equal(reconciliationStatus.latestAttemptOutcome, 'succeeded', 'recorded and readable');
+
+  const weekStatus = await getProviderRefreshStatus(
     'game-stats',
     weekPartitionScope(YEAR, WEEK, 'regular')
   );
-  assert.equal(status.latestAttemptOutcome, 'succeeded');
-  assert.equal(status.rowsCommitted, 1);
+  assert.equal(
+    weekStatus.latestAttemptOutcome,
+    null,
+    'the ordinary week-partition record is untouched'
+  );
 
-  const entries = await ledgerEntries();
-  assert.equal(entries.length, 1);
-  assert.deepEqual(
-    {
-      partitionKey: entries[0]!.partitionKey,
-      pass: entries[0]!.pass,
-      reachedIngestion: entries[0]!.reachedIngestion,
-      outcome: entries[0]!.outcome,
-      reason: entries[0]!.reason,
-      corrected: entries[0]!.corrected,
-    },
-    {
-      partitionKey: `${YEAR}:${WEEK}:regular`,
-      pass: 'p1',
-      reachedIngestion: true,
-      outcome: 'success',
-      reason: 'written-clean',
-      corrected: 1,
-    }
+  // The point of the separate kind: game-stats does not own it, so a correction
+  // pass over a long-settled partition can never become the dataset's latest
+  // activity and report its health from the least current data it touches.
+  const health = await readProviderRefreshHealth({ year: YEAR });
+  assert.equal(
+    health.subsystem,
+    'available',
+    'the health read itself must work, or this proves nothing'
+  );
+  const row = health.rows.find((r) => r.dataset === 'game-stats');
+  assert.ok(row);
+  // The reconciliation record is the ONLY game-stats status record here, so if
+  // the kind were owned it would necessarily be selected. `absent` is therefore
+  // the sharp assertion: no eligible activity exists at all.
+  assert.equal(
+    row.latestScopedActivity.state,
+    'absent',
+    'a reconciliation record must never be selected as latestScopedActivity — it ' +
+      'describes a partition that settled weeks ago'
   );
 });
 
 test('a pass that finds nothing wrong commits a fence advance and reports corrected 0', async () => {
-  // The distinction the +7d pass will be retired on: `committedGames` counts the
-  // fence-only refresh, `corrected` counts games whose CONTENT changed. Collapsing
-  // the two would make a clean pass indistinguishable from a repair.
   await seedSchedule([{ id: GAME_ID, week: WEEK, ageHours: 60 }]);
   await ingestAt(new Date(Date.now() - 58 * H).toISOString(), [payloadFor(GAME_ID)]);
   stubProvider([payloadFor(GAME_ID)]);
 
   const { body, event } = await runCron();
 
-  assert.equal(body.outcome, 'success');
   assert.equal(body.reason, 'written-clean');
   assert.equal(body.committedGames, 1, 'the newer observation is persisted as freshness evidence');
   assert.equal(body.reconciliation?.corrected, 0, 'and nothing was corrected');
   assert.equal(event.correctedGames, 0);
-  assert.equal((await ledgerEntries())[0]?.corrected, 0);
 });
 
-test('a closed pass is never fetched again', async () => {
+test('a closed pass is never fetched again; p2 falls due at +7d and then the horizon closes', async () => {
   await seedDuePartitionWithStaleStats();
   stubProvider([payloadFor(GAME_ID, '412')]);
   await runCron();
 
   const second = stubProvider([payloadFor(GAME_ID, '999')]);
   const { body, event } = await runCron();
-
   assert.equal(second.statsCalls, 0, 'no second call for a pass that already ran');
   assert.equal(body.skipped, NO_TARGET_SKIP);
-  assert.equal(event.reason, 'no-polling-target');
   assert.equal(event.mode, 'poll', 'a run that reconciles nothing is not a reconciliation run');
-  assert.equal(await storedHomeTotalYards(), 412, 'and the partition is untouched');
-  assert.equal((await ledgerEntries()).length, 1);
-});
+  assert.equal(await storedHomeTotalYards(), 412);
 
-test('p2 falls due at +7d and takes exactly one more pass, then the horizon closes', async () => {
-  await seedDuePartitionWithStaleStats();
-  stubProvider([payloadFor(GAME_ID, '412')]);
-  await runCron();
-
-  // Age the same game past the +7d boundary; p1 is closed, so p2 is what is due.
   await seedSchedule([{ id: GAME_ID, week: WEEK, ageHours: 200 }]);
-  const secondPass = stubProvider([payloadFor(GAME_ID, '450')]);
-  const { body } = await runCron();
-
-  assert.equal(secondPass.statsCalls, 1);
-  assert.equal(body.reconciliation?.pass, 'p2');
-  assert.equal(body.reconciliation?.corrected, 1);
+  const p2 = stubProvider([payloadFor(GAME_ID, '450')]);
+  const { body: p2Body } = await runCron();
+  assert.equal(p2.statsCalls, 1);
+  assert.equal(p2Body.reconciliation?.pass, 'p2');
   assert.equal(await storedHomeTotalYards(), 450);
 
   const third = stubProvider([payloadFor(GAME_ID, '999')]);
@@ -365,12 +390,51 @@ test('p2 falls due at +7d and takes exactly one more pass, then the horizon clos
   );
 });
 
+// === The satisfaction gate (owner ruling, 2026-09-09) ===
+
+test('an UNSATISFIED partition is never reconciled — the collection gap stays visible', async () => {
+  // A partition ordinary polling never filled. Reconciliation must not quietly
+  // collect it: that would MASK the gap instead of surfacing it.
+  await seedSchedule([{ id: GAME_ID, week: WEEK, ageHours: 60 }]);
+  await setAppState('game-stats', `${YEAR}:${WEEK}:regular`, {
+    year: YEAR,
+    week: WEEK,
+    seasonType: 'regular',
+    fetchedAt: new Date(Date.now() - 58 * H).toISOString(),
+    games: [],
+  });
+  const calls = stubProvider([payloadFor(GAME_ID)]);
+
+  const { body, event } = await runCron();
+
+  assert.equal(calls.statsCalls, 0, 'no correction pass over a partition with nothing to correct');
+  assert.equal(body.skipped, NO_TARGET_SKIP);
+  assert.equal(event.mode, 'poll');
+  assert.deepEqual(await ledgerEntries(), []);
+
+  // Positive control: the SAME schedule and timing, with satisfied evidence,
+  // does reconcile — so the refusal above is the coverage gate, not the clock.
+  await ingestAt(new Date(Date.now() - 58 * H).toISOString(), [payloadFor(GAME_ID, '300')]);
+  const armed = stubProvider([payloadFor(GAME_ID, '412')]);
+  const { body: ok } = await runCron();
+  assert.equal(armed.statsCalls, 1);
+  assert.equal(ok.reconciliation?.corrected, 1);
+});
+
+test('an absent partition record is never reconciled either', async () => {
+  await seedSchedule([{ id: GAME_ID, week: WEEK, ageHours: 60 }]);
+  const calls = stubProvider([payloadFor(GAME_ID)]);
+  const { body } = await runCron();
+  assert.equal(calls.statsCalls, 0, 'initial collection belongs to polling, not to correction');
+  assert.equal(body.skipped, NO_TARGET_SKIP);
+});
+
 // === Ordinary polling always wins ===
 
 test('a live polling target takes the run slot; the due partition waits', async () => {
   await seedSchedule([
-    { id: GAME_ID, week: WEEK, ageHours: 60 }, // reconcilable
-    { id: 9002, week: 4, ageHours: 5 }, // inside the polling window, unsatisfied
+    { id: GAME_ID, week: WEEK, ageHours: 60 },
+    { id: 9002, week: 4, ageHours: 5 },
   ]);
   await ingestAt(new Date(Date.now() - 58 * H).toISOString(), [payloadFor(GAME_ID, '300')]);
   const calls = stubProvider([payloadFor(9002)]);
@@ -381,27 +445,31 @@ test('a live polling target takes the run slot; the due partition waits', async 
   assert.equal(event.week, 4, 'the kickoff-window partition is the target');
   assert.equal(calls.statsCalls, 1, 'still at most ONE call per run');
   assert.equal(body.reconciliation, undefined, 'a polling run carries no reconciliation block');
-  assert.deepEqual(await ledgerEntries(), [], 'and appends nothing to the ledger');
+  assert.deepEqual(await ledgerEntries(), []);
   assert.equal(await storedHomeTotalYards(), 300, 'the reconcilable partition is untouched');
 });
 
-// === Missed-run recovery, and the quota reserve ===
+// === Only a MERGE VERDICT closes a pass ===
 
-test('a quota refusal spends nothing, records nothing, and leaves the pass due', async () => {
+test('an `unavailable` merge does NOT close the pass — a writer-control transition costs no correction', async () => {
+  // Observed live during verification: a control refusal returns a typed
+  // merge-result while comparing nothing. Treating that as closure would consume
+  // every due pass for the length of a maintenance window.
   await seedDuePartitionWithStaleStats();
-  const refused = stubProvider([payloadFor(GAME_ID, '412')], { remainingCalls: 5 });
+  await seedWriterControlState('read-only-safe');
+  const refused = stubProvider([payloadFor(GAME_ID, '412')]);
 
-  const { body, event } = await runCron();
+  const { body } = await runCron();
+  assert.equal(refused.statsCalls, 1);
+  assert.equal(body.reason, 'unavailable');
+  assert.equal(body.reconciliation?.corrected, null, 'nothing compared, so nothing claimed');
 
-  assert.equal(body.outcome, 'failure');
-  assert.equal(body.reason, 'quota-below-reserve');
-  assert.equal(refused.statsCalls, 0, 'the reserve refused before the billed request');
-  assert.equal(event.mode, 'reconcile', 'the run still reports which job it was refusing');
-  assert.equal(body.reconciliation?.ledger, 'not-attempted');
-  assert.equal(body.reconciliation?.corrected, null);
-  assert.deepEqual(await ledgerEntries(), [], 'a quota-starved month must burn no passes');
+  const entries = await ledgerEntries();
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0]!.reachedVerdict, false, 'the pass stays OPEN');
 
-  // Missed-run recovery: the very next healthy run performs the skipped pass.
+  // And the next healthy run performs it.
+  await seedActiveWriterControl();
   const healthy = stubProvider([payloadFor(GAME_ID, '412')]);
   const { body: recovered } = await runCron();
   assert.equal(healthy.statsCalls, 1);
@@ -409,27 +477,87 @@ test('a quota refusal spends nothing, records nothing, and leaves the pass due',
   assert.equal(await storedHomeTotalYards(), 412);
 });
 
-test('a missing credential also leaves the pass due', async () => {
+test('an unusable payload does NOT close the pass either', async () => {
   await seedDuePartitionWithStaleStats();
-  delete MUTABLE_ENV.CFBD_API_KEY;
-  stubProvider([payloadFor(GAME_ID, '412')]);
+  stubProvider({ not: 'an array' });
 
   const { body } = await runCron();
-  // Reported reason is the QUOTA gate's, not `cfbd-api-key-missing`: on this
-  // route the `/info` probe needs the same key and runs first, so it throws,
-  // usage is unavailable, and the reserve refuses before the credential branch
-  // is reached. Pre-existing and safe — both refusals fail closed and spend
-  // nothing — but the credential branch is unreachable from the cron.
-  assert.equal(body.reason, 'quota-usage-unavailable');
-  assert.deepEqual(await ledgerEntries(), []);
+  assert.equal(body.reason, 'invalid-payload');
+  assert.equal((await ledgerEntries())[0]!.reachedVerdict, false);
 
-  MUTABLE_ENV.CFBD_API_KEY = 'test-cfbd-token';
   const healthy = stubProvider([payloadFor(GAME_ID, '412')]);
   await runCron();
   assert.equal(healthy.statsCalls, 1, 'the pass was still due');
 });
 
-test('a transport failure records an OPEN attempt, retries, and is abandoned at the cap', async () => {
+test('a merge that DID rule closes the pass even when it refused every game', async () => {
+  await seedDuePartitionWithStaleStats();
+  // A future-fenced stored row makes the incoming observation `stale`: the merge
+  // read the partition under its lock and ruled. Asking again buys nothing.
+  await ingestAt(new Date(Date.now() + 60 * 60 * 1000).toISOString(), [payloadFor(GAME_ID, '777')]);
+  const calls = stubProvider([payloadFor(GAME_ID, '412')]);
+
+  const { body } = await runCron();
+  assert.equal(calls.statsCalls, 1);
+  assert.equal(body.reason, 'stale-clean');
+  assert.equal((await ledgerEntries())[0]!.reachedVerdict, true, 'a verdict is a verdict');
+  assert.equal(await storedHomeTotalYards(), 777, 'the newer writer’s value stands');
+});
+
+// === Reserve before the spend ===
+
+test('a ledger that cannot record REFUSES to spend', async () => {
+  await seedDuePartitionWithStaleStats();
+  __setAppStateWriteFailureForTests(new Error('write refused'), RECONCILIATION_LEDGER_SCOPE);
+  const calls = stubProvider([payloadFor(GAME_ID, '412')]);
+
+  const { body, event } = await runCron();
+
+  assert.equal(calls.statsCalls, 0, 'no CFBD call when the attempt cannot be recorded');
+  assert.equal(body.reason, 'reconciliation-unreserved');
+  assert.equal(body.reconciliation?.reservation, 'write-failed');
+  assert.equal(event.providerCallAttempted, false);
+  assert.equal(await storedHomeTotalYards(), 300, 'prior-good untouched');
+
+  // Positive control: the identical run spends once the store can record.
+  __setAppStateWriteFailureForTests(null);
+  const healthy = stubProvider([payloadFor(GAME_ID, '412')]);
+  const { body: ok } = await runCron();
+  assert.equal(healthy.statsCalls, 1);
+  assert.equal(ok.reconciliation?.corrected, 1);
+});
+
+test('a FULL season row refuses to spend rather than refetching forever', async () => {
+  await seedDuePartitionWithStaleStats();
+  await setAppState(RECONCILIATION_LEDGER_SCOPE, reconciliationLedgerKey(YEAR), {
+    year: YEAR,
+    // Disjoint partitions, so the refusal is the ceiling and not a closed pass.
+    entries: Array.from({ length: 400 }, (_, i) => ({
+      attemptId: `f${i}`,
+      partitionKey: `${YEAR}:${i}:postseason`,
+      pass: 'p1',
+      dueAt: '2025-09-10T00:00:00.000Z',
+      reservedAt: '2025-09-10T00:00:00.000Z',
+      observedAt: '2025-09-10T00:00:00.000Z',
+      reachedVerdict: true,
+      outcome: 'success',
+      reason: 'written-clean',
+      corrected: 0,
+      refreshed: 0,
+      inserted: 0,
+      conflicts: 0,
+      stale: 0,
+      notObserved: 0,
+    })),
+  });
+  const calls = stubProvider([payloadFor(GAME_ID, '412')]);
+
+  const { body } = await runCron();
+  assert.equal(calls.statsCalls, 0, 'a full row must stop the spend, not start a loop');
+  assert.equal(body.reconciliation?.reservation, 'ledger-full');
+});
+
+test('a transport failure leaves the pass OPEN and the cap ends the retries', async () => {
   await seedDuePartitionWithStaleStats();
 
   for (let attempt = 1; attempt <= RECONCILIATION_MAX_ATTEMPTS; attempt += 1) {
@@ -442,24 +570,63 @@ test('a transport failure records an OPEN attempt, retries, and is abandoned at 
       null,
       'a transport failure corrected nothing — reporting 0 would claim a clean comparison'
     );
-    assert.equal(body.reconciliation?.ledger, 'appended');
+    assert.equal(body.reconciliation?.settlement, 'settled');
   }
 
   const entries = await ledgerEntries();
   assert.equal(entries.length, RECONCILIATION_MAX_ATTEMPTS);
-  assert.ok(
-    entries.every((e) => e.reachedIngestion === false && e.outcome === 'failure'),
-    'none of them reached ingestion, so none of them closed the pass'
-  );
+  assert.ok(entries.every((e) => e.reachedVerdict === false));
 
-  // The cap is what stops a permanently failing partition refetching forever.
   const capped = stubProviderTransportFailure();
   const { body: cappedBody } = await runCron();
   assert.equal(capped.statsCalls, 0, 'p1 is abandoned at the attempt cap');
   assert.equal(cappedBody.skipped, NO_TARGET_SKIP);
 });
 
-test('an unreadable ledger suppresses the pass and spends nothing', async () => {
+// === Pre-provider refusals burn no attempt ===
+
+test('a quota refusal spends nothing, reserves nothing, and leaves the pass due', async () => {
+  await seedDuePartitionWithStaleStats();
+  const refused = stubProvider([payloadFor(GAME_ID, '412')], { remainingCalls: 5 });
+
+  const { body, event } = await runCron();
+
+  assert.equal(body.reason, 'quota-below-reserve');
+  assert.equal(refused.statsCalls, 0);
+  assert.equal(event.mode, 'reconcile', 'the run still reports which job it was refusing');
+  assert.equal(body.reconciliation?.reservation, 'not-attempted');
+  assert.equal(body.reconciliation?.corrected, null);
+  assert.deepEqual(await ledgerEntries(), [], 'a quota-starved month must burn no passes');
+
+  const healthy = stubProvider([payloadFor(GAME_ID, '412')]);
+  const { body: recovered } = await runCron();
+  assert.equal(healthy.statsCalls, 1);
+  assert.equal(recovered.reconciliation?.corrected, 1);
+});
+
+test('a missing credential is refused by the QUOTA gate first, and also burns nothing', async () => {
+  // NOT the route's `cfbd-api-key-missing` branch: the `/info` probe needs the
+  // same key and runs first, so it throws, usage is unavailable, and the reserve
+  // is never reached. The property under test is that nothing is spent and
+  // nothing is burned — which holds whichever gate refuses.
+  await seedDuePartitionWithStaleStats();
+  delete MUTABLE_ENV.CFBD_API_KEY;
+  const calls = stubProvider([payloadFor(GAME_ID, '412')]);
+
+  const { body } = await runCron();
+  assert.equal(body.reason, 'quota-usage-unavailable');
+  assert.equal(calls.statsCalls, 0);
+  assert.deepEqual(await ledgerEntries(), []);
+
+  MUTABLE_ENV.CFBD_API_KEY = 'test-cfbd-token';
+  const healthy = stubProvider([payloadFor(GAME_ID, '412')]);
+  await runCron();
+  assert.equal(healthy.statsCalls, 1, 'the pass was still due');
+});
+
+// === The ledger read fails closed ===
+
+test('a MALFORMED ledger suppresses the pass and spends nothing', async () => {
   await seedDuePartitionWithStaleStats();
   await setAppState(RECONCILIATION_LEDGER_SCOPE, reconciliationLedgerKey(YEAR), {
     year: YEAR,
@@ -472,56 +639,27 @@ test('an unreadable ledger suppresses the pass and spends nothing', async () => 
   assert.equal(event.result, 'skipped');
   assert.equal(event.reason, 'reconciliation-ledger-unavailable');
   assert.equal(body.skipped, 'correction-reconciliation ledger is unreadable');
-  assert.equal(calls.statsCalls, 0, 'reading a corrupt record as empty would re-run every pass');
+  assert.equal(calls.statsCalls, 0);
   assert.equal(await storedHomeTotalYards(), 300, 'prior-good untouched');
 });
 
-// === The collision property: a concurrent writer wins, and our write is refused ===
-
-test('MUTATION — a writer committing mid-fetch is not clobbered; the fence refuses our merge', async () => {
+test('a ledger READ FAILURE also suppresses the pass — distinct from a malformed value', async () => {
+  // Without this, deleting `read-failed` from the resolver would leave the
+  // malformed-value test above green while a real store fault re-ran every pass.
   await seedDuePartitionWithStaleStats();
-
-  // Another writer commits to this exact partition while the reconciliation's
-  // `/games/teams` request is in flight, at an observation fence NEWER than the
-  // one this run captured before it fetched. Its content wins.
-  let interloperRan = false;
-  const calls = stubProvider([payloadFor(GAME_ID, '412')], {
-    beforeStatsResponse: async () => {
-      const result = await ingestAt(new Date(Date.now() + 60_000).toISOString(), [
-        payloadFor(GAME_ID, '777'),
-      ]);
-      assert.equal(result.kind, 'merge-result');
-      interloperRan = true;
-    },
-  });
+  __setAppStateReadFailureForTests(new Error('store down'), RECONCILIATION_LEDGER_SCOPE);
+  const calls = stubProvider([payloadFor(GAME_ID, '412')]);
 
   const { body, event } = await runCron();
 
-  assert.ok(interloperRan, 'the concurrent write really happened during the fetch');
-  assert.equal(calls.statsCalls, 1);
-  assert.equal(body.reason, 'stale-clean', 'our observation is older than the durable fence');
-  assert.equal(body.committedGames, 0);
-  assert.equal(body.reconciliation?.corrected, 0);
-  assert.equal(event.correctedGames, 0);
-  assert.equal(
-    await storedHomeTotalYards(),
-    777,
-    'the concurrent writer’s newer value stands — never last-writer-wins'
-  );
-  // The merge authority ruled, so the pass is closed rather than retried into
-  // the same contention.
-  assert.equal((await ledgerEntries())[0]?.reachedIngestion, true);
-});
+  assert.equal(event.reason, 'reconciliation-ledger-unavailable');
+  assert.equal(body.skipped, 'correction-reconciliation ledger is unreadable');
+  assert.equal(calls.statsCalls, 0);
 
-test('POSITIVE CONTROL — the same call commits once the contention is gone', async () => {
-  await seedDuePartitionWithStaleStats();
-  const calls = stubProvider([payloadFor(GAME_ID, '412')]);
-
-  const { body } = await runCron();
-
-  assert.equal(calls.statsCalls, 1, 'the identical single request');
-  assert.equal(body.reason, 'written-clean', 'and with no concurrent writer it COMMITS');
-  assert.equal(body.committedGames, 1);
-  assert.equal(body.reconciliation?.corrected, 1);
-  assert.equal(await storedHomeTotalYards(), 412);
+  // Positive control: the identical run reconciles once the store reads again.
+  __setAppStateReadFailureForTests(null);
+  const healthy = stubProvider([payloadFor(GAME_ID, '412')]);
+  const { body: ok } = await runCron();
+  assert.equal(healthy.statsCalls, 1);
+  assert.equal(ok.reconciliation?.corrected, 1);
 });

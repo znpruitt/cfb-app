@@ -204,6 +204,18 @@ function parseScope(value: unknown): ProviderRefreshScope | null {
             seasonType: value.seasonType,
           }
         : null;
+    case 'week-reconciliation':
+      return isYear(value.year) &&
+        typeof value.week === 'number' &&
+        Number.isInteger(value.week) &&
+        isSeasonType(value.seasonType)
+        ? {
+            kind: 'week-reconciliation',
+            year: value.year,
+            week: value.week,
+            seasonType: value.seasonType,
+          }
+        : null;
     case 'odds-target':
       return isYear(value.year) &&
         (value.variant === 'canonical' || value.variant === 'filtered') &&
@@ -298,6 +310,13 @@ const DATASET_ACTIVITY_SCOPE_KINDS: Record<
   rankings: new Set(['year']),
   records: new Set(['year']),
   conferences: new Set(['global']),
+  // PLATFORM-110B: `week-reconciliation` is DELIBERATELY ABSENT. The bounded
+  // correction pass writes a real, readable status record, but it targets a
+  // partition whose kickoff window closed weeks ago — so as the most RECENT
+  // attempt it would become `latestScopedActivity` and report the dataset's
+  // health from the least current data it touches. Omitting it here is the
+  // mechanism this map already exists for; do not add it and then special-case
+  // it in the reader.
   'game-stats': new Set(['year', 'season-partition', 'week-partition']),
 };
 
@@ -318,6 +337,7 @@ function isEligibleActivity(
     case 'year':
     case 'season-partition':
     case 'week-partition':
+    case 'week-reconciliation':
     case 'odds-target':
     case 'schedule-media':
       return scope.year === year;

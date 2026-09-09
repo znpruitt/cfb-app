@@ -233,6 +233,9 @@ test('an authenticated paused invocation writes the exact provider-free skip rec
     year: YEAR,
     week: null,
     seasonType: null,
+    // PLATFORM-110B: the receipt now names WHICH job ran, so an operator can tell a
+    // correction pass from a polling run that regressed to a stale partition.
+    mode: 'poll',
   });
 });
 
@@ -253,6 +256,9 @@ test('a no-target invocation writes a healthy provider-free skip receipt', async
     year: YEAR,
     week: null,
     seasonType: null,
+    // PLATFORM-110B: the receipt now names WHICH job ran, so an operator can tell a
+    // correction pass from a polling run that regressed to a stale partition.
+    mode: 'poll',
   });
 });
 
@@ -274,6 +280,9 @@ test('a provider-attempted clean write records the success receipt with the exac
     year: YEAR,
     week: 3,
     seasonType: 'regular',
+    // PLATFORM-110B: the receipt now names WHICH job ran, so an operator can tell a
+    // correction pass from a polling run that regressed to a stale partition.
+    mode: 'poll',
   });
 });
 

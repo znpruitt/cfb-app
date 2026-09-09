@@ -1,5 +1,6 @@
 import type { CfbdSeasonType } from '../cfbd.ts';
 import type { CanonicalSlate } from './canonicalSlate.ts';
+import type { PartitionCoverageState } from './partitionCoverage.ts';
 
 /**
  * PLATFORM-110B — bounded correction-reconciliation target derivation (pure).
@@ -82,12 +83,12 @@ export const RECONCILIATION_PASS_OFFSETS_MS: Readonly<Record<ReconciliationPass,
 };
 
 /**
- * How many PROVIDER-REQUESTED attempts one pass may record before it is
- * abandoned. Dueness never expires, so without this a partition CFBD keeps
- * failing on would be refetched on every run forever — an unbounded quota
- * consumer that ordinary polling does not have (its 24-hour window bounds it).
- * Three attempts is enough to survive a transient provider fault and small
- * enough that a permanent one costs three calls, not a season of them.
+ * How many attempts one pass may RESERVE before it is abandoned. Dueness never
+ * expires, so without this a partition the provider or the store keeps failing
+ * on would be refetched on every run forever — an unbounded quota consumer that
+ * ordinary polling does not have (its 24-hour window bounds it). Three attempts
+ * survives a transient fault and costs three calls on a permanent one, not a
+ * season of them; `p2` still backstops an exhausted `p1`.
  */
 export const RECONCILIATION_MAX_ATTEMPTS = 3;
 
@@ -108,14 +109,36 @@ export type ReconciliationTarget = ReconciliationPartitionRef & {
 
 /**
  * What the ledger knows about one `(partition, pass)`. `attempts` counts
- * recorded provider requests; `reachedIngestion` is true once one of them
- * produced a typed ingestion result, which CLOSES the pass whatever that result
- * said. A pass is due while neither bound is met.
+ * RESERVED attempts — reserved before the provider request, so the count can
+ * never under-report spend. `reachedVerdict` is true once the durable merge
+ * authority actually COMPARED the partition and ruled, which CLOSES the pass
+ * whatever it ruled. A pass is due while neither bound is met.
  */
 export type ReconciliationPassState = {
   attempts: number;
-  reachedIngestion: boolean;
+  reachedVerdict: boolean;
 };
+
+/**
+ * Whether a partition's coverage permits a correction pass.
+ *
+ * ONLY `complete` — every expected game classified `satisfied` by the shared
+ * evidence authority. Owner ruling, 2026-09-09, and the reasoning is the point:
+ * a reconciliation that quietly filled a partition ordinary polling never
+ * collected would MASK the collection gap instead of surfacing it, which is the
+ * failure this whole audit was spent on. A never-collected partition is a health
+ * problem (Item 132's scope), and the only evidence anyone would ever see of it
+ * is that it stayed empty.
+ *
+ * So every other state is deliberately excluded, including the ones that look
+ * like they deserve help: `partial` and `absent` are collection gaps, `blocked`
+ * and `manual-only` need an operator, and `not-applicable` has nothing to
+ * correct. This is the predicate for a CORRECTION path — it presumes something
+ * correct is already there.
+ */
+export function isReconcilablePartitionState(state: PartitionCoverageState): boolean {
+  return state === 'complete';
+}
 
 /** Stable durable key for a partition — the same form `getGameStatsKey` produces. */
 export function reconciliationPartitionKey(ref: ReconciliationPartitionRef): string {
@@ -205,7 +228,7 @@ export function listReconciliationCandidates(
       if (nowMs < dueMs) continue;
       const state = passState.get(reconciliationPassKey(partitionKey, pass));
       if (state !== undefined) {
-        if (state.reachedIngestion) continue;
+        if (state.reachedVerdict) continue;
         if (state.attempts >= RECONCILIATION_MAX_ATTEMPTS) continue;
       }
       candidates.push({

@@ -54,6 +54,11 @@ export type GameStatsCronExecutionReason =
   // not a ledger. Reconciliation is suppressed for this run and NO provider call
   // is made; ordinary polling had already found no target.
   | 'reconciliation-ledger-unavailable'
+  // PLATFORM-110B: a correction pass was due but its attempt could not be
+  // RESERVED durably — a full season row, a store write failure, or a
+  // concurrent run that closed the pass first. No provider call is made, which
+  // is the point: a store that cannot record must not be able to spend.
+  | 'reconciliation-unreserved'
   | `quota-${QuotaRefusalReason}`
   | 'cfbd-api-key-missing'
   | 'provider-fetch-failed'
