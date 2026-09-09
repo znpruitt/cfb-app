@@ -64,11 +64,18 @@ test('postseason Schedule rows omit team records pending shared reconciliation',
       scoresByKey={{}}
       rosterByTeam={new Map()}
       isDebug={false}
+      teamColorsById={
+        new Map([
+          ['texas', '#BF5700'],
+          ['georgia', '#BA0C2F'],
+        ])
+      }
     />
   );
 
   assert.doesNotMatch(html, /data-scoreboard-record=/);
   assert.doesNotMatch(html, /data-scoreboard-value-kind="record"/);
+  assert.equal((html.match(/data-scoreboard-team-color=/g) ?? []).length, 2);
 });
 
 test('postseason panel forwards focused game id to grouped game cards', () => {

@@ -14,7 +14,7 @@
 // module means Item 119 rebuilds the normaliser, the contrast lifting, and the
 // reserved-hue guard from scratch.
 
-import type { TeamCatalogItem } from './teamIdentity';
+import { getTeamCatalogIdentityKey, type TeamCatalogItem } from './teamIdentity';
 
 export type TeamColorSource = 'primary' | 'alt' | 'fallback';
 
@@ -36,6 +36,10 @@ export type ScoreboardTeamColorTreatment = TeamColorRoles & {
   winnerAccentColor: string;
   winnerScoreColor: string;
 };
+
+export type ScoreboardTeamColorsById = ReadonlyMap<string, string>;
+
+export const EMPTY_SCOREBOARD_TEAM_COLORS_BY_ID: ScoreboardTeamColorsById = new Map();
 
 const FALLBACK_BASE = '#059669';
 
@@ -281,4 +285,21 @@ export function getSafeScoreboardTeamColor(
   if (alt) return alt;
 
   return buildTreatment(FALLBACK_BASE, 'fallback');
+}
+
+export function buildScoreboardTeamColorsById(
+  teams: readonly TeamCatalogItem[]
+): ScoreboardTeamColorsById {
+  const colorsById = new Map<string, string>();
+
+  for (const team of teams) {
+    const teamId = getTeamCatalogIdentityKey(team);
+    if (!teamId) continue;
+
+    const treatment = getSafeScoreboardTeamColor(team);
+    if (treatment.source === 'fallback') continue;
+    colorsById.set(teamId, treatment.baseColor);
+  }
+
+  return colorsById;
 }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { getSafeScoreboardTeamColor } from '../teamColors.ts';
+import { buildScoreboardTeamColorsById, getSafeScoreboardTeamColor } from '../teamColors.ts';
 
 function channelToLinear(value: number): number {
   const normalized = value / 255;
@@ -70,4 +70,46 @@ test('fallback accent is used when neither primary nor alt color is usable even 
 
   assert.equal(result.source, 'fallback');
   assert.match(result.winnerScoreColor, /^#[0-9A-F]{6}$/);
+});
+
+test('catalog memo input normalizes each team once and makes repeated row lookups color-math-free', () => {
+  let primaryReads = 0;
+  let altReads = 0;
+  const coloredTeam = {
+    id: 'oregon-ducks',
+    school: 'Oregon',
+    get color(): string {
+      primaryReads += 1;
+      return '#154733';
+    },
+    get altColor(): string {
+      altReads += 1;
+      return '#FEE123';
+    },
+  };
+  const missingTeam = {
+    school: 'Portland State',
+    get color(): null {
+      primaryReads += 1;
+      return null;
+    },
+    get altColor(): null {
+      altReads += 1;
+      return null;
+    },
+  };
+
+  const colorsById = buildScoreboardTeamColorsById([coloredTeam, missingTeam]);
+  assert.match(colorsById.get('oregon-ducks') ?? '', /^#[0-9A-F]{6}$/);
+  assert.equal(colorsById.has('oregon'), false, 'an explicit catalog id remains canonical');
+  assert.equal(colorsById.has('portlandstate'), false, 'fallback treatments are not memoized');
+  assert.equal(primaryReads, 2, 'each catalog team primary is read once');
+  assert.equal(altReads, 1, 'alt is read only when the primary cannot resolve');
+
+  for (let lookup = 0; lookup < 20; lookup += 1) {
+    colorsById.get('oregon-ducks');
+    colorsById.get('portlandstate');
+  }
+  assert.equal(primaryReads, 2, 'row lookups must not repeat primary normalization');
+  assert.equal(altReads, 1, 'row lookups must not repeat alternate normalization');
 });

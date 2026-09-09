@@ -235,6 +235,12 @@ test('matchups cards map each visible team directly to its owner and tint only t
         ])
       }
       displayTimeZone="America/New_York"
+      teamColorsById={
+        new Map([
+          ['a', '#9E1B32'],
+          ['h', '#BA0C2F'],
+        ])
+      }
     />
   );
 
@@ -262,6 +268,8 @@ test('matchups cards map each visible team directly to its owner and tint only t
   assert.match(aliceHome, /data-scoreboard-owner="home">Bob/);
   assert.match(aliceAway, /data-scoreboard-value="away">24/);
   assert.match(aliceHome, /data-scoreboard-value="home">17/);
+  assert.match(aliceScoreboard, /data-scoreboard-team-color="away"/);
+  assert.match(aliceScoreboard, /data-scoreboard-team-color="home"/);
 
   const aliceAwayTag = participantOpeningTag(aliceScoreboard, 'away');
   const aliceHomeTag = participantOpeningTag(aliceScoreboard, 'home');
@@ -1019,7 +1027,7 @@ test('outcome rail and neutral card-owner tint coexist as distinguishable row tr
   assert.doesNotMatch(homeTag, /dark:after:bg-/);
 });
 
-test('shared scoreboard public prop surfaces change only through Item 143 seams', () => {
+test('shared scoreboard public props include the Item 119 colour seam without widening top-level props', () => {
   const source = readFileSync(new URL('../CompactGameScoreboard.tsx', import.meta.url), 'utf8');
   const fieldsFor = (typeName: string): string[] => {
     const body = source.match(new RegExp(`export type ${typeName} = \\{([\\s\\S]*?)\\n\\};`))?.[1];
@@ -1029,6 +1037,7 @@ test('shared scoreboard public prop surfaces change only through Item 143 seams'
 
   assert.deepEqual(fieldsFor('CompactScoreboardParticipant'), [
     'teamName',
+    'teamColor',
     'owner',
     'isCardOwnerTeam',
     'rank',
@@ -1056,7 +1065,7 @@ test('shared scoreboard public prop surfaces change only through Item 143 seams'
   ]);
 });
 
-test('CFBScheduleApp forwards the server-projected record map into MatchupsWeekPanel', () => {
+test('CFBScheduleApp memoizes catalog colours and forwards one lookup across scoreboard surfaces', () => {
   const source = readFileSync(new URL('../CFBScheduleApp.tsx', import.meta.url), 'utf8');
   const matchupsCall = source.match(/<MatchupsWeekPanel[\s\S]*?\/>/)?.[0];
 
@@ -1067,6 +1076,18 @@ test('CFBScheduleApp forwards the server-projected record map into MatchupsWeekP
     'the server-projected record map must cross the CFBScheduleApp boundary'
   );
   assert.match(matchupsCall, /nowMs=\{liveStaleClock\}/);
+  assert.match(matchupsCall, /teamColorsById=\{teamCatalogById\}/);
+  assert.match(
+    source,
+    /const teamCatalogById = useMemo\(\s*\(\) => buildScoreboardTeamColorsById\(teamCatalog\),\s*\[teamCatalog\]\s*\)/,
+    'normalization must run inside one catalog-dependent memo'
+  );
+
+  for (const component of ['OverviewPanel', 'PostseasonPanel', 'GameWeekPanel'] as const) {
+    const call = source.match(new RegExp(`<${component}[\\s\\S]*?\\/>`))?.[0];
+    assert.ok(call, `${component} call site must remain present`);
+    assert.match(call, /teamColorsById=\{teamCatalogById\}/);
+  }
 });
 
 test('owner slates count final owned-vs-owned, NoClaim, and FCS results from owned-team participations', () => {

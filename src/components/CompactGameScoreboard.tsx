@@ -8,6 +8,7 @@ import type { TeamRecordClient } from '../lib/selectors/teamRecordsClient';
 
 export type CompactScoreboardParticipant = {
   teamName: string;
+  teamColor?: string | null;
   owner?: string | null;
   isCardOwnerTeam?: boolean;
   rank?: number | null;
@@ -54,12 +55,11 @@ function participantRowClasses(isLeading: boolean, hasLeader: boolean): string {
 // #171718. The current zinc-400 token (about #9f9fa9) remains about 6.8:1 over it,
 // clearing the 4.5:1 normal-text floor carried by record and owner suffixes.
 // `isolate` contains the negative-z tint in this row's stacking context; without that
-// boundary it can descend behind an intervening painted card surface. `relative` here
-// is conditional on the owner tint; Item 119 must supply its own containing block on
-// every row for its absolutely positioned team-colour bar rather than rely on this class.
-// Positioning children to lift them would re-anchor and shift that bar.
+// boundary it can descend behind an intervening painted card surface. The participant
+// row supplies the team-colour bar's containing block independently, so the tint never
+// re-anchors it. Positioning children to lift them would shift that bar.
 const CARD_OWNER_ROW_CLASSES =
-  "relative isolate after:pointer-events-none after:absolute after:inset-[0_-8px] after:z-[-1] dark:after:bg-[rgba(255,255,255,0.055)] after:content-['']";
+  "isolate after:pointer-events-none after:absolute after:inset-[0_-8px] after:z-[-1] dark:after:bg-[rgba(255,255,255,0.055)] after:content-['']";
 
 function cardOwnerRowCornerClasses(
   side: 'away' | 'home',
@@ -223,7 +223,7 @@ export default function CompactGameScoreboard({
         return (
           <div
             key={side}
-            className={`flex items-baseline justify-between gap-3 py-0.5 text-sm ${participantRowClasses(
+            className={`relative flex items-baseline justify-between gap-3 py-0.5 pl-4 text-sm ${participantRowClasses(
               isLeading,
               leader !== null
             )}${
@@ -237,7 +237,15 @@ export default function CompactGameScoreboard({
             data-scoreboard-side={side}
             data-scoreboard-leading={isLeading}
           >
-            {/* Team identity leads the row; a future logo belongs immediately before this group. */}
+            {participant.teamColor ? (
+              <span
+                className="absolute inset-y-0.5 left-0 block w-2 rounded-[2px] opacity-[0.72]"
+                style={{ backgroundColor: participant.teamColor }}
+                aria-hidden="true"
+                data-scoreboard-team-color={side}
+              />
+            ) : null}
+            {/* Team identity follows the line-start slot; a future logo belongs in that slot. */}
             <span className="flex min-w-0 items-baseline gap-1.5 overflow-hidden whitespace-nowrap">
               {participant.rank !== null && participant.rank !== undefined ? (
                 <span className="shrink-0 text-xs font-normal dark:text-zinc-400" title={rankTitle}>

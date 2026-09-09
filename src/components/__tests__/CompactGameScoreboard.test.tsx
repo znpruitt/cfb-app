@@ -4,6 +4,7 @@ import { JSDOM } from 'jsdom';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
+import { buildScoreboardTeamColorsById } from '../../lib/teamColors';
 import CompactGameScoreboard from '../CompactGameScoreboard';
 
 function renderScoreboard(
@@ -64,6 +65,12 @@ function participantMarkup(html: string, side: 'away' | 'home'): string {
   )?.[0];
   assert.ok(row, `${side} participant row must render`);
   return row;
+}
+
+function participantFactMarkup(html: string, selector: string, message: string): string {
+  const element = new JSDOM(html).window.document.querySelector(selector);
+  assert.ok(element, message);
+  return element.outerHTML;
 }
 
 function EmptyFooterSlot(): null {
@@ -334,6 +341,109 @@ test('only the exact fcs classification renders FCS, never Division II, III, or 
   assert.match(exactHtml, /data-scoreboard-classification="away">FCS<\/span>/);
 });
 
+test('team-colour bars use the exact 8px line-start treatment without widening the row', () => {
+  const html = renderScoreboard({
+    away: {
+      teamName: 'Michigan',
+      teamColor: '#4A8FE0',
+      owner: 'Whited',
+      rank: null,
+      score: 17,
+    },
+    home: {
+      teamName: 'Ohio State',
+      teamColor: null,
+      owner: 'Chamness',
+      rank: 7,
+      rankSource: 'ap',
+      score: 24,
+    },
+  });
+  const document = new JSDOM(html).window.document;
+  const awayBar = document.querySelector('[data-scoreboard-team-color="away"]');
+  assert.ok(awayBar, 'a normalized catalog colour must render a bar');
+  assert.deepEqual(
+    new Set(awayBar.className.split(/\s+/)),
+    new Set([
+      'absolute',
+      'inset-y-0.5',
+      'left-0',
+      'block',
+      'w-2',
+      'rounded-[2px]',
+      'opacity-[0.72]',
+    ])
+  );
+  assert.equal(awayBar.getAttribute('aria-hidden'), 'true');
+  assert.equal(awayBar.getAttribute('style'), 'background-color:#4A8FE0');
+  assert.equal(document.querySelectorAll('[data-scoreboard-team-color]').length, 1);
+  assert.equal(document.querySelector('[data-scoreboard-team-color="home"]'), null);
+
+  for (const side of ['away', 'home'] as const) {
+    const rowClasses = classTokens(participantOpeningTag(html, side));
+    assert.ok(rowClasses.has('relative'), `${side} row must establish the containing block`);
+    assert.ok(rowClasses.has('pl-4'), `${side} row must take its 16px slot from existing width`);
+  }
+});
+
+test('catalog fallback stays absent on an FCS team line instead of rendering green', () => {
+  const teamColorsById = buildScoreboardTeamColorsById([
+    { school: 'Portland State', color: null, altColor: null },
+    { school: 'Oregon', color: '#154733', altColor: '#FEE123' },
+  ]);
+  const html = renderScoreboard({
+    state: 'scheduled',
+    away: {
+      teamName: 'Portland State',
+      teamColor: teamColorsById.get('portlandstate'),
+      rank: null,
+      classification: 'fcs',
+      score: null,
+    },
+    home: {
+      teamName: 'Oregon',
+      teamColor: teamColorsById.get('oregon'),
+      rank: null,
+      score: null,
+    },
+  });
+
+  assert.match(html, /data-scoreboard-classification="away">FCS<\/span>/);
+  assert.doesNotMatch(html, /data-scoreboard-team-color="away"/);
+  assert.match(html, /data-scoreboard-team-color="home"/);
+});
+
+test('adding a team colour leaves team, record, owner, and anchor markup byte-identical', () => {
+  const participant: Participant = {
+    teamName: 'Michigan',
+    owner: 'Whited',
+    rank: null,
+    record: { wins: 4, losses: 1 },
+    score: 17,
+  };
+  const withoutColor = renderScoreboard({ away: participant });
+  const withColor = renderScoreboard({ away: { ...participant, teamColor: '#4A8FE0' } });
+  const selectors = [
+    ['[data-scoreboard-team="away"]', 'team'],
+    ['[data-scoreboard-record="away"]', 'record'],
+    ['[data-scoreboard-owner="away"]', 'owner'],
+    ['[data-scoreboard-value="away"]', 'anchor'],
+  ] as const;
+
+  for (const [selector, fact] of selectors) {
+    assert.equal(
+      participantFactMarkup(withColor, selector, `${fact} must render with a colour`),
+      participantFactMarkup(withoutColor, selector, `${fact} must render without a colour`),
+      `${fact} markup must remain byte-identical`
+    );
+  }
+  assert.equal(
+    participantOpeningTag(withColor, 'away'),
+    participantOpeningTag(withoutColor, 'away'),
+    'the slot is structural and must not change row width or classes when colour is absent'
+  );
+});
+
 test('live scoreboard renders an unowned opponent as team-only', () => {
   const html = renderScoreboard({
     away: { teamName: 'Purdue', owner: null, rank: null, score: 6 },
@@ -409,7 +519,6 @@ test('explicit record states stay equivalent to the former non-scheduled rule ac
 
 test('every scoreboard state adds an isolated neutral tint only to the marked participant row', () => {
   const tintClasses = [
-    'relative',
     'isolate',
     'after:pointer-events-none',
     'after:absolute',
@@ -431,6 +540,11 @@ test('every scoreboard state adds an isolated neutral tint only to the marked pa
       const markedRow = participantOpeningTag(html, markedSide);
       const markedClasses = classTokens(markedRow);
       const unmarkedClasses = classTokens(participantOpeningTag(html, unmarkedSide));
+
+      assert.ok(
+        markedClasses.has('relative') && unmarkedClasses.has('relative'),
+        `${state} rows must preserve the shared containing block for the team-colour slot`
+      );
 
       for (const className of tintClasses) {
         assert.ok(
