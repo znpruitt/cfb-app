@@ -286,7 +286,24 @@ Which slots each surface supplies. **A slot a surface does not pass renders noth
 
 | | Overview | Matchups | Schedule | Recap |
 |---|---|---|---|---|
-| **States rendered** | scheduled, live, final, awaiting | scheduled, live, final | scheduled, live, final | final only |
+| **States rendered** | scheduled, live, final, awaiting | scheduled, live, final, **awaiting** | scheduled, live, final | final only |
+
+> **AMENDED 2026-09-08 — Matchups renders `awaiting`, and this row previously said it did not.** It recorded
+> what SHIPS rather than what is correct: Matchups never reaches `awaiting` because it decides its own status
+> label, which is the defect Item 143 exists to fix. **A row past kickoff with no usable score renders `SCH`
+> today** — a claim that the game has not started. `awaiting` is the honest state, the component already
+> renders it, and Overview already reaches it.
+>
+> **No time limit, and that is measured rather than assumed.** Overview omits an unresolved row after eight
+> hours because Live is a section that should empty; **a Matchups card is an owner's week and must never drop
+> a game**, so `awaiting` persists until a score arrives. The obvious worry — a row stuck on `awaiting` for
+> weeks — does not occur: across all of 2026 exactly **two** games are past kickoff without a final score,
+> **one D-II and one D-III, zero FBS and zero FCS**, and neither is reachable on a Matchups card. **Building a
+> window for it would guard nothing**, which is the same mistake the stopped v3 branch made with disrupted
+> statuses.
+>
+> **Schedule is NOT amended here.** Nobody has audited it (Item 181), and the same reasoning may or may not
+> apply to a date-grouped surface. Do not extend this row by symmetry.
 | **Status row** | yes | yes | yes | yes |
 | **Tag slot** | yes | yes | yes | yes |
 | **Team colour bar** | yes | yes | yes | yes |

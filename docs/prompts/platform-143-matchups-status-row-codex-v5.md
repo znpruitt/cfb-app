@@ -1,6 +1,6 @@
-PROMPT_ID: PLATFORM-143-MATCHUPS-STATUS-ROW-CODEX-v4
+PROMPT_ID: PLATFORM-143-MATCHUPS-STATUS-ROW-CODEX-v5
 PURPOSE: Item 143 reconstruction. Give the shared scoreboard a status-row tag seam and a caller-supplied status label, using the SHARED kickoff-aware classifier rather than a Matchups-local status condition — which is what v3 failed on, three rounds running.
-SCOPE: `src/components/CompactGameScoreboard.tsx`, `src/lib/gameUi.ts`, `src/components/MatchupsWeekPanel.tsx`, tests for each. NOT `gameStatus.ts`. NOT a new metadata slot.
+SCOPE: `src/components/CompactGameScoreboard.tsx`, `src/lib/gameUi.ts`, `src/components/MatchupsWeekPanel.tsx`, **plus the new shared projection and its extraction from `overviewGameSections.ts`**, tests for each. NOT `gameStatus.ts`. NOT a new metadata slot. NOT Overview's sectioning, omission or polling windows.
 CARRIES: `item-87-INDEX.md` CARRY rows 7, 8, 20, 25 and 26, verbatim in the task block.
 
 Read `AGENTS.md` first, then **`DESIGN.md`**. Nothing in either is restated.
@@ -55,6 +55,71 @@ past kickoff with no usable score is **`awaiting`**, which the shared component 
 **The fix is to stop deciding this in `MatchupsWeekPanel`.** v3 failed three times because each round
 added another Matchups-local condition to a label the component should be told. **Matchups supplies
 facts — kickoff time, score presence — and the shared projection decides the state.**
+
+**That projection does not exist yet and building it is part of this slice** — see RULING 2. Matchups
+will need `now` threaded to it, which it does not receive today.
+
+## RULINGS ON YOUR v4 RECEIPT — the gate fired correctly, and the answer shrinks the slice again
+
+**You were right to stop, and the blocker is real: no shared four-state projection exists.** Your
+inventory of why reproduces — `gameStateFromScore` is score-only, `routeForItem` is private and carries
+Overview's ownership/sectioning/omission, `isAwaitingScoreGame` is a boolean on a 24-hour polling
+window, and Matchups receives neither `now` nor `season`.
+
+**But the deeper problem is the CONTRACT, and it was mine.**
+
+### RULING 1 — `reference-game-row.md` §11 said Matchups does not render `awaiting`. It is amended.
+
+**v4 told you to make a post-kickoff row `awaiting` while the consumer matrix listed only
+`scheduled, live, final` for Matchups.** You would have hit that contradiction at implementation.
+
+**Amended on `main`, with the reason recorded:** the matrix documented what SHIPS, not what is correct.
+Matchups never reaches `awaiting` **because it decides its own status label** — which is this item's
+defect. **A row past kickoff with no usable score currently renders `SCH`, a claim that the game has
+not started.** `awaiting` is honest, the component renders it, Overview reaches it.
+
+### RULING 2 — extract a projection that answers ONE question. Do not move Overview's other concerns.
+
+**Build a shared function taking `(score, kickoff, now)` and returning `scheduled | live | awaiting |
+final`.** That is the whole of it.
+
+**What must NOT come with it, and this is why `routeForItem` is unshareable today:** ownership,
+sectioning, abandonment, omission, and the polling window are **separate concerns that merely also use
+time.** Conflating them is what made the existing helper Overview-only. **Leave Overview's eight-hour
+omission where it is** — that is a sectioning rule about when Live should empty, not a statement about
+what state a row is in. **Leave `isAwaitingScoreGame`'s 24-hour window where it is** — that is the
+poller's question, not the renderer's.
+
+**Overview should consume the new projection** for its state decision if that falls out cleanly. **If
+it does not, say so and leave Overview alone** — a refactor of Overview's sectioning is not this slice
+and I will not accept it as one.
+
+### RULING 3 — NO time policy on `awaiting`. Measured, not assumed.
+
+**Your open semantic question — how long a past-kickoff row stays `awaiting` — has an empirical
+answer.** Measured against the production replica today: across **all of 2026**, exactly **two** games
+are past kickoff with no final score — **one D-II from 29 August, one D-III from 5 September. Zero
+FBS. Zero FCS.**
+
+**Neither is reachable on a Matchups card**, and Item 150 removes both divisions regardless.
+
+**So `awaiting` persists with no limit and no omission.** A Matchups card is an owner's week and must
+never drop a game. **Building a window would guard nothing — which is precisely the mistake v3 made
+with disrupted statuses**, and I am not going to have you make it twice in one item.
+
+### RULING 4 — your carry/discard list is adopted as written
+
+Nothing to add and nothing I disagree with. **Two entries I want kept verbatim in the closeout** because
+they are honest about their own limits: _"static JSDOM markup cannot prove rendered pixel height"_, and
+the recursive renderability detection that preserves the exact untagged branch.
+
+**Bookkeeping accepted:** 23 behind, not 22 — the v4 commit accounts for it. And your note that
+including `delay` raises the disrupted count to 26 is the right correction to make, since I named four
+families and counted three.
+
+### RULING 5 — `preview` stays on the stopped branch until you have something to push
+
+Correct as you left it. **Push the reconstruction over it on your first commit.**
 
 ## STOP — post a READ RECEIPT before writing any code
 

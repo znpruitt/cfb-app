@@ -1024,7 +1024,7 @@ the same problem.
 indicator, eyebrow tags and odds. **Split out of Item 117 on 2026-09-07** after the receipt gate found
 that none of the four fits an existing slot.
 
-**Kickoff:** [`docs/prompts/platform-143-matchups-status-row-codex-v4.md`](prompts/platform-143-matchups-status-row-codex-v4.md).
+**Kickoff:** [`docs/prompts/platform-143-matchups-status-row-codex-v5.md`](prompts/platform-143-matchups-status-row-codex-v5.md).
 
 > **v3 STOPPED AND RECONSTRUCTED, 2026-09-08.** Branch `codex/143-matchups-status-row` at `7d6c28ca`
 > did not converge: three rounds, both remediation rounds exhausted, four findings still open. **The
