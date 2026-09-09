@@ -433,7 +433,8 @@ test('MUTATION PIN: the four single-unit target shapes are byte-identical throug
       'live-scores',
       { kind: 'live-scores', year: 2026, mode: 'scoreboard', targetGames: 3, targetPartitions: 2 },
     ],
-    ['game-stats', { kind: 'game-stats', year: 2026, week: 3, seasonType: 'regular' }],
+    // PLATFORM-110B added `mode`; the rebuild normalizes an absent one to null.
+    ['game-stats', { kind: 'game-stats', year: 2026, week: 3, seasonType: 'regular', mode: null }],
     ['odds', { kind: 'odds', year: 2026, cadence: 'pregame', eligibleGames: 5 }],
     ['team-records', { kind: 'team-records', year: 2026 }],
   ];

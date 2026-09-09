@@ -140,6 +140,76 @@ Rules:
 - Status: Superseded/unimplemented; replaced by
   `PLATFORM-143-MATCHUPS-STATUS-ROW-CODEX-v5`.
 
+### PLATFORM-110B-CORRECTION-RECONCILIATION-CLAUDE-v1
+
+- Purpose: Item 110B — recurring correction reconciliation. Revisit satisfied game-stat partitions
+  so provider revisions are picked up instead of sitting until someone audits. The cadence was
+  UNDECIDED and the slice measured before it designed.
+- Scope: a reconciliation path over the existing game-stats ingestion authority, its scheduling, and
+  tests. NOT the initial polling window (131), NOT the raw-category merge gap (193), NOT
+  `provider-refresh-status` correction (194).
+- The measurement came first, and it inverted the framing. Three billed CFBD calls across three
+  partitions: `2026:1:regular` re-observed +34h after the cron's last write showed **zero** of the 26
+  recognized categories changed across 203 games and no points changed; `2025:16:regular` after 44
+  days and `2025:1:regular` after 146 days were **byte-identical** across 146 games. The 64 games
+  that did differ differ only in categories `mergeRawEvidence` cannot overwrite — frozen cache, not
+  provider drift. The discriminating argument is that the parser boundary is an artifact of this
+  codebase and CFBD has no knowledge of it, so a provider still revising would not revise exclusively
+  the categories this repo cannot write. Four of 409 team-sides hold a `tackles` value below 10,
+  impossible as a completed-game final.
+- Outcome: one pass per current-season partition at ~48h after its LAST stat-applicable kickoff, one
+  at ~7 days, then never; historical seasons never swept. ~20 partitions per season × 2 passes ≈ 40
+  CFBD calls a season, one billed call per run. Reconciliation is a SECOND CONSUMER of the
+  game-stats cron's existing run slot, never a second job — considered only once ordinary polling
+  has no target, so the one-fetch-per-run promise, the quota reserve, the attempt bookkeeping, the
+  writer fence, the ingestion coordinator and the outcome interpreter are all unchanged. No new
+  schedule: the planner keeps a slow game-stats schedule armed daily. The two target sets are
+  disjoint BY CONSTRUCTION — `now >= latestKickoff + 48h` proves every game is more than 24h past
+  kickoff — and a generated sweep asserts that against `listKickoffWindowPartitions` itself.
+- What it added: `reconciliationTarget.ts` (pure due-time derivation), `reconciliationLedger.ts` (a
+  durable per-season record, reserve-before-spend), `reconciliationRun.ts` (the run-scoped adapter),
+  a `week-reconciliation` provider-refresh scope kind, and `mode` on the game-stats scheduler
+  receipt.
+- Gated on SATISFACTION by owner ruling: only a partition whose coverage is `complete` is
+  reconciled. A pass that quietly filled a partition polling never collected would MASK the
+  collection gap instead of surfacing it, and a never-collected partition is a health problem (Item
+  132). The lane had widened this during design and reported the deviation rather than leaving it
+  implicit.
+- The +7d pass is labelled in code as the half the measurement does NOT support — the interval from
+  ~2 days to ~44 days is unmeasured, because both historical partitions were first observed 7.6
+  months after their games. It is insurance against CFBD's stated weekly cycle landing after the
+  +48h look, and the ledger records each pass's corrected count so a season of empty `p2` entries can
+  retire it on evidence.
+- Review / verification: three independent reviews across two rounds — `/code-review` and Codex on
+  `1329fef9`, then `/code-review`, a native Codex review and a Codex confirming review all on
+  `2003dd69`. Round 1 closed three roots: closure keyed on the merge's verdict rather than the
+  route's control flow, the attempt recorded before the spend, and a scope kind game-stats does not
+  own. Round 2 closed one property in both directions — a fault must be visible and a benign state
+  must not read as a fault. Test delta **+64** against `main` (5,025 → 5,089 measured); `tsc` and
+  `lint:all` clean; `npm test` at the standing Item 137 two-failure baseline.
+- **A verification run against the real route found what neither review could show.** Driven at its
+  surface on a file-store copy of production data, a writer-control refusal consumed `p1`
+  permanently, reported `corrected: 0` as though the partition had been compared and found clean, and
+  the correction never happened. Production was proved untouched by impossibility — the partition's
+  `updated_at` was byte-identical before and after.
+- **The failure mode worth carrying past this branch: a fact changed underneath a branch that had
+  already been reasoned about.** Round 1 added the satisfaction gate and the verdict predicate
+  together, and the empty-response case was never re-derived against the new precondition — the gate
+  made an empty CFBD array mean the OPPOSITE of what it had meant an hour earlier (it now contradicts
+  proven coverage rather than asserting emptiness). Not a missed test; a multi-change round moving the
+  ground under its own earlier reasoning.
+- Findings raised, not fixed here: a `pending` unknown-kickoff game can let a partition read
+  `complete` around it — bounded, and it ends with reconciliation declining the partition once the
+  kickoff is repaired, which leaves the collection gap visible as ruled; and unreconcilable
+  partitions are re-probed on every idle run (no spend, no correctness impact, and the fix trades
+  read count against fairness). **Item 197** — reconciliation status has no dedicated health reader —
+  was filed by planning and unblocks when this lands. Measured incidentally and worth recording:
+  CFBD's `/info` usage probe costs **zero** quota calls, which `quotaPolicy.ts` documents as
+  unverified while reserving a 2-call margin for it.
+- Status: Implemented on `claude/110b-correction-reconciliation` (`1329fef9`, `2003dd69`,
+  `1d4d984d` + this closeout); reviews resolved, no production run — the gate forbids it and
+  promotion stays with the owner.
+
 ### PLATFORM-110A-GAME-STAT-RECOVERY-CLAUDE-v1
 
 - Purpose: Item 110A — recover the five measured game-stat records that disagreed with newer CFBD

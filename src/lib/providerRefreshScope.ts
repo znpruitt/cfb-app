@@ -36,6 +36,23 @@ export type OddsTargetVariant = 'canonical' | 'filtered';
  *                           complete intended year target (aggregate scores/rankings).
  *   - `season-partition` — a single (year, seasonType) partition (targeted scores).
  *   - `week-partition`   — a single (year, week, seasonType) partition (game-stats).
+ *   - `week-reconciliation` — a single (year, week, seasonType) game-stats partition
+ *                           revisited by the bounded CORRECTION pass (PLATFORM-110B).
+ *                           Deliberately a distinct kind from `week-partition`, not a
+ *                           reuse of it: a reconciliation pass targets a partition whose
+ *                           kickoff window closed weeks ago, so its attempt is the most
+ *                           RECENT one while describing the LEAST current data. Recorded
+ *                           under `week-partition` it would win
+ *                           `latestScopedActivity` (the greatest `lastAttemptAt` across
+ *                           the dataset's owned kinds) and a week-1 correction failing
+ *                           in week 10 would raise `provider-refresh-failed` for a
+ *                           healthy dataset. `DATASET_ACTIVITY_SCOPE_KINDS` in
+ *                           `providerRefreshHealth.ts` already exists to keep a
+ *                           structurally-valid but misrouted record out of a dataset's
+ *                           latest activity; game-stats simply does not own this kind,
+ *                           so the record stays written and readable while being
+ *                           ineligible BY CONSTRUCTION rather than by a special case in
+ *                           the reader.
  *   - `odds-target`      — a single Odds cache target, distinguished by canonical
  *                           vs filtered variant and the durable Odds cache key.
  *   - `schedule-media`   — the year-wide schedule game-media PRESENTATION cache
@@ -52,6 +69,12 @@ export type ProviderRefreshScope =
   | { kind: 'year'; year: number }
   | { kind: 'season-partition'; year: number; seasonType: CanonicalSeasonType }
   | { kind: 'week-partition'; year: number; week: number; seasonType: CanonicalSeasonType }
+  | {
+      kind: 'week-reconciliation';
+      year: number;
+      week: number;
+      seasonType: CanonicalSeasonType;
+    }
   | { kind: 'odds-target'; year: number; variant: OddsTargetVariant; cacheKey: string }
   | { kind: 'schedule-media'; year: number }
   | { kind: 'venue-catalog' }
@@ -87,6 +110,25 @@ export function weekPartitionScope(
 ): ProviderRefreshScope {
   return {
     kind: 'week-partition',
+    year,
+    week,
+    seasonType: normalizeCanonicalSeasonType(seasonType),
+  };
+}
+
+/**
+ * A game-stats partition revisited by the bounded correction pass
+ * (PLATFORM-110B). Same partition identity as {@link weekPartitionScope}, a
+ * DIFFERENT scope kind — see the union's docblock for why that separation is the
+ * mechanism rather than a label.
+ */
+export function weekReconciliationScope(
+  year: number,
+  week: number,
+  seasonType: string
+): ProviderRefreshScope {
+  return {
+    kind: 'week-reconciliation',
     year,
     week,
     seasonType: normalizeCanonicalSeasonType(seasonType),
@@ -141,6 +183,10 @@ export function providerRefreshScopeKey(
       return `${dataset}:season:${scope.year}:${normalizeCanonicalSeasonType(scope.seasonType)}`;
     case 'week-partition':
       return `${dataset}:week:${scope.year}:${scope.week}:${normalizeCanonicalSeasonType(
+        scope.seasonType
+      )}`;
+    case 'week-reconciliation':
+      return `${dataset}:reconcile:${scope.year}:${scope.week}:${normalizeCanonicalSeasonType(
         scope.seasonType
       )}`;
     case 'odds-target':
@@ -254,6 +300,8 @@ export function describeProviderRefreshScope(scope: ProviderRefreshScope): strin
       return `${scope.year} ${scope.seasonType}`;
     case 'week-partition':
       return `${scope.year} week ${scope.week} ${scope.seasonType}`;
+    case 'week-reconciliation':
+      return `${scope.year} week ${scope.week} ${scope.seasonType} correction`;
     case 'odds-target':
       return `${scope.year} odds (${scope.variant})`;
     case 'schedule-media':

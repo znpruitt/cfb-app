@@ -16,6 +16,12 @@ import {
   selectPollingTarget,
   type PollingTarget,
 } from '@/lib/gameStats/pollingTarget';
+import {
+  reachedMergeVerdict,
+  resolveReconciliationRun,
+  type ReconciliationReport,
+  type ReconciliationRun,
+} from '@/lib/gameStats/reconciliationRun';
 import { projectPublicPartition } from '@/lib/gameStats/publicProjection';
 import { evaluateAutomationQuota, type CfbdUsageSnapshot } from '@/lib/gameStats/quotaPolicy';
 import { interpretGameStatsRefreshOutcome } from '@/lib/gameStats/refreshOutcome';
@@ -25,7 +31,7 @@ import {
 } from '@/lib/gameStats/cronExecutionLog';
 import { getAppState } from '@/lib/server/appStateStore';
 import { isAutoRefreshAllowed } from '@/lib/server/providerRefreshSettings';
-import { weekPartitionScope } from '@/lib/providerRefreshScope';
+import { weekPartitionScope, weekReconciliationScope } from '@/lib/providerRefreshScope';
 import {
   beginProviderRefreshAttempt,
   nextProviderCommitSeq,
@@ -56,6 +62,28 @@ export const dynamic = 'force-dynamic';
  * ONE coordinator and the ONE interpreter, then the exact durable partition is
  * reread. No recovery sweeps, claims, leases, backoff, disposition stores, or
  * same-run retries — and no score automation.
+ *
+ * PLATFORM-110B — bounded correction reconciliation, in the SAME run slot.
+ *
+ * Satisfaction establishes usability, not an immutable final provider revision,
+ * so a partition can sit permanently behind a newer CFBD observation once its
+ * kickoff window closes. When — and ONLY when — ordinary polling has no target,
+ * this run may instead take one bounded correction pass over a partition whose
+ * window closed long ago: `~48h` after its last kickoff, once more at `~7 days`,
+ * then never (`reconciliationTarget.ts` carries the measurement that ruled the
+ * cadence). Reconciliation is a SECOND CONSUMER of one run slot, never a second
+ * job: the at-most-one-CFBD-call-per-run promise, the quota reserve, the attempt
+ * bookkeeping, the writer fence, the ingestion coordinator, the outcome
+ * interpreter, the scoped status record and the durable reread are all the
+ * unchanged ones above. What it adds is a due-time derivation and a durable
+ * ledger (`reconciliationLedger.ts`) recording what each pass changed and what
+ * failed.
+ *
+ * The two targets are mutually exclusive BY CONSTRUCTION, not by convention: a
+ * partition is reconcilable only once `now >= latestKickoff + 48h`, which proves
+ * every game in it is more than 24 hours past kickoff and therefore outside
+ * `selectPollingTarget`'s window. Historical seasons are unreachable for exactly
+ * the reason polling cannot reach them — the canonical slate is this season's.
  */
 
 // ONE provider request per run — no transport retries. The cron promises at
@@ -88,6 +116,7 @@ type CronResult = {
   committedGames: number;
   skipped?: string;
   error?: string;
+  reconciliation?: ReconciliationReport;
 };
 
 function verifyCronSecret(req: Request): 'ok' | 'not-configured' | 'invalid' {
@@ -254,18 +283,64 @@ export async function GET(req: Request) {
         skippedResult(year, `canonical context unavailable: ${resolution.reason}`)
       );
     }
+    // PLATFORM-110B — reconciliation is considered ONLY once polling has none,
+    // which is what keeps the one-fetch-per-run promise and makes the two target
+    // sets mutually exclusive within an invocation.
+    let reconciliation: ReconciliationRun | null = null;
     if (resolution.target === null) {
-      // No exact target → no scoped attempt, no usage check, no provider call.
-      exec.result = 'skipped';
-      exec.reason = 'no-polling-target';
-      return NextResponse.json(skippedResult(year, 'no partition inside the polling window'));
+      const recon = await resolveReconciliationRun(year, now, resolution.slateResult);
+      if (recon.status === 'unavailable') {
+        // A store fault, not a data state: suppress the pass and spend nothing.
+        // Classified `failure` rather than `skipped` BECAUSE a skip is treated as
+        // healthy — an unreadable ledger or partition would otherwise disable
+        // every correction for the season while System Health showed a quiet job
+        // and the only trace was one log line. No scoped attempt is begun (no
+        // exact target was resolved), so this is a run-level fault only.
+        exec.result = 'failure';
+        exec.reason = 'reconciliation-ledger-unavailable';
+        return NextResponse.json(
+          {
+            year,
+            week: null,
+            seasonType: null,
+            outcome: 'failure',
+            reason: 'reconciliation-ledger-unavailable',
+            committedGames: 0,
+            error: 'correction-reconciliation context is unreadable',
+          } satisfies CronResult,
+          { status: 503 }
+        );
+      }
+      if (recon.status === 'none') {
+        // No exact target → no scoped attempt, no usage check, no provider call.
+        exec.result = 'skipped';
+        exec.reason = 'no-polling-target';
+        return NextResponse.json(skippedResult(year, 'no partition inside the polling window'));
+      }
+      reconciliation = recon.run;
+      exec.mode = 'reconcile';
     }
 
-    const { week, seasonType } = resolution.target;
+    // Exactly one of the two is non-null here, and the whole path below is the
+    // UNCHANGED one: same attempt token, quota gate, credential check, fetch,
+    // ingestion coordinator, interpreter, scoped status record and durable
+    // reread. Reconciliation changes WHICH partition is fetched, never how.
+    const { week, seasonType } = reconciliation?.target ?? resolution.target!;
+    const reconciliationReport: ReconciliationReport | null = reconciliation?.report ?? null;
     // Partition fields are known only now that an exact target is resolved.
     exec.week = week;
     exec.seasonType = seasonType;
-    const weekScope = weekPartitionScope(year, week, seasonType);
+    // PLATFORM-110B: a correction pass records under its OWN scope kind. It
+    // targets a partition whose window closed weeks ago, so recorded under
+    // `week-partition` its attempt would be the dataset's most RECENT and would
+    // report game-stats' health from the least current data it touches — a
+    // week-1 correction failing in week 10 raising "Game stats refresh failed"
+    // for a healthy dataset. `DATASET_ACTIVITY_SCOPE_KINDS` already gates
+    // eligibility by kind, and game-stats does not own this one, so the record
+    // is written and readable but never `latestScopedActivity`.
+    const weekScope = reconciliation
+      ? weekReconciliationScope(year, week, seasonType)
+      : weekPartitionScope(year, week, seasonType);
     const attempt = await beginProviderRefreshAttempt('game-stats', weekScope, {
       startedAt: new Date().toISOString(),
     });
@@ -312,6 +387,9 @@ export async function GET(req: Request) {
         outcome: 'failure',
         reason: `quota-${quota.reason}`,
         committedGames: 0,
+        // No provider request was issued, so no attempt is recorded and the pass
+        // stays due — a quota-starved month must never burn a correction pass.
+        ...(reconciliationReport ? { reconciliation: reconciliationReport } : {}),
         remaining: quota.remaining,
         durable: await projectDurableBlock(resolution.slateResult, year, week, seasonType),
       } satisfies CronResult & { remaining: number | null; durable: unknown });
@@ -336,10 +414,63 @@ export async function GET(req: Request) {
           outcome: 'failure',
           reason: 'cfbd-api-key-missing',
           committedGames: 0,
+          // Same as the quota refusal: nothing was requested, nothing recorded.
+          ...(reconciliationReport ? { reconciliation: reconciliationReport } : {}),
           error: 'CFBD_API_KEY not configured',
           durable: await projectDurableBlock(resolution.slateResult, year, week, seasonType),
         } satisfies CronResult & { durable: unknown },
         { status: 500 }
+      );
+    }
+
+    // PLATFORM-110B — RESERVE BEFORE THE SPEND. The reconciliation attempt is
+    // committed durably before the provider request, so a store that cannot
+    // record cannot spend. Appending afterwards meant a persistent write failure
+    // (or a full season row) recorded nothing, left the pass due, and billed one
+    // CFBD call on every subsequent run forever. Placed AFTER the quota and
+    // credential gates so a refusal there burns no attempt, and it also enforces
+    // the attempt cap inside the ledger transaction, where two overlapping
+    // invocations cannot each pass a check made against their own snapshot.
+    if (reconciliation && !(await reconciliation.reserve())) {
+      const reservation = reconciliationReport?.reservation ?? 'write-failed';
+      // A refusal is either BENIGN or a FAULT, and conflating them is what let an
+      // overlapping QStash delivery overwrite a successful run's evidence with a
+      // false alarm. `already-closed` means another run did the work;
+      // `attempt-cap-reached` means the bound did its job (and the attempts that
+      // exhausted it each recorded their own failure). Neither is this run's
+      // fault, so both resolve as a no-op. A store that could not record —
+      // `write-failed`, `malformed`, `ledger-full` — is a genuine fault and stays
+      // a failure, which is what makes it reach an operator.
+      const benign = reservation === 'already-closed' || reservation === 'attempt-cap-reached';
+      const reason = benign
+        ? reservation === 'already-closed'
+          ? ('reconciliation-already-done' as const)
+          : ('reconciliation-attempts-exhausted' as const)
+        : ('reconciliation-unreserved' as const);
+      if (benign) {
+        await recordProviderRefreshNoop('game-stats', weekScope, { attempt, source: 'cfbd' });
+      } else {
+        await recordProviderRefreshFailure('game-stats', weekScope, {
+          attempt,
+          error: `correction reconciliation could not reserve an attempt: ${reservation}`,
+          code: `game-stats-reconciliation-${reservation}`,
+          status: 503,
+        });
+      }
+      exec.result = benign ? 'no-op' : 'failure';
+      exec.reason = reason;
+      return NextResponse.json(
+        {
+          year,
+          week,
+          seasonType,
+          outcome: benign ? 'no-op' : 'failure',
+          reason,
+          committedGames: 0,
+          ...(reconciliationReport ? { reconciliation: reconciliationReport } : {}),
+          durable: await projectDurableBlock(resolution.slateResult, year, week, seasonType),
+        } satisfies CronResult & { durable: unknown },
+        { status: benign ? 200 : 503 }
       );
     }
 
@@ -373,6 +504,21 @@ export async function GET(req: Request) {
       // Only the stable generic reason is logged — never the thrown message.
       exec.result = 'failure';
       exec.reason = 'provider-fetch-failed';
+      // The reserved attempt is settled as a failure that reached NO merge
+      // verdict, so the pass stays OPEN and a later run retries it — bounded by
+      // the attempt cap rather than left to refetch forever.
+      await reconciliation?.settle({
+        reachedVerdict: false,
+        outcome: 'failure',
+        reason: 'provider-fetch-failed',
+        corrected: 0,
+        refreshed: 0,
+        inserted: 0,
+        conflicts: 0,
+        stale: 0,
+        notObserved: 0,
+        observedAt: fetchStartedAt,
+      });
       return NextResponse.json(
         {
           year,
@@ -381,6 +527,7 @@ export async function GET(req: Request) {
           outcome: 'failure',
           reason: 'provider-fetch-failed',
           committedGames: 0,
+          ...(reconciliationReport ? { reconciliation: reconciliationReport } : {}),
           error: error instanceof Error ? error.message : 'unknown error',
           durable: await projectDurableBlock(resolution.slateResult, year, week, seasonType),
         } satisfies CronResult & { durable: unknown },
@@ -398,11 +545,18 @@ export async function GET(req: Request) {
       });
       const interpretation = interpretGameStatsRefreshOutcome(result);
 
+      // The merge's own counts, read once and never re-derived. `updated` is the
+      // games whose stored content actually CHANGED — kept apart from
+      // `refreshed` (re-confirmed identical at a newer fence) so a pass that
+      // found nothing wrong can never report as a pass that fixed something.
+      const mergeResult = result.kind === 'merge-result' ? result.merge : null;
+      const correctedGames = mergeResult?.updated.length ?? 0;
+      exec.correctedGames = correctedGames;
+
       let committedGames = 0;
       if (interpretation.advanceLastSuccess) {
-        const merge = result.kind === 'merge-result' ? result.merge : null;
-        committedGames = merge
-          ? merge.inserted.length + merge.updated.length + merge.refreshed.length
+        committedGames = mergeResult
+          ? mergeResult.inserted.length + mergeResult.updated.length + mergeResult.refreshed.length
           : 0;
         await recordProviderRefreshSuccess('game-stats', weekScope, {
           attempt,
@@ -430,6 +584,38 @@ export async function GET(req: Request) {
       exec.reason = interpretation.reason;
       exec.committedGames = committedGames;
 
+      // Closure is keyed on whether the merge authority actually COMPARED the
+      // partition — never on "ingestion returned a typed result", which is also
+      // true of an `unavailable` refusal that read nothing. A writer-control
+      // transition must not consume the season's corrections.
+      await reconciliation?.settle({
+        reachedVerdict: reachedMergeVerdict(result),
+        outcome: interpretation.kind,
+        reason: interpretation.reason,
+        corrected: correctedGames,
+        refreshed: mergeResult?.refreshed.length ?? 0,
+        inserted: mergeResult?.inserted.length ?? 0,
+        conflicts: mergeResult?.conflicts.length ?? 0,
+        stale: mergeResult?.stale.length ?? 0,
+        notObserved: mergeResult?.retainedExisting.length ?? 0,
+        observedAt: fetchStartedAt,
+      });
+      // A committed merge whose settlement did NOT commit is `partial`, not
+      // `success`: the data work landed and the bookkeeping did not. Reporting it
+      // as a clean success let a real fault read healthy while the open
+      // placeholder went on costing billed attempts. The body keeps the
+      // interpreter's own outcome and reason verbatim — this changes only the RUN
+      // classification, which is what the receipt and System Health read.
+      if (
+        reconciliation !== null &&
+        interpretation.advanceLastSuccess &&
+        reconciliationReport !== null &&
+        reconciliationReport.settlement !== 'settled'
+      ) {
+        exec.result = 'partial';
+        exec.reason = 'reconciliation-settlement-failed';
+      }
+
       // Durable REREAD — downstream truth is the durable partition, never the
       // payload or an assumed merge result. The run report's availability comes
       // from projecting the reread; no success inference, no same-run retry
@@ -442,6 +628,7 @@ export async function GET(req: Request) {
           outcome: interpretation.kind,
           reason: interpretation.reason,
           committedGames,
+          ...(reconciliationReport ? { reconciliation: reconciliationReport } : {}),
           durable: await projectDurableBlock(resolution.slateResult, year, week, seasonType),
         } satisfies CronResult & { durable: unknown },
         { status: interpretation.kind === 'failure' ? interpretation.httpStatus : 200 }
@@ -463,6 +650,21 @@ export async function GET(req: Request) {
       // Only the stable generic reason is logged — never the thrown message.
       exec.result = 'failure';
       exec.reason = 'ingestion-failed';
+      // The merge never returned a verdict, so this does NOT close the pass — an
+      // unexpected ingestion defect must not permanently consume a correction.
+      // The attempt cap is what stops it repeating without end.
+      await reconciliation?.settle({
+        reachedVerdict: false,
+        outcome: 'failure',
+        reason: 'ingestion-failed',
+        corrected: 0,
+        refreshed: 0,
+        inserted: 0,
+        conflicts: 0,
+        stale: 0,
+        notObserved: 0,
+        observedAt: fetchStartedAt,
+      });
       return NextResponse.json(
         {
           year,
@@ -471,6 +673,7 @@ export async function GET(req: Request) {
           outcome: 'failure',
           reason: 'ingestion-failed',
           committedGames: 0,
+          ...(reconciliationReport ? { reconciliation: reconciliationReport } : {}),
           error: error instanceof Error ? error.message : 'unknown error',
           durable: await projectDurableBlock(resolution.slateResult, year, week, seasonType),
         } satisfies CronResult & { durable: unknown },
@@ -500,6 +703,7 @@ export async function GET(req: Request) {
           year: exec.year,
           week: exec.week,
           seasonType: exec.seasonType,
+          mode: exec.mode,
         },
       });
     }

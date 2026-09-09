@@ -287,6 +287,16 @@ export type SchedulerExecutionTarget =
       year: number;
       week: number | null;
       seasonType: CfbdSeasonType | null;
+      /**
+       * Which job the run performed (PLATFORM-110B): ordinary kickoff-window
+       * `poll`, or a bounded correction `reconcile` pass over a partition whose
+       * window closed weeks ago. Without it the receipt shows game-stats
+       * targeting week 1 during week 10 and an operator cannot tell a correction
+       * pass from a polling run that regressed to a stale partition. Nullable so
+       * a receipt written before this field remains valid, and OPTIONAL so the
+       * existing callers and fixtures that never set it stay valid too.
+       */
+      mode?: 'poll' | 'reconcile' | null;
     }
   | {
       kind: 'odds';
@@ -860,6 +870,7 @@ function rebuildTarget(target: SchedulerExecutionTarget): SchedulerExecutionTarg
         year: target.year,
         week: target.week,
         seasonType: target.seasonType,
+        mode: target.mode ?? null,
       };
     case 'odds':
       return {
@@ -1166,7 +1177,12 @@ function isValidStoredTarget(value: unknown, job: ExternalSchedulerJob): boolean
         isFiniteNumber(target.year) &&
         (target.week === null || isFiniteNumber(target.week)) &&
         (target.seasonType === null ||
-          (typeof target.seasonType === 'string' && SEASON_TYPES.has(target.seasonType)))
+          (typeof target.seasonType === 'string' && SEASON_TYPES.has(target.seasonType))) &&
+        // Absent is valid: receipts written before PLATFORM-110B carry no mode.
+        (target.mode === null ||
+          target.mode === undefined ||
+          target.mode === 'poll' ||
+          target.mode === 'reconcile')
       );
     case 'odds':
       return (

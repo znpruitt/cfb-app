@@ -54,9 +54,14 @@ const APPROVED_KEYS = [
   'year',
   'week',
   'seasonType',
+  // PLATFORM-110B: which job the invocation performed, and how many games its
+  // merge actually CHANGED. Both are operational primitives with no provider,
+  // credential, or payload content — the allowlist rule is unchanged.
+  'mode',
   'quotaChecked',
   'providerCallAttempted',
   'committedGames',
+  'correctedGames',
   'durationMs',
 ]
   .slice()

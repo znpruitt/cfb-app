@@ -324,6 +324,63 @@ finals without replacing them. No final-score difference was observed in this co
 > reports the 2026-09-08 cron's 203-row success, because the applied script recorded no scoped
 > status. It stays wrong until a cron success overwrites it.
 
+**DRIFT MEASURED 2026-09-09 by the Item 110B lane, before any cadence was designed. Three billed
+CFBD calls, and the number inverts this finding's framing.**
+
+The open question this section left was how long provider revisions keep arriving. It is now
+measured at both ends.
+
+| Partition | Interval since its stored observation | Games compared | Differing in a RECOGNIZED category |
+|---|---|---|---|
+| `2026:1:regular` | 34h (202 rows) / 9h (the five 110A repaired) | 203 comparable of 207 stored | **0** |
+| `2025:16:regular` | 44 days | 5 | **0** |
+| `2025:1:regular` | 146 days | 141 | **0** |
+
+**Revisions arrive fast and settle fast.** The two historical partitions are byte-identical to CFBD
+today across 146 games — not merely equal in the modelled fields, but identical in their raw
+category dictionaries, with no category added or removed.
+
+**The 64 games in `2026:1:regular` that DO differ are frozen cache, not provider drift**, and the
+discriminating argument is worth stating because it is what makes the reading safe: every one of
+them differs only in a category `mergeRawEvidence` cannot overwrite (`tackles`,
+`yardsPerRushAttempt`, `tacklesForLoss`, `passesDeflected`, `yardsPerPass`, `qbHurries`,
+`completionAttempts`, `kickingPoints`, `sacks`, `totalFumbles`, `defensiveTDs`). **The parser
+boundary is an artifact of this codebase and CFBD has no knowledge of it**, so a provider still
+revising would not revise exclusively the categories this repo cannot write. Four of 409 team-sides
+hold a stored `tackles` value below 10 — impossible as a completed-game final, and the signature of
+a first observation taken mid-game and frozen since. That is Item 193's storage hygiene, sized.
+
+**Coverage of the measurement, stated because it bounds the conclusion:** the interval from ~2 days
+to ~44 days is UNMEASURED. Both historical partitions were first observed 7.6 months after their
+games, so they prove nothing changed between months 7.6 and 12.4 — not between day 2 and month 7.6.
+The `2025:1:regular` comparison also reported 282 "points differences" that are a comparator
+artifact: legacy rows carry no `pointsProvided` flag, so stored points read as absent. Not drift.
+
+**Cadence ruled on this: one pass per current-season partition at ~48h after its last kickoff, one
+at ~7 days, then never; historical seasons never swept.** What the number ruled OUT, each rejected
+on evidence rather than preference: a recurring season-wide or full-history sweep; a perpetual
+reconciliation with no horizon; a tight hourly or daily-forever cadence (zero new revisions between
++25h and +34h); per-game `gameId` fetches (203 calls to find 5, and the 5 cannot be named before
+fetching); and a pass at ~24h, which ordinary polling already owns.
+
+**Two corrections to this section's own text, both found by the measurement:**
+
+**1. The claim that every 2021–2025 partition was backfilled on 2026-04-16 is false for one.**
+`2025:16:regular` was written **2026-07-27** and is the only non-2026 partition in the v2 schema —
+which is what made it usable as a schema-clean control.
+
+**2. The `tackles 0 → 33` correction above is independently corroborated, not just reasoned.** The
+110B lane reached the same conclusion from the opposite direction — sizing the frozen-category
+problem, it found four team-sides with a stored `tackles` below 10, `401858212` Florida State and SMU
+among them, at the repair's own fence. That is the same fact the correction records, arrived at by
+measurement rather than by re-reading the merge. Two independent routes to it is why it is worth a
+line here.
+
+**Also measured, and it closes an open question in the code:** CFBD's `/info` usage probe costs
+**zero** quota calls. Two back-to-back probes both reported 4,649 remaining, and a run's decrement
+was exactly 3 for 3 `/games/teams` fetches. `quotaPolicy.ts` documents this as unverified while
+holding a 2-call margin for it, so the reserve margin is one call larger than it needs to be.
+
 **Remediation:**
 
 1. Recover the measured statistics through the existing authorized writer.
