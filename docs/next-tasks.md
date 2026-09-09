@@ -5893,6 +5893,41 @@ shaded by tidiness in either direction.**
 
 **Blocker:** none.
 
+### Item 180 — the `Streaming ·` prefix, agreed and never filed
+
+**Agreed in `item-87-followon-overview-back-application.md:71-73` and filed nowhere until now.**
+Surfaced 2026-09-08 when the owner asked whether Item 174 adds the word "broadcast" to live rows. It
+does not — but it routes them through the formatter that adds this.
+
+`gameCardPresentation.ts` → `formatPrimaryBroadcastLabel`:
+
+    case 'web': case 'mobile': return `Streaming · ${best.outlet}`;
+    case 'radio':              return `Radio · ${best.outlet}`;
+    default:                   return best.outlet;   // "ABC", "FOX", "ESPN2"
+
+**The ask:** drop the `Streaming ·` prefix; render the outlet alone.
+
+**The owner's reasoning, recorded:** _the prefix does not help a reader who does not recognise the
+name, and is redundant for one who does. It is also inconsistent: FOX and ESPN2 carry no equivalent
+qualifier, so the label appears only when the answer is less familiar — backwards._ It is also the
+longest metadata string on the surface and the first to truncate once metadata moves into the status
+row.
+
+**DO THIS BEFORE OR WITH ITEM 174, not after.** 174 gives live rows a broadcast label for the first
+time. **Doing it first spreads `Streaming ·` onto a surface that does not carry it today**, and the
+cut then has two surfaces to clean instead of one. Same shape as Item 166's ordering argument.
+
+**`Radio ·` is NOT ruled and must not be removed with it.** The owner's argument is about a
+qualifier that adds nothing — but radio is a different KIND of broadcast, not a less familiar name for
+the same kind, so removing it could present a radio-only game as watchable. **Separate call; leave it
+alone until it is made.**
+
+**Verify before applying** (the owner's own condition): that no broadcast value is genuinely ambiguous
+without the qualifier. That is a production data question — enumerate the distinct `web`/`mobile`
+outlets in the schedule-media cache and check none reads as something other than a streaming service.
+
+**Blocker:** none. **One line**, plus the verification above.
+
 ## Hosted deployment runbook
 
 Use `docs/deployment-runbook.md` for hosted environment setup, activation, production observations,

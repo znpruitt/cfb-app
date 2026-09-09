@@ -1,6 +1,6 @@
-PROMPT_ID: PLATFORM-174-175-176-178-OVERVIEW-CONFORMANCE-CLAUDE-v1
-PURPOSE: Items 174, 175, 176 and 178 — four Overview divergences the audit found and the owner has already ruled on. Every decision is made; none of them is yours to re-litigate.
-SCOPE: `src/components/OverviewPanel.tsx`, `src/lib/gameUi.ts`, `DESIGN.md`, and tests for each. **NOT `CompactGameScoreboard.tsx` — Item 143 has it open in the other lane.** NOT tag selection or precedence.
+PROMPT_ID: PLATFORM-174-175-176-178-180-OVERVIEW-CONFORMANCE-CLAUDE-v2
+PURPOSE: Items 174, 175, 176, 178 and 180 — four Overview divergences the audit found and the owner has already ruled on. Every decision is made; none of them is yours to re-litigate.
+SCOPE: `src/components/OverviewPanel.tsx`, `src/lib/gameUi.ts`, `src/lib/gameCardPresentation.ts`, `DESIGN.md`, and tests for each. **NOT `CompactGameScoreboard.tsx` — Item 143 has it open in the other lane.** NOT tag selection or precedence.
 CARRIES: `item-87-INDEX.md` CARRY rows 7 and 8, verbatim in the task block.
 
 Read `AGENTS.md` first, then **`DESIGN.md`** — canonical for UI, and one of these four is a rule it
@@ -29,6 +29,22 @@ game's broadcast is dead information_ — and wrong for live.
 **One component, two states, a rule that differs by state — and Live silently inherits the finals
 rule.** `WatchlistScoreboardList` already formats it (`:743`), so the data and the formatter both
 exist.
+
+**AND IT IS NOT ONLY THE OUTLET NAME — read this before writing the change.**
+`formatPrimaryBroadcastLabel` (`gameCardPresentation.ts`) returns the bare outlet for TV (`ABC`,
+`FOX`) but **prefixes non-TV**: `Streaming · ${outlet}` and `Radio · ${outlet}`.
+
+**`Streaming ·` is already ruled for removal — Item 180, and it must land in this slice, not after.**
+Giving live rows a broadcast label first would spread that prefix onto a surface that does not carry it
+today, leaving the cut two surfaces to clean instead of one.
+
+**`Radio ·` STAYS.** It is not ruled and is a different case — radio is a different KIND of broadcast
+rather than a less familiar name for the same kind, so dropping it could present a radio-only game as
+watchable. **Do not remove it, and do not ask to.**
+
+**Item 180 carries an owner condition you must discharge before applying the cut:** verify that no
+`web`/`mobile` outlet in the schedule-media cache reads as something other than a streaming service
+without its prefix. **Report the enumeration.**
 
 ### 175 — the watchlist reason label becomes a pill
 
