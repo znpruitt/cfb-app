@@ -6803,6 +6803,39 @@ re-run the catalog refresh.
 
 **Blocker:** none. **Small, and it may resolve the only open half of Item 198.**
 
+### Item 200 — AGENTS.md has binding rules in lines nobody can read
+
+**Measured 2026-09-09.** `AGENTS.md:146` is a **single line of 17,908 characters** — roughly 3,000
+words in one unbroken paragraph. Seven lines exceed 2,000 characters; four exceed 6,000.
+
+| line | characters |
+| --- | --- |
+| 146 | **17,908** |
+| 814 | 10,165 |
+| 802 | 9,109 |
+| 820 | 6,974 |
+
+**Line 146 carries the whole provider-refresh scope contract** — canonical, binding, and structurally
+unreadable. **This is not a style complaint.** This campaign has spent days on rules that were present
+and unfindable: the Item 87 obligations at 88% depth, the `Landed` mark on an unbuilt amendment, the
+disrupted-status comments, the chip cap. **The owner's own framing of that failure was that prominence
+is not the variable — position relative to where reading happens is.** A 17,908-character line is the
+same failure by a different mechanism: everything after the first sentence is past where anyone reads.
+
+**And it is still growing.** The `week-reconciliation` description added on 2026-09-09 went into line
+146, by the planning session, without anyone noticing the line was already 16,000 characters long.
+
+**The ask:** break the longest lines into structured subsections — the content is not the problem, the
+packaging is. **Change no rule while doing it.**
+
+**Do this as its own slice with its own review.** A reformat that silently alters a binding rule is
+worse than the unreadable version, and a diff this large hides a one-word change perfectly. **The
+review's job is to prove no rule changed**, which likely means a normalized-text comparison rather than
+a read.
+
+**Blocker:** none. **Not urgent, and it compounds** — every slice that adds to line 146 makes the
+eventual split harder.
+
 ## Out of scope for this queue
 
 - New matching systems or changes to schedule-first identity rules.
