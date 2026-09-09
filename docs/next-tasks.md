@@ -5286,6 +5286,17 @@ shipped and nothing prompted a revisit.
 taller than a one-tag card, so grid columns fall out of alignment — Oklahoma/Michigan sits at a
 different height from Ohio State/Texas beside it in the current build. The other five need inspection.
 
+> **OBSERVED ON PRODUCTION 2026-09-08, after promoting the tag-vocabulary work.** The misalignment is
+> **not visible at desktop width** — a one-tag card and a two-tag card sit level, because both fit on a
+> single line. **It appears when a card's tags wrap**, which is narrower than the two-column tier. So
+> the defect is real but its trigger is narrower than "any two-tag card".
+>
+> **What IS visible at every width is the line count.** A tagged card renders the chips on their own
+> line, then the date/broadcast line, then the teams — **three header lines where the mockup has one**,
+> because the mockup puts state, date, broadcast and the tag in a single status row. **That is the
+> whole of finding 1**, and it is what Item 143's seam exists to make possible. An untagged card
+> already reads correctly at one line, which is why the gap only shows on cards that carry a tag.
+
 **Sequence it after Item 143.** Items 1–3 need the tag-in-status-row seam, which does not exist yet;
 item 4 is **Item 157**; item 5 is **Item 119**.
 
