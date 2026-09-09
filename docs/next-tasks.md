@@ -176,34 +176,42 @@ each other.**
 | 3 | **20** | bounded database waits |
 | 4 | **47** | admin authorization for the Insights diagnostic bypass |
 
-> **199 AND PIECE 2 INTERACT — found 2026-09-09 by the owner asking whether 199 changes the Item 119
-> picture. It does, and my 199 prompt said it did not.** `resolveTeamColorCandidate` rejects a primary
-> below **0.015 raw luminance** outright and takes the alternate. **13 of 138 teams sit below that floor
-> and render no bar today** — the same 13 the Item 119 lane reported. **199 gives all 13 a bar in their
-> ALTERNATE, and for 7 that is the wrong colour**: their primaries are dark navies OKLCH lifts with
-> ~0.1° of hue drift. Only the 6 pure blacks genuinely want the alternate.
+> **199 CHANGES NOTHING VISIBLE — and I got this wrong in both directions before the lane measured it.**
+> I first wrote that 199 only makes the colour available; the owner asked whether it changes the Item 119
+> picture, and I answered that it changes rendering immediately, because `resolveTeamColorCandidate`
+> rejects a primary below **0.015 raw luminance** and falls through to the alternate. **The rejection is
+> real; the rendering claim was not.** `getSafeScoreboardTeamColor` has **zero production consumers** —
+> the Item 199 lane proved it by renaming the export and getting one compiler error, from its own test
+> file. `AGENTS.md` already said the module was "orphaned by slice 5, retained for Item 119."
 >
-> **Neither item alone is right.** 199 alone dresses seven teams in the wrong colour; piece 2 alone
-> leaves six with no bar. **The right end state needs both, plus lowering the 0.015 floor** — an
-> HSL-era guard that rejects colours OKLCH handles.
+> **The real constraint is ordering, and it is simple: 199 must merge before Item 119.** Then no team
+> ever changes colour twice. Merge 119 first and ten teams show fallback green until the catalog is
+> resynced, then visibly flip.
 >
-> **The 199 prompt now requires the 13 be reported and the merge held**, so whether seven teams show
-> alternates for however long piece 2 takes is a decision rather than something discovered on preview.
+> **Measured over all 138 provider rows by executing the function:** 13 fall back today, **3 after** —
+> Georgia Southern, Penn State, UConn, each a navy primary whose alternate is `#ffffff`, rejected by the
+> extreme-neutral guard. **Ten gain a colour, including all six pure blacks.** Item 198's "six teams
+> OKLCH cannot help" was never an OKLCH limitation; it was this field name.
+>
+> **Two measured facts moved to Item 198.** Alternates do not render at their raw ratios — California's
+> `#ffc72c` emits `#98781F` at **4.75:1**, not 12.69:1, so every raw figure I quoted overstated by up to
+> 2.7×. And Nevada's silver `#8a8d8f` emits **a blue**, `#6894B1`: `liftForDarkThemeContrast` inventing a
+> hue for a near-neutral. That is piece 2's to answer, with the `< 0.015` floor.
 
 **199 IS NEXT — owner decision 2026-09-09, ahead of the remaining audit items.** It is a one-word
 mapping fix with a confirmed diagnosis and a measured payoff, and **it unblocks a UI item that is live
-on preview right now**: Item 119's bars are missing on California and Nevada, and the alternate colour
-that fixes both is in the provider response being discarded at ingest. **The audit items are all
-latent; this one is visible.**
+on preview right now**: Item 119's bars fall back to green on California and Nevada, and the alternate
+colour that fixes both is in the provider response being discarded at ingest. **The audit items are all
+latent; this one gates a UI merge.**
 
-**It also has to precede Item 198's OKLCH port.** Fixing the mapping changes the port's input — every
-team gains a second colour, and the six teams the port cannot help all clear 3:1 on their alternate
-with no lift at all. **Building piece 2 first would be designing against a catalog known to be
-incomplete.**
+**It also has to precede Item 198's OKLCH port.** Fixing the mapping changes the port's input — 138
+teams gain a second colour, and all six the port cannot help are rescued by their alternate without any
+lift. **Building piece 2 first would be designing against a catalog known to be incomplete.**
 
 **Scope it carefully:** the fix is the field name, plus re-running the catalog refresh so the durable
-store actually gains the alternates. **Choosing WHEN to fall back to the alternate is Item 198's
-decision, not this one** — this item makes the colour available, it does not decide the rule.
+store actually gains the alternates. **The fallback RULE already exists** in
+`resolveTeamColorCandidate` and fires on the alternate as soon as one is present; **tuning it — the
+`< 0.015` floor, the hue a near-neutral gets lifted to — is Item 198's.**
 
 **110A first and unconditionally.** It is the only item with measured wrong data in production, and it
 is bounded — five named provider IDs, not a sweep. **188, 20 and 47 follow because they are cheap,
@@ -6869,6 +6877,57 @@ same failure by a different mechanism: everything after the first sentence is pa
 
 **The ask:** break the longest lines into structured subsections — the content is not the problem, the
 packaging is. **Change no rule while doing it.**
+
+### Item 201 — the seed catalog carries no colours at all
+
+**Measured 2026-09-09 by the Item 199 lane, confirmed here.** `src/data/teams.json` holds 138 items with
+keys `school, displayName, shortDisplayName, abbreviation, mascot, conference, alts` — **`with color: 0`,
+`with altColor: 0`.** `scripts/fetch-cfbd-teams.ts`, the `npm run fetch:teams` writer, never fetches
+either field; its only match on `color` is a conference alias string.
+
+**Why it matters:** that file is `readSourceCatalogFallback`'s source when the durable `team-database`
+row is absent. **On a fresh environment every team renders the fallback green regardless of Item 199**,
+because the fallback path was never given colours to fall back to. Production is unaffected — its durable
+row carries 138 primaries — so this is latent, not live.
+
+**It is a second writer of the same shape.** Whatever name Item 199 settles on the provider side, this
+script has to agree with it, and today it does not participate at all.
+
+**The ask:** teach the seed writer to carry `color` and `alternateColor`, and regenerate. **Blocker:**
+Item 199, so the two writers land on one field name rather than two.
+
+### Item 202 — `src/types/teams.ts` is a dead duplicate that has drifted
+
+**Measured 2026-09-09.** `grep -rn "@/types/teams" src/` returns **zero importers**; the only reference to
+the file is its own definition. It declares a second `TeamCatalogItem`, and it has **drifted from the live
+one** in `teamIdentity.ts` — the live type carries `subdivision`, this one does not.
+
+**Why it matters is the drift, not the deadness.** A second definition of a shared shape is exactly what
+the next reader greps into and edits, and the compiler will not object because nothing consumes it. This
+campaign has already spent a slice on two sources of truth for the draft catalog.
+
+**The ask:** delete it, or state why it exists. **Blocker:** none. Trivial, and `npm run build` is the
+gate.
+
+### Item 203 — `CfbdTeamRecord` and `/teams/fbs` disagree in both directions
+
+**Measured 2026-09-09 against one live response** (HTTP 200, 138 rows). The endpoint's key union is
+`abbreviation, alternateColor, alternateNames, classification, color, conference, division, id, location,
+logos, mascot, school, twitter`.
+
+**Fields we declare that it never sends:** `displayName` and `shortDisplayName`, both **0/138** in the
+durable store today. **This is not Item 199's defect** — there is no differently-named field to map to,
+the data is simply absent from this endpoint. Whatever populates those names elsewhere, it is not this
+ingest, and the type says otherwise.
+
+**A field it sends that we discard:** `alternateNames`. `buildDerivedTeamAliases` currently **invents**
+name variants algorithmically while the provider ships a curated list unread. That is a plausible
+improvement to alias matching and a plausible source of the alias-safety edges this campaign has already
+fixed twice.
+
+**The ask:** reconcile the type against the measured response — drop or source the two absent fields, and
+rule on whether `alternateNames` should feed alias derivation. **Blocker:** none, but it should follow
+Item 199 rather than complicate it.
 
 **Do this as its own slice with its own review.** A reformat that silently alters a binding rule is
 worse than the unreadable version, and a diff this large hides a one-word change perfectly. **The

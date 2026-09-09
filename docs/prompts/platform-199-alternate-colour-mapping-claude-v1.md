@@ -1,5 +1,5 @@
 PROMPT_ID: PLATFORM-199-ALTERNATE-COLOUR-MAPPING-CLAUDE-v1
-PURPOSE: Item 199 — the catalog ingest reads a provider field that does not exist, so all 138 alternate colours are discarded. Fix the mapping and refresh the catalog. Every missing team-colour bar on production follows from this one field name.
+PURPOSE: Item 199 — the catalog ingest reads a provider field that does not exist, so all 138 alternate colours are discarded. Fix the mapping and refresh the catalog. Nothing renders a team colour today; this makes Item 119's bar correct on the day it ships.
 SCOPE: `src/lib/teamDatabase.ts` (the PROVIDER record type and its read), the catalog refresh, and tests. NOT `teamColors.ts`. NOT the stored field name. NOT Item 198's fallback rule.
 CARRIES: NONE.
 
@@ -88,25 +88,29 @@ provider shape is wrong.
 **Do NOT change `teamColors.ts`.** The primary → alt → fallback chain is correct and this slice is the
 input it was always waiting for.
 
-**THIS SLICE DOES CHANGE WHAT RENDERS — corrected 2026-09-09, and the earlier wording here was wrong.**
-It said this item only makes the colour available and leaves the rule to Item 198. **The rule already
-exists in code and fires the moment an alternate is present.** `resolveTeamColorCandidate` rejects a
-primary whose raw luminance is below **0.015** — outright, before any lift is attempted — and the chain
-then takes the alternate.
+**THIS SLICE CHANGES NOTHING VISIBLE — corrected twice, 2026-09-09, and the second correction came from
+the lane's own mutation.** The first wording said this slice only makes the colour available. I then
+overturned that, claiming it changes rendering immediately, on the reasoning that
+`resolveTeamColorCandidate` rejects a primary below **0.015 raw luminance** and takes the alternate.
+**The rejection is real. The rendering claim was not**, because `getSafeScoreboardTeamColor` has **zero
+production consumers** — the receipt proved it by renaming the export and getting exactly one compiler
+error, from its own test file. `AGENTS.md` says so directly: the module is "orphaned by slice 5,
+retained for Item 119."
 
-**Exactly 13 of 138 teams sit below that floor**, and every one renders no bar today: Akron, App State,
-Army, California, Cincinnati, Florida International, Georgia Southern, Iowa, Nevada, Penn State, UCF,
-UConn, Vanderbilt.
+**So the payoff is sequencing, not pixels.** Item 119 is the slice that renders the bar, and it is
+unmerged. Land this first and 119 ships correct. Land 119 first and ten teams show fallback green until
+the catalog is resynced, then visibly change.
 
-**All 13 gain a bar from this slice, in their ALTERNATE colour. For 7 of them that is the wrong
-colour.** Their primaries are dark navies that OKLCH lifts to 3:1 composited with ~0.1° of hue drift —
-**Penn State is navy, not its alternate.** Only the six pure blacks have nothing to lift and genuinely
-want the alternate.
+**Measured by the receipt, by executing the function over all 138 provider rows:** 13 teams fall back
+today, **3 after the fix** — Georgia Southern, Penn State and UConn, each a navy primary with a
+`#ffffff` alternate that the extreme-neutral guard rejects. **Ten gain a real colour**, including all
+six pure blacks. Item 198's "six teams OKLCH cannot help" was never an OKLCH limitation; it was this
+field name.
 
-**So report the 13 and what each would render, and STOP before merging.** Whether seven teams should
-show alternates for however long piece 2 takes is the owner's call, not a consequence to discover on
-preview. **The `< 0.015` floor is an HSL-era guard that rejects colours OKLCH handles** — lowering it
-belongs to piece 2, not here.
+**Two findings belong to Item 198 and are recorded there, not here.** The alternates do not render at
+their raw ratios — California's `#ffc72c` emits `#98781F` at **4.75:1**, not gold at 12.69:1. And
+Nevada's silver `#8a8d8f` emits `#6894B1`, **a blue** — `liftForDarkThemeContrast` assigning a hue to a
+near-neutral. Do not touch either. The `< 0.015` floor is likewise piece 2's.
 
 **Do NOT run the refresh against production without saying so first.** If the refresh is an operator
 action rather than a test fixture, **report what it would do and stop** — the same shape as Item 110A.
