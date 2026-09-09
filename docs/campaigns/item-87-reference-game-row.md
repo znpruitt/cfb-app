@@ -140,6 +140,27 @@ Nominal away/home hold on neutral-site games; the neutral marker goes on the met
 
 **Luminance normalisation is required, not polish.** Roughly a fifth of the FBS has a primary invisible on a dark background — Penn State `#041E42`, Hawai'i `#024731`, Virginia `#232D4B`.
 
+#### The 72% was decided, but never measured — and it was tuned against the opposite failure
+
+**Traced 2026-09-09 by the Item 119 lane, at planning's request.** The value originated in the
+2026-09-03 mockup as the selected *wider solid bar, muted* variant, chosen so bright primaries would not
+compete with result emphasis. **Later documents ratified `0.72` itself without any contrast comparison
+establishing it.** The rationale justifies some reduction; nothing justifies that number.
+
+**The consequence is the part worth recording.** The mute exists to tame the BRIGHT end of the
+distribution. The failure Item 198 is being built to fix is at the DARK end — and the same global
+multiplier that stops Oregon competing with a winner is what drags a normalised navy from 3:1 raw to
+2.10:1 composited. **The dark end is collateral damage from a lever aimed at the bright end.**
+
+**So "just raise the opacity" is not the smaller fix, and planning proposed it before checking.**
+Raising it reintroduces precisely the problem it was added to solve. A single global opacity is the
+wrong instrument for a two-ended distribution.
+
+**The hypothesis this leaves for Item 198, to be measured rather than assumed:** if normalisation
+clamps lightness into a band, it solves BOTH ends with one instrument — and the opacity mute becomes
+redundant rather than merely suboptimal. If that holds, `0.72` can go to `1.0`, which raises every
+composited ratio without touching a hue. **Measure it; do not adopt it on this reasoning alone.**
+
 > **CORRECTED 2026-09-09 — this paragraph said "Work in OKLCH, not HSL" as an instruction, and the decision is STAGED.** `item-87-followon-team-colour.md` splits Item 119 into two separately shippable pieces: **(1) the 8px bar on the EXISTING HSL normaliser**, contrast-lifted to ≥3:1, and **(2) an OKLCH port ONLY IF (1) measures badly at 8px**, with the reserved-hue guard. **Piece 2 is conditional and is not a dependency of piece 1.** This document stated the endpoint as though it were the requirement — the reference is meant to consolidate settled decisions, and what is settled is the staging. Found by the Item 119 lane at its read receipt.
 
 The OKLCH shape, when and if piece 2 happens: clamp lightness into band, cap chroma, preserve hue, clamp rather than scale. **A reserved-hue guard is required so a gold team's bar does not read as champion amber.**
