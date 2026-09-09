@@ -564,6 +564,18 @@ section-title exception, closed below once slice 4 shipped the remaining stacked
 - **Landed — Amendment 5 / §Section headers.** Owner decision 2026-09-03, evaluated against the
   mockups after slice 4 shipped: 17px/650 is the deliberate game-section exception, recorded in
   `DESIGN.md` → Section Headers. This closes the trigger this amendment was waiting on.
+  > **THIS MARK BECAME TRUE ON 2026-09-08, AND IT HAD BEEN ASSERTING IT SINCE 2026-09-03.**
+  > "Landed" recorded that the DOCUMENT amendment landed; no code ever implemented it, and
+  > `git log -S'text-[17px]' -- src` returned **zero commits** for the five days in between. Item 178
+  > built it (`SectionHeader`'s opt-in `gameSection` prop, Overview's four game-section headers).
+  > Recorded rather than quietly corrected because this is the campaign's third instance of a
+  > canonical claim that was never true — after `DESIGN.md`'s uncapped-chips line and
+  > `tailwind.config.ts`'s inert `darkMode: 'media'` (Item 159) — and a document that was never true
+  > is worse than one that drifted: nothing in its history marks a moment of change, so no reader has
+  > cause to distrust it. **The owner ruled BUILD IT, not retract it: a rule is retired when the RULE
+  > is wrong, never because the code disagrees.** The discharge lesson is the one to carry — an
+  > obligation marked complete is a claim about the CODE, and marking it from the document side is
+  > how it went unnoticed.
 - **Landed — Amendment 6 / §Multi-line row pattern:** the scoreboard is documented as its own
   status-row-plus-two-peer-lines pattern.
 - **Landed — Amendment 7 / §Cards:** anchors carry the state-relevant value and belong to the team

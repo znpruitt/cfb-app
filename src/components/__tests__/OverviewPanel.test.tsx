@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -211,6 +212,12 @@ test('overview panel uses neutral wording for neutral-site games', () => {
   assert.doesNotMatch(html, /aria-label="Texas at Ohio State"/);
 });
 
+// Item 174 retargeted this test's broadcast assertion and NOTHING else. It was
+// written when Overview passed no broadcast at all, so `>ESPN2</span>` proved the
+// slot was dormant; broadcast is now a supplied slot on live rows, so the same
+// element proves the opposite and the dormant-slot subject moves to the three
+// that are still dormant (FCS classification, neutral site, tier-2). No assertion
+// was weakened — one flipped direction because the rule it encodes changed.
 test('overview keeps reserved scoreboard additions dormant for a metadata-rich live game', () => {
   const reservedMetadataGame: AppGame = {
     ...game({
@@ -250,7 +257,9 @@ test('overview keeps reserved scoreboard additions dormant for a metadata-rich l
   assert.match(scoreboard, />Live<\/span>[\s\S]*>Q2 4:30<\/span>/);
   assert.doesNotMatch(scoreboard, /data-scoreboard-classification|>FCS<\/span>/);
   assert.doesNotMatch(scoreboard, /data-scoreboard-neutral-site|>Neutral site<\/span>/);
-  assert.doesNotMatch(scoreboard, />ESPN2<\/span>/);
+  // Item 174 — a LIVE row carries its broadcast. `DESIGN.md` → Cards and game
+  // results: scheduled, live and awaiting rows, but not finals.
+  assert.match(scoreboard, />ESPN2<\/span>/);
   assert.doesNotMatch(scoreboard, /data-scoreboard-tier2-slot/);
 });
 
@@ -740,6 +749,151 @@ test('overview Live section consumes the shared scoreboard in a row-major respon
   assert.doesNotMatch(html, /STATUS_IN_PROGRESS|amber/);
 });
 
+/**
+ * ITEM 174 — the rule differs BY STATE and one component serves both states, so
+ * both halves are asserted from ONE render. A test that only covered live would
+ * prove half the rule and would pass against a `GameCardList` that passed the
+ * broadcast unconditionally, which is the defect in the opposite direction.
+ *
+ * `DESIGN.md` → *Cards and game results*: broadcast renders for scheduled, live
+ * and awaiting rows, but not finals — a completed game's carrier is dead
+ * information (`item-87-reference-game-row.md` §1). Overview enumerates that at the
+ * call site: the `final` branch supplies no label, so the final row renders none
+ * because the surface does not pass the slot (§11), not because a shared component
+ * negates a state.
+ *
+ * Both fixtures carry the SAME outlet, so the assertions cannot pass by naming two
+ * different strings, and the section-scoped extraction stops a live row's label
+ * satisfying a final row's assertion.
+ */
+test('overview renders broadcast on live and awaiting rows and never on a final', () => {
+  const media = (key: string) => [{ gameId: key, mediaType: 'tv' as const, outlet: 'ESPN2' }];
+
+  const liveGame = itemWithScore(
+    game({
+      key: 'bcast-live',
+      csvAway: 'Iowa',
+      csvHome: 'Nebraska',
+      media: media('bcast-live'),
+    }),
+    {
+      status: 'In Progress',
+      away: { team: 'Iowa', score: 10 },
+      home: { team: 'Nebraska', score: 13 },
+      time: 'Q3 8:12',
+    }
+  );
+  // Past kickoff with no usable score — the `awaiting` row, which `DESIGN.md` names
+  // alongside live rather than leaving it to inherit a branch.
+  const awaitingGame = itemWithScore(
+    game({
+      key: 'bcast-awaiting',
+      csvAway: 'Rice',
+      csvHome: 'Texas State',
+      date: '2026-09-01T15:00:00.000Z',
+      media: media('bcast-awaiting'),
+    }),
+    {
+      status: 'scheduled',
+      away: { team: 'Rice', score: null },
+      home: { team: 'Texas State', score: null },
+      time: null,
+    }
+  );
+  const finalGame = itemWithScore(
+    game({
+      key: 'bcast-final',
+      csvAway: 'Purdue',
+      csvHome: 'Penn State',
+      date: '2026-09-01T12:00:00.000Z',
+      media: media('bcast-final'),
+    }),
+    {
+      status: 'Final',
+      away: { team: 'Purdue', score: 6 },
+      home: { team: 'Penn State', score: 45 },
+      time: null,
+    }
+  );
+
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[liveGame]}
+      keyMatchups={[]}
+      sectionItems={[liveGame, awaitingGame, finalGame]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  const cardFor = (label: string) =>
+    html.match(new RegExp(`<article(?=[^>]*aria-label="${label}")[\\s\\S]*?</article>`))?.[0];
+
+  const live = cardFor('Iowa at Nebraska');
+  const awaiting = cardFor('Rice at Texas State');
+  const final = cardFor('Purdue at Penn State');
+
+  assert.ok(live, 'the live fixture must reach the Live section');
+  assert.ok(awaiting, 'the awaiting fixture must reach the Live section');
+  assert.ok(final, 'the final fixture must reach Recent finals');
+  assert.match(live, /data-scoreboard-state="live"/);
+  assert.match(awaiting, /data-scoreboard-state="awaiting"/);
+  assert.match(final, /data-scoreboard-state="final"/);
+
+  assert.match(live, />ESPN2<\/span>/, 'a live row carries its broadcast');
+  assert.match(awaiting, />ESPN2<\/span>/, 'an awaiting row carries its broadcast');
+  assert.doesNotMatch(final, />ESPN2<\/span>/, 'a final row carries no broadcast');
+});
+
+/**
+ * STRUCTURAL PIN, and it exists because the behavioural test above CANNOT reach
+ * this — proven by mutation, not assumed.
+ *
+ * Rewriting `GameCardList` to pass the broadcast unconditionally leaves the test
+ * above GREEN, because `CompactGameScoreboard` ALSO suppresses broadcast on finals
+ * (`state !== 'final'`, its own line). So the DOM cannot distinguish a caller that
+ * enumerates from one that relies on that negation: both render the same final row.
+ *
+ * The distinction still matters, and it is sequenced. `DESIGN.md` → *List row width
+ * discipline* forbids defining state-dependent rendering by negation, and Item 143
+ * owns the component. When that negation goes, an unconditional caller would start
+ * printing a carrier on completed games with nothing failing. This pin is what
+ * makes that a test failure instead.
+ *
+ * RETIRE THIS when the shared component stops deciding broadcast by state — at
+ * that point the behavioural test above becomes discriminating on its own.
+ *
+ * The window bounds are asserted rather than assumed: a source scan that reads the
+ * wrong region reports an absence about code it never looked at.
+ */
+test('GameCardList enumerates the states that carry a broadcast rather than passing it always', () => {
+  const source = readFileSync(new URL('../OverviewPanel.tsx', import.meta.url), 'utf8');
+
+  const start = source.indexOf('function GameCardList(');
+  const end = source.indexOf('function WatchlistScoreboardList(');
+
+  // BOTH BOUNDS ARE ASSERTED, and `length > 0` alone was not enough — review found
+  // the hole. A renamed `WatchlistScoreboardList` makes `indexOf` return -1, and
+  // `slice(start, -1)` silently WIDENS the window to the rest of the file rather
+  // than failing; a reordered one makes `end < start` and empties it. Only the
+  // second is caught by a length check, so the window's own integrity is asserted
+  // before anything is read from it.
+  assert.ok(start >= 0, 'the GameCardList declaration must be found');
+  assert.ok(end > start, 'the window must end at WatchlistScoreboardList, after GameCardList');
+
+  const gameCardList = source.slice(start, end);
+  assert.match(gameCardList, /broadcast=\{broadcast\}/, 'it must pass the slot at all');
+
+  assert.match(
+    gameCardList,
+    /const broadcast =\s*state === 'live'\s*\?\s*formatPrimaryBroadcastLabel\(game\.media\)\s*:\s*undefined;/,
+    'the broadcast label must be gated on the enumerated state, not passed unconditionally'
+  );
+});
+
 test('overview Live section suppresses kickoff timestamps when no game clock is available', () => {
   const genericLive = itemWithScore(
     game({ key: 'generic-live', csvAway: 'Georgia', csvHome: 'Alabama' }),
@@ -959,7 +1113,12 @@ test('overview panel renders league highlights and standings without matrix tabl
   assert.match(html, /Insights/);
   assert.doesNotMatch(html, /Featured matchups/);
   assert.doesNotMatch(html, /View details/);
-  assert.match(html, /All results →/);
+  // Item 176 — this fixture supplies NO games, so every game section is empty and
+  // every game section hides. `All results →` was Featured's own CTA and asserting
+  // it here was asserting that an empty Featured still rendered. The subject of
+  // this test is the standings/insights composition, which is unchanged.
+  assert.doesNotMatch(html, /All results →/);
+  assert.doesNotMatch(html, /Featured games/);
   assert.doesNotMatch(html, /Head-to-head matrix/);
   assert.doesNotMatch(html, /<table/);
   assert.doesNotMatch(html, /League snapshot/);
@@ -1417,14 +1576,16 @@ test('overview panel keeps league-home ordering with standings and highlights ah
     />
   );
 
-  // Section order: hero/podium (leader card) → Standings → Featured games. The
-  // game sections that follow are Featured → Live → Recent finals → Upcoming
-  // watchlist (owner decision 2026-09-03); this render has no live items, so it
-  // pins only the league-home half. The full order is pinned in
-  // OverviewPanelPromotion.test.tsx.
+  // Section order: hero/podium (leader card) → Standings → game sections. The game
+  // sections are Featured → Live → Recent finals → Upcoming watchlist (owner
+  // decision 2026-09-03); this render has no live items and no FINAL result, so
+  // under Item 176 Featured is absent and the watchlist is the first game section.
+  // The full order is pinned in OverviewPanelPromotion.test.tsx.
   assert.ok(html.indexOf('Alice') < html.indexOf('Standings'));
-  assert.ok(html.indexOf('Standings') < html.indexOf('Featured games'));
-  assert.ok(html.indexOf('Featured games') < html.indexOf('Upcoming watchlist'));
+  assert.ok(html.indexOf('Standings') < html.indexOf('Upcoming watchlist'));
+  // Item 176 — an empty section hides. This fixture's one game is scheduled, so it
+  // reaches the watchlist and nothing reaches Featured.
+  assert.doesNotMatch(html, /Featured games/);
   assert.doesNotMatch(html, /League pulse/);
   // The leader is the rank-1 hero card.
   assert.match(html, /#1[\s\S]*?Alice/);
@@ -1468,8 +1629,11 @@ test('overview panel keeps standings as the only condensed ranking table', () =>
   const fullStandingsLinks = html.match(/Full standings →/g) ?? [];
   assert.equal(fullStandingsLinks.length, 2);
   assert.doesNotMatch(html, /League snapshot/);
-  // Standings is positioned ahead of the results (Featured games) section.
-  assert.ok(html.indexOf('>Standings<') < html.indexOf('Featured games'));
+  // Standings is positioned ahead of the game sections. Item 176: this fixture's
+  // one game is scheduled, so Featured is empty and hides, and the watchlist is
+  // the first game section below standings.
+  assert.ok(html.indexOf('>Standings<') < html.indexOf('Upcoming watchlist'));
+  assert.doesNotMatch(html, /Featured games/);
 });
 
 test('overview panel shows watchlist alongside results when highlight cards exist', () => {
@@ -1778,7 +1942,145 @@ test('overview panel shows win percent empty-state copy when no resolved standin
   assert.doesNotMatch(html, /Latest: 0\.0%/);
 });
 
-test('overview panel shows explicit empty states for featured and results when no shared insights exist', () => {
+/**
+ * ITEM 178 — the game-section header exception, BOTH halves.
+ *
+ * `DESIGN.md` → *Section Headers* records a 17px/650 exception naming Overview's
+ * Live, Featured games, Watchlist and Recent finals headers and adding "not a new
+ * default elsewhere". It was recorded 2026-09-03 and never implemented:
+ * `git log -S'text-[17px]' -- src` returned zero commits until this slice, so the
+ * canonical rule had no consumer for five days.
+ *
+ * The second half is the one that would break silently. `SectionHeader` also serves
+ * **GB Race**, a standings section the same sentence excludes, and four more 15px
+ * headers on this page are their own inline elements rather than `SectionHeader`
+ * calls. Asserting only the four that change would let a global edit pass.
+ */
+test('the four game-section headers take the 17px/650 exception and no other header does', () => {
+  const liveItem = itemWithScore(game({ key: 'hdr-live', csvAway: 'Iowa', csvHome: 'Nebraska' }), {
+    status: 'In Progress',
+    away: { team: 'Iowa', score: 10 },
+    home: { team: 'Nebraska', score: 13 },
+    time: 'Q3',
+  });
+  const finalItem = itemWithScore(
+    game({ key: 'hdr-final', csvAway: 'Purdue', csvHome: 'Penn State' }),
+    {
+      status: 'Final',
+      away: { team: 'Purdue', score: 6 },
+      home: { team: 'Penn State', score: 45 },
+      time: null,
+    }
+  );
+  const featuredItem = itemWithScore(
+    game({ key: 'hdr-featured', csvAway: 'Texas', csvHome: 'Georgia' }),
+    {
+      status: 'Final',
+      away: { team: 'Texas', score: 17 },
+      home: { team: 'Georgia', score: 24 },
+      time: null,
+    }
+  );
+  const scheduledItem = item(
+    game({ key: 'hdr-sched', csvAway: 'BYU', csvHome: 'TCU', date: '2026-10-20T22:00:00.000Z' })
+  );
+
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[liveItem]}
+      keyMatchups={[featuredItem, scheduledItem]}
+      sectionItems={[liveItem, finalItem, scheduledItem]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  // MATCH EVERY `<h2>`, then read its class — not `<h2 class="...">`, which review
+  // found silently drops any heading whose `class` is not the first attribute or
+  // whose content wraps a child element. The claim below is about the rendered
+  // POPULATION, so an instrument that cannot see all of it reports clean because it
+  // did not look (`AGENTS.md` → a measurement's coverage is part of its result).
+  const headings = Array.from(html.matchAll(/<h2\b([^>]*)>([\s\S]*?)<\/h2>/g), (match) => ({
+    classAttr: /class="([^"]*)"/.exec(match[1] ?? '')?.[1] ?? '',
+    text: (match[2] ?? '').replace(/<[^>]*>/g, ''),
+    // Token membership, not a substring or a `\b` boundary: `text-[17px]` ends in
+    // `]`, which is not a word character, so `\b` after it never matches a
+    // following space and the assertion would fail on a class that is present.
+    tokens: new Set(
+      (/class="([^"]*)"/.exec(match[1] ?? '')?.[1] ?? '').split(/\s+/).filter(Boolean)
+    ),
+  }));
+
+  // The count is the coverage check. Four game sections plus GB Race render here;
+  // if a heading is added, moved into a child component, or stops matching, this
+  // fails instead of the population quietly shrinking to the ones that still do.
+  assert.equal(
+    headings.length,
+    5,
+    `expected 5 <h2> headings, saw ${headings.length}: ${JSON.stringify(headings.map((h) => h.text))}`
+  );
+
+  const GAME_SECTIONS = ['Featured games', 'Live · 1', 'Recent finals', 'Upcoming watchlist'];
+  for (const title of GAME_SECTIONS) {
+    const heading = headings.find((entry) => entry.text === title);
+    assert.ok(heading, `${title} must render as a section heading`);
+    assert.ok(heading.tokens.has('text-[17px]'), `${title} is 17px: ${heading.classAttr}`);
+    assert.ok(heading.tokens.has('font-[650]'), `${title} is weight 650: ${heading.classAttr}`);
+  }
+
+  // The other half. GB Race is a `SectionHeader` caller that `DESIGN.md` excludes
+  // by name, so it is the one a global edit would take with it.
+  const gbRace = headings.find((entry) => entry.text === 'GB Race');
+  assert.ok(gbRace, 'GB Race must render as a section heading');
+  assert.ok(gbRace.tokens.has('text-[15px]'), `GB Race is 15px: ${gbRace.classAttr}`);
+  assert.ok(gbRace.tokens.has('font-medium'), `GB Race is weight 500: ${gbRace.classAttr}`);
+  assert.ok(!gbRace.tokens.has('text-[17px]') && !gbRace.tokens.has('font-[650]'));
+
+  // And every heading on the page is either one of the four or still 15px — stated
+  // over the rendered population rather than over the headings this test names, so
+  // a fifth section added later is covered without editing this assertion.
+  for (const heading of headings) {
+    if (GAME_SECTIONS.includes(heading.text)) continue;
+    assert.ok(
+      heading.tokens.has('text-[15px]') && heading.tokens.has('font-medium'),
+      `non-game heading changed size: ${heading.text} — ${heading.classAttr}`
+    );
+  }
+
+  // The trifold column headers are `<p>` elements, not `SectionHeader` calls, so
+  // they are what a size change reaches by accident. Asserted over the rendered
+  // POPULATION rather than by naming labels: a fixture that happens not to render
+  // the Insights column must not quietly drop the check.
+  const columnHeaders = Array.from(
+    html.matchAll(/<p class="((?:text-\[15px\]|text-\[17px\])[^"]*)"[^>]*>([^<]*)<\/p>/g),
+    (match) => ({ classAttr: match[1] ?? '', text: match[2] ?? '' })
+  );
+  assert.ok(columnHeaders.length > 0, 'the trifold column headers must render');
+  for (const header of columnHeaders) {
+    assert.ok(
+      header.classAttr.split(/\s+/).includes('text-[15px]'),
+      `column header changed size: ${header.text} — ${header.classAttr}`
+    );
+  }
+  assert.doesNotMatch(html, /<p class="[^"]*text-\[17px\]/);
+});
+
+/**
+ * ITEM 176 — this test previously asserted `No recent results yet.` on a zero-game
+ * render, which DEFENDED the divergence rather than the rule. That assertion dates
+ * to `352054d1` (2026-03-26), months before the hide rule was written, and it is
+ * REPLACED here rather than deleted: the same fixture now pins the opposite fact,
+ * so the file still covers what happens to Featured when nothing reaches it.
+ *
+ * `composition.md` §2 and `item-87-reference-game-row.md` §12: the section order is
+ * self-managing because empty sections hide. Featured is not exempt — an orthogonal
+ * section with nothing in it does not render, on either reading of Featured, which
+ * is why the ruling did not wait on Item 113.
+ */
+test('overview hides every game section, Featured included, on a zero-game render', () => {
   const html = renderToStaticMarkup(
     <OverviewPanel
       standingsLeaders={[]}
@@ -1791,12 +2093,27 @@ test('overview panel shows explicit empty states for featured and results when n
     />
   );
 
-  assert.doesNotMatch(html, /No featured matchups yet for this slate\./);
-  // No insights surface exists with zero owners; the standings column shows its
-  // own empty-state hint instead.
+  // Positive control: this render DID produce a page, so the assertions below are
+  // reading an absence from a document rather than from an empty string.
   assert.match(html, /Add owners to populate standings\./);
+
+  // The section is absent from the DOM — not present-but-empty.
+  assert.doesNotMatch(html, /Featured games/);
+  assert.doesNotMatch(html, /No recent results yet\./);
+  assert.doesNotMatch(html, /No featured matchups yet for this slate\./);
+  assert.doesNotMatch(html, /data-featured-scoreboard-grid/);
+  // Its CTA goes with it. `All results →` is NOT Featured-specific — Recent finals
+  // renders the identical string — so this assertion covers both of them, and it
+  // holds here because this fixture has zero games and neither section renders. Do
+  // not read it as a Featured-only probe: the Featured-specific evidence is the
+  // heading and `data-featured-scoreboard-grid` above.
+  assert.doesNotMatch(html, /All results →/);
+  // The other three sections were already gated on length and stay absent.
+  assert.doesNotMatch(html, /Live · /);
+  assert.doesNotMatch(html, /Recent finals/);
+  assert.doesNotMatch(html, /Upcoming watchlist/);
+
   assert.doesNotMatch(html, /Open insight/);
-  assert.match(html, /No recent results yet\./);
 });
 
 test('overview panel keeps featured matchups hidden when none are meaningful for current phase', () => {

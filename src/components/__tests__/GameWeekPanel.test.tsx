@@ -1926,6 +1926,52 @@ test('pregame provider statuses containing "ot" letters do not render as live ro
 
 // --- PLATFORM-086E1C1: broadcast + enriched venue + Time TBD -----------------
 
+/**
+ * ITEM 180 — the `Streaming ·` cut lands in the SHARED formatter
+ * (`formatPrimaryBroadcastLabel`), so it changes Schedule as well as Overview.
+ * That is deliberate: the rule is a property of the shared row
+ * (`item-87-reference-game-row.md` §1), and applying it to one surface is the
+ * back-application failure Item 160 exists to record.
+ *
+ * Schedule is asserted HERE because nothing else did. The nearby
+ * `assert.doesNotMatch(html, /Streaming ·/)` at the missing-enrichment test passes
+ * on a fixture carrying NO media at all, so it could never have caught the prefix
+ * — the positive control this test supplies is a `web` outlet that really reaches
+ * a rendered row.
+ */
+test('a streaming outlet reaches a Schedule row unprefixed, and radio keeps its prefix', () => {
+  const render = (media: { gameId: string; mediaType: 'web' | 'radio'; outlet: string }[]) =>
+    renderToStaticMarkup(
+      <GameWeekPanel
+        games={[
+          game({
+            key: 'streaming-cut',
+            csvAway: 'Ohio State',
+            csvHome: 'Texas',
+            date: '2025-08-30T00:00:00.000Z',
+            media,
+          }),
+        ]}
+        byes={[]}
+        oddsByKey={{}}
+        scoresByKey={{}}
+        rosterByTeam={new Map()}
+        isDebug={false}
+        hideByes={true}
+        displayTimeZone="UTC"
+      />
+    );
+
+  const streaming = render([{ gameId: 'streaming-cut', mediaType: 'web', outlet: 'ESPN+' }]);
+  assert.match(streaming, /ESPN\+/, 'the outlet name reaches the row');
+  assert.doesNotMatch(streaming, /Streaming ·/, 'and it carries no qualifier prefix');
+
+  // Radio is the ONE surviving prefix, and it is a different KIND of broadcast —
+  // an unprefixed station would present a radio-only game as watchable.
+  const radioOnly = render([{ gameId: 'streaming-cut', mediaType: 'radio', outlet: 'KVET' }]);
+  assert.match(radioOnly, /Radio · KVET/);
+});
+
 test('scheduled row renders the preferred broadcast outlet and enriched venue', () => {
   const html = renderToStaticMarkup(
     <GameWeekPanel
