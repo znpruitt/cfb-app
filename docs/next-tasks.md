@@ -5522,6 +5522,24 @@ from the cases that happen to be available passes while the actual case goes unt
 **Design:** `item-87-reference-overview-composition.md` §7, which is the brief. **Eleven checks**, seven at
 row level and four at page level. **That section has not been run** — it is proposed scope, not findings.
 
+> **RUN AND ANSWERED 2026-09-08. RESIDUE COUNT: 8.** Filed as Items **173-179** (R3 and R4 share one
+> item — both are "the tag decisions reached only the watchlist"). **The question this item existed to
+> answer:** Item 160 is **NOT** the whole back-application problem. It is the part that was visible in
+> a screenshot, and its own text says so — its ask is scoped to the watchlist because a screenshot of
+> the watchlist prompted it. The same class of gap exists in all three other sections with nothing
+> filed against it.
+>
+> **The honest form of the number**, in the auditor's words: **8 residual divergences in the
+> statically- and render-analysable behaviour of the four sections' own code paths** — not 8 in
+> Overview. A layout-dependent divergence would not appear, and **check 7 (the third column tier) is
+> exactly where one would hide**: it was answered from class strings, since nothing in the tree
+> measures rendered width and Item 134 lists that missing test as one of its own requirements.
+>
+> **Sharpest single finding:** `Close`'s only reachable render path on Overview is the forbidden one.
+> It cannot render on Live, Recent finals or Featured because those sections pass no tags (Item 173),
+> and on the watchlist it fires only through Item 169's `0-0` scheduled pack — the case
+> `DESIGN.md:313` prohibits. Neither item named the other.
+
 **The ask:** run the audit across **Live, Recent finals, Featured and the watchlist**.
 
 **Why, and it is not "more documentation".** The watchlist's six divergences (Item 160) all came from ONE
@@ -5690,6 +5708,133 @@ is legitimate, and `AGENTS.md` requires a module with no live consumer to say wh
 removed. **The fix is making the comments true, not making the code smaller.**
 
 **Blocker:** none. **Small.** Related: Item 169, whose reachability answer came from this measurement.
+
+### Item 173 — the tag decisions reached the watchlist and no other section
+
+**Item 167 residue R3 + R4.** Live, Recent finals and Featured **pass no tags at all**. `Upset` exists
+in the league family and reaches Recent finals never; a Live game that is both a Top 25 Matchup and
+Close renders `[]`. And the one marker Featured does pass — the CFP/conference badge — goes through
+`contextSlot`, so it renders **above** the status row, left-aligned, on its own line.
+
+**§11 gives Overview a tag slot; §2 makes selection tags valid in any state; §15 puts the bowl name
+"in the tag slot".** The mockup carries `Top matchup` eyebrows on Live cards.
+
+**This is Item 160's defect one section over, owned by nobody.** 160 is scoped to the watchlist because
+a screenshot of the watchlist is what prompted it. **Item 143 is the seam** (where a tag goes); this is
+that three sections supply none.
+
+**Blocker:** Item 143 for placement. Supplying the tags at all is independent.
+
+### Item 174 — Live rows render no broadcast
+
+**Item 167 residue R1.** `GameCardList` serves both Live and Recent finals and **accepts no broadcast
+input**. Omitting it is correct for finals — §1: _a completed game's broadcast is dead information_ —
+and wrong for live. **`DESIGN.md:201`: broadcast renders for scheduled, live and awaiting rows, not
+finals.** §11 says the same.
+
+**One component serving two states, where the rule differs by state.** Live silently inherits the
+finals rule. That is `reference-game-row.md` §16's "state defined by one branch, other states inherit"
+in its purest form.
+
+**Blocker:** none. **Small** — the data is on the game already; the watchlist formats it at `:743`.
+
+### Item 175 — two tag treatments in one slot, and the code cites the wrong row
+
+**Item 167 residue R2, surviving Item 157.** On the watchlist, `Upset watch` and `Game of the Week`
+render as **plain bronze text** (`gameUi.ts:189-190`, `#c9a66b`) beside `Top 25 Matchup` as a **bronze
+pill** (`:174-175`, `#dbc190` + hairline). Two treatments, one slot, one row.
+
+**157 unified the VOCABULARY. The TREATMENT axis survived it** — which is why this is residue rather
+than a known divergence: a filed item shipped and did not close what it was filed to close.
+
+**`reference-game-row.md` §2 rejects the split outright:** _"One treatment, no per-class variation… The
+distinction is real but undecodable — a reader cannot learn 'pill means outcome' from looking.
+Rejected."_
+
+**The code's cited authority is for a DIFFERENT ROW.** `gameUi.ts:177-188` cites
+`matchups-schedule-design.md` → _Not applied to the Featured reason row_, which exempts the **Featured
+tile's** title (`sb-title`) — _"a card title on its own line rather than an inline tag beside a
+status."_ The watchlist's row is an inline tag beside a status. **And that document settles nothing:**
+_"bronze appears in two shapes. **Flagged rather than settled** — making it a pill too is a one-line
+change if the inconsistency reads badly."_
+
+**Why the mis-citation happened, which is worth keeping:** in the mockup, `.sb-title` is the
+**watchlist's** class and Featured uses `.fx-reason`. A reader matching on the class name lands on the
+wrong row.
+
+**The ask:** rule whether the reason label is a pill. **One line either way**; the document says so.
+
+**Blocker:** none.
+
+### Item 176 — the Featured section renders empty instead of hiding
+
+**Item 167 residue R5.** `OverviewPanel.tsx:1649` renders Featured when
+`recentResults.length > 0 || recentFinals.length === 0` — so on a page with **zero games** it renders
+the heading plus `No recent results yet.`
+
+**Both references say empty sections hide.** `composition.md` §2 and `reference-game-row.md` §12:
+_"Empty sections hide, so outside a slate Live disappears and the watchlist rises without any
+conditional logic."_ **The order is described as self-managing; this section manages itself the other
+way.**
+
+**A test defends the current behaviour** — `OverviewPanel.test.tsx:1781-1800` asserts the empty string
+on a zero-game render, dating to `352054d1` (2026-03-26), **months before** the hide rule was written
+(2026-09-08). **No decision reconciles them.** POLISH-013 sanctions the GB Race empty state and is
+scoped to the trend section only.
+
+**The ask:** rule which behaviour is right, then make the test defend that one.
+
+**Blocker:** none. Related: **Item 113**, which owns what promotes a game into Featured but says
+nothing about the empty case.
+
+### Item 177 — Featured's postseason ordering is the exact reverse of the rule
+
+**Item 167 residue R6.** `selectFeaturedGames` (`selectors/overview.ts:466`) re-sorts by
+`postseasonRole` tier whenever **any** postseason game is present. Rendered: championship (Jan 1) →
+quarterfinal (Jan 5) → bowl (Jan 9).
+
+**`item-87-followon-section-ordering-resolutions.md:94`: Featured — kickoff DESCENDING, tiebreak game
+key.** Kickoff-descending is the exact reverse of what renders.
+
+**The ordering rule was set 2026-09-04 without reference to the postseason branch**, which predates it.
+Neither knows about the other.
+
+**Not urgent — unreachable until the postseason.** But it is unreachable in TESTING too, which is how
+it survived: nothing exercises a slate carrying `postseasonRole`.
+
+**Blocker:** none. Related: **Item 154** (postseason grouping), which should not be built against the
+current behaviour.
+
+### Item 178 — the 17px section-header exception was decided, marked landed, and never built
+
+**Item 167 residue R7, and the third instance of this exact shape.**
+
+`DESIGN.md:390`: **Game-section exception (17px, weight 650)** — owner decision 2026-09-03, naming the
+four Overview game-section headers. `item-87-live-watchlist-scoreboard.md:564` marks it **"Landed —
+Amendment 5 / §Section headers."**
+
+**`git log -S'text-[17px]' -- src` returns ZERO commits.** All four headers render through one
+`SectionHeader` (`OverviewPanel.tsx:391`) at `text-[15px] font-medium` — the 15px/500 default the
+exception exists to override.
+
+**A canonical rule, marked landed, that has never had an implementation.** Same shape as Item 165's
+chip cap and Item 159's inert `darkMode: 'media'`. **A document that was never true is worse than one
+that drifted** — nothing in its history marks a moment of change, so no reader has cause to distrust
+it, and "Landed" actively vouches for it.
+
+**The ask:** build it, or retire the exception and the "Landed" mark together.
+
+**Blocker:** none. **One class string** if it is built.
+
+### Item 179 — the awaiting anchor renders an em dash where the contract specifies an en dash
+
+**Item 167 residue R8.** `CompactGameScoreboard` renders `—` on awaiting rows;
+`reference-game-row.md` §4 and §11 and the mockup all specify `–`.
+
+Trivial in size, real against the contract, **and filed rather than folded so the residue count is not
+shaded by tidiness in either direction.**
+
+**Blocker:** none.
 
 ## Hosted deployment runbook
 
