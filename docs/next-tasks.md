@@ -3086,6 +3086,25 @@ only if Item 87 slice 4's record join reaches historical seasons.
 > partitions are legacy rows that `computeWeeklyGameStatsMerge` classifies `updated` unconditionally,
 > so a sweep would report every game as changed while changing nothing.
 >
+> **BUILT 2026-09-09 on `claude/110b-correction-reconciliation` — implemented and reviewed, NOT yet
+> merged, and NOT run against production.** The cadence shipped as ruled, gated on SATISFACTION: only
+> a partition whose coverage is `complete` is revisited, so a collection gap stays visible instead of
+> being quietly filled. It is a SECOND CONSUMER of the game-stats cron's existing run slot rather
+> than a second job — considered only when ordinary polling has no target — so the
+> one-billed-call-per-run promise, the quota reserve, the writer fence and the outcome interpreter
+> are unchanged, and no new schedule was needed. **The binding p2-independence condition is enforced
+> by a named test**, and a mutation making a closed p1 suppress p2 fails it. Three independent
+> reviews across two remediation rounds; test delta **+64**. Detail is in the registry entry
+> (`PLATFORM-110B-CORRECTION-RECONCILIATION-CLAUDE-v1`); the measurement that ruled the cadence is in
+> the audit's C3.
+>
+> **Two findings recorded and deliberately not fixed**, both in code comments: a `pending`
+> unknown-kickoff game can let a partition read `complete` around it — bounded, and once the kickoff
+> is repaired the game becomes expected with no evidence, coverage leaves `complete`, and
+> reconciliation DECLINES the partition, which leaves the gap visible as ruled; and unreconcilable
+> partitions are re-probed on every idle run — no spend, no correctness impact, and the fix trades
+> read count against fairness.
+>
 > **Boundaries that must not blur.** **Item 140 is score-observation measurement and is NOT a
 > prerequisite here** — it measures when a SCORE first reads final, which cannot measure when
 > STATISTICS stop changing. **Item 131 is a collection/cost decision**, not correction.
