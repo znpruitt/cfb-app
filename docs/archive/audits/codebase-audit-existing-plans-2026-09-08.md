@@ -243,6 +243,44 @@ adjudication.
 The separate final-score sweep repairs missing usable finals but reports differences against existing
 finals without replacing them. No final-score difference was observed in this comparison.
 
+> **RECOVERY RAN — 2026-09-09.** Item 110A
+> (`PLATFORM-110A-GAME-STAT-RECOVERY-CLAUDE-v1`) re-observed the five named provider IDs through a
+> bounded path over the existing ingestion authority. A capture at `2026-09-09T05:43:43.425Z`
+> confirmed **all five still differed**; the owner applied it at `2026-09-09T05:57:02.928Z` —
+> `written-clean`, five rows updated, 202 retained untouched, new fence
+> `2026-09-09T05:43:43.425Z`.
+>
+> **Three corrections to the measurements above, established while building the recovery:**
+>
+> 1. **These records were not left stale since kickoff.** `provider-refresh-status` shows a
+>    successful game-stats commit of **203 rows** at `2026-09-08T04:45:12.739Z` — the stored values
+>    this section compared were written by an app refresh that same day, and CFBD revised the five
+>    again afterwards. That is a different finding from the one recorded above, and it strengthens
+>    110B's case rather than weakening it: the partition WAS visited, and satisfaction still left it
+>    wrong.
+> 2. **"Outside ordinary polling eligibility at measurement time" does not hold for `401858212`.**
+>    SMU at Florida State kicked off `2026-09-07T23:30Z`; its stored fence was kickoff **+5h15m**,
+>    inside the `[3h, 24h)` window. Its window closed `2026-09-08T23:30Z`. Relatedly, `401868170`
+>    was **20h past its own window** when that same run wrote its row — the cron fetches and merges
+>    a whole PARTITION once any single game in it is eligible, so per-game eligibility never gated
+>    the write.
+> 3. **The partition holds 207 games, not the 203 compared.** Four rows carry older fences and were
+>    absent from the 09-08 response — `401868288`, `401891332`, `401913104`
+>    (`2026-08-30T06:00:14.291Z`) and `401868284` (`2026-09-06T12:45:00.807Z`). Prior-good retention
+>    working as specified; recorded so the before/after row counts are not misread as a discrepancy.
+>
+> **The recovery is partial, and permanently so on this path (Item 193).** `mergeRawEvidence`
+> replaces an existing raw category only when `parseCategoryValue(...).status === 'valid'`, and
+> `tackles`, `sacks`, `qbHurries`, `tacklesForLoss`, `passesDeflected`, `totalFumbles`,
+> `yardsPerPass`, `yardsPerRushAttempt` and `completionAttempts` are all `unknown-category`. So the
+> five rows now carry corrected modelled statistics beside stale raw-only ones — `401858212` holds
+> `totalYards: 324` next to `tackles: "0"` and `completionAttempts: "12-23"`. Replaying the capture
+> cannot fix it: the fence now matches and the merge returns `unchanged`.
+>
+> **`provider-refresh-status` for this partition is false as of this note (Item 194)** — it still
+> reports the 2026-09-08 cron's 203-row success, because the applied script recorded no scoped
+> status. It stays wrong until a cron success overwrites it.
+
 **Remediation:**
 
 1. Recover the measured statistics through the existing authorized writer.
