@@ -5574,6 +5574,37 @@ branch (`:548`) fires on `margin != null && margin <= 7`.
 **So a scheduled row carrying a cached `0-0` score pack yields margin 0, takes the chip, and takes 80
 points of `watchlistPriority`** — sorting an unplayed game up a six-card list.
 
+**MEASURED AGAINST PRODUCTION 2026-09-08, read-only replica — the mechanism is REAL and has never hit
+an FBS game.** This is the reachability question the item said to answer first.
+
+Across all seven seasons in the score cache (2018, 2021-2026), packs carrying BOTH scores:
+
+| year | status | packs with scores |
+| --- | --- | --- |
+| 2026 | `final` | 454 |
+| 2026 | `scheduled` | **0** |
+| 2023 | `final` | 3,724 |
+| 2023 | `scheduled` | **6** |
+| all other years | `final` only | — |
+
+**Only two literal statuses exist in production — `final` and `scheduled`.** The provider never emits
+`postponed`, `canceled` or `suspended`, which the classifier's comment anticipates; it just leaves a
+disrupted game as `scheduled`.
+
+**The six are all Alderson-Broaddus**, a Division II school that closed mid-season in 2023. Their
+remaining games were cancelled and the provider left them `scheduled` at `0-0`. **Margin 0, so all six
+would take the chip and its 80 priority points.**
+
+**So: a live mechanism, zero FBS instances in seven seasons.** The trigger is a game cancelled outright
+and left `scheduled` with a zeroed score — a school closing, and plausibly a weather cancellation. The
+2023 rows are D-II and would be pruned by Item 150 anyway, so they never reached a member; nothing
+makes the mechanism division-specific.
+
+**Ruling: a real guard, not an emergency.** Schedule it as ordinary work rather than a fix. **The
+consequence if it does fire is worse than a stray chip** — 80 points of `watchlistPriority` sorts a
+cancelled game to the top of a six-card list, so the failure is "the most prominent upcoming game is
+one that will never be played".
+
 **The ask:** guard `close` on live-or-final, per the rule.
 
 **Why it needs an item rather than a fix in passing:** it is a behaviour change on a shipped surface,
