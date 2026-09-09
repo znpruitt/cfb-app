@@ -606,7 +606,12 @@ another it took a second person reading the file.
 **The instruction is the one already on the books — verify against the THING, not a proxy — and this
 family is where the proxy argues for itself.** So the practical response is a DEFAULT rather than more
 care: care fails by construction when the feedback is confirming what you already believe. Use
-`_underscores_` for italics in every markdown file rather than matching each file's style; declare
+**use NO single-marker emphasis at all in a long shared document** — bold (`**`) is not governed by
+MD049, so it cannot flip an inference. **A blanket "always underscore" default is NOT sufficient and
+was tried: on 2026-09-09 it produced 140 violations in `docs/next-tasks.md`, every one on a line
+nobody had touched**, because the new text sat EARLIER in the file than the emphasis that had been
+setting the style. The lesson survives the correction — **change the default, do not be more
+careful** — but the right default is avoiding the construct, not picking a side of it; declare
 `isolation: isolate` wherever a negative `z-index` is used; write every side of a `padding` shorthand;
 recompute a figure you agree with. **This is the same argument as the pre-push hook beating remembering
 to run lint** — a mechanism that does not depend on noticing, deployed exactly where noticing is what

@@ -152,18 +152,52 @@ into this file.**
 **This is the one authoritative execution order.** Anything below that schedules work differently is
 historical reasoning, not an instruction.
 
-**Finish work already in progress first.** Then take the seven immediate items across both lanes
-**before** dispatching further presentation work.
+**THE LANES RUN IN PARALLEL, NOT SERIAL — owner decision 2026-09-09, amending the audit plan.** The plan
+as written took the audit items across BOTH lanes before any further presentation work. **The audit does
+not ask for that:** under **Valuable but deferrable** it says **"Continue presentation work with its
+existing dependencies."** The plan hardened "deferrable" into "stop", and that change arrived without
+evidence behind it.
+
+**Two reasons the strict form costs more than it buys.** **No P0 was established** — 110A is the only
+item with demonstrated wrong data in production, and even that is stale statistics, not wrong results.
+And **Item 143 has just landed**, building the seam that unblocks Items 173, 170, 179 and the recap
+adoption; stopping now banks that investment and lets the Item 87 context go cold, which is a day of
+re-reading nobody has budgeted. **Two lanes exist so correctness and presentation need not queue behind
+each other.**
+
+#### Platform lane — `cfb-app-claude` — the audit spine
 
 | # | item | what |
 | --- | --- | --- |
 | 1 | **110A** | bounded recovery of the five measured game-stat discrepancies |
-| 2 | **110B** | recurring correction reconciliation — separately designed and reviewed |
-| 3 | **188** | provider deadlines carried through body consumption |
-| 4 | **20** | bounded database waits |
-| 5 | **189** | truthful planner settings-unavailable failures |
-| 6 | **190** | observable, replayable standings invalidation |
-| 7 | **47** | admin authorization for the Insights diagnostic bypass |
+| 2 | **188** | provider deadlines carried through body consumption |
+| 3 | **20** | bounded database waits |
+| 4 | **47** | admin authorization for the Insights diagnostic bypass |
+| 5 | **110B** | recurring correction reconciliation — separately designed and reviewed |
+
+**110A first and unconditionally.** It is the only item with measured wrong data in production, and it
+is bounded — five named provider IDs, not a sweep. **188, 20 and 47 follow because they are cheap,
+self-contained, and the kind of defect that costs a weekend when it eventually fires.** 110B sits last
+in this lane because it is prevention rather than repair, it carries an open cadence decision, and it is
+a multi-round slice.
+
+#### UI lane — `cfb-app-codex` — convert the seam Item 143 just built
+
+| # | item | what |
+| --- | --- | --- |
+| 1 | **173** | tags on Live, Recent finals and Featured — three sections render none |
+| 2 | **170** | the owner name truncating, in the file 143 just finished with |
+| 3 | **179** | the awaiting anchor's em dash |
+
+**Roughly two slices.** All three were blocked on 143's status-row seam and are unblocked by it. **Do
+this now rather than later** — the seam exists, the campaign context is warm, and 170 and 179 are in the
+file that lane has just been working in.
+
+#### Then both lanes converge
+
+**189** truthful planner settings failures, **190** observable and replayable invalidation, then the
+near-term integrity sequence below. **181** — the Matchups and Schedule audit — takes whichever lane
+frees first, and its exclusions can drop now that 143 has merged.
 
 **Then the immediate validation gates**, which authorize no configuration or data change on their own:
 verify the effective preview database endpoint, Neon branch and role; compare deployed cached standings
@@ -176,9 +210,10 @@ gates first-round ingestion**; **archive completeness gates rollover** (**68**);
 (**132**) and invocation correlation (**126A**); **expected-position validation gates expanded draft
 participation**.
 
-**Presentation work continues beneath all of the above, with its existing dependencies intact —
-notably 119 before 134.** The Item 87 queue as it stood on 2026-09-08 (173, 179, 181, the recap
-adoption) is not cancelled; it is sequenced after the audit items.
+**Remaining presentation work continues beneath all of the above, with its existing dependencies
+intact — notably 119 before 134.** What the UI lane takes now (173, 170, 179) is the subset Item 143
+unblocked; the rest of the Item 87 queue — 115, 119, 134, 118, the recap adoption — is sequenced after
+the audit spine, not cancelled.
 
 **No P0 was established.** Most findings are P2. **Immediate scheduling priority does not make a finding
 P1**, and the queue should not be read as though it did.
