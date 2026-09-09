@@ -320,6 +320,22 @@ toward building:
 | Any file outside `docs/` and `*.md` | build |
 | Every changed file is under `docs/` or ends in `.md` | skip |
 
+**AND THAT QUOTA IS 100 PER DAY ON THE FREE TIER — HIT 2026-09-08.** The sentence above was already in this runbook and nobody connected it to a cap. **94 commits landed on `main` that day and 92 were docs-only**, each one a canceled deployment record, on top of both implementation lanes pushing branches and `preview`. The error is
+`Resource is limited - try again in 1 day (more than 100, code: "api-deployments-free-per-day")`,
+and it blocks **promotion and every `preview` push** for up to 24 hours. Nothing is lost — merges and pushes still land — but nothing can deploy.
+
+**IS THERE A SETTING? For `main`, no. For the lane branches, one exists and it is blunt.** Checked
+against Vercel's own docs 2026-09-08 rather than assumed. `ignoreCommand` — already configured here —
+skips the BUILD and saves build minutes; it cannot stop the deployment RECORD, and the record is what
+the quota counts. `git.deploymentEnabled` in `vercel.json` DOES prevent a deployment being created at
+all, but it maps **exact branch names** to booleans, and this project's branches are per-slice
+(`claude/174-178-…`, `codex/143-status-row-v2`), so it cannot target them. The only usable form is
+`deploymentEnabled: false` globally, which also stops `preview` and would require a Deploy Hook to
+trigger it explicitly. **That trades a free fix for a permanent workflow step and is not worth it until
+the behaviour is fixed and re-measured.**
+
+**The lever is COMMIT GRANULARITY, not the ignoreCommand.** A planning session that commits every documentation edit separately burns a deployment slot per edit while skipping every build. **Batch docs edits into one commit per topic.** The rule that a skipped build still costs a slot is only actionable once it is paired with the number.
+
 A skipped build still creates a canceled deployment record and counts toward deployment quotas; it
 saves build work, not deployment-record quota. An empty commit forces a build if the ignore rule
 itself must be tested. Current Vercel limits can change, so consult Vercel's limits page before
