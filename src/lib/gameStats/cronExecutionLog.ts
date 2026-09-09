@@ -25,6 +25,16 @@ import type { GameStatsRefreshOutcomeReason } from '@/lib/gameStats/refreshOutco
 export type GameStatsCronExecutionResult = 'skipped' | 'success' | 'partial' | 'no-op' | 'failure';
 
 /**
+ * Which of the route's two mutually exclusive jobs this invocation performed
+ * (PLATFORM-110B). `poll` is ordinary kickoff-window polling; `reconcile` is a
+ * bounded correction pass over a partition whose window has long closed. A run
+ * never does both — reconciliation is considered only once polling has no
+ * target — so one field describes the whole invocation, and a run that fetched
+ * nothing keeps the `poll` default.
+ */
+export type GameStatsCronExecutionMode = 'poll' | 'reconcile';
+
+/**
  * Stable route-level reason vocabulary. The pre-provider branches use the fixed
  * literals; a quota refusal composes `quota-${QuotaRefusalReason}`; and a normal
  * interpreter result contributes its exact {@link GameStatsRefreshOutcomeReason}
@@ -35,7 +45,15 @@ export type GameStatsCronExecutionReason =
   | 'cron-authorization-invalid'
   | 'automation-paused-or-disabled'
   | 'canonical-context-unavailable'
+  // Retains its exact meaning of "this run has nothing to fetch" — since
+  // PLATFORM-110B that means neither a polling target NOR a due reconciliation
+  // pass. The literal is unchanged because System Health's nothing-due
+  // presentation and the live-scores cron share it.
   | 'no-polling-target'
+  // PLATFORM-110B: the season's reconciliation ledger could not be read or is
+  // not a ledger. Reconciliation is suppressed for this run and NO provider call
+  // is made; ordinary polling had already found no target.
+  | 'reconciliation-ledger-unavailable'
   | `quota-${QuotaRefusalReason}`
   | 'cfbd-api-key-missing'
   | 'provider-fetch-failed'
@@ -51,11 +69,22 @@ export type GameStatsCronExecutionEvent = {
   year: number;
   week: number | null;
   seasonType: CfbdSeasonType | null;
+  /** Which job this invocation performed (PLATFORM-110B). */
+  mode: GameStatsCronExecutionMode;
   /** True once the CFBD `/info` quota probe is invoked (regardless of result). */
   quotaChecked: boolean;
   /** True only for the billed CFBD `/games/teams` data request (not `/info`). */
   providerCallAttempted: boolean;
   committedGames: number;
+  /**
+   * Games whose stored content the merge CHANGED (`merge.updated`), a subset of
+   * `committedGames`. It is reported for BOTH modes because it is the same fact
+   * either way, and it is the number a reconciliation pass is judged on: a pass
+   * that re-confirmed everything commits fence advances (`committedGames > 0`)
+   * while correcting nothing (`correctedGames === 0`), and the two must never be
+   * collapsed.
+   */
+  correctedGames: number;
   durationMs: number;
 };
 
@@ -80,9 +109,11 @@ export function createCronExecutionState(year: number): GameStatsCronExecutionSt
     year,
     week: null,
     seasonType: null,
+    mode: 'poll',
     quotaChecked: false,
     providerCallAttempted: false,
     committedGames: 0,
+    correctedGames: 0,
   };
 }
 
@@ -105,9 +136,11 @@ export function emitGameStatsCronExecutionEvent(
       year: state.year,
       week: state.week,
       seasonType: state.seasonType,
+      mode: state.mode,
       quotaChecked: state.quotaChecked,
       providerCallAttempted: state.providerCallAttempted,
       committedGames: state.committedGames,
+      correctedGames: state.correctedGames,
       durationMs,
     };
     console.log(JSON.stringify(event));
