@@ -145,8 +145,9 @@ Run each separately and report its own exit code — never chained behind `&&`, 
 Report: what changed and where; the measured test delta; the before/after alternate count; and anything
 you deliberately did not do.
 
-**Say what a member sees, per surface.** California, Army, Iowa, Vanderbilt and Nevada currently render
-no bar; name what they render after.
+**Say what a member sees, per surface.** CORRECTED 2026-09-09: nothing renders a team colour today, so
+the answer is "no change on any surface". California, Army, Iowa, Vanderbilt and Nevada resolve to the
+fallback green inside a function nothing calls — not to no bar. Name what they resolve to after.
 
 **Say plainly whether the rendering chain needed any change** — my claim is that it did not.
 
