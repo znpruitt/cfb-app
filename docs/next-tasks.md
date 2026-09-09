@@ -6735,6 +6735,13 @@ this outcome. **Piece 2 is now warranted, on evidence rather than preference.**
    **So piece 2 is warranted on evidence, and its limit is exactly six teams** — not a general
    weakness.
 
+   **AND THAT LIMIT DISSOLVED THE SAME DAY.** Item 199 confirmed the catalog reads the wrong field
+   name: the provider sends `alternateColor` and the code reads `altColor`, so all 138 alternates were
+   discarded. **All six black teams have an alternate that passes 3:1 RAW, with no lift at all** —
+   Army `#d3bc8d` at 10.70:1, Iowa `#ffcd00` at 13.18:1, Vanderbilt `#cfae70` at 9.37:1. **The six were
+   never an OKLCH limitation; they were a mapping bug.** Fix Item 199 first — it may change what piece
+   2 has left to do.
+
 **Blocker:** none for Item 119 piece 1, which is correct as specified. This is the follow-on it named.
 
 ### Item 199 — the team catalog has zero alternate colours, and the field name is the likely reason
@@ -6750,11 +6757,27 @@ Army, Iowa and Vanderbilt are gold, and those are three of the six teams whose p
 field that returns nothing for every row is the signature.** CFBD's REST API has used `alt_color` in
 snake case.
 
-**NOT CONFIRMED — confirming costs one CFBD call**, and it was not spent because the measurement it
-would serve was not yet requested. **Do not treat the diagnosis as established.** The established fact
-is 0 of 138.
+**CONFIRMED 2026-09-09 — one CFBD call to `/teams/fbs`, HTTP 200, 138 rows.** The field is
+**`alternateColor`**, not `altColor`. `teamDatabase.ts:233` reads a name the provider does not send, so
+every row resolves `undefined` and the count is 0 of 138. **A one-word mapping bug.**
 
-**Why it matters beyond tidiness: it is the missing input for Item 198's six black teams.** OKLCH
+**Every team the catalog reports as colourless-beyond-repair has a usable alternate**, measured on
+`#0A0A0A` and passing the 3:1 floor **raw, with no lift required:**
+
+| team | primary | raw | alternate | raw |
+| --- | --- | --- | --- | --- |
+| Army | `#000000` | 1.06 | `#d3bc8d` | **10.70:1** |
+| Iowa | `#000000` | 1.06 | `#ffcd00` | **13.18:1** |
+| Vanderbilt | `#000000` | 1.06 | `#cfae70` | **9.37:1** |
+| California | `#041e42` | 1.20 | `#ffc72c` | **12.69:1** |
+| Nevada | `#041e42` | 1.20 | `#8a8d8f` | **5.93:1** |
+
+**So the six black teams are not a limit of OKLCH — they are a consequence of this bug.** With the
+mapping fixed and the catalog refreshed, they have gold to fall back to. **California, the team whose
+missing bar started this, has gold at 12.69:1.**
+
+**Why it matters beyond tidiness: it WAS the missing input for Item 198's six black teams, and now it
+is a fix rather than a hypothesis.** OKLCH
 rescues 85 of 91 dark primaries and can do nothing for pure black. **An alternate colour is the only
 remaining source of hue for those six** — grey is rejected by the design doc, and no bar conflates them
 with teams that genuinely have no colour.
