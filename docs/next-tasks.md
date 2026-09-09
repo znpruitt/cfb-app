@@ -6212,8 +6212,7 @@ true**, not deleting it. Retire the rule only if the rule is wrong — never bec
 
 ### Item 179 — DONE: the awaiting anchor renders the contract's en dash
 
-**Implemented on `codex/170-179-scoreboard-row` (`6d3014fc` + this closeout); review clean, merge
-pending.** The shared non-scheduled null-score fallback now renders `–` (U+2013), matching
+**✅ MERGED 2026-09-09 — PR #589, `d913ede6`.** The shared non-scheduled null-score fallback now renders `–` (U+2013), matching
 `reference-game-row.md` §4 and §11. That shared fallback also covers a live row with only one score
 populated, so the same glyph changes there; final presentation requires both scores and does not
 reach the fallback. Item 170 closed without code: the team name remains primary, the owner remains
