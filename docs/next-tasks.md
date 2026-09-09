@@ -6711,11 +6711,58 @@ this outcome. **Piece 2 is now warranted, on evidence rather than preference.**
 1. **Should the two states render differently at all?** A team whose colour cannot be used is arguably
    entitled to something — but the argument against a grey bar still holds: it reads as a team whose
    colour is grey. **Distinguishing them in the DATA is not the same as distinguishing them on screen.**
-2. **Does OKLCH actually rescue `#041E42` and `#000000`?** Clamping lightness into band preserves hue,
-   and **black has no hue to preserve.** Piece 2 may fix the navies and leave the six blacks exactly
-   where they are. **Measure before building.**
+2. ~~**Does OKLCH actually rescue `#041E42` and `#000000`?**~~ **MEASURED 2026-09-09, before building.
+   The answer is yes for 85 of 91, and no for the six blacks — for the reason predicted.**
+
+   Method: sRGB → OKLab → OKLCH, hue and chroma held, lightness raised until 3:1 against `#0A0A0A`,
+   run over all 138 production catalog colours.
+
+   | | |
+   | --- | --- |
+   | already ≥3:1 raw | **47** |
+   | **rescued by OKLCH, hue intact** | **85** |
+   | become grey (chroma ≈ 0) | **6** |
+   | unreachable in gamut | **0** |
+
+   **`#041E42 → #425F88` at 3.04:1 with 0.1° of hue drift** — still recognisably that navy. `#0C2340 →
+   #465F80`, `#003594 → #2459BA`, `#782F40 → #914555`, all under 0.2°. **Piece 2 works, and it works
+   without distorting team identity.**
+
+   **`#000000 → #5D5D5D`.** The 89.9° of apparent hue drift is an artefact: black has zero chroma, so
+   there is no hue to preserve and the result is grey — **the exact rendering the design doc rejects.**
+   The six are App State, Army, Cincinnati, Iowa, UCF and Vanderbilt.
+
+   **So piece 2 is warranted on evidence, and its limit is exactly six teams** — not a general
+   weakness.
 
 **Blocker:** none for Item 119 piece 1, which is correct as specified. This is the follow-on it named.
+
+### Item 199 — the team catalog has zero alternate colours, and the field name is the likely reason
+
+**Found 2026-09-09 while measuring Item 198.** The production `team-database` holds **138 of 138 teams
+with a primary colour and 0 of 138 with an alternate.**
+
+**That is very unlikely to be true of the provider.** Most FBS teams have a documented alternate —
+Army, Iowa and Vanderbilt are gold, and those are three of the six teams whose primary is pure black.
+
+**The likely cause is a field-name mismatch at ingest.** `teamDatabase.ts:233` reads
+`record.altColor`; `:232` reads `record.color`, which works for all 138. **A field that works beside a
+field that returns nothing for every row is the signature.** CFBD's REST API has used `alt_color` in
+snake case.
+
+**NOT CONFIRMED — confirming costs one CFBD call**, and it was not spent because the measurement it
+would serve was not yet requested. **Do not treat the diagnosis as established.** The established fact
+is 0 of 138.
+
+**Why it matters beyond tidiness: it is the missing input for Item 198's six black teams.** OKLCH
+rescues 85 of 91 dark primaries and can do nothing for pure black. **An alternate colour is the only
+remaining source of hue for those six** — grey is rejected by the design doc, and no bar conflates them
+with teams that genuinely have no colour.
+
+**The ask:** confirm the field name against one live response, and if it is wrong, fix the mapping and
+re-run the catalog refresh.
+
+**Blocker:** none. **Small, and it may resolve the only open half of Item 198.**
 
 ## Out of scope for this queue
 
