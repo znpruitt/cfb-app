@@ -126,7 +126,7 @@ export function gameStatusLabelPresentation(
       : STATUS_LABEL_TONE_CLASSES[tone];
   const dotClassName =
     tone === 'live' && liveDot !== 'none'
-      ? `size-1.5 rounded-full bg-current${liveDot === 'pulse' ? ' animate-pulse' : ''}`
+      ? `size-1.5 rounded-full bg-current${liveDot === 'pulse' ? ' motion-safe:animate-pulse' : ''}`
       : null;
 
   return {

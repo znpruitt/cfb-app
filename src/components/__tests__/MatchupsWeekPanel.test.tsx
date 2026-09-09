@@ -9,7 +9,7 @@ import { deriveOwnerWeekSlates } from '../../lib/matchups';
 import type { CanonicalStandings } from '../../lib/selectors/leagueStandings';
 import type { LiveDelta } from '../../lib/selectors/liveDelta';
 import { EYEBROW_TAG_CLASSES } from '../../lib/gameUi';
-import MatchupsWeekPanel from '../MatchupsWeekPanel';
+import MatchupsWeekPanelImpl from '../MatchupsWeekPanel';
 
 function ownerCardMarkup(html: string, owner: string): string {
   const marker = `data-owner-card="${owner}"`;
@@ -29,6 +29,18 @@ function scoreboardMarkup(cardMarkup: string, matchupLabel: string): string {
   const end = cardMarkup.indexOf('</article>', markerIndex);
   assert.ok(start >= 0 && end >= 0, `${matchupLabel} scoreboard markup must be bounded`);
   return cardMarkup.slice(start, end + '</article>'.length);
+}
+
+function scoreboardHeaderMarkup(scoreboard: string): string {
+  const header = scoreboard.match(/<div(?=[^>]*data-scoreboard-header)[^>]*>[\s\S]*?<\/div>/)?.[0];
+  assert.ok(header, 'scoreboard header must render');
+  return header;
+}
+
+function scoreboardTier2Markup(scoreboard: string): string | null {
+  return (
+    scoreboard.match(/<div(?=[^>]*data-scoreboard-tier2-slot)[^>]*>[\s\S]*?<\/div>/)?.[0] ?? null
+  );
 }
 
 function participantMarkup(scoreboard: string, side: 'away' | 'home'): string {
@@ -97,6 +109,15 @@ function game(overrides: Partial<AppGame>): AppGame {
     sources: overrides.sources,
     startTimeTBD: overrides.startTimeTBD,
   };
+}
+
+const MATCHUPS_TEST_NOW_MS = Date.parse('2025-08-30T19:00:00.000Z');
+
+function MatchupsWeekPanel(
+  props: Omit<React.ComponentProps<typeof MatchupsWeekPanelImpl>, 'nowMs'> & { nowMs?: number }
+): React.ReactElement {
+  const { nowMs = MATCHUPS_TEST_NOW_MS, ...rest } = props;
+  return <MatchupsWeekPanelImpl {...rest} nowMs={nowMs} />;
 }
 
 function renderCompleteGameRowFactInventory(): string {
@@ -467,6 +488,47 @@ test('scheduled rows keep matchup primary and score out of metadata', () => {
   assert.match(scoreboard, /data-scoreboard-team="home">Maryland/);
   assert.match(html, /Kickoff Sat, Aug 30, 4:00 PM/);
   assert.doesNotMatch(scoreboard, /data-scoreboard-value-kind="score"/);
+});
+
+test('shared kickoff projection renders SCH before kickoff and Awaiting score at kickoff', () => {
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[
+        game({
+          key: 'future',
+          date: '2025-08-30T20:00:00.001Z',
+          csvAway: 'Rutgers',
+          csvHome: 'Maryland',
+        }),
+        game({
+          key: 'reached',
+          date: '2025-08-30T20:00:00.000Z',
+          csvAway: 'Temple',
+          csvHome: 'Navy',
+        }),
+      ]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={
+        new Map([
+          ['Rutgers', 'Nia'],
+          ['Temple', 'Nia'],
+        ])
+      }
+      displayTimeZone="UTC"
+      nowMs={Date.parse('2025-08-30T20:00:00.000Z')}
+    />
+  );
+  const card = ownerCardMarkup(html, 'Nia');
+  const before = scoreboardMarkup(card, 'Rutgers @ Maryland');
+  const atKickoff = scoreboardMarkup(card, 'Temple @ Navy');
+
+  assert.match(before, /data-scoreboard-state="scheduled"/);
+  assert.match(scoreboardHeaderMarkup(before), />SCH<\/span>/);
+  assert.match(atKickoff, /data-scoreboard-state="awaiting"/);
+  assert.match(scoreboardHeaderMarkup(atKickoff), />Awaiting score<\/span>/);
+  assert.doesNotMatch(scoreboardHeaderMarkup(atKickoff), />SCH<\/span>/);
+  assert.equal((atKickoff.match(/data-scoreboard-value="(?:away|home)">—/g) ?? []).length, 2);
 });
 
 test('matchups threads current records to both participants across scheduled, live, and final rows', () => {
@@ -922,6 +984,12 @@ test('every rendered eyebrow tag uses the settled bronze hairline treatment with
   );
 
   assert.equal(tags.length, 2, 'fixture must render both primary and secondary tags');
+  const header = scoreboardHeaderMarkup(scoreboard);
+  const tier2 = scoreboardTier2Markup(scoreboard);
+  assert.equal((header.match(/data-eyebrow-tag/g) ?? []).length, 2);
+  assert.ok(tier2, 'the non-tag kickoff metadata must remain in tier 2');
+  assert.doesNotMatch(tier2, /data-eyebrow-tag/);
+  assert.match(tier2, /Sat, Aug 30, 8:00 PM/);
   for (const tag of tags) {
     // The bronze values themselves are pinned once, in `eyebrowTreatment.test.tsx`.
     // Restating them here is what let Schedule and Matchups drift apart.
@@ -948,7 +1016,7 @@ test('outcome rail and neutral card-owner tint coexist as distinguishable row tr
   assert.doesNotMatch(homeTag, /dark:after:bg-/);
 });
 
-test('shared scoreboard public prop surfaces remain exactly unchanged', () => {
+test('shared scoreboard public prop surfaces change only through Item 143 seams', () => {
   const source = readFileSync(new URL('../CompactGameScoreboard.tsx', import.meta.url), 'utf8');
   const fieldsFor = (typeName: string): string[] => {
     const body = source.match(new RegExp(`export type ${typeName} = \\{([\\s\\S]*?)\\n\\};`))?.[1];
@@ -968,6 +1036,9 @@ test('shared scoreboard public prop surfaces remain exactly unchanged', () => {
   ]);
   assert.deepEqual(fieldsFor('CompactGameScoreboardProps'), [
     'state',
+    'statusLabel',
+    'liveHue',
+    'liveDot',
     'clock',
     'broadcast',
     'neutralSite',
@@ -976,6 +1047,7 @@ test('shared scoreboard public prop surfaces remain exactly unchanged', () => {
     'away',
     'home',
     'contextSlot',
+    'tagSlot',
     'footerSlot',
     'tier2Slot',
   ]);
@@ -991,6 +1063,7 @@ test('CFBScheduleApp forwards the server-projected record map into MatchupsWeekP
     /teamRecordsByProviderGameId=\{teamRecordsByProviderGameId\}/,
     'the server-projected record map must cross the CFBScheduleApp boundary'
   );
+  assert.match(matchupsCall, /nowMs=\{liveStaleClock\}/);
 });
 
 test('owner slates count final owned-vs-owned, NoClaim, and FCS results from owned-team participations', () => {
@@ -1418,15 +1491,15 @@ function makeLiveDelta(params: { inProgressGameKey?: string; isStale?: boolean }
   };
 }
 
-test('matchups uses the shared live marker unchanged while freshness behavior remains Item 143', () => {
+test('matchups uses a neutral live label and pulses only for a fresh in-progress delta', () => {
   const liveDeltas = [
-    makeLiveDelta({ inProgressGameKey: 'g-live' }),
-    makeLiveDelta({ inProgressGameKey: 'g-live', isStale: true }),
-    makeLiveDelta({}),
-    null,
+    { value: makeLiveDelta({ inProgressGameKey: 'g-live' }), pulses: true },
+    { value: makeLiveDelta({ inProgressGameKey: 'g-live', isStale: true }), pulses: false },
+    { value: makeLiveDelta({}), pulses: false },
+    { value: null, pulses: false },
   ];
 
-  for (const liveDelta of liveDeltas) {
+  for (const { value: liveDelta, pulses } of liveDeltas) {
     const html = renderToStaticMarkup(
       <MatchupsWeekPanel
         games={[game({ key: 'g-live', csvAway: 'Alabama', csvHome: 'Georgia' })]}
@@ -1451,8 +1524,15 @@ test('matchups uses the shared live marker unchanged while freshness behavior re
     );
 
     assert.match(html, /data-scoreboard-state="live"/);
-    assert.match(html, /dark:text-emerald-400[\s\S]*bg-current[\s\S]*>Live<\/span>/);
-    assert.doesNotMatch(html, /data-matchups-live-indicator/);
+    assert.match(html, /dark:text-zinc-300/);
+    assert.doesNotMatch(html, /dark:text-emerald-400/);
+    if (pulses) {
+      assert.match(html, /motion-safe:animate-pulse/);
+      assert.doesNotMatch(html, /class="[^"]*(?:^|\s)animate-pulse(?:\s|$)/);
+    } else {
+      assert.doesNotMatch(html, /motion-safe:animate-pulse|rounded-full bg-current/);
+      assert.match(html, /dark:text-zinc-300">Live<\/span>/);
+    }
     assert.doesNotMatch(html, /amber/);
   }
 });

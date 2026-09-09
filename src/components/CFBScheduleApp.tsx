@@ -1903,6 +1903,7 @@ export default function CFBScheduleApp({
                   focusedOwnerPair={focusedOwnerPair}
                   canonicalStandings={canonicalStandings}
                   liveDelta={liveDelta}
+                  nowMs={liveStaleClock}
                 />
               ) : weekViewMode === 'matrix' ? (
                 <MatchupMatrixView

@@ -51,6 +51,50 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-143-MATCHUPS-STATUS-ROW-CODEX-v5
+
+- Purpose: reconstruct stopped v3 around the real Matchups defect: a post-kickoff row without a
+  usable score was classified as scheduled, while the shared row lacked the tag and caller-status
+  seams needed for the intended presentation. V4 stopped at receipt when the documented consumer
+  contract contradicted `awaiting`; v5 corrected the contract before implementation.
+- Scope: `CompactGameScoreboard`, `MatchupsWeekPanel`, the app clock seam, `gameUi`, a new pure
+  scoreboard-state projection consumed by Matchups and Overview, and focused tests. No
+  `gameStatus.ts`, odds, `statusMetadataSlot`, disrupted-status rendering, awaiting timeout,
+  Overview sectioning/omission, polling policy, or Schedule behavior.
+- Outcome: `(score, kickoff, now)` projects explicit final → live → scheduled → awaiting precedence;
+  Matchups now renders `SCH` only before kickoff and `Awaiting score` after kickoff without usable
+  evidence. Eyebrow tags sit at the fixed right edge of the status row, with a scheduled-only phone
+  wrap; `leading-none` keeps the shared 10px pill inside the 16px clipped header. Matchups retains its
+  neutral live hue and adds a freshness-gated, reduced-motion-safe pulse. Overview's behavior and
+  disruption guard are unchanged. Static JSDOM markup cannot prove rendered pixel height; the
+  recursive renderability detection preserves the exact untagged branch.
+- Review / verification: both independent reviews ran against `d399411a`; three unique findings
+  reduced to one accepted P2, independently found by both reviewers. The disrupted-label and
+  awaiting-window findings were refuted by the explicit measured v5 rulings. One cohesive
+  remediation (`71cf1250`) added `leading-none`; its structural assertion failed first against the
+  clipped code and then passed 30/30. On clean `71cf1250`, TypeScript and `lint:all` exited 0 and full
+  `npm test` passed 4,990/4,992 with exactly Item 137's two standing failures. Test delta +5. Final
+  pre-closeout diff: 12 files, +467/−95; net growth is 20.5% smaller than v3's +559/−91.
+- Status: Implemented on `codex/143-status-row-v2` (`63e92a15`, `71cf1250` + this closeout); reviews
+  resolved, merge pending at time of writing.
+
+### PLATFORM-143-MATCHUPS-STATUS-ROW-CODEX-v3
+
+- Purpose: add Matchups status-row tags, status copy, live treatment, and then-assumed live/final
+  odds behavior to the shared scoreboard.
+- Scope: the shared scoreboard and Matchups caller, expanded during remediation with local
+  disrupted- and awaiting-state conditions.
+- Outcome: stopped at `7d6c28ca` after three review rounds. Two remediation rounds repeatedly added
+  Matchups-local conditions for labels whose states had not been established; later measurement
+  showed the disrupted family had never occurred in the seven-season provider population, and the
+  live/final odds requirement had been inferred from a component gate rather than a design rule.
+- Review / verification: the third review reproduced the same defect class as the first — local copy
+  asserting more than the classifier knew — which triggered reconstruction under `AGENTS.md`. The
+  settled tag flex seam, scheduled-only phone wrap, neutral live hue, and motion requirement became
+  v5 specification; the accumulated code did not.
+- Status: Superseded/unimplemented; replaced by
+  `PLATFORM-143-MATCHUPS-STATUS-ROW-CODEX-v5`.
+
 ### PLATFORM-174-175-176-178-180-OVERVIEW-CONFORMANCE-CLAUDE-v3
 
 - Purpose: Items 174, 175, 176, 178 and 180 — five Overview divergences the owner ruled on the day

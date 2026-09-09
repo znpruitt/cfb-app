@@ -76,6 +76,7 @@ test('shared live status label supports the neutral freshness pulse used by Matc
 
   assert.match(pulsing.className, /dark:text-zinc-300/);
   assert.doesNotMatch(pulsing.className, /emerald/);
-  assert.equal(pulsing.dotClassName, 'size-1.5 rounded-full bg-current animate-pulse');
+  assert.equal(pulsing.dotClassName, 'size-1.5 rounded-full bg-current motion-safe:animate-pulse');
+  assert.doesNotMatch(pulsing.dotClassName, /(?:^|\s)animate-pulse(?:\s|$)/);
   assert.equal(dormant.dotClassName, null);
 });

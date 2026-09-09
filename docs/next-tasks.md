@@ -1018,13 +1018,38 @@ first is cleaner to read; the second preserves the history the additive approach
 **Blocker:** none, but **Item 143 should not be written until this lands**, or the follow-on inherits
 the same problem.
 
-### Item 143 — Matchups presentation: four divergences the shared component cannot express
+### Item 143 — DONE: Matchups status-row seams and shared kickoff state
 
 **The ask:** decide, against the component's actual seams, how Matchups renders its status pill, live
 indicator, eyebrow tags and odds. **Split out of Item 117 on 2026-09-07** after the receipt gate found
 that none of the four fits an existing slot.
 
 **Kickoff:** [`docs/prompts/platform-143-matchups-status-row-codex-v5.md`](prompts/platform-143-matchups-status-row-codex-v5.md).
+
+**Implemented on `codex/143-status-row-v2` (`63e92a15`, `71cf1250` + this closeout), merge
+pending.** The reconstruction adds one pure `(score, kickoff, now)` scoreboard-state projection with
+four explicit precedence branches: usable final, live, scheduled (future/TBD/unparseable), then
+awaiting after kickoff. Matchups supplies those facts rather than deciding its label locally, so a
+pre-kickoff row says `SCH` and a post-kickoff row without a usable score says `Awaiting score`.
+Overview consumes the same projection while keeping its disruption guard, sectioning, eight-hour
+omission, and polling concerns unchanged.
+
+Tags move from tier 2 into the shared status row through a right-aligned seam: the metadata group is
+`flex-auto min-w-0`, the tag group is `flex-none`, and only tagged scheduled rows wrap at phone
+width. The fixed `h-4` slot also carries `leading-none`; without it the shared 10px eyebrow pill is
+about 18.33px tall inside a 16px clipped row. Matchups forwards the settled neutral live hue and a
+freshness-gated, `motion-safe` pulse. No odds, disrupted-status rendering, awaiting timeout,
+`statusMetadataSlot`, or Schedule change entered the slice.
+
+Both independent reviews ran against `d399411a`. They produced three unique findings: two were
+refuted by v5's measured disrupted/awaiting rulings, and both reviewers independently found the real
+vertical-clipping P2. Its one-class remediation is `71cf1250`; the strengthened structural test was
+first observed failing against the clipped code, then passed 30/30. On that clean exact commit,
+`npx tsc --noEmit` and `npm run lint:all` exited 0; `npm test` exited 1 with 4,990/4,992 passing and
+exactly Item 137's two recorded failures. Test delta remains +5. **Static JSDOM markup cannot prove
+rendered pixel height**; the recursive renderability detection preserves the exact untagged branch.
+V5's final diff before this closeout is 12 files, +467/−95 after rebasing onto current `main`, versus
+v3's 6 files, +559/−91; the reconstruction's net growth is 372 lines versus v3's 468, 20.5% smaller.
 
 > **v3 STOPPED AND RECONSTRUCTED, 2026-09-08.** Branch `codex/143-matchups-status-row` at `7d6c28ca`
 > did not converge: three rounds, both remediation rounds exhausted, four findings still open. **The

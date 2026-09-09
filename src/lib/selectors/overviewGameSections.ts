@@ -1,10 +1,10 @@
-import { hasUsableFinalScore, isDisruptedStatusLabel, normalizeStatusTokens } from '../gameStatus';
-import { gameStateFromScore } from '../gameUi';
+import { isDisruptedStatusLabel, normalizeStatusTokens } from '../gameStatus';
 import type { OverviewGameItem } from '../overview';
 import type { AppGame } from '../schedule';
 import { NO_CLAIM_OWNER } from '../standings';
 import { derivePendingGame, hasGameBeenAbandoned } from '../standingsHistory';
 import type { PrioritizedOverviewItem } from './overview';
+import { projectGameScoreboardState } from './gameScoreboardState';
 import { selectWeeklyRecapTileState, selectWeeklyRecapWeekTargets } from './weeklyRecapFacts';
 
 export const OVERVIEW_LIVE_LIMIT = 6;
@@ -81,7 +81,13 @@ function routeForItem(
   // same per-game eight-hour bound without duplicating the threshold or shape.
   if (pending && hasGameBeenAbandoned(pending, now)) return null;
 
-  if (hasUsableFinalScore(item.score)) {
+  const scoreboardState = projectGameScoreboardState(
+    item.score,
+    item.bucket.game.startTimeTBD === true ? null : item.bucket.game.date,
+    now.getTime()
+  );
+
+  if (scoreboardState === 'final') {
     return { section: 'recentFinals', status: { kind: 'final', label: 'Final' } };
   }
 
@@ -95,20 +101,20 @@ function routeForItem(
   // out even if an inconsistent score row claims in-progress.
   if (!pending) return null;
 
-  const scoreState = gameStateFromScore(item.score);
-  if (scoreState === 'inprogress') {
+  if (scoreboardState === 'live') {
     return { section: 'live', status: { kind: 'live', label: 'Live' } };
   }
-
-  const kickoffMs = pending.kickoff ? Date.parse(pending.kickoff) : Number.NaN;
-  if (!Number.isFinite(kickoffMs) || kickoffMs > now.getTime()) {
+  if (scoreboardState === 'scheduled') {
     return { section: 'scheduled', status: { kind: 'scheduled', label: 'Scheduled' } };
   }
+  if (scoreboardState === 'awaiting') {
+    return {
+      section: 'live',
+      status: { kind: 'awaiting-score', label: 'Awaiting score' },
+    };
+  }
 
-  return {
-    section: 'live',
-    status: { kind: 'awaiting-score', label: 'Awaiting score' },
-  };
+  throw new Error('Unreachable Overview scoreboard state');
 }
 
 /**
