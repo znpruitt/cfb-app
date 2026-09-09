@@ -260,9 +260,23 @@ time. Their stored observation fence was `2026-09-08T04:45:06.949Z`.
 > `401913104` (all `2026-08-30T06:00:14.291Z`) and `401868284` (`2026-09-06T12:45:00.807Z`).
 > **Prior-good retention is working as specified.**
 >
-> **All five stored values were re-verified on 2026-09-09 and still match the "cached" column above
-> exactly.** Whether they still DIFFER from CFBD is unmeasured — that needs the fetch Item 110A will
-> make.
+> **RECOVERED 2026-09-09. Item 110A applied, owner-authorized, and verified independently of the tool
+> that wrote it.** All five still differed at apply time — 5 requested, 5 differ, 0 identical, 0
+> unreachable — against a replayed fence of `2026-09-09T05:43:43.425Z`. Merge outcome `written-clean`:
+> **5 updated, 202 retained untouched, no conflicts, nothing stale.**
+>
+> **Two of the diffs were far larger than the examples above.** `401868170` moved Georgia Southern's
+> possession time **1439 → 2156 seconds** — 24:00 to 35:56, a twelve-minute error in a sixty-minute
+> game — and Charleston Southern's total yards **35 → 117**, with a turnover gained. **That record was
+> badly wrong, not slightly stale.** `401858212` differed in **seven** fields across both sides, not
+> the three listed.
+>
+> **Verified by the planning session against the read-only replica after the write**, not taken from
+> the script's own report: 12 of 12 spot-checked fields match the intended values, the five fences
+> advanced and no others did, and the partition still holds **207** rows across exactly four distinct
+> fences — the three older ones intact. **The bound held where it was supposed to.**
+>
+> **The cost was one CFBD call**, spent at capture; the apply replayed it and spent none.
 
 The comparison covered normalized fields, not raw-stat dictionaries. A difference establishes that the
 cache disagrees with the newer authoritative observation; it is not independent play-by-play
@@ -270,6 +284,32 @@ adjudication.
 
 The separate final-score sweep repairs missing usable finals but reports differences against existing
 finals without replacing them. No final-score difference was observed in this comparison.
+
+> **Two consequences of the recovery, recorded here because a C3 reader will look for them.**
+>
+> **The repair is partial, and permanently so on this path — Item 193.** `mergeRawEvidence`
+> (`durableMerge.ts`) replaces an EXISTING raw category only when
+> `parseCategoryValue(...).status === 'valid'`, and `tackles`, `sacks`, `qbHurries`,
+> `tacklesForLoss`, `passesDeflected`, `totalFumbles`, `yardsPerPass`, `yardsPerRushAttempt` and
+> `completionAttempts` all return `unknown-category`. So the five rows now carry corrected modelled
+> statistics beside stale raw-only ones — `401858212` holds `totalYards: 324` next to
+> `tackles: "0"`. **Replaying the same capture cannot fix it:** the fence now matches and the merge
+> returns `unchanged`. **No reader is affected** — `RECOGNIZED_GAME_STAT_CATEGORIES`, which
+> `publicProjection.ts` loops over to build the exposed raw record, derives from the same specs as
+> the parsers, so these categories are stored and never projected. Storage hygiene, not wrong data
+> reaching anyone; it belongs to Item 110B, which should decide whether unparsed evidence is worth
+> carrying at all.
+>
+> **The measured before/after understated what the write changed.** The approved table compared
+> NORMALIZED fields and listed 26 deltas; the merge also rewrote roughly thirty raw-only categories
+> it did not show, including Florida State `tackles 0 → 33`. Every delta it listed was backed by a
+> present raw category — checked, not assumed — so nothing in it was false, but a production data
+> change was approved against a table that understated the diff. The tool now compares raw category
+> dictionaries, which is the unit the merge operates on.
+>
+> **`provider-refresh-status` for this partition is false as of this note — Item 194.** It still
+> reports the 2026-09-08 cron's 203-row success, because the applied script recorded no scoped
+> status. It stays wrong until a cron success overwrites it.
 
 **Remediation:**
 

@@ -120,6 +120,61 @@ Rules:
 - Status: Superseded/unimplemented; replaced by
   `PLATFORM-143-MATCHUPS-STATUS-ROW-CODEX-v5`.
 
+### PLATFORM-110A-GAME-STAT-RECOVERY-CLAUDE-v1
+
+- Purpose: Item 110A — recover the five measured game-stat records that disagreed with newer CFBD
+  observations, through the existing authorized writer, with before/after evidence. Bounded to those
+  five.
+- Scope: a bounded recovery path over the game-stats ingestion authority, an operator CLI, and
+  tests. NOT the recurring reconciliation (110B), NOT the polling window (131), NOT the provider-
+  status comments (172).
+- Outcome: the writer was never the defect — CFBD `/games/teams` is partition-granular while the
+  repair is not, so reaching five games meant rewriting all 203 and advancing 198 fences nobody
+  asked to move, which is 110B shipped without its review. The coordinator gained ONE optional
+  caller-supplied bound, `restrictToProviderGameIds`: never derived, never defaulted, absent leaves
+  the route and cron byte-identical, empty refused rather than read as a wildcard, unmatched
+  refused, partially matched merged but never reported clean. Everything downstream sees only the
+  selected observations, so H2 reports the rest in `retainedExisting` and they survive byte-
+  identical, fence included. `scripts/recover-game-stats.ts` splits capture from apply: one provider
+  request instead of two, and the observation fence stays honest because the capture records when
+  the fetch actually started. A capture holds a raw provider payload, so a path inside the
+  repository is refused outright.
+- Evidence and the apply: capture at `2026-09-09T05:43:43.425Z` found **all five still differing**.
+  The owner ran the dry run and then the apply from their own terminal on
+  2026-09-09T05:57:02.928Z — `written-clean`, five updated, 202 retained untouched. The apply ran
+  the PRE-remediation script (`03cf0d90`); the remediated version has never been run against
+  production.
+- **The evidence table the owner approved was incomplete.** It compared normalized rows and showed
+  26 deltas; the merge also rewrote roughly thirty RAW-only categories it never listed, including
+  Florida State `tackles 0 → 33`. Nothing in it was false — every delta was backed by a present
+  category, checked — but a data change was approved against a table that understated what
+  differed. The rebuilt table compares raw category dictionaries, which is the unit H2 merges.
+- Review / verification: Codex and `/code-review` both gathered on `03cf0d90` before any
+  remediation; seven findings each, one cohesive round (`b04ce2b9`). The pattern in the Claude
+  findings was one thing — invariants written into doc comments and not enforced: an empty response
+  under a restriction returned a successful no-op four lines below a comment promising it could not,
+  a partially matched restriction reported `written-clean`, and a `stale` merge exited 0. Codex
+  additionally established that the apply path is a refresh entry point recording no scoped status,
+  and that a normalized evidence comparison can invent a zero-fallback revision the merge will never
+  perform. One Codex finding refuted: hardcoding the five ids into the tool — the gate binds this
+  item's run, not the tool's vocabulary. Seven mutations, each naming the assertion that caught it.
+  Test delta **+33** (4,992 → 5,025 measured). `tsc` and `lint:all` clean; `npm test` at the
+  standing Item 137 two-failure baseline.
+- Findings raised, not fixed here: **Item 193** — the merge repairs modelled categories and never
+  raw-only ones (`mergeRawEvidence` replaces an existing category only when
+  `parseCategoryValue(...).status === 'valid'`, and `tackles`/`sacks`/`qbHurries`/`yardsPerPass`/
+  `completionAttempts` are all `unknown-category`), so replaying the same capture now returns
+  `unchanged`. **No reader is affected** — `RECOGNIZED_GAME_STAT_CATEGORIES`, the list
+  `publicProjection.ts` loops over to build the exposed raw record, derives from the same specs as
+  the parsers, so those categories are stored and never projected. Storage hygiene, not wrong data
+  reaching anyone; it belongs to 110B. Acceptance for 110A is met; **Item 194** — `provider-refresh-status` for this partition still claims the
+  2026-09-08 cron's 203-row success and is false until a cron success overwrites it; **Item 192** —
+  `.env.operator.local` carries a production read-write credential that this repo's own tooling
+  loads on startup in every worktree.
+- Status: Implemented on `claude/110a-game-stat-recovery` (`03cf0d90`, `b04ce2b9` + this closeout);
+  reviews resolved, production apply authorized and performed by the owner, merged to `main`.
+  Promotion stays with the owner.
+
 ### PLATFORM-174-175-176-178-180-OVERVIEW-CONFORMANCE-CLAUDE-v3
 
 - Purpose: Items 174, 175, 176, 178 and 180 — five Overview divergences the owner ruled on the day

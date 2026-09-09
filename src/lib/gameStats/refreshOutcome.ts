@@ -18,6 +18,8 @@ import type { GameStatsIngestionResult } from './ingestionCoordinator.ts';
  *   | exact empty response           | no-op; no commit, no last-success advance     |
  *   | invalid payload / nothing      | failure; prior-good preserved                 |
  *   |   persistable                  |                                               |
+ *   | unusable or unmatched          | failure; prior-good preserved (PLATFORM-110A) |
+ *   |   recovery restriction         |                                               |
  *   | written, rowAcceptance clean   | success (confirmed durable commit)            |
  *   | written, rowAcceptance mixed   | partial                                       |
  *   | partially-merged               | partial; confirmed commit advances            |
@@ -44,6 +46,12 @@ export type GameStatsRefreshOutcomeReason =
   | 'empty-response'
   | 'invalid-payload'
   | 'no-persistable-observations'
+  // PLATFORM-110A bounded-recovery refusals. All three are caller-bound errors,
+  // not provider or merge outcomes, and all are KNOWN-UNCHANGED: the
+  // coordinator refused before H2 was called.
+  | 'empty-restriction'
+  | 'invalid-restriction-id'
+  | 'restriction-matched-nothing'
   | 'written-clean'
   | 'written-mixed'
   | 'partially-merged'

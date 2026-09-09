@@ -85,6 +85,15 @@ first commit; if you are not where this table says you should be, stop and say s
   mode. **The exception is conditional on the planning lane standing off the same files for the
   duration, and saying so in the prompt.** `docs/prompts/` and `docs/next-tasks.md` stay with planning
   regardless — that is what keeps the two disjoint.
+- **FILE DISJOINTNESS CATCHES CONFLICTING EDITS. IT DOES NOT CATCH MERGING ONES.** Added 2026-09-09,
+  after exactly that. Item 110A's prompt assigned the audit evidence file to the implementation lane;
+  the planning session then wrote a recovery record into the same section while the branch was open.
+  **`ort` merged both cleanly — no conflict, nothing to review** — and produced one section carrying
+  two overlapping accounts of the same event. The lane found it by reading, not by any gate.
+  **The failure mode is silence:** a conflict announces itself, a clean merge of two true-but-duplicate
+  narratives does not. So when a prompt assigns a document to a lane, **planning stands off it for the
+  duration including its own closeout notes** — and if planning has something that belongs there, it
+  goes in the relay message for the lane to write, not into the file.
 - **Prefer explicit paths over `git add -A`** in every session. `-A` is what makes a shared or
   mistaken checkout destructive rather than merely confusing.
 - A new worktree needs what git does not carry: `npm ci`, plus `.env.local` and `.env.operator.local`
