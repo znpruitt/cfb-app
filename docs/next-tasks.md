@@ -5649,6 +5649,47 @@ inside a tag-vocabulary branch would have mixed two unrelated risks.
 **Blocker:** none. **Small**, but it is a deletion — enumerate what the fields do besides feed this
 term before removing them.
 
+### Item 172 — the code describes a provider vocabulary the provider has never used
+
+**Measured against production 2026-09-08**, read-only replica, prompted by the owner: _"we've
+established that there is no disrupted state status, i've said it multiple times. i bet we have
+conflicting comments in the code."_ There are.
+
+**`gameStatus.ts:13` defines `DISRUPTED_RE = /\b(postponed|canceled|cancelled|suspended|delayed)\b/`,
+and roughly ten call sites branch on it.** Both fields it is ever applied to were measured across all
+seven seasons in the cache:
+
+| field | source | values observed |
+| --- | --- | --- |
+| `game.rawStatus` | schedule cache `status` (`schedule.ts:449`) | **`scheduled`, 22,761 of 22,761** |
+| `score.status` | score cache | **`final` or `scheduled`, nothing else** |
+
+**Not one disrupted label, ever.** The provider does not mark a game postponed, cancelled, suspended
+or delayed — it leaves it `scheduled` (which is how the six cancelled Alderson-Broaddus games in
+Item 169 reached the cache at `0-0`, and how the Week 1 power-outage game presented).
+
+**The guards are not the defect. The COMMENTS are**, because they are written as descriptions of live
+behaviour and a reader takes them as fact:
+
+- `gameUi.ts:61-62` — _"Disrupted labels (postponed/canceled/suspended/delayed) present as
+  'scheduled', matching the classifier's buckets."_ **I reasoned from this sentence today** and
+  concluded a suspended game was the likely path into Item 169. It was not; the provider emits no such
+  label.
+- `useLiveRefresh.ts:51` — _"Canceled/postponed games drop…"_
+- `standingsHistory.ts:135` — _"Postponed / suspended / delayed: still coming, so never abandoned."_
+- `api/scores/route.ts:452` — _"canceled/postponed only"_
+
+**The ask:** put ONE authoritative note at `gameStatus.ts`'s classifier recording the measurement —
+these labels have never been observed on either field in seven seasons, the guard is forward-looking,
+and a disrupted game presents as `scheduled` in practice. Then make the four comments above defer to
+it instead of each restating a behaviour nobody has seen.
+
+**Do NOT delete the classifier or its consumers.** A guard against a provider value that could appear
+is legitimate, and `AGENTS.md` requires a module with no live consumer to say why rather than be
+removed. **The fix is making the comments true, not making the code smaller.**
+
+**Blocker:** none. **Small.** Related: Item 169, whose reachability answer came from this measurement.
+
 ## Hosted deployment runbook
 
 Use `docs/deployment-runbook.md` for hosted environment setup, activation, production observations,
