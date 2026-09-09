@@ -6317,8 +6317,33 @@ not a tag and does not pass through `prioritizeGameTags`.
 measurement bounds that: zero FBS instances across seven seasons**; the six real cases were D-II
 cancellations left `scheduled` at `0-0`.
 
-**The ask:** decide whether the cap counts the reason label. **It is a cap question, not a rendering
-one** — if the answer is yes, `TOP_BADGE_LIMIT` is being applied to the wrong population.
+**WIDENED 2026-09-09 — the same defect exists on FEATURED, and that instance is the reachable one.**
+Found in Item 173a's review: Featured can render its **postseason badge plus two highlight tags** —
+three pills in a slot the design caps at two — because `deriveFeaturedGameBadge` does not pass through
+`prioritizeGameTags` either. **This is one question on two surfaces**, and the Featured instance is
+straightforwardly reachable in the postseason, where the watchlist's depends on Item 169's unguarded
+`Close` and has zero FBS instances in seven seasons.
+
+**The ask, stated once for both:** does `TOP_BADGE_LIMIT` count NON-TAG pills that share the slot — the
+watchlist reason label and the Featured postseason badge? **It is a cap question, not a rendering one.**
+If the answer is yes, the cap is being applied to the wrong population and the fix is in the selector,
+not at either call site.
+
+**The accepted disposition from 173a's review, if it stands:** the postseason badge counts toward the
+cap and takes **priority over selector-owned tags** — a badge is a fact about which game this is, a tag
+is a reason it was surfaced. **That needs a selector slice**, which is why 173a did not implement it.
+
+### Item 195 — the Featured badge-label assertion does not prove containment
+
+**From Item 173a's review, accepted and not fixed there** — the single permitted remediation was already
+spent, and this is follow-up rather than a defect the remediation caused.
+
+The test proves `CFP Quarterfinal` appears **after** the badge attribute in the markup, not that it is
+**inside** the badge element. A label that escaped its badge and rendered as a sibling would pass.
+
+**The ask:** replace it with a JSDOM `textContent` assertion on the badge element.
+
+**Blocker:** none. **Trivial**, and it is the assertion the badge move should have carried.
 
 **Blocker:** none, but it interacts with **169** and **186**; the three are one conversation about what
 the slot holds.
