@@ -5925,7 +5925,21 @@ fire on Live, Recent finals or Featured because this item's three sections pass 
 watchlist it fires only through 169's `0-0` scheduled pack, which `DESIGN.md:313` prohibits. **Neither
 item named the other until the audit put them side by side.**
 
-**Blocker:** Item 143 for placement. Supplying the tags at all is independent.
+**SPLIT 2026-09-09, on the implementer's receipt.** They are different slices:
+
+**173a — Featured. WIRING, in flight.** `PrioritizedOverviewItem` already carries `highlightTags`
+(`overview.ts:42`) and Featured already receives prioritized items (`OverviewPanel.tsx:1730`) — it
+simply never passes them to Item 143's `tagSlot`. Its badge also moves off `contextSlot` into the seam.
+Kickoff: `platform-173a-featured-tag-slot-codex-v2.md`.
+
+**173b — Live and Recent finals. SELECTOR SLICE, not yet dispatched.** `routesByKey` holds unprioritized
+`OverviewGameItem`s (`overviewGameSections.ts:196-198`) and the prioritized inputs — `highlightSignals`,
+rankings, `topOwnerNames` — never reach `deriveOverviewSections`. **Giving these two sections tags is a
+signature change on the section builder**, touching ordering and section composition, which is Item
+115's neighbourhood. **It gets its own review.**
+
+**Blocker:** 173a none. **173b interacts with Item 115** — both change what the section builder
+produces, and they should be sequenced rather than run concurrently.
 
 ### Item 174 — DONE: Live rows render no broadcast
 
