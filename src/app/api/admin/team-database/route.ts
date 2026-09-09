@@ -77,8 +77,13 @@ export async function POST(req: Request): Promise<NextResponse> {
               : 'team-database-empty-replacement-rejected',
           detail:
             classification === 'schema-drift'
-              ? `CFBD returned ${summary.fetchedCount} rows but none could be read as a team (schema drift). The catalog was NOT changed — the existing ${previous.items.length} teams are still being served.`
+              ? `CFBD returned ${summary.fetchedCount} rows but none could be read as a team (schema drift). The catalog was NOT changed — the existing ${previous.items.length} teams are still being served.${summary.errors.length > 0 ? ` First rows: ${summary.errors.slice(0, 3).join('; ')}` : ''}`
               : `CFBD returned 0 teams. The catalog was NOT changed — the existing ${previous.items.length} teams are still being served.`,
+          // `summary` rides along for anyone reading the raw response, but the
+          // per-row normalization reasons are also folded into `detail` above:
+          // the client (`syncTeamDatabase`) discards the payload on a non-ok and
+          // keeps only `detail`, so diagnostics left solely in `summary.errors`
+          // never reach the operator on the one failure this guard exists for.
           summary,
         },
         { status: 502 }

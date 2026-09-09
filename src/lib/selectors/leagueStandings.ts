@@ -905,8 +905,16 @@ async function liveDeriveStandings(slug: string, year: number): Promise<LiveDeri
   // `liveScores/canonicalContext.ts`, which reject a zero-length catalog as
   // unavailable context rather than valid absence.
   if (teams.length === 0) {
+    // Naming both producers, because the store cannot distinguish them for us:
+    // a durable row committed empty, or `readSourceCatalogFallback` returning
+    // `[]` from its catch — which swallows a genuine read failure on
+    // `src/data/teams.json` and an absent/corrupt file into the same value.
+    // That conflation is filed with the rest of the durable-catalog read
+    // validation (Item 205); either way an empty identity catalog is
+    // uncertainty, and PLATFORM-084A says propagate it rather than cache a
+    // degraded snapshot derived from it.
     throw new Error(
-      `canonical standings ${slug} ${year}: team catalog is empty — refusing to derive standings from label-only identity`
+      `canonical standings ${slug} ${year}: team catalog is empty (durable row committed empty, or the bundled src/data/teams.json fallback could not be read) — refusing to derive standings from label-only identity`
     );
   }
 

@@ -459,6 +459,13 @@ test('PLATFORM-204: a NONEMPTY body that normalizes to zero teams is rejected as
   assert.equal(body.summary?.fetchedCount, 3, 'the payload was nonempty');
   assert.equal(body.summary?.writtenCount, 0, 'and normalized to zero usable teams');
 
+  // The per-row reasons must reach the OPERATOR, not just the raw response:
+  // `syncTeamDatabase` discards the payload on a non-ok and keeps only `detail`,
+  // so diagnostics living solely in `summary.errors` are invisible on exactly
+  // the failure this guard exists for (review finding).
+  assert.match(body.detail ?? '', /First rows:/);
+  assert.match(body.detail ?? '', /missing school name/);
+
   const stored = await getTeamDatabaseFile();
   assert.deepEqual(
     stored.items.map((i) => i.school).sort(),
