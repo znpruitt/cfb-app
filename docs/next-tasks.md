@@ -6640,6 +6640,24 @@ from "content changed".
 
 **Blocker:** none. **Do not fold it into 110B.**
 
+### Item 197 — reconciliation has no durable diagnostic beyond the scheduler receipt
+
+**Reported from Item 110B's third review and deliberately not built there.** The reconciliation records
+`provider-refresh-status` under `week-reconciliation` — a scope kind `game-stats` does not own, so it is
+readable but **ineligible as latest activity by construction** — and appends to its own ledger.
+
+**Nothing renders either.** The scheduler receipt carries the run's outcome once 110B's classification
+fixes land, and that is the reader for now.
+
+**The ask:** decide whether reconciliation warrants a durable diagnostic surface of its own.
+
+**Why it was not folded into 110B:** it is a new surface, not a defect in the one being built. **A
+reconciliation that fails silently is a real gap** — but the receipt covers the run, and inventing a
+panel inside a remediation round is how a slice stops converging.
+
+**Blocker:** Item 110B must land first — its receipt classification is what this would supplement or
+replace. Related: **Item 132** (partition-scoped health), which may be the right home.
+
 ## Out of scope for this queue
 
 - New matching systems or changes to schedule-first identity rules.
