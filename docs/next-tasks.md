@@ -5961,6 +5961,34 @@ outlets in the schedule-media cache and check none reads as something other than
 
 **Blocker:** none. **One line**, plus the verification above.
 
+### Item 181 — audit Matchups and Schedule the way Item 167 audited Overview
+
+**Kickoff:** [`docs/prompts/platform-181-matchups-schedule-audit-v1.md`](prompts/platform-181-matchups-schedule-audit-v1.md).
+
+**Owner, 2026-09-08, on reading Item 167's result.** That audit found **eight** divergences on Overview
+mapping to no filed item, and its conclusion was that the back-application gap sits **wherever nobody
+has looked** — Item 160 covered the watchlist only because a screenshot of the watchlist prompted it.
+
+**Overview has now been measured. Matchups and Schedule have not.** Leaving two of the four consumers
+unaudited leaves the same open question across two thirds of the surface.
+
+**The ask:** run the adapted checks and report the residue count, per surface and combined.
+
+**The question it must answer directly:** is the gap the same size here as on Overview, larger, or
+smaller? **Eight is the number to compare against.** That comparison is what says whether the
+campaign's remaining scope is known or still guessed.
+
+**Three exclusions, all deliberate:** Item 143 v4 is reconstructing Matchups' tag seam, status label
+and live indicator right now — those three are not audited, since counting known in-flight work
+inflates the number. The outcome rail and owner tint are not divergences (CARRY row 20; the tint is
+documented on two axes and nothing proposes removing it). And the recap is not a consumer yet, so
+auditing it against a contract it does not consume would measure nothing.
+
+**Lane:** whichever frees first. **Read-only, so it collides with no branch** — but it must not run
+against Matchups' status row while 143 v4 is rewriting it, which the exclusions handle.
+
+**Blocker:** none.
+
 ## Hosted deployment runbook
 
 Use `docs/deployment-runbook.md` for hosted environment setup, activation, production observations,
