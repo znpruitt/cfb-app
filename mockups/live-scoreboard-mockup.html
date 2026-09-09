@@ -62,6 +62,12 @@
     font-size: 12px; color: var(--text-tertiary);
     white-space: nowrap; overflow: hidden;
   }
+  /* Shared contract: one growing left group, one fixed tag pinned right. Not margin-left:auto,
+     which silently fails at column width. Watchlist rows are frequently tag-only, so the
+     left group must hold open with no content. */
+  .sb-status .sb-meta { display: flex; align-items: center; gap: 7px; flex: 1 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .sb-status .sb-meta .tv { color: var(--text-secondary); }
+  .sb-status .eyebrow { flex: none; }
   .sb-status .state, .sb-status .eyebrow {
     font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
   }
@@ -72,17 +78,6 @@
     color: #dbc190; border: 0.5px solid rgba(201,166,107,0.40);
     border-radius: 3px; padding: 1px 5px;
   }
-  .sb-title {
-    font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
-    color: var(--text-secondary); margin-bottom: 3px;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .sb-title.empty { visibility: hidden; }
-  .sb-meta-row {
-    font-size: 12px; color: var(--text-tertiary); margin-bottom: 7px;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .sb-meta-row .tv { color: var(--text-secondary); }
 
   /* Live badge — neutral text + neutral dot. No amber anywhere: amber clock badges AND
      amber live-card borders are both drift against the reservations at :135, :215, :281. */
@@ -132,9 +127,9 @@
      Green live is constant across previews 1-4; only the eyebrow hue varies. ---- */
   body[data-c]:not([data-c="0"]) .live-badge { color: #4ade80; }
   body[data-c]:not([data-c="0"]) .live-badge::before { background: #4ade80; }
-  body[data-c="2"] .sb-title { color: #c9a66b; }
-  body[data-c="3"] .sb-title, body[data-c="3"] .sb-status .eyebrow { color: #7dd3fc; }
-  body[data-c="4"] .sb-title, body[data-c="4"] .sb-status .eyebrow { color: #e879f9; }
+  body[data-c="2"]
+  body[data-c="3"] .sb-status .eyebrow { color: #7dd3fc; }
+  body[data-c="4"] .sb-status .eyebrow { color: #e879f9; }
 
   /* ---- Featured tile: state-agnostic, persists through scheduled -> live -> final ---- */
   .featured { background: #1e1e1e; border-radius: 8px; padding: 22px 26px; margin-bottom: 8px; }
@@ -146,7 +141,7 @@
   @container (max-width: 760px) { .featured-grid { display: block; } }
   .featured .scoreboard { padding: 10px 0; }
   .featured .sb-line { font-size: 15px; }
-  .fx-reason {
+  .fx-reason-row {
     font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
     color: #c9a66b; margin-bottom: 3px;
   }
@@ -157,7 +152,7 @@
     text-transform: uppercase; color: #8a7a5a; border: 1px dashed #6a5a3a; border-radius: 3px;
     padding: 0 4px; margin-bottom: 4px;
   }
-  body[data-c="0"] .fx-reason { color: var(--text-secondary); }
+  body[data-c="0"] .fx-reason-row { color: var(--text-secondary); }
   .fx-why { font-size: 12px; color: var(--text-tertiary); margin-bottom: 8px; }
 
   .expand-footer { margin-top: 12px; }
@@ -200,7 +195,7 @@
       <div class="scoreboard">
         <div class="oos">
           <div class="oos-tag">Not built in Item 87 &mdash; insights work</div>
-          <div class="fx-reason">Rivalry</div>
+          <div class="fx-reason-row">Rivalry</div>
           <div class="fx-why">Whited leads Chamness 44&ndash;25 &mdash; the most lopsided rivalry on record</div>
         </div>
         <div class="sb-status"><span class="live-badge">Live</span><span>Q3 8:12</span></div>
@@ -210,10 +205,10 @@
       <div class="scoreboard">
         <div class="oos">
           <div class="oos-tag">Not built in Item 87 &mdash; insights work</div>
-          <div class="fx-reason">Podium rematch</div>
+          <div class="fx-reason-row">Podium rematch</div>
           <div class="fx-why">Last season's top two meet again &mdash; Chamness took the title by 2 games</div>
         </div>
-        <div class="sb-meta-row">Sat, Aug 29 &middot; 8:00 PM &middot; <span class="tv">ABC</span></div>
+        <div class="sb-status"><span class="sb-meta">Sat, Aug 29 &middot; 8:00 PM &middot; <span class="tv">ABC</span></span></div>
         <div class="sb-line" style="--tcol:#E04545"><span class="who"><span class="rank">#3</span><span class="tc"></span><span class="team">Georgia</span><span class="owner">Chamness</span></span><span class="anchor-soft num">6&ndash;0</span></div>
         <div class="sb-line" style="--tcol:#C25050"><span class="who"><span class="rank">#9</span><span class="tc"></span><span class="team">Ole Miss</span><span class="owner">BHooper</span></span><span class="anchor-soft num">5&ndash;1</span></div>
         <div class="sb-odds num">Georgia &minus;4.5 &middot; O/U 51.5</div>
@@ -335,50 +330,43 @@
   </div>
   <div class="game-list" id="sched-list">
       <div class="scoreboard">
-        <div class="sb-title">Ranked spotlight</div>
-        <div class="sb-meta-row">Sat, Aug 29 &middot; 7:30 PM &middot; <span class="tv">ABC</span></div>
+        <div class="sb-status"><span class="sb-meta">Sat, Aug 29 &middot; 7:30 PM &middot; <span class="tv">ABC</span></span><span class="eyebrow">Ranked spotlight</span></div>
         <div class="sb-line" style="--tcol:#8B5FC4"><span class="who"><span class="rank">#24</span><span class="tc"></span><span class="team">Louisville</span><span class="owner">Stevens</span></span><span class="anchor-soft num">5&ndash;1</span></div>
         <div class="sb-line" style="--tcol:#E04545"><span class="who"><span class="rank">#3</span><span class="tc"></span><span class="team">Georgia</span><span class="owner">Chamness</span></span><span class="anchor-soft num">6&ndash;0</span></div>
         <div class="sb-odds num">Georgia &minus;10.5 &middot; O/U 52.5</div>
       </div>
       <div class="scoreboard">
-        <div class="sb-title empty">&nbsp;</div>
-        <div class="sb-meta-row">Sat, Aug 29 &middot; 8:00 PM &middot; <span class="tv">ESPN2</span></div>
+        <div class="sb-status"><span class="sb-meta">Sat, Aug 29 &middot; 8:00 PM &middot; <span class="tv">ESPN2</span></span></div>
         <div class="sb-line" style="--tcol:#E04545"><span class="who"><span class="tc"></span><span class="team">Jacksonville State</span><span class="owner">Whited</span></span><span class="anchor-soft num">3&ndash;3</span></div>
         <div class="sb-line" style="--tcol:#D8C68C"><span class="who"><span class="tc"></span><span class="team">North Dakota State</span><span class="owner">Whited</span></span><span class="anchor-soft num">5&ndash;1</span></div>
         <div class="sb-odds num">North Dakota State &minus;7.5 &middot; O/U 44.5</div>
       </div>
       <div class="scoreboard overflow">
-        <div class="sb-title">Top matchup</div>
-        <div class="sb-meta-row">Sat, Aug 29 &middot; 8:00 PM &middot; <span class="tv">FOX</span></div>
+        <div class="sb-status"><span class="sb-meta">Sat, Aug 29 &middot; 8:00 PM &middot; <span class="tv">FOX</span></span><span class="eyebrow">Top matchup</span></div>
         <div class="sb-line" style="--tcol:#3FA36B"><span class="who"><span class="tc"></span><span class="team">Miami</span><span class="owner">Gladney</span></span><span class="anchor-soft num">4&ndash;2</span></div>
         <div class="sb-line" style="--tcol:#C4506B"><span class="who"><span class="tc"></span><span class="team">Florida State</span><span class="owner">Maleski</span></span><span class="anchor-soft num">3&ndash;3</span></div>
         <div class="sb-odds num">Miami &minus;3.5 &middot; O/U 48.5</div>
       </div>
       <div class="scoreboard overflow">
-        <div class="sb-title empty">&nbsp;</div>
-        <div class="sb-meta-row">Sat, Aug 29 &middot; 10:15 PM</div>
+        <div class="sb-status"><span class="sb-meta">Sat, Aug 29 &middot; 10:15 PM</span></div>
         <div class="sb-line" style="--tcol:#5578B5"><span class="who"><span class="tc"></span><span class="team">BYU</span><span class="owner">Ciprys</span></span><span class="anchor-soft num">4&ndash;2</span></div>
         <div class="sb-line" style="--tcol:#8F5FBF"><span class="who"><span class="tc"></span><span class="team">TCU</span><span class="owner">Shambaugh</span></span><span class="anchor-soft num">2&ndash;4</span></div>
         <div class="sb-odds num">BYU &minus;6.5 &middot; O/U 51.5</div>
       </div>
       <div class="scoreboard overflow">
-        <div class="sb-title empty">&nbsp;</div>
-        <div class="sb-meta-row">Sun, Sep 6 &middot; 3:30 PM</div>
+        <div class="sb-status"><span class="sb-meta">Sun, Sep 6 &middot; 3:30 PM</span></div>
         <div class="sb-line" style="--tcol:#5E7BB5"><span class="who"><span class="tc"></span><span class="team">Fresno State</span><span class="owner">BHooper</span></span><span class="anchor-soft num">3&ndash;3</span></div>
         <div class="sb-line" style="--tcol:#5A85B5"><span class="who"><span class="tc"></span><span class="team">Nevada</span><span class="owner">Whited</span></span><span class="anchor-soft num">1&ndash;5</span></div>
         <div class="sb-odds num">Line not yet posted</div>
       </div>
       <div class="scoreboard overflow">
-        <div class="sb-title empty">&nbsp;</div>
-        <div class="sb-meta-row">Fri, Sep 4 &middot; 7:00 PM</div>
+        <div class="sb-status"><span class="sb-meta">Fri, Sep 4 &middot; 7:00 PM</span></div>
         <div class="sb-line"><span class="who"><span class="cls">FCS</span><span class="team">Long Island</span><span class="owner">BHooper</span></span><span class="anchor-soft num">1&ndash;5</span></div>
         <div class="sb-line" style="--tcol:#4A8FE0"><span class="who"><span class="tc"></span><span class="team">Kansas</span><span class="owner">Maleski</span></span><span class="anchor-soft num">3&ndash;5</span></div>
         <div class="sb-odds num">Kansas &minus;24.5 &middot; O/U 55.5</div>
       </div>
       <div class="scoreboard overflow">
-        <div class="sb-title">Ranked spotlight</div>
-        <div class="sb-meta-row">Sun, Sep 6 &middot; 6:30 PM &middot; <span class="tv">ABC</span> &middot; Neutral site</div>
+        <div class="sb-status"><span class="sb-meta">Sun, Sep 6 &middot; 6:30 PM &middot; <span class="tv">ABC</span> &middot; Neutral site</span><span class="eyebrow">Ranked spotlight</span></div>
         <div class="sb-line" style="--tcol:#8B5FC4"><span class="who"><span class="rank">#24</span><span class="tc"></span><span class="team">Louisville</span><span class="owner">Stevens</span></span><span class="anchor-soft num">5&ndash;1</span></div>
         <div class="sb-line" style="--tcol:#C25050"><span class="who"><span class="rank">#9</span><span class="tc"></span><span class="team">Ole Miss</span><span class="owner">BHooper</span></span><span class="anchor-soft num">6&ndash;1</span></div>
         <div class="sb-odds num">Ole Miss &minus;6.5 &middot; O/U 49.5</div>
@@ -388,6 +376,8 @@
   <div class="option-note">Last card (Fresno State at Nevada) shows the no-line-posted fallback.</div>
 
   <div class="mockup-notes">
+    <li><strong>Watchlist cards are on the shared status-row contract.</strong> An earlier version of this file rendered them as three lines &mdash; a title row, a metadata row, then the team lines &mdash; which is the pre-back-application layout Item 160 records as a defect. The audit found this file being used as the reference for a layout it contradicted. Collapsed to one status row: metadata left in a growing group, tag pinned right as a bronze pill.</li>
+    <li><strong><code>.sb-title</code> is retired.</strong> That class named the watchlist's reason label here while Featured used <code>.fx-reason</code>; a reader matching on "title" landed on the wrong row and applied Featured's plain-text exemption to the watchlist. The Featured reason row is now <code>.fx-reason-row</code> and is the only plain-text bronze on the page &mdash; it is a card title on its own line, not an inline tag. The watchlist's <code>Game of the Week</code> is an inline tag beside a pill and renders as a pill.</li>
     <strong>Mockup notes (not part of the design)</strong>
     <ul>
       <li><strong>What this proposes:</strong> the scoreboard micro-component with three rendered state variants (live, final, scheduled), the promotion model &mdash; a game occupies exactly one section instead of rendering in both watchlist and live as it does today (overview.ts:1009 filters <code>!== 'final'</code>, admitting in-progress by omission; Item 82 records it as a defect) &mdash; a two-column grid, and progressive disclosure per section.</li>

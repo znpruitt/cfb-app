@@ -2656,6 +2656,13 @@ carried the error forward before anyone looked at the page.
 
 ### Item 113 — Featured games is a plain finals list; the insights-hook reframe was decided but never built
 
+> **SCOPE WIDENED 2026-09-08 — this item now owns Featured's ORDERING as well as its selection.** Item
+> 167 found Featured re-sorting by postseason round tier (`selectors/overview.ts:466`) where the
+> ordering resolutions say kickoff descending. **That cannot be settled until Featured's nature is:**
+> results-based wants kickoff descending, **must-watch could legitimately want round tier** — a
+> championship is more watch-worthy than a bowl regardless of when it kicks. **So the shipped behaviour
+> may be right for a reason nobody wrote down.** Filed detail in **Item 177**, which blocks on this.
+
 **Carried in from POLISH-023, 2026-09-04.** Specify what _does_ promote a game into Featured, rather
 than leaving the slot unfilled. Featured spent this whole campaign ordering and selecting by an
 owner-count key nobody chose — it arrived by inheritance from a shared tiebreak and quietly did the
@@ -5322,6 +5329,18 @@ not another, found in a screenshot weeks later.
 decision recorded and unapplied. **Same gap underneath: nothing tracks whether a cross-surface
 decision reached every surface it governs.**
 
+**THE COST OF ITS ABSENCE IS NOW MEASURED: EIGHT.** Item 167 audited the three Overview sections
+nobody had checked and found **eight divergences mapping to no filed item** — every one the same
+mechanism this rule prevents: a decision recorded against the surface where the work happened and never
+applied back. **Cite the eight as the measurement of what this rule's absence cost**, not as a general
+count of Overview defects.
+
+**Carry the coverage caveat wherever the number is cited** — the auditor's own phrasing: _eight
+residual divergences in the statically- and render-analysable behaviour of the four sections' own code
+paths_, **not eight in Overview.** A layout-dependent divergence would not appear, and **check 7, the
+third column tier, is exactly where one would hide** — it was answered from class strings because
+nothing in the tree measures rendered width.
+
 **Blocker:** none. **A few minutes**, and it makes the omission checkable rather than rediscoverable.
 
 ### Item 162 — DONE: `Contender Watch` was owner standing rendered as a chip
@@ -5723,6 +5742,12 @@ Close renders `[]`. And the one marker Featured does pass — the CFP/conference
 a screenshot of the watchlist is what prompted it. **Item 143 is the seam** (where a tag goes); this is
 that three sections supply none.
 
+**CROSS-REFERENCE — Item 169.** Together these describe a tag that renders exactly where it must not
+and nowhere it should. **`Close`'s only reachable path on Overview is the forbidden one:** it cannot
+fire on Live, Recent finals or Featured because this item's three sections pass no tags, and on the
+watchlist it fires only through 169's `0-0` scheduled pack, which `DESIGN.md:313` prohibits. **Neither
+item named the other until the audit put them side by side.**
+
 **Blocker:** Item 143 for placement. Supplying the tags at all is independent.
 
 ### Item 174 — Live rows render no broadcast
@@ -5762,7 +5787,18 @@ change if the inconsistency reads badly."_
 **watchlist's** class and Featured uses `.fx-reason`. A reader matching on the class name lands on the
 wrong row.
 
-**The ask:** rule whether the reason label is a pill. **One line either way**; the document says so.
+**RULED 2026-09-08 — the watchlist reason label IS a pill.** The Featured exemption was written for
+the Featured tile's reason **row**, a card title on its own line. **The watchlist's `GAME OF THE WEEK`
+sits inline beside a pill, so it is functioning as a tag and the exemption does not reach it.** One
+treatment, per §2.
+
+**The mockup is corrected and is now the reference** — the owner rebuilt `live-scoreboard-mockup.html`
+on 2026-09-08: `.sb-title` and `.sb-meta-row` are retired, `.fx-reason-row` is Featured's alone and the
+only plain-text bronze on the page, and the file carries a note (`:380`) naming what the old class
+name caused **so the next reader cannot reconstruct the mistake from it.**
+
+**The ask:** make the watchlist reason label a pill, and delete the mis-citation in `gameUi.ts:177-188`
+rather than repointing it — the exemption it cites does not apply here at all.
 
 **Blocker:** none.
 
@@ -5782,7 +5818,15 @@ on a zero-game render, dating to `352054d1` (2026-03-26), **months before** the 
 (2026-09-08). **No decision reconciles them.** POLISH-013 sanctions the GB Race empty state and is
 scoped to the trend section only.
 
-**The ask:** rule which behaviour is right, then make the test defend that one.
+**RULED 2026-09-08 — Featured HIDES when empty.** The hide rule was decided; the March test predates
+it and defends behaviour nobody chose.
+
+**The ruling does not depend on resolving Item 113**, which is why it can be made now: **both readings
+of Featured agree.** Results-based empty means no results; must-watch empty means nothing selected.
+**In either case an orthogonal section with nothing in it does not render.**
+
+**The ask:** hide the section when empty, and **change `OverviewPanel.test.tsx:1781-1800` to defend the
+rule rather than the accident.**
 
 **Blocker:** none. Related: **Item 113**, which owns what promotes a game into Featured but says
 nothing about the empty case.
@@ -5802,8 +5846,16 @@ Neither knows about the other.
 **Not urgent — unreachable until the postseason.** But it is unreachable in TESTING too, which is how
 it survived: nothing exercises a slate carrying `postseasonRole`.
 
-**Blocker:** none. Related: **Item 154** (postseason grouping), which should not be built against the
-current behaviour.
+**RULED 2026-09-08 — this belongs to Item 113, and 113's scope widens to claim it.** It is not residue
+with no home; **it is residue whose home had not claimed it yet.**
+
+**Featured's ordering cannot be settled until its NATURE is.** Results-based wants kickoff descending.
+**Must-watch could legitimately want round tier in the postseason** — a championship is more
+watch-worthy than a bowl regardless of when it kicks. **So the current behaviour may turn out to be
+right for a reason nobody wrote down.** Do not "fix" it to kickoff-descending before 113 resolves.
+
+**Blocker:** **Item 113.** Related: **Item 154** (postseason grouping), which should not be built
+against the current behaviour either way.
 
 ### Item 178 — the 17px section-header exception was decided, marked landed, and never built
 
@@ -5822,7 +5874,12 @@ chip cap and Item 159's inert `darkMode: 'media'`. **A document that was never t
 that drifted** — nothing in its history marks a moment of change, so no reader has cause to distrust
 it, and "Landed" actively vouches for it.
 
-**The ask:** build it, or retire the exception and the "Landed" mark together.
+**RULED 2026-09-08 — BUILD IT.** It was a deliberate owner decision and it is in `DESIGN.md`. **The
+alternative is retracting a canonical claim because nobody implemented it, which sets the wrong
+precedent for the whole family:** the fix for a canonical rule that was never true is **making it
+true**, not deleting it. Retire the rule only if the rule is wrong — never because the code disagrees.
+
+**The ask:** implement 17px/650 on the four Overview game-section headers.
 
 **Blocker:** none. **One class string** if it is built.
 
