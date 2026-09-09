@@ -55,10 +55,22 @@ export type GameStatsCronExecutionReason =
   // is made; ordinary polling had already found no target.
   | 'reconciliation-ledger-unavailable'
   // PLATFORM-110B: a correction pass was due but its attempt could not be
-  // RESERVED durably — a full season row, a store write failure, or a
-  // concurrent run that closed the pass first. No provider call is made, which
-  // is the point: a store that cannot record must not be able to spend.
+  // RESERVED durably because the store could not record it — a full season row,
+  // a write failure, or a malformed record. No provider call is made, which is
+  // the point: a store that cannot record must not be able to spend. This is a
+  // FAULT and is classified `failure` so it reaches an operator.
   | 'reconciliation-unreserved'
+  // PLATFORM-110B: the reservation was refused because a CONCURRENT run had
+  // already closed the pass, or had consumed its last permitted attempt. Both
+  // are benign — the work was done, or the bound did its job — so the run
+  // resolves `no-op`. Classifying these as failures let an overlapping QStash
+  // delivery overwrite the successful run's evidence with a false alarm.
+  | 'reconciliation-already-done'
+  | 'reconciliation-attempts-exhausted'
+  // PLATFORM-110B: the merge COMMITTED but its ledger settlement did not, so
+  // the data work succeeded and the bookkeeping failed. Reported `partial`
+  // rather than `success`, because a real fault must not read as healthy.
+  | 'reconciliation-settlement-failed'
   | `quota-${QuotaRefusalReason}`
   | 'cfbd-api-key-missing'
   | 'provider-fetch-failed'

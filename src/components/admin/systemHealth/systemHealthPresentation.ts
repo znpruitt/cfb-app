@@ -300,7 +300,10 @@ export function summarizeReceiptTarget(target: SchedulerExecutionReceipt['target
         target.recordsNotWritten > 0 ? ` · ${target.recordsNotWritten} record(s) not written` : ''
       }`;
     case 'game-stats':
-      return `${target.year}${target.week != null ? ` · week ${target.week}` : ''}${target.seasonType ? ` · ${target.seasonType}` : ''}`;
+      // PLATFORM-110B — the mode is what tells a bounded CORRECTION pass over a
+      // long-settled partition from a polling run that regressed to a stale one.
+      // Without it both render as `2026 · week 1 · regular` in week 10.
+      return `${target.year}${target.week != null ? ` · week ${target.week}` : ''}${target.seasonType ? ` · ${target.seasonType}` : ''}${target.mode ? ` · ${target.mode}` : ''}`;
     case 'odds':
       return `${target.year} · ${target.eligibleGames} eligible game(s)${target.cadence ? ` · ${target.cadence}` : ''}`;
     case 'schedule-years': {

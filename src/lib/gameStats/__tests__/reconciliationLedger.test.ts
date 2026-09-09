@@ -311,6 +311,26 @@ test('a read failure inside the reservation transaction refuses and writes nothi
   assert.deepEqual(await storedValue(), before, 'nothing was written');
 });
 
+test('CONCURRENT reservations serialize: the cap holds without any await between them', async () => {
+  // The sequential test below proves the cap's arithmetic; hoisting the check
+  // OUT of the transaction would survive it. This one fires the reservations
+  // together, with no await in between, so each would read the same snapshot if
+  // the check were not inside the transaction — and one extra attempt would slip
+  // past the bound.
+  const results = await Promise.all(
+    Array.from({ length: RECONCILIATION_MAX_ATTEMPTS + 2 }, (_, i) => reserve(`c${i}`))
+  );
+  const reserved = results.filter((r) => r.status === 'reserved');
+  const refused = results.filter((r) => r.status === 'attempt-cap-reached');
+  assert.equal(
+    reserved.length,
+    RECONCILIATION_MAX_ATTEMPTS,
+    `exactly ${RECONCILIATION_MAX_ATTEMPTS} concurrent reservations may win`
+  );
+  assert.equal(refused.length, 2, 'and the rest are refused by the cap, not admitted');
+  assert.equal((await entries()).length, RECONCILIATION_MAX_ATTEMPTS, 'the row agrees');
+});
+
 test('two runs that both reserve both appear — the ledger cannot under-report spend', async () => {
   assert.equal((await reserve('a1')).status, 'reserved');
   assert.equal((await reserve('a2')).status, 'reserved');

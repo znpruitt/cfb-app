@@ -51,16 +51,32 @@ import { getAppState } from '../server/appStateStore.ts';
  *
  *   - `written` / `partially-merged` / `unchanged` / `stale` / `conflict` — the
  *     merge read the partition under its lock and ruled. Asking again would
- *     spend a call to be told the same thing.
- *   - An exactly-empty provider response — CFBD authoritatively says the
- *     partition has no rows. Also a verdict.
+ *     spend a call to be told the same thing. **This holds even when the
+ *     response omitted an expected game.** Owner ruling, 2026-09-09: there are
+ *     two passes, so a genuinely transient omission is re-observed at `p2` seven
+ *     days later — retrying inside `p1` pays extra calls to duplicate what the
+ *     second pass already does. The omission is also measured PERSISTENT rather
+ *     than assumed: Item 110A found four rows absent from `2026:1:regular`, and
+ *     a live run a day later reproduced exactly four. The ledger records them as
+ *     `notObserved`. **The ruling's binding condition is that `p2` runs
+ *     regardless of how `p1` ended** — if closing `p1` suppressed `p2` the retry
+ *     argument would collapse and closing would be wrong, so that is what the
+ *     tests guard.
+ *   - An exactly-EMPTY provider response does NOT close the pass. The
+ *     coordinator returns that no-op BEFORE the merge is ever called, so nothing
+ *     was compared — and reconciliation only runs over a partition whose
+ *     coverage is `complete`, which proves the partition HAS satisfied rows. An
+ *     empty array therefore contradicts known-good state and is a provider
+ *     anomaly, not an authoritative emptiness. This is the same policy the
+ *     schedule and score paths already apply: an empty result over an
+ *     already-populated cache is a rejected replacement, never a silent no-op.
  *   - `unavailable` (store, lock, or writer-control refusal), `indeterminate`
  *     (durability unknown), and a rejected payload (`invalid-payload` /
  *     `no-persistable-observations`) — nothing was compared. The pass stays open
  *     and the attempt cap bounds the retries.
  */
 export function reachedMergeVerdict(result: GameStatsIngestionResult): boolean {
-  if (result.kind === 'no-op') return true;
+  if (result.kind === 'no-op') return false;
   if (result.kind === 'rejected') return false;
   switch (result.merge.outcome) {
     case 'written':
@@ -142,16 +158,27 @@ export type ReconciliationResolution =
   | { status: 'ok'; run: ReconciliationRun };
 
 /**
- * Read one partition's committed record cache-only and evaluate its coverage
- * through the shared authority. A missing, mispaired, or unreadable record
- * yields `null`, which the caller treats as "not reconcilable" — failing toward
- * not spending, exactly as `pollingTarget` fails toward not spending on an
- * unprovable kickoff.
+ * Whether one candidate partition may be reconciled, read cache-only and
+ * evaluated through the shared coverage authority.
+ *
+ * THREE outcomes, and the third is the point. A genuine store failure is
+ * `unavailable` — NOT `no`. Collapsing it into "not reconcilable" made an
+ * unreadable game-stats partition indistinguishable from a quiet day: the run
+ * reported a healthy `skipped / no-polling-target` and an operator saw nothing.
+ * That is the same distinction the standings cache draws between valid absence
+ * and uncertainty, and it belongs here for the same reason.
+ *
+ * A record that is genuinely ABSENT, mispaired, or whose coverage is not
+ * `complete` is a plain `no`: those are collection gaps, and by the owner's
+ * ruling they must stay visible as gaps rather than be filled by a correction
+ * pass.
  */
-async function partitionIsReconcilable(
+type PartitionEligibility = 'yes' | 'no' | 'unavailable';
+
+async function partitionEligibility(
   slate: Extract<CanonicalSlateResult, { status: 'available' }>['slate'],
   target: ReconciliationTarget
-): Promise<boolean> {
+): Promise<PartitionEligibility> {
   let stored: unknown;
   try {
     const record = await getAppState<unknown>(
@@ -160,10 +187,10 @@ async function partitionIsReconcilable(
     );
     stored = record?.value ?? null;
   } catch {
-    return false;
+    return 'unavailable';
   }
   const validation = validateGameStatsEnvelope(stored, target.year, target.week, target.seasonType);
-  if (validation.status !== 'ok') return false;
+  if (validation.status !== 'ok') return 'no';
   const coverage = evaluatePartitionCoverage(
     slate,
     target.week,
@@ -171,7 +198,7 @@ async function partitionIsReconcilable(
     validation.record,
     'current'
   );
-  return isReconcilablePartitionState(coverage.state);
+  return isReconcilablePartitionState(coverage.state) ? 'yes' : 'no';
 }
 
 /**
@@ -191,7 +218,17 @@ async function partitionIsReconcilable(
  *  3. **Coverage.** One read per still-eligible candidate, in selection order,
  *     until one is `complete`. This is the ruling that reconciliation revisits
  *     SATISFIED partitions only: a pass that filled a partition polling never
- *     collected would hide the collection gap rather than surface it.
+ *     collected would hide the collection gap rather than surface it. A store
+ *     fault here resolves `unavailable`, never "nothing due".
+ *
+ * A note on what the coverage gate deliberately does NOT catch: a game whose
+ * kickoff cannot be parsed is `pending`, so `selectCanonicalPartition` leaves it
+ * out of `expected` and the partition can read `complete` around it and spend
+ * both passes. That is bounded and it ends in the right place — if the kickoff
+ * is later repaired the game becomes `expected` with no evidence, coverage drops
+ * out of `complete`, and reconciliation DECLINES the partition. What it needs
+ * then is collection, not correction, and leaving that gap visible is the
+ * owner's ruling rather than an oversight.
  */
 export async function resolveReconciliationRun(
   year: number,
@@ -214,7 +251,12 @@ export async function resolveReconciliationRun(
   const candidates = listReconciliationCandidates({ slate, now, passState });
   let target: ReconciliationTarget | null = null;
   for (const candidate of candidates) {
-    if (await partitionIsReconcilable(slate, candidate)) {
+    const eligibility = await partitionEligibility(slate, candidate);
+    // A store fault stops the whole resolution rather than falling through to
+    // the next candidate: continuing would report "nothing due" while a
+    // partition we could not read might have been due.
+    if (eligibility === 'unavailable') return { status: 'unavailable' };
+    if (eligibility === 'yes') {
       target = candidate;
       break;
     }

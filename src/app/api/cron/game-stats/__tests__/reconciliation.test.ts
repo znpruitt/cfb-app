@@ -16,6 +16,8 @@ import {
   RECONCILIATION_LEDGER_SCOPE,
   readReconciliationLedger,
   reconciliationLedgerKey,
+  reserveReconciliationAttempt,
+  settleReconciliationAttempt,
   type ReconciliationLedgerEntry,
 } from '../../../../../lib/gameStats/reconciliationLedger.ts';
 import { RECONCILIATION_MAX_ATTEMPTS } from '../../../../../lib/gameStats/reconciliationTarget.ts';
@@ -24,9 +26,14 @@ import {
   seedWriterControlState,
 } from '../../../../../lib/gameStats/__tests__/writerControlSeed.ts';
 import { wireGame } from '../../../../../lib/gameStats/__tests__/fixtures.ts';
-import { getProviderRefreshStatus } from '../../../../../lib/server/providerRefreshStatus.ts';
+import {
+  beginProviderRefreshAttempt,
+  getProviderRefreshStatus,
+  recordProviderRefreshNoop,
+} from '../../../../../lib/server/providerRefreshStatus.ts';
 import { readProviderRefreshHealth } from '../../../../../lib/server/providerRefreshHealth.ts';
 import {
+  providerRefreshScopeKey,
   weekPartitionScope,
   weekReconciliationScope,
 } from '../../../../../lib/providerRefreshScope.ts';
@@ -125,7 +132,7 @@ async function storedHomeTotalYards(week = WEEK): Promise<number | undefined> {
 
 function stubProvider(
   payload: unknown,
-  options: { remainingCalls?: number } = {}
+  options: { remainingCalls?: number; beforeStatsResponse?: () => Promise<void> } = {}
 ): { statsCalls: number } {
   const calls = { statsCalls: 0 };
   globalThis.fetch = (async (input: RequestInfo | URL) => {
@@ -137,6 +144,11 @@ function stubProvider(
       );
     }
     calls.statsCalls += 1;
+    // The seam that makes the concurrency test REAL: another writer commits to
+    // this exact partition while THIS request is in flight, which is the
+    // interleaving production actually has. A pre-seeded future fence tests the
+    // fence arithmetic; only this tests the race.
+    if (options.beforeStatsResponse) await options.beforeStatsResponse();
     return new Response(JSON.stringify(payload), {
       status: 200,
       headers: { 'content-type': 'application/json' },
@@ -346,6 +358,37 @@ test('the status record lands on the RECONCILIATION scope and can never be lates
     'a reconciliation record must never be selected as latestScopedActivity — it ' +
       'describes a partition that settled weeks ago'
   );
+
+  // POSITIVE CONTROL for that `absent`. On its own it is also what an
+  // UNPARSEABLE record would produce, so it cannot distinguish "parsed but not
+  // owned" from "not parsed at all". Writing an OWNED week-partition record for
+  // the same year proves the reader does select game-stats week records here —
+  // so the absence above is the ownership map doing its job, not the reader
+  // being inert. (Nothing in production observes whether the reconciliation
+  // record itself parsed; its `parseScope` case is deliberate defensive code so
+  // the year-match branch stays correct if the kind is ever owned.)
+  const ownedScope = weekPartitionScope(YEAR, 9, 'regular');
+  const ownedAttempt = await beginProviderRefreshAttempt('game-stats', ownedScope, {
+    startedAt: new Date().toISOString(),
+  });
+  await recordProviderRefreshNoop('game-stats', ownedScope, {
+    attempt: ownedAttempt,
+    source: 'cfbd',
+  });
+  const withOwned = await readProviderRefreshHealth({ year: YEAR });
+  const ownedRow = withOwned.rows.find((r) => r.dataset === 'game-stats');
+  assert.equal(
+    ownedRow?.latestScopedActivity.state,
+    'available',
+    'an OWNED week-partition record IS selected — the reader is not inert'
+  );
+  assert.equal(
+    ownedRow?.latestScopedActivity.state === 'available'
+      ? ownedRow.latestScopedActivity.status.scopeKey
+      : null,
+    providerRefreshScopeKey('game-stats', ownedScope),
+    'and it is the owned record that wins, never the reconciliation one'
+  );
 });
 
 test('a pass that finds nothing wrong commits a fence advance and reports corrected 0', async () => {
@@ -490,18 +533,51 @@ test('an unusable payload does NOT close the pass either', async () => {
   assert.equal(healthy.statsCalls, 1, 'the pass was still due');
 });
 
-test('a merge that DID rule closes the pass even when it refused every game', async () => {
+test('MUTATION — a writer committing MID-FETCH is not clobbered; the fence refuses our merge', async () => {
+  // The completeness contract asks for this specific proof: the fence or lock
+  // rejects a concurrent writer, with a positive control showing the same call
+  // commits when the contention is gone. A pre-seeded future fence would test
+  // the arithmetic; this tests the interleaving.
   await seedDuePartitionWithStaleStats();
-  // A future-fenced stored row makes the incoming observation `stale`: the merge
-  // read the partition under its lock and ruled. Asking again buys nothing.
-  await ingestAt(new Date(Date.now() + 60 * 60 * 1000).toISOString(), [payloadFor(GAME_ID, '777')]);
+
+  let interloperRan = false;
+  const calls = stubProvider([payloadFor(GAME_ID, '412')], {
+    beforeStatsResponse: async () => {
+      const result = await ingestAt(new Date(Date.now() + 60_000).toISOString(), [
+        payloadFor(GAME_ID, '777'),
+      ]);
+      assert.equal(result.kind, 'merge-result');
+      interloperRan = true;
+    },
+  });
+
+  const { body, event } = await runCron();
+
+  assert.ok(interloperRan, 'the concurrent write really happened DURING the fetch');
+  assert.equal(calls.statsCalls, 1);
+  assert.equal(body.reason, 'stale-clean', 'our observation is older than the durable fence');
+  assert.equal(body.committedGames, 0);
+  assert.equal(event.correctedGames, 0);
+  assert.equal(
+    await storedHomeTotalYards(),
+    777,
+    'the concurrent writer’s newer value stands — never last-writer-wins'
+  );
+  // The merge authority ruled, so the pass closes rather than retrying into the
+  // same contention.
+  assert.equal((await ledgerEntries())[0]!.reachedVerdict, true, 'a verdict is a verdict');
+});
+
+test('POSITIVE CONTROL — the same call commits once the contention is gone', async () => {
+  await seedDuePartitionWithStaleStats();
   const calls = stubProvider([payloadFor(GAME_ID, '412')]);
 
   const { body } = await runCron();
-  assert.equal(calls.statsCalls, 1);
-  assert.equal(body.reason, 'stale-clean');
-  assert.equal((await ledgerEntries())[0]!.reachedVerdict, true, 'a verdict is a verdict');
-  assert.equal(await storedHomeTotalYards(), 777, 'the newer writer’s value stands');
+
+  assert.equal(calls.statsCalls, 1, 'the identical single request');
+  assert.equal(body.reason, 'written-clean', 'and with no concurrent writer it COMMITS');
+  assert.equal(body.reconciliation?.corrected, 1);
+  assert.equal(await storedHomeTotalYards(), 412);
 });
 
 // === Reserve before the spend ===
@@ -626,7 +702,7 @@ test('a missing credential is refused by the QUOTA gate first, and also burns no
 
 // === The ledger read fails closed ===
 
-test('a MALFORMED ledger suppresses the pass and spends nothing', async () => {
+test('a MALFORMED ledger suppresses the pass, spends nothing, and is VISIBLE', async () => {
   await seedDuePartitionWithStaleStats();
   await setAppState(RECONCILIATION_LEDGER_SCOPE, reconciliationLedgerKey(YEAR), {
     year: YEAR,
@@ -634,11 +710,15 @@ test('a MALFORMED ledger suppresses the pass and spends nothing', async () => {
   });
   const calls = stubProvider([payloadFor(GAME_ID, '412')]);
 
-  const { body, event } = await runCron();
+  const { res, body, event } = await runCron();
 
-  assert.equal(event.result, 'skipped');
+  // `failure`, not `skipped`: a skip reads as healthy, so a corrupt ledger would
+  // disable every correction for the season while System Health showed a quiet
+  // job and the only trace was one log line.
+  assert.equal(event.result, 'failure');
   assert.equal(event.reason, 'reconciliation-ledger-unavailable');
-  assert.equal(body.skipped, 'correction-reconciliation ledger is unreadable');
+  assert.equal(body.reason, 'reconciliation-ledger-unavailable');
+  assert.equal(res.status, 503);
   assert.equal(calls.statsCalls, 0);
   assert.equal(await storedHomeTotalYards(), 300, 'prior-good untouched');
 });
@@ -652,9 +732,177 @@ test('a ledger READ FAILURE also suppresses the pass — distinct from a malform
 
   const { body, event } = await runCron();
 
+  assert.equal(event.result, 'failure');
   assert.equal(event.reason, 'reconciliation-ledger-unavailable');
-  assert.equal(body.skipped, 'correction-reconciliation ledger is unreadable');
+  assert.equal(body.reason, 'reconciliation-ledger-unavailable');
   assert.equal(calls.statsCalls, 0);
+
+  // Positive control: the identical run reconciles once the store reads again.
+  __setAppStateReadFailureForTests(null);
+  const healthy = stubProvider([payloadFor(GAME_ID, '412')]);
+  const { body: ok } = await runCron();
+  assert.equal(healthy.statsCalls, 1);
+  assert.equal(ok.reconciliation?.corrected, 1);
+});
+
+// === The closure ruling, and its binding condition ===
+
+test('an EMPTY provider response does not close the pass — it contradicts proven coverage', async () => {
+  // Reconciliation only runs over `complete` coverage, so the partition
+  // demonstrably HAS satisfied rows. An empty array is a provider anomaly, and
+  // the coordinator returns it before the merge is ever called — nothing was
+  // compared.
+  await seedDuePartitionWithStaleStats();
+  const empty = stubProvider([]);
+
+  const { body } = await runCron();
+  assert.equal(empty.statsCalls, 1);
+  assert.equal(body.reason, 'empty-response');
+  assert.equal((await ledgerEntries())[0]!.reachedVerdict, false, 'the pass stays OPEN');
+
+  const healthy = stubProvider([payloadFor(GAME_ID, '412')]);
+  const { body: recovered } = await runCron();
+  assert.equal(healthy.statsCalls, 1, 'the pass was still due');
+  assert.equal(recovered.reconciliation?.corrected, 1);
+});
+
+test('a response omitting an expected game still closes p1 — and p2 runs REGARDLESS', async () => {
+  // Owner ruling: closing is right BECAUSE p2 re-observes seven days later, so
+  // retrying inside p1 would pay extra calls to duplicate the second pass. That
+  // argument collapses if closing p1 suppresses p2, so THIS is the condition
+  // under test, not the closing.
+  await seedSchedule([
+    { id: GAME_ID, week: WEEK, ageHours: 60 },
+    { id: 9003, week: WEEK, ageHours: 61 },
+  ]);
+  await ingestAt(new Date(Date.now() - 58 * H).toISOString(), [
+    payloadFor(GAME_ID, '300'),
+    payloadFor(9003),
+  ]);
+
+  // The response carries only ONE of the two expected games.
+  const partial = stubProvider([payloadFor(GAME_ID, '412')]);
+  const { body } = await runCron();
+  assert.equal(partial.statsCalls, 1);
+  assert.equal(body.reconciliation?.pass, 'p1');
+  const p1 = (await ledgerEntries())[0]!;
+  assert.equal(p1.reachedVerdict, true, 'the merge ruled, so p1 closes');
+  assert.equal(p1.notObserved, 1, 'and the omission is RECORDED rather than chased');
+
+  // The binding condition: p2 must still fall due and run.
+  await seedSchedule([
+    { id: GAME_ID, week: WEEK, ageHours: 200 },
+    { id: 9003, week: WEEK, ageHours: 201 },
+  ]);
+  const secondPass = stubProvider([payloadFor(GAME_ID, '450'), payloadFor(9003)]);
+  const { body: p2Body } = await runCron();
+  assert.equal(secondPass.statsCalls, 1, 'p2 runs regardless of how p1 ended');
+  assert.equal(p2Body.reconciliation?.pass, 'p2');
+  assert.equal(await storedHomeTotalYards(), 450, 'and it re-observes the partition');
+});
+
+// === Benign refusals are not faults ===
+
+test('a concurrently CLOSED pass resolves as a NO-OP, not a false failure', async () => {
+  // The real interleaving: a QStash redelivery resolves the same due target,
+  // and another run closes the pass before this one reserves. The `/info` quota
+  // probe sits exactly between resolution and reservation, so closing the pass
+  // from inside it reproduces the race without a second process.
+  await seedDuePartitionWithStaleStats();
+
+  const calls = { statsCalls: 0 };
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes('/info')) {
+      // Another invocation completes the pass while this run is mid-quota-check.
+      const reserved = await reserveReconciliationAttempt({
+        year: YEAR,
+        partitionKey: `${YEAR}:${WEEK}:regular`,
+        pass: 'p1',
+        dueAt: new Date().toISOString(),
+        attemptId: 'concurrent-run',
+        reservedAt: new Date().toISOString(),
+      });
+      if (reserved.status === 'reserved') {
+        await settleReconciliationAttempt(YEAR, 'concurrent-run', {
+          reachedVerdict: true,
+          outcome: 'success',
+          reason: 'written-clean',
+          observedAt: new Date().toISOString(),
+          corrected: 1,
+          refreshed: 0,
+          inserted: 0,
+          conflicts: 0,
+          stale: 0,
+          notObserved: 0,
+        });
+      }
+      return new Response(JSON.stringify({ patronLevel: 1, remainingCalls: 4000 }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    calls.statsCalls += 1;
+    return new Response(JSON.stringify([payloadFor(GAME_ID, '412')]), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  const { res, body, event } = await runCron();
+
+  assert.equal(calls.statsCalls, 0, 'the second run must not spend a call on finished work');
+  assert.equal(body.reconciliation?.reservation, 'already-closed');
+  assert.equal(res.status, 200, 'benign, so not a 503');
+  assert.equal(event.result, 'no-op');
+  assert.equal(
+    event.reason,
+    'reconciliation-already-done',
+    'a redelivery must not overwrite the successful run’s evidence with a false failure'
+  );
+});
+
+test('a settlement failure after a committed merge reports PARTIAL, never success', async () => {
+  await seedDuePartitionWithStaleStats();
+  const calls = stubProvider([payloadFor(GAME_ID, '412')]);
+
+  // Let the reservation commit, then break the store so only the settlement
+  // fails. The merge still lands; the bookkeeping does not.
+  let settled = false;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const res = await originalFetch(input as RequestInfo);
+    if (!String(input).includes('/info') && !settled) {
+      settled = true;
+      __setAppStateWriteFailureForTests(new Error('settle boom'), RECONCILIATION_LEDGER_SCOPE);
+    }
+    return res;
+  }) as typeof fetch;
+
+  const { body, event } = await runCron();
+  __setAppStateWriteFailureForTests(null);
+
+  assert.equal(calls.statsCalls, 1);
+  assert.equal(body.outcome, 'success', 'the DATA outcome is the interpreter’s, verbatim');
+  assert.equal(body.reconciliation?.settlement, 'write-failed');
+  assert.equal(event.result, 'partial', 'but the RUN is partial — a fault must not read healthy');
+  assert.equal(event.reason, 'reconciliation-settlement-failed');
+  assert.equal(await storedHomeTotalYards(), 412, 'the merge did commit');
+});
+
+// === A partition read failure is not a quiet day ===
+
+test('an unreadable PARTITION is reported, not silently read as nothing due', async () => {
+  await seedDuePartitionWithStaleStats();
+  __setAppStateReadFailureForTests(new Error('partition read boom'), 'game-stats');
+  const calls = stubProvider([payloadFor(GAME_ID, '412')]);
+
+  const { body, event } = await runCron();
+
+  assert.equal(calls.statsCalls, 0, 'nothing is spent on an unprovable state');
+  assert.equal(event.result, 'failure');
+  assert.equal(event.reason, 'reconciliation-ledger-unavailable');
+  assert.notEqual(body.skipped, NO_TARGET_SKIP, 'a store fault must not read as a quiet day');
 
   // Positive control: the identical run reconciles once the store reads again.
   __setAppStateReadFailureForTests(null);

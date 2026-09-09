@@ -346,7 +346,6 @@ test('no reconciliation candidate is ever a kickoff-window partition — swept o
 
   let checked = 0;
   let windowPartitionsSeen = 0;
-  let candidatesSeen = 0;
 
   for (const anchorAge of ages) {
     for (const companionAge of [anchorAge, anchorAge + 3, anchorAge + 12, anchorAge + 26]) {
@@ -364,7 +363,6 @@ test('no reconciliation candidate is ever a kickoff-window partition — swept o
         now: NOW,
         passState: EMPTY,
       });
-      candidatesSeen += candidates.length;
       for (const candidate of candidates) {
         assert.ok(
           !windowKeys.has(reconciliationPartitionKey(candidate)),
@@ -395,7 +393,6 @@ test('no reconciliation candidate is ever a kickoff-window partition — swept o
     `the sweep never produced polling candidates either (${windowPartitionsSeen}) — ` +
       'the disjointness would be vacuous'
   );
-  assert.ok(candidatesSeen === checked);
 });
 
 // === The satisfaction gate (owner ruling, 2026-09-09) ===

@@ -290,12 +290,25 @@ export async function GET(req: Request) {
     if (resolution.target === null) {
       const recon = await resolveReconciliationRun(year, now, resolution.slateResult);
       if (recon.status === 'unavailable') {
-        // A store fault, not a data state: suppress the pass, spend nothing, and
-        // say so distinctly rather than reporting "nothing was due".
-        exec.result = 'skipped';
+        // A store fault, not a data state: suppress the pass and spend nothing.
+        // Classified `failure` rather than `skipped` BECAUSE a skip is treated as
+        // healthy — an unreadable ledger or partition would otherwise disable
+        // every correction for the season while System Health showed a quiet job
+        // and the only trace was one log line. No scoped attempt is begun (no
+        // exact target was resolved), so this is a run-level fault only.
+        exec.result = 'failure';
         exec.reason = 'reconciliation-ledger-unavailable';
         return NextResponse.json(
-          skippedResult(year, 'correction-reconciliation ledger is unreadable')
+          {
+            year,
+            week: null,
+            seasonType: null,
+            outcome: 'failure',
+            reason: 'reconciliation-ledger-unavailable',
+            committedGames: 0,
+            error: 'correction-reconciliation context is unreadable',
+          } satisfies CronResult,
+          { status: 503 }
         );
       }
       if (recon.status === 'none') {
@@ -420,26 +433,44 @@ export async function GET(req: Request) {
     // invocations cannot each pass a check made against their own snapshot.
     if (reconciliation && !(await reconciliation.reserve())) {
       const reservation = reconciliationReport?.reservation ?? 'write-failed';
-      await recordProviderRefreshFailure('game-stats', weekScope, {
-        attempt,
-        error: `correction reconciliation could not reserve an attempt: ${reservation}`,
-        code: `game-stats-reconciliation-${reservation}`,
-        status: 503,
-      });
-      exec.result = 'failure';
-      exec.reason = 'reconciliation-unreserved';
+      // A refusal is either BENIGN or a FAULT, and conflating them is what let an
+      // overlapping QStash delivery overwrite a successful run's evidence with a
+      // false alarm. `already-closed` means another run did the work;
+      // `attempt-cap-reached` means the bound did its job (and the attempts that
+      // exhausted it each recorded their own failure). Neither is this run's
+      // fault, so both resolve as a no-op. A store that could not record —
+      // `write-failed`, `malformed`, `ledger-full` — is a genuine fault and stays
+      // a failure, which is what makes it reach an operator.
+      const benign = reservation === 'already-closed' || reservation === 'attempt-cap-reached';
+      const reason = benign
+        ? reservation === 'already-closed'
+          ? ('reconciliation-already-done' as const)
+          : ('reconciliation-attempts-exhausted' as const)
+        : ('reconciliation-unreserved' as const);
+      if (benign) {
+        await recordProviderRefreshNoop('game-stats', weekScope, { attempt, source: 'cfbd' });
+      } else {
+        await recordProviderRefreshFailure('game-stats', weekScope, {
+          attempt,
+          error: `correction reconciliation could not reserve an attempt: ${reservation}`,
+          code: `game-stats-reconciliation-${reservation}`,
+          status: 503,
+        });
+      }
+      exec.result = benign ? 'no-op' : 'failure';
+      exec.reason = reason;
       return NextResponse.json(
         {
           year,
           week,
           seasonType,
-          outcome: 'failure',
-          reason: 'reconciliation-unreserved',
+          outcome: benign ? 'no-op' : 'failure',
+          reason,
           committedGames: 0,
           ...(reconciliationReport ? { reconciliation: reconciliationReport } : {}),
           durable: await projectDurableBlock(resolution.slateResult, year, week, seasonType),
         } satisfies CronResult & { durable: unknown },
-        { status: 503 }
+        { status: benign ? 200 : 503 }
       );
     }
 
@@ -569,6 +600,21 @@ export async function GET(req: Request) {
         notObserved: mergeResult?.retainedExisting.length ?? 0,
         observedAt: fetchStartedAt,
       });
+      // A committed merge whose settlement did NOT commit is `partial`, not
+      // `success`: the data work landed and the bookkeeping did not. Reporting it
+      // as a clean success let a real fault read healthy while the open
+      // placeholder went on costing billed attempts. The body keeps the
+      // interpreter's own outcome and reason verbatim — this changes only the RUN
+      // classification, which is what the receipt and System Health read.
+      if (
+        reconciliation !== null &&
+        interpretation.advanceLastSuccess &&
+        reconciliationReport !== null &&
+        reconciliationReport.settlement !== 'settled'
+      ) {
+        exec.result = 'partial';
+        exec.reason = 'reconciliation-settlement-failed';
+      }
 
       // Durable REREAD — downstream truth is the durable partition, never the
       // payload or an assumed merge result. The run report's availability comes
