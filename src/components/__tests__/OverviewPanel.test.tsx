@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { JSDOM } from 'jsdom';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
@@ -1012,7 +1013,7 @@ test('overview Featured renders its badge and existing tag in the final status r
   assert.match(finalTagSlot, /data-featured-game-badge[^>]*>[\s\S]*CFP Quarterfinal/);
   assert.match(finalTagSlot, /data-eyebrow-tag[^>]*>[\s\S]*Close/);
   assert.match(finalTagSlot, /data-featured-game-badge[\s\S]*data-eyebrow-tag/);
-  assert.match(finalTagSlot, /leading-normal/);
+  assert.doesNotMatch(finalTagSlot, /leading-normal/);
   assert.doesNotMatch(finalHeader, /Dec 19|7:00 PM/);
   assert.match(
     finalScoreboard,
@@ -2570,12 +2571,14 @@ test('a ranked close final renders its two selector-owned tags in Featured', () 
     /<article(?=[^>]*data-scoreboard-state="final")[\s\S]*?<\/article>/
   )?.[0];
   assert.ok(featuredScoreboard, 'the ranked final must render in Featured');
-  const tagSlot = featuredScoreboard.match(
-    /<span[^>]*data-scoreboard-tag-slot[^>]*>[\s\S]*<\/span>/
-  )?.[0];
+  const tagSlot = new JSDOM(featuredScoreboard).window.document.querySelector(
+    '[data-scoreboard-tag-slot]'
+  );
   assert.ok(tagSlot, 'the existing Featured tags must reach the status-row seam');
-  assert.equal((tagSlot.match(/data-eyebrow-tag/g) ?? []).length, 2);
-  assert.match(tagSlot, />Top 25 Matchup<\/[\s\S]*>Close<\//);
+  assert.deepEqual(
+    [...tagSlot.querySelectorAll('[data-eyebrow-tag]')].map((tag) => tag.textContent),
+    ['Top 25 Matchup', 'Close']
+  );
   assert.doesNotMatch(html, />Contender Watch</);
 });
 

@@ -912,12 +912,9 @@ function FeaturedGamesList({
             tagSlot={
               gameBadge || highlightTags.length > 0 ? (
                 <>
-                  {/* The status-row slot applies `leading-none`; `leading-normal`
-                      preserves the badge's former inherited 1.5 line-height so this
-                      move changes its position without changing its rendered metrics. */}
                   {gameBadge ? (
                     <span
-                      className={`inline-flex rounded-full border px-1.5 py-0.5 text-[10px] font-semibold leading-normal uppercase tracking-wide ${gameBadge.classes}`}
+                      className={`inline-flex rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${gameBadge.classes}`}
                       data-featured-game-badge
                     >
                       {gameBadge.label}
