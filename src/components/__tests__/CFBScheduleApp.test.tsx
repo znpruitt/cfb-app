@@ -139,7 +139,13 @@ test('league surface shows compact orientation and partial data availability cop
   const html = renderWithAppContext(<CFBScheduleApp initialGames={[game()]} />);
 
   assert.match(html, />Overview</);
-  assert.match(html, />Featured games</);
+  // Item 176 — `>Featured games<` used to stand in for "the Overview panel
+  // rendered". This fixture supplies one game with no score and no owners, so
+  // NOTHING reaches any game section and every one of them now hides; the standings
+  // column is the stable marker that the panel rendered. The subject of this test
+  // is the two availability strings below, which are unchanged.
+  assert.match(html, />Standings</);
+  assert.doesNotMatch(html, />Featured games</);
   assert.doesNotMatch(html, /data-active-surface-subtitle="true"/);
   assert.doesNotMatch(html, /Scores available for 0\/1 games\./);
   assert.doesNotMatch(html, /Odds unavailable in this view\./);

@@ -264,6 +264,46 @@ test('every eyebrow across Overview, Schedule and Matchups renders one identical
   assert.equal([...treatments][0], EYEBROW_TAG_CLASSES);
 });
 
+/**
+ * ITEM 175 — ONE treatment, and the assertion is an EQUALITY between the two
+ * elements rather than a match against a literal.
+ *
+ * Overview's watchlist put a curation reason (`Upset watch`, `Game of the Week`)
+ * beside a category tag (`Top 25 Matchup`) in one slot on one row and rendered the
+ * first as plain bronze text and the second as a bronze pill —
+ * `item-87-reference-game-row.md` §2 rejects that split as **undecodable**: a
+ * reader cannot learn "pill means category" by looking. The two carry DIFFERENT
+ * data attributes, deliberately — one is a curation reason and one is a game fact,
+ * and `DESIGN.md` separates them by VOCABULARY — so this compares them by rendered
+ * treatment instead, which is what a literal match would miss when the next
+ * divergence spells the same colour a fourth way.
+ */
+test('the watchlist reason label renders the same treatment as a tag beside it', () => {
+  const overview = renderOverview();
+
+  const reasonLabel = overview.match(
+    /<span(?=[^>]*\sdata-watchlist-reason-label)[^>]*\sclass="([^"]*)"[^>]*>/
+  )?.[1];
+  const tags = eyebrowTags(overview);
+
+  assert.ok(reasonLabel, 'the watchlist reason label must render');
+  assert.ok(tags.length > 0, 'the Overview fixture must render at least one eyebrow tag');
+
+  // Compared to each other, not to a constant: this is the assertion that catches
+  // a fifth spelling of bronze.
+  assert.equal(
+    treatmentOf(reasonLabel),
+    treatmentOf(tags[0]!),
+    'the reason label and the tag beside it must render one treatment'
+  );
+
+  // And the treatment is the shared one, so neither drifted together away from it.
+  assert.equal(treatmentOf(reasonLabel), EYEBROW_TAG_CLASSES);
+
+  // The retired plain-text treatment reaches no rendered element on this surface.
+  assert.doesNotMatch(overview, new RegExp(EYEBROW_REASON_CLASSES.replace(/[[\]]/g, '\\$&')));
+});
+
 test('no eyebrow on any surface renders blue', () => {
   const overview = renderOverview();
   const surfaces = [overview, renderSchedule(), renderMatchups()];
@@ -276,12 +316,11 @@ test('no eyebrow on any surface renders blue', () => {
     }
   }
 
-  // Overview's two non-pill eyebrow elements, addressed as elements rather than by
-  // their label text — a test keyed on a label has shipped in this campaign before.
+  // Overview's other eyebrow elements, addressed as elements rather than by their
+  // label text — a test keyed on a label has shipped in this campaign before.
   const reasonLabel = overview.match(/<span(?=[^>]*\sdata-watchlist-reason-label)[^>]*>/)?.[0];
   assert.ok(reasonLabel, 'the watchlist reason label must render');
   assert.doesNotMatch(reasonLabel, /blue/);
-  assert.ok(reasonLabel.includes(EYEBROW_REASON_CLASSES));
 
   const featuredBadge = overview.match(/<span(?=[^>]*\sdata-featured-game-badge)[^>]*>/)?.[0];
   assert.ok(featuredBadge, 'the featured conference-championship badge must render');

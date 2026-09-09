@@ -175,16 +175,18 @@ export const EYEBROW_TAG_CLASSES =
   'shrink-0 rounded-full border-[0.5px] border-[rgba(201,166,107,0.40)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#dbc190]';
 
 /**
- * The reason-row companion to {@link EYEBROW_TAG_CLASSES} — plain bronze text, no
- * pill. Overview's watchlist reason row ("Upset watch", "Game of the Week") names
- * why the whole card was selected rather than tagging a fact about the game, and
- * `item-87-followon-matchups-schedule-design.md` → *Not applied to the Featured
- * reason row* keeps it plain: a border there reads as chrome on a tile that has
- * some already.
+ * Plain bronze text, no pill — `#c9a66b`, 8.63:1 on the dark composition against
+ * the pill's brighter `#dbc190` at 11.35:1.
  *
- * Base bronze `#c9a66b` (8.63:1 on the dark composition) rather than the pill's
- * brighter `#dbc190` (11.35:1), matching the mockup's `.sb-title` under its bronze
- * option.
+ * **NO PRODUCTION CONSUMER, retained for Item 113.** Its only consumer was
+ * Overview's watchlist reason label, which Item 175 converted to the shared pill:
+ * that label sits INLINE BESIDE A TAG, so it is functioning as a tag and takes the
+ * one treatment. What this token is reserved for is the FEATURED TILE's reason row
+ * — a card title on its own line, where a border would read as chrome on a tile
+ * that already has some — which is Item 113's unbuilt work and is the only
+ * plain-text bronze the design calls for (`mockups/live-scoreboard-mockup.html`
+ * → `.fx-reason-row`). Named here rather than deleted per `AGENTS.md` →
+ * *Documentation closeout timing*, alongside `teamColors.ts`/Item 119.
  */
 export const EYEBROW_REASON_CLASSES =
   'text-[10px] font-semibold uppercase tracking-wide text-[#c9a66b]';

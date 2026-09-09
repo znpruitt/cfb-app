@@ -201,6 +201,19 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   begins with that label. Broadcast renders for scheduled, live, and awaiting rows, but not finals.
   `Awaiting score` is an indeterminate post-kickoff subset of live for this presentation rule, and a
   broadcast label names the game's carrier rather than claiming it is currently on air
+- **A broadcast label is the outlet NAME, with no qualifier prefix — one exception, `Radio ·`.**
+  Added 2026-09-08 (Item 180), recording in the canonical file a rule that had lived only in
+  `item-87-reference-game-row.md` §1. `Streaming · ACC Extra` renders as `ACC Extra`: the prefix does
+  not help a reader who does not recognise the name and is redundant for one who does, it is
+  inconsistent because FOX and ESPN2 carry no equivalent while answering the same question, and it is
+  the longest metadata string on the surface and so the first to truncate. **Measured before the cut**
+  (2026-09-08, `schedule-media/2026-all`): the streaming outlets that reach a game with an FBS
+  participant are ten — ESPN+, MW+, SECN+, ACCNX, Disney+, ACC Extra, Peacock, HBO Max, ESPN Unlmtd,
+  UConn+ — and every one reads as a streaming service unprefixed. **`Radio ·` is retained
+  deliberately**, because radio is a different KIND of broadcast rather than a less familiar name for
+  the same kind, and an unprefixed radio station would present a radio-only game as watchable. It
+  renders on zero games today — every radio row shares a game with a TV row, which outranks it — so it
+  is a guard, not a live label; do not retire it as unreachable
 - The scheduled odds footer reserves its tier-1 band **for consumers that need peer-card alignment,
   and those consumers ask for it** — the component reserves nothing on its own. **Amended 2026-09-08**,
   and the amendment is the reason rather than a preference: the reservation exists so two cards
@@ -313,6 +326,17 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 - "Close" applies to live and final games only. On a scheduled game it is a projection, not a fact
 - A single-game editorial designation (the best game on a slate) uses vocabulary distinct from the
   category chips, so the two can never be read as the same claim
+- **Every marker in a status row renders ONE treatment — the bronze pill — including that editorial
+  designation.** **Added 2026-09-08 (Item 175)**, and recorded as an amendment because the bullet
+  above separates the editorial designation from the category chips **by VOCABULARY, and that is the
+  whole of the separation**: distinct words, identical treatment. Overview's watchlist had shipped
+  `Upset watch` and `Game of the Week` as plain bronze text beside `Top 25 Matchup` as a pill — two
+  treatments in one slot on one row — which `item-87-reference-game-row.md` §2 had already rejected as
+  **undecodable**: a reader cannot learn "pill means category" by looking. **The exemption it was
+  built on was for a different row** — the Featured tile's reason row, a card title on its own line,
+  where a border reads as chrome on a tile that already has some — and that row is unbuilt (Item 113).
+  **A marker inline beside a pill is functioning as a tag and takes the tag's treatment**; a card
+  title on its own line is the only plain-text bronze the design calls for
 - Chips use **bronze** — pill text `#dbc190`, pill border `#c9a66b` at 40% opacity, hairline `0.5px`. Blue remains interactivity-only, amber remains champion/podium. **Amended 2026-09-08**, recorded as an amendment: "neutral slate" was the default fill chosen before the campaign ranked bronze above sky, neutral and fuchsia. Both reservations in this line are unaffected, because bronze is neither. Applied by PLATFORM-153 across Overview, Schedule and Matchups.
 - **Bronze and champion amber are held apart by the CALENDAR, not by contrast.** Champion treatment does not render until a title is awarded — podium cards for #1–#3 are neutral all season — so the two are never on screen together until season end. **Measured: pill text `#dbc190` against champion `#BA7517` is 2.13:1**, essentially no luminance separation, distinguished by hue and saturation alone. **The condition that makes this live is a champion or podium treatment rendering beside a chip.** If it ever must survive a viewer with reduced colour discrimination, **the instrument is a luminance step, not a different hue** — the reservation binds a token to a purpose, not a hue neighbourhood. Reasoning: `item-87-followon-matchups-schedule-design.md` → _Eyebrow tags_.
 - The amber `upset` card border is **retired, deliberately** — the bronze chip carries that emphasis forward. It was exempted from the Item 87 transition as "emphasis, out of scope for every slice" and the transition then deleted the card chrome it lived on, so without this line the exemption would have lapsed by side effect rather than by choice. **State the cost plainly: a chip is quieter than a border around a card.** A border catches the eye across sixty rows and an eyebrow does not; if upsets must stay prominent, the instrument is a hue assigned in `INSIGHTS-017-PALETTE`, not a shape difference. Retired by PLATFORM-087 slice 5, recorded by PLATFORM-153.

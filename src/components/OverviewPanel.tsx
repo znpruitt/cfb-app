@@ -15,12 +15,7 @@ import {
 import { buildWeekLabelMap, formatWeekLabel } from '../lib/weekLabel';
 import { formatExpandedKickoff, formatPrimaryBroadcastLabel } from '../lib/gameCardPresentation';
 import { displayOwner } from '../lib/gameOwnership';
-import {
-  EYEBROW_REASON_CLASSES,
-  EYEBROW_TAG_CLASSES,
-  formatGameMatchupLabel,
-  formatLiveGameClock,
-} from '../lib/gameUi';
+import { EYEBROW_TAG_CLASSES, formatGameMatchupLabel, formatLiveGameClock } from '../lib/gameUi';
 import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import {
   deriveLeagueInsights,
@@ -379,16 +374,39 @@ function SectionDivider(): React.ReactElement {
   return <hr className="border-t border-gray-200/60 dark:border-zinc-800/60" />;
 }
 
+/**
+ * `DESIGN.md` → *Section Headers*. The default is 15px/500; Overview's four GAME
+ * sections take the **17px/650 game-section exception** (owner decision
+ * 2026-09-03), which that document names by section and qualifies as "not a new
+ * default elsewhere".
+ *
+ * **The exception is OPT-IN, and that direction is the rule rather than a
+ * preference.** A fifth section added later inherits the DEFAULT and has to ask
+ * for the exception; opt-out would invert it and make every future caller
+ * remember to decline. `GB Race` is the caller that proves the distinction — a
+ * standings section, excluded by name in the same sentence.
+ *
+ * Item 178: the rule was recorded 2026-09-03 and never implemented — `git log -S`
+ * on the class returned zero commits until this slice.
+ */
 function SectionHeader({
   title,
   action,
+  gameSection = false,
 }: {
   title: string;
   action?: React.ReactNode;
+  gameSection?: boolean;
 }): React.ReactElement {
   return (
     <div className="flex items-center justify-between gap-2">
-      <h2 className="text-[15px] font-medium text-gray-950 dark:text-zinc-50">{title}</h2>
+      <h2
+        className={`${
+          gameSection ? 'text-[17px] font-[650]' : 'text-[15px] font-medium'
+        } text-gray-950 dark:text-zinc-50`}
+      >
+        {title}
+      </h2>
       {action ?? null}
     </div>
   );
@@ -678,6 +696,18 @@ function GameCardList({
         const awayRanking = getTeamRanking(rankingsByTeamId, awayTeamId);
         const homeRanking = getTeamRanking(rankingsByTeamId, homeTeamId);
         const teamRecords = teamRecordsForGame(game, teamRecordsByProviderGameId);
+        // Item 174. `DESIGN.md` → *Cards and game results*: broadcast renders for
+        // scheduled, live and awaiting rows, but not finals — a completed game's
+        // carrier is dead information (`item-87-reference-game-row.md` §1).
+        //
+        // ENUMERATED at the call site, per state, rather than suppressed inside the
+        // shared scoreboard. This list serves Live and Recent finals from one
+        // component, so the rule that differs between them is the CALLER's: the
+        // `final` branch supplies no label and a final row therefore renders none
+        // because this surface does not pass the slot (§11), not because a shared
+        // component negates a state. `state === 'live'` is the branch that resolves
+        // to `live` OR `awaiting`, which is exactly the pair the rule names.
+        const broadcast = state === 'live' ? formatPrimaryBroadcastLabel(game.media) : undefined;
 
         return (
           <CompactGameScoreboard
@@ -688,6 +718,7 @@ function GameCardList({
                 ? (formatLiveGameClock(item.score) ?? undefined)
                 : undefined
             }
+            broadcast={broadcast}
             matchupLabel={formatGameMatchupLabel(game)}
             away={{
               teamName: game.csvAway,
@@ -772,9 +803,21 @@ function WatchlistScoreboardList({
                 aria-hidden={hasReason ? undefined : true}
                 data-watchlist-reason-row
               >
+                {/*
+                  Item 175 — ONE TREATMENT. This label sits INLINE BESIDE a tag
+                  pill, so it is functioning as a tag and takes the tag's
+                  treatment; `item-87-reference-game-row.md` §2 rejects the split
+                  ("undecodable"). The plain-bronze exemption it used to carry was
+                  written for the FEATURED TILE's reason row — a card title on its
+                  own line — and does not reach this row.
+
+                  `EYEBROW_TAG_CLASSES` carries `shrink-0`, so the label no longer
+                  truncates: it is a pill like every other eyebrow on every surface,
+                  which is what the cross-surface equality test pins.
+                */}
                 {prioritized.highlightLabel ? (
                   <span
-                    className={`min-w-0 truncate ${EYEBROW_REASON_CLASSES}`}
+                    className={`inline-flex ${EYEBROW_TAG_CLASSES}`}
                     data-watchlist-reason-label
                   >
                     {prioritized.highlightLabel}
@@ -1646,11 +1689,27 @@ export default function OverviewPanel({
       </section>
 
       {/* Featured games */}
-      {viewModel.recentResults.length > 0 || gameSections.recentFinals.length === 0 ? (
+      {/*
+        Item 176 — an empty section HIDES. The disjunct removed here
+        (`|| gameSections.recentFinals.length === 0`) rendered the heading and an
+        explained empty state whenever Recent finals was also empty, so a page with
+        zero games showed "Featured games / No recent results yet." Both references
+        say the order is self-managing and empty sections hide (`composition.md` §2,
+        `item-87-reference-game-row.md` §12), and the ruling does not wait on
+        Item 113 because both readings of Featured agree: results-based empty means
+        no results, must-watch empty means nothing selected, and either way an
+        orthogonal section with nothing in it does not render.
+
+        The disjunct could only turn this condition false→true, so deleting it can
+        only remove renders. The case where recent finals exist and no featured
+        result does was already absent and stays absent.
+      */}
+      {viewModel.recentResults.length > 0 ? (
         <>
           <SectionDivider />
           <section className="@container">
             <SectionHeader
+              gameSection
               title="Featured games"
               action={
                 <button type="button" className={viewMoreLinkClass} onClick={onViewSchedule}>
@@ -1676,6 +1735,7 @@ export default function OverviewPanel({
           <SectionDivider />
           <section className="@container">
             <SectionHeader
+              gameSection
               title={liveTitle}
               action={
                 <button
@@ -1705,6 +1765,7 @@ export default function OverviewPanel({
           <SectionDivider />
           <section className="@container">
             <SectionHeader
+              gameSection
               title="Recent finals"
               action={
                 <button type="button" className={viewMoreLinkClass} onClick={onViewSchedule}>
@@ -1730,6 +1791,7 @@ export default function OverviewPanel({
           <SectionDivider />
           <section className="@container">
             <SectionHeader
+              gameSection
               title="Upcoming watchlist"
               action={
                 <button
