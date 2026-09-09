@@ -3070,6 +3070,18 @@ only if Item 87 slice 4's record join reaches historical seasons.
 > **It costs a scope kind and its parser. Pay it** — the alternative is either a blind spot or a
 > special case, and this codebase already chose this mechanism for this exact problem.
 >
+> **3. A merge verdict CLOSES the pass when the response omitted an expected game — ruled 2026-09-09,
+> with a condition.** Record `notObserved` and move on. **The reason is not that retrying is expensive;
+> it is that THERE ARE TWO PASSES.** A genuinely transient omission is re-observed at p2 seven days
+> later, so retrying inside p1 pays extra calls to duplicate what the second pass already does.
+>
+> **The condition is binding: p2 must run regardless of p1's outcome.** If closing p1 suppresses p2,
+> the retry argument collapses and the closing becomes wrong. **That is the defect to test for, not the
+> closing.**
+>
+> **The omission is measured persistent, not assumed.** Item 110A found four rows absent from the CFBD
+> response for `2026:1:regular`; the 110B lane's live run reproduced **exactly four**, a day apart.
+>
 > **A full-history sweep is independently impossible, not merely expensive — see Item 196.** 96 of 97
 > partitions are legacy rows that `computeWeeklyGameStatsMerge` classifies `updated` unconditionally,
 > so a sweep would report every game as changed while changing nothing.
