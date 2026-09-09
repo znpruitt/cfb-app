@@ -5783,7 +5783,9 @@ item named the other until the audit put them side by side.**
 
 **Blocker:** Item 143 for placement. Supplying the tags at all is independent.
 
-### Item 174 — Live rows render no broadcast
+### Item 174 — DONE: Live rows render no broadcast
+
+**Shipped on `claude/174-178-overview-conformance` (`0f2ec105`, `e5a3cbb4` + this closeout), merge pending.** `GameCardList` computes the label and passes it, ENUMERATED at the call site: the `live` branch (which resolves to `live` OR `awaiting`) supplies it and the `final` branch supplies nothing. **The gate changes no rendered output on its own** — `CompactGameScoreboard` also suppresses broadcast on finals — so what it buys is that Overview satisfies enumerate-don't-negate at the layer it owns, independent of a negation in Item 143's file. That is not observable at the DOM, proven by a mutation that stayed green, so it carries a structural pin with a retirement condition tied to Item 143 removing the negation.
 
 **Item 167 residue R1.** `GameCardList` serves both Live and Recent finals and **accepts no broadcast
 input**. Omitting it is correct for finals — §1: _a completed game's broadcast is dead information_ —
@@ -5796,7 +5798,9 @@ in its purest form.
 
 **Blocker:** none. **Small** — the data is on the game already; the watchlist formats it at `:743`.
 
-### Item 175 — two tag treatments in one slot, and the code cites the wrong row
+### Item 175 — DONE: two tag treatments in one slot, and the code cites the wrong row
+
+**Shipped on `claude/174-178-overview-conformance` (`0f2ec105`, `e5a3cbb4` + this closeout), merge pending.** The watchlist reason label renders the shared bronze pill, asserted by comparing its rendered treatment to the tag beside it rather than to a literal. The mis-citation is DELETED, not repointed; `EYEBROW_REASON_CLASSES` is retained with **Item 113** named as the consumer that will use it, per the no-consumer rule — a rename mutation confirms it has zero production readers today. **Cost accepted and recorded: Item 186.** The pill carries `shrink-0`, so the row lost its only shrinkable child; the local fix is blocked by the equality contract that owns the slot.
 
 **Item 167 residue R2, surviving Item 157.** On the watchlist, `Upset watch` and `Game of the Week`
 render as **plain bronze text** (`gameUi.ts:189-190`, `#c9a66b`) beside `Top 25 Matchup` as a **bronze
@@ -5835,7 +5839,9 @@ rather than repointing it — the exemption it cites does not apply here at all.
 
 **Blocker:** none.
 
-### Item 176 — the Featured section renders empty instead of hiding
+### Item 176 — DONE: the Featured section renders empty instead of hiding
+
+**Shipped on `claude/174-178-overview-conformance` (`0f2ec105`, `e5a3cbb4` + this closeout), merge pending.** The `|| gameSections.recentFinals.length === 0` disjunct is gone. It could only turn the condition false→true, so removing it changes exactly one case — both-empty — and the recent-finals-present case was already absent. The March 2026 test that defended the old behaviour is REPLACED rather than deleted, and mutation-proven: restoring the disjunct turns four tests red.
 
 **Item 167 residue R5.** `OverviewPanel.tsx:1649` renders Featured when
 `recentResults.length > 0 || recentFinals.length === 0` — so on a page with **zero games** it renders
@@ -5890,7 +5896,9 @@ right for a reason nobody wrote down.** Do not "fix" it to kickoff-descending be
 **Blocker:** **Item 113.** Related: **Item 154** (postseason grouping), which should not be built
 against the current behaviour either way.
 
-### Item 178 — the 17px section-header exception was decided, marked landed, and never built
+### Item 178 — DONE: the 17px section-header exception was decided, marked landed, and never built
+
+**Shipped on `claude/174-178-overview-conformance` (`0f2ec105`, `e5a3cbb4` + this closeout), merge pending.** `SectionHeader` takes an OPT-IN `gameSection` prop, and the direction is the rule rather than a preference: a sixth section inherits the default and must ask for the exception, which is what "not a new default elsewhere" requires. **GB Race is the fifth caller** the receipt found — a standings section `DESIGN.md` excludes by name — and keeps 15px/500. `font-[650]` was verified against the emitted bundle rather than assumed: `.font-\[650\]{--tw-font-weight:650;font-weight:650}`. **Item 185** records that no platform with a static system family can express 650; that is a font-stack property affecting every weight token, not a reason to weaken this rule.
 
 **Item 167 residue R7, and the third instance of this exact shape.**
 
@@ -5926,7 +5934,9 @@ shaded by tidiness in either direction.**
 
 **Blocker:** none.
 
-### Item 180 — the `Streaming ·` prefix, agreed and never filed
+### Item 180 — DONE: the `Streaming ·` prefix, agreed and never filed
+
+**Shipped on `claude/174-178-overview-conformance` (`0f2ec105`, `e5a3cbb4` + this closeout), merge pending.** Cut in the SHARED formatter, so **Schedule changes with Overview** — deliberately, because the rule is a property of the shared row and applying it to one surface is the omission Item 160 records. Schedule gained its own test; the assertion that sat nearest to it could never have caught the prefix, since its fixture carries no media at all (**Item 183**). `Radio ·` retained. **The owner's condition was discharged before the cut** (read-only replica, `schedule-media/2026-all`): of 993 `web` rows, the 166 on a game with an FBS participant carry ten outlets — ESPN+, MW+, SECN+, ACCNX, Disney+, ACC Extra, Peacock, HBO Max, ESPN Unlmtd, UConn+ — every one reading as a streaming service unprefixed; `mobile` has zero rows, and the `TV`-named conference networks and bare `.com` school sites that could read otherwise are all on non-FBS games this surface never renders.
 
 **Agreed in `item-87-followon-overview-back-application.md:71-73` and filed nowhere until now.**
 Surfaced 2026-09-08 when the owner asked whether Item 174 adds the word "broadcast" to live rows. It

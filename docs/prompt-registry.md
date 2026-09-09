@@ -51,6 +51,35 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-174-175-176-178-180-OVERVIEW-CONFORMANCE-CLAUDE-v3
+
+- Purpose: Items 174, 175, 176, 178 and 180 — five Overview divergences the owner ruled on the day
+  Item 167's audit found them. v3 after a read receipt found the fifth `SectionHeader` caller and
+  corrected two of the prompt's own claims.
+- Scope: `OverviewPanel.tsx`, `gameUi.ts`, `gameCardPresentation.ts`, `DESIGN.md`, their tests, and
+  this closeout. NOT `CompactGameScoreboard.tsx` (Item 143, concurrent in the Codex lane), NOT tag
+  selection or precedence.
+- Outcome: live and awaiting rows carry their broadcast and finals do not, enumerated at the CALL
+  SITE so the rule holds without depending on the shared component's own `state !== 'final'`; the
+  `Streaming ·` prefix is gone from the shared formatter (so Schedule changes too, deliberately —
+  the rule is a property of the shared row) while `Radio ·` is retained as a guard against a
+  radio-only game; the watchlist reason label is the same bronze pill as the tag beside it, and the
+  mis-citation that justified the split is deleted rather than repointed; Featured hides when empty;
+  and `DESIGN.md`'s 17px/650 game-section exception is implemented for the first time since it was
+  recorded on 2026-09-03, opt-in so GB Race — the caller that document excludes by name — keeps
+  15px/500. `DESIGN.md` gains the two rendered rules the slice changes, plus the recorded gap that
+  unifying the treatment brought a third chip under a cap counting two.
+- Review / verification: Codex and `/code-review` both gathered on `4ba486e3` before any
+  remediation; one cohesive round (`e5a3cbb4`) corrected three false prose claims and two
+  instruments that could report clean without looking. Both reviewers re-run on the remediated
+  commit: Codex clean, `/code-review` three low findings, all adjudicated as follow-ups (Items 185,
+  186, 187). No P0/P1/P2 at any point. `tsc` clean, `lint:all` clean, `npm test` at the standing
+  Item 137 two-failure baseline. Test delta +6, measured per file. Featured-hides and the streaming
+  cut are mutation-proven; the broadcast enumeration is NOT observable at the DOM — proven by a
+  mutation that stayed green — so it carries a structural pin with its retirement condition.
+- Status: Implemented on `claude/174-178-overview-conformance` (`0f2ec105`, `e5a3cbb4` + this
+  closeout); reviews resolved, merge pending at time of writing.
+
 ### PLATFORM-157-162-163-TAG-VOCABULARY-CLAUDE-v2
 
 - Purpose: Items 157, 162 and 163 as ONE decision about what the game-marker vocabulary IS — three

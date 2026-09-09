@@ -342,8 +342,13 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   chips (`TOP_BADGE_LIMIT` in `deriveGameHighlightTags`), and the editorial designation is not counted
   by it. Unifying the treatment therefore brought a third chip under a cap that still counts two, so a
   watchlist row can render `Game of the Week` + `Top 25 Matchup` + `Close` — verified by render, not
-  argued. It is reachable today only through the `Close`-on-a-scheduled-game defect (Item 169), which
-  is the same row's other violation of the "Close applies to live and final games only" rule above.
+  argued. Its path is the `Close`-on-a-scheduled-game rule violation above (Item 169), and **that is
+  standing behaviour rather than a rare bug**: `gameMargin` applies no state guard at all, so any
+  provider row carrying both scores before kickoff yields margin 0 and fires the chip. **Measured
+  against production 2026-09-08 — zero FBS instances across seven seasons**; the six real cases were
+  Division II games cancelled mid-season and left `scheduled` at `0-0`, which never reach this surface.
+  So the mechanism is live and the observed rate is zero, and both halves matter: the first is why it
+  needs closing, the second is why it is not urgent.
   Stated here so this file does not assert a cap the code does not enforce over every marker it now
   calls a chip — the failure mode Item 165 was ruled on
 - Chips use **bronze** — pill text `#dbc190`, pill border `#c9a66b` at 40% opacity, hairline `0.5px`. Blue remains interactivity-only, amber remains champion/podium. **Amended 2026-09-08**, recorded as an amendment: "neutral slate" was the default fill chosen before the campaign ranked bronze above sky, neutral and fuchsia. Both reservations in this line are unaffected, because bronze is neither. Applied by PLATFORM-153 across Overview, Schedule and Matchups.
