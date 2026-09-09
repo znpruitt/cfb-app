@@ -1076,17 +1076,17 @@ test('CFBScheduleApp memoizes catalog colours and forwards one lookup across sco
     'the server-projected record map must cross the CFBScheduleApp boundary'
   );
   assert.match(matchupsCall, /nowMs=\{liveStaleClock\}/);
-  assert.match(matchupsCall, /teamColorsById=\{teamCatalogById\}/);
+  assert.match(matchupsCall, /teamColorsById=\{teamColorsById\}/);
   assert.match(
     source,
-    /const teamCatalogById = useMemo\(\s*\(\) => buildScoreboardTeamColorsById\(teamCatalog\),\s*\[teamCatalog\]\s*\)/,
+    /const teamColorsById = useMemo\(\s*\(\) => buildScoreboardTeamColorsById\(teamCatalog\),\s*\[teamCatalog\]\s*\)/,
     'normalization must run inside one catalog-dependent memo'
   );
 
   for (const component of ['OverviewPanel', 'PostseasonPanel', 'GameWeekPanel'] as const) {
     const call = source.match(new RegExp(`<${component}[\\s\\S]*?\\/>`))?.[0];
     assert.ok(call, `${component} call site must remain present`);
-    assert.match(call, /teamColorsById=\{teamCatalogById\}/);
+    assert.match(call, /teamColorsById=\{teamColorsById\}/);
   }
 });
 

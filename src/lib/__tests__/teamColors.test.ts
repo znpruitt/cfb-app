@@ -100,14 +100,18 @@ test('catalog memo input normalizes each team once and makes repeated row lookup
   };
 
   const colorsById = buildScoreboardTeamColorsById([coloredTeam, missingTeam]);
-  assert.match(colorsById.get('oregon-ducks') ?? '', /^#[0-9A-F]{6}$/);
-  assert.equal(colorsById.has('oregon'), false, 'an explicit catalog id remains canonical');
+  assert.match(colorsById.get('oregon') ?? '', /^#[0-9A-F]{6}$/);
+  assert.equal(
+    colorsById.has('oregon-ducks'),
+    false,
+    'the memo uses the same normalized school key as scoreboard consumers'
+  );
   assert.equal(colorsById.has('portlandstate'), false, 'fallback treatments are not memoized');
   assert.equal(primaryReads, 2, 'each catalog team primary is read once');
   assert.equal(altReads, 1, 'alt is read only when the primary cannot resolve');
 
   for (let lookup = 0; lookup < 20; lookup += 1) {
-    colorsById.get('oregon-ducks');
+    colorsById.get('oregon');
     colorsById.get('portlandstate');
   }
   assert.equal(primaryReads, 2, 'row lookups must not repeat primary normalization');

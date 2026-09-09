@@ -651,7 +651,7 @@ export default function CFBScheduleApp({
   }, [roster, isPreseason, initialPreseasonOwners]);
   // Item 119: normalize each catalog colour once when the runtime catalog changes.
   // Scoreboard renderers receive this memo and pay only two Map lookups per game.
-  const teamCatalogById = useMemo(() => buildScoreboardTeamColorsById(teamCatalog), [teamCatalog]);
+  const teamColorsById = useMemo(() => buildScoreboardTeamColorsById(teamCatalog), [teamCatalog]);
   const filteredWeekGames = useMemo(() => {
     if (selectedWeek == null) return [] as AppGame[];
     const tf = teamFilter.toLowerCase();
@@ -1824,7 +1824,7 @@ export default function CFBScheduleApp({
                   context={overviewSnapshot.context}
                   displayTimeZone={presentationTimeZone}
                   rankingsByTeamId={overviewRankingsByTeamId}
-                  teamColorsById={teamCatalogById}
+                  teamColorsById={teamColorsById}
                   rankings={rankings}
                   onOwnerSelect={(owner) => {
                     setSelectedOwner(owner);
@@ -1879,7 +1879,7 @@ export default function CFBScheduleApp({
                   onSavePostseasonOverride={isAdmin ? savePostseasonOverride : undefined}
                   currentDateMs={liveStaleClock || null}
                   focusedGameId={focusedGameId}
-                  teamColorsById={teamCatalogById}
+                  teamColorsById={teamColorsById}
                 />
               ) : primarySurfaceKind === 'rankings' ? (
                 <RankingsPageContent
@@ -1910,7 +1910,7 @@ export default function CFBScheduleApp({
                   canonicalStandings={canonicalStandings}
                   liveDelta={liveDelta}
                   nowMs={liveStaleClock}
-                  teamColorsById={teamCatalogById}
+                  teamColorsById={teamColorsById}
                 />
               ) : weekViewMode === 'matrix' ? (
                 <MatchupMatrixView
@@ -1931,7 +1931,7 @@ export default function CFBScheduleApp({
                   rankingsByTeamId={rankingsByTeamId}
                   currentDateMs={liveStaleClock || null}
                   focusedGameId={focusedGameId}
-                  teamColorsById={teamCatalogById}
+                  teamColorsById={teamColorsById}
                 />
               )}
             </section>
