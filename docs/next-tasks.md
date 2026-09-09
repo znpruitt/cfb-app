@@ -1070,6 +1070,23 @@ v3's 6 files, +559/−91; the reconstruction's net growth is 372 lines versus v3
 > hue stays (motion is the differentiator, not colour). `statusMetadataSlot` is scope residue with no
 > caller and does not return.
 >
+> **MERGED 2026-09-08 as v5 — PR #587, `ac965a19`.** The shared projection landed as
+> `src/lib/selectors/gameScoreboardState.ts`; Overview consumes it and keeps its own ownership,
+> pending, abandonment and omission gates.
+>
+> **THE SIZE PREDICTION WAS WRONG, AND IT WAS MINE.** v5's output contract asked for both diffstats
+> and said that if the reconstruction were not materially smaller, that would be **a finding about the
+> ruling rather than about the work**. Measured on merge-base diffs: **v3 was 6 files, +559/-91; v5 is
+> 15 files, +539/-98.** Effectively the same volume across more than twice the files.
+>
+> **The right reading is that the model change RELOCATED the work rather than reducing it.** Removing
+> scope — disrupted states, `statusMetadataSlot` — freed lines that extraction then spent: a shared
+> module costs a new file, its tests and two consumers, where a local condition costs none of those.
+> **v3's lines went to branches for a state that cannot occur; v5's go to a seam four surfaces can
+> use.** Same size, different asset. **Do not use diff volume as the test of whether a reconstruction
+> worked** — it measured the wrong thing here, and the comparison was not reported back, so nothing
+> caught it before the merge.
+>
 > **THE TABLE BELOW IS STALE — re-verified against `main` at `0ab9b76d`, 2026-09-08, and TWO of the
 > four have moved.** **Odds on live/final is RESOLVED**: Item 155 replaced the `state === 'scheduled'`
 > gate with a content test (`CompactGameScoreboard.tsx:245`, `hasFooterSlot`), so a caller may pass a
