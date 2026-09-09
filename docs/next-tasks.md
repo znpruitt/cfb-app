@@ -2978,6 +2978,29 @@ only if Item 87 slice 4's record join reaches historical seasons.
 > recorded. **Bounded** — this is not a season-wide sweep.
 >
 > **110B — recurring correction reconciliation. Dispatch position 2, designed and reviewed separately.**
+>
+> **IMPACT ESTABLISHED 2026-09-09, after a demotion was proposed and withdrawn.** The planning session
+> argued 110B down on the grounds that game stats touch only Insights and archives, that Insights
+> measured about three pageviews a week, and that archives are rebuildable. **Two of those three were
+> wrong, and the third does not carry the weight it was given.**
+>
+> **The insights feed loads with the APP SHELL, not on a tab.** `useInsightsFeed` is called from
+> `CFBScheduleApp.tsx:1069`, so stats-derived content renders wherever the app renders. The three
+> pageviews a week measured the Insights TAB, which is not the population that sees the feed — the same
+> ingests-versus-renders error this project has recorded before.
+>
+> **The claims are ATTRIBUTIONS, not numbers.** `insights/generators/stats.ts` emits named awards —
+> `Ball security leader`, `Defensive takeaway king`, and a `yardsPerWin` ranking — each naming an owner.
+> **`Defensive takeaway king` is computed from turnovers, and turnovers were among the corrupted
+> fields** (Charleston Southern, 1 against 2). A wrong stat does not surface as a wrong number; it
+> surfaces as the wrong member being credited.
+>
+> **Archives being rebuildable is true and remains true** — `saveSeasonArchive` overwrites and
+> `buildSeasonArchive` reads the caches live, so a corrected season can be re-archived for roughly 16
+> CFBD calls. **That bounds the permanence of the damage. It does not reduce the weekly exposure**, which
+> is the part that reaches members.
+>
+> **Owner ruling: keep 110B in the near-term queue.** Closing the gap now is proportionate.
 > Revisit **satisfied** partitions on a cadence, record changed games and failures, and support
 > missed-run recovery. **Extending the initial polling window alone is insufficient** — satisfaction
 > establishes usability, not an immutable final provider revision.
