@@ -171,7 +171,8 @@ each other.**
 | --- | --- | --- |
 | ✅ | ~~110A~~ | bounded recovery — **merged and applied 2026-09-09** |
 | ~ | **110B** | recurring correction reconciliation — **in flight**, last round done, closeout pending |
-| **1** | **199** | **the catalog reads `altColor`; the provider sends `alternateColor`** |
+| ✅ | ~~199~~ | the catalog read `altColor`; the provider sends `alternateColor` — **merged `1cfa9df1`, PR #591** |
+| **1** | **204** | **empty-body guard on the catalog refresh — BLOCKS the Item 199 resync click** |
 | 2 | **188** | provider deadlines carried through body consumption |
 | 3 | **20** | bounded database waits |
 | 4 | **47** | admin authorization for the Insights diagnostic bypass |
@@ -197,6 +198,16 @@ each other.**
 > `#ffc72c` emits `#98781F` at **4.75:1**, not 12.69:1, so every raw figure I quoted overstated by up to
 > 2.7×. And Nevada's silver `#8a8d8f` emits **a blue**, `#6894B1`: `liftForDarkThemeContrast` inventing a
 > hue for a near-neutral. That is piece 2's to answer, with the `< 0.015` floor.
+>
+> **199 MERGED `1cfa9df1` (PR #591), 2026-09-09. Both reviewers found nothing.** Two production lines,
+> +4 tests. The evidence that carried it was two mutations: the negative test fails pre-fix BECAUSE the
+> retired name was being read, pinning both directions; and renaming the STORED field produced 19 errors
+> across 8 files against 4 in 1 for the provider rename, which is the scope boundary shown rather than
+> asserted. `/code-review` added that `normalizeCfbdTeamRecord` is the only path from a raw CFBD teams
+> payload to colours, so no second ingest needed the same fix.
+>
+> **The resync click is BLOCKED on Item 204.** Nothing on screen changed and the live catalog stays
+> colourless until it runs; the witness when it does is `With alternate color: 0 → 138`.
 
 **199 IS NEXT — owner decision 2026-09-09, ahead of the remaining audit items.** It is a one-word
 mapping fix with a confirmed diagnosis and a measured payoff, and **it unblocks a UI item that is live
