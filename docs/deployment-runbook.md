@@ -324,6 +324,16 @@ toward building:
 `Resource is limited - try again in 1 day (more than 100, code: "api-deployments-free-per-day")`,
 and it blocks **promotion and every `preview` push** for up to 24 hours. Nothing is lost — merges and pushes still land — but nothing can deploy.
 
+**IS THERE A SETTING? For `main`, no. For the lane branches, one exists and it is blunt.** Checked
+against Vercel's own docs 2026-09-08 rather than assumed. `ignoreCommand` — already configured here —
+skips the BUILD and saves build minutes; it cannot stop the deployment RECORD, and the record is what
+the quota counts. `git.deploymentEnabled` in `vercel.json` DOES prevent a deployment being created at
+all, but it maps **exact branch names** to booleans, and this project's branches are per-slice
+(`claude/174-178-…`, `codex/143-status-row-v2`), so it cannot target them. The only usable form is
+`deploymentEnabled: false` globally, which also stops `preview` and would require a Deploy Hook to
+trigger it explicitly. **That trades a free fix for a permanent workflow step and is not worth it until
+the behaviour is fixed and re-measured.**
+
 **The lever is COMMIT GRANULARITY, not the ignoreCommand.** A planning session that commits every documentation edit separately burns a deployment slot per edit while skipping every build. **Batch docs edits into one commit per topic.** The rule that a skipped build still costs a slot is only actionable once it is paired with the number.
 
 A skipped build still creates a canceled deployment record and counts toward deployment quotas; it
