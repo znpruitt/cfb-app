@@ -5885,7 +5885,33 @@ which.
 
 **Blocker:** none.
 
-### Item 170 — the owner name has no fallback now that the `vs` pill is gone
+### Item 170 — CLOSED, NOT A DEFECT. The tertiary element clipping first is the hierarchy working
+
+> **CLOSED 2026-09-09 by owner ruling, without code.** Surfaced when the implementer proposed the fix
+> and named its trade honestly: protecting the owner means the **team name** clips instead on every row
+> without an inline record — which is Schedule and every scheduled row.
+>
+> **`reference-game-row.md` §3 settles it.** Team name is **Primary**; record is the inline
+> parenthetical; owner is a **Tertiary suffix**. **And there is no degradation rule for the team line at
+> all** — the only one in the document governs the status row, where the tag is protected because _the
+> tag is the scarce signal and the date is recoverable from the group heading above it_. Nothing says
+> the owner is scarce, and it is recoverable from the standings.
+>
+> **So today's behaviour is the stated hierarchy working, not a regression.** The item was filed as
+> _"retiring the `vs` pill removed the owner's fallback"_, which is accurate as description — **but the
+> fallback was a duplicate, and what survives is tertiary by design.** Losing the least important
+> element first is what a priority order is for.
+>
+> **The owner's ruling, in their words: team name stays primary.** `Georgia Sou… Chamness` tells a
+> reader who owns something they can no longer identify.
+>
+> **Item 163 is not reopened by this.** Retiring the pill was still right; it duplicated a name already
+> on the row. This closure says the surviving instance needs no protection, not that the pill should
+> return.
+>
+> **Worth keeping as the general point:** a filed item can describe a real change accurately and still
+> not be a defect. **The description "the owner now clips first" was true at filing and stayed true —
+> what was missing was the contract that says it should.**
 
 **Reported from the 157/162/163 branch, 2026-09-08 — a real cost of Item 163's retirement, correctly
 reported rather than fixed across a lane boundary.**

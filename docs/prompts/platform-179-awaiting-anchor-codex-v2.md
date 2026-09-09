@@ -1,5 +1,5 @@
-PROMPT_ID: PLATFORM-170-179-SCOREBOARD-ROW-CODEX-v1
-PURPOSE: Items 170 and 179 — the owner name has no protection from truncation now that the `vs` pill is gone, and the awaiting anchor renders the wrong dash. Both live in `CompactGameScoreboard.tsx`, which Item 143 freed.
+PROMPT_ID: PLATFORM-179-AWAITING-ANCHOR-CODEX-v2
+PURPOSE: Item 179 — the awaiting anchor renders an em dash where the contract specifies an en dash. **Item 170 is CLOSED, not built** — your receipt is what closed it.
 SCOPE: `src/components/CompactGameScoreboard.tsx` and tests. NOT the tag seam. NOT tag selection or placement. NOT the outcome rail or the owner tint.
 CARRIES: `item-87-INDEX.md` CARRY rows 7 and 8, verbatim in the task block.
 
@@ -45,6 +45,31 @@ count stayed honest. Fix it as itself.
 
 **Check whether anything asserts the current glyph** before changing it — a test pinning `—` would go
 red, and that is the correct outcome, not a reason to leave it.
+
+## RULING — Item 170 is CLOSED. Your receipt closed it. Build 179 only.
+
+**Your premise check held and your trade statement is what settled the item — in the opposite direction
+from the one it was filed in.**
+
+You proposed protecting the owner by letting the team name clip on rows without an inline record, and
+**you named that cost rather than burying it.** That is what made the question visible.
+
+**`reference-game-row.md` §3: team name is Primary, owner is a Tertiary suffix. There is no degradation
+rule for the team line at all** — the only one in the document governs the status row, where the tag is
+protected because it is the scarce signal. Nothing makes the owner scarce; it is recoverable from the
+standings.
+
+**So the owner clipping first is the documented hierarchy working, and Item 170 is not a defect.**
+Owner ruling: **team name stays primary.** `Georgia Sou… Chamness` names who owns something a reader
+can no longer identify.
+
+**Item 170 is closed without code. Do not build the protection. Do not restore the pill.**
+
+**Everything below about 179 stands unchanged.** Two tests pin the em dash — `MatchupsWeekPanel.test.tsx:531`
+and `:861` — and both going red is the correct outcome, not a reason to hedge the fix.
+
+**One correction accepted:** my `:255` citation was one line stale; the `min-w-0 truncate` element opens
+at `:254`.
 
 ## STOP — post a READ RECEIPT before writing any code
 
