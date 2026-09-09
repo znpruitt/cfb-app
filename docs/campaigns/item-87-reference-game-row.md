@@ -297,10 +297,12 @@ Which slots each surface supplies. **A slot a surface does not pass renders noth
 > **No time limit, and that is measured rather than assumed.** Overview omits an unresolved row after eight
 > hours because Live is a section that should empty; **a Matchups card is an owner's week and must never drop
 > a game**, so `awaiting` persists until a score arrives. The obvious worry — a row stuck on `awaiting` for
-> weeks — does not occur: across all of 2026 exactly **two** games are past kickoff without a final score,
-> **one D-II and one D-III, zero FBS and zero FCS**, and neither is reachable on a Matchups card. **Building a
-> window for it would guard nothing**, which is the same mistake the stopped v3 branch made with disrupted
-> statuses.
+> weeks — does not occur. **Measured across ALL SEVEN SEASONS in the cache, 2026-09-08** (the first pass
+> covered 2026 only; a reviewer flagged the scope and extending it was cheaper than recording the limit):
+> **fourteen games total are past kickoff without a final score — ZERO FBS and ZERO FCS.** Two are D-II/D-III
+> in 2026; twelve are unclassified rows in 2023-24. **Not one is reachable on a Matchups card**, which shows an
+> owner's FBS teams and their opponents. **Building a window for it would guard nothing**, which is the same
+> mistake the stopped v3 branch made with disrupted statuses.
 >
 > **Schedule is NOT amended here.** Nobody has audited it (Item 181), and the same reasoning may or may not
 > apply to a date-grouped surface. Do not extend this row by symmetry.
