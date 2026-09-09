@@ -57,6 +57,37 @@ const CFBD_ROWS = [
   { school: 'Beta Tech', classification: 'fbs', mascot: 'Bots', color: '#041e42' },
 ];
 
+// PLATFORM-204 — a prior-good catalog to assert retention against. Tests read
+// the STORED row back rather than trusting a return value: the defect this guard
+// closes wrote an empty catalog while returning `ok: true`.
+function makeCatalogItem(school: string) {
+  return {
+    id: school.toLowerCase().replace(/[^a-z0-9]/g, ''),
+    providerId: null,
+    school,
+    displayName: null,
+    shortDisplayName: null,
+    abbreviation: null,
+    mascot: null,
+    level: null,
+    subdivision: null,
+    conference: null,
+    classification: 'fbs',
+    color: null,
+    altColor: null,
+    logos: [],
+    alts: [],
+  };
+}
+
+async function seedPriorGoodCatalog(schools: string[]): Promise<void> {
+  await setTeamDatabaseFile({
+    source: 'cfbd',
+    updatedAt: '2020-01-01T00:00:00.000Z',
+    items: schools.map(makeCatalogItem),
+  });
+}
+
 function makeLeague(slug: string): League {
   return {
     slug,
@@ -334,4 +365,148 @@ test('the upstream CFBD request forwards the configured bearer key', async () =>
   assert.equal(res.status, 200, await res.text());
   assert.match(capturedUrl, /\/teams/);
   assert.equal(capturedAuth, 'Bearer test-cfbd-key');
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-204 — an upstream body that would empty the catalog is rejected
+// BEFORE the durable write, and prior-good is retained.
+//
+// Neither of the two things that look like safety nets is one: `previousItems`
+// feeds only `updatedCount` and never contributes an item, and the store's seed
+// fallback is reached through `??`, which does not fire on a durable row that is
+// present but holds `items: []`. So an unguarded empty commit is a silent wipe
+// that no later read repairs.
+//
+// The three rejection reasons are asserted SEPARATELY — one test covering all
+// three would pass with two of the branches unreachable.
+// ---------------------------------------------------------------------------
+
+test('PLATFORM-204: an EMPTY upstream body is rejected and the stored catalog is unchanged', async () => {
+  await seedPriorGoodCatalog(['Alpha State', 'Beta Tech', 'Gamma A&M']);
+  stubFetchOk([]);
+
+  const { result: res, tags } = await runCapturingTags(() => POST(postRequest()));
+  const body = (await res.json()) as { error?: string; detail?: string };
+
+  assert.equal(res.status, 502, JSON.stringify(body));
+  assert.equal(body.error, 'team-database-empty-replacement-rejected');
+
+  // Asserted against the STORED row, not the response.
+  const stored = await getTeamDatabaseFile();
+  assert.deepEqual(
+    stored.items.map((i) => i.school).sort(),
+    ['Alpha State', 'Beta Tech', 'Gamma A&M'],
+    'prior-good catalog retained'
+  );
+  assert.equal(stored.updatedAt, '2020-01-01T00:00:00.000Z', 'no durable write occurred');
+  assert.deepEqual(
+    tags.filter((t) => t.startsWith('standings:')),
+    [],
+    'a rejected sync invalidates nothing'
+  );
+});
+
+test('PLATFORM-204: a NON-ARRAY upstream body is rejected and the stored catalog is unchanged', async () => {
+  await seedPriorGoodCatalog(['Alpha State', 'Beta Tech', 'Gamma A&M']);
+  // A CFBD 200 whose body is an object, not a list — the shape violation the
+  // route used to launder into `[]` via `Array.isArray(rows) ? rows : []`.
+  stubFetchOk({ error: 'rate limited' });
+
+  const { result: res, tags } = await runCapturingTags(() => POST(postRequest()));
+  const body = (await res.json()) as { error?: string; detail?: string };
+
+  assert.equal(res.status, 502, JSON.stringify(body));
+  assert.equal(
+    body.error,
+    'team-database-invalid-payload',
+    'a shape violation is a DISTINCT diagnosis from "the provider said zero teams"'
+  );
+
+  const stored = await getTeamDatabaseFile();
+  assert.deepEqual(
+    stored.items.map((i) => i.school).sort(),
+    ['Alpha State', 'Beta Tech', 'Gamma A&M'],
+    'prior-good catalog retained'
+  );
+  assert.equal(stored.updatedAt, '2020-01-01T00:00:00.000Z', 'no durable write occurred');
+  assert.deepEqual(
+    tags.filter((t) => t.startsWith('standings:')),
+    [],
+    'a rejected sync invalidates nothing'
+  );
+});
+
+test('PLATFORM-204: a NONEMPTY body that normalizes to zero teams is rejected as schema drift', async () => {
+  await seedPriorGoodCatalog(['Alpha State', 'Beta Tech', 'Gamma A&M']);
+  // The case a `rows.length === 0` guard cannot see: CFBD renames or drops
+  // `school`, so all 3 rows fail normalization and the built catalog is empty.
+  // Keyed on the BUILT item count, this is still a wipe and still rejected.
+  stubFetchOk([
+    { name: 'Alpha State', classification: 'fbs' },
+    { name: 'Beta Tech', classification: 'fbs' },
+    { name: 'Gamma A&M', classification: 'fbs' },
+  ]);
+
+  const { result: res, tags } = await runCapturingTags(() => POST(postRequest()));
+  const body = (await res.json()) as {
+    error?: string;
+    detail?: string;
+    summary?: { fetchedCount: number; writtenCount: number };
+  };
+
+  assert.equal(res.status, 502, JSON.stringify(body));
+  assert.equal(body.error, 'team-database-schema-drift');
+  assert.equal(body.summary?.fetchedCount, 3, 'the payload was nonempty');
+  assert.equal(body.summary?.writtenCount, 0, 'and normalized to zero usable teams');
+
+  const stored = await getTeamDatabaseFile();
+  assert.deepEqual(
+    stored.items.map((i) => i.school).sort(),
+    ['Alpha State', 'Beta Tech', 'Gamma A&M'],
+    'prior-good catalog retained'
+  );
+  assert.deepEqual(
+    tags.filter((t) => t.startsWith('standings:')),
+    [],
+    'a rejected sync invalidates nothing'
+  );
+});
+
+test('PLATFORM-204: a refusal tells the operator what was kept, naming the retained count', async () => {
+  // The whole point of the item: a silent no-op is indistinguishable from a
+  // silent wipe. `syncTeamDatabase` surfaces `detail` verbatim in the panel's
+  // red "Sync error:" span, so the detail must name the retained catalog.
+  await seedPriorGoodCatalog(['Alpha State', 'Beta Tech', 'Gamma A&M']);
+  stubFetchOk([]);
+
+  const { result: res } = await runCapturingTags(() => POST(postRequest()));
+  const body = (await res.json()) as { detail?: string };
+
+  assert.match(body.detail ?? '', /returned 0 teams/i);
+  assert.match(body.detail ?? '', /NOT changed/i);
+  assert.match(body.detail ?? '', /\b3 teams are still being served\b/);
+});
+
+test('PLATFORM-204 MUTATION GUARD: a healthy sync still REPLACES the catalog', async () => {
+  // A guard that rejects everything passes every negative test above. This is
+  // the named test that must go red when the guard is broken to reject all
+  // input — it is the only assertion in this file that a 2xx commit still
+  // happens over a populated prior-good catalog.
+  await seedPriorGoodCatalog(['Stale One', 'Stale Two']);
+  stubFetchOk(CFBD_ROWS);
+
+  const { result: res, tags } = await runCapturingTags(() => POST(postRequest()));
+  assert.equal(res.status, 200, await res.text());
+
+  const stored = await getTeamDatabaseFile();
+  assert.deepEqual(
+    stored.items.map((i) => i.school).sort(),
+    ['Alpha State', 'Beta Tech'],
+    'the healthy payload replaced prior-good rather than being refused'
+  );
+  assert.ok(
+    !stored.items.some((i) => i.school.startsWith('Stale')),
+    'no prior-good row survived a successful replacement'
+  );
+  assert.ok(tags.includes('standings:all'), 'a committed sync still invalidates standings');
 });

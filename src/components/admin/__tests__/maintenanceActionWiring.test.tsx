@@ -337,6 +337,88 @@ test('ProviderMaintenancePanel: a superseded same-year attempt never overwrites 
   await waitFor(() => getByText('Done'));
 });
 
+test('PLATFORM-204: a refused team-database sync renders the refusal and clears the stale summary', async () => {
+  // The operator surface for the guard. Before it, an empty CFBD body returned
+  // `ok: true` with an all-zero summary and the green "No skipped rows." line —
+  // a wipe presented as a success. A refusal must read as a refusal, and must
+  // not leave an EARLIER run's success block rendered beneath it, which would
+  // put two contradictory verdicts on one screen.
+  //
+  // Flushed with `act` rather than `waitFor` (the pattern the sibling
+  // ProviderMaintenancePanel tests use): a `waitFor` here does not reject when
+  // the expected text is absent, it hangs to the file's 30s budget, and a
+  // timeout reads as flake instead of as the caught regression it is.
+  const { getByRole, getByText, queryByText } = render(<ReferenceDataPanel />);
+  const syncButton = () =>
+    getByRole('button', { name: /Update Team Database|Updating team database…/ });
+  const flush = () =>
+    act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+
+  // 1. A healthy sync first, so there IS a summary block to be left behind.
+  globalThis.fetch = (async () =>
+    Response.json({
+      ok: true,
+      source: 'cfbd',
+      updatedAt: '2026-07-30T00:00:00.000Z',
+      summary: {
+        fetchedCount: 138,
+        writtenCount: 138,
+        updatedCount: 0,
+        withColorCount: 138,
+        withAltColorCount: 138,
+        missingColorCount: 0,
+        skippedCount: 0,
+        errors: [],
+      },
+    })) as typeof globalThis.fetch;
+
+  fireEvent.click(syncButton());
+  await flush();
+  getByText('Latest sync summary');
+  getByText('No skipped rows.');
+
+  // 2. The next click is refused by the guard.
+  globalThis.fetch = (async () =>
+    Response.json(
+      {
+        error: 'team-database-empty-replacement-rejected',
+        detail:
+          'CFBD returned 0 teams. The catalog was NOT changed — the existing 138 teams are still being served.',
+      },
+      { status: 502 }
+    )) as typeof globalThis.fetch;
+
+  fireEvent.click(syncButton());
+  await flush();
+
+  // The refusal names what was kept, so the owner can tell a no-op from a wipe.
+  //
+  // Every assertion below compares BOOLEANS, never the element `queryByText`
+  // returns. `assert.equal(<jsdom element>, null)` builds its diff with
+  // `util.inspect`, which walks ownerDocument → defaultView → window and does
+  // not come back — so a regression here hung to the file's 30s budget and
+  // reported as a timeout instead of as a failed assertion.
+  assert.equal(
+    queryByText(
+      /CFBD returned 0 teams\. The catalog was NOT changed — the existing 138 teams are still being served\./
+    ) !== null,
+    true,
+    'the refusal is rendered, naming what was kept'
+  );
+  assert.equal(
+    queryByText('Latest sync summary') === null,
+    true,
+    "the previous run's summary is cleared, not left contradicting the refusal"
+  );
+  assert.equal(
+    queryByText('No skipped rows.') === null,
+    true,
+    'no green verdict beside a red refusal'
+  );
+});
+
 test('ReferenceDataPanel: a bundled-fallback conferences 2xx never renders success', async () => {
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     requests.push({ url: String(input), method: 'GET', body: null, headers: {} });

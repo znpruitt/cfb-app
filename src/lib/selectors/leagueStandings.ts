@@ -880,9 +880,7 @@ async function liveDeriveStandings(slug: string, year: number): Promise<LiveDeri
   // Cache valid absence, never cache uncertainty (PLATFORM-084A). The team
   // catalog is a CRITICAL identity input: an empty catalog degrades team
   // identity resolution and ownership attribution, producing wrong standings.
-  // `getTeamDatabaseItems` already handles genuine absence internally (it falls
-  // back to the bundled teams.json catalog when the store has no record), so a
-  // throw here means a real store-read FAILURE — let it propagate rather than
+  // A throw here is a real store-read FAILURE — let it propagate rather than
   // swallow it to an empty catalog whose degraded standings would then be
   // cached under the tag-only (`revalidate: false`) data cache.
   const [teams, aliasMap, manualOverrides] = await Promise.all([
@@ -890,6 +888,27 @@ async function liveDeriveStandings(slug: string, year: number): Promise<LiveDeri
     getScopedAliasMap(slug, year),
     loadManualOverrides(slug, year),
   ]);
+
+  // An empty catalog is uncertainty too, and it does NOT arrive as a throw
+  // (PLATFORM-204). This block used to argue no guard was needed here, on the
+  // premise that `getTeamDatabaseItems` handles absence internally via the
+  // bundled teams.json fallback. That premise is false for the case that
+  // actually happens: the fallback is reached through `??`, which does not fire
+  // on a durable row that is PRESENT but holds `items: []` — the exact state a
+  // bad sync used to write. `getTeamDatabaseItems` then returns `[]` without
+  // throwing, `buildScheduleFromApi` seeds identity from schedule labels and
+  // conference inference alone, and the resulting wrong ownership attribution
+  // is persisted by the tag-only data cache — outliving the catalog repair,
+  // since nothing busts `standings:all` again until the next sync.
+  //
+  // Same guard, same reason, as `gameStats/canonicalSlate.ts` and
+  // `liveScores/canonicalContext.ts`, which reject a zero-length catalog as
+  // unavailable context rather than valid absence.
+  if (teams.length === 0) {
+    throw new Error(
+      `canonical standings ${slug} ${year}: team catalog is empty — refusing to derive standings from label-only identity`
+    );
+  }
 
   // Cache valid absence, never cache uncertainty (PLATFORM-084A). We reached
   // this point with a non-empty cached schedule, so a `buildScheduleFromApi`

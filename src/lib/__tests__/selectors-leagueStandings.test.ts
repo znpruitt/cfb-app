@@ -450,6 +450,75 @@ test('after a failed standings read, a recovered store computes real standings',
   assert.equal(snapshot.source, 'live');
 });
 
+// ---------------------------------------------------------------------------
+// PLATFORM-204 — an EMPTY durable team catalog is uncertainty, not absence.
+//
+// This file's fixtures never seed `team-database`, so every other test here
+// reads the bundled 138-row seed catalog through the store's absence fallback.
+// That fallback is reached via `??`, which does NOT fire on a durable row that
+// is PRESENT but holds `items: []` — the state a bad sync used to write. The
+// catalog then arrives as `[]` with no throw, `buildScheduleFromApi` seeds
+// identity from schedule labels alone, and the wrong ownership attribution gets
+// persisted by the tag-only (`revalidate: false`) data cache.
+//
+// The positive control below is load-bearing: without it, a rejection could be
+// coming from the fixture rather than from the empty catalog.
+// ---------------------------------------------------------------------------
+
+async function seedEmptyDurableTeamCatalog(): Promise<void> {
+  await setAppState('team-database', 'current', {
+    source: 'cfbd',
+    updatedAt: '2020-01-01T00:00:00.000Z',
+    items: [],
+  });
+}
+
+test('PLATFORM-204 positive control: the same fixture computes standings with the seed catalog', async () => {
+  const slug = 't-empty-catalog-control';
+  const year = 2025;
+  await seedLeague(makeLeague({ slug, year, status: { state: 'season', year } }));
+  await seedOwnersCsv(slug, year, 'team,owner\nAlabama,Alice\nAuburn,Bob\n');
+  await seedScoredGame(year, {
+    id: 'g-204-control',
+    homeProvider: 'Alabama',
+    awayProvider: 'Auburn',
+    homeScore: 31,
+    awayScore: 17,
+  });
+
+  // No `team-database` row seeded → the store's absence fallback serves the
+  // bundled catalog, so the live derivation reaches the catalog read and past it.
+  const snapshot = await getCanonicalStandings({
+    slug,
+    leagueStatusOverride: { state: 'season', year },
+  });
+  assert.equal(snapshot.source, 'live');
+  assert.deepEqual(snapshot.rows.map((r) => r.owner).sort(), ['Alice', 'Bob']);
+});
+
+test('PLATFORM-204: an empty durable team catalog rejects instead of caching degraded standings', async () => {
+  const slug = 't-empty-catalog-rejects';
+  const year = 2025;
+  await seedLeague(makeLeague({ slug, year, status: { state: 'season', year } }));
+  await seedOwnersCsv(slug, year, 'team,owner\nAlabama,Alice\nAuburn,Bob\n');
+  await seedScoredGame(year, {
+    id: 'g-204-empty',
+    homeProvider: 'Alabama',
+    awayProvider: 'Auburn',
+    homeScore: 31,
+    awayScore: 17,
+  });
+
+  // The one difference from the control: a PRESENT-but-empty durable row.
+  await seedEmptyDurableTeamCatalog();
+
+  await assert.rejects(
+    () => getCanonicalStandings({ slug, leagueStatusOverride: { state: 'season', year } }),
+    /team catalog is empty/,
+    'an empty catalog must surface, never resolve to a cacheable degraded snapshot'
+  );
+});
+
 test('NoClaim in archive: stripped from rows, preserved on noClaimRow', async () => {
   const slug = 't8-noclaim-in-archive';
   await seedLeague(makeLeague({ slug, year: 2026, status: { state: 'offseason' } }));
