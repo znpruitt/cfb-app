@@ -5745,7 +5745,21 @@ it instead of each restating a behaviour nobody has seen.
 is legitimate, and `AGENTS.md` requires a module with no live consumer to say why rather than be
 removed. **The fix is making the comments true, not making the code smaller.**
 
-**Blocker:** none. **Small.** Related: Item 169, whose reachability answer came from this measurement.
+**PRIORITY RAISED 2026-09-08 — THIS ALREADY COST AN IMPLEMENTATION BRANCH.** Item 143's v3 was
+abandoned after three rounds and ~560 discarded lines, and **two of those rounds hardened a state that
+cannot occur** — the branch added 23 references to disrupted / suspended / postponed / cancelled
+against 3 for `awaiting`. The implementer had no way to know; the comments say the labels exist and
+nothing contradicted them. **It also cost the planning session an hour**, reasoning from
+`gameUi.ts:61-62` to a wrong conclusion about Item 169's reachability.
+
+**The measurement that dissolved it took about ten minutes** — one query against the read-only
+replica. **It had never been run.** The comment was plausible, so every reader downstream inherited it.
+
+**Do this before the next slice that touches game status.** It is still small; it is no longer
+optional.
+
+**Blocker:** none. Related: Item 169, whose reachability answer came from this measurement, and
+Item 143, whose reconstruction carries it.
 
 ### Item 173 — the tag decisions reached the watchlist and no other section
 
