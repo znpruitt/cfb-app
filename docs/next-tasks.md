@@ -5518,7 +5518,7 @@ from the cases that happen to be available passes while the actual case goes unt
 
 ### Item 167 — audit Overview's other sections against the row reference
 
-**Kickoff:** [`docs/prompts/platform-167-overview-audit-claude-v1.md`](prompts/platform-167-overview-audit-claude-v1.md).
+**Kickoff:** [`docs/prompts/platform-167-overview-audit-claude-v2.md`](prompts/platform-167-overview-audit-claude-v2.md).
 **Design:** `item-87-reference-overview-composition.md` §7, which is the brief. **Eleven checks**, seven at
 row level and four at page level. **That section has not been run** — it is proposed scope, not findings.
 

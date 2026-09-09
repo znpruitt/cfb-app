@@ -1,4 +1,4 @@
-PROMPT_ID: PLATFORM-167-OVERVIEW-AUDIT-CLAUDE-v1
+PROMPT_ID: PLATFORM-167-OVERVIEW-AUDIT-CLAUDE-v2
 PURPOSE: Item 167 — audit Overview's four sections against the shared row contract, and report how many divergences map to NO filed item. That count is the deliverable; it is the only measurement of whether the campaign's remaining scope is known.
 SCOPE: READ ONLY across `src/components/OverviewPanel.tsx`, `src/lib/selectors/overview.ts`, `src/lib/selectors/overviewGameSections.ts` and the tests that render them. **NO edits to `src/`. NO edits to `docs/`.** The output is a report.
 CARRIES: `item-87-INDEX.md` CARRY rows 7 and 8, verbatim in the task block.
@@ -24,6 +24,9 @@ answers are useful and one of them closes a question.**
   a surface does not pass renders nothing, and it does not fall back.
 - **`docs/campaigns/item-87-reference-overview-composition.md` §7** — the brief. Eleven checks, seven
   per-section and four page-level. **It is PROPOSED SCOPE, not findings. Nothing in it has been run.**
+- **`docs/campaigns/item-87-followon-overview-back-application.md`** — **the file that enumerates Item
+  160's six.** Added in v2: you were right that a gate turning on a list must name the file holding
+  it. My omission.
 - `mockups/live-scoreboard-mockup.html` — Overview's reference render.
 
 ## The four sections, and where they live
@@ -43,6 +46,7 @@ Tag PLACEMENT still maps to **Item 143**, in flight in the other lane.
 
 | item | covers |
 | --- | --- |
+| **113** | **ADDED in v2 — my list was incomplete.** Featured being results-based rather than must-watch. **Verified: `FeaturedGamesList` hard-codes `state="final"` (`OverviewPanel.tsx:852`)**, so Featured can never render the scheduled or live states §11 and §13 both give it. **Map it to 113; it is not residue.** |
 | **115** | section counts and the silent cap |
 | **119** | team colour bars |
 | **134** | the third column tier |
@@ -53,6 +57,59 @@ Tag PLACEMENT still maps to **Item 143**, in flight in the other lane.
 | **170** | the owner name truncating |
 | **171** | the dead `isRankedSpotlight` scoring term |
 | **172** | comments describing disrupted statuses the provider never sends |
+
+## RULINGS ON YOUR RECEIPT — five points, four of them my errors
+
+**Every code claim you made reproduces.** Featured hard-codes `state="final"`; `broadcast` is passed
+only by `WatchlistScoreboardList` so **live rows render none**; **`classification` appears zero times**
+in `OverviewPanel.tsx`, so the FCS prefix is unreachable there; `RecapPrimitives.tsx:277` has its own
+scoreboard.
+
+### RULING 1 — Item 113 goes on the list. Map to it.
+
+Your (a) is right and the omission was mine. Added to the table above.
+
+### RULING 2 — the 160 collision: a residual that SURVIVES its own item is residue, and it is the most valuable kind
+
+You found that my v1 correction ("a tag-vocabulary divergence is now residue") contradicts the gate
+("Item 160's six are off-limits"), because **160's #4 IS the tag-vocabulary divergence and was filed as
+157**. My error — I wrote the correction without checking what 160's six were.
+
+**The ruling is neither of your two defaults.** 157 shipped and unified the **vocabulary** — the label
+sets. What you observed persisting is a different axis: **two visual TREATMENTS in one slot**, plain
+bronze text beside a bronze pill. **A divergence that survives the item filed to fix it is not "known"
+— it is the discovery that a closed item did not close what it was filed to close.** That is exactly
+what this audit exists to surface.
+
+**So: count it as RESIDUE, labelled `survives Item 157`.** Do not fold it into 160 and do not net it
+away. **The gate is amended below** so the two rules no longer collide.
+
+### RULING 3 — the treatment split is UNAUTHORISED, and the conflict is a code error not a document one
+
+Your (c), resolved so it does not block you. `matchups-schedule-design.md:348-350` exempts the
+**FEATURED TILE's** reason row (`sb-title`) — *"a card title on its own line rather than an inline tag
+beside a status"*. **`gameUi.ts:177-188` cites that exemption to justify the WATCHLIST's reason row.
+Different rows.** And the document settles nothing: *"Consequence: bronze appears in two shapes.
+**Flagged rather than settled** — making it a pill too is a one-line change if the inconsistency reads
+badly."*
+
+**So §2's rejection is not contradicting a decision; it is contradicting a code comment that treated a
+flagged question as closed.** Report the watchlist's plain reason row as residue with this ruling
+attached. **Do not change the comment** — the gate forbids fixes, and it is planning's to correct.
+
+### RULING 4 — broadcast on live rows is residue
+
+Your (e). Verified: `GameCardList` accepts and passes no broadcast, so Live inherits the finals rule.
+**I searched the item set so you do not have to: nothing owns it.** Count it.
+
+### RULING 5 — your partial-match procedure is adopted as written
+
+Your (4) is better than what I asked for. **Naming the near-miss item beside each residue entry so the
+count can be re-derived** is the property that makes the number checkable rather than trusted, and I am
+adding it to the completeness contract.
+
+**One thing to hold to:** you also said you would not fold a partial match into an item to shrink the
+count. **That direction is the one under pressure** — folding feels like tidiness. It is not.
 
 ## AUDIT THE CODE AND THE RENDERED TEST OUTPUT, NOT A BROWSER
 
@@ -110,9 +167,11 @@ the auditor removed some of them along the way.
 **Do NOT file queue items.** `AGENTS.md` → **Documentation closeout timing**: the implementation lane
 reports findings and planning files them. Report them in your final message.
 
-**Do NOT count a known divergence as residue.** Item 160 lists six for the watchlist. Re-finding them
-is expected and correct; counting them as unmapped would inflate the number this item exists to
-produce.
+**Do NOT count a known divergence as residue — but a RESIDUAL is not a known divergence.** Item 160
+lists six for the watchlist (enumerated in `overview-back-application.md`); re-finding them as filed is
+expected and must not inflate the count. **However, where a filed item SHIPPED and the divergence
+persists in another form, that is residue** — see RULING 2. **The test is whether the item's own
+mechanism still describes what you are looking at.**
 
 **Do NOT treat a missing browser as an unrunnable check** — see above.
 
@@ -126,6 +185,8 @@ turns out to be ambiguous about what Overview should render.
 - **Every divergence carries its mapping** — an item number or `NOTHING`. No divergence is left
   unmapped in the report.
 - **The residue count is stated as a number**, prominently, with each residue item named.
+- **Every residue entry names its nearest item and why that item does not cover it**, so the count can
+  be re-derived by a reader rather than trusted. Your procedure, adopted.
 - **State the population you covered**: which files you read, which checks you could not answer, and
   what you could not reach. **"Zero residue" and "zero residue in what I could see" are different
   claims** (`AGENTS.md` → a measurement's coverage is part of its result).
