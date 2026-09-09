@@ -2971,6 +2971,25 @@ only if Item 87 slice 4's record join reaches historical seasons.
 > **Split into two items under this identity, because recovery and prevention have different risk
 > profiles and must be reviewed separately:**
 >
+> **110A — bounded recovery. ✅ RECOVERED 2026-09-09** (`PLATFORM-110A-GAME-STAT-RECOVERY-CLAUDE-v1`).
+> Five records re-observed and applied, owner-authorized, verified against the replica: five updated,
+> 202 retained untouched, `written-clean`. One CFBD call.
+>
+> **The acceptance criterion said "the five agree with a fresh observation", and the lane correctly held
+> the merge to ask whether a PARTIAL repair meets it** — raw-only categories are not repairable through
+> the merge authority (Item 193). **Ruled met, and the reason is structural rather than a concession:**
+> `mergeRawEvidence` writes a raw category only where a parser exists, and
+> `RECOGNIZED_GAME_STAT_CATEGORIES` — the list `publicProjection.ts:137` loops over to build the exposed
+> `raw` record — is derived from the same specs. **The categories the merge cannot repair are exactly the
+> categories the projection never exposes.** `tackles`, `sacks`, `qbHurries` and `completionAttempts`
+> are stored and unreachable by Insights or the archive. **Acceptance is met for every field a consumer
+> can read.**
+>
+> **The evidence table the owner approved was incomplete, and that is recorded rather than folded into a
+> caveat.** It listed 26 normalized deltas; the merge also rewrote roughly thirty raw-only categories it
+> never showed. Every delta in it was backed by a present category, so nothing in it was false — **but
+> "not wrong" is not the standard for the sole basis of a production data change.**
+>
 > **110A — bounded recovery. Dispatch position 1.** Re-observe and correct the five measured records
 > **through the existing authorized partition writer**, retaining before/after evidence. Preserve
 > canonical identity, writer fencing, prior-good retention, quota controls and truthful outcomes.
@@ -6435,6 +6454,12 @@ the modelled half again.**
 
 **This is Item 110B's problem, not a patch on 110A.** A recovery tool that reached past the merge
 authority to write raw fields directly would be exactly the bypass the writer fence exists to prevent.
+
+**PRIORITY LOWERED 2026-09-09 — no consumer can see the affected fields.** `mergeRawEvidence` writes
+where a parser exists; `publicProjection.ts:137` exposes where a parser exists. **Same set.** So the
+unrepairable categories are stored and never projected — unreachable by Insights, the archive, or any
+reader. **This is storage hygiene, not wrong data reaching anyone.** It still belongs with 110B,
+because a recurring reconciliation should decide whether unparsed evidence is worth carrying at all.
 
 **Blocker:** none. Belongs with **110B**.
 
