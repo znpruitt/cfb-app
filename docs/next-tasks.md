@@ -6929,6 +6929,37 @@ fixed twice.
 rule on whether `alternateNames` should feed alias derivation. **Blocker:** none, but it should follow
 Item 199 rather than complicate it.
 
+### Item 204 — an empty CFBD response wipes the team catalog, and the seed cannot rescue it
+
+**Found 2026-09-09 by the Item 199 lane, on the refresh path Item 199 asks the owner to click. Traced
+end to end here before filing.**
+
+`src/app/api/admin/team-database/route.ts:38` does `records: Array.isArray(rows) ? rows : []` and then
+commits unconditionally. **A CFBD 200 carrying a non-array body, or a genuine `[]`, replaces the 138-row
+catalog with an empty one.** `AGENTS.md` → **Core rules 1** requires prior-good retention and
+empty-replacement rejection for schedule, rankings and game-stats. **The team catalog — the thing every
+surface reads identity, classification and aliases from — is the one without it.**
+
+**`previousItems` looks like the guard and is not.** `buildTeamDatabaseFile` uses it only to compute
+`updatedCount` (`teamDatabase.ts:270-273`); it never contributes an item. With `records: []` the built
+file is `items: []`.
+
+**And the seed fallback does not fire, because the row is present-but-empty rather than absent.**
+`teamDatabaseStore.ts:112` is `toTeamDatabaseFile(record?.value) ?? (await readSourceCatalogFallback())`,
+and `toTeamDatabaseFile` returns null only when `items` is **not an array** (`:75`) — an empty array
+returns a valid file. **`??` does not fire on `[]`**, which is the identical defect this campaign already
+shipped and fixed in PLATFORM-128. Recovery is another successful sync; until then every surface has no
+team identity.
+
+**Second defect at the same boundary, and the compiler cannot see it.** `teamDatabaseStore.ts:68` reads
+`toNullableString(value.altColor)` where `value` is an untyped `Record<string, unknown>`. Renaming the
+stored field type-checks the object KEY and leaves the READ silent — 138 durable rows would return
+`undefined` with a green build. **The durable catalog is unvalidated in both directions.**
+
+**The ask:** reject an empty or non-array upstream body before committing, retain prior-good, and
+surface the refusal in the operator summary. **Blocker: none, and it should land BEFORE the Item 199
+catalog resync** — that click is what makes this reachable.
+
 **Do this as its own slice with its own review.** A reformat that silently alters a binding rule is
 worse than the unreadable version, and a diff this large hides a one-word change perfectly. **The
 review's job is to prove no rule changed**, which likely means a normalized-text comparison rather than
