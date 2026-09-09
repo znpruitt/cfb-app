@@ -6695,6 +6695,34 @@ replace. Related: **Item 132** (partition-scoped health), which may be the right
 
 ### Item 198 — a colour that fails normalisation is indistinguishable from no colour
 
+> **THE CONTRAST TARGET WAS WRONG, AND MY OWN MEASUREMENT USED IT — corrected 2026-09-09.** The Item
+> 119 lane found that the bar renders at **~72% opacity** and the normaliser lifts against the **raw**
+> colour. `teamColors.ts:11` describes the 72% in its own header comment and does not account for it.
+>
+> **A colour lifted to exactly 3:1 composites to 2.10:1.** Measured: `#425F88` → `#324765`. The lane
+> counted **54 of 125 outputs below 3:1 raw and 100 of 125 after opacity**. **The prompt's
+> "contrast-lifted to ≥3:1" premise is false as rendered**, and the OKLCH measurement recorded below
+> was taken against the same wrong target.
+>
+> **Re-measured at 3:1 AFTER 72% compositing, the answer survives and improves: 132 of 138 rescued
+> with hue intact, ZERO unreachable in gamut.** It simply lifts further — `#041E42 → #617FAB` rather
+> than `#425F88`. Lighter navy, still navy.
+>
+> **So piece 2's target is 3:1 COMPOSITED, not 3:1 raw**, and that number is the decisive trigger for
+> building it.
+>
+> **Green team brands are NOT guarded — already settled, 2026-09-09 ruling.** `reference-game-row.md`
+> §3: _"Identity, not semantics. It says 'this is Michigan', not 'this is good, active or interactive'
+> — which is why it cannot collide with the reserved palette the way a meaning-bearing hue would."_
+> **The gold guard is an exception for adjacency, not a general hue reservation:** champion amber is a
+> token bound to a purpose and a gold bar can sit beside a champion badge. **The live indicator is a
+> dotted text label, not a bar** — there is no adjacency to break, and distorting a green school's
+> identity to avoid an imagined one is the thing §3 forbids.
+>
+> **Matchup-level bar uniqueness is NOT a contract.** Four of the five reported collisions are teams
+> with identical PROVIDER colours; only one was created by normalisation. Guaranteeing two bars in a
+> matchup differ would mean manufacturing colours, which is not identity.
+
 **Observed on preview 2026-09-09 by the owner, then measured against the production catalog.** Item
 119's bars render, and **California and Nevada carry none.**
 
