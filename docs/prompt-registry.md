@@ -1,7 +1,7 @@
 # Prompt Registry
 
 Status: Current ledger
-Last verified: 2026-09-08
+Last verified: 2026-09-09
 Owner: Project documentation
 Canonical for: prompt ledger / historical implementation record (not an active backlog)
 Supersedes: (none)
@@ -50,6 +50,31 @@ Rules:
 ---
 
 ## Prompt ledger (most recent first)
+
+### PLATFORM-173A-FEATURED-TAG-SLOT-CODEX-v2
+
+- Purpose: back-apply the shared status-row tag seam to Featured, which already received prioritized
+  items with `highlightTags` but dropped those tags and rendered its postseason badge on a separate
+  line through `contextSlot`.
+- Scope: `OverviewPanel.tsx`, its focused tests, the shared eyebrow-treatment regression test, and
+  this closeout. No selector, Live/Recent-finals section builder, shared scoreboard contract, tag
+  selection, or precedence change.
+- Outcome: Featured now passes its existing highlight tags and postseason badge through `tagSlot`,
+  placing them at the right edge of the status row without adding a line. The badge keeps its slate
+  colour, border, fill, font size, and padding; review corrected the prompt's line-height premise —
+  preserving `leading-normal` in the fixed 16px slot clipped the 21px badge, so it inherits the
+  slot's `leading-none` and fits exactly. Test count delta 0.
+- Review / verification: both independent reviews ran against `05873bc0` before remediation. Both
+  found the clipping; `/code-review` also found one whole-article greedy regex and raised the
+  three-pill cap question. One remediation (`64497b51`) removed `leading-normal`, inverted its
+  regression assertion, and replaced the affected regex with a scoped JSDOM assertion. The
+  confirming Codex review was clean; confirming `/code-review` verified both fixes and left two low
+  proof/design follow-ups, already filed as Items 187 and 195. On clean `64497b51`, TypeScript and
+  `lint:all` exited 0; the focused suites passed 74/74; full `npm test` passed 4,990/4,992 with exactly
+  Item 137's two standing failures. Mutations proved Featured tag rendering and badge fit; the
+  watchlist assertion was scoped to its own article and stayed green when Featured tags were removed.
+- Status: Implemented on `codex/173-overview-tags` (`05873bc0`, `64497b51` + this closeout); reviews
+  resolved, merge pending at time of writing.
 
 ### PLATFORM-143-MATCHUPS-STATUS-ROW-CODEX-v5
 
