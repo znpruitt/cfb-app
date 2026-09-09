@@ -8,9 +8,10 @@ import {
   describeApplyOutcome,
   parseCaptureFile,
   parseRecoveryArgs,
+  recordRecoveryAttemptOutcome,
+  renderEvidence,
 } from '../../../../scripts/recover-game-stats.ts';
 import { getCachedGameStats } from '../cache.ts';
-import { buildV2GameStats, parseV2GameObservation } from '../contract.ts';
 import { ingestGameStatsPartitionResponse } from '../ingestionCoordinator.ts';
 import { interpretGameStatsRefreshOutcome } from '../refreshOutcome.ts';
 import type { GameStats } from '../types.ts';
@@ -20,6 +21,11 @@ import {
   __setAppStateKeyLockFailureForTests,
   __setAppStateWriteFailureForTests,
 } from '../../server/appStateStore.ts';
+import { weekPartitionScope } from '../../providerRefreshScope.ts';
+import {
+  beginProviderRefreshAttempt,
+  getProviderRefreshStatus,
+} from '../../server/providerRefreshStatus.ts';
 import { seedActiveWriterControl, seedWriterControlState } from './writerControlSeed.ts';
 import { wireGame } from './fixtures.ts';
 
@@ -144,18 +150,31 @@ test('apply mode requires an explicit capture and rejects stray arguments', () =
 
 test('a capture path inside the repository is refused; outside is allowed', () => {
   const repoRoot = path.resolve('/repo');
+  const identity = (p: string) => p;
   for (const inside of [
     '/repo',
     '/repo/capture.json',
     '/repo/src/nested/capture.json',
     '/repo/../repo/x.json',
+    // A case-insensitive filesystem (default macOS) reaches the same directory.
+    '/REPO/capture.json',
   ]) {
-    const result = checkCapturePathOutsideRepo(inside, repoRoot);
+    const result = checkCapturePathOutsideRepo(inside, repoRoot, identity);
     assert.ok(result !== null, `expected ${inside} to be refused`);
     assert.match(result.error, /inside the repository/);
   }
-  assert.equal(checkCapturePathOutsideRepo('/elsewhere/capture.json', repoRoot), null);
-  assert.equal(checkCapturePathOutsideRepo('/repo-sibling/capture.json', repoRoot), null);
+  assert.equal(checkCapturePathOutsideRepo('/elsewhere/capture.json', repoRoot, identity), null);
+  assert.equal(checkCapturePathOutsideRepo('/repo-sibling/capture.json', repoRoot, identity), null);
+});
+
+test('a symlink pointing back into the repository is refused, not just a lexical match', () => {
+  const repoRoot = path.resolve('/repo');
+  // `/outside/link` is a symlink whose real target is inside the tree — the
+  // lexical check passes and `writeFileSync` still lands the payload in git.
+  const realpath = (p: string) => (p === '/outside/link' ? '/repo/sneaky' : p);
+  const result = checkCapturePathOutsideRepo('/outside/link/capture.json', repoRoot, realpath);
+  assert.ok(result !== null, 'a symlinked path into the repo must be refused');
+  assert.match(result.error, /inside the repository/);
 });
 
 // === The bound is honored against the real durable authority ===
@@ -211,10 +230,52 @@ test('an empty restriction is REFUSED, never read as "no restriction"', async ()
   assert.deepEqual(await readPartition(), before);
 });
 
-test('a restriction naming an invalid provider game id is refused', async () => {
+test('a restriction naming an invalid provider game id says SO, not "empty"', async () => {
   const result = await ingest([game(401868170)], T1, new Set([0, 401868170]));
-  assert.deepEqual(result, { kind: 'rejected', reason: 'empty-restriction' });
+  // The operator typed a nonempty set; reporting `empty-restriction` would
+  // contradict the command they just ran.
+  assert.deepEqual(result, { kind: 'rejected', reason: 'invalid-restriction-id' });
+  assert.equal(interpretGameStatsRefreshOutcome(result).kind, 'failure');
   assert.equal(await readPartition(), null);
+});
+
+test('an EMPTY response under a restriction is a failure, never a successful no-op', async () => {
+  await ingest([game(401868170)], T1);
+  const before = await readPartition();
+
+  const result = await ingest([], T2, new Set([401868170]));
+  assert.deepEqual(result, { kind: 'rejected', reason: 'restriction-matched-nothing' });
+  const interpretation = interpretGameStatsRefreshOutcome(result);
+  assert.equal(interpretation.kind, 'failure');
+  assert.notEqual(interpretation.reason, 'empty-response');
+  assert.deepEqual(await readPartition(), before);
+
+  // The unrestricted empty response is still the valid no-op it always was.
+  const unrestricted = await ingest([], T2);
+  assert.deepEqual(unrestricted, { kind: 'no-op', reason: 'empty-response' });
+});
+
+test('a PARTIALLY matched restriction commits what it found but never reports clean', async () => {
+  await ingest([game(401868170), game(401858212)], T1);
+
+  const result = await ingest(
+    [game(401868170, { home: { totalYards: '513' } })],
+    T2,
+    new Set([401868170, 401858212])
+  );
+  assert.ok(result.kind === 'merge-result');
+  assert.equal(result.merge.outcome, 'written');
+  assert.deepEqual(result.merge.updated, [401868170]);
+  assert.deepEqual(result.diagnostics.restriction?.unmatchedProviderGameIds, [401858212]);
+  // A named game was NOT re-observed, so the batch cannot be `clean` — the
+  // caller must record partialFailure rather than a whole success.
+  assert.equal(result.diagnostics.rowAcceptance, 'mixed');
+  const interpretation = interpretGameStatsRefreshOutcome(result);
+  assert.equal(interpretation.kind, 'partial');
+  assert.equal(interpretation.reason, 'written-mixed');
+  assert.equal(interpretation.partialFailure, true);
+  // …and the repair that DID land is still durable.
+  assert.equal(rowById(await readPartition(), 401868170).home.totalYards, 513);
 });
 
 test('a restriction that matches nothing reports FAILED, not a no-op', async () => {
@@ -407,48 +468,233 @@ test('an untrusted capture file is validated, never assumed', () => {
   assert.equal(ok.fetchStartedAt, T1);
 });
 
-test('evidence reports differ / identical / absent per requested id', () => {
-  const observedPayload = [game(401868170, { home: { totalYards: '513' } }), game(401858212)];
+test('evidence compares RAW categories, so a merge-preserving omission is never a fake delta', () => {
   const storedGames = [
-    buildV2GameStats(
-      (() => {
-        const parsed = parseV2GameObservation(game(401868170));
-        assert.ok(parsed.ok);
-        return parsed.observation;
-      })(),
-      1,
-      'regular'
-    ),
-    buildV2GameStats(
-      (() => {
-        const parsed = parseV2GameObservation(game(401858212));
-        assert.ok(parsed.ok);
-        return parsed.observation;
-      })(),
-      1,
-      'regular'
-    ),
+    {
+      providerGameId: 401868170,
+      fetchStartedAt: T1,
+      home: { school: 'Georgia Southern', raw: { totalYards: '424', possessionTime: '23:59' } },
+      away: { school: 'Charleston Southern', raw: { totalYards: '35' } },
+    },
   ];
-  const evidence = buildEvidence({
-    storedGames,
-    payload: observedPayload,
-    requestedIds: [401868170, 401858212, 401999999],
-    week: 1,
-    seasonType: 'regular',
-  });
+  // The observation revises totalYards and OMITS possessionTime entirely. H2
+  // preserves an omitted category, so reporting `23:59 → 0` would describe a
+  // mutation that will never happen — the defect a normalized comparison has.
+  const payload = [
+    {
+      id: 401868170,
+      teams: [
+        {
+          teamId: 290,
+          team: 'Georgia Southern',
+          conference: 'Sun Belt',
+          homeAway: 'home',
+          points: 31,
+          stats: [{ category: 'totalYards', stat: '513' }],
+        },
+        {
+          teamId: 2127,
+          team: 'Charleston Southern',
+          conference: 'OVC',
+          homeAway: 'away',
+          points: 0,
+          stats: [{ category: 'totalYards', stat: '117' }],
+        },
+      ],
+    },
+  ];
+  const evidence = buildEvidence({ storedGames, payload, requestedIds: [401868170] });
+  assert.equal(evidence[0]!.status, 'differs');
+  const home = evidence[0]!.sides.find((side) => side.side === 'home')!;
+  assert.deepEqual(
+    home.deltas.map((d) => [d.category, d.stored, d.observed]),
+    [
+      ['possessionTime', '23:59', null],
+      ['totalYards', '424', '513'],
+    ]
+  );
+  const rendered = renderEvidence(evidence);
+  assert.match(rendered, /possessionTime 23:59 → \(not re-observed — stored value preserved\)/);
+  // The zero-fallback artifact a normalized comparison would print.
+  assert.doesNotMatch(rendered, /possessionTime 23:59 → 0/);
+});
+
+test('evidence covers EVERY changed category, not a curated shortlist', () => {
+  const storedGames = [
+    {
+      providerGameId: 1,
+      fetchStartedAt: T1,
+      home: { school: 'A', raw: { totalYards: '400', tackles: '0', qbHurries: '0' } },
+      away: { school: 'B', raw: { totalYards: '300' } },
+    },
+  ];
+  const payload = [
+    {
+      id: 1,
+      teams: [
+        {
+          teamId: 10,
+          team: 'A',
+          conference: 'C',
+          homeAway: 'home',
+          points: 7,
+          stats: [
+            { category: 'totalYards', stat: '400' },
+            { category: 'tackles', stat: '33' },
+            { category: 'qbHurries', stat: '4' },
+          ],
+        },
+        {
+          teamId: 20,
+          team: 'B',
+          conference: 'C',
+          homeAway: 'away',
+          points: 3,
+          stats: [{ category: 'totalYards', stat: '300' }],
+        },
+      ],
+    },
+  ];
+  const evidence = buildEvidence({ storedGames, payload, requestedIds: [1] });
+  const home = evidence[0]!.sides.find((side) => side.side === 'home')!;
+  // `tackles` and `qbHurries` are raw-only categories H2 rewrites and no
+  // normalized field exposes. A shortlist would report this game as identical.
+  assert.deepEqual(
+    home.deltas.map((d) => d.category),
+    ['qbHurries', 'tackles']
+  );
+  assert.equal(evidence[0]!.status, 'differs');
+});
+
+test('a game the partition lacks is reported as an INSERT, not as unreachable', () => {
+  const payload = [
+    {
+      id: 999,
+      teams: [
+        {
+          teamId: 1,
+          team: 'A',
+          conference: 'C',
+          homeAway: 'home',
+          points: 7,
+          stats: [{ category: 'totalYards', stat: '400' }],
+        },
+        {
+          teamId: 2,
+          team: 'B',
+          conference: 'C',
+          homeAway: 'away',
+          points: 3,
+          stats: [{ category: 'totalYards', stat: '300' }],
+        },
+      ],
+    },
+  ];
+  const evidence = buildEvidence({ storedGames: [], payload, requestedIds: [999, 1000] });
   assert.deepEqual(
     evidence.map((e) => [e.providerGameId, e.status]),
     [
-      [401868170, 'differs'],
-      [401858212, 'identical'],
-      [401999999, 'unstored'],
+      [999, 'will-insert'],
+      [1000, 'unknown'],
     ]
   );
-  const deltas = evidence[0]!.sides.flatMap((s) => s.deltas.map((d) => d.field));
-  assert.deepEqual(deltas, ['totalYards']);
+  assert.match(renderEvidence(evidence), /the merge will INSERT this game/);
+});
+
+test('a malformed stored row is survived, not dereferenced blind', () => {
+  const storedGames = [null, 'nonsense', { providerGameId: 1 }, { providerGameId: 2, home: null }];
+  const evidence = buildEvidence({ storedGames, payload: [], requestedIds: [1, 2, 3] });
+  assert.deepEqual(
+    evidence.map((e) => e.status),
+    ['unknown', 'unknown', 'unknown']
+  );
 });
 
 // === Truthful outcome reporting ===
+
+test('a merge that repaired NOTHING exits nonzero, whatever H2 calls it', () => {
+  // `stale-clean` is the documented consequence of another writer landing
+  // between capture and apply. H2 calls it a no-op; for a repair it is a
+  // refusal, and `--apply && …` must not treat it as done.
+  for (const reason of ['stale-clean', 'unchanged-clean'] as const) {
+    const described = describeApplyOutcome({
+      kind: 'no-op',
+      reason,
+      httpStatus: 200,
+      advanceLastSuccess: false,
+      partialFailure: false,
+      knownUnchanged: true,
+      durabilityUnknown: false,
+    });
+    assert.match(described.line, /NOT REPAIRED/);
+    assert.notEqual(described.code, 0, `${reason} must not exit 0`);
+  }
+  assert.match(
+    describeApplyOutcome({
+      kind: 'no-op',
+      reason: 'stale-clean',
+      httpStatus: 200,
+      advanceLastSuccess: false,
+      partialFailure: false,
+      knownUnchanged: true,
+      durabilityUnknown: false,
+    }).line,
+    /OLDER than the stored observation/
+  );
+});
+
+test('a partial repair exits nonzero: some named game was not repaired', () => {
+  const described = describeApplyOutcome({
+    kind: 'partial',
+    reason: 'written-mixed',
+    httpStatus: 200,
+    advanceLastSuccess: true,
+    partialFailure: true,
+    knownUnchanged: false,
+    durabilityUnknown: false,
+  });
+  assert.match(described.line, /PARTIAL/);
+  assert.notEqual(described.code, 0);
+});
+
+test('only a clean commit exits 0', () => {
+  const described = describeApplyOutcome({
+    kind: 'success',
+    reason: 'written-clean',
+    httpStatus: 200,
+    advanceLastSuccess: true,
+    partialFailure: false,
+    knownUnchanged: false,
+    durabilityUnknown: false,
+  });
+  assert.match(described.line, /COMMITTED/);
+  assert.equal(described.code, 0);
+});
+
+test('--quota-override is explicit, never defaulted, and rejected where it means nothing', () => {
+  const base = [
+    'capture',
+    '--year',
+    '2026',
+    '--week',
+    '1',
+    '--season-type',
+    'regular',
+    '--game-ids',
+    '401868170',
+    '--out',
+    '/tmp/x.json',
+  ];
+  const plain = parseRecoveryArgs(base);
+  assert.ok(!('error' in plain) && plain.mode === 'capture');
+  assert.equal(plain.quotaOverride, false);
+  const overridden = parseRecoveryArgs([...base, '--quota-override']);
+  assert.ok(!('error' in overridden) && overridden.mode === 'capture');
+  assert.equal(overridden.quotaOverride, true);
+  assert.ok(
+    'error' in parseRecoveryArgs(['apply', '--capture', '/tmp/c.json', '--quota-override'])
+  );
+});
 
 test('describeApplyOutcome never reports a failure as a no-op', () => {
   const failure = describeApplyOutcome({
@@ -474,16 +720,52 @@ test('describeApplyOutcome never reports a failure as a no-op', () => {
   });
   assert.match(indeterminate.line, /INDETERMINATE/);
   assert.equal(indeterminate.code, 4);
+});
 
-  const noop = describeApplyOutcome({
-    kind: 'no-op',
-    reason: 'unchanged-clean',
-    httpStatus: 200,
-    advanceLastSuccess: false,
-    partialFailure: false,
-    knownUnchanged: true,
-    durabilityUnknown: false,
+// === The recovery is a refresh entry point, so it records scoped status ===
+
+const SCOPE = weekPartitionScope(BASE.year, BASE.week, BASE.seasonType);
+
+async function recordThenRead(payload: unknown, fence: string, ids: readonly number[]) {
+  const attempt = await beginProviderRefreshAttempt('game-stats', SCOPE, {
+    startedAt: new Date().toISOString(),
   });
-  assert.match(noop.line, /NO-OP/);
-  assert.equal(noop.code, 0);
+  const result = await ingest(payload, fence, new Set(ids));
+  const interpretation = interpretGameStatsRefreshOutcome(result);
+  await recordRecoveryAttemptOutcome(SCOPE, attempt, interpretation, result);
+  return { status: await getProviderRefreshStatus('game-stats', SCOPE), interpretation };
+}
+
+test('a committed recovery records a scoped success — not a stale cron outcome', async () => {
+  await ingest([game(401868170)], T1);
+  const { status } = await recordThenRead([game(401868170, { home: { totalYards: '513' } })], T2, [
+    401868170,
+  ]);
+  assert.equal(status?.latestAttemptOutcome, 'succeeded');
+  assert.equal(status?.rowsCommitted, 1);
+  assert.equal(status?.partialFailure, false);
+  assert.equal(status?.lastError, null);
+  assert.ok(status?.lastSuccessAt);
+});
+
+test('a PARTIAL recovery records partialFailure, never a whole success', async () => {
+  await ingest([game(401868170), game(401858212)], T1);
+  const { status } = await recordThenRead(
+    [game(401868170, { home: { totalYards: '513' } })],
+    T2,
+    [401868170, 401858212]
+  );
+  assert.equal(status?.latestAttemptOutcome, 'partial');
+  assert.equal(status?.partialFailure, true);
+});
+
+test('a REFUSED recovery records a failure and never advances last-success', async () => {
+  await ingest([game(401868170)], T1);
+  const seeded = await getProviderRefreshStatus('game-stats', SCOPE);
+  const priorSuccessAt = seeded?.lastSuccessAt ?? null;
+
+  const { status } = await recordThenRead([], T2, [401868170]);
+  assert.equal(status?.latestAttemptOutcome, 'failed');
+  assert.equal(status?.lastSuccessAt ?? null, priorSuccessAt);
+  assert.match(String(status?.lastError?.code), /restriction-matched-nothing/);
 });

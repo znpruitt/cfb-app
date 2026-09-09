@@ -36,8 +36,12 @@ import { mergeGameStatsPartitionDurable, type DurableMergeResult } from './durab
  * policy — the adapter never derives, widens, or defaults it, and its absence
  * leaves the whole-batch behaviour above exactly as it was for the route and
  * cron. An EMPTY set is REFUSED (`empty-restriction`), never read as "no
- * restriction"; a set whose ids match no parsed observation is REFUSED
- * (`restriction-matched-nothing`), never reported as a successful no-op. It
+ * restriction"; a set carrying an invalid id is REFUSED
+ * (`invalid-restriction-id`); a set whose ids match no parsed observation is
+ * REFUSED (`restriction-matched-nothing`) — INCLUDING against an exactly empty
+ * response, which is a valid no-op only when nothing in particular was asked
+ * for; and a set only PARTIALLY matched merges what it found but can never
+ * report `clean`, because some named game was not re-observed. It
  * exists so a bounded recovery can re-observe named games without rewriting the
  * rest of a partition it happened to fetch — the provider endpoint is
  * partition-granular, the repair is not. Recurring reconciliation over satisfied
@@ -126,9 +130,11 @@ export type GameStatsBatchDiagnostics = {
   parseFailureCounts: Partial<Record<V2ObservationParseFailureReason, number>>;
   /**
    * `clean` when every raw row parsed AND every parsed observation is
-   * persistable; `mixed` when the batch also carried parse failures or
-   * non-persistable observations. Independent of H2's outcome — a `mixed` batch
-   * may still merge to `written`, `partially-merged`, `stale`, or `conflict`.
+   * persistable AND — under a restriction — every requested id was matched;
+   * `mixed` when the batch carried parse failures, non-persistable
+   * observations, or an unmatched requested id. Independent of H2's outcome —
+   * a `mixed` batch may still merge to `written`, `partially-merged`, `stale`,
+   * or `conflict`.
    */
   rowAcceptance: GameStatsBatchRowAcceptance;
   /**
@@ -147,10 +153,11 @@ export type GameStatsBatchDiagnostics = {
  *   - `rejected` — `invalid-payload` when the top level is not an array;
  *     `no-persistable-observations` when the array is nonempty but no parsed
  *     observation is persistable; `empty-restriction` when the caller supplied
- *     an unusable `restrictToProviderGameIds` (empty, or carrying an invalid
- *     id); `restriction-matched-nothing` when a valid restriction matched no
- *     parsed observation in the response. H2 is NOT called; prior durable data
- *     is untouched.
+ *     an empty `restrictToProviderGameIds`; `invalid-restriction-id` when it
+ *     carries an id that is not a valid provider game id;
+ *     `restriction-matched-nothing` when a valid restriction matched no parsed
+ *     observation — including against an exactly empty response. H2 is NOT
+ *     called; prior durable data is untouched.
  *   - `merge-result` — H2 was called once; carries H2's complete
  *     `DurableMergeResult` UNCHANGED (outcome never renamed or collapsed) plus
  *     the batch diagnostics.
@@ -163,6 +170,7 @@ export type GameStatsIngestionResult =
         | 'invalid-payload'
         | 'no-persistable-observations'
         | 'empty-restriction'
+        | 'invalid-restriction-id'
         | 'restriction-matched-nothing';
     }
   | { kind: 'merge-result'; merge: DurableMergeResult; diagnostics: GameStatsBatchDiagnostics };
@@ -189,7 +197,7 @@ export async function ingestGameStatsPartitionResponse(
     }
     for (const id of restrictToProviderGameIds) {
       if (!isValidProviderGameId(id)) {
-        return { kind: 'rejected', reason: 'empty-restriction' };
+        return { kind: 'rejected', reason: 'invalid-restriction-id' };
       }
     }
   }
@@ -199,9 +207,14 @@ export async function ingestGameStatsPartitionResponse(
   if (!Array.isArray(payload)) {
     return { kind: 'rejected', reason: 'invalid-payload' };
   }
-  // An exact empty array is a valid no-op: no write, no deletion, H2 not called.
+  // An exact empty array is a valid no-op ONLY when nothing in particular was
+  // asked for. Under a restriction the caller named games and the response
+  // carried none of them, which is the `restriction-matched-nothing` failure —
+  // reporting it as a no-op would tell an operator the repair succeeded.
   if (payload.length === 0) {
-    return { kind: 'no-op', reason: 'empty-response' };
+    return restrictToProviderGameIds === undefined
+      ? { kind: 'no-op', reason: 'empty-response' }
+      : { kind: 'rejected', reason: 'restriction-matched-nothing' };
   }
 
   // 2. Run every provider row through H1's single parser. Successfully parsed
@@ -270,8 +283,17 @@ export async function ingestGameStatsPartitionResponse(
     return { kind: 'rejected', reason: 'no-persistable-observations' };
   }
 
+  // A restriction that matched only SOME of its ids merges what it found — a
+  // named game the provider omitted must not block the repair of the others —
+  // but the batch can never be `clean`, because a requested game was not
+  // re-observed. `mixed` routes it to `written-mixed` → `partial`, so the
+  // caller records `partialFailure` and never reports a whole success.
+  const someRequestedIdUnmatched =
+    restriction !== undefined && restriction.unmatchedProviderGameIds.length > 0;
   const rowAcceptance: GameStatsBatchRowAcceptance =
-    Object.keys(parseFailureCounts).length > 0 || nonPersistableParsedRowCount > 0
+    Object.keys(parseFailureCounts).length > 0 ||
+    nonPersistableParsedRowCount > 0 ||
+    someRequestedIdUnmatched
       ? 'mixed'
       : 'clean';
   // Branch rather than a conditional spread: `restriction` is present only for

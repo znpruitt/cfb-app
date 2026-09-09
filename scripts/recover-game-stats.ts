@@ -20,7 +20,8 @@
 // never around it.
 //
 // Usage:
-//   # 1. CAPTURE — exactly ONE CFBD call, no durable write of any kind.
+//   # 1. CAPTURE — the CFBD usage probe + ONE partition request; no durable
+//   #    write of any kind. `--quota-override` is the only way past the reserve.
 //   tsx scripts/recover-game-stats.ts capture \
 //       --year 2026 --week 1 --season-type regular \
 //       --game-ids 401868170,401858212 --out /some/path/outside/the/repo.json
@@ -38,38 +39,56 @@
 // OUTSIDE the repository by construction — a path inside the working tree is
 // refused, so a provider payload can never be committed by accident.
 //
-// Exit codes: 0 = capture written / dry run valid / merge committed;
+// Exit codes: 0 = capture written / dry run valid / merge COMMITTED;
 //             2 = refused (bad arguments, empty or unmatched game-id set,
-//                 capture path inside the repo, malformed capture — nothing
-//                 fetched and nothing written);
+//                 capture path inside the repo, malformed capture, quota
+//                 reserve — nothing fetched and nothing written) OR a merge
+//                 that did not repair anything (`stale` / `unchanged`);
 //             3 = store or provider unavailable (no durable change occurred);
 //             4 = INDETERMINATE durability — the merge transaction's fate is
 //                 unknown. REREAD the partition before any further action;
 //                 never retry blindly;
 //             1 = unexpected error.
+//
+// Exit 0 means the named games were repaired. A `stale` or `unchanged` merge
+// exits NONZERO even though H2 calls it a no-op: for a REPAIR, "the partition
+// already holds this" means the repair did not happen, and a caller chaining
+// `--apply && …` must not read that as success.
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import dotenv from 'dotenv';
 
+import { fetchCfbdUsage } from '../src/lib/api/cfbdUsage.ts';
 import { fetchUpstreamJson, UpstreamFetchError } from '../src/lib/api/fetchUpstream.ts';
 import { buildCfbdGameTeamStatsUrl, type CfbdSeasonType } from '../src/lib/cfbd.ts';
 import { GAME_STATS_SCOPE, getGameStatsKey } from '../src/lib/gameStats/cache.ts';
-import { buildV2GameStats, parseV2GameObservation } from '../src/lib/gameStats/contract.ts';
+import { parseV2GameObservation } from '../src/lib/gameStats/contract.ts';
 import { ingestGameStatsPartitionResponse } from '../src/lib/gameStats/ingestionCoordinator.ts';
+import type { GameStatsIngestionResult } from '../src/lib/gameStats/ingestionCoordinator.ts';
 import { validateGameStatsEnvelope } from '../src/lib/gameStats/publicProjection.ts';
+import { evaluateManualQuota, type CfbdUsageSnapshot } from '../src/lib/gameStats/quotaPolicy.ts';
 import { interpretGameStatsRefreshOutcome } from '../src/lib/gameStats/refreshOutcome.ts';
 import type { GameStatsRefreshInterpretation } from '../src/lib/gameStats/refreshOutcome.ts';
-import type { GameStats, TeamGameStats } from '../src/lib/gameStats/types.ts';
+import { weekPartitionScope } from '../src/lib/providerRefreshScope.ts';
+import type { ProviderRefreshScope } from '../src/lib/providerRefreshScope.ts';
 import { getAppState, getAppStateStorageStatus } from '../src/lib/server/appStateStore.ts';
+import {
+  beginProviderRefreshAttempt,
+  nextProviderCommitSeq,
+  recordProviderRefreshFailure,
+  recordProviderRefreshNoop,
+  recordProviderRefreshSuccess,
+} from '../src/lib/server/providerRefreshStatus.ts';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const USAGE =
   'usage: tsx scripts/recover-game-stats.ts capture --year <n> --week <n> ' +
-  '--season-type <regular|postseason> --game-ids <id,id,...> --out <path outside the repo>\n' +
+  '--season-type <regular|postseason> --game-ids <id,id,...> --out <path outside the repo> ' +
+  '[--quota-override]\n' +
   '       tsx scripts/recover-game-stats.ts apply --capture <path> [--apply]';
 
 // ONE provider request per capture — no transport retries. A retried request is
@@ -94,6 +113,8 @@ export type CaptureArgs = {
   /** Sorted, deduplicated, every member a valid provider game id. Never empty. */
   gameIds: number[];
   out: string;
+  /** Explicit operator override of the CFBD reserve — never a default. */
+  quotaOverride: boolean;
 };
 
 export type ApplyArgs = {
@@ -125,10 +146,15 @@ export function parseRecoveryArgs(argv: readonly string[]): RecoveryArgs | { err
   const rest = argv.slice(1);
   const values = new Map<string, string>();
   let applyFlag = false;
+  let quotaOverrideFlag = false;
   for (let i = 0; i < rest.length; i += 1) {
     const arg = rest[i]!;
     if (arg === '--apply') {
       applyFlag = true;
+      continue;
+    }
+    if (arg === '--quota-override') {
+      quotaOverrideFlag = true;
       continue;
     }
     if (!arg.startsWith('--')) return { error: `unknown argument: ${arg}` };
@@ -146,6 +172,9 @@ export function parseRecoveryArgs(argv: readonly string[]): RecoveryArgs | { err
     if (capture === undefined) return { error: '--capture is required in apply mode' };
     for (const key of values.keys()) {
       if (key !== '--capture') return { error: `unknown argument for apply mode: ${key}` };
+    }
+    if (quotaOverrideFlag) {
+      return { error: '--quota-override is meaningless in apply mode (apply makes no CFBD call)' };
     }
     return { mode: 'apply', capture, apply: applyFlag };
   }
@@ -194,6 +223,7 @@ export function parseRecoveryArgs(argv: readonly string[]): RecoveryArgs | { err
     seasonType: seasonTypeRaw,
     gameIds: ids.sort((a, b) => a - b),
     out,
+    quotaOverride: quotaOverrideFlag,
   };
 }
 
@@ -205,18 +235,63 @@ export function parseRecoveryArgs(argv: readonly string[]): RecoveryArgs | { err
  */
 export function checkCapturePathOutsideRepo(
   outPath: string,
-  repoRoot: string = REPO_ROOT
+  repoRoot: string = REPO_ROOT,
+  realpath: (p: string) => string = defaultRealpath
 ): { error: string } | null {
+  // Resolve BOTH sides through the filesystem before comparing. A lexical
+  // comparison alone is defeated by a symlink OUTSIDE the tree pointing back
+  // into it: the check passes and `writeFileSync` follows the link, landing the
+  // payload in the working tree anyway.
+  const root = realpath(path.resolve(repoRoot));
   const resolved = path.resolve(outPath);
-  const root = path.resolve(repoRoot);
-  const relative = path.relative(root, resolved);
-  const inside = relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
-  if (!inside) return null;
-  return {
-    error:
-      `--out resolves inside the repository (${resolved}). A captured CFBD payload must ` +
-      'never be committable: write it outside the working tree.',
-  };
+  for (const candidate of candidateRealPaths(resolved, realpath)) {
+    const relative = path.relative(root, candidate);
+    // macOS and Windows are case-insensitive by default, so `/REPO/x.json`
+    // reaches the same directory as `/repo/x.json`; compare case-folded too.
+    const caseFolded = path.relative(root.toLowerCase(), candidate.toLowerCase());
+    for (const rel of [relative, caseFolded]) {
+      if (rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))) {
+        return {
+          error:
+            `--out resolves inside the repository (${candidate}). A captured CFBD payload ` +
+            'must never be committable: write it outside the working tree.',
+        };
+      }
+    }
+  }
+  return null;
+}
+
+function defaultRealpath(target: string): string {
+  try {
+    return realpathSync(target);
+  } catch {
+    // A path that does not exist yet resolves to itself; the ancestor walk in
+    // `candidateRealPaths` still reaches whichever ancestor DOES exist.
+    return target;
+  }
+}
+
+/**
+ * The destination as written, plus the same destination rebuilt through every
+ * ancestor the filesystem resolves differently. The capture file does not exist
+ * yet, so its own `realpath` says nothing — its directory chain is what carries
+ * a symlink.
+ */
+function candidateRealPaths(resolved: string, realpath: (p: string) => string): string[] {
+  const candidates = [resolved];
+  const below: string[] = [];
+  const tail = path.basename(resolved);
+  let dir = path.dirname(resolved);
+  for (;;) {
+    const real = realpath(dir);
+    if (real !== dir) candidates.push(path.join(real, ...below, tail));
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    below.unshift(path.basename(dir));
+    dir = parent;
+  }
+  return candidates;
 }
 
 // === Capture file ===
@@ -280,121 +355,188 @@ export function parseCaptureFile(value: unknown): RecoveryCapture | { error: str
 
 // === Evidence ===
 
-/** The normalized fields the evidence table compares, in report order. */
-const COMPARED_FIELDS = [
-  'points',
-  'totalYards',
-  'rushingYards',
-  'passingYards',
-  'rushingAttempts',
-  'passingAttempts',
-  'passingCompletions',
-  'firstDowns',
-  'turnovers',
-  'possessionSeconds',
-] as const satisfies ReadonlyArray<keyof TeamGameStats>;
+/**
+ * Evidence is built from the RAW category dictionaries, because those are the
+ * unit H2 actually merges: a category is replaced only by a strictly
+ * parse-valid newer value, and a category the newer observation OMITS is
+ * preserved. Comparing normalized rows instead would be doubly wrong on the one
+ * artifact the owner approves — `buildV2GameStats` falls absent categories back
+ * to 0, so an omitted category would render as a real "1718 → 0" revision that
+ * the merge will never perform; and the normalized surface covers a fraction of
+ * the fields a merge can rewrite, so the table would also UNDERSTATE the write.
+ *
+ * Raw values are shown verbatim (`possessionTime` as `28:38`, not seconds) so
+ * the report says exactly what is stored, with no derivation between the
+ * evidence and the eye.
+ */
 
-export type FieldDelta = { field: string; stored: number; observed: number };
+export type CategoryDelta = {
+  category: string;
+  /** `null` when the category is absent from the stored row. */
+  stored: string | null;
+  /** `null` when the observation did not carry it — H2 PRESERVES the stored value. */
+  observed: string | null;
+};
 
 export type SideEvidence = {
   side: 'home' | 'away';
   school: string;
-  deltas: FieldDelta[];
+  /** Present only when the points evidence itself differs. */
+  points: { stored: number | null; observed: number | null } | null;
+  deltas: CategoryDelta[];
 };
+
+export type GameEvidenceStatus =
+  | 'differs'
+  | 'identical'
+  /** Stored, but the response carried no parseable row — nothing will change. */
+  | 'not-observed'
+  /** Not stored, but the response carries it — the merge will INSERT this game. */
+  | 'will-insert'
+  /** Neither stored nor observed. */
+  | 'unknown';
 
 export type GameEvidence = {
   providerGameId: number;
-  /** `absent` when the response carried no parseable row for this requested id. */
-  status: 'differs' | 'identical' | 'absent' | 'unstored';
+  status: GameEvidenceStatus;
   storedFence: string | null;
   label: string;
   sides: SideEvidence[];
 };
 
-function sideDeltas(stored: TeamGameStats, observed: TeamGameStats): FieldDelta[] {
-  const deltas: FieldDelta[] = [];
-  for (const field of COMPARED_FIELDS) {
-    const before = stored[field];
-    const after = observed[field];
-    if (typeof before === 'number' && typeof after === 'number' && before !== after) {
-      deltas.push({ field, stored: before, observed: after });
-    }
+type ObservedSide = { school: string; raw: Record<string, string>; points: number | null };
+type ObservedGame = { home: ObservedSide; away: ObservedSide };
+
+function sideDeltas(
+  storedRaw: Record<string, string>,
+  observedRaw: Record<string, string>
+): CategoryDelta[] {
+  const categories = [...new Set([...Object.keys(storedRaw), ...Object.keys(observedRaw)])].sort();
+  const deltas: CategoryDelta[] = [];
+  for (const category of categories) {
+    const stored = Object.prototype.hasOwnProperty.call(storedRaw, category)
+      ? storedRaw[category]!
+      : null;
+    const observed = Object.prototype.hasOwnProperty.call(observedRaw, category)
+      ? observedRaw[category]!
+      : null;
+    if (stored !== observed) deltas.push({ category, stored, observed });
   }
   return deltas;
 }
 
 /**
- * Compare each requested game's STORED normalized row against the row H1 builds
- * from the newly observed provider payload.
- *
- * This is a provider-observation-versus-cache comparison, NOT a prediction of
- * the row the merge will write: H2's field-level merge is conservative and
- * preserves categories the newer observation omits, so an accepted update can
- * legitimately retain a stored value this table shows as differing. The table
- * establishes that the cache disagrees with the newer authoritative
- * observation — the same claim the audit made — and nothing more.
+ * A stored row read from untyped durable state proves nothing about its own
+ * shape, so every access is guarded: a malformed element must never crash a
+ * capture that has already spent a provider call.
  */
+function storedSide(
+  row: unknown,
+  side: 'home' | 'away'
+): { school: string; raw: Record<string, string>; points: number | null } | null {
+  if (typeof row !== 'object' || row === null) return null;
+  const value = (row as Record<string, unknown>)[side];
+  if (typeof value !== 'object' || value === null) return null;
+  const team = value as Record<string, unknown>;
+  const raw: Record<string, string> = {};
+  if (typeof team.raw === 'object' && team.raw !== null && !Array.isArray(team.raw)) {
+    for (const [category, stat] of Object.entries(team.raw as Record<string, unknown>)) {
+      if (typeof stat === 'string') raw[category] = stat;
+    }
+  }
+  return {
+    school: typeof team.school === 'string' ? team.school : '(unknown)',
+    raw,
+    points: team.pointsProvided === true && typeof team.points === 'number' ? team.points : null,
+  };
+}
+
+function storedGameId(row: unknown): number | null {
+  if (typeof row !== 'object' || row === null) return null;
+  const id = (row as Record<string, unknown>).providerGameId;
+  return typeof id === 'number' && Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
 export function buildEvidence(params: {
-  storedGames: readonly GameStats[];
+  storedGames: readonly unknown[];
   payload: unknown;
   requestedIds: readonly number[];
-  week: number;
-  seasonType: CfbdSeasonType;
 }): GameEvidence[] {
-  const { storedGames, payload, requestedIds, week, seasonType } = params;
-  const observedById = new Map<number, GameStats>();
+  const { storedGames, payload, requestedIds } = params;
+
+  const observedById = new Map<number, ObservedGame>();
   if (Array.isArray(payload)) {
     for (const row of payload) {
       const parsed = parseV2GameObservation(row);
       if (!parsed.ok) continue;
-      if (!requestedIds.includes(parsed.observation.providerGameId)) continue;
-      observedById.set(
-        parsed.observation.providerGameId,
-        buildV2GameStats(parsed.observation, week, seasonType)
-      );
+      const { observation } = parsed;
+      if (!requestedIds.includes(observation.providerGameId)) continue;
+      observedById.set(observation.providerGameId, {
+        home: {
+          school: observation.home.school,
+          raw: observation.home.raw,
+          points: observation.home.pointsProvided ? observation.home.points : null,
+        },
+        away: {
+          school: observation.away.school,
+          raw: observation.away.raw,
+          points: observation.away.pointsProvided ? observation.away.points : null,
+        },
+      });
     }
   }
 
   const evidence: GameEvidence[] = [];
   for (const id of requestedIds) {
-    const stored = storedGames.find((game) => game.providerGameId === id) ?? null;
+    const storedRow = storedGames.find((row) => storedGameId(row) === id) ?? null;
     const observed = observedById.get(id) ?? null;
-    const label = stored
-      ? `${stored.away.school} at ${stored.home.school}`
-      : observed
-        ? `${observed.away.school} at ${observed.home.school}`
-        : '(unknown)';
-    if (stored === null) {
+    const storedHome = storedRow === null ? null : storedSide(storedRow, 'home');
+    const storedAway = storedRow === null ? null : storedSide(storedRow, 'away');
+    const label =
+      storedHome && storedAway
+        ? `${storedAway.school} at ${storedHome.school}`
+        : observed
+          ? `${observed.away.school} at ${observed.home.school}`
+          : '(unknown)';
+    const storedFence =
+      storedRow !== null &&
+      typeof (storedRow as Record<string, unknown>).fetchStartedAt === 'string'
+        ? ((storedRow as Record<string, unknown>).fetchStartedAt as string)
+        : null;
+
+    if (storedHome === null || storedAway === null) {
       evidence.push({
         providerGameId: id,
-        status: 'unstored',
-        storedFence: null,
+        // A game the partition does not hold but the response carries is an
+        // INSERT, not an unreachable row — the write does more than "nothing".
+        status: observed === null ? 'unknown' : 'will-insert',
+        storedFence,
         label,
         sides: [],
       });
       continue;
     }
     if (observed === null) {
-      evidence.push({
-        providerGameId: id,
-        status: 'absent',
-        storedFence: stored.fetchStartedAt ?? null,
-        label,
-        sides: [],
-      });
+      evidence.push({ providerGameId: id, status: 'not-observed', storedFence, label, sides: [] });
       continue;
     }
+
     const sides: SideEvidence[] = [];
     for (const side of ['home', 'away'] as const) {
-      const deltas = sideDeltas(stored[side], observed[side]);
-      if (deltas.length > 0) {
-        sides.push({ side, school: stored[side].school, deltas });
+      const stored = side === 'home' ? storedHome : storedAway;
+      const deltas = sideDeltas(stored.raw, observed[side].raw);
+      const storedPoints = stored.points;
+      const observedPoints = observed[side].points;
+      const points =
+        storedPoints === observedPoints ? null : { stored: storedPoints, observed: observedPoints };
+      if (deltas.length > 0 || points !== null) {
+        sides.push({ side, school: stored.school, points, deltas });
       }
     }
     evidence.push({
       providerGameId: id,
       status: sides.length > 0 ? 'differs' : 'identical',
-      storedFence: stored.fetchStartedAt ?? null,
+      storedFence,
       label,
       sides,
     });
@@ -406,29 +548,39 @@ export function renderEvidence(evidence: readonly GameEvidence[]): string {
   const lines: string[] = [];
   for (const game of evidence) {
     lines.push(`${game.providerGameId}  ${game.label}  [${game.status}]`);
-    lines.push(`    stored fence: ${game.storedFence ?? '(none — legacy row)'}`);
-    if (game.status === 'absent') {
-      lines.push('    the response carried no parseable row for this id');
+    lines.push(`    stored fence: ${game.storedFence ?? '(none — legacy or absent row)'}`);
+    if (game.status === 'not-observed') {
+      lines.push('    the response carried no parseable row — this game will NOT change');
     }
-    if (game.status === 'unstored') {
-      lines.push('    no stored row for this id in the durable partition');
+    if (game.status === 'will-insert') {
+      lines.push('    not in the durable partition — the merge will INSERT this game');
+    }
+    if (game.status === 'unknown') {
+      lines.push('    neither stored nor observed — nothing to compare and nothing to write');
     }
     for (const side of game.sides) {
-      for (const delta of side.deltas) {
+      if (side.points !== null) {
         lines.push(
-          `    ${side.side.padEnd(4)} ${side.school}: ${delta.field} ` +
-            `${delta.stored} → ${delta.observed}`
+          `    ${side.side.padEnd(4)} ${side.school}: points ` +
+            `${side.points.stored ?? '(none)'} → ${side.points.observed ?? '(not observed)'}`
+        );
+      }
+      for (const delta of side.deltas) {
+        const observed =
+          delta.observed === null ? '(not re-observed — stored value preserved)' : delta.observed;
+        lines.push(
+          `    ${side.side.padEnd(4)} ${side.school}: ${delta.category} ` +
+            `${delta.stored ?? '(absent)'} → ${observed}`
         );
       }
     }
   }
-  const differing = evidence.filter((game) => game.status === 'differs').length;
-  const identical = evidence.filter((game) => game.status === 'identical').length;
-  const missing = evidence.filter(
-    (game) => game.status === 'absent' || game.status === 'unstored'
-  ).length;
+  const count = (status: GameEvidenceStatus) =>
+    evidence.filter((game) => game.status === status).length;
   lines.push(
-    `\n${evidence.length} requested — ${differing} differ, ${identical} identical, ${missing} unreachable`
+    `\n${evidence.length} requested — ${count('differs')} differ, ${count('identical')} identical, ` +
+      `${count('will-insert')} will be inserted, ${count('not-observed')} not re-observed, ` +
+      `${count('unknown')} unknown`
   );
   return lines.join('\n');
 }
@@ -462,40 +614,124 @@ export function describeApplyOutcome(interpretation: GameStatsRefreshInterpretat
     };
   }
   if (interpretation.kind === 'no-op') {
+    // H2 calls this a no-op; for a REPAIR it is a refusal. `stale-clean` means
+    // a newer observation already won and the replayed capture lost;
+    // `unchanged-clean` means the named games hold this evidence already.
+    // Either way nothing was repaired, so exit NONZERO — an operator chaining
+    // `--apply && …` must not read an unperformed repair as a performed one.
     return {
       line:
-        `[apply] NO-OP (${interpretation.reason}): the durable partition already carries this ` +
-        'evidence. Nothing was written.',
-      code: 0,
+        `[apply] NOT REPAIRED (${interpretation.reason}): nothing was written. ` +
+        (interpretation.reason === 'stale-clean'
+          ? 'The capture is OLDER than the stored observation — a newer writer got there first. ' +
+            'Re-capture before retrying.'
+          : 'The durable partition already carries exactly this evidence.'),
+      code: 2,
     };
   }
   if (interpretation.kind === 'partial') {
     return {
       line:
-        `[apply] PARTIAL (${interpretation.reason}): a durable commit occurred, but the batch ` +
-        'did not merge cleanly. Reread the partition and check the per-game lists above.',
-      code: 0,
+        `[apply] PARTIAL (${interpretation.reason}): a durable commit occurred, but NOT every ` +
+        'named game was repaired — check `unmatched` and the per-game lists above before ' +
+        'treating this as done.',
+      code: 2,
     };
   }
   return { line: `[apply] COMMITTED (${interpretation.reason}).`, code: 0 };
 }
 
+/**
+ * Resolve the scoped provider-refresh attempt for one recovery, exactly once.
+ *
+ * Mirrors the manual route's resolution rules rather than inventing a second
+ * vocabulary: only a CONFIRMED durable commit advances last-success, a partial
+ * commit records `partialFailure`, a genuine no-op clears a stale error without
+ * advancing last-success, and everything else is a truthful failure. Exported
+ * so the binding status rule can be tested rather than assumed.
+ */
+export async function recordRecoveryAttemptOutcome(
+  scope: ProviderRefreshScope,
+  attempt: Awaited<ReturnType<typeof beginProviderRefreshAttempt>>,
+  interpretation: GameStatsRefreshInterpretation,
+  result: GameStatsIngestionResult
+): Promise<void> {
+  if (interpretation.advanceLastSuccess) {
+    const merge = result.kind === 'merge-result' ? result.merge : null;
+    const committedGames = merge
+      ? merge.inserted.length + merge.updated.length + merge.refreshed.length
+      : 0;
+    const committedAt = new Date().toISOString();
+    const commitSeq = nextProviderCommitSeq();
+    if (interpretation.partialFailure) {
+      await recordProviderRefreshSuccess('game-stats', scope, {
+        attempt,
+        committedAt,
+        commitSeq,
+        source: 'cfbd',
+        rowsCommitted: committedGames,
+        partialFailure: true,
+      });
+      return;
+    }
+    await recordProviderRefreshSuccess('game-stats', scope, {
+      attempt,
+      committedAt,
+      commitSeq,
+      source: 'cfbd',
+      rowsCommitted: committedGames,
+    });
+    return;
+  }
+  if (interpretation.kind === 'no-op') {
+    await recordProviderRefreshNoop('game-stats', scope, { attempt, source: 'cfbd' });
+    return;
+  }
+  await recordProviderRefreshFailure('game-stats', scope, {
+    attempt,
+    error: `game-stats recovery failed: ${interpretation.reason}`,
+    code: `game-stats-${interpretation.reason}`,
+    status: interpretation.httpStatus,
+  });
+}
+
 // === Durable read ===
+
+type StoredRead =
+  | { kind: 'ok'; games: readonly unknown[]; fetchedAt: string }
+  /** The partition itself is unreadable or absent — a refusal, exit 2. */
+  | { kind: 'unreadable'; detail: string }
+  /** The STORE is down. Distinct from an unreadable record, and exit 3. */
+  | { kind: 'store-unavailable'; detail: string };
 
 async function readStoredGames(
   year: number,
   week: number,
   seasonType: CfbdSeasonType
-): Promise<{ games: GameStats[]; fetchedAt: string } | { error: string }> {
-  const record = await getAppState<unknown>(
-    GAME_STATS_SCOPE,
-    getGameStatsKey(year, week, seasonType)
-  );
+): Promise<StoredRead> {
+  let record: { value: unknown } | null;
+  try {
+    record = await getAppState<unknown>(GAME_STATS_SCOPE, getGameStatsKey(year, week, seasonType));
+  } catch (error) {
+    // `getAppState` THROWS on an unconfigured or failing store rather than
+    // returning null. Without this catch the failure escaped to `main`'s
+    // handler and exited 1, contradicting the documented exit 3.
+    return {
+      kind: 'store-unavailable',
+      detail: error instanceof Error ? error.message : 'unknown store error',
+    };
+  }
   const validation = validateGameStatsEnvelope(record?.value ?? null, year, week, seasonType);
   if (validation.status !== 'ok') {
-    return { error: `durable partition is not readable (${validation.status})` };
+    return { kind: 'unreadable', detail: validation.status };
   }
-  return { games: validation.record.games, fetchedAt: validation.record.fetchedAt };
+  // `validateGameStatsEnvelope` proves `games` is an array, NOT that its
+  // elements are well-formed rows — every consumer below guards element-wise.
+  return {
+    kind: 'ok',
+    games: validation.record.games as readonly unknown[],
+    fetchedAt: validation.record.fetchedAt,
+  };
 }
 
 // === Modes ===
@@ -514,17 +750,50 @@ async function runCapture(args: CaptureArgs): Promise<number> {
   }
 
   const stored = await readStoredGames(args.year, args.week, args.seasonType);
-  if ('error' in stored) {
-    console.error(`REFUSED: ${stored.error}. No provider call was made.`);
+  if (stored.kind === 'store-unavailable') {
+    console.error(
+      `FAILED: durable store unavailable (${stored.detail}). No provider call was made.`
+    );
+    return 3;
+  }
+  if (stored.kind === 'unreadable') {
+    console.error(
+      `REFUSED: durable partition is not readable (${stored.detail}). No provider call was made.`
+    );
     return 2;
   }
+
+  // Quota gate BEFORE the partition request, through the shared policy the
+  // admin route uses. Provider-reported usage is the truth and unknown usage is
+  // never fabricated in either direction; the reserve's own 2-call margin
+  // accounts for this `/info` probe. `--quota-override` is the only way past a
+  // refusal, and it is recorded in the output rather than assumed.
+  let usageSnapshot: CfbdUsageSnapshot;
+  try {
+    const usage = await fetchCfbdUsage({ fresh: true });
+    usageSnapshot = { remainingCalls: usage.remaining, monthlyLimit: usage.limit };
+  } catch {
+    usageSnapshot = { remainingCalls: null };
+  }
+  const quota = evaluateManualQuota(usageSnapshot, args.quotaOverride);
+  if (quota.kind === 'refused') {
+    console.error(
+      `REFUSED: CFBD quota policy (${quota.reason}); remaining ${quota.remaining ?? 'unknown'}. ` +
+        'No partition request was made. Re-run with --quota-override to spend the reserve.'
+    );
+    return 2;
+  }
+  console.log(
+    `[capture] quota: remaining ${quota.remaining ?? 'unknown'}` +
+      (quota.kind === 'allowed-with-override' ? ` (OVERRIDDEN: ${quota.reason})` : '')
+  );
 
   const url = buildCfbdGameTeamStatsUrl({
     year: args.year,
     week: args.week,
     seasonType: args.seasonType,
   });
-  console.log(`[capture] ONE CFBD request: ${url.toString()}`);
+  console.log(`[capture] partition request: ${url.toString()}`);
   const fetchStartedAt = new Date().toISOString();
   let payload: unknown;
   try {
@@ -561,16 +830,10 @@ async function runCapture(args: CaptureArgs): Promise<number> {
   );
   console.log(`[capture] written to ${path.resolve(args.out)} (outside the repository)`);
   console.log(`[capture] stored partition fetchedAt: ${stored.fetchedAt}`);
-  console.log('\n=== before → after (provider observation vs cache) ===\n');
+  console.log('\n=== before → after (raw provider categories vs cache) ===\n');
   console.log(
     renderEvidence(
-      buildEvidence({
-        storedGames: stored.games,
-        payload,
-        requestedIds: args.gameIds,
-        week: args.week,
-        seasonType: args.seasonType,
-      })
+      buildEvidence({ storedGames: stored.games, payload, requestedIds: args.gameIds })
     )
   );
   console.log('\nNo durable write occurred. Apply with: apply --capture <path> --apply');
@@ -592,8 +855,14 @@ async function runApply(args: ApplyArgs): Promise<number> {
   }
 
   const stored = await readStoredGames(capture.year, capture.week, capture.seasonType);
-  if ('error' in stored) {
-    console.error(`REFUSED: ${stored.error}. Nothing was written.`);
+  if (stored.kind === 'store-unavailable') {
+    console.error(`FAILED: durable store unavailable (${stored.detail}). Nothing was written.`);
+    return 3;
+  }
+  if (stored.kind === 'unreadable') {
+    console.error(
+      `REFUSED: durable partition is not readable (${stored.detail}). Nothing was written.`
+    );
     return 2;
   }
 
@@ -603,15 +872,13 @@ async function runApply(args: ApplyArgs): Promise<number> {
       `bounded to ${capture.gameIds.length} game(s): ${capture.gameIds.join(', ')}`
   );
   console.log(`[${args.apply ? 'apply' : 'dry-run'}] replayed fence: ${capture.fetchStartedAt}`);
-  console.log('\n=== before → after (provider observation vs cache) ===\n');
+  console.log('\n=== before → after (raw provider categories vs cache) ===\n');
   console.log(
     renderEvidence(
       buildEvidence({
         storedGames: stored.games,
         payload: capture.payload,
         requestedIds: capture.gameIds,
-        week: capture.week,
-        seasonType: capture.seasonType,
       })
     )
   );
@@ -628,6 +895,17 @@ async function runApply(args: ApplyArgs): Promise<number> {
     return 3;
   }
 
+  // This is a game-stats refresh ENTRY POINT, so it records a truthful scoped
+  // attempt exactly like the route and cron (AGENTS.md → truthful
+  // provider-refresh status). Without it a recovery commit, refusal, or
+  // indeterminate result would leave the admin feed showing the last cron
+  // outcome as current. The attempt begins BEFORE the merge and resolves
+  // exactly once.
+  const scope = weekPartitionScope(capture.year, capture.week, capture.seasonType);
+  const attempt = await beginProviderRefreshAttempt('game-stats', scope, {
+    startedAt: new Date().toISOString(),
+  });
+
   const result = await ingestGameStatsPartitionResponse({
     year: capture.year,
     week: capture.week,
@@ -637,6 +915,9 @@ async function runApply(args: ApplyArgs): Promise<number> {
     restrictToProviderGameIds: new Set(capture.gameIds),
   });
   const interpretation = interpretGameStatsRefreshOutcome(result);
+
+  await recordRecoveryAttemptOutcome(scope, attempt, interpretation, result);
+
   if (result.kind === 'merge-result') {
     const { merge } = result;
     console.log(`merge outcome: ${merge.outcome}`);
@@ -647,6 +928,10 @@ async function runApply(args: ApplyArgs): Promise<number> {
     console.log(`  stale:     ${merge.stale.join(', ') || '(none)'}`);
     console.log(`  conflicts: ${JSON.stringify(merge.conflicts)}`);
     console.log(`  retained untouched: ${merge.retainedExisting.length} game(s)`);
+    const unmatched = result.diagnostics.restriction?.unmatchedProviderGameIds ?? [];
+    if (unmatched.length > 0) {
+      console.log(`  NOT RE-OBSERVED (still unrepaired): ${unmatched.join(', ')}`);
+    }
   }
   const described = describeApplyOutcome(interpretation);
   console.log(described.line);
@@ -663,15 +948,20 @@ async function main(): Promise<void> {
   const parsed = parseRecoveryArgs(process.argv.slice(2));
   if ('error' in parsed) {
     console.error(`REFUSED: ${parsed.error}\n${USAGE}`);
-    process.exit(2);
+    process.exitCode = 2;
+    return;
   }
   const code = parsed.mode === 'capture' ? await runCapture(parsed) : await runApply(parsed);
-  process.exit(code);
+  // `process.exitCode`, never `process.exit`: on POSIX a stdout write to a pipe
+  // or file is asynchronous and `process.exit` does not flush it, so
+  // `… | tee capture.log` could lose the tail of the evidence table — the one
+  // artifact this tool exists to produce.
+  process.exitCode = code;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((error: unknown) => {
     console.error(error);
-    process.exit(1);
+    process.exitCode = 1;
   });
 }

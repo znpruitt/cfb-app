@@ -46,10 +46,11 @@ export type GameStatsRefreshOutcomeReason =
   | 'empty-response'
   | 'invalid-payload'
   | 'no-persistable-observations'
-  // PLATFORM-110A bounded-recovery refusals. Both are caller-bound errors, not
-  // provider or merge outcomes, and both are KNOWN-UNCHANGED: the coordinator
-  // refused before H2 was called.
+  // PLATFORM-110A bounded-recovery refusals. All three are caller-bound errors,
+  // not provider or merge outcomes, and all are KNOWN-UNCHANGED: the
+  // coordinator refused before H2 was called.
   | 'empty-restriction'
+  | 'invalid-restriction-id'
   | 'restriction-matched-nothing'
   | 'written-clean'
   | 'written-mixed'
