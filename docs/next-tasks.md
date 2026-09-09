@@ -169,11 +169,27 @@ each other.**
 
 | # | item | what |
 | --- | --- | --- |
-| 1 | **110A** | bounded recovery of the five measured game-stat discrepancies |
+| ✅ | ~~110A~~ | bounded recovery — **merged and applied 2026-09-09** |
+| ~ | **110B** | recurring correction reconciliation — **in flight**, last round done, closeout pending |
+| **1** | **199** | **the catalog reads `altColor`; the provider sends `alternateColor`** |
 | 2 | **188** | provider deadlines carried through body consumption |
 | 3 | **20** | bounded database waits |
 | 4 | **47** | admin authorization for the Insights diagnostic bypass |
-| 5 | **110B** | recurring correction reconciliation — separately designed and reviewed |
+
+**199 IS NEXT — owner decision 2026-09-09, ahead of the remaining audit items.** It is a one-word
+mapping fix with a confirmed diagnosis and a measured payoff, and **it unblocks a UI item that is live
+on preview right now**: Item 119's bars are missing on California and Nevada, and the alternate colour
+that fixes both is in the provider response being discarded at ingest. **The audit items are all
+latent; this one is visible.**
+
+**It also has to precede Item 198's OKLCH port.** Fixing the mapping changes the port's input — every
+team gains a second colour, and the six teams the port cannot help all clear 3:1 on their alternate
+with no lift at all. **Building piece 2 first would be designing against a catalog known to be
+incomplete.**
+
+**Scope it carefully:** the fix is the field name, plus re-running the catalog refresh so the durable
+store actually gains the alternates. **Choosing WHEN to fall back to the alternate is Item 198's
+decision, not this one** — this item makes the colour available, it does not decide the rule.
 
 **110A first and unconditionally.** It is the only item with measured wrong data in production, and it
 is bounded — five named provider IDs, not a sweep. **188, 20 and 47 follow because they are cheap,
