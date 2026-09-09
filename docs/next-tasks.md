@@ -6971,6 +6971,52 @@ stored field type-checks the object KEY and leaves the READ silent — 138 durab
 surface the refusal in the operator summary. **Blocker: none, and it should land BEFORE the Item 199
 catalog resync** — that click is what makes this reachable.
 
+> **SCOPE RULING 2026-09-09 — the standings guard is IN, the read-side validation is OUT (Item 205).**
+> The 204 receipt enumerated 17 readers and found **two that persist the degraded result**:
+> `leagueStandings.ts` caches wrong standings under the tag-only (`revalidate: false`) data cache, and
+> `seasonBuild.ts` archives label-only identity. **Damage that outlives the repair is what makes this
+> more than a write guard.**
+>
+> **`leagueStandings.ts:880-887` argues against guarding, from a premise this item disproves** — that
+> `getTeamDatabaseItems` "already handles genuine absence internally." It does, for an ABSENT row; a
+> present-but-empty one routes past the fallback. **Two sibling files already carry the correct guard
+> AND the correct comment** (`canonicalSlate.ts:437-443`, `canonicalContext.ts:172-177`), so this is one
+> file holding a stale model, not a missing feature. Transplant the sibling shape verbatim and delete
+> the wrong reasoning — left standing it will talk the next reader out of the fix.
+>
+> **Item 205 is the read-side field validation** at `teamDatabaseStore.ts:68`. The lane's "no" earned
+> itself: its trigger is a stored rename, which this slice's gate forbids, and doing it properly means a
+> typed reader over all 14 fields plus a policy for field-level failure — a different item with its own
+> blast radius across those same 17 readers.
+>
+> **The partial-response boundary is ACCEPTED as stated: the guard catches total loss, not partial.**
+> No magnitude threshold. FBS membership moves 1-4 schools a year at realignment, so any floor low
+> enough to be safe is inert and any floor high enough to matter would refuse a legitimate conference
+> reshuffle until someone overrode it. **A threshold needing an override path is more machinery than the
+> risk earns.** Not filed; the boundary is written down here instead.
+>
+> **The lane's own sharpening is adopted: key the guard on the BUILT item count, not the raw row
+> count.** A 138-row payload where CFBD renames `school` normalizes to `items: []`, and a
+> `rows.length === 0` check never sees it. Three rejection reasons, asserted separately — non-array,
+> empty response, and nonempty-but-zero-usable.
+
+### Item 205 — the durable catalog is read through an untyped `Record`
+
+**Split out of Item 204 on 2026-09-09**, on the lane's reasoning rather than mine.
+`teamDatabaseStore.ts:68` reads `toNullableString(value.altColor)` where `value` is
+`Record<string, unknown>`. **A stored field rename type-checks the object KEY and leaves the READ
+silent** — 138 durable rows would return `undefined` with a green build. Item 199 proved by mutation
+that a stored rename reaches 8 files and that the compiler sees only half of it.
+
+**Why it is not Item 204's:** its trigger is a stored rename, which 204's gate forbids, so it is not on
+the path the resync click takes. And doing it properly means a typed reader over all 14 fields of
+`toTeamCatalogItem` plus a decision about what a field-level failure does — drop the item, null the
+field, or reject the file — which is a policy question with its own blast radius across the 17 catalog
+readers 204 enumerated.
+
+**The ask:** validate the durable catalog on read, and rule on field-level failure policy.
+**Blocker:** Item 204, whose receipt is the reader enumeration this needs.
+
 **Do this as its own slice with its own review.** A reformat that silently alters a binding rule is
 worse than the unreadable version, and a diff this large hides a one-word change perfectly. **The
 review's job is to prove no rule changed**, which likely means a normalized-text comparison rather than
