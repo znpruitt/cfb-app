@@ -121,6 +121,7 @@ function renderPanel(games: AppGame[], rosterByTeam: Map<string, string>) {
       scoresByKey={{}}
       rosterByTeam={rosterByTeam}
       displayTimeZone="America/New_York"
+      nowMs={Date.parse('2025-08-30T19:00:00.000Z')}
     />
   );
 }

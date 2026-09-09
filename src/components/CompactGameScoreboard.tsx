@@ -1,8 +1,9 @@
 import React from 'react';
 
 import type { ProviderClassification } from '../lib/conferenceSubdivision';
-import { gameStatusLabelPresentation } from '../lib/gameUi';
+import { gameStatusLabelPresentation, type GameStatusLabelOptions } from '../lib/gameUi';
 import { rankSourceLabel, type RankSource } from '../lib/rankings';
+import type { GameScoreboardState } from '../lib/selectors/gameScoreboardState';
 import type { TeamRecordClient } from '../lib/selectors/teamRecordsClient';
 
 export type CompactScoreboardParticipant = {
@@ -17,7 +18,11 @@ export type CompactScoreboardParticipant = {
 };
 
 export type CompactGameScoreboardProps = {
-  state: 'scheduled' | 'live' | 'final' | 'awaiting';
+  state: GameScoreboardState;
+  /** Optional caller copy for the otherwise unlabeled scheduled state. */
+  statusLabel?: string;
+  liveHue?: GameStatusLabelOptions['liveHue'];
+  liveDot?: GameStatusLabelOptions['liveDot'];
   clock?: string;
   broadcast?: string | null;
   neutralSite?: boolean;
@@ -26,6 +31,7 @@ export type CompactGameScoreboardProps = {
   away: CompactScoreboardParticipant;
   home: CompactScoreboardParticipant;
   contextSlot?: React.ReactNode;
+  tagSlot?: React.ReactNode;
   footerSlot?: React.ReactNode;
   tier2Slot?: React.ReactNode;
 };
@@ -80,6 +86,9 @@ function hasRenderableContent(slot: React.ReactNode): boolean {
 
 export default function CompactGameScoreboard({
   state,
+  statusLabel,
+  liveHue,
+  liveDot,
   clock,
   broadcast,
   neutralSite = false,
@@ -88,6 +97,7 @@ export default function CompactGameScoreboard({
   away,
   home,
   contextSlot,
+  tagSlot,
   footerSlot,
   tier2Slot,
 }: CompactGameScoreboardProps): React.ReactElement {
@@ -101,18 +111,63 @@ export default function CompactGameScoreboard({
   const clockLabel = clock?.trim() ?? '';
   const broadcastLabel = broadcast?.trim() ?? '';
   const scheduleNoticeLabel = scheduleNotice?.trim() ?? '';
-  const statusLabel =
-    state === 'scheduled'
-      ? null
-      : gameStatusLabelPresentation(state === 'awaiting' ? 'unknown' : state);
-  const statusText = state === 'live' ? 'Live' : state === 'final' ? 'Final' : 'Awaiting score';
+  const statusTextByState: Record<GameScoreboardState, string | null> = {
+    scheduled: statusLabel?.trim() || null,
+    live: 'Live',
+    awaiting: 'Awaiting score',
+    final: 'Final',
+  };
+  const statusToneByState: Record<GameScoreboardState, 'scheduled' | 'live' | 'unknown' | 'final'> =
+    {
+      scheduled: 'scheduled',
+      live: 'live',
+      awaiting: 'unknown',
+      final: 'final',
+    };
+  const statusText = statusTextByState[state];
+  const statusPresentation = statusText
+    ? gameStatusLabelPresentation(statusToneByState[state], { liveHue, liveDot })
+    : null;
   const hasScheduleNotice = state === 'scheduled' && Boolean(scheduleNoticeLabel);
-  const hasHeaderLead = Boolean(statusLabel) || hasScheduleNotice || Boolean(clockLabel);
+  const hasHeaderLead = Boolean(statusPresentation) || hasScheduleNotice || Boolean(clockLabel);
   const showsBroadcast = state !== 'final' && Boolean(broadcastLabel);
   const hasContextSlot = hasRenderableContent(contextSlot);
+  const hasTagSlot = hasRenderableContent(tagSlot);
   const hasFooterSlot = hasRenderableContent(footerSlot);
   const hasTier2Slot = hasRenderableContent(tier2Slot);
   const showsInlineRecord = state === 'live' || state === 'final' || state === 'awaiting';
+  const headerContent = (
+    <>
+      {statusPresentation ? (
+        <span className={statusPresentation.className}>
+          {statusPresentation.dotClassName ? (
+            <span className={statusPresentation.dotClassName} aria-hidden="true" />
+          ) : null}
+          {statusText}
+        </span>
+      ) : null}
+      {hasScheduleNotice ? (
+        <span className={gameStatusLabelPresentation('scheduled').className}>
+          {scheduleNoticeLabel}
+        </span>
+      ) : null}
+      {clockLabel ? <span className="min-w-0 truncate tabular-nums">{clockLabel}</span> : null}
+      {showsBroadcast ? (
+        <>
+          {hasHeaderLead ? <span aria-hidden="true">•</span> : null}
+          <span className="min-w-0 truncate">{broadcastLabel}</span>
+        </>
+      ) : null}
+      {neutralSite ? (
+        <>
+          {hasHeaderLead || showsBroadcast ? <span aria-hidden="true">•</span> : null}
+          <span className="shrink-0" data-scoreboard-neutral-site>
+            Neutral site
+          </span>
+        </>
+      ) : null}
+    </>
+  );
 
   return (
     <article
@@ -127,37 +182,33 @@ export default function CompactGameScoreboard({
         </div>
       ) : null}
       <div
-        className="mb-1.5 flex items-center gap-2 overflow-hidden whitespace-nowrap text-xs dark:text-zinc-400"
+        className={`mb-1.5 flex items-center gap-2 overflow-hidden whitespace-nowrap text-xs dark:text-zinc-400${
+          hasTagSlot && state === 'scheduled' ? ' max-sm:flex-wrap max-sm:gap-y-1' : ''
+        }`}
         data-scoreboard-header
       >
-        {statusLabel ? (
-          <span className={statusLabel.className}>
-            {statusLabel.dotClassName ? (
-              <span className={statusLabel.dotClassName} aria-hidden="true" />
-            ) : null}
-            {statusText}
-          </span>
-        ) : null}
-        {hasScheduleNotice ? (
-          <span className={gameStatusLabelPresentation('scheduled').className}>
-            {scheduleNoticeLabel}
-          </span>
-        ) : null}
-        {clockLabel ? <span className="min-w-0 truncate tabular-nums">{clockLabel}</span> : null}
-        {showsBroadcast ? (
+        {hasTagSlot ? (
           <>
-            {hasHeaderLead ? <span aria-hidden="true">•</span> : null}
-            <span className="min-w-0 truncate">{broadcastLabel}</span>
-          </>
-        ) : null}
-        {neutralSite ? (
-          <>
-            {hasHeaderLead || showsBroadcast ? <span aria-hidden="true">•</span> : null}
-            <span className="shrink-0" data-scoreboard-neutral-site>
-              Neutral site
+            <span
+              className={`flex min-w-0 flex-auto items-center gap-2 overflow-clip whitespace-nowrap${
+                state === 'scheduled' ? ' max-sm:w-full max-sm:flex-none' : ''
+              }`}
+              data-scoreboard-header-metadata
+            >
+              {headerContent}
+            </span>
+            <span
+              className={`flex h-4 flex-none items-center justify-end gap-1${
+                state === 'scheduled' ? ' max-sm:w-full' : ''
+              }`}
+              data-scoreboard-tag-slot
+            >
+              {tagSlot}
             </span>
           </>
-        ) : null}
+        ) : (
+          headerContent
+        )}
       </div>
 
       {participants.map(({ side, participant }) => {

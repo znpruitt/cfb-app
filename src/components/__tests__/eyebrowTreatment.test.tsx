@@ -114,6 +114,7 @@ function renderMatchups(): string {
       }
       rankingsByTeamId={rankedTeams}
       displayTimeZone="UTC"
+      nowMs={Date.parse('2026-08-30T19:00:00.000Z')}
     />
   );
 }

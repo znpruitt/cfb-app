@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { JSDOM } from 'jsdom';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
@@ -34,6 +35,16 @@ function headerMarkup(html: string): string {
 
 function occurrenceCount(value: string, needle: string): number {
   return value.split(needle).length - 1;
+}
+
+function directScoreboardRows(html: string): string[] {
+  const document = new JSDOM(html).window.document;
+  const scoreboard = document.querySelector('[data-game-scoreboard]');
+  assert.ok(scoreboard, 'scoreboard must render');
+  return Array.from(
+    scoreboard.children,
+    (element) => element.getAttribute('data-scoreboard-side') ?? 'header'
+  );
 }
 
 function classTokens(markup: string): Set<string> {
@@ -527,6 +538,108 @@ test('live scoreboard keeps its header and long team-owner identities on one cli
   );
 });
 
+test('overflowing status rows keep equal structure and preserve the fixed tag edge', () => {
+  const html = renderScoreboard({
+    state: 'scheduled',
+    statusLabel: 'SCH',
+    clock: 'Saturday, September 5, 2026 at 7:30 PM Central Daylight Time',
+    broadcast: 'A very long regional broadcast network name',
+    neutralSite: true,
+    tagSlot: (
+      <>
+        <span data-test-tag>Top 25 Matchup</span>
+        <span data-test-tag>Upset Watch</span>
+      </>
+    ),
+  });
+  const document = new JSDOM(html).window.document;
+  const header = document.querySelector('[data-scoreboard-header]');
+  const metadata = document.querySelector('[data-scoreboard-header-metadata]');
+  const tagSlot = document.querySelector('[data-scoreboard-tag-slot]');
+  assert.ok(header && metadata && tagSlot);
+
+  assert.ok(metadata.classList.contains('flex-auto'));
+  assert.ok(
+    metadata.classList.contains('min-w-0'),
+    'metadata must shrink below its content width before the flex-none tag can move'
+  );
+  assert.ok(metadata.classList.contains('overflow-clip'));
+  assert.ok(tagSlot.classList.contains('flex-none'));
+  assert.ok(tagSlot.classList.contains('h-4'));
+  assert.ok(tagSlot.classList.contains('justify-end'));
+  assert.ok(header.classList.contains('overflow-hidden'));
+  assert.ok(header.classList.contains('max-sm:flex-wrap'));
+  assert.ok(metadata.classList.contains('max-sm:w-full'));
+  assert.ok(tagSlot.classList.contains('max-sm:w-full'));
+  assert.doesNotMatch(html, /max-sm:whitespace-normal/);
+  assert.equal(metadata.nextElementSibling, tagSlot);
+  assert.equal(tagSlot.querySelectorAll('[data-test-tag]').length, 2);
+  assert.equal(metadata.querySelectorAll('.truncate').length, 2);
+  // Static JSDOM markup cannot prove rendered pixel height. This pins the DOM
+  // structure and fixed header-row placement that keep tags from adding a line.
+  assert.deepEqual(directScoreboardRows(renderScoreboard()), ['header', 'away', 'home']);
+  assert.deepEqual(directScoreboardRows(html), ['header', 'away', 'home']);
+  const taggedLive = renderScoreboard({ tagSlot: <span>Upset Watch</span> });
+  const untaggedScheduled = renderScoreboard({ state: 'scheduled', statusLabel: 'SCH' });
+  assert.doesNotMatch(taggedLive, /max-sm:flex-wrap|max-sm:w-full/);
+  assert.doesNotMatch(untaggedScheduled, /max-sm:flex-wrap|max-sm:w-full/);
+});
+
+test('status-row contract covers every state, zero-to-two tags, and independent metadata', () => {
+  for (const state of SCOREBOARD_STATES) {
+    for (const tagCount of [0, 1, 2] as const) {
+      for (let metadataMask = 0; metadataMask < 8; metadataMask += 1) {
+        const clock = metadataMask & 1 ? '7:30 PM' : undefined;
+        const broadcast = metadataMask & 2 ? 'ABC' : undefined;
+        const neutralSite = Boolean(metadataMask & 4);
+        const tags = Array.from({ length: tagCount }, (_, index) => (
+          <span key={index} data-contract-tag>
+            Tag {index + 1}
+          </span>
+        ));
+        const html = renderScoreboard({
+          state,
+          statusLabel: 'SCH',
+          clock,
+          broadcast,
+          neutralSite,
+          tagSlot: tags,
+        });
+        const header = headerMarkup(html);
+        assert.equal(occurrenceCount(header, 'data-contract-tag'), tagCount);
+        assert.equal(occurrenceCount(header, 'data-scoreboard-tag-slot'), tagCount === 0 ? 0 : 1);
+        assert.equal(header.includes('7:30 PM'), Boolean(clock));
+        assert.equal(header.includes('ABC'), state !== 'final' && Boolean(broadcast));
+        assert.equal(header.includes('Neutral site'), neutralSite);
+      }
+    }
+  }
+});
+
+test('untagged Overview and Schedule headers remain byte-identical', () => {
+  const overview = headerMarkup(
+    renderScoreboard({ state: 'scheduled', clock: 'Sat, Sep 5, 7:30 PM', broadcast: 'ABC' })
+  );
+  const schedule = headerMarkup(
+    renderScoreboard({
+      state: 'scheduled',
+      clock: 'Sat, Sep 5, 7:30 PM',
+      broadcast: 'ABC',
+      neutralSite: true,
+      scheduleNotice: 'Postponed',
+    })
+  );
+
+  assert.equal(
+    overview,
+    '<span class="min-w-0 truncate tabular-nums">Sat, Sep 5, 7:30 PM</span><span aria-hidden="true">•</span><span class="min-w-0 truncate">ABC</span>'
+  );
+  assert.equal(
+    schedule,
+    '<span class="inline-flex w-fit shrink-0 items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] dark:text-sky-400">Postponed</span><span class="min-w-0 truncate tabular-nums">Sat, Sep 5, 7:30 PM</span><span aria-hidden="true">•</span><span class="min-w-0 truncate">ABC</span><span aria-hidden="true">•</span><span class="shrink-0" data-scoreboard-neutral-site="true">Neutral site</span>'
+  );
+});
+
 test('live scoreboard expresses live state in green with no amber utility', () => {
   const html = renderScoreboard();
 
@@ -710,16 +823,19 @@ test('optional wrappers reject React-empty content recursively while preserving 
   for (const emptySlot of emptySlots) {
     const html = renderScoreboard({
       contextSlot: emptySlot,
+      tagSlot: emptySlot,
       footerSlot: emptySlot,
       tier2Slot: emptySlot,
     });
     assert.doesNotMatch(html, /data-scoreboard-context-slot/);
+    assert.doesNotMatch(html, /data-scoreboard-tag-slot/);
     assert.doesNotMatch(html, /data-scoreboard-odds-footer/);
     assert.doesNotMatch(html, /data-scoreboard-tier2-slot/);
   }
 
-  const zeroHtml = renderScoreboard({ contextSlot: 0, footerSlot: 0, tier2Slot: 0 });
+  const zeroHtml = renderScoreboard({ contextSlot: 0, tagSlot: 0, footerSlot: 0, tier2Slot: 0 });
   assert.match(zeroHtml, /data-scoreboard-context-slot[^>]*>0<\/div>/);
+  assert.match(zeroHtml, /data-scoreboard-tag-slot[^>]*>0<\/span>/);
   assert.match(zeroHtml, /data-scoreboard-odds-footer[^>]*>0<\/div>/);
   assert.match(zeroHtml, /data-scoreboard-tier2-slot[^>]*>0<\/div>/);
 
