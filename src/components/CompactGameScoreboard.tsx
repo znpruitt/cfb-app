@@ -198,7 +198,7 @@ export default function CompactGameScoreboard({
               {headerContent}
             </span>
             <span
-              className={`flex h-4 flex-none items-center justify-end gap-1${
+              className={`flex h-4 flex-none items-center justify-end gap-1 leading-none${
                 state === 'scheduled' ? ' max-sm:w-full' : ''
               }`}
               data-scoreboard-tag-slot

@@ -566,6 +566,10 @@ test('overflowing status rows keep equal structure and preserve the fixed tag ed
   assert.ok(metadata.classList.contains('overflow-clip'));
   assert.ok(tagSlot.classList.contains('flex-none'));
   assert.ok(tagSlot.classList.contains('h-4'));
+  assert.ok(
+    tagSlot.classList.contains('leading-none'),
+    'the fixed-height slot must reduce inherited text-xs leading so eyebrow pills fit vertically'
+  );
   assert.ok(tagSlot.classList.contains('justify-end'));
   assert.ok(header.classList.contains('overflow-hidden'));
   assert.ok(header.classList.contains('max-sm:flex-wrap'));
