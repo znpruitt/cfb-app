@@ -5718,9 +5718,14 @@ row level and four at page level. **That section has not been run** — it is pr
 > measures rendered width and Item 134 lists that missing test as one of its own requirements.
 >
 > **Sharpest single finding:** `Close`'s only reachable render path on Overview is the forbidden one.
-> It cannot render on Live, Recent finals or Featured because those sections pass no tags (Item 173),
+> At audit time it could not render on Live, Recent finals or Featured because those sections passed
+> no tags (Item 173),
 > and on the watchlist it fires only through Item 169's `0-0` scheduled pack — the case
 > `DESIGN.md:313` prohibits. Neither item named the other.
+>
+> **173a discharge, 2026-09-09:** Featured now renders its existing tags, closing the Featured part of
+> R3, and its postseason badge moved into the status row, closing R4. Live and Recent finals remain
+> the 173b selector slice. Items 187 and 195 own the two follow-ups accepted during 173a's review.
 
 **The ask:** run the audit across **Live, Recent finals, Featured and the watchlist**.
 
@@ -5905,12 +5910,12 @@ optional.
 **Blocker:** none. Related: Item 169, whose reachability answer came from this measurement, and
 Item 143, whose reconstruction carries it.
 
-### Item 173 — the tag decisions reached the watchlist and no other section
+### Item 173 — back-apply tag decisions across Overview sections
 
-**Item 167 residue R3 + R4.** Live, Recent finals and Featured **pass no tags at all**. `Upset` exists
-in the league family and reaches Recent finals never; a Live game that is both a Top 25 Matchup and
-Close renders `[]`. And the one marker Featured does pass — the CFP/conference badge — goes through
-`contextSlot`, so it renders **above** the status row, left-aligned, on its own line.
+**Item 167 residue R3 + R4, at filing.** Live, Recent finals and Featured **passed no tags at all**.
+`Upset` existed in the league family and reached Recent finals never; a Live game that was both a Top
+25 Matchup and Close rendered `[]`. And the one marker Featured did pass — the CFP/conference badge —
+went through `contextSlot`, so it rendered **above** the status row, left-aligned, on its own line.
 
 **§11 gives Overview a tag slot; §2 makes selection tags valid in any state; §15 puts the bowl name
 "in the tag slot".** The mockup carries `Top matchup` eyebrows on Live cards.
@@ -5919,18 +5924,20 @@ Close renders `[]`. And the one marker Featured does pass — the CFP/conference
 a screenshot of the watchlist is what prompted it. **Item 143 is the seam** (where a tag goes); this is
 that three sections supply none.
 
-**CROSS-REFERENCE — Item 169.** Together these describe a tag that renders exactly where it must not
-and nowhere it should. **`Close`'s only reachable path on Overview is the forbidden one:** it cannot
-fire on Live, Recent finals or Featured because this item's three sections pass no tags, and on the
-watchlist it fires only through 169's `0-0` scheduled pack, which `DESIGN.md:313` prohibits. **Neither
-item named the other until the audit put them side by side.**
+**CROSS-REFERENCE — Item 169.** At filing, together these described a tag that rendered exactly where
+it must not and nowhere it should. **`Close`'s only reachable path on Overview was the forbidden one:**
+it could not fire on Live, Recent finals or Featured because this item's three sections passed no
+tags, and on the watchlist it fired only through 169's `0-0` scheduled pack, which `DESIGN.md:313`
+prohibits. **Neither item named the other until the audit put them side by side.**
 
 **SPLIT 2026-09-09, on the implementer's receipt.** They are different slices:
 
-**173a — Featured. WIRING, in flight.** `PrioritizedOverviewItem` already carries `highlightTags`
-(`overview.ts:42`) and Featured already receives prioritized items (`OverviewPanel.tsx:1730`) — it
-simply never passes them to Item 143's `tagSlot`. Its badge also moves off `contextSlot` into the seam.
-Kickoff: `platform-173a-featured-tag-slot-codex-v2.md`.
+**173a — Featured. IMPLEMENTED AND REVIEWED on `codex/173-overview-tags` (`05873bc0`, `64497b51` +
+closeout), merge pending.** This was wiring: Featured now passes the `highlightTags` it already
+received to Item 143's `tagSlot`, and its postseason badge moved from `contextSlot` into that same
+status-row seam. The badge retains its slate treatment and fits the seam without adding a line.
+Items 187 and 195 own the accepted review follow-ups. Kickoff:
+`platform-173a-featured-tag-slot-codex-v2.md`.
 
 **173b — Live and Recent finals. SELECTOR SLICE, not yet dispatched.** `selectOverviewGameSections`
 (`overviewGameSections.ts:188`) takes `sectionItems: OverviewGameItem[]` — **unprioritized** — and its
