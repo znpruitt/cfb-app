@@ -362,6 +362,7 @@ test('team logos use the 28px CFBD artwork treatment in the structural line-star
   assert.equal(image.getAttribute('height'), '28');
   assert.ok(classTokens(participantOpeningTag(html, 'away')).has('pl-8'));
   assert.ok(classTokens(participantOpeningTag(html, 'away')).has('py-1.5'));
+  assert.ok(classTokens(participantOpeningTag(html, 'away')).has('min-h-8'));
 });
 
 test('the 32px line-start slot stays reserved when logo artwork is unavailable', () => {
@@ -380,6 +381,7 @@ test('the 32px line-start slot stays reserved when logo artwork is unavailable',
     const classes = classTokens(participantOpeningTag(html, side));
     assert.ok(classes.has('pl-8'), `${side} must reserve the 32px logo slot`);
     assert.ok(classes.has('py-1.5'), `${side} must preserve the 28px logo row height`);
+    assert.ok(classes.has('min-h-8'), `${side} must enforce the 32px minimum row height`);
   }
 });
 

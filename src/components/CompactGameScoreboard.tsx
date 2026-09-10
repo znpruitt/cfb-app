@@ -225,7 +225,7 @@ export default function CompactGameScoreboard({
         return (
           <div
             key={side}
-            className={`relative flex items-baseline justify-between gap-3 py-1.5 pl-8 text-sm ${participantRowClasses(
+            className={`relative flex min-h-8 items-baseline justify-between gap-3 py-1.5 pl-8 text-sm ${participantRowClasses(
               isLeading,
               leader !== null
             )}${
@@ -241,6 +241,7 @@ export default function CompactGameScoreboard({
           >
             {participant.teamLogo ? (
               <Image
+                key={participant.teamLogo.url}
                 className="absolute left-0 top-1/2 block h-7 w-7 -translate-y-1/2 object-contain"
                 src={participant.teamLogo.url}
                 alt=""

@@ -21,10 +21,7 @@ function logoForProviderTeamId(providerTeamId: number): ScoreboardTeamLogo | nul
   };
 }
 
-function selectCfbdLogo(
-  logos: readonly string[] | null | undefined,
-  family: 'logos' | 'logos-dark'
-): string | null {
+function selectCfbdDarkLogo(logos: readonly string[] | null | undefined): string | null {
   for (const candidate of logos ?? []) {
     try {
       const url = new URL(candidate);
@@ -32,7 +29,7 @@ function selectCfbdLogo(
       if (
         url.protocol === 'https:' &&
         url.hostname === CFBD_LOGO_HOST &&
-        pathFamily === family &&
+        pathFamily === 'logos-dark' &&
         size === String(CFBD_SCOREBOARD_LOGO_ASSET_SIZE) &&
         filename?.endsWith('.png') &&
         extra.length === 0
@@ -56,7 +53,9 @@ export function buildScoreboardTeamLogosById(
     const teamId = toTeamIdentityKey(team.school);
     if (!teamId) continue;
 
-    const url = selectCfbdLogo(team.logos, 'logos-dark') ?? selectCfbdLogo(team.logos, 'logos');
+    // The app is dark-only. A missing dark-surface asset is missing artwork,
+    // not permission to substitute a light-surface mark with unreadable ink.
+    const url = selectCfbdDarkLogo(team.logos);
     if (url) logosById.set(teamId, { url });
   }
 

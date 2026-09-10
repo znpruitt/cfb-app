@@ -23,7 +23,7 @@ test('scoreboard logos select the 64px CFBD dark variant by resolver identity', 
   assert.equal(logos.has('oregon-ducks'), false);
 });
 
-test('scoreboard logos reuse the 64px light variant and reject untrusted or wrong-size URLs', () => {
+test('scoreboard logos reject light-only, untrusted, and wrong-size artwork', () => {
   const logos = buildScoreboardTeamLogosById([
     {
       school: 'Nevada',
@@ -39,9 +39,7 @@ test('scoreboard logos reuse the 64px light variant and reject untrusted or wron
     },
   ]);
 
-  assert.deepEqual(logos.get('nevada'), {
-    url: 'https://cdn.collegefootballdata.com/logos/64/2440.png',
-  });
+  assert.equal(logos.has('nevada'), false);
   assert.equal(logos.has('wrongsize'), false);
   assert.equal(logos.has('trackingpixel'), false);
 });
