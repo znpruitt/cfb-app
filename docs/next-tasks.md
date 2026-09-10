@@ -7087,9 +7087,27 @@ tests, and anything changing execution order or duration can change whether a la
 or after a `reset()`. **The distinction matters — "this diff cannot cause it" is established, "this
 diff cannot make it more likely" is not.**
 
-**The ask:** find why a plan record survives `reset()`, and fix the isolation rather than the
-assertion. **Blocker:** none. **A flaky test in the pre-merge gate is worse than a failing one** — it
-trains every lane to re-run until green, which is how the next real regression gets merged.
+> **DIAGNOSIS OVERTURNED 2026-09-09, and the item is now partly a production bug.** The record is not
+> involved. `route.ts:376` reads `if (settings === null || jobIsHeld(job, settings))` — and `settings`
+> comes from a **bare `catch` at `:368-372` that sets it to `null`**. `getProviderRefreshSettings`
+> awaits `getAppState` with no internal try/catch, so **a transient read failure is swallowed and marks
+> EVERY job held**, producing `jobsHeld: 2` and `plan-held` with no leaked record at all. `reset()`
+> already nulls that scope for both jobs (`:53-55`), which is why "a record survived `reset()`" could
+> not be explained — there was nothing to explain.
+>
+> **The production consequence is worse than the flake.** `:389-394` maps `plan-held` to `no-op`
+> precisely so `schedulerExecutionIssues` raises nothing — "a deliberate operator stop must not page
+> anyone." **So a transient settings-read failure in production stops the planner silently, in a state
+> indistinguishable from an intentional pause, with the alerting built to ignore it.** A swallowed
+> exception wearing the costume of a configuration.
+>
+> **Not reproduced — this is a code-path argument.** Falsifiable in one line: log what that `catch`
+> catches. The prompt requires that before anything is built.
+
+**The ask:** determine whether the settings read is throwing; separate "settings unreadable" from
+"operator held everything" so the former cannot report the result the alerting ignores; and fix the
+test isolation. **Blocker:** none. **A flaky test in the pre-merge gate is worse than a failing one** —
+it trains every lane to re-run until green, which is how the next real regression gets merged.
 
 **Do this as its own slice with its own review.** A reformat that silently alters a binding rule is
 worse than the unreadable version, and a diff this large hides a one-word change perfectly. **The

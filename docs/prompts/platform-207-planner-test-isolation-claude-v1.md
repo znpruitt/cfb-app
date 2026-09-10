@@ -1,6 +1,6 @@
 PROMPT_ID: PLATFORM-207-PLANNER-TEST-ISOLATION-CLAUDE-v1
-PURPOSE: Item 207 — four polling-planner tests fail roughly one run in three on `plan-held`, a plan record surviving a `reset()` that demonstrably ran. Find the mechanism and fix the isolation.
-SCOPE: `src/app/api/cron/polling-planner/__tests__/route.test.ts`, whatever writes the planner's durable scope, and `scripts/run-tests.mjs` if the harness is implicated. NOT the planner's production logic unless the mechanism proves to live there — and if it does, STOP and report before changing it.
+PURPOSE: Item 207 — four polling-planner tests fail roughly one run in three on `plan-held`. The likely cause is NOT a leaked plan record: a bare `catch` turns a transient settings-read failure into `settings = null`, which marks every job held. That is a production hazard as well as a flake.
+SCOPE: `src/app/api/cron/polling-planner/route.ts:368-377` (the swallowing catch), its test file, and `scripts/run-tests.mjs` if the harness is implicated. The production change is IN scope — see below; v1 excluded it on a diagnosis that has since been overturned.
 CARRIES: NONE, having checked `item-87-INDEX.md` — this is a test-infrastructure item with no Item 87 surface.
 
 Read `AGENTS.md` first — **Verification (binding)** is the section this item exists to protect.
@@ -35,14 +35,40 @@ the stronger claim.** Item 204 added 12 tests; anything changing execution order
 whether a late write lands before or after a `reset()`. **"That diff cannot cause it" is established.
 "That diff cannot make it more likely" is not.** Treat the diff as a perturbation, not a suspect.
 
-## The hypothesis to test first
+## THE DIAGNOSIS CHANGED — read this before anything else
 
-**An un-awaited write from an earlier test in the same file, landing AFTER `reset()`.** It fits all
-three observations: the nondeterminism, the roughly one-in-three rate, and a `reset()` that ran and
-did not hold. **Sequential tests do not protect against a promise nobody awaited** — `reset()` nulls
-the scope, then the orphaned write re-creates it.
+**v1 of this prompt, and the Item 204 lane's report, both said a plan record survived `reset()`. The
+code says that is not required.** `route.ts:376`:
 
-**Confirm or refute it. If it is wrong, that is the finding and the fix changes.**
+    if (settings === null || jobIsHeld(job, settings)) { exec.jobsHeld += 1; continue; }
+
+`settings` comes from `route.ts:368-372`, wrapped in a **bare `catch` that sets it to `null`**.
+`getProviderRefreshSettings` (`providerRefreshSettings.ts:65-71`) awaits `getAppState` with no internal
+try/catch, so a transient read or parse failure throws and is swallowed.
+
+**`settings === null` marks EVERY job held on its own, producing `jobsHeld: 2` and `plan-held` with no
+leaked record whatsoever.** That matters because `reset()` at `:53-55` explicitly nulls
+`POLLING_PLANNER_RECORD_SCOPE` for both jobs — "a record survived `reset()`" was the part nobody could
+explain, and **there is nothing to explain: the record is not involved.**
+
+**Likely mechanism: a transient `getAppState` failure racing `__resetAppStateForTests()`**, which the
+test file's own comment at `:58` says "clears pools and seams but NOT the backing file."
+
+**THIS IS A PRODUCTION HAZARD, NOT A TEST PROBLEM.** `route.ts:389-394`:
+
+    exec.result = 'no-op';
+    exec.reason = 'plan-held';
+    // `schedulerExecutionIssues` raises nothing for `no-op` — a deliberate
+    // operator stop must not page anyone
+
+**If the settings read transiently fails in production, the planner does nothing, reports a state
+indistinguishable from a deliberate operator pause, and the alerting is specifically built to stay
+quiet about it.** A swallowed exception wearing the costume of an intentional configuration. `AGENTS.md`
+already names this shape — feedback consistent with a wrong model, so the wrong model is reinforced.
+
+**This is a code-path argument, not a measurement. Planning has NOT reproduced it.** It is falsifiable
+in one line: log the caught error inside that `catch`. **Confirm or refute before building anything —
+if the settings read is not throwing, the leaked-record theory returns and the fix changes.**
 
 ## THE HARD PART IS PROOF, NOT DIAGNOSIS
 
@@ -66,10 +92,12 @@ Report these, then **STOP and wait**. Branch checkout only.
 1. The `PROMPT_ID:` line of THIS document, verbatim.
 2. **Reproduce it, and say how many runs it took.** If you cannot reproduce it at all, that is the
    finding and this item changes shape — do not proceed to a fix for a failure you have not seen.
-3. **Quote `reset()` and every writer of the planner's durable scope.** Enumerate them; say which are
-   awaited at every call site and which are not. **This is the hypothesis's test.**
-4. **Say whether the four failing tests share a predecessor** — is there one earlier test whose write
-   could plausibly land late, and does the failure set change when it is skipped?
+3. **Instrument the `catch` at `route.ts:371` and say whether it fires on a failing run.** Quote what
+   it caught. **This is the whole diagnosis** — if it never fires, planning's mechanism is wrong and you
+   should say so plainly rather than working around it.
+4. **Say whether the four failing tests share a predecessor**, and separately: **enumerate every other
+   bare `catch` on this route that converts a failure into a benign-looking value.** One is now known;
+   nobody has counted the rest.
 5. **Does any OTHER suite have the same shape?** A `reset()` plus an un-awaited durable write is not a
    property of this file. If the pattern exists elsewhere, those suites are flaking too and nobody has
    noticed. **Report the count, not just a yes.**
@@ -93,8 +121,13 @@ A `pre-push` hook runs `npm run lint:all`.
 </task>
 
 <gate>
-**Do NOT change the planner's production logic** unless the mechanism proves to live there — and if it
-does, STOP and report first. A test-isolation item that quietly edits a cron route is a different item.
+**The production fix IS in scope now — but ONLY the conflation.** Distinguish "settings unreadable"
+from "operator held everything"; do not redesign the hold logic, the receipt vocabulary, or the paging
+policy. **An unreadable settings record must not report `no-op`/`plan-held`**, because that is the one
+result the alerting deliberately ignores.
+
+**STOP and report before changing what a genuine operator hold does.** That path is correct and must
+stay silent.
 
 **Do NOT weaken an assertion to make a run green.** If a test is asserting the wrong thing, say so and
 argue it; do not widen a tolerance.
@@ -107,6 +140,9 @@ harness change under a flaky-test item is how an unrelated regression enters the
 </gate>
 
 <completeness_contract>
+- **A failing settings read no longer reports `plan-held`.** Assert on the distinguishable result, and
+  prove by mutation that a GENUINE operator hold still reports `no-op`/`plan-held` and still raises
+  nothing — restore the conflation and show a named test go red.
 - **The failure is deterministic with the defect present** — a named test failing 100% of runs, stated
   as a measured count, not "reliably".
 - **It passes 100% with the fix**, same harness, same count.
@@ -132,6 +168,9 @@ Report: the mechanism; how you made it deterministic; what changed and where; th
 run counts with sample sizes on both sides of the fix; and anything you deliberately did not do.
 
 **Say plainly whether any other suite shares the pattern**, and if so, how many.
+
+**Say whether this could have fired in production undetected**, and for how long it would have gone
+unnoticed given that `no-op` raises nothing. If the answer is "indefinitely", say that.
 
 **If you could not make it deterministic, say that first**, report the rate with its sample size, and
 do not use the word fixed.
