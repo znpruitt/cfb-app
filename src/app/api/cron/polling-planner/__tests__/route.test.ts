@@ -69,9 +69,23 @@ async function reset(): Promise<void> {
 }
 
 /**
- * The planner's two durable inputs, asserted EMPTY before each test — so an
- * inherited or leaked record fails here, at its cause, rather than three
- * assertions downstream in whichever test happens to read it first.
+ * The planner's THREE durable inputs, asserted absent at the top of every test.
+ *
+ * WHAT THIS CAN AND CANNOT CATCH, stated precisely because the first version of
+ * this comment overclaimed. It runs AFTER the delete above, and `getAppState` has
+ * no in-memory cache — every call re-reads the backing file — so by the time these
+ * assertions run an INHERITED store has already been unlinked and cannot fail
+ * them. This is not inheritance detection; the delete is what handles inheritance,
+ * and asserting before it would instead fail on the ~24% of runs where a recycled
+ * pid hands this process a perfectly harmless store.
+ *
+ * What it does catch: the delete not reaching the store these tests actually read
+ * — someone removing the call (mutation-proven: all 11 tests then fail HERE on the
+ * settings scope, on test 1, instead of on test 3's `pauses.length 0 !== 2`), a
+ * pool left installed by a previous test so the two resolve to different backends,
+ * or a durable write from a previous test landing after the reset. Each of those
+ * ends with the same four tests reading `plan-held` for a reason nothing in the
+ * assertion trail explains, which is the failure mode worth naming at its cause.
  */
 async function assertPlannerInputsAreClean(): Promise<void> {
   for (const job of ['live-scores', 'game-stats']) {
