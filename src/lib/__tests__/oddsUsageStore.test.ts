@@ -10,7 +10,7 @@ import {
   readLatestKnownOddsUsageState,
   setLatestKnownOddsUsage,
 } from '../server/oddsUsageStore.ts';
-import { assertDurableStoreUntouched, withSeamSandbox } from './appStateSeamSandbox.ts';
+import { assertDurableStoreUntouched, withSeamSandbox } from '@/test/appStateSeamSandbox';
 import {
   __corruptAppStateFileForTests,
   __deleteAppStateFileForTests,

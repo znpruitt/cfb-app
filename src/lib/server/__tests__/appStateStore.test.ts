@@ -1,7 +1,4 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import test from 'node:test';
 
 import {
@@ -19,6 +16,11 @@ import {
   isReadOnlyTransactionError,
   setAppState,
 } from '@/lib/server/appStateStore';
+import {
+  UNREACHABLE_DATABASE_URL,
+  assertDurableStoreUntouched,
+  withSeamSandbox,
+} from '@/test/appStateSeamSandbox';
 
 // Regression for the PLATFORM-081b dry-run hotfix: a dry-run inspection against
 // a read-only connection (e.g. a production read replica) must tolerate the
@@ -190,33 +192,17 @@ test(
 // A single assertion covering both would prove neither.
 // ---------------------------------------------------------------------------
 
-/** Refused instantly by the kernel, so nothing here can hang on DNS or a socket. */
-const UNREACHABLE_DATABASE_URL = 'postgres://user:pw@127.0.0.1:1/nowhere';
-
-async function withEnvironment(
-  overrides: Record<string, string | undefined>,
-  run: () => Promise<void>
-): Promise<void> {
-  const previous = new Map<string, string | undefined>();
-  for (const [name, value] of Object.entries(overrides)) {
-    previous.set(name, process.env[name]);
-    if (value === undefined) delete process.env[name];
-    else process.env[name] = value;
-  }
-  __resetAppStateForTests();
-  try {
-    await run();
-  } finally {
-    for (const [name, value] of previous) {
-      if (value === undefined) delete process.env[name];
-      else process.env[name] = value;
-    }
-    __resetAppStateForTests();
-  }
-}
+// THE SANDBOX IS SHARED WITH ITEM 211, NOT RESTATED HERE — see
+// `src/test/appStateSeamSandbox.ts`. This file used to carry its own
+// `UNREACHABLE_DATABASE_URL` and a `withEnvironment` that pinned the URL but did
+// NOT relocate cwd, so these guard tests had layer 1 without layer 2: a
+// regression in `hasDatabaseConfig()` during any of them would have written the
+// real `data/app-state.json`. Item 211 review finding. Two copies of a sandbox
+// drift the same way two copies of a refusal message do, and the copy that is
+// missing a layer is exactly how that drift shows up.
 
 test('GUARD 1: under isolation, a configured DATABASE_URL cannot open a real pool', async () => {
-  await withEnvironment(
+  await withSeamSandbox(
     { APP_STATE_TEST_ISOLATION: '1', DATABASE_URL: UNREACHABLE_DATABASE_URL },
     async () => {
       // `assertAppStateWritable` is the shortest exported path to pool
@@ -257,7 +243,7 @@ test('GUARD 2: the destructive seam refuses to run outside an isolated test proc
   //
   // Mutation target: delete the guard and this rejects with ECONNREFUSED instead
   // of the refusal message.
-  await withEnvironment(
+  await withSeamSandbox(
     { APP_STATE_TEST_ISOLATION: undefined, DATABASE_URL: UNREACHABLE_DATABASE_URL },
     async () => {
       await assert.rejects(
@@ -271,7 +257,7 @@ test('GUARD 2: the destructive seam refuses to run outside an isolated test proc
 
 test('GUARD 2 is not satisfied by a merely truthy flag', async () => {
   // Same pinning, same reason: a regression here must not be able to delete.
-  await withEnvironment(
+  await withSeamSandbox(
     { APP_STATE_TEST_ISOLATION: 'true', DATABASE_URL: UNREACHABLE_DATABASE_URL },
     async () => {
       await assert.rejects(
@@ -299,25 +285,16 @@ test('GUARD 2 covers the OTHER destructive seam in this file, not just the delet
   // running the mutation below without this wrote `{not-valid-json` to
   // `data/app-state.json` in this worktree. Top-level tests in a file run
   // sequentially, so the process-wide chdir cannot race a neighbour.
-  const originalCwd = process.cwd();
-  const sandbox = mkdtempSync(path.join(os.tmpdir(), 'item210-corrupt-seam-'));
-  try {
-    process.chdir(sandbox);
-    await withEnvironment({ APP_STATE_TEST_ISOLATION: undefined }, async () => {
-      await assert.rejects(
-        () => __corruptAppStateFileForTests(),
-        (error: unknown) =>
-          error instanceof Error && error.message === APP_STATE_CORRUPT_SEAM_REFUSAL
-      );
-    });
-  } finally {
-    process.chdir(originalCwd);
-    rmSync(sandbox, { recursive: true, force: true });
-  }
+  await withSeamSandbox({ APP_STATE_TEST_ISOLATION: undefined }, async () => {
+    await assert.rejects(
+      () => __corruptAppStateFileForTests(),
+      (error: unknown) => error instanceof Error && error.message === APP_STATE_CORRUPT_SEAM_REFUSAL
+    );
+  });
 });
 
 test('PRODUCTION UNCHANGED: with the flag absent, a configured DATABASE_URL still selects postgres and still connects', async () => {
-  await withEnvironment(
+  await withSeamSandbox(
     { APP_STATE_TEST_ISOLATION: undefined, DATABASE_URL: UNREACHABLE_DATABASE_URL },
     async () => {
       const status = getAppStateStorageStatus();
@@ -344,4 +321,8 @@ test('PRODUCTION UNCHANGED: with the flag absent, a configured DATABASE_URL stil
       );
     }
   );
+});
+
+test('the suite left the durable data/app-state.json untouched', () => {
+  assertDurableStoreUntouched();
 });

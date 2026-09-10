@@ -11,7 +11,7 @@ import {
   setDurableOddsStore,
   updateDurableOddsStore,
 } from '../server/durableOddsStore.ts';
-import { assertDurableStoreUntouched, withSeamSandbox } from './appStateSeamSandbox.ts';
+import { assertDurableStoreUntouched, withSeamSandbox } from '@/test/appStateSeamSandbox';
 import { __setAppStateWriteFailureForTests } from '../server/appStateStore.ts';
 
 const SEASON = 2026;

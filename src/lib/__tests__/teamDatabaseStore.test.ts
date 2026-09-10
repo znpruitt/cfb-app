@@ -10,7 +10,7 @@ import {
   getTeamDatabaseFile,
   setTeamDatabaseFile,
 } from '../server/teamDatabaseStore.ts';
-import { assertDurableStoreUntouched, withSeamSandbox } from './appStateSeamSandbox.ts';
+import { assertDurableStoreUntouched, withSeamSandbox } from '@/test/appStateSeamSandbox';
 
 const persistedFile = {
   source: 'cfbd' as const,
