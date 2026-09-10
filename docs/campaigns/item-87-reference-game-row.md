@@ -187,6 +187,27 @@ required to understand content. **This bar is redundant with the team name besid
 defensible aspiration here, not a mandate — and 1.431:1 is indefensible on any reading. **Item 198
 should choose a visibility floor deliberately rather than inheriting 3:1 by default.**
 
+#### The band shipped as 2.5 / 5.5 — and the argument that carried it was WRONG
+
+**Recorded 2026-09-10, correcting my own reasoning rather than the decision.** I argued 2.5 over 3.0
+on the grounds that a 3.0 floor collapses the band — 0.734 of span on zinc-950 against 1.541 at 2.5 —
+and that the wider span preserves variation between teams.
+
+**The shipped measurement says the span is barely occupied either way.** Against `#333336`: min
+**2.5001**, median **2.5103**, max **3.4810** — the median sits one hundredth above the floor and the
+max IS the ceiling. **At least half the teams clamp to the floor and the remainder pile at the
+ceiling**, because 101 of 135 inputs were below the floor and clamp to it wherever it sits. A 3.0
+floor would have clamped 106. **Five teams separated the two cases, not a collapsed band.**
+
+**The honest reason 2.5 beat 3.0 is that it brightens the whole set less** — a floor of 3.959:1 on
+zinc-950 rather than 4.766:1 — keeping bars closer to true colour and further from competing with
+result emphasis. Same decision, correct rationale.
+
+**The consequence to watch is that bar LIGHTNESS now carries almost no information.** Teams are
+separated by hue alone. Where several share a palette — California, Wake Forest and Purdue all read
+gold — the bars are near-identical. **That may be faithful rather than a defect, but it is a property
+of clamping, and nobody predicted it.**
+
 > **CORRECTED 2026-09-09 — this paragraph said "Work in OKLCH, not HSL" as an instruction, and the decision is STAGED.** `item-87-followon-team-colour.md` splits Item 119 into two separately shippable pieces: **(1) the 8px bar on the EXISTING HSL normaliser**, contrast-lifted to ≥3:1, and **(2) an OKLCH port ONLY IF (1) measures badly at 8px**, with the reserved-hue guard. **Piece 2 is conditional and is not a dependency of piece 1.** This document stated the endpoint as though it were the requirement — the reference is meant to consolidate settled decisions, and what is settled is the staging. Found by the Item 119 lane at its read receipt.
 
 The OKLCH shape, when and if piece 2 happens: clamp lightness into band, cap chroma, preserve hue, clamp rather than scale. **A reserved-hue guard is required so a gold team's bar does not read as champion amber.**
