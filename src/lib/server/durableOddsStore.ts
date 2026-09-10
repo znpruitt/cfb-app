@@ -1,5 +1,11 @@
 import type { DurableOddsRecord } from '../odds.ts';
-import { deleteAppState, getAppState, setAppState } from './appStateStore.ts';
+import {
+  appStateTestSeamRefusal,
+  assertTestSeamAllowed,
+  deleteAppState,
+  getAppState,
+  setAppState,
+} from './appStateStore.ts';
 
 /**
  * The process memo is BOUNDED (PLATFORM-086C2): each season's cached store carries
@@ -167,7 +173,22 @@ export function __resetDurableOddsStoreForTests(): void {
   seasonWriteQueue = new Map<number, Promise<void>>();
 }
 
+/**
+ * PLATFORM-211. The seam name and its damage are declared ONCE and shared by the
+ * refusal constant and the guard below, so the message a test asserts cannot
+ * drift from the message the seam raises.
+ */
+const DURABLE_ODDS_DELETE_SEAM = '__deleteDurableOddsStoreFileForTests';
+const DURABLE_ODDS_DELETE_SEAM_DAMAGE =
+  "it deletes one season's durable odds store — `delete from app_state where scope = $1 and key = $2` against real rows whenever DATABASE_URL is set, and, with DATABASE_URL unset, a rewrite of the durable `data/app-state.json` rather than the pid-keyed temp file";
+
+export const DURABLE_ODDS_DELETE_SEAM_REFUSAL = appStateTestSeamRefusal(
+  DURABLE_ODDS_DELETE_SEAM,
+  DURABLE_ODDS_DELETE_SEAM_DAMAGE
+);
+
 export async function __deleteDurableOddsStoreFileForTests(season: number): Promise<void> {
+  assertTestSeamAllowed(DURABLE_ODDS_DELETE_SEAM, DURABLE_ODDS_DELETE_SEAM_DAMAGE);
   memoryStore.delete(season);
   await deleteAppState(durableOddsScope(season), 'store');
 }

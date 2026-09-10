@@ -140,8 +140,17 @@ export function appStateTestSeamRefusal(seam: string, damage: string): string {
   );
 }
 
-/** Shared prologue for every destructive test-only seam. See GUARD 2 below. */
-function assertTestSeamAllowed(seam: string, damage: string): void {
+/**
+ * Shared prologue for every destructive test-only seam. See GUARD 2 below.
+ *
+ * EXPORTED for PLATFORM-211, whose three destructive seams live in
+ * `durableOddsStore`, `oddsUsageStore` and `teamDatabaseStore` rather than in
+ * this file. They must reuse this prologue and `appStateTestSeamRefusal` rather
+ * than restate them: a second refusal vocabulary is the drift Item 210's review
+ * finding 5 was about, and three of them would be three chances to disagree
+ * about what the operator is told.
+ */
+export function assertTestSeamAllowed(seam: string, damage: string): void {
   if (!testIsolationEnabled()) throw new Error(appStateTestSeamRefusal(seam, damage));
 }
 
