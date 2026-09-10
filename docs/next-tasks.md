@@ -7277,8 +7277,21 @@ guards every destructive seam in `appStateStore.ts`; this item guards the three 
 commit to add three files means re-reviewing all of it rather than just the addition. **The valuable
 guard is already in 210; this is the mechanical remainder.**
 
-**The ask:** apply guard 2's refusal to the three destructive seams and rule on the corrupting one.
-**Blocker:** Item 210, whose message constants and test shape this should reuse rather than reinvent.
+**MUTATION SAFETY IS A DESIGN INPUT HERE, NOT A TEST DETAIL — added 2026-09-10 after it fired twice on
+the Item 210 branch.** The guard-2 mutation ran with the flag unset and lost nothing only because no dev
+store existed. **The corrupt-seam mutation then actually wrote `{not-valid-json` to
+`data/app-state.json`** before it was sandboxed. **A test for a refusal must run the unguarded path to
+prove the guard works, so its failure mode IS the damage.**
+
+**And the mitigation differs per seam.** Pinning `DATABASE_URL` to an unreachable port works for a seam
+with a database branch — the call fails at connect. **A seam whose write is unconditional has no such
+branch and needs a relocated `cwd` instead.** All three here route through `deleteAppState()`, which
+does have a database branch, so pinning should suffice — **verify that rather than assume it.**
+
+**The ask:** apply guard 2's refusal to the three destructive seams. **The corrupting seam is DONE** —
+owner ruling 2026-09-10 moved it into Item 210, which shipped at `421fab9c`. **Blocker:** Item 210,
+whose `appStateTestSeamRefusal(seam, damage)` and `assertTestSeamAllowed` exports and test shape this
+should reuse rather than reinvent.
 
 ### Item 209 — the test store leaks a file per process, forever
 
