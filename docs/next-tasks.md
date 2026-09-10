@@ -523,18 +523,10 @@ kind at the loader boundary before adding retry UI.
 
 ### Item 60 — rankings recovery remains incomplete
 
-Future poll normalization is corrected and the current 2026 snapshot was refreshed, but two
-operator decisions remain:
-
-- whether historical seasons should be re-fetched where the archived Coaches column may contain a
-  lower-division poll, with the associated CFBD cost;
-- whether to build a guarded force path for a legitimate rankings replacement that the
-  all-or-nothing coverage gate refuses after a poll rename or removed week.
-
-Also retain these low-severity implementation follow-ups when the authority is next touched:
-deduplicate unknown-poll warnings across the whole two-partition refresh, and validate `poll.poll`
-before trimming it so malformed provider data is classified rather than thrown as an unexpected
-programming error.
+**MIGRATED to [#601](https://github.com/znpruitt/cfb-app/issues/601) on 2026-09-10, labelled `needs-decision`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.** Triage record:
+[`docs/archive/audits/queue-triage-2026-09-10.md`](archive/audits/queue-triage-2026-09-10.md).
 
 ### Item 79 — vanished-schedule observability follow-ups are evidence-gated
 
@@ -550,65 +542,17 @@ Production behavior is accepted. Make no change unless real log triage demonstra
 
 ### Item 81 — score-gap diagnostic follow-ups are evidence-gated
 
-PLATFORM-112's production behavior and current single-producer boundary are accepted. Preserve
-these confirming-review observations without putting them into the active sequence:
-
-- independently cap `SafeDiagnostic.gameRefs` at the System Health presentation boundary if a
-  second producer is added; the current producer already caps it at six;
-- measure the diagnostics pass against its eight-second bound before deduplicating the canonical
-  schedule builds used by score and game-stats coverage;
-- change the shared fail-closed conclusion precedence only if real CFBD evidence shows a canceled
-  game with `completed: true`; today that contradictory combination deliberately requires a score.
-
-- Backlog slug: `PLATFORM-SCORE-GAP-DIAGNOSTIC-FOLLOWUPS-v1`
+**MIGRATED to [#603](https://github.com/znpruitt/cfb-app/issues/603) on 2026-09-10, labelled `parked`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.** Triage record:
+[`docs/archive/audits/queue-triage-2026-09-10.md`](archive/audits/queue-triage-2026-09-10.md).
 
 ### Item 95 — remaining live-score cadence work
 
-Portion 1 shipped via PR #567; its implementation and review record is in
-`PLATFORM-BROWSER-POLL-CADENCE-v2` in `docs/prompt-registry.md`. The settled baseline for the open
-work is a cache-only, full-partition browser read every 90 seconds inside the bounded fast tier and
-every 180 seconds otherwise, with the provider writer unchanged at three minutes.
-
-**Post-merge observation — measure `/api/scores?live=1` Active CPU during a live slate.** Each browser
-read still invokes the dynamic route and durable full-season reconciliation. If its attribution is
-material, memoize that reconcile; the optimization helps both cadence tiers and does not change what
-scores are read.
-
-**Remaining follow-up — retune the client staleness threshold.**
-`DEFAULT_LIVE_DELTA_STALE_THRESHOLD_MS` (`selectors/liveDelta.ts`) remains 7 minutes. It detects a
-wedged client poll rather than stale provider data, so changing it is a product decision: reduce it
-to roughly four minutes to restore a two-missed-tick bound, or keep seven minutes as an intentional
-wall-clock allowance. Portion 1 deliberately changes only its docblock, not the value.
-
-**Portion 2 — cron cadence, gated on Item 94.** Because the route bills at most one request per run,
-the cost is exactly linear:
-
-    monthly calls = armed hours x runs/hour x 1      (20/hr at 3 min; 40/hr at 90s)
-
-So the price of doubling equals the month's armed-hour count — a number nobody has yet.
-**Item 94 produces it.** Do not size this from an estimate; the whole point of 94 is that August's
-395 calls covers ~2 in-season days and is not a usable baseline.
-
-Portion 2 remains separate because it changes the provider writer and spends quota.
-
-**Item 102 changes what portion 2 is asking — recorded 2026-09-04.** The planner does not create quota
-headroom: dead-day runs already bill zero provider calls, since the route bills only when armed. What
-it creates is **Active CPU headroom** — roughly 2.9 h of the 4 h allowance, from ~1.1 h/30d projected
-against a budget live-scores currently consumes 75% of. So after the planner, a faster in-window
-cadence becomes affordable on the axis that previously blocked it, while its cost on the quota axis is
-completely unchanged.
-
-**Both axes now scale with the same unknown: armed hours.** Quota is `armed hours × runs/hour`, and
-the added CPU is likewise proportional to how many hours the windows actually cover. So **Item 94
-gates both halves of portion 2**, not just the quota half — which upgrades 94 from a passive
-measurement into the input for two decisions. It bills 0 (`GET /info`) and reports after the
-September reset, so the answer arrives at the start of October on its own.
-
-**Consequence for sequencing:** let the provider cadence decision land when Item 94 reports — with
-the headroom banked and quota cost measured rather than estimated. Do not size portion 2 before then;
-that is the whole reason Item 94 exists.
-
-- Backlog slug: `PLATFORM-LIVE-SCORE-CADENCE-v1`
+**MIGRATED to [#604](https://github.com/znpruitt/cfb-app/issues/604) on 2026-09-10, labelled `actionable`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.** Triage record:
+[`docs/archive/audits/queue-triage-2026-09-10.md`](archive/audits/queue-triage-2026-09-10.md).
 
 ### Item 96 — pause the in-season QStash schedules through the offseason
 
@@ -4415,14 +4359,10 @@ unsatisfying.
 
 ### Item 51 — manual assignment is offered but has no completion writer
 
-`manualAssignmentComplete` is read by readiness selectors and has no production writer. Selecting
-manual assignment therefore strands the league in `manual-assignment-incomplete`, and Complete
-Setup can never succeed.
-
-Owner decision required at activation: either implement the manual assignment workflow and a
-durable per-`(slug, year)` completion fact, or refuse/hide the assignment method until it exists.
-When implemented, that durable completion becomes the second valid evidence source for membership
-change insights; a transient preseason lifecycle flag is not sufficient.
+**MIGRATED to [#600](https://github.com/znpruitt/cfb-app/issues/600) on 2026-09-10, labelled `needs-decision`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.** Triage record:
+[`docs/archive/audits/queue-triage-2026-09-10.md`](archive/audits/queue-triage-2026-09-10.md).
 
 ### Item 23 — assignment-method and draft-recovery states
 
@@ -4438,13 +4378,10 @@ Resolve as a focused setup/recovery campaign:
 
 ### Item 28 — remaining demo dry-run findings
 
-Keep these product defects together because they describe the same commissioner recovery flow:
-
-- Reopen does not provide a clear path back to draft setup;
-- Setup Complete can survive a reopen;
-- “Finish draft” can appear when no draft exists;
-- owners cannot be renamed from the owners screen;
-- editing owners after confirmation can diverge from draft/roster authority.
+**MIGRATED to [#597](https://github.com/znpruitt/cfb-app/issues/597) on 2026-09-10, labelled `needs-triage`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.** Triage record:
+[`docs/archive/audits/queue-triage-2026-09-10.md`](archive/audits/queue-triage-2026-09-10.md).
 
 ### Item 39 — draft-board walkthrough follow-ups
 
@@ -4460,20 +4397,17 @@ The live writer behavior held under the walkthrough. Remaining work:
 
 ### Item 45 — PLATFORM-092 setup residue
 
-- Make the preseason banner use the same `MIN_CONFIRMED_OWNERS` threshold as confirmed-roster
-  selection; a one-owner repair CSV currently says “Roster confirmed” on one surface and incomplete
-  on another.
-- Extract the reorder editor if `DraftSettingsPanel` is next expanded; it sits at the library's
-  complexity guardrail.
-- Avoid importing the full standings dependency graph merely to obtain the owner-count constant
-  when that shell is next touched.
+**MIGRATED to [#599](https://github.com/znpruitt/cfb-app/issues/599) on 2026-09-10, labelled `actionable`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.** Triage record:
+[`docs/archive/audits/queue-triage-2026-09-10.md`](archive/audits/queue-triage-2026-09-10.md).
 
 ### Item 37 — `NoClaim` can count toward confirmation eligibility
 
-A legacy or hand-edited `preseason-owners` row such as `['Alice', 'NoClaim']` can satisfy the owner
-threshold before downstream consumers strip `NoClaim`. Insights re-checks the threshold, but draft
-creation and setup surfaces consume the padded list. Normalize the confirmed-roster authority once,
-before applying the threshold, and explicitly test the behavior change for legacy records.
+**MIGRATED to [#598](https://github.com/znpruitt/cfb-app/issues/598) on 2026-09-10, labelled `actionable`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.** Triage record:
+[`docs/archive/audits/queue-triage-2026-09-10.md`](archive/audits/queue-triage-2026-09-10.md).
 
 ### Item 17 — mid-season owner replacement does not update membership
 
@@ -4524,20 +4458,17 @@ paths must participate in the same serialization and stale-write policy as other
 
 ### Item 12 — remaining draft-writer serialization
 
-Existing-draft mutations are serialized, but these writers remain outside the same authority:
-
-- `PUT /api/owners` roster replacement;
-- draft creation;
-- demo auto-complete.
-
-Keep provider/store I/O ordering compatible with the small database pool, and do not hold a
-transaction client across network work.
+**MIGRATED to [#596](https://github.com/znpruitt/cfb-app/issues/596) on 2026-09-10, labelled `actionable`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.** Triage record:
+[`docs/archive/audits/queue-triage-2026-09-10.md`](archive/audits/queue-triage-2026-09-10.md).
 
 ### Item 19 — alias/store failure preempts a clean pick refusal
 
-The pick route reads aliases before evaluating some draft-state guards. A store outage can therefore
-return 500 where the stored draft already proves the pick should be refused without that dependency.
-Move nonessential reads behind the cheap authoritative refusal checks.
+**MIGRATED to [#595](https://github.com/znpruitt/cfb-app/issues/595) on 2026-09-10, labelled `actionable`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.** Triage record:
+[`docs/archive/audits/queue-triage-2026-09-10.md`](archive/audits/queue-triage-2026-09-10.md).
 
 ### Item 20 — database waits are unbounded
 
@@ -4797,12 +4728,10 @@ branch is actually wanted; the alias/project-setting requirement is the load-bea
 
 ### Item 71 — JSDOM-heavy test startup and timeout headroom
 
-The measured slow component file spent most time in JSDOM/module startup, not test work. Do not
-split files by default because that repeats the dominant cost. Re-measure under representative host
-load with streaming output, then choose explicitly between shared JSDOM per worker and a larger
-per-file timeout while preserving process isolation for pid-scoped app state.
-
-- Backlog slug: `PLATFORM-TEST-STARTUP-HEADROOM-v1`
+**MIGRATED to [#602](https://github.com/znpruitt/cfb-app/issues/602) on 2026-09-10, labelled `needs-triage`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.** Triage record:
+[`docs/archive/audits/queue-triage-2026-09-10.md`](archive/audits/queue-triage-2026-09-10.md).
 
 ### Item 73 — archived season-arc axis domain
 
@@ -7118,6 +7047,37 @@ diff cannot make it more likely" is not.**
 suites, making them the 137th–140th of 140 that do it. **Blocker:** none. **A flaky test in the
 pre-merge gate is worse than a failing one** — it trains every lane to re-run until green, which is how
 the next real regression gets merged.
+
+### Queue migration to GitHub Issues — STARTED 2026-09-10, ten items in
+
+**The first ten triaged items are now issues** (#595-#604) and their entries above are pointers.
+`docs/next-tasks.md` is ~7,300 lines and ~126,000 tokens: **nobody reads it, everyone greps it, and a
+queue reachable only by search has stopped being a queue.**
+
+| label | meaning |
+| --- | --- |
+| `actionable` | verified live against current code; ready to pick up |
+| `needs-decision` | blocked on an owner ruling, not on work |
+| `parked` | a conditional note whose trigger has not fired. Not work yet. |
+| `needs-triage` | not yet verified against code |
+
+**`parked` exists because Item 81 is neither live nor dead** — every bullet is gated on something that
+has not happened ("if a second producer is added", "only if real CFBD evidence shows..."). **Filing
+that shape as open work produces a backlog that never drains and cannot be prioritised.** Item 45's
+second and third bullets and Item 60's implementation follow-ups are the same shape.
+
+**Two rules for the remaining 46, both learned from the sample:**
+
+1. **Re-validate the PRESCRIPTION, not just the symptom.** Item 19 accurately describes a live defect
+   and prescribes a fix that would now deadlock the pool process-wide. A triage asking only "is this
+   still broken?" would have marked it live and left the trap armed. **#595 carries that warning in
+   bold above the ask.**
+2. **A migrated entry becomes a POINTER.** The issue is canonical; the entry says where it went.
+   Restating it in both places is how the two drift, and DOCS-012 already binds it.
+
+**What has NOT been decided:** whether the remaining 46 migrate at all. The triage refuted the premise
+that they were mostly dead — **0 of 10 superseded, 6 verified live** — so migration matters more than
+when it was proposed, but 46 more triages is real work and the owner has not scheduled it.
 
 ### Logos as the identity accent — MEASURED 2026-09-10, no decision taken
 
