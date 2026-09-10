@@ -302,15 +302,17 @@
 
   /* Date headings read as chrome, not content: quieter than a game row but
      structurally separated. Asymmetric spacing binds the heading to the group
-     below it; the full-width rule is the only horizontal line at this level. */
+     below it. The full-width rule sits under every heading so an intentionally
+     unfilled grid cell reads as the end of a day, not a missing game. It reuses
+     the game-separator colour at twice its 0.5px thickness. */
   .date-group + .date-group { margin-top: 34px; }
   .date-head {
     font-size: 11px; font-weight: 600; letter-spacing: 0.10em; text-transform: uppercase;
     color: var(--text-secondary);
-    padding-top: 20px; margin: 0 0 11px;
-    border-top: 1px solid rgba(255,255,255,0.16);
+    padding: 20px 0 8px; margin: 0 0 11px;
+    border-bottom: 1px solid var(--hairline);
   }
-  .date-group:first-of-type .date-head { padding-top: 0; border-top: none; }
+  .date-group:first-of-type .date-head { padding-top: 0; }
   .sched-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 16px; align-content: start; }
   /* Block layout ignores grid gap — blocks need their own separation. */
   @container (max-width: 760px) {
@@ -759,6 +761,7 @@
     <li><em>[Superseded 2026-09-08: the previous sentence is wrong and this file's own final rows already contradict it &mdash; they carry no time. A final row carries no date and no time (DESIGN.md, owner decision 2026-09-04); scheduled rows carry the kickoff, live rows the clock. Corrected in matchups-schedule-design.md "Sorted strictly by kickoff".]</em></li>
     <li><strong>Open &mdash; landing position.</strong> Ascending order means a mid-Saturday visit opens on the morning's finals with live games below the fold. That is a scroll-position question rather than a sort question: options are to leave it, scroll to the first non-final game on load, or anchor the current date group. Worth deciding separately from the sort.</li>
     <li><strong>Two-column Schedule</strong> matches the Overview grid, row-major, container query at 760px. Matchups owner cards tier at 1372px — 3 &times; (400px inner + 44px card padding) + 2 &times; 20px gap. Higher than Schedule’s 1320 because each card carries its own padding.</li>
+    <li><strong>Odd game counts leave an intentional empty grid cell at a day boundary.</strong> Every date heading therefore carries a full-width rule beneath it, using the game-separator colour at 1px versus the 0.5px line beneath a game. The slightly heavier rule makes the day boundary span both columns and explains the gap without moving a later date's game into it.</li>
     <li><strong>Records shown throughout</strong> &mdash; anchor on scheduled rows, inline parenthetical on live and final rows, per the records follow-on. These depend on the CFBD records integration; until it lands, scheduled rows anchor on the spread and live/final rows omit the parenthetical.</li>
     <li><em>[Superseded 2026-09-08: the records integration landed (PLATFORM-117) but is wired to Overview only. Where a record is unavailable a scheduled row's anchor is left BLANK, never given the spread &mdash; owner decision 2026-09-02 and ruling 2026-09-08 in item-87-live-watchlist-scoreboard.md "Watchlist card". Live/final rows omitting the parenthetical stands.]</em></li>
     <li><strong>FCS teams are never owned</strong> &mdash; they appear only as the unowned opponent in an FBS-vs-FCS game, so an FCS line renders team-only with no owner suffix, exactly like the unowned-FBS case. FCS-vs-FCS games cannot exist in the league and are not drawn.</li>
