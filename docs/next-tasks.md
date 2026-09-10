@@ -7268,9 +7268,10 @@ them whenever isolation is ON** — but in the bare `node --test src/...` case t
 the flag is unset, guard 1 is silent by construction, and these delete production rows for their scope.
 **They want guard 2's treatment**, stated the same way: `APP_STATE_TEST_ISOLATION !== '1'` → throw.
 
-**A fourth is different and still worth fixing.** `appStateStore.__corruptAppStateFileForTests` writes
-`{not-valid-json` to `appStateFilePath()`. File-only, so it cannot reach Postgres — but outside
-isolation that path is `data/app-state.json`, and it will trash a developer's local store.
+**A fourth, `appStateStore.__corruptAppStateFileForTests`, MOVED INTO ITEM 210** — owner ruling
+2026-09-10. It writes `{not-valid-json` to `appStateFilePath()`, which outside isolation is the durable
+`data/app-state.json`, and `oddsUsageStore.test.ts:214` calls it. **The boundary is the FILE:** 210
+guards every destructive seam in `appStateStore.ts`; this item guards the three that live elsewhere.
 
 **Why this is NOT folded into Item 210:** 210 is reviewed clean at `4c882e2b`, and reopening a reviewed
 commit to add three files means re-reviewing all of it rather than just the addition. **The valuable
