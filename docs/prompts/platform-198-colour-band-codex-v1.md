@@ -31,28 +31,37 @@ same direction and cannot.
 
 ## Two things this item must fix that are NOT contrast
 
-**1. A near-neutral is being assigned a hue.** Nevada's `#8a8d8f` renders `#6894B1` — a slate blue.
-The source is (138, 141, 143): blue is max, red is min, so it carries a faint blue cast at roughly 2%
-saturation, **below perceptual threshold.** The hypothesis is that the lift amplifies saturation and
-makes visible a hue that was never meant to be seen. **A band will not fix this** — it will preserve
-the invented hue at a different lightness. **CARRY row 18 is the fix direction and it is binding:
-chroma reduction, never a hue shift.** Below a chroma threshold, lift lightness only.
+**1. A near-neutral is being assigned a hue — mechanism confirmed, MY ATTRIBUTION WAS WRONG.**
+Nevada's `#8a8d8f` is HSL 204° / 2.18% / 55.1%. **`isUnsafeRawColor` returns false, so
+`liftForDarkThemeContrast` is never called** — I named the wrong function. **`softenForScoreboard:203`
+raises saturation from 2.18% to a 32% MINIMUM while retaining the 204° hue**, producing `#6894B1`.
+**A band will not fix this**; it preserves the invented hue at a different lightness. **CARRY row 18 is
+binding: chroma reduction, never a hue shift.** A saturation FLOOR is the defect — near-neutral in must
+mean near-neutral out.
 
-**2. The background constant is wrong on owner rows.** See CARRY row 17. `teamColors.ts:23` normalises
-against `#0A0A0A`; the owner-row tint renders `#171718`. **Every figure above was measured against
-`#0A0A0A` and is therefore 9.5% optimistic on owner rows** — a colour normalised to exactly 3:1 renders
-at **2.72:1** there. **Normalise against the worst case.**
+**2. There are SIX underlays, not three, and no single one governs the band.** CORRECTED 2026-09-09 by
+this lane's receipt — my `#171718` was theoretical and sits under no bar. Real: `#09090B` (Overview,
+Schedule, Postseason), `#27272A`/`#333336` (Matchups scheduled, non-owner/owner), `#242427`/`#303033`
+(Matchups outcome). **Worst is `#333336` at a 36.2% penalty, not 9.5%** — 3:1 against the canvas is
+**1.913:1** there. **The LIGHTEST underlay constrains the floor; the DARKEST constrains the ceiling.**
 
 ## What is NOT settled, and must not be invented
 
-**The band's bounds are the owner's, not yours.** ~3:1–5:1 raw was the illustration that carried the
-decision; it is not a ruling. The ceiling is really *how bright may a bar get before it competes with
-the winner's emphasis* — the question the 72% mute was answering badly. **Propose bounds with the
-measurement behind them and STOP for the owner.**
+## THE BAND IS RULED — owner decision 2026-09-09, adopting this lane's proposal
 
-**3:1 is not mandated here.** WCAG 1.4.11 governs components required to understand content, and this
-bar is redundant with the team name beside it. **3:1 is a defensible floor, not an inherited one** —
-and 1.431:1 is indefensible on any reading. Say what floor you propose and why.
+**Floor 2.5:1 against `#333336`, the lightest underlay. Ceiling 5.5:1 against `#09090B`, the darkest.**
+Proposed by the Item 198 receipt, verified independently, adopted unchanged.
+
+**Two reasons it carried, and the second was not in the proposal.** The ceiling is anchored in what the
+owner actually looked at — today's brightest bar reads as noticeable but not louder than result
+emphasis — rather than in arithmetic. **And a 3.0 floor collapses the band: it leaves 4.766–5.5 on
+zinc-950, a span of 0.734 to distribute 135 teams across, which is why 106 of them pile onto the
+floor.** At 2.5 the span is **1.541**. Below roughly 1.0 the band stops being a band and becomes a
+target, and teams stop being distinguishable by bar lightness at all.
+
+**2.5 is deliberately below the WCAG 1.4.11 number, and that is a decision, not an oversight.** 1.4.11
+governs components required to understand content; this bar is redundant with the team name beside it.
+**Do not "restore" 3.0 during implementation** — it was chosen against, with the cost measured.
 
 ## STOP — post a READ RECEIPT before writing any code
 
@@ -78,9 +87,11 @@ A receipt that summarises without quoting is not a receipt.
 
 ## Branch
 
-`codex/198-colour-band` from current `origin/main`, in `/Users/zach/cfb-app-codex`.
-**Item 119 is held at `c3972931` and this item builds on it** — say explicitly whether you branch from
-`main` or from the 119 branch, and why. A `pre-push` hook runs `npm run lint:all`.
+`codex/198-colour-band` **from the held Item 119 commit `c3972931`** — CORRECTED 2026-09-09; v1 said
+`origin/main` one line above saying this builds on 119, which is a contradiction the lane caught and
+resolved correctly. **`main` contains no bar, no opacity and no consumers**, so branching from it would
+leave nothing to modify. **Rebase the stack onto current `main` before implementation.**
+In `/Users/zach/cfb-app-codex`. A `pre-push` hook runs `npm run lint:all`.
 
 <task>
 1. **Normalise every colour into a band** — not only those flagged unsafe. The current
