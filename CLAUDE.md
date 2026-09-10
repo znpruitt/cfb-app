@@ -94,6 +94,14 @@ first commit; if you are not where this table says you should be, stop and say s
   narratives does not. So when a prompt assigns a document to a lane, **planning stands off it for the
   duration including its own closeout notes** — and if planning has something that belongs there, it
   goes in the relay message for the lane to write, not into the file.
+- **THE THREE WORKTREES SHARE ONE OBJECT DATABASE, SO A PLANNING-SESSION `git cat-file` SEES UNPUSHED
+  LANE COMMITS.** Added 2026-09-09 after I used exactly that to reach a wrong conclusion. All three
+  worktrees resolve to `/Users/zach/cfb-app/.git`. When the Item 204 lane reported pushing a merge
+  commit that was not on `origin`, I found the object present locally and inferred "it was pushed and
+  the branch moved back." **It was never pushed; I was reading the lane's own local object through the
+  shared store.** The lane's reflog check gave the right answer. **To ask whether something is on the
+  remote, query the remote** — `git ls-remote origin <ref>`, or `git branch -r --contains` — never
+  `cat-file`, which cannot distinguish "fetched" from "another worktree wrote it."
 - **Prefer explicit paths over `git add -A`** in every session. `-A` is what makes a shared or
   mistaken checkout destructive rather than merely confusing.
 - A new worktree needs what git does not carry: `npm ci`, plus `.env.local` and `.env.operator.local`
