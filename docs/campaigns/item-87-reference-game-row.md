@@ -159,7 +159,33 @@ wrong instrument for a two-ended distribution.
 **The hypothesis this leaves for Item 198, to be measured rather than assumed:** if normalisation
 clamps lightness into a band, it solves BOTH ends with one instrument — and the opacity mute becomes
 redundant rather than merely suboptimal. If that holds, `0.72` can go to `1.0`, which raises every
-composited ratio without touching a hue. **Measure it; do not adopt it on this reasoning alone.**
+composited ratio without touching a hue.
+
+#### MEASURED 2026-09-09, on the resynced catalog — the hypothesis holds, and the two goals are in direct conflict
+
+**135 bars render** (125 primary, 10 alternate; Georgia Southern, Penn State and UConn omitted).
+**Only 31 of 135 — 23.0% — clear 3:1 composited.** Distribution: min **1.431**, median **2.099**,
+mean 2.452, p75 2.937, max **5.789**. 52 teams sit below 2.00.
+
+**The median is the finding.** Compositing 72% over `#0A0A0A`, a raw **3.00:1** colour lands at
+**2.086:1** — and the measured median is **2.099**, back-solving to **raw 3.025:1**. The normaliser is
+hitting its target almost exactly. **The opacity is what breaks it**, costing **0.93** of ratio at the
+median and **1.82** at the level that would clear 3:1.
+
+**So the three goals cannot all hold.** To reach 3:1 composited at 72%, every colour must be
+**4.815:1 raw** — bright enough that the mute has been defeated by the thing it was added to prevent.
+**Pick two of: 72% opacity, 3:1 composited, muted colour.**
+
+**And a band beats the mute at the mute's own job.** Today's brightest bar is 5.789 composited
+(10.5:1 raw). A normalisation band of roughly 3:1–5:1 raw at full opacity would put every bar between
+3.0 and 5.0 composited — **raising the dark end AND lowering the bright end below where it sits now.**
+A global multiplier cannot do that; it moves every colour the same direction. **This is the case for
+piece 2 being a band, not a lift.**
+
+**One question that must be answered before the target is:** WCAG 1.4.11's 3:1 governs UI components
+required to understand content. **This bar is redundant with the team name beside it.** 3:1 is a
+defensible aspiration here, not a mandate — and 1.431:1 is indefensible on any reading. **Item 198
+should choose a visibility floor deliberately rather than inheriting 3:1 by default.**
 
 > **CORRECTED 2026-09-09 — this paragraph said "Work in OKLCH, not HSL" as an instruction, and the decision is STAGED.** `item-87-followon-team-colour.md` splits Item 119 into two separately shippable pieces: **(1) the 8px bar on the EXISTING HSL normaliser**, contrast-lifted to ≥3:1, and **(2) an OKLCH port ONLY IF (1) measures badly at 8px**, with the reserved-hue guard. **Piece 2 is conditional and is not a dependency of piece 1.** This document stated the endpoint as though it were the requirement — the reference is meant to consolidate settled decisions, and what is settled is the staging. Found by the Item 119 lane at its read receipt.
 
