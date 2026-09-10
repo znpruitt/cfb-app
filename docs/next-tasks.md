@@ -6604,54 +6604,18 @@ packaging is. **Change no rule while doing it.**
 
 ### Item 201 — the seed catalog carries no colours at all
 
-**Measured 2026-09-09 by the Item 199 lane, confirmed here.** `src/data/teams.json` holds 138 items with
-keys `school, displayName, shortDisplayName, abbreviation, mascot, conference, alts` — **`with color: 0`,
-`with altColor: 0`.** `scripts/fetch-cfbd-teams.ts`, the `npm run fetch:teams` writer, never fetches
-either field; its only match on `color` is a conference alias string.
-
-**Why it matters:** that file is `readSourceCatalogFallback`'s source when the durable `team-database`
-row is absent. **On a fresh environment every team renders the fallback green regardless of Item 199**,
-because the fallback path was never given colours to fall back to. Production is unaffected — its durable
-row carries 138 primaries — so this is latent, not live.
-
-**It is a second writer of the same shape.** Whatever name Item 199 settles on the provider side, this
-script has to agree with it, and today it does not participate at all.
-
-**The ask:** teach the seed writer to carry `color` and `alternateColor`, and regenerate. **Blocker:**
-Item 199, so the two writers land on one field name rather than two.
+**MIGRATED to [#614](https://github.com/znpruitt/cfb-app/issues/614) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 202 — `src/types/teams.ts` is a dead duplicate that has drifted
 
-**Measured 2026-09-09.** `grep -rn "@/types/teams" src/` returns **zero importers**; the only reference to
-the file is its own definition. It declares a second `TeamCatalogItem`, and it has **drifted from the live
-one** in `teamIdentity.ts` — the live type carries `subdivision`, this one does not.
-
-**Why it matters is the drift, not the deadness.** A second definition of a shared shape is exactly what
-the next reader greps into and edits, and the compiler will not object because nothing consumes it. This
-campaign has already spent a slice on two sources of truth for the draft catalog.
-
-**The ask:** delete it, or state why it exists. **Blocker:** none. Trivial, and `npm run build` is the
-gate.
+**MIGRATED to [#615](https://github.com/znpruitt/cfb-app/issues/615) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 203 — `CfbdTeamRecord` and `/teams/fbs` disagree in both directions
 
-**Measured 2026-09-09 against one live response** (HTTP 200, 138 rows). The endpoint's key union is
-`abbreviation, alternateColor, alternateNames, classification, color, conference, division, id, location,
-logos, mascot, school, twitter`.
-
-**Fields we declare that it never sends:** `displayName` and `shortDisplayName`, both **0/138** in the
-durable store today. **This is not Item 199's defect** — there is no differently-named field to map to,
-the data is simply absent from this endpoint. Whatever populates those names elsewhere, it is not this
-ingest, and the type says otherwise.
-
-**A field it sends that we discard:** `alternateNames`. `buildDerivedTeamAliases` currently **invents**
-name variants algorithmically while the provider ships a curated list unread. That is a plausible
-improvement to alias matching and a plausible source of the alias-safety edges this campaign has already
-fixed twice.
-
-**The ask:** reconcile the type against the measured response — drop or source the two absent fields, and
-rule on whether `alternateNames` should feed alias derivation. **Blocker:** none, but it should follow
-Item 199 rather than complicate it.
+**MIGRATED to [#616](https://github.com/znpruitt/cfb-app/issues/616) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 204 — an empty CFBD response wipes the team catalog, and the seed cannot rescue it
 
@@ -6715,57 +6679,13 @@ catalog resync** — that click is what makes this reachable.
 
 ### Item 205 — the durable catalog is read through an untyped `Record`
 
-**Split out of Item 204 on 2026-09-09**, on the lane's reasoning rather than mine.
-`teamDatabaseStore.ts:68` reads `toNullableString(value.altColor)` where `value` is
-`Record<string, unknown>`. **A stored field rename type-checks the object KEY and leaves the READ
-silent** — 138 durable rows would return `undefined` with a green build. Item 199 proved by mutation
-that a stored rename reaches 8 files and that the compiler sees only half of it.
-
-**Why it is not Item 204's:** its trigger is a stored rename, which 204's gate forbids, so it is not on
-the path the resync click takes. And doing it properly means a typed reader over all 14 fields of
-`toTeamCatalogItem` plus a decision about what a field-level failure does — drop the item, null the
-field, or reject the file — which is a policy question with its own blast radius across the 17 catalog
-readers 204 enumerated.
-
-**SCOPE GREW 2026-09-09, and Item 204 is what grew it.** `readSourceCatalogFallback`
-(`teamDatabaseStore.ts:88-104`) collapses three distinct states into one `[]`: a transient FS read
-failure, a genuinely absent file, and a corrupt one. **That conflation was survivable while an empty
-catalog merely degraded standings. Item 204's guard makes it fatal** — `leagueStandings` now throws on
-`teams.length === 0`, so a transient read error on the seed file takes standings down rather than
-degrading it.
-
-**That is the correct trade and it is not a regression.** `/code-review` argued for the old behaviour on
-the grounds that it preserved degraded-but-usable standings; degraded standings from an empty identity
-catalog are the wrong-output-cached harm Item 204 exists to stop, and PLATFORM-084A settles it — cache
-valid absence, never cache uncertainty. **The Item 204 lane checked reachability rather than accepting
-the finding: `teams.json` is statically imported in 8 places and read via `process.cwd()` by
-`/api/scores` and `/api/odds`, both working in production**, so the cwd read is sound and the trigger is
-a transient error, not a systematic one.
-
-**Why it lands here and not in 204:** rethrowing from that catch changes behaviour for every catalog
-reader, which is wider than a guard slice should take unreviewed.
-
-**The ask:** validate the durable catalog on read, rule on field-level failure policy, and separate
-absence from failure in the seed fallback. **Blocker:** Item 204, whose receipt is the reader
-enumeration this needs.
+**MIGRATED to [#617](https://github.com/znpruitt/cfb-app/issues/617) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 206 — a refused catalog sync leaves no durable record
 
-**Filed 2026-09-09 from the Item 204 review.** Item 204 makes the admin team-database sync refuse a bad
-CFBD body instead of committing it. **The refusal is visible only as a transient red span in the admin
-panel.** Reload the page and it is gone.
-
-**The schedule precedent does more.** That path calls `recordProviderRefreshFailure`, so a refusal
-enters `providerRefreshStatus` and becomes visible to System Health and to any later audit. **This route
-has no `providerRefreshStatus` integration at all** — not on refusal, and not on success either.
-
-**Why it matters beyond tidiness:** the catalog is the identity authority for 17 readers. A sync that
-has been quietly refusing for a week looks identical to one nobody has run, and the operator surface
-that would say otherwise is a span that disappeared on the first reload.
-
-**The ask:** record catalog sync attempts and refusals under a scope the Provider data panel reads.
-**Blocker:** Item 204. **Pre-existing** — this is not a gap 204 introduced, only one it makes worth
-closing.
+**MIGRATED to [#618](https://github.com/znpruitt/cfb-app/issues/618) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 207 — the polling-planner suite flakes on `plan-held`, and `reset()` is not holding
 
@@ -6832,9 +6752,20 @@ suites, making them the 137th–140th of 140 that do it. **Blocker:** none. **A 
 pre-merge gate is worse than a failing one** — it trains every lane to re-run until green, which is how
 the next real regression gets merged.
 
-### Queue migration to GitHub Issues — STARTED 2026-09-10, ten items in
+### Queue migration to GitHub Issues — NEW WORK IS FILED THERE FROM 2026-09-10
 
-**Twenty triaged, nineteen migrated** (#595-#613) and their entries above are pointers. **Item 13 is
+**OWNER DECISION 2026-09-10: NEW WORK ITEMS ARE FILED AS GITHUB ISSUES, NOT HERE.**
+
+**What this file is now canonical for:** the **dispatch order** — what is next and why — plus
+cross-item rulings, the known-failure baseline, and campaign notes. **It is no longer where an item's
+ask, state or evidence lives.**
+
+**A PR that closes an issue says `Closes #N` in its body.** That state transition is the single
+bookkeeping step that has failed by hand more than once in this campaign, and automating it is the
+main reason the switch is worth making.
+
+**Twenty sub-100 items triaged, nineteen migrated** (#595-#613); **the live 200-series migrated
+wholesale** (#614-#621) because those are what the lanes actually pick up. Their entries are pointers. **Item 13 is
 the exception — SUPERSEDED, closed without an issue**, and the only one of twenty to come back that
 way.
 
@@ -6910,40 +6841,8 @@ ships.
 
 ### Item 208 — an unreadable settings record reports the one result alerting ignores
 
-**Split out of Item 207 on 2026-09-10, because 207's measurement removed the reason to bundle it.**
-`route.ts:368-372` wraps `getProviderRefreshSettings` in a bare `catch` that sets `settings = null`;
-`:376` then treats null as every job held, and `:389-394` maps that to `no-op` / `plan-held` —
-**the one result `schedulerExecutionIssues` deliberately raises nothing for**, on the reasoning that a
-deliberate operator stop must not page anyone.
-
-**So a transient settings-read failure stops the planner silently, in a state indistinguishable from an
-intentional pause, with the alerting built to ignore it.** `getProviderRefreshSettings`
-(`providerRefreshSettings.ts:65-71`) awaits `getAppState` with no internal try/catch, so the throw is
-real.
-
-**It was folded into 207 on the belief that it CAUSED the flake. It does not** — 26 instrumented runs
-show the catch never fires spontaneously. **The hazard stands on code reading alone and is unreproduced.**
-Bundling a production alerting change into a test-isolation branch is exactly the pairing that makes
-review harder.
-
-**MEASURED 2026-09-10: "has this already fired?" is UNANSWERABLE, and that is the finding.** The Item
-207 lane proposed reading the `polling-planner-record` series for missing days to turn "could have"
-into "has it". **There is no series.** Queried through `DATABASE_URL_RO`: `app_state` is the only
-table, `polling-planner-record` holds **2 rows — latest-only, one per job** — and no runtime-event or
-history scope exists. Current state reads `success` / `plan-applied` at 2026-09-09 18:xx, which is the
-whole record.
-
-**So the hazard is worse than "undetected".** The alerting ignores this failure by design AND nothing
-retains a history, so it is **undetectable in hindsight too.** A season of silently-stopped polling
-would leave no artifact to find afterwards.
-
-**That raises a second question this item should answer:** whether a latest-only receipt is sufficient
-for a job whose failure mode is doing nothing. **Retaining a short series may be the more valuable half
-of this item than the conflation fix.**
-
-**The ask:** distinguish "settings unreadable" from "operator held everything" so the former cannot
-report the ignored result, and rule on whether the planner needs a retained series. **Change nothing
-about what a genuine hold does** — that path is correct and must stay silent. **Blocker:** none.
+**MIGRATED to [#619](https://github.com/znpruitt/cfb-app/issues/619) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 210 — `npm test` can DROP PRODUCTION `app_state`, and the only guard is nobody exporting a variable
 
@@ -7017,117 +6916,10 @@ isolation. **Blocker:** none. **The most dangerous thing either reviewer surface
 
 ### Item 211 — three more destructive test seams with the same hole
 
-**Found 2026-09-10 by the Item 210 lane, which enumerated all 34 test-only seams in `src/` and left
-them alone as instructed.** Re-measured against `main` by the Item 211 lane: **34 seams, 29 inert, FIVE
-destructive — 2 guarded by Item 210, 3 exposed.** ("Four" here was a pre-reclassification count; the
-corrupting seam was the fifth and shipped with 210.) Seven apparent hits in `appStateStore.ts:1434-1535`
-were the substring `__setAppState…ForTests` matching `setAppState` and read as module-local assignment
-only. **The three exposed seams have 15 calling test files between them** — the set on which a bare
-`node --test` fires the exposure. The three:
-
-- `durableOddsStore.__deleteDurableOddsStoreFileForTests(season)`
-- `oddsUsageStore.__deleteOddsUsageStoreFileForTests()`
-- `teamDatabaseStore.__deleteTeamDatabaseStoreFileForTests()`
-
-**All three route through `deleteAppState()`**, which with a configured `DATABASE_URL` runs a targeted
-`delete from app_state where scope = $1 and key = $2` against real rows. **Item 210's guard 1 covers
-them whenever isolation is ON** — but in the bare `node --test src/...` case that guard 2 exists for,
-the flag is unset, guard 1 is silent by construction, and these delete production rows for their scope.
-**They want guard 2's treatment**, stated the same way: `APP_STATE_TEST_ISOLATION !== '1'` → throw.
-
-**A fourth, `appStateStore.__corruptAppStateFileForTests`, MOVED INTO ITEM 210** — owner ruling
-2026-09-10. It writes `{not-valid-json` to `appStateFilePath()`, which outside isolation is the durable
-`data/app-state.json`, and `oddsUsageStore.test.ts:214` calls it. **The boundary is the FILE:** 210
-guards every destructive seam in `appStateStore.ts`; this item guards the three that live elsewhere.
-
-**Why this is NOT folded into Item 210:** 210 is reviewed clean at `4c882e2b`, and reopening a reviewed
-commit to add three files means re-reviewing all of it rather than just the addition. **The valuable
-guard is already in 210; this is the mechanical remainder.**
-
-**PINNING IS A DIVERSION, NOT A FILTER — established 2026-09-10 by the Item 211 receipt, correcting
-this entry's own reasoning.** All three seams **do** reach a file write to the durable
-`data/app-state.json` when `DATABASE_URL` is unset — `deleteAppState`'s file branch is unconditional
-below the Postgres one — and that write **CREATES** the file when it is absent (`readFileStore` returns
-`{}` on ENOENT). **Pinning saves them by diverting control INTO the database branch, not because the
-file path is unreachable.** So a single regression in `hasDatabaseConfig()` collapses the mitigation
-straight onto the real store, which is why a relocated `cwd` goes underneath it rather than instead of
-it. **Say this in the code comment** — the next reader who sees "has a database branch" will otherwise
-conclude the file path cannot be reached.
-
-**MUTATION SAFETY IS A DESIGN INPUT HERE, NOT A TEST DETAIL — added 2026-09-10 after it fired twice on
-the Item 210 branch.** The guard-2 mutation ran with the flag unset and lost nothing only because no dev
-store existed. **The corrupt-seam mutation then actually wrote `{not-valid-json` to
-`data/app-state.json`** before it was sandboxed. **A test for a refusal must run the unguarded path to
-prove the guard works, so its failure mode IS the damage.**
-
-**And the mitigation differs per seam.** Pinning `DATABASE_URL` to an unreachable port works for a seam
-with a database branch — the call fails at connect. **A seam whose write is unconditional has no such
-branch and needs a relocated `cwd` instead.** All three here route through `deleteAppState()`, which
-does have a database branch, so pinning should suffice — **verify that rather than assume it.**
-
-**The ask:** apply guard 2's refusal to the three destructive seams. **The corrupting seam is DONE** —
-owner ruling 2026-09-10 moved it into Item 210, which shipped at `421fab9c`. **Blocker:** Item 210,
-whose `appStateTestSeamRefusal(seam, damage)` export and test shape this should reuse rather than
-reinvent. **`assertTestSeamAllowed` is NOT exported** (`appStateStore.ts:144`) — corrected 2026-09-10;
-the merging lane reported both as exported and planning repeated it unchecked. **Exporting it is the
-right fix**, not reimplementing the two-line prologue in three files, which is the drift Item 210's
-finding 5 was about.
+**MIGRATED to [#621](https://github.com/znpruitt/cfb-app/issues/621) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 209 — the test store leaks a file per process, forever
 
-**Found 2026-09-10 by the Item 207 lane.** `appStateStore.ts:95-97` keys the test-isolation store by
-`os.tmpdir()/cfb-app-app-state-test-${process.pid}.json`, and nothing deletes it. **There are 14,022 of
-them in `$TMPDIR` right now**, days old.
-
-**The leak is not the harm; pid reuse is.** macOS recycles pids, so a new test process can inherit a
-previous run's fully-populated durable store — measured at **23.9% of app-state-initialising processes
-in a live suite run.** **Item 207 fixed THREE suites** — corrected 2026-09-10 by the merging lane; the
-fourth grep hit, `providerUsageWriteOutcome`, was measured NOT exposed and carries a comment saying so
-rather than a dead delete call. **This closes the
-class**, for those four and for any future suite that forgets.
-
-**8 test files can write a durable `globalPause: true`** and leave it at their pid — `admin/provider-status`,
-`providerStatusSummary`, `systemHealth/sections`, `AutomationSafetyControls`, `systemHealthPanels`,
-`systemHealth`, `systemHealthIssues`, `providerRefreshSettings`. Any of their leftovers can land under
-any later process.
-
-**THE EXPOSED SET IS 10 SUITES, MEASURED 2026-09-10 — not the 4 the grep found.** The Item 207 lane
-replaced the syntactic check with a behavioural one: plant an unparseable store at the pid path and run
-every test file. **389 files probed, 0 zero-test rows, 5,105 tests executed — the full suite's count**,
-so the coverage is complete rather than assumed. Still exposed after 207: `oddsUsageStore`,
-`schedulerDeliveryHealth`, `durableOddsStore`, `draftSchedule`, `teamDatabaseStore`, `boardData`,
-`admin/odds-usage/route`, `admin-debug-auth`, `deliveryNothingDue`, `seasonOwners` — across draft,
-odds, team database, insights and system health.
-
-**What that measures and what it does not:** those 10 provably read the file store, so they provably
-inherit. **It does NOT establish that a realistic inherited payload flips an assertion** — the corrupt
-plant is maximally hostile. Structural exposure is measured; live flake rate is not.
-
-**Owner ruling 2026-09-10: do NOT widen Item 207 to these 10.** The earlier "leaving three
-known-exposed while fixing one is arbitrary" principle does not carry, for a reason that only exists
-now: **Item 210 says the very helper being propagated is unsafe.** Adding it to 10 more call sites
-spreads a destructive seam, across five subsystems, in a test-isolation branch — which is exactly how
-an unrelated regression enters the gate. **209 closes all 13 at once, after 210 makes the seam safe.**
-
-**The ask:** a per-run-unique path plus exit cleanup, so isolation does not depend on every suite
-remembering a teardown call. **Blocker:** Item 207 lands the per-suite fix; **Item 210 must precede
-this**, so the seam is safe before it is generalised.
-
-**Do this as its own slice with its own review.** A reformat that silently alters a binding rule is
-worse than the unreadable version, and a diff this large hides a one-word change perfectly. **The
-review's job is to prove no rule changed**, which likely means a normalized-text comparison rather than
-a read.
-
-**Blocker:** none. **Not urgent, and it compounds** — every slice that adds to line 146 makes the
-eventual split harder.
-
-## Out of scope for this queue
-
-- New matching systems or changes to schedule-first identity rules.
-- Heavy infrastructure beyond one small managed database plus the hosted app.
-- Broad analytics/history work before hosted stability is complete.
-
-## Non-blocking maintenance
-
-Keep optional decomposition of `CFBScheduleApp.tsx` and `scoreAttachment.ts` as technical debt unless
-explicitly scheduled.
+**MIGRATED to [#620](https://github.com/znpruitt/cfb-app/issues/620) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**

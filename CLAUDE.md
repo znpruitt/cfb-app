@@ -28,6 +28,7 @@ Claude Code companion to `AGENTS.md`. **Read `AGENTS.md` first.**
 | Who pushes `preview`, and on what cadence | `AGENTS.md` → **Preview branch** |
 | UI and design decisions | `DESIGN.md` |
 | What is queued next, and campaign status | `docs/next-tasks.md` |
+| **An individual work item — its ask, state and evidence** | **GitHub Issues** (owner decision 2026-09-10) |
 | Which prompt IDs exist | `docs/prompt-registry.md` |
 | Doc ownership map | `docs/README.md` |
 
