@@ -7119,6 +7119,32 @@ suites, making them the 137th–140th of 140 that do it. **Blocker:** none. **A 
 pre-merge gate is worse than a failing one** — it trains every lane to re-run until green, which is how
 the next real regression gets merged.
 
+### Logos as the identity accent — MEASURED 2026-09-10, no decision taken
+
+**The owner is prototyping logos in place of the colour bar, in the UI lane. Recorded as measurement
+only; nothing here decides anything.**
+
+- **All 138 teams already carry logos in the production catalog.** Mapped at `teamDatabase.ts:242`,
+  persisted at `teamDatabaseStore.ts:69`. **No Item 199 repeat — nothing is being discarded.**
+- **16 variants per team:** 8 sizes (500, 256, 128, 96, 64, 48, 32, 16) x 2 themes. A 20px row logo can
+  fetch the 32px asset rather than downscaling a 500px PNG.
+- **One host,** `cdn.collegefootballdata.com`. No auth; 200s on every probe.
+- **`logos-dark` is byte-identical to `logos` for 42% of teams** (19 of 45 sampled at 32px, md5). CFBD
+  has no genuine dark-background variant for Army, Arizona, Boise State, Colorado and others.
+- **BLOCKER: `next.config.ts` is 7 lines with no `images` config.** `next/image` rejects the CDN host
+  until `remotePatterns` names it. No CSP is configured, so that is the only gate.
+
+**Why logos are more robust here than colours, and it is not a preference.** A logo carries its own
+internal contrast. Army's mark is a black shield — invisible as a solid bar — but the gold helmet and
+white outline inside it still read on `#0a0a0a`. **A dark solid bar has no interior; a dark logo does.**
+That is why this direction sidesteps the remap/outline problem rather than inheriting it.
+
+**Two questions to settle before, not after.** Serving 138 school marks from a third-party CDN is
+conventional for the genre but is a different posture than colour swatches, and it is an owner call.
+And **if logos replace the accent, Items 119, 198 and the outline prototype are RETIRED, not paused** —
+`teamColors.ts` returns to having no consumer, and several campaign documents currently assert the bar
+ships.
+
 ### Item 208 — an unreadable settings record reports the one result alerting ignores
 
 **Split out of Item 207 on 2026-09-10, because 207's measurement removed the reason to bundle it.**
