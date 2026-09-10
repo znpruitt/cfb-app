@@ -13,14 +13,32 @@ const TEAM_LOGO_PRESENTATION = {
   14: {
     imageClass: 'h-[14px] w-[14px]',
     rowPaddingClass: 'pl-4',
+    rowVerticalPaddingClass: 'py-0.5',
   },
   18: {
     imageClass: 'h-[18px] w-[18px]',
     rowPaddingClass: 'pl-[22px]',
+    rowVerticalPaddingClass: 'py-0.5',
   },
   20: {
     imageClass: 'h-5 w-5',
     rowPaddingClass: 'pl-6',
+    rowVerticalPaddingClass: 'py-0.5',
+  },
+  22: {
+    imageClass: 'h-[22px] w-[22px]',
+    rowPaddingClass: 'pl-[26px]',
+    rowVerticalPaddingClass: 'py-0.5',
+  },
+  24: {
+    imageClass: 'h-6 w-6',
+    rowPaddingClass: 'pl-7',
+    rowVerticalPaddingClass: 'py-0.5',
+  },
+  28: {
+    imageClass: 'h-7 w-7',
+    rowPaddingClass: 'pl-8',
+    rowVerticalPaddingClass: 'py-1.5',
   },
 } as const;
 
@@ -256,7 +274,9 @@ export default function CompactGameScoreboard({
         return (
           <div
             key={side}
-            className={`relative flex items-baseline justify-between gap-3 py-0.5 ${
+            className={`relative flex items-baseline justify-between gap-3 ${
+              teamLogoPresentation?.rowVerticalPaddingClass ?? 'py-0.5'
+            } ${
               teamLogoPresentation?.rowPaddingClass ?? 'pl-4'
             } text-sm ${participantRowClasses(isLeading, leader !== null)}${
               participant.isCardOwnerTeam

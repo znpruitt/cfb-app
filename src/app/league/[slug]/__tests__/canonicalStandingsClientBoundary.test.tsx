@@ -133,6 +133,18 @@ test('overview reads temporary team-identity prototypes from the real query para
     params: Promise.resolve({ slug: SLUG }),
     searchParams: Promise.resolve({ teamColorBar: 'logo20' }),
   });
+  const logo22Page = await LeagueRootPage({
+    params: Promise.resolve({ slug: SLUG }),
+    searchParams: Promise.resolve({ teamColorBar: 'logo22' }),
+  });
+  const logo24Page = await LeagueRootPage({
+    params: Promise.resolve({ slug: SLUG }),
+    searchParams: Promise.resolve({ teamColorBar: 'logo24' }),
+  });
+  const logo28Page = await LeagueRootPage({
+    params: Promise.resolve({ slug: SLUG }),
+    searchParams: Promise.resolve({ teamColorBar: 'logo28' }),
+  });
 
   assert.equal(appProps(defaultPage).teamColorPrototypeMode, 'remap-only');
   assert.equal(appProps(defaultPage).teamLogoPrototypeSize, null);
@@ -142,6 +154,9 @@ test('overview reads temporary team-identity prototypes from the real query para
   assert.equal(appProps(logoPage).teamLogoPrototypeSize, 14);
   assert.equal(appProps(logo18Page).teamLogoPrototypeSize, 18);
   assert.equal(appProps(logo20Page).teamLogoPrototypeSize, 20);
+  assert.equal(appProps(logo22Page).teamLogoPrototypeSize, 22);
+  assert.equal(appProps(logo24Page).teamLogoPrototypeSize, 24);
+  assert.equal(appProps(logo28Page).teamLogoPrototypeSize, 28);
 });
 
 /**

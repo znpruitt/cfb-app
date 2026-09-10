@@ -10,9 +10,24 @@ import {
   EMPTY_TEAM_RECORDS_CLIENT_PROPS,
   loadTeamRecordsClientProps,
 } from '../../../lib/server/teamRecordsClient';
+import type { ScoreboardTeamLogoDisplaySize } from '../../../lib/teamLogos';
 import { renderLeagueGateIfBlocked } from './leagueGate';
 
 export const dynamic = 'force-dynamic';
+
+const TEAM_LOGO_PROTOTYPE_SIZE_BY_PARAM = {
+  logo: 14,
+  logo18: 18,
+  logo20: 20,
+  logo22: 22,
+  logo24: 24,
+  logo28: 28,
+} as const satisfies Record<string, ScoreboardTeamLogoDisplaySize>;
+
+function teamLogoPrototypeSize(value: string | undefined): ScoreboardTeamLogoDisplaySize | null {
+  if (!value || !(value in TEAM_LOGO_PROTOTYPE_SIZE_BY_PARAM)) return null;
+  return TEAM_LOGO_PROTOTYPE_SIZE_BY_PARAM[value as keyof typeof TEAM_LOGO_PROTOTYPE_SIZE_BY_PARAM];
+}
 
 export default async function LeaguePage({
   params,
@@ -62,15 +77,7 @@ export default async function LeaguePage({
         teamColorPrototypeMode={
           teamColorBarParam === 'outline' ? 'alternate-outline' : 'remap-only'
         }
-        teamLogoPrototypeSize={
-          teamColorBarParam === 'logo20'
-            ? 20
-            : teamColorBarParam === 'logo18'
-              ? 18
-              : teamColorBarParam === 'logo'
-                ? 14
-                : null
-        }
+        teamLogoPrototypeSize={teamLogoPrototypeSize(teamColorBarParam)}
         assignmentMethod={league?.assignmentMethod}
         mostRecentArchivedYear={mostRecentArchivedYear}
         {...canonicalStandingsClientProps(canonicalStandings)}

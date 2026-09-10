@@ -77,7 +77,7 @@ test('scoreboard logos cover FCS opponents from retained schedule provider ids',
   });
 });
 
-test('18px and 20px treatments select 48px assets and retain the requested display size', () => {
+test('18px through 24px treatments select 48px assets and retain the requested display size', () => {
   const team = {
     school: 'Ohio State',
     logos: [
@@ -86,11 +86,33 @@ test('18px and 20px treatments select 48px assets and retain the requested displ
     ],
   };
 
-  for (const displaySize of [18, 20] as const) {
+  for (const displaySize of [18, 20, 22, 24] as const) {
     assert.deepEqual(buildScoreboardTeamLogosById([team], [], displaySize).get('ohiostate'), {
       lightUrl: 'https://cdn.collegefootballdata.com/logos/48/194.png',
       darkUrl: 'https://cdn.collegefootballdata.com/logos-dark/48/194.png',
       displaySize,
     });
   }
+});
+
+test('28px treatment selects the 64px provider asset', () => {
+  const logos = buildScoreboardTeamLogosById(
+    [
+      {
+        school: 'Ohio State',
+        logos: [
+          'https://cdn.collegefootballdata.com/logos/64/194.png',
+          'https://cdn.collegefootballdata.com/logos-dark/64/194.png',
+        ],
+      },
+    ],
+    [],
+    28
+  );
+
+  assert.deepEqual(logos.get('ohiostate'), {
+    lightUrl: 'https://cdn.collegefootballdata.com/logos/64/194.png',
+    darkUrl: 'https://cdn.collegefootballdata.com/logos-dark/64/194.png',
+    displaySize: 28,
+  });
 });

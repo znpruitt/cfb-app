@@ -8,14 +8,18 @@ export type ScoreboardTeamLogo = Readonly<{
 }>;
 
 export type ScoreboardTeamLogosById = ReadonlyMap<string, ScoreboardTeamLogo>;
-export type ScoreboardTeamLogoDisplaySize = 14 | 18 | 20;
+export type ScoreboardTeamLogoDisplaySize = 14 | 18 | 20 | 22 | 24 | 28;
 
 export const EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID: ScoreboardTeamLogosById = new Map();
 
 const CFBD_LOGO_HOST = 'cdn.collegefootballdata.com';
 
-function providerAssetSize(displaySize: ScoreboardTeamLogoDisplaySize): '32' | '48' {
-  return displaySize === 14 ? '32' : '48';
+type ProviderLogoAssetSize = '32' | '48' | '64';
+
+function providerAssetSize(displaySize: ScoreboardTeamLogoDisplaySize): ProviderLogoAssetSize {
+  if (displaySize === 14) return '32';
+  if (displaySize <= 24) return '48';
+  return '64';
 }
 
 function logoPairForProviderTeamId(
@@ -35,7 +39,7 @@ function logoPairForProviderTeamId(
 function selectCfbdLogo(
   logos: readonly string[] | null | undefined,
   family: 'logos' | 'logos-dark',
-  assetSize: '32' | '48'
+  assetSize: ProviderLogoAssetSize
 ): string | null {
   for (const candidate of logos ?? []) {
     try {
