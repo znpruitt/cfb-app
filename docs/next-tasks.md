@@ -7252,6 +7252,33 @@ of the connection:** `APP_STATE_TEST_ISOLATION !== '1'` → throw, unconditional
 **The ask:** both guards — refuse a real pool under isolation, and refuse the destructive helper outside
 isolation. **Blocker:** none. **The most dangerous thing either reviewer surfaced.**
 
+### Item 211 — three more destructive test seams with the same hole
+
+**Found 2026-09-10 by the Item 210 lane, which enumerated all 34 test-only seams in `src/` and left
+them alone as instructed.** Most are inert — in-process resets, injected fakes, failure seams. **Four
+are destructive and three are still exposed:**
+
+- `durableOddsStore.__deleteDurableOddsStoreFileForTests(season)`
+- `oddsUsageStore.__deleteOddsUsageStoreFileForTests()`
+- `teamDatabaseStore.__deleteTeamDatabaseStoreFileForTests()`
+
+**All three route through `deleteAppState()`**, which with a configured `DATABASE_URL` runs a targeted
+`delete from app_state where scope = $1 and key = $2` against real rows. **Item 210's guard 1 covers
+them whenever isolation is ON** — but in the bare `node --test src/...` case that guard 2 exists for,
+the flag is unset, guard 1 is silent by construction, and these delete production rows for their scope.
+**They want guard 2's treatment**, stated the same way: `APP_STATE_TEST_ISOLATION !== '1'` → throw.
+
+**A fourth is different and still worth fixing.** `appStateStore.__corruptAppStateFileForTests` writes
+`{not-valid-json` to `appStateFilePath()`. File-only, so it cannot reach Postgres — but outside
+isolation that path is `data/app-state.json`, and it will trash a developer's local store.
+
+**Why this is NOT folded into Item 210:** 210 is reviewed clean at `4c882e2b`, and reopening a reviewed
+commit to add three files means re-reviewing all of it rather than just the addition. **The valuable
+guard is already in 210; this is the mechanical remainder.**
+
+**The ask:** apply guard 2's refusal to the three destructive seams and rule on the corrupting one.
+**Blocker:** Item 210, whose message constants and test shape this should reuse rather than reinvent.
+
 ### Item 209 — the test store leaks a file per process, forever
 
 **Found 2026-09-10 by the Item 207 lane.** `appStateStore.ts:95-97` keys the test-isolation store by
