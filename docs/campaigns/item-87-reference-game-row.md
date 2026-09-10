@@ -205,8 +205,63 @@ result emphasis. Same decision, correct rationale.
 
 **The consequence to watch is that bar LIGHTNESS now carries almost no information.** Teams are
 separated by hue alone. Where several share a palette — California, Wake Forest and Purdue all read
-gold — the bars are near-identical. **That may be faithful rather than a defect, but it is a property
-of clamping, and nobody predicted it.**
+gold — the bars are near-identical.
+
+#### CONFIRMED A DEFECT 2026-09-10 by the owner walkthrough: the band must REMAP, not CLAMP
+
+**Four reds on one Overview screen read as the same colour.** Measured against `#333336`:
+
+| team | | raw |
+| --- | --- | --- |
+| Louisville | `#C9001F` | **2.101:1** |
+| Ohio State | `#BA0C2F` | **1.908:1** |
+| Indiana | `#990000` | **1.412:1** |
+| Oklahoma | `#841617` | **1.264:1** |
+
+**Their real spread is 0.837, and all four sit BELOW the 2.5 floor — so the clamp lifts every one to
+exactly 2.500 and the spread becomes 0.000.** Oklahoma's dark crimson and Louisville's bright cardinal
+render identically. The owner's objection — *"I don't think that's representative of real life"* — is
+arithmetic, not perception.
+
+**A monotone remap onto the SAME bounds preserves 0.787 of the 0.837 — 94% of the real distinction —
+with identical floor and ceiling guarantees**: Louisville 3.484, Ohio State 3.303, Indiana 2.836,
+Oklahoma 2.698.
+
+**This is a specification defect, not an implementation one.** The ruling said "floor 2.5, ceiling 5.5"
+and never said what happens BETWEEN them; clamping is the natural reading of a floor and a ceiling.
+**A band is a range to map INTO, not a pair of walls to press against.**
+
+**Use FIXED input bounds, not the observed min and max.** An observed-range remap makes every team's
+colour depend on the whole catalog, so one new team shifts all 135. Fixed bounds are stable across
+catalog changes and still preserve ordering; only values outside them clamp.
+
+#### The alternate-colour outline — owner proposal 2026-09-10, to be PROTOTYPED not decided
+
+**Proposal:** render the 8px bar as the primary with a thin outline in the team's alternate, so the
+bar is defined by an edge rather than by its own luminance.
+
+**Measured against the production catalog, and it is a strong VISIBILITY instrument.** On the common
+surface (`#09090B`, five of six contexts) at a 3:1 outline threshold, **the primary alone fails for 87
+teams; both colours fail for only 6.** On the worst surface (`#333336`) both fail for 25.
+
+**It is a WEAK DIFFERENTIATOR, and the four reds show why.** Ohio State's grey `#A7B1B7` reads at
+9.11:1 and Indiana's and Oklahoma's white at 19.90:1 — but **Indiana and Oklahoma share a white
+outline over dark red and still match**, and **Louisville's `#000000` outline is 1.06:1 against the
+surface, contributing nothing.** White and black are the sport's two most common alternates.
+
+**The two ideas are complementary, not alternatives, and that is the real finding.** The band must
+currently lift 101 of 135 because the FILL alone carries visibility. **Give the bar a defined edge and
+that burden drops** — the floor can fall well below 2.5, the remap gets a wider and gentler range, and
+Oklahoma's crimson stays crimson rather than being pushed toward Louisville's cardinal.
+**Outline for visibility, remap for differentiation.**
+
+**Two costs to weigh at the walkthrough.** A second colour on every row doubles the chroma on a
+deliberately monochrome surface — this campaign rejected gradients and full-width bands for competing
+with the row's real signal, and a two-tone bar carries more visual weight than a solid one. And
+**whether a 1px outline on an 8px bar reads at all on a non-retina display is a measurement nobody has
+taken.**
+
+**Owner decision 2026-09-10: prototype both on preview and look, rather than deciding from numbers.**
 
 > **CORRECTED 2026-09-09 — this paragraph said "Work in OKLCH, not HSL" as an instruction, and the decision is STAGED.** `item-87-followon-team-colour.md` splits Item 119 into two separately shippable pieces: **(1) the 8px bar on the EXISTING HSL normaliser**, contrast-lifted to ≥3:1, and **(2) an OKLCH port ONLY IF (1) measures badly at 8px**, with the reserved-hue guard. **Piece 2 is conditional and is not a dependency of piece 1.** This document stated the endpoint as though it were the requirement — the reference is meant to consolidate settled decisions, and what is settled is the staging. Found by the Item 119 lane at its read receipt.
 
