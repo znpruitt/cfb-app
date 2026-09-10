@@ -9,6 +9,21 @@ import type { TeamRecordClient } from '../lib/selectors/teamRecordsClient';
 import type { ScoreboardTeamColorBar } from '../lib/teamColors';
 import type { ScoreboardTeamLogo } from '../lib/teamLogos';
 
+const TEAM_LOGO_PRESENTATION = {
+  14: {
+    imageClass: 'h-[14px] w-[14px]',
+    rowPaddingClass: 'pl-4',
+  },
+  18: {
+    imageClass: 'h-[18px] w-[18px]',
+    rowPaddingClass: 'pl-[22px]',
+  },
+  20: {
+    imageClass: 'h-5 w-5',
+    rowPaddingClass: 'pl-6',
+  },
+} as const;
+
 export type CompactScoreboardParticipant = {
   teamName: string;
   teamColor?: ScoreboardTeamColorBar | null;
@@ -228,6 +243,9 @@ export default function CompactGameScoreboard({
         const isLeading = leader === side;
         const owner = participant.owner?.trim() || null;
         const teamRecord = recordLabel(participant.record);
+        const teamLogoPresentation = participant.teamLogo
+          ? TEAM_LOGO_PRESENTATION[participant.teamLogo.displaySize]
+          : null;
         const hasAlternateOutline =
           participant.teamColor != null && typeof participant.teamColor !== 'string';
         const rankTitle =
@@ -238,10 +256,9 @@ export default function CompactGameScoreboard({
         return (
           <div
             key={side}
-            className={`relative flex items-baseline justify-between gap-3 py-0.5 pl-4 text-sm ${participantRowClasses(
-              isLeading,
-              leader !== null
-            )}${
+            className={`relative flex items-baseline justify-between gap-3 py-0.5 ${
+              teamLogoPresentation?.rowPaddingClass ?? 'pl-4'
+            } text-sm ${participantRowClasses(isLeading, leader !== null)}${
               participant.isCardOwnerTeam
                 ? ` ${CARD_OWNER_ROW_CLASSES} ${cardOwnerRowCornerClasses(
                     side,
@@ -254,11 +271,11 @@ export default function CompactGameScoreboard({
           >
             {participant.teamLogo ? (
               <Image
-                className="absolute left-0 top-1/2 block h-[14px] w-[14px] -translate-y-1/2 object-contain"
+                className={`absolute left-0 top-1/2 block -translate-y-1/2 object-contain ${teamLogoPresentation?.imageClass}`}
                 src={participant.teamLogo.darkUrl}
                 alt=""
-                width={14}
-                height={14}
+                width={participant.teamLogo.displaySize}
+                height={participant.teamLogo.displaySize}
                 unoptimized
                 aria-hidden="true"
                 data-scoreboard-team-logo={side}

@@ -90,7 +90,7 @@ type CFBScheduleAppProps = {
   initialNowMs?: number;
   teamRecordsByProviderGameId?: TeamRecordsByProviderGameId;
   teamColorPrototypeMode?: string;
-  teamLogoPrototype?: boolean;
+  teamLogoPrototypeSize?: number | null;
 };
 
 /** The pages return `<main><CFBScheduleApp {...props} /></main>`; read the props. */
@@ -125,13 +125,23 @@ test('overview reads temporary team-identity prototypes from the real query para
     params: Promise.resolve({ slug: SLUG }),
     searchParams: Promise.resolve({ teamColorBar: 'logo' }),
   });
+  const logo18Page = await LeagueRootPage({
+    params: Promise.resolve({ slug: SLUG }),
+    searchParams: Promise.resolve({ teamColorBar: 'logo18' }),
+  });
+  const logo20Page = await LeagueRootPage({
+    params: Promise.resolve({ slug: SLUG }),
+    searchParams: Promise.resolve({ teamColorBar: 'logo20' }),
+  });
 
   assert.equal(appProps(defaultPage).teamColorPrototypeMode, 'remap-only');
-  assert.equal(appProps(defaultPage).teamLogoPrototype, false);
+  assert.equal(appProps(defaultPage).teamLogoPrototypeSize, null);
   assert.equal(appProps(outlinePage).teamColorPrototypeMode, 'alternate-outline');
-  assert.equal(appProps(outlinePage).teamLogoPrototype, false);
+  assert.equal(appProps(outlinePage).teamLogoPrototypeSize, null);
   assert.equal(appProps(logoPage).teamColorPrototypeMode, 'remap-only');
-  assert.equal(appProps(logoPage).teamLogoPrototype, true);
+  assert.equal(appProps(logoPage).teamLogoPrototypeSize, 14);
+  assert.equal(appProps(logo18Page).teamLogoPrototypeSize, 18);
+  assert.equal(appProps(logo20Page).teamLogoPrototypeSize, 20);
 });
 
 /**

@@ -4,27 +4,38 @@ import { toTeamIdentityKey, type TeamCatalogItem } from './teamIdentity';
 export type ScoreboardTeamLogo = Readonly<{
   lightUrl: string;
   darkUrl: string;
+  displaySize: ScoreboardTeamLogoDisplaySize;
 }>;
 
 export type ScoreboardTeamLogosById = ReadonlyMap<string, ScoreboardTeamLogo>;
+export type ScoreboardTeamLogoDisplaySize = 14 | 18 | 20;
 
 export const EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID: ScoreboardTeamLogosById = new Map();
 
 const CFBD_LOGO_HOST = 'cdn.collegefootballdata.com';
-const SCOREBOARD_LOGO_SIZE = '32';
 
-function logoPairForProviderTeamId(providerTeamId: number): ScoreboardTeamLogo | null {
+function providerAssetSize(displaySize: ScoreboardTeamLogoDisplaySize): '32' | '48' {
+  return displaySize === 14 ? '32' : '48';
+}
+
+function logoPairForProviderTeamId(
+  providerTeamId: number,
+  displaySize: ScoreboardTeamLogoDisplaySize
+): ScoreboardTeamLogo | null {
   if (!Number.isSafeInteger(providerTeamId) || providerTeamId <= 0) return null;
+  const assetSize = providerAssetSize(displaySize);
 
   return {
-    lightUrl: `https://${CFBD_LOGO_HOST}/logos/${SCOREBOARD_LOGO_SIZE}/${providerTeamId}.png`,
-    darkUrl: `https://${CFBD_LOGO_HOST}/logos-dark/${SCOREBOARD_LOGO_SIZE}/${providerTeamId}.png`,
+    lightUrl: `https://${CFBD_LOGO_HOST}/logos/${assetSize}/${providerTeamId}.png`,
+    darkUrl: `https://${CFBD_LOGO_HOST}/logos-dark/${assetSize}/${providerTeamId}.png`,
+    displaySize,
   };
 }
 
 function selectCfbdLogo(
   logos: readonly string[] | null | undefined,
-  family: 'logos' | 'logos-dark'
+  family: 'logos' | 'logos-dark',
+  assetSize: '32' | '48'
 ): string | null {
   for (const candidate of logos ?? []) {
     try {
@@ -34,7 +45,7 @@ function selectCfbdLogo(
         url.protocol === 'https:' &&
         url.hostname === CFBD_LOGO_HOST &&
         pathFamily === family &&
-        size === SCOREBOARD_LOGO_SIZE &&
+        size === assetSize &&
         filename?.endsWith('.png') &&
         extra.length === 0
       ) {
@@ -49,22 +60,25 @@ function selectCfbdLogo(
 
 export function buildScoreboardTeamLogosById(
   teams: readonly TeamCatalogItem[],
-  games: readonly AppGame[] = []
+  games: readonly AppGame[] = [],
+  displaySize: ScoreboardTeamLogoDisplaySize = 14
 ): ScoreboardTeamLogosById {
   const logosById = new Map<string, ScoreboardTeamLogo>();
+  const assetSize = providerAssetSize(displaySize);
 
   for (const team of teams) {
     const teamId = toTeamIdentityKey(team.school);
     if (!teamId) continue;
 
-    const lightUrl = selectCfbdLogo(team.logos, 'logos');
-    const darkUrl = selectCfbdLogo(team.logos, 'logos-dark');
+    const lightUrl = selectCfbdLogo(team.logos, 'logos', assetSize);
+    const darkUrl = selectCfbdLogo(team.logos, 'logos-dark', assetSize);
     const fallbackUrl = lightUrl ?? darkUrl;
     if (!fallbackUrl) continue;
 
     logosById.set(teamId, {
       lightUrl: lightUrl ?? fallbackUrl,
       darkUrl: darkUrl ?? fallbackUrl,
+      displaySize,
     });
   }
 
@@ -80,7 +94,7 @@ export function buildScoreboardTeamLogosById(
       const providerTeamId = side === 'home' ? game.homeProviderTeamId : game.awayProviderTeamId;
       if (typeof providerTeamId !== 'number') continue;
 
-      const logo = logoPairForProviderTeamId(providerTeamId);
+      const logo = logoPairForProviderTeamId(providerTeamId, displaySize);
       if (logo) logosById.set(participant.teamId, logo);
     }
   }

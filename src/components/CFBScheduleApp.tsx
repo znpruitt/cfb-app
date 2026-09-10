@@ -50,7 +50,11 @@ import {
   EMPTY_SCOREBOARD_TEAM_COLORS_BY_ID,
   type ScoreboardTeamColorPrototypeMode,
 } from '../lib/teamColors';
-import { buildScoreboardTeamLogosById, EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID } from '../lib/teamLogos';
+import {
+  buildScoreboardTeamLogosById,
+  EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID,
+  type ScoreboardTeamLogoDisplaySize,
+} from '../lib/teamLogos';
 import { fetchConferencesCatalog } from '../lib/conferencesCatalog';
 import { seasonStorageKeys } from '../lib/storageKeys';
 import { type OddsUsageSnapshot } from '../lib/apiUsage';
@@ -120,7 +124,7 @@ type CFBScheduleAppProps = {
   /** PLATFORM-198 REVIEW PROTOTYPE — remove before merge. */
   teamColorPrototypeMode?: ScoreboardTeamColorPrototypeMode;
   /** PLATFORM-198 REVIEW PROTOTYPE — remove before merge. */
-  teamLogoPrototype?: boolean;
+  teamLogoPrototypeSize?: ScoreboardTeamLogoDisplaySize | null;
   /**
    * `League.assignmentMethod` — how this league assigns teams for the season.
    * The preseason banner needs it because `setAssignmentMethod` leaves any
@@ -301,7 +305,7 @@ export default function CFBScheduleApp({
   leagueYear,
   leagueStatus,
   teamColorPrototypeMode = 'remap-only',
-  teamLogoPrototype = false,
+  teamLogoPrototypeSize = null,
   assignmentMethod,
   mostRecentArchivedYear,
   canonicalStandings,
@@ -664,17 +668,17 @@ export default function CFBScheduleApp({
   // Scoreboard renderers receive this memo and pay only two Map lookups per game.
   const teamColorsById = useMemo(
     () =>
-      teamLogoPrototype
+      teamLogoPrototypeSize !== null
         ? EMPTY_SCOREBOARD_TEAM_COLORS_BY_ID
         : buildScoreboardTeamColorsById(teamCatalog, teamColorPrototypeMode),
-    [teamCatalog, teamColorPrototypeMode, teamLogoPrototype]
+    [teamCatalog, teamColorPrototypeMode, teamLogoPrototypeSize]
   );
   const teamLogosById = useMemo(
     () =>
-      teamLogoPrototype
-        ? buildScoreboardTeamLogosById(teamCatalog, games)
+      teamLogoPrototypeSize !== null
+        ? buildScoreboardTeamLogosById(teamCatalog, games, teamLogoPrototypeSize)
         : EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID,
-    [games, teamCatalog, teamLogoPrototype]
+    [games, teamCatalog, teamLogoPrototypeSize]
   );
   const filteredWeekGames = useMemo(() => {
     if (selectedWeek == null) return [] as AppGame[];

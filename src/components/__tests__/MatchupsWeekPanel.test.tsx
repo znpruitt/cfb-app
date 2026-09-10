@@ -1086,7 +1086,7 @@ test('CFBScheduleApp memoizes catalog identity accents and forwards lookups acro
   );
   assert.match(
     source,
-    /buildScoreboardTeamLogosById\(teamCatalog, games\)/,
+    /buildScoreboardTeamLogosById\(teamCatalog, games, teamLogoPrototypeSize\)/,
     'logo selection must run inside one catalog-and-schedule-dependent memo'
   );
 

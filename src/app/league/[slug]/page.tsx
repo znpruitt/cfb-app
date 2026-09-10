@@ -62,7 +62,15 @@ export default async function LeaguePage({
         teamColorPrototypeMode={
           teamColorBarParam === 'outline' ? 'alternate-outline' : 'remap-only'
         }
-        teamLogoPrototype={teamColorBarParam === 'logo'}
+        teamLogoPrototypeSize={
+          teamColorBarParam === 'logo20'
+            ? 20
+            : teamColorBarParam === 'logo18'
+              ? 18
+              : teamColorBarParam === 'logo'
+                ? 14
+                : null
+        }
         assignmentMethod={league?.assignmentMethod}
         mostRecentArchivedYear={mostRecentArchivedYear}
         {...canonicalStandingsClientProps(canonicalStandings)}

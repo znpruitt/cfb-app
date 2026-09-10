@@ -20,6 +20,7 @@ test('scoreboard logos select the 32px CFBD light and dark variants by resolver 
   assert.deepEqual(logos.get('oregon'), {
     lightUrl: 'https://cdn.collegefootballdata.com/logos/32/2483.png',
     darkUrl: 'https://cdn.collegefootballdata.com/logos-dark/32/2483.png',
+    displaySize: 14,
   });
   assert.equal(logos.has('oregon-ducks'), false);
 });
@@ -39,6 +40,7 @@ test('scoreboard logos reuse an available theme variant and reject non-CFBD URLs
   assert.deepEqual(logos.get('nevada'), {
     lightUrl: 'https://cdn.collegefootballdata.com/logos-dark/32/2440.png',
     darkUrl: 'https://cdn.collegefootballdata.com/logos-dark/32/2440.png',
+    displaySize: 14,
   });
   assert.equal(logos.has('trackingpixel'), false);
 });
@@ -66,9 +68,29 @@ test('scoreboard logos cover FCS opponents from retained schedule provider ids',
   assert.deepEqual(logos.get('Abilene Christian'), {
     lightUrl: 'https://cdn.collegefootballdata.com/logos/32/2000.png',
     darkUrl: 'https://cdn.collegefootballdata.com/logos-dark/32/2000.png',
+    displaySize: 14,
   });
   assert.deepEqual(logos.get('alabama'), {
     lightUrl: 'https://cdn.collegefootballdata.com/logos/32/333.png',
     darkUrl: 'https://cdn.collegefootballdata.com/logos/32/333.png',
+    displaySize: 14,
   });
+});
+
+test('18px and 20px treatments select 48px assets and retain the requested display size', () => {
+  const team = {
+    school: 'Ohio State',
+    logos: [
+      'https://cdn.collegefootballdata.com/logos/48/194.png',
+      'https://cdn.collegefootballdata.com/logos-dark/48/194.png',
+    ],
+  };
+
+  for (const displaySize of [18, 20] as const) {
+    assert.deepEqual(buildScoreboardTeamLogosById([team], [], displaySize).get('ohiostate'), {
+      lightUrl: 'https://cdn.collegefootballdata.com/logos/48/194.png',
+      darkUrl: 'https://cdn.collegefootballdata.com/logos-dark/48/194.png',
+      displaySize,
+    });
+  }
 });

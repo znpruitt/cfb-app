@@ -409,6 +409,7 @@ test('team-logo prototype uses dark-surface CFBD artwork inside the existing lin
       teamLogo: {
         lightUrl: 'https://cdn.collegefootballdata.com/logos/32/194.png',
         darkUrl: 'https://cdn.collegefootballdata.com/logos-dark/32/194.png',
+        displaySize: 14,
       },
       owner: 'Gladney',
       rank: 1,
@@ -431,6 +432,36 @@ test('team-logo prototype uses dark-surface CFBD artwork inside the existing lin
   assert.equal(image.getAttribute('height'), '14');
   assert.equal(document.querySelector('[data-scoreboard-team-color="away"]'), null);
   assert.ok(classTokens(participantOpeningTag(html, 'away')).has('pl-4'));
+});
+
+test('larger logo prototypes grow the reserved slot without changing the row height', () => {
+  for (const [displaySize, imageClass, paddingClass] of [
+    [18, 'h-[18px]', 'pl-[22px]'],
+    [20, 'h-5', 'pl-6'],
+  ] as const) {
+    const html = renderScoreboard({
+      away: {
+        teamName: 'Ohio State',
+        score: null,
+        teamLogo: {
+          lightUrl: 'https://cdn.collegefootballdata.com/logos/48/194.png',
+          darkUrl: 'https://cdn.collegefootballdata.com/logos-dark/48/194.png',
+          displaySize,
+        },
+      },
+    });
+    const document = new JSDOM(html).window.document;
+    const image = document.querySelector('[data-scoreboard-team-logo="away"]');
+
+    assert.ok(image);
+    assert.match(
+      image.className,
+      new RegExp(imageClass.replaceAll('[', '\\[').replaceAll(']', '\\]'))
+    );
+    assert.equal(image.getAttribute('width'), String(displaySize));
+    assert.ok(classTokens(participantOpeningTag(html, 'away')).has(paddingClass));
+    assert.ok(classTokens(participantOpeningTag(html, 'away')).has('py-0.5'));
+  }
 });
 
 test('catalog fallback stays absent on an FCS team line instead of rendering green', () => {
