@@ -8,6 +8,7 @@ import {
   EMPTY_SCOREBOARD_TEAM_COLORS_BY_ID,
   type ScoreboardTeamColorsById,
 } from '../lib/teamColors';
+import { EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID, type ScoreboardTeamLogosById } from '../lib/teamLogos';
 import GameWeekPanel from './GameWeekPanel';
 
 type PostseasonPanelProps = {
@@ -20,6 +21,7 @@ type PostseasonPanelProps = {
   currentDateMs?: number | null;
   focusedGameId?: string | null;
   teamColorsById?: ScoreboardTeamColorsById;
+  teamLogosById?: ScoreboardTeamLogosById;
 };
 
 const GROUP_ORDER = ['bowl', 'playoff', 'national_championship'] as const;
@@ -49,6 +51,7 @@ export default function PostseasonPanel({
   currentDateMs = null,
   focusedGameId = null,
   teamColorsById = EMPTY_SCOREBOARD_TEAM_COLORS_BY_ID,
+  teamLogosById = EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID,
 }: PostseasonPanelProps): React.ReactElement {
   const postseason = games.filter(isTruePostseasonGame);
 
@@ -92,6 +95,7 @@ export default function PostseasonPanel({
               currentDateMs={currentDateMs}
               focusedGameId={focusedGameId}
               teamColorsById={teamColorsById}
+              teamLogosById={teamLogosById}
             />
           </div>
         ))

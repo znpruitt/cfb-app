@@ -57,11 +57,12 @@ export default async function LeaguePage({
         leagueDisplayName={league?.displayName}
         leagueYear={league?.year}
         leagueStatus={leagueStatus}
-        // PLATFORM-198 REVIEW PROTOTYPE — `?teamColorBar=outline` is a real-page
-        // comparison seam for the owner and must be removed before merge.
+        // PLATFORM-198 REVIEW PROTOTYPE — these real-page comparison seams must
+        // be removed before merge.
         teamColorPrototypeMode={
           teamColorBarParam === 'outline' ? 'alternate-outline' : 'remap-only'
         }
+        teamLogoPrototype={teamColorBarParam === 'logo'}
         assignmentMethod={league?.assignmentMethod}
         mostRecentArchivedYear={mostRecentArchivedYear}
         {...canonicalStandingsClientProps(canonicalStandings)}

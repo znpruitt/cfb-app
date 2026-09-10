@@ -175,6 +175,13 @@ export type AppGame = {
   startTimeTBD?: boolean | null;
   venueId?: number | null;
   completed?: boolean | null;
+  /**
+   * CFBD numeric participant ids retained for provider-owned presentation
+   * metadata such as the temporary team-logo prototype. Canonical identity
+   * remains `participants.*.teamId`; these ids never participate in matching.
+   */
+  homeProviderTeamId?: number | null;
+  awayProviderTeamId?: number | null;
   /** Cache-only presentation media overlay (PLATFORM-086E1C1) — wire metadata only. */
   media?: ScheduleMediaItem[];
   providerGameId: string | null;
@@ -331,6 +338,8 @@ function retainedScheduleMetadata(item: ScheduleWireItem): Partial<AppGame> {
   if (typeof item.startTimeTBD === 'boolean') fields.startTimeTBD = item.startTimeTBD;
   if (typeof item.venueId === 'number') fields.venueId = item.venueId;
   if (typeof item.completed === 'boolean') fields.completed = item.completed;
+  if (typeof item.homeId === 'number') fields.homeProviderTeamId = item.homeId;
+  if (typeof item.awayId === 'number') fields.awayProviderTeamId = item.awayId;
   if (item.homeClassification) fields.homeClassification = item.homeClassification;
   if (item.awayClassification) fields.awayClassification = item.awayClassification;
   if (Array.isArray(item.media) && item.media.length > 0) fields.media = item.media;

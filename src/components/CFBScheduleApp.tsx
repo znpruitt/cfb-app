@@ -47,8 +47,10 @@ import { fetchTeamsCatalog } from '../lib/teamsCatalog';
 import type { TeamCatalogItem } from '../lib/teamIdentity';
 import {
   buildScoreboardTeamColorsById,
+  EMPTY_SCOREBOARD_TEAM_COLORS_BY_ID,
   type ScoreboardTeamColorPrototypeMode,
 } from '../lib/teamColors';
+import { buildScoreboardTeamLogosById, EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID } from '../lib/teamLogos';
 import { fetchConferencesCatalog } from '../lib/conferencesCatalog';
 import { seasonStorageKeys } from '../lib/storageKeys';
 import { type OddsUsageSnapshot } from '../lib/apiUsage';
@@ -117,6 +119,8 @@ type CFBScheduleAppProps = {
   leagueStatus?: LeagueStatus;
   /** PLATFORM-198 REVIEW PROTOTYPE — remove before merge. */
   teamColorPrototypeMode?: ScoreboardTeamColorPrototypeMode;
+  /** PLATFORM-198 REVIEW PROTOTYPE — remove before merge. */
+  teamLogoPrototype?: boolean;
   /**
    * `League.assignmentMethod` — how this league assigns teams for the season.
    * The preseason banner needs it because `setAssignmentMethod` leaves any
@@ -297,6 +301,7 @@ export default function CFBScheduleApp({
   leagueYear,
   leagueStatus,
   teamColorPrototypeMode = 'remap-only',
+  teamLogoPrototype = false,
   assignmentMethod,
   mostRecentArchivedYear,
   canonicalStandings,
@@ -658,8 +663,18 @@ export default function CFBScheduleApp({
   // Item 119: normalize each catalog colour once when the runtime catalog changes.
   // Scoreboard renderers receive this memo and pay only two Map lookups per game.
   const teamColorsById = useMemo(
-    () => buildScoreboardTeamColorsById(teamCatalog, teamColorPrototypeMode),
-    [teamCatalog, teamColorPrototypeMode]
+    () =>
+      teamLogoPrototype
+        ? EMPTY_SCOREBOARD_TEAM_COLORS_BY_ID
+        : buildScoreboardTeamColorsById(teamCatalog, teamColorPrototypeMode),
+    [teamCatalog, teamColorPrototypeMode, teamLogoPrototype]
+  );
+  const teamLogosById = useMemo(
+    () =>
+      teamLogoPrototype
+        ? buildScoreboardTeamLogosById(teamCatalog, games)
+        : EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID,
+    [games, teamCatalog, teamLogoPrototype]
   );
   const filteredWeekGames = useMemo(() => {
     if (selectedWeek == null) return [] as AppGame[];
@@ -1834,6 +1849,7 @@ export default function CFBScheduleApp({
                   displayTimeZone={presentationTimeZone}
                   rankingsByTeamId={overviewRankingsByTeamId}
                   teamColorsById={teamColorsById}
+                  teamLogosById={teamLogosById}
                   rankings={rankings}
                   onOwnerSelect={(owner) => {
                     setSelectedOwner(owner);
@@ -1889,6 +1905,7 @@ export default function CFBScheduleApp({
                   currentDateMs={liveStaleClock || null}
                   focusedGameId={focusedGameId}
                   teamColorsById={teamColorsById}
+                  teamLogosById={teamLogosById}
                 />
               ) : primarySurfaceKind === 'rankings' ? (
                 <RankingsPageContent
@@ -1920,6 +1937,7 @@ export default function CFBScheduleApp({
                   liveDelta={liveDelta}
                   nowMs={liveStaleClock}
                   teamColorsById={teamColorsById}
+                  teamLogosById={teamLogosById}
                 />
               ) : weekViewMode === 'matrix' ? (
                 <MatchupMatrixView
@@ -1941,6 +1959,7 @@ export default function CFBScheduleApp({
                   currentDateMs={liveStaleClock || null}
                   focusedGameId={focusedGameId}
                   teamColorsById={teamColorsById}
+                  teamLogosById={teamLogosById}
                 />
               )}
             </section>

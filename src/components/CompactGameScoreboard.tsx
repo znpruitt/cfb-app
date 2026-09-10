@@ -1,4 +1,5 @@
 import React from 'react';
+import Image from 'next/image';
 
 import type { ProviderClassification } from '../lib/conferenceSubdivision';
 import { gameStatusLabelPresentation, type GameStatusLabelOptions } from '../lib/gameUi';
@@ -6,10 +7,12 @@ import { rankSourceLabel, type RankSource } from '../lib/rankings';
 import type { GameScoreboardState } from '../lib/selectors/gameScoreboardState';
 import type { TeamRecordClient } from '../lib/selectors/teamRecordsClient';
 import type { ScoreboardTeamColorBar } from '../lib/teamColors';
+import type { ScoreboardTeamLogo } from '../lib/teamLogos';
 
 export type CompactScoreboardParticipant = {
   teamName: string;
   teamColor?: ScoreboardTeamColorBar | null;
+  teamLogo?: ScoreboardTeamLogo | null;
   owner?: string | null;
   isCardOwnerTeam?: boolean;
   rank?: number | null;
@@ -249,7 +252,18 @@ export default function CompactGameScoreboard({
             data-scoreboard-side={side}
             data-scoreboard-leading={isLeading}
           >
-            {participant.teamColor ? (
+            {participant.teamLogo ? (
+              <Image
+                className="absolute left-0 top-1/2 block h-[14px] w-[14px] -translate-y-1/2 object-contain"
+                src={participant.teamLogo.darkUrl}
+                alt=""
+                width={14}
+                height={14}
+                unoptimized
+                aria-hidden="true"
+                data-scoreboard-team-logo={side}
+              />
+            ) : participant.teamColor ? (
               <span
                 className="absolute inset-y-0.5 left-0 block w-2 rounded-[2px]"
                 style={teamColorBarStyle(participant.teamColor)}

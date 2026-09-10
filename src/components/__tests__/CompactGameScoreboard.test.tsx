@@ -401,6 +401,38 @@ test('alternate-colour prototype draws a 1px inset edge without changing the 8px
   );
 });
 
+test('team-logo prototype uses dark-surface CFBD artwork inside the existing line-start slot', () => {
+  const html = renderScoreboard({
+    away: {
+      teamName: 'Ohio State',
+      teamColor: '#CC4E54',
+      teamLogo: {
+        lightUrl: 'https://cdn.collegefootballdata.com/logos/32/194.png',
+        darkUrl: 'https://cdn.collegefootballdata.com/logos-dark/32/194.png',
+      },
+      owner: 'Gladney',
+      rank: 1,
+      score: 17,
+    },
+  });
+  const document = new JSDOM(html).window.document;
+  const image = document.querySelector('[data-scoreboard-team-logo="away"]');
+
+  assert.ok(image);
+  assert.equal(image.getAttribute('aria-hidden'), 'true');
+  assert.match(image.className, /h-\[14px\]/);
+  assert.match(image.className, /w-\[14px\]/);
+  assert.equal(
+    image.getAttribute('src'),
+    'https://cdn.collegefootballdata.com/logos-dark/32/194.png'
+  );
+  assert.equal(image.getAttribute('alt'), '');
+  assert.equal(image.getAttribute('width'), '14');
+  assert.equal(image.getAttribute('height'), '14');
+  assert.equal(document.querySelector('[data-scoreboard-team-color="away"]'), null);
+  assert.ok(classTokens(participantOpeningTag(html, 'away')).has('pl-4'));
+});
+
 test('catalog fallback stays absent on an FCS team line instead of rendering green', () => {
   const teamColorsById = buildScoreboardTeamColorsById([
     { school: 'Portland State', color: null, altColor: null },

@@ -1038,6 +1038,7 @@ test('shared scoreboard public props include the Item 119 colour seam without wi
   assert.deepEqual(fieldsFor('CompactScoreboardParticipant'), [
     'teamName',
     'teamColor',
+    'teamLogo',
     'owner',
     'isCardOwnerTeam',
     'rank',
@@ -1065,7 +1066,7 @@ test('shared scoreboard public props include the Item 119 colour seam without wi
   ]);
 });
 
-test('CFBScheduleApp memoizes catalog colours and forwards one lookup across scoreboard surfaces', () => {
+test('CFBScheduleApp memoizes catalog identity accents and forwards lookups across scoreboard surfaces', () => {
   const source = readFileSync(new URL('../CFBScheduleApp.tsx', import.meta.url), 'utf8');
   const matchupsCall = source.match(/<MatchupsWeekPanel[\s\S]*?\/>/)?.[0];
 
@@ -1077,16 +1078,23 @@ test('CFBScheduleApp memoizes catalog colours and forwards one lookup across sco
   );
   assert.match(matchupsCall, /nowMs=\{liveStaleClock\}/);
   assert.match(matchupsCall, /teamColorsById=\{teamColorsById\}/);
+  assert.match(matchupsCall, /teamLogosById=\{teamLogosById\}/);
   assert.match(
     source,
-    /const teamColorsById = useMemo\(\s*\(\) => buildScoreboardTeamColorsById\(teamCatalog, teamColorPrototypeMode\),\s*\[teamCatalog, teamColorPrototypeMode\]\s*\)/,
-    'normalization must run inside one catalog-dependent memo'
+    /buildScoreboardTeamColorsById\(teamCatalog, teamColorPrototypeMode\)/,
+    'colour normalization must remain inside its catalog-dependent memo'
+  );
+  assert.match(
+    source,
+    /buildScoreboardTeamLogosById\(teamCatalog, games\)/,
+    'logo selection must run inside one catalog-and-schedule-dependent memo'
   );
 
   for (const component of ['OverviewPanel', 'PostseasonPanel', 'GameWeekPanel'] as const) {
     const call = source.match(new RegExp(`<${component}[\\s\\S]*?\\/>`))?.[0];
     assert.ok(call, `${component} call site must remain present`);
     assert.match(call, /teamColorsById=\{teamColorsById\}/);
+    assert.match(call, /teamLogosById=\{teamLogosById\}/);
   }
 });
 
