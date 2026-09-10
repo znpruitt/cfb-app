@@ -30,6 +30,8 @@ All foundational phases are complete (architecture, production hardening, league
 
 Active campaign status is **not** duplicated here — it drifts. See `docs/next-tasks.md` (the active execution queue and current phase focus) and `docs/roadmap.md` (campaign definitions and development philosophy) for the current campaigns and their status.
 
+**WORK ITEMS ARE FILED AS GITHUB ISSUES, NOT AS QUEUE ENTRIES — owner decision 2026-09-10.** A new finding gets an issue with a **state** label (`actionable`, `needs-decision`, `parked`, `needs-triage`) and at least one **domain** label (`draft`, `preseason`, `season`, `offseason`, `insights`, `admin`, `provider`, `scheduler`, `platform`, `ui`). **`docs/next-tasks.md` stays canonical for DISPATCH ORDER — what is next, and why — and for cross-item rulings.** It is no longer where an item's ask, state or evidence lives. Items filed before the switch migrate on triage; until then both places are real and an un-migrated item is still a queue entry. **A PR that closes an issue says `Closes #N` in its body** — the state transition is the one bookkeeping step that has failed by hand more than once, and this is why it moves.
+
 **Unresolved decisions and deferrals** are tracked in one place: `docs/next-tasks.md` → "Unresolved decisions & known deferrals" (a top-level section since DOCS-012; it originated under the app-wide PLATFORM-068 audit sequence); per-item history is in `docs/prompt-registry.md`. That section is the single source — do not restate individual item statuses here or in `CLAUDE.md`, so they can't go stale as items ship.
 
 ---

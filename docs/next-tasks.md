@@ -523,92 +523,30 @@ kind at the loader boundary before adding retry UI.
 
 ### Item 60 — rankings recovery remains incomplete
 
-Future poll normalization is corrected and the current 2026 snapshot was refreshed, but two
-operator decisions remain:
-
-- whether historical seasons should be re-fetched where the archived Coaches column may contain a
-  lower-division poll, with the associated CFBD cost;
-- whether to build a guarded force path for a legitimate rankings replacement that the
-  all-or-nothing coverage gate refuses after a poll rename or removed week.
-
-Also retain these low-severity implementation follow-ups when the authority is next touched:
-deduplicate unknown-poll warnings across the whole two-partition refresh, and validate `poll.poll`
-before trimming it so malformed provider data is classified rather than thrown as an unexpected
-programming error.
+**MIGRATED to [#601](https://github.com/znpruitt/cfb-app/issues/601) on 2026-09-10, labelled `needs-decision`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.** Triage record:
+[`docs/archive/audits/queue-triage-2026-09-10.md`](archive/audits/queue-triage-2026-09-10.md).
 
 ### Item 79 — vanished-schedule observability follow-ups are evidence-gated
 
-Production behavior is accepted. Make no change unless real log triage demonstrates value:
-
-- add `baselineSource: 'aggregate' | 'partitions'` only if operators need to distinguish the prior
-  snapshot source;
-- add a path-matched aggregate-write race test before changing aggregate precedence;
-- correct the pre-existing changed-data fixture comment when that test is next edited—it covers a
-  same-id content rewrite, not numeric-id replacement.
-
-- Backlog slug: `PLATFORM-SCHEDULE-VANISH-OBSERVABILITY-FOLLOWUPS-v1`
+**MIGRATED to [#611](https://github.com/znpruitt/cfb-app/issues/611) on 2026-09-10, labelled `parked`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.**
 
 ### Item 81 — score-gap diagnostic follow-ups are evidence-gated
 
-PLATFORM-112's production behavior and current single-producer boundary are accepted. Preserve
-these confirming-review observations without putting them into the active sequence:
-
-- independently cap `SafeDiagnostic.gameRefs` at the System Health presentation boundary if a
-  second producer is added; the current producer already caps it at six;
-- measure the diagnostics pass against its eight-second bound before deduplicating the canonical
-  schedule builds used by score and game-stats coverage;
-- change the shared fail-closed conclusion precedence only if real CFBD evidence shows a canceled
-  game with `completed: true`; today that contradictory combination deliberately requires a score.
-
-- Backlog slug: `PLATFORM-SCORE-GAP-DIAGNOSTIC-FOLLOWUPS-v1`
+**MIGRATED to [#603](https://github.com/znpruitt/cfb-app/issues/603) on 2026-09-10, labelled `parked`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.** Triage record:
+[`docs/archive/audits/queue-triage-2026-09-10.md`](archive/audits/queue-triage-2026-09-10.md).
 
 ### Item 95 — remaining live-score cadence work
 
-Portion 1 shipped via PR #567; its implementation and review record is in
-`PLATFORM-BROWSER-POLL-CADENCE-v2` in `docs/prompt-registry.md`. The settled baseline for the open
-work is a cache-only, full-partition browser read every 90 seconds inside the bounded fast tier and
-every 180 seconds otherwise, with the provider writer unchanged at three minutes.
-
-**Post-merge observation — measure `/api/scores?live=1` Active CPU during a live slate.** Each browser
-read still invokes the dynamic route and durable full-season reconciliation. If its attribution is
-material, memoize that reconcile; the optimization helps both cadence tiers and does not change what
-scores are read.
-
-**Remaining follow-up — retune the client staleness threshold.**
-`DEFAULT_LIVE_DELTA_STALE_THRESHOLD_MS` (`selectors/liveDelta.ts`) remains 7 minutes. It detects a
-wedged client poll rather than stale provider data, so changing it is a product decision: reduce it
-to roughly four minutes to restore a two-missed-tick bound, or keep seven minutes as an intentional
-wall-clock allowance. Portion 1 deliberately changes only its docblock, not the value.
-
-**Portion 2 — cron cadence, gated on Item 94.** Because the route bills at most one request per run,
-the cost is exactly linear:
-
-    monthly calls = armed hours x runs/hour x 1      (20/hr at 3 min; 40/hr at 90s)
-
-So the price of doubling equals the month's armed-hour count — a number nobody has yet.
-**Item 94 produces it.** Do not size this from an estimate; the whole point of 94 is that August's
-395 calls covers ~2 in-season days and is not a usable baseline.
-
-Portion 2 remains separate because it changes the provider writer and spends quota.
-
-**Item 102 changes what portion 2 is asking — recorded 2026-09-04.** The planner does not create quota
-headroom: dead-day runs already bill zero provider calls, since the route bills only when armed. What
-it creates is **Active CPU headroom** — roughly 2.9 h of the 4 h allowance, from ~1.1 h/30d projected
-against a budget live-scores currently consumes 75% of. So after the planner, a faster in-window
-cadence becomes affordable on the axis that previously blocked it, while its cost on the quota axis is
-completely unchanged.
-
-**Both axes now scale with the same unknown: armed hours.** Quota is `armed hours × runs/hour`, and
-the added CPU is likewise proportional to how many hours the windows actually cover. So **Item 94
-gates both halves of portion 2**, not just the quota half — which upgrades 94 from a passive
-measurement into the input for two decisions. It bills 0 (`GET /info`) and reports after the
-September reset, so the answer arrives at the start of October on its own.
-
-**Consequence for sequencing:** let the provider cadence decision land when Item 94 reports — with
-the headroom banked and quota cost measured rather than estimated. Do not size portion 2 before then;
-that is the whole reason Item 94 exists.
-
-- Backlog slug: `PLATFORM-LIVE-SCORE-CADENCE-v1`
+**MIGRATED to [#604](https://github.com/znpruitt/cfb-app/issues/604) on 2026-09-10, labelled `actionable`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.** Triage record:
+[`docs/archive/audits/queue-triage-2026-09-10.md`](archive/audits/queue-triage-2026-09-10.md).
 
 ### Item 96 — pause the in-season QStash schedules through the offseason
 
@@ -4229,200 +4167,16 @@ rather than assume storage was filtered.
 
 ### Item 98 — league page content paint: three measured costs
 
-**Measured 2026-08-31.** Three independent costs, each with a number. Everything below was taken
-from production; where a measurement turned out to be an artifact it is recorded as one so it is not
-repeated.
-
-**What the dashboard says, and what it hides.**
-
-|                            | Mobile                         | Desktop                       |
-| -------------------------- | ------------------------------ | ----------------------------- |
-| Real Experience Score      | 95 (Great)                     | 76 (Needs Improvement)        |
-| **First Contentful Paint** | **2.31s (amber)**              | **3.50s (poor)**              |
-| Largest Contentful Paint   | 2.47s green                    | 3.89s amber                   |
-| INP / CLS / FID            | 88ms / 0.05 / 30ms — all green | 64ms / 0.03 / 4ms — all green |
-| `/league/[slug]`           | 93 (137 samples)               | 74 (90 samples)               |
-| TTFB                       | 0.31s                          | —                             |
-
-**Mobile RES 95 is a composite carried by green INP/CLS/FID. FCP is the only non-green metric on
-either device, and FCP is literally "how long until content appears".** Do not read 95 as "this is
-fine"; read the FCP row.
-
-**Desktop is not representative.** 90 samples over 7 days on a private league is mostly the owner,
-and the window includes a debugging session run with `Disable cache` ticked. Mobile has the larger
-sample and is the better signal.
-
-**And the score cannot see the tab-switch complaint at all.** FCP fires once per page load. Client
-navigations between Overview and History emit **no FCP event**, so that experience is invisible in
-Speed Insights by construction. It was measured directly instead — see cost 3.
-
-#### 98a — standings warm-on-write — shipped
-
-Merged through PLATFORM-119 / PR #547. See `docs/completed-work.md` for the shipped outcome; the
-remaining league-page-paint work begins at 98c.
-
-#### 98b — 76% of the schedule payload is discarded after parsing
-
-> **SUPERSEDED by PLATFORM-120.** This proposed shaping the API response, but the complete
-> reader audit found expectation-oracle and diagnostic consumers that require the full row set.
-> PLATFORM-120 instead filters only the live-score and game-stats canonical builds, keeps durable
-> storage and `/api/schedule` complete, and makes week derivation invariant to that filter. Do not
-> implement 98b; see the PLATFORM-120 registry and completed-work records.
-
-`/api/schedule?year=2026&seasonType=all` returns **2,764,786 bytes** (245 KB gzipped). Of its 3,676
-rows:
-
-| Pairing              | Rows          |
-| -------------------- | ------------- |
-| involves an FBS team | **888 (24%)** |
-| iii/iii              | 1,158         |
-| ii/ii                | 811           |
-| fcs/fcs              | 651           |
-
-**The client already discards them** — `src/lib/schedule.ts:758` filters with `isTrackedGame(...)`
-immediately after parsing. So filtering server-side is not a behaviour change; it moves an existing
-filter upstream. Same shape as PLATFORM-114: work at the wrong layer, shipping data that is thrown
-away.
-
-**Fix: filter on provider classification** (no FBS participant → cannot be tracked) in the
-`/api/schedule` response. Use the coarse classification predicate, **not** a server-side
-reproduction of `isTrackedGame`, which needs the resolver and canonical metadata. The coarse filter
-is provably lossless. Expect ~2.76 MB → ~670 KB parsed.
-
-**Measured 2026-08-31 — the cost is row processing, not bytes.** `buildScheduleFromApi`
-(`schedule.ts:345`) against the real production payload, 5 runs after a warm-up, median:
-
-| Input                  | Median      | Range     |
-| ---------------------- | ----------- | --------- |
-| all 3,676 rows         | **1267 ms** | 1233-1605 |
-| 888 FBS-involving rows | **353 ms**  | 316-1369  |
-
-**~915 ms of main-thread work removed**, on laptop-class hardware.
-
-**Qualified by the Lighthouse trace:** that benchmark timed the function in ISOLATION. In a real
-mobile trace, script evaluation is dominated by React hydration (1,932 ms, see below), and the
-schedule work sits inside `Unattributable` (1,240 ms) or chunk `1255` (943 ms). 98b's saving is real
-but a smaller share of the load than 915 ms suggests on its own. `JSON.parse` of 2.76 MB is only
-tens of ms; essentially all of this is the per-row walk, and it scales with row count
-(3.6x fewer rows → 3.6x less time). On a phone this runs 2-4x slower, so on mobile — where FCP is
-the amber metric — **98b is plausibly a LARGER win than 98a.**
-
-_Caveat:_ benchmarked with an empty `aliasMap`, so absolute numbers will differ in production; the
-ratio is what matters and it is row-count driven.
-
-#### 98c — no client cache, so every navigation refetches everything
-
-`CFBScheduleApp` holds schedule and scores in `useState` and there is **no client data-cache
-library** (no SWR, no React Query). Navigating away unmounts the component and discards the state;
-navigating back refetches from scratch. Observed on a single Overview → History → Overview round
-trip:
-
-    schedule?year=2026   teams   rankings?year=2026   aliases?scope=effective
-    owners?year=2026     postseason-overrides?year=…  odds-usage   tsc?year=2026
-    → 23 requests, 254 kB, ~12s timeline
-
-**Fix: cache the slow-changing fetches across navigations.** Schedule changes weekly and teams and
-aliases change less than that; scores are the only genuinely live one and already have their own
-90-second/3-minute tiered polling. Keep the live path exactly as it is.
-
-#### 98d — targeted prefetch of History, paired with `staleTimes`
-
-**98a is shipped; do 98c first.** This is a follow-on that buys one specific transition; 98c helps
-both directions and every load.
-
-**Scope it to the single Overview → History tab link** (`WeekViewTabs.tsx:79`), not to links
-generally. From Overview there is exactly one History link, so `prefetch={true}` there is **one**
-speculative render. The 10+ prefetch burst described below happens on the _History_ page, which
-links to matchups, members, stats, rivalries, archive and one route per owner — that is where broad
-prefetching would be harmful, and those owner links likely want `prefetch={false}`.
-
-**`prefetch={true}` and `staleTimes` MUST ship together.** In Next 15 the client Router Cache's stale
-time for dynamic routes defaults to **0**, so a prefetched dynamic payload is fetched and then not
-reused. Shipping the prefetch alone pays History's full server render speculatively and discards it —
-strictly worse than doing nothing. Set a short `experimental.staleTimes.dynamic` (~30s): long enough
-to make the switch instant, short enough that a member never sees materially stale scores relative
-to the 90-second/3-minute tiered browser cadence and the three-minute provider writer.
-
-**What it buys, and what it does not.**
-
-- **Overview → History: most of the win.** History's cost is almost entirely its server render
-  (TTFB 377ms + Content Download 739ms) and it has no client-side data layer to miss.
-- **History → Overview: the RSC half only.** Prefetch warms the route payload, but `CFBScheduleApp`
-  fetches schedule, teams, rankings, aliases, owners and overrides from the _client_ after mount.
-  **98c is what fixes that direction**, not prefetch.
-
-**Verify it is not speculative waste:** after shipping, confirm in DevTools that a prefetched History
-navigation issues no new `history?_rsc=` request, and that the prefetch burst on the History page has
-not grown.
-
-#### 98e — the app icon was 1.2 MB (DONE 2026-08-31)
-
-`src/app/icon.png` was **1024x1024, 1,238 kB**. Next's App Router serves `app/icon.png` verbatim at
-`/icon.png`, so every visitor downloaded a megabyte-plus image to render a favicon. In a Lighthouse
-trace it was the **largest transfer on the page by 7x** over the next item (`/api/schedule` at
-182 kB).
-
-Resized to **512x512, 35 kB** — a 97% reduction, ~1.2 MB off every cold load. 512 exceeds what any
-browser needs for a favicon and still covers PWA install and high-DPI; nothing referenced the 1024
-version, and there is no manifest. Measured alternatives: 256px 9.3 kB, 192px 6.0 kB.
-
-Not render-blocking, so it does not move FCP directly — but on mobile data it competed for bandwidth
-and connections against everything else during load.
-
-#### Known cost, not an action — hydration
-
-Lighthouse (mobile emulation, 4x CPU) attributes **1,932 ms of script evaluation to React DOM, in a
-single 1,698 ms long task**, against 3,503 ms of total script evaluation. That is hydration, and it
-is the largest single main-thread cost on the page — larger than schedule processing.
-
-The cause is structural: `CFBScheduleApp` is one `'use client'` component wrapping the entire app
-surface, so the whole tree hydrates at once. Reducing it means moving parts back to server components
-and splitting the client boundary into islands. **That is an architectural change, not a tweak**, and
-it is recorded here as a known cost rather than filed as work. Revisit only if 98a-98e leave the page
-unsatisfying.
-
-#### Deliberately NOT in scope
-
-- **`getLeague` caching and Suspense boundaries.** TTFB is 236-310ms and green on both devices. The
-  server's _first byte_ is not the problem; its streamed body is, and 98a fixes that.
-- **Broad `prefetch={true}` across all links.** Targeted prefetch is now 98d; this entry is about
-  applying it generally, which would make things WORSE here: the History page
-  already fires 10+ viewport RSC prefetches (`matchups`, `members`, `stats`, `rivalries`, `archive`,
-  plus one per owner), all `force-dynamic`. They are shell-only today (8.2 kB across 14 requests),
-  but forcing full prefetch would turn them into 10+ dynamic renders per visit. A return navigation
-  showed DNS 159ms + connect 187ms + SSL 117ms — a _fresh_ connection, because the prefetch burst
-  had exhausted the pool. If anything is done here it is `prefetch={false}` on the owner links.
-- **Flattening History's five-stage waterfall** (`history/page.tsx:50-88`, 7 archives). Real —
-  History's RSC fetch measured TTFB 377ms + Content Download 739ms — but 98c comes first now that
-  98a is shipped.
-- **Bundle size.** 260 kB First Load JS for `/league/[slug]`, 173 kB for history. Unremarkable and
-  not the bottleneck.
-
-#### Measurement artifacts — recorded so they are not repeated
-
-- **`getCanonicalStandings` is NOT slow.** Timing it at 5.6s from a local `tsx` process was an
-  artifact: outside the Next runtime `unstable_cache` degrades to a passthrough, and the link to
-  Neon carries ~79ms RTT versus ~1-3ms from a Vercel function in the same region. Measure server
-  work in production, via DevTools timings or Observability.
-- **"~1 MB of JS" was wrong.** That came from summing every chunk referenced in the HTML, including
-  non-first-load ones. The build output is authoritative: 260 kB.
-- **Desktop RES is polluted by our own testing.** Prefer mobile, and prefer the FCP row over the
-  composite score.
-
-- Backlog slug: `PLATFORM-LEAGUE-PAGE-PAINT-v1`
-
-## Open league-setup, roster, and draft work
+**MIGRATED to [#613](https://github.com/znpruitt/cfb-app/issues/613) on 2026-09-10, labelled `needs-triage`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.**
 
 ### Item 51 — manual assignment is offered but has no completion writer
 
-`manualAssignmentComplete` is read by readiness selectors and has no production writer. Selecting
-manual assignment therefore strands the league in `manual-assignment-incomplete`, and Complete
-Setup can never succeed.
-
-Owner decision required at activation: either implement the manual assignment workflow and a
-durable per-`(slug, year)` completion fact, or refuse/hide the assignment method until it exists.
-When implemented, that durable completion becomes the second valid evidence source for membership
-change insights; a transient preseason lifecycle flag is not sufficient.
+**MIGRATED to [#600](https://github.com/znpruitt/cfb-app/issues/600) on 2026-09-10, labelled `needs-decision`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.** Triage record:
+[`docs/archive/audits/queue-triage-2026-09-10.md`](archive/audits/queue-triage-2026-09-10.md).
 
 ### Item 23 — assignment-method and draft-recovery states
 
@@ -4438,13 +4192,10 @@ Resolve as a focused setup/recovery campaign:
 
 ### Item 28 — remaining demo dry-run findings
 
-Keep these product defects together because they describe the same commissioner recovery flow:
-
-- Reopen does not provide a clear path back to draft setup;
-- Setup Complete can survive a reopen;
-- “Finish draft” can appear when no draft exists;
-- owners cannot be renamed from the owners screen;
-- editing owners after confirmation can diverge from draft/roster authority.
+**MIGRATED to [#597](https://github.com/znpruitt/cfb-app/issues/597) on 2026-09-10, labelled `needs-triage`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.** Triage record:
+[`docs/archive/audits/queue-triage-2026-09-10.md`](archive/audits/queue-triage-2026-09-10.md).
 
 ### Item 39 — draft-board walkthrough follow-ups
 
@@ -4460,20 +4211,17 @@ The live writer behavior held under the walkthrough. Remaining work:
 
 ### Item 45 — PLATFORM-092 setup residue
 
-- Make the preseason banner use the same `MIN_CONFIRMED_OWNERS` threshold as confirmed-roster
-  selection; a one-owner repair CSV currently says “Roster confirmed” on one surface and incomplete
-  on another.
-- Extract the reorder editor if `DraftSettingsPanel` is next expanded; it sits at the library's
-  complexity guardrail.
-- Avoid importing the full standings dependency graph merely to obtain the owner-count constant
-  when that shell is next touched.
+**MIGRATED to [#599](https://github.com/znpruitt/cfb-app/issues/599) on 2026-09-10, labelled `actionable`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.** Triage record:
+[`docs/archive/audits/queue-triage-2026-09-10.md`](archive/audits/queue-triage-2026-09-10.md).
 
 ### Item 37 — `NoClaim` can count toward confirmation eligibility
 
-A legacy or hand-edited `preseason-owners` row such as `['Alice', 'NoClaim']` can satisfy the owner
-threshold before downstream consumers strip `NoClaim`. Insights re-checks the threshold, but draft
-creation and setup surfaces consume the padded list. Normalize the confirmed-roster authority once,
-before applying the threshold, and explicitly test the behavior change for legacy records.
+**MIGRATED to [#598](https://github.com/znpruitt/cfb-app/issues/598) on 2026-09-10, labelled `actionable`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.** Triage record:
+[`docs/archive/audits/queue-triage-2026-09-10.md`](archive/audits/queue-triage-2026-09-10.md).
 
 ### Item 17 — mid-season owner replacement does not update membership
 
@@ -4484,25 +4232,15 @@ guarded in-season membership repair or converge the records under item 25's auth
 
 ### Item 25 — roster membership authority after publication is parked
 
-The stopped PLATFORM-098 attempt showed this is not safely patchable with display-name equality.
-Reopen, re-confirm, roster edits, one-owner/zero-team states, and reset can each make the confirmation
-list, roster, and draft disagree. Resume only alongside the owner-identity-as-ID design; until then,
-prefer refusing ambiguous destructive operations over guessing whether a name was removed or
-renamed.
-
-## Conditional gate before multi-user drafts or public leagues
+**MIGRATED to [#605](https://github.com/znpruitt/cfb-app/issues/605) on 2026-09-10, labelled `needs-decision`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.**
 
 ### Item 65 — multi-writer draft gate
 
-The current risk posture assumes one commissioner is the only draft writer and every other client
-is read-only. Before members can make their own picks, complete the following in order:
-
-1. Item 15 — pick attribution.
-2. Item 14 — duplicate auto-pick attempts from multiple boards.
-3. Item 13 — stable undo identity and serialized draft deletion.
-4. Item 12 — remaining roster/draft writers outside the transaction authority.
-5. Item 20 — bounded database waits; this item is app-wide and may be scheduled earlier.
-6. Items 46 and 47 — deletion/adoption privacy and the public suppression-bypass route.
+**MIGRATED to [#610](https://github.com/znpruitt/cfb-app/issues/610) on 2026-09-10, labelled `needs-decision`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.**
 
 ### Item 15 — double-submitted pick can be credited to the next owner
 
@@ -4518,26 +4256,26 @@ loser's response against refreshed draft state and treat an already-advanced tur
 
 ### Item 13 — undo uses a reusable slot number and deletion bypasses serialization
 
-A delayed undo request addressed only by `pickNumber` can delete a replacement occupying the reused
-slot. Give picks a stable identity or require an expected-value precondition. Draft deletion/reset
-paths must participate in the same serialization and stale-write policy as other writers.
+**SUPERSEDED — closed 2026-09-10 by triage, not migrated.** Both halves shipped:
+`unpick/route.ts:63-67` now REQUIRES `expectedPickNumber`, which is the expected-value precondition
+this item asked for; and `reset/route.ts:46` runs inside `withAppStateKeyTransaction` ("PLATFORM-102
+round 3 — Reset reads and writes inside one key transaction"), which is the serialization it asked
+for. **The first item of 20 triaged to come back superseded.** Recorded as prerequisite 3 of 6 in
+[#610](https://github.com/znpruitt/cfb-app/issues/610), struck through there.
 
 ### Item 12 — remaining draft-writer serialization
 
-Existing-draft mutations are serialized, but these writers remain outside the same authority:
-
-- `PUT /api/owners` roster replacement;
-- draft creation;
-- demo auto-complete.
-
-Keep provider/store I/O ordering compatible with the small database pool, and do not hold a
-transaction client across network work.
+**MIGRATED to [#596](https://github.com/znpruitt/cfb-app/issues/596) on 2026-09-10, labelled `actionable`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.** Triage record:
+[`docs/archive/audits/queue-triage-2026-09-10.md`](archive/audits/queue-triage-2026-09-10.md).
 
 ### Item 19 — alias/store failure preempts a clean pick refusal
 
-The pick route reads aliases before evaluating some draft-state guards. A store outage can therefore
-return 500 where the stored draft already proves the pick should be refused without that dependency.
-Move nonessential reads behind the cheap authoritative refusal checks.
+**MIGRATED to [#595](https://github.com/znpruitt/cfb-app/issues/595) on 2026-09-10, labelled `actionable`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.** Triage record:
+[`docs/archive/audits/queue-triage-2026-09-10.md`](archive/audits/queue-triage-2026-09-10.md).
 
 ### Item 20 — database waits are unbounded
 
@@ -4663,14 +4401,9 @@ preserving already-neutral historical copy.
 
 ### Item 36 — participation claims remain ungated
 
-These claims assert current participation when membership is unknown:
-
-- `historical:drought` — “active”/“still waiting”;
-- `rivalry:dominance_streak` — “active” and present-tense pattern copy;
-- `career:never_last` — “and counting.”
-
-Gate or neutralize them as part of the superlative conversion. The completed-season recap exemption
-does not apply to present-tense participation claims.
+**MIGRATED to [#606](https://github.com/znpruitt/cfb-app/issues/606) on 2026-09-10, labelled `needs-triage`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.**
 
 ### Item 38 — retire `partial-roster` and restore selector ownership
 
@@ -4714,9 +4447,9 @@ Neither portion is currently selected for implementation.
 
 ### Item 43 — new preseason generators
 
-After the truth/gating work above, add genuinely new preseason content: draft conference
-concentration/diversity, AP-ranked teams per owner, schedule-strength projections, and the all-time
-toilet-bowl record. Every card must add an angle a reader cannot obtain by simply reading the table.
+**MIGRATED to [#607](https://github.com/znpruitt/cfb-app/issues/607) on 2026-09-10, labelled `actionable`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.**
 
 ### Item 54 — season-recap residue
 
@@ -4776,8 +4509,9 @@ selector and distinguish unknown draft state from no draft.
 
 ### Item 50 — passive schedule-presentation checkpoint
 
-No implementation work. Close deployment-runbook §8i when the first qualifying automatic
-presentation refresh is observed in production evidence.
+**MIGRATED to [#608](https://github.com/znpruitt/cfb-app/issues/608) on 2026-09-10, labelled `parked`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.**
 
 ### Item 56 — POLISH-005 residue
 
@@ -4791,18 +4525,16 @@ presentation refresh is observed in production evidence.
 
 ### Item 59 — second preview branch behavior is unknown and conditional
 
-The canonical preview gate documentation is corrected. The only remaining question is why the
-historical `preview-codex` push produced no deployment. Investigate only if a second stable preview
-branch is actually wanted; the alias/project-setting requirement is the load-bearing concern.
+**MIGRATED to [#609](https://github.com/znpruitt/cfb-app/issues/609) on 2026-09-10, labelled `parked`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.**
 
 ### Item 71 — JSDOM-heavy test startup and timeout headroom
 
-The measured slow component file spent most time in JSDOM/module startup, not test work. Do not
-split files by default because that repeats the dominant cost. Re-measure under representative host
-load with streaming output, then choose explicitly between shared JSDOM per worker and a larger
-per-file timeout while preserving process isolation for pid-scoped app state.
-
-- Backlog slug: `PLATFORM-TEST-STARTUP-HEADROOM-v1`
+**MIGRATED to [#602](https://github.com/znpruitt/cfb-app/issues/602) on 2026-09-10, labelled `needs-triage`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.** Triage record:
+[`docs/archive/audits/queue-triage-2026-09-10.md`](archive/audits/queue-triage-2026-09-10.md).
 
 ### Item 73 — archived season-arc axis domain
 
@@ -5049,28 +4781,9 @@ unchanged by the repair (they are already correct — the repair must prove it d
 
 ### Item 86 — the archive audit's integrity check can never pass
 
-`renderSection1Summary` (`src/app/api/debug/archive-audit/route.ts:244-247`) prints
-`wins == losses (expected for a closed game universe)?` and reports `NO` in every archived season —
-2018, 2021, 2022, 2023, 2024, and 2025 — because the premise does not hold. The universe is not
-closed while any FBS team goes unrostered: a rostered team beating an unrostered opponent books a win
-with no matching rostered loss. In 2018 that is a 106-8 record against unrostered teams, exactly the
-98-game gap the check flags.
-
-A check that fails unconditionally is worse than no check, because it trains an operator to skip the
-line where a genuine integrity failure would appear. This matters now specifically: the archive audit
-is the tool the Item 85 repair will be verified with.
-
-The meaningful invariant, derived by hand while investigating and closing exactly in all six seasons:
-
-- `bothRostered = teamGames - archiveGames`, `oneRostered = archiveGames - bothRostered`
-- `winsVsUnrostered + lossesVsUnrostered == oneRostered`
-
-That form accounts for the open universe and is sensitive to missing or duplicated games, which the
-current form is not.
-
-Acceptance boundary: the integrity line reports a pass on all six existing archives, and fails when a
-game is injected, dropped, or duplicated in a test fixture. A replacement that cannot be shown to
-fail on corruption is the same defect wearing a passing badge.
+**MIGRATED to [#612](https://github.com/znpruitt/cfb-app/issues/612) on 2026-09-10, labelled `actionable`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.**
 
 ### Item 87 — rework Overview game listings as a scoreboard
 
@@ -6891,54 +6604,18 @@ packaging is. **Change no rule while doing it.**
 
 ### Item 201 — the seed catalog carries no colours at all
 
-**Measured 2026-09-09 by the Item 199 lane, confirmed here.** `src/data/teams.json` holds 138 items with
-keys `school, displayName, shortDisplayName, abbreviation, mascot, conference, alts` — **`with color: 0`,
-`with altColor: 0`.** `scripts/fetch-cfbd-teams.ts`, the `npm run fetch:teams` writer, never fetches
-either field; its only match on `color` is a conference alias string.
-
-**Why it matters:** that file is `readSourceCatalogFallback`'s source when the durable `team-database`
-row is absent. **On a fresh environment every team renders the fallback green regardless of Item 199**,
-because the fallback path was never given colours to fall back to. Production is unaffected — its durable
-row carries 138 primaries — so this is latent, not live.
-
-**It is a second writer of the same shape.** Whatever name Item 199 settles on the provider side, this
-script has to agree with it, and today it does not participate at all.
-
-**The ask:** teach the seed writer to carry `color` and `alternateColor`, and regenerate. **Blocker:**
-Item 199, so the two writers land on one field name rather than two.
+**MIGRATED to [#614](https://github.com/znpruitt/cfb-app/issues/614) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 202 — `src/types/teams.ts` is a dead duplicate that has drifted
 
-**Measured 2026-09-09.** `grep -rn "@/types/teams" src/` returns **zero importers**; the only reference to
-the file is its own definition. It declares a second `TeamCatalogItem`, and it has **drifted from the live
-one** in `teamIdentity.ts` — the live type carries `subdivision`, this one does not.
-
-**Why it matters is the drift, not the deadness.** A second definition of a shared shape is exactly what
-the next reader greps into and edits, and the compiler will not object because nothing consumes it. This
-campaign has already spent a slice on two sources of truth for the draft catalog.
-
-**The ask:** delete it, or state why it exists. **Blocker:** none. Trivial, and `npm run build` is the
-gate.
+**MIGRATED to [#615](https://github.com/znpruitt/cfb-app/issues/615) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 203 — `CfbdTeamRecord` and `/teams/fbs` disagree in both directions
 
-**Measured 2026-09-09 against one live response** (HTTP 200, 138 rows). The endpoint's key union is
-`abbreviation, alternateColor, alternateNames, classification, color, conference, division, id, location,
-logos, mascot, school, twitter`.
-
-**Fields we declare that it never sends:** `displayName` and `shortDisplayName`, both **0/138** in the
-durable store today. **This is not Item 199's defect** — there is no differently-named field to map to,
-the data is simply absent from this endpoint. Whatever populates those names elsewhere, it is not this
-ingest, and the type says otherwise.
-
-**A field it sends that we discard:** `alternateNames`. `buildDerivedTeamAliases` currently **invents**
-name variants algorithmically while the provider ships a curated list unread. That is a plausible
-improvement to alias matching and a plausible source of the alias-safety edges this campaign has already
-fixed twice.
-
-**The ask:** reconcile the type against the measured response — drop or source the two absent fields, and
-rule on whether `alternateNames` should feed alias derivation. **Blocker:** none, but it should follow
-Item 199 rather than complicate it.
+**MIGRATED to [#616](https://github.com/znpruitt/cfb-app/issues/616) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 204 — an empty CFBD response wipes the team catalog, and the seed cannot rescue it
 
@@ -7002,57 +6679,13 @@ catalog resync** — that click is what makes this reachable.
 
 ### Item 205 — the durable catalog is read through an untyped `Record`
 
-**Split out of Item 204 on 2026-09-09**, on the lane's reasoning rather than mine.
-`teamDatabaseStore.ts:68` reads `toNullableString(value.altColor)` where `value` is
-`Record<string, unknown>`. **A stored field rename type-checks the object KEY and leaves the READ
-silent** — 138 durable rows would return `undefined` with a green build. Item 199 proved by mutation
-that a stored rename reaches 8 files and that the compiler sees only half of it.
-
-**Why it is not Item 204's:** its trigger is a stored rename, which 204's gate forbids, so it is not on
-the path the resync click takes. And doing it properly means a typed reader over all 14 fields of
-`toTeamCatalogItem` plus a decision about what a field-level failure does — drop the item, null the
-field, or reject the file — which is a policy question with its own blast radius across the 17 catalog
-readers 204 enumerated.
-
-**SCOPE GREW 2026-09-09, and Item 204 is what grew it.** `readSourceCatalogFallback`
-(`teamDatabaseStore.ts:88-104`) collapses three distinct states into one `[]`: a transient FS read
-failure, a genuinely absent file, and a corrupt one. **That conflation was survivable while an empty
-catalog merely degraded standings. Item 204's guard makes it fatal** — `leagueStandings` now throws on
-`teams.length === 0`, so a transient read error on the seed file takes standings down rather than
-degrading it.
-
-**That is the correct trade and it is not a regression.** `/code-review` argued for the old behaviour on
-the grounds that it preserved degraded-but-usable standings; degraded standings from an empty identity
-catalog are the wrong-output-cached harm Item 204 exists to stop, and PLATFORM-084A settles it — cache
-valid absence, never cache uncertainty. **The Item 204 lane checked reachability rather than accepting
-the finding: `teams.json` is statically imported in 8 places and read via `process.cwd()` by
-`/api/scores` and `/api/odds`, both working in production**, so the cwd read is sound and the trigger is
-a transient error, not a systematic one.
-
-**Why it lands here and not in 204:** rethrowing from that catch changes behaviour for every catalog
-reader, which is wider than a guard slice should take unreviewed.
-
-**The ask:** validate the durable catalog on read, rule on field-level failure policy, and separate
-absence from failure in the seed fallback. **Blocker:** Item 204, whose receipt is the reader
-enumeration this needs.
+**MIGRATED to [#617](https://github.com/znpruitt/cfb-app/issues/617) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 206 — a refused catalog sync leaves no durable record
 
-**Filed 2026-09-09 from the Item 204 review.** Item 204 makes the admin team-database sync refuse a bad
-CFBD body instead of committing it. **The refusal is visible only as a transient red span in the admin
-panel.** Reload the page and it is gone.
-
-**The schedule precedent does more.** That path calls `recordProviderRefreshFailure`, so a refusal
-enters `providerRefreshStatus` and becomes visible to System Health and to any later audit. **This route
-has no `providerRefreshStatus` integration at all** — not on refusal, and not on success either.
-
-**Why it matters beyond tidiness:** the catalog is the identity authority for 17 readers. A sync that
-has been quietly refusing for a week looks identical to one nobody has run, and the operator surface
-that would say otherwise is a span that disappeared on the first reload.
-
-**The ask:** record catalog sync attempts and refusals under a scope the Provider data panel reads.
-**Blocker:** Item 204. **Pre-existing** — this is not a gap 204 introduced, only one it makes worth
-closing.
+**MIGRATED to [#618](https://github.com/znpruitt/cfb-app/issues/618) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 207 — the polling-planner suite flakes on `plan-held`, and `reset()` is not holding
 
@@ -7119,6 +6752,67 @@ suites, making them the 137th–140th of 140 that do it. **Blocker:** none. **A 
 pre-merge gate is worse than a failing one** — it trains every lane to re-run until green, which is how
 the next real regression gets merged.
 
+### Queue migration to GitHub Issues — NEW WORK IS FILED THERE FROM 2026-09-10
+
+**OWNER DECISION 2026-09-10: NEW WORK ITEMS ARE FILED AS GITHUB ISSUES, NOT HERE.**
+
+**What this file is now canonical for:** the **dispatch order** — what is next and why — plus
+cross-item rulings, the known-failure baseline, and campaign notes. **It is no longer where an item's
+ask, state or evidence lives.**
+
+**A PR that closes an issue says `Closes #N` in its body.** That state transition is the single
+bookkeeping step that has failed by hand more than once in this campaign, and automating it is the
+main reason the switch is worth making.
+
+**Twenty sub-100 items triaged, nineteen migrated** (#595-#613); **the live 200-series migrated
+wholesale** (#614-#621) because those are what the lanes actually pick up. Their entries are pointers. **Item 13 is
+the exception — SUPERSEDED, closed without an issue**, and the only one of twenty to come back that
+way.
+
+**A second axis was added 2026-09-10: DOMAIN labels**, so the backlog is filterable by the part of the
+app it touches rather than only by state — `draft`, `preseason`, `season`, `offseason`, `insights`,
+`admin`, `provider`, `scheduler`, `platform`, `ui`. Every issue carries at least one.
+`docs/next-tasks.md` is ~7,300 lines and ~126,000 tokens: **nobody reads it, everyone greps it, and a
+queue reachable only by search has stopped being a queue.**
+
+| label | meaning |
+| --- | --- |
+| `actionable` | verified live against current code; ready to pick up |
+| `needs-decision` | blocked on an owner ruling, not on work |
+| `parked` | a conditional note whose trigger has not fired. Not work yet. |
+| `needs-triage` | not yet verified against code |
+
+**`parked` exists because Item 81 is neither live nor dead** — every bullet is gated on something that
+has not happened ("if a second producer is added", "only if real CFBD evidence shows..."). **Filing
+that shape as open work produces a backlog that never drains and cannot be prioritised.** Item 45's
+second and third bullets and Item 60's implementation follow-ups are the same shape.
+
+**Two rules for the remaining 46, both learned from the sample:**
+
+1. **Re-validate the PRESCRIPTION, not just the symptom.** Item 19 accurately describes a live defect
+   and prescribes a fix that would now deadlock the pool process-wide. A triage asking only "is this
+   still broken?" would have marked it live and left the trap armed. **#595 carries that warning in
+   bold above the ask.**
+2. **A migrated entry becomes a POINTER.** The issue is canonical; the entry says where it went.
+   Restating it in both places is how the two drift, and DOCS-012 already binds it.
+
+**Across twenty items: ONE superseded, and the tail is otherwise live.** The premise that started this
+— that the sub-100 backlog was mostly dead — is refuted at 1/20.
+
+**The second batch found a shape the first did not: the GATE.** [#610](https://github.com/znpruitt/cfb-app/issues/610)
+is not a task; it tracks six prerequisites for allowing members to make their own picks, and one of
+the six turned out already done. **A gate filed as ordinary work reads as six times more remaining
+than there is** — and reads as zero progress when a prerequisite lands.
+
+**And a triage verdict can UPGRADE an earlier one.** [#596](https://github.com/znpruitt/cfb-app/issues/596)
+was justified by an absence and said so; `owners/route.ts:124-126` was found while triaging Item 13
+and states the exclusion outright, which turns it from "someone forgot to serialize this" into "a
+documented single-operator assumption that #610 would invalidate." **The issue was relabelled
+`needs-decision` on that basis.**
+
+**What has NOT been decided:** whether the remaining 36 migrate. **26 sub-100 items remain untriaged**,
+plus the 100+ range.
+
 ### Logos as the identity accent — MEASURED 2026-09-10, no decision taken
 
 **The owner is prototyping logos in place of the colour bar, in the UI lane. Recorded as measurement
@@ -7147,40 +6841,8 @@ ships.
 
 ### Item 208 — an unreadable settings record reports the one result alerting ignores
 
-**Split out of Item 207 on 2026-09-10, because 207's measurement removed the reason to bundle it.**
-`route.ts:368-372` wraps `getProviderRefreshSettings` in a bare `catch` that sets `settings = null`;
-`:376` then treats null as every job held, and `:389-394` maps that to `no-op` / `plan-held` —
-**the one result `schedulerExecutionIssues` deliberately raises nothing for**, on the reasoning that a
-deliberate operator stop must not page anyone.
-
-**So a transient settings-read failure stops the planner silently, in a state indistinguishable from an
-intentional pause, with the alerting built to ignore it.** `getProviderRefreshSettings`
-(`providerRefreshSettings.ts:65-71`) awaits `getAppState` with no internal try/catch, so the throw is
-real.
-
-**It was folded into 207 on the belief that it CAUSED the flake. It does not** — 26 instrumented runs
-show the catch never fires spontaneously. **The hazard stands on code reading alone and is unreproduced.**
-Bundling a production alerting change into a test-isolation branch is exactly the pairing that makes
-review harder.
-
-**MEASURED 2026-09-10: "has this already fired?" is UNANSWERABLE, and that is the finding.** The Item
-207 lane proposed reading the `polling-planner-record` series for missing days to turn "could have"
-into "has it". **There is no series.** Queried through `DATABASE_URL_RO`: `app_state` is the only
-table, `polling-planner-record` holds **2 rows — latest-only, one per job** — and no runtime-event or
-history scope exists. Current state reads `success` / `plan-applied` at 2026-09-09 18:xx, which is the
-whole record.
-
-**So the hazard is worse than "undetected".** The alerting ignores this failure by design AND nothing
-retains a history, so it is **undetectable in hindsight too.** A season of silently-stopped polling
-would leave no artifact to find afterwards.
-
-**That raises a second question this item should answer:** whether a latest-only receipt is sufficient
-for a job whose failure mode is doing nothing. **Retaining a short series may be the more valuable half
-of this item than the conflation fix.**
-
-**The ask:** distinguish "settings unreadable" from "operator held everything" so the former cannot
-report the ignored result, and rule on whether the planner needs a retained series. **Change nothing
-about what a genuine hold does** — that path is correct and must stay silent. **Blocker:** none.
+**MIGRATED to [#619](https://github.com/znpruitt/cfb-app/issues/619) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 210 — `npm test` can DROP PRODUCTION `app_state`, and the only guard is nobody exporting a variable
 
@@ -7254,100 +6916,10 @@ isolation. **Blocker:** none. **The most dangerous thing either reviewer surface
 
 ### Item 211 — three more destructive test seams with the same hole
 
-**Found 2026-09-10 by the Item 210 lane, which enumerated all 34 test-only seams in `src/` and left
-them alone as instructed.** Most are inert — in-process resets, injected fakes, failure seams. **Four
-are destructive and three are still exposed:**
-
-- `durableOddsStore.__deleteDurableOddsStoreFileForTests(season)`
-- `oddsUsageStore.__deleteOddsUsageStoreFileForTests()`
-- `teamDatabaseStore.__deleteTeamDatabaseStoreFileForTests()`
-
-**All three route through `deleteAppState()`**, which with a configured `DATABASE_URL` runs a targeted
-`delete from app_state where scope = $1 and key = $2` against real rows. **Item 210's guard 1 covers
-them whenever isolation is ON** — but in the bare `node --test src/...` case that guard 2 exists for,
-the flag is unset, guard 1 is silent by construction, and these delete production rows for their scope.
-**They want guard 2's treatment**, stated the same way: `APP_STATE_TEST_ISOLATION !== '1'` → throw.
-
-**A fourth, `appStateStore.__corruptAppStateFileForTests`, MOVED INTO ITEM 210** — owner ruling
-2026-09-10. It writes `{not-valid-json` to `appStateFilePath()`, which outside isolation is the durable
-`data/app-state.json`, and `oddsUsageStore.test.ts:214` calls it. **The boundary is the FILE:** 210
-guards every destructive seam in `appStateStore.ts`; this item guards the three that live elsewhere.
-
-**Why this is NOT folded into Item 210:** 210 is reviewed clean at `4c882e2b`, and reopening a reviewed
-commit to add three files means re-reviewing all of it rather than just the addition. **The valuable
-guard is already in 210; this is the mechanical remainder.**
-
-**MUTATION SAFETY IS A DESIGN INPUT HERE, NOT A TEST DETAIL — added 2026-09-10 after it fired twice on
-the Item 210 branch.** The guard-2 mutation ran with the flag unset and lost nothing only because no dev
-store existed. **The corrupt-seam mutation then actually wrote `{not-valid-json` to
-`data/app-state.json`** before it was sandboxed. **A test for a refusal must run the unguarded path to
-prove the guard works, so its failure mode IS the damage.**
-
-**And the mitigation differs per seam.** Pinning `DATABASE_URL` to an unreachable port works for a seam
-with a database branch — the call fails at connect. **A seam whose write is unconditional has no such
-branch and needs a relocated `cwd` instead.** All three here route through `deleteAppState()`, which
-does have a database branch, so pinning should suffice — **verify that rather than assume it.**
-
-**The ask:** apply guard 2's refusal to the three destructive seams. **The corrupting seam is DONE** —
-owner ruling 2026-09-10 moved it into Item 210, which shipped at `421fab9c`. **Blocker:** Item 210,
-whose `appStateTestSeamRefusal(seam, damage)` and `assertTestSeamAllowed` exports and test shape this
-should reuse rather than reinvent.
+**MIGRATED to [#621](https://github.com/znpruitt/cfb-app/issues/621) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 209 — the test store leaks a file per process, forever
 
-**Found 2026-09-10 by the Item 207 lane.** `appStateStore.ts:95-97` keys the test-isolation store by
-`os.tmpdir()/cfb-app-app-state-test-${process.pid}.json`, and nothing deletes it. **There are 14,022 of
-them in `$TMPDIR` right now**, days old.
-
-**The leak is not the harm; pid reuse is.** macOS recycles pids, so a new test process can inherit a
-previous run's fully-populated durable store — measured at **23.9% of app-state-initialising processes
-in a live suite run.** **Item 207 fixed THREE suites** — corrected 2026-09-10 by the merging lane; the
-fourth grep hit, `providerUsageWriteOutcome`, was measured NOT exposed and carries a comment saying so
-rather than a dead delete call. **This closes the
-class**, for those four and for any future suite that forgets.
-
-**8 test files can write a durable `globalPause: true`** and leave it at their pid — `admin/provider-status`,
-`providerStatusSummary`, `systemHealth/sections`, `AutomationSafetyControls`, `systemHealthPanels`,
-`systemHealth`, `systemHealthIssues`, `providerRefreshSettings`. Any of their leftovers can land under
-any later process.
-
-**THE EXPOSED SET IS 10 SUITES, MEASURED 2026-09-10 — not the 4 the grep found.** The Item 207 lane
-replaced the syntactic check with a behavioural one: plant an unparseable store at the pid path and run
-every test file. **389 files probed, 0 zero-test rows, 5,105 tests executed — the full suite's count**,
-so the coverage is complete rather than assumed. Still exposed after 207: `oddsUsageStore`,
-`schedulerDeliveryHealth`, `durableOddsStore`, `draftSchedule`, `teamDatabaseStore`, `boardData`,
-`admin/odds-usage/route`, `admin-debug-auth`, `deliveryNothingDue`, `seasonOwners` — across draft,
-odds, team database, insights and system health.
-
-**What that measures and what it does not:** those 10 provably read the file store, so they provably
-inherit. **It does NOT establish that a realistic inherited payload flips an assertion** — the corrupt
-plant is maximally hostile. Structural exposure is measured; live flake rate is not.
-
-**Owner ruling 2026-09-10: do NOT widen Item 207 to these 10.** The earlier "leaving three
-known-exposed while fixing one is arbitrary" principle does not carry, for a reason that only exists
-now: **Item 210 says the very helper being propagated is unsafe.** Adding it to 10 more call sites
-spreads a destructive seam, across five subsystems, in a test-isolation branch — which is exactly how
-an unrelated regression enters the gate. **209 closes all 13 at once, after 210 makes the seam safe.**
-
-**The ask:** a per-run-unique path plus exit cleanup, so isolation does not depend on every suite
-remembering a teardown call. **Blocker:** Item 207 lands the per-suite fix; **Item 210 must precede
-this**, so the seam is safe before it is generalised.
-
-**Do this as its own slice with its own review.** A reformat that silently alters a binding rule is
-worse than the unreadable version, and a diff this large hides a one-word change perfectly. **The
-review's job is to prove no rule changed**, which likely means a normalized-text comparison rather than
-a read.
-
-**Blocker:** none. **Not urgent, and it compounds** — every slice that adds to line 146 makes the
-eventual split harder.
-
-## Out of scope for this queue
-
-- New matching systems or changes to schedule-first identity rules.
-- Heavy infrastructure beyond one small managed database plus the hosted app.
-- Broad analytics/history work before hosted stability is complete.
-
-## Non-blocking maintenance
-
-Keep optional decomposition of `CFBScheduleApp.tsx` and `scoreAttachment.ts` as technical debt unless
-explicitly scheduled.
+**MIGRATED to [#620](https://github.com/znpruitt/cfb-app/issues/620) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
