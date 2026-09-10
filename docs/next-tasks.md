@@ -389,79 +389,8 @@ Item 94's 2026-09-30 measurement**:
 
 ### Item 63 — delete-and-recreate reschedules need canonical reconciliation, and gate score-repair latency
 
-PLATFORM-110 makes delete-and-recreate reschedules observable after a successful full-season
-refresh, but it does not change schedule cadence. A cached game therefore stays in its old canonical
-week until schedule maintenance observes the provider's replacement record. Design a targeted
-schedule refresh or a quota-measured in-season cadence ramp. Preserve vanished-id logging for delete
-and recreate; do not log ordinary same-id kickoff/team/venue rewrites.
-
-Do not try to repair the abandonment clock in `buildScoreboardScorePack`. `PendingGame.kickoff`
-comes from the canonical `AppGame`, and the attached score deliberately carries no provider
-`startDate`, so preserving that field in a score pack cannot reach `hasGameBeenAbandoned`. Same-id
-kickoff changes already self-correct when `refreshFullSeasonSchedule` updates the canonical
-schedule; the remaining exposure is the interval before that refresh and the replacement-id case.
-
-CFBD exposes no richer cancellation/postponement status through the football games API. The provider
-developer confirmed that a postponed/rescheduled game is normally deleted and recreated with a new
-id, so identity disappearance plus the replacement schedule record is the available evidence.
-
-**Second driver: score-repair latency.** Do not size this as reschedule reconciliation alone. Live
-score polling arms on a window anchored to CANONICAL kickoff —
-`POLLING_WINDOW_BEFORE_KICKOFF_MS` 15 minutes, `POLLING_WINDOW_AFTER_KICKOFF_MS` 24 hours
-(`src/lib/liveScores/pollingTarget.ts`). A delete-and-recreate reschedule defeats both ends of that:
-the retired id arms around a kickoff that never happens, and the replacement id is absent from
-canonical, so it is never armed at all. Neither game gets a score until the weekly schedule refresh
-observes the replacement, and the PLATFORM-107 final-score sweeper — which rides that same weekly
-cron, `0 12 * * 2` — then fills it.
-
-The 24-hour polling tail means an ordinary game has ample opportunity to be caught live, so a
-rescheduled game is plausibly the dominant cause of a final arriving days late rather than minutes
-late. Schedule cadence is therefore the main lever on score-repair latency, not only on week
-placement. This matters to the weekly recap, whose Overview window opens 06:00 ET the day after a
-slate and closes Thursday 06:00 ET: a Tuesday sweeper repair lands inside that window, so records,
-points, movement, and accolades can shift under a reader who already saw them.
-
-Frequency is UNMEASURED. PLATFORM-112's game-level score-gap diagnostics and PLATFORM-113's
-elapsed-time conclusion diagnostics are the instruments. **Both are promoted as of 2026-08-30** — the
-earlier "unpromoted" note is stale — so the measurement gate is open, but no rate exists yet: System
-Health reported no score-gap issues through the opening week, which is a thin sample rather than a
-finding. Measure before choosing a cadence — the quota cost of a ramp should be justified by an
-observed repair rate, not by this mechanism's existence. The trigger for revisiting is accumulated
-observation, not promotion.
-
-**Third driver, 2026-09-01: the app holds provider-deleted records for up to three days.** The
-Overview section router bounds a scoreless post-kickoff game at **8 hours**
-(`hasGameBeenAbandoned`, `standingsHistory.ts:194`). The refresh that removes a record CFBD has
-deleted is **weekly** — `turfwar-schedule-weekly`, Tuesdays 12:00 UTC. A Saturday postponement
-therefore leaves the app holding a deleted row until Tuesday. POLISH-019's abandonment split stops it
-appearing in Live after 8 hours, but week tabs, standings history and matchups still carry the stale
-row until the refresh. **That 8-hour-versus-weekly gap is the specific window a cadence ramp would
-close**, and it is the sizing argument to bring to the measurement.
-
-**The provider has confirmed there is no alternative to polling.** Asked directly whether any
-endpoint or field identifies a canceled or postponed game, the CFBD developer answered:
-
-> Yes, that understanding is correct with regards to statuses. When a game is postponed or
-> re-scheduled, there typically is a brand new game record with a new id and the old game record is
-> deleted. The football API and infra isn't really built to handle postponed or canceled records at
-> this time.
-
-Independently verified: `/games` exposes `completed` only, `/scoreboard` reports just
-`scheduled | in_progress | completed`, and all 3,676 rows in the 2026 schedule cache carry one
-distinct status, `'scheduled'`. **There is no flag to watch for and no prospect of one**, so schedule
-polling is the sole detection mechanism rather than one option among several. That converts this
-item's premise from an inference into a provider statement.
-
-**Latent defensive disruption seam, recorded by POLISH-019.** Legacy/defensive disruption labels
-are unreachable on the current CFBD-only production path, but three behaviors should be considered
-together if a future provider or repair path makes them reachable: the Overview router checks the
-label before excluding unresolved bracket shells; the shared pending-game authority deliberately
-sets a disrupted game's kickoff to `null`, so the abandonment clock does not expire it; and the
-Overview watchlist presents the exact disruption label with the scheduled tone. Do not build a
-parallel disruption lifecycle around these dormant branches. Resolve them with the vanished-id /
-replacement-id policy here if Item 63 introduces reachable disruption evidence.
-
-- Backlog slug: `PLATFORM-RESCHEDULE-DETECTION-v1`
+**MIGRATED to [#630](https://github.com/znpruitt/cfb-app/issues/630) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 64 — remaining week-resolution residue
 
@@ -4244,15 +4173,13 @@ restate the item here, or the two copies will drift.**
 
 ### Item 15 — double-submitted pick can be credited to the next owner
 
-The route has an expected-owner/index guard, but the client sends only the team. A concurrent second
-submission can therefore land after the turn advances and credit the team to the next owner. Send
-the client's expected pick index or owner and reject a mismatch.
+**MIGRATED to [#624](https://github.com/znpruitt/cfb-app/issues/624) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 14 — duplicate auto-pick attempts paint spurious refusals
 
-Every open administrative board can fire auto-pick at expiry. The serialized writer chooses one
-winner, but the losing boards can surface an alarming refusal for a healthy outcome. Reconcile the
-loser's response against refreshed draft state and treat an already-advanced turn as benign.
+**MIGRATED to [#623](https://github.com/znpruitt/cfb-app/issues/623) on 2026-09-10, labelled `needs-triage`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 13 — undo uses a reusable slot number and deletion bypasses serialization
 
@@ -4279,54 +4206,18 @@ restate the item here, or the two copies will drift.** Triage record:
 
 ### Item 20 — database waits are unbounded
 
-> **CONFIRMED WITH LIVE CONFIGURATION 2026-09-09 — dispatch position 4.** Evidence: [the 2026-09-08 audit](archive/audits/codebase-audit-existing-plans-2026-09-08.md) → **R4**.
-> The application role reports `statement_timeout` **0**, `lock_timeout` **0**,
-> `idle_in_transaction_session_timeout` **5min**, `idle_session_timeout` **0**, and
-> `pg_db_role_setting` returned no role/database overrides. The pool caps at **three** connections with
-> no connection timeout, and transactional paths take blocking advisory locks. Vercel's default function
-> timeout is **300s** with Fluid enabled, and **the idle-transaction timeout does not protect a running
-> query or a lock wait.**
->
-> **Acceptance:** connection, lock and statement bounds that fit the invocation budget; verified
-> rollback, client disposal and pool recovery; distinguishable failure reporting. **Raising the pool
-> size is not a substitute.**
->
-> **The values are DELIBERATELY OPEN.** Do not invent them.
-
-The pool is small and has no `connectionTimeoutMillis`; database `statement_timeout` and
-`lock_timeout` are zero. A caller waiting on the advisory lock is not idle, so the database's idle
-transaction timeout does not protect it. Add checkout, lock, and statement bounds with explicit
-operator-visible failure semantics before increasing pool size.
+**MIGRATED to [#625](https://github.com/znpruitt/cfb-app/issues/625) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 46 — deletion/adoption policy must precede external commissioners
 
-Deleting a league currently removes only the registry row; owner names, drafts, archives, and other
-scoped records remain. Re-adopting the slug reconnects that data. Worse, adopting a past season can
-enrol it in nightly rollover, whose archive save can overwrite the genuine retained archive.
-
-Owner decision required: true purge, explicit soft-delete/restore semantics, or retirement of
-adoption. At minimum, prevent already-archived past-season adoption from triggering a destructive
-rollover before multi-tenant creation is exposed.
+**MIGRATED to [#626](https://github.com/znpruitt/cfb-app/issues/626) on 2026-09-10, labelled `needs-decision`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 47 — public `bypassSuppression` is an invariant and cost bypass
 
-> **CONFIRMED 2026-09-09 — dispatch position 7.** Evidence: [the 2026-09-08 audit](archive/audits/codebase-audit-existing-plans-2026-09-08.md) → **S1**, reproduced by the planning
-> session. `src/app/api/insights/[slug]/route.ts` gates on `isAuthorizedForLeague(slug, req)` — **league
-> access, not administrative authorization** — and then reads `bypassSuppression` from the query string.
-> **On a passwordless league that includes anonymous callers.**
->
-> **Scoped honestly: this exposes withheld editorial output and extra computation. It is NOT an
-> established arbitrary-write vulnerability.**
->
-> **Acceptance:** admin-gate the diagnostic option, and keep the public correctness guards independent
-> of the suppression control so removing the bypass cannot weaken them.
-
-`/api/insights/[slug]?bypassSuppression=1` bypasses the output cache and suppression rules. On a
-passwordless league anyone can force full context rebuilds and request claims normally withheld for
-content safety. Decide whether to delete the public flag in favor of the admin diagnostic page or
-require platform-admin authorization. This becomes P1 before any passwordless public league.
-
-## Open Insights work
+**MIGRATED to [#627](https://github.com/znpruitt/cfb-app/issues/627) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Items 16, 18, and 53 — converge operating year and described-data year
 
@@ -4346,22 +4237,8 @@ recap consumers with incompatible meanings.
 
 ### Item 30 — insight rotation and the NEW tag are trigger-gated
 
-Trigger: resume only when generation consistently exceeds the five-card Overview feed. Rotation has
-no job while every generated insight already appears.
-
-The future model must distinguish standing facts from events. Standing facts can rotate back into
-view; old events must decay. Rotation selects the feed, while NEW means the semantic signature
-changed—not merely that a standing fact resurfaced. Preserve these constraints from the abandoned
-attempt:
-
-- signatures must be injective and exclude template wording;
-- identity changes are evaluated before numeric tolerance;
-- sub-threshold drift accumulates against the last recorded baseline;
-- store failure is distinct from a cold store and falls back to stable ordering;
-- selection must not order by state that its own write advances;
-- weekly boundaries must be chosen deliberately rather than inherited from the Unix epoch.
-
-- Backlog slug: `INSIGHTS-018-NEW-TAG-v1`
+**MIGRATED to [#628](https://github.com/znpruitt/cfb-app/issues/628) on 2026-09-10, labelled `parked`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Items 31–33 — finish preseason gates and superlative population conversion
 
@@ -4502,10 +4379,8 @@ the multi-tenant gates above.
 
 ### Item 49 — preseason-banner observation points
 
-Not queued unless the behavior becomes user-visible: draft facts are loaded best-effort on the
-client; setup may fall back to an archive when current owners are absent; a past `scheduledAt` still
-supports forward-looking “Draft scheduled” copy. Any future readiness claim must use a shared server
-selector and distinguish unknown draft state from no draft.
+**MIGRATED to [#629](https://github.com/znpruitt/cfb-app/issues/629) on 2026-09-10, labelled `parked`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 50 — passive schedule-presentation checkpoint
 
@@ -4558,13 +4433,8 @@ top edge. Do not “fix” it by clamping the whole line downward and changing t
 
 ### Item 78 — post-transition standings copy for an undrafted league
 
-Long-term cleanup. Once a league transitions to `season` without a roster, the standings surface
-falls to generic “Standings unavailable” copy and loses its draft message. Reuse the draft-state
-vocabulary—unscheduled, scheduled date, live, paused—without loosening the guards that prevent manual
-assignment or stale draft records from making false claims. This requires server-threaded draft
-state and separating draft derivation from the preseason-only banner gate.
-
-- Backlog slug: `POLISH-PRESEASON-STANDINGS-COPY-v1`
+**MIGRATED to [#631](https://github.com/znpruitt/cfb-app/issues/631) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 80 — Next 16 upgrade is offseason-gated
 
@@ -4923,71 +4793,8 @@ Acceptance boundary:
 
 ### Item 93 — nine CFBD call sites still carry the pre-PLATFORM-115 timeout
 
-PLATFORM-115 raised the CFBD request ceiling to 40s at four call sites. Its scope was enumerated
-from three files that happened to be open rather than a repo-wide sweep, so it missed the rest. The
-item shipped what it promised and its acceptance boundary held; the scope was wrong, not the work.
-
-**This is a completeness fix, not an urgent one.** Two urgency framings were tried while filing it
-and both were wrong; they are recorded so they are not re-argued.
-
-- _Rankings staleness_ — rankings runs twice daily against a poll that changes weekly, so roughly
-  fourteen attempts cover each meaningful update. The 2026-08-30 22:00 UTC failure
-  (`rankings-provider-fetch-failed`, both partitions, `durationMs: 36838`) left members on the
-  preseason AP poll for about five hours; a manual `bypassCache=1` refresh recovered it at 03:01 UTC
-  (`rowsCommitted: 1`, `durationMs: 9749`), but the 04:00 run would have done the same unattended.
-  Rankings has the BEST redundancy of the nine sites, so it is the weakest case for the fix even
-  though it is what exposed the gap.
-- _Schedule redundancy_ — the weekly Tuesday 12:00 UTC refresh does have a single shot and the widest
-  blast radius, but **schedule cadence belongs to Item 63**, which already owns the in-season ramp as
-  the main lever on score-repair latency. Borrowing that argument here double-counts it.
-- _Schedule timeout evidence_ — the 2026-09-01 12:00 UTC weekly invocation reached provider work and
-  returned `failure / year-results` after 37,124 ms. That duration closely matches three 12-second
-  attempts plus retry backoff/pacing. A same-day rankings attempt explicitly failed both CFBD
-  partitions after 36,917 ms, and a later manual full-season schedule refresh succeeded in 4,249 ms
-  through the unchanged shared authority. This strongly supports a transient schedule-partition
-  timeout, but does not prove the failed partition or rule out every transient transport/store
-  alternative. The durable-evidence defect exposed by the incident belongs to Item 126. The separate
-  2026-09-03 `401 invalid cron authorization` stopped before provider work and is not timeout
-  evidence.
-
-What justifies the item on its own terms: the ceiling was judged wrong and changed in four places;
-nine more carry it, and both rankings and full-season schedule production paths now have matching
-failure evidence. That is enough to review the remaining call sites without borrowing a cadence
-argument.
-
-Sequencing: a natural companion to Item 60's two low-severity follow-ups since both touch
-`rankings/refreshAuthority.ts`.
-
-Still at `timeoutMs: 12_000`:
-
-| Call site                                                     | Notes                                                                                                                                                                                                                   |
-| ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/lib/rankings/refreshAuthority.ts:105`                    | **Worst configured.** `maxAttempts: 3`, and `fetchUpstream.ts:158` retries timeouts regardless of `retryOnHttpStatuses`, so each failure burns THREE billed calls. 3 x 12s matches the observed 36838ms almost exactly. |
-| `src/app/api/schedule/route.ts:345`                           |                                                                                                                                                                                                                         |
-| `src/lib/schedule/fullSeasonScheduleFetch.ts:61`              | September 1's 37,124 ms weekly failure is the production signal; exact timeout/partition remains an inference because Item 126's evidence was not retained.                                                             |
-| `src/lib/schedule/schedulePresentationRefresh.ts:275`, `:516` |                                                                                                                                                                                                                         |
-| `src/app/api/conferences/route.ts:166`                        |                                                                                                                                                                                                                         |
-| `src/app/api/game-stats/route.ts:325`                         | non-cron path                                                                                                                                                                                                           |
-| `src/app/api/admin/cache-historical-scores/route.ts:53`       |                                                                                                                                                                                                                         |
-| `src/lib/odds/oddsRefreshExecutor.ts:422`                     | **Different provider** (The Odds API), which stayed healthy through the CFBD degradation. Decide separately; do not sweep it in on pattern-match alone.                                                                 |
-
-`src/app/api/admin/team-database/route.ts:33` sits at 15s — same question, different value.
-
-Use `CFBD_PEAK_LATENCY_TIMEOUT_MS` (`src/lib/api/cfbdRequestPolicy.ts:7`) for any deliberately
-more-patient attempt rather than introducing a second peak-latency constant. **Do not mechanically
-turn all three 12-second attempts into three 40-second attempts.** A timed-out request bills
-(measured: `/info` costs 0, a completed call 1, an aborted call 1), so retries multiply spend during
-exactly the condition that causes them; they also multiply worst-case wall time. Evaluate fewer,
-more-patient attempts and the total route budget together. The weekly schedule-refresh route still
-relies on the platform's default duration, so give it an explicit envelope before increasing the
-single-attempt ceiling and retain enough margin for completeness, durable commit, score sweep,
-status, and response work.
-
-Acceptance boundary: no CFBD-consuming call site carries a ceiling below the shared constant without
-a recorded reason; each converted site's attempt count, maximum billed calls, and worst-case wall
-time are deliberate and proven to fit its explicit route/runtime budget; no conversion increases
-provider spend merely by multiplying longer timeouts; and a repo-wide `timeoutMs` sweep is part of
-verification, not scoping — that omission is what produced this item.
+**MIGRATED to [#632](https://github.com/znpruitt/cfb-app/issues/632) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 94 — measure the first full in-season month of CFBD burn (READ 2026-09-30)
 
@@ -6767,8 +6574,14 @@ ask, state or evidence lives.**
 bookkeeping step that has failed by hand more than once in this campaign, and automating it is the
 main reason the switch is worth making.
 
-**Twenty sub-100 items triaged, nineteen migrated** (#595-#613); **the live 200-series migrated
-wholesale** (#614-#621) because those are what the lanes actually pick up. Their entries are pointers. **Item 13 is
+**Thirty sub-100 items triaged, twenty-nine migrated** (#595-#613, #623-#632); **the live 200-series
+migrated wholesale** (#614-#621). Their entries are pointers. **One superseded (Item 13), one closed
+(#609).**
+
+**The third batch was chosen deliberately, not evenly** — five of the ten are #610's gate
+prerequisites, so triaging them priced a tracked goal instead of sampling. **Result: one of the six was
+already done, two are `needs-decision` rather than work, and the remaining engineering is four issues,
+not six unknowns.** **Item 13 is
 the exception — SUPERSEDED, closed without an issue**, and the only one of twenty to come back that
 way.
 
