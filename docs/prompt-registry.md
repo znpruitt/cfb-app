@@ -119,9 +119,10 @@ Rules:
      a write by any suite reddens every suite that imported before it and a suite importing after it
      adopts the damaged file as its baseline. The failure message states what it measures — the store
      changed during this run — and no longer names a culprit it cannot identify.
-- Status: Implemented on `claude/211-destructive-seam-refusals` (`5f5a82e5` + `71819474` + this
-  closeout); both reviews gathered against `5f5a82e5` before any remediation, all four findings
-  resolved in one round, merge pending at time of writing. No production runtime behaviour changed —
+- Status: Merged (PR #622, `286476a8`, 2026-09-10) from `claude/211-destructive-seam-refusals`
+  (`5f5a82e5` + `71819474` + closeout); both reviews gathered against `5f5a82e5` before any
+  remediation, all four findings resolved in one round. First PR under the GitHub Issues convention
+  (`Closes #621`); the issue closed as COMPLETED on merge. No production runtime behaviour changed —
   the guards fire only when `APP_STATE_TEST_ISOLATION !== '1'`, which no dev or production process
   sets — so nothing to deploy or click.
 
@@ -185,9 +186,9 @@ Rules:
   the bare `node --test` case. The boundary is the FILE, by owner ruling: 210 guards every destructive
   seam in `appStateStore.ts`, 211 guards the three that live elsewhere, reusing
   `appStateTestSeamRefusal()` and this suite's test shape rather than reinventing them.
-- Status: Implemented on `claude/210-test-isolation-guard` (`4c882e2b` + `350d130f` + `5365474` +
-  this closeout); Codex clean, Claude's five findings resolved in one round, merge pending at time of
-  writing. No production runtime behaviour changed — asserted with the flag absent — so nothing to
+- Status: Merged (PR #594, `421fab9c`, 2026-09-10) from `claude/210-test-isolation-guard`
+  (`4c882e2b` + `350d130f` + `5365474` + closeout); Codex clean, Claude's five findings resolved in
+  one round. No production runtime behaviour changed — asserted with the flag absent — so nothing to
   deploy or click.
 
 ### PLATFORM-207-PLANNER-TEST-ISOLATION-CLAUDE-v1
