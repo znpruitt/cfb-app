@@ -11,14 +11,71 @@ function participantCanonicalValue(participant: ParticipantSlot): string {
   return participant.kind === 'team' ? participant.canonicalName : '';
 }
 
+function participantProviderTeamId(
+  game: AppGame,
+  side: 'home' | 'away'
+): number | null | undefined {
+  return side === 'home' ? game.homeProviderTeamId : game.awayProviderTeamId;
+}
+
+function providerTeamIdForMergedParticipant(
+  participant: ParticipantSlot,
+  side: 'home' | 'away',
+  candidates: readonly AppGame[]
+): number | null {
+  // Provider ids are participant metadata, so only an id carried beside this
+  // exact canonical participant may survive a fieldwise game merge.
+  if (participant.kind !== 'team') return null;
+
+  for (const candidate of candidates) {
+    const candidateParticipant = candidate.participants[side];
+    if (
+      candidateParticipant.kind === 'team' &&
+      candidateParticipant.teamId === participant.teamId
+    ) {
+      const providerTeamId = participantProviderTeamId(candidate, side);
+      if (typeof providerTeamId === 'number') return providerTeamId;
+    }
+  }
+
+  return null;
+}
+
 function applyManualOverride(base: AppGame, override: Partial<AppGame>): AppGame {
+  const participants = {
+    home: override.participants?.home ?? base.participants.home,
+    away: override.participants?.away ?? base.participants.away,
+  };
+  const providerTeamIdAfterOverride = (side: 'home' | 'away'): number | null | undefined => {
+    const overrideParticipant = override.participants?.[side];
+    const providerTeamIdField = side === 'home' ? 'homeProviderTeamId' : 'awayProviderTeamId';
+    const hasProviderTeamIdOverride = Object.prototype.hasOwnProperty.call(
+      override,
+      providerTeamIdField
+    );
+
+    if (!overrideParticipant) {
+      return hasProviderTeamIdOverride ? override[providerTeamIdField] : base[providerTeamIdField];
+    }
+    if (overrideParticipant.kind !== 'team') return null;
+    if (hasProviderTeamIdOverride) {
+      return typeof override[providerTeamIdField] === 'number'
+        ? override[providerTeamIdField]
+        : null;
+    }
+
+    const baseParticipant = base.participants[side];
+    return baseParticipant.kind === 'team' && baseParticipant.teamId === overrideParticipant.teamId
+      ? base[providerTeamIdField]
+      : null;
+  };
+
   return {
     ...base,
     ...override,
-    participants: {
-      home: override.participants?.home ?? base.participants.home,
-      away: override.participants?.away ?? base.participants.away,
-    },
+    homeProviderTeamId: providerTeamIdAfterOverride('home'),
+    awayProviderTeamId: providerTeamIdAfterOverride('away'),
+    participants,
     sources: { ...base.sources, ...(override.sources ?? {}) },
   };
 }
@@ -251,6 +308,14 @@ export function buildAuthoritativeGameCollection(
       ...existing,
       ...preferred,
       providerGameId,
+      homeProviderTeamId: providerTeamIdForMergedParticipant(mergedParticipants.home, 'home', [
+        existing,
+        game,
+      ]),
+      awayProviderTeamId: providerTeamIdForMergedParticipant(mergedParticipants.away, 'away', [
+        existing,
+        game,
+      ]),
       participants: mergedParticipants,
       csvHome: participantCsvValue(mergedParticipants.home),
       csvAway: participantCsvValue(mergedParticipants.away),

@@ -62,6 +62,50 @@ function participantRowClasses(isLeading: boolean, hasLeader: boolean): string {
 // row is the containing block for both the tint and the absolutely positioned logo.
 const CARD_OWNER_ROW_CLASSES =
   "isolate after:pointer-events-none after:absolute after:inset-[0_-8px] after:z-[-1] dark:after:bg-[rgba(255,255,255,0.055)] after:content-['']";
+const SCOREBOARD_TEAM_LOGO_MAX_RETRIES = 2;
+const SCOREBOARD_TEAM_LOGO_RETRY_DELAY_MS = 1_000;
+
+function ScoreboardTeamLogoImage({
+  logo,
+  side,
+}: {
+  logo: ScoreboardTeamLogo;
+  side: 'away' | 'home';
+}): React.ReactElement {
+  const [attempt, setAttempt] = React.useState(0);
+  const [failed, setFailed] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!failed || attempt >= SCOREBOARD_TEAM_LOGO_MAX_RETRIES) return;
+
+    const retryTimer = setTimeout(
+      () => {
+        setAttempt((current) => current + 1);
+        setFailed(false);
+      },
+      SCOREBOARD_TEAM_LOGO_RETRY_DELAY_MS * 2 ** attempt
+    );
+    return () => clearTimeout(retryTimer);
+  }, [attempt, failed]);
+
+  return (
+    <Image
+      key={`${logo.url}:${attempt}`}
+      className="absolute left-0 top-1/2 block h-7 w-7 -translate-y-1/2 object-contain"
+      src={logo.url}
+      alt=""
+      width={SCOREBOARD_TEAM_LOGO_DISPLAY_SIZE}
+      height={SCOREBOARD_TEAM_LOGO_DISPLAY_SIZE}
+      unoptimized
+      aria-hidden="true"
+      hidden={failed}
+      onLoad={() => setFailed(false)}
+      onError={() => setFailed(true)}
+      data-scoreboard-team-logo={side}
+      data-scoreboard-team-logo-attempt={attempt}
+    />
+  );
+}
 
 function cardOwnerRowCornerClasses(
   side: 'away' | 'home',
@@ -240,19 +284,10 @@ export default function CompactGameScoreboard({
             data-scoreboard-leading={isLeading}
           >
             {participant.teamLogo ? (
-              <Image
+              <ScoreboardTeamLogoImage
                 key={participant.teamLogo.url}
-                className="absolute left-0 top-1/2 block h-7 w-7 -translate-y-1/2 object-contain"
-                src={participant.teamLogo.url}
-                alt=""
-                width={SCOREBOARD_TEAM_LOGO_DISPLAY_SIZE}
-                height={SCOREBOARD_TEAM_LOGO_DISPLAY_SIZE}
-                unoptimized
-                aria-hidden="true"
-                onError={(event) => {
-                  event.currentTarget.hidden = true;
-                }}
-                data-scoreboard-team-logo={side}
+                logo={participant.teamLogo}
+                side={side}
               />
             ) : null}
             {/* The slot remains reserved when artwork is unavailable so both rows stay aligned. */}

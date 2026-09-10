@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test, { afterEach } from 'node:test';
 
-import { cleanup, fireEvent, render } from '@testing-library/react';
+import { act, cleanup, fireEvent, render } from '@testing-library/react';
 import { JSDOM } from 'jsdom';
 import React from 'react';
 
@@ -59,4 +59,38 @@ test('a changed logo URL remounts an image hidden by an earlier load failure', (
   assert.notEqual(secondImage, firstImage, 'the changed URL must create a fresh DOM image');
   assert.equal(secondImage.hidden, false, 'the prior DOM mutation must not survive');
   assert.equal(secondImage.getAttribute('src'), secondUrl);
+});
+
+test('a failed logo retries the same URL twice without an unbounded request loop', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const url = 'https://cdn.collegefootballdata.com/logos-dark/64/1.png';
+  const { container } = render(scoreboard(url));
+  const imageForAttempt = (attempt: number) =>
+    container.querySelector<HTMLImageElement>(
+      `[data-scoreboard-team-logo="away"][data-scoreboard-team-logo-attempt="${attempt}"]`
+    );
+
+  const firstImage = imageForAttempt(0);
+  assert.ok(firstImage);
+  fireEvent.error(firstImage);
+  assert.equal(firstImage.hidden, true);
+
+  act(() => t.mock.timers.tick(1_000));
+  const firstRetry = imageForAttempt(1);
+  assert.ok(firstRetry, 'the same URL is remounted after the first transient failure');
+  assert.notEqual(firstRetry, firstImage);
+  assert.equal(firstRetry.hidden, false);
+  assert.equal(firstRetry.getAttribute('src'), url);
+
+  fireEvent.error(firstRetry);
+  act(() => t.mock.timers.tick(2_000));
+  const secondRetry = imageForAttempt(2);
+  assert.ok(secondRetry, 'a second backoff retry covers a longer transient outage');
+  assert.equal(secondRetry.hidden, false);
+
+  fireEvent.error(secondRetry);
+  assert.equal(secondRetry.hidden, true);
+  act(() => t.mock.timers.tick(60_000));
+  assert.equal(imageForAttempt(2), secondRetry, 'a permanent missing asset is not retried forever');
+  assert.equal(secondRetry.hidden, true);
 });

@@ -48,10 +48,12 @@ export function buildScoreboardTeamLogosById(
   games: readonly AppGame[] = []
 ): ScoreboardTeamLogosById {
   const logosById = new Map<string, ScoreboardTeamLogo>();
+  const catalogTeamIds = new Set<string>();
 
   for (const team of teams) {
     const teamId = toTeamIdentityKey(team.school);
     if (!teamId) continue;
+    catalogTeamIds.add(teamId);
 
     // The app is dark-only. A missing dark-surface asset is missing artwork,
     // not permission to substitute a light-surface mark with unreadable ink.
@@ -62,11 +64,18 @@ export function buildScoreboardTeamLogosById(
   // The canonical team catalog intentionally remains FBS-only. Schedule rows
   // retain CFBD's numeric participant ids, though, so an FBS-vs-FCS opponent can
   // use the same provider-owned CDN asset without widening the ownable catalog.
-  // Catalog metadata wins when present; this path fills only missing identities.
+  // Catalog membership is authoritative even when its artwork is rejected; this
+  // fallback fills only identities absent from the catalog (normally FCS opponents).
   for (const game of games) {
     for (const side of ['away', 'home'] as const) {
       const participant = game.participants[side];
-      if (participant.kind !== 'team' || logosById.has(participant.teamId)) continue;
+      if (
+        participant.kind !== 'team' ||
+        catalogTeamIds.has(participant.teamId) ||
+        logosById.has(participant.teamId)
+      ) {
+        continue;
+      }
 
       const providerTeamId = side === 'home' ? game.homeProviderTeamId : game.awayProviderTeamId;
       if (typeof providerTeamId !== 'number') continue;
