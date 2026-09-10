@@ -5,10 +5,11 @@ import { gameStatusLabelPresentation, type GameStatusLabelOptions } from '../lib
 import { rankSourceLabel, type RankSource } from '../lib/rankings';
 import type { GameScoreboardState } from '../lib/selectors/gameScoreboardState';
 import type { TeamRecordClient } from '../lib/selectors/teamRecordsClient';
+import type { ScoreboardTeamColorBar } from '../lib/teamColors';
 
 export type CompactScoreboardParticipant = {
   teamName: string;
-  teamColor?: string | null;
+  teamColor?: ScoreboardTeamColorBar | null;
   owner?: string | null;
   isCardOwnerTeam?: boolean;
   rank?: number | null;
@@ -72,6 +73,14 @@ function cardOwnerRowCornerClasses(
 
 function recordLabel(record: TeamRecordClient | null | undefined): string | null {
   return record ? `${record.wins}–${record.losses}` : null;
+}
+
+function teamColorBarStyle(teamColor: ScoreboardTeamColorBar): React.CSSProperties {
+  if (typeof teamColor === 'string') return { backgroundColor: teamColor };
+  return {
+    backgroundColor: teamColor.fillColor,
+    boxShadow: `inset 0 0 0 1px ${teamColor.outlineColor}`,
+  };
 }
 
 function hasRenderableContent(slot: React.ReactNode): boolean {
@@ -216,6 +225,8 @@ export default function CompactGameScoreboard({
         const isLeading = leader === side;
         const owner = participant.owner?.trim() || null;
         const teamRecord = recordLabel(participant.record);
+        const hasAlternateOutline =
+          participant.teamColor != null && typeof participant.teamColor !== 'string';
         const rankTitle =
           participant.rank != null && participant.rankSource
             ? `${rankSourceLabel(participant.rankSource)} rank #${participant.rank}`
@@ -241,9 +252,10 @@ export default function CompactGameScoreboard({
             {participant.teamColor ? (
               <span
                 className="absolute inset-y-0.5 left-0 block w-2 rounded-[2px]"
-                style={{ backgroundColor: participant.teamColor }}
+                style={teamColorBarStyle(participant.teamColor)}
                 aria-hidden="true"
                 data-scoreboard-team-color={side}
+                data-scoreboard-team-color-outline={hasAlternateOutline ? 'alternate' : undefined}
               />
             ) : null}
             {/* Team identity follows the line-start slot; a future logo belongs in that slot. */}

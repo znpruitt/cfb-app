@@ -45,7 +45,10 @@ import { isAwaitingSeasonStartDate } from '../lib/selectors/seasonStartDate';
 import { buildScheduleFromApi, fetchSeasonSchedule, type AppGame } from '../lib/schedule';
 import { fetchTeamsCatalog } from '../lib/teamsCatalog';
 import type { TeamCatalogItem } from '../lib/teamIdentity';
-import { buildScoreboardTeamColorsById } from '../lib/teamColors';
+import {
+  buildScoreboardTeamColorsById,
+  type ScoreboardTeamColorPrototypeMode,
+} from '../lib/teamColors';
 import { fetchConferencesCatalog } from '../lib/conferencesCatalog';
 import { seasonStorageKeys } from '../lib/storageKeys';
 import { type OddsUsageSnapshot } from '../lib/apiUsage';
@@ -112,6 +115,8 @@ type CFBScheduleAppProps = {
   leagueDisplayName?: string;
   leagueYear?: number;
   leagueStatus?: LeagueStatus;
+  /** PLATFORM-198 REVIEW PROTOTYPE — remove before merge. */
+  teamColorPrototypeMode?: ScoreboardTeamColorPrototypeMode;
   /**
    * `League.assignmentMethod` — how this league assigns teams for the season.
    * The preseason banner needs it because `setAssignmentMethod` leaves any
@@ -291,6 +296,7 @@ export default function CFBScheduleApp({
   leagueDisplayName,
   leagueYear,
   leagueStatus,
+  teamColorPrototypeMode = 'remap-only',
   assignmentMethod,
   mostRecentArchivedYear,
   canonicalStandings,
@@ -651,7 +657,10 @@ export default function CFBScheduleApp({
   }, [roster, isPreseason, initialPreseasonOwners]);
   // Item 119: normalize each catalog colour once when the runtime catalog changes.
   // Scoreboard renderers receive this memo and pay only two Map lookups per game.
-  const teamColorsById = useMemo(() => buildScoreboardTeamColorsById(teamCatalog), [teamCatalog]);
+  const teamColorsById = useMemo(
+    () => buildScoreboardTeamColorsById(teamCatalog, teamColorPrototypeMode),
+    [teamCatalog, teamColorPrototypeMode]
+  );
   const filteredWeekGames = useMemo(() => {
     if (selectedWeek == null) return [] as AppGame[];
     const tf = teamFilter.toLowerCase();

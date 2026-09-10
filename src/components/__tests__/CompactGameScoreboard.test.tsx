@@ -379,6 +379,28 @@ test('team-colour bars use the exact full-opacity 8px line-start treatment witho
   }
 });
 
+test('alternate-colour prototype draws a 1px inset edge without changing the 8px bar width', () => {
+  const html = renderScoreboard({
+    away: {
+      teamName: 'App State',
+      teamColor: { fillColor: '#4E4E4E', outlineColor: '#FFCD00' },
+      owner: 'Whited',
+      rank: null,
+      score: 17,
+    },
+  });
+  const document = new JSDOM(html).window.document;
+  const bar = document.querySelector('[data-scoreboard-team-color="away"]');
+
+  assert.ok(bar);
+  assert.match(bar.className, /(?:^|\s)w-2(?:\s|$)/);
+  assert.equal(bar.getAttribute('data-scoreboard-team-color-outline'), 'alternate');
+  assert.equal(
+    bar.getAttribute('style'),
+    'background-color:#4E4E4E;box-shadow:inset 0 0 0 1px #FFCD00'
+  );
+});
+
 test('catalog fallback stays absent on an FCS team line instead of rendering green', () => {
   const teamColorsById = buildScoreboardTeamColorsById([
     { school: 'Portland State', color: null, altColor: null },

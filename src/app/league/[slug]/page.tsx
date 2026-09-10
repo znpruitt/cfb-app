@@ -16,10 +16,17 @@ export const dynamic = 'force-dynamic';
 
 export default async function LeaguePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams?: Promise<{ teamColorBar?: string | string[] }>;
 }): Promise<React.ReactElement> {
-  const { slug } = await params;
+  const queryPromise: Promise<{ teamColorBar?: string | string[] }> =
+    searchParams ?? Promise.resolve({});
+  const [{ slug }, query] = await Promise.all([params, queryPromise]);
+  const teamColorBarParam = Array.isArray(query.teamColorBar)
+    ? query.teamColorBar[0]
+    : query.teamColorBar;
   const gate = await renderLeagueGateIfBlocked(slug);
   if (gate) return gate;
   const leaguePromise = getLeague(slug);
@@ -50,6 +57,11 @@ export default async function LeaguePage({
         leagueDisplayName={league?.displayName}
         leagueYear={league?.year}
         leagueStatus={leagueStatus}
+        // PLATFORM-198 REVIEW PROTOTYPE — `?teamColorBar=outline` is a real-page
+        // comparison seam for the owner and must be removed before merge.
+        teamColorPrototypeMode={
+          teamColorBarParam === 'outline' ? 'alternate-outline' : 'remap-only'
+        }
         assignmentMethod={league?.assignmentMethod}
         mostRecentArchivedYear={mostRecentArchivedYear}
         {...canonicalStandingsClientProps(canonicalStandings)}

@@ -95,6 +95,28 @@ test('bright team colours stay below the 5.5 ceiling against the darkest scorebo
   assert.ok(contrastRatio(result.winnerScoreColor, '#09090B') <= 5.5);
 });
 
+test('fixed OKLCH remap keeps the four Overview reds distinct instead of clamping them to one floor', () => {
+  const colors = [
+    ['Louisville', '#C9001F'],
+    ['Ohio State', '#BA0C2F'],
+    ['Indiana', '#990000'],
+    ['Oklahoma', '#841617'],
+  ].map(([team, color]) => ({
+    team,
+    output: getSafeScoreboardTeamColor({ color, altColor: null }).baseColor,
+  }));
+  const ratios = colors.map(({ output }) => contrastRatio(output, '#333336'));
+
+  assert.equal(new Set(colors.map(({ output }) => output)).size, 4);
+  assert.deepEqual(
+    colors.map(({ output }) => output),
+    ['#CD504C', '#CC4E54', '#C94D3F', '#C0514A']
+  );
+  assert.ok(ratios[0] > ratios[1]);
+  assert.ok(ratios[1] > ratios[2]);
+  assert.ok(ratios[2] > ratios[3]);
+});
+
 test('near-neutral provider colour stays near-neutral after band normalisation', () => {
   const input = oklch('#8A8D8F');
   const result = getSafeScoreboardTeamColor({ color: '#8A8D8F', altColor: null });
@@ -174,4 +196,25 @@ test('catalog memo input normalizes each team once and makes repeated row lookup
   }
   assert.equal(primaryReads, 2, 'row lookups must not repeat primary normalization');
   assert.equal(altReads, 1, 'row lookups must not repeat alternate normalization');
+});
+
+test('alternate-outline prototype keeps the provider alternate as a 1px-edge input', () => {
+  const colorsById = buildScoreboardTeamColorsById(
+    [{ school: 'App State', color: '#000000', altColor: '#FFCD00' }],
+    'alternate-outline'
+  );
+
+  assert.deepEqual(colorsById.get('appstate'), {
+    fillColor: '#4E4E4E',
+    outlineColor: '#FFCD00',
+  });
+});
+
+test('alternate-outline prototype preserves the settled no-accent fallback population', () => {
+  const colorsById = buildScoreboardTeamColorsById(
+    [{ school: 'Penn State', color: '#001E44', altColor: '#FFFFFF' }],
+    'alternate-outline'
+  );
+
+  assert.equal(colorsById.has('pennstate'), false);
 });

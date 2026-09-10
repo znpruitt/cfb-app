@@ -1079,7 +1079,7 @@ test('CFBScheduleApp memoizes catalog colours and forwards one lookup across sco
   assert.match(matchupsCall, /teamColorsById=\{teamColorsById\}/);
   assert.match(
     source,
-    /const teamColorsById = useMemo\(\s*\(\) => buildScoreboardTeamColorsById\(teamCatalog\),\s*\[teamCatalog\]\s*\)/,
+    /const teamColorsById = useMemo\(\s*\(\) => buildScoreboardTeamColorsById\(teamCatalog, teamColorPrototypeMode\),\s*\[teamCatalog, teamColorPrototypeMode\]\s*\)/,
     'normalization must run inside one catalog-dependent memo'
   );
 

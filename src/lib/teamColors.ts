@@ -13,10 +13,19 @@ const SCOREBOARD_FLOOR_SURFACE = '#333336';
 const SCOREBOARD_CEILING_SURFACE = '#09090B';
 const MIN_SCOREBOARD_CONTRAST = 2.5;
 const MAX_SCOREBOARD_CONTRAST = 5.5;
+const MIN_SCOREBOARD_INPUT_LIGHTNESS = 0.25;
+const MAX_SCOREBOARD_INPUT_LIGHTNESS = 0.85;
 const MAX_SCOREBOARD_CHROMA = 0.16;
 const RESERVED_AMBER_HUE_MIN = 60;
 const RESERVED_AMBER_HUE_MAX = 110;
 const RESERVED_AMBER_MAX_CHROMA = 0.08;
+
+// PLATFORM-198 REVIEW PROTOTYPE — remove this mode and its URL seam before merge.
+// The 1.5 fill floor is exercised only when the raw alternate supplies at least
+// 3:1 on the Overview surface. It is not a settled production treatment.
+const OUTLINED_FILL_MIN_CONTRAST = 1.5;
+const OUTLINE_REFERENCE_SURFACE = '#09090B';
+const MIN_RAW_OUTLINE_CONTRAST = 3;
 
 type TeamColorRoles = {
   subtleAccent: string;
@@ -32,7 +41,16 @@ export type ScoreboardTeamColorTreatment = TeamColorRoles & {
   winnerScoreColor: string;
 };
 
-export type ScoreboardTeamColorsById = ReadonlyMap<string, string>;
+export type ScoreboardTeamColorPrototypeMode = 'remap-only' | 'alternate-outline';
+
+export type ScoreboardTeamColorBar =
+  | string
+  | {
+      fillColor: string;
+      outlineColor: string;
+    };
+
+export type ScoreboardTeamColorsById = ReadonlyMap<string, ScoreboardTeamColorBar>;
 
 export const EMPTY_SCOREBOARD_TEAM_COLORS_BY_ID: ScoreboardTeamColorsById = new Map();
 
@@ -191,10 +209,21 @@ function relativeLuminance(rgb: Rgb): number {
   );
 }
 
-const SCOREBOARD_FLOOR_LUMINANCE =
-  MIN_SCOREBOARD_CONTRAST * (relativeLuminance(hexToRgb(SCOREBOARD_FLOOR_SURFACE)) + 0.05) - 0.05;
+function contrastRatio(hexA: string, hexB: string): number {
+  const luminanceA = relativeLuminance(hexToRgb(hexA));
+  const luminanceB = relativeLuminance(hexToRgb(hexB));
+  const lighter = Math.max(luminanceA, luminanceB);
+  const darker = Math.min(luminanceA, luminanceB);
+
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
 const SCOREBOARD_CEILING_LUMINANCE =
   MAX_SCOREBOARD_CONTRAST * (relativeLuminance(hexToRgb(SCOREBOARD_CEILING_SURFACE)) + 0.05) - 0.05;
+
+function floorLuminance(minimumContrast: number): number {
+  return minimumContrast * (relativeLuminance(hexToRgb(SCOREBOARD_FLOOR_SURFACE)) + 0.05) - 0.05;
+}
 
 function isUnusableRawColor(hex: string): boolean {
   const rgb = hexToRgb(hex);
@@ -209,28 +238,24 @@ function renderOklch(color: Oklch): string {
   return rgbToHex(gamutMapOklch(color));
 }
 
-function findLightnessForLuminance(color: Oklch, target: number, preferLighter: boolean): string {
+function findLightnessForLuminance(color: Oklch, target: number, preferLighter: boolean): number {
   let lowerLightness = 0;
   let upperLightness = 1;
-  let lowerHex = renderOklch({ ...color, l: lowerLightness });
-  let upperHex = renderOklch({ ...color, l: upperLightness });
 
   for (let iteration = 0; iteration < 32; iteration += 1) {
     const candidateLightness = (lowerLightness + upperLightness) / 2;
     const candidateHex = renderOklch({ ...color, l: candidateLightness });
     if (relativeLuminance(hexToRgb(candidateHex)) < target) {
       lowerLightness = candidateLightness;
-      lowerHex = candidateHex;
     } else {
       upperLightness = candidateLightness;
-      upperHex = candidateHex;
     }
   }
 
-  return preferLighter ? upperHex : lowerHex;
+  return preferLighter ? upperLightness : lowerLightness;
 }
 
-function normalizeForScoreboard(hex: string): string {
+function normalizeForScoreboard(hex: string, minimumContrast = MIN_SCOREBOARD_CONTRAST): string {
   const input = rgbToOklch(hexToRgb(hex));
   const isReservedAmber = input.h >= RESERVED_AMBER_HUE_MIN && input.h <= RESERVED_AMBER_HUE_MAX;
   const normalized: Oklch = {
@@ -238,16 +263,22 @@ function normalizeForScoreboard(hex: string): string {
     // Never add chroma. That invariant is what keeps Nevada's 2% cast neutral.
     c: Math.min(input.c, isReservedAmber ? RESERVED_AMBER_MAX_CHROMA : MAX_SCOREBOARD_CHROMA),
   };
-  const candidate = renderOklch(normalized);
-  const candidateLuminance = relativeLuminance(hexToRgb(candidate));
-
-  if (candidateLuminance < SCOREBOARD_FLOOR_LUMINANCE) {
-    return findLightnessForLuminance(normalized, SCOREBOARD_FLOOR_LUMINANCE, true);
-  }
-  if (candidateLuminance > SCOREBOARD_CEILING_LUMINANCE) {
-    return findLightnessForLuminance(normalized, SCOREBOARD_CEILING_LUMINANCE, false);
-  }
-  return candidate;
+  const lowerLightness = findLightnessForLuminance(
+    normalized,
+    floorLuminance(minimumContrast),
+    true
+  );
+  const upperLightness = findLightnessForLuminance(normalized, SCOREBOARD_CEILING_LUMINANCE, false);
+  const remapPosition = clamp(
+    (input.l - MIN_SCOREBOARD_INPUT_LIGHTNESS) /
+      (MAX_SCOREBOARD_INPUT_LIGHTNESS - MIN_SCOREBOARD_INPUT_LIGHTNESS),
+    0,
+    1
+  );
+  return renderOklch({
+    ...normalized,
+    l: lowerLightness + remapPosition * (upperLightness - lowerLightness),
+  });
 }
 
 function withAlpha(hex: string, alpha: number): string {
@@ -299,8 +330,20 @@ export function getSafeScoreboardTeamColor(
 
 export function buildScoreboardTeamColorsById(
   teams: readonly TeamCatalogItem[]
+): ReadonlyMap<string, string>;
+export function buildScoreboardTeamColorsById(
+  teams: readonly TeamCatalogItem[],
+  prototypeMode: 'remap-only'
+): ReadonlyMap<string, string>;
+export function buildScoreboardTeamColorsById(
+  teams: readonly TeamCatalogItem[],
+  prototypeMode: ScoreboardTeamColorPrototypeMode
+): ScoreboardTeamColorsById;
+export function buildScoreboardTeamColorsById(
+  teams: readonly TeamCatalogItem[],
+  prototypeMode: ScoreboardTeamColorPrototypeMode = 'remap-only'
 ): ScoreboardTeamColorsById {
-  const colorsById = new Map<string, string>();
+  const colorsById = new Map<string, ScoreboardTeamColorBar>();
 
   for (const team of teams) {
     // Scoreboard consumers use resolver identity keys, which normalize the
@@ -310,6 +353,26 @@ export function buildScoreboardTeamColorsById(
 
     const treatment = getSafeScoreboardTeamColor(team);
     if (treatment.source === 'fallback') continue;
+
+    if (prototypeMode === 'alternate-outline') {
+      const primary = normalizeHexColor(team.color);
+      const alternate = normalizeHexColor(team.altColor);
+      if (primary && alternate) {
+        const alternateSuppliesEdge =
+          contrastRatio(primary, OUTLINE_REFERENCE_SURFACE) < MIN_RAW_OUTLINE_CONTRAST &&
+          contrastRatio(alternate, OUTLINE_REFERENCE_SURFACE) >= MIN_RAW_OUTLINE_CONTRAST;
+        colorsById.set(teamId, {
+          fillColor: alternateSuppliesEdge
+            ? normalizeForScoreboard(primary, OUTLINED_FILL_MIN_CONTRAST)
+            : treatment.baseColor,
+          // Keep the prototype edge honest: it is the provider alternate itself.
+          // A black alternate therefore contributes nothing, as in Louisville's case.
+          outlineColor: alternate,
+        });
+        continue;
+      }
+    }
+
     colorsById.set(teamId, treatment.baseColor);
   }
 

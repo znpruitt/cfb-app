@@ -89,6 +89,7 @@ type CFBScheduleAppProps = {
   seasonContext?: SeasonContext;
   initialNowMs?: number;
   teamRecordsByProviderGameId?: TeamRecordsByProviderGameId;
+  teamColorPrototypeMode?: string;
 };
 
 /** The pages return `<main><CFBScheduleApp {...props} /></main>`; read the props. */
@@ -111,6 +112,18 @@ const SURFACES: ReadonlyArray<[string, (slug: string) => Promise<ReactElement>]>
       }),
   ],
 ];
+
+test('overview reads the temporary alternate-outline prototype from the real query parameter', async () => {
+  await seedLeagueWithAPendingGame();
+  const defaultPage = await LeagueRootPage({ params: Promise.resolve({ slug: SLUG }) });
+  const outlinePage = await LeagueRootPage({
+    params: Promise.resolve({ slug: SLUG }),
+    searchParams: Promise.resolve({ teamColorBar: 'outline' }),
+  });
+
+  assert.equal(appProps(defaultPage).teamColorPrototypeMode, 'remap-only');
+  assert.equal(appProps(outlinePage).teamColorPrototypeMode, 'alternate-outline');
+});
 
 /**
  * A league with one real, unscored, already-kicked-off game — which is exactly
