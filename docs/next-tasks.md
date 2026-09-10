@@ -7137,9 +7137,24 @@ show the catch never fires spontaneously. **The hazard stands on code reading al
 Bundling a production alerting change into a test-isolation branch is exactly the pairing that makes
 review harder.
 
+**MEASURED 2026-09-10: "has this already fired?" is UNANSWERABLE, and that is the finding.** The Item
+207 lane proposed reading the `polling-planner-record` series for missing days to turn "could have"
+into "has it". **There is no series.** Queried through `DATABASE_URL_RO`: `app_state` is the only
+table, `polling-planner-record` holds **2 rows — latest-only, one per job** — and no runtime-event or
+history scope exists. Current state reads `success` / `plan-applied` at 2026-09-09 18:xx, which is the
+whole record.
+
+**So the hazard is worse than "undetected".** The alerting ignores this failure by design AND nothing
+retains a history, so it is **undetectable in hindsight too.** A season of silently-stopped polling
+would leave no artifact to find afterwards.
+
+**That raises a second question this item should answer:** whether a latest-only receipt is sufficient
+for a job whose failure mode is doing nothing. **Retaining a short series may be the more valuable half
+of this item than the conflation fix.**
+
 **The ask:** distinguish "settings unreadable" from "operator held everything" so the former cannot
-report the ignored result. **Change nothing about what a genuine hold does** — that path is correct and
-must stay silent. **Blocker:** none.
+report the ignored result, and rule on whether the planner needs a retained series. **Change nothing
+about what a genuine hold does** — that path is correct and must stay silent. **Blocker:** none.
 
 ### Item 209 — the test store leaks a file per process, forever
 
