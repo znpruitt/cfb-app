@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { __resetAppStateForTests, setAppState } from '@/lib/server/appStateStore';
+import {
+  __deleteAppStateFileForTests,
+  __resetAppStateForTests,
+  getAppState,
+  setAppState,
+} from '@/lib/server/appStateStore';
 import {
   POLLING_PLANNER_RECORD_SCOPE,
   readPollingPlannerRuns,
@@ -49,18 +54,48 @@ async function reset(): Promise<void> {
   globalThis.fetch = ORIGINAL_FETCH;
   process.env.CRON_SECRET = CRON_SECRET;
   process.env.QSTASH_TOKEN = QSTASH_TOKEN;
+  // DELETE THE BACKING FILE, do not merely reset the seams. PLATFORM-207:
+  // `__resetAppStateForTests` clears pools and seams but NOT the file, and under
+  // `APP_STATE_TEST_ISOLATION` that file is keyed by `process.pid` and never
+  // removed — so a process whose pid was recycled from an earlier suite run starts
+  // life owning that run's durable store. An inherited
+  // `provider-refresh-settings::global` carrying `globalPause: true` holds both
+  // planner jobs, and the four plan-deriving tests below then fail on `plan-held`
+  // with nothing in THIS file to explain it. Reproduced 20/20 by planting exactly
+  // that file; the per-key nulls this replaced could not reach the settings scope.
+  await __deleteAppStateFileForTests();
   __resetAppStateForTests();
+  await assertPlannerInputsAreClean();
+}
+
+/**
+ * The planner's two durable inputs, asserted EMPTY before each test — so an
+ * inherited or leaked record fails here, at its cause, rather than three
+ * assertions downstream in whichever test happens to read it first.
+ */
+async function assertPlannerInputsAreClean(): Promise<void> {
   for (const job of ['live-scores', 'game-stats']) {
-    await setAppState(POLLING_PLANNER_RECORD_SCOPE, job, null);
-    await setAppState(SCHEDULER_EXECUTION_STATUS_SCOPE, job, null);
+    assert.equal(
+      await getAppState(POLLING_PLANNER_RECORD_SCOPE, job),
+      null,
+      `${job}: a planner record survived reset()`
+    );
   }
-  await setAppState(SCHEDULER_EXECUTION_STATUS_SCOPE, 'polling-planner', null);
-  // `__resetAppStateForTests` clears pools and seams but NOT the backing file, so
-  // a season seeded by an earlier test survives — and a test asserting that an
-  // ABSENT record sends nothing would then pass or fail on its neighbour's data.
+  const { PROVIDER_REFRESH_SETTINGS_SCOPE, PROVIDER_REFRESH_SETTINGS_KEY } = await import(
+    '@/lib/server/providerRefreshSettings'
+  );
+  assert.equal(
+    await getAppState(PROVIDER_REFRESH_SETTINGS_SCOPE, PROVIDER_REFRESH_SETTINGS_KEY),
+    null,
+    'an operator hold survived reset() — every job would be held and every plan test would read plan-held'
+  );
   const year = planningSeasonYear();
   for (const suffix of ['all-all', 'all-regular', 'all-postseason']) {
-    await setAppState('schedule', `${year}-${suffix}`, null);
+    assert.equal(
+      await getAppState('schedule', `${year}-${suffix}`),
+      null,
+      `schedule/${year}-${suffix} survived reset() — "absence sends nothing" would read a neighbour's season`
+    );
   }
 }
 
@@ -183,7 +218,6 @@ test('an unconfigured CRON_SECRET fails closed rather than running unauthenticat
 // ---------------------------------------------------------------------------
 
 async function readReceipt(): Promise<SchedulerExecutionReceipt | null> {
-  const { getAppState } = await import('@/lib/server/appStateStore');
   const row = await getAppState<SchedulerExecutionReceipt>(
     SCHEDULER_EXECUTION_STATUS_SCOPE,
     'polling-planner'
@@ -424,7 +458,7 @@ test('POSITIVE CONTROL: the real header block contains both secrets, and the rec
   const logged: string[] = [];
   const originalLog = console.log;
   console.log = (...args: unknown[]) => logged.push(args.map(String).join(' '));
-  installQstash({ scheduleFor: (id) => readbackFor(id) });
+  const calls = installQstash({ scheduleFor: (id) => readbackFor(id) });
   try {
     await seedSchedule([
       { startDate: new Date(dayHour(await seedDay(), 19)).toISOString(), startTimeTBD: false },
@@ -437,6 +471,24 @@ test('POSITIVE CONTROL: the real header block contains both secrets, and the rec
     const serialized = JSON.stringify(record);
     const receipt = JSON.stringify(await readReceipt());
     const runtimeEvent = logged.join('\n');
+
+    // THIS RUN CARRIED THE CREDENTIALS. Every assertion below is an ABSENCE, and a
+    // run that sent nothing satisfies all of them for free — which is precisely
+    // what happened under PLATFORM-207: an inherited operator hold made this run a
+    // no-op and this control stayed green while the four plan tests around it went
+    // red. A control that cannot fail is worse than no control, so prove the four
+    // scanned artifacts are artifacts of a run that really put both secrets on the
+    // wire, before concluding that neither secret survived into them.
+    const mutations = calls.filter((call) => call.method === 'POST');
+    assert.ok(mutations.length > 0, 'the run sent QStash mutations to scan the output of');
+    const inFlight = JSON.stringify(mutations.map((call) => call.headers));
+    assert.ok(inFlight.includes(QSTASH_TOKEN), 'this run put the management token on the wire');
+    assert.ok(
+      inFlight.includes(CRON_SECRET),
+      'this run put the forwarded route secret on the wire'
+    );
+    const newest = record.kind === 'ok' ? record.series.runs.at(-1) : null;
+    assert.ok(newest?.dense, 'the scanned record describes an armed day, not a held no-op');
 
     for (const [name, text] of [
       ['the durable record', serialized],

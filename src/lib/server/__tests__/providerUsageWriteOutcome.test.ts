@@ -2,6 +2,15 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Pool } from 'pg';
 
+// NOT file-backed, and deliberately left out of PLATFORM-207's fix. A grep for
+// `__resetAppStateForTests` without `__deleteAppStateFileForTests` flags this
+// file, but the call below is POOL teardown inside `withLostCommit`, not a
+// per-test reset: every test here either runs against `FakePool` with
+// `DATABASE_URL` set, or is a pure function. Measured, not assumed — planting an
+// unparseable app-state file at this process's pid path fails 11/11 tests in
+// `polling-planner`, 13/13 in `usage-sample` and 11/11 in
+// `pollingPlannerRecordWrite`, and 0 here. Adding a backing-file delete would be
+// a no-op on a store this suite never reads.
 import { __resetAppStateForTests, __setAppStatePoolForTests } from '../appStateStore';
 import { recordedFromWriteOutcome } from '../../providerUsage/cronExecutionLog';
 import {

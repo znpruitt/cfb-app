@@ -3,6 +3,7 @@ import test from 'node:test';
 import type { Pool } from 'pg';
 
 import {
+  __deleteAppStateFileForTests,
   __resetAppStateForTests,
   __setAppStatePoolForTests,
   __setAppStateReadFailureForTests,
@@ -66,9 +67,13 @@ function run(at: string, cron: string): PollingPlannerRun {
 async function reset(): Promise<void> {
   __setAppStateWriteFailureForTests(null);
   __setAppStateReadFailureForTests(null);
-  __resetAppStateForTests();
   // `__resetAppStateForTests` clears pools and seams but NOT the backing file, so
-  // a row survives between tests in this file unless it is cleared explicitly.
+  // a row survives between tests in this file — and, under
+  // `APP_STATE_TEST_ISOLATION`, between SUITE RUNS: the file is keyed by
+  // `process.pid` and never removed, so a recycled pid hands this process an
+  // earlier run's whole durable store (PLATFORM-207).
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
   await setAppState(POLLING_PLANNER_RECORD_SCOPE, KEY, null);
 }
 
