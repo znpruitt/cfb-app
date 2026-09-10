@@ -7255,8 +7255,12 @@ isolation. **Blocker:** none. **The most dangerous thing either reviewer surface
 ### Item 211 — three more destructive test seams with the same hole
 
 **Found 2026-09-10 by the Item 210 lane, which enumerated all 34 test-only seams in `src/` and left
-them alone as instructed.** Most are inert — in-process resets, injected fakes, failure seams. **Four
-are destructive and three are still exposed:**
+them alone as instructed.** Re-measured against `main` by the Item 211 lane: **34 seams, 29 inert, FIVE
+destructive — 2 guarded by Item 210, 3 exposed.** ("Four" here was a pre-reclassification count; the
+corrupting seam was the fifth and shipped with 210.) Seven apparent hits in `appStateStore.ts:1434-1535`
+were the substring `__setAppState…ForTests` matching `setAppState` and read as module-local assignment
+only. **The three exposed seams have 15 calling test files between them** — the set on which a bare
+`node --test` fires the exposure. The three:
 
 - `durableOddsStore.__deleteDurableOddsStoreFileForTests(season)`
 - `oddsUsageStore.__deleteOddsUsageStoreFileForTests()`
@@ -7277,6 +7281,16 @@ guards every destructive seam in `appStateStore.ts`; this item guards the three 
 commit to add three files means re-reviewing all of it rather than just the addition. **The valuable
 guard is already in 210; this is the mechanical remainder.**
 
+**PINNING IS A DIVERSION, NOT A FILTER — established 2026-09-10 by the Item 211 receipt, correcting
+this entry's own reasoning.** All three seams **do** reach a file write to the durable
+`data/app-state.json` when `DATABASE_URL` is unset — `deleteAppState`'s file branch is unconditional
+below the Postgres one — and that write **CREATES** the file when it is absent (`readFileStore` returns
+`{}` on ENOENT). **Pinning saves them by diverting control INTO the database branch, not because the
+file path is unreachable.** So a single regression in `hasDatabaseConfig()` collapses the mitigation
+straight onto the real store, which is why a relocated `cwd` goes underneath it rather than instead of
+it. **Say this in the code comment** — the next reader who sees "has a database branch" will otherwise
+conclude the file path cannot be reached.
+
 **MUTATION SAFETY IS A DESIGN INPUT HERE, NOT A TEST DETAIL — added 2026-09-10 after it fired twice on
 the Item 210 branch.** The guard-2 mutation ran with the flag unset and lost nothing only because no dev
 store existed. **The corrupt-seam mutation then actually wrote `{not-valid-json` to
@@ -7290,8 +7304,11 @@ does have a database branch, so pinning should suffice — **verify that rather 
 
 **The ask:** apply guard 2's refusal to the three destructive seams. **The corrupting seam is DONE** —
 owner ruling 2026-09-10 moved it into Item 210, which shipped at `421fab9c`. **Blocker:** Item 210,
-whose `appStateTestSeamRefusal(seam, damage)` and `assertTestSeamAllowed` exports and test shape this
-should reuse rather than reinvent.
+whose `appStateTestSeamRefusal(seam, damage)` export and test shape this should reuse rather than
+reinvent. **`assertTestSeamAllowed` is NOT exported** (`appStateStore.ts:144`) — corrected 2026-09-10;
+the merging lane reported both as exported and planning repeated it unchecked. **Exporting it is the
+right fix**, not reimplementing the two-line prologue in three files, which is the drift Item 210's
+finding 5 was about.
 
 ### Item 209 — the test store leaks a file per process, forever
 
