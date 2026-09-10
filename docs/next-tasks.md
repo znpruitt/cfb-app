@@ -170,7 +170,7 @@ each other.**
 | # | item | what |
 | --- | --- | --- |
 | ✅ | ~~110A~~ | bounded recovery — **merged and applied 2026-09-09** |
-| ~ | **110B** | recurring correction reconciliation — **in flight**, last round done, closeout pending |
+| ✅ | ~~110B~~ | recurring correction reconciliation — **merged `9b150eb0`, PR #590** |
 | ✅ | ~~199~~ | the catalog read `altColor`; the provider sends `alternateColor` — **merged `1cfa9df1`, PR #591** |
 | **1** | **204** | **empty-body guard on the catalog refresh — BLOCKS the Item 199 resync click** |
 | 2 | **188** | provider deadlines carried through body consumption |
