@@ -51,6 +51,74 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-207-PLANNER-TEST-ISOLATION-CLAUDE-v1
+
+- Purpose: Item 207 — four polling-planner tests intermittently failed on `plan-held`. Two mechanisms
+  were proposed before implementation and **both were wrong**: a plan record surviving `reset()`, and
+  a bare `catch` at `route.ts:371` turning a transient settings-read failure into `settings = null`.
+- Scope: the polling-planner suite, `usage-sample`, `pollingPlannerRecordWrite`, and a comment in
+  `providerUsageWriteOutcome`. Test files only — no production code changed. The production
+  conflation (Item 208), the backing-file path (Item 209) and the destructive delete seam (Item 210)
+  were all split out by owner decision and are untouched here.
+- Outcome: the cause is **pid reuse**. `appStateStore.ts:95-97` keys the test store by
+  `process.pid` and nothing ever unlinks it — 14,022 stale files on the implementation machine,
+  oldest 2026-09-05 — so a recycled pid hands a process an earlier suite run's entire durable store.
+  394 of those files carried a `provider-refresh-settings::global` record holding both planner jobs,
+  and `reset()` cleared every scope except the settings one. Measured: **260 of 1,086 processes
+  across six instrumented full-suite runs (23.9%) started with a pre-existing file.** The fix is the
+  repo's own idiom, already in 136 of 139 app-state suites — delete the backing file before resetting
+  the seams. `reset()` now asserts its three durable inputs are absent rather than nulling two, and
+  the credential-leak POSITIVE CONTROL at test 8 was rebuilt: its four assertions are all absences of
+  a secret, which a run that sends nothing satisfies for free, which is exactly why it stayed green
+  while the four tests around it went red.
+- Review / verification: the blamed `catch` was **instrumented and refuted, not argued about** —
+  across 6 full-suite and 20 planted runs it fired exactly once per run, always
+  `Error: settings scope unavailable` from the deliberate injection at `route.test.ts:580`, and on
+  every planted failure `settings` was non-null and read `globalPause: true`. Determinism, same
+  harness both sides, planting the exact inherited file: **defect present 0/20 green with the exact
+  four-test signature 20/20; with the fix 20/20 green, signature 0/20.** The flake never appeared
+  unplanted (0/60 file-only, 0/6 full-suite), so **no rate is claimed** — the inherited "roughly 1 in
+  3" is withdrawn as unmeasured, and 0/6 only establishes that a 1-in-3 rate would have been unlucky
+  to hide (`(2/3)^6 ~= 0.09`). Two-sided mutation on the rebuilt control: force its run to a no-op and
+  the original stays green while the rebuilt one goes red. Against `4a9f47a6`: `npx tsc --noEmit` 0,
+  `lint:all` 0, `npm test` 5,103/5,105 — exactly the standing Item 137 baseline and no planner
+  failure. Test delta **0**, measured (5,105 -> 5,105): assertions added, not tests.
+- Adjudications kept as precedent, because both are the same failure and it recurred inside one
+  branch:
+  1. **A guard that cannot fail, twice.** Review round 1 found that
+     `assertPlannerInputsAreClean()` runs one line _after_ the delete, and `getAppState` re-reads the
+     file on every call — so an inherited store is already unlinked and the assertions are
+     tautological. That is the identical anti-pattern this branch had just fixed at test 8,
+     reintroduced in `reset()` one commit later, and the mutation offered as proof showed only that
+     the guard fires when the _delete_ is removed, which is not what it was said to prove. The guard
+     is kept with an honest comment; asserting _before_ the delete was rejected because inheritance is
+     normal and that would fail on the ~24% of runs handed a harmless store.
+  2. **A measurement that could not fail.** The same review said the grep used to find exposed suites
+     was structurally blind to suites that reset nothing. Correct — so it was replaced with a probe
+     that plants an _unparseable_ store and runs every test file. **The first pass of that probe was
+     itself blind:** `node --test` treats `[slug]` as a glob, so 23 App Router paths matched zero
+     tests and exited 0, reading identically to a pass. The correction is to report coverage as part
+     of the result: **389 files probed, 0 zero-test rows, 5,105 tests executed** — the full suite's
+     own count. And what the probe proves is bounded and stated: a corrupt payload is maximally
+     hostile, so it proves the suite reads the store and therefore inherits — **not** that a realistic
+     payload would flip any assertion.
+- Follow-ons, all owner-sequenced 2026-09-10: **Item 210** (next) — `__deleteAppStateFileForTests`
+  branches on `hasDatabaseConfig()`, not on `APP_STATE_TEST_ISOLATION`, and runs `delete from
+  app_state` against the live pool; `run-tests.mjs:89-91` spreads `...process.env`, so an ambient
+  production `DATABASE_URL` passes straight through and 136 callers wipe the only table. Pre-existing
+  and older than this branch. **Item 209** — a per-run-unique backing-file path plus exit cleanup,
+  blocked behind 210, carrying the **ten** still-exposed suites measured here and listed in
+  [`docs/campaigns/item-209-app-state-test-isolation.md`](campaigns/item-209-app-state-test-isolation.md).
+  Widening this branch to those ten was declined on the 210 ground: you do not generalise a
+  destructive call the same hour you learn it is destructive. **Item 208** — separating "settings
+  unreadable" from "operator held everything" on the planner route; it entered this item's scope on
+  the belief it caused the flake, and that belief was refuted here. It remains a real hazard: a
+  transient settings-read failure reports `no-op`/`plan-held`, the one result `schedulerExecutionIssues`
+  deliberately ignores, so it would go unnoticed **indefinitely**.
+- Status: Implemented on `claude/207-planner-test-isolation` (`4a9f47a6` + `f9b65a9f` + this
+  closeout); Codex returned no findings, Claude's round resolved in one, merge pending at time of
+  writing. No production code changed, so nothing to deploy or click.
+
 ### PLATFORM-204-CATALOG-EMPTY-GUARD-CLAUDE-v1
 
 - Purpose: Item 204 — the admin team-database sync committed `Array.isArray(rows) ? rows : []`
