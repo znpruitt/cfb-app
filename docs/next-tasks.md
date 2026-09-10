@@ -7087,27 +7087,78 @@ tests, and anything changing execution order or duration can change whether a la
 or after a `reset()`. **The distinction matters — "this diff cannot cause it" is established, "this
 diff cannot make it more likely" is not.**
 
-> **DIAGNOSIS OVERTURNED 2026-09-09, and the item is now partly a production bug.** The record is not
-> involved. `route.ts:376` reads `if (settings === null || jobIsHeld(job, settings))` — and `settings`
-> comes from a **bare `catch` at `:368-372` that sets it to `null`**. `getProviderRefreshSettings`
-> awaits `getAppState` with no internal try/catch, so **a transient read failure is swallowed and marks
-> EVERY job held**, producing `jobsHeld: 2` and `plan-held` with no leaked record at all. `reset()`
-> already nulls that scope for both jobs (`:53-55`), which is why "a record survived `reset()`" could
-> not be explained — there was nothing to explain.
+> **DIAGNOSIS OVERTURNED TWICE. THE THIRD ONE IS MEASURED — 2026-09-10.**
 >
-> **The production consequence is worse than the flake.** `:389-394` maps `plan-held` to `no-op`
-> precisely so `schedulerExecutionIssues` raises nothing — "a deliberate operator stop must not page
-> anyone." **So a transient settings-read failure in production stops the planner silently, in a state
-> indistinguishable from an intentional pause, with the alerting built to ignore it.** A swallowed
-> exception wearing the costume of a configuration.
+> **Not the leaked plan record** (`reset()` nulls that scope at `route.test.ts:53-55`), and **not the
+> swallowed `catch`** — planning's theory, refuted by instrumenting `route.ts:371` across **26 runs**:
+> it fired exactly once per run, always the deliberate injection in test 11, never spontaneously. On
+> every planted failure the settings read SUCCEEDED and returned a record that legitimately said paused.
 >
-> **Not reproduced — this is a code-path argument.** Falsifiable in one line: log what that `catch`
-> catches. The prompt requires that before anything is built.
+> **The cause is a stale pid-keyed backing file.** `appStateStore.ts:95-97` keys the test store by
+> `os.tmpdir()/cfb-app-app-state-test-${process.pid}.json` and **nothing ever deletes it**. There are
+> **14,022** such files in `$TMPDIR`, days old. macOS recycles pids, so a new test process can start
+> owning a previous run's fully-populated store. **394 of those files carry a
+> `provider-refresh-settings::global` record holding BOTH planner jobs** — and `reset()` clears the
+> planner record, the receipt scopes and the schedule keys, but **never the settings scope.**
+>
+> **Measured in the wild: 181 app-state-initialising processes per suite run, of which 260 of 1,086
+> (23.9%) started with a pre-existing file at their pid path.** Planting exactly that payload gives
+> **20/20 with the reported four-test signature, byte for byte.**
+>
+> **"Roughly 1 in 3" is NOT supported and should not be carried forward.** 0/6 full-suite runs, 0/60
+> file-only runs. The true rate depends on how the pid counter currently lines up with stale
+> generations, which drifts.
+>
+> **The class is 4 suites, not 1.** 139 test files call `__resetAppStateForTests`; **136 also call
+> `await __deleteAppStateFileForTests()`** — the established idiom. Four do not: this one,
+> `usage-sample/route.test.ts`, `pollingPlannerRecordWrite.test.ts`, `providerUsageWriteOutcome.test.ts`.
+> The other three pass under the same planted payload today, but are structurally exposed.
 
-**The ask:** determine whether the settings read is throwing; separate "settings unreadable" from
-"operator held everything" so the former cannot report the result the alerting ignores; and fix the
-test isolation. **Blocker:** none. **A flaky test in the pre-merge gate is worse than a failing one** —
-it trains every lane to re-run until green, which is how the next real regression gets merged.
+**The ask:** add the repo's own `await __deleteAppStateFileForTests()` idiom to all four exposed
+suites, making them the 137th–140th of 140 that do it. **Blocker:** none. **A flaky test in the
+pre-merge gate is worse than a failing one** — it trains every lane to re-run until green, which is how
+the next real regression gets merged.
+
+### Item 208 — an unreadable settings record reports the one result alerting ignores
+
+**Split out of Item 207 on 2026-09-10, because 207's measurement removed the reason to bundle it.**
+`route.ts:368-372` wraps `getProviderRefreshSettings` in a bare `catch` that sets `settings = null`;
+`:376` then treats null as every job held, and `:389-394` maps that to `no-op` / `plan-held` —
+**the one result `schedulerExecutionIssues` deliberately raises nothing for**, on the reasoning that a
+deliberate operator stop must not page anyone.
+
+**So a transient settings-read failure stops the planner silently, in a state indistinguishable from an
+intentional pause, with the alerting built to ignore it.** `getProviderRefreshSettings`
+(`providerRefreshSettings.ts:65-71`) awaits `getAppState` with no internal try/catch, so the throw is
+real.
+
+**It was folded into 207 on the belief that it CAUSED the flake. It does not** — 26 instrumented runs
+show the catch never fires spontaneously. **The hazard stands on code reading alone and is unreproduced.**
+Bundling a production alerting change into a test-isolation branch is exactly the pairing that makes
+review harder.
+
+**The ask:** distinguish "settings unreadable" from "operator held everything" so the former cannot
+report the ignored result. **Change nothing about what a genuine hold does** — that path is correct and
+must stay silent. **Blocker:** none.
+
+### Item 209 — the test store leaks a file per process, forever
+
+**Found 2026-09-10 by the Item 207 lane.** `appStateStore.ts:95-97` keys the test-isolation store by
+`os.tmpdir()/cfb-app-app-state-test-${process.pid}.json`, and nothing deletes it. **There are 14,022 of
+them in `$TMPDIR` right now**, days old.
+
+**The leak is not the harm; pid reuse is.** macOS recycles pids, so a new test process can inherit a
+previous run's fully-populated durable store — measured at **23.9% of app-state-initialising processes
+in a live suite run.** Item 207 fixes the four suites that fail to delete the file; **this closes the
+class**, for those four and for any future suite that forgets.
+
+**8 test files can write a durable `globalPause: true`** and leave it at their pid — `admin/provider-status`,
+`providerStatusSummary`, `systemHealth/sections`, `AutomationSafetyControls`, `systemHealthPanels`,
+`systemHealth`, `systemHealthIssues`, `providerRefreshSettings`. Any of their leftovers can land under
+any later process.
+
+**The ask:** a per-run-unique path plus exit cleanup, so isolation does not depend on every suite
+remembering a teardown call. **Blocker:** Item 207, which should land the per-suite fix first.
 
 **Do this as its own slice with its own review.** A reformat that silently alters a binding rule is
 worse than the unreadable version, and a diff this large hides a one-word change perfectly. **The
