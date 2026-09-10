@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
 import {
@@ -7,7 +10,8 @@ import {
   __resetAppStateForTests,
   __setAppStateWriteFailureForTests,
   APP_STATE_TEST_ISOLATION_POOL_REFUSAL,
-  APP_STATE_TEST_SEAM_REFUSAL,
+  APP_STATE_CORRUPT_SEAM_REFUSAL,
+  APP_STATE_DELETE_SEAM_REFUSAL,
   assertAppStateWritable,
   deleteAppState,
   getAppState,
@@ -258,7 +262,8 @@ test('GUARD 2: the destructive seam refuses to run outside an isolated test proc
     async () => {
       await assert.rejects(
         () => __deleteAppStateFileForTests(),
-        (error: unknown) => error instanceof Error && error.message === APP_STATE_TEST_SEAM_REFUSAL
+        (error: unknown) =>
+          error instanceof Error && error.message === APP_STATE_DELETE_SEAM_REFUSAL
       );
     }
   );
@@ -271,10 +276,44 @@ test('GUARD 2 is not satisfied by a merely truthy flag', async () => {
     async () => {
       await assert.rejects(
         () => __deleteAppStateFileForTests(),
-        (error: unknown) => error instanceof Error && error.message === APP_STATE_TEST_SEAM_REFUSAL
+        (error: unknown) =>
+          error instanceof Error && error.message === APP_STATE_DELETE_SEAM_REFUSAL
       );
     }
   );
+});
+
+test('GUARD 2 covers the OTHER destructive seam in this file, not just the delete', async () => {
+  // A corrupted store is destruction. `__corruptAppStateFileForTests` never
+  // touches Postgres, but with the flag unset `appStateFilePath()` resolves to the
+  // durable `data/app-state.json`, so a bare `node --test` on any suite that calls
+  // it (e.g. `oddsUsageStore.test.ts`) writes `{not-valid-json` over the
+  // developer's dev store. Round 1 finding: guarding one seam of a two-seam family
+  // closes neither.
+  //
+  // CWD IS MOVED TO A TEMP DIRECTORY, and unlike the tests above, pinning
+  // DATABASE_URL would not help — this seam has no database branch, so its write
+  // is unconditional and there is no URL to neutralise. `appStateFilePath()` falls
+  // back to `path.join(process.cwd(), 'data')`, so relocating cwd is the only way
+  // to stop a REGRESSION here from corrupting a real store. Measured, not assumed:
+  // running the mutation below without this wrote `{not-valid-json` to
+  // `data/app-state.json` in this worktree. Top-level tests in a file run
+  // sequentially, so the process-wide chdir cannot race a neighbour.
+  const originalCwd = process.cwd();
+  const sandbox = mkdtempSync(path.join(os.tmpdir(), 'item210-corrupt-seam-'));
+  try {
+    process.chdir(sandbox);
+    await withEnvironment({ APP_STATE_TEST_ISOLATION: undefined }, async () => {
+      await assert.rejects(
+        () => __corruptAppStateFileForTests(),
+        (error: unknown) =>
+          error instanceof Error && error.message === APP_STATE_CORRUPT_SEAM_REFUSAL
+      );
+    });
+  } finally {
+    process.chdir(originalCwd);
+    rmSync(sandbox, { recursive: true, force: true });
+  }
 });
 
 test('PRODUCTION UNCHANGED: with the flag absent, a configured DATABASE_URL still selects postgres and still connects', async () => {

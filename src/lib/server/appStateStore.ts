@@ -125,12 +125,36 @@ export const APP_STATE_TEST_ISOLATION_POOL_REFUSAL =
   'branches on its presence alone — this run would read and write the live ' +
   'app_state table. Unset DATABASE_URL in the shell running the tests.';
 
-export const APP_STATE_TEST_SEAM_REFUSAL =
-  '__deleteAppStateFileForTests is test-only and destructive — it issues ' +
-  '`delete from app_state` whenever DATABASE_URL is set, and app_state is the ' +
-  'only table. It refuses to run unless APP_STATE_TEST_ISOLATION=1. Run tests ' +
-  'through `npm test` or `npm run test:file`, which set it; a bare ' +
-  '`node --test <file>` does not.';
+/**
+ * The refusal a destructive test-only seam raises outside an isolated test
+ * process. A builder rather than a string because the family has more than one
+ * member here and more outside this file (Item 211) — every one of them should
+ * name ITSELF and ITS OWN damage, so the operator learns what nearly happened
+ * rather than a generic "not allowed".
+ */
+export function appStateTestSeamRefusal(seam: string, damage: string): string {
+  return (
+    `${seam} is test-only and destructive — ${damage}. It refuses to run unless ` +
+    'APP_STATE_TEST_ISOLATION=1. Run tests through `npm test` or ' +
+    '`npm run test:file`, which set it; a bare `node --test <file>` does not.'
+  );
+}
+
+/** Shared prologue for every destructive test-only seam. See GUARD 2 below. */
+function assertTestSeamAllowed(seam: string, damage: string): void {
+  if (!testIsolationEnabled()) throw new Error(appStateTestSeamRefusal(seam, damage));
+}
+
+export const APP_STATE_DELETE_SEAM_REFUSAL = appStateTestSeamRefusal(
+  '__deleteAppStateFileForTests',
+  'it issues `delete from app_state` whenever DATABASE_URL is set, and app_state is the only table'
+);
+
+export const APP_STATE_CORRUPT_SEAM_REFUSAL = appStateTestSeamRefusal(
+  '__corruptAppStateFileForTests',
+  'it writes an unparseable file over `appStateFilePath()`, which outside isolation is the durable ' +
+    'data/app-state.json rather than a pid-keyed temp file'
+);
 
 function isProductionRuntime(): boolean {
   return process.env.NODE_ENV === 'production';
@@ -1368,7 +1392,10 @@ export async function __deleteAppStateFileForTests(): Promise<void> {
   // `node --test src/...` leaves the flag unset, guard 1 cannot distinguish that
   // run from ordinary application startup, and this helper would transact against
   // whatever DATABASE_URL names. The condition here is therefore the inverse one.
-  if (!testIsolationEnabled()) throw new Error(APP_STATE_TEST_SEAM_REFUSAL);
+  assertTestSeamAllowed(
+    '__deleteAppStateFileForTests',
+    'it issues `delete from app_state` whenever DATABASE_URL is set, and app_state is the only table'
+  );
 
   if (hasDatabaseConfig()) {
     await ensureDatabase();
@@ -1386,6 +1413,20 @@ export async function __deleteAppStateFileForTests(): Promise<void> {
  * File-fallback mode only.
  */
 export async function __corruptAppStateFileForTests(): Promise<void> {
+  // GUARD 2, second member. Same rule, different transport: this one never
+  // touches Postgres, but with the flag unset `appStateFilePath()` resolves to the
+  // durable `data/app-state.json` rather than a pid-keyed temp file, so a bare
+  // `node --test src/lib/__tests__/oddsUsageStore.test.ts` (which calls this)
+  // corrupts the developer's dev store. A corrupted store is destruction, so the
+  // rule holds whatever the transport — guarding one seam of a two-seam family
+  // and calling the family closed is the arbitrariness this campaign keeps
+  // rejecting.
+  assertTestSeamAllowed(
+    '__corruptAppStateFileForTests',
+    'it writes an unparseable file over `appStateFilePath()`, which outside isolation is the durable ' +
+      'data/app-state.json rather than a pid-keyed temp file'
+  );
+
   await fs.mkdir(path.dirname(appStateFilePath()), { recursive: true });
   await fs.writeFile(appStateFilePath(), '{not-valid-json', 'utf8');
 }
