@@ -102,6 +102,34 @@ function hasDatabaseConfig(): boolean {
   return Boolean(process.env.DATABASE_URL?.trim());
 }
 
+/**
+ * PLATFORM-210. `APP_STATE_TEST_ISOLATION` never gated the database. It is read
+ * in exactly one place — `appStateFilePath()` above — which only the FILE
+ * fallback consults, and a configured `DATABASE_URL` is precisely what stops that
+ * branch running. Every read and write below branches on `hasDatabaseConfig()`
+ * alone, so an ambient `DATABASE_URL` in the shell that runs `npm test` (the
+ * runner spreads `...process.env` into the child) put the whole suite on the live
+ * store: `setAppState` upserting fixtures over real rows scope by scope for a
+ * whole run, reads making a run's pass/fail depend on production data, and
+ * `__deleteAppStateFileForTests` issuing `delete from app_state` — the only table.
+ *
+ * The two guards below answer DIFFERENT questions and neither implies the other.
+ */
+const TEST_ISOLATION_ENABLED = (): boolean => process.env.APP_STATE_TEST_ISOLATION === '1';
+
+export const APP_STATE_TEST_ISOLATION_POOL_REFUSAL =
+  'APP_STATE_TEST_ISOLATION=1: refusing to open a real database connection. ' +
+  'DATABASE_URL is set in this test process, and every app-state read and write ' +
+  'branches on its presence alone — this run would read and write the live ' +
+  'app_state table. Unset DATABASE_URL in the shell running the tests.';
+
+export const APP_STATE_TEST_SEAM_REFUSAL =
+  '__deleteAppStateFileForTests is test-only and destructive — it issues ' +
+  '`delete from app_state` whenever DATABASE_URL is set, and app_state is the ' +
+  'only table. It refuses to run unless APP_STATE_TEST_ISOLATION=1. Run tests ' +
+  'through `npm test` or `npm run test:file`, which set it; a bare ' +
+  '`node --test <file>` does not.';
+
 function isProductionRuntime(): boolean {
   return process.env.NODE_ENV === 'production';
 }
@@ -206,6 +234,14 @@ function withFileWriteLock<T>(filePath: string, fn: () => Promise<T>): Promise<T
 
 function getPool(): Pool {
   if (!pool) {
+    // GUARD 1 — isolation is ON, so do not open a real connection. Scoped to the
+    // CONSTRUCTION branch on purpose: every suite that exercises the Postgres
+    // path installs a fake through `__setAppStatePoolForTests`, so this is
+    // unreachable for all of them (measured: throwing here fails 0 additional
+    // tests, while throwing on every `getPool()` call fails 93 across 6 files).
+    // This is the whole application's database surface — `new Pool(` appears
+    // nowhere else in `src/` and `pg` is imported nowhere else outside tests.
+    if (TEST_ISOLATION_ENABLED()) throw new Error(APP_STATE_TEST_ISOLATION_POOL_REFUSAL);
     pool = new Pool({
       connectionString: process.env.DATABASE_URL,
       max: 3,
@@ -1315,6 +1351,14 @@ export async function deleteAppState(scope: string, key: string): Promise<void> 
 }
 
 export async function __deleteAppStateFileForTests(): Promise<void> {
+  // GUARD 2 — a test-only destructive function has no business executing outside
+  // an isolated test process, whatever the transport. NOT "must not reach the
+  // database branch": guard 1 is conditioned on isolation being ON, so a bare
+  // `node --test src/...` leaves the flag unset, guard 1 cannot distinguish that
+  // run from ordinary application startup, and this helper would transact against
+  // whatever DATABASE_URL names. The condition here is therefore the inverse one.
+  if (!TEST_ISOLATION_ENABLED()) throw new Error(APP_STATE_TEST_SEAM_REFUSAL);
+
   if (hasDatabaseConfig()) {
     await ensureDatabase();
     await getPool().query('delete from app_state');

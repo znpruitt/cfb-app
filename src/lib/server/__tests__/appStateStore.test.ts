@@ -6,8 +6,12 @@ import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
   __setAppStateWriteFailureForTests,
+  APP_STATE_TEST_ISOLATION_POOL_REFUSAL,
+  APP_STATE_TEST_SEAM_REFUSAL,
+  assertAppStateWritable,
   deleteAppState,
   getAppState,
+  getAppStateStorageStatus,
   isReadOnlyTransactionError,
   setAppState,
 } from '@/lib/server/appStateStore';
@@ -165,3 +169,116 @@ test(
     }
   }
 );
+
+// ---------------------------------------------------------------------------
+// PLATFORM-210 — the isolation flag must prevent a real database connection.
+//
+// It never did. `APP_STATE_TEST_ISOLATION` was read in exactly one place, inside
+// `appStateFilePath()`, which only the FILE fallback consults — and a configured
+// `DATABASE_URL` is exactly what stops that branch running. So an ambient
+// `DATABASE_URL` in the shell running `npm test` put all 5,105 tests on the live
+// store. `delete from app_state` is the audible failure; `setAppState` upserting
+// fixtures over real rows for a whole run is the common one.
+//
+// TWO guards, asserted separately, because neither implies the other:
+//   1. isolation is ON  -> never construct a real pool
+//   2. isolation is OFF -> a destructive test-only seam must not execute at all
+// A single assertion covering both would prove neither.
+// ---------------------------------------------------------------------------
+
+/** Refused instantly by the kernel, so nothing here can hang on DNS or a socket. */
+const UNREACHABLE_DATABASE_URL = 'postgres://user:pw@127.0.0.1:1/nowhere';
+
+async function withEnvironment(
+  overrides: Record<string, string | undefined>,
+  run: () => Promise<void>
+): Promise<void> {
+  const previous = new Map<string, string | undefined>();
+  for (const [name, value] of Object.entries(overrides)) {
+    previous.set(name, process.env[name]);
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  }
+  __resetAppStateForTests();
+  try {
+    await run();
+  } finally {
+    for (const [name, value] of previous) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    __resetAppStateForTests();
+  }
+}
+
+test('GUARD 1: under isolation, a configured DATABASE_URL cannot open a real pool', async () => {
+  await withEnvironment(
+    { APP_STATE_TEST_ISOLATION: '1', DATABASE_URL: UNREACHABLE_DATABASE_URL },
+    async () => {
+      // `assertAppStateWritable` is the shortest exported path to pool
+      // construction: it selects the Postgres branch on `DATABASE_URL` alone and
+      // immediately issues DDL through `getPool()`.
+      await assert.rejects(
+        () => assertAppStateWritable(),
+        // The MESSAGE is the assertion. Without the guard this still rejects —
+        // with ECONNREFUSED, having opened a connection to whatever DATABASE_URL
+        // names — so a bare `assert.rejects` would pass on the defect it exists
+        // to catch. Mutation target: delete the guard in `getPool()` and this
+        // test goes red while everything else stays green.
+        (error: unknown) =>
+          error instanceof Error && error.message === APP_STATE_TEST_ISOLATION_POOL_REFUSAL
+      );
+    }
+  );
+});
+
+test('GUARD 2: the destructive seam refuses to run outside an isolated test process', async () => {
+  // Deliberately says nothing about DATABASE_URL. Guard 1 is conditioned on
+  // isolation being ON, so a bare `node --test src/...` — flag unset — is
+  // indistinguishable to it from ordinary application startup, and this helper
+  // would transact against whatever DATABASE_URL names. The condition here is the
+  // inverse one, which is why the two assertions are independent rather than one
+  // restated. Mutation target: delete the guard and this resolves (it removes the
+  // backing file) instead of rejecting.
+  await withEnvironment({ APP_STATE_TEST_ISOLATION: undefined }, async () => {
+    await assert.rejects(
+      () => __deleteAppStateFileForTests(),
+      (error: unknown) => error instanceof Error && error.message === APP_STATE_TEST_SEAM_REFUSAL
+    );
+  });
+});
+
+test('GUARD 2 is not satisfied by a merely truthy flag', async () => {
+  await withEnvironment({ APP_STATE_TEST_ISOLATION: 'true' }, async () => {
+    await assert.rejects(
+      () => __deleteAppStateFileForTests(),
+      (error: unknown) => error instanceof Error && error.message === APP_STATE_TEST_SEAM_REFUSAL
+    );
+  });
+});
+
+test('PRODUCTION UNCHANGED: with the flag absent, a configured DATABASE_URL still selects postgres and still connects', async () => {
+  await withEnvironment(
+    { APP_STATE_TEST_ISOLATION: undefined, DATABASE_URL: UNREACHABLE_DATABASE_URL },
+    async () => {
+      const status = getAppStateStorageStatus();
+      assert.equal(status.mode, 'postgres');
+      assert.equal(status.databaseConfigured, true);
+      // Not a temp file: the isolation branch of `appStateFilePath()` is unchanged
+      // and still unreachable when a database is configured.
+      assert.ok(
+        status.filePath.endsWith('data/app-state.json'),
+        `expected the durable file path, got ${status.filePath}`
+      );
+
+      // And the guard does NOT fire: this reaches pool construction and fails for
+      // a CONNECTION reason instead. Asserting the negative directly, because
+      // "production is unchanged" is the claim most easily left unproven.
+      await assert.rejects(
+        () => assertAppStateWritable(),
+        (error: unknown) =>
+          error instanceof Error && error.message !== APP_STATE_TEST_ISOLATION_POOL_REFUSAL
+      );
+    }
+  );
+});
