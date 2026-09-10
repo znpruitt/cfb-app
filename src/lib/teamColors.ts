@@ -7,10 +7,16 @@ import { toTeamIdentityKey, type TeamCatalogItem } from './teamIdentity';
 
 export type TeamColorSource = 'primary' | 'alt' | 'fallback';
 
-const SCOREBOARD_MIN_LUMINANCE = 0.03;
-const SCOREBOARD_MAX_LUMINANCE = 0.9;
-const SCOREBOARD_DARK_SURFACE = '#0A0A0A';
-const MIN_DARK_THEME_CONTRAST = 3;
+// The lightest real underlay constrains visibility; the darkest constrains
+// excess brightness. A single surface cannot define both ends of this band.
+const SCOREBOARD_FLOOR_SURFACE = '#333336';
+const SCOREBOARD_CEILING_SURFACE = '#09090B';
+const MIN_SCOREBOARD_CONTRAST = 2.5;
+const MAX_SCOREBOARD_CONTRAST = 5.5;
+const MAX_SCOREBOARD_CHROMA = 0.16;
+const RESERVED_AMBER_HUE_MIN = 60;
+const RESERVED_AMBER_HUE_MAX = 110;
+const RESERVED_AMBER_MAX_CHROMA = 0.08;
 
 type TeamColorRoles = {
   subtleAccent: string;
@@ -53,6 +59,8 @@ function normalizeHexColor(value: string | null | undefined): string | null {
 
 type Rgb = { r: number; g: number; b: number };
 type Hsl = { h: number; s: number; l: number };
+type LinearRgb = { r: number; g: number; b: number };
+type Oklch = { l: number; c: number; h: number };
 
 function hexToRgb(hex: string): Rgb {
   const normalized = hex.replace('#', '');
@@ -101,36 +109,78 @@ function rgbToHsl({ r, g, b }: Rgb): Hsl {
   };
 }
 
-function hueToChannel(p: number, q: number, t: number): number {
-  let normalized = t;
-  if (normalized < 0) normalized += 1;
-  if (normalized > 1) normalized -= 1;
-  if (normalized < 1 / 6) return p + (q - p) * 6 * normalized;
-  if (normalized < 1 / 2) return q;
-  if (normalized < 2 / 3) return p + (q - p) * (2 / 3 - normalized) * 6;
-  return p;
-}
-
-function hslToRgb({ h, s, l }: Hsl): Rgb {
-  if (s === 0) {
-    const value = Math.round(l * 255);
-    return { r: value, g: value, b: value };
-  }
-
-  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-  const p = 2 * l - q;
-  const hNorm = h / 360;
-
-  return {
-    r: Math.round(hueToChannel(p, q, hNorm + 1 / 3) * 255),
-    g: Math.round(hueToChannel(p, q, hNorm) * 255),
-    b: Math.round(hueToChannel(p, q, hNorm - 1 / 3) * 255),
-  };
-}
-
 function channelToLinear(value: number): number {
   const normalized = value / 255;
   return normalized <= 0.03928 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+}
+
+function channelFromLinear(value: number): number {
+  const encoded = value <= 0.0031308 ? value * 12.92 : 1.055 * value ** (1 / 2.4) - 0.055;
+  return encoded * 255;
+}
+
+function rgbToOklch({ r, g, b }: Rgb): Oklch {
+  const linearR = channelToLinear(r);
+  const linearG = channelToLinear(g);
+  const linearB = channelToLinear(b);
+  const lRoot = Math.cbrt(0.4122214708 * linearR + 0.5363325363 * linearG + 0.0514459929 * linearB);
+  const mRoot = Math.cbrt(0.2119034982 * linearR + 0.6806995451 * linearG + 0.1073969566 * linearB);
+  const sRoot = Math.cbrt(0.0883024619 * linearR + 0.2817188376 * linearG + 0.6299787005 * linearB);
+  const l = 0.2104542553 * lRoot + 0.793617785 * mRoot - 0.0040720468 * sRoot;
+  const a = 1.9779984951 * lRoot - 2.428592205 * mRoot + 0.4505937099 * sRoot;
+  const bAxis = 0.0259040371 * lRoot + 0.7827717662 * mRoot - 0.808675766 * sRoot;
+
+  return {
+    l,
+    c: Math.hypot(a, bAxis),
+    h: (Math.atan2(bAxis, a) * 180) / Math.PI + (bAxis < 0 ? 360 : 0),
+  };
+}
+
+function oklchToLinearRgb({ l, c, h }: Oklch): LinearRgb {
+  const hueRadians = (h * Math.PI) / 180;
+  const a = c * Math.cos(hueRadians);
+  const bAxis = c * Math.sin(hueRadians);
+  const lRoot = l + 0.3963377774 * a + 0.2158037573 * bAxis;
+  const mRoot = l - 0.1055613458 * a - 0.0638541728 * bAxis;
+  const sRoot = l - 0.0894841775 * a - 1.291485548 * bAxis;
+  const lLinear = lRoot ** 3;
+  const mLinear = mRoot ** 3;
+  const sLinear = sRoot ** 3;
+
+  return {
+    r: 4.0767416621 * lLinear - 3.3077115913 * mLinear + 0.2309699292 * sLinear,
+    g: -1.2684380046 * lLinear + 2.6097574011 * mLinear - 0.3413193965 * sLinear,
+    b: -0.0041960863 * lLinear - 0.7034186147 * mLinear + 1.707614701 * sLinear,
+  };
+}
+
+function isInSrgbGamut({ r, g, b }: LinearRgb): boolean {
+  return r >= 0 && r <= 1 && g >= 0 && g <= 1 && b >= 0 && b <= 1;
+}
+
+function gamutMapOklch(color: Oklch): Rgb {
+  let linear = oklchToLinearRgb(color);
+  if (!isInSrgbGamut(linear)) {
+    let lowChroma = 0;
+    let highChroma = color.c;
+    for (let iteration = 0; iteration < 24; iteration += 1) {
+      const candidateChroma = (lowChroma + highChroma) / 2;
+      const candidate = oklchToLinearRgb({ ...color, c: candidateChroma });
+      if (isInSrgbGamut(candidate)) {
+        lowChroma = candidateChroma;
+        linear = candidate;
+      } else {
+        highChroma = candidateChroma;
+      }
+    }
+  }
+
+  return {
+    r: channelFromLinear(linear.r),
+    g: channelFromLinear(linear.g),
+    b: channelFromLinear(linear.b),
+  };
 }
 
 function relativeLuminance(rgb: Rgb): number {
@@ -141,74 +191,63 @@ function relativeLuminance(rgb: Rgb): number {
   );
 }
 
-function contrastRatio(hexA: string, hexB: string): number {
-  const luminanceA = relativeLuminance(hexToRgb(hexA));
-  const luminanceB = relativeLuminance(hexToRgb(hexB));
-  const lighter = Math.max(luminanceA, luminanceB);
-  const darker = Math.min(luminanceA, luminanceB);
+const SCOREBOARD_FLOOR_LUMINANCE =
+  MIN_SCOREBOARD_CONTRAST * (relativeLuminance(hexToRgb(SCOREBOARD_FLOOR_SURFACE)) + 0.05) - 0.05;
+const SCOREBOARD_CEILING_LUMINANCE =
+  MAX_SCOREBOARD_CONTRAST * (relativeLuminance(hexToRgb(SCOREBOARD_CEILING_SURFACE)) + 0.05) - 0.05;
 
-  return (lighter + 0.05) / (darker + 0.05);
+function isUnusableRawColor(hex: string): boolean {
+  const rgb = hexToRgb(hex);
+  const hsl = rgbToHsl(rgb);
+  const luminance = relativeLuminance(rgb);
+  const isExtremeNeutral = hsl.s < 0.08 && (hsl.l < 0.12 || hsl.l > 0.88);
+
+  return luminance < 0.015 || luminance > 0.97 || isExtremeNeutral;
 }
 
-function liftForDarkThemeContrast(hex: string): string | null {
-  if (contrastRatio(hex, SCOREBOARD_DARK_SURFACE) >= MIN_DARK_THEME_CONTRAST) {
-    return hex;
-  }
+function renderOklch(color: Oklch): string {
+  return rgbToHex(gamutMapOklch(color));
+}
 
-  const adjusted = rgbToHsl(hexToRgb(hex));
-  for (let lightness = adjusted.l + 0.01; lightness <= 0.76; lightness += 0.01) {
-    const candidate = rgbToHex(hslToRgb({ ...adjusted, l: clamp(lightness, adjusted.l, 0.76) }));
-    if (contrastRatio(candidate, SCOREBOARD_DARK_SURFACE) >= MIN_DARK_THEME_CONTRAST) {
-      return candidate;
+function findLightnessForLuminance(color: Oklch, target: number, preferLighter: boolean): string {
+  let lowerLightness = 0;
+  let upperLightness = 1;
+  let lowerHex = renderOklch({ ...color, l: lowerLightness });
+  let upperHex = renderOklch({ ...color, l: upperLightness });
+
+  for (let iteration = 0; iteration < 32; iteration += 1) {
+    const candidateLightness = (lowerLightness + upperLightness) / 2;
+    const candidateHex = renderOklch({ ...color, l: candidateLightness });
+    if (relativeLuminance(hexToRgb(candidateHex)) < target) {
+      lowerLightness = candidateLightness;
+      lowerHex = candidateHex;
+    } else {
+      upperLightness = candidateLightness;
+      upperHex = candidateHex;
     }
   }
 
-  return null;
+  return preferLighter ? upperHex : lowerHex;
 }
 
-function isUnsafeRawColor(hex: string): boolean {
-  const rgb = hexToRgb(hex);
-  const hsl = rgbToHsl(rgb);
-  const luminance = relativeLuminance(rgb);
+function normalizeForScoreboard(hex: string): string {
+  const input = rgbToOklch(hexToRgb(hex));
+  const isReservedAmber = input.h >= RESERVED_AMBER_HUE_MIN && input.h <= RESERVED_AMBER_HUE_MAX;
+  const normalized: Oklch = {
+    ...input,
+    // Never add chroma. That invariant is what keeps Nevada's 2% cast neutral.
+    c: Math.min(input.c, isReservedAmber ? RESERVED_AMBER_MAX_CHROMA : MAX_SCOREBOARD_CHROMA),
+  };
+  const candidate = renderOklch(normalized);
+  const candidateLuminance = relativeLuminance(hexToRgb(candidate));
 
-  if (luminance < SCOREBOARD_MIN_LUMINANCE || luminance > SCOREBOARD_MAX_LUMINANCE) return true;
-  if (hsl.l < 0.16 || hsl.l > 0.84) return true;
-  if (hsl.s < 0.08 && (hsl.l < 0.24 || hsl.l > 0.78)) return true;
-
-  const isYellowGold = hsl.h >= 42 && hsl.h <= 72 && hsl.l > 0.42;
-  if (isYellowGold) return true;
-
-  return false;
-}
-
-function isReasonableScoreboardAccent(hex: string): boolean {
-  const rgb = hexToRgb(hex);
-  const hsl = rgbToHsl(rgb);
-  const luminance = relativeLuminance(rgb);
-
-  if (luminance < SCOREBOARD_MIN_LUMINANCE || luminance > SCOREBOARD_MAX_LUMINANCE) return false;
-  if (hsl.l < 0.22 || hsl.l > 0.76) return false;
-  if (hsl.s < 0.12 && (hsl.l < 0.3 || hsl.l > 0.72)) return false;
-
-  const isYellowGold = hsl.h >= 42 && hsl.h <= 72;
-  if (isYellowGold && hsl.l > 0.42) return false;
-
-  return true;
-}
-
-function softenForScoreboard(hex: string): string {
-  const adjusted = rgbToHsl(hexToRgb(hex));
-  const isYellowGold = adjusted.h >= 42 && adjusted.h <= 72;
-
-  adjusted.s = clamp(adjusted.s, 0.32, isYellowGold ? 0.7 : 0.78);
-  adjusted.l = clamp(adjusted.l, isYellowGold ? 0.28 : 0.34, 0.68);
-
-  if (isYellowGold) {
-    adjusted.l = Math.min(adjusted.l, 0.36);
-    adjusted.s = Math.min(Math.max(adjusted.s, 0.42), 0.66);
+  if (candidateLuminance < SCOREBOARD_FLOOR_LUMINANCE) {
+    return findLightnessForLuminance(normalized, SCOREBOARD_FLOOR_LUMINANCE, true);
   }
-
-  return rgbToHex(hslToRgb(adjusted));
+  if (candidateLuminance > SCOREBOARD_CEILING_LUMINANCE) {
+    return findLightnessForLuminance(normalized, SCOREBOARD_CEILING_LUMINANCE, false);
+  }
+  return candidate;
 }
 
 function withAlpha(hex: string, alpha: number): string {
@@ -225,7 +264,7 @@ function buildAccentRoles(hex: string): TeamColorRoles {
 }
 
 function buildTreatment(hex: string, source: TeamColorSource): ScoreboardTeamColorTreatment {
-  const safeBase = softenForScoreboard(hex);
+  const safeBase = normalizeForScoreboard(hex);
   const roles = buildAccentRoles(safeBase);
 
   return {
@@ -243,25 +282,7 @@ function resolveTeamColorCandidate(
   source: TeamColorSource
 ): ScoreboardTeamColorTreatment | null {
   if (!hex) return null;
-
-  if (!isUnsafeRawColor(hex)) {
-    return buildTreatment(hex, source);
-  }
-
-  const rawRgb = hexToRgb(hex);
-  const rawHsl = rgbToHsl(rawRgb);
-  const rawLuminance = relativeLuminance(rawRgb);
-  const rawIsExtremeNeutral = rawHsl.s < 0.08 && (rawHsl.l < 0.12 || rawHsl.l > 0.88);
-  if (rawLuminance < 0.015 || rawLuminance > 0.97 || rawIsExtremeNeutral) {
-    return null;
-  }
-
-  const lifted = liftForDarkThemeContrast(softenForScoreboard(hex));
-  if (lifted && isReasonableScoreboardAccent(lifted)) {
-    return buildTreatment(lifted, source);
-  }
-
-  return null;
+  return isUnusableRawColor(hex) ? null : buildTreatment(hex, source);
 }
 
 export function getSafeScoreboardTeamColor(

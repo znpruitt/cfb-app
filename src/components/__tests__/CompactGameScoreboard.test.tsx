@@ -341,7 +341,7 @@ test('only the exact fcs classification renders FCS, never Division II, III, or 
   assert.match(exactHtml, /data-scoreboard-classification="away">FCS<\/span>/);
 });
 
-test('team-colour bars use the exact 8px line-start treatment without widening the row', () => {
+test('team-colour bars use the exact full-opacity 8px line-start treatment without widening the row', () => {
   const html = renderScoreboard({
     away: {
       teamName: 'Michigan',
@@ -364,16 +364,9 @@ test('team-colour bars use the exact 8px line-start treatment without widening t
   assert.ok(awayBar, 'a normalized catalog colour must render a bar');
   assert.deepEqual(
     new Set(awayBar.className.split(/\s+/)),
-    new Set([
-      'absolute',
-      'inset-y-0.5',
-      'left-0',
-      'block',
-      'w-2',
-      'rounded-[2px]',
-      'opacity-[0.72]',
-    ])
+    new Set(['absolute', 'inset-y-0.5', 'left-0', 'block', 'w-2', 'rounded-[2px]'])
   );
+  assert.doesNotMatch(awayBar.className, /opacity-/, 'the normalised band renders at full opacity');
   assert.equal(awayBar.getAttribute('aria-hidden'), 'true');
   assert.equal(awayBar.getAttribute('style'), 'background-color:#4A8FE0');
   assert.equal(document.querySelectorAll('[data-scoreboard-team-color]').length, 1);

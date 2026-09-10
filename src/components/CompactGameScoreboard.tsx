@@ -51,8 +51,9 @@ function participantRowClasses(isLeading: boolean, hasLeader: boolean): string {
   return 'font-medium dark:text-zinc-100';
 }
 
-// The nearest painted app surface is zinc-950 (#09090b); under 5.5% white it rounds to
-// #171718. The current zinc-400 token (about #9f9fa9) remains about 6.8:1 over it,
+// `isCardOwnerTeam` is Matchups-only. Its zinc-800 card and optional zinc-950/10
+// outcome row become #333336 (scheduled) or #303033 (outcome) under 5.5% white.
+// The current zinc-400 token (about #9f9fa9) remains at least 4.8:1 over them,
 // clearing the 4.5:1 normal-text floor carried by record and owner suffixes.
 // `isolate` contains the negative-z tint in this row's stacking context; without that
 // boundary it can descend behind an intervening painted card surface. The participant
@@ -239,7 +240,7 @@ export default function CompactGameScoreboard({
           >
             {participant.teamColor ? (
               <span
-                className="absolute inset-y-0.5 left-0 block w-2 rounded-[2px] opacity-[0.72]"
+                className="absolute inset-y-0.5 left-0 block w-2 rounded-[2px]"
                 style={{ backgroundColor: participant.teamColor }}
                 aria-hidden="true"
                 data-scoreboard-team-color={side}
