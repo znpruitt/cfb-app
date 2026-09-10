@@ -5,6 +5,7 @@ import teamsCatalog from '../../data/teams.json';
 import {
   buildDerivedTeamAliases,
   buildTeamDatabaseFile,
+  classifyTeamCatalogSync,
   normalizeCfbdTeamRecord,
   type CfbdTeamRecord,
 } from '../teamDatabase.ts';
@@ -279,5 +280,55 @@ test('the alias-override policy hash is stable, nonempty, and folded into cache 
   assert.ok(
     insightsCacheKeyParts('slug', 2025).includes(`alias-overrides:${ALIAS_OVERRIDES_HASH}`),
     'insights cache identity carries the override-policy hash'
+  );
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-204 — the sync classifier's three branches, asserted independently.
+// ---------------------------------------------------------------------------
+
+test('classifyTeamCatalogSync: a payload that produced teams commits', () => {
+  assert.equal(classifyTeamCatalogSync({ fetchedCount: 138, writtenCount: 138 }), 'commit');
+  // A PARTIAL response is a deliberate non-event for this guard: 4 of 138 is a
+  // well-formed answer and cannot be told from a legitimate one without a
+  // magnitude threshold, which is an owner decision, not this classifier's.
+  assert.equal(classifyTeamCatalogSync({ fetchedCount: 4, writtenCount: 4 }), 'commit');
+  assert.equal(classifyTeamCatalogSync({ fetchedCount: 100, writtenCount: 100 }), 'commit');
+  // Some rows dropped, some kept — still a commit; only TOTAL loss is refused.
+  assert.equal(classifyTeamCatalogSync({ fetchedCount: 138, writtenCount: 1 }), 'commit');
+});
+
+test('classifyTeamCatalogSync: zero fetched rows is an empty replacement, never a no-op', () => {
+  // Unlike the schedule classifier there is no `valid-noop` limb: `GET
+  // /teams/fbs` has no publication calendar, so no season phase makes zero FBS
+  // teams correct. The verdict does not depend on prior-good state.
+  assert.equal(
+    classifyTeamCatalogSync({ fetchedCount: 0, writtenCount: 0 }),
+    'empty-replacement-rejected'
+  );
+});
+
+test('classifyTeamCatalogSync: a nonempty payload yielding zero teams is schema drift', () => {
+  // The branch a raw `rows.length === 0` check cannot reach, and the reason the
+  // classification keys on the BUILT count.
+  assert.equal(classifyTeamCatalogSync({ fetchedCount: 138, writtenCount: 0 }), 'schema-drift');
+  assert.equal(classifyTeamCatalogSync({ fetchedCount: 1, writtenCount: 0 }), 'schema-drift');
+});
+
+test('PLATFORM-204: a whole payload of rows missing `school` builds an empty catalog', () => {
+  // The classifier's schema-drift input is not hypothetical — this is what
+  // `buildTeamDatabaseFile` returns when CFBD renames its identity field.
+  const { file, summary } = buildTeamDatabaseFile({
+    records: [{ mascot: 'Aces' }, { mascot: 'Bots' }] as never,
+  });
+  assert.equal(file.items.length, 0);
+  assert.equal(summary.fetchedCount, 2);
+  assert.equal(summary.writtenCount, 0);
+  assert.equal(
+    classifyTeamCatalogSync({
+      fetchedCount: summary.fetchedCount,
+      writtenCount: summary.writtenCount,
+    }),
+    'schema-drift'
   );
 });

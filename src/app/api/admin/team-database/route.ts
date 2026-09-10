@@ -2,7 +2,11 @@ import { NextResponse } from 'next/server';
 
 import { buildCfbdTeamsUrl } from '@/lib/cfbd';
 import { fetchUpstreamJson } from '@/lib/api/fetchUpstream';
-import { buildTeamDatabaseFile, type CfbdTeamRecord } from '@/lib/teamDatabase';
+import {
+  buildTeamDatabaseFile,
+  classifyTeamCatalogSync,
+  type CfbdTeamRecord,
+} from '@/lib/teamDatabase';
 import { getTeamDatabaseFile, setTeamDatabaseFile } from '@/lib/server/teamDatabaseStore';
 import { invalidateAllLeaguesStandings } from '@/lib/selectors/leagueStandings';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
@@ -35,10 +39,56 @@ export async function POST(req: Request): Promise<NextResponse> {
       pacing: { key: 'cfbd-teams', minIntervalMs: 250 },
     });
 
+    // PLATFORM-204 — reject before the durable write, retain prior-good.
+    //
+    // A non-array body is a shape violation, not "no teams": coercing it to `[]`
+    // (as this did) laundered schema drift into an authoritative empty commit.
+    // Rejected at the fetch boundary, before building, exactly as `/api/schedule`
+    // rejects a non-array partition (PLATFORM-085C).
+    if (!Array.isArray(rows)) {
+      return NextResponse.json(
+        {
+          error: 'team-database-invalid-payload',
+          detail: `CFBD returned a non-array payload. The catalog was NOT changed — the existing ${previous.items.length} teams are still being served.`,
+        },
+        { status: 502 }
+      );
+    }
+
     const { file, summary } = buildTeamDatabaseFile({
-      records: Array.isArray(rows) ? rows : [],
+      records: rows,
       previousItems: previous.items,
     });
+
+    // Keyed on the BUILT item count, never the fetched row count: a nonempty
+    // payload whose rows all fail normalization (CFBD renaming or dropping
+    // `school`) wipes the catalog just as thoroughly as a zero-row body, and a
+    // `rows.length === 0` check cannot see it.
+    const classification = classifyTeamCatalogSync({
+      fetchedCount: summary.fetchedCount,
+      writtenCount: summary.writtenCount,
+    });
+    if (classification !== 'commit') {
+      return NextResponse.json(
+        {
+          error:
+            classification === 'schema-drift'
+              ? 'team-database-schema-drift'
+              : 'team-database-empty-replacement-rejected',
+          detail:
+            classification === 'schema-drift'
+              ? `CFBD returned ${summary.fetchedCount} rows but none could be read as a team (schema drift). The catalog was NOT changed — the existing ${previous.items.length} teams are still being served.${summary.errors.length > 0 ? ` First rows: ${summary.errors.slice(0, 3).join('; ')}` : ''}`
+              : `CFBD returned 0 teams. The catalog was NOT changed — the existing ${previous.items.length} teams are still being served.`,
+          // `summary` rides along for anyone reading the raw response, but the
+          // per-row normalization reasons are also folded into `detail` above:
+          // the client (`syncTeamDatabase`) discards the payload on a non-ok and
+          // keeps only `detail`, so diagnostics left solely in `summary.errors`
+          // never reach the operator on the one failure this guard exists for.
+          summary,
+        },
+        { status: 502 }
+      );
+    }
 
     await setTeamDatabaseFile(file);
 

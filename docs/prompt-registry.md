@@ -51,6 +51,97 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-204-CATALOG-EMPTY-GUARD-CLAUDE-v1
+
+- Purpose: Item 204 — the admin team-database sync committed `Array.isArray(rows) ? rows : []`
+  unconditionally, so a CFBD 200 carrying a non-array body or a genuine `[]` replaced the 138-row
+  catalog with an empty one and returned `ok: true`.
+- Scope: the admin sync route and its classifier in `teamDatabase.ts`, the `leagueStandings` reader,
+  `ReferenceDataPanel`, and their suites. The seed script, `src/data/teams.json` (Item 201), the
+  stored `altColor` field name (Item 199) and the read-side field validation (Item 205) were all out
+  of scope and untouched.
+- Outcome: three rejection reasons, all refusing before the durable write and before
+  `invalidateAllLeaguesStandings()` — `team-database-invalid-payload` (non-array, rejected at the
+  fetch boundary as `/api/schedule` does), `team-database-empty-replacement-rejected` (zero rows) and
+  `team-database-schema-drift` (a nonempty payload normalizing to zero teams). The classification
+  keys on the **built** item count, not the fetched row count: a 138-row payload with `school` renamed
+  wipes the catalog just as thoroughly and `rows.length === 0` cannot see it. Unlike the schedule
+  classifier there is deliberately **no `valid-noop` limb** — `GET /teams/fbs` has no publication
+  calendar, so no season phase makes zero FBS teams correct, and that also removes the question of
+  whether prior-good means the durable row or the bundled seed. A **partial** response is an
+  explicit non-event: 4 of 138 commits, because it is a well-formed answer indistinguishable from a
+  legitimate one without a magnitude threshold, and any floor low enough to be safe is inert while any
+  floor high enough to matter refuses a legitimate realignment until overridden. The owner decided
+  that boundary and declined to file the threshold; it is recorded rather than left undiscovered.
+  The slice also transplants the zero-length catalog guard into `leagueStandings`, which did not merely
+  lack one — it argued **against** having one, on the premise that the store handles absence internally
+  via the seed fallback. That premise is what this item disproves: the fallback is reached through
+  `??`, which does not fire on a present-but-empty `items`. Standings is the reader that persists
+  degraded ownership attribution into the tag-only (`revalidate: false`) data cache, outliving the
+  repair, so the wrong comment was the more dangerous half — a comment that talks the next reader out
+  of a fix looks like a decision. Same guard and reason as the sibling guards already in
+  `gameStats/canonicalSlate.ts` and `liveScores/canonicalContext.ts`; a transplant, not an invention.
+- Blast radius (written down for the first time, and what makes the severity real rather than
+  asserted): 17 readers, one writer. Already guarded — `canonicalSlate`, `canonicalContext`,
+  `/api/teams` (404), `loadInsights`. Producing **wrong** output rather than none —
+  `leagueStandings` (guarded here), `scheduleProbe` (returns the earliest **non-FBS** game as the
+  season start), `seasonBuild` (archives label-only identity, durably), `nationalChampionshipRollover`,
+  both `/api/owners` paths (an empty FBS match pool disables the CSV repair path at the moment it is
+  most needed), `insights/context`, `teamRecordsClient`, three draft pages, and both debug routes —
+  which misattribute the cause of a failure they themselves caused.
+- Review / verification: both claimed "guards" were confirmed by **running**, not reading —
+  `buildTeamDatabaseFile({ records: [], previousItems: [one] })` returns `items: []` with an all-zero
+  summary and `errors: []`, and against the real store an absent durable row yields 138 items while a
+  present-but-empty one yields 0. Test delta **+12**, measured (5,093 → 5,105). Three mutations:
+  breaking the classifier to reject everything turned the named "a healthy sync still REPLACES the
+  catalog" test red while **all three negative tests still passed** — the vacuity the contract predicts,
+  demonstrated rather than asserted; the reverse mutation restoring pre-fix behaviour turned all four
+  negative tests red while that one passed; and removing the standings guard produced
+  `Missing expected rejection`, i.e. it resolves to a degraded snapshot. A test bug was found by
+  mutation and fixed: `assert.equal(<jsdom element>, null)` builds its diff with `util.inspect`, which
+  walks `ownerDocument → defaultView → window` and does not return, so a regression hung to the file's
+  30s budget and reported as a timeout instead of a failed assertion; the assertions now compare
+  booleans and fail in 2s. Against `4f5e92de`: `npx tsc --noEmit` 0, `lint:all` 0, `npm test`
+  5,103/5,105 — exactly the standing Item 137 baseline, two `writer-convergence` failures and nothing
+  else.
+- Adjudications kept as precedent, because the reasoning generalises past this slice:
+  1. **A decided question is not new information.** The round-1 review re-raised the truncated-response
+     hole (3 of 138 commits, and the standings guard does not backstop it because `length === 0` is
+     false at 3). The mechanism is correct and was stated in the read receipt before any code; the
+     owner then closed it deliberately and declined the threshold. Re-raising it was rejected on that
+     ground alone, not on its merits.
+  2. **Reachability settled a finding that argument would not have.** The same review wanted
+     `readSourceCatalogFallback` to throw rather than return `[]`, framing the new standings throw as a
+     regression from "degraded-but-usable" standings. The conflation it names is real, but the
+     consequence framing is wrong — degraded standings over an empty identity catalog are the
+     wrong-output-cached harm this item exists to stop, which the review's own sibling finding asserts.
+     It was settled by **measuring**: `src/data/teams.json` is statically imported in 8 places and also
+     read via `process.cwd()` by `/api/scores` and `/api/odds`, both live in production, so the cwd read
+     is sound and the trigger is a transient FS error, not a systematic one. Rethrowing from that catch
+     would change behaviour for every catalog reader, wider than a guard slice should take unreviewed.
+     Absorbed by Item 205 with the coupling stated: **this slice made that `[]` fatal, so 204 changed
+     the severity of a defect it did not introduce.**
+  3. **A fix opened a gap in the same motion.** Adding `setSyncResult(null)` to stop a stale green
+     "No skipped rows." block rendering beneath a red refusal also discarded the response payload the
+     panel had been reading — so on schema drift, the one failure the guard exists for, the operator
+     was left with less diagnostic detail than the **wiping** behaviour it replaced. The per-row
+     normalization reasons now ride on `detail`, which is what survives a non-ok. Accepted and fixed in
+     `4f5e92de`; recorded because the shape recurs — the defect was introduced by the remedy, in the
+     same edit, and no negative test could have caught it.
+  Codex returned no findings, but flagged two of its own commands as failed, one a run of this
+  branch's route suite. Re-running that file alone (13/13), the three lib files together (73/73) and
+  all four touched files together (84/84) turned a suspected tooling artefact into a known one.
+  Neither taking the red line at face value nor ignoring it is the handling being recorded.
+- Follow-ons filed by planning, not by this lane: **Item 205** (durable-catalog read validation, now
+  also carrying the seed-fallback absence-vs-failure conflation) and **Item 206** (no durable
+  provider-health record on a refusal, unlike the schedule precedent's `recordProviderRefreshFailure`;
+  filed as pre-existing, since this route has never had `providerRefreshStatus` integration).
+- Status: Implemented on `claude/204-catalog-empty-guard` (`ca70a2c3` + `4f5e92de` + this closeout);
+  both reviews resolved in one round, merge pending at time of writing. **Production still needs its
+  resync click — the owner's action, deliberately not performed, and now guarded:** a bad CFBD
+  response at the moment it is pressed leaves the catalog untouched and shows a red refusal naming
+  what was kept.
+
 ### PLATFORM-199-ALTERNATE-COLOUR-MAPPING-CLAUDE-v1
 
 - Purpose: Item 199 — the catalog ingest read `record.altColor`, a field CFBD does not send on

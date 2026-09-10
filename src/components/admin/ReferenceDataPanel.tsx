@@ -74,6 +74,11 @@ export default function ReferenceDataPanel(): React.ReactElement {
       const next = await syncTeamDatabase();
       setSyncResult(next);
     } catch (err) {
+      // Clear the last summary as well as showing the error (PLATFORM-204). A
+      // refusal keeps the previous catalog, so leaving an earlier run's block
+      // rendered would put "No skipped rows" in green directly beneath the red
+      // refusal — two contradictory verdicts on one screen.
+      setSyncResult(null);
       setSyncError((err as Error).message);
     } finally {
       setSyncLoading(false);

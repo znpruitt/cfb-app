@@ -247,6 +247,42 @@ export function normalizeCfbdTeamRecord(record: CfbdTeamRecord): {
   };
 }
 
+/**
+ * How to treat a team-catalog sync whose upstream body was a well-formed ARRAY
+ * (a non-array body is a shape violation rejected at the fetch boundary before
+ * this is reached, exactly as `/api/schedule` rejects a non-array partition):
+ *   - `commit`                       — at least one row normalized into a team.
+ *   - `empty-replacement-rejected`   — CFBD sent zero rows. `GET /teams/fbs` has
+ *     no publication calendar, so unlike the schedule there is no season phase
+ *     in which zero FBS teams is correct and NO `valid-noop` limb exists: an
+ *     empty catalog is never committed, whatever the durable row currently
+ *     holds. That also removes the question of whether "prior-good" means the
+ *     durable row or the bundled seed fallback.
+ *   - `schema-drift`                 — a NONEMPTY payload that normalized to
+ *     zero usable teams (e.g. CFBD renames or drops `school`). This is the case
+ *     a raw `rows.length === 0` check cannot see, and it wipes the catalog just
+ *     as thoroughly, so the classification keys on the BUILT item count rather
+ *     than the fetched row count (mirrors `rankings-partition-schema-drift`).
+ *
+ * PLATFORM-204. Before this existed the route committed
+ * `Array.isArray(rows) ? rows : []` unconditionally, and neither of the two
+ * things that look like safety nets is one: `previousItems` below feeds only
+ * `updatedCount` and never contributes an item, and the store's seed fallback
+ * is reached through `??`, which does not fire on a present-but-empty `items`.
+ */
+export type TeamCatalogSyncClassification =
+  | 'commit'
+  | 'empty-replacement-rejected'
+  | 'schema-drift';
+
+export function classifyTeamCatalogSync(params: {
+  fetchedCount: number;
+  writtenCount: number;
+}): TeamCatalogSyncClassification {
+  if (params.writtenCount > 0) return 'commit';
+  return params.fetchedCount > 0 ? 'schema-drift' : 'empty-replacement-rejected';
+}
+
 export function buildTeamDatabaseFile(params: {
   records: CfbdTeamRecord[];
   previousItems?: TeamCatalogItem[];
