@@ -4525,9 +4525,12 @@ restate the item here, or the two copies will drift.**
 
 ### Item 59 — second preview branch behavior is unknown and conditional
 
-**MIGRATED to [#609](https://github.com/znpruitt/cfb-app/issues/609) on 2026-09-10, labelled `parked`.**
-The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
-restate the item here, or the two copies will drift.**
+**CLOSED 2026-09-10 — owner decision: a second preview branch is not wanted.**
+[#609](https://github.com/znpruitt/cfb-app/issues/609) carries the reasoning and what was discarded.
+**Why the historical `preview-codex` push produced no deployment is now permanently unknown**, which is
+acceptable because the alias/project-setting concern does not arise with a single preview branch. **If
+the one-lane-at-a-time hand-off ever becomes friction, file a NEW issue** — the constraint will have
+changed and this investigation would not apply.
 
 ### Item 71 — JSDOM-heavy test startup and timeout headroom
 
