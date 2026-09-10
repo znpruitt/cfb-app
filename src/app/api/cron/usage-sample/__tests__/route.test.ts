@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  __deleteAppStateFileForTests,
   __resetAppStateForTests,
   __setAppStateWriteFailureForTests,
   getAppState,
@@ -25,12 +26,17 @@ const ORIGINAL_SECRET = process.env.CRON_SECRET;
 const ORIGINAL_KEY = process.env.CFBD_API_KEY;
 
 // `__resetAppStateForTests` clears pools and test seams but NOT the backing
-// file, so durable rows survive between tests in this file. Clear the series
-// explicitly or each test inherits the previous one's observations.
+// file, so durable rows survive between tests in this file — and, under
+// `APP_STATE_TEST_ISOLATION`, between SUITE RUNS: that file is keyed by
+// `process.pid` and never removed, so a recycled pid hands this process an
+// earlier run's whole durable store (PLATFORM-207). Delete the file first; the
+// explicit clears below then say what this suite requires rather than repairing
+// what it inherited.
 async function reset(): Promise<void> {
   globalThis.fetch = ORIGINAL_FETCH;
   process.env.CRON_SECRET = 'test-secret';
   process.env.CFBD_API_KEY = 'test-key';
+  await __deleteAppStateFileForTests();
   __resetAppStateForTests();
   await setAppState(PROVIDER_USAGE_SERIES_SCOPE, PROVIDER_USAGE_SERIES_KEY, { observations: [] });
   // The receipt key persists the same way; a stale one from the previous test
