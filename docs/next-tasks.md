@@ -7182,6 +7182,43 @@ of this item than the conflation fix.**
 report the ignored result, and rule on whether the planner needs a retained series. **Change nothing
 about what a genuine hold does** — that path is correct and must stay silent. **Blocker:** none.
 
+### Item 210 — `npm test` can DROP PRODUCTION `app_state`, and the only guard is nobody exporting a variable
+
+**Found 2026-09-10 by `/code-review` on the Item 207 branch; mechanism verified here.** Filed ahead of
+Items 208 and 209 — **this is the next platform item.**
+
+`appStateStore.ts:1317-1325`:
+
+    export async function __deleteAppStateFileForTests(): Promise<void> {
+      if (hasDatabaseConfig()) {
+        await ensureDatabase();
+        await getPool().query('delete from app_state');
+        return;
+      }
+      await fs.rm(appStateFilePath(), { force: true });
+    }
+
+**It branches on `hasDatabaseConfig()`, NOT on `APP_STATE_TEST_ISOLATION`** — and `run-tests.mjs:89-91`
+spreads `...process.env` into the child, setting the isolation flag but passing any ambient
+`DATABASE_URL` straight through. **136 test files call this helper**, so an exported `DATABASE_URL`
+means `npm test` issues `delete from app_state` at the first suite that resets.
+
+**`app_state` is the only table in the database.** Leagues, rosters, drafts, archives, provider caches,
+scheduler receipts, the team catalog — all of it, one statement.
+
+**And `.env.operator.local` carries a production read-WRITE `DATABASE_URL` into every worktree by
+setup instruction.** `CLAUDE.md` already records that the guardrail is agent compliance rather than an
+absent credential; **this is the path that converts that weakness into total loss.** One `source` or
+`export` in the wrong shell.
+
+**Attribution, corrected from the review:** this is **pre-existing and broad**, not introduced by Item
+207. 136 files already call the helper, so 207's three additions do not meaningfully widen it. **That
+makes it older and more reachable than the review implied, not less serious.**
+
+**The ask:** throw inside the seam when `APP_STATE_TEST_ISOLATION !== '1'`, so the destructive branch
+is unreachable outside an isolated run. **Blocker:** none. Small, and it is the most dangerous thing
+either reviewer surfaced.
+
 ### Item 209 — the test store leaks a file per process, forever
 
 **Found 2026-09-10 by the Item 207 lane.** `appStateStore.ts:95-97` keys the test-isolation store by
@@ -7198,8 +7235,27 @@ class**, for those four and for any future suite that forgets.
 `systemHealth`, `systemHealthIssues`, `providerRefreshSettings`. Any of their leftovers can land under
 any later process.
 
+**THE EXPOSED SET IS 10 SUITES, MEASURED 2026-09-10 — not the 4 the grep found.** The Item 207 lane
+replaced the syntactic check with a behavioural one: plant an unparseable store at the pid path and run
+every test file. **389 files probed, 0 zero-test rows, 5,105 tests executed — the full suite's count**,
+so the coverage is complete rather than assumed. Still exposed after 207: `oddsUsageStore`,
+`schedulerDeliveryHealth`, `durableOddsStore`, `draftSchedule`, `teamDatabaseStore`, `boardData`,
+`admin/odds-usage/route`, `admin-debug-auth`, `deliveryNothingDue`, `seasonOwners` — across draft,
+odds, team database, insights and system health.
+
+**What that measures and what it does not:** those 10 provably read the file store, so they provably
+inherit. **It does NOT establish that a realistic inherited payload flips an assertion** — the corrupt
+plant is maximally hostile. Structural exposure is measured; live flake rate is not.
+
+**Owner ruling 2026-09-10: do NOT widen Item 207 to these 10.** The earlier "leaving three
+known-exposed while fixing one is arbitrary" principle does not carry, for a reason that only exists
+now: **Item 210 says the very helper being propagated is unsafe.** Adding it to 10 more call sites
+spreads a destructive seam, across five subsystems, in a test-isolation branch — which is exactly how
+an unrelated regression enters the gate. **209 closes all 13 at once, after 210 makes the seam safe.**
+
 **The ask:** a per-run-unique path plus exit cleanup, so isolation does not depend on every suite
-remembering a teardown call. **Blocker:** Item 207, which should land the per-suite fix first.
+remembering a teardown call. **Blocker:** Item 207 lands the per-suite fix; **Item 210 must precede
+this**, so the seam is safe before it is generalised.
 
 **Do this as its own slice with its own review.** A reformat that silently alters a binding rule is
 worse than the unreadable version, and a diff this large hides a one-word change perfectly. **The
