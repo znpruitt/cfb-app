@@ -445,10 +445,8 @@ This is related to, but smaller than, the planned team-catalog source-unificatio
 
 ### Item 55 — schedule load errors lose the information required for retry
 
-`loadScheduleFromApi` collapses schedule, team-catalog, conference, cold-cache, and malformed-cache
-failures into one string. A member retry can repair a transient read failure but cannot repair a
-public `503` requiring an authorized refresh or an invalid cached row. Preserve a structured error
-kind at the loader boundary before adding retry UI.
+**MIGRATED to [#639](https://github.com/znpruitt/cfb-app/issues/639) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 60 — rankings recovery remains incomplete
 
@@ -4109,15 +4107,8 @@ restate the item here, or the two copies will drift.** Triage record:
 
 ### Item 23 — assignment-method and draft-recovery states
 
-Resolve as a focused setup/recovery campaign:
-
-- reselecting the current assignment method should be idempotent rather than an error;
-- dialog and server owner-count thresholds must agree;
-- draft creation must enforce the chosen assignment method;
-- an incomplete imported draft must not enter a state the board can never finish;
-- “Continue Setup” must account for an already-published roster;
-- publication state must come from the shared selector, not a summary-page re-derivation;
-- preseason draft reads need one coherent snapshot rather than unsynchronized duplicate reads.
+**MIGRATED to [#634](https://github.com/znpruitt/cfb-app/issues/634) on 2026-09-10, labelled `needs-triage`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 28 — remaining demo dry-run findings
 
@@ -4154,10 +4145,8 @@ restate the item here, or the two copies will drift.** Triage record:
 
 ### Item 17 — mid-season owner replacement does not update membership
 
-The current roster writer can update `owners:{slug}:{year}`, but the confirmed owner list used by
-Insights remains preseason-only and has no in-season edit path. A mid-season replacement therefore
-appears in standings while membership-aware insights continue using the departed owner. Provide a
-guarded in-season membership repair or converge the records under item 25's authority work.
+**MIGRATED to [#633](https://github.com/znpruitt/cfb-app/issues/633) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 25 — roster membership authority after publication is parked
 
@@ -4258,17 +4247,8 @@ reintroduce departed record holders.
 
 ### Item 34 — remaining roster×schedule insight ideas
 
-The shared profile already computes more than current copy uses. Candidate follow-ups:
-
-- weekly self-play occurrence, threshold two in one week;
-- postseason/offseason recap connecting self-games drafted to final standing;
-- unusually high owner-vs-owner game volume;
-- games against undrafted teams, without calling them “free wins.”
-
-Before adding copy, calibrate the simulated `MIN_SELF_GAMES_TO_REPORT` threshold against a real
-completed season. Move the pure roster/schedule profile and related membership/superlative
-derivations into `src/lib/selectors/`. Add a behavioral integration fixture for decay/variant wiring
-when a seeded mid-season league is practical.
+**MIGRATED to [#635](https://github.com/znpruitt/cfb-app/issues/635) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 35 — career and historical copy needs explicit time framing
 
@@ -4284,43 +4264,13 @@ restate the item here, or the two copies will drift.**
 
 ### Item 38 — retire `partial-roster` and restore selector ownership
 
-Delete the redundant `partial-roster` source label rather than repairing it again; owner count is
-already displayed independently. Move `resolveLeagueMembers`, `resolveSuperlative`, and
-`buildRosterScheduleProfile` into `src/lib/selectors/` or document a deliberate selector-boundary
-exception. Audit the remaining `selectAllRecords` roster-as-membership derivation and decide how its
-record eligibility converges with generator-specific rules.
+**MIGRATED to [#636](https://github.com/znpruitt/cfb-app/issues/636) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 42 — INSIGHTS-026 notable results, stored event source, and Forward Look (In progress)
 
-The complete request-time Look Back is recorded in `docs/completed-work.md`; do not requeue its
-selectors, content families, final wiring, or member renderings. One Look Back element was never
-built (portion 1 below) — it is an omission, not a requeue. Three distinct portions remain:
-
-1. **Notable results — the one unbuilt Look Back element.** Mini scoreboards for individual games
-   in the recap: a tag eyebrow with the qualifying stat (`Blowout · 35-point margin`), then two team
-   lines, team primary with owner as a tertiary suffix and the score right-anchored. Row order is
-   away → home per CFB convention in every state, with weight marking the winner rather than
-   position. Deferred through 026b and 026c — `docs/prompt-registry.md:140` ("intentionally unwired
-   until the notable-results stage") and `docs/completed-work.md:4172` ("notable-result UI remains
-   deliberately deferred") — and scheduled for the final wiring pass, which closed without it. The
-   underlying facts already exist; only the rendering is missing.
-
-   **Consumes Item 87's scoreboard micro-component rather than defining its own.** POLISH-017
-   shipped the consumed neutral-final row, fixed away → home order, winner emphasis, and an additive
-   context slot for the qualifying-stat eyebrow/substance. This portion is now runnable without
-   waiting for another Item 87 slice. Reference: `mockups/weekly-recap-mockup.html`.
-
-2. **Stored artifact and event source.** Freeze one immutable recap per league and period so a late
-   score cannot silently rewrite what members already saw, and make publication the event source
-   that can unblock Item 30's NEW tag. Before implementation, settle fixed-period versus
-   since-last-success windows, idempotency/catch-up, year validity, demo exclusion, scheduler
-   receipts, and DST-correct ET cadence. Preserve the request-time facts layer rather than rebuilding
-   it.
-3. **Thursday Forward Look.** Target the immediate upcoming canonical week. This is not another
-   Look Back composer: it needs upcoming-week selection plus schedule and rankings inputs the current
-   loader does not gather.
-
-Neither portion is currently selected for implementation.
+**MIGRATED to [#637](https://github.com/znpruitt/cfb-app/issues/637) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 43 — new preseason generators
 
@@ -4338,14 +4288,8 @@ restate the item here, or the two copies will drift.**
 
 ### Item 62 — INSIGHTS-033 is parked, not converged
 
-The parked branch contains participation gates, two remaining superlative conversions, and
-season-climb/slide work, but it exceeded the normal remediation sequence and has no confirming review
-against its last commit. Resume by re-deriving against current `main`, then:
-
-- re-check season-run semantics under the corrected week-resolution model;
-- test the HTTP surface, not only direct selectors;
-- resolve the remaining `dynasty` participation claim;
-- update items 33/36 only after the rebuilt work actually ships.
+**MIGRATED to [#640](https://github.com/znpruitt/cfb-app/issues/640) on 2026-09-10, labelled `needs-decision`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 77 — CFBD advanced analytics is an in-season discovery trial
 
@@ -4371,11 +4315,8 @@ the multi-tenant gates above.
 
 ### Item 48 — test-infrastructure follow-ups
 
-- Move only genuinely cross-domain fixtures from subsystem `__tests__` directories into `src/test/`.
-- Add an explicit rejection for `npm test -- <path>` only if that mistaken invocation continues;
-  `npm run test:file -- <path>` is the supported focused form.
-- Widen both discovery and the layout audit together if executable JS/MJS tests or tests outside
-  `src/` are ever introduced. None exists today.
+**MIGRATED to [#638](https://github.com/znpruitt/cfb-app/issues/638) on 2026-09-10, labelled `parked`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 49 — preseason-banner observation points
 
@@ -4416,20 +4357,8 @@ restate the item here, or the two copies will drift.** Triage record:
 
 ### Item 73 — archived season-arc axis domain
 
-Archive charts label the raw `standingsHistory.weeks` domain while trend selectors contain only
-resolved weeks, producing empty leading/trailing columns. Fix sortedness/validation at the archive
-read boundary, preserve real interior week distance, and decide whether an unresolved interior week
-draws a continuous net-movement segment or breaks the path. Do not key a synthetic origin as week
-zero; canonical week zero is real.
-
-After the axis is correct, separately decide whether the archived chart and full trends surface
-should adopt the Overview's preseason origin. The Overview implementation is complete; this is a
-consistency choice, not its unfinished work.
-
-Also decide how to prevent the true-zero games-back leader's multi-point stroke from clipping at the
-top edge. Do not “fix” it by clamping the whole line downward and changing the represented values.
-
-- Backlog slug: `POLISH-ARCHIVE-AXIS-DOMAIN-v1`
+**MIGRATED to [#641](https://github.com/znpruitt/cfb-app/issues/641) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 78 — post-transition standings copy for an undrafted league
 
@@ -4610,17 +4539,8 @@ Acceptance boundary, both required:
 
 ### Item 84 — an overriding provider classification records no diagnostic
 
-`classifyTeamSubdivision` treats the CFBD division label as authoritative over both the conference
-match and the team catalog, and returns before any of the existing conference recorders run. Every
-other classification source in that function records something.
-
-Consequence: a stale provider label — plausible for a school mid-transition, as Missouri State and
-Delaware both were on joining Conference USA — silently classifies both sides non-FBS, drops the game
-from the schedule, and emits nothing an operator can see. Deferred from the PLATFORM-114 review as
-additive scope needing its own recorder and coverage.
-
-Acceptance boundary: when the provider label contradicts the catalog classification, the disagreement
-is observable without changing which one wins.
+**MIGRATED to [#642](https://github.com/znpruitt/cfb-app/issues/642) on 2026-09-10, labelled `needs-triage`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 85 — repair archived seasons polluted by the identity collision
 
@@ -6574,7 +6494,14 @@ ask, state or evidence lives.**
 bookkeeping step that has failed by hand more than once in this campaign, and automating it is the
 main reason the switch is worth making.
 
-**Thirty sub-100 items triaged, twenty-nine migrated** (#595-#613, #623-#632); **the live 200-series
+**Forty sub-100 items triaged, thirty-nine migrated** (#595-#613, #623-#642). **16 sub-100 remain.**
+
+**A SECOND ITEM WAS FOUND WHOSE PRESCRIPTION IS NOW HARMFUL.** Item 38 asks to delete the
+"redundant" `partial-roster` label; `insights/types.ts:99-112` records that it and `official-roster`
+**were one value and had to be split**, because they carry different amounts of trust and the page
+printed the same caption for both. **Deleting it reverses a shipped correction.** That is two of forty
+— #595 and #636 — which is a high enough rate that "re-validate the prescription" is not a precaution,
+it is the job.; **the live 200-series
 migrated wholesale** (#614-#621). Their entries are pointers. **One superseded (Item 13), one closed
 (#609).**
 
