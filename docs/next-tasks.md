@@ -7087,27 +7087,175 @@ tests, and anything changing execution order or duration can change whether a la
 or after a `reset()`. **The distinction matters — "this diff cannot cause it" is established, "this
 diff cannot make it more likely" is not.**
 
-> **DIAGNOSIS OVERTURNED 2026-09-09, and the item is now partly a production bug.** The record is not
-> involved. `route.ts:376` reads `if (settings === null || jobIsHeld(job, settings))` — and `settings`
-> comes from a **bare `catch` at `:368-372` that sets it to `null`**. `getProviderRefreshSettings`
-> awaits `getAppState` with no internal try/catch, so **a transient read failure is swallowed and marks
-> EVERY job held**, producing `jobsHeld: 2` and `plan-held` with no leaked record at all. `reset()`
-> already nulls that scope for both jobs (`:53-55`), which is why "a record survived `reset()`" could
-> not be explained — there was nothing to explain.
+> **DIAGNOSIS OVERTURNED TWICE. THE THIRD ONE IS MEASURED — 2026-09-10.**
 >
-> **The production consequence is worse than the flake.** `:389-394` maps `plan-held` to `no-op`
-> precisely so `schedulerExecutionIssues` raises nothing — "a deliberate operator stop must not page
-> anyone." **So a transient settings-read failure in production stops the planner silently, in a state
-> indistinguishable from an intentional pause, with the alerting built to ignore it.** A swallowed
-> exception wearing the costume of a configuration.
+> **Not the leaked plan record** (`reset()` nulls that scope at `route.test.ts:53-55`), and **not the
+> swallowed `catch`** — planning's theory, refuted by instrumenting `route.ts:371` across **26 runs**:
+> it fired exactly once per run, always the deliberate injection in test 11, never spontaneously. On
+> every planted failure the settings read SUCCEEDED and returned a record that legitimately said paused.
 >
-> **Not reproduced — this is a code-path argument.** Falsifiable in one line: log what that `catch`
-> catches. The prompt requires that before anything is built.
+> **The cause is a stale pid-keyed backing file.** `appStateStore.ts:95-97` keys the test store by
+> `os.tmpdir()/cfb-app-app-state-test-${process.pid}.json` and **nothing ever deletes it**. There are
+> **14,022** such files in `$TMPDIR`, days old. macOS recycles pids, so a new test process can start
+> owning a previous run's fully-populated store. **394 of those files carry a
+> `provider-refresh-settings::global` record holding BOTH planner jobs** — and `reset()` clears the
+> planner record, the receipt scopes and the schedule keys, but **never the settings scope.**
+>
+> **Measured in the wild: 181 app-state-initialising processes per suite run, of which 260 of 1,086
+> (23.9%) started with a pre-existing file at their pid path.** Planting exactly that payload gives
+> **20/20 with the reported four-test signature, byte for byte.**
+>
+> **"Roughly 1 in 3" is NOT supported and should not be carried forward.** 0/6 full-suite runs, 0/60
+> file-only runs. The true rate depends on how the pid counter currently lines up with stale
+> generations, which drifts.
+>
+> **The class is 4 suites, not 1.** 139 test files call `__resetAppStateForTests`; **136 also call
+> `await __deleteAppStateFileForTests()`** — the established idiom. Four do not: this one,
+> `usage-sample/route.test.ts`, `pollingPlannerRecordWrite.test.ts`, `providerUsageWriteOutcome.test.ts`.
+> The other three pass under the same planted payload today, but are structurally exposed.
 
-**The ask:** determine whether the settings read is throwing; separate "settings unreadable" from
-"operator held everything" so the former cannot report the result the alerting ignores; and fix the
-test isolation. **Blocker:** none. **A flaky test in the pre-merge gate is worse than a failing one** —
-it trains every lane to re-run until green, which is how the next real regression gets merged.
+**The ask:** add the repo's own `await __deleteAppStateFileForTests()` idiom to all four exposed
+suites, making them the 137th–140th of 140 that do it. **Blocker:** none. **A flaky test in the
+pre-merge gate is worse than a failing one** — it trains every lane to re-run until green, which is how
+the next real regression gets merged.
+
+### Logos as the identity accent — MEASURED 2026-09-10, no decision taken
+
+**The owner is prototyping logos in place of the colour bar, in the UI lane. Recorded as measurement
+only; nothing here decides anything.**
+
+- **All 138 teams already carry logos in the production catalog.** Mapped at `teamDatabase.ts:242`,
+  persisted at `teamDatabaseStore.ts:69`. **No Item 199 repeat — nothing is being discarded.**
+- **16 variants per team:** 8 sizes (500, 256, 128, 96, 64, 48, 32, 16) x 2 themes. A 20px row logo can
+  fetch the 32px asset rather than downscaling a 500px PNG.
+- **One host,** `cdn.collegefootballdata.com`. No auth; 200s on every probe.
+- **`logos-dark` is byte-identical to `logos` for 42% of teams** (19 of 45 sampled at 32px, md5). CFBD
+  has no genuine dark-background variant for Army, Arizona, Boise State, Colorado and others.
+- **BLOCKER: `next.config.ts` is 7 lines with no `images` config.** `next/image` rejects the CDN host
+  until `remotePatterns` names it. No CSP is configured, so that is the only gate.
+
+**Why logos are more robust here than colours, and it is not a preference.** A logo carries its own
+internal contrast. Army's mark is a black shield — invisible as a solid bar — but the gold helmet and
+white outline inside it still read on `#0a0a0a`. **A dark solid bar has no interior; a dark logo does.**
+That is why this direction sidesteps the remap/outline problem rather than inheriting it.
+
+**Two questions to settle before, not after.** Serving 138 school marks from a third-party CDN is
+conventional for the genre but is a different posture than colour swatches, and it is an owner call.
+And **if logos replace the accent, Items 119, 198 and the outline prototype are RETIRED, not paused** —
+`teamColors.ts` returns to having no consumer, and several campaign documents currently assert the bar
+ships.
+
+### Item 208 — an unreadable settings record reports the one result alerting ignores
+
+**Split out of Item 207 on 2026-09-10, because 207's measurement removed the reason to bundle it.**
+`route.ts:368-372` wraps `getProviderRefreshSettings` in a bare `catch` that sets `settings = null`;
+`:376` then treats null as every job held, and `:389-394` maps that to `no-op` / `plan-held` —
+**the one result `schedulerExecutionIssues` deliberately raises nothing for**, on the reasoning that a
+deliberate operator stop must not page anyone.
+
+**So a transient settings-read failure stops the planner silently, in a state indistinguishable from an
+intentional pause, with the alerting built to ignore it.** `getProviderRefreshSettings`
+(`providerRefreshSettings.ts:65-71`) awaits `getAppState` with no internal try/catch, so the throw is
+real.
+
+**It was folded into 207 on the belief that it CAUSED the flake. It does not** — 26 instrumented runs
+show the catch never fires spontaneously. **The hazard stands on code reading alone and is unreproduced.**
+Bundling a production alerting change into a test-isolation branch is exactly the pairing that makes
+review harder.
+
+**MEASURED 2026-09-10: "has this already fired?" is UNANSWERABLE, and that is the finding.** The Item
+207 lane proposed reading the `polling-planner-record` series for missing days to turn "could have"
+into "has it". **There is no series.** Queried through `DATABASE_URL_RO`: `app_state` is the only
+table, `polling-planner-record` holds **2 rows — latest-only, one per job** — and no runtime-event or
+history scope exists. Current state reads `success` / `plan-applied` at 2026-09-09 18:xx, which is the
+whole record.
+
+**So the hazard is worse than "undetected".** The alerting ignores this failure by design AND nothing
+retains a history, so it is **undetectable in hindsight too.** A season of silently-stopped polling
+would leave no artifact to find afterwards.
+
+**That raises a second question this item should answer:** whether a latest-only receipt is sufficient
+for a job whose failure mode is doing nothing. **Retaining a short series may be the more valuable half
+of this item than the conflation fix.**
+
+**The ask:** distinguish "settings unreadable" from "operator held everything" so the former cannot
+report the ignored result, and rule on whether the planner needs a retained series. **Change nothing
+about what a genuine hold does** — that path is correct and must stay silent. **Blocker:** none.
+
+### Item 210 — `npm test` can DROP PRODUCTION `app_state`, and the only guard is nobody exporting a variable
+
+**Found 2026-09-10 by `/code-review` on the Item 207 branch; mechanism verified here.** Filed ahead of
+Items 208 and 209 — **this is the next platform item.**
+
+`appStateStore.ts:1317-1325`:
+
+    export async function __deleteAppStateFileForTests(): Promise<void> {
+      if (hasDatabaseConfig()) {
+        await ensureDatabase();
+        await getPool().query('delete from app_state');
+        return;
+      }
+      await fs.rm(appStateFilePath(), { force: true });
+    }
+
+**It branches on `hasDatabaseConfig()`, NOT on `APP_STATE_TEST_ISOLATION`** — and `run-tests.mjs:89-91`
+spreads `...process.env` into the child, setting the isolation flag but passing any ambient
+`DATABASE_URL` straight through. **136 test files call this helper**, so an exported `DATABASE_URL`
+means `npm test` issues `delete from app_state` at the first suite that resets.
+
+**`app_state` is the only table in the database.** Leagues, rosters, drafts, archives, provider caches,
+scheduler receipts, the team catalog — all of it, one statement.
+
+**And `.env.operator.local` carries a production read-WRITE `DATABASE_URL` into every worktree by
+setup instruction.** `CLAUDE.md` already records that the guardrail is agent compliance rather than an
+absent credential; **this is the path that converts that weakness into total loss.** One `source` or
+`export` in the wrong shell.
+
+**Attribution, corrected from the review:** this is **pre-existing and broad**, not introduced by Item
+207. 136 files already call the helper, so 207's three additions do not meaningfully widen it. **That
+makes it older and more reachable than the review implied, not less serious.**
+
+**The ask:** throw inside the seam when `APP_STATE_TEST_ISOLATION !== '1'`, so the destructive branch
+is unreachable outside an isolated run. **Blocker:** none. Small, and it is the most dangerous thing
+either reviewer surfaced.
+
+### Item 209 — the test store leaks a file per process, forever
+
+**Found 2026-09-10 by the Item 207 lane.** `appStateStore.ts:95-97` keys the test-isolation store by
+`os.tmpdir()/cfb-app-app-state-test-${process.pid}.json`, and nothing deletes it. **There are 14,022 of
+them in `$TMPDIR` right now**, days old.
+
+**The leak is not the harm; pid reuse is.** macOS recycles pids, so a new test process can inherit a
+previous run's fully-populated durable store — measured at **23.9% of app-state-initialising processes
+in a live suite run.** Item 207 fixes the four suites that fail to delete the file; **this closes the
+class**, for those four and for any future suite that forgets.
+
+**8 test files can write a durable `globalPause: true`** and leave it at their pid — `admin/provider-status`,
+`providerStatusSummary`, `systemHealth/sections`, `AutomationSafetyControls`, `systemHealthPanels`,
+`systemHealth`, `systemHealthIssues`, `providerRefreshSettings`. Any of their leftovers can land under
+any later process.
+
+**THE EXPOSED SET IS 10 SUITES, MEASURED 2026-09-10 — not the 4 the grep found.** The Item 207 lane
+replaced the syntactic check with a behavioural one: plant an unparseable store at the pid path and run
+every test file. **389 files probed, 0 zero-test rows, 5,105 tests executed — the full suite's count**,
+so the coverage is complete rather than assumed. Still exposed after 207: `oddsUsageStore`,
+`schedulerDeliveryHealth`, `durableOddsStore`, `draftSchedule`, `teamDatabaseStore`, `boardData`,
+`admin/odds-usage/route`, `admin-debug-auth`, `deliveryNothingDue`, `seasonOwners` — across draft,
+odds, team database, insights and system health.
+
+**What that measures and what it does not:** those 10 provably read the file store, so they provably
+inherit. **It does NOT establish that a realistic inherited payload flips an assertion** — the corrupt
+plant is maximally hostile. Structural exposure is measured; live flake rate is not.
+
+**Owner ruling 2026-09-10: do NOT widen Item 207 to these 10.** The earlier "leaving three
+known-exposed while fixing one is arbitrary" principle does not carry, for a reason that only exists
+now: **Item 210 says the very helper being propagated is unsafe.** Adding it to 10 more call sites
+spreads a destructive seam, across five subsystems, in a test-isolation branch — which is exactly how
+an unrelated regression enters the gate. **209 closes all 13 at once, after 210 makes the seam safe.**
+
+**The ask:** a per-run-unique path plus exit cleanup, so isolation does not depend on every suite
+remembering a teardown call. **Blocker:** Item 207 lands the per-suite fix; **Item 210 must precede
+this**, so the seam is safe before it is generalised.
 
 **Do this as its own slice with its own review.** A reformat that silently alters a binding rule is
 worse than the unreadable version, and a diff this large hides a one-word change perfectly. **The
