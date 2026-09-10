@@ -7215,9 +7215,42 @@ absent credential; **this is the path that converts that weakness into total los
 207. 136 files already call the helper, so 207's three additions do not meaningfully widen it. **That
 makes it older and more reachable than the review implied, not less serious.**
 
-**The ask:** throw inside the seam when `APP_STATE_TEST_ISOLATION !== '1'`, so the destructive branch
-is unreachable outside an isolated run. **Blocker:** none. Small, and it is the most dangerous thing
-either reviewer surfaced.
+**ESCALATED 2026-09-10 — THE DELETE IS THE SYMPTOM.** `APP_STATE_TEST_ISOLATION` appears in
+`appStateStore.ts` **exactly once**, at `:95`, choosing a temp file path inside `appStateFilePath()` —
+which the postgres branch never calls. **It gates no connection.** Ten sites branch on
+`hasDatabaseConfig()` alone (`Boolean(process.env.DATABASE_URL)`), and `getAppStateStorageStatus():114`
+reports `mode: 'postgres'` whenever a URL is present. **So with `DATABASE_URL` exported the entire suite
+transacts against the live store** — `setAppState:1184` rewriting real rows scope by scope for the whole
+run is the COMMON case, and reads at `:1147/:1219/:1252/:1277` mean **assertions run against live
+leagues, drafts and archives**. The `delete` is merely the audible one.
+
+**MEASURED by the lane, and four of my claims were wrong — all in the safe direction.** A
+pool-injection seam **does** exist (`__setAppStatePoolForTests:1439`); `withFakePg` uses it rather than
+mocking `pg`, which appears nowhere in the repo; the branch sites are **10 plus one reporter**, not 11;
+and the helper has **140** callers, not 136.
+
+**Guard cost: ZERO files.** Refusing only where a REAL pool would be constructed leaves 5,103/5,105 —
+exactly the Item 137 baseline. **Not one test constructs a real pool.** Three independent enumerations
+converge on one set of six: those failing under a blanket throw, those calling the injection seam, and
+those setting `DATABASE_URL`. **And `new Pool(` appears exactly once in all of `src/`** (`:209`), with
+`pg` imported nowhere else outside tests and `app_state` the only table — **one refusal covers the
+application's entire database surface.**
+
+**Severity bound, proven not assumed.** One file loads `.env.operator.local`
+(`scripts/recover-game-stats.ts:945`, into its own process); `run-tests.mjs` loads no env file; no shell
+profile references it; and Node v22 auto-loads no `.env` without a flag, so even a `vercel env pull`
+into `.env.local` would not reach `npm test`. **It takes a deliberate `export` or `source`. Not a hair
+trigger** — but when it fires there is no warning and the blast radius is the whole database.
+
+**OWNER RULING 2026-09-10 — TWO GUARDS, covering DIFFERENT failure modes rather than one twice.** The
+pool guard is conditioned on isolation being ON. **Run a test file directly — `node --test src/...`, no
+wrapper — and the flag is unset, so the pool guard never fires** and the delete helper transacts against
+whatever `DATABASE_URL` names; to that guard the case is indistinguishable from ordinary application
+startup. **The helper therefore needs its own refusal, stated as a property of the FUNCTION rather than
+of the connection:** `APP_STATE_TEST_ISOLATION !== '1'` → throw, unconditionally.
+
+**The ask:** both guards — refuse a real pool under isolation, and refuse the destructive helper outside
+isolation. **Blocker:** none. **The most dangerous thing either reviewer surfaced.**
 
 ### Item 209 — the test store leaks a file per process, forever
 
@@ -7227,7 +7260,9 @@ them in `$TMPDIR` right now**, days old.
 
 **The leak is not the harm; pid reuse is.** macOS recycles pids, so a new test process can inherit a
 previous run's fully-populated durable store — measured at **23.9% of app-state-initialising processes
-in a live suite run.** Item 207 fixes the four suites that fail to delete the file; **this closes the
+in a live suite run.** **Item 207 fixed THREE suites** — corrected 2026-09-10 by the merging lane; the
+fourth grep hit, `providerUsageWriteOutcome`, was measured NOT exposed and carries a comment saying so
+rather than a dead delete call. **This closes the
 class**, for those four and for any future suite that forgets.
 
 **8 test files can write a durable `globalPause: true`** and leave it at their pid — `admin/provider-status`,
