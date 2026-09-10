@@ -51,6 +51,80 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-211-DESTRUCTIVE-SEAM-REFUSALS-CLAUDE-v1
+
+- Purpose: Item 211 — the three destructive test-only seams OUTSIDE `appStateStore.ts` still executed
+  with isolation off, deleting real rows for their scope. Give them Item 210's guard-2 refusal.
+- Scope: the delete seams in `durableOddsStore`, `oddsUsageStore` and `teamDatabaseStore`, their
+  suites, and (at review) the shared sandbox `src/test/appStateSeamSandbox.ts`. NOT `appStateStore.ts`
+  (Item 210, shipped `421fab9c`), NOT the corrupting seam, which shipped with it, NOT the
+  per-run-unique path (Item 209).
+- Outcome: mechanically small — one `assertTestSeamAllowed` prologue per seam — and the value is in
+  two corrections it forced. **`assertTestSeamAllowed` was never exported.** Item 210's lane reported
+  both helpers as exported, the prompt repeated it, and a relay thanked the lane for it; nobody opened
+  the file, where `appStateStore.ts:144` had no `export`. Reused by exporting it rather than restating
+  the prologue three times — a fourth refusal vocabulary is the drift Item 210's finding 5 was about.
+  Each store now declares its seam name and damage ONCE, shared by the refusal constant its test
+  asserts and the guard the seam raises, so the two cannot diverge. **And PINNING IS A DIVERSION, NOT
+  A FILTER.** The queue's reasoning — these seams "have a database branch, so pinning should suffice" —
+  reached the right mitigation from a wrong premise. `deleteAppState` does not SKIP its file write when
+  `DATABASE_URL` is set; it takes the Postgres branch INSTEAD, and the file write sits in the `else`
+  below. With the URL unset all three reach that write, against the durable `data/app-state.json` —
+  and CREATE it when absent. Measured, not read: one `deleteAppState` call in a relocated cwd produced
+  `{"entries": {}}` at `data/app-state.json`. So the pin rests entirely on one branch selection
+  holding, which is why a relocated cwd sits under it. Read `hasDatabaseConfig()` as a filter and you
+  conclude the file path is unreachable; that conclusion is in the code comment as the thing not to
+  draw.
+- Review / verification: against `71819474` — `npx tsc --noEmit` 0, `lint:all` 0, `npm test` 5,122 of
+  5,124, exactly the standing Item 137 baseline (`convergence #10` and `compatibility #46` in
+  `writer-convergence.test.ts`), nothing new and nothing elsewhere. Test delta **+14**, measured: the
+  four affected suites at base `3d142d05` = 30, the five at `71819474` = 44. Four mutations, each run
+  separately, each ONE-SIDED with the green side named — the three seam guards reddened only their own
+  refusal test (7 of 8, 10 of 11, 6 of 7 green, the seam's own under-isolation test green in each),
+  and dropping `inode` from the fingerprint reddened only the byte-identical control (3 of 4 green).
+  Every one caught `connect ECONNREFUSED 127.0.0.1:1` rather than the refusal message, which is what
+  proves the seam genuinely RAN and that a bare `assert.rejects` would have passed on the defect.
+  **No mutation ran unsandboxed**; `data/app-state.json` was checked absent before and after each.
+  Codex returned one P2; `/code-review high` returned no correctness bug and three low findings,
+  having independently reproduced the `teamDatabaseStore` mutation, re-derived the seam enumeration,
+  and empirically confirmed that `node:test` v22.19.0 runs top-level tests sequentially — the claim
+  the `chdir` sandbox rests on.
+- Adjudications kept as precedent:
+  1. **The seam enumeration is 5 destructive of 34, not 4.** Re-run against current `main` — the
+     34 reproduces exactly (`grep -rn "^export \(async \)\?function __" src | grep -v __tests__`),
+     and reading each candidate body discarded seven `__setAppState…ForTests` substring matches that a
+     grep alone reports as writers. The queue's "four" predated the corrupting seam's reclassification
+     into Item 210 and did not follow it. Two guarded there, three here, and the exposed set had
+     **15 calling test files** — the actual population where a bare `node --test` fired this.
+  2. **A NEGATIVE ASSERTION'S OBSERVER NEEDS ITS OWN POSITIVE CONTROL, AND MUTATION-PROVING THE GUARD
+     IS NOT MUTATION-PROVING THE OBSERVER.** `AGENTS.md` → **Verification** already required it. Three
+     production guards were mutation-proved while `assertDurableStoreUntouched` — the check asserting
+     the suite wrote nothing — was never shown detecting a write; an observer that never looks returns
+     the identical green. Found by Codex. Its controls now drive it against a SANDBOXED store path,
+     because pointing that proof at `data/app-state.json` would perform the damage it forbids.
+  3. **A content digest is blind to atomic replacement.** `writeJsonFileAtomic` renames a temp file
+     over the target, so deleting an ABSENT key rewrites byte-identical JSON: sha256 `b62dd01fd1bc`
+     before and after, inode `155116585` → `155116586`. It loses no data — but the observer exists to
+     notice a seam RAN, so the inode is what makes the event visible and the digest what makes the
+     damage visible.
+  4. **Two sandboxes drift exactly as two refusal messages do, and the copy missing a layer is how it
+     shows.** This lane applied "reuse, don't restate" to the messages and violated it for the sandbox,
+     declining to touch Item 210's reviewed suite. Review supplied the consequence that settled it:
+     210's guard tests had layer 1 (pinned URL) without layer 2 (relocated cwd), so a
+     `hasDatabaseConfig()` regression during them would have written the real store, and a fix to the
+     new sandbox would never have reached them. The harness moved to `src/test/` — its correct home
+     once it crosses a subsystem boundary — and all four suites consume it.
+  5. **A shared-file check cannot attribute.** `data/app-state.json` is one repo-root file and the
+     runner runs up to four suites as concurrent sibling PROCESSES, each holding its own baseline, so
+     a write by any suite reddens every suite that imported before it and a suite importing after it
+     adopts the damaged file as its baseline. The failure message states what it measures — the store
+     changed during this run — and no longer names a culprit it cannot identify.
+- Status: Implemented on `claude/211-destructive-seam-refusals` (`5f5a82e5` + `71819474` + this
+  closeout); both reviews gathered against `5f5a82e5` before any remediation, all four findings
+  resolved in one round, merge pending at time of writing. No production runtime behaviour changed —
+  the guards fire only when `APP_STATE_TEST_ISOLATION !== '1'`, which no dev or production process
+  sets — so nothing to deploy or click.
+
 ### PLATFORM-210-TEST-ISOLATION-GUARD-CLAUDE-v1
 
 - Purpose: Item 210 — `APP_STATE_TEST_ISOLATION` did not prevent database use, so an exported

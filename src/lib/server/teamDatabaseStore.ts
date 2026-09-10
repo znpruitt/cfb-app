@@ -6,7 +6,13 @@ import { cache } from 'react';
 import type { TeamCatalogItem } from '../teamIdentity.ts';
 import { mergeAliasOverrides, type TeamDatabaseFile } from '../teamDatabase.ts';
 import { normalizeTeamName } from '../teamNormalization.ts';
-import { deleteAppState, getAppState, setAppState } from './appStateStore.ts';
+import {
+  appStateTestSeamRefusal,
+  assertTestSeamAllowed,
+  deleteAppState,
+  getAppState,
+  setAppState,
+} from './appStateStore.ts';
 
 type TeamCatalogSourceFile = {
   year?: number;
@@ -173,7 +179,22 @@ export function __resetTeamDatabaseStoreForTests(): void {
   writeQueue = Promise.resolve();
 }
 
+/**
+ * PLATFORM-211. The seam name and its damage are declared ONCE and shared by the
+ * refusal constant and the guard below, so the message a test asserts cannot
+ * drift from the message the seam raises.
+ */
+const TEAM_DATABASE_DELETE_SEAM = '__deleteTeamDatabaseStoreFileForTests';
+const TEAM_DATABASE_DELETE_SEAM_DAMAGE =
+  'it deletes the durable team catalog every identity lookup resolves against — `delete from app_state where scope = $1 and key = $2` against real rows whenever DATABASE_URL is set, and, with DATABASE_URL unset, a rewrite of the durable `data/app-state.json` rather than the pid-keyed temp file';
+
+export const TEAM_DATABASE_DELETE_SEAM_REFUSAL = appStateTestSeamRefusal(
+  TEAM_DATABASE_DELETE_SEAM,
+  TEAM_DATABASE_DELETE_SEAM_DAMAGE
+);
+
 export async function __deleteTeamDatabaseStoreFileForTests(): Promise<void> {
+  assertTestSeamAllowed(TEAM_DATABASE_DELETE_SEAM, TEAM_DATABASE_DELETE_SEAM_DAMAGE);
   await deleteAppState(teamDatabaseScope(), 'current');
 }
 

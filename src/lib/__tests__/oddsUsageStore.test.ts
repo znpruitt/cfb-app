@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  ODDS_USAGE_DELETE_SEAM_REFUSAL,
   __deleteOddsUsageStoreFileForTests,
   __resetOddsUsageStoreForTests,
   captureOddsUsageSnapshot,
@@ -9,6 +10,7 @@ import {
   readLatestKnownOddsUsageState,
   setLatestKnownOddsUsage,
 } from '../server/oddsUsageStore.ts';
+import { assertDurableStoreUntouched, withSeamSandbox } from '@/test/appStateSeamSandbox';
 import {
   __corruptAppStateFileForTests,
   __deleteAppStateFileForTests,
@@ -220,3 +222,56 @@ test(
     }
   }
 );
+
+// ---------------------------------------------------------------------------
+// PLATFORM-211 — this seam is destructive outside an isolated test process.
+//
+// Item 210's guard 1 refuses a real pool, but only while isolation is ON. A bare
+// `node --test src/...` leaves APP_STATE_TEST_ISOLATION unset, guard 1 cannot
+// tell that run from ordinary application startup, and this seam then deletes
+// real rows for its scope. The condition asserted here is the inverse one, which
+// is why it is a separate assertion rather than a restatement.
+//
+// Both tests run inside `withSeamSandbox` — the pinned unreachable DATABASE_URL
+// and the relocated cwd. See `appStateSeamSandbox.ts` for why BOTH are needed;
+// the short version is that pinning selects a branch rather than disabling a
+// write, so it is one regression away from the real store.
+// ---------------------------------------------------------------------------
+
+test('__deleteOddsUsageStoreFileForTests refuses to run outside an isolated test process', async () => {
+  // The MESSAGE is the assertion, not merely that it rejected. Without the guard
+  // this still rejects — with ECONNREFUSED from the pinned URL — so a bare
+  // `assert.rejects` would pass on the very defect it exists to catch.
+  await withSeamSandbox({ APP_STATE_TEST_ISOLATION: undefined }, async () => {
+    await assert.rejects(
+      () => __deleteOddsUsageStoreFileForTests(),
+      (error: unknown) => error instanceof Error && error.message === ODDS_USAGE_DELETE_SEAM_REFUSAL
+    );
+  });
+});
+
+test('under isolation the odds-usage delete seam still deletes the snapshot', async () => {
+  await setLatestKnownOddsUsage({
+    capturedAt: '2026-09-01T12:00:00.000Z',
+    used: 101,
+    remaining: 399,
+    lastCost: 2,
+    limit: 500,
+    source: 'odds-response-headers',
+    sportKey: 'americanfootball_ncaaf',
+    markets: ['h2h'],
+    regions: ['us'],
+    endpointType: 'odds',
+    cacheStatus: 'miss',
+  });
+  assert.equal((await readLatestKnownOddsUsageState({ forceRefresh: true })).state, 'available');
+
+  await __deleteOddsUsageStoreFileForTests();
+  __resetOddsUsageStoreForTests();
+
+  assert.equal((await readLatestKnownOddsUsageState({ forceRefresh: true })).state, 'absent');
+});
+
+test('the suite left the durable data/app-state.json untouched', () => {
+  assertDurableStoreUntouched();
+});

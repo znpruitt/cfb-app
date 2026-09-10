@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import type { DurableOddsRecord } from '../odds.ts';
 import {
+  DURABLE_ODDS_DELETE_SEAM_REFUSAL,
   __deleteDurableOddsStoreFileForTests,
   __resetDurableOddsStoreForTests,
   getDurableOddsRecord,
@@ -10,6 +11,7 @@ import {
   setDurableOddsStore,
   updateDurableOddsStore,
 } from '../server/durableOddsStore.ts';
+import { assertDurableStoreUntouched, withSeamSandbox } from '@/test/appStateSeamSandbox';
 import { __setAppStateWriteFailureForTests } from '../server/appStateStore.ts';
 
 const SEASON = 2026;
@@ -235,4 +237,50 @@ test('reload preserves null numeric fields instead of coercing them to zero', as
   assert.equal(loaded?.latestSnapshot?.homeSpread, null);
   assert.equal(loaded?.latestSnapshot?.total, null);
   assert.equal(loaded?.latestSnapshot?.moneylineHome, -165);
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-211 — this seam is destructive outside an isolated test process.
+//
+// Item 210's guard 1 refuses a real pool, but only while isolation is ON. A bare
+// `node --test src/...` leaves APP_STATE_TEST_ISOLATION unset, guard 1 cannot
+// tell that run from ordinary application startup, and this seam then deletes
+// real rows for its scope. The condition asserted here is the inverse one, which
+// is why it is a separate assertion rather than a restatement.
+//
+// Both tests run inside `withSeamSandbox` — the pinned unreachable DATABASE_URL
+// and the relocated cwd. See `appStateSeamSandbox.ts` for why BOTH are needed;
+// the short version is that pinning selects a branch rather than disabling a
+// write, so it is one regression away from the real store.
+// ---------------------------------------------------------------------------
+
+test('__deleteDurableOddsStoreFileForTests refuses to run outside an isolated test process', async () => {
+  // The MESSAGE is the assertion, not merely that it rejected. Without the guard
+  // this still rejects — with ECONNREFUSED from the pinned URL — so a bare
+  // `assert.rejects` would pass on the very defect it exists to catch.
+  await withSeamSandbox({ APP_STATE_TEST_ISOLATION: undefined }, async () => {
+    await assert.rejects(
+      () => __deleteDurableOddsStoreFileForTests(SEASON),
+      (error: unknown) =>
+        error instanceof Error && error.message === DURABLE_ODDS_DELETE_SEAM_REFUSAL
+    );
+  });
+});
+
+test('under isolation the durable odds delete seam still deletes the season store', async () => {
+  const record = makeRecord('1-georgia-clemson-H', -3.5);
+  await setDurableOddsStore(SEASON, { [record.canonicalGameId]: record });
+  assert.equal(
+    (await getDurableOddsStore(SEASON))[record.canonicalGameId]?.canonicalGameId,
+    record.canonicalGameId
+  );
+
+  await __deleteDurableOddsStoreFileForTests(SEASON);
+  __resetDurableOddsStoreForTests();
+
+  assert.deepEqual(await getDurableOddsStore(SEASON), {});
+});
+
+test('the suite left the durable data/app-state.json untouched', () => {
+  assertDurableStoreUntouched();
 });

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  TEAM_DATABASE_DELETE_SEAM_REFUSAL,
   __deleteTeamDatabaseStoreFileForTests,
   __getTeamDatabaseStoreFilePathForTests,
   __resetTeamDatabaseStoreForTests,
@@ -9,6 +10,7 @@ import {
   getTeamDatabaseFile,
   setTeamDatabaseFile,
 } from '../server/teamDatabaseStore.ts';
+import { assertDurableStoreUntouched, withSeamSandbox } from '@/test/appStateSeamSandbox';
 
 const persistedFile = {
   source: 'cfbd' as const,
@@ -122,4 +124,54 @@ test('fallback catalog derives stable ids before first sync', async () => {
   assert.ok(ids.length > 0);
   assert.ok(teamCatalogById.has('alabama'));
   assert.equal(teamCatalogById.get('alabama')?.school, 'Alabama');
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-211 — this seam is destructive outside an isolated test process.
+//
+// Item 210's guard 1 refuses a real pool, but only while isolation is ON. A bare
+// `node --test src/...` leaves APP_STATE_TEST_ISOLATION unset, guard 1 cannot
+// tell that run from ordinary application startup, and this seam then deletes
+// real rows for its scope. The condition asserted here is the inverse one, which
+// is why it is a separate assertion rather than a restatement.
+//
+// Both tests run inside `withSeamSandbox` — the pinned unreachable DATABASE_URL
+// and the relocated cwd. See `appStateSeamSandbox.ts` for why BOTH are needed;
+// the short version is that pinning selects a branch rather than disabling a
+// write, so it is one regression away from the real store.
+// ---------------------------------------------------------------------------
+
+test('__deleteTeamDatabaseStoreFileForTests refuses to run outside an isolated test process', async () => {
+  // The MESSAGE is the assertion, not merely that it rejected. Without the guard
+  // this still rejects — with ECONNREFUSED from the pinned URL — so a bare
+  // `assert.rejects` would pass on the very defect it exists to catch.
+  await withSeamSandbox({ APP_STATE_TEST_ISOLATION: undefined }, async () => {
+    await assert.rejects(
+      () => __deleteTeamDatabaseStoreFileForTests(),
+      (error: unknown) =>
+        error instanceof Error && error.message === TEAM_DATABASE_DELETE_SEAM_REFUSAL
+    );
+  });
+});
+
+test('under isolation the team-database delete seam still deletes the persisted catalog', async () => {
+  await setTeamDatabaseFile(persistedFile);
+  __resetTeamDatabaseStoreForTests();
+  const persisted = await getTeamDatabaseFile();
+  assert.equal(persisted.items.length, 1);
+  assert.equal(persisted.items[0]?.id, 'texas');
+
+  await __deleteTeamDatabaseStoreFileForTests();
+  __resetTeamDatabaseStoreForTests();
+
+  // With nothing persisted the reader falls back to the seed catalog, so the
+  // discriminator is that the one-team persisted file is GONE — not that the
+  // read came back empty, which it never does.
+  const afterDelete = await getTeamDatabaseFile();
+  assert.ok(afterDelete.items.length > 1);
+  assert.ok(afterDelete.items.some((item) => item.id === 'alabama'));
+});
+
+test('the suite left the durable data/app-state.json untouched', () => {
+  assertDurableStoreUntouched();
 });
