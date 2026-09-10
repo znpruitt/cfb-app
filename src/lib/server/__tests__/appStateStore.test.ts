@@ -233,28 +233,48 @@ test('GUARD 1: under isolation, a configured DATABASE_URL cannot open a real poo
 });
 
 test('GUARD 2: the destructive seam refuses to run outside an isolated test process', async () => {
-  // Deliberately says nothing about DATABASE_URL. Guard 1 is conditioned on
+  // The condition under test is the FLAG, not the URL. Guard 1 is conditioned on
   // isolation being ON, so a bare `node --test src/...` — flag unset — is
   // indistinguishable to it from ordinary application startup, and this helper
   // would transact against whatever DATABASE_URL names. The condition here is the
   // inverse one, which is why the two assertions are independent rather than one
-  // restated. Mutation target: delete the guard and this resolves (it removes the
-  // backing file) instead of rejecting.
-  await withEnvironment({ APP_STATE_TEST_ISOLATION: undefined }, async () => {
-    await assert.rejects(
-      () => __deleteAppStateFileForTests(),
-      (error: unknown) => error instanceof Error && error.message === APP_STATE_TEST_SEAM_REFUSAL
-    );
-  });
+  // restated.
+  //
+  // DATABASE_URL IS PINNED TO AN UNREACHABLE HOST, and that is not incidental. A
+  // test is safe only while the code it tests is correct: if this guard regresses
+  // — or during the mutation the next comment prescribes — the helper RUNS with
+  // the flag unset. With an ambient DATABASE_URL that is `delete from app_state`
+  // against the live database, the exact environment Item 210 exists for; with no
+  // DATABASE_URL, `appStateFilePath()` returns the durable `data/app-state.json`
+  // rather than the pid-keyed temp file, and the helper unlinks the developer's
+  // dev store. Pinning costs nothing and removes data loss from the failure mode.
+  // (Round 1 finding. When it was measured, the mutation had already been run —
+  // no store existed in that worktree, so nothing was lost. That is luck.)
+  //
+  // Mutation target: delete the guard and this rejects with ECONNREFUSED instead
+  // of the refusal message.
+  await withEnvironment(
+    { APP_STATE_TEST_ISOLATION: undefined, DATABASE_URL: UNREACHABLE_DATABASE_URL },
+    async () => {
+      await assert.rejects(
+        () => __deleteAppStateFileForTests(),
+        (error: unknown) => error instanceof Error && error.message === APP_STATE_TEST_SEAM_REFUSAL
+      );
+    }
+  );
 });
 
 test('GUARD 2 is not satisfied by a merely truthy flag', async () => {
-  await withEnvironment({ APP_STATE_TEST_ISOLATION: 'true' }, async () => {
-    await assert.rejects(
-      () => __deleteAppStateFileForTests(),
-      (error: unknown) => error instanceof Error && error.message === APP_STATE_TEST_SEAM_REFUSAL
-    );
-  });
+  // Same pinning, same reason: a regression here must not be able to delete.
+  await withEnvironment(
+    { APP_STATE_TEST_ISOLATION: 'true', DATABASE_URL: UNREACHABLE_DATABASE_URL },
+    async () => {
+      await assert.rejects(
+        () => __deleteAppStateFileForTests(),
+        (error: unknown) => error instanceof Error && error.message === APP_STATE_TEST_SEAM_REFUSAL
+      );
+    }
+  );
 });
 
 test('PRODUCTION UNCHANGED: with the flag absent, a configured DATABASE_URL still selects postgres and still connects', async () => {
@@ -272,12 +292,16 @@ test('PRODUCTION UNCHANGED: with the flag absent, a configured DATABASE_URL stil
       );
 
       // And the guard does NOT fire: this reaches pool construction and fails for
-      // a CONNECTION reason instead. Asserting the negative directly, because
-      // "production is unchanged" is the claim most easily left unproven.
+      // a CONNECTION reason. Asserted POSITIVELY on `ECONNREFUSED` (measured:
+      // `connect ECONNREFUSED 127.0.0.1:1`), not as "rejected with something other
+      // than the refusal message" — round 1 finding. That negative was satisfied
+      // by `APP_STATE_PRODUCTION_CONFIG_ERROR` too, which `assertAppStateWritable`
+      // throws when `hasDatabaseConfig()` is false, so a regression that stopped
+      // seeing DATABASE_URL at all — never constructing a pool — would have passed
+      // this test green while its stated claim was false.
       await assert.rejects(
         () => assertAppStateWritable(),
-        (error: unknown) =>
-          error instanceof Error && error.message !== APP_STATE_TEST_ISOLATION_POOL_REFUSAL
+        (error: unknown) => (error as { code?: string })?.code === 'ECONNREFUSED'
       );
     }
   );

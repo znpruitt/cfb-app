@@ -92,7 +92,7 @@ function appStateFilePath(): string {
   // test runner sets APP_STATE_TEST_ISOLATION, give each process its own temp file
   // (keyed by pid) so appState-backed test files cannot clobber each other. This branch
   // is never reached in dev or production, which do not set the flag.
-  if (process.env.APP_STATE_TEST_ISOLATION === '1') {
+  if (testIsolationEnabled()) {
     return path.join(os.tmpdir(), `cfb-app-app-state-test-${process.pid}.json`);
   }
   return path.join(dataDir(), 'app-state.json');
@@ -115,7 +115,9 @@ function hasDatabaseConfig(): boolean {
  *
  * The two guards below answer DIFFERENT questions and neither implies the other.
  */
-const TEST_ISOLATION_ENABLED = (): boolean => process.env.APP_STATE_TEST_ISOLATION === '1';
+function testIsolationEnabled(): boolean {
+  return process.env.APP_STATE_TEST_ISOLATION === '1';
+}
 
 export const APP_STATE_TEST_ISOLATION_POOL_REFUSAL =
   'APP_STATE_TEST_ISOLATION=1: refusing to open a real database connection. ' +
@@ -234,14 +236,23 @@ function withFileWriteLock<T>(filePath: string, fn: () => Promise<T>): Promise<T
 
 function getPool(): Pool {
   if (!pool) {
-    // GUARD 1 — isolation is ON, so do not open a real connection. Scoped to the
-    // CONSTRUCTION branch on purpose: every suite that exercises the Postgres
-    // path installs a fake through `__setAppStatePoolForTests`, so this is
-    // unreachable for all of them (measured: throwing here fails 0 additional
-    // tests, while throwing on every `getPool()` call fails 93 across 6 files).
-    // This is the whole application's database surface — `new Pool(` appears
-    // nowhere else in `src/` and `pg` is imported nowhere else outside tests.
-    if (TEST_ISOLATION_ENABLED()) throw new Error(APP_STATE_TEST_ISOLATION_POOL_REFUSAL);
+    // GUARD 1 — isolation is ON, so do not CONSTRUCT a real connection.
+    //
+    // SCOPE, stated exactly, because "isolation on -> never a real connection" is
+    // stronger than what this enforces: the check is on the construction branch,
+    // so a `pool` that became non-null earlier is handed out by every later
+    // `getPool()` without re-checking. Under isolation that can only be an
+    // injected fake (`__setAppStatePoolForTests`) or a real pool built while the
+    // flag was absent — which is a thing only a test that manipulates the flag
+    // mid-process can arrange, and `__resetAppStateForTests()` ends and nulls it.
+    //
+    // Construction-scoped ON PURPOSE: every suite exercising the Postgres path
+    // installs a fake, so this is unreachable for all of them. Measured —
+    // throwing here fails 0 additional tests; throwing on every `getPool()` call
+    // fails 93 across 6 files. This is the whole application's database surface:
+    // `new Pool(` appears nowhere else in `src/`, `pg` is imported nowhere else
+    // outside tests, and `app_state` is the only table.
+    if (testIsolationEnabled()) throw new Error(APP_STATE_TEST_ISOLATION_POOL_REFUSAL);
     pool = new Pool({
       connectionString: process.env.DATABASE_URL,
       max: 3,
@@ -1357,7 +1368,7 @@ export async function __deleteAppStateFileForTests(): Promise<void> {
   // `node --test src/...` leaves the flag unset, guard 1 cannot distinguish that
   // run from ordinary application startup, and this helper would transact against
   // whatever DATABASE_URL names. The condition here is therefore the inverse one.
-  if (!TEST_ISOLATION_ENABLED()) throw new Error(APP_STATE_TEST_SEAM_REFUSAL);
+  if (!testIsolationEnabled()) throw new Error(APP_STATE_TEST_SEAM_REFUSAL);
 
   if (hasDatabaseConfig()) {
     await ensureDatabase();
