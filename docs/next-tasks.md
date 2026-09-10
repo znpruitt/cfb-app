@@ -530,15 +530,9 @@ restate the item here, or the two copies will drift.** Triage record:
 
 ### Item 79 — vanished-schedule observability follow-ups are evidence-gated
 
-Production behavior is accepted. Make no change unless real log triage demonstrates value:
-
-- add `baselineSource: 'aggregate' | 'partitions'` only if operators need to distinguish the prior
-  snapshot source;
-- add a path-matched aggregate-write race test before changing aggregate precedence;
-- correct the pre-existing changed-data fixture comment when that test is next edited—it covers a
-  same-id content rewrite, not numeric-id replacement.
-
-- Backlog slug: `PLATFORM-SCHEDULE-VANISH-OBSERVABILITY-FOLLOWUPS-v1`
+**MIGRATED to [#611](https://github.com/znpruitt/cfb-app/issues/611) on 2026-09-10, labelled `parked`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.**
 
 ### Item 81 — score-gap diagnostic follow-ups are evidence-gated
 
@@ -4173,189 +4167,9 @@ rather than assume storage was filtered.
 
 ### Item 98 — league page content paint: three measured costs
 
-**Measured 2026-08-31.** Three independent costs, each with a number. Everything below was taken
-from production; where a measurement turned out to be an artifact it is recorded as one so it is not
-repeated.
-
-**What the dashboard says, and what it hides.**
-
-|                            | Mobile                         | Desktop                       |
-| -------------------------- | ------------------------------ | ----------------------------- |
-| Real Experience Score      | 95 (Great)                     | 76 (Needs Improvement)        |
-| **First Contentful Paint** | **2.31s (amber)**              | **3.50s (poor)**              |
-| Largest Contentful Paint   | 2.47s green                    | 3.89s amber                   |
-| INP / CLS / FID            | 88ms / 0.05 / 30ms — all green | 64ms / 0.03 / 4ms — all green |
-| `/league/[slug]`           | 93 (137 samples)               | 74 (90 samples)               |
-| TTFB                       | 0.31s                          | —                             |
-
-**Mobile RES 95 is a composite carried by green INP/CLS/FID. FCP is the only non-green metric on
-either device, and FCP is literally "how long until content appears".** Do not read 95 as "this is
-fine"; read the FCP row.
-
-**Desktop is not representative.** 90 samples over 7 days on a private league is mostly the owner,
-and the window includes a debugging session run with `Disable cache` ticked. Mobile has the larger
-sample and is the better signal.
-
-**And the score cannot see the tab-switch complaint at all.** FCP fires once per page load. Client
-navigations between Overview and History emit **no FCP event**, so that experience is invisible in
-Speed Insights by construction. It was measured directly instead — see cost 3.
-
-#### 98a — standings warm-on-write — shipped
-
-Merged through PLATFORM-119 / PR #547. See `docs/completed-work.md` for the shipped outcome; the
-remaining league-page-paint work begins at 98c.
-
-#### 98b — 76% of the schedule payload is discarded after parsing
-
-> **SUPERSEDED by PLATFORM-120.** This proposed shaping the API response, but the complete
-> reader audit found expectation-oracle and diagnostic consumers that require the full row set.
-> PLATFORM-120 instead filters only the live-score and game-stats canonical builds, keeps durable
-> storage and `/api/schedule` complete, and makes week derivation invariant to that filter. Do not
-> implement 98b; see the PLATFORM-120 registry and completed-work records.
-
-`/api/schedule?year=2026&seasonType=all` returns **2,764,786 bytes** (245 KB gzipped). Of its 3,676
-rows:
-
-| Pairing              | Rows          |
-| -------------------- | ------------- |
-| involves an FBS team | **888 (24%)** |
-| iii/iii              | 1,158         |
-| ii/ii                | 811           |
-| fcs/fcs              | 651           |
-
-**The client already discards them** — `src/lib/schedule.ts:758` filters with `isTrackedGame(...)`
-immediately after parsing. So filtering server-side is not a behaviour change; it moves an existing
-filter upstream. Same shape as PLATFORM-114: work at the wrong layer, shipping data that is thrown
-away.
-
-**Fix: filter on provider classification** (no FBS participant → cannot be tracked) in the
-`/api/schedule` response. Use the coarse classification predicate, **not** a server-side
-reproduction of `isTrackedGame`, which needs the resolver and canonical metadata. The coarse filter
-is provably lossless. Expect ~2.76 MB → ~670 KB parsed.
-
-**Measured 2026-08-31 — the cost is row processing, not bytes.** `buildScheduleFromApi`
-(`schedule.ts:345`) against the real production payload, 5 runs after a warm-up, median:
-
-| Input                  | Median      | Range     |
-| ---------------------- | ----------- | --------- |
-| all 3,676 rows         | **1267 ms** | 1233-1605 |
-| 888 FBS-involving rows | **353 ms**  | 316-1369  |
-
-**~915 ms of main-thread work removed**, on laptop-class hardware.
-
-**Qualified by the Lighthouse trace:** that benchmark timed the function in ISOLATION. In a real
-mobile trace, script evaluation is dominated by React hydration (1,932 ms, see below), and the
-schedule work sits inside `Unattributable` (1,240 ms) or chunk `1255` (943 ms). 98b's saving is real
-but a smaller share of the load than 915 ms suggests on its own. `JSON.parse` of 2.76 MB is only
-tens of ms; essentially all of this is the per-row walk, and it scales with row count
-(3.6x fewer rows → 3.6x less time). On a phone this runs 2-4x slower, so on mobile — where FCP is
-the amber metric — **98b is plausibly a LARGER win than 98a.**
-
-_Caveat:_ benchmarked with an empty `aliasMap`, so absolute numbers will differ in production; the
-ratio is what matters and it is row-count driven.
-
-#### 98c — no client cache, so every navigation refetches everything
-
-`CFBScheduleApp` holds schedule and scores in `useState` and there is **no client data-cache
-library** (no SWR, no React Query). Navigating away unmounts the component and discards the state;
-navigating back refetches from scratch. Observed on a single Overview → History → Overview round
-trip:
-
-    schedule?year=2026   teams   rankings?year=2026   aliases?scope=effective
-    owners?year=2026     postseason-overrides?year=…  odds-usage   tsc?year=2026
-    → 23 requests, 254 kB, ~12s timeline
-
-**Fix: cache the slow-changing fetches across navigations.** Schedule changes weekly and teams and
-aliases change less than that; scores are the only genuinely live one and already have their own
-90-second/3-minute tiered polling. Keep the live path exactly as it is.
-
-#### 98d — targeted prefetch of History, paired with `staleTimes`
-
-**98a is shipped; do 98c first.** This is a follow-on that buys one specific transition; 98c helps
-both directions and every load.
-
-**Scope it to the single Overview → History tab link** (`WeekViewTabs.tsx:79`), not to links
-generally. From Overview there is exactly one History link, so `prefetch={true}` there is **one**
-speculative render. The 10+ prefetch burst described below happens on the _History_ page, which
-links to matchups, members, stats, rivalries, archive and one route per owner — that is where broad
-prefetching would be harmful, and those owner links likely want `prefetch={false}`.
-
-**`prefetch={true}` and `staleTimes` MUST ship together.** In Next 15 the client Router Cache's stale
-time for dynamic routes defaults to **0**, so a prefetched dynamic payload is fetched and then not
-reused. Shipping the prefetch alone pays History's full server render speculatively and discards it —
-strictly worse than doing nothing. Set a short `experimental.staleTimes.dynamic` (~30s): long enough
-to make the switch instant, short enough that a member never sees materially stale scores relative
-to the 90-second/3-minute tiered browser cadence and the three-minute provider writer.
-
-**What it buys, and what it does not.**
-
-- **Overview → History: most of the win.** History's cost is almost entirely its server render
-  (TTFB 377ms + Content Download 739ms) and it has no client-side data layer to miss.
-- **History → Overview: the RSC half only.** Prefetch warms the route payload, but `CFBScheduleApp`
-  fetches schedule, teams, rankings, aliases, owners and overrides from the _client_ after mount.
-  **98c is what fixes that direction**, not prefetch.
-
-**Verify it is not speculative waste:** after shipping, confirm in DevTools that a prefetched History
-navigation issues no new `history?_rsc=` request, and that the prefetch burst on the History page has
-not grown.
-
-#### 98e — the app icon was 1.2 MB (DONE 2026-08-31)
-
-`src/app/icon.png` was **1024x1024, 1,238 kB**. Next's App Router serves `app/icon.png` verbatim at
-`/icon.png`, so every visitor downloaded a megabyte-plus image to render a favicon. In a Lighthouse
-trace it was the **largest transfer on the page by 7x** over the next item (`/api/schedule` at
-182 kB).
-
-Resized to **512x512, 35 kB** — a 97% reduction, ~1.2 MB off every cold load. 512 exceeds what any
-browser needs for a favicon and still covers PWA install and high-DPI; nothing referenced the 1024
-version, and there is no manifest. Measured alternatives: 256px 9.3 kB, 192px 6.0 kB.
-
-Not render-blocking, so it does not move FCP directly — but on mobile data it competed for bandwidth
-and connections against everything else during load.
-
-#### Known cost, not an action — hydration
-
-Lighthouse (mobile emulation, 4x CPU) attributes **1,932 ms of script evaluation to React DOM, in a
-single 1,698 ms long task**, against 3,503 ms of total script evaluation. That is hydration, and it
-is the largest single main-thread cost on the page — larger than schedule processing.
-
-The cause is structural: `CFBScheduleApp` is one `'use client'` component wrapping the entire app
-surface, so the whole tree hydrates at once. Reducing it means moving parts back to server components
-and splitting the client boundary into islands. **That is an architectural change, not a tweak**, and
-it is recorded here as a known cost rather than filed as work. Revisit only if 98a-98e leave the page
-unsatisfying.
-
-#### Deliberately NOT in scope
-
-- **`getLeague` caching and Suspense boundaries.** TTFB is 236-310ms and green on both devices. The
-  server's _first byte_ is not the problem; its streamed body is, and 98a fixes that.
-- **Broad `prefetch={true}` across all links.** Targeted prefetch is now 98d; this entry is about
-  applying it generally, which would make things WORSE here: the History page
-  already fires 10+ viewport RSC prefetches (`matchups`, `members`, `stats`, `rivalries`, `archive`,
-  plus one per owner), all `force-dynamic`. They are shell-only today (8.2 kB across 14 requests),
-  but forcing full prefetch would turn them into 10+ dynamic renders per visit. A return navigation
-  showed DNS 159ms + connect 187ms + SSL 117ms — a _fresh_ connection, because the prefetch burst
-  had exhausted the pool. If anything is done here it is `prefetch={false}` on the owner links.
-- **Flattening History's five-stage waterfall** (`history/page.tsx:50-88`, 7 archives). Real —
-  History's RSC fetch measured TTFB 377ms + Content Download 739ms — but 98c comes first now that
-  98a is shipped.
-- **Bundle size.** 260 kB First Load JS for `/league/[slug]`, 173 kB for history. Unremarkable and
-  not the bottleneck.
-
-#### Measurement artifacts — recorded so they are not repeated
-
-- **`getCanonicalStandings` is NOT slow.** Timing it at 5.6s from a local `tsx` process was an
-  artifact: outside the Next runtime `unstable_cache` degrades to a passthrough, and the link to
-  Neon carries ~79ms RTT versus ~1-3ms from a Vercel function in the same region. Measure server
-  work in production, via DevTools timings or Observability.
-- **"~1 MB of JS" was wrong.** That came from summing every chunk referenced in the HTML, including
-  non-first-load ones. The build output is authoritative: 260 kB.
-- **Desktop RES is polluted by our own testing.** Prefer mobile, and prefer the FCP row over the
-  composite score.
-
-- Backlog slug: `PLATFORM-LEAGUE-PAGE-PAINT-v1`
-
-## Open league-setup, roster, and draft work
+**MIGRATED to [#613](https://github.com/znpruitt/cfb-app/issues/613) on 2026-09-10, labelled `needs-triage`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.**
 
 ### Item 51 — manual assignment is offered but has no completion writer
 
@@ -4418,25 +4232,15 @@ guarded in-season membership repair or converge the records under item 25's auth
 
 ### Item 25 — roster membership authority after publication is parked
 
-The stopped PLATFORM-098 attempt showed this is not safely patchable with display-name equality.
-Reopen, re-confirm, roster edits, one-owner/zero-team states, and reset can each make the confirmation
-list, roster, and draft disagree. Resume only alongside the owner-identity-as-ID design; until then,
-prefer refusing ambiguous destructive operations over guessing whether a name was removed or
-renamed.
-
-## Conditional gate before multi-user drafts or public leagues
+**MIGRATED to [#605](https://github.com/znpruitt/cfb-app/issues/605) on 2026-09-10, labelled `needs-decision`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.**
 
 ### Item 65 — multi-writer draft gate
 
-The current risk posture assumes one commissioner is the only draft writer and every other client
-is read-only. Before members can make their own picks, complete the following in order:
-
-1. Item 15 — pick attribution.
-2. Item 14 — duplicate auto-pick attempts from multiple boards.
-3. Item 13 — stable undo identity and serialized draft deletion.
-4. Item 12 — remaining roster/draft writers outside the transaction authority.
-5. Item 20 — bounded database waits; this item is app-wide and may be scheduled earlier.
-6. Items 46 and 47 — deletion/adoption privacy and the public suppression-bypass route.
+**MIGRATED to [#610](https://github.com/znpruitt/cfb-app/issues/610) on 2026-09-10, labelled `needs-decision`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.**
 
 ### Item 15 — double-submitted pick can be credited to the next owner
 
@@ -4452,9 +4256,12 @@ loser's response against refreshed draft state and treat an already-advanced tur
 
 ### Item 13 — undo uses a reusable slot number and deletion bypasses serialization
 
-A delayed undo request addressed only by `pickNumber` can delete a replacement occupying the reused
-slot. Give picks a stable identity or require an expected-value precondition. Draft deletion/reset
-paths must participate in the same serialization and stale-write policy as other writers.
+**SUPERSEDED — closed 2026-09-10 by triage, not migrated.** Both halves shipped:
+`unpick/route.ts:63-67` now REQUIRES `expectedPickNumber`, which is the expected-value precondition
+this item asked for; and `reset/route.ts:46` runs inside `withAppStateKeyTransaction` ("PLATFORM-102
+round 3 — Reset reads and writes inside one key transaction"), which is the serialization it asked
+for. **The first item of 20 triaged to come back superseded.** Recorded as prerequisite 3 of 6 in
+[#610](https://github.com/znpruitt/cfb-app/issues/610), struck through there.
 
 ### Item 12 — remaining draft-writer serialization
 
@@ -4594,14 +4401,9 @@ preserving already-neutral historical copy.
 
 ### Item 36 — participation claims remain ungated
 
-These claims assert current participation when membership is unknown:
-
-- `historical:drought` — “active”/“still waiting”;
-- `rivalry:dominance_streak` — “active” and present-tense pattern copy;
-- `career:never_last` — “and counting.”
-
-Gate or neutralize them as part of the superlative conversion. The completed-season recap exemption
-does not apply to present-tense participation claims.
+**MIGRATED to [#606](https://github.com/znpruitt/cfb-app/issues/606) on 2026-09-10, labelled `needs-triage`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.**
 
 ### Item 38 — retire `partial-roster` and restore selector ownership
 
@@ -4645,9 +4447,9 @@ Neither portion is currently selected for implementation.
 
 ### Item 43 — new preseason generators
 
-After the truth/gating work above, add genuinely new preseason content: draft conference
-concentration/diversity, AP-ranked teams per owner, schedule-strength projections, and the all-time
-toilet-bowl record. Every card must add an angle a reader cannot obtain by simply reading the table.
+**MIGRATED to [#607](https://github.com/znpruitt/cfb-app/issues/607) on 2026-09-10, labelled `actionable`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.**
 
 ### Item 54 — season-recap residue
 
@@ -4707,8 +4509,9 @@ selector and distinguish unknown draft state from no draft.
 
 ### Item 50 — passive schedule-presentation checkpoint
 
-No implementation work. Close deployment-runbook §8i when the first qualifying automatic
-presentation refresh is observed in production evidence.
+**MIGRATED to [#608](https://github.com/znpruitt/cfb-app/issues/608) on 2026-09-10, labelled `parked`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.**
 
 ### Item 56 — POLISH-005 residue
 
@@ -4722,9 +4525,9 @@ presentation refresh is observed in production evidence.
 
 ### Item 59 — second preview branch behavior is unknown and conditional
 
-The canonical preview gate documentation is corrected. The only remaining question is why the
-historical `preview-codex` push produced no deployment. Investigate only if a second stable preview
-branch is actually wanted; the alias/project-setting requirement is the load-bearing concern.
+**MIGRATED to [#609](https://github.com/znpruitt/cfb-app/issues/609) on 2026-09-10, labelled `parked`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.**
 
 ### Item 71 — JSDOM-heavy test startup and timeout headroom
 
@@ -4978,28 +4781,9 @@ unchanged by the repair (they are already correct — the repair must prove it d
 
 ### Item 86 — the archive audit's integrity check can never pass
 
-`renderSection1Summary` (`src/app/api/debug/archive-audit/route.ts:244-247`) prints
-`wins == losses (expected for a closed game universe)?` and reports `NO` in every archived season —
-2018, 2021, 2022, 2023, 2024, and 2025 — because the premise does not hold. The universe is not
-closed while any FBS team goes unrostered: a rostered team beating an unrostered opponent books a win
-with no matching rostered loss. In 2018 that is a 106-8 record against unrostered teams, exactly the
-98-game gap the check flags.
-
-A check that fails unconditionally is worse than no check, because it trains an operator to skip the
-line where a genuine integrity failure would appear. This matters now specifically: the archive audit
-is the tool the Item 85 repair will be verified with.
-
-The meaningful invariant, derived by hand while investigating and closing exactly in all six seasons:
-
-- `bothRostered = teamGames - archiveGames`, `oneRostered = archiveGames - bothRostered`
-- `winsVsUnrostered + lossesVsUnrostered == oneRostered`
-
-That form accounts for the open universe and is sensitive to missing or duplicated games, which the
-current form is not.
-
-Acceptance boundary: the integrity line reports a pass on all six existing archives, and fails when a
-game is injected, dropped, or duplicated in a test fixture. A replacement that cannot be shown to
-fail on corruption is the same defect wearing a passing badge.
+**MIGRATED to [#612](https://github.com/znpruitt/cfb-app/issues/612) on 2026-09-10, labelled `actionable`.**
+The issue carries the ask, the triage verdict and its evidence. **This entry is a pointer — do not
+restate the item here, or the two copies will drift.**
 
 ### Item 87 — rework Overview game listings as a scoreboard
 
@@ -7050,7 +6834,13 @@ the next real regression gets merged.
 
 ### Queue migration to GitHub Issues — STARTED 2026-09-10, ten items in
 
-**The first ten triaged items are now issues** (#595-#604) and their entries above are pointers.
+**Twenty triaged, nineteen migrated** (#595-#613) and their entries above are pointers. **Item 13 is
+the exception — SUPERSEDED, closed without an issue**, and the only one of twenty to come back that
+way.
+
+**A second axis was added 2026-09-10: DOMAIN labels**, so the backlog is filterable by the part of the
+app it touches rather than only by state — `draft`, `preseason`, `season`, `offseason`, `insights`,
+`admin`, `provider`, `scheduler`, `platform`, `ui`. Every issue carries at least one.
 `docs/next-tasks.md` is ~7,300 lines and ~126,000 tokens: **nobody reads it, everyone greps it, and a
 queue reachable only by search has stopped being a queue.**
 
@@ -7075,9 +6865,22 @@ second and third bullets and Item 60's implementation follow-ups are the same sh
 2. **A migrated entry becomes a POINTER.** The issue is canonical; the entry says where it went.
    Restating it in both places is how the two drift, and DOCS-012 already binds it.
 
-**What has NOT been decided:** whether the remaining 46 migrate at all. The triage refuted the premise
-that they were mostly dead — **0 of 10 superseded, 6 verified live** — so migration matters more than
-when it was proposed, but 46 more triages is real work and the owner has not scheduled it.
+**Across twenty items: ONE superseded, and the tail is otherwise live.** The premise that started this
+— that the sub-100 backlog was mostly dead — is refuted at 1/20.
+
+**The second batch found a shape the first did not: the GATE.** [#610](https://github.com/znpruitt/cfb-app/issues/610)
+is not a task; it tracks six prerequisites for allowing members to make their own picks, and one of
+the six turned out already done. **A gate filed as ordinary work reads as six times more remaining
+than there is** — and reads as zero progress when a prerequisite lands.
+
+**And a triage verdict can UPGRADE an earlier one.** [#596](https://github.com/znpruitt/cfb-app/issues/596)
+was justified by an absence and said so; `owners/route.ts:124-126` was found while triaging Item 13
+and states the exclusion outright, which turns it from "someone forgot to serialize this" into "a
+documented single-operator assumption that #610 would invalidate." **The issue was relabelled
+`needs-decision` on that basis.**
+
+**What has NOT been decided:** whether the remaining 36 migrate. **26 sub-100 items remain untriaged**,
+plus the 100+ range.
 
 ### Logos as the identity accent — MEASURED 2026-09-10, no decision taken
 
