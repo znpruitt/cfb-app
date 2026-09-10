@@ -96,7 +96,7 @@ export default function GameWeekPanel({
         {viewModel.groupedGames.map((group) => (
           <section key={group.dateKey} className="space-y-1.5">
             <div
-              className="text-sm font-semibold text-gray-700 dark:text-zinc-300"
+              className="border-b-2 border-gray-200 pb-2 text-sm font-semibold text-gray-700 dark:border-zinc-800/80 dark:text-zinc-300"
               data-date-header={group.dateKey}
             >
               {group.label}

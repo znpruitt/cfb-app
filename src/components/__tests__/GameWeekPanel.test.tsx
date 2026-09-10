@@ -158,6 +158,35 @@ test('each date group stays sorted by kickoff across mixed game states', () => {
   });
 });
 
+test('every date heading carries the full-width rule that explains an unmatched grid cell', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({ key: 'thursday', date: '2025-09-04T23:00:00.000Z' }),
+        game({ key: 'friday', date: '2025-09-05T23:00:00.000Z' }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="America/Chicago"
+    />
+  );
+  const dateHeadingClasses = Array.from(
+    html.matchAll(/<div class="([^"]*)" data-date-header=/g),
+    (match) => match[1] ?? ''
+  );
+
+  assert.equal(dateHeadingClasses.length, 2);
+  for (const classes of dateHeadingClasses) {
+    assert.match(classes, /\bborder-b-2\b/);
+    assert.match(classes, /\bdark:border-zinc-800\/80\b/);
+    assert.match(classes, /\bpb-2\b/);
+  }
+});
+
 test('late-night kickoff header matches kickoff text timezone', () => {
   const html = renderToStaticMarkup(
     <GameWeekPanel
