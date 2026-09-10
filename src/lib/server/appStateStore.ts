@@ -92,7 +92,7 @@ function appStateFilePath(): string {
   // test runner sets APP_STATE_TEST_ISOLATION, give each process its own temp file
   // (keyed by pid) so appState-backed test files cannot clobber each other. This branch
   // is never reached in dev or production, which do not set the flag.
-  if (process.env.APP_STATE_TEST_ISOLATION === '1') {
+  if (testIsolationEnabled()) {
     return path.join(os.tmpdir(), `cfb-app-app-state-test-${process.pid}.json`);
   }
   return path.join(dataDir(), 'app-state.json');
@@ -101,6 +101,60 @@ function appStateFilePath(): string {
 function hasDatabaseConfig(): boolean {
   return Boolean(process.env.DATABASE_URL?.trim());
 }
+
+/**
+ * PLATFORM-210. `APP_STATE_TEST_ISOLATION` never gated the database. It is read
+ * in exactly one place — `appStateFilePath()` above — which only the FILE
+ * fallback consults, and a configured `DATABASE_URL` is precisely what stops that
+ * branch running. Every read and write below branches on `hasDatabaseConfig()`
+ * alone, so an ambient `DATABASE_URL` in the shell that runs `npm test` (the
+ * runner spreads `...process.env` into the child) put the whole suite on the live
+ * store: `setAppState` upserting fixtures over real rows scope by scope for a
+ * whole run, reads making a run's pass/fail depend on production data, and
+ * `__deleteAppStateFileForTests` issuing `delete from app_state` — the only table.
+ *
+ * The two guards below answer DIFFERENT questions and neither implies the other.
+ */
+function testIsolationEnabled(): boolean {
+  return process.env.APP_STATE_TEST_ISOLATION === '1';
+}
+
+export const APP_STATE_TEST_ISOLATION_POOL_REFUSAL =
+  'APP_STATE_TEST_ISOLATION=1: refusing to open a real database connection. ' +
+  'DATABASE_URL is set in this test process, and every app-state read and write ' +
+  'branches on its presence alone — this run would read and write the live ' +
+  'app_state table. Unset DATABASE_URL in the shell running the tests.';
+
+/**
+ * The refusal a destructive test-only seam raises outside an isolated test
+ * process. A builder rather than a string because the family has more than one
+ * member here and more outside this file (Item 211) — every one of them should
+ * name ITSELF and ITS OWN damage, so the operator learns what nearly happened
+ * rather than a generic "not allowed".
+ */
+export function appStateTestSeamRefusal(seam: string, damage: string): string {
+  return (
+    `${seam} is test-only and destructive — ${damage}. It refuses to run unless ` +
+    'APP_STATE_TEST_ISOLATION=1. Run tests through `npm test` or ' +
+    '`npm run test:file`, which set it; a bare `node --test <file>` does not.'
+  );
+}
+
+/** Shared prologue for every destructive test-only seam. See GUARD 2 below. */
+function assertTestSeamAllowed(seam: string, damage: string): void {
+  if (!testIsolationEnabled()) throw new Error(appStateTestSeamRefusal(seam, damage));
+}
+
+export const APP_STATE_DELETE_SEAM_REFUSAL = appStateTestSeamRefusal(
+  '__deleteAppStateFileForTests',
+  'it issues `delete from app_state` whenever DATABASE_URL is set, and app_state is the only table'
+);
+
+export const APP_STATE_CORRUPT_SEAM_REFUSAL = appStateTestSeamRefusal(
+  '__corruptAppStateFileForTests',
+  'it writes an unparseable file over `appStateFilePath()`, which outside isolation is the durable ' +
+    'data/app-state.json rather than a pid-keyed temp file'
+);
 
 function isProductionRuntime(): boolean {
   return process.env.NODE_ENV === 'production';
@@ -206,6 +260,23 @@ function withFileWriteLock<T>(filePath: string, fn: () => Promise<T>): Promise<T
 
 function getPool(): Pool {
   if (!pool) {
+    // GUARD 1 — isolation is ON, so do not CONSTRUCT a real connection.
+    //
+    // SCOPE, stated exactly, because "isolation on -> never a real connection" is
+    // stronger than what this enforces: the check is on the construction branch,
+    // so a `pool` that became non-null earlier is handed out by every later
+    // `getPool()` without re-checking. Under isolation that can only be an
+    // injected fake (`__setAppStatePoolForTests`) or a real pool built while the
+    // flag was absent — which is a thing only a test that manipulates the flag
+    // mid-process can arrange, and `__resetAppStateForTests()` ends and nulls it.
+    //
+    // Construction-scoped ON PURPOSE: every suite exercising the Postgres path
+    // installs a fake, so this is unreachable for all of them. Measured —
+    // throwing here fails 0 additional tests; throwing on every `getPool()` call
+    // fails 93 across 6 files. This is the whole application's database surface:
+    // `new Pool(` appears nowhere else in `src/`, `pg` is imported nowhere else
+    // outside tests, and `app_state` is the only table.
+    if (testIsolationEnabled()) throw new Error(APP_STATE_TEST_ISOLATION_POOL_REFUSAL);
     pool = new Pool({
       connectionString: process.env.DATABASE_URL,
       max: 3,
@@ -1315,6 +1386,17 @@ export async function deleteAppState(scope: string, key: string): Promise<void> 
 }
 
 export async function __deleteAppStateFileForTests(): Promise<void> {
+  // GUARD 2 — a test-only destructive function has no business executing outside
+  // an isolated test process, whatever the transport. NOT "must not reach the
+  // database branch": guard 1 is conditioned on isolation being ON, so a bare
+  // `node --test src/...` leaves the flag unset, guard 1 cannot distinguish that
+  // run from ordinary application startup, and this helper would transact against
+  // whatever DATABASE_URL names. The condition here is therefore the inverse one.
+  assertTestSeamAllowed(
+    '__deleteAppStateFileForTests',
+    'it issues `delete from app_state` whenever DATABASE_URL is set, and app_state is the only table'
+  );
+
   if (hasDatabaseConfig()) {
     await ensureDatabase();
     await getPool().query('delete from app_state');
@@ -1331,6 +1413,20 @@ export async function __deleteAppStateFileForTests(): Promise<void> {
  * File-fallback mode only.
  */
 export async function __corruptAppStateFileForTests(): Promise<void> {
+  // GUARD 2, second member. Same rule, different transport: this one never
+  // touches Postgres, but with the flag unset `appStateFilePath()` resolves to the
+  // durable `data/app-state.json` rather than a pid-keyed temp file, so a bare
+  // `node --test src/lib/__tests__/oddsUsageStore.test.ts` (which calls this)
+  // corrupts the developer's dev store. A corrupted store is destruction, so the
+  // rule holds whatever the transport — guarding one seam of a two-seam family
+  // and calling the family closed is the arbitrariness this campaign keeps
+  // rejecting.
+  assertTestSeamAllowed(
+    '__corruptAppStateFileForTests',
+    'it writes an unparseable file over `appStateFilePath()`, which outside isolation is the durable ' +
+      'data/app-state.json rather than a pid-keyed temp file'
+  );
+
   await fs.mkdir(path.dirname(appStateFilePath()), { recursive: true });
   await fs.writeFile(appStateFilePath(), '{not-valid-json', 'utf8');
 }

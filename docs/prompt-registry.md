@@ -51,6 +51,71 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-210-TEST-ISOLATION-GUARD-CLAUDE-v1
+
+- Purpose: Item 210 — `APP_STATE_TEST_ISOLATION` did not prevent database use, so an exported
+  `DATABASE_URL` put the whole suite on the live store and one test-only helper dropped the only
+  table.
+- Scope: `src/lib/server/appStateStore.ts` (pool construction and its two destructive test-only
+  seams) and its suite. NOT the per-suite delete idiom (Item 207, merged), NOT the per-run-unique
+  path (Item 209), NOT the three destructive seams in other files (Item 211).
+- Outcome: **the flag never gated the database.** It was read in exactly one place —
+  `appStateFilePath()` at `:95` — which only the FILE fallback consults, and a configured
+  `DATABASE_URL` is precisely what stops that branch running. Every read and write branched on
+  `hasDatabaseConfig()` alone. `delete from app_state` was the audible failure; the common one was
+  `setAppState` issuing `insert … on conflict do update` over real rows, scope by scope, for a whole
+  run, while the reads made a run's pass/fail depend on production data. **Two guards, because
+  neither implies the other:** pool CONSTRUCTION refuses when isolation is on, and the destructive
+  seams refuse when it is off. The second is not "must not reach the database branch" — guard 1 is
+  conditioned on isolation being ON, so a bare `node --test src/...` leaves the flag unset and guard 1
+  cannot tell that run from ordinary application startup. **The strongest fact in the item is how
+  narrow the choke point is:** `new Pool(` appears exactly once in all of `src/`, `pg` is imported
+  nowhere else outside tests, and `app_state` is the only table — so one refusal covers the
+  application's entire database surface rather than eleven branch sites, which is what makes a
+  zero-cost fix a complete one.
+- Review / verification: blast radius measured, not reasoned — throwing on **every** `getPool()` call
+  fails 93 tests across 6 files; throwing only where a **real** pool would be constructed fails **0**.
+  Three independent enumerations closed on the same six files (fail under a blanket throw, call
+  `__setAppStatePoolForTests`, set `DATABASE_URL`). Every mutation was run separately and each
+  reddened exactly one guard's tests. Severity bound, measured: **nothing sources the credential
+  automatically** — one script loads `.env.operator.local` explicitly, `run-tests.mjs` loads no env
+  file, no shell profile references it, and on Node v22.19.0 neither `node` nor `node --import tsx`
+  auto-loads `.env`/`.env.local`, so even a `vercel env pull` into `.env.local` would not reach
+  `npm test`. It takes a deliberate `export` — and when it fires, the whole database is in scope.
+  Against `5365474`: `npx tsc --noEmit` 0, `lint:all` 0, `npm test` 5,108/5,110 — exactly the standing
+  Item 137 baseline. Test delta **+5**, measured (5,105 → 5,110). Codex returned no findings, having
+  independently exercised guard 1 with `DATABASE_URL` pointed at an unreachable loopback port — the
+  same technique this lane used, and a check that respects the gate forbidding a real demonstration.
+- Adjudications kept as precedent:
+  1. **A test is safe only while the code it tests is correct.** Both guard-2 tests unset the flag and
+     left `DATABASE_URL` ambient, on the reasoning that the flag is the condition under test. True,
+     and beside the point: if the guard regresses — or during the mutation the test's own comment
+     prescribes — the helper RUNS, and destroys either the live table or the dev store.
+     **The mutation had already been run on this branch; nothing was lost only because no dev store
+     existed in that worktree.** Recorded as luck rather than "no impact", which is the difference
+     between a report and a reassurance. Both tests now pin `DATABASE_URL` to an unreachable port,
+     and the corrupting seam's test relocates `cwd` to a `mkdtemp` sandbox — pinning does nothing
+     there, because that seam has no database branch and its write is unconditional. The first run of
+     that mutation, before the sandbox, wrote `{not-valid-json` to `data/app-state.json` for real.
+  2. **A mutation that reddens both the old and new assertion discriminates nothing.** Now binding in
+     `AGENTS.md`. The first attempt to prove the `PRODUCTION UNCHANGED` assertion had been
+     strengthened failed on both sides — on unrelated status assertions, not the predicate at issue —
+     and reads identically to a successful discrimination. The isolating mutation keeps
+     `getAppStateStorageStatus()` reporting `postgres` while forcing the writable check to throw the
+     config error: the old assertion passes GREEN, the new one reddens.
+  3. **Two definitions of one flag is the drift that caused the item.** Round 1 added
+     `testIsolationEnabled()` while leaving the original inline comparison in `appStateFilePath()`.
+     `process.env.APP_STATE_TEST_ISOLATION` now appears exactly once in the file.
+- Follow-on: **Item 211** — the same refusal for `durableOddsStore`, `oddsUsageStore` and
+  `teamDatabaseStore`, whose delete seams route through `deleteAppState()` and are equally exposed in
+  the bare `node --test` case. The boundary is the FILE, by owner ruling: 210 guards every destructive
+  seam in `appStateStore.ts`, 211 guards the three that live elsewhere, reusing
+  `appStateTestSeamRefusal()` and this suite's test shape rather than reinventing them.
+- Status: Implemented on `claude/210-test-isolation-guard` (`4c882e2b` + `350d130f` + `5365474` +
+  this closeout); Codex clean, Claude's five findings resolved in one round, merge pending at time of
+  writing. No production runtime behaviour changed — asserted with the flag absent — so nothing to
+  deploy or click.
+
 ### PLATFORM-207-PLANNER-TEST-ISOLATION-CLAUDE-v1
 
 - Purpose: Item 207 — four polling-planner tests intermittently failed on `plan-held`. Two mechanisms

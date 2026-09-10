@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 
 import {
@@ -6,8 +9,13 @@ import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
   __setAppStateWriteFailureForTests,
+  APP_STATE_TEST_ISOLATION_POOL_REFUSAL,
+  APP_STATE_CORRUPT_SEAM_REFUSAL,
+  APP_STATE_DELETE_SEAM_REFUSAL,
+  assertAppStateWritable,
   deleteAppState,
   getAppState,
+  getAppStateStorageStatus,
   isReadOnlyTransactionError,
   setAppState,
 } from '@/lib/server/appStateStore';
@@ -165,3 +173,175 @@ test(
     }
   }
 );
+
+// ---------------------------------------------------------------------------
+// PLATFORM-210 — the isolation flag must prevent a real database connection.
+//
+// It never did. `APP_STATE_TEST_ISOLATION` was read in exactly one place, inside
+// `appStateFilePath()`, which only the FILE fallback consults — and a configured
+// `DATABASE_URL` is exactly what stops that branch running. So an ambient
+// `DATABASE_URL` in the shell running `npm test` put all 5,105 tests on the live
+// store. `delete from app_state` is the audible failure; `setAppState` upserting
+// fixtures over real rows for a whole run is the common one.
+//
+// TWO guards, asserted separately, because neither implies the other:
+//   1. isolation is ON  -> never construct a real pool
+//   2. isolation is OFF -> a destructive test-only seam must not execute at all
+// A single assertion covering both would prove neither.
+// ---------------------------------------------------------------------------
+
+/** Refused instantly by the kernel, so nothing here can hang on DNS or a socket. */
+const UNREACHABLE_DATABASE_URL = 'postgres://user:pw@127.0.0.1:1/nowhere';
+
+async function withEnvironment(
+  overrides: Record<string, string | undefined>,
+  run: () => Promise<void>
+): Promise<void> {
+  const previous = new Map<string, string | undefined>();
+  for (const [name, value] of Object.entries(overrides)) {
+    previous.set(name, process.env[name]);
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  }
+  __resetAppStateForTests();
+  try {
+    await run();
+  } finally {
+    for (const [name, value] of previous) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    __resetAppStateForTests();
+  }
+}
+
+test('GUARD 1: under isolation, a configured DATABASE_URL cannot open a real pool', async () => {
+  await withEnvironment(
+    { APP_STATE_TEST_ISOLATION: '1', DATABASE_URL: UNREACHABLE_DATABASE_URL },
+    async () => {
+      // `assertAppStateWritable` is the shortest exported path to pool
+      // construction: it selects the Postgres branch on `DATABASE_URL` alone and
+      // immediately issues DDL through `getPool()`.
+      await assert.rejects(
+        () => assertAppStateWritable(),
+        // The MESSAGE is the assertion. Without the guard this still rejects —
+        // with ECONNREFUSED, having opened a connection to whatever DATABASE_URL
+        // names — so a bare `assert.rejects` would pass on the defect it exists
+        // to catch. Mutation target: delete the guard in `getPool()` and this
+        // test goes red while everything else stays green.
+        (error: unknown) =>
+          error instanceof Error && error.message === APP_STATE_TEST_ISOLATION_POOL_REFUSAL
+      );
+    }
+  );
+});
+
+test('GUARD 2: the destructive seam refuses to run outside an isolated test process', async () => {
+  // The condition under test is the FLAG, not the URL. Guard 1 is conditioned on
+  // isolation being ON, so a bare `node --test src/...` — flag unset — is
+  // indistinguishable to it from ordinary application startup, and this helper
+  // would transact against whatever DATABASE_URL names. The condition here is the
+  // inverse one, which is why the two assertions are independent rather than one
+  // restated.
+  //
+  // DATABASE_URL IS PINNED TO AN UNREACHABLE HOST, and that is not incidental. A
+  // test is safe only while the code it tests is correct: if this guard regresses
+  // — or during the mutation the next comment prescribes — the helper RUNS with
+  // the flag unset. With an ambient DATABASE_URL that is `delete from app_state`
+  // against the live database, the exact environment Item 210 exists for; with no
+  // DATABASE_URL, `appStateFilePath()` returns the durable `data/app-state.json`
+  // rather than the pid-keyed temp file, and the helper unlinks the developer's
+  // dev store. Pinning costs nothing and removes data loss from the failure mode.
+  // (Round 1 finding. When it was measured, the mutation had already been run —
+  // no store existed in that worktree, so nothing was lost. That is luck.)
+  //
+  // Mutation target: delete the guard and this rejects with ECONNREFUSED instead
+  // of the refusal message.
+  await withEnvironment(
+    { APP_STATE_TEST_ISOLATION: undefined, DATABASE_URL: UNREACHABLE_DATABASE_URL },
+    async () => {
+      await assert.rejects(
+        () => __deleteAppStateFileForTests(),
+        (error: unknown) =>
+          error instanceof Error && error.message === APP_STATE_DELETE_SEAM_REFUSAL
+      );
+    }
+  );
+});
+
+test('GUARD 2 is not satisfied by a merely truthy flag', async () => {
+  // Same pinning, same reason: a regression here must not be able to delete.
+  await withEnvironment(
+    { APP_STATE_TEST_ISOLATION: 'true', DATABASE_URL: UNREACHABLE_DATABASE_URL },
+    async () => {
+      await assert.rejects(
+        () => __deleteAppStateFileForTests(),
+        (error: unknown) =>
+          error instanceof Error && error.message === APP_STATE_DELETE_SEAM_REFUSAL
+      );
+    }
+  );
+});
+
+test('GUARD 2 covers the OTHER destructive seam in this file, not just the delete', async () => {
+  // A corrupted store is destruction. `__corruptAppStateFileForTests` never
+  // touches Postgres, but with the flag unset `appStateFilePath()` resolves to the
+  // durable `data/app-state.json`, so a bare `node --test` on any suite that calls
+  // it (e.g. `oddsUsageStore.test.ts`) writes `{not-valid-json` over the
+  // developer's dev store. Round 1 finding: guarding one seam of a two-seam family
+  // closes neither.
+  //
+  // CWD IS MOVED TO A TEMP DIRECTORY, and unlike the tests above, pinning
+  // DATABASE_URL would not help — this seam has no database branch, so its write
+  // is unconditional and there is no URL to neutralise. `appStateFilePath()` falls
+  // back to `path.join(process.cwd(), 'data')`, so relocating cwd is the only way
+  // to stop a REGRESSION here from corrupting a real store. Measured, not assumed:
+  // running the mutation below without this wrote `{not-valid-json` to
+  // `data/app-state.json` in this worktree. Top-level tests in a file run
+  // sequentially, so the process-wide chdir cannot race a neighbour.
+  const originalCwd = process.cwd();
+  const sandbox = mkdtempSync(path.join(os.tmpdir(), 'item210-corrupt-seam-'));
+  try {
+    process.chdir(sandbox);
+    await withEnvironment({ APP_STATE_TEST_ISOLATION: undefined }, async () => {
+      await assert.rejects(
+        () => __corruptAppStateFileForTests(),
+        (error: unknown) =>
+          error instanceof Error && error.message === APP_STATE_CORRUPT_SEAM_REFUSAL
+      );
+    });
+  } finally {
+    process.chdir(originalCwd);
+    rmSync(sandbox, { recursive: true, force: true });
+  }
+});
+
+test('PRODUCTION UNCHANGED: with the flag absent, a configured DATABASE_URL still selects postgres and still connects', async () => {
+  await withEnvironment(
+    { APP_STATE_TEST_ISOLATION: undefined, DATABASE_URL: UNREACHABLE_DATABASE_URL },
+    async () => {
+      const status = getAppStateStorageStatus();
+      assert.equal(status.mode, 'postgres');
+      assert.equal(status.databaseConfigured, true);
+      // Not a temp file: the isolation branch of `appStateFilePath()` is unchanged
+      // and still unreachable when a database is configured.
+      assert.ok(
+        status.filePath.endsWith('data/app-state.json'),
+        `expected the durable file path, got ${status.filePath}`
+      );
+
+      // And the guard does NOT fire: this reaches pool construction and fails for
+      // a CONNECTION reason. Asserted POSITIVELY on `ECONNREFUSED` (measured:
+      // `connect ECONNREFUSED 127.0.0.1:1`), not as "rejected with something other
+      // than the refusal message" — round 1 finding. That negative was satisfied
+      // by `APP_STATE_PRODUCTION_CONFIG_ERROR` too, which `assertAppStateWritable`
+      // throws when `hasDatabaseConfig()` is false, so a regression that stopped
+      // seeing DATABASE_URL at all — never constructing a pool — would have passed
+      // this test green while its stated claim was false.
+      await assert.rejects(
+        () => assertAppStateWritable(),
+        (error: unknown) => (error as { code?: string })?.code === 'ECONNREFUSED'
+      );
+    }
+  );
+});
