@@ -35,7 +35,8 @@ The shared contract fixes the mechanism — status metadata in a growing left gr
 Now in `mockups/weekly-recap-mockup.html`:
 
 - **Bronze pill, right-aligned**, replacing the per-category tag hues. Those hues were placeholders pending `INSIGHTS-017-PALETTE`; the pill decision supersedes them, and one treatment across every surface beats five category colours competing with a crowded palette.
-- **Team colour bars** at line start, emitted only where a colour exists — absence is the signal, never a default grey.
+- **Team identity slot** at line start. The earlier colour-bar forecast is superseded by the
+  2026-09-10 owner decision for 28px CFBD logos; recap adoption remains blocked behind Item 143.
 - **Status row structure** — metadata left in a growing group, tag pinned right.
 
 **Implementation note:** the recap mockup generates most rows from a JS template rather than static markup. A change applied to the visible markup alone reaches only the handful of hardcoded rows. Worth knowing before anyone edits that file.

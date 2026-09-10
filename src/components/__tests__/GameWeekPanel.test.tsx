@@ -694,7 +694,11 @@ test('shared scoreboard renders team rows, rankings, scores, and final status', 
       hideByes={true}
       displayTimeZone="UTC"
       rankingsByTeamId={new Map([['mississippi', { rank: 7, rankSource: 'ap' }]])}
-      teamColorsById={new Map([['mississippi', '#C4506B']])}
+      teamLogosById={
+        new Map([
+          ['mississippi', { url: 'https://cdn.collegefootballdata.com/logos-dark/64/145.png' }],
+        ])
+      }
     />
   );
 
@@ -708,8 +712,8 @@ test('shared scoreboard renders team rows, rankings, scores, and final status', 
   assert.match(html, /data-scoreboard-value="away">38<\/span>/);
   assert.match(html, /data-scoreboard-value="home">19<\/span>/);
   assert.match(html, /data-scoreboard-side="away" data-scoreboard-leading="true"/);
-  assert.match(html, /data-scoreboard-team-color="away"/);
-  assert.doesNotMatch(html, /data-scoreboard-team-color="home"/);
+  assert.match(html, /data-scoreboard-team-logo="away"/);
+  assert.doesNotMatch(html, /data-scoreboard-team-logo="home"/);
 });
 
 test('expanded scoreboard uses provider casing for non-catalog teams and catalog scoreboard labels', () => {

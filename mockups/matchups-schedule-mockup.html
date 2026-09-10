@@ -90,7 +90,11 @@
   }
   .live-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
 
-  /* ---------- Team colour: identity, not semantics ----------
+  /* ---------- SUPERSEDED identity prototype (2026-09-10) ----------
+     The bars below are retained as historical mockup evidence. The owner chose
+     the real-page 28px CFBD logo prototype; DESIGN.md owns the current treatment.
+
+     Team colour: identity, not semantics
      Occupies the line-start slot reserved for future logos. Colours are
      luminance-normalised for a dark background — several team primaries
      (navy, forest) are near-invisible at source values. */
@@ -726,6 +730,7 @@
 <div class="mockup-notes">
   <strong>Mockup notes (not part of the design)</strong>
   <ul>
+    <li><strong>Identity treatment superseded 2026-09-10.</strong> This historical file still draws the colour-bar exploration. The production treatment chosen from the real-page prototypes is a 28px CFBD logo in a permanently reserved 32px slot. The full-width date-heading rule in this file is current and was judged on that 28px-logo page.</li>
     <li><strong>Same component, no fork.</strong> Both views consume the scoreboard shipped in Item 87 slices 1&ndash;4. Nothing here is a new row shape &mdash; the additions are the two contract widenings recorded separately: the prefix slot accepting an FCS marker as well as a rank, and a neutral-site marker on the meta line. <em>[Reconciled 2026-09-08: four widenings shipped as slice 5a, not two &mdash; also broadcast on live/awaiting rows and the non-reserving tier-2 slot. Recorded in DESIGN.md.]</em></li>
     <li><strong>Matchups gains a correctness fix, not just a restyle.</strong> The shipped row reads <code>Colorado @ Georgia Tech</code> with <code>vs BHooper</code> beneath it, which never says which team belongs to which owner. Team-primary with an owner suffix resolves it structurally &mdash; the same defect and the same fix as the Overview redesign.</li>
     <li><strong>Eyebrows are bronze (#c9a66b), a deliberate deviation from the shipped blue.</strong> Bronze was decided earlier in this campaign, ranked above sky, neutral and fuchsia. An intermediate mockup reverted it to the shipped <code>text-blue-300</code> after a reviewer flagged gold as champion-reserved &mdash; that bundled two claims, and only one holds. <em>Shipped is blue</em> is descriptive, and a mockup proposing a change is what deviates from it. <em>Gold is champion-reserved</em> is answered by temporal separation: the champion treatment does not render until a title is awarded &mdash; podium cards for #1&ndash;#3 are neutral all season &mdash; so bronze is uncontested through the year, and at season end the two remain distinguishable, since bronze is a desaturated tan against a dark saturated gold. The reservation binds a token to a purpose, not a hue neighbourhood.</li>

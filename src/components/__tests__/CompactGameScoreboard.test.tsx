@@ -4,7 +4,6 @@ import { JSDOM } from 'jsdom';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import { buildScoreboardTeamColorsById } from '../../lib/teamColors';
 import CompactGameScoreboard from '../CompactGameScoreboard';
 
 function renderScoreboard(
@@ -65,12 +64,6 @@ function participantMarkup(html: string, side: 'away' | 'home'): string {
   )?.[0];
   assert.ok(row, `${side} participant row must render`);
   return row;
-}
-
-function participantFactMarkup(html: string, selector: string, message: string): string {
-  const element = new JSDOM(html).window.document.querySelector(selector);
-  assert.ok(element, message);
-  return element.outerHTML;
 }
 
 function EmptyFooterSlot(): null {
@@ -341,75 +334,12 @@ test('only the exact fcs classification renders FCS, never Division II, III, or 
   assert.match(exactHtml, /data-scoreboard-classification="away">FCS<\/span>/);
 });
 
-test('team-colour bars use the exact full-opacity 8px line-start treatment without widening the row', () => {
-  const html = renderScoreboard({
-    away: {
-      teamName: 'Michigan',
-      teamColor: '#4A8FE0',
-      owner: 'Whited',
-      rank: null,
-      score: 17,
-    },
-    home: {
-      teamName: 'Ohio State',
-      teamColor: null,
-      owner: 'Chamness',
-      rank: 7,
-      rankSource: 'ap',
-      score: 24,
-    },
-  });
-  const document = new JSDOM(html).window.document;
-  const awayBar = document.querySelector('[data-scoreboard-team-color="away"]');
-  assert.ok(awayBar, 'a normalized catalog colour must render a bar');
-  assert.deepEqual(
-    new Set(awayBar.className.split(/\s+/)),
-    new Set(['absolute', 'inset-y-0.5', 'left-0', 'block', 'w-2', 'rounded-[2px]'])
-  );
-  assert.doesNotMatch(awayBar.className, /opacity-/, 'the normalised band renders at full opacity');
-  assert.equal(awayBar.getAttribute('aria-hidden'), 'true');
-  assert.equal(awayBar.getAttribute('style'), 'background-color:#4A8FE0');
-  assert.equal(document.querySelectorAll('[data-scoreboard-team-color]').length, 1);
-  assert.equal(document.querySelector('[data-scoreboard-team-color="home"]'), null);
-
-  for (const side of ['away', 'home'] as const) {
-    const rowClasses = classTokens(participantOpeningTag(html, side));
-    assert.ok(rowClasses.has('relative'), `${side} row must establish the containing block`);
-    assert.ok(rowClasses.has('pl-4'), `${side} row must take its 16px slot from existing width`);
-  }
-});
-
-test('alternate-colour prototype draws a 1px inset edge without changing the 8px bar width', () => {
-  const html = renderScoreboard({
-    away: {
-      teamName: 'App State',
-      teamColor: { fillColor: '#4E4E4E', outlineColor: '#FFCD00' },
-      owner: 'Whited',
-      rank: null,
-      score: 17,
-    },
-  });
-  const document = new JSDOM(html).window.document;
-  const bar = document.querySelector('[data-scoreboard-team-color="away"]');
-
-  assert.ok(bar);
-  assert.match(bar.className, /(?:^|\s)w-2(?:\s|$)/);
-  assert.equal(bar.getAttribute('data-scoreboard-team-color-outline'), 'alternate');
-  assert.equal(
-    bar.getAttribute('style'),
-    'background-color:#4E4E4E;box-shadow:inset 0 0 0 1px #FFCD00'
-  );
-});
-
-test('team-logo prototype uses dark-surface CFBD artwork inside the existing line-start slot', () => {
+test('team logos use the 28px CFBD artwork treatment in the structural line-start slot', () => {
   const html = renderScoreboard({
     away: {
       teamName: 'Ohio State',
-      teamColor: '#CC4E54',
       teamLogo: {
-        lightUrl: 'https://cdn.collegefootballdata.com/logos/32/194.png',
-        darkUrl: 'https://cdn.collegefootballdata.com/logos-dark/32/194.png',
-        displaySize: 14,
+        url: 'https://cdn.collegefootballdata.com/logos-dark/64/194.png',
       },
       owner: 'Gladney',
       rank: 1,
@@ -421,128 +351,36 @@ test('team-logo prototype uses dark-surface CFBD artwork inside the existing lin
 
   assert.ok(image);
   assert.equal(image.getAttribute('aria-hidden'), 'true');
-  assert.match(image.className, /h-\[14px\]/);
-  assert.match(image.className, /w-\[14px\]/);
+  assert.match(image.className, /(?:^|\s)h-7(?:\s|$)/);
+  assert.match(image.className, /(?:^|\s)w-7(?:\s|$)/);
   assert.equal(
     image.getAttribute('src'),
-    'https://cdn.collegefootballdata.com/logos-dark/32/194.png'
+    'https://cdn.collegefootballdata.com/logos-dark/64/194.png'
   );
   assert.equal(image.getAttribute('alt'), '');
-  assert.equal(image.getAttribute('width'), '14');
-  assert.equal(image.getAttribute('height'), '14');
-  assert.equal(document.querySelector('[data-scoreboard-team-color="away"]'), null);
-  assert.ok(classTokens(participantOpeningTag(html, 'away')).has('pl-4'));
-});
-
-test('logo prototypes through 24px grow only the horizontal slot', () => {
-  for (const [displaySize, imageClass, paddingClass] of [
-    [18, 'h-[18px]', 'pl-[22px]'],
-    [20, 'h-5', 'pl-6'],
-    [22, 'h-[22px]', 'pl-[26px]'],
-    [24, 'h-6', 'pl-7'],
-  ] as const) {
-    const html = renderScoreboard({
-      away: {
-        teamName: 'Ohio State',
-        score: null,
-        teamLogo: {
-          lightUrl: 'https://cdn.collegefootballdata.com/logos/48/194.png',
-          darkUrl: 'https://cdn.collegefootballdata.com/logos-dark/48/194.png',
-          displaySize,
-        },
-      },
-    });
-    const document = new JSDOM(html).window.document;
-    const image = document.querySelector('[data-scoreboard-team-logo="away"]');
-
-    assert.ok(image);
-    assert.match(
-      image.className,
-      new RegExp(imageClass.replaceAll('[', '\\[').replaceAll(']', '\\]'))
-    );
-    assert.equal(image.getAttribute('width'), String(displaySize));
-    assert.ok(classTokens(participantOpeningTag(html, 'away')).has(paddingClass));
-    assert.ok(classTokens(participantOpeningTag(html, 'away')).has('py-0.5'));
-  }
-});
-
-test('28px logo prototype grows both slots so adjacent rows cannot overlap', () => {
-  const html = renderScoreboard({
-    away: {
-      teamName: 'Ohio State',
-      score: null,
-      teamLogo: {
-        lightUrl: 'https://cdn.collegefootballdata.com/logos/64/194.png',
-        darkUrl: 'https://cdn.collegefootballdata.com/logos-dark/64/194.png',
-        displaySize: 28,
-      },
-    },
-  });
-  const document = new JSDOM(html).window.document;
-  const image = document.querySelector('[data-scoreboard-team-logo="away"]');
-
-  assert.ok(image);
-  assert.match(image.className, /h-7/);
+  assert.equal(image.getAttribute('width'), '28');
+  assert.equal(image.getAttribute('height'), '28');
   assert.ok(classTokens(participantOpeningTag(html, 'away')).has('pl-8'));
   assert.ok(classTokens(participantOpeningTag(html, 'away')).has('py-1.5'));
 });
 
-test('catalog fallback stays absent on an FCS team line instead of rendering green', () => {
-  const teamColorsById = buildScoreboardTeamColorsById([
-    { school: 'Portland State', color: null, altColor: null },
-    { school: 'Oregon', color: '#154733', altColor: '#FEE123' },
-  ]);
+test('the 32px line-start slot stays reserved when logo artwork is unavailable', () => {
   const html = renderScoreboard({
-    state: 'scheduled',
     away: {
-      teamName: 'Portland State',
-      teamColor: teamColorsById.get('portlandstate'),
-      rank: null,
+      teamName: 'Chicago State',
+      teamLogo: null,
       classification: 'fcs',
-      score: null,
-    },
-    home: {
-      teamName: 'Oregon',
-      teamColor: teamColorsById.get('oregon'),
-      rank: null,
-      score: null,
+      score: 17,
     },
   });
 
-  assert.match(html, /data-scoreboard-classification="away">FCS<\/span>/);
-  assert.doesNotMatch(html, /data-scoreboard-team-color="away"/);
-  assert.match(html, /data-scoreboard-team-color="home"/);
-});
-
-test('adding a team colour leaves team, record, owner, and anchor markup byte-identical', () => {
-  const participant: Participant = {
-    teamName: 'Michigan',
-    owner: 'Whited',
-    rank: null,
-    record: { wins: 4, losses: 1 },
-    score: 17,
-  };
-  const withoutColor = renderScoreboard({ away: participant });
-  const withColor = renderScoreboard({ away: { ...participant, teamColor: '#4A8FE0' } });
-  const selectors = [
-    ['[data-scoreboard-team="away"]', 'team'],
-    ['[data-scoreboard-record="away"]', 'record'],
-    ['[data-scoreboard-owner="away"]', 'owner'],
-    ['[data-scoreboard-value="away"]', 'anchor'],
-  ] as const;
-
-  for (const [selector, fact] of selectors) {
-    assert.equal(
-      participantFactMarkup(withColor, selector, `${fact} must render with a colour`),
-      participantFactMarkup(withoutColor, selector, `${fact} must render without a colour`),
-      `${fact} markup must remain byte-identical`
-    );
+  const document = new JSDOM(html).window.document;
+  assert.equal(document.querySelector('[data-scoreboard-team-logo="away"]'), null);
+  for (const side of ['away', 'home'] as const) {
+    const classes = classTokens(participantOpeningTag(html, side));
+    assert.ok(classes.has('pl-8'), `${side} must reserve the 32px logo slot`);
+    assert.ok(classes.has('py-1.5'), `${side} must preserve the 28px logo row height`);
   }
-  assert.equal(
-    participantOpeningTag(withColor, 'away'),
-    participantOpeningTag(withoutColor, 'away'),
-    'the slot is structural and must not change row width or classes when colour is absent'
-  );
 });
 
 test('live scoreboard renders an unowned opponent as team-only', () => {
@@ -644,7 +482,7 @@ test('every scoreboard state adds an isolated neutral tint only to the marked pa
 
       assert.ok(
         markedClasses.has('relative') && unmarkedClasses.has('relative'),
-        `${state} rows must preserve the shared containing block for the team-colour slot`
+        `${state} rows must preserve the shared containing block for the team-logo slot`
       );
 
       for (const className of tintClasses) {

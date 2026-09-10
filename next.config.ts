@@ -6,12 +6,7 @@ const nextConfig: NextConfig = {
       {
         protocol: 'https',
         hostname: 'cdn.collegefootballdata.com',
-        pathname: '/logos-dark/32/*.png',
-      },
-      {
-        protocol: 'https',
-        hostname: 'cdn.collegefootballdata.com',
-        pathname: '/logos-dark/48/*.png',
+        pathname: '/logos/64/*.png',
       },
       {
         protocol: 'https',

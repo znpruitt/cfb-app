@@ -56,10 +56,6 @@ import {
 } from '../lib/rankings';
 import { getGameParticipantTeamId, type AppGame } from '../lib/schedule';
 import type { ScorePack } from '../lib/scores';
-import {
-  EMPTY_SCOREBOARD_TEAM_COLORS_BY_ID,
-  type ScoreboardTeamColorsById,
-} from '../lib/teamColors';
 import { EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID, type ScoreboardTeamLogosById } from '../lib/teamLogos';
 import { standingsCoverageNoticeWithSubject } from '../lib/standings';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
@@ -678,14 +674,12 @@ function GameCardList({
   rankingsByTeamId,
   teamRecordsByProviderGameId,
   state,
-  teamColorsById,
   teamLogosById,
 }: {
   items: OverviewSectionItem[];
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
   teamRecordsByProviderGameId: TeamRecordsByProviderGameId;
   state: 'live' | 'final';
-  teamColorsById: ScoreboardTeamColorsById;
   teamLogosById: ScoreboardTeamLogosById;
 }): React.ReactElement {
   if (items.length === 0) {
@@ -740,7 +734,6 @@ function GameCardList({
             matchupLabel={formatGameMatchupLabel(game)}
             away={{
               teamName: game.csvAway,
-              teamColor: teamColorsById.get(awayTeamId),
               teamLogo: teamLogosById.get(awayTeamId),
               owner: displayOwner(item.bucket.awayOwner),
               rank: awayRanking.rank,
@@ -750,7 +743,6 @@ function GameCardList({
             }}
             home={{
               teamName: game.csvHome,
-              teamColor: teamColorsById.get(homeTeamId),
               teamLogo: teamLogosById.get(homeTeamId),
               owner: displayOwner(item.bucket.homeOwner),
               rank: homeRanking.rank,
@@ -772,7 +764,6 @@ function WatchlistScoreboardList({
   rankingsByTeamId,
   teamRecordsByProviderGameId,
   oddsByKey,
-  teamColorsById,
   teamLogosById,
 }: {
   prioritizedItems: PrioritizedOverviewSectionItem[];
@@ -781,7 +772,6 @@ function WatchlistScoreboardList({
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
   teamRecordsByProviderGameId: TeamRecordsByProviderGameId;
   oddsByKey: Record<string, CombinedOdds>;
-  teamColorsById: ScoreboardTeamColorsById;
   teamLogosById: ScoreboardTeamLogosById;
 }): React.ReactElement {
   if (prioritizedItems.length === 0) {
@@ -862,7 +852,6 @@ function WatchlistScoreboardList({
             }
             away={{
               teamName: game.csvAway,
-              teamColor: teamColorsById.get(awayTeamId),
               teamLogo: teamLogosById.get(awayTeamId),
               owner: displayOwner(item.bucket.awayOwner),
               rank: awayRanking.rank,
@@ -872,7 +861,6 @@ function WatchlistScoreboardList({
             }}
             home={{
               teamName: game.csvHome,
-              teamColor: teamColorsById.get(homeTeamId),
               teamLogo: teamLogosById.get(homeTeamId),
               owner: displayOwner(item.bucket.homeOwner),
               rank: homeRanking.rank,
@@ -893,14 +881,12 @@ function FeaturedGamesList({
   emptyMessage,
   rankingsByTeamId,
   teamRecordsByProviderGameId,
-  teamColorsById,
   teamLogosById,
 }: {
   prioritizedItems: PrioritizedOverviewItem[];
   emptyMessage: string;
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
   teamRecordsByProviderGameId: TeamRecordsByProviderGameId;
-  teamColorsById: ScoreboardTeamColorsById;
   teamLogosById: ScoreboardTeamLogosById;
 }): React.ReactElement {
   if (prioritizedItems.length === 0) {
@@ -959,7 +945,6 @@ function FeaturedGamesList({
             }
             away={{
               teamName: game.csvAway,
-              teamColor: teamColorsById.get(awayTeamId),
               teamLogo: teamLogosById.get(awayTeamId),
               owner: displayOwner(item.bucket.awayOwner),
               rank: awayRanking.rank,
@@ -969,7 +954,6 @@ function FeaturedGamesList({
             }}
             home={{
               teamName: game.csvHome,
-              teamColor: teamColorsById.get(homeTeamId),
               teamLogo: teamLogosById.get(homeTeamId),
               owner: displayOwner(item.bucket.homeOwner),
               rank: homeRanking.rank,
@@ -1372,7 +1356,6 @@ type OverviewPanelProps = {
   scoresByKey?: Record<string, ScorePack>;
   oddsByKey?: Record<string, CombinedOdds>;
   teamRecordsByProviderGameId?: TeamRecordsByProviderGameId;
-  teamColorsById?: ScoreboardTeamColorsById;
   teamLogosById?: ScoreboardTeamLogosById;
   rosterByTeam?: Map<string, string>;
   ownerColorMap?: Record<string, string>;
@@ -1421,7 +1404,6 @@ export default function OverviewPanel({
   scoresByKey = {},
   oddsByKey = EMPTY_OVERVIEW_ODDS_BY_KEY,
   teamRecordsByProviderGameId = EMPTY_TEAM_RECORDS_BY_PROVIDER_GAME_ID,
-  teamColorsById = EMPTY_SCOREBOARD_TEAM_COLORS_BY_ID,
   teamLogosById = EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID,
   rosterByTeam = new Map(),
   ownerColorMap = {},
@@ -1779,7 +1761,6 @@ export default function OverviewPanel({
                 emptyMessage="No recent results yet."
                 rankingsByTeamId={rankingsByTeamId}
                 teamRecordsByProviderGameId={teamRecordsByProviderGameId}
-                teamColorsById={teamColorsById}
                 teamLogosById={teamLogosById}
               />
             </div>
@@ -1811,7 +1792,6 @@ export default function OverviewPanel({
                 rankingsByTeamId={rankingsByTeamId}
                 teamRecordsByProviderGameId={teamRecordsByProviderGameId}
                 state="live"
-                teamColorsById={teamColorsById}
                 teamLogosById={teamLogosById}
               />
             </div>
@@ -1839,7 +1819,6 @@ export default function OverviewPanel({
                 rankingsByTeamId={rankingsByTeamId}
                 teamRecordsByProviderGameId={teamRecordsByProviderGameId}
                 state="final"
-                teamColorsById={teamColorsById}
                 teamLogosById={teamLogosById}
               />
             </div>
@@ -1873,7 +1852,6 @@ export default function OverviewPanel({
                 rankingsByTeamId={rankingsByTeamId}
                 teamRecordsByProviderGameId={teamRecordsByProviderGameId}
                 oddsByKey={oddsByKey}
-                teamColorsById={teamColorsById}
                 teamLogosById={teamLogosById}
               />
             </div>

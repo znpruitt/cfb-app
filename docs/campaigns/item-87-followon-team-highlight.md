@@ -27,15 +27,15 @@ That distinction is why this is a Matchups-only feature rather than an app-wide 
 
 **Background, not text weight.** Weight already carries winner/loser on final rows. Emphasising the owner's team that way would render a losing team of theirs bold-and-dimmed — two signals arguing on one row. A tint sits behind the text and leaves the outcome hierarchy intact. Same reasoning that rejected the team-colour gradient, applied in the other direction.
 
-**Neutral rather than owner colour.** `DESIGN.md` reserves owner colour for lists acting as a chart legend, so using it here would be a rule change rather than an application of one. It would also be a third identity colour on a single row, alongside the team-colour bar at line start. The mockup keeps an owner-colour variant behind a toggle for comparison only.
+**Neutral rather than owner colour.** `DESIGN.md` reserves owner colour for lists acting as a chart legend, so using it here would be a rule change rather than an application of one. It would also add a competing identity treatment beside the team logo at line start. The mockup keeps an owner-colour variant behind a toggle for comparison only.
 
 > **CURRENT — and it is the IDENTITY axis only (verified 2026-09-08).** "Neutral" here rejects OWNER colour: the
 > whole argument is the legend reservation and a third identity colour. `item-87-followon-presentation-decisions.md`
 > → *The tint tracks state across the game's whole life* gives the same tint an OUTCOME hue once a direction exists
 > (neutral while scheduled or level; green/red ahead, behind, won, lost). Not owner-coloured, and outcome-coloured
 > once a direction exists: both hold, and that document extends this one rather than superseding it. "The
-> team-colour bar at line start" is a dependency, not a fact about shipped code — slice 5 deleted the bar and Item
-> 119 restores it (`item-87-followon-team-colour-regression.md`).
+> team-colour bar at line start" was a dependency, not a fact about shipped code. **SUPERSEDED
+> 2026-09-10:** the owner chose a permanent 28px team logo instead, and Items 119/198 are retired.
 
 Owner colour is reserved for lists acting as a legend for an adjacent chart. `DESIGN.md:321` records Standings rank numbers as an exception, carrying owner line colour — but that is the rule's rationale applying, not a hole in it: that list is functionally a legend for the chart beside it. The exception sits exactly where the reservation's reasoning holds, which makes it a test. A Matchups row tint has no chart to key to, so it fails the test the exception passes.
 
@@ -51,7 +51,9 @@ Two stacking bugs surfaced while building it, both worth knowing:
 
 **A pseudo-element at `z-index: -1` paints behind the stacking context, not behind its parent.** The tint disappeared under the owner card's own background. Fix: `isolation: isolate` on the row, so the row becomes its own stacking context and the tint lands behind the row's text rather than behind the card.
 
-**Lifting row content above the tint by making children `position: relative` breaks the team-colour bar.** The bar is absolutely positioned against `.sb-line`; making `.who` positioned re-anchors it, shifting every bar on a highlighted row. `isolation` removes the need for that rule entirely.
+**The row still requires `isolation`.** The negative-z tint otherwise paints behind the card rather
+than the row. The former warning that positioned children re-anchor a colour bar is historical: the
+permanent logo is a direct absolutely positioned child of the row.
 
 ---
 

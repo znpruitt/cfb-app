@@ -14,10 +14,6 @@ import { getPresentationTimeZone } from '../lib/weekPresentation';
 import type { TeamRankingEnrichment } from '../lib/rankings';
 import type { ScorePack } from '../lib/scores';
 import type { AppGame } from '../lib/schedule';
-import {
-  EMPTY_SCOREBOARD_TEAM_COLORS_BY_ID,
-  type ScoreboardTeamColorsById,
-} from '../lib/teamColors';
 import { EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID, type ScoreboardTeamLogosById } from '../lib/teamLogos';
 import CompactGameScoreboard from './CompactGameScoreboard';
 
@@ -36,7 +32,6 @@ type GameWeekPanelProps = {
   displayTimeZone?: string;
   currentDateMs?: number | null;
   focusedGameId?: string | null;
-  teamColorsById?: ScoreboardTeamColorsById;
   teamLogosById?: ScoreboardTeamLogosById;
 };
 
@@ -68,7 +63,6 @@ export default function GameWeekPanel({
   displayTimeZone = getPresentationTimeZone(),
   currentDateMs = null,
   focusedGameId = null,
-  teamColorsById = EMPTY_SCOREBOARD_TEAM_COLORS_BY_ID,
   teamLogosById = EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID,
 }: GameWeekPanelProps): React.ReactElement {
   const gameCardRefs = React.useRef<Map<string, HTMLDivElement>>(new Map());
@@ -179,7 +173,6 @@ export default function GameWeekPanel({
                       }
                       away={{
                         teamName: card.awayTeamName,
-                        teamColor: teamColorsById.get(card.awayTeamId),
                         teamLogo: teamLogosById.get(card.awayTeamId),
                         owner: awayDisplayOwner,
                         rank: awayRanking?.rank,
@@ -189,7 +182,6 @@ export default function GameWeekPanel({
                       }}
                       home={{
                         teamName: card.homeTeamName,
-                        teamColor: teamColorsById.get(card.homeTeamId),
                         teamLogo: teamLogosById.get(card.homeTeamId),
                         owner: homeDisplayOwner,
                         rank: homeRanking?.rank,

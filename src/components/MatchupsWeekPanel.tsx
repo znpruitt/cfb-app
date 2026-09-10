@@ -30,10 +30,6 @@ import {
 import type { TeamRankingEnrichment } from '../lib/rankings';
 import type { ScorePack } from '../lib/scores';
 import type { AppGame } from '../lib/schedule';
-import {
-  EMPTY_SCOREBOARD_TEAM_COLORS_BY_ID,
-  type ScoreboardTeamColorsById,
-} from '../lib/teamColors';
 import { EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID, type ScoreboardTeamLogosById } from '../lib/teamLogos';
 import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
 import type { LiveDelta } from '../lib/selectors/liveDelta';
@@ -73,7 +69,6 @@ type MatchupsWeekPanelProps = {
   liveDelta?: LiveDelta | null;
   /** Shared clock fact used only by the scoreboard state projection. */
   nowMs: number;
-  teamColorsById?: ScoreboardTeamColorsById;
   teamLogosById?: ScoreboardTeamLogosById;
 };
 
@@ -158,7 +153,6 @@ function GameRow({
   teamRecordsByProviderGameId,
   liveDelta,
   nowMs,
-  teamColorsById,
   teamLogosById,
 }: {
   slateGame: OwnerSlateGame;
@@ -170,7 +164,6 @@ function GameRow({
   teamRecordsByProviderGameId: TeamRecordsByProviderGameId;
   liveDelta?: LiveDelta | null;
   nowMs: number;
-  teamColorsById: ScoreboardTeamColorsById;
   teamLogosById: ScoreboardTeamLogosById;
 }): React.ReactElement {
   const score = scoresByKey[slateGame.game.key];
@@ -315,7 +308,6 @@ function GameRow({
         }
         away={{
           teamName: awayTeamName,
-          teamColor: teamColorsById.get(awayTeamId),
           teamLogo: teamLogosById.get(awayTeamId),
           owner: awayOwner,
           isCardOwnerTeam: awayIsCardOwnerTeam,
@@ -327,7 +319,6 @@ function GameRow({
         }}
         home={{
           teamName: homeTeamName,
-          teamColor: teamColorsById.get(homeTeamId),
           teamLogo: teamLogosById.get(homeTeamId),
           owner: homeOwner,
           isCardOwnerTeam: homeIsCardOwnerTeam,
@@ -381,7 +372,6 @@ function OwnerCard({
   teamRecordsByProviderGameId,
   liveDelta,
   nowMs,
-  teamColorsById,
   teamLogosById,
   isFocused = false,
   onRegisterRef,
@@ -396,7 +386,6 @@ function OwnerCard({
   teamRecordsByProviderGameId: TeamRecordsByProviderGameId;
   liveDelta?: LiveDelta | null;
   nowMs: number;
-  teamColorsById: ScoreboardTeamColorsById;
   teamLogosById: ScoreboardTeamLogosById;
   isFocused?: boolean;
   onRegisterRef?: (element: HTMLElement | null) => void;
@@ -465,7 +454,6 @@ function OwnerCard({
             teamRecordsByProviderGameId={teamRecordsByProviderGameId}
             liveDelta={liveDelta}
             nowMs={nowMs}
-            teamColorsById={teamColorsById}
             teamLogosById={teamLogosById}
           />
         ))}
@@ -502,7 +490,6 @@ export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.
     canonicalStandings = null,
     liveDelta = null,
     nowMs,
-    teamColorsById = EMPTY_SCOREBOARD_TEAM_COLORS_BY_ID,
     teamLogosById = EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID,
   } = props;
   const rawOwnerSlates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey);
@@ -566,7 +553,6 @@ export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.
                 teamRecordsByProviderGameId={teamRecordsByProviderGameId}
                 liveDelta={liveDelta}
                 nowMs={nowMs}
-                teamColorsById={teamColorsById}
                 teamLogosById={teamLogosById}
                 onRegisterRef={(element) => {
                   if (!element) {

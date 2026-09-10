@@ -177,7 +177,7 @@ export type AppGame = {
   completed?: boolean | null;
   /**
    * CFBD numeric participant ids retained for provider-owned presentation
-   * metadata such as the temporary team-logo prototype. Canonical identity
+   * metadata such as scoreboard team logos. Canonical identity
    * remains `participants.*.teamId`; these ids never participate in matching.
    */
   homeProviderTeamId?: number | null;

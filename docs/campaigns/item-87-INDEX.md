@@ -40,13 +40,13 @@ Rows 1–6 keep the numbers earlier prompts cited; rows 7 onward were promoted b
 | 13 | Item 113 / recap | Recap notable-results records: **work in later as an additive change**, uncoupled from the records cache. | `live-watchlist-scoreboard.md` → *Open decisions* 2 (45%) |
 | 14 | Item 115 | **Counts become totals in the same change that makes the surplus reachable**; visible-only until then. | `section-ordering-resolutions.md` §5 (46%); `section-ordering.md` → *Resolved* (80%) |
 | 15 | Item 115 / 134 | Caps are counts, not rows; decide whether they become tier-dependent or stay ragged. | `three-column-tier.md` → *Caps interact with the tier* (83%) |
-| 16 | Item 119 | **DISCHARGED 2026-09-09 — and the measurement authorises the port.** The bar shipped first on the HSL normaliser (Item 119). Measured on the resynced catalog: **only 31 of 135 bars clear 3:1 composited**, median 2.099, min 1.431. It matters. **Ship the bar and the OKLCH port separately**; bar first on the existing HSL normaliser; port only if measured to matter. | `team-colour.md` → *Two separable changes* (11%), §B (23%), *Recommended sequence* (84%) |
-| 17 | **LIVE — ANSWERED 2026-09-09, and the code is wrong.** Measured: THREE backgrounds exist, not two. `#0a0a0a` (canvas, `globals.css:29`), `#09090b` (zinc-950, the nearest painted surface) and **`#171718` — the OWNER-ROW tint**, produced by `rgba(255,255,255,0.055)` over zinc-950 (`CompactGameScoreboard.tsx:53`). `teamColors.ts:23` normalises against `#0A0A0A`. **CORRECTED AGAIN 2026-09-09 by the Item 198 lane: `#171718` is THEORETICAL and sits under no bar.** `isCardOwnerTeam` is supplied only by Matchups, whose card is zinc-800. The real underlays are `#09090B` (Overview, Schedule, Postseason), `#27272A` / `#333336` (Matchups scheduled, non-owner / owner) and `#242427` / `#303033` (Matchups outcome). **The worst is `#333336`, and the penalty is 36.2%, not 9.5%** — a colour at 3:1 against the canvas renders at **1.913:1** there. **AND ONE SURFACE CANNOT GOVERN BOTH ENDS:** the LIGHTEST underlay (`#333336`) is worst for visibility, the DARKEST (`#09090B`) worst for excess brightness. **Floor and ceiling take different reference surfaces.** | **Pick one background constant and state it** (`#0A0A0A` vs `#161616`) before either change ships. | `team-colour.md` → *One background constant* (50%) |
-| 18 | Item 119 | If OKLCH ships, the reserved-hue guard is **chroma reduction**, not a hue shift. | `team-colour.md` → *Reserved-hue guard is required* (46%) |
-| 19 | Item 119 | It is a **restoration on the shared row**, across Overview, Matchups and Schedule — not a widening; there is no incumbent. | `team-colour-regression.md` §1 (30%), *Mockup status* (100%); `matchups-schedule-design.md` → *Recommended order* 6 (96%) |
-| 20 | Item 119 | **Retire the outcome rail on Matchups and let the tint carry outcome** — a precondition, not polish; decide it with records (row 1) before anything else on Matchups moves. | `matchups-gap-analysis.md` §2 (49%), *Sequencing note* (98%) |
-| 21 | Item 119 (queue) | Record the **slice 5b `isolation: isolate` dependency** against Item 119 — still absent from its queue entry. | `team-colour-regression.md` → *Item 119 depends on slice 5b* (74%) |
-| 22 | Item 119 (registry) | Add to the slice 5 closeout that a **rendered team-colour treatment was removed pending Item 119** — the registry entry still does not say so. | `team-colour-regression.md` → *What the closeout should have said* (87%) |
+| 16 | Retired Items 119/198 | **DISCHARGED 2026-09-10 — direction retired.** Item 119's bar measured badly and Item 198 explored the warranted follow-on, but the owner chose 28px CFBD logos after comparing both treatments on real rows. | `team-colour.md` → historical sequence; `reference-game-row.md` §3 current logo contract |
+| 17 | Retired Item 198 | **DISCHARGED 2026-09-10 — normaliser removed.** The six real underlays and two-ended contrast constraint were correctly derived, then made irrelevant to the shipped row when logos replaced solid colours. | `reference-game-row.md` §3 historical colour investigation |
+| 18 | Retired Item 198 | **DISCHARGED 2026-09-10 — OKLCH does not ship.** Near-neutral chroma preservation remains a valid finding, but no colour-space transform remains in the scoreboard path. | `team-colour.md` → *Reserved-hue guard* (historical) |
+| 19 | Retired Item 119 | **DISCHARGED 2026-09-10 — superseded treatment.** The shared-row scope was correct; its permanent identity treatment is now the 28px logo across Overview, Matchups, Schedule and Postseason. | `reference-game-row.md` §3; `DESIGN.md` |
+| 20 | Planning reassignment | **LIVE, but no longer owned by Item 119.** The Matchups outcome rail/tint duplication survives the logo decision and needs its own owner; this lane does not file a new item. | `matchups-gap-analysis.md` §2 (49%), *Sequencing note* (98%) |
+| 21 | Retired Item 119 | **DISCHARGED 2026-09-10 — dependency absorbed.** The row remains `isolate` for the owner tint and is now also the containing block for the permanent logo. | `reference-game-row.md` §7; `CompactGameScoreboard.tsx` |
+| 22 | Retired Item 119 | **SUPERSEDED 2026-09-10.** The retrospective note is preserved in the historical colour-regression document; the current closeout records that the colour restoration itself was retired. | `team-colour-regression.md` → *What the closeout should have said* |
 | 23 | Item 134 | **Confirm orphan rows sit on the right**, not centred. | `three-column-tier.md` → *Orphan rows* (79%) |
 | 24 | Item 142 | Matchups finals still carry a kickoff, through `metadataEntries` in the `contextSlot`, not `clock`. | `matchups-gap-analysis.md` §3.1 (56%) |
 | 25 | **DISCHARGED by PLATFORM-143** | The `margin-left: auto` trap is implemented in the shared status row: the metadata group grows with `flex-auto min-w-0`, while the tag group is `flex-none`. | `presentation-decisions.md` → *Implementation note* (28%); `CompactGameScoreboard.tsx` |
@@ -101,7 +101,7 @@ Rows 1–6 keep the numbers earlier prompts cited; rows 7 onward were promoted b
 | 64 | Questions for the CLI 1–6. | answered in-document | *Questions for the CLI* (97–100%) |
 | 65 | "Today" as the sole relative label on Schedule. | slice 5, `selectors/gameWeek.ts:211` | `section-ordering.md` decision 5 (78%) |
 | 66 | Investigate the `eventKey` collision. | Item 121 | `postseason-grouping-notes.md` (95%); `postseason-refinements.md` §3 (59%) |
-| 67 | Guard comment on `teamColors.ts` naming Item 119. | file header | `team-colour-regression.md` §3 (54%) |
+| 67 | **SUPERSEDED 2026-09-10.** `teamColors.ts` was deleted when Item 119 was retired; the general no-consumer rule remains in `AGENTS.md` with `EYEBROW_REASON_CLASSES` as its live example. | `AGENTS.md` → *Documentation closeout timing* | `team-colour-regression.md` §3 (historical) |
 | 68 | Grep `DESIGN.md` when a slice deletes a treatment; correct `DESIGN.md:165`. | `AGENTS.md` → *Documentation closeout timing*; `DESIGN.md` → *Cards* | `team-colour-regression.md` (67%) |
 
 ### ANSWERED by a later document
@@ -221,16 +221,15 @@ Key the generic CFP group on `playoffCompetition === 'cfp'`. Parser evidence acr
 
 ### Colour
 
-**`item-87-followon-team-colour.md`** (98 → 118 lines) — **PARTLY SUPERSEDED**
+**`item-87-followon-team-colour.md`** — **SUPERSEDED 2026-09-10**
 
-- The **decision is CURRENT**: solid 8px muted bar at ~72% in the line-start slot; gradient and full-width band
-  rejected; ship on the existing HSL normaliser before considering OKLCH. Rows 16–18 LIVE.
-- The **framing is SUPERSEDED** (marked): §A describes widening a 2–3px incumbent, and the opening paragraph says
-  `GameScoreboard` renders it. There is no incumbent — slice 5 deleted it. See `team-colour-regression.md`.
+The colour-bar design and Item 198 investigations remain historical evidence. The owner chose a
+permanent 28px CFBD logo after comparing the treatments on real scoreboards; rows 16–19 and 21 are
+discharged, while the outcome-rail obligation in row 20 survives for planning reassignment.
 
-**`item-87-followon-team-colour-regression.md`** (78 → 100 lines) — **CURRENT**
-Item 119 is a restoration, not a widening, across Overview, Matchups and Schedule. Two asks DISCHARGED (guard
-comment; `DESIGN.md` correction and the closeout-check rule, now in `AGENTS.md`), two LIVE (rows 21–22).
+**`item-87-followon-team-colour-regression.md`** — **SUPERSEDED 2026-09-10**
+Its account of the slice-5 removal remains accurate history, but Item 119's restoration is retired and
+`teamColors.ts` is removed. The current shared-row contract is `reference-game-row.md` §3 and `DESIGN.md`.
 
 **`item-87-followon-team-highlight.md`** (90 → 120 lines) — **CURRENT.** *Status corrected 2026-09-08 after the
 file was read end to end. It was previously marked SUPERSEDED — by two readers, from second-hand accounts.
@@ -249,7 +248,7 @@ adjacent tints, and the horizontal-bleed / focus-ring constraint — both shippe
 38 are what its closeout and the queue still lack.
 
 **What this corrects downstream.** The rail/tint collision in shipped code is real and unchanged — a coloured
-left rail plus a grey tint states outcome twice and spends the slot Item 119 needs (row 20). Its cause is not "a
+left rail plus a grey tint states outcome twice; its former Item 119 slot dependency is superseded (row 20). Its cause is not "a
 stale document was read as current"; it is that the tint's outcome-tracking was never implemented and the rail
 never retired. **No document was wrong. Two readers asserted the contents of a ninety-line file neither had
 opened.**
@@ -268,7 +267,7 @@ here; read against the code, **most were obligations that had been met**:
   *Same component, different consumption* — both "suppressed on Schedule" (odds sit in tier 2; only the footer is
   suppressed) and "identical across the three surfaces" (→ Item 143's four divergences).
 - **CURRENT but its premise is unbuilt:** "the filter cuts it to the live handful" — Item 118.
-- **LIVE:** the Matchups half of widening 4 (row 29); the border-retirement recording (row 4); step 6 (Item 119);
+- **LIVE:** the Matchups half of widening 4 (row 29); the border-retirement recording (row 4);
   landing position (finding 41); the Overview eyebrow (finding 42).
 - **The "Matchups keeps its two-column owner-card grid" line was never in this document.** It was in the mockup's
   notes block, and the owner replaced it with the 1372 arithmetic on 2026-09-08.

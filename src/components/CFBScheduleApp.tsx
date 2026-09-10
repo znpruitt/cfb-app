@@ -45,16 +45,7 @@ import { isAwaitingSeasonStartDate } from '../lib/selectors/seasonStartDate';
 import { buildScheduleFromApi, fetchSeasonSchedule, type AppGame } from '../lib/schedule';
 import { fetchTeamsCatalog } from '../lib/teamsCatalog';
 import type { TeamCatalogItem } from '../lib/teamIdentity';
-import {
-  buildScoreboardTeamColorsById,
-  EMPTY_SCOREBOARD_TEAM_COLORS_BY_ID,
-  type ScoreboardTeamColorPrototypeMode,
-} from '../lib/teamColors';
-import {
-  buildScoreboardTeamLogosById,
-  EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID,
-  type ScoreboardTeamLogoDisplaySize,
-} from '../lib/teamLogos';
+import { buildScoreboardTeamLogosById } from '../lib/teamLogos';
 import { fetchConferencesCatalog } from '../lib/conferencesCatalog';
 import { seasonStorageKeys } from '../lib/storageKeys';
 import { type OddsUsageSnapshot } from '../lib/apiUsage';
@@ -121,10 +112,6 @@ type CFBScheduleAppProps = {
   leagueDisplayName?: string;
   leagueYear?: number;
   leagueStatus?: LeagueStatus;
-  /** PLATFORM-198 REVIEW PROTOTYPE — remove before merge. */
-  teamColorPrototypeMode?: ScoreboardTeamColorPrototypeMode;
-  /** PLATFORM-198 REVIEW PROTOTYPE — remove before merge. */
-  teamLogoPrototypeSize?: ScoreboardTeamLogoDisplaySize | null;
   /**
    * `League.assignmentMethod` — how this league assigns teams for the season.
    * The preseason banner needs it because `setAssignmentMethod` leaves any
@@ -304,8 +291,6 @@ export default function CFBScheduleApp({
   leagueDisplayName,
   leagueYear,
   leagueStatus,
-  teamColorPrototypeMode = 'remap-only',
-  teamLogoPrototypeSize = null,
   assignmentMethod,
   mostRecentArchivedYear,
   canonicalStandings,
@@ -664,21 +649,11 @@ export default function CFBScheduleApp({
     }
     return m;
   }, [roster, isPreseason, initialPreseasonOwners]);
-  // Item 119: normalize each catalog colour once when the runtime catalog changes.
-  // Scoreboard renderers receive this memo and pay only two Map lookups per game.
-  const teamColorsById = useMemo(
-    () =>
-      teamLogoPrototypeSize !== null
-        ? EMPTY_SCOREBOARD_TEAM_COLORS_BY_ID
-        : buildScoreboardTeamColorsById(teamCatalog, teamColorPrototypeMode),
-    [teamCatalog, teamColorPrototypeMode, teamLogoPrototypeSize]
-  );
+  // The ownable catalog is FBS-only, so schedule games supply the provider ids
+  // needed to resolve logos for FCS opponents without widening that catalog.
   const teamLogosById = useMemo(
-    () =>
-      teamLogoPrototypeSize !== null
-        ? buildScoreboardTeamLogosById(teamCatalog, games, teamLogoPrototypeSize)
-        : EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID,
-    [games, teamCatalog, teamLogoPrototypeSize]
+    () => buildScoreboardTeamLogosById(teamCatalog, games),
+    [games, teamCatalog]
   );
   const filteredWeekGames = useMemo(() => {
     if (selectedWeek == null) return [] as AppGame[];
@@ -1852,7 +1827,6 @@ export default function CFBScheduleApp({
                   context={overviewSnapshot.context}
                   displayTimeZone={presentationTimeZone}
                   rankingsByTeamId={overviewRankingsByTeamId}
-                  teamColorsById={teamColorsById}
                   teamLogosById={teamLogosById}
                   rankings={rankings}
                   onOwnerSelect={(owner) => {
@@ -1908,7 +1882,6 @@ export default function CFBScheduleApp({
                   onSavePostseasonOverride={isAdmin ? savePostseasonOverride : undefined}
                   currentDateMs={liveStaleClock || null}
                   focusedGameId={focusedGameId}
-                  teamColorsById={teamColorsById}
                   teamLogosById={teamLogosById}
                 />
               ) : primarySurfaceKind === 'rankings' ? (
@@ -1940,7 +1913,6 @@ export default function CFBScheduleApp({
                   canonicalStandings={canonicalStandings}
                   liveDelta={liveDelta}
                   nowMs={liveStaleClock}
-                  teamColorsById={teamColorsById}
                   teamLogosById={teamLogosById}
                 />
               ) : weekViewMode === 'matrix' ? (
@@ -1962,7 +1934,6 @@ export default function CFBScheduleApp({
                   rankingsByTeamId={rankingsByTeamId}
                   currentDateMs={liveStaleClock || null}
                   focusedGameId={focusedGameId}
-                  teamColorsById={teamColorsById}
                   teamLogosById={teamLogosById}
                 />
               )}

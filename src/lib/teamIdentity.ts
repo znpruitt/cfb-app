@@ -79,14 +79,6 @@ export function toTeamIdentityKey(raw: string): string {
   return normalizeTeamName(raw.trim());
 }
 
-export function getTeamCatalogIdentityKey(
-  team: Pick<TeamCatalogItem, 'id' | 'school'>
-): string | null {
-  const school = team.school?.trim();
-  if (!school) return null;
-  return team.id?.trim() || toTeamIdentityKey(school) || null;
-}
-
 export function resolveTeamIdentityKey(resolver: TeamIdentityResolver, raw: string): string {
   const resolved = resolver.resolveName(raw);
   return resolved.identityKey ?? resolved.normalizedInput;
@@ -222,7 +214,7 @@ function buildCanonicalRegistry(params: {
   for (const team of teams) {
     const displayName = team.school?.trim();
     if (!displayName) continue;
-    const id = getTeamCatalogIdentityKey(team);
+    const id = team.id?.trim() || normalizeTeamName(displayName);
     if (!id) continue;
     const teamDisplay = buildTeamDisplayInfo(team, displayName);
 

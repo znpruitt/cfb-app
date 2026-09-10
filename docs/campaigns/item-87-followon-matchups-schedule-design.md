@@ -185,7 +185,7 @@ Not appended to the odds string, where it read as an afterthought and coupled tw
 > **DISCHARGED (verified 2026-09-08):** the tier-2 conference line shipped as `conferenceSummary`
 > (`gameWeek.ts:263`). The leak check this paragraph asks for is not recorded anywhere; treat it as unverified.
 
-**Alternative if conference proves tier 1:** abbreviate it (ACC, B1G, MW) and place it inline on the team line. Rejected for now — that line already carries a colour bar, rank or FCS marker, team, record and owner, and conference would be the sixth element. If the page-level filter makes members expect it per row, the inline form is the fallback and something else has to give way.
+**Alternative if conference proves tier 1:** abbreviate it (ACC, B1G, MW) and place it inline on the team line. Rejected for now — that line already carries a 28px logo, rank or FCS marker, team, record and owner, and conference would be the sixth element. If the page-level filter makes members expect it per row, the inline form is the fallback and something else has to give way. **Updated 2026-09-10:** the logo replaces Item 119's colour bar.
 
 ### Sorted strictly by kickoff, ascending, within each date group
 
@@ -366,8 +366,8 @@ The Featured tile's reason row (`sb-title`) stays plain bronze text. It is a car
 
 > **DISCHARGED 1–5, LIVE 6 (verified 2026-09-08):** 1 = POLISH-021; 2 = `DESIGN.md` (slice 5a closeout); 3 = slice
 > 5a, PR #570; 4 = slice 5, PR #572 (the filter went to Item 118 rather than shipping with it); 5 = Item 117, PR
-> #581. 6 is Item 119, unbuilt — and it is now a restoration, not a widening
-> (`item-87-followon-team-colour-regression.md`).
+> #581. Step 6's Item 119 colour restoration was retired by owner decision 2026-09-10 and replaced
+> by the 28px shared-row logo (`item-87-reference-game-row.md` §3).
 
 ## Questions for the CLI
 

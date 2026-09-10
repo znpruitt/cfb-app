@@ -38,7 +38,7 @@ Shipped renders `Kickoff Sat, Sep 12, 11:00 AM` as a line above the teams. The m
 
 ---
 
-## Tier 2 — one collision, and it blocks Item 119
+## Tier 2 — one collision; its Item 119 dependency is superseded
 
 ### 2. Outcome is encoded twice, and the left edge is occupied
 
@@ -49,7 +49,9 @@ Week 1 shows **both** a coloured left rail per game (red for a loss, green for a
 The mockup moved outcome into the tint specifically so the line-start slot could carry team identity. Shipped kept the rail and added a neutral tint, so:
 
 - outcome is stated twice on the same row;
-- the left edge is spent, and **Item 119's team-colour bar has nowhere to go**.
+- the left edge carried two status treatments. **SUPERSEDED 2026-09-10:** Item 119's bar was retired
+  in favor of a team logo, which coexists with the wrapper rail. The rail/tint duplication remains
+  live, but it no longer blocks the identity slot.
 
 **Correction to an earlier reading:** the outcome-coloured tint was **not rejected**. `item-87-followon-team-highlight.md` predates the decision; `item-87-followon-presentation-decisions.md` supersedes it and specifies the full lifecycle — neutral when scheduled, an in-progress treatment when live, a static outcome treatment when final. The mockup's `hl-outcome` is the settled treatment.
 
@@ -123,4 +125,4 @@ The `FCS` marker, ranks, the four-stat strip, the owner header, the 760px single
 
 Several of these are cheap and independent: final-row dates (3.1), the `vs Owner` chip (3.3), the header record (4), and the empty footer (1.2). None requires a new seam or a design decision.
 
-**1.1 and 2 are the two that need deciding before anything else moves.** Records make scheduled rows legal, and retiring the rail is a precondition for Item 119 rather than a polish item.
+**1.1 and 2 are the two that need deciding before anything else moves.** Records make scheduled rows legal. Retiring the rail remains a state-treatment correction, but it is no longer a precondition for the retired Item 119.

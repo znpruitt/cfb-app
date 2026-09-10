@@ -89,8 +89,6 @@ type CFBScheduleAppProps = {
   seasonContext?: SeasonContext;
   initialNowMs?: number;
   teamRecordsByProviderGameId?: TeamRecordsByProviderGameId;
-  teamColorPrototypeMode?: string;
-  teamLogoPrototypeSize?: number | null;
 };
 
 /** The pages return `<main><CFBScheduleApp {...props} /></main>`; read the props. */
@@ -113,51 +111,6 @@ const SURFACES: ReadonlyArray<[string, (slug: string) => Promise<ReactElement>]>
       }),
   ],
 ];
-
-test('overview reads temporary team-identity prototypes from the real query parameter', async () => {
-  await seedLeagueWithAPendingGame();
-  const defaultPage = await LeagueRootPage({ params: Promise.resolve({ slug: SLUG }) });
-  const outlinePage = await LeagueRootPage({
-    params: Promise.resolve({ slug: SLUG }),
-    searchParams: Promise.resolve({ teamColorBar: 'outline' }),
-  });
-  const logoPage = await LeagueRootPage({
-    params: Promise.resolve({ slug: SLUG }),
-    searchParams: Promise.resolve({ teamColorBar: 'logo' }),
-  });
-  const logo18Page = await LeagueRootPage({
-    params: Promise.resolve({ slug: SLUG }),
-    searchParams: Promise.resolve({ teamColorBar: 'logo18' }),
-  });
-  const logo20Page = await LeagueRootPage({
-    params: Promise.resolve({ slug: SLUG }),
-    searchParams: Promise.resolve({ teamColorBar: 'logo20' }),
-  });
-  const logo22Page = await LeagueRootPage({
-    params: Promise.resolve({ slug: SLUG }),
-    searchParams: Promise.resolve({ teamColorBar: 'logo22' }),
-  });
-  const logo24Page = await LeagueRootPage({
-    params: Promise.resolve({ slug: SLUG }),
-    searchParams: Promise.resolve({ teamColorBar: 'logo24' }),
-  });
-  const logo28Page = await LeagueRootPage({
-    params: Promise.resolve({ slug: SLUG }),
-    searchParams: Promise.resolve({ teamColorBar: 'logo28' }),
-  });
-
-  assert.equal(appProps(defaultPage).teamColorPrototypeMode, 'remap-only');
-  assert.equal(appProps(defaultPage).teamLogoPrototypeSize, null);
-  assert.equal(appProps(outlinePage).teamColorPrototypeMode, 'alternate-outline');
-  assert.equal(appProps(outlinePage).teamLogoPrototypeSize, null);
-  assert.equal(appProps(logoPage).teamColorPrototypeMode, 'remap-only');
-  assert.equal(appProps(logoPage).teamLogoPrototypeSize, 14);
-  assert.equal(appProps(logo18Page).teamLogoPrototypeSize, 18);
-  assert.equal(appProps(logo20Page).teamLogoPrototypeSize, 20);
-  assert.equal(appProps(logo22Page).teamLogoPrototypeSize, 22);
-  assert.equal(appProps(logo24Page).teamLogoPrototypeSize, 24);
-  assert.equal(appProps(logo28Page).teamLogoPrototypeSize, 28);
-});
 
 /**
  * A league with one real, unscored, already-kicked-off game — which is exactly

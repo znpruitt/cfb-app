@@ -6,45 +6,10 @@ import { gameStatusLabelPresentation, type GameStatusLabelOptions } from '../lib
 import { rankSourceLabel, type RankSource } from '../lib/rankings';
 import type { GameScoreboardState } from '../lib/selectors/gameScoreboardState';
 import type { TeamRecordClient } from '../lib/selectors/teamRecordsClient';
-import type { ScoreboardTeamColorBar } from '../lib/teamColors';
-import type { ScoreboardTeamLogo } from '../lib/teamLogos';
-
-const TEAM_LOGO_PRESENTATION = {
-  14: {
-    imageClass: 'h-[14px] w-[14px]',
-    rowPaddingClass: 'pl-4',
-    rowVerticalPaddingClass: 'py-0.5',
-  },
-  18: {
-    imageClass: 'h-[18px] w-[18px]',
-    rowPaddingClass: 'pl-[22px]',
-    rowVerticalPaddingClass: 'py-0.5',
-  },
-  20: {
-    imageClass: 'h-5 w-5',
-    rowPaddingClass: 'pl-6',
-    rowVerticalPaddingClass: 'py-0.5',
-  },
-  22: {
-    imageClass: 'h-[22px] w-[22px]',
-    rowPaddingClass: 'pl-[26px]',
-    rowVerticalPaddingClass: 'py-0.5',
-  },
-  24: {
-    imageClass: 'h-6 w-6',
-    rowPaddingClass: 'pl-7',
-    rowVerticalPaddingClass: 'py-0.5',
-  },
-  28: {
-    imageClass: 'h-7 w-7',
-    rowPaddingClass: 'pl-8',
-    rowVerticalPaddingClass: 'py-1.5',
-  },
-} as const;
+import { SCOREBOARD_TEAM_LOGO_DISPLAY_SIZE, type ScoreboardTeamLogo } from '../lib/teamLogos';
 
 export type CompactScoreboardParticipant = {
   teamName: string;
-  teamColor?: ScoreboardTeamColorBar | null;
   teamLogo?: ScoreboardTeamLogo | null;
   owner?: string | null;
   isCardOwnerTeam?: boolean;
@@ -94,8 +59,7 @@ function participantRowClasses(isLeading: boolean, hasLeader: boolean): string {
 // clearing the 4.5:1 normal-text floor carried by record and owner suffixes.
 // `isolate` contains the negative-z tint in this row's stacking context; without that
 // boundary it can descend behind an intervening painted card surface. The participant
-// row supplies the team-colour bar's containing block independently, so the tint never
-// re-anchors it. Positioning children to lift them would shift that bar.
+// row is the containing block for both the tint and the absolutely positioned logo.
 const CARD_OWNER_ROW_CLASSES =
   "isolate after:pointer-events-none after:absolute after:inset-[0_-8px] after:z-[-1] dark:after:bg-[rgba(255,255,255,0.055)] after:content-['']";
 
@@ -109,14 +73,6 @@ function cardOwnerRowCornerClasses(
 
 function recordLabel(record: TeamRecordClient | null | undefined): string | null {
   return record ? `${record.wins}–${record.losses}` : null;
-}
-
-function teamColorBarStyle(teamColor: ScoreboardTeamColorBar): React.CSSProperties {
-  if (typeof teamColor === 'string') return { backgroundColor: teamColor };
-  return {
-    backgroundColor: teamColor.fillColor,
-    boxShadow: `inset 0 0 0 1px ${teamColor.outlineColor}`,
-  };
 }
 
 function hasRenderableContent(slot: React.ReactNode): boolean {
@@ -261,11 +217,6 @@ export default function CompactGameScoreboard({
         const isLeading = leader === side;
         const owner = participant.owner?.trim() || null;
         const teamRecord = recordLabel(participant.record);
-        const teamLogoPresentation = participant.teamLogo
-          ? TEAM_LOGO_PRESENTATION[participant.teamLogo.displaySize]
-          : null;
-        const hasAlternateOutline =
-          participant.teamColor != null && typeof participant.teamColor !== 'string';
         const rankTitle =
           participant.rank != null && participant.rankSource
             ? `${rankSourceLabel(participant.rankSource)} rank #${participant.rank}`
@@ -274,11 +225,10 @@ export default function CompactGameScoreboard({
         return (
           <div
             key={side}
-            className={`relative flex items-baseline justify-between gap-3 ${
-              teamLogoPresentation?.rowVerticalPaddingClass ?? 'py-0.5'
-            } ${
-              teamLogoPresentation?.rowPaddingClass ?? 'pl-4'
-            } text-sm ${participantRowClasses(isLeading, leader !== null)}${
+            className={`relative flex items-baseline justify-between gap-3 py-1.5 pl-8 text-sm ${participantRowClasses(
+              isLeading,
+              leader !== null
+            )}${
               participant.isCardOwnerTeam
                 ? ` ${CARD_OWNER_ROW_CLASSES} ${cardOwnerRowCornerClasses(
                     side,
@@ -291,25 +241,20 @@ export default function CompactGameScoreboard({
           >
             {participant.teamLogo ? (
               <Image
-                className={`absolute left-0 top-1/2 block -translate-y-1/2 object-contain ${teamLogoPresentation?.imageClass}`}
-                src={participant.teamLogo.darkUrl}
+                className="absolute left-0 top-1/2 block h-7 w-7 -translate-y-1/2 object-contain"
+                src={participant.teamLogo.url}
                 alt=""
-                width={participant.teamLogo.displaySize}
-                height={participant.teamLogo.displaySize}
+                width={SCOREBOARD_TEAM_LOGO_DISPLAY_SIZE}
+                height={SCOREBOARD_TEAM_LOGO_DISPLAY_SIZE}
                 unoptimized
                 aria-hidden="true"
+                onError={(event) => {
+                  event.currentTarget.hidden = true;
+                }}
                 data-scoreboard-team-logo={side}
               />
-            ) : participant.teamColor ? (
-              <span
-                className="absolute inset-y-0.5 left-0 block w-2 rounded-[2px]"
-                style={teamColorBarStyle(participant.teamColor)}
-                aria-hidden="true"
-                data-scoreboard-team-color={side}
-                data-scoreboard-team-color-outline={hasAlternateOutline ? 'alternate' : undefined}
-              />
             ) : null}
-            {/* Team identity follows the line-start slot; a future logo belongs in that slot. */}
+            {/* The slot remains reserved when artwork is unavailable so both rows stay aligned. */}
             <span className="flex min-w-0 items-baseline gap-1.5 overflow-hidden whitespace-nowrap">
               {participant.rank !== null && participant.rank !== undefined ? (
                 <span className="shrink-0 text-xs font-normal dark:text-zinc-400" title={rankTitle}>

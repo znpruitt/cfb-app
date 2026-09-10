@@ -2,44 +2,28 @@ import type { AppGame } from './schedule';
 import { toTeamIdentityKey, type TeamCatalogItem } from './teamIdentity';
 
 export type ScoreboardTeamLogo = Readonly<{
-  lightUrl: string;
-  darkUrl: string;
-  displaySize: ScoreboardTeamLogoDisplaySize;
+  url: string;
 }>;
 
 export type ScoreboardTeamLogosById = ReadonlyMap<string, ScoreboardTeamLogo>;
-export type ScoreboardTeamLogoDisplaySize = 14 | 18 | 20 | 22 | 24 | 28;
 
 export const EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID: ScoreboardTeamLogosById = new Map();
+export const SCOREBOARD_TEAM_LOGO_DISPLAY_SIZE = 28;
 
 const CFBD_LOGO_HOST = 'cdn.collegefootballdata.com';
+const CFBD_SCOREBOARD_LOGO_ASSET_SIZE = 64;
 
-type ProviderLogoAssetSize = '32' | '48' | '64';
-
-function providerAssetSize(displaySize: ScoreboardTeamLogoDisplaySize): ProviderLogoAssetSize {
-  if (displaySize === 14) return '32';
-  if (displaySize <= 24) return '48';
-  return '64';
-}
-
-function logoPairForProviderTeamId(
-  providerTeamId: number,
-  displaySize: ScoreboardTeamLogoDisplaySize
-): ScoreboardTeamLogo | null {
+function logoForProviderTeamId(providerTeamId: number): ScoreboardTeamLogo | null {
   if (!Number.isSafeInteger(providerTeamId) || providerTeamId <= 0) return null;
-  const assetSize = providerAssetSize(displaySize);
 
   return {
-    lightUrl: `https://${CFBD_LOGO_HOST}/logos/${assetSize}/${providerTeamId}.png`,
-    darkUrl: `https://${CFBD_LOGO_HOST}/logos-dark/${assetSize}/${providerTeamId}.png`,
-    displaySize,
+    url: `https://${CFBD_LOGO_HOST}/logos-dark/${CFBD_SCOREBOARD_LOGO_ASSET_SIZE}/${providerTeamId}.png`,
   };
 }
 
 function selectCfbdLogo(
   logos: readonly string[] | null | undefined,
-  family: 'logos' | 'logos-dark',
-  assetSize: ProviderLogoAssetSize
+  family: 'logos' | 'logos-dark'
 ): string | null {
   for (const candidate of logos ?? []) {
     try {
@@ -49,7 +33,7 @@ function selectCfbdLogo(
         url.protocol === 'https:' &&
         url.hostname === CFBD_LOGO_HOST &&
         pathFamily === family &&
-        size === assetSize &&
+        size === String(CFBD_SCOREBOARD_LOGO_ASSET_SIZE) &&
         filename?.endsWith('.png') &&
         extra.length === 0
       ) {
@@ -64,26 +48,16 @@ function selectCfbdLogo(
 
 export function buildScoreboardTeamLogosById(
   teams: readonly TeamCatalogItem[],
-  games: readonly AppGame[] = [],
-  displaySize: ScoreboardTeamLogoDisplaySize = 14
+  games: readonly AppGame[] = []
 ): ScoreboardTeamLogosById {
   const logosById = new Map<string, ScoreboardTeamLogo>();
-  const assetSize = providerAssetSize(displaySize);
 
   for (const team of teams) {
     const teamId = toTeamIdentityKey(team.school);
     if (!teamId) continue;
 
-    const lightUrl = selectCfbdLogo(team.logos, 'logos', assetSize);
-    const darkUrl = selectCfbdLogo(team.logos, 'logos-dark', assetSize);
-    const fallbackUrl = lightUrl ?? darkUrl;
-    if (!fallbackUrl) continue;
-
-    logosById.set(teamId, {
-      lightUrl: lightUrl ?? fallbackUrl,
-      darkUrl: darkUrl ?? fallbackUrl,
-      displaySize,
-    });
+    const url = selectCfbdLogo(team.logos, 'logos-dark') ?? selectCfbdLogo(team.logos, 'logos');
+    if (url) logosById.set(teamId, { url });
   }
 
   // The canonical team catalog intentionally remains FBS-only. Schedule rows
@@ -98,7 +72,7 @@ export function buildScoreboardTeamLogosById(
       const providerTeamId = side === 'home' ? game.homeProviderTeamId : game.awayProviderTeamId;
       if (typeof providerTeamId !== 'number') continue;
 
-      const logo = logoPairForProviderTeamId(providerTeamId, displaySize);
+      const logo = logoForProviderTeamId(providerTeamId);
       if (logo) logosById.set(participant.teamId, logo);
     }
   }

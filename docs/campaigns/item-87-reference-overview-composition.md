@@ -107,6 +107,9 @@ At page level:
 
 ### Expected outcome
 
-Most divergences should already be attributable to a filed item — 115 for counts and caps, 119 for colour bars, 134 for the tier, 143 for the tag seam, 157 and 162 for tag vocabulary. **The audit's value is the residue**: anything that maps to no item is a genuine back-application gap, and that is what nobody currently knows the size of.
+Most divergences should already be attributable to a filed item — 115 for counts and caps, the
+2026-09-10 shared-row logo decision that retired 119/198, 134 for the tier, 143 for the tag seam, and
+157/162 for tag vocabulary. **The audit's value is the residue**: anything that maps to no item is a
+genuine back-application gap, and that is what nobody currently knows the size of.
 
 Findings that map to existing items should be recorded against those items rather than filed again.
