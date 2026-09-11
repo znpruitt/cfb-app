@@ -45,6 +45,7 @@ function game(overrides: Partial<AppGame>): AppGame {
     date: overrides.date ?? null,
     stage: overrides.stage ?? 'regular',
     status: overrides.status ?? 'scheduled',
+    rawStatus: overrides.rawStatus,
     stageOrder: overrides.stageOrder ?? 1,
     slotOrder: overrides.slotOrder ?? 0,
     eventKey: overrides.eventKey ?? overrides.key ?? 'g',
@@ -274,7 +275,8 @@ test('postseason placeholders with TBD kickoff render stable date fallback', () 
   assert.ok(html.includes('Placeholder Bowl'));
 });
 
-test('shared scoreboard preserves canonical schedule status when score data is missing', () => {
+test('scoreless schedule labels do not override the shared scoreboard projection', () => {
+  const kickoff = '2025-09-01T17:00:00.000Z';
   const html = renderToStaticMarkup(
     <GameWeekPanel
       games={[
@@ -283,12 +285,16 @@ test('shared scoreboard preserves canonical schedule status when score data is m
           csvAway: 'Texas',
           csvHome: 'Kansas State',
           status: 'in_progress',
+          date: kickoff,
+          startTimeTBD: false,
         }),
         game({
           key: 'status-final',
           csvAway: 'TCU',
           csvHome: 'Baylor',
           status: 'final',
+          date: kickoff,
+          startTimeTBD: false,
         }),
         game({
           key: 'status-matchup-set',
@@ -307,12 +313,14 @@ test('shared scoreboard preserves canonical schedule status when score data is m
       isDebug={false}
       hideByes={true}
       displayTimeZone="UTC"
+      currentDateMs={Date.parse(kickoff) + 60_000}
     />
   );
 
-  assert.match(html, /data-scoreboard-state="awaiting"/);
-  assert.match(html, /data-scoreboard-state="final"/);
-  assert.match(html, /data-scoreboard-state="scheduled"/);
+  assert.equal((html.match(/data-scoreboard-state="awaiting"/g) ?? []).length, 2);
+  assert.equal((html.match(/data-scoreboard-state="scheduled"/g) ?? []).length, 1);
+  assert.doesNotMatch(html, /data-scoreboard-state="final"/);
+  assert.doesNotMatch(html, />IN PROGRESS<\/span>|>FINAL<\/span>/);
   assert.doesNotMatch(html, /MATCHUP SET/);
 });
 
@@ -362,7 +370,7 @@ test('scheduled Schedule cards omit the unrequested odds-footer band without los
   assert.doesNotMatch(html, /data-scoreboard-odds-footer/);
 });
 
-test('schedule-only rows map to shared scoreboard states', () => {
+test('score-backed and scheduled rows map to shared scoreboard states', () => {
   const html = renderToStaticMarkup(
     <GameWeekPanel
       games={[
@@ -396,7 +404,20 @@ test('schedule-only rows map to shared scoreboard states', () => {
       ]}
       byes={[]}
       oddsByKey={{}}
-      scoresByKey={{}}
+      scoresByKey={{
+        'schedule-final-chip': {
+          away: { team: 'Texas', score: 24 },
+          home: { team: 'Kansas State', score: 17 },
+          status: 'Final',
+          time: null,
+        },
+        'schedule-live-chip': {
+          away: { team: 'TCU', score: 14 },
+          home: { team: 'Baylor', score: 10 },
+          status: 'Q3',
+          time: '8:12',
+        },
+      }}
       rosterByTeam={new Map()}
       isDebug={false}
       hideByes={true}
@@ -405,7 +426,7 @@ test('schedule-only rows map to shared scoreboard states', () => {
   );
 
   assert.equal((html.match(/data-scoreboard-state="final"/g) ?? []).length, 1);
-  assert.equal((html.match(/data-scoreboard-state="awaiting"/g) ?? []).length, 1);
+  assert.equal((html.match(/data-scoreboard-state="live"/g) ?? []).length, 1);
   assert.equal((html.match(/data-scoreboard-state="scheduled"/g) ?? []).length, 2);
   assert.doesNotMatch(html, /MATCHUP SET/);
 });
@@ -2131,12 +2152,17 @@ test('status row renders kickoff, game clock, or no value according to scoreboar
   const html = renderToStaticMarkup(
     <GameWeekPanel
       games={[
-        game({ key: 'status-scheduled', date: '2025-09-01T17:00:00.000Z' }),
+        game({
+          key: 'status-scheduled',
+          date: '2025-09-01T21:00:00.000Z',
+          startTimeTBD: false,
+        }),
         game({ key: 'status-live', date: '2025-09-01T18:00:00.000Z' }),
         game({
           key: 'status-awaiting',
           date: '2025-09-01T19:00:00.000Z',
           status: 'in_progress',
+          startTimeTBD: false,
         }),
         game({ key: 'status-final', date: '2025-09-01T20:00:00.000Z' }),
       ]}
@@ -2160,6 +2186,7 @@ test('status row renders kickoff, game clock, or no value according to scoreboar
       isDebug={false}
       hideByes={true}
       displayTimeZone="UTC"
+      currentDateMs={Date.parse('2025-09-01T19:00:00.000Z')}
     />
   );
 
@@ -2176,12 +2203,69 @@ test('status row renders kickoff, game clock, or no value according to scoreboar
   const awaitingHeader = headerFor('status-awaiting');
   const finalHeader = headerFor('status-final');
 
-  assert.match(scheduledHeader, />Scheduled<\/span>[\s\S]*>5:00 PM<\/span>/);
+  assert.match(scheduledHeader, />Scheduled<\/span>[\s\S]*>9:00 PM<\/span>/);
   assert.match(liveHeader, />Live<\/span>[\s\S]*>Q3 8:12<\/span>/);
   assert.match(awaitingHeader, />Awaiting score<\/span>/);
   assert.doesNotMatch(awaitingHeader, /7:00 PM|Q\d/);
   assert.match(finalHeader, />Final<\/span>/);
   assert.doesNotMatch(finalHeader, /8:00 PM|Q\d/);
+});
+
+test('an at-kickoff scheduled game renders as awaiting without a live provider label', () => {
+  const kickoff = '2025-09-01T19:00:00.000Z';
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'kickoff-awaiting',
+          date: kickoff,
+          status: 'scheduled',
+          startTimeTBD: false,
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+      currentDateMs={Date.parse(kickoff)}
+    />
+  );
+
+  assert.match(html, /data-scoreboard-state="awaiting"/);
+  assert.match(html, />Awaiting score<\/span>/);
+  assert.doesNotMatch(html, />Scheduled<\/span>|>7:00 PM<\/span>/);
+});
+
+test('a SYNTHETIC forward-looking raw disruption renders its normalized label', () => {
+  const kickoff = '2025-09-01T19:00:00.000Z';
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'raw-postponed',
+          date: kickoff,
+          status: 'matchup_set',
+          rawStatus: 'STATUS_POSTPONED',
+          startTimeTBD: false,
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+      currentDateMs={Date.parse(kickoff) + 60_000}
+    />
+  );
+
+  assert.match(html, /data-scoreboard-state="scheduled"/);
+  assert.match(html, />Postponed<\/span>/);
+  assert.doesNotMatch(html, />Awaiting score<\/span>|>7:00 PM<\/span>/);
 });
 
 test('broadcast renders for scheduled, live, and awaiting rows, but not final or unlisted rows', () => {

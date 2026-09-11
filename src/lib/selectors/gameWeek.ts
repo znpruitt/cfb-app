@@ -1,8 +1,8 @@
 import {
-  classifyStatusLabel,
-  formatScheduleStatusLabel,
+  classifyScorePackStatus,
   formatScoreSummaryLabel,
   isDisruptedStatusLabel,
+  normalizeStatusTokens,
 } from '../gameStatus';
 import { formatPrimaryBroadcastLabel, formatVenueLabel } from '../gameCardPresentation';
 import { computeGameTags, prioritizeGameTags, type LeagueGameTag } from '../gameTags';
@@ -10,48 +10,103 @@ import { deriveFavoriteSpreadPair, type CombinedOdds } from '../odds';
 import type { TeamRankingEnrichment } from '../rankings';
 import type { ScorePack } from '../scores';
 import { getGameParticipantTeamId, type AppGame } from '../schedule';
+import { derivePendingGame, hasGameBeenAbandoned } from '../standingsHistory';
 import { groupGamesByDisplayDate } from '../weekPresentation';
 import { isPolicyFcsConference } from '../conferenceSubdivision';
 import { getOwnerForGameSide } from '../gameOwnership';
 import { formatLiveGameClock } from '../gameUi';
+import { projectGameScoreboardState, type GameScoreboardState } from './gameScoreboardState';
 
-export type ScheduleScoreboardState = 'scheduled' | 'live' | 'final' | 'awaiting';
+export type ScheduleScoreboardState = GameScoreboardState;
 
-function resolveSummaryStateLabel(
+type ScheduleScoreboardResolution = {
+  scoreboardState: ScheduleScoreboardState;
+  scheduleNotice: string | null;
+  suppressScheduledMetadata: boolean;
+};
+
+function formatDisruptionNotice(status: string | null | undefined): string | null {
+  const trimmed = status?.trim() ?? '';
+  const tokens = normalizeStatusTokens(status);
+  const categoryTokens = tokens.replace(/^status /, '');
+  if (categoryTokens === 'delayed') return 'Delayed';
+  if (categoryTokens === 'canceled' || categoryTokens === 'cancelled') return 'Canceled';
+  if (categoryTokens === 'postponed') return 'Postponed';
+  if (categoryTokens === 'suspended') return 'Suspended';
+  if (isDisruptedStatusLabel(trimmed)) return trimmed.replace(/_/g, ' ');
+  return null;
+}
+
+function disruptedScheduleNotice(game: AppGame, score: ScorePack | undefined): string | null {
+  // Forward-looking guard only. No disrupted label rests in the measured caches; defer to the
+  // authoritative measurement above `DISRUPTED_RE` in `gameStatus.ts` (Item 661).
+  const rawLabel = isDisruptedStatusLabel(score?.status)
+    ? score?.status
+    : isDisruptedStatusLabel(game.rawStatus)
+      ? game.rawStatus
+      : null;
+  return formatDisruptionNotice(rawLabel);
+}
+
+function evidenceFreeScheduleNotice(score: ScorePack | undefined): string {
+  if (classifyScorePackStatus(score) !== 'scheduled') return 'Scheduled';
+  return formatScoreSummaryLabel(score) ?? 'Scheduled';
+}
+
+function isAbandonedScheduleGame(
   game: AppGame,
   score: ScorePack | undefined,
-  isPlaceholder: boolean
-): string {
-  return (
-    formatScoreSummaryLabel(score) ??
-    (isPlaceholder ? 'Scheduled' : formatScheduleStatusLabel(game.status, { isPlaceholder })) ??
-    'Scheduled'
+  currentDateMs: number | null | undefined
+): boolean {
+  const nowMs = currentDateMs ?? Number.NaN;
+  if (game.startTimeTBD !== false || !Number.isFinite(nowMs)) return false;
+  const pending = derivePendingGame(game, score, { requireUsableFinalScore: true });
+  return pending ? hasGameBeenAbandoned(pending, new Date(nowMs)) : false;
+}
+
+function resolveScheduleScoreboard(params: {
+  game: AppGame;
+  score: ScorePack | undefined;
+  isPlaceholder: boolean;
+  currentDateMs: number | null | undefined;
+}): ScheduleScoreboardResolution {
+  const { game, score, isPlaceholder, currentDateMs } = params;
+  const confirmedKickoff = game.startTimeTBD === false ? game.date : null;
+
+  // Precedence model (PLATFORM-727):
+  // 1. Project score evidence before consulting any schedule-derived gate.
+  // 2. Usable final or live evidence wins over every gate.
+  // 3. Placeholder and abandonment constrain only evidence-free scheduled/awaiting states.
+  // 4. Evidence wins suppress the abandonment notice too.
+  // 5. Disruption occupies the same tier as a forward-looking, non-load-bearing guard.
+  const projected = projectGameScoreboardState(
+    score,
+    confirmedKickoff,
+    currentDateMs ?? Number.NaN
   );
-}
+  if (projected === 'final' || projected === 'live') {
+    return {
+      scoreboardState: projected,
+      scheduleNotice: null,
+      suppressScheduledMetadata: false,
+    };
+  }
 
-function summaryStateKind(summaryState: string): 'final' | 'live' | 'disrupted' | 'scheduled' {
-  // Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
-  // measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
-  // comment (Item 661).
-  const trimmed = summaryState.trim();
-  const normalized = trimmed.toUpperCase();
+  const disruptionNotice = disruptedScheduleNotice(game, score);
+  const isAbandoned = isAbandonedScheduleGame(game, score, currentDateMs);
+  if (isPlaceholder || isAbandoned || disruptionNotice) {
+    return {
+      scoreboardState: 'scheduled',
+      scheduleNotice: disruptionNotice ?? 'Scheduled',
+      suppressScheduledMetadata: disruptionNotice !== null,
+    };
+  }
 
-  if (normalized === 'FINAL') return 'final';
-  if (isDisruptedStatusLabel(trimmed)) return 'disrupted';
-
-  const inferredState = classifyStatusLabel(trimmed);
-  if (inferredState === 'inprogress') return 'live';
-
-  return 'scheduled';
-}
-
-function scoreboardState(
-  stateKind: ReturnType<typeof summaryStateKind>,
-  score: ScorePack | undefined
-): ScheduleScoreboardState {
-  if (stateKind === 'final') return 'final';
-  if (stateKind === 'live') return score ? 'live' : 'awaiting';
-  return 'scheduled';
+  return {
+    scoreboardState: projected,
+    scheduleNotice: projected === 'scheduled' ? evidenceFreeScheduleNotice(score) : null,
+    suppressScheduledMetadata: false,
+  };
 }
 
 function formatScheduleKickoff(
@@ -220,7 +275,6 @@ export function deriveGameWeekPanelViewModel(params: {
         game.isPlaceholder ||
         game.participants?.home?.kind !== 'team' ||
         game.participants?.away?.kind !== 'team';
-      const summaryState = resolveSummaryStateLabel(game, score, isPlaceholder);
       const homeIsLeagueTeam =
         game.participants.home.kind === 'team' && !isPolicyFcsConference(game.homeConf);
       const awayIsLeagueTeam =
@@ -241,23 +295,28 @@ export function deriveGameWeekPanelViewModel(params: {
       const tagState = prioritizeGameTags(
         computeGameTags(game, score, odds, rosterByTeam, rankingsByTeamId)
       );
-      const stateKind = summaryStateKind(summaryState);
-      const resolvedScoreboardState = scoreboardState(stateKind, score);
+      const scoreboard = resolveScheduleScoreboard({
+        game,
+        score,
+        isPlaceholder,
+        currentDateMs,
+      });
+      const resolvedScoreboardState = scoreboard.scoreboardState;
       const showBroadcast =
         resolvedScoreboardState === 'live' ||
         resolvedScoreboardState === 'awaiting' ||
-        (resolvedScoreboardState === 'scheduled' && stateKind !== 'disrupted');
+        (resolvedScoreboardState === 'scheduled' && !scoreboard.suppressScheduledMetadata);
 
       return {
         game,
         score,
         isPlaceholder,
         scoreboardState: resolvedScoreboardState,
-        scheduleNotice: resolvedScoreboardState === 'scheduled' ? summaryState : null,
+        scheduleNotice: scoreboard.scheduleNotice,
         statusRowValue:
           resolvedScoreboardState === 'live'
             ? formatLiveGameClock(score)
-            : resolvedScoreboardState === 'scheduled' && stateKind !== 'disrupted'
+            : resolvedScoreboardState === 'scheduled' && !scoreboard.suppressScheduledMetadata
               ? formatScheduleKickoff(game.date, displayTimeZone, game.startTimeTBD)
               : null,
         broadcastLabel: showBroadcast ? formatPrimaryBroadcastLabel(game.media) : null,
