@@ -394,54 +394,21 @@ The issue is canonical for the ask, its evidence and its state. **This entry is 
 
 ### Item 64 — remaining week-resolution residue
 
-Only one PLATFORM-105 follow-up remains:
-
-- **(c) Abandonment is not applied to week resolution.** `selectSeasonContext` can accept an old
-  pending game as abandoned, while `isResolvedWeek` still leaves that week unplayed forever. Apply
-  the shared conclusion policy consistently so historical trends do not drop the affected week.
-
-**Four consumers now, updated 2026-09-01.** The shared policy is `hasGameBeenAbandoned`
-(`standingsHistory.ts:194`, `now - kickoff > 8h`):
-
-| Consumer                 | Applies it?                                                      |
-| ------------------------ | ---------------------------------------------------------------- |
-| `selectSeasonContext`    | yes                                                              |
-| `selectWeeklyRecapFacts` | yes, via `selectPendingGameFinality` (`weeklyRecapFacts.ts:458`) |
-| `isResolvedWeek`         | **no — this item's remaining gap**                               |
-| Overview section router  | added by POLISH-019 (slice 3)                                    |
-
-**Per-game versus population is an INTENTIONAL split, not part of the inconsistency this item fixes.**
-`selectPendingGameFinality` is deliberately all-or-nothing across its input population — one
-abandoned game beside a genuinely not-yet-played sibling yields no accepted conclusion — which is
-correct for "can this week be treated as concluded?" The Overview router asks a different question,
-"where does THIS row go", so it calls `hasGameBeenAbandoned` per game and must NOT use the population
-rule; doing so would keep a stale game in Live merely because a sibling had not kicked off. Do not
-"harmonise" these two call shapes when closing this item.
-
-The prior `(a)`, `(b)`, `(d)`, and `(e)` work is complete and recorded in
-`docs/completed-work.md`; do not requeue those slices.
-
-- Backlog slug: `PLATFORM-WEEK-RESOLUTION-RESIDUE-v1`
+**MIGRATED to [#649](https://github.com/znpruitt/cfb-app/issues/649) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 68 — archive integrity with incomplete cumulative coverage
 
-Audit the case where rollover reaches a season containing an unresolved score-required owned game.
-Choose and test one explicit policy: defer archive publication, publish a marked repairable archive,
-or provide a deterministic rebuild path. Keep this separate from live reconciliation because it
-changes a different automation job and durable historical contract.
-
-- Backlog slug: `PLATFORM-ARCHIVE-COVERAGE-INTEGRITY-v1`
+**MIGRATED to [#650](https://github.com/znpruitt/cfb-app/issues/650) on 2026-09-10, labelled `needs-decision`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 76 — team-catalog freshness has no read-only surface
 
-The durable catalog stores `updatedAt`, but `/api/teams` drops it and the admin catalog route exposes
-only a mutating `POST`. The current timestamp therefore cannot be learned without spending a
-provider call and changing durable state. Expose `updatedAt` and source either in `/api/teams` meta
-or through an admin-gated `GET`; keep the sync control on Data Maintenance.
-
-This is related to, but smaller than, the planned team-catalog source-unification campaign.
-
-- Backlog slug: `PLATFORM-CATALOG-FRESHNESS-READ-v1`
+**SUPERSEDED — closed 2026-09-10 by triage, not migrated.** `src/app/api/teams/route.ts:79-80`
+now returns **both** `source: catalog.source` and `updatedAt: catalog.updatedAt`, which is the
+`/api/teams` meta half of the either/or this item asked for. The admin route keeps only `POST`,
+which is the sync control staying on Data Maintenance as the item also required. **The third of 57
+triaged items to come back superseded.**
 
 ### Item 55 — schedule load errors lose the information required for retry
 
@@ -477,150 +444,8 @@ restate the item here, or the two copies will drift.** Triage record:
 
 ### Item 96 — pause the in-season QStash schedules through the offseason
 
-**The ask:** stop paying ~$19/month of Neon wall-clock during ~6 months with no games. Worth
-**~$114/year with no coverage tradeoff.** Everything below is the evidence that produced it; the
-open work is the _Scope to decide_ list.
-
-**All four billing surfaces measured 2026-08-31. Exposure is one variable: how many computes are
-running.**
-
-| Surface          | Monthly                                | Character                |
-| ---------------- | -------------------------------------- | ------------------------ |
-| **Neon compute** | $39.03 (`368.21 CU-hrs x $0.106`)      | the entire bill          |
-| QStash           | **$0.18** (18K messages @ $0.01/1,000) | noise even at 2x cadence |
-| Vercel           | $0                                     | Hobby                    |
-| CFBD             | fixed Patreon tier                     | 395 / 5,000 used         |
-
-Neon storage is `0.05 GB x $0.35 = $0.02`. **The attribution, once measured rather than inferred:**
-
-| Compute                                                 | CU-hrs   | Cost       | Why                                                                       |
-| ------------------------------------------------------- | -------- | ---------- | ------------------------------------------------------------------------- |
-| `main` primary (`ep-small-lake-ama2wisz`)               | ~180     | ~$19       | `*/3` live-scores cron never lets the 5-minute autosuspend threshold open |
-| **`cfb-audit-read-replica`** (`ep-plain-term-amtt3ekz`) | **~180** | **~$19**   | **autosuspend was `never`** — ran 24/7 with ZERO connections              |
-| all non-`main` branches                                 | ~5       | ~$0.6      | wake events only; each preview branch reads 0.02 CU-hrs or 0              |
-|                                                         | **368**  | **$39.03** |                                                                           |
-
-Both computes are at the **0.25 CU minimum** with CPU flat at ~0, a 100% cache hit rate, and a
-~40 MB database. Neon bills allocated CU by wall-clock, so this is money paid for **existing**, not
-for working. Nothing was straining; two instances were simply switched on.
-
-**The ceiling is verified and hard (2026-08-31).** Both computes on the `main` branch have
-autoscaling `min == max == 0.25 CU`, confirmed in the endpoint editor. They physically cannot
-allocate more, whatever the load:
-
-    2 computes x 0.25 CU x 744h x $0.106  =  $39.43/month   ABSOLUTE MAXIMUM
-    August actual                         =  372.26 CU-hrs, $39.03
-
-**August was therefore already the worst possible month.** The bill that prompted this item was the
-ceiling, not a trend. No traffic spike, viral link, runaway query or bug can exceed it; the only
-variable is how many hours the two computes run, which is what this item controls.
-
-Per-branch CU confirms the attribution from a second direction: `main` is **366.81 CU-hrs** while
-every preview branch reads **0.02 or 0**. And 366.81 CU-hrs at 0.25 CU is 1,467 hours, twice what a
-month contains, which is only possible with two computes billing under one branch. Primary plus read
-replica at ~183 each.
-
-**FIXED 2026-08-31: the read replica's autosuspend.** Its delay was `never` while `main`'s is the
-5-minute default. Setting it to 5 minutes suspended the endpoint **within seconds**, independently
-proving nothing was connected. Capability kept, ~$19/month stopped.
-
-**Keep the replica — it is a production-observability rail, not a scaling decision.** Preview is
-deliberately isolated from production and can be stale (`deployment-runbook.md` §6c: no production
-leagues, rosters, drafts, or caches), so questions of the form "does this behave correctly against
-the REAL 2026 schedule?" cannot be answered there. The replica answers them against production data
-**read-only**, so no agent or script can mutate production while doing it. Concrete payoff:
-PLATFORM-105 was verified against the real **3,610-game 2026 production schedule** and roster
-through it, and that replay is what exposed the season reading as over after Week 1 because unplayed
-weeks were being treated as resolved.
-
-The three endpoints therefore have distinct jobs: **primary** = the application, reads and writes;
-**preview child branches** = isolated feature/UI testing; **read replica** = safe production-data
-inspection. `never` is the right autosuspend for latency-sensitive production read traffic and the
-wrong one here, where a sub-second cold start before a debugging query costs nothing.
-
-**DONE 2026-08-31: plumbed in as `DATABASE_URL_RO`** in `.env.operator.local` (gitignored), direct
-host rather than `-pooler`. Verified: `pg_is_in_recovery()` is `true` and an `INSERT` fails with
-`cannot execute INSERT in a read-only transaction`, so the guarantee is proven, not assumed — and it
-comes from the endpoint being `RO`, not from the role, which is still `neondb_owner`. Procedure is
-in `deployment-runbook.md` §6c. `src/` has no reference and must not gain one: this is an
-observability rail, not part of the application read path. Before this, each use was a manual
-console step, which is why the compute attribution below stalled.
-
-**STILL OPEN: `main`'s ~$19/month, and it is an offseason item.**
-
-In-season this is the honest price of an app that has to watch live games. February through July
-there are no games, and the schedules keep firing every three minutes regardless:
-
-    ~6 offseason months x ~$19  =  ~$114/year for zero work
-
-**No coverage tradeoff** — there is no game coverage to lose. That distinguishes it from narrowing
-schedules to game windows in-season, which would trade away Tuesday MAC games and rescheduled
-kickoffs and is NOT what this item asks for.
-
-**Settled by PLATFORM-118:** `team-records` pauses with the other in-season jobs; do not exempt it
-merely because the provider call is cheap. A completed season's records are immutable, so a
-twelve-hour refresh buys no recovery while still waking Neon, writing leases and receipts, and
-calling `/records`. Its fourteen-hour cache diagnostic assumes an **unpaused hourly job**. The pause
-implementation must therefore add one generalized lifecycle-applicability rule for every dataset it
-pauses and suppress the corresponding missing-delivery warnings while paused — not a records-only
-exception. Resume must re-arm both delivery and freshness evaluation.
-
-The mechanism exists: every QStash schedule has a manager (`deployment-runbook.md`), and a manual
-hold is already an operation this project runs. **Scope to decide:** which schedules pause
-(`rankings` and `schedule-refresh` may still be wanted); manual vs lifecycle-driven (**manual
-first** — a wrong pause in-season is a live score outage and lifecycle transitions have no reverse);
-and **verify `ENDPOINT INACTIVE` actually appears** afterwards, since nothing proves the crons are
-the only sub-5-minute caller.
-
-**Also done 2026-08-31: preview retention.** Vercel Pre-Production retention 2 weeks → 1 day, ~135
-stale deployments removed, GitHub `delete_branch_on_merge` enabled so the whole chain is automatic.
-Neon went **48 → 2 branches**, confirming that Vercel deployment retention — not Git hygiene —
-reclaims them. Worth ~$0.85/month, not the ~$20 first claimed; it was worth doing to stop unbounded
-growth and to fix the stale-child-branch problem (`deployment-runbook.md` §6c), not for the money.
-
-**When would 0.25 CU stop being enough?** Recorded so a future capacity question is answered from
-evidence rather than fear. Today CPU is flat at ~0 through a live game weekend, compute cache hit
-rate is 100%, and the database is ~40 MB. Raising the cap would only be warranted by one of:
-
-- **Working set exceeding RAM.** 0.25 CU is ~1 GB and `neon.max_file_cache_size` is 819 MB against a
-  ~40 MB database. The signal is the **compute cache hit rate falling below ~99%** in Monitoring,
-  meaning reads go to the pageserver instead of local cache. Storage would need to grow ~20x: many
-  more seasons of archives, or per-play data rather than per-game.
-- **Sustained concurrent query load**, not page views. The connection limit is 105 direct / 10,000
-  pooled and the app is nowhere near it. This needs many members loading SIMULTANEOUSLY, which means
-  a public or multi-league deployment (see the conditional-gate section), not a bigger private
-  league. The signal is **CPU sustained above ~70%**, or pooler wait time rising off zero.
-- **A new heavy write or analytical path**: full-season recomputation on demand, cross-season
-  aggregates, or anything scanning every archive per request. PLATFORM-119 moved the closest
-  existing candidate — standings recomputation at ~1.1s — to write time rather than optimising it.
-
-**None of these is member count.** Adding owners or leagues adds rows to a 40 MB database and page
-views to an idle CPU. The trigger is concurrency or data volume, and both are far away.
-
-**Dead ends — recorded so they are not re-derived:**
-
-- **Preview branches were NOT the driver.** First attributed ~188 CU-hrs to them by SUBTRACTION
-  from `main`'s baseline. Subtraction proves only that something is not `main`. The owner's
-  objection — "I thought they were all idle" — was correct, and the real answer was one dropdown
-  away in the branch's **Computes** list. **Wrong by roughly 20x.**
-- **The year-wide `app_state` prefix scan is NOT the driver.** `pg_stat_statements`: `key like $2`
-  is 3,268 calls / 8.8s / 5,733 rows — 1.75 rows per call. The app's entire database work is
-  **~85 seconds**, against **401,912 calls** of Neon's own telemetry.
-- **A sentinel gate on that scan would save nothing.** The query costs 2.7ms, and a cheaper query
-  cannot create an idle gap. Only the absence of queries can.
-- **Cadence is not a Neon cost.** Doubling live-scores adds ~$0.18 of QStash and $0 of Neon, since
-  the endpoint is already awake. The only cadence cost is CFBD armed runs (Item 95 portion 2).
-- **`52.96 GB` transfer against `0.05 GB` storage** is unexplained by app queries. Not pursued.
-
-**The method lesson:** every wrong answer here came from fitting arithmetic to a story. The right
-answers all came from a console page or `pg_stat_statements`. Check the **Computes** list per branch
-before attributing compute cost to anything.
-
-**Item 102 subsumes the manual half.** A schedule-derived polling planner pauses these schedules
-through the offseason without an operator, and is driven by a Vercel Active CPU finding rather than a
-Neon one. Keep this item for the read-replica autosuspend and the non-cadence findings.
-
-- Backlog slug: `PLATFORM-OFFSEASON-SCHEDULE-PAUSE-v1`
+**MIGRATED to [#656](https://github.com/znpruitt/cfb-app/issues/656) on 2026-09-10, labelled `needs-decision`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 128 — every browser poll refetches the whole team catalog it already has
 
@@ -4119,15 +3944,8 @@ restate the item here, or the two copies will drift.** Triage record:
 
 ### Item 39 — draft-board walkthrough follow-ups
 
-The live writer behavior held under the walkthrough. Remaining work:
-
-- add an already-published guard to draft confirmation so a stale second tab cannot republish over
-  the roster; keep legitimate Reopen and missing-roster recovery paths;
-- replace internal phase vocabulary such as `Cannot transition from 'live' to 'live'` with an
-  operator-readable refusal;
-- explain the expired-timer “Select manually” gate when a team click is intentionally ignored;
-- place Reopen and Reset in one recovery journey while retaining Reset's typed-slug cost;
-- decide whether Reset should explicitly explain that the published roster remains in place.
+**MIGRATED to [#646](https://github.com/znpruitt/cfb-app/issues/646) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 45 — PLATFORM-092 setup residue
 
@@ -4210,19 +4028,8 @@ The issue is canonical for the ask, its evidence and its state. **This entry is 
 
 ### Items 16, 18, and 53 — converge operating year and described-data year
 
-These are one authority problem, not three independent patches:
-
-- Overview and All Insights can choose different seasons on a drifted legacy record;
-- `buildLeagueInsightContext` accepts a resolved year but still sources `context.currentYear` from
-  `league.year`;
-- consumers use `currentYear` for two different questions: the league's operating season and the
-  season whose data is being described.
-
-Carry two explicit fields and audit each consumer. Do not thread a requested data year through the
-existing `currentYear` field; that prior attempt reached lifecycle, archive, career, roster, and
-recap consumers with incompatible meanings.
-
-- Backlog slug: `INSIGHTS-CURRENT-YEAR-AUTHORITY-v1`
+**MIGRATED to [#643](https://github.com/znpruitt/cfb-app/issues/643) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 30 — insight rotation and the NEW tag are trigger-gated
 
@@ -4231,19 +4038,8 @@ The issue is canonical for the ask, its evidence and its state. **This entry is 
 
 ### Items 31–33 — finish preseason gates and superlative population conversion
 
-Membership context and two safe career gates have shipped. Remaining gate work must first convert
-the uncorrected claims in `historical` and `rivalry`:
-
-- `historical:consistency` and `historical:improvement` measure a member-only population while
-  claiming a league-wide extreme;
-- `rivalry:even` uses member pairs and favors meeting volume over actual closeness;
-- `historical:drought` claims a singular longest over a member-only population and mishandles ties.
-
-Use one shared superlative authority with separate claim and naming populations. Then apply the
-two-question preseason rule: content needing current-season evidence stays dark; completed-season
-or accumulated facts may run. Re-audit `career:turnover_margin` under that rule rather than carrying
-its old gate forward by inertia. Treat eligibility floors as copy constraints, not a reason to
-reintroduce departed record holders.
+**MIGRATED to [#644](https://github.com/znpruitt/cfb-app/issues/644) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 34 — remaining roster×schedule insight ideas
 
@@ -4252,9 +4048,8 @@ The issue is canonical for the ask, its evidence and its state. **This entry is 
 
 ### Item 35 — career and historical copy needs explicit time framing
 
-Career movement and `historical:consistency` can narrate an archived change in present tense during
-the next preseason. Apply year/last-season framing across the affected generator branches while
-preserving already-neutral historical copy.
+**MIGRATED to [#645](https://github.com/znpruitt/cfb-app/issues/645) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 36 — participation claims remain ungated
 
@@ -4280,11 +4075,8 @@ restate the item here, or the two copies will drift.**
 
 ### Item 54 — season-recap residue
 
-- Align `deriveFinalCollapseInsight`'s span endpoint with the closing-chase calculation.
-- Decide how Insights represents a final table whose top owners tie on every ranked criterion;
-  current app surfaces still choose row zero while the champion card withholds.
-- Converge the duplicated `insightHref` resolver before engine insights reach `StandingsPanel`.
-- Move the chase docblock so it documents the exported function rather than a constant.
+**MIGRATED to [#647](https://github.com/znpruitt/cfb-app/issues/647) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 62 — INSIGHTS-033 is parked, not converged
 
@@ -4293,16 +4085,8 @@ The issue is canonical for the ask, its evidence and its state. **This entry is 
 
 ### Item 77 — CFBD advanced analytics is an in-season discovery trial
 
-Run only after real completed 2026 games exist. Sample a small explicit game set and measure
-availability delay, null/partial fields, reread stability, identity, response size, quota cost, and
-whether three representative narratives are materially better than existing box-score insights.
-
-Compare partition-capable `/stats/game/advanced` for team-level aggregation with per-game
-`/game/box/advanced`; reserve one-call-per-game fetching for quarter, player, field-position,
-scoring-opportunity, or havoc detail that truly needs it. Missing advanced evidence is absence, never
-zero, and cannot weaken current game-stats coverage.
-
-- Backlog slug: `INSIGHTS-CFBD-ADVANCED-ANALYTICS-TRIAL-v1`
+**MIGRATED to [#651](https://github.com/znpruitt/cfb-app/issues/651) on 2026-09-10, labelled `parked`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Insights sequencing note (former item 44)
 
@@ -4331,13 +4115,8 @@ restate the item here, or the two copies will drift.**
 
 ### Item 56 — POLISH-005 residue
 
-- Rankings errors are hidden behind an endless loading state because failure leaves `rankings`
-  null; model loading and error independently.
-- Interactive `CFBScheduleApp` behavior lacks a harness, leaving callback wiring and the real
-  `isAdmin` postseason gate structurally but not behaviorally pinned. Introduce a selected-tab seam
-  or interaction harness before another feature depends on it.
-- Remove write-only odds/scores snapshot state and its hook plumbing together; retain
-  `scoresObservedAt`, which still feeds live-delta staleness.
+**MIGRATED to [#648](https://github.com/znpruitt/cfb-app/issues/648) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 59 — second preview branch behavior is unknown and conditional
 
@@ -4367,175 +4146,13 @@ The issue is canonical for the ask, its evidence and its state. **This entry is 
 
 ### Item 80 — Next 16 upgrade is offseason-gated
 
-`npm audit` reports postcss `8.4.31` as high severity. Next hard-pins that exact version in every
-15.x release, so only Next 16 moves it. All four postcss advisories require attacker-controlled CSS
-and this build compiles only first-party and dependency CSS, so the finding is not a forcing
-function. Do not schedule the upgrade while live scoring, odds polling, and drafts are running;
-the trigger is the offseason, not the audit report.
-
-Most of the version-16 migration surface is already satisfied: `params`/`searchParams` are async
-throughout, `cookies()` is awaited at both call sites, ESLint runs directly on a flat config with no
-`next lint`, there is no custom webpack config, no `next/image` usage, and no parallel-route slots.
-
-The upgrade's real work is `revalidateTag`, which requires a `cacheLife` profile as its second
-argument in 16; the single-argument form becomes a TypeScript error. Five non-test call sites exist,
-in `src/lib/selectors/leagueStandings.ts` and `src/lib/seasonArchive.ts`. Do not apply `'max'`
-uniformly to clear the type error: that is stale-while-revalidate, whereas the current
-single-argument form expires immediately. `updateTag()` supplies read-your-writes semantics but is
-Server-Actions-only, and the draft write path reaches these tags through API route handlers
-(`/api/draft/[slug]/[year]/{pick,unpick,reset,confirm}`), which cannot use it. Decide per call site
-whether a confirmed pick may be followed by stale standings; that decision, not the rename, is the
-acceptance boundary.
-
-Raise `react` and `react-dom` off their exact `19.1.0` pin in the same slice. That pin satisfies no
-band of the installed Clerk peer range, so the bump clears a pre-existing mismatch as well as
-meeting the React 19.2 baseline the App Router expects.
-
-Keep `middleware.ts` out of scope. The `proxy.ts` rename is deprecation-only in 16, runs Node-only
-with a runtime that cannot be configured, and touches the platform-admin auth gate. Give it its own
-slice and confirm Clerk's support first — Clerk's own `proxy` export is its Frontend API domain
-proxy and is unrelated to the Next convention.
-
-Cache Components (`cacheComponents: true`) is a separate campaign, not part of this upgrade.
-Enabling it surfaces build errors for uncached data outside `<Suspense>` and requires adopting the
-model; a rename-only reading of that flag is wrong.
-
-- Backlog slug: `PLATFORM-NEXT16-UPGRADE-v1`
+**MIGRATED to [#652](https://github.com/znpruitt/cfb-app/issues/652) on 2026-09-10, labelled `parked`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 83 — team-identity normalization collides distinct schools onto one key
 
-**A SECOND CONSUMER arrived 2026-09-07 — this raises the item's priority.** Item 139 v3's tail score
-attachment validates a score row's participants against the schedule row before crediting it, and
-Codex's confirming review found that a collision can make that validation mistake two distinct
-schools for a match and credit a corrupt score. **Deferred to this item by owner ruling, on measured
-reachability** — see the measurements below. The fix Item 83 already names is the right one for both
-consumers: CFBD supplies exact numeric participant ids. Do not add a collision heuristic to
-`scoreAttachment.ts` for one caller.
-
-**Measured against production 2026 on 2026-09-07, so the deferral rests on evidence:**
-
-| measurement | result |
-| --- | --- |
-| 2026 schedule labels → distinct identity keys | **716 → 716.** No two SCHEDULE LABELS collide. |
-| score rows whose participants disagree with the schedule | **6 of 22,761** — 5 side reversals (same two teams), 1 wrong opponent (`401858427`, Howard vs Hampton) |
-| do any of those 6 COLLIDE, i.e. would falsely validate? | **0.** Howard/Hampton normalize apart, so validation catches it — which is what Item 139's regression test asserts |
-| `Missouri S&T` (2402) score rows in 2026 | **0.** All 9 of its games are D-II vs D-II, which the FBS score feed does not cover |
-| the resolver probed directly on the pair | **returns a FALSE DIRECT MATCH.** The collision is confirmed by running it, not inferred from this entry |
-
-**The 716→716 figure does NOT disprove this item, and must not be quoted as if it does.** This item's
-collision is between a school's label and ANOTHER school's ALIAS (`Missouri S&T` → `missourist`, the
-key `Missouri State` claims via its `missouri st` alt). The scan above compared labels to labels only.
-The alias population is unmeasured and is this item's own work.
-
-`normalizeTeamName` expands `&` to " and " and then strips the standalone "and", so `Missouri S&T`
-collapses to `missourist` — the key `Missouri State` already claims through its `missouri st` alt.
-`resolveName` therefore returns a resolved, ownable FBS identity for a Division II school, and the
-observed-name registration loop skips the real school because the key is taken. The elision is
-load-bearing elsewhere: it is what makes `Texas A&M` match its ampersand-free alts, so it cannot
-simply be removed.
-
-The identity key is a lossy function of the name and nothing asserts it is injective. The registry
-resolves a conflict by silent first-write-wins (`if (!registry.has(aliasId))`, and the observed-name
-loop skips a taken key), so a collision is structurally unobservable. A catalog sweep found no key
-claimed by two catalog schools, but 31 keys sit in the overloaded `st` class (`ohiost`, `pennst`,
-`missourist`, …) where any outside `<X> S&T` or `<X> St.` school lands on a real ownable identity.
-CFBD already supplies exact numeric participant ids that disambiguate these schools; the app
-persists them and forbids their use for identity.
-
-PLATFORM-114 stopped this reaching eligibility by classifying from the provider's division label, so
-new seasons no longer track phantom games. It is forward-only: it does not repair archives, and the
-collision still reaches `buildPairKey`, score attachment, and roster/owner mapping.
-
-**Also in scope: the row primary key falls back to a name.** `ScheduleItem.id` is
-``String(game.id ?? `${week}-${homeTeam}-${awayTeam}`)`` (`src/lib/schedule/cfbdSchedule.ts:730`,
-unchanged since 2026-03-13 and untouched by PLATFORM-114). So a row's identity is
-provider-id-when-available and name-composed otherwise, and two rows differing only by a
-normalization collision would collide in the key space too. It engages only when CFBD omits
-`game.id`, which has not been observed here — latent, not active. Noted because it is the same
-name-derived-identity problem this item owns, and Saturday's fix is easily misremembered as having
-covered it.
-
-**Confirmed historical impact (2025).** The archive audit reports Missouri State at 13-11 — 24 games,
-seven beyond the 17-game FBS ceiling, i.e. Missouri State's real slate merged with Missouri S&T's
-Division II slate.
-Impact is contained because Missouri State was a no-claim team that season: no owner record, win
-percentage, or championship is affected, and the residue is an inflated 2025 no-claim aggregate row
-plus phantom rows in the archived game list. Earlier backfilled seasons (2018-2024) carry the same
-pollution for the same reason and are safe for a structural one — Missouri State was not FBS before
-July 2025, so it could not appear on any historical roster.
-
-Repairing the affected archives is tracked separately as Item 85; this item covers preventing new
-collisions, not correcting existing data.
-
-**Objective: make identity numeric, and demote names to display and search.** CFBD supplies a team
-id on every provider surface this app consumes, and the app discards it on two of them:
-`scripts/fetch-cfbd-teams.ts` types `CFBDTeam.id` and omits it from the written catalog; the score
-normalizer (`src/lib/scores/normalizers.ts`) reads names and points from the same `/games` payload
-whose `home_id`/`away_id` the schedule mapper already persists. The draft is the sharper case — the
-owner selects an unambiguous catalog row and `DraftPick.team` serializes it to a `string | null`
-name, destroying information the app itself created at the one moment identity was certain.
-
-There is no forward surface that requires a name. The commissioner CSV upload was a one-time
-mechanism for backfilling league history, not a live path, so no compatibility floor forces name-keyed
-identity to survive.
-
-Sequence, and the ordering is the load-bearing part:
-
-1. Land collision detection FIRST (see the acceptance boundary). A backfill resolves stored names
-   through the same lossy function that caused this bug — migrate before detecting and today's wrong
-   answers are frozen into ids that then _look_ authoritative, making them permanently
-   indistinguishable from correct ones.
-2. Persist the provider id at each ingest point: catalog fetch, score normalizer (schedule already
-   does), and the draft pick at selection time.
-3. Migrate stored names to ids under the assertion. Scope live state first; archives are frozen and
-   are repaired on their own schedule (Item 85), so readers must tolerate both keyings rather than
-   this migration rewriting history as a side effect.
-4. Make the id authoritative wherever it exists; names become display, search, and provider-variant
-   alias matching only.
-
-**Store the id AND the name on durable records — the redundancy is the drift detector.** Ids are only
-as stable as the provider. Persist ids alone and a re-keyed or reassigned id is undetectable: the
-join still resolves, silently, to the wrong school, and archives keyed by that id become
-retroactively wrong with no tell. Persist the name alongside as a witness of what the id meant when
-the row was written, and any later disagreement is observable. This does not restore the name to an
-identity role; it makes provider drift falsifiable.
-
-**Drift detection.** Every `/games` row carries `home_id` with `home_team`, so the provider
-re-asserts the id-to-name binding on every row of every fetch. Validating that pair at ingest gives
-continuous detection on live data with no extra provider call and no scheduled job; a catalog diff at
-`fetch:teams` time covers teams that appear in no game. Classify the outcomes, because they are not
-equally serious:
-
-- same id, different name — requires human adjudication. This single class covers BOTH a benign
-  rebrand and a dangerous reassignment, and the system cannot safely tell them apart: `East Texas
-A&M` (formerly Texas A&M-Commerce) is a real, benign instance already present in the feed. A
-  rename keeps continuity — same conference, recognizably related name — but that is judgment, not a
-  rule.
-- same school, different id — re-keying. Needs a mapping decision before any further write.
-- id no longer present — ordinarily conference realignment leaving FBS; informational.
-
-**Posture: surface, never block.** The provider is expected to be clean, so these events should be
-rare, and blocking ingest on the first rebrand of a season would break the app for a benign cause.
-Ingest therefore continues. What must not happen is a SILENT rebinding of durable identity: a new
-`(id, name)` observation that disagrees with the stored binding is recorded as a conflict rather than
-overwriting it, and the durable rebind requires explicit operator action. That way a switch cannot
-propagate into the database unnoticed while a rename cannot take the season down.
-
-`src/lib/conferenceDiagnostics.ts` and its debug route are the idiomatic precedent for recording
-this; System Health is the established surface for making an operator aware of it.
-
-Acceptance boundary, both required:
-
-- Two distinct schools never share a normalized identity key, proven by a catalog-wide collision
-  sweep, and a conflict fails loudly instead of resolving by first-write-wins.
-- Provider identity drift is detected and surfaced, and a disagreeing `(id, name)` observation never
-  silently overwrites the stored binding. Ingest continues; the durable rebind requires operator
-  action.
-- A per-team season game-count invariant rejects an impossible schedule. The FBS ceiling is **17**
-  — 12 regular-season games, plus a conference championship, plus four College Football Playoff
-  rounds under the 12-team format — so the threshold must accommodate a full title run or it will
-  reject legitimate seasons. This is the broader net: it catches the _consequence_ of any future
-  collision regardless of cause, and a 24-game season went undetected for a full year without it.
+**MIGRATED to [#653](https://github.com/znpruitt/cfb-app/issues/653) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 84 — an overriding provider classification records no diagnostic
 
@@ -4544,33 +4161,8 @@ The issue is canonical for the ask, its evidence and its state. **This entry is 
 
 ### Item 85 — repair archived seasons polluted by the identity collision
 
-Low priority, but a genuine to-do rather than an accepted loss.
-
-The 2025 archive merged two schools under one identity: the archive audit reports Missouri State at
-13-11, which is 24 games against a 17-game FBS ceiling — its real slate plus Missouri S&T's Division
-II slate. Impact is contained because Missouri State was a no-claim team that season, so no owner
-record, win percentage, or championship is wrong; the residue is an inflated no-claim aggregate row
-and phantom rows in the archived game list. **Verified 2026-08-29: only 2025 is affected.** The archive audit was run across every existing
-season (2018, 2021-2025; 2019 and 2020 have no archive, matching the six seasons the league has
-played). Maximum per-team game counts are 15, 15, 15, 15, and 16 for the pre-2025 seasons — all
-legitimate — against 24 for Missouri State in 2025, the only breach of the ceiling in roughly 5,500
-archived games. Missouri State is unrostered in every pre-2025 archive. Residual limit: the audit's
-per-team table covers ROSTERED teams only, so phantom games attributed to an unrostered team in an
-earlier season would not appear; nothing owner-facing is affected either way. Scope is therefore one
-season and one team.
-
-PLATFORM-114 is forward-only: it stops new seasons tracking these games but does not touch frozen
-archives. Re-derivation is feasible now that eligibility classifies from the provider division label,
-but requires the affected season's schedule cache to be refreshed first so its rows carry the
-classification the rebuild reads.
-
-Handle with care: this rewrites completed seasons, including a championship year. Prefer a
-verifiable, reversible path — audit and diff before writing, and preserve the prior archive — over an
-in-place rebuild.
-
-Acceptance boundary: every archived season's per-team game counts fall within the 17-game ceiling,
-no archived FBS team's schedule contains a Division II opponent, and owner-facing records are
-unchanged by the repair (they are already correct — the repair must prove it does not disturb them).
+**MIGRATED to [#654](https://github.com/znpruitt/cfb-app/issues/654) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 86 — the archive audit's integrity check can never pass
 
@@ -4718,155 +4310,8 @@ The issue is canonical for the ask, its evidence and its state. **This entry is 
 
 ### Item 94 — measure the first full in-season month of CFBD burn (READ 2026-09-30)
 
-**TIMING IS THE WHOLE ITEM — corrected 2026-09-04, and the title was wrong.** `/info` reports
-`used`/`remaining` **for the current period only** (`providerQuota.ts:41-43`), the period is calendar
-monthly (the 2026-08-31 reading recorded `resets 2026-09-01`), and CFBD exposes **no history**. So a
-call made in October returns October-to-date and **September's total is unrecoverable** — the counter
-reset and nothing else in this system can reconstruct it. `provider-refresh-status` is latest-only
-(Item 126 layer 3) and the app does not durably count provider calls, so an in-period `/info` read is
-the ONLY source.
-
-**Read it on 2026-09-30, as late in the day as practical.** The body of this item already says
-September — "the first month containing four or five Saturdays of live polling" — while the heading
-said October; the heading was the error. Miss the date and the answer slips a full month, silently,
-with nothing indicating the number was lost.
-
-**Better than one reading: sample it — now filed as Item 127.** The app already probes `/info` on the
-game-stats cron for its spend gate and discards the result. Item 127 does not retain that one — a
-second writer on one durable row proved to cost more than the resolution it bought — and instead adds
-an unconditional sample on its own six-hourly QStash schedule, four unbilled `/info` requests a day. **If Item 127 ships before 2026-09-30 it supersedes this manual read**, and
-removes the cliff where missing one date costs a month. Until then this item stands as the fallback.
-
-**Gates TWO decisions, not one — noted 2026-09-04.** Item 95 portion 2 has always been gated on this
-for its quota cost. After Item 102 ships, the armed-hour count this produces is _also_ the input for
-whether the planner's freed Active CPU covers a faster in-window cadence: both axes scale with armed
-hours, so one number answers both. That raises this item's leverage well above its effort — it bills
-0 and requires no development.
-
-**A scheduled measurement, not development work.** Read `GET /info` (which bills 0) after the
-September reset and record the month's actual usage.
-
-Live reading 2026-08-31: **Tier 1, 5,000/month, 395 used (8%), `sharedPool: true` across `cfb` and
-`cbb`, resets 2026-09-01.** That 395 is NOT representative — the season began ~2026-08-29, so almost
-all of August was preseason with no live-score polling, no game-stats archive runs, and minimal odds.
-**September is the first month containing four or five Saturdays of live polling**, plus game-stats,
-odds, rankings, schedule maintenance, and — if PLATFORM-117 has landed — records.
-
-Tier map (`src/lib/api/providerQuota.ts:25-33`): `0→1,000  1→5,000  2→30,000  3→75,000  4→125,000
-5→200,000  6→500,000`. Tier 2 is a 6x jump for a Patreon subscription step, so headroom is cheap to
-buy **once there is evidence it is the binding constraint.**
-
-**What this measurement decides, and what it does not.**
-
-- **Decides:** whether cadence is quota-bound. Item 63's in-season ramp, the live-score interval, and
-  PLATFORM-117's records refresh floor are all "how often can we afford to ask", and a 6x headroom
-  would change those answers. Item 63 is already gated on accumulated observation; this is that
-  observation.
-- **Does NOT decide:** the cron-spends / client-reads split (PLATFORM-086B2B, PLATFORM-075). That
-  boundary is architectural, not budgetary — a client-triggered provider call costs a multiple of
-  how many people have the page open, which is unbounded, and raising the ceiling on an uncontrolled
-  multiplier is not a fix. The quota reserve check is likewise a runaway-loop detector; a bug that
-  burns 5,000 calls burns 30,000 just as happily.
-
-Do not raise the tier pre-emptively as headroom. Raise it in response to a measured constraint,
-because an unexplained jump in burn rate is a signal worth keeping legible.
-
-- Backlog slug: `PLATFORM-CFBD-BURN-RATE-v1`
-
-## Planned and parked campaigns
-
-These are valid future campaigns but are not activated implementation work:
-
-- **INSIGHTS-017-PALETTE** — rationalize category microlabel collisions under `DESIGN.md`'s color
-  semantics.
-- **INSIGHTS-RANKER-TUNING + INSIGHTS-PRIORITY-DECAY** — make base weights commensurable, add sample
-  depth, then replace binary freshness cliffs with archive-anchored decay. Engine insights currently
-  sort by raw `priorityScore`; they do not pass through `OVERVIEW_TYPE_PRIORITY`, so decide whether a
-  type-level bonus authority should exist before tuning it. If decay ships it absorbs
-  `INSIGHTS-FRESH-WINDOW-ANCHOR` and may retire `fresh_offseason`.
-- **Pairing Cards, Luck Score, Bounce-Back** — planned generator/product ideas; no queue position.
-- **Slow Draft Mode** — requires member write authority, notifications, and the item 65 gate.
-- **Draft Difficulty Settings** — limited to neutral factual context; do not restore SP+/win-total
-  recommendations or non-random auto-pick.
-- **PLATFORM-087 Registry Integrity** — two-phase campaign: truthful malformed-element handling at
-  every read edge, then writer gating and an explicit salvage path in the same shippable phase.
-- **Server Action Auth Hardening** — future commissioner-role enforcement and removal of public
-  token fallbacks; platform-admin action guards already belong to completed work.
-- **Team-catalog source unification** — move draft/runtime consumers to the durable catalog, with a
-  visible divergence guard as an optional interim step. Draft writes are first. **Scope widened
-  2026-09-02: there are now THREE CFBD-derived team snapshots, not two**, and none reports drift
-  against the others:
-
-  | Snapshot                        | Scope                  | Contents                                                         | Refresh               |
-  | ------------------------------- | ---------------------- | ---------------------------------------------------------------- | --------------------- |
-  | `src/data/teams.json`           | 138 FBS                | stripped seed — no `providerId`, no `id`                         | `npm run fetch:teams` |
-  | durable `team-database`         | 138 FBS                | full: `providerId`, mascot, classification, colours, logos, alts | admin sync            |
-  | `src/data/odds-team-mascots.ts` | **928, all divisions** | school, mascot, classification, alts                             | **no script at all**  |
-
-  The third arrived with PLATFORM-122 and is the least governed of them. It was kept separate for a
-  real reason — the catalog is the FBS IDENTITY AUTHORITY, `buildScheduleFromApi` treats an empty
-  catalog as unavailable rather than "no teams", and a non-FBS entry could mint a canonical identity
-  (PLATFORM-114's Westgate Christian / Missouri S&T collision). But that argues for how the boundary
-  is EXPRESSED, not for a third file: `TeamCatalogItem` already carries `classification` and `level`,
-  so one all-divisions snapshot whose identity consumers filter to `fbs` is representable today. The
-  trade is that the filter must then be correct at every consumer, where separate files get it for
-  free by not holding the data. **That is a design decision for this campaign, not a cleanup.**
-  Item 107c is the symptom that surfaced it.
-
-  **Owner direction, 2026-09-02 — prefer CFBD provider ids over derived internal identity wherever a
-  join makes sense.** This is the sharper framing, and it may REDUCE the campaign rather than widen
-  it. Three failures in one day all came from name- or catalog-mediated joins, not from having three
-  snapshots:
-  - Item 106 — odds matching went canonical name → catalog metadata, and the FBS-only catalog could
-    not strip a non-FBS mascot. 48 events discarded.
-  - Item 87 slice 4 — the records join was specified as canonical name → catalog `providerId` →
-    record, and could not reach an FCS opponent for the same reason.
-  - Both were unblocked by using a CFBD pid directly.
-
-  **The pid path is measurably complete where it matters.** Records join pid-to-pid —
-  `ScheduleWireItem.homeId`/`awayId` against `TeamRecordItem.teamId`, the same id space — at
-  **1,776 of 1,776 team lines across every FBS-involving 2026 game, zero misses**, reaching FCS
-  opponents because CFBD assigns pids below FBS. Game ids are universal: **22,760 of 22,760 rows**
-  across seven cached seasons carry a numeric, safe-integer `id`.
-
-  **The consequence for scope:** the catalog's FBS-only boundary is only a problem because it is being
-  used as a BRIDGE. If joins key on pids, the catalog can stay FBS-only as the identity authority —
-  which is what PLATFORM-114's collision history requires — without blocking any consumer. That
-  argues for converting joins before, or instead of, merging snapshots.
-
-  **Known coverage limit:** participant ids (`homeId`/`awayId`) are absent for 2018 (0 of 1,556 rows)
-  and complete from 2021 (100%). 2019-2020 are uncached. A pid-keyed join reaching into history hits
-  that wall; a current-season one does not. See Item 105 for the deferred backfill and why it was not
-  taken.
-
-- **Server Fetch Architecture** — scoped low-priority fixes for internal HTTP context loaders; do not
-  perform a broad rewrite.
-- **League State vs Season State** — deliberate product/architecture fork, not a 2026 blocker.
-- **Multi-tenant Commissioner Sign-up** — conditional on real multi-league usage and the privacy,
-  owner-identity, and multi-writer gates in this queue.
-- **Design, copy, back-button, lifecycle-label, and link-styling audits** — polish campaigns to
-  activate individually.
-- **History Phase 3** — career stats surface, record scoring, Stats/Rivalries/Archive wiring, and
-  insight-link retargeting. Sparse-data layout and dynamic tiling remain evidence-gated design work.
-  Archive wiring carries a known, owner-observed defect (2026-08-27, `/league/tsc/history/2025`):
-  the season-arc chart renders `MiniTrendsGrid`, whose `CONTENDERS = 5` **excludes** every owner
-  outside the top five, undisclosed, directly beneath the complete final standings table — so the
-  chart and the table under one heading describe different populations, and the axis maximum
-  reflects only the retained subset. The standings page's `TrendsDetailSurface` answers the same
-  question correctly: its `TOP_FOCUS_COUNT = 5` governs emphasis, not membership, and it draws every
-  owner. Owner direction: the archive should reuse that surface, with its Games Back / Win % tabs,
-  rather than keeping a second capped implementation. Treat item 73's axis-domain work as LIKELY
-  ABSORBED by the swap — `TrendsDetailSurface` derives its domain from resolved weeks instead of the
-  raw history — but verify rather than assume, because the archive still supplies the history and the
-  leading/trailing week problem may survive the change.
-- **Homepage brand identity** — trigger near public launch after surfaces stabilize.
-- **Orphaned `/rankings` route** — owner decision required before retiring a potentially bookmarked
-  single-tenant route.
-- **Postseason start week from schedule** — revisit before an unusual CFP structure invalidates the
-  current constant.
-- **Header architecture unification** — separate Polish slice after header structure stabilizes.
-- **Per-league standings invalidation optimization** — current alias writes are global/year by
-  design; schedule only if a different targeting basis is demonstrated.
+**MIGRATED to [#655](https://github.com/znpruitt/cfb-app/issues/655) on 2026-09-10, labelled `parked`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Parked identity and operator concepts
 
@@ -6494,7 +5939,13 @@ ask, state or evidence lives.**
 bookkeeping step that has failed by hand more than once in this campaign, and automating it is the
 main reason the switch is worth making.
 
-**Forty sub-100 items triaged, thirty-nine migrated** (#595-#613, #623-#642). **16 sub-100 remain.**
+**THE SUB-100 TAIL IS FINISHED.** 57 items triaged, **53 migrated** (#595-#613, #623-#656), **3
+superseded** (13, 76, and the already-superseded 88), **1 closed** (#609). **Item 87 is NOT migrated
+and should not be** — it is the active campaign, and campaign status is what this file IS canonical
+for.
+
+**The premise that started this is refuted at 3 of 57.** The tail was not sediment; it was unstarted
+work that was still true.
 
 **A SECOND ITEM WAS FOUND WHOSE PRESCRIPTION IS NOW HARMFUL.** Item 38 asks to delete the
 "redundant" `partial-roster` label; `insights/types.ts:99-112` records that it and `official-roster`
