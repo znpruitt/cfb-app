@@ -23,6 +23,7 @@ import {
   healthyDelivery,
   NOW,
   receiptFor,
+  receiptWithReason,
   lateReceiptFor,
   planUnavailableRow,
   receiptWithRefusals,
@@ -63,6 +64,96 @@ test('timely skipped receipt raises no delivery or execution issue', () => {
     baseInputs({ schedulerDelivery: deliverySnapshot(rows) })
   );
   assert.deepEqual(issues, []);
+});
+
+// Issue #619 — the two planner outcomes that behave identically and mean opposite
+// things. This is the item's whole point: both hold every job and send nothing, and
+// only one of them is something an operator chose.
+test('a settings-unreadable planner run RAISES; a genuine operator hold stays silent', () => {
+  const plannerRow = (receipt: ReturnType<typeof receiptWithReason>) =>
+    healthyDelivery().jobs.map((row) =>
+      row.job === 'polling-planner' ? deliveryRow('polling-planner', 'on-time', receipt) : row
+    );
+
+  const unreadable = deriveSystemHealthIssues(
+    baseInputs({
+      schedulerDelivery: deliverySnapshot(
+        plannerRow(receiptWithReason('polling-planner', 'failure', 'settings-unreadable'))
+      ),
+    })
+  );
+  const raised = find(unreadable, 'scheduler-execution-failed');
+  assert.ok(raised, 'an unreadable settings store must not be invisible');
+
+  // THE HELD CASE IS THE POSITIVE CONTROL, not a second scenario. Without it this
+  // test would pass just as well against an alerting rule that raised on every
+  // planner run, which is precisely what must not happen: a deliberate stop pages
+  // nobody, and that behaviour is unchanged by #619.
+  const held = deriveSystemHealthIssues(
+    baseInputs({
+      schedulerDelivery: deliverySnapshot(
+        plannerRow(receiptWithReason('polling-planner', 'no-op', 'plan-held'))
+      ),
+    })
+  );
+  assert.ok(
+    !find(held, 'scheduler-execution-failed'),
+    'a deliberate operator hold must still raise nothing'
+  );
+});
+
+test('the settings-unreadable explanation says it is NOT an operator pause', () => {
+  // Text, not a `repair` link: there is no planner or settings maintenance action,
+  // and linking one that cannot re-read the store is the dead end
+  // `JOBS_WITHOUT_EXECUTION_REPAIR` exists to avoid.
+  const issues = deriveSystemHealthIssues(
+    baseInputs({
+      schedulerDelivery: deliverySnapshot(
+        healthyDelivery().jobs.map((row) =>
+          row.job === 'polling-planner'
+            ? deliveryRow(
+                'polling-planner',
+                'on-time',
+                receiptWithReason('polling-planner', 'failure', 'settings-unreadable')
+              )
+            : row
+        )
+      ),
+    })
+  );
+  const raised = find(issues, 'scheduler-execution-failed');
+
+  assert.match(raised?.explanation ?? '', /not an operator pause/);
+  // ASSERTED AS IT IS, NOT AS I FIRST EXPECTED. `polling-planner` is not in
+  // `JOBS_WITHOUT_EXECUTION_REPAIR`, so it keeps the Data Maintenance link this
+  // change did not touch. Whether that link can act on a PLANNER fault is a
+  // separate question — Data Maintenance has no planner or settings action — but
+  // it is pre-existing behaviour for every planner failure, not something
+  // `settings-unreadable` introduces, and #619's ruling was explanation text
+  // rather than a repair change. Recorded, not silently altered.
+  assert.equal(raised?.repair?.surface, 'data-maintenance');
+
+  // A DIFFERENT failure reason gets no hint, which is what keeps the map from
+  // becoming a sentence on every row.
+  const other = deriveSystemHealthIssues(
+    baseInputs({
+      schedulerDelivery: deliverySnapshot(
+        healthyDelivery().jobs.map((row) =>
+          row.job === 'polling-planner'
+            ? deliveryRow(
+                'polling-planner',
+                'on-time',
+                receiptWithReason('polling-planner', 'failure', 'plan-not-applied')
+              )
+            : row
+        )
+      ),
+    })
+  );
+  assert.doesNotMatch(
+    find(other, 'scheduler-execution-failed')?.explanation ?? '',
+    /operator pause/
+  );
 });
 
 // Case 4 — timely failed receipt → on-time delivery + execution-failed issue.

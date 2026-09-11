@@ -40,6 +40,22 @@ export type PollingPlannerCronExecutionReason =
    */
   | 'plan-held'
   /**
+   * The SETTINGS store could not be read, so whether a hold exists is unknown.
+   *
+   * PAIRED WITH `failure`, AND THAT IS THE WHOLE POINT OF THIS REASON. The planner
+   * still fails closed and holds every job — refusing to mutate schedules under
+   * uncertain settings is correct. Reporting that uncertainty as `no-op` /
+   * `plan-held` was not: `schedulerExecutionIssues` deliberately raises nothing for
+   * `no-op`, so a transient settings-read failure stopped the planner silently, in
+   * a state indistinguishable from a deliberate operator stop, with the alerting
+   * built to ignore it (issue #619, and Item 189 before it).
+   *
+   * A GENUINE HOLD IS UNCHANGED — still `no-op` / `plan-held`, still silent. The
+   * distinction is the cause, not the behaviour: both hold everything, and only one
+   * of them is something an operator chose.
+   */
+  | 'settings-unreadable'
+  /**
    * The canonical schedule could not be read, so no windows could be derived.
    * The planner FAILS CLOSED here rather than planning an empty day: an empty
    * window list is a legitimate plan for a dead day, and treating an unreadable

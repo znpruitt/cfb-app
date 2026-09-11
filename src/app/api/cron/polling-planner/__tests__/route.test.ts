@@ -628,10 +628,20 @@ test('the receipt reports HELD separately — never as succeeded and never as fa
   }
 });
 
-test('an unreadable settings store HOLDS EVERYTHING rather than rewriting schedules', async () => {
+test('an unreadable settings store holds everything AND REPORTS A FAILURE', async () => {
   // Fail closed. A settings read failure is not permission to undo an operator's
   // stop, and `providerRefreshSettings` documents noncritical callers failing
-  // closed for exactly this reason.
+  // closed for exactly this reason. THE HOLDING IS UNCHANGED.
+  //
+  // WHAT CHANGED, AND THIS TEST USED TO ASSERT THE DEFECT (#619, Item 189 before
+  // it): it read `reason === 'plan-held'`, which is paired with `no-op`, and
+  // `schedulerExecutionIssues` raises nothing for `no-op` by design so a deliberate
+  // operator stop never pages anyone. So a transient settings-read failure stopped
+  // the planner silently, in a state indistinguishable from an intentional pause,
+  // with the alerting built to ignore it — and the suite pinned that.
+  //
+  // Mutation target: put the classifier's settings branch back after the all-held
+  // branch and this returns to `no-op` / `plan-held`, which is the defect.
   await reset();
   await clearHolds();
   const deferrer = installReceiptDeferrer();
@@ -652,7 +662,18 @@ test('an unreadable settings store HOLDS EVERYTHING rather than rewriting schedu
 
     assert.equal(calls.length, 0, 'nothing is sent when the hold cannot be read');
     const receipt = await readReceipt();
-    assert.equal(receipt?.reason, 'plan-held');
+    assert.equal(receipt?.result, 'failure', 'an unreadable store is not a quiet no-op');
+    assert.equal(receipt?.reason, 'settings-unreadable');
+    // The behaviour this must NOT change: every job still held, nothing applied,
+    // nothing failed at the schedule level — identical to a genuine hold.
+    const target = receipt?.target as {
+      jobsHeld: number;
+      schedulesApplied: number;
+      schedulesFailed: number;
+    };
+    assert.equal(target.jobsHeld, 2);
+    assert.equal(target.schedulesApplied, 0);
+    assert.equal(target.schedulesFailed, 0);
   } finally {
     __setAppStateReadFailureForTests(null);
     await clearHolds();

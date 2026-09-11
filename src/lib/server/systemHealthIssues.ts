@@ -34,6 +34,7 @@ import type {
 import {
   EXTERNAL_SCHEDULER_JOBS,
   type ExternalSchedulerJob,
+  type SchedulerExecutionReason,
   type SchedulerExecutionReceipt,
 } from './schedulerExecutionStatus.ts';
 import { formatYearFailureEvidence } from './schedulerYearEvidence.ts';
@@ -532,6 +533,33 @@ function evidenceClause(evidence: string | null): string {
     : ` Retained receipt evidence — ${evidence}. That is what the run recorded; it does not describe what the cache now holds.`;
 }
 
+/**
+ * The recovery sentence for reasons whose fix is not "look at the job".
+ *
+ * A MAP RATHER THAN A SPECIAL CASE, with one entry today. Most execution failures
+ * are answered by the job's own repair action or by the next scheduled run, and a
+ * sentence saying so would be noise on every row. `settings-unreadable` is the
+ * exception it was written for (#619): the planner held everything, NOBODY ASKED
+ * IT TO, and the operator's likely first instinct — check who paused it — is the
+ * wrong one.
+ *
+ * It is text, not a `repair` link, deliberately. A repair link is a claim the
+ * destination can act on the fault; there is no planner or settings maintenance
+ * action, and inventing a link to a page that cannot re-read the store would be
+ * the dead end the `JOBS_WITHOUT_EXECUTION_REPAIR` rule above exists to avoid.
+ */
+const EXECUTION_RECOVERY_HINTS: Partial<Record<SchedulerExecutionReason, string>> = {
+  'settings-unreadable':
+    ' The provider refresh settings could not be read, so every planner job was held ' +
+    'and no schedule was changed — this is not an operator pause. No action is ' +
+    'required if the next run succeeds; a run that keeps reporting it means the ' +
+    'settings record itself needs an operator.',
+};
+
+function recoveryHint(reason: SchedulerExecutionReason): string {
+  return EXECUTION_RECOVERY_HINTS[reason] ?? '';
+}
+
 function schedulerExecutionIssues(snapshot: SchedulerDeliveryHealthSnapshot): SystemHealthIssue[] {
   // Execution outcome is inspected from the safely-parsed receipt INDEPENDENTLY
   // of delivery timeliness: a late-but-successful run raises no execution fault,
@@ -559,7 +587,7 @@ function schedulerExecutionIssues(snapshot: SchedulerDeliveryHealthSnapshot): Sy
         severity: 'warning',
         subject: { axis: 'job', id: row.job },
         title: `${row.job} execution failed`,
-        explanation: `The most recent ${row.job} invocation reported a failed execution result.${evidence}`,
+        explanation: `The most recent ${row.job} invocation reported a failed execution result.${evidence}${recoveryHint(receipt.reason)}`,
         repair,
       });
     } else if (receipt.result === 'partial') {
