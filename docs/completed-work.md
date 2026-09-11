@@ -1,4765 +1,651 @@
 # Completed Work Log
 
-Status: Historical (append-only ledger)
-Last verified: 2026-09-06
+Status: Historical, consolidated by outcome
+Source checkpoint: 2026-09-06
+Consolidated: 2026-09-11
 Owner: Project documentation
-Canonical for: append-only record of shipped phases/milestones (outcomes) — historical, not current implementation authority
-Supersedes: (none)
-
-## Purpose / How to use this document
-
-- This file is an **append-only log** of completed phases and major milestones.
-- Record **what was built and why it mattered** (outcomes), not a commit-by-commit changelog.
-- This is **not** an active task list.
-- Add future completed phases/milestones here instead of mixing history into `docs/next-tasks.md`.
-
-> **Reading historical entries:** any `NEXT`, `PENDING`, "dormant", or follow-up planning wording
-> inside an entry below is **point-in-time history** — accurate when the entry was written, never
-> current planning authority. Current state always comes from `docs/next-tasks.md` (the canonical
-> queue and deferrals list). `Last verified` for this ledger covers its structure, newest entries,
-> and file-level guidance — not runtime revalidation of every historical claim.
-
-## Completed phases / milestones
-
-> **Historical note — the PLATFORM-086H3 decomposition (point-in-time planning, since completed):**
-> a preamble here once tracked the in-progress H3 decomposition (frozen single-branch attempt →
-> prerequisite PRs, the superseded revision/lineage prerequisite B, and the fenced-legacy-writer
-> replacement). That work has long since completed and activated in production; its lineage is
-> preserved in the per-milestone entries below (the H3B-replacement fenced writer, the H3C slices,
-> H3D, and the H3E activation checkpoints), the `PLATFORM-086H3*` entries in
-> `docs/prompt-registry.md` (including the full H3A record — PR #398 — and the audit that
-> superseded prerequisite B), and the architecture record in
-> [`docs/ai/game-stats-writer-fence.md`](ai/game-stats-writer-fence.md) (with the superseded
-> original design frozen in [`docs/ai/platform-086h3-contract.md`](ai/platform-086h3-contract.md)).
-
-### PLATFORM-087 Slice 5b — Card-owner scoreboard row modifier — Complete
-
-- **Status:** Merged via PR #575 (merge commit `fef083ae`), 2026-09-06.
-- **PROMPT_ID:** `PLATFORM-087-SLICE-5B-CARD-OWNER-ROW-CODEX-v1`.
-- **Outcome:** `CompactGameScoreboard` now accepts an optional, caller-decided
-  `isCardOwnerTeam` participant flag and renders a neutral 5.5%-white tint behind only marked rows.
-  The tint is `dark:`-gated, isolated behind row content, and bleeds 8px horizontally without
-  changing layout. Adjacent marked rows meet at exact-zero vertical inset with squared facing
-  corners and rounded outer corners, avoiding overlap, separation, and a pinched seam. The merge
-  deliberately adds no caller wiring, so every existing render remains unchanged until a caller
-  supplies true.
-- **Verification / review:** exact implementation head `89079e17` passed TypeScript, `lint:all`, and
-  the 26-test focused suite. Three focused tests protect marked-row tinting across every state,
-  byte-identical absent/undefined/false output, and both-row seam geometry; the existing theme guard
-  was strengthened to cover named and arbitrary values from one utility-family set. Full `npm test`
-  passed 4,715/4,717 with exactly the two standing Item 137 odds failures. Four review passes
-  completed; mutations rejected ungated tint, an omitted `text-shadow` family, incorrect paired
-  corners, and multiple positive/negative vertical inset values.
-
-### PLATFORM-087 Slice 5 + Item 112 — Schedule scoreboard and disclosure — Complete
-
-- **Status:** Merged via PR #572 (merge commit `f424222a`), 2026-09-05.
-- **PROMPT_ID:** `PLATFORM-087-SLICE-5-ITEM-112-CODEX-v1`.
-- **Outcome:** Schedule's regular and postseason rows now render `CompactGameScoreboard` continuously
-  instead of collapsing the scoreboard into a one-line summary. Only tier-2 venue, odds, conference,
-  and postseason-admin detail sits behind the native More/Less disclosure. Rows remain strictly
-  kickoff-sorted within date groups; settled state presentation shows kickoff for scheduled, the
-  game clock for live, neither for awaiting/final, and broadcast for scheduled/live/awaiting only.
-  Bronze eyebrow pills replace the retired card-emphasis chrome, and the declared Matchups
-  self-result tint now matches its outcome siblings.
-- **What actually shipped for records:** no records render on Schedule or its Postseason consumer.
-  The attempted `onGamesFinalized` timestamp gate was deleted because it discarded game identity and
-  blanked the whole records projection. Overview's pre-existing feed is unchanged; Item 139 owns the
-  shared completed-game reconciliation required before records return to Schedule.
-- **Deletion / accessibility:** the orphaned `GameScoreboard` component and its tests, unused legacy
-  presentation helpers, dead `teamCatalogById` wiring, and vacuous no-broadcast assertion were
-  removed. Disclosure names follow their visible More/Less state and add matchup-specific
-  screen-reader context. The final branch code delta was 20 files, +874/−1,298 (net −424).
-- **Verification / review:** bound to exact code head `c6b01169`. `npx tsc --noEmit` and
-  `npm run lint:all` exited 0; the four focused suites passed 83/83. Full `npm test` executed 4,685
-  tests with 4,683 passing and exactly two failures — `convergence #10: a canonical success is
-  recorded only after the atomic commit` and `compatibility #46: an authorized manual refresh
-  returns the compatible 200 shape` — both the standing Item 137
-  `writer-convergence.test.ts` baseline, not a clean full-suite claim. Six review passes converged.
-  Findings about disrupted/placeholder rendering were deliberately not fixed: the measured
-  production population contained no provider disrupted status across 11,311 schedule rows from
-  2024–2026, so the owner rejected those paths as unreachable rather than treating them as contract
-  blockers.
-
-### Item 135 — Matchups opponent count and its collapse control — Complete
-
-- **Status:** Merged via PR #571, 2026-09-05.
-- **PROMPT_ID(s):** `PLATFORM-135-OPPONENT-COUNT-CLAUDE-v1`.
-- **Outcome:** the owner card's disclosure control counts **distinct games**, the unit its list
-  renders, and each game renders once. What shipped is not what the prompt first specified — it began
-  as a re-key of the opponent summary and became a change of counting model mid-branch, after the
-  opponent-keyed design was shown still broken against a drafted league's roster.
-- **Why it mattered:** three defects shared one root — the label counted a different unit than the
-  list showed. Unowned opponents collapsed onto two sentinels, so three counted as one. The control
-  was inert: it rendered every game in both states, so clicking hid nothing, and because the button
-  was gated on the suppressed count, fixing the count alone would have put a _dead_ button on more
-  cards than before. And an owner holding both teams in a game got two mirrored rows for it — 39
-  games in the 2026 season, out of 888 involving a rostered team.
-- **The refutation that changed the design:** a confirmed draft writes the reserved `NoClaim` owner
-  for every undrafted eligible team, and `rosterByTeam` carries those rows through unfiltered, so an
-  unclaimed opponent has a truthy owner and took the owned branch. The opponent-identity keying
-  therefore left the original defect fully intact wherever it actually ships, and passed only against
-  a fixture that omitted unowned teams from the roster.
-- **Verification / review:** bound to `521e79d0`, the final code commit and the exact commit both
-  reviewers ran against — TypeScript and `lint:all` clean, and 4,697 tests with 4,695 passing. The two
-  failures were pre-existing in `src/app/api/odds/__tests__/writer-convergence.test.ts`, reproduced on
-  clean `main`, and caused by an expired fixture kickoff rather than by this change. Test delta +18.
-  Four mutations proved the dedupe, the collapse, the sentinel suppression and the singular label;
-  three pre-existing tests that had encoded the row duplication were retargeted with their other
-  assertions preserved. Codex clean; `/code-review` found nothing in the production code.
-- **Known unresolved, filed as Item 136:** the slate aggregates still double-count a self game, so one
-  live self game now renders a single row beneath `2 GAMES`, `2 LIVE` and `0–0 · 2 live`. That code is
-  in `src/lib/matchups.ts`, outside this scope, and `src/lib/ownerView.ts` consumes the same values —
-  fixing only the panel would make Matchups and the Owner view disagree. The W–L record itself is
-  correct; it counts buckets, not slate entries.
-
-### PLATFORM-087 Slice 5a — Shared Scoreboard Contract — Complete
-
-- **Status:** Merged via PR #570 (merge commit `4caa1a79`), 2026-09-05.
-- **PROMPT_ID(s):** `PLATFORM-087-SLICE-5A-SCOREBOARD-CONTRACT-v2`; v1 stopped after two remediation
-  rounds and was reconstructed from clean `main`.
-- **Outcome:** `CompactGameScoreboard` gained four additive seams for the remaining Item 87 UI spine:
-  a mutually exclusive rank/FCS prefix, neutral-site metadata, broadcast on scheduled/live/awaiting
-  rows, and optional non-reserving tier-2 expansion content. Conditional separators prevent orphan
-  bullets, and the tier-2 wrapper carries the sibling spacing and overflow constraints needed inside
-  two-column grids.
-- **Contrast ruling:** every `dark:text-zinc-500` token in this component moved to zinc-400 to meet
-  the 4.5:1 small-text floor. On a losing participant row that collapses the former colour step
-  between the team name and its record/owner suffixes; the remaining 14px versus 12.5px size step is
-  accepted because reverting the colour fails contrast and a replacement dimming mechanism was out
-  of scope.
-- **Verification / review:** exact final pre-merge head `5425f3f9` passed TypeScript, `lint:all`, and
-  all 4,679 tests. The change added 14 scoreboard tests and one rich Overview fixture; mutations
-  proved classification exclusivity, separators, state-gated broadcast, tier-2 behavior, and that
-  forwarding the reserved props would change Overview. Both confirming reviewers converged on the
-  final production commit `afbc81c5` with no credible in-scope P2.
-- **Known data limit:** provider classification is absent from 2018–2024. The FCS marker therefore
-  renders only where current-season rows carry the field; it is inert on those historical seasons by
-  design. The next five UI slices retain the consumer seam audit in `docs/next-tasks.md` Item 87.
-
-### PLATFORM-BROWSER-POLL-CADENCE — Complete
-
-- **Status:** Merged via PR #567 (merge commit `3c2d8774`), 2026-09-05.
-- **PROMPT_ID(s):** `PLATFORM-BROWSER-POLL-CADENCE-v2`.
-- **Outcome:** visible current-season tabs read the full eligible live-score partition set every 90
-  seconds while any eligible game is inside `[kickoff − 15 min, kickoff + 8 h]` without a usable
-  final, then every 180 seconds. Missing or incomplete score evidence stays fast through the hard
-  ceiling; a usable final requires final status plus both numeric scores.
-- **Why it mattered:** the unchanged three-minute cron is the only writer, so the fast tier improves
-  expected display staleness from about 180 to 135 seconds (roughly 45 seconds or 25%) without
-  doubling browser reads through the full 24-hour finals tail. Item 128 landed first and removed the
-  redundant team-catalog request from every poll.
-- **Verification / review:** final pre-merge head `9d3cd081` passed TypeScript, `lint:all`, and all
-  4,661 tests. Both independent confirming reviews targeted production remediation `20870cfc`;
-  Codex returned no findings and `/code-review` found no correctness defects.
-- **Carried forward:** Item 95 retains the seven-minute client stale-overlay decision, a live-slate
-  `/api/scores?live=1` Active CPU observation, and Portion 2's provider-cadence decision gated on
-  Item 94.
-
-### PLATFORM-RETIRE-POSTSEASON-TEMPLATE — Complete
-
-- **Status:** Merged via PR #565 (merge commit `7e505437`), 2026-09-04.
-- **PROMPT_ID(s):** `PLATFORM-RETIRE-POSTSEASON-TEMPLATE-v1`.
-- **Outcome:** deleted `src/lib/postseason-template.ts`, 183 lines, one file, nothing else. It had
-  zero callers anywhere in `src/` or `scripts/` and no test.
-- **Why it was deleted rather than revived:** it hardcoded provider week numbers — conference
-  championships at `week: 15`, bowls and playoff at `17` — which matched 2024 and 2025 but had
-  already gone wrong for 2026, where CFBD puts Army–Navy at week 15 so championships land at 14. It
-  also had no first-round slots at all (the 12-team bracket missing its first round) and a four-bowl
-  set the 12-team format made ambiguous. The live classifier is provider-driven and handles
-  placeholders today; this was a second, unmaintained model of the same structure.
-- **Verification:** implementation commit `12da576e`. TypeScript, `lint:all`, `npm test` at 4,590
-  passing with a delta of 0, and `npm run build` — the last required because a module deletion is
-  where a stale import surfaces. Re-confirmed against merged `main` (`fd4cc1e2`): all four exit 0.
-- **Notes:** first task dispatched through `docs/prompts/`, the worktree-readable kickoff directory.
-  Codex delivered exactly the contract's scope — one file, no collateral edits. Codex review and
-  `/code-review` both returned no findings.
-- **Carried forward:** the module's slot-numbered playoff keys (`cfp-quarterfinal-1`…`-4`) are the
-  naming convention Item 121 needs for the CFP first-round `eventKey` collision; that observation is
-  recorded in Item 121, not lost with the file.
-
-### POLISH-024 — Retire the Dead OverviewContext Fields — Complete
-
-- **Status:** Merged via PR #564 (merge commit `cac6dab9`), 2026-09-04.
-- **PROMPT_ID(s):** `POLISH-024-RETIRE-OVERVIEW-SECTION-ORDER-v1`.
-- **Outcome:** `OverviewContext` reduced from seven fields to one, `{ scopeDetail }` — the only field
-  anything reads. Removed `sectionOrder`, `scopeLabel`, `highlightsTitle`, `highlightsDescription`,
-  `liveDescription` and `emphasis`, plus the orphaned `OverviewSectionKind`.
-  `deriveOverviewContext` lost both parameters that fed only deleted fields and collapsed from four
-  slate branches to a single line. No user-visible change.
-- **Why it mattered:** two of the fields had begun contradicting shipped behaviour.
-  `sectionOrder`'s live value asserted Live leads above Standings, which POLISH-022 disproved, and
-  `liveDescription` carried copy describing behaviour the page does not have. An unread second model
-  of a fact the JSX owns is what let both drift unnoticed.
-- **Verification:** exact pre-merge head `8742d6dd`. `npx tsc --noEmit` exit 0, `npm run lint:all`
-  exit 0, `npm test` exit 0 with 4,590 passing, `npm run build` exit 0.
-- **The branch's own lesson, now binding:** three false reader claims were made and corrected here,
-  every one from a grep that matched near-namesakes, and the second was written one sentence after
-  correcting the first. `AGENTS.md` → Verification gained a rule as a result — a claim that
-  something IS READ requires a mutation, not a grep — placed as the mirror of the existing
-  absence-requires-a-search rule.
-
-### POLISH-023 — Overview Sort Rules — Complete
-
-- **Status:** Merged via PR #563 (merge commit `1546bbc8`), 2026-09-04.
-- **PROMPT_ID(s):** `POLISH-023-OVERVIEW-ORDERING-REMAINDER-v1`.
-- **Outcome:** kickoff time is the discriminator in every Overview game section. Live sorts kickoff
-  ascending; Recent finals and Featured sort kickoff descending; the watchlist keeps its curation
-  score above kickoff and lost only its owner-count tiebreak. A Featured final no longer carries a
-  date or time.
-- **What was actually removed:** the in-progress-before-awaiting partition, and four separate
-  owner-count keys — `compareOverviewLiveItems`, `compareOverviewRecentFinals`,
-  `compareWatchlistItems` (`item.priority`), and `compareRecentResultItems`. The last mattered most:
-  `selectFeaturedGames` slices without re-sorting, so it decided which games appeared, and `NoClaim`
-  being truthy meant it scored an unowned team as an owner.
-- **Verification:** exact pre-merge head `c0cba813`. `npx tsc --noEmit` exit 0, `npm run lint:all`
-  exit 0, `npm test` exit 0 with 4,591 passing (+5). Every new assertion mutation-proven.
-- **Documentation:** `DESIGN.md` required Featured finals to keep a kickoff and was amended to the
-  owner's rule. The sort rules for all four sections are now written down in
-  `docs/campaigns/item-87-followon-section-ordering-resolutions.md`; they previously existed only in
-  code and in how the mockups happened to render.
-- **Open follow-ups:** Item 125 portions 3 and 4 (counts → Item 115; "Today" → slice 5), the two
-  surfaces still printing kickoffs on final rows (Matchups, Schedule), and Item 124.
-
-### POLISH-022 — Overview Section Order — Complete
-
-- **Status:** Merged via PR #562 (merge commit `f4e13ad0`), 2026-09-04.
-- **PROMPT_ID(s):** `POLISH-022-OVERVIEW-SECTION-ORDER-v1`.
-- **Outcome:** Overview's game sections render Featured → Live → Recent finals → Upcoming watchlist,
-  ordered by temporal distance from now. The shipped order placed the watchlist second and Live
-  third, burying the only content with a deadline; it was inherited layout rather than a decision,
-  traceable through the slice-4 watchlist conversion to the 2025 Overview redesign. The order is now
-  an owner decision recorded in `docs/campaigns/item-87-followon-section-ordering.md`.
-- **Mechanism:** a pure block move of the watchlist JSX below Recent finals — 28 lines added, 28
-  removed, the sorted line multisets of `main` and `HEAD` identical. No selector, cap, condition, or
-  data change.
-- **Verification:** exact pre-merge head `2879f5f3`, clean tree. `npx tsc --noEmit` exit 0,
-  `npm run lint:all` exit 0, `npm test` exit 0 with 4,586 passing (+1). The new order test carries
-  four presence assertions as positive controls and is mutation-proven: restoring `main`'s
-  `OverviewPanel.tsx` fails `Recent finals must precede the watchlist`.
-- **Review:** Codex clean. `/code-review` found no correctness bugs and three low documentation
-  findings — two closed by the pre-merge closeout, the third filed as Item 124.
-- **Open follow-ups:** Item 125 (the four remaining section-ordering decisions) and Item 124 (retire
-  the dead `OverviewContext.sectionOrder`).
-
-### POLISH-021 — NoClaim Presentation and Schedule Participant Naming — Complete
-
-- **Status:** Merged via PR #560 (merge commit `0b95aeca`), 2026-09-03.
-- **PROMPT_ID(s):** `POLISH-021-NOCLAIM-PRESENTATION-v1`.
-- **Outcome:** Schedule, Postseason, and Matchups no longer present the internal `NoClaim` sentinel
-  as a member. Matchups stays owner-only, with no sentinel owner card, sentinel opponent badge, or
-  count-only excluded-games section. Expanded Schedule rows use provider casing for non-catalog
-  teams while preserving catalog scoreboard labels; roster and ownership data remain unchanged.
-- **Verification:** Exact pre-merge head `5fd15a07` passed TypeScript, `lint:all`, and all 4,585
-  tests. Mutation checks covered every render seam, explicit post-draft sentinel mappings, the
-  both-unowned Schedule row, and the non-catalog naming fallback. Final Codex confirmation was clean;
-  final `/code-review` confirmation remained unavailable because its local client was unauthenticated.
-- **Test delta:** Four tests were added for the helper, expanded scoreboard, collapsed Schedule, and
-  participant-name paths. Existing Matchups assertions were retargeted to production-shaped literal
-  sentinel mappings; no test was removed.
-- **Open follow-up:** Item 117 retains the dormant opponent-grouping/count cleanup.
-
-### PLATFORM-123 — Correct Odds Favorite Pairing — Complete
-
-- **Status:** Merged via PR #556 (merge commit `bbd40a47`), 2026-09-03.
-- **PROMPT_ID(s):** `PLATFORM-123-ODDS-FAVORITE-PAIRING-v1`.
-- **Outcome:** New and stored Odds snapshots now derive the favorite from the signed home and away
-  spreads through the same helper used by upset qualification. Frozen closing lines are corrected
-  when projected for display without rewriting durable state, already-correct rows remain correct,
-  and pick'em displays the reported spread without naming a favorite. The read projection preserves
-  the existing malformed-row validation boundary.
-- **Verification:** Exact pre-merge head `b7685e10` passed TypeScript, `lint:all`, and all 4,570
-  tests. Reverting the helper to the prior absolute-value rule failed five tests, with the
-  provider-shaped symmetric fixture observing `Clemson` instead of `Georgia`. Independent Codex and
-  `/code-review` confirmations found no credible in-scope P0/P1/P2 after one remediation.
-- **Test delta:** Six tests were added for symmetric home/away favorites, incorrect and already-correct
-  stored projections, pick'em derivation, and pick'em rendering. Two assertions were added to the
-  existing non-FBS producer test; no test or assertion was removed or weakened.
-
-### PLATFORM-121 — Deterministic Odds Route Fixtures — Complete
-
-- **Status:** Merged via PR #553 (merge commit `e952a657`), 2026-09-02.
-- **PROMPT_ID(s):** `PLATFORM-121-ODDS-FIXTURE-EXPIRY-v2`; the incorrect durable-seeding diagnosis in
-  `PLATFORM-121-ODDS-TEST-HARNESS-v1` was stopped before implementation.
-- **Outcome:** Odds-route fixtures now express pregame, post-kickoff, delayed-kickoff, and rematch
-  timing relative to execution instead of hard-coded calendar instants. Same-pair meetings remain
-  weeks apart, and no production odds behavior changed. This removed at least six latent time bombs:
-  four had expired first, while shifted-clock verification exposed two more with longer fuses.
-- **Verification:** Exact pre-merge head `5d49f400` passed TypeScript, `lint:all`, and all 4,552
-  tests. The 21-test odds route file passed at ten future-clock offsets through +700 days across four
-  time zones, while the same harness reproduced the growing failures on pre-fix `main`. Four
-  assertion mutations failed as intended, and the rematch fixture remained green with the attachment
-  tolerance temporarily raised from 24 to 36 hours. Independent Codex and `/code-review` found no
-  credible in-scope P0/P1/P2.
-- **Test delta:** No tests were added, removed, skipped, or weakened; existing temporal fixtures were
-  retargeted so their original assertions remain meaningful as the real clock advances.
-
-### PLATFORM-120 — Hot Schedule-Build Relevance Filter and Week-0 Deletion — Complete
-
-- **Status:** Merged via PR #551 (merge commit `ce176ccd`), 2026-09-02.
-- **PROMPT_ID(s):** `PLATFORM-120-SCHEDULE-FBS-FILTER-v3`; v1 and v2 were stopped as the reader
-  inventory and raw-row dependency audit corrected the implementation boundary.
-- **Outcome:** Live-score and game-stats canonical builds now omit only regular-season rows whose
-  normalized classifications are both known non-FBS, while retaining every postseason row. Durable
-  schedule storage and `/api/schedule` remain complete for expectation-oracle and diagnostic
-  consumers, and game-stats keeps the raw snapshot for metadata and duplicate-id rejection. Provider
-  week 1 can no longer become canonical week 0.
-- **Verification:** Exact pre-merge head `9259ea9e` passed TypeScript and `lint:all`; the 4,552-test
-  suite added nine passing tests and retained the four then-expired PLATFORM-121 odds failures
-  reproduced on `main`. Mutations proved both reader filters, duplicate-id rejection, postseason offset
-  containment, and the week-0 deletion. Independent Codex and `/code-review` left no credible
-  in-scope P0/P1/P2.
-- **Open follow-ups:** Item 102 still owns the schedule-derived QStash planner and Item 88 its health
-  model. Item 100b remains date-gated before the 2027 opening slate. Item 104 owns replacement of the
-  scalar canonical-week model. The unrelated odds test-harness failures were completed under
-  PLATFORM-121.
-
-### POLISH-019 — Overview Recent Finals Promotion — Complete
-
-- **Status:** Merged via PR #549 (merge commit `751a86b4`), 2026-09-01.
-- **PROMPT_ID(s):** `POLISH-019-RECENT-FINALS-PROMOTION-v1`.
-- **Outcome:** Overview now carries a complete Recent finals section and routes each non-Featured
-  owned game through one mutually exclusive Watchlist → Live → Recent finals model. Missing or
-  unusable post-kickoff scores remain neutrally `Awaiting score` for the shared eight-hour per-game
-  abandonment window; usable finals promote immediately. The complete list does not deduplicate
-  against the curated recap, and completed weeks expire at the shared Thursday 06:00 ET tile
-  transition.
-- **Verification:** Exact code commit `5d83e035` passed TypeScript, `lint:all`, and 74/74 focused
-  tests, with one net test added. Routing mutations fired the named transition, abandonment, and
-  section-exclusivity assertions. Independent Codex and Claude confirmation left no credible
-  in-scope P0/P1/P2; the remaining LOW findings share the currently unreachable disruption-label
-  seam tracked beside Item 63.
-- **Open follow-ups:** Item 87 slices 4–5 remain in `docs/next-tasks.md`. Item 101 owns the
-  season-boundary expiry gap; Item 63 owns vanished/replacement-id disruption reconciliation and
-  the dormant defensive disruption seam. Issue #548 blocks the finals record join.
-
-### PLATFORM-119 — Pool-Safe Standings Warm-on-Write — Complete
-
-- **Status:** Merged via PR #547 (merge commit `197bde67`), 2026-08-31.
-- **PROMPT_ID(s):** `PLATFORM-119-LEAGUE-PAGE-PAINT-v2`.
-- **Outcome:** Public and live-cron score writes now synchronously invalidate and repopulate the same
-  registered league/year canonical-standings keys after the durable score commit. Failures remain
-  non-fatal. A process-wide queue is entered before the year-scoped durable transaction, so
-  concurrent different-year warmers cannot consume all three app-state pool clients while nested
-  standings reads wait for another; the durable year lock still preserves cross-instance ordering.
-- **Verification:** Exact pre-merge head `784b3f06` passed TypeScript, `lint:all`, and the 4,515-test
-  full suite (baseline 4,508, net +7). Mutating away the process queue fired the different-year
-  pool-client assertion. The controlled 888-row, one-league fixture measured 26.24 ms without the
-  warm and 195.57 ms with it (+169.34 ms median); independent Codex and `/code-review` left no
-  credible in-scope P0/P1/P2.
-- **Scope boundary:** The 119b response filter was withdrawn on a canonical-week correctness finding
-  rather than shipped or deferred; schedule files remained unchanged. Its replacement work stays in
-  the canonical queue as Items 99 and 100.
-
-### PLATFORM-118 — Team-Records Freshness Authority — Complete
-
-- **Status:** Merged via PR #546 (merge commit `c29801a4`), 2026-08-31.
-- **PROMPT_ID(s):** `PLATFORM-118-TEAM-RECORDS-FRESHNESS-v2`; v1 was stopped and reconstructed
-  from clean `main` after its scope proved unable to supply an idle-time trigger.
-- **Outcome:** The records authority now combines the existing durable six-hour finalisation floor
-  with an independent twelve-hour ceiling, driven by a new authenticated hourly QStash job. The
-  reader withholds provider rows whose W-L-T outcomes do not equal games while preserving a distinct
-  uncreditable-team signal, and records diagnostics use a fourteen-hour threshold that counts those
-  rows as present. The live-scores finalisation call remains unchanged.
-- **Verification:** Exact pre-merge head `089ddfe2` passed TypeScript, `lint:all`, and the full suite.
-  Ceiling, reader-creditability, HTTP-failure, and unsupported-repair mutation checks each fired the
-  named assertion. Independent Codex and `/code-review` confirmation left no credible in-scope
-  P0/P1/P2 after one remediation.
-- **Open follow-ups:** Item 87 owns the first records consumer. Item 96 owns generalized lifecycle
-  applicability and delivery-warning suppression before pausing the hourly job; the fourteen-hour
-  diagnostic assumes it remains unpaused. The generic non-repairing Data Maintenance link for
-  records provider-refresh faults remains tracked in `docs/next-tasks.md`.
-
-### Team-records backfill (2018, 2021-2026) — Complete
-
-- **Status:** Complete — executed in production 2026-08-31, no PR. A deliberate one-off, not a
-  feature, following the PLATFORM-086F2H2A precedent that a backfill is "a deliberate one-off, not a
-  standing admin button" and that a one-off repair against tested code is safer than an admin surface
-  because it cannot be reached accidentally.
-- **What ran:** `refreshTeamRecords({ year })` (PLATFORM-117) once per year from a temporary local
-  runner, using `DATABASE_URL` and `CFBD_API_KEY`. No route, no script committed, nothing left behind.
-- **Outcome:** all seven seasons the league has schedule data for, `written-clean`, every row
-  committed, verified through `DATABASE_URL_RO`:
-
-  | Year | Rows | | Year | Rows |
-  | --- | --- | --- | --- | --- |
-  | 2018 | 687 | | 2024 | 679 |
-  | 2021 | 670 | | 2025 | 681 |
-  | 2022 | 672 | | 2026 | 684 |
-  | 2023 | 672 | | | |
-
-  Row counts drift by year with D-I membership; that is expected, not error. Seven CFBD calls total.
-
-- **Why it was possible at all:** PLATFORM-117's authority accepts an arbitrary `year` and has no
-  canonical-schedule or season-registry gate — a constraint added by follow-up prompt specifically so
-  a completed prior season could be refreshed by calling the function directly. Without it this
-  would have been a refactor rather than a loop.
-- **Completed seasons are immutable**, so 2018 and 2021-2025 need no refresh ever again. Only 2026
-  has a live cadence.
-- **It also cleared a live defect symptom.** PLATFORM-117 merged after week 1's games finished, and
-  its only refresh trigger is a finalisation, so the 2026 cache was empty with the next kickoff ~77
-  hours away. System Health correctly showed yellow `no cached data`, and nothing in the automation
-  would have recovered it before 2026-09-03. **The backfill treated the symptom; the missing
-  staleness ceiling shipped in `PLATFORM-118-TEAM-RECORDS-FRESHNESS-v2` via PR #546.**
-
-### PLATFORM-086H2 — Durable Game-Stats Merge Service (Dormant) — Complete
-
-**Status:** Complete. Merged to `main` via PR #397 (`platform/086h2-durable-game-stats-merge-service`, merge commit `c48e1ca`, 2026-07-18). Four implementation commits plus a docs closeout; three folded Codex review-remediation rounds, each re-reviewed to a clean closure verdict; Claude `/verify` passed with byte-identical branch-vs-`main` HTTP behavior and no dormant metadata leakage; full suite 1758/1758 before closeout.
-**PROMPT_ID(s):** PLATFORM-086H2-DURABLE-GAME-STATS-MERGE-SERVICE-v1 (+ folded PLATFORM-086H2-DURABLE-MERGE-REMEDIATION-v1, PLATFORM-086H2-TRANSACTION-CONTAINMENT-CONCURRENCY-REMEDIATION-v1, PLATFORM-086H2-WRITE-ATTEMPT-CLIENT-DISPOSAL-REMEDIATION-v1; conformance/closure reviews per `docs/prompt-registry.md`).
-
-**Goals completed:** The dormant durable merge authority for the staged 086H rebuild (PR 2 of 4). `src/lib/gameStats/durableMerge.ts` merges validated v2 observation batches into weekly partitions: stable identity through `providerGameId` only; conservative category-level merge that preserves absent games, omitted categories, and prior valid evidence (replacement requires strictly parse-valid newer values; legacy normalized values that merged raw evidence cannot reconstruct are preserved as compatibility only, never as strict eligibility); points move only on explicit `pointsProvided` evidence; strict RFC 3339 per-game observation fencing canonicalized to UTC, with fence-only `refreshed` writes for newer identical observations (freshness is durable evidence — a reordered older observation can never roll state backward) and wholesale rejection of stale batches; deterministic incoming AND durable duplicate handling; exact schema-version authority (unsupported/malformed versions preserved bit-for-bit as typed conflicts). `withAppStateKeyTransaction` in `appStateStore.ts` runs lock, read, write, and commit on ONE dedicated PostgreSQL client under `pg_advisory_xact_lock` — the owner never needs a second connection, eliminating pool-starvation deadlock.
-
-**Key outcomes:** Truthful persistence semantics end to end — typed `written`/`partially-merged`/`unchanged`/`stale`/`conflict` vs `unavailable` (typed reasons, rollback confirmed) vs `indeterminate` (commit or cleanup failure after mutation SQL was SUBMITTED; `writeAttempted`, not acknowledgement, governs uncertainty; partition identity included). Uncertain clients are destroyed and never returned to the pool as healthy; healthy disposal is recorded only after `release()` completes; confirmed results survive release failure; initiating, cleanup, and acquisition causes are all retained on typed errors. Verification includes a stateful fake-pg harness (advisory-lock ownership, staged-write commit visibility, capacity, idle-pool reuse/destroy) proving real same-key overlap with committed-state reread, capacity-3 starvation prevention, stale-writer rejection after commit, healthy-client reuse, destroyed-client non-reuse, and deterministic failure cleanup — no sleeps. **Nothing is activated**: cron/manual writers remain legacy-only, production lifecycle files are byte-identical to `main`, and the recursive dormant-boundary guard rejects every import form of the merge module. PLATFORM-086H3 activates ingestion → durable merge → coverage → recovery → analytics projection → truthful availability atomically, with the documented invariant that every game-stats writer must route through this authority (or the same transaction-scoped lock) first.
-
-**Optional follow-up debt (non-blocking):** the service is deliberately inert until 086H3; 086H4 (diagnostics + panel wording) and the legacy-row migration remain queued.
-
-### PLATFORM-086H1 — Game-Stats Data Contract (Dormant Foundation) — Complete
-
-**Status:** Complete. Merged to `main` via PR #396 (`platform/086h1-game-stats-data-contract`, merge commit `0f8b562`, 2026-07-17). Four commits: the foundation plus three folded review remediations; final closure review clean; runtime A/B verification showed byte-identical production responses vs `main`.
-**PROMPT_ID(s):** PLATFORM-086H1-GAME-STATS-DATA-CONTRACT-IMPLEMENTATION-v1 (+ folded PLATFORM-086H1-PROTOTYPE-SAFE-CATEGORY-LOOKUP-REMEDIATION-v1, PLATFORM-086H1-DORMANT-CONTRACT-BOUNDARY-REMEDIATION-v1, PLATFORM-086H1-COMPLETE-DORMANT-BOUNDARY-GUARD-REMEDIATION-v1; scoped by the read-only PLATFORM-086H1-LEGACY-DURABLE-DATA-INVENTORY-AUDIT-v1 production inventory and PLATFORM-086H1-DORMANT-BOUNDARY-CLOSURE-REVIEW-v1).
-
-**Goals completed:** First staged PR of the 086H decomposition (the original single-PR recovery implementation is frozen at `platform/086h-game-stats-recovery` @ `13db9ce` as a read-only salvage reference). Shipped `src/lib/gameStats/contract.ts` as a fully tested, production-disconnected library: one authoritative category specification (26 recognized categories, six analytics-required), strict full-string parsers from untrusted values with prototype-safe category lookup (signed-yardage whitelist, `made <= attempted` efficiency fractions, trim-then-strict possession clock ≤ 90 minutes), structural points evidence, per-game-row `schemaVersion: 2` interpretation, a 14-state typed row classifier with derived predicates, pure season-aware recovery policy, typed v2 wire parsing + pure row construction, canonical analytics projection, and deterministic duplicate selection. Bounded legacy compatibility was proven against the complete 2021–2025 production durable inventory (95 partitions, 7,335 rows) for **exact** owner-analytics parity — including the four observed leading-space possession clocks that motivated the possession-trim rule.
-
-**Key outcomes:** Nothing activates yet: adversarial review confirmed activating analytics alone would let unchanged ingestion cache rows the strict contract silently drops, so production owner aggregation, Insights, career loading, ingestion, coverage, recovery, and diagnostics remain byte-identical to `main`, and no writer stamps v2 metadata. A recursive dormant-boundary test scans every production source file for the twelve dormant symbols and every import form resolving to the contract module (with scanner self-tests and real-writer/cache-boundary parity assertions), so any future piecemeal activation fails immediately — activation happens atomically in the staged activation PR. Validation: full suite 1706/1706, `tsc`/`lint:all` clean, seeded runtime A/B against `main` byte-identical, no provider or database contact during implementation.
-
-**Optional follow-up debt (non-blocking):** the contract is deliberately inert until the staged activation PR; `completionAttempts` (CFBD's real completions/attempts wire pair) is documented observed-but-unmodeled as a candidate future recognized category. Next in the 086H sequence: PR 2 (durable merge service) → PR 3 (atomic contract activation + recovery integration) → PR 4 (diagnostics + panel wording) → legacy-row migration.
-
-### PLATFORM-086G2 — Odds Boundary & Usage Truthfulness — Complete
-
-**Status:** Complete. Merged to `main` via PR #395 (`platform/086g2-odds-boundary-usage-truthfulness`, merge commit `0ee58b4`, 2026-07-16). Eight commits; eight Codex review rounds remediated pre-merge (two consolidated fixes scoped by read-only audit prompts); final Codex review clean.
-**PROMPT_ID(s):** PLATFORM-086G2-ODDS-BOUNDARY-USAGE-TRUTHFULNESS-v1 (plus seven folded remediation prompts and two read-only audit prompts — see the PLATFORM-086G2 entry in `docs/prompt-registry.md` for the full list).
-
-**Goals completed:** Closed deferred PLATFORM-086A findings #4 and #3 at the Odds boundary. A 200 provider response is validated before any durable commit: non-array payloads, structurally malformed rows (including nested bookmaker/market/outcome scalars), and invalid/truncated/empty JSON bodies fail with stable codes (`odds-invalid-payload`, `odds-schema-drift`), while quota headers persist regardless of body validity. Genuine empty payloads are classified contextually by a pure classifier with a typed per-row identity-certainty state model: prior cached events are reconciled against the current canonical slate via the existing identity/attachment matcher, positive near-horizon expectation (canonical target only, 7-day horizon) requires two canonically resolved participants, unexpected empties are truthful `odds-empty-unexpected` failures that retain prior-good data, and a valid-absence no-op replaces retained rows only when every row is provably obsolete — ambiguous or unavailable identity evidence authorizes neither failure nor destructive clearing. Per-target commit serialization prevents an in-flight empty refresh from clobbering a concurrent populated commit. The odds-usage durable read carries a distinct `available | absent | unavailable` state end to end, and file-fallback app-state reads treat only a genuinely missing file as absence (corrupt/unreadable stores propagate).
-
-**Key outcomes:** An Odds provider regression can no longer be committed as a successful empty refresh or silently replace prior-good lines; false-failure alarms from placeholders, reschedules, and unknown provider spellings are excluded by construction; operators can distinguish "no usage snapshot yet" from "the store is unreachable". New `src/lib/odds/emptyOddsClassifier.ts`; `withOddsTargetLock` + structural row validation in `routeInternals.ts`; `readLatestKnownOddsUsageState`; ENOENT-only file-store tolerance. Validation: final combined suites green (payload-boundary 44, classifier 31, attachment/identity/usage/provider-status), `tsc`/`lint:all` clean, no provider quota spent.
-
-**Optional follow-up debt (non-blocking):** clearing of provably obsolete rows is deliberately rare during postseason windows (placeholder slots suppress confident absence), so retained entries persist until a nonempty refresh — acceptable by design. Next in campaign order: PLATFORM-086H (game-stats recovery).
-
-### PLATFORM-086G1 — CFBD Score & Quota Truthfulness — Complete
-
-**Status:** Complete. Merged to `main` via PR #394 (`platform/086g1-cfbd-score-quota-truthfulness`, merge commit `987dd04`, 2026-07-14). Two commits; one Codex review round (2 P2 evidence-read findings) remediated pre-merge; final Codex review clean.
-**PROMPT_ID(s):** PLATFORM-086G1-CFBD-SCORE-QUOTA-TRUTHFULNESS-v1 (+ folded PLATFORM-086G1-CODEX-P2-EVIDENCE-READ-REMEDIATION-v1).
-
-**Goals completed:** Closed deferred PLATFORM-086A findings #6 and #7 at the CFBD boundary. Empty CFBD Scores responses are classified contextually against target-scoped, cache-only evidence — populated prior-good durable rows for the exact refresh target, or started non-disrupted canonical-schedule games (read through the canonical schedule fallback so partition-only cache layouts count, with the two evidence sources resolving independently): an unexpected empty is a truthful `cfbd-empty-unexpected` refresh failure (502) that retains prior-good data, publishes nothing, and records against the exact partition scope, while legitimate empties (future targets, no expected games, canceled/postponed-only) remain recorded no-ops. CFBD quota parsing is honest: missing/malformed `remainingCalls`/`patronLevel` resolve to unavailable (never 0-remaining false exhaustion or a guessed tier limit), trustworthy zero remaining still reports genuine exhaustion, and reconciliation authority stays in the canonical `normalizeProviderQuota` path.
-
-**Key outcomes:** A CFBD regression that returns `[]` can no longer silently freeze scores as a "successful" no-op, and a missing provider quota field can no longer render false exhaustion on admin surfaces. New pure classifier `src/lib/scores/emptyScoresClassifier.ts`; `CfbdUsage` fields nullable end-to-end. Validation: focused suites green (scores route 39, classifier 11, quota suites), `tsc`/`lint:all` clean, no provider quota spent during verification.
-
-**Optional follow-up debt (non-blocking):** none. Next in campaign order: PLATFORM-086G2 (Odds boundary & usage truthfulness).
-
-### PLATFORM-086A — Provider-Refresh Observability Foundation — Complete
-
-**Status:** Complete. Merged to `main` via PR #391 (`platform/086a-refresh-observability`, merge commit `9da8857`, 2026-07-14). 17 commits with ~10 Codex review/remediation rounds folded in pre-merge.
-**PROMPT_ID(s):** PLATFORM-086A-REFRESH-OBSERVABILITY-v1 (plus the folded remediation prompts — see the PLATFORM-086A entry in `docs/prompt-registry.md` for the full sub-prompt list).
-
-**Goals completed:** The operational foundation for PLATFORM-086 provider automation: durable per-dataset provider-refresh status (scores, schedule, odds, rankings, conferences, game stats) keyed by typed canonical target scopes with per-scope attempt ordering and cross-scope completion-token rejection; durable operator settings (global noncritical provider pause + per-dataset enable/disable); the `/admin/diagnostics` Provider Data Status panel with manual refresh for all six datasets; cache-aware missing-data diagnostics; CFBD quota normalization around the Tier 1 limit (5,000 calls/month); a reusable user-facing freshness label; durable-first provider commits; extensive empty-response/schema-drift classification; and schedule `week + all` read-time cache composition.
-
-**Key outcomes:** CFBD became the sole normal production score provider (automatic ESPN score fallback removed); a failed refresh can never advance last-success or masquerade as another target's status; operators see truthful per-dataset operational state for the selected year. No new cron cadence shipped — automation follows in the revised PLATFORM-086B–I plan (`docs/next-tasks.md`).
-
-**Optional follow-up debt (non-blocking):** seven review findings deliberately deferred at merge, scheduled as PLATFORM-086G1 (CFBD score & quota truthfulness), PLATFORM-086G2 (Odds boundary & usage truthfulness), PLATFORM-086H (game-stats recovery), and PLATFORM-086I (settings feedback); PLATFORM-086F diagnostics IA redesign deferred until real automation jobs exist. Scope lesson recorded in `docs/next-tasks.md`: the 77-file / ~11.9k-insertion diff is the named failure case for the campaign's PR-sizing rule.
-
-### Markdownlint Documentation Tooling — Complete
-
-**Status:** Complete. Merged to `main` via PR #392 (`chore/add-markdownlint`, merge commit `c8b8d12`, 2026-07-14).
-**PROMPT_ID(s):** (operator-driven tooling change; no formal PROMPT_ID)
-
-**Goals completed:** Added `markdownlint-cli2` with a repo config (`.markdownlint-cli2.jsonc`: defaults on; MD013 long lines, MD041 first-line-heading, MD060 table formatting, and MD036 bold-label headings disabled; MD024 duplicate headings allowed under different parent sections), `lint:markdown` / `lint:markdown:fix` scripts, and markdown linting appended to the `lint` and `lint:all` chains. Brought the living Markdown docs to a clean baseline (archives excluded via `#docs/archive/**`).
-
-**Key outcomes:** `npm run lint:markdown` passes repo-wide (0 errors) and now guards documentation changes. One review remediation fixed an autofix-introduced ordered-list numbering regression in `docs/deployment-runbook.md`.
-
-**Optional follow-up debt (non-blocking):** none.
-
-### Draft Timer Integrity + Server-Authoritative Round Boundaries — Complete
-
-**Status:** Complete. Three stacked PRs merged to `main`: #319 (`draft/001-timer-route-tests`), #320 (`draft/002-server-round-boundary`), #321 (`draft/003-optimistic-countdown`).
-**PROMPT_IDs:** DRAFT-001-TIMER-PERSIST-INTEGRITY-v1, DRAFT-002-SERVER-ROUND-BOUNDARY-PAUSE-v1, DRAFT-003-OPTIMISTIC-COUNTDOWN-DISPLAY-ONLY-v1
-
-**Inciting issue:** An audit of the stale `claude/audit-season-transition-pwKfH` branch (draft "pick timer precision" work, ~232 commits / 2 months behind `main`, 3-way merge conflicts). The branch's headline change stamped `timerExpiresAt` _after_ the `setAppState` write and returned it unpersisted — leaving stored state with `timerState:'running'` but `timerExpiresAt:null`, which blanked the live countdown for every poller/refresher within ~1s of each pick. The audit recommended abandoning the branch and re-deriving the two salvageable ideas against current `main`. Key correction surfaced during the audit: **`main` never had the persist/response divergence** — it was a stale-branch-only regression — so the "integrity fix" collapsed to regression coverage.
-
-**Phases shipped:**
-
-- **DRAFT-001 — timer persistence regression suite (tests only).** Established the first draft-route test harness (the routes had zero coverage). Locks in the invariant that the pick and PUT routes persist exactly the timer state they return (`persisted timerExpiresAt == response timerExpiresAt`). Covers normal pick reset, GET/response equality (no drift), round-boundary, final-pick completion, and PUT `timerAction:'start'`. No production code change — `main` was already correct.
-- **DRAFT-002 — server-authoritative round-boundary pause.** Moved round-boundary auto-pause out of the client (`maybeAutoPauseForRound` second round-trip + `autoPauseRef`, both deleted from `DraftBoardClient`) and into the pick route: when an advanced index lands on a round boundary it returns `phase:'paused'`, `timerState:'paused'`, null expiry, so the commissioner must explicitly start the next round. The PUT auto-pick path now honors the same boundary rule, fixing a pre-existing inconsistency where auto-picks did not pause but manual picks did.
-- **DRAFT-003 — optimistic display-only countdown.** The pick clock now counts down the instant a team is clicked instead of stalling for the server round-trip. `DraftBoardClient` records a `localTimerStartRef` timestamp before the pick POST (only for mid-round picks that arm a fresh timer; boundary/final picks are skipped), cleared on response/error. `DraftHeaderArea` treats the optimistic window as a running clock. Countdown math extracted to a pure `computeTimerSecondsLeft` helper (`src/components/draft/draftTimer.ts`) that clamps to `pickTimerSeconds` (clock-skew guard) and floors at 0.
-
-**Architectural notes:**
-
-- Server remains the sole authority for draft phase, pick validity, completion, and timer expiry. The optimistic countdown is strictly display-only — it never enters the POST body or governs expiration (the server `timerExpiresAt` + expire-dispatcher are untouched).
-- Round-boundary authority unified in the API layer; no duplicate client/server pause logic remains.
-- Timer values are still computed _before_ the store write in both routes, preserving the persisted==response invariant guarded by DRAFT-001.
-
-**Tests:** `src/app/api/draft/[slug]/[year]/__tests__/route-timer.test.ts` (7 cases) and `src/components/draft/__tests__/draftTimer.test.ts` (11 cases). Run draft route tests via the wildcard glob `'src/app/api/draft/*/*/__tests__/*.test.ts'` (node's runner treats the `[slug]`/`[year]` dirs as glob char-classes).
-
-**Optional follow-up debt (non-blocking):** None. The stale `claude/audit-season-transition-pwKfH` branch was deleted from the remote. The 4 pre-existing `inferredSeasonStart` tsc errors in standings test fixtures remain (tracked under `TEST-SUITE-BASELINE-CLEANUP`, unrelated to this work).
-
----
-
-### HISTORY-RECORDS Phase 2 — Complete
-
-**Status:** Complete. Multiple iteration cycles across PR #313 (`claude/history-records-phase-2`). See `docs/campaigns/history-records-phase-2.md` for the full retrospective.
-**PROMPT_IDs:** P7-HISTORY-RECORDS-PHASE-2-OVERVIEW-REVISION-v1, P7-HISTORY-RECORDS-PHASE-2-OVERVIEW-REVISION-FOLLOWUP-v1, DESIGN-MD-MULTILINE-AND-DEGRADATION-v1, P7-HISTORY-RECORDS-PHASE-2-PATH-B-AND-RESPONSIVE-v1, P7-HISTORY-RECORDS-PHASE-2-VISUAL-REMEDIATION-AND-CLOSEOUT-v1, P7-HISTORY-RECORDS-PHASE-2-CLEANUP-NITS-v1, P7-HISTORY-RECORDS-PHASE-2-VISUAL-REFINEMENT-v1, P7-HISTORY-RECORDS-PHASE-2-LAYOUT-DIAGNOSTIC-v1, P7-HISTORY-RECORDS-PHASE-2-LAYOUT-REMEDIATION-v1, P7-HISTORY-RECORDS-PHASE-2-STANDINGS-TREND-COLUMN-v1, HISTORY-RECORDS-PHASE-2-CAMPAIGN-CLOSEOUT
-
-**Inciting issue:** Phase 1 (PR #312) shipped `selectAllRecords` as the records-data backbone but did not surface it in the History UI. The pre-Phase-2 Overview rendered as a single-stat hero with no drill-down structure or sense of league history beyond "current season's champion." Phase 2 took on the full Overview redesign, the records column wiring, the subtab routing scaffold, and the design-system documentation that the new layout primitives required.
-
-**Phases shipped:**
-
-- **Subtab routing infrastructure** — `HistorySubNav` + `RecordBadge` components; `resolveHistoryHref` deep-link router for insights with History routing targets; Stats / Rivalries / Archive subtabs scaffolded as Phase 3 placeholder routes.
-- **Overview redesign** — Five-section composition: Championships (with editorial tags "all-time wins leader" / "league's first champion" / "REIGNING" marker), 2-row dashboard (All-time standings + Recent podiums on row 2; Top rivalries + Title droughts/streaks + Records on row 3), Season-over-season movement (climbs + drops with "won title" annotations on championship destinations), Season archive. Multi-line block treatment applied across rivalry, drought, and mover rows.
-- **All-time standings extension** — Grew from 5 to 9 columns (Pts, Diff, Seasons, Avg added on top of Rank/Owner/Record/Win%/Titles) plus a "Recent Finish" trend chip column showing the last 5 seasons of finishes with gold/silver/bronze podium-tier outlines and default/bottom tiers for mid/back finishes. Table is `table-auto` with content-driven cell widths; container queries drop oldest-year trend cells first as the @container narrows.
-- **DESIGN.md additions** — `## Multi-line row pattern`, `## List row width discipline`, `## Responsive column degradation` sections; reconciled section-divider rule and dense-table column-header rule.
-- **AGENTS.md addition** — `## Verification and reference conventions` documenting (a) scoped-suite test verification while `TEST-SUITE-BASELINE-CLEANUP` is open (full `npm test` reliably hangs) and (b) the requirement that visual-reference files (mockups, design specs) exist at the paths a prompt references before dispatch.
-- **Layout iterations** — Multiple visual-review cycles resolved page-width and within-row spacing imbalances. Final state: page wraps in `mx-auto max-w-7xl` (1280px cap, restored after a brief uncapped exploration); row 2 grid is `1fr / 280px` (flex Standings + fixed Podiums); row 3 grid is `1fr / 1fr / 280px` (Rivalries + Droughts flex; Records fixed); standings table uses `table-auto` with `pl-5` numeric padding so columns read distinct.
-
-**Selector layer:**
-
-- New helpers in `src/lib/selectors/historyOverview.ts`: `selectChampionshipsWithContext`, `selectDroughtsWithContext`, `selectMoversWithContext`, `selectStreaksOrDroughts`, `selectStandingsWithRecentFinishes`, `selectMarqueeRecords`, `selectTitleStreaks`, `selectTitleDroughts`, `selectRecentPodiums`, `selectSeasonArchiveStrip`, `groupChampionsByOwner`, `computeChampionshipSummary`.
-- `selectAllTimeHeadToHead` extended with `latestMeeting: { year, winner } | null`; flows through `selectTopRivalries` to power the "last met YEAR (winner)" line-2 annotation.
-- `archiveChampion` filters NoClaim before deriving the champion — same architectural pattern as Phase 1's `5fdcd59` rank-derivation fix; without this, a NoClaim row at index 0 would shift the championship credit and break Season archive rendering.
-- `AllTimeStandingRow` gained `totalPoints` (with selector accumulation) on top of the existing `totalPointDifferential`. `StandingsRow` gained `pointsFor` (propagated through `selectFinalStandings`) so the live-standings branch of `selectAllTimeStandings` can accumulate it.
-
-**User-visible improvements:**
-
-- History Overview tells the whole-league arc — every multi-line row pulls a second line of context (career win%, last meeting, top-3 count + best finish, span + ranks + championship annotation) so rows read as paragraphs rather than drifting names.
-- Records column displays 4 marquee records (down from 5) with category eyebrow inlined into the title — 2-line block treatment matching peer columns; row 3 column heights now read as peers.
-- Season archive renders champion names correctly across all archived seasons (NoClaim-at-index-0 bug fixed).
-- Insight deep-links from drought / dynasty / rivalry insights land on rendered Overview anchors (`#dynasty-drought`, `#championships`, `#rivalries`) rather than Phase 3 placeholder subtabs.
-- `activeOwners` falls back to archive union when the current-season CSV is empty (pre-upload, post-reset, storage-miss states); sections gating on roster don't render empty against a populated archive.
-
-**Architectural improvements:**
-
-- Multi-line row pattern codified in DESIGN.md as a reusable layout primitive (line 1: primary identifier + right-anchored value, body size + weight 500; line 2: secondary metadata, 12px / weight 400 / dim color; 2px inter-line margin; no internal borders or padding).
-- Container queries (Tailwind v4 `@container` + `@max-[Xpx]:hidden`) used for column degradation in dense tables — pattern available for future tables under sidebar-narrow allocations.
-- Visual-reference convention now codified in AGENTS.md: mockups belong in `mockups/`, design specs in `docs/`, and reference files must exist at the path a prompt names before dispatch. Reference mockups committed at `mockups/history-redesign-pathC.html` and `mockups/standings-trend.html`.
-
-**Phase 3 follow-ups filed in `docs/next-tasks.md`:** `RECORDS-SCORING-v1` (auto-scored marquee selection), `SPARSE-DATA-LAYOUT-v1` (responsive treatment for under-populated sections), `HISTORY-DYNAMIC-TILING-v1` (alternative tiling-vs-stacked layout exploration), `INSIGHT-ROUTING-PHASE-3-RETARGET-v1` (re-point insight deep-links to the subtabs once Phase 3 ships their content).
-
-**Test count:** 87 → 128 (cumulative growth across the campaign; reflects new selector tests, routing tests, and the `selectTitleDroughts` archive-fallback regression guard added during the Codex-review remediation).
-
----
-
-### Season Launch Hardening — Complete
-
-**Status:** Complete. Three implementation phases + three Codex remediations across PRs #302–#304. See `docs/campaigns/season-launch-hardening.md` for the full retrospective.
-**PROMPT_IDs:** SEASON-LAUNCH-HARDENING-DISCOVERY, SEASON-LAUNCH-HARDENING-PHASE-1-DRAFT-AUTH-AND-POLLING, SEASON-LAUNCH-HARDENING-PHASE-1-CODEX-REMEDIATION, SEASON-LAUNCH-HARDENING-PHASE-2-STANDINGS-PRESEASON-STATE, SEASON-LAUNCH-HARDENING-PHASE-2-CODEX-REMEDIATION, SEASON-LAUNCH-HARDENING-PHASE-3-INSIGHTS-LIFECYCLE-AWARENESS, SEASON-LAUNCH-HARDENING-PHASE-3-CODEX-REMEDIATION, SEASON-LAUNCH-HARDENING-CAMPAIGN-CLOSEOUT
-
-**Inciting issue:** Pre-launch discovery audit identified four interlinked blockers: (1) draft board RSC serialized full admin state into server HTML before client redirect — auth leakage; (2) draft polling hardcoded at 1.5s regardless of phase, generating ~690 MB/day unnecessary Neon egress; (3) standings page silently blank during preseason cold-cache because the selector had no "waiting for kickoff" code path; (4) insight generators producing nonsensical output (e.g. "Toilet bowl leader in 0 games") because they were unaware of the archived-roster context.
-
-**Phases shipped:**
-
-- **Phase 1 — Draft Auth + Polling** (`5968604`, `d24a2f3`): Added `canAccessDraftBoard(slug)` server-side helper; gated `/league/[slug]/draft` and `/draft/setup` RSCs; removed three inline `clerkRole === 'platform_admin'` checks from `DraftBoardClient`, `DraftSetupShell`, `DraftSummaryClient`; passed `isAdmin` as server-derived prop (satisfies Auth Invariant #6). Phase-aware polling: 1.5s (live+running), 5s (default), 30s (complete). Codex remediations: spectator `/draft/summary` access preserved; complete-phase slow-polls at 30s rather than stopping to handle re-open events.
-- **Phase 2 — Standings Preseason State** (`88af434`, `43516b0`): Extended `CanonicalStandingsSource` with `preseason-awaiting-kickoff`; added `inferredSeasonStart: string | null` to `CanonicalStandings`. `resolveSeason` and `resolvePreseason` empty paths call `getScheduleProbeState(year)` — no `Date.now()` inside `unstable_cache`-wrapped selector. `StandingsPanel` renders three distinct empty states. `CFBScheduleApp.isPreseason` broadened to include awaiting-kickoff source. Codex remediation: selector returns time-invariant fact (kickoff date); consumers evaluate `Date.now()` at render time.
-- **Phase 3 — Insights Lifecycle Awareness** (`385a071`, `6358c2c`): Engine-level `shouldSuppressGenerator(g, context)` cross-cutting filter (`career:rookie_benchmark` suppressed when `usingArchivedRoster`); gated by `bypassSuppression`. New `src/lib/insights/framing.ts`: `applyLastSeasonFraming` and `applyReturningOwnerFraming` helpers. 7 generator surfaces use "Last season's" prefix; 4 use "Returning owner" narrative; `rookieBenchmarkGenerator` returns early. Zero-game guards on `deriveLeagueInsights`, `deriveTightRaceInsight`, `deriveTightClusterInsight`. 22 new tests. Codex remediation: `bypassSuppression || !shouldSuppressGenerator(g, context)` — bypass honored in new filter.
-
-**User-visible improvements:**
-
-- Non-admin users no longer receive serialized draft admin state in server HTML before redirect
-- Draft polling scales with phase — ~690 MB/day unnecessary egress eliminated when drafts are not active
-- Standings page shows "Season starts [date]" preseason placeholder instead of silently blank
-- Insights panel no longer displays nonsense like "Toilet bowl leader in 0 games" during preseason
-
-**Architectural improvements:**
-
-- `canAccessDraftBoard`: single server-side auth entry point for all draft admin access; eliminates inline `publicMetadata.role` comparisons in client components
-- `shouldSuppressGenerator`: cross-cutting engine filter for (id, lifecycle, flag)-based suppressions; `bypassSuppression` gate respected so admin diagnostic runs see unfiltered output
-- Cache/time separation: time-dependent classification (`Date.now()`) removed from `unstable_cache`-wrapped selectors; consumers evaluate at render time — pattern established for all future cached selectors
-- Framing helpers: `applyLastSeasonFraming` + `applyReturningOwnerFraming` are deterministic, idempotent transforms safe to use in tests and across multiple render cycles
-
----
-
-### Standings Ownership Model Redesign — Complete
-
-**Status:** Complete. Six phases shipped across multiple sessions. See `docs/campaigns/standings-ownership.md` for the full retrospective.
-**PROMPT_IDs:** STANDINGS-CANONICAL-SELECTOR-DISCOVERY, STANDINGS-CANONICAL-SELECTOR-CORE, STANDINGS-CANONICAL-SELECTOR-OVERVIEW, STANDINGS-OWNERSHIP-MODEL-DISCOVERY, STANDINGS-OWNERSHIP-PHASE-0-INVALIDATION, STANDINGS-OWNERSHIP-PHASE-1-OVERVIEW, STANDINGS-OWNERSHIP-PHASE-2-STANDINGS-ROUTE, STANDINGS-OWNERSHIP-PHASE-3-MEMBERS-MATCHUPS, STANDINGS-OWNERSHIP-PHASE-4-HISTORY, STANDINGS-OWNERSHIP-PHASE-5-LIFECYCLE
-
-**Inciting issue:** NoClaim at #1 on Overview during Test League preseason — user-visible screenshot showed NoClaim occupying the top standings row. Multiple Overview surfaces (top-3, condensed table, Games Back chart) displayed inconsistent data because each independently merged client-side live data with partial server state at render time.
-
-**Scope evolution:** Originally framed as a 4-prompt canonical selector campaign (CORE, OVERVIEW, FANOUT, SERVER-INSIGHTS). After Phase 2 went through eight rounds of Codex remediation — all addressing edge cases of merge-at-render-time logic — the campaign was replanned as a 6-phase ownership redesign (STANDINGS-OWNERSHIP-MODEL-DISCOVERY).
-
-**Architectural shift:** From "two data sources merged at render time based on shape-readiness predicates" to "server canonical owns the settled snapshot, client owns the live overlay separately, consumers receive both as distinct props."
-
-**Phases shipped:**
-
-- **Phase 0** — Invalidation infrastructure. Wrapped `getCanonicalStandings` with `unstable_cache` + `React.cache`, added `invalidateStandings` helper, wired into all mutation routes (owners, aliases, postseason-overrides, draft confirm, schedule, scores, admin backfill, admin rollover). `RosterUploadPanel` calls `router.refresh()`.
-- **Phase 1** — Overview takeover collapse. Removed merge-at-render-time logic from `CFBScheduleApp`'s Overview path. Introduced `liveDelta` interface (`LiveGameDelta`, `LivePendingOwnerDelta`, `LiveDelta` types) + `selectLiveDelta` selector + `useLiveDelta` hook. Server canonical owns Overview rows/history/colorOrder; client owns `liveDelta` overlay separately.
-- **Phase 2** — Standings route + StandingsPanel migration. Server route loads canonical. `StandingsPanel` consumes canonical for rows, history, color order. First liveDelta UI integration: W-L pending badges next to live-game owners. NoClaim filtering pushed to source (`deriveStandings` now returns `{ rows, noClaimRow, ... }` with rows excluding NoClaim).
-- **Phase 3** — Members + Matchups route migrations. `OwnerPanel`, `MatchupsWeekPanel`, `MatchupMatrixView` consume canonical. Second liveDelta UI integration: pulsing dot in LIVE pill on in-progress games in `MatchupsWeekPanel`. Admin form refresh polish: 5 admin forms (alias editor, postseason override, season rollover, backfill, roster editor) gained `router.refresh()` after success.
-- **Phase 4** — History live-rebuild migration. Replaced `buildSeasonArchive(slug, activeYear)` with `getCanonicalStandings({ slug, year: activeYear })` on the History page.
-- **Phase 5** — Lifecycle hardening. Parameterized `currentDate` in `deriveLifecycleState` (request handlers capture once, pass through). Added `usingArchivedRoster` flag to `InsightContext` for `fresh_offseason` fallback path. Documented `POSTSEASON_START_WEEK` constant (Option B; schedule-derived deferred).
-
-**User-visible improvements:**
-
-- NoClaim no longer appears at #1 during preseason on the Overview
-- All Overview surfaces (top-3, condensed table, GB chart) now agree
-- Live game W-L pending badges next to owner names in StandingsPanel during active games
-- Pulsing LIVE pill indicator on in-progress games in the Matchups view
-- Admin forms refresh standings immediately after mutations (no stale data displayed)
-
-**Architectural improvements:**
-
-- Single source of truth: `getCanonicalStandings` is the only path for standings data; no competing derivations in components or routes
-- Proper mutation invalidation: all mutation routes call `invalidateStandings(slug, year)` with tag-based Next.js cache invalidation
-- Testable lifecycle: `currentDate` parameterized at request-handler level; no implicit `new Date()` inside derivation functions
-- NoClaim filtered at source: `splitOutNoClaim` in `src/lib/standings.ts` — no per-consumer filtering needed
-- `liveDelta` as a stable separate seam: live game annotations are computed client-side and passed as distinct props, never merged into canonical rows
-
-**Key architectural decisions:**
-
-- `React.cache` wraps `unstable_cache`: per-request dedup outside, cross-request tag invalidation inside
-- Tag granularity: `standings:{slug}` (slug-level) and `standings:{slug}:{year}` (year-level)
-- Closure pattern required to bake `slug+year` into the `unstable_cache` key array
-- Per-route compatibility shim (`canonical?.rows ?? client.rows`) retired per route as migration progressed
-- Lifecycle dispatch on `leagueStatus.state + canonical.source`, not full `LifecycleState` recomputation
-
----
-
-### Insights Panel Redesign + Polish — Complete
-
-**Status:** Complete. Branch `claude/copy-variation-architecture-vk1yp`.
-**PROMPT_IDs:** INSIGHTS-017-PANEL-UI, INSIGHTS-017-POLISH-DISCOVERY, INSIGHTS-017-POLISH-DISCOVERY-FOLLOWUP, INSIGHTS-017-PANEL-POLISH, INSIGHTS-017-POLISH-FOLLOWUP-DISCOVERY, INSIGHTS-017-PANEL-POLISH-FOLLOWUP, STANDINGS-SUBHEADER-DIAGNOSTIC, STANDINGS-SUBHEADER-FIX
-
-**Key outcomes:**
-
-- INSIGHTS-017-PANEL-UI (commit `1348605`): initial panel redesign — 5 insights (up from 3), 10px uppercase category microlabels above each title, first-row prominence via larger type, fully tappable rows with `→` affordance at 13px muted, "See all →" link to dedicated insights page, mobile full-width presentation. `AllInsightsRow` extracted as a client component to access `useIsDarkMode()` for category colors. `DESIGN.md` updated with Insights Panel + Insight Category Colors sections codifying the token pairs and the semantic-off-limits rule (amber/green/red/blue reserved for interactivity/win-loss/errors).
-- INSIGHTS-017-PANEL-POLISH (commit `a82ef02`): polish pass — row 1 flattened to a uniform 14px treatment (prominence removed pending ranker maturity, to be restored when INSIGHTS-RANKER-TUNING lands); HISTORICAL and RIVALRY insights now carry deep-link arrows via a panel-layer `resolveHistoryHref()` resolver (Tier 1 routable today: `drought` → `#dynasty-drought`, `dynasty` → `#championships`, career/owner generators → `/history/owner/{owner}`, `greatest_season` → `/history/{year}`, rivalry types → `#rivalries`, `milestone_watch-wins` → owner page; Tier 2 returns `null` for `career_points_leader`, `career_turnover_margin`, and `milestone_watch-points` pending HISTORY-REWORK career surface); three section anchors added to the history page (`#championships`, `#rivalries`, `#dynasty-drought`); light-mode banner fix — all five CFBScheduleApp banner variants (offseason, draft scheduled, draft complete, draft scheduled no-status, plus pulse) converted from hardcoded dark-mode-only hex values to a paired `{light, dark}` palette object keyed off `isDark`.
-- INSIGHTS-017-PANEL-POLISH-FOLLOWUP (commit `113b27d`): SEASON season_wrap insights `champion_margin` and `failed_chase` rerouted from `/standings` to `/league/{slug}/history/{year}` via a new optional `panelYear` fourth argument on `insightHref`, threaded through all three render sites (`OverviewPanel.InsightRow`, `StandingsPanel`, `AllInsightsRow`); `leagueStatus` plumbed to the standings page alongside a new `mostRecentArchivedYear?: number` prop, resolved via `listSeasonArchives(slug)` sorted descending; new offseason subheader branch on `CFBScheduleApp` renders "{year} Final Standings" only when `leagueStatus.state === 'offseason'` AND `weekViewMode === 'standings'` AND a resolved archive year is available; insight-row arrow contrast bumped from `text-gray-400` (#9ca3af, ~2.85:1 against white, below WCAG 3:1) to `text-gray-500` (#6b7280, ~4.6:1) at all three render sites; dark-mode class unchanged.
-- STANDINGS-SUBHEADER-FIX (commit `3890bad`): post-ship diagnostic (STANDINGS-SUBHEADER-DIAGNOSTIC) identified that the new subheader branch never fired in the primary user flow — the WeekViewTabs "Standings" button mutates `weekViewMode` state in place without changing the route, so users hitting the standings view via the in-page tab stayed on `/league/{slug}` where `mostRecentArchivedYear` had not been plumbed. Fix: `listSeasonArchives(slug)` added to the main league page's `Promise.all`, `mostRecentArchivedYear` computed identically to the standings page, and passed to `CFBScheduleApp`. Single-file, 9-line change; no modifications to the standings page, the prop type, or the subheader branch — those were already correct.
-- **`/league/{slug}/insights` page stabilization** (two commits beyond the originally-scoped work, surfaced during PR review): ALL-INSIGHTS-SCHEME-FIX (commit `2acdcf5`) replaced the `'https'` fallback on `x-forwarded-proto` with `NODE_ENV === 'development' ? 'http' : 'https'` so the server-side fetch works in local dev and self-hosted environments. ALL-INSIGHTS-OFFSEASON-FALLBACK (commit `e208104`) added a context-builder fallback to the most recent archive's `ownerRosterSnapshot` when the current-year owners CSV is empty, so the engine keeps producing insights during the offseason rollover window before preseason roster upload. Together these shipped the `/insights` page originally scoped as a separate ALL-INSIGHTS-PAGE backlog item.
-
-**Key architectural decisions:**
-
-- Panel-layer resolver approach (Option 1) chosen over payload mutation — `panelYear` threaded as an optional arg rather than added to the `Insight` type. Generators and derive helpers remain untouched; the reroute lives entirely at the presentation layer. Future season-year-scoped reroutes can extend the same resolver without touching selectors.
-- `mostRecentArchivedYear` resolved from `listSeasonArchives()` rather than inferred from `league.year` — the league's active year can be bumped at preseason entry, so it's not a reliable signal for "most recently completed season" during the offseason window.
-- Three sentinel Tier 2 types (`career_points_leader`, `career_turnover_margin`, `milestone_watch-points`) explicitly return `null` from the resolver — users see no arrow on those rows until the HISTORY-REWORK campaign ships a career stats surface. Preferred over broken arrows that land on pages that don't display the cited stat.
-- Light-mode arrow lifted one step in the gray scale to match description text (`text-gray-500`) rather than two steps (`text-gray-600`) — maintains the secondary-to-title visual hierarchy while clearing WCAG 3:1 for non-text UI graphics.
-
-**Infrastructure:** Neon Postgres upgraded from Free tier to Launch tier ($19/month) mid-campaign to resolve a 5 GB egress quota block that was intermittently failing DB reads during development. Launch tier provides 50 GB/month; active-season + draft-day traffic may still require server-side caching before August launch (tracked as APPSTATESTORE-CACHING).
-
----
-
-### Insights Engine — Generator Batch 2 — Complete
-
-**Status:** Complete.
-**PROMPT_IDs:** INSIGHTS-015, INSIGHTS-015-BUG-FIXES
-
-**Key outcomes:**
-
-- INSIGHTS-015: 16 new generators across 3 new files:
-  - `career.ts`: career_points_leader, career_turnover_margin, volatility, never_last, title_chaser, rookie_benchmark, greatest_season, trending_up, trending_down
-  - `stats.ts`: ball_security, takeaway_king, yards_per_win, clock_crusher, third_down, team_identity
-  - `milestones.ts`: milestone_watch, perfect_against
-- Generator-level `tone: 'factual' | 'playful'` property added to all generators
-- `InsightWindow` type defined for future time window parameterization
-- INSIGHTS-015-BUG-FIXES: UTF-8 encoding fixed (charset header added to API response), trending direction logic fixed (strict monotonicity check replaces lenient comparison)
-
-**Key architectural decisions:**
-
-- `tone` property on generators enables copy-layer filtering without changing engine logic
-- `InsightWindow` is reserved/typed but not yet consumed — added to types.ts to lock the interface before copy variation work begins
-- Strict monotonicity for trending generators (must be strictly increasing/decreasing across all seasons, not just net direction)
-
----
-
-### Insights Engine — Context Extension — Complete
-
-**Status:** Complete.
-**PROMPT_IDs:** INSIGHTS-014, INSIGHTS-014-CONTEXT-EXTENSION
-
-**Key outcomes:**
-
-- INSIGHTS-014: `pointsAgainst` added to `OwnerSeasonStats`; `OwnerCareerStats` type defined with: `seasons`, `totalWins`, `totalLosses`, `totalPoints`, `totalPointsAgainst`, `totalYards`, `turnovers`, `turnoverMargin`, `titles`, `titleYears`, `finishHistory`, `firstSeason`, `isRookie`
-- `buildOwnerCareerStats()` assembles career records from archive data across all seasons
-- Diagnostic route `GET /api/debug/insights-career-diagnostic` added (admin-gated) for live inspection of career stat assembly
-
-**Key architectural decisions:**
-
-- Career stats assembled at query time from per-season archive data — no pre-aggregated career totals stored
-- `isRookie` derived from `firstSeason === currentSeason` so generators can branch on rookie status without duplicating the check
-- `pointsAgainst` on `OwnerSeasonStats` unlocks Luck Score generator (points scored vs points allowed differential)
-
----
-
-### Copy Variation Architecture — Complete
-
-**Status:** Complete.
-**PROMPT_IDs:** INSIGHTS-016, INSIGHTS-016-COPY-VARIATION, INSIGHTS-016-COPY-FIX, INSIGHTS-016-CR-FIXES
-
-**Key outcomes:**
-
-- INSIGHTS-016: `newsHook` (11 types: `extending_lead`, `narrowing_gap`, `milestone_crossed`, `streak_extended`, `streak_started`, `new_leader`, `returning_leader`, `never_won`, `new_record`, `challenger_emerging`, `snapshot`) and `statValue: number` added as required fields on `Insight` type
-- `src/lib/insights/suppression.ts` created — per-league, per-season suppression scope (`insights-suppression:{leagueSlug}:{season}`), per-type threshold table (`abs`, `pct`, `unchanged`, `snapshot`), NEVER_SUPPRESS set (`milestone_watch`, `perfect_against`, `rookie_benchmark`); exports: `loadSuppressionRecords`, `saveSuppressionRecord`, `clearAllSuppressionRecords`, `isSuppressed`, `toSuppressionRecord`
-- Engine upgraded to async — loads suppression records pre-filter, applies `isSuppressed()` gate, sorts and slices top 10, writes records post-cut; all suppression I/O non-blocking
-- Per-generator hook selection and copy templates across all 8 generator files — deterministic hook-driven selection, 2–5 templates per insight type, no random rotation
-- Playful copy implemented: `dominance_streak` ("living rent-free"), `drought`, `volatility`, `title_chaser`
-- `?bypassSuppression=1` query param on insights API bypasses suppression gate for admin/debug use
-- Season rollover cron clears suppression records per successfully rolled league (gated behind both archive + status update succeeding)
-- INSIGHTS-016-COPY-FIX: `career_points_leader` `extending_lead`/`narrowing_gap` hook mismatch fixed — post-hoc override block removed; "closest it's ever been" copy now lives in the `narrowing_gap` template branch only
-- INSIGHTS-016-CR-FIXES: suppression storage scoped by `leagueSlug` + `season` (was global); rollover suppression clear moved inside per-league success path; response reports `suppressionClearedFor: string[]`
-
-**Key architectural decisions:**
-
-- Hook computation is pure — derived from `InsightContext` data (archives, standings, career stats) only, never from prior suppression records
-- Suppression key = `insightId + hook`; owner change (different owner holds the lead) treats the insight as new, never suppressed
-- `statValue` is a single `number` per insight — the primary numeric measure used for threshold comparison
-- Snapshot generators (`team_identity`, `greatest_season`, `clock_crusher`) get `newsHook: 'snapshot'` — suppressed after first fire per league-season
-
----
-
-### Insights Panel UI Direction — Decided (not yet built)
-
-**Status:** Design decisions complete; implementation queued.
-
-**Key decisions:**
-
-- 5 insights displayed (not 3)
-- First insight 15px, rest 14px — typographic hierarchy without cards
-- 10px uppercase category microlabel above each title
-- Owner names in assigned color, regular weight
-- Full row tappable; `→` navigation always visible at 13px muted
-- "See all →" link to dedicated insights page
-- Mobile: full-width section, no tab strip, no horizontal scroll
-- `fresh_offseason` only: featured slot becomes "2025 Season Recap" card
-- Owner color map passed as prop from canonical standings source
-
----
-
-### Insights Engine — Opus 1M Brainstorming Session 2
-
-**Status:** Complete. Planning artifacts recorded; implementation in progress.
-
-**Key outcomes:**
-
-- Data dependency audit: 17 of 18 insights ready with current pipeline (Luck Score requires points-against, now available via INSIGHTS-014)
-- Lifecycle fit table: all 18 insights mapped to optimal lifecycle states for display gating
-- Natural insight pairings identified: Title Chaser + Volatility, Ball Security + Takeaways, Career Points + Drought, Trending Leader (emergent from trending + standings data)
-- Copy variation strategy finalized (see Copy Variation Architecture above)
-- AI copy architecture decided: cache-time generation, not request-time; curated subset (pairing cards) only
-
----
-
-### Insights Engine — Generators and Wiring — Complete
-
-**Status:** Complete. Branch `claude/review-insights-engine-p3j5v` (PR #278).
-**PROMPT_IDs:** INSIGHTS-010, INSIGHTS-010-CLEANUP, INSIGHTS-011, INSIGHTS-012, INSIGHTS-013, INSIGHTS-013B, INSIGHTS-CR-001
-
-**Key outcomes:**
-
-- INSIGHTS-010: `deriveLifecycleState()` and `buildInsightContext()` — 7-state lifecycle derived from `LeagueStatus` + `SeasonContext` + calendar; full `InsightContext` assembled from standings history, games, game stats, season archives, historical rosters, current roster, and AP rankings.
-- INSIGHTS-010-CLEANUP: `aggregateOwnerSeasonStats()` canonicalized in `src/lib/gameStats/ownerStats.ts`; local mirror in `context.ts` removed.
-- INSIGHTS-011: Historical generator (drought, dynasty, most-improved, consistency) and Rivalry generator (lopsided, even, dominance streak) — both self-registering via `registerGenerator()`, active-owner filtering via current roster, per-generator try/catch isolation in the engine.
-- INSIGHTS-012: `GET /api/insights/[slug]` API route — loads owners CSV, schedule, scores, rankings, and season archives; builds context and runs the engine. Wired into `OverviewPanel` with merge strategy (engine insights first, existing insights fill up to 3).
-- INSIGHTS-013: Dynasty tie copy (e.g. "Pruitt now ties Whited for most titles"), drought never-won ranking (drought = seasons played when the owner has never won), active-owner filtering applied across all 7 insight types (drought, dynasty, improvement, consistency, lopsided_rivalry, even_rivalry, dominance_streak).
-- INSIGHTS-013B: Universal tie suppression — 4+ tied owners suppress the insight; 2–3 tied emit group copy ("X and Y have never won a title in N seasons"); 1 keeps existing copy. Applied to drought, consistency, and improvement; dynasty unchanged (already handled ties).
-- INSIGHTS-CR-001: Insights API now merges league-scoped aliases (`aliases:{slug}:{year}`) with `getGlobalAliases()` directly server-side, consistent with `/api/owners` routes (previously called `/api/aliases?year={year}` which returned only the legacy year-scoped map, empty after migration). Even rivalry copy branches on `winDiff` — `winDiff === 0` uses "tied at" phrasing, `winDiff === 1` uses "X leads Y N-M across K meetings — the closest rivalry in the league".
-
-**Key architectural decisions:**
-
-- Generators resolve active owners from `context.currentRoster` (roster CSV), never from archive standings — former owners are filtered from every derived insight.
-- Tie suppression thresholds live in `historical.ts` (`TIE_SUPPRESSION_THRESHOLD = 4`) and are uniform across drought / consistency / improvement.
-- `buildInsightContext()` centralizes owner aggregation so generators never reach into CFBD or CSV parsing directly.
-- API route uses direct server-side stores (`getGlobalAliases()`, `getAppState`) instead of HTTP sub-requests where possible — reduces one hop and matches existing server-to-server patterns.
-
----
-
-### Season Rollover — Complete
-
-**Status:** Complete. Branch `claude/review-insights-engine-p3j5v` (PR #278).
-**PROMPT_IDs:** PLATFORM-001, INSIGHTS-012-LEAGUE-STATE-DIAGNOSTIC
-
-**Key outcomes:**
-
-- `SeasonRolloverPanel` added to `/admin/data/cache` — two-phase preview/execute flow. Preview shows, per league, the prospective champion, top 3 standings, archive existence, and any diff against an existing archive. Execute requires explicit `window.confirm` and a destructive red button.
-- `buildSeasonArchive()` extracted for reuse across preview/execute/cron paths; `findNationalChampionshipGameDate()` prefers `playoffRound === 'national_championship'` with a fallback to the latest postseason game date.
-- Automatic cron at `GET /api/cron/season-rollover` — runs daily, filters non-test leagues in `state: 'season'`, triggers when `championshipDate + 7 days` has passed, archives each league and transitions it to `state: 'offseason'` with per-league error isolation.
-- TSC League successfully rolled over to offseason via the new panel.
-- `vercel.json` now lists three cron jobs: season-transition (daily 00:00 UTC; internal date math gates when the transition actually fires), game-stats (Monday 11:00 UTC weekly refresh), season-rollover (daily 00:00 UTC post-championship check).
-
-**Key architectural decisions:**
-
-- Two-phase UI (preview → confirm) chosen over single-click to protect against accidental rollovers; existing archives get a diff summary rather than silent overwrite.
-- Cron delay of 7 days after the national championship is a safety buffer for late corrections and any admin review before final archive.
-- Preview response includes `champion` and `top3` so the UI does not re-compute standings in the client — the server stays authoritative.
-
----
-
-### History Page Polish — Complete
-
-**Status:** Complete. Branch `claude/review-insights-engine-p3j5v` (PR #278).
-**PROMPT_IDs:** POLISH-003
-
-**Key outcomes:**
-
-- All-time standings sort order corrected: Total Wins → Win% → Point Differential (previously championships-first, which buried owners who had dominated without winning a title). `totalPointDifferential` added to `AllTimeStandingRow`, accumulated from archived season rows.
-- Former owner visual distinction in All-Time Standings and Top Rivalries: active owners are derived server-side from the current roster CSV (`owners:{slug}:{year}`), former owners render with muted text and a "Former" badge. `activeOwners: string[]` passed as props (not `Set<string>`) to preserve server/client component serialization.
-
----
+Canonical for: shipped milestone history; not current implementation, deployment, or planning authority
 
-### Insights Engine — Opus 1M Brainstorming
-
-**Status:** Planning complete; implementation deferred to next campaign.
-
-**Key outcomes:**
-
-- 18 new insight ideas ranked and categorized in the Opus 1M brainstorming session.
-- Tier 1 (12 immediately buildable): Ball Security, Takeaway King, Clock Crusher, Team Identity, Third Down Specialist, Career Points Leader, Volatility Award, Never Finished Last, Title Chaser / Bridesmaid, Career Turnover Margin, Yards-Per-Win Efficiency, Trending Up/Down.
-- Tier 2 (special handling needed): Luck Score (requires points-against pipeline), Career Milestone Watch, Perfect Against, Rookie Benchmark, Greatest Single Season.
-- Next generator batch queued for the next Claude Code session — Stats Outliers generator covers the largest cluster of Tier 1 ideas (yards-per-win, ball security, takeaway king, team identity).
-
----
-
-### Insights Engine Foundation — Complete
-
-**Status:** Complete. PR #276 (`claude/review-insights-architecture-AAynV`).
-**PROMPT_IDs:** INSIGHTS-006-ARCHITECTURE-REVIEW, INSIGHTS-007-EXISTING-AUDIT, INSIGHTS-008-DEAD-CODE-CLEANUP, INSIGHTS-009-GENERATOR-RESTRUCTURE, POLISH-001-QUALITY-BASELINE, POLISH-002-RUNBOOK-UPDATE
-
-**Key outcomes:**
+## Purpose and maintenance
 
-- POLISH-001: Lint/typecheck baseline fully restored — 86 files reformatted, 1 test fixed, zero ESLint and TypeScript errors
-- POLISH-002: `docs/deployment-runbook.md` rewritten to reflect Clerk-based auth model (removed all `ADMIN_API_TOKEN` references)
-- INSIGHTS-007: Full audit of all existing insight logic — mapped every import site, consumer, and dead-code path before touching anything
-- INSIGHTS-008: Dead code removal — orphaned `computeWeeklyInsights` function and `WeeklyInsights` type deleted from `leagueInsights.ts`; active exports moved to new `src/lib/gameTags.ts`; 252 lines of dead code removed; all 5 import sites updated
-- INSIGHTS-009: Generator interface established:
-  - `src/lib/insights/types.ts` — `LifecycleState` (7 states), `InsightCategory` (9 categories), `InsightGenerator`, `InsightContext`, `OwnerSeasonStats`
-  - `src/lib/insights/engine.ts` — `registerGenerator()`, `runInsightsEngine()` (filters by lifecycle, try/catch isolation, sorted by priority, capped at 10)
-  - `src/lib/insights/generators/existing.ts` — trajectory, season_wrap, championship_race generators (self-registered at module load)
-  - `Insight` type extended with optional `category`, `lifecycle`, `stat` fields
-  - All 8 existing derive functions annotated with appropriate category and lifecycle
-  - Naming conflict resolved: legacy `deriveLeagueInsights` (gameTags.ts, `{id, text, priority}` shape) renamed to `deriveGameMovementInsights`; canonical `deriveLeagueInsights` (selectors/insights.ts, rich shape) retains its name
-
-**Key architectural decisions:**
-
-- Architecture audit (INSIGHTS-006, INSIGHTS-007) confirmed: extend `selectors/insights.ts`, do not replace it — the existing derive functions are sophisticated and well-tested
-- `deriveLeagueInsights` in `selectors/overview.ts` was incorrectly flagged as orphaned in the audit; discovered it feeds `shouldShowFeaturedMatchups` rendering gate via `deriveLeagueHighlights`
-- Three dead view model properties identified as future cleanup candidates: `viewModel.keyMovements`, `viewModel.leaguePulse`, `viewModel.shouldShowLeaguePulse` — computed but never read by any UI component
-
----
+This ledger consolidates 168 original milestone headings and four embedded implementation records into 31 outcome records. Duplicate umbrella/slice accounts are merged, and later explicit decisions are summarized alongside their historical predecessors. Ordering is by topic, not by merge date. Every source record is mapped in the per-source evidence index.
 
-### Game Stats Pipeline — Complete
+- Preserve what shipped, why it mattered, material delivery limits, and references that recover the detail. Historical activation is not evidence a scheduler remains enabled today.
+- `docs/next-tasks.md` owns current sequencing and deferrals; `docs/prompt-registry.md` and PRs own execution/review detail. Current architecture, `AGENTS.md`, `DESIGN.md`, and runbooks retain their own authority.
+- Future single-milestone entries should normally be 60–100 words. Extend an existing campaign record when appropriate; consolidate after campaign closure instead of preserving a second umbrella narrative.
+- Do not append test totals, review-round transcripts, full prompt lists, temporary NEXT pointers, or repeated file inventories. Preserve a meaningful exception or incomplete-delivery boundary when its omission would mislead.
+- Do not remove a unique architectural decision solely because a newer outcome summary exists. Retain its rationale here or confirm it is preserved in the owning document before replacing it with a pointer.
 
-**Status:** Complete. PRs #274–#275 (`claude/audit-cfbd-game-stats-06YHO`).
-**PROMPT_IDs:** P7B-GAME-STATS-PIPELINE-A, P7B-GAME-STATS-AUDIT, P7B-GAME-STATS-CACHE-PANEL, P7B-GAME-STATS-BACKFILL, P7B-GAME-STATS-NORMALIZE, INSIGHTS-002-LATEST-WEEK-FIX, INSIGHTS-003-DATA-DIAGNOSTIC, INSIGHTS-004-SCHOOL-NAME-FIX
+This is an editorial reconciliation of the supplied ledger, not a repository or production audit. Source-linked PRs and documentation paths are retained for traceability but were not independently checked. Outcome narratives summarize evolution; the historical checkpoints below retain earlier pending/dormant and later active/retired states separately. A later state does not make the earlier statement false at the time. Absent explicit evidence, completion is not inferred. Detailed source history remains in the earlier revision.
 
-**Key outcomes:**
+## Consolidated outcomes
 
-- CFBD `/games/teams` endpoint integrated — one call per week, returns all team stats for all games in that week
-- Normalized fields: `totalYards`, `rushingYards`, `passingYards`, `turnovers`, `turnoverMargin`, `thirdDownPct`, `possessionSeconds`, plus 6 return stat fields (`interceptionReturnYards/TDs`, `kickReturnYards/TDs`, `puntReturnYards/TDs`)
-- Cache: `appStateStore` scope `game-stats`, key `${year}:${week}:${seasonType}`
-- Monday 11am UTC cron (`/api/cron/game-stats`) auto-fetches latest completed week
-- Admin cache panel: `GameStatsCachePanel` with "Refresh Game Stats" and "Backfill Full Season" buttons
-- Owner aggregation module: `aggregateOwnerGameStats()` resolves teams via `TeamIdentityResolver`, attributes per-game stats to each owner
-- Bug fixed (INSIGHTS-004): CFBD response uses `team` field not `school` for school name — corrected in normalizer
-- Bug fixed (INSIGHTS-002): Latest week detection uses calendar date (not week number) to avoid picking the current in-progress week
-- Diagnostic route: `GET /api/debug/game-stats-diagnostic` (admin-gated) for live inspection
-- 2021–2025 fully backfilled (5 seasons × ~19 weeks = 95 weeks cached)
-
-**Key architectural decisions:**
+### 01. Shared scoreboards and game-section presentation
 
-- Stats accumulated at query time from per-game data — no pre-aggregated owner totals stored in the cache
-- `TeamIdentityResolver` (existing) used for team→owner resolution — no duplicate matching logic
-- API cost: ~19 additional CFBD calls per season — well within the 1,000/month free tier
+Merged evolution through 2026-09-06. `CompactGameScoreboard` replaced separate Overview Live, Featured, Recent-finals, and Schedule/Postseason presentations. Fixed away-to-home order, right-aligned scores, and position-independent winner/leader emphasis replaced inconsistent summaries. Featured retained its selection contract and an optional context slot for future explanation. Schedule now keeps the scoreboard visible; only venue, odds, conference, and postseason-admin details sit behind an accessible More/Less disclosure.
 
----
+- The common contract supports mutually exclusive rank/FCS prefixes, neutral-site metadata, state-gated broadcast, and optional tier-2 content that reserves no empty space. Shared status treatment uses emerald live, neutral final, sky scheduled, and accessible unknown; Matchups retains its separate neutral live pulse where green already denotes a final win.
+- Scheduled rows show kickoff, live rows show the game clock, and awaiting/final rows show neither. Broadcast appears on scheduled/live/awaiting rows. Schedule remains kickoff-sorted within date groups; bronze eyebrow pills replace retired card-emphasis chrome.
+- Non-Featured owned games progress through mutually exclusive Watchlist → Live → Recent finals. Unusable post-kickoff scores remain `Awaiting score` for the shared eight-hour abandonment window; usable finals promote immediately. Recent finals is complete independently of the curated recap and expires at Thursday 06:00 ET.
+- Slice 5b added caller-supplied `isCardOwnerTeam` tinting with seamless adjacent marked rows. **No caller was wired by that slice**, so it introduced capability without changing existing renders. The tint remains `dark:`-gated.
+- **Schedule and Postseason do not render team records.** The attempted timestamp-only finalization gate was removed because it discarded game identity and blanked the whole projection; Item 139 owned shared completed-game reconciliation at closeout. Overview's prior records feed was unchanged. The earlier finals-record join blocker was GitHub issue #548; it is an issue reference, not a PR.
+- Provider classification is absent from 2018–2024, so the FCS prefix is intentionally unavailable there. Contrast corrections raised small text to zinc-400; loss of one color-hierarchy step was accepted. The owner declined disrupted/placeholder presentation changes after finding no disrupted provider statuses in the measured 2024–2026 schedule population; that decision is not proof such statuses can never occur.
 
-### P7B-6 — Draft Board UI Polish: Complete
+Supersedes the original one-line Schedule collapse, orphaned `GameScoreboard`, and earlier Overview-only status treatments. Later ordering decisions are consolidated separately below.
 
-**Status:** Complete. Branch `claude/polish-draft-flow-Rv5AF`.
-**PROMPT_IDs:** P7B-6, P7B-6-FIX, P7B-6-FIX-2, P7B-6-FIX-3, P7B-6-FIX-3-HOTFIX, P7B-6-FIX-4, P7B-6-FIX-5, P7B-6-FIX-5B, P7B-6-FIX-5C, P7B-6-FIX-5D
+PR references: #241, #531, #535, #537, #541, #549, #570, #572, #575.
 
-**Key outcomes:**
+### 02. Overview ordering and removal of competing presentation state
 
-- Rosters column removed from commissioner and spectator draft boards (2-col grid: board + available teams)
-- On-the-clock cell uses consistent solid blue (`bg-blue-600`)
-- Active/on-deck cell colors: active=solid blue, on-deck=light blue tint
-- Left color bar added to Available Teams cards and pick cells via `teamColorMap` from `getTeamDatabaseItems()`
-- Available Teams panel narrowed to 210px
-- Search/filter added to spectator board Available Teams panel
-- Landing page cleanup: "Draft Setup →" link removed, NoClaim excluded from owner count, status label derived from `league.status`
-- Draft status row on league hub links to draft board when live/paused
-- Spectator standalone banner removed
-- `md` breakpoint (instead of `lg`) used for two-column layout
+Merged through 2026-09-04. Overview game sections now appear Featured → Live → Recent finals → Upcoming watchlist. Kickoff orders Live ascending and Recent finals/Featured descending; the watchlist retains its curation score above kickoff. Owner-count tie-breaks were removed, including the upstream selector that determines which Featured games survive the cap. Featured finals no longer carry a kickoff date/time.
 
-**Key architectural decisions:**
+`OverviewContext` shrank from seven fields to the sole consumed `{ scopeDetail }`. Unread `sectionOrder` and descriptive copy had contradicted the actual JSX; deleting them removed a second, drifting model of presentation. The recorded section-order decisions live in the Item 87 campaign documents.
 
-- Left bar with no background chosen over tinted background for pick cells — team color is the only signal, no competing background tint
-- Conference colors used as fallback when team sync has not been run
-- `md` breakpoint instead of `lg` for two-column layout to accommodate smaller screens
+Earlier Overview work established section dividers instead of redundant outer cards, equal podium cards with champion-only accent, an AP/CFP poll snapshot, compact standings/insights composition, and a games-back race with its companion table as legend. Champion margin is described in games back, with Win% used as a tiebreaker. Later ordering and shared-scoreboard rules supersede the earlier layouts and owner-priority sorting; the owner-color implementation is recorded under theme/navigation.
 
----
+PR references: #562, #563, #564.
 
-### P7B-5 — Owner Confirmation Flow: Complete
+Documentation: `docs/campaigns/item-87-followon-section-ordering-resolutions.md`, `docs/campaigns/item-87-followon-section-ordering.md`.
 
-**Status:** Complete. Branch `claude/add-league-status-field-jPzcQ`.
-**PROMPT_IDs:** P7B-5, P7B-5-FIX, P7B-5-FIX-2, P7B-5-FIX-3, P7B-5-FIX-4, P7B-5-FIX-5, P7B-5-FIX-6
+### 03. NoClaim presentation and distinct-game counting
 
-**Key outcomes:**
+Merged 2026-09-03–05. Schedule, Postseason, and Matchups stopped presenting `NoClaim` as a league member. Matchups has no sentinel owner card, opponent badge, or count-only excluded-games section; expanded Schedule names use provider casing for non-catalog participants while preserving catalog labels. Durable roster/ownership data was not rewritten.
 
-- Owner confirmation page at `/admin/[slug]/preseason/owners` with three-step pre-population fallback: saved preseason-owners list → archive ownerRosterSnapshot → live owner CSV (fixes test league)
-- `preseasonOwnerStore.ts` — `getPreseasonOwners` / `savePreseasonOwners` with key `preseason-owners:{slug}` / `{year}`
-- `OwnerConfirmationShell.tsx` client component — add/remove owners, duplicate guard, min-2 gate on Save
-- `confirmPreseasonOwners` server action — saves and redirects back to preseason checklist
-- Preseason checklist "Owners confirmed" now reads from `preseasonOwnerStore`, not raw owners CSV
-- Draft setup page (`/league/[slug]/draft/setup`) prefers confirmed preseason-owners list for `priorOwners` population
-- Reset Draft button added to TestLeagueControls — deletes all `draft:test/{year}` keys and corresponding owner CSVs
-- Lifecycle year derivation (`status.year` pattern) applied to all four draft pages: commissioner board, spectator board, setup, and summary
-- Clerk session bridge in `DraftBoardClient` — auth reads both `sessionStorage` token and Clerk `publicMetadata.role` with async-safe loading guards to prevent premature redirect
+Item 135 changed the disclosure to count **distinct games**, make collapse actually hide rows, and render a self-owned game once. Rekeying by opponent identity would not have fixed the shipped defect: confirmed drafts write a truthy `NoClaim` owner for undrafted teams, so fixtures that omit those roster entries misrepresent production. Unowned opponents previously collapsed onto sentinels, and a two-owned-team game produced mirrored rows.
 
-**Key architectural decisions:**
+**Boundary:** slate aggregates still double-counted self games at closeout (Item 136), although list rows were deduplicated and the W–L record was correct. Both `matchups.ts` and `ownerView.ts` consume those aggregates; this was not a completed aggregate fix.
 
-- Third fallback (live owner CSV at `owners:{slug}:{year-1}/csv`) solves test league structurally — test league has no `standings-archive:test` entries, so archive-based pre-population is permanently broken for it; live CSV is always available
-- `teamsHref` for manual assignment points to `/admin/${slug}/preseason` (not `/assign`) since manual flow is coming soon on that page; this prevents a 404
+PR references: #560, #571.
 
----
+### 04. Browser polling, freshness, and member live signals
 
-### P7B-4 — Pre-Season Setup Flow: Complete
+Merged through 2026-09-05. Visible current-season tabs poll the full eligible live-score partition set every 90 seconds while an eligible game is within kickoff −15 minutes to +8 hours without a usable final, then every 180 seconds. A usable final requires final status and both numeric scores; incomplete evidence stays fast until the ceiling. The separate three-minute provider cron remains the writer. Item 128 first removed the redundant team-catalog read from every browser poll; the estimated display-staleness improvement was about 45 seconds, not a measured provider-speed increase.
 
-**Status:** Complete. Branch `claude/add-league-status-field-jPzcQ`.
-**PROMPT_IDs:** P7B-4, P7B-4-FIX, P7B-4-FIX-2, P7B-4-FIX-3, P7B-4-FIX-4, P7B-4-FIX-5
+The confidence layer says preparing only near kickoff, waiting only for an eligible missing score, and tracking only when a recent exact-partition observation attaches an in-progress score in the same read. Known disruptions suppress unsupported claims, and the accessible status region remains mounted while idle.
 
-**Key outcomes:**
+Overview standings retains a green provisional W–L badge during ties or stale reads, using `+0–0` for tied/unavailable numeric live scores and last-known evidence for copy. Current game state controls visibility. The existing fresh-only accessor for Standings/Members remains distinct. Per-game freshness was not delivered: durable snapshot time, clean client observation time, and the seven-minute stale-overlay policy must not be treated as interchangeable.
 
-- Pre-season setup page at `/admin/[slug]/preseason` with three-item checklist: Owners confirmed / Teams assigned / Season live
-- Assignment method selection card (Run a Draft / Assign Manually) persisted to `league.assignmentMethod`
-- Go Live button gated by checklist completion — transitions league to season and syncs `league.year`
-- Draft card removed from league hub tool cards; draft accessible only through pre-season flow
-- Draft setup page year derivation fixed to use lifecycle status year (`status.year`) rather than `league.year`
-- Test league controls: idempotent preseason year (no double-increment), Reset to 2025 Season button
-- `manualAssignmentComplete?: boolean` added to `League` type for method-aware team assignment check
-- `teamsHref` on preseason page is method-aware: draft → draft setup, manual → `/assign` (P7B-6), null → self
+PR references: #495, #539, #567.
 
-**Key architectural decisions:**
+### 05. Team-records cache, refresh authority, and historical backfill
 
-- "League created" dropped from checklist — not meaningful for recurring season resets
-- Pre-season checklist is the single model for both initial setup and recurring season transitions
-- `goLive` action syncs both `status` and `league.year` atomically so downstream year derivation always resolves correctly
+Merged 2026-08-31. One year-wide CFBD records cache keyed by numeric `teamId` and an arbitrary-year refresh authority replaced any need for consumer-specific fetching. Prior-good data survives empty, invalid, failed, or stale observations. The live-scores cron can invoke records refresh after a newly committed final, at most once per run behind a durable six-hour provider-call floor; an authenticated hourly QStash job adds an independent twelve-hour ceiling.
 
----
+The reader withholds rows whose W–L–T outcomes do not equal games, while preserving a distinct uncreditable-team signal. The subsequent fourteen-hour health threshold counts such rows as present and supersedes the initial eight-day diagnostic. This threshold assumed the hourly job remained unpaused; lifecycle-aware pausing was not part of the delivered cache contract. Score commits invalidate standings before awaiting the optional records request.
 
-### Phase 7F — Overview Featured Games: Complete
+A deliberate production one-off populated 2018 and 2021–2026 with seven CFBD calls: respectively 687, 670, 672, 672, 679, 681, and 684 rows, all reported `written-clean` and verified read-only. This was an executed backfill, not a new repair button. Historical completed seasons were treated as immutable for that operation. Initial cache delivery had no consumer; subsequent consumer limitations, especially Schedule's absent records, are recorded under shared scoreboards.
 
-**Status:** Complete. Branch `claude/fix-standings-ui-re94y`. PR #241.
-**PROMPT_IDs:** PHASE-7F-FEATURED-GAMES, PHASE-7F-FIX-01 through PHASE-7F-FIX-06
+PR references: #543, #546.
 
-**Key outcomes:**
+### 06. Canonical standings, finality, and warm-on-write
 
-- Renamed "Recent Results" → "Featured Games" with 2-column card grid layout
-- CFP round badges with neutral slate/gray styling — full labels ("CFP Quarterfinal", "CFP First Round")
-- Conference championship badges with conference name ("SEC Champ")
-- Inline W16 CFP rankings on postseason game cards (not Final Poll)
-- Dark card styling — no border, background-defined cards
-- Winner score full weight, loser score muted
-- Context-aware game selection: postseason surfaces playoff/bowl, in-season surfaces current week
-- NoClaim owner filtering from display lines and game list
-- First Round CFP classification via neutral site = false (campus games)
-- 6-game display cap
+The standings campaign replaced competing render-time merges with one settled server authority, `getCanonicalStandings`, and a separate client `liveDelta` overlay. Overview, Standings, Members, Matchups, and active-history reads adopted it. `NoClaim` is separated at derivation; settled rows, chart history, and color ordering agree across consumers. Per-request deduplication wraps cross-request caching, with slug/year identity and mutation-driven invalidation. Request handlers capture time for derivations rather than freezing `Date.now()` decisions inside cached selectors.
 
-**Key architectural decisions:**
+Later week-resolution/coverage work requires real game conclusions and numeric points for score-bearing results before declaring standings resolved; all real games must resolve before season finality. Member copy says “Waiting on complete results” without guessing the cause. Bulky per-game pending payloads are stripped only after explicit season context has been derived from the complete canonical snapshot. Rankings source matching was narrowed to exact FBS poll names so lower-division Coaches polls cannot contaminate it.
 
-- `deriveFeaturedGameBadge(game)` — badge logic driven by `playoffRound` (more specific) over `postseasonRole`
-- `overviewRankingsByTeamId` memo in `CFBScheduleApp.tsx` — selects last regular-season CFP week for rankings instead of Final Poll
-- `selectFeaturedGames()` in overview selectors — postseason tier sorting via `postseasonRolePriority()`
-- First-round campus game fallback: `(round == null || round === 'playoff') && !game.neutral` → 'CFP First Round'
+PLATFORM-119 made score writes synchronously invalidate and repopulate registered league/year standings keys after the durable commit, with non-fatal warming failures. A process-wide queue is entered before the year transaction so concurrent warmers cannot occupy all three pool clients while nested reads need another; year locks retain cross-instance ordering. The proposed response filter was withdrawn on a canonical-week correctness finding, not shipped. Later score/record reconciliation remains separate from cache warming.
 
----
+PR references: #547.
 
-### Phase 7A–7E — Product Design Audit (Standings through Speed Insights): Complete
+Documentation: `docs/campaigns/standings-ownership.md`, `docs/architecture/week-resolution.md`.
 
-**Status:** Complete. Multiple PRs across branches.
+### 07. Trend drawability and truthful preseason origin
 
-**Key outcomes:**
+POLISH-013/014 were promoted 2026-08-25. Overview trends share one drawability authority and explain sparse data instead of rendering empty axes or discarding useful week-one context. Games-back charts may show a separate Preseason origin only when no game concluded before the first plotted week. It is not canonical week zero and is absent from midseason windows and incompatible legacy/played history. Extending this treatment to archived season-arc axes was not part of delivery.
 
-- **7A Standings:** NoClaim exclusion, Win% format, DIFF colors, MOVE column hidden at season end, ranked colors, table-as-legend pattern, bidirectional hover/select, mode switcher removed, legend tables removed, chart improvements (Y-axis domain, convergence scaling, Final label, right edge padding, tabbed charts)
-- **7B FBS Polls:** Built Rankings tab, postseason Final Poll week, debug pill removed, three-column layout with movement indicators
-- **7C Nav redesign:** Underline tabs throughout, sub-nav band removed, inline content tabs, renamed to League Table / FBS Polls / Matchups
-- **7D Mobile standings:** PF/PA hidden, card borders removed, compact column set, mobile legend + scrollable chart
-- **7E Speed Insights:** Added Vercel Speed Insights to layout.tsx
+PR references: #510, #511.
 
-**Design codification:**
+### 08. History, career records, and retirement of the backfill surface
 
-- Created `DESIGN.md` at project root capturing all design principles established during Phase 7
-- Added `DESIGN.md` reference to `CLAUDE.md` canonical doc pointers and architectural section
+P4C/P4D established season detail, league history, and owner-career pages over pure archive selectors. `SeasonArchive` gained `games` and `scoresByKey` because cumulative standings cannot reconstruct individual pairings; legacy archives without them degrade to unavailable game-derived panels. Historical caches enabled the executed 2021–2024 import without advancing league lifecycle. Later analytics provenance and repairs are recorded under the game-stats rebuild.
 
----
+- History exposes championships, final standings, season arcs, rosters, superlatives, rivalries, droughts, improvement, career totals, and per-season head-to-head detail. H2H excludes same-owner games and `NoClaim`, stores a stable owner-pair orientation, and displays the actual leader first. The original standings-based upset proxy uses the previous week and excludes Week 1; it is distinct from the later odds-upset policy.
+- All-time ordering evolved from championships-first to **Total Wins → Win% → Point Differential**. Live-season contributions do not award a championship or increment completed seasons; active history later adopted canonical standings rather than independently rebuilding an archive.
+- HISTORY-RECORDS Phase 2 added the league-arc overview, contextual championships/rivalries/movement, recent podiums and finish trends, marquee records, responsive dense-table degradation, and History deep-link infrastructure. Placeholder subtabs were infrastructure, not evidence their full content shipped. Mobile records later gained stacked podiums, 44px controls, and Active-only membership from the confirmed roster with a latest-archive fallback.
+- Owner career identity remains name-based across seasons: a name change creates a separate career entry. Route parameters are already decoded; double-decoding broke names containing `%`. Missing current rosters can fall back to archive membership where specified; historical champions must not disappear merely because they departed.
 
-### P6E — Roster Editor: Complete
+**Backfill supersession:** the standalone “Historical Season Backfill Endpoint” duplicated the P4D account. The original route could write on a purported preview when no archive existed and could accept the active season. F2H2A retired `POST /api/admin/backfill` and its panel on 2026-08-07 rather than hardening a one-time import into a permanent feature. `buildSeasonArchive` and `saveSeasonArchive` remain maintained for rollover and deliberate one-off repairs. Older references to a supported preview/confirm backfill UI are historical only.
 
-**Status:** Complete. Branch `claude/debug-owner-csv-log-VQqia`. PR #229.
-**PROMPT_IDs:** P6E-ROSTER-EDITOR-v1, P6E-ROSTER-EDITOR-REVIEW-v1, P6E-ROSTER-EDITOR-FIX-v1, P6E-CLOSEOUT-v1
+PR references: #201, #204, #207, #278, #312, #313, #456, #497.
 
-**Key decisions and architectural notes:**
+Documentation: `docs/campaigns/history-records-phase-2.md`.
 
-- **`RosterEditorPanel` is a direct CRUD interface** — distinct from the draft tool (live event) and upload flow (bulk CSV with fuzzy matching). Handles post-draft fixes, leagues without a formal draft, mid-season transfers, and testing.
-- **`savedOwners` / `draftOwners` Map split** enables per-row dirty tracking. `mapsEqual()` gates save/discard buttons. Dirty rows highlighted amber.
-- **Save writes full CSV via `PUT /api/owners`** — same endpoint as the upload flow. `buildCsv()` filters teams with empty owner values; only assigned teams written to storage.
-- **Bulk reassign updates `draftOwners` local state only** — commissioner must explicitly click Save Changes to persist.
-- **RFC 4180 state-machine CSV parser** (`parseCsvRow()`) — handles quoted fields, comma-in-name (`"Smith, Jr"`), `""` unescaping, mixed quoted/unquoted fields. Replaces naive `indexOf(',')` split that caused quote amplification on re-save.
-- **`buildCsv()` RFC 4180 escaping verified correct** — `csvField()` wraps fields containing commas/quotes/newlines and escapes `"` as `""`. Left unchanged.
-- **Year sourced from `league.year`** — same source as `RosterUploadPanel` — ensures both panels target the same `owners:${slug}:${year}` scope key. `seasonYearForToday()` removed as a separate year source.
-- **`NoClaim` and empty owner values both supported** — owner inputs are free-form text; no validation or exclusion logic.
-- **On save success**: server response CSV re-parsed; both `savedOwners` and `draftOwners` synced from server state.
+### 09. Insights engine, context, membership, and copy policy
 
----
+The Insights campaign extended the existing selectors with registered generators, centralized context, lifecycle gating, per-generator failure isolation, priority selection, and an API backed by direct server-side cache/store reads. Owner aggregation stays in the shared game-stats authority; generators do not fetch providers or parse rosters themselves. Career context is assembled from season archives at query time, including points against, titles, finish history, and rookie status, without storing parallel career totals.
 
-### P6 — Admin Polish and Commissioner UX: Complete
+Historical, rivalry, career, statistical, and milestone families were delivered, including ball security, takeaways, possession, third-down performance, team identity, career leaders, volatility, title chasers, trends, and milestone/perfect-against facts. Trending requires strict monotonicity, not just a favorable net change. Defined-but-unconsumed `InsightWindow` and the brainstorming proposal for cache-time AI pairing copy were not completed features; the two brainstorming entries are absorbed here as planning provenance, not a delivered-feature inventory.
 
-**Status:** Complete. Branch `claude/debug-owner-csv-log-VQqia`. PRs #230–#234.
-**PROMPT_IDs:** P6-ADMIN-POLISH-v1, P6-ADMIN-POLISH-REVIEW-v1, P6-ADMIN-POLISH-FIX-v1, P6-ADMIN-POLISH-FIX-REVIEW-v1, P6-ADMIN-POLISH-CLOSEOUT-v1, P6-GEAR-ICON-FIX-v1, P6-ADMIN-FONT-FIX-v1, P6-ADMIN-SLUG-INDEX-v1, P6-LEAGUE-DATA-PAGE-v1, P6-LEAGUE-DATA-PAGE-FIX-v1, P6-ADMIN-COMMISSIONER-POLISH-v1, P6-ADMIN-COMMISSIONER-POLISH-REVIEW-v1, P6-ADMIN-COMMISSIONER-POLISH-FIX-v1, P6-ADMIN-NAV-FIX-v1, P6-FINAL-CLOSEOUT-v1
+Copy variation uses pure context-derived hooks and a primary numeric value, with deterministic templates rather than random wording. Suppression is league/season-scoped; an owner/hook change can constitute a new fact. Rollover clears suppression only after archive and lifecycle success. Later INSIGHTS-029 work stopped suppression from draining unchanged standing facts, superseding the initial once-fired treatment where applicable.
 
-**Key decisions and architectural notes:**
+Membership and team ownership became separate inputs. Subsequent work added safe preseason career facts, the correct league-record population, self-play and roster/schedule narratives, membership-change events, a year-framed completed-season recap, and diagnostics of generated → served → Overview output. Early “current roster only” rules therefore do not describe every later historical consumer.
 
-- **Consistent back-nav pattern** — blue `← Label` top-left on all admin pages; label names the immediate parent (e.g. `← Admin`, `← {displayName}`).
-- **Plain English copy** — developer terminology replaced throughout all diagnostic and action panels.
-- **Gear icon in league view header** — right-justified, only visible to `platform_admin`, links to `/admin/[slug]`, tooltip "League settings". Rendered via `isAdmin` prop; no Clerk hooks in client component body.
-- **`isAdmin` prop pattern** — `CFBScheduleApp` accepts `isAdmin?: boolean` prop; auth derived server-side via `auth()` from `@clerk/nextjs/server` in each parent page; cast pattern `sessionClaims as Record<string, unknown> & { publicMetadata?: Record<string, unknown> }` to extract role safely. No `useAuth()` in reusable components.
-- **Commissioner bucket per league: four cards in 2×2 grid** — Roster, Draft, Data, Settings at `/admin/[slug]`.
-- **`/admin/[slug]` landing page** — gear icon destination and direct commissioner entry point; `notFound()` on bad slug. "← Back to league" link gives clear return path after navigating from gear icon. Duplicate "← Admin" removed — layout breadcrumb handles admin navigation.
-- **League Settings page at `/admin/[slug]/settings`** — `LeagueSettingsForm` (client component): editable display name and year, read-only slug field, `PATCH /api/admin/leagues/${slug}` with `requireAdminAuthHeaders()`, save/error/loading states.
-- **`LeagueStatusPanel`** — server component at top of `/admin/[slug]/data`; reads `appStateStore` directly; shows roster owner count + age timestamp, schedule/scores cache status + age, draft phase with color coding (setup/settings: zinc; preview: blue; live: green; paused: amber; complete: white); returns `null` gracefully if storage unavailable.
-- **Schedule cache key** — default `seasonType` in schedule route is `'all'`; default cache key is `${year}-all-all`. `LeagueStatusPanel` checks `${year}-all-all` first, falls back to `${year}-all-regular`.
-- **`GlobalRefreshPanel`** on `/admin/data/cache` — platform-level schedule and both-season-type scores refresh; year input defaulting to `seasonYearForToday()` prevents wrong-season caching in offseason. All three fetch calls pass explicit `year` param.
-- **Aliases kept per-league** — `LeagueDataPanel` on `/admin/[slug]/data` retains Aliases section only; Schedule/Scores removed (platform-level actions moved to `GlobalRefreshPanel`).
-- **Win Totals moved to platform admin** — `/admin/[slug]/win-totals` now redirects to `/admin/data/cache`; Win Totals is a global action with no per-league scope.
-- **`RESERVED_ADMIN_SLUGS`** enforced at league creation (`POST /api/admin/leagues`) — prevents slug collisions with named admin routes (`season`, `data`, `draft`, `diagnostics`, `leagues`, `cache`).
-- **`/admin/data` as league selector** — single league auto-redirects to `/admin/[slug]/data`; multiple leagues shows card grid; no leagues shows link to `/admin/leagues`.
-- **Legacy `CFBScheduleApp` Admin/Debug panel fully removed** from all commissioner-facing and public-facing league pages.
-- **League name font** — `text-sm font-semibold text-zinc-100` in commissioner tools card; prevents oversized rendering at default `text-base`.
+INSIGHTS-022 widened rookie-benchmark eligibility into ordinary offseason and removed “Returning owner” copy: an archived roster proves past participation, not future commitment. It did **not** remove the engine's archived-roster suppression rule; that attempted widening was reverted. Neutral historical copy is valid without a fabricated prefix, and the policy change versions the insights cache. Identifying genuinely returning owners requires finalized upcoming membership and was not delivered by that slice.
 
----
+PR references: #276, #278, #464.
 
-### P6D — Admin UI Restructure: Complete
+### 10. Insights presentation and truthful destinations
 
-**Status:** Complete. Branch `claude/debug-owner-csv-log-VQqia`. PR #228.
-**PROMPT_IDs:** P6D-ADMIN-RESTRUCTURE-v1, P6D-ADMIN-RESTRUCTURE-REVIEW-v1, P6D-ADMIN-RESTRUCTURE-FIX-v1, P6D-ADMIN-RESTRUCTURE-FIX-REVIEW-v1, P6D-CLOSEOUT-v1
+The design-only five-insight panel checkpoint is absorbed into its implementation. Overview gained five uniform insight rows, category labels, full-row links where a real destination exists, and a dedicated Insights page. First-row visual prominence was removed pending ranker maturity. Historical/rivalry insights resolve through a panel-layer router; generators and payloads are not mutated merely to choose a link.
 
-**Key decisions and architectural notes:**
+Season-wrap links target the completed season's history, using the latest archive year rather than inferring it from the league's active year. Both direct Standings navigation and in-place tabs received that context. Types lacking a page that displays the cited statistic intentionally receive no arrow. The dedicated page also gained offseason roster fallback and correct local-development protocol handling. Later membership/copy changes and dark-only policy supersede its original returning-owner framing and light-mode palette behavior.
 
-- **`/admin` landing restructured into two sections**: Platform Admin (global tools) and Commissioner Tools (per-league). Four platform admin cards; one block per league in registry for commissioner tools.
-- **Commissioner tool buckets derived from league registry at runtime** — no hardcoded slugs anywhere.
-- **League-scoped routes**: `/admin/[slug]/roster`, `/admin/[slug]/win-totals`, `/admin/[slug]/data` — each validates slug and calls `notFound()` on miss.
-- **`/admin/data/cache`** serves as platform admin SP+ and historical cache page.
-- **`/admin/draft`** retained for `DraftSequencingPanel` overview only — SP+ and Win Totals moved to league-scoped pages.
-- **`/admin/data`** restored as a league selector — single league auto-redirects to `/admin/[slug]/data`; multiple leagues shows card grid; no leagues shows link to `/admin/leagues`.
-- **`RESERVED_ADMIN_SLUGS`** enforced in league creation API (`POST /api/admin/leagues`): `season`, `data`, `draft`, `diagnostics`, `leagues`, `cache` — returns 400 with clear error message.
-- **No route collisions**: named `/admin/*` routes take precedence over `[slug]` dynamic segment in Next.js App Router.
-- **Phase 7 prerequisite satisfied**: bucket structure exists; commissioner self-service only needs Clerk role enforcement on existing routes — no restructuring required in Phase 7.
+### 11. Weekly recap — skeleton through final rendering
 
----
+INSIGHTS-026a–f merged 2026-08-28–29; these entries did not independently verify production promotion. Their initially unwired fact families were connected by 026f, so they are one delivered request-time Look Back.
 
-### P6 — Clerk Auth Fixes and Admin Data Cleanup: Complete
+- A pure selector and cache-only loader target the immediately preceding eligible canonical week of the exact active season, keeping absent, unavailable, unresolved, abandoned, and missing-result states distinct.
+- Full Insights and the collapsed Overview tile share a coherent payload, approved header, and owner W–L/PF/PA grid. The tile refreshes at the schedule-independent 06:00 ET boundary and survives schedule bootstrap failure; standing insights survive recap failure.
+- Enrichment includes explicit-week movement, distinct-owner matchups, high scores, closest games/blowouts, accolades, six active-season-safe record families, and odds upsets. Canonical ownership/finality governs live evidence, self-owned games deduplicate, placeholder owners do not create facts, and newest tied occurrences retain change context. Partial active seasons do not enter completed-career accumulation.
+- Odds facts read the season-scoped durable store without a provider/HTTP call. One shared six-point pregame-spread policy serves badges and recap; asymmetric lines use the favorite's own spread.
+- The full page renders all completed families; Overview discloses dense sections progressively and shows at most three prioritized highlights. Archive/odds uncertainty suppresses only that enrichment family. Shared canonical scoreboards replace a dead predecessor pulse model.
 
-**Status:** Complete. Branch `claude/debug-owner-csv-log-VQqia`. PRs #221–#227.
-**PROMPT_IDs:** P6A-CLERK-REQUIREMENTS-AUDIT-v1, P6A-CLERK-ROUTE-FIX-v1, P6A-CLERK-MIDDLEWARE-FIX-v1, P6A-CLERK-MIDDLEWARE-FIX-v2, P6A-CLERK-MIDDLEWARE-FIX-v3, P6A-CLERK-MIDDLEWARE-FIX-v4, P6A-CLERK-MIDDLEWARE-DEBUG-v1, P6B-ROSTER-UPLOAD-FIX-v1, P6B-ROSTER-UPLOAD-FIX-v2, P6B-ROSTER-UPLOAD-FIX-REVIEW-v1, P6B-BACKFILL-FIX-v1, P6B-BACKFILL-FIX-REVIEW-v1, P6C-OWNER-COUNT-FIX-v1, P6C-OWNER-COUNT-FIX-v2, P6C-OWNER-COUNT-FIX-v3, P6C-OWNER-COUNT-DEBUG-v1, P6C-OWNER-COUNT-DEBUG-v2, P6C-OWNER-SCOPE-AUDIT-v1, P6C-DEBUG-CLEANUP-v1, P6-CLERK-FIXES-CLOSEOUT-v1
+The durable event-source artifact and Thursday Forward Look were **not delivered** by this campaign. The favorite-pairing producer defect was fixed later under PLATFORM-123, recorded with Odds.
 
-**Key fixes and decisions:**
+PR references: #519, #521, #523, #525, #527, #529.
 
-- **Clerk session token requires explicit publicMetadata claim** — add via Configure → Sessions → Customize session token: `{ "publicMetadata": "{{user.public_metadata}}" }`. Must be done for both Dev and Prod instances. See `docs/archive/designs/phase-6-admin-auth-design.md` section 9.
-- **JWT templates are for third-party integrations only** — they do NOT affect middleware auth. Using a JWT template to expose `public_metadata` does not fix the session token. Delete any templates created for this purpose.
-- **`currentUser()` cannot be called in middleware** — use `auth()` and `sessionClaims.publicMetadata.role` only.
-- **Login page requires catch-all route at `[[...sign-in]]`** — multi-step Clerk auth flows (MFA, SSO) require a catch-all slug. A static `/login/page.tsx` will break after step 1.
-- **`routing="path"` and `path="/login"` props required** on the `<SignIn>` component to enable catch-all routing correctly.
-- **Owner count on landing page uses `seasonYearForToday()`** — not `league.year`. Matches league view behavior; owner CSV stored under `owners:${slug}:${year}` where year is the active CFB season year.
-- **Owner CSV scope is `owners:${slug}:${year}` with key `csv`** — year must match active season year. CSV uploaded without `?league=` query param goes to `owners:${year}` (wrong scope); always include `?league=${slug}`.
-- **Roster upload on `/admin/data`** uses full fuzzy-match validation pipeline — POST to `/api/owners/validate` first, review confirmed/needs-confirmation/no-match sections, then PUT resolved CSV to `/api/owners`. Confirmed matches saved as global aliases.
-- **`/admin/data` page organization** — `RosterUploadPanel` placed at top, before `HistoricalCachePanel`. Further cleanup deferred to future pass.
+### 12. Draft system — setup, live event, publication, and neutral selection
 
----
+P5A–D's umbrella, live-board details, and duplicate initial account are consolidated here with later timer/UI changes and the explicit retirement of draft assistance.
 
-### Phase 6 — Admin Cleanup and Auth (P6A–P6C): Complete
+- Durable draft state lives at `draft:<slug>/<year>`. Server-validated transitions govern setup, settings, preview, live, pause, and completion. Setup supports owner ordering, scheduled start, timer/expiry behavior, and bounded rounds derived from the FBS pool and owner count; the later floor-based cap supersedes the initial ceiling suggestion.
+- Pick, undo, edit, reset, and expiry operations use canonical team resolution; snake ownership is derived, duplicate picks refused, drafted teams removed from availability, and reset returns to setup. Confirmation hands off RFC 4180 `team,owner` CSV at `owners:<slug>:<year>/csv`, with equal per-owner counts and `NoClaim` for the eligible remainder. Downstream league features consume ownership, not draft state. Reopen preserves the prior published roster until reconfirmation.
+- Timers are server-authoritative and persisted exactly as returned. DRAFT-001 protected existing correct main behavior against a stale-branch regression; it did not fix a production persistence defect. DRAFT-002 moved round-boundary pause into both manual and automatic pick paths, replacing the client second request. DRAFT-003 starts a display-only optimistic countdown for eligible mid-round picks; it never enters the request or decides expiry. The earlier implicit-next-round behavior is not the final timer contract.
+- Commissioner and spectator boards share the header, team identity/color cues, available-team search, and responsive snake grid/carousel. The public summary retains admin-gated editing/confirm/reopen controls; archive-derived facts stay server-side. Later auth work gates protected server rendering before serialization. Phase-aware polling retains slow completed-draft reads to detect reopen rather than stopping entirely.
+- **SP+ ratings, betting win totals, recommendation tiers, their routes/panels, and `autoPickMetric` were retired by F2G1.** Neutral alphabetical ordering with a stable canonical-id tie-break is shared by commissioner and spectator. Identity, conference, schedule shape, prior-season record, preseason AP rank, and ranked-opponent counts remain factual context; missing values omit their UI. Auto-pick remains random. Game-card Odds was not retired.
 
-**Status:** All subphases complete. Branch `claude/improve-thread-speed-v1YFg`. PR #217 open.
-**PROMPT_IDs:** P6A-CLERK-AUTH-v1, P6A-CLERK-AUTH-REVIEW-v1, P6A-CLERK-AUTH-FIX-v1, P6A-CLOSEOUT-v1, P6B-ADMIN-RESTRUCTURE-v1, P6B-ADMIN-RESTRUCTURE-REVIEW-v1, P6B-ADMIN-RESTRUCTURE-FIX-v1, P6B-CLOSEOUT-v1, P6B-BACKFILL-FIX-v1, P6B-BACKFILL-FIX-REVIEW-v1, P6C-LANDING-POLISH-v1, P6C-LANDING-POLISH-REVIEW-v1, P6C-CLOSEOUT-v1, P6C-OWNER-COUNT-FIX-v1
+Later publication/readiness and serialized concurrent-mutation guarantees are consolidated under season setup; “last pick complete” must not be treated as “roster published.”
 
-**Key architectural decisions across Phase 6:**
+PR references: #210, #211, #213, #214, #319, #320, #321, #440.
 
-- **Clerk as auth provider** — three roles defined from day one in `publicMetadata`: `platform_admin`, `commissioner`, `member`. Only `platform_admin` enforced in Phase 6. Scales to Phase 7 without rework.
-- **`clerkMiddleware()` in `middleware.ts`** — never `authMiddleware()` (deprecated). `/admin/*` protected at middleware level: unauthenticated → `/login`; authenticated without `platform_admin` → `/`.
-- **`<Show when="signed-in/out">` throughout** — deprecated `<SignedIn>` / `<SignedOut>` never used.
-- **`requireAdminAuth()`** — checks Clerk JWT first, falls back to `ADMIN_API_TOKEN` during transition. Phased replacement: token removed in Phase 7.
-- **Root route `/` dynamic** — hardcoded `/league/tsc` redirect removed. Public landing for unauthenticated visitors; admin dashboard for `platform_admin`. No hardcoded slugs anywhere.
-- **Admin restructured into five sub-pages**: `/admin/draft`, `/admin/data`, `/admin/season`, `/admin/diagnostics`, `/admin/leagues`. `/admin` is navigation-only.
-- **Admin/Debug panel removed from league view** — league view is fully public-facing.
-- **`DraftSequencingPanel`** — rollover guard and active roster guard per league at `/admin/draft`.
-- **`HistoricalCachePanel`** — fills pre-existing API-only gap for historical schedule/scores cache at `/admin/data`.
-- **Backfill flow fixed** — terminal on first write (no existing archive); confirm only when `requiresConfirmation` returned (existing archive diff).
-- **Historical cache year default** — uses CFB season year logic (`month >= 7` → current year is active), not raw UTC year. Prevents offseason 400 errors.
-- **Owner count on dashboard** — derived from `appStateStore` CSV at runtime; fails gracefully to `null` when unavailable.
-- **Redirect audit clean** — no hardcoded slugs in any route, component, or middleware.
+Documentation: `docs/architecture/admin-control-plane.md`.
 
----
+### 13. Season setup, owner confirmation, and draft readiness
 
-### Phase 6C — Landing Page Polish: Complete
+The P7A/P7B setup iterations converge on a repeatable preseason flow: confirm owners, choose draft/manual assignment, assign teams, publish, and complete setup. Saved preseason owners are preferred, with archive/live-roster fallbacks for prepopulation; confirming owners is a distinct fact from raw CSV presence. Draft pages resolve lifecycle year consistently, and new leagues enter reachable preseason setup. Setup messaging describes observed roster/draft facts rather than inferring readiness from lifecycle alone.
 
-**Status:** Complete. Branch `claude/improve-thread-speed-v1YFg`.
-**PROMPT_IDs:** P6C-LANDING-POLISH-v1, P6C-LANDING-POLISH-REVIEW-v1, P6C-CLOSEOUT-v1, P6C-OWNER-COUNT-FIX-v1
+“Go Live” was decoupled from immediate season transition and became setup completion, stored on the preseason status. Daily automation owns the real season transition; sandbox controls support repeatable dry runs. PLATFORM-091–096/099/100/102 later made publication durable and distinct from the final pick, improved editing/reopen/reset navigation, treated `NoClaim` as unowned for sorting, and serialized existing-draft mutations so concurrent expiry, pick, undo, reset, and reopen cannot erase each other's work.
 
-**Goals completed:**
+The duplicated Founded Year records introduced `Est. <year>` and removed hardcoded history subtitles; later F2J **froze founding year after creation**, with narrowly verified recovery support, as recorded under registry management. Likewise the early editable league-year and direct Go Live descriptions are superseded by guarded lifecycle authorities. Team aliases were promoted from year/league administration to a global Team Identity surface; they are not season-setup data.
 
-- **Public landing page** — app name (`text-4xl`), tagline, URL example in `<code>` block with border/bg styling, discrete "Commissioner login" link fixed bottom right.
-- **Admin dashboard league cards** — `league.displayName` (large), slug/year/owner count metadata, "View League →" (blue) and "Draft Setup →" (muted) split links per card.
-- **Owner count** — fetched server-side from `getAppState('owners:${slug}:${year}', 'csv')` per league; CSV rows counted minus header. Returns `0` when CSV empty/missing; returns `null` (graceful skip) when fetch throws.
-- **Footer links** — "Platform admin tools →" (`/admin`) and "Add League →" (`/admin/leagues`) side-by-side.
-- **Empty state** — links to `/admin/leagues` with clear instruction copy.
-- **Redirect audit** — confirmed clean; no hardcoded slugs in `middleware.ts`, `page.tsx`, `RootPageClient.tsx`, `login/page.tsx`, or `admin/page.tsx`.
-- **All seven E2E auth flows verified correct** in code review.
-- **Owner count uses distinct owner values** — CSV format is `team,owner` (one row per team assignment). Raw row count returns team count, not owner count. Set-based distinct owner parsing returns correct participant count.
+PR references: #270.
 
----
+### 14. Clerk integration and independent authorization boundaries
 
-### Phase 6B — Admin Page Restructure: Complete
+Phase 6 installed Clerk and server role checks, replaced the hardcoded single-league entry route, and introduced public versus admin experiences. Session role metadata requires an explicitly customized session-token claim; a third-party JWT template is not a substitute. Login uses catch-all routing for multi-step sign-in. The migration defined several role names but enforced platform admin; their presence did not implement commissioner write authority. Historical token-sunset intentions are not proof the fallback was removed.
 
-**Status:** Complete. Branch `claude/improve-thread-speed-v1YFg`.
-**PROMPT_IDs:** P6B-ADMIN-RESTRUCTURE-v1, P6B-ADMIN-RESTRUCTURE-REVIEW-v1, P6B-ADMIN-RESTRUCTURE-FIX-v1, P6B-CLOSEOUT-v1
-
-**Goals completed:**
-
-- **`/admin` is now navigation-only** — no tools on the landing page; five section cards link to sub-pages.
-- **`/admin/draft`** — `DraftSequencingPanel` (server component) shows rollover guard and active roster guard per league with green/red/amber status indicators; `SpRatingsCachePanel` and `WinTotalsUploadPanel` also present.
-- **`/admin/data`** — `HistoricalCachePanel` (new, fills pre-existing API-only gap for `cache-historical-schedule` and `cache-historical-scores`); `CFBScheduleApp surface="admin"` retained for schedule rebuild, scores/odds refresh, alias editor, and owner CSV upload.
-- **`/admin/season`** — `RolloverPanel`, `BackfillPanel`, `ArchiveListPanel`.
-- **`/admin/diagnostics`** — `AdminUsagePanel`, `AdminTeamDatabasePanel`, `AdminStorageStatusPanel`, `DiagnosticsScorePanel`.
-- **`/admin/leagues`** — unchanged (already existed).
-- **Admin/Debug button and panel removed from league view entirely** — league view is now fully public-facing. `CFBScheduleApp` no longer references `adminAlertCount` or renders the Admin/Debug toggle. Fatal error link updated to `/admin/data`.
-- **Owner Roster CSV Upload retained at `/admin/data`** as clearly labeled admin fallback.
-- **`requireAdminAuthHeaders()` fixed** — now returns `{}` instead of throwing when no sessionStorage token; Clerk session cookie handles auth automatically for browser requests.
-
-**Key architectural decisions:**
-
-- Admin sub-pages are server components where possible (DraftSequencingPanel, ArchiveListPanel, DiagnosticsPage) — no client fetch needed when data is available at render time.
-- `BackfillPanel` and `DiagnosticsScorePanel` are client components using `getAdminAuthHeaders()` for fetch calls.
-- `DiagnosticsScorePanel` is a thin `'use client'` wrapper around `ScoreAttachmentDebugPanel` — `onStageAlias` stub directs users to `/admin/data` for alias operations (alias staging requires full CFBScheduleApp state machine).
-- `HistoricalCachePanel` fills the gap identified in review: historical cache API routes existed but had no UI.
-- All admin sub-page headers include `← Admin` back link for consistent navigation.
-
----
-
-### Phase 6A — Clerk Auth Setup: Complete
-
-**Status:** Complete. PR #216 open. Branch `claude/improve-thread-speed-v1YFg`.
-**PROMPT_IDs:** P6A-CLERK-AUTH-v1, P6A-CLERK-AUTH-REVIEW-v1, P6A-CLERK-AUTH-FIX-v1, P6A-CLOSEOUT-v1
-
-**Goals completed:**
-
-- **`@clerk/nextjs` v7.0.8** installed with `--legacy-peer-deps` (React 19.1.0 peer conflict); `.npmrc` added to project root with `legacy-peer-deps=true` for Vercel compatibility.
-- **`src/middleware.ts`**: `clerkMiddleware()` from `@clerk/nextjs/server` — never `authMiddleware()` (deprecated). `/admin/*` protected: unauthenticated → redirect `/login`; authenticated without `platform_admin` → redirect `/`. All other routes pass through.
-- **`src/app/layout.tsx`**: `<ClerkProvider>` wraps body content.
-- **`src/app/login/page.tsx`**: Clerk `<SignIn forceRedirectUrl="/admin" />` embedded — no custom form. Dark theme matching app.
-- **`src/app/page.tsx` + `src/components/RootPageClient.tsx`**: Root route replaced — hardcoded `/league/tsc` redirect removed. Server component loads leagues from registry; `RootPageClient` uses `<Show when="signed-out">` for public landing and `<Show when="signed-in">` for admin league dashboard. `force-dynamic` set. No hardcoded slugs.
-- **`src/lib/server/adminAuth.ts`**: `requireAdminAuth(req)` — checks Clerk JWT first (`sessionClaims.publicMetadata.role === 'platform_admin'`), falls back to `ADMIN_API_TOKEN` with Phase 7 removal comment. `requireAdminRequest` exported as `@deprecated` alias. All 25 existing API route call sites updated to `await requireAdminRequest(req)`.
-
-**Key architectural decisions:**
-
-- Three roles defined in Clerk `publicMetadata` from day one: `platform_admin`, `commissioner`, `member` — only `platform_admin` enforced in Phase 6.
-- `<Show when="signed-in/out">` used throughout — deprecated `<SignedIn>`/`<SignedOut>` never used.
-- `requireAdminAuth` checks Clerk JWT first; ADMIN_API_TOKEN fallback is temporary — remove in Phase 7.
-- Admin dashboard reads leagues from registry at runtime — never hardcoded.
-- **Manual step required post-deploy:** set `publicMetadata: { "role": "platform_admin" }` in Clerk Dashboard for first user. Cannot be done in code.
-
----
-
-### Phase 5 — Draft / Owner Assignment Tool (P5A–P5D): Complete
-
-**Status:** All subphases complete. PR #214 open. Branch `claude/improve-thread-speed-v1YFg`.
-
-Key architectural decisions across Phase 5:
-
-- **Draft state** persisted in `appStateStore`: scope `draft:${leagueSlug}`, key `${year}`
-- **Snake draft order** computed on-demand from `draftOrder` — never stored per-pick
-- **Timer is server-authoritative** — `timerExpiresAt` stored as ISO timestamp in `DraftState`; clients derive remaining time from it
-- **Client expire dispatch** — `DraftBoardClient` fires `timerAction: 'expire'` when countdown reaches zero; guarded by `expireDispatchedRef` per pick
-- **`effectiveBehavior`** — forces auto-pick when commissioner is in paused-expired overlay state regardless of `timerExpiryBehavior` setting
-- **Auto-pick metric** respects draft settings: SP+ descending or preseason rank ascending; alphabetical tiebreak when metric unavailable
-- **Team resolution for picks** uses `teamIdentity.ts` resolver with merged SEED_ALIASES + stored alias maps — no raw string equality
-- **`DraftPick.team`** stores `resolution.canonicalName` (canonical school name string) — consistent with `parseOwnersCsv()` + `rosterByTeam` downstream ownership pipeline
-- **Drafted teams hidden** from available teams panel entirely — not dimmed
-- **Confirm writes same format as CSV upload** — `owners:${slug}:${year}` scope, `csv` key; `parseOwnersCsv()` / standings / rollover pipeline transparent
-- **CSV upload preserved** as admin fallback — can override a confirmed draft without requiring a full reset
-- **Draft card is informational only** — no recommendations, no color coding implying good/bad teams
-- **Draft → ownership map → app**: downstream systems never depend on draft state directly; the confirmed CSV is the hand-off artifact
-
----
-
-### P5D — Draft Summary and Confirmation
-
-- **Status:** Complete. PR #214 open. Branch `claude/improve-thread-speed-v1YFg`.
-- **PROMPT_IDs:** P5D-DRAFT-SUMMARY-v1, P5D-DRAFT-SUMMARY-REVIEW-v1, P5D-DRAFT-SUMMARY-FIX-v1, P5D-DRAFT-SUMMARY-FIX-REVIEW-v1, P5D-DRAFT-REOPEN-v1, P5D-DRAFT-REOPEN-REVIEW-v1, P5D-CLOSEOUT-v1
-- **Goals completed:**
-  - **`POST /api/draft/[slug]/[year]/confirm`**: Admin-gated. Derives expected pick count from FBS team count at runtime (never hardcoded): `teamsPerOwner = floor(fbsTeamCount / ownerCount)`, `totalExpectedPicks = teamsPerOwner * ownerCount`. Validates `picks.length === totalExpectedPicks` and all owners have equal counts (422 with formula in message if not). Generates RFC 4180 CSV — fields containing comma, double quote, or newline are quoted; embedded double quotes escaped by doubling (`"` → `""`). Writes to `owners:${slug}:${year}` scope, `csv` key — same format as CSV upload route. Advances `phase` to `complete`.
-  - **`DELETE /api/draft/[slug]/[year]/confirm`**: Admin-gated. Validates `phase === 'complete'`. Sets phase back to `live`. Preserves all picks and does not remove the previously confirmed owner assignment from `appStateStore` — previous CSV remains in effect until commissioner confirms again.
-  - **`/league/[slug]/draft/summary` (server page)**: Server component, `force-dynamic`. Derives interesting facts server-side from historical archives — league anniversaries at 2/5/10 seasons, top 3 rivalries via `selectTopRivalries`, returning champion from most recent archive. Passes only `facts: string[]` to client — avoids shipping large `SeasonArchive[]` to browser. Loads `allTeamNames` (FBS canonical, NoClaim excluded, alphabetical) for inline team picker.
-  - **`DraftSummaryClient`**: Admin-gated via `hasStoredAdminToken()` + `useEffect` redirect + synchronous early return. Owner roster cards grid in draft order. Inline team picker per pick — excludes all other drafted teams; allows re-selecting the current pick's own team. Two-step Confirm Draft flow with irreversibility warning. Two-step Reopen Draft flow with "previous rosters remain in effect" warning; on success updates local draft state to `phase: 'live'`. Confirm section hidden when `phase === 'complete'`; Reopen section shown only when `phase === 'complete'`.
-  - **`InterestingFactsPanel`**: Pure presentational. Renders `null` when `facts.length === 0`. Each fact as a bordered card in a `<ul>`.
-  - **Draft board link**: "Draft Summary →" shown in commissioner board subtitle when `phase === 'complete'`.
-- **Key architectural decisions:**
-  - **Pick count derived at runtime** — `classification === 'fbs'` filter on `teams.json`; never hardcoded. NoClaim teams fill the FBS remainder not divisible by owner count.
-  - **Per-owner count check** — equal team distribution enforced before confirmation; uneven counts blocked with 422.
-  - **RFC 4180 CSV** — `csvField()` helper handles all edge cases; field quoting and double-quote escaping consistent with spec.
-  - **Reopen does not clear owner assignment** — previous confirmed CSV remains in `appStateStore` until re-confirm; dialogue makes this explicit.
-  - **Interesting facts are server-side only** — `deriveFacts()` runs in page server component; only `string[]` passed to `DraftSummaryClient`; avoids shipping archive data to browser.
-  - **Admin gate is client-side** — sessionStorage not readable server-side; same pattern as `DraftBoardClient`.
-
----
-
-### P5C — Live Draft Board
-
-- **Status:** Complete. PR #213 open. Branch `claude/improve-thread-speed-v1YFg`.
-- **PROMPT_IDs:** P5C-LIVE-DRAFT-BOARD-v1, P5C-LIVE-DRAFT-BOARD-REVIEW-v1, P5C-LIVE-DRAFT-BOARD-FIX-v1, P5C-LIVE-DRAFT-BOARD-FIX-REVIEW-v1, P5C-LIVE-DRAFT-BOARD-FIX-v2, P5C-LIVE-DRAFT-BOARD-FIX-v3, P5C-LIVE-DRAFT-BOARD-FIX-REVIEW-v2, P5C-CLOSEOUT-AND-P5D-KICKOFF-v1
-- **Goals completed:**
-  - **Redirect TODO resolved** (v1, Task 0): All four `/draft/setup` redirect targets in `DraftSettingsPanel.tsx` and `DraftSetupShell.tsx` updated to `/draft` now that the live board route exists.
-  - **`POST /api/draft/[slug]/[year]/pick`** (v1, FIX-v1, FIX-v3): Admin-gated. Validates `phase === 'live'`. Resolves team name via `createTeamIdentityResolver` with SEED_ALIASES + stored alias map. Validates not already picked. Derives pick owner from snake draft formula. Advances `currentPickIndex`. Starts next pick timer if configured. Transitions to `complete` when all picks exhausted. `autoSelected: false` on manual picks.
-  - **`POST /api/draft/[slug]/[year]/unpick`** (v1): Admin-gated. Validates phase in `live|paused|complete`. Removes last pick, decrements `currentPickIndex`, resets timer, sets `phase: 'live'`.
-  - **`PUT /api/draft/[slug]/[year]/pick/[n]`** (v1, FIX-v1, FIX-v3): Admin-gated. Edits pick `n` (1-indexed) via resolver. Validates no conflict at other positions. Preserves `pickNumber/round/roundPick/owner`; updates `team`, `pickedAt`, clears `autoSelected`.
-  - **`POST /api/draft/[slug]/[year]/reset`** (v1, FIX-v1, FIX-v2): Admin-gated. Validates phase in `live|paused|complete|preview`. Resets to `phase: 'setup'`, clears picks/timer. JSDoc corrected to say "setup" not "preview".
-  - **`timerAction` on `PUT /api/draft/[slug]/[year]`** (v1, FIX-v1, FIX-v3): `start|resume` → `timerState: running` + new `timerExpiresAt`. `pause` → null expiry. `expire` → validated server-side then dispatches `pause-and-prompt` or `auto-pick` per `timerExpiryBehavior`; also accepted when `phase=paused` + `timerState=expired` (commissioner auto-pick overlay) — always forces auto-pick via `effectiveBehavior` in that state. `timerExpiresAt` null-check and timestamp validation only applied on live-expire path; timestamp/null checks skipped for paused-expired path. Auto-pick branches on `autoPickMetric`: SP+ descending or preseason rank ascending (unranked last); both fall back to alphabetical when metric data unavailable.
-  - **`/league/[slug]/draft` (commissioner page)** (v1, FIX-v1, FIX-v3): Server component, `force-dynamic`. Redirects to `/draft/setup` when draft is null/setup/settings/preview. Loads SP+, win totals, schedule, AP poll, prior-year games + scores for `selectDraftTeamInsights`. Alias maps loaded from `appStateStore` directly — global `aliases:${year}` and league-scoped `aliases:${slug}:${year}` merged with SEED_ALIASES; no browser-oriented `loadAliasMap()` call. Prior-year alias maps use `priorYear` in both scope keys. Renders `DraftBoardClient` (1s polling).
-  - **`/league/[slug]/draft/board` (spectator page)** (v1): Public server component. Waiting card for pre-live phases. Same insight data. Renders `SpectatorBoardClient` (3s polling, no pick controls, available teams sliced to 30).
-  - **`DraftBoardClient`** (v1, FIX-v1, FIX-v3): `'use client'`, 1s polling. Redirects non-admins to spectator view via `useEffect` + synchronous `hasStoredAdminToken()`. Filters drafted teams from available panel entirely (not dimmed). Post-reset: detects `phase === 'setup'` in `onUpdate` → navigates to `/draft/setup`. Client-side expire dispatch: when countdown reaches zero and `phase=live`+`timerState=running`, dispatches `PUT { timerAction: 'expire' }` to server; guarded by `expireDispatchedRef` (reset on `timerExpiresAt` change or network error) to prevent double-dispatch. Hooks ordering violation fixed — polling effect moved before early return.
-  - **`SpectatorBoardClient`**: `'use client'`, 3s polling. No admin actions, no pick panel. Shows current pick owner and available teams (undrafted only, top 30).
-  - **`DraftBoardGrid`**: Snake draft grid. Correct column alignment for odd rounds: `posInRound = isEvenRound ? colIdx : n-1-colIdx`. Highlights current pick cell in blue. Amber text for auto-selected picks.
-  - **`OwnerRosterPanel`**: Highlights current owner with blue border + "← picking" label.
-  - **`TimerDisplay`**: Countdown derived from server-authoritative `timerExpiresAt`. Urgent styling ≤10s. Progress bar. Paused/expired states.
-  - **`PickNavigator`**: On-the-clock + on-deck owners with round/pick numbers. Previous pick section (team, owner, `(auto)` label when `autoSelected`).
-  - **`DraftControls`**: Commissioner-only. Start/pause/resume timer; undo last pick; reset with two-click confirm. Pause-and-prompt overlay. Auto-pick button calls `timerAction: 'expire'` from `paused+expired` state.
-- **Key architectural decisions:**
-  - **Server-authoritative timer** — `timerExpiresAt` stored as ISO timestamp in `DraftState`; clients derive countdown from `timerExpiresAt - Date.now()`. Expiry validated server-side before state changes; client signals expiry via `timerAction: 'expire'`, server validates and applies.
-  - **Client-side expire dispatch** — `DraftBoardClient` fires `timerAction: 'expire'` when countdown reaches zero; guarded by ref to prevent double-dispatch per pick; polling recovers state on non-200 responses.
-  - **Expire from paused-expired state** — auto-pick button in pause-and-prompt overlay sends `timerAction: 'expire'` when `phase=paused` + `timerState=expired`; server accepts and always resolves to auto-pick via `effectiveBehavior`; the live-expire timestamp guards are skipped on this path.
-  - **Auto-pick metric** — `autoPickMetric` in `DraftSettings`; `sp-plus` (default) sorts by SP+ descending; `preseason-rank` loads rankings cache and sorts by rank ascending (unranked last); both fall back to alphabetical when metric data unavailable.
-  - **Identity resolver in all pick routes** — `createTeamIdentityResolver` with merged SEED_ALIASES + stored alias map; no direct `teamsData` scans.
-  - **Server-safe alias loading** — draft page reads alias maps from `appStateStore` (global `aliases:${year}` + league-scoped `aliases:${slug}:${year}`, merged with SEED_ALIASES); `loadAliasMap()` is browser-only and removed from server components.
-  - **Admin gate is client-side at the board** — sessionStorage not readable server-side; `DraftBoardClient` redirects non-admins via `useEffect`.
-  - **Prior year data is optional** — `selectDraftTeamInsights` degrades gracefully when prior-year cache is cold; `lastSeasonRecord` is `null`.
-  - **Reset targets `phase: 'setup'`** — consistent with PUT phase transition; triggers full draft re-configuration on reset.
-
----
-
-### P5C — Live Draft Board — Initial Implementation Details
-
-- **Goals completed:**
-  - **Redirect TODO resolved** (P5C-LIVE-DRAFT-BOARD-v1, Task 0): All four redirect targets in `DraftSettingsPanel.tsx` and `DraftSetupShell.tsx` updated from `/draft/setup` to `/draft` now that the live board route exists.
-  - **`POST /api/draft/[slug]/[year]/pick`** (P5C-LIVE-DRAFT-BOARD-v1, P5C-LIVE-DRAFT-BOARD-FIX-v1): Admin-gated. Validates `phase === 'live'`. Resolves team name via `createTeamIdentityResolver` with SEED_ALIASES + stored alias map (F8 fix). Validates team not already picked. Derives pick owner from snake draft formula. Creates `DraftPick` with `autoSelected: false`. Advances `currentPickIndex`. Starts next pick timer if configured. Transitions to `phase: 'complete'` when all picks exhausted.
-  - **`POST /api/draft/[slug]/[year]/unpick`** (P5C-LIVE-DRAFT-BOARD-v1): Admin-gated. Validates phase in `live|paused|complete`, picks non-empty. Removes last pick, decrements `currentPickIndex`, resets timer, sets `phase: 'live'`.
-  - **`PUT /api/draft/[slug]/[year]/pick/[n]`** (P5C-LIVE-DRAFT-BOARD-v1, P5C-LIVE-DRAFT-BOARD-FIX-v1): Admin-gated. Validates pick `n` (1-indexed) exists. Resolves team via identity resolver (F8 fix). Validates no conflict at other positions. Updates pick preserving `pickNumber/round/roundPick/owner`; updates `team`, `pickedAt`, sets `autoSelected: false`.
-  - **`POST /api/draft/[slug]/[year]/reset`** (P5C-LIVE-DRAFT-BOARD-v1, P5C-LIVE-DRAFT-BOARD-FIX-v1): Admin-gated. Validates phase in `live|paused|complete|preview`. Resets to `phase: 'setup'` (F1 fix — was `'preview'`), clears picks/timer.
-  - **`timerAction` on `PUT /api/draft/[slug]/[year]`** (P5C-LIVE-DRAFT-BOARD-v1, P5C-LIVE-DRAFT-BOARD-FIX-v1): Accepts `start|pause|resume|expire`. `start`/`resume`: sets `timerState: 'running'`, new `timerExpiresAt`. `pause`: `timerState: 'paused'`, null expiry. `expire`: validates `phase === 'live'` and `timerExpiresAt` not null and timestamp past (F9 fix); dispatches `pause-and-prompt` or `auto-pick` behavior per `timerExpiryBehavior` setting. Auto-pick selects best available team by SP+ rating (alphabetical tiebreak) and advances the draft.
-  - **`/league/[slug]/draft` (commissioner page)** (P5C-LIVE-DRAFT-BOARD-v1, P5C-LIVE-DRAFT-BOARD-FIX-v1): Server component, `force-dynamic`. Redirects to `/draft/setup` when draft is null/setup/settings/preview (F3 fix — preview added). Loads SP+, win totals, schedule, AP poll, and prior year games + scores for `selectDraftTeamInsights`. Renders `DraftBoardClient`. Prior year `lastSeasonRecord` computed via `buildScheduleIndex` + `attachScoresToSchedule` (F7 fix).
-  - **`/league/[slug]/draft/board` (spectator page)** (P5C-LIVE-DRAFT-BOARD-v1): Public server component. Shows waiting card when draft is null/setup/settings. Loads same team insight data. Renders `SpectatorBoardClient` (3s polling, no pick controls, available teams sliced to 30).
-  - **`DraftBoardClient`** (P5C-LIVE-DRAFT-BOARD-v1, P5C-LIVE-DRAFT-BOARD-FIX-v1): `'use client'`, 1s polling. Redirects non-admins to spectator board via `useEffect` (F2 fix — was read-only banner). Filters drafted teams from available panel entirely (F4 fix — was dimming). Post-reset redirect: detects `phase === 'setup'` in `onUpdate` callback and navigates to `/draft/setup` (F5 fix).
-  - **`SpectatorBoardClient`**: `'use client'`, 3s polling. No admin actions, no pick panel. Shows current pick owner and available teams (undrafted only, top 30).
-  - **`DraftBoardGrid`**: Snake draft grid. Rows = rounds, cols = owner headers (always owner[0..n-1] order). Correct column alignment for odd rounds: `posInRound = isEvenRound ? colIdx : n-1-colIdx`. Highlights current pick cell in blue. Amber text for auto-selected picks.
-  - **`OwnerRosterPanel`**: Shows each owner's drafted teams. Highlights current owner with blue border + "← picking" label. Snake formula used to derive `currentOwnerIdx`.
-  - **`TimerDisplay`**: Derives countdown from server-authoritative `timerExpiresAt` via `useEffect` interval. Urgent styling ≤10s. Progress bar. Shows paused/expired states.
-  - **`PickNavigator`**: "On the clock" + "On deck" owners with round/pick numbers. Previous pick section shows last pick team, owner, and `(auto)` label when `autoSelected` (F6 fix).
-  - **`DraftControls`**: Commissioner-only. Start/pause/resume timer; undo last pick; reset with two-click confirm. Pause-and-prompt overlay shows when `phase === 'paused' && timerState === 'expired'`; "Auto-pick" button calls `timerAction: 'expire'` to trigger server-side auto-pick.
-- **Key architectural decisions:**
-  - **Server-authoritative timer** — `timerExpiresAt` stored as ISO timestamp in draft state; client derives countdown from `timerExpiresAt - Date.now()`. Expiry validated server-side before state changes; client cannot trigger auto-pick early.
-  - **Auto-pick via `timerAction: 'expire'`** — client signals expiry; server validates timestamp and applies pick. Same code path as manual expire keeps timer logic in one place.
-  - **Admin gate is client-side at board level** — server can't read sessionStorage, so `DraftBoardClient` redirects non-admins to spectator view via `useEffect` + synchronous `hasStoredAdminToken()` check.
-  - **Identity resolver used in all pick routes** — `createTeamIdentityResolver` with merged SEED_ALIASES + stored alias map is the canonical team resolution path; no direct `teamsData` scans.
-  - **Reset targets `phase: 'setup'`** — consistent with PUT phase transition on `targetPhase === 'setup'`; ensures full draft re-configuration on reset.
-  - **Prior year data passed as optional params** — `selectDraftTeamInsights` degrades gracefully when prior year cache is cold; `lastSeasonRecord` is null rather than blocking the page.
-
----
-
-### P5B — Draft Setup and Settings
-
-- **Status:** Complete. PR #211 open.
-- **PROMPT_IDs:** P5B-DRAFT-SETUP-v1, P5B-DRAFT-SETUP-REVIEW-v1, P5B-DRAFT-SETUP-FIX-v1, P5B-DRAFT-SETUP-FIX-REVIEW-v1, P5B-DRAFT-SETUP-FIX-v2, P5B-DRAFT-SETUP-FIX-v3, P5B-DRAFT-SETUP-FIX-v4, P5B-CLOSEOUT-v1
-- **Goals completed:**
-  - **`src/lib/draft.ts`** (P5B-DRAFT-SETUP-v1): Shared type definitions — `DraftState`, `DraftSettings`, `DraftPick`, `DraftPhase`, `defaultDraftSettings()`, `draftScope()`. All draft state persisted in appStateStore at scope=`draft:${slug}`, key=`${year}`.
-  - **`GET /api/draft/[slug]/[year]`** (P5B-DRAFT-SETUP-v1, P5B-DRAFT-SETUP-FIX-v1): Public read. Returns 404 when no draft exists. Validates slug in registry and year >= 2000.
-  - **`POST /api/draft/[slug]/[year]`** (P5B-DRAFT-SETUP-v1, P5B-DRAFT-SETUP-FIX-v1): Admin-gated draft creation. Accepts `owners` + optional `settings`. Validates: owners min 2, settings.style='snake', pickTimerSeconds null or positive, totalRounds positive integer, draftOrder must match owners exactly when provided. Returns 409 if draft already exists. Sets initial phase to `'preview'` when `settings.scheduledAt` is a future date; `'setup'` otherwise.
-  - **`PUT /api/draft/[slug]/[year]`** (P5B-DRAFT-SETUP-v1): Admin-gated. Updates owners, settings (merge), and/or phase. Validates phase transitions server-side against allowed transition table. Resets picks/timer on transition to 'setup'.
-  - **`/league/[slug]/draft/setup` page** (P5B-DRAFT-SETUP-v1): Server component. Fetches league, existing draft state, prior year owners from most recent season archive (via `parseOwnersCsv(ownerRosterSnapshot)`), reverse-championship order from archive `finalStandings`, and FBS team count from `teams.json` for auto-suggesting rounds.
-  - **`DraftSetupShell`** (P5B-DRAFT-SETUP-v1, P5B-DRAFT-SETUP-FIX-v4): Client shell component. Routes to `RosterSetupPanel`, `DraftSettingsPanel`, or preview card based on current `draftState.phase`. Preview→settings transition persists via API before updating local state (not client-only flip).
-  - **`RosterSetupPanel`** (P5B-DRAFT-SETUP-v1, P5B-DRAFT-SETUP-FIX-v1): Auto-populates from prior year archive owners. Initialises to empty `[]` with dashed empty-state message when no prior archive. Add/remove/reorder owners. Validates min 2 before continuing. Creates draft via POST then advances to settings via PUT.
-  - **`DraftSettingsPanel`** (P5B-DRAFT-SETUP-v1, P5B-DRAFT-SETUP-FIX-v4): Draft order (random/manual/reverse-championship), timer (none/30s/60s/90s/2min), expiry behavior (pause-and-prompt / auto-pick), auto-pick metric, total rounds (auto-suggested as `ceil(FBS / owners)`), optional scheduled start. Redirects to `/draft/setup` on preview or live transition (temporary — see redirect TODO below).
-  - **Draft tab added to `WeekViewTabs`** (P5B-DRAFT-SETUP-v1): Links to `/league/${slug}/draft/setup`. Matches existing History tab style.
-- **Key architectural decisions:**
-  - **Phase transitions validated server-side** — no skipping; allowed transitions encoded in `VALID_PHASE_TRANSITIONS` map; 422 on invalid transition.
-  - **POST accepts settings at creation time** — full settings validation on POST (not just PUT); draftOrder cross-validated against owners array on creation.
-  - **Preview promoted at creation** — POST sets `phase: 'preview'` when `scheduledAt` is a future date; no separate promotion step needed.
-  - **Back to Settings persists via API** — preview→settings transition calls PUT before updating local state; server state always reflects the true phase.
-  - **RosterSetupPanel initialises empty** — `[]` not `['']` when no prior owners; clear empty-state message removes ambiguity.
-- **⚠️ Redirect TODO for P5C:** All redirects in `DraftSettingsPanel.tsx` and `DraftSetupShell.tsx` currently point to `/league/${slug}/draft/setup` because the `/league/${slug}/draft` live board route does not exist until P5C. When the live draft board route is implemented, update all four redirect targets back to `/league/${slug}/draft`.
-
----
-
-### P5A — Draft Data Infrastructure
-
-- **Status:** Complete. PR #210 merged.
-- **PROMPT_IDs:** P5A-DRAFT-DATA-INFRA-v1, P5A-DRAFT-DATA-INFRA-REVIEW-v1, P5A-IDENTITY-FIX-v1, P5A-CLOSEOUT-v1
-- **Goals completed:**
-  - **`POST /api/admin/cache-sp-ratings`** (P5A-DRAFT-DATA-INFRA-v1): Admin-gated endpoint that fetches SP+ ratings from CFBD `/ratings/sp?year=${year}` and caches in appStateStore at scope=`sp-ratings`, key=`${year}`. Returns `{ status: 'awaiting-ratings' }` gracefully when CFBD returns no data (ratings not yet published for the season) — does not write to store, does not error. Returns `{ alreadyCached: true }` on repeat call unless `force: true`. Adds `buildCfbdSpRatingsUrl` to `src/lib/cfbd.ts`.
-  - **`GET/POST /api/admin/win-totals`** (P5A-DRAFT-DATA-INFRA-v1, P5A-IDENTITY-FIX-v1): GET returns stored win totals for a year (public). POST is admin-gated; parses `Team, WinTotalLow, WinTotalHigh` CSV and resolves team names via `createTeamIdentityResolver` with SEED_ALIASES + season alias map merged — the same pattern used in `odds/route.ts`. Unresolved teams reported in `unresolvedTeams` without blocking the upload. Writes to `appStateStore` scope=`win-totals`, key=`${year}`.
-  - **`src/lib/selectors/draftTeamInsights.ts`** (P5A-DRAFT-DATA-INFRA-v1, P5A-IDENTITY-FIX-v1): Pure selector — no API calls, no side effects. Exports `DraftTeamInsights` type and `selectDraftTeamInsights()`. Derives: SP+ tier as relative quartiles across all FBS teams (top 25% = Elite, next 25% = Strong, next 25% = Average, bottom 25% = Weak); SOS tier as relative percentiles of avg opponent SP+ (top 30% = Hard, middle 40% = Medium, bottom 30% = Easy); home/away/neutral split from schedule; ranked opponent count from AP poll; last season record from optional `priorYearGames` + `priorYearScoresByKey` params (same pattern as `historySelectors.ts`). Provider team names (SP+ ratings, AP poll) resolved to canonical school names via `providerToCanonical` map built from `teams[].alts[]` before keying lookup maps. NoClaim filtered from output.
-  - **`src/components/draft/DraftCard.tsx`** (P5A-DRAFT-DATA-INFRA-v1): Compact team card. Absent fields omitted entirely — no placeholders, no dashes. SP+ tier shown as neutral slate badge (no good/bad colors). "Ratings pending" in muted text when `awaitingRatings`. "Drafted" overlay when `isDrafted`. Hover ring + cursor-pointer when `onSelect` provided (commissioner view). No recommendation language.
-  - **`SpRatingsCachePanel` + `WinTotalsUploadPanel`** added to `/admin/` page (P5A-DRAFT-DATA-INFRA-v1): SP+ panel has year input, cache trigger button, `alreadyCached` state with force-refresh option, `awaiting-ratings` amber message. Win totals panel has year input, CSV textarea, resolved count + unresolved team list on result. Both follow existing admin panel patterns.
-- **Key architectural decisions:**
-  - **awaiting-ratings is not an error** — SP+ ratings are typically published in preseason; the endpoint must handle early calls gracefully without polluting the cache with empty data.
-  - **Win total upload uses full identity resolver** — same SEED_ALIASES + stored alias map merge used in `odds/route.ts`; sportsbook name variants are covered by the same alias infrastructure.
-  - **Selector is pure** — all external data (SP+, AP poll, win totals, schedule, prior year games) passed as params by the caller; the selector never fetches. `lastSeasonRecord` null when `priorYearGames` not passed; degrades gracefully.
-  - **Provider name canonicalization via alts[]** — SP+ and AP poll provider names resolved to canonical school names using `teams[].alts[]` before building lookup maps; no new matching logic introduced.
-  - **DraftCard absent = absent** — spec explicitly requires no placeholder UI for missing data fields; each conditional block simply omits the element.
-
----
-
-### P4D Polish, Backfill, and Historical Data Infrastructure
-
-- **Status:** Complete. PR #207 merged.
-- **PROMPT_IDs:** P4-HISTORICAL-SCHEDULE-CACHE-v1, P4-HISTORICAL-SCORES-CACHE-v1, P4-BACKFILL-v1, P4D-HISTORY-POLISH-v1, P4D-HISTORY-LAYOUT-v1, P4D-HISTORY-BANNER-v1, P4D-NOCLAIM-FIX-v1
-- **Goals completed:**
-  - **`POST /api/admin/cache-historical-schedule`** (P4-HISTORICAL-SCHEDULE-CACHE-v1): Admin-gated endpoint that fetches both regular and postseason CFBD schedule for a specified past year and writes a combined `CacheEntry` to `appStateStore` at scope=`schedule`, key=`${year}-all-all` — the exact key `buildSeasonArchive` reads as its primary cache lookup. Returns `{ alreadyCached: true }` if entry already exists (skippable with `force: true`). Rejects active season year. Graceful 502 on CFBD failure.
-  - **`POST /api/admin/cache-historical-scores`** (P4-HISTORICAL-SCORES-CACHE-v1): Admin-gated endpoint that fetches both regular and postseason scores for a specified past year and writes two `CacheEntry` records at scope=`scores`, keys=`${year}-all-regular` and `${year}-all-postseason` — the exact keys `buildSeasonArchive` reads. Both must exist for `alreadyCached: true` to trigger. Companion to schedule cache endpoint; together they enable full historical season backfill.
-  - **`POST /api/admin/backfill`** (P4-BACKFILL-v1): Admin-gated backfill endpoint. Builds and saves a `SeasonArchive` for a specified past year via `buildSeasonArchive` without calling `updateLeague` or advancing the active season year. Two-phase confirmation for overwrites: first call returns `{ requiresConfirmation: true, diff }`; second call with `confirmed: true` performs the overwrite.
-  - **2021–2024 seasons backfilled:** Real roster, schedule, and score data loaded via the cache and backfill endpoints for all prior seasons. Historical league data is now live on the history landing page.
-  - **All-time standings sort fix** (P4D-HISTORY-POLISH-v1): `selectAllTimeStandings` now sorts by championships desc → win percentage desc → total wins desc. Win percentage (`winPct`) added to `AllTimeStandingRow` type; computed after all wins/losses are accumulated (including live merge), normalizing for tenure length and roster size. Handles division by zero.
-  - **NoClaim removed from all history views** (P4D-HISTORY-POLISH-v1, P4D-NOCLAIM-FIX-v1): NoClaim excluded from `selectAllTimeStandings` (archive iteration and live merge), `selectDynastyAndDrought`, `selectMostImprovedSeasonOverSeason`. `selectOwnerCareer` no longer short-circuits for NoClaim — real season records are returned if they exist; NoClaim excluded from H2H opponent matrix only. `selectAllTimeHeadToHead` and `selectTopRivalries` inherit NoClaim exclusion from `selectHeadToHead` (pre-existing).
-  - **Win% column in AllTimeStandingsTable** (P4D-HISTORY-POLISH-v1): `Win%` column added between Record and Titles, showing `(winPct * 100).toFixed(1)%`.
-  - **60/40 asymmetric two-column layout** (P4D-HISTORY-LAYOUT-v1): History landing page uses `lg:grid-cols-5` — left column `lg:col-span-3` (AllTimeStandingsTable + SeasonListPanel), right column `lg:col-span-2` (TopRivalries + MostImproved + DynastyDrought). ChampionshipsBanner spans full width above. Single column on mobile.
-  - **History tab in league nav bar** (P4D-HISTORY-POLISH-v1): `WeekViewTabs` accepts `leagueSlug?: string` and renders a History `<Link>` tab pointing to `/league/${slug}/history/`. `CFBScheduleApp` passes `leagueSlug` prop to `WeekViewTabs`.
-  - **Live season standings merged into all-time totals** (P4D-HISTORY-POLISH-v1): `selectAllTimeStandings` accepts optional `liveStandings?: StandingsRow[]`. History page calls `buildSeasonArchive` for the active year (try/catch fallback) if not yet archived; live wins/losses merged into totals without crediting a championship or incrementing `seasonsPlayed`. `AllTimeStandingsTable` shows "Includes live {year} season (in progress)" indicator when live data is present. Year derived from `league.year` — not hardcoded.
-  - **Season in Progress banner card** (P4D-HISTORY-BANNER-v1): `ChampionshipsBanner` accepts `currentSeasonYear?: number` and `currentLeader?: string`. Renders a neutral-styled card (gray/white border, distinct from amber champion card) showing the active year, current standings leader (first non-NoClaim owner in live standings), labeled "Current Leader". No card when props absent.
-- **Key architectural decisions:**
-  - **Historical cache endpoints are quota-safe** — `alreadyCached` check prevents repeat CFBD calls; `force: true` allows intentional overwrite. Active season year rejected to prevent interference with the live cache path.
-  - **Backfill never advances the season year** — `updateLeague` is not imported in the backfill route; file-level comment explicitly prohibits it.
-  - **Live standings via buildSeasonArchive** — reuses existing battle-tested assembly path rather than reimplementing standings derivation. try/catch ensures the history page degrades gracefully if caches are cold.
-  - **NoClaim exclusion is view-level, not data-level** — archives are stored as-is; NoClaim is filtered in selectors at the point of display. `selectOwnerCareer` preserves raw data for NoClaim in case it appears as a legitimate archive entry.
-
----
-
-### Historical Season Backfill Endpoint
-
-- **Status:** Complete. Merged as part of P4D PR.
-- **PROMPT_IDs:** P4-BACKFILL-v1
-- **Goals completed:**
-  - **`POST /api/admin/backfill`** (P4-BACKFILL-v1): New admin-gated endpoint at `src/app/api/admin/backfill/route.ts`. Accepts `{ leagueSlug, year, confirmed? }`. Validates leagueSlug (non-empty string) and year (finite integer >= 2000). Returns 404 if league not found in registry. Two-phase confirmation flow: first call without `confirmed` returns `{ requiresConfirmation: true, diff }` via `diffSeasonArchives` — no write; second call with `confirmed: true` overwrites and returns `{ success: true, replaced: true }`. If no existing archive, builds and saves immediately (`replaced: false`). Schedule cache unavailable surfaced as `500` with the descriptive error message from `buildSeasonArchive`.
-- **Key architectural decisions:**
-  - **No year increment** — `updateLeague` is not imported; file-level comment explicitly prohibits it. This is a backfill-only operation; the active season year is never touched.
-  - **Two-phase confirmation for overwrites** — diff is computed and returned before any write; admin must send `confirmed: true` to overwrite an existing archive.
-  - **Schedule cache required** — `buildSeasonArchive` throws a clear error if the schedule cache is unavailable for the requested year; the endpoint surfaces it as 500 with the message rather than silently failing.
-
----
-
-### P4D — League History and Owner Career UI
-
-- **Status:** Complete. PR #204 merged.
-- **PROMPT_IDs:** P4D-KICKOFF-v1, P4D-LEAGUE-HISTORY-UI-v1, P4D-LEAGUE-HISTORY-UI-REVIEW-v1, P4D-LEAGUE-HISTORY-UI-FIX-v1, P4D-BACKFILL-REVIEW-v1, P4D-LEAGUE-HISTORY-UI-FIX-v2, P4D-BUGS-v1
-- **Goals completed:**
-  - **Cross-season selectors** (P4D-LEAGUE-HISTORY-UI-v1): Seven new pure selectors added to `src/lib/selectors/historySelectors.ts` — `selectAllTimeStandings`, `selectChampionshipHistory`, `selectAllTimeHeadToHead`, `selectTopRivalries`, `selectDynastyAndDrought`, `selectMostImprovedSeasonOverSeason`, `selectOwnerCareer`. No modifications to the four existing single-season selectors. All seven are pure functions — no API calls, no side effects.
-  - **League History Landing** (P4D-LEAGUE-HISTORY-UI-v1): New server component at `/league/[slug]/history/`. Fetches all archived years via `listSeasonArchives`, loads all archives in parallel. Renders: championships banner, all-time standings table (with career page links), season list, most improved panel, dynasty/drought panel, top rivalries panel. Empty state: "League history isn't available yet. Check back next offseason." 404 if league not found.
-  - **Owner Career Page** (P4D-LEAGUE-HISTORY-UI-v1): New server component at `/league/[slug]/history/owner/[name]/`. `params.name` used directly — no `decodeURIComponent` (Next.js App Router already decodes route params). Renders: career summary card (record, championships, avg finish, seasons), season finish history table (season, finish, record, GB), all-time H2H panel with progressive per-season disclosure. Friendly empty state if owner not found in any archive.
-  - **Nine new history components** (P4D-LEAGUE-HISTORY-UI-v1): `ChampionshipsBanner`, `AllTimeStandingsTable`, `SeasonListPanel`, `MostImprovedPanel`, `DynastyDroughtPanel`, `AllTimeHeadToHeadPanel`, `CareerSummaryCard`, `SeasonFinishHistory`, `AllTimeOwnerHeadToHeadPanel`.
-  - **Back link fix** (P4D-LEAGUE-HISTORY-UI-v1): Both back links in `history/[year]/page.tsx` (archive-found and archive-missing states) updated from `/league/${slug}/` to `/league/${slug}/history/`. TODO comments removed.
-  - **Fix round** (P4D-LEAGUE-HISTORY-UI-FIX-v1 + FIX-v2): Missing career page links added to `AllTimeHeadToHeadPanel`, `DynastyDroughtPanel`, `MostImprovedPanel` (slug prop added to latter two); Games Back column added to `SeasonFinishHistory` (`gamesBack` added to `OwnerSeasonRecord` type and populated from `finalStandings`); empty state copy corrected to match spec; `AllTimeHeadToHeadPanel` slug destructuring bug fixed (slug was in Props but not destructured — produced `/league/undefined/...` URLs).
-  - **Bug fixes** (P4D-BUGS-v1): Removed double `decodeURIComponent` on owner route param (Next.js already decodes; double-decode throws `URIError` for names containing `%`). Fixed rivalry lead/trail/tied label in expanded detail — now correctly names the leader first with record flipped when ownerB leads; shows "Series tied" when record is equal.
-- **Key architectural decisions:**
-  - **Seven pure cross-season selectors** — all accept `SeasonArchive[]` and return plain data; no modifications to existing single-season selectors (`selectFinalStandings`, `selectOwnerRoster`, `selectSeasonSuperlatives`, `selectHeadToHead`).
-  - **Owner identity is name-based across seasons** — same name = same career entry; name change = separate entry. Known limitation (Decision 1 from design doc). No persistent owner ID introduced.
-  - **Same-owner pairings excluded from all H2H and rivalry selectors** — inherited from `selectHeadToHead` which guards `awayOwner === homeOwner`.
-  - **Route params already decoded** — Next.js App Router decodes route params before the page component receives them; `decodeURIComponent` must not be applied again.
-  - **Rivalry lead label always names the leader first** — when ownerB is ahead, the record is flipped so the display reads "[leader] leads [winner_count]–[loser_count]" regardless of lexicographic ordering.
-  - **Back links point to history landing** — `/league/${slug}/history/` is the canonical back destination from season detail pages; the temporary `/league/${slug}/` links and TODO comments are fully removed.
-- **Optional follow-up (not scheduled):**
-  - Owner identity system (stable cross-season IDs mapping display names to persistent IDs).
-  - Season comparison views.
-  - All-time H2H matrix in a dedicated expandable section rather than the toggle-based panel.
-
----
-
-### Roster Upload Fuzzy Matching
-
-- **Status:** Complete. PRs #202–#203 merged.
-- **PROMPT_IDs:** P4-ROSTER-UPLOAD-FUZZY-MATCH-DOCS-v1, P4-ROSTER-UPLOAD-FUZZY-MATCH-v1, P4-ROSTER-UPLOAD-FUZZY-MATCH-REVIEW-v1, P4-ROSTER-UPLOAD-FUZZY-MATCH-FIX-v1, P4-ROSTER-UPLOAD-FUZZY-MATCH-FIX-v2
-- **PRs merged:** #202 (docs), #203 (implementation + fixes)
-- **Goals completed:**
-  - **`rosterUploadValidator.ts`** (P4-ROSTER-UPLOAD-FUZZY-MATCH-v1): New pure validation lib. `getFBSTeams(teams)` filters team catalog to FBS-only pool via `inferSubdivisionFromConference` — FCS teams never included. `findFuzzyMatch(inputName, fbsTeams)` implements Levenshtein distance + token overlap scoring with a conservative 0.65 confidence threshold. `validateRosterCSV(csvText, existingAliases, teams)` applies exact → alias → fuzzy resolution priority; exact lookup includes the full `alts[]` array from teams.json for broad abbreviation coverage without fuzzy.
-  - **`globalAliasStore.ts`** (P4-ROSTER-UPLOAD-FUZZY-MATCH-v1): New server-side global alias storage at `aliases:global / map`. `getGlobalAliases()`, `upsertGlobalAliases()`. `migrateYearScopedAliasesToGlobal()` performs a one-time exhaustive migration using `listAppStateKeys()` to discover all alias scopes across a year range (year−10 to year+1) for every known league slug — not just the single active year. Migration sentinel recorded after all scopes are processed. Idempotent — subsequent calls are immediate no-ops.
-  - **`POST /api/owners/validate`** (P4-ROSTER-UPLOAD-FUZZY-MATCH-v1): New admin-gated endpoint at `src/app/api/owners/validate/route.ts`. Returns `RosterValidationResult + fbsTeams[]` for the admin UI. No writes of any kind.
-  - **`PUT /api/owners` safety guard** (P4-ROSTER-UPLOAD-FUZZY-MATCH-v1): Server-side validation runs before every PUT — rejects with HTTP 400 and `unresolvedTeams` list if any team name cannot be resolved against FBS names and existing aliases. Enforced independently of the UI.
-  - **`?scope=global` aliases support** (P4-ROSTER-UPLOAD-FUZZY-MATCH-v1, FIX-v1): `GET /api/aliases?scope=global` reads the global alias store; lazy migration triggered on first read. `PUT /api/aliases?scope=global` patches the global alias store. Year and league params ignored for global scope.
-  - **`RosterUploadPanel.tsx`** (P4-ROSTER-UPLOAD-FUZZY-MATCH-v1): New three-phase admin upload component. Phase 1: league/year selector, file picker, validate button → POST to validate endpoint. Phase 2 (review): Confirmed section (collapsible, exact and alias matches), Needs Confirmation section (fuzzy suggestions with confidence indicator, confirm/override per item), No Match Found section (full FBS team picker with typeahead + alphabetical). Progress indicator. Complete Upload disabled until all items resolved. Phase 3: success message with team count and alias count. Added to `/admin/` page above `CFBScheduleApp`.
-  - **Persistent upload error** (P4-ROSTER-UPLOAD-FUZZY-MATCH-FIX-v2): `uploadError` moved to a phase-agnostic render position with a "Try again" button — auto-upload failures (isComplete: true path) now surface immediately without requiring the admin to enter the review phase.
-- **Key architectural decisions:**
-  - **Upload-layer only** — fuzzy matching lives in the upload validation pipeline; `teamIdentity.ts` is unchanged. Schedule and game identity resolution are unaffected.
-  - **FBS-only match pool** — `getFBSTeams()` is the hard boundary; FCS teams are never reachable regardless of input.
-  - **`alts[]` in exact lookup** — common abbreviations (e.g., team.json entries like "App St", "Boise St") resolve as exact matches, not fuzzy, reducing unnecessary confirmation prompts.
-  - **Global alias store** — confirmed fuzzy matches and manual selections are global (no league or year scoping); apply to all future uploads across all leagues and years. Legacy year-scoped aliases deprecated.
-  - **Exhaustive lazy migration** (FIX-v2): Migration scans all league slug × year combinations via `listAppStateKeys()` rather than the single active year — ensures multi-year, multi-league alias history is fully migrated before the sentinel is written.
-  - **Conservative confidence threshold** — 0.65; prefers returning null over a low-confidence suggestion. No-match items go to the manual FBS picker.
-  - **Double-enforced upload guard** — UI prevents submission until `isComplete: true`; server-side PUT handler verifies independently.
-- **Optional follow-up (not scheduled):**
-  - Further fuzzy algorithm tuning based on observed real-world upload patterns.
-  - Admin alias management page for reviewing and editing global aliases directly.
-
----
-
-### Phase 4C — Season Detail UI
-
-- **Status:** Complete. PR #201 merged.
-- **PROMPT_IDs:** P4C-SEASON-DETAIL-UI-v1, P4C-ARCHIVE-DATA-MODEL-FIX-v1, P4C-ARCHIVE-DATA-MODEL-FIX-REVIEW-v1, P4C-ARCHIVE-DATA-MODEL-FIX-v2, P4C-LINT-FIX-v1, P4C-BUGS-v1, P4C-CLOSEOUT-v1
-- **PRs merged:** #201
-- **Goals completed:**
-  - **`SeasonArchive` data model extension** (P4C-ARCHIVE-DATA-MODEL-FIX-v1): Added `games: AppGame[]` and `scoresByKey: Record<string, ScorePack>` to the `SeasonArchive` type in `src/lib/seasonArchive.ts`. Updated `buildSeasonArchive` in `src/lib/seasonRollover.ts` to include both fields in the returned archive. Required to enable game-pairing-level selectors (superlatives, H2H) — `StandingsHistory` alone does not store individual game pairings.
-  - **Null guards for legacy archives** (P4C-ARCHIVE-DATA-MODEL-FIX-v2): Added `?? []` and `?? {}` at both selector consumption points in `historySelectors.ts` so archives written before the data model extension do not crash with `TypeError: undefined is not iterable`.
-  - **`historySelectors.ts`** (P4C-SEASON-DETAIL-UI-v1): New selector file at `src/lib/selectors/historySelectors.ts`. Exports `selectFinalStandings`, `selectOwnerRoster`, `selectSeasonSuperlatives`, `selectHeadToHead`. `selectSeasonSuperlatives` derives 6 superlatives from game data: highest single-week score, biggest blowout, closest matchup, biggest upset (pre-game standings-based), most dominant stretch (consecutive wins), most improved (Week 1 to final rank). `selectHeadToHead` derives per-owner-pair W-L records and matchup details; `ownerA` is always lexicographically smaller; wins/losses from ownerA's perspective.
-  - **Season detail page** (P4C-SEASON-DETAIL-UI-v1): New server component at `src/app/league/[slug]/history/[year]/page.tsx`. Validates year (>= 2000), looks up league from registry, reads archive via `getSeasonArchive`. Renders friendly "no archive" state with back link for missing seasons (with note that historical data starts from 2025). Back links point to `/league/${slug}/` with TODO comment to update to P4D history landing once that route exists.
-  - **History components** (P4C-SEASON-DETAIL-UI-v1): 6 new components under `src/components/history/` — `ArchiveBanner` (amber "Archived — {year} Season" banner), `FinalStandingsTable` (rank/owner/record/GB/diff table), `SeasonArcChart` (client component wrapping `MiniTrendsGrid`), `SuperlativesPanel` (6 superlative cards with "Not available" fallbacks), `HeadToHeadPanel` (collapsible owner-pair rows with matchup detail expansion), `OwnerRosterCard` (team → owner grid from ownerRosterSnapshot).
-  - **Bug fixes** (P4C-BUGS-v1): Added `awayOwner === homeOwner` exclusion guard in `getOwnedFinalGames` to prevent same-owner matchups from contaminating blowout/closest/H2H derivation. Fixed back links that pointed to unbuilt P4D route (consistent 404).
-  - **Lint fix** (P4C-LINT-FIX-v1): Removed unused `ownerB` variable assignment in `selectHeadToHead` — confirmed not a logic bug; `pairingKey()` independently derives canonical ordering.
-- **Key architectural decisions:**
-  - **`StandingsHistory` gap** — `StandingsHistory` stores cumulative per-owner stats, not individual game pairings. Game-pairing data must come from `archive.games + archive.scoresByKey`. These were added to `SeasonArchive` rather than modifying `StandingsHistory` to avoid changing the charting data model.
-  - **`NoClaim` exclusion** — `NO_CLAIM_OWNER = 'NoClaim'` sentinel is excluded from all game-pairing-level derivation to prevent unclaimed teams from appearing in superlatives or H2H.
-  - **Biggest upset "pre-game" rank** — uses `byWeek[weeks[weekIdx - 1]]` (prior week standings) as the pre-game rank proxy; Week 1 games are excluded because no prior week exists.
-  - **H2H canonical ordering** — `ownerA` is always lexicographically smaller; `pairingKey = ownerA::ownerB`; wins/losses from ownerA's perspective throughout.
-  - **Null guards for backward compatibility** — `archive.games ?? []` and `archive.scoresByKey ?? {}` ensure the page does not crash when rendering archives written before the model extension; old archives render all game-derived panels as "Not available."
-- **Optional follow-up (not scheduled):**
-  - Update back links to `/league/${slug}/history/` once P4D history landing page is implemented (TODO comments left in page.tsx).
-  - Owner career links from `OwnerRosterCard` once P4D owner career pages exist.
-
-### Navigation, CTA Consistency & History Chrome (standalone)
-
-**Navigation & Selector Integrity**
-
-- Fixed matchup deep links in OverviewPanel and StandingsPanel to use league-scoped routes (`/league/[slug]/matchups`) instead of unsupported `?view=matchups` query params
-- Fixed trends CTAs in OverviewPanel and StandingsPanel to use league-scoped routes (`/league/[slug]/standings?view=trends#trends`) instead of hardcoded root-scoped paths
-- Retired `leagueHighlights` from `selectOverviewViewModel` — was producing an empty array with no consuming UI
-- Removed TEMP-DIAG console logs from OverviewPanel.tsx
-
-**CTA Consistency**
-
-- Removed redundant "See full trends" CTA from Standings page — user is already viewing full trends content
-- Replaced Trends section CTA with linked section header on Overview page
-- Standardized all Overview page CTAs to plain text ↗ pattern matching "All results ↗"
-- Removed `onViewStandings` prop from OverviewPanel after its consuming button was replaced with a Link
-
-**History Page Chrome**
-
-- Created `LeaguePageShell.tsx` — shared server-compatible league chrome component for standalone route pages
-- Replaced standalone History page chrome (back link, h1, subtitle) with consistent league header and nav bar
-- Added History as a separated muted tab in the main league nav with a vertical divider before it
-- History page subtitle set to "Est. 2021" instead of active season year
-- Removed "4 archived seasons" text from History page
-- `foundedYear` identified as a Phase 7 commissioner settings field — hardcoded for now, to be made dynamic when league settings are built
-- `LeaguePageShell` noted as a known duplication point with CFBScheduleApp header — to be reconciled in Phase 7
-
-**Follow-up Fixes**
-
-- Created `/league/[slug]/members/page.tsx` — Members was a client-side-only view mode with no dedicated route, causing LeaguePageShell Members tab to land on Overview instead. New route mirrors the Matchups/Standings pattern and renders CFBScheduleApp with `initialWeekViewMode="owner"`. All five nav tabs now have proper dedicated routes.
-- Fixed Members tab href in `LeaguePageShell.tsx` to `/league/[slug]/members`
-
----
-
-### Overview Page Polish (standalone)
-
-**De-containerization**
-
-- Removed outer card wrappers from Standings, Insights, Featured games, and GB Race sections
-- Individual game cards retain borders — they are discrete objects
-- Horizontal dividers replace card borders as section separators
-- Season podium retains card treatment — amber border is doing meaningful visual work
-
-**Podium redesign**
-
-- Replaced mixed layout (wide #1 card + two half-width cards below) with three equal horizontal cards
-- #1 card gets amber border and amber rank label — amber reserved exclusively for champion signals
-- #2 and #3 get neutral borders and plain muted rank labels
-- Removed narrative text from all podium cards — data speaks for itself
-- Removed "Season podium" section title — self-evident from content
-- Removed CHAMPION badge from Overview standings rows — podium handles champion signal
-
-**Standings section restructure**
-
-- Converted to trifold layout: Standings (25%) · AP Poll (25%) · Insights (50%)
-- Removed column headers from Overview standings table — self-evident at this density
-- Reordered standings row hierarchy: rank · name · record · GB on primary line, Win% · Diff on secondary line
-- GB elevated to primary line — most important metric in a pool format
-- Added inline last-5-weeks position delta columns to standings rows (Option A: week headers once at top)
-- Removed CHAMPION badge from standings rows — redundant with podium above
-
-**Champion narrative copy fix**
-
-- Fixed champion margin narrative to use games back as primary descriptor
-- Win% is a tiebreaker — no longer used as the margin of victory descriptor
-- Correct: "Won the title by 7 games over Maleski"
-
-**Owner color system**
-
-- Created src/lib/ownerColors.ts as shared owner color utility
-- getOwnerColor(ownerName) is now the sole source of owner color across the entire app
-- Replaced position-based alphabetical color assignment with hardcoded name-to-color lookup
-- Colors are now stable and consistent across all surfaces — chart lines, table legends, rank numbers
-- Owner names are color-coded only when the table serves as a legend for an adjacent chart
-
-**GB Race section**
-
-- Renamed from "Trends" to "GB Race"
-- Removed inline chart line labels — companion table serves as legend
-- Reverted to top 5 lines on Overview — 14 lines too cluttered at this surface
-- Added companion table showing GB change over last 5 weeks with current GB column
-- Owner names color-coded in companion table to match chart lines
-
-**AP Poll column**
-
-- Added AP Poll snapshot as middle column of trifold
-- Shows top 10 teams with week-over-week movement indicators
-- Switches to CFP Rankings during postseason, back to AP at season end
-- "Full rankings ↗" CTA links to FBS Polls page
-- Fixed movement delta bug — was showing NR for all teams due to reference equality failure in previous week lookup
-- Fixed week label alignment — converted to CSS grid so headers stay pinned to delta columns at all viewport widths
-
-**DESIGN.md updates**
-
-- Containerization rules
-- Owner color encoding rules
-- Podium design rules
-- Champion narrative copy rules
-- Section header rules
-- Overview trifold layout
-- Poll phase logic (inSeason → AP, postseason → CFP, complete → AP)
-
----
-
-### Light Mode & Owner Color System (standalone)
-
-**Light/dark mode foundation**
-
-- Removed hardcoded className="dark" from layout.tsx
-- Switched Tailwind darkMode from class-based to media strategy (prefers-color-scheme)
-- Updated globals.css to use @media (prefers-color-scheme: dark) for CSS variables
-- Landing page (RootPageClient.tsx) converted to theme-aware classes
-- All card surfaces, borders, nav elements, and text hierarchy fixed for light mode
-- Dark mode appearance unchanged throughout
-
-**Owner color architecture**
-
-- Deleted dead file src/app/trends/presentationColors.ts
-- Rewrote ownerColors.ts with dynamic index-based palette (20 colors) supporting variable owner counts
-- Centralized color map construction in CFBScheduleApp.tsx using canonical standings owner list
-- Single ownerColorMap built once and passed as prop to all consuming components: StandingsPanel, OverviewPanel, MiniTrendsGrid, TrendsDetailSurface
-- SeasonArcChart builds its own local map (isolated from app shell, correct deviation)
-- Added isDark state with window.matchMedia listener so color map updates when system preference changes
-- Removed all local buildOwnerColorMap() calls from consuming components
-
-**Owner color palette**
-
-- PALETTE_DARK: 20-color Tableau-derived palette optimized for dark backgrounds, vivid and distinct
-- PALETTE_LIGHT: 20-color independently designed palette of rich saturated mid-lightness colors optimized for white backgrounds
-- Both palettes designed for maximum perceptual separation across 20 slots
-- Light and dark palettes are independent — each optimized for its own background, not required to match each other
-- Assignment is alphabetical-index-based within each league for stable consistent color per owner
-- Fallback: hash-based assignment for owners not in the sorted list
-
-**Known limitations / future work**
-
-- Dimmed chart lines in light mode (non-selected owners) are faint on white — opacity values tuned for dark mode
-- Some color adjacency remains between a few owners at 14+ lines — inherent to the problem, mitigated by interactive hover/highlight
-- User preference override (light/dark toggle) deferred until user accounts are built
-- When user accounts land: switch Tailwind back to class strategy, add theme provider, store preference in user settings
-
----
-
-### P7A-1 — Founded Year (Phase 7A)
-
-**Data model**
-
-- Added foundedYear?: number to the League type in src/lib/league.ts
-- Auto-populated on league creation from current year — no commissioner input required
-- PATCH /api/admin/leagues/[slug] now accepts and validates foundedYear (must be >= 1900, <= current year)
-
-**Settings UI**
-
-- Added Founded Year field to LeagueSettingsForm — editable number input
-- Field pre-populates from saved value or current year if not yet set
-- Helper text removed — field is self-explanatory
-
-**History page**
-
-- LeaguePageShell renders "Est. {foundedYear}" as subtitle when activeTab is history
-- Subtitle only renders when foundedYear is explicitly set — no misleading fallback
-- Added force-dynamic to history/page.tsx to prevent Next.js caching stale league data
-- Fixed bug: second LeaguePageShell render path (main content) was missing foundedYear prop — only the empty state path had it
-- TSC League foundedYear set to 2021 in production
-
-**Debugging notes**
-
-- Root cause of rendering failure: one of two render paths in history/page.tsx was missing the prop due to a partial find-and-replace during implementation
-- Confirmed via Vercel function logs showing foundedYear: undefined in LeaguePageShell
-- Diagnostic API route and console.logs removed before merge
-
----
-
-### Phase 7A — Commissioner Self-Service
-
-**PROMPT_IDs:** P7A-1-FOUNDED-YEAR-v1, P7A-1-FOUNDED-YEAR-FIX-v1 through v3, P7A-1-FOUNDED-YEAR-CLEANUP-v1 through v3, P7A-2-LEAGUE-HUB-STATUS-v1, P7A-3-ADMIN-POLISH-v1, P7A-3-FIX, P7A-4, P7A-4-FIX, P7A-4-FIX-2
-
-**foundedYear field (P7A-1)**
-
-- Added optional `foundedYear?: number` to League type
-- Auto-populated on league creation from current year
-- Editable in league settings via PATCH API (validated 1900–current year)
-- History page subtitle shows "Est. {foundedYear}" when set, nothing when unset
-- Bug fix: second LeaguePageShell render path was missing the prop due to partial find-and-replace
-
-**League hub improvements (P7A-2)**
-
-- LeagueStatusPanel surfaced on league hub (`/admin/{slug}`) above tool cards
-- Setup progress checklist: league created, owners configured, draft confirmed, season live — incomplete steps link to relevant tools
-- Settings card restored to Platform Admin hub commissioner tools
-- Post-creation redirect sends commissioner to league hub instead of staying on leagues list
-
-**Admin light mode (P7A-3)**
-
-- All 10 admin shared components converted from hardcoded dark-only classes to theme-aware light/dark variants
-- All 8 admin page files similarly fixed
-- Pattern: bg-white/dark:bg-zinc-900 backgrounds, border-gray-200/dark:border-zinc-700 borders, text-gray-900/dark:text-zinc-100 text
-
-**Aliases promoted to platform scope (P7A-4)**
-
-- New `/admin/aliases` page loads and saves from `aliases:global` scope
-- Aliases card added to Platform Admin hub
-- Alias section removed from league Data page (replaced with redirect notice)
-- Data card removed from commissioner tools on both hubs
-- Existing `migrateYearScopedAliasesToGlobal()` handles legacy data migration automatically
-
-**Status panel fixes (P7A-4-FIX, P7A-4-FIX-2)**
-
-- Roster status simplified to "Roster set" (green) / "Not configured" (red) — no count, no timestamp
-- "Not configured" indicator changed from amber to red (amber reserved for champion signals)
-
-**Key decisions**
-
-- `aliases:global` chosen over `aliases:{year}` — team names are stable across seasons, year-scoping added unnecessary complexity
-- League Data page retained as redirect stub rather than deleted — preserves existing bookmarks and links
-
----
-
-### P7B-7 — Draft Flow Polish
-
-**PROMPT_IDs:** P7B-7, P7B-7-FIX through FIX-35, P7B-7-FIX-25-AUDIT, P7B-7-FIX-25-AUDIT-2, P7B-7-AUDIT-ROUND-COUNT
-
-**Carousel redesign (FIX-3, FIX-17, FIX-18, FIX-19, FIX-28)**
-
-- Five-card landscape strip with CSS grid crossfade on center card only
-- Flex-ratio card sizing (far 0.65, near 0.85, center 2) replacing fixed-dimension absolute positioning
-- Round boundary sidebars with vertical "Rd X" labels
-- 900px max-width carousel, centered
-- Mobile: three-card layout with reduced padding and fonts (FIX-28)
-
-**Draft board table polish (FIX-8 through FIX-14, FIX-26, FIX-30, FIX-31)**
-
-- Horizontal table: owners as columns, rounds as rows (FIX-12 reverted earlier transposition)
-- Snake draft column ordering: even rounds L→R, odd rounds R→L
-- Sticky Rd column, team color left-bar, abbreviated team names
-- Fixed-frame layout: `calc(100dvh - 10rem)`, no vertical page scroll (FIX-14)
-- Bottom team strip replacing sidebar (FIX-13)
-- 86px column width to fit 14 owners without scroll at 1280px (FIX-31)
-- 12px font on desktop, 11px on mobile (FIX-30)
-
-**Page layout (FIX-20 through FIX-26, FIX-29)**
-
-- Centered at 1400px max-width with inner wrapper div
-- Responsive padding: 8px mobile, 24px desktop (Tailwind `px-2 md:px-6`)
-- Duplicate settings gear icon removed (FIX-20)
-- Full-width table and container (FIX-26)
-
-**Timer and state fixes (FIX-15, FIX-16, FIX-27)**
-
-- Random auto-pick selection from available teams (FIX-15)
-- Timer expiry always pauses and prompts commissioner (FIX-16)
-- `timerExpiryBehavior` setting honored: `pause-and-prompt` vs `auto-pick` (FIX-27)
-- Setup auto-advance error recovery: prevents permanent loading state (FIX-27)
-
-**Round control (FIX-32, FIX-33)**
-
-- Team selection during round-boundary pause implicitly starts next round (FIX-32)
-- Total rounds hard-capped at `Math.floor(fbsTeamCount / ownerCount)` — enforced in UI input, on save, and in API POST/PUT handlers (FIX-33)
-
-**Draft summary page (FIX-34, FIX-35)**
-
-- Summary page at `/league/[slug]/draft/summary` made publicly accessible (no auth required)
-- Admin features (edit picks, confirm, reopen) remain gated behind `isAdmin`
-- Owner roster cards sorted alphabetically with Pick #, Team, Conference columns
-- Short display name resolution (e.g. "FIU" instead of "Florida International") sourced from team database (FIX-35)
-- "View Draft Summary →" button on complete banner in both commissioner and spectator views
-- Draft-complete banner on league overview page, auto-hides once Week 1 starts (date derived from schedule game data)
-
-**Key decisions**
-
-- Existing URL pattern `/league/[slug]/draft/summary` preserved (no `[year]` segment) — year derived from league status, consistent with all other draft routes
-- DraftHeaderArea shared by both commissioner and spectator views — one component, one `summaryHref` prop covers both
-- Week 1 date derived from `games.filter(g => g.week === 1)` minimum date — no hardcoded dates
-
----
-
-### P7B Season Transition Architecture — Complete
-
-**Status:** Complete. Branch `claude/audit-season-transition-pwKfH`.
-**PROMPT_IDs:** P7B-AUDIT-HISTORY-AND-SEASON-TRANSITION, P7B-AUDIT-SCHEDULE-YEAR, P7B-SEASON-TRANSITION-A, P7B-SEASON-TRANSITION-B, P7B-SEASON-TRANSITION-B-FIX, P7B-SEASON-TRANSITION-C
-
-**Goals completed:**
-
-- Automatic season transition from preseason to season state
-- Decoupled "Go Live" button from immediate state transition
-- Fixed schedule year derivation for preseason state
-- Pre-season overview page with owner rosters and schedule placeholder
-
-**Key outcomes:**
-
-**Schedule year derivation fix (P7B-SEASON-TRANSITION-A)**
-
-- `seasonYearForToday()` threshold moved from August (`>= 7`) to July (`>= 6`) in all three copies (normalizers.ts, schedule/route.ts, HistoricalCachePanel.tsx)
-- `GlobalRefreshPanel` accepts `defaultYear` prop — admin Data Cache page passes preseason year when any league is in preseason
-- `CFBScheduleApp` overrides `selectedSeason` to `leagueStatus.year` when league is in preseason — all schedule fetches target the correct upcoming season
-
-**"Complete Setup" rename and decoupling (P7B-SEASON-TRANSITION-B)**
-
-- `goLive()` renamed to `completeSetup()` — no longer transitions to `state: 'season'`
-- Sets `setupComplete: true` on the preseason `LeagueStatus` variant
-- `LeagueStatus` preseason variant extended: `{ state: 'preseason'; year: number; setupComplete?: boolean }`
-- UI updated: button text, blocker text, checklist label, draft summary prompt
-- After setup complete: green "Setup Complete ✓" badge with "Season will go live automatically before the first game" note
-
-**Automatic season transition cron (P7B-SEASON-TRANSITION-B)**
-
-- `vercel.json` created with daily cron: `0 0 * * *` (00:00 UTC). The handler does internal date math to determine whether the transition actually fires — it probes for `firstGameDate` and only transitions preseason leagues the day before the first game.
-- `/api/cron/season-transition` route secured via `CRON_SECRET` Bearer token
-- `ScheduleProbeState` type in `src/lib/scheduleProbe.ts`: tracks `baseCachedAt`, `firstGameDate` per year
-- Cron logic: find preseason leagues → probe CFBD for schedule → cache data → derive first game date → transition all preseason leagues the day before first game
-- Schedule probe refetch window: re-fetches within 7 days of first game for updated kickoff times
-- Manual schedule refresh (`bypassCache=1`) also updates probe state
-- `CRON_SECRET` auth: distinguishes "not configured" from "invalid token" with actionable error messages
-
-**Pre-season overview (P7B-SEASON-TRANSITION-C)**
-
-- During preseason with no schedule data, shows owner roster cards (owner name + drafted teams) in a responsive grid
-- Schedule placeholder: "2026 season schedule not yet available — check back closer to kickoff"
-- Fatal bootstrap error suppressed in preseason (expected state — no schedule data is normal)
-- No 2025 data bleed-through: `selectedSeason` set to `leagueStatus.year` (2026) during preseason, preventing any prior-year data from loading
-- When 2026 schedule IS cached, normal views render with that data
-
-**Key architectural decisions:**
-
-- `setupComplete` stored on `LeagueStatus.preseason` variant (not separate appStateStore key) — disappears naturally when league transitions to `season`
-- Schedule probe state stored in `appStateStore` scope `schedule-probe` — survives across deployments
-- Cron uses `fetchUpstreamJson` + `mapCfbdScheduleGame` directly (not internal API call) for reliability
-- Pre-season overview renders inline in `CFBScheduleApp.tsx` (no separate component) — consistent with existing preseason banner pattern
-
----
-
-### P7B Dry Run Polish — Complete
-
-**Status:** Complete. Branch `claude/polish-draft-flow-Rv5AF`. PR #270.
-**PROMPT_IDs:** P7B-AUDIT-SEASON-STATE, P7B-AUDIT-ROSTER-CHECK, P7B-AUDIT-COMPLETE-SETUP-GUARD, P7B-OVERVIEW-BANNER, P7B-OVERVIEW-BANNER-STYLE, P7B-OVERVIEW-BANNER-STYLE-FIX, P7B-OVERVIEW-BANNER-COUNTDOWN, P7B-DRAFT-START-FIX, P7B-AUDIT-COMMISH-URL, P7B-CONTINUE-SETUP-LINK, P7B-PRESEASON-CHECKLIST-FIX, P7B-PRESEASON-REGRESSION-FIX, P7B-PRESEASON-REGRESSION-FIX-2, P7B-ROSTER-CHECK-FIX, P7B-SANDBOX-RESET-FIX, P7B-SANDBOX-AUTO-COMPLETE-DRAFT, P7B-DRAFT-SETUP-OWNERS-REMOVE, P7B-COMPLETE-SETUP-REVALIDATE, P7B-COMPLETE-SETUP-REVALIDATE-2, P7B-COMPLETE-SETUP-REVALIDATE-3, P7B-COMPLETE-SETUP-HUB-FIX, P7B-RESET-RACE-FIX, MERGE-CONFLICT-AUDIT, MERGE-CONFLICT-FIX
-
-**Goals completed:**
-
-- Full end-to-end dry run readiness: preseason setup → draft → complete setup flow works without manual workarounds
-- All sandbox reset controls work correctly for repeated dry runs
-- Admin hub reflects league state accurately
-
-**Overview lifecycle banners (P7B-OVERVIEW-BANNER series)**
-
-- State-driven banner system in `CFBScheduleApp.tsx` driven by `leagueStatus` prop
-- States: offseason early/late, preseason (no draft / draft scheduled / draft in progress / draft complete), season (in progress / live)
-- Left-border accent styling (3px inline border, dark backgrounds, right-side-only border radius)
-- Pulsing live indicator dot on draft-in-progress state via CSS keyframe animation
-- Draft scheduled countdown: adaptive label (days away / tomorrow / today / starting soon)
-- Header subtitle reflects current league state ("Offseason" / "Pre-Season" / "Season")
-- Banner year and draft lookup year derived from `leagueStatus.year` (not `league.year`) — fixes 2025→2026 bleed
-
-**Draft start fix (P7B-DRAFT-START-FIX)**
-
-- "Start Draft" button in `DraftSetupShell` now calls `PUT phase: 'live'` before navigating to board
-- Previous behavior did bare redirect — draft board redirected back to setup (redirect loop)
-
-**Commissioner setup links (P7B-CONTINUE-SETUP-LINK)**
-
-- "Continue Setup →" link added to draft complete banner in `DraftHeaderArea`
-- "Ready to complete setup? Continue Setup →" prompt added to `DraftSummaryClient`
-- `DraftSummaryClient` auth fixed to dual-auth pattern: `useUser()` from Clerk + `hasStoredAdminToken()`
-
-**Preseason checklist fixes**
-
-- "Season live" item removed from checklist (was circular — Complete Setup button couldn't satisfy it)
-- Button renamed from "Go Live" to "Complete Setup", bound to `completeSetup()` which sets `setupComplete: true` without transitioning to season state
-- `LeagueStatus` preseason variant extended with `setupComplete?: boolean`
-- Checklist uses `canCompleteSetup` guard; shows "Setup Complete ✓" badge post-completion
-
-**Roster check fix (P7B-ROSTER-CHECK-FIX)**
-
-- `hasRoster` check in `preseason/page.tsx` now falls back to owners CSV (`owners:${slug}:${year}/csv`)
-- A completed draft satisfies the roster requirement without a separate preseason owners confirmation step
-- Preseason owners list still checked first; either source sufficient
-
-**Admin hub setup complete state (P7B-COMPLETE-SETUP-HUB-FIX)**
-
-- Admin hub (`/admin/[slug]/page.tsx`) renders two distinct preseason states:
-  - `setupComplete=false`: "Setup in Progress" + "Continue Setup" link
-  - `setupComplete=true`: green "Setup Complete ✓" card with "Season will go live automatically" note
-
-**Sandbox improvements**
-
-- "Set: Pre-Season" now clears preseason-owners, owners CSV, and draft state for the target year (fresh start every time)
-- "Reset to 2025 Season" now also clears all 2026 preseason/draft/owners/schedule-probe state
-- "Reset Draft" unchanged — clears draft + owners CSV, leaves preseason owners intact
-- New "Auto-complete Draft →" button: fills all remaining picks randomly (snake order), marks complete, writes owners CSV with NoClaim rows
-- `migrateTestOwnersCsv` returns descriptive string message shown in UI
-- Race condition fixed in `resetTestLeague()` — `updateLeague` and `updateLeagueStatus` serialized (both write same registry array)
-
-**Draft settings cleanup (P7B-DRAFT-SETUP-OWNERS-REMOVE)**
-
-- Owners add/remove section removed from `DraftSettingsPanel` — redundant with preseason owners confirmation flow
-- Draft order section (drag-to-reorder, Random/Reverse Champ/Manual modes) unchanged
-- `owners` state initialized from draft state or `priorOwners`; used by draft order and save logic
-
-**Key architectural decisions:**
-
-- `setupComplete` stored on `LeagueStatus.preseason` variant — disappears naturally on season transition
-- `hasRoster` satisfied by either preseason owners list OR owners CSV — draft confirmation is sufficient
-- Sandbox "Set: Pre-Season" always clears state to ensure idempotent dry runs
-
----
-
----
-
-### P7B Launch Preparation — Complete
-
-**Status:** Complete. Branch `claude/update-turf-war-branding-gVu4z`. PR #272.
-**PROMPT_IDs:** P7B-APP-WIDE-AUDIT, P7B-UI-UX-POLISH-AUDIT, P7B-FORCE-DYNAMIC-FIX, P7B-UI-POLISH-DEMO-FIXES, P7B-CLERK-MIGRATION-AUDIT, P7B-BRANDING-UPDATE, P7B-LAUNCH-DOCS-CLOSEOUT
-
-**Goals completed:**
-
-- Comprehensive app-wide audit covering 16 sections; one build blocker identified and resolved
-- Full UI/UX polish audit — page-by-page rating, top 10 improvements identified
-- Force-dynamic build blocker fixed across 11 pages
-- Demo UI polish: custom `not-found.tsx` and `error.tsx` added, light mode fix on cache admin page, `autoPickMetric` dropdown removed
-- Clerk production instance migration: DNS configured, session token customized, production keys set in Vercel, commissioner account created with `platform_admin` role
-- Domain acquisition: `turfwar.games` and `tscturfwar.com` registered via Porkbun
-- Custom domain connected: `turfwar.games` pointed to Vercel production via A record
-- TSC redirect: `tscturfwar.com` → `https://turfwar.games/league/tsc` permanent redirect — configured at the Vercel dashboard layer (not in `vercel.json`, which contains only cron definitions)
-- Branding update: "CFB League Dashboard" → "Turf War" across all user-facing surfaces (`layout.tsx`, `RootPageClient.tsx`, login page, test assertion); URL example updated to `turfwar.games`
-- Landing page tagline updated to "Your league, upgraded."
+Season-launch hardening moved protected draft access checks before server serialization, removing the leak that client redirects could only hide. It retained public spectator/summary access and phase-aware polling (live/running fast, completed slow enough to observe reopen). Preseason standings gained truthful awaiting-kickoff context; zero-game insight output was suppressed and cached selectors returned stable facts for render-time time evaluation.
 
-**Key outcomes:**
+F2H1SA/SB closed two independent live security gaps. Explicit `/admin/:path*` and `/debug/:path*` matcher entries ensure dotted dynamic paths such as `/admin/audit.css` cannot bypass middleware as supposed static assets. Every exported app-owned admin Server Action then gained `requireAdminAction` as its first executable application operation: routing is defense in depth, not action authorization.
 
-- App is publicly live at `turfwar.games`
-- TSC league accessible at `turfwar.games/league/tsc` and via `tscturfwar.com` redirect
-- Production Clerk instance active; development instance retired
-- All user-facing branding consistently reads "Turf War"
-- Build is clean — no force-dynamic blockers remain
+The shared decision distinguishes authorized, missing Clerk secret, non-admin, and unavailable auth; the action guard uses the session-only form, preserving existing request-bearing API behavior separately. Refusals throw stable errors and allowlisted events without secrets. Framework deserialization and Clerk's own reads occur before/within that boundary, so “zero reads of any kind” is not claimed. Middleware remains an independent boundary. Owner-facing refusal handling, broader asset-matching policy, and dependency-owned actions were not all resolved by these slices.
 
----
+PR references: #216, #217, #221, #222, #223, #224, #225, #226, #227, #302, #303, #304, #446, #447.
 
-### Event-Centric Date-Aware Odds Attachment — Complete
+Documentation: `docs/archive/designs/phase-6-admin-auth-design.md`, `docs/campaigns/season-launch-hardening.md`.
 
-**Status:** Complete. PR #332 merged. Codex review clean (no findings).
-**PROMPT_IDs:** PLATFORM-030-ATTACHMENT-REGRESSION-TESTS-v1 (PR #331), PLATFORM-031-EVENT-DATE-AWARE-ATTACHMENT-v1 + PLATFORM-031-GAP-CLOSURE-v1 (PR #332)
+### 15. Admin information architecture and maintenance operations
 
-**Goals completed:**
+Phase 6's repeated page restructures and F2's umbrella/slice records describe one evolution from accumulated tools to explicit operator responsibilities. F2 closed on 2026-08-08.
 
-- Locked the pre-existing pair-only odds-attachment weakness with test-only regression coverage (PLATFORM-030) before changing production behavior
-- Rewrote `attachOddsEventsToSchedule` (`src/lib/oddsAttachment.ts`) to be event-centric and date-aware: resolve each upstream event's pair via centralized `teamIdentity`, narrow same-pair candidates by a ±24h commence-time tolerance, and attach only when exactly one candidate remains — no fan-out, no arbitrary first-win
-- Added `unmatched_pair` / `ambiguous_pair` / `date_mismatch` / `consumed_or_duplicate` diagnostics for every non-attaching event
-- Plumbed upstream `commence_time` through normalization as `commenceTime` via `normalizeUpstreamOddsEvent` in `routeInternals.ts` (Next.js route modules forbid non-handler exports)
-- Closed the WIP-audit gaps (PLATFORM-031-GAP-CLOSURE): date-aligned repeat-matchup fixture, full `/api/odds` propagation test, fresh-cache-without-`commenceTime` backward-compat test, and `buildOddsByGame` both-spellings regression
+- `/admin/diagnostics` became **System Health**: observation plus global pause/dataset safety controls. Manual provider refreshes, partition inputs, team sync, and the score-attachment trace moved to **Data Maintenance & Recovery** at `/admin/data/cache`.
+- One presentation-only maintenance-action contract discloses provider, nominal cost, live target, durable mutations, automation owner, and routine/recovery/emergency class. It does not become another execution authority. The emergency attachment trace captures one target for disclosure, confirmation, request, and result; it warns that a trace alone does not prove upstream success.
+- Feedback is attempt-scoped, including across year changes; invalid scope never silently broadens a request. Historical-score repair gained truthful year-rollup refresh status, schema/empty checks, no empty commits, and partial-write versus no-op reporting.
+- League administration uses registry-derived links and separate settings/roster destinations, with reserved static slugs and consistent navigation. Public league views no longer contain the legacy Admin/Debug panel. An admin-only gear is server-derived rather than a client role authority.
 
-**Key outcomes:**
+Earlier inventories of `/admin/season`, rollover/backfill panels, SP+/win totals, and per-league alias tools are superseded by their later retirements or relocations. F2's manual cross-browser/keyboard/screen-reader pass was explicitly moved to separate pre-public-launch work; campaign closure does not assert that pass occurred. Governing principle: a backend subsystem earns an admin surface only when a person has something useful to inspect, decide, diagnose, or operate.
 
-- Same-pair rematches (e.g. regular-season meeting vs conference championship) now attach to the correct canonical identity by date instead of arbitrary first-win
-- `commenceTime` is attachment metadata only — never added to `DurableOddsSnapshot`, `CombinedOdds`, or public `/api/odds` output
-- Older cached entries lacking `commenceTime` remain valid (treated as undated) and never force a migration refetch; PLATFORM-020 quota/cache guards untouched
-- Validation: `npm test` 983 pass / 0 fail / 0 skipped; tsc, lint:all, build all clean
+PR references: #228, #230, #231, #232, #233, #234, #430, #432, #433, #434, #463.
 
----
+Documentation: `docs/architecture/admin-control-plane.md`.
 
-### PLATFORM-086H3B Replacement — Fenced Legacy Game-Stats Writer — Complete
+### 16. League registry, slug recovery, and founding-year integrity
 
-**Status:** Complete. Merged to `main` via **PR #399** (merge commit `69d3770`, 2026-07-21; from `main@2793a6f`). Two folded review-remediation passes (indeterminate-commit truthfulness, atomic initializer, env-load + storage-mode reporting, error redaction, loud lock-order re-throw, clear dry-run refusal, truthful docs). `/verify` passed — the read/validation HTTP surface is byte-identical to `main` (the game-stats route is unchanged); the write fence is test-covered (can't be driven over HTTP without a live provider). Full `npm test` 1844/1844 at merge. Supersedes the frozen `platform/086h3b-revision-status-authority` branch (never merged).
-**PROMPT_IDs:** PLATFORM-086H3B-VALUE-AND-SCOPE-AUDIT-v1, PLATFORM-086H3B-SPLIT-EXTRACTION-PLAN-v1 (read-only audits), PLATFORM-086H3B-REPLACEMENT-LEGACY-WRITER-FENCE-v1 (implementation)
+F2I/J merged 2026-08-08. `/admin/leagues` owns create/list/delete; configuration lives at `/admin/<slug>/settings`. Delete requires the actual slug at the route boundary, preventing a repeated generic confirmation from authorizing the wrong row. Registry deletion does not erase surviving league-scoped data; full privacy erasure was explicitly outside this work.
 
-**Goals completed:**
+Creation at a slug with residual data refuses by default but supports explicit `adoptExistingData: true` for legitimate recovery. Exact scopes and colon-delimited families prevent a slug such as `tsc` from matching `tsc-old`. The residue scan runs unconditionally, and adoption on a clean slug is rejected; a flag cannot establish its own eligibility.
 
-- Two independent architectural audits concluded PLATFORM-086H3B (revision lineage/ledger, permanent revisions, restoration high-water, irreversible witness, failed-begin provenance, operator repair, dormant-boundary/capability-graph guard) must NOT be built — game stats are reconstructible provider projections, no consumer reads a revision, and nothing outside the database remembers one after a restore. That branch is frozen as a read-only reference; no further revision/repair/parser work.
-- Added a durable **writer-control record** (`src/lib/gameStats/writerFence.ts`, scope `game-stats-writer-control`, key `state`, `{ recordVersion, state: legacy|armed|active|read-only-safe }`) with strict validation and presence-aware classification — absent/malformed is never treated as `legacy`. No transitions/repair/lineage/HTTP surface.
-- Fenced the live legacy writer (`src/lib/gameStats/cache.ts`): `setCachedGameStats` now serializes on its weekly partition and revalidates the control record IN THE SAME transaction (partition `E(P)` exclusive → writer-control exclusive via `lockKey`), committing only on exactly valid `legacy`, and never reporting success unless it commits. Fence refusals (absent/malformed/`armed`/`active`/`read-only-safe`) and `store-unavailable` failures are known-unchanged (nothing written, prior partition intact); a `store-indeterminate` failure (lost COMMIT ack after mutation SQL, `writeAttempted`) MAY have committed and must be retried/re-read without assuming either version is durable; a lock-order programming error is re-thrown, not masked. Reuses prerequisite A; adds no revision/lineage/commit-stamp/activation metadata and no `fetchedAt` stale guard.
-- Added a create-if-absent initializer (`scripts/init-game-stats-writer-control.ts`, `npm run init:writer-control`): dry-run default, PostgreSQL-only apply, idempotent on valid `legacy`, refuses malformed/non-legacy, never arms/activates/repairs/deletes.
+`foundedYear` means founding calendar year, not first competition season. It is immutable through `updateLeague` after creation, with a recovery-only value when adopting verified old data. This supersedes P7A's editable field while preserving restoration of an accidentally deleted league. “Aliases” became “Team Identity”; the season-scoped debug editor was intentionally untouched.
 
-**Key outcomes:**
+The audit established that league passwords gate reads and league writes still require platform admin—no distinct commissioner authorization model was delivered. Admin labels gained control associations, and the settings/password flow gained coverage. JSDOM import-order repair was established in `src/test/domEnvironment.ts`; migrating all older suites was not completed.
 
-- Same-partition legacy writes serialize across PostgreSQL instances; a future rollout can stop the legacy writer by flipping the control record with no code change. While `legacy`, stored partition bytes are identical to the prior blind write.
-- **Operational dependency (not concealed):** the writer-control row MUST be initialized before the fenced writer deploys, else all legacy game-stat writes refuse. Rollout sequence + revised lineage-free C/D/E in `docs/ai/game-stats-writer-fence.md`.
-- Validation: full `npm test` 1841 pass / 0 fail (writer-fence suite 24; existing game-stats write-path tests seed the control row); tsc, lint:all, git diff --check clean. No PR; `/verify` not run; `preview` not updated.
+PR references: #462, #463.
 
----
+### 17. Guarded lifecycle, rollover authority, and surface retirement
 
-### PLATFORM-086H3C1 — Canonical Game-Stats Evidence Read Model (Dormant) — Complete
+Early manual rollover and Go Live paths were progressively replaced by guarded transactional lifecycle operations. Accepted preseason/season changes synchronize the compatibility `league.year`; offseason retains the outgoing season year. Generic configuration cannot mutate lifecycle year, and rendering performs no durable repair. Guarded writes re-read state and exact year under the registry transaction so stale snapshots, concurrent deliveries, deletion, and changed target years cannot silently overwrite each other.
 
-**Status:** Complete. Merged to `main` via **PR #400** (merge commit `cf8c584`, 2026-07-22; from `main@220cbe7`). Ten impl commits folded in — three Codex review rounds, a CFBD-id attachment-authority revision, a CFBD numeric-id validation revision (v2), a proportionate simplification to id+partition association (net −575 lines), and two duplicate-id hardening fixes; the final background Codex review returned a **clean pass — no actionable findings**. `/verify` on the game-stats HTTP surface passed (bad `week`/`year` → 400; `bypassCache=1` without admin → 401 before any fetch; `seasonType=banana` coerced to `regular`; seeded fresh partition → 200 `meta.cache=hit`; corrupt durable store → 500 with immediate restore-recovery) — the C1 modules are dormant/unwired, so the read model itself is covered by its unit suites + the recursive dormant-boundary guard, not by HTTP. `tsc`, `lint:all`, `git diff --check` clean; `canonicalSlate` suite 12/12; full `npm test` green across the branch.
-**PROMPT_ID(s):** PLATFORM-086H3C1-CANONICAL-EVIDENCE-READ-MODEL-v1 (implementation; folds revisions SIMPLIFICATION-v1, CFBD-ID-AUTHORITY-REVISION-v1/-v2)
+Automatic rollover groups production leagues by year, requires a structured CFBD national championship plus a canonically attached complete final and the seven-day buffer, then performs archive-first execution with guarded season→offseason transition. The old latest-postseason-game fallback was removed. The daily cron is the sole rollover executor and does not honor ordinary provider-pause controls.
 
-**Goals completed:**
+The manual path first shared the strict gate, then lost execution (F2H3A), then its preview, `/api/admin/rollover`, `manualRollover.ts`, `diffSeasonArchives`, and `/admin/season` were retired entirely (F2H4, 2026-08-07). Advancing an already-eligible daily rollover by less than 24 hours was not a distinct recovery capability; a preview of an automatic write with no supported prevention action was not useful enough to retain. League History already navigates archives. Builders, save/list authorities, and guarded rollover remain live.
 
-- Shipped the dormant, schedule-authoritative canonical game-stats evidence **READ** model — the first meaningful slice of the lineage-free **C** in `docs/ai/game-stats-writer-fence.md` — as four modules under `src/lib/gameStats/`: `canonicalSlate.ts` (schedule-authoritative expectation via `buildScheduleFromApi`; addressable-game slate; duplicate CFBD-id rejection by parsed numeric id), `evidenceAuthority.ts` (per-game evidence selection: schema-blocking, sufficiency classes, deterministic fence freshness + order-invariant representative tie-break), `partitionCoverage.ts` (typed coverage states satisfied/incomplete/absent/blocked/duplicate-conflict/manual-only with season-relative disposition), `publicProjection.ts` (public + analytics projections with deterministic diagnostics).
-- Extracted a shared RFC 3339 fence parser (`observationFence.ts`), now reused by `durableMerge.ts` so there is exactly one freshness parser; refactored `contract.ts` to drop the duplicate `selectAnalyticsRows` authority (`toAnalyticsGameStats` is projection-only).
-- Established the association model: unique CFBD game id + partition agreement is the whole association authority; CFBD `homeAway` is trusted (no reorientation); duplicate ids fail the canonical build. Extended `dormant-boundary.test.ts` to guard the new modules; added `canonicalSlate` / `evidenceAuthority` / `partitionCoverage` / `publicProjection` suites + shared `c1Fixtures.ts`.
+Execution reporting preserves committed work even if later invalidation fails. Demo-only exclusions have truthful no-automatic-target reasons. Suppression clearing follows confirmed archive and status success and is no longer accidentally skipped solely because cache invalidation failed. Benign idempotence, healed year projection, removed league, and stale target are distinct dispositions. The transition route gained a 300-second envelope under the documented deployment configuration.
 
-**Key outcomes:**
+PLATFORM-111 aligned transition and member start placeholders to the earliest UTC date with a catalog-resolved participant, using durable catalog/global aliases and falling back to the earliest parseable date. The all-division schedule stays intact; exact kickoff time does not define lifecycle date. A post-commit probe failure reports partial work.
 
-- **Fully dormant:** no route/cron/insights consumer, no writes; the recursive dormant-boundary guard rejects every import form. Production HTTP behavior is unaffected (C1 is unwired).
-- Supersedes the participant-validation / integrity / quarantine wording of the frozen `docs/ai/platform-086h3-contract.md`; binding plan is `docs/ai/platform-086h3c1-implementation-handoff.md`.
+**Limits at closeout:** commit-to-invalidation interruption remains possible; mixed-year rollover reasons can collapse to `year-results` on receipts while individual reasons remain in runtime events. Removing the preview did not implement per-year dashboard explanations or missing-status production recovery.
 
-**Optional follow-up debt (non-blocking):**
+PR references: #278, #431, #441, #442, #443, #457, #458, #461, #514.
 
-- **Numeric participant validation** is a separate pre-activation prerequisite (validate stored `schoolId`s against schedule numeric `homeId`/`awayId`; restores the `identity-mismatch` state) — gated on the schedule cache-write path first persisting those ids. Recorded in `docs/next-tasks.md` → "Unresolved decisions & known deferrals".
-- A synthetic-only empty-usable-catalog case (`[{ school: '' }]` bypassing the pure builder's `teams.length === 0` catalog-authority guard) is accepted as not production-reachable (`getTeamDatabaseItems()` sanitizes empty-`school` entries to `[]` → `catalog-load-failed`); the builder stays exported for unit tests. Same deferral section.
-- Remaining C slices + D/E unimplemented; production H3 activation has **not** occurred.
+### 18. Manual-only demo lifecycle and shared-data isolation
 
----
+F2H1T1–T5 plus H3B1 made `TEST_LEAGUE_SLUG` manual-only. Slugless set/reset authorities validate and derive state inside the registry transaction; unsupported states and unusable years refuse without mutation. Reset can recover corrupt demo status. The arbitrary-slug lifecycle setter was retired. Post-commit cleanup no longer deletes year-shared `schedule-probe` data, preventing sandbox resets from disarming production automation.
 
-### PLATFORM-086H3C2 — Dormant Safe Ingestion Coordination (Adapter) — Complete
+Season transition, weekly schedule maintenance, rankings targeting, and System Health operational-year selection exclude the demo before grouping or precedence resolution. Filtering entire resolved years would wrongly remove a production league sharing the year. Weekly ownership can affect actual provider policy; the equivalent rankings lifecycle label was only reporting metadata and is not described as the same operational defect. Existing year/global provider evidence, latches, probes, and publication windows remain intact.
 
-**Status:** Complete. Merged to `main` via **PR #401** (merge commit `61fe69c`, 2026-07-22; from `main@8a95222`). One implementation commit; the background Codex review returned a **clean pass — no actionable regressions**. `/verify` on the game-stats HTTP surface passed unchanged from `main` (validation 400s, admin-gate 401 before any fetch, `seasonType` coercion, cache-hit 200, corrupt store → 500 with immediate restore-recovery) — the adapter is dormant/unwired, so HTTP does not exercise it; the surface is byte-identical and the adapter itself is covered by its unit suite + the recursive dormant-boundary guard. `tsc`, `lint:all`, `git diff --check` clean; ingestion-coordinator suite 16/16; dormancy + H1 + H2 51/51; full `npm test` 1913/1913.
-**PROMPT_ID(s):** PLATFORM-086H3C2-DORMANT-SAFE-INGESTION-COORDINATION-v1
+No-automatic-target reasons distinguish excluded demo candidates from genuine absence. Demo-only years do not generate provider work through these jobs; no league-scoped duties were invented for provider-only jobs. The demo season transition does invalidate standings, because the previous cron had owned that responsibility and the year cache key does not change across the state flip.
 
-**Goals completed:**
+Lifecycle presentation distinguishes stored state, inferred display, and the authority that advances it. Missing stored status does not imply either automatic or manual control. Typed persistent demo feedback superseded raw exception messages that production Server Actions redact; repeated preseason/reset operations must disclose cleanup rather than claim no change.
 
-- Shipped `src/lib/gameStats/ingestionCoordinator.ts` — one export `ingestGameStatsPartitionResponse({ year, week, seasonType, fetchStartedAt, payload })` connecting ONE already-fetched CFBD `/games/teams` response to H1 parsing (`contract.ts`) and H2 durable merge (`durableMerge.ts`). It owns ONLY batch coordination and duplicates no parse / merge / conflict / stale-data / completeness / persistence-filter / duplicate-selection policy.
-- Discriminated result: `no-op`/`empty-response` (exact `[]`; H2 not called, no write/delete); `rejected`/`invalid-payload` (non-array top level); `rejected`/`no-persistable-observations` (nonempty array, no parsed observation passes H1's persistence predicate; H2 not called, prior durable data untouched); `merge-result` (H2's complete `DurableMergeResult` VERBATIM plus batch diagnostics: raw/parsed/persistable/non-persistable counts, parse-failure counts grouped by H1's reason, `clean`|`mixed` acceptance). Every successfully parsed observation — not just the persistable subset — is passed to H2, which filters non-persistable rows and reports `skippedNonPersistable`; `fetchStartedAt` is forwarded verbatim; unexpected H2 errors propagate.
-- Extended the recursive dormant-boundary guard (adapter in `EXCLUDED_FILES`, `ingestionCoordinator` in `DORMANT_MODULE_BASENAMES`, `ingestGameStatsPartitionResponse` in `FORBIDDEN_SYMBOLS`, + 3 self-tests); not exported from any barrel. Added a 16-test focused suite.
+The exclusions were not a universal demo-data refresh facility. Some demo rankings years remain outside manual upkeep bounds, and the source retained further cache-invalidation and shared/default-year follow-ups. The final manual-control clear/replace message flow itself lacked automated integration coverage at closeout.
 
-**Key outcomes:**
+PR references: #445, #448, #449, #450, #451, #459.
 
-- **Fully dormant:** no route/cron/reader/writer-control consumer, no CFBD fetch, no writes; the recursive dormant-boundary guard rejects every import form. Production HTTP behavior is unchanged (the legacy route and cron writer are byte-identical to `main`).
+Documentation: `docs/operations/diagnostics.md`.
 
-**Optional follow-up debt (non-blocking):**
+### 19. Registry integrity and honest target refusals
 
-- The locked launch policy (scores/status ≈3-min + game-stats 15-min polling; no live game-stat UI at launch; analytics eligibility = final score/status + complete game-stat evidence; a 1,000-call/mo CFBD reserve; never waiting for the whole weekly slate) is binding for later PRs but NOT implemented here — polling, scheduler, route, reader, and production activation belong to **E**.
-- D and the final atomic activation (E) remain unwritten; production H3 activation has **not** occurred.
+F2H1R1–R4 completed container-truth handling across transition, weekly schedule, rankings, and rollover. `readLeagueRegistry` distinguishes present valid arrays, missing state, malformed containers (including stored null), and actual store failures. Existing general `getLeagues` behavior remains compatible. Malformed state is no longer reported as an empty league registry.
 
----
+Production year validation follows demo exclusion and precedes provider claims, probe/cache work, and archive/lifecycle mutation. Rollover also validates requested and stored years independently under the write lock **before comparing equality**; otherwise corruption would be mislabeled as a stale target. Refusal counts are published during iteration so a later throw cannot erase already-observed invalid records. `invalidLifecycleTargets` survives response, event, and receipt; legacy missing fields normalize to zero while invalid present values reject.
 
-### PLATFORM-086H3C3 — Dormant Analytics Finality Gate — Complete
+Controlled QStash outcomes use HTTP 200 so application refusals are not confused with delivery failures; Vercel-native lifecycle routes retain their own failure-status contract. An unusable target remains actionable even when valid targets merely skip, while valid-year reasons remain preserved. R3's explicit acceptance of this standing warning supersedes R2's earlier objection to the aggregate. `partial` is not a universal proof that a write occurred; the result table has broader mixed-outcome semantics.
 
-**Status:** Complete. Merged to `main` via **PR #402** (merge commit `c41121b`, 2026-07-22; from `main@a0c2cd2`). Two Codex reviews: the first flagged one P2 (score lookup keyed by `eventId` instead of the disambiguated `AppGame.key`), remediated in `c920d26`; the re-review returned a **clean pass — no new issues**. `/verify` on the game-stats HTTP surface passed unchanged from `main` (validation 400s, admin-gate 401 before any fetch, `seasonType` coercion, cache-hit 200, corrupt store → 500 with immediate restore-recovery) — the modules are dormant/unwired, so HTTP does not exercise the gate; the surface is byte-identical and the gate is covered by its unit suite + the recursive dormant-boundary guard. `tsc`, `lint:all`, `git diff --check` clean; publicProjection 21/21; coverage 13, dormancy 7, status-classification 6, evidence 19, slate 12; full `npm test` 1924/1924.
-**PROMPT_ID(s):** PLATFORM-086H3C3-DORMANT-ANALYTICS-FINALITY-GATE-v1
+**Boundaries:** validation is structural, not a plausible-season window; individually malformed records inside a valid container remain a separate gap. Operational-year clamping is not a repair. Missing-status recovery was deliberately ordered after consumer hardening because adding status arms provider and archive automation; these slices did not deliver that recovery. Cross-job summary duplication and lifecycle HTTP-status asymmetries were recorded for coordinated follow-up.
 
-**Goals completed:**
+PR references: #452, #453, #454, #455.
 
-- Made C1's dormant analytics projection require canonical FINAL-score evidence IN ADDITION to complete game-stat evidence. `projectAnalyticsPartition(coverage, scoresByKey)` (`src/lib/gameStats/publicProjection.ts`) gains a REQUIRED `scoresByKey` map keyed by the canonical `AppGame.key` (the attachment key). Per canonical game, in order: (1) read `scoresByKey[game.key]`; (2) require `classifyScorePackStatus(score) === 'final'` (shared status classifier — separator/case variants bucket consistently; a missing key classifies as `scheduled`, so absence excludes without a special case); (3) then the existing C1 requirements — decision `satisfied`, a selected row, `toAnalyticsGameStats` acceptance. Excluded when the score is missing / scheduled / in-progress / disrupted / ambiguous / unavailable, or when game-stat evidence is sparse / conflicting / blocked; no raw schedule status (including the canonical game's own `rawStatus`) substitutes for a final score. The map stays required — no optional/default/empty map, no complete-only path, no raw-status matching.
-- Attachment-key remediation: `CanonicalGame` now carries `key` (`AppGame.key`, populated in `buildCanonicalGameStatsSlate`; `eventId` retained for reporting only), so the gate keys by the disambiguated attachment key rather than a base `eventId` two disambiguated games can share.
+### 20. Provider controls, scheduler receipts, and System Health
 
-**Key outcomes:**
+F1/F2 merged through August; later game-gap diagnostics extended the same model. Provider toggle failures now render beside their controls with accessible associations; settings remain authoritative, with no optimistic success. Runtime events include skips, auth failures, and failures through a single best-effort emission path, using allowlisted primitives rather than credentials, payloads, or exception text.
 
-- **Fully dormant:** no production source imports or invokes the projection; the recursive dormant-boundary guard already forbids `projectAnalyticsPartition` and passes unchanged (no guard edit). Public game-stats projection, public response/availability types, coverage/completeness rules, durable ingestion/merge, and existing live analytics consumers are unchanged. No production wiring or behavior change. Score reconciliation, attachment, fetching, normalization, caching, and provider access all remain outside this task.
+All seven then-scheduled jobs gained latest-only durable receipts: five QStash jobs plus two Vercel lifecycle crons. Application invocation ids are created only after successful auth; unauthorized requests never advance a receipt. Writes run best-effort after the response with monotonic `(startedAt, invocationId)` ordering. Readers validate and rebuild allowlisted fields. This delivered durable receipt identity, **not proof that every runtime event already carried the same invocation id**.
 
-**Optional follow-up debt (non-blocking):**
+Delivery classification compares receipt start to the prior due UTC slot plus grace, including uneven rankings slots and the Vercel daily window. A timely failure or skip is still an on-time delivery. Missing/late evidence does not identify the cause. System Health keeps delivery, execution, provider data freshness, automation gates, quota, and storage separate; its seven-job and six-dataset populations are not one-to-one.
 
-- **Required E follow-ups (recorded, not implemented):** (1) Insights / owner / season / history / career analytics must consume this final-gated projection instead of raw cached game-stat partitions; (2) `/api/game-stats` must become operator/admin-only before H2 v2 rows can be exposed.
-- **Temporary operational constraint until E lands:** avoid authorized manual game-stat refreshes while games are in progress when those cached rows could affect Insights.
-- D and the final atomic activation (E) remain unwritten; production H3 activation has **not** occurred.
+The server-rendered operational-year dashboard uses bounded loaders, prioritized issues, persistent forensic rows, and truthful nullable repair destinations. Freshness comes from cache/evidence, never last provider success. Storage display describes configuration, not database liveness. Gates alone do not erase delivery warnings or degrade overall health. The UI introduces no browser provider polling. Historical quota thresholds reflect the then-active policies; this ledger does not set subscriptions or budgets.
 
----
+- Game-stats absence is neutral `None expected` only when canonical applicability says no evidence is owed. Actual expected missing data warns; green requires positive evidence. Applicability, not coverage-denominator heuristics, answers this question.
+- `lifecycle-data-unusable` is a global warning based on refusal counts independently of run result, with `repair: null`. Counts from different jobs/runs cannot be summed into a unique league count; the issue names reporting jobs. It affects Overall without contaminating Provider data, so green section tiles beneath a yellow Overall can be correct.
+- PLATFORM-112 checks each addressable expected completed game against its own attached terminal score; one final cannot hide a missing sibling. Canceled games can resolve scorelessly, and shared disruption/placeholder policy remains authoritative. Output retains full counts plus at most six sanitized identities.
+- PLATFORM-113 separately exposes unresolved games admitted by the eight-hour all-pending allowance, including aggregate and child cache layouts; it does not replace completed-slate coverage checks.
 
-### PLATFORM-086H3D — Dormant Writer-Control Rollout Safety — Complete
+Receipt data is latest-only, not execution history. Mixed-year reason detail and production lifecycle repair remain limitations; no ineffective repair button was added to conceal them.
 
-**Status:** Complete. Merged to `main` via **PR #403** (merge commit `ddc356e`, 2026-07-22; from `main@b3a043c`; impl `8008af4` + docs closeout `881325b`). Background Codex review returned a **clean pass — no actionable findings** ("the transition authority, operator CLI, and active-only merge authorization consistently enforce the documented state graph and transactional serialization barriers without affecting current production behavior"). `/verify` on the game-stats HTTP surface passed **byte-identical to `main`** — the same fixture-built seed on both servers and a `diff -r` of every probe body + status matched exactly (validation 400s, admin-gate 401 before any fetch, `seasonType` coercion, cache-hit 200, cache-miss 503, corrupt store → 500 with immediate restore-recovery). `tsc`, `lint:all`, `git diff --check` clean; focused writer-control / transition / H2 / C2 / transaction / barrier / dormancy suites green; full `npm test` 1962/1962 (+38).
-**PROMPT_ID(s):** PLATFORM-086H3D-DORMANT-WRITER-CONTROL-ROLLOUT-SAFETY-v1
+PR references: #413, #414, #435, #436, #437, #438, #439, #460, #470, #516, #518.
 
-**Goals completed:**
+### 21. Provider refresh outcomes, empty payloads, and quota truth
 
-- **Strict transition authority** (`src/lib/gameStats/writerControlTransition.ts`): ONE atomic operation over the existing `game-stats-writer-control/state` record — presence-aware reread, strict parse, expected-state check, edge validation, and conditional write of only the exact `{recordVersion, state}` shape, all in one transaction rooted (advisory-locked) on the control key. The graph is closed and directional (`legacy ⇄ armed → active ⇄ read-only-safe`); absent/malformed control, expected-state mismatch (reports the actual state), same-state requests, every unlisted edge, and every return to `legacy` after activation refuse without writing. Typed outcomes: `transitioned` (confirmed COMMIT only), `would-transition` (dry run — not a reservation), the four refusals, `store-unavailable` (known-unchanged), and `store-indeterminate` (mutation submitted, commit unconfirmed — either state may be durable; reread, never retry/repair/infer).
-- **Operator CLI** (`npm run transition:writer-control`, `scripts/transition-game-stats-writer-control.ts`): explicit `--from`/`--to` required; READ-ONLY dry run by default; `--apply` only against a writable PostgreSQL store; resolved storage mode reported; redacted unexpected errors; stable exits (0 success / 2 refused / 3 store unavailable / 4 indeterminate durability / 1 unexpected). The one-shot initializer is untouched and remains create-if-absent `legacy` only (tests prove it still cannot transition).
-- **H2 active-only permission** (`durableMerge.ts`): every `mergeGameStatsPartitionDurable` invocation — including batches that would be unchanged, stale, conflicting, or entirely non-persistable — takes the control key EXCLUSIVE via `lockKey` under the partition primary lock (canonical partition → control order), rereads and strictly parses the record UNDER both locks, and merges ONLY when exactly `active`; otherwise it refuses BEFORE the partition read, merge computation, or any write with typed known-unchanged reasons (`control-lock-unavailable` / `control-read-failed` / `control-absent` / `control-malformed` / `control-not-active` + `controlState`). All pre-existing H2 outcomes are preserved after authorization; lock-order violations still throw loudly.
-- **Deterministic serialization-barrier proofs** on BOTH backends: gated fake-pg with the REAL writers parked at their write statements (a legacy write holding control completes before `legacy → armed`; an H2 write holding control completes before `active → read-only-safe`; the next writer rereads the new state and refuses), file-fallback held critical sections reproducing the writers' exact lock shape, the completed-stop-defeats-stale-`active`-observation proof, and reverse lock-order rejection.
-- **Activation runbook documented, NOT executed** (`docs/ai/game-stats-writer-fence.md` §6): confirm valid `legacy` → confirm the fenced writer deployed → deploy D with no transition → dry-run then apply `legacy → armed` during E and drain → deploy/verify E in `armed` → rollback `armed → legacy` ONLY before activation succeeds → `armed → active` → never back to `legacy` → stop/resume via `active ⇄ read-only-safe`.
+PLATFORM-086A/G1/G2 established typed per-target durable refresh status, attempt ordering, completion-token rejection, operator settings, durable-first success, and context-aware empty/schema handling. CFBD became the normal production score source; automatic ESPN fallback was removed. The original Provider Data Status panel later gave way to System Health and Maintenance rather than remaining a second admin model.
 
-**Key outcomes:**
+CFBD empty scores are failures when exact-target prior-good rows or started non-disrupted canonical games establish an expectation; genuine future/absent/canceled-only targets remain no-ops. Independent cache evidence sources resolve independently, including child-only layouts. Unexpected empties preserve prior-good state and do not advance success.
 
-- **Fully dormant:** no route, cron, reader, or production caller invokes H2 or the transition operation; live game-stat writers remain on the fenced legacy setter; **deploying D performed no transition — production remains in `legacy`, no transition has ever been executed, and E retains sole ownership of activation** (production transition execution, ingestion/route/cron/reader wiring, consumer activation, reader smoke tests, controlled refreshes). The recursive dormant-boundary guard was EXTENDED, not weakened (`writerControlTransition.ts` is an authorized dormant home; `writerFence.ts` stays scanned).
-- D was re-scoped by the approved read-only audit from "recovery/orchestration" to **rollout safety** — bounded recovery (claims/leases/backoff/quota/post-claim revalidation) is deferred future work and is NOT part of D.
+Odds validates the body and nested structures before commit while capturing quota headers independently. Empty interpretation uses canonical identity certainty: only provably obsolete rows may be cleared; ambiguity/unavailable identity authorizes neither destructive replacement nor a fabricated failure. Postseason placeholders can intentionally retain prior lines. Later early-line handling extends this policy under Odds automation.
 
-**Optional follow-up debt (non-blocking):**
+Missing/malformed quota fields mean unavailable, not exhausted or a guessed tier; trustworthy zero remains zero. Odds usage distinguishes available, absent, and unavailable. File fallback tolerates only genuinely missing files, not corruption. Original monthly tier references are historical configuration, not an ongoing cost guarantee.
 
-- H2 merges of DIFFERENT partitions now serialize briefly on the single control lock (held to COMMIT) — the same brief global serialization the fenced legacy writer already accepts; immaterial at current cadence.
-- The C3 E follow-ups and the temporary in-progress-refresh operational constraint remain in force until E lands.
-- The final atomic activation (E) remains unwritten; production H3 activation has **not** occurred.
+PR references: #391, #394, #395.
 
----
+### 22. Game-stats rebuild, evidence provenance, and production activation
 
-### PLATFORM-086H3C4 — Dormant Analytics Readiness Correction — Complete
+The initial `/games/teams` pipeline cached per-game statistics by year/provider-week/season-type and aggregated owner totals at query time through centralized identity; 2021–2025 were backfilled. Its weekly cron and legacy ingestion were superseded by the staged H1/H2/H3 rebuild. Dormant milestones were preparation, **not separate current implementations**.
 
-**Status:** Complete. Merged to `main` via **PR #404** (merge commit `aa91391`, 2026-07-22; from `main@7ffca8d`; impl `3b79aac` + P2 remediation `efc1449` + docs closeout `b5bd112`). First Codex review flagged one P2 (the new direct durable-record parameter bypassed the module's envelope validation, so a matching-identity-but-malformed committed record could publish analytics from a corrupt envelope or throw in row grouping); remediated in `efc1449`; the re-review returned a **clean pass — no actionable regressions**. `/verify` on the game-stats HTTP surface passed **byte-identical to `main`** (same fixture seed on both servers, `diff -r` of every probe body + status matched) — the modules are dormant/unwired, so the projection is covered by its unit suite + the recursive dormant-boundary guard, not by HTTP. `tsc`, `lint:all`, `git diff --check` clean; focused C1–C4 + contract + dormancy suites 97/97; full `npm test` 1970/1970.
-**PROMPT_ID(s):** PLATFORM-086H3C4-DORMANT-ANALYTICS-READINESS-CORRECTION-v1
+- **Contract and merge:** one category authority (26 recognized, six analytics-required), strict parsing, structural points evidence, schema-aware row interpretation, deterministic duplicates, and bounded legacy compatibility. Per-game RFC 3339 observation fences reject older evidence, preserve missing games/categories and prior valid values, and allow newer identical observations to advance freshness. Compatibility-only values do not establish strict analytics completeness. `completionAttempts` remained observed but unmodeled.
+- **Transaction truth:** one dedicated database client owns lock/read/write/commit; partition→control lock order prevents deadlock. Confirmed writes, unchanged/stale/conflict outcomes, known-unchanged failures, and indeterminate durability are distinct. A lost commit acknowledgment after submitted mutation is not proof of rollback; reread before deciding recovery, and do not return an uncertain client as healthy.
+- **Rollout fence:** reconstructible provider projections did not justify the proposed permanent revision/restore ledger; that design was rejected. Strict writer control uses `legacy ⇄ armed → active ⇄ read-only-safe`; absent/malformed control is never implicitly legacy. The legacy writer is permitted only in legacy, the replacement only in active, with control rechecked under the same transaction. Initialization is create-if-absent, not repair. No return to legacy is allowed after activation.
+- **Evidence:** canonical schedule builds own expectations and attachment keys. Unique provider game id plus partition associates rows; later C5 additionally verifies numeric, side-for-side provider participant ids. Names, aliases, and neutral-site flags do not substitute for that verification. Schema blockers precede ranking; only verified candidates can satisfy/publicize evidence. Missing or mismatched ids fail closed, never displacing a verified sibling.
+- **Analytics provenance:** finality is an analytics rule, not a persistence rule. Canonical final scores must join by `AppGame.key`, and stats must be complete and verified. C4 removed the mistaken coupling to the six-hour missing-data threshold: sub-six-hour final+complete games can publish immediately. In-progress evidence remains stored for future uses. Archives carry a strictly validated `gameStatSlate` from the exact build that produced their games and pair it only with their own score map; absent and malformed snapshots are distinct.
+- **Ingestion and polling:** one adapter connects an already-fetched response to the contract and durable merge; one interpreter governs route/cron outcomes. Scheduled polling selects at most one earliest unresolved partition for addressable stat-producing games aged [3h, 24h), excluding satisfied evidence. It is not score-gated. The delivered reserve policy requires trusted remaining usage of at least 1,002; manual below-reserve requests need a separate explicit override. Bounded recovery leases/backoff were not secretly included in the rollout-safety slice.
 
-**Goals completed:**
+**Executed correction and activation:** schedule identity/participant repairs, full 2021–2025 refreshes, collision/parity audits, and five archive rebuilds were completed before activation. The genuine 2024 Texas–Georgia game and paired snapshots were verified. CFBD game `401506450` (2022 Akron–Buffalo) remained the accepted analytics-incomplete residual. Source evidence records writer transition to active on 2026-07-26 at `a161e33`, a successful controlled 2025 week-16 refresh, QStash `turfwar-game-stats-15m` with retries zero, gated auth proof, and subsequent gates-open no-target deliveries without quota spend. Both final closeout items were completed, including restoration of automatic production-domain assignment.
 
-- **Decoupled final-and-complete analytics eligibility from C1's six-hour missing-data/recovery threshold.** `projectAnalyticsPartition` (`src/lib/gameStats/publicProjection.ts`) now takes the required paired input `CanonicalAnalyticsReadInput = { slate, scoresByKey }` plus `(week, seasonType, committedRecord, seasonRelation)` — the old `(PartitionCoverage, scoresByKey)` signature was removed with no overload — and considers every addressable, stat-producing canonical game in the partition (`expected` AND `pending`), so a game that finishes within six hours of kickoff becomes analytics-eligible the moment its score is final (`scoresByKey[game.key]` — the only lookup key, never `eventId`) and its stats are complete (`selectGameEvidence` → `satisfied` → strict `toAnalyticsGameStats`). It never waits six hours or for the rest of the weekly slate; placeholders and disrupted games remain excluded.
-- **Fail-closed committed-envelope validation** (Codex P2 remediation): every non-null committed record runs through the module's single `validateEnvelope` authority — malformed fields, partition mismatch, invalid/missing `fetchedAt`, and non-array/missing `games` all yield `[]` before row grouping or evidence selection; `null` strictly means caller-established absence (a read failure is never converted to `null`); no second envelope/selection/completeness policy exists (`groupRowsById` exported from `partitionCoverage.ts` as the one shared association helper).
-- **Preserved in-progress durable evidence** for a future provisional live-stat path: in-progress complete rows remain stored, merged, and selectable — excluded from launch analytics only; finality is an analytics eligibility rule, never an ingestion/persistence/merge/evidence-selection requirement.
-- Focused regressions: the retained C3 matrix under the new signature; sub-six-hour final+complete inclusion; the same game staying `pending` for C1 coverage; in-progress exclusion without mutating committed evidence; final+sparse/absent/conflicting/blocked exclusions; live-shaped vs archive-shaped key namespaces behaving identically with cross-pairing failing closed; shared-`eventId` distinct-key disambiguation; null-record and malformed-envelope fail-closed matrices; compile-time rejection of the old signature.
+The QStash move replaced the subdaily Vercel cron rather than changing the route contract. The original source's remaining “activation pending” text is superseded by its explicit completed closeout. This historical activation does not certify present scheduler settings or reconcile provider corrections after a game becomes satisfied.
 
-**Key outcomes:**
+PR references: #274, #275, #396, #397, #399, #400, #401, #402, #403, #404, #407, #408, #409, #410, #412.
 
-- **Fully dormant:** no production consumer, route, cron, or reader touched; `EXPECTED_KICKOFF_MIN_AGE_MS`, applicability classification, `evaluatePartitionCoverage`, recovery gap states, diagnostics, and the public projection are all unchanged; the recursive dormant-boundary guard passes unchanged (no guard edit needed). Production behavior is unchanged.
+Documentation: `docs/ai/game-stats-writer-fence.md`, `docs/ai/platform-086h3-contract.md`, `docs/ai/platform-086h3c1-implementation-handoff.md`.
 
-**Optional follow-up debt (non-blocking):**
+Supporting lineage: the original preamble also names H3A (PR #398); the writer-fence architecture and detailed activation procedure remain in `docs/ai/game-stats-writer-fence.md` and `docs/deployment-runbook.md`.
 
-- **Required E follow-up (recorded, not implemented):** live and archived callers must supply key-aligned slate and score inputs from the SAME provenance — live: the canonical build's game keys with the reconciled scores attached under those keys; archive: `archive.games` with that archive's own `scoresByKey`. A mixed pairing fails closed to empty analytics by design, so E's assembly code must prevent it.
-- The earlier C3 E follow-ups (final-gated projection as the analytics source; operator/admin-only `/api/game-stats` reads) and the temporary in-progress-refresh operational constraint remain in force until E lands.
-- The final atomic activation (E) remains unwritten; production H3 activation has **not** occurred.
+### 23. Schedule identity, classification, and removal of parallel models
 
----
+These fixes address separate defects in the same canonical path; they are consolidated without treating alias resolution, provider classification, and game identity as interchangeable.
 
-### PLATFORM-086 — Team-Catalog Derived-Alias Safety — Complete
+- Unsafe two-token-prefix aliases caused University of San Diego stats to be credited to San Diego State. Both generators were narrowed; curated overrides remove `sandiego`, preserve legitimate shorthand, and add `sdsu`. Overrides sanitize stale durable catalogs at read time without rewriting them, and their hash versions standings/insights cache identity. Central `teamIdentity.ts` was not replaced.
+- Explicit non-FBS classifications suppress inferred CFP and conference-championship slots. Token-boundary conference matching prevents the `sec` in “Second Round” from becoming the SEC. Canonical collection is deterministic across input order: distinct numeric provider ids never merge, ids survive fragment merges, and ambiguous fragments fail closed. This prevents hybrid games with one record's participants and another's id.
+- PLATFORM-114 uses CFBD's per-row division labels for eligibility instead of reconstructing division from conference/name matches. Missing-label fallback remains, narrowed so an unresolved/ambiguous conference cannot invent a below-FBS classification. That fix required an authorized full-season refresh to change old durable rows; merge alone was not a data migration.
+- PLATFORM-120 filters only regular-season rows with both normalized classifications known non-FBS out of hot live-score/game-stats builds. FBS–FCS, uncertain classifications, and every postseason row remain; full durable schedule/API data and raw evidence for metadata/duplicate rejection remain available. Provider week 1 can no longer become canonical week 0; this did not replace the broader scalar canonical-week model.
+- The unused hardcoded postseason template was deleted rather than revived. Its fixed championship/bowl weeks were already wrong for 2026 and it omitted CFP first-round slots. Provider-driven classification remains the maintained model. Its slot-number convention was recorded for later CFP collision work, not implemented merely by deleting the file.
 
-**Status:** Complete. Merged to `main` via **PR #405** (merge commit `d5ee260`, 2026-07-24; from `main@c8705dd`; impl `47b34de` + read-time-override remediation `4d31b7c` + cache-identity remediation `d1d9218` + docs closeout `f7db872`). Three Codex rounds: round 1 P1 (a pre-fix durable `team-database/current` takes precedence over the regenerated bundled catalog, leaving the misattribution live until an operator resync) → remediated with read-time curated-override application; round 2 P1 (warm `revalidate: false` standings/insights snapshots keyed only `SEED_ALIASES_HASH`, bypassing the fix) → remediated by folding `ALIAS_OVERRIDES_HASH` into both cache identities; round 3 **clean — no actionable regressions**. `/verify` (local only): game-stats HTTP surface byte-identical to `main`; `/api/teams` serves corrected aliases from the bundled fallback; a seeded pre-fix durable catalog is served sanitized while the stored record stays byte-untouched. `tsc`, `lint:all`, `git diff --check` clean; full `npm test` 1980/1980.
-**PROMPT_ID(s):** PLATFORM-086-TEAM-CATALOG-DERIVED-ALIAS-SAFETY-IMPLEMENTATION-v1
+The early corrupted 2024 archive was subsequently repaired during H3E preactivation; it is not left as an outstanding migration here. General vanished/replacement-id repair and CFP event-key follow-ups were outside these delivered fixes.
 
-**Goals completed:**
+PR references: #405, #406, #411, #524, #551, #565.
 
-- Corrected the generated team-identity collision that mapped CFBD's bare `San Diego` label to San Diego State — crediting University of San Diego statistics to the SDSU-rostering owner each season 2022–2025 (found by the PLATFORM-086H3E production parity audit; root-caused by the identity audit to the derived `sandiego` catalog alt). Both alias generators (`buildDerivedAlts`, `buildDerivedTeamAliases`) now emit the compact tokens-first join ONLY when the two tokens are the whole variant; three-token compaction preserved; `src/lib/teamIdentity.ts` untouched.
-- Curated `src/data/alias-overrides.json`: San Diego State `{add: ["sdsu"], remove: ["sandiego"]}` plus three preservation entries (`la tech`, `miami (fl)`, `louisiana monroe`) keeping previously-shipped legitimate shorthand the current generator no longer derives — the committed catalog stays reproducible via `npm run fetch:teams`.
-- Regenerated `src/data/teams.json` through the supported workflow (one read-only CFBD call) reconciled to an alias-focused diff: 19 schools lose exactly the unsafe two-token-prefix class (`sandiego`, `newmexico`, `sanjose`, `texasa` + 15 junk mascot prefixes); SDSU gains `sdsu`; the generator's optional metadata fields were stripped (no all-catalog expansion); zero team/mascot/conference/order churn.
-- Deploy-effective activation without data mutation: curated overrides apply at durable-store READ time (stale synced catalogs served sanitized, never rewritten), and `ALIAS_OVERRIDES_HASH` versions the canonical-standings + insights cache identities so pre-override snapshots miss at deploy and future override changes auto-version.
-- Regressions: derived-alias truncation guards; override application; checked-in catalog invariants; real-catalog resolution (bare `San Diego` unresolved / distinct non-ownable observed identity; `SDSU` → `sandiegostate`; `San Jose` → `sanjosestate`; isolated NMSU cannot claim bare `New Mexico`); a stored bare-`San Diego` row NOT credited to the SDSU owner with a genuine SDSU control row still credited (aggregation code unchanged); mocked-CFBD durable sync persisting corrected alts with standings invalidation unchanged; stale-durable-catalog read-time sanitization without write-back; exact cache-key coverage of both policy hashes.
+### 24. Full-season schedule authority, weekly ownership, and enrichment
 
-**Key outcomes:**
+E1A converged full-season writers on one year authority: prior durable read, token-safe lease, regular+postseason validation before aggregate commit, observation ordering, durable-first publication, and standings invalidation only on content change. Unknown/failed partitions and empty-over-populated replacements retain prior-good data; genuine empty absence is distinct. Targeted child writers were outside that convergence. Historical repair cannot bypass lifecycle-active-year guards with `force`.
 
-- The live production insights inflation (e.g. Maleski 2025 +341 points, +4,337 total yards of USD production) is corrected from deploy, independent of the H3E activation work. No production data was contacted or mutated during implementation.
+E1B/B1 closed preseason maintenance gaps with explicit job ownership: daily transition owns unarmed discovery and the final seven-day approach to first game; weekly maintenance owns earlier cache-armed preseason and ordinary active-season upkeep. A sticky postseason-boundary latch makes lifecycle-critical maintenance pause-exempt. Settings gate ordinary work, not critical transition/boundary work; mixed years are handled once under their owner. Source records weekly QStash activation on 2026-07-29, Tuesday 12:00 UTC, with provider-free gate proofs.
 
-**Optional follow-up debt (non-blocking):**
+E1C's media and venue caches enrich display without owning kickoff or game identity. Media joins by exact provider game id; venue display fills by venue id; invalid/conflicting payloads retain prior-good evidence. Independent leases, observation-ordered commits, a 30-day venue TTL rechecked after lease acquisition, and bounded memo visibility prevent duplicate spend/stale publication. Primary broadcast is deterministic, and `startTimeTBD` shows date plus “Time TBD.” Enrichment failure serves base rows and cannot fail canonical schedule/lifecycle work.
 
-- **PENDING post-merge operations (recorded in `docs/next-tasks.md`; procedure in `docs/deployment-runbook.md` §8b):** (1) production durable team-catalog resync + `/api/teams` and resolver-diagnostic verification; (2) the required PLATFORM-086H3E production parity-audit rerun with the synced catalog's `updatedAt` as prerequisite — expected residual difference is only the single 2022 Akron@Buffalo `stats-manual-only` game.
-- Canonical ownership IDs for current-season draft ownership remain separate architectural debt (identity-audit recommendation), explicitly out of scope here.
+Initially manual-only enrichment became eligible after both populated `written-clean` and `unchanged-clean` canonical successes, because broadcast can change while schedule rows do not. Weekly and transition call sites run after their canonical/probe/lifecycle duties; no new scheduler was required. Critical-boundary enrichment inherits that operation's exemption. The §8i live observation was still pending in these source entries; it is not asserted complete here.
 
----
+PLATFORM-110 adds one best-effort vanished-id event after a confirmed changed full-season commit, retaining complete count and at most 25 identities; same-id edits stay silent. It neither repairs disappeared games nor adds provider requests. Its closeout did not verify promotion. The weekly score backstop is described separately under score automation.
 
-### PLATFORM-086 — Schedule Non-FBS Postseason Classification Safety — Complete
+PR references: #422, #423, #424, #425, #426, #512.
 
-**Status:** Complete. Merged to `main` via **PR #406** (merge commit `a015348`, 2026-07-24; from `main@e25cca7`; impl `535f54e` + docs closeout `13cb93f`). Codex review clean on the first pass (zero remediation rounds) and on the final full code+tests+docs review. `/verify`: the served `/api/schedule` surface is **byte-identical to `main`** against an identically seeded 2024 cache carrying the defective rows (cache-hit 200 serving cached items verbatim; 400s; 503 miss) — the correction manifests at refresh-time normalization only, where regressions failing 9/9 against pre-fix logic prove the intended identity change. `tsc`, `lint:all`, `git diff --check` clean; focused suites 101/101; full `npm test` 1994/1994.
-**PROMPT_ID(s):** PLATFORM-086-SCHEDULE-NON-FBS-POSTSEASON-CLASSIFICATION-SAFETY-IMPLEMENTATION-v1
+### 25. Live-score automation, writer convergence, and final-score backstop
 
-**Goals completed:**
+B1/B2's staged engine and lock convergence culminated in recorded production activation on 2026-07-28: QStash `turfwar-live-scores-3m`, retries zero, Scores automation on, and gated no-target proofs. The dormant headings are superseded by that activation.
 
-- Corrected the schedule-normalization defect that assigned CFP event identities to explicitly non-FBS postseason games. Generic "semifinal" wording on FCS and Division III championship rows minted the SHARED `cfp-semifinal` event key: the 2024 partition's four such rows (FCS `401729786`/`401729787`, D-III `401738295`/`401738307`) collapsed into one canonical postseason slot, and the authoritative collection produced a hybrid record — North Dakota State vs South Dakota State participants under the D-III provider id `401738295` — once the resynced team catalog made NDSU resolvable. This caused the 2024 alignment failure in the post-resync PLATFORM-086H3E parity rerun. The 2025 partition carries the same defect class (`401840097`/`401840096` D-III, `401833989`/`401833990` FCS).
-- One production file (`src/lib/schedule/cfbdSchedule.ts`): the previously discarded CFBD `homeClassification`/`awayClassification` fields (camel + snake case) are read and normalized; `fcs`/`ii`/`iii` on either side suppress text-based CFP inference in both text-inference branches of `deriveEventMetadata` — no `cfp-*`/`national-championship` key is minted for such rows, which keep row-specific non-CFP identities. Missing classifications preserve the legacy fallback; explicit metadata and curated keys pass through verbatim; genuine `fbs/fbs` CFP rows unchanged; eligibility untouched; no game-id special-casing; all six protected schedule/identity modules untouched.
-- Regressions (+14, fail-against-main proven): classification acceptance in both casings, non-FBS suppression matrix, missing-classification fallback, genuine-CFP retention, same-kickoff 2024 pairs receiving distinct identities, canonical collection keeping each row's participants aligned with its own provider id via the exported `buildScheduleFromApi` path, and FBS-vs-FCS eligibility.
+The cron derives targets from one cache-only canonical build in the kickoff −15-minute to +24-hour window. It chooses a global FBS scoreboard request while games remain open, otherwise one exact `/games` final-reconciliation partition, with one billed request per run and the shared quota reserve. Child partitions merge under advisory transactions against reconciled prior evidence, preserving monotonic state and per-game observation freshness. Scoreboard finals retain pending-confirmation ids until `/games` confirms numeric finals and oriented participants.
 
-**Key outcomes:**
+Manual repair joins the same lock protocol but retains its own authoritative replacement semantics: network work stays outside the transaction; newer/tied live observations are protected, valid manual state advances can supersede them, idless rows are uncertainty, and status/process-cache/invalidation effects follow confirmed commit. Shared locking did not erase distinct caller semantics.
 
-- No production API, database, or durable data was contacted or modified during implementation; serving behavior for existing caches is provably unchanged.
+Public/browser reads remain cache-only and reconcile child, aggregate, and canonical-week alias shapes. Durable snapshot time and clean client observation time are separate; final→final score corrections trigger server refresh. Per-game stale overlays were not delivered by B2B. Later browser cadence is recorded under live display.
 
-**Optional follow-up debt (non-blocking):**
+PLATFORM-107's weekly schedule-refresh sweeper fills finals missing beyond the live window by exact provider id, filtering covered games **before** the writer. It does not rewrite an existing final; differing scores are logged. Missing/duplicate ids fail closed, and repair/failure counts reach event/receipt. Thus this is a missing-final backstop, not a general final-score correction or game-stat reconciliation pass.
 
-- **PENDING post-merge operations (recorded in `docs/next-tasks.md`; procedure in `docs/deployment-runbook.md` §8c):** (1) forced full-year durable schedule refresh for 2024 AND 2025 (`bypassCache=1`; never the `force: false` Historical Data Cache button) + per-year `jq` identity verifications + provider-status checks + cache-only recheck; (2) the required PLATFORM-086H3E parity-audit rerun for 2024 with three recorded prerequisites (catalog `updatedAt`; 2024 refresh `meta.generatedAt`; schedule provider-status `lastSuccessAt`). Expected residual across all five archived seasons after the refresh: only the 2022 Akron@Buffalo `stats-manual-only` game.
-- Canonical ownership IDs for current-season draft ownership remain separate architectural debt.
+PLATFORM-115 gave scoreboard/final-score, game-stats cron, and admin-score requests a shared 40-second CFBD timeout; cron remains one attempt and admin replaces three short attempts with one longer attempt. Eligibility, cadence, reserve, and unrelated provider jobs were unchanged.
 
----
+PR references: #416, #417, #418, #505, #534.
 
-**Status:** Complete. Merged to `main` via **PR #407** (merge commit `a0cfff0`, 2026-07-24; from `main@b301774`; impl `d95de9e` + docs closeout `a90bd8b` + approved P2 remediation `2d27eed`). Codex review of the code/test diff **clean on the first pass**; the full-diff review raised one P2 (the schedule-eligibility rollout diagnostic hard-coded `upstream` participant ids to null), remediated as a user-approved scope exception with a fail-against-unfixed-proven route regression; final complete code+tests+docs re-review **clean**. Gates: focused schedule suites 82/82; dormant game-stats suites 179/179 (dormant-boundary guard unmodified); `tsc` / `lint:all` / `git diff --check` clean; full `npm test` 2031/2031; `npm run build` clean; local-only runtime probes byte-identical to `main` across all seven schedule/game-stats requests (old-shaped cache hit serves with no fabricated ids; a new-shaped cache serves ids verbatim).
-**PROMPT_ID(s):** PLATFORM-086H3C5-DORMANT-NUMERIC-PARTICIPANT-VALIDATION-v1
+### 26. Odds attachment, atomic refresh, hydration, and favorite correction
 
-**Goals completed:**
+PLATFORM-030/031 made attachment event-centric: centralized team resolution, same-pair candidates narrowed by ±24-hour commence-time tolerance, and attachment only when one candidate remains. Nonattachment reasons distinguish unmatched pair, ambiguity, date mismatch, and consumed/duplicate events. Commence time is attachment metadata, not a second canonical identity or new public/durable snapshot field; older undated caches remain valid without a migration fetch.
 
-- Persisted CFBD numeric schedule participant ids through the ONE shared mapper: `CfbdScheduleGame` reads `homeId`/`awayId` in camel and snake casings; `mapCfbdScheduleGame` strictly normalizes each to a positive safe integer or explicit `null` (zero, negatives, fractions, exponent/hex/signed forms, unsafe integers, blanks, and coercive forms → `null`; an invalid id never drops the row). `ScheduleItem` owns explicit nullable ids; `ScheduleWireItem` gains optional compatibility fields; all three durable schedule write paths persist the mapper output unchanged and no read path fabricates or writes ids back.
-- Copied the wire row's strictly valid ids onto `CanonicalGame` as nullable provider-participant metadata (revalidation only — no second normalization authority); `ParticipantSlot.teamId` remains the resolver-produced canonical string identity and `teamIdentity.ts` is untouched.
-- Reintroduced numeric participant validation inside the dormant evidence authority: exact oriented `stored.home.schoolId === schedule.homeId && stored.away.schoolId === schedule.awayId` (a reversal is a mismatch; neutral-site is irrelevant; names/aliases/conferences never verify or contradict). New fail-closed states `participant-validation-unavailable` and `identity-mismatch` plus a typed `participantValidation` outcome on `EvidenceDecision`; schema blockers precede validation; only VERIFIED candidates rank; a mismatched/unverifiable candidate of any sufficiency never displaces a verified sibling; mismatch outranks unavailable; no-rows stays `absent`.
-- Public availability now counts both gap classes in aggregate; neither publishes a public row nor enters analytics (the C4 final-score + strict-completeness gate is unchanged and now implies participant verification); coverage keeps the existing coarse partition vocabulary.
-- +34 regressions across the schedule normalization, slate compatibility (old aggregate/partition-only caches → nullable ids, no write-back), the full evidence matrix, and coverage/projection exclusions; one C1-era test asserting the superseded participant-validation deferral rewritten to the fail-closed behavior.
+C1/C2 converged manual/automatic refresh on one execution authority. Token-safe five-minute leases, durable backoff, a post-acquisition cadence recheck, observation ordering, and atomic raw-cache plus per-game commits prevent duplicate spend and inconsistent success. Empty classification uses transaction-fresh context. Provider URL/exception diagnostics redact query credentials; quota estimates are conservative and corrected by the next trusted probe. Automatic policy preserves 50 credits with at most one billed request and no retry.
 
-**Key outcomes:**
+Production activation is recorded by C2 and confirmed by C3's documentation correction: `turfwar-odds-hourly` invokes the app, which decides whether work is due. Public `/api/odds` is durable-cache-only and performs no maintenance writes; closing-line maintenance belongs to authorized refresh/cron. Cross-instance commits have bounded memo visibility.
 
-- No provider, production API, database, or durable data was contacted or modified. C1–C5 and H2 remain dormant behind the unmodified recursive dormant-boundary guard; production remains on the fenced legacy writer in `legacy`; H3E final activation remains unwritten. The only live wire-shape change is additive: a REFRESHED `/api/schedule` response carries `homeId`/`awayId`; cache hits over pre-C5 rows serve byte-identically with no fabricated fields.
+C3 removed the old browser kickoff-window gate: stored lines hydrate once per selected season and after schedule rebuilds, even for distant or completed games. Stale-season responses are canceled; focus/navigation/live-score timers do not create periodic Odds refresh. Existing cache lines are no longer hidden simply because no game is near kickoff.
 
-**Optional follow-up debt (non-blocking):**
+PLATFORM-089 widened target eligibility to 45 days with staged 24-hour, six-hour, and pregame two-hour checks. An hourly scheduler is not an hourly provider fetch. Far-out withdrawals are `early-lines-withdrawn` no-ops with reason-aware health handling; a completed check is not fabricated data freshness.
 
-- **Post-merge rollout prerequisite (documented in `docs/ai/game-stats-writer-fence.md` §4/§6, NOT executed):** full-year `bypassCache=1` schedule refreshes for every H3E target season, per-year id verification, and the read-only participant-validation/parity audit before E begins; old caches fail closed (`participant-validation-unavailable`) until refreshed.
-- The accepted 2022 `401506450` upstream-CFBD limitation and the `manual-only`/`stats-manual-only` rename terminology debt are unchanged (see `docs/next-tasks.md` → "Unresolved decisions & known deferrals").
+PLATFORM-123 later fixed favorite pairing from signed home/away spreads through the shared upset helper. New/stored snapshots and frozen closing-line **read projections** render correctly without rewriting durable closing history; pick'em retains its spread without inventing a favorite, and malformed-row validation remains intact. This closes the producer defect carried by the weekly recap.
 
----
+PR references: #331, #332, #419, #420, #421, #469, #556.
 
-**Status:** Complete. Merged to `main` via **PR #408** (merge commit `a4dd9d5`, 2026-07-24; from `main@ef4133e`; impl `6c50884`/`aa309fa`/`c1143af`/`df94dfb` + remediations `c5e9a53`/`1441ed9`/`c06b8d4`/`a847493`/`4ebb068` + docs closeout `0ee949c`). Six Codex review rounds — round 1: one blocker (silent wire-row mis-association under id-rewriting manual overrides → now fails closed) + three should-fix; rounds 2–5: progressively narrower dormant-guard hardening (positional/form-strict allowlist, comment/string-masked statement boundaries, template/comment-separated/escape-decoded specifiers, single-pass decoding with line continuations) + snapshot build-time self-validation; round 6 **clean**; final full-diff review incl. docs **clean**. Gates: `tsc` / `lint:all` / `git diff --check` clean; full `npm test` 2055/2055; `npm run build` clean; isolated semantic comparison (seeded file-fallback state, no network) byte-identical to `main` except the single additive `gameStatSlate` block.
-**PROMPT_ID(s):** PLATFORM-086H3E1-PAIRED-ANALYTICS-PROVENANCE-v1 (slice 1 of PLATFORM-086H3E-FINAL-ATOMIC-ACTIVATION-v1)
+Documentation: `docs/operations/diagnostics.md`.
 
-**Goals completed:**
+### 27. Rankings refresh and publication-aware automation
 
-- Added `deriveCanonicalGameStatsSlateFromBuild`: canonical game-stat slate derivation from the EXACT `buildScheduleFromApi` build (unmodified games + exact wire rows), inheriting that build's league-scoped aliases, manual postseason overrides, and attachment keys instead of an independent league-agnostic rebuild; an addressable built game with no associated wire row fails CLOSED. `buildCanonicalGameStatsSlate` delegates to it (equivalence-tested; behavior unchanged).
-- Added the archive-owned `gameStatSlate` snapshot (`src/lib/gameStats/slateSnapshot.ts`): minimal strict versioned wire schema (per game: providerGameId, attachment key, providerWeek, seasonType, name-resolved participants, numeric homeId/awayId — never a serialized runtime `CanonicalGame`); built during `buildSeasonArchive` from the same build that produced `archive.games`, paired ONLY with that archive's own `scoresByKey`; self-validated through its strict parser at build time; fail-closed on empty catalog, duplicate/unassociated provider ids, and invalid override-injected values. Strict parser distinguishes `absent` (pre-E1 archive) from `malformed` (incl. present `null`, `expectedYear` mismatch).
-- Extended the recursive dormant-boundary guard with its single exact production crossing (`slateSnapshot.ts` → `canonicalSlate`, derive entry only) — positional and form-strict, with laundering self-tests (re-exports, renamed/namespace imports, dynamic/template/comment-separated/escape-obfuscated specifiers, line continuations, value aliasing) and a documented honest static scope.
+E2A/B merged 2026-07-30 and the source's later §8j update records production activation, superseding its initial unprovisioned status. Public rankings stays cache-only with bounded durable rereads and an eight-day freshness horizon; manual and automatic work use one year authority with token-safe lease, two-partition validation, cross-year checks, observation ordering, and prior-relative completeness. Failed/empty/incomplete observations cannot erase prior-good poll weeks or sources.
 
-**Key outcomes:**
+The QStash heartbeat (04:00/22:00 UTC) is only a trigger. Registry-selected production years feed five ordered application publication windows: final AP/Coaches, CFP, opening-week exception, weekly AP/Coaches, and preseason discovery. Cache-only context and exact-window token-safe claims precede quota/provider work. Completed publication windows are immutable/provider-free; failed or contended attempts release claims, and unconfirmed completion reports partial. The delivered quota floor was 1,007, distinct from score/game-stat defaults.
 
-- Additive and non-activating: no live consumer lifecycle, writer, or provider access; production remains on the fenced legacy writer in `legacy`; E2/E3 remain unwritten. Newly built/backfilled archives carry the snapshot; nothing reads it until E3, which fails closed on absent/malformed snapshots — the preview/confirm backfill is the only repair.
+Delayed delivery outside minute-exact slots and accumulated completion records were accepted operational properties, not silently corrected. The source retained cross-authority indeterminate-commit vocabulary and synthetic-final-poll replacement concerns. Later exact FBS poll-source matching is recorded with standings coverage; demo exclusion and registry validity are covered in their shared records.
 
-**Optional follow-up debt (non-blocking):**
+PR references: #427, #428.
 
-- **Operator ordering before E3 activation (documented, NOT executed):** full-year schedule refreshes (2021–2025 + activation season) → participant/parity audit → preview/confirm archive backfills; backfilling first would bake null participant ids into snapshots.
+### 28. Roster upload, canonical aliases, and direct editing
 
----
+The upload pipeline validates exact/alternate-name → stored alias → conservative fuzzy suggestions, restricted to the FBS pool. Fuzzy suggestions require human confirmation or an explicit picker choice; the validation endpoint writes nothing and final PUT independently refuses unresolved names. Fuzzy matching is an upload convenience, not a replacement for canonical game identity. Confirmed aliases persist globally, with an exhaustive idempotent migration of legacy league/year scopes before the migration sentinel is written.
 
-**Status:** Complete. Merged to `main` via **PR #409** (merge commit `d04f3b3`, 2026-07-25; from `main@f412382`; impl `17323a0` + tests `6534d6c` + remediations `9a1adb7`/`0de9629` + docs `d3cf48a`/`4972c6e`/`154a5ea`). Five Codex rounds ending clean — round 1: invalid-clock NaN fall-through + missing bare-symbol self-tests (remediated); round 2 clean; final full-diff round: unvalidated durable reads in the polling selector + two doc corrections (remediated, incl. exporting the shared envelope validator); round 4 code-clean with a doc-wording remediation; round 5 clean. Gates: `tsc` / `lint:all` / `git diff --check` clean; full `npm test` 2095/2095; `npm run build` clean; served surfaces byte-identical to `main` by construction (dormant additions only).
-**PROMPT_ID(s):** PLATFORM-086H3E2-DORMANT-REFRESH-POLLING-PREREQUISITE-v1 (slice 2 of PLATFORM-086H3E-FINAL-ATOMIC-ACTIVATION-v1)
+The direct roster editor supports per-row dirty state, bulk reassignment with explicit save, and server-response resynchronization through the same ownership CSV endpoint. RFC 4180 parsing/escaping prevents quoted-name amplification, and `NoClaim`/empty ownership remain supported data. Editing, CSV import, and live drafting have distinct user workflows but share the ownership handoff. Historical year-source fixes aligned editor/upload scopes; later lifecycle-year authority supersedes earlier calendar-based defaults. Upload errors stay visible even when automatic completion bypasses the review screen.
 
-**Goals completed:**
+PR references: #202, #203, #229.
 
-- `refreshOutcome.ts` — the ONE typed refresh-outcome interpreter E3's route and cron must share: classifies C2's complete `GameStatsIngestionResult` (H2's `DurableMergeResult` nested unchanged) into 13 stable reasons per the locked matrix; only the three confirmed-commit outcomes (written+clean, written+mixed, partially-merged) may advance last-success; conflict → 409, unavailable → known-unchanged 503, indeterminate → 503 with durability UNKNOWN; `knownUnchanged`/`durabilityUnknown` mutually exclusive across the matrix.
-- `pollingTarget.ts` — the approved schedule/evidence 15-minute target derivation (NOT score-gated): games poll while addressable, stat-applicable, kickoff-aged [3h, 24h), and not evidence-`satisfied` per the shared evidence authority; earliest-unresolved ordering with regular-before-postseason and week tie-breaks; at most ONE partition per run; invalid clocks, unparseable kickoffs, and malformed/mismatched durable records (validated through the shared `validateGameStatsEnvelope`, newly exported from dormant `publicProjection.ts` — no second envelope policy) resolve nothing and never suppress a poll.
-- `quotaPolicy.ts` — the 1,000-call reserve: automation requires trustworthy finite provider-reported usage ≥ 1,002 remaining; `usage-unavailable`/`usage-untrustworthy`/`below-reserve` fail closed with distinct reasons, never fabricated; manual refresh refuses 429 below reserve unless the second explicit `quotaOverride=1` parameter is supplied, overrides reported truthfully.
-- Dormant-boundary guard extended: all three modules are dormant homes; seven forbidden entry-point symbols with flagged-import and bare-symbol self-tests; the E1 allowlist untouched.
+### 29. Public entry, deployment branding, and shared wordmark
 
-**Key outcomes:**
+The original landing/admin-card iterations culminated in a server-rendered public page that reads no league registry data for non-admin visitors. Resolving access before loading data fixed anonymous directory serialization, blank no-JavaScript rendering, and signed-in non-admins receiving the admin branch. Non-admins retain a working sign-out; admin owner counts resolve each league's own season and count distinct owners rather than team rows.
 
-- Pure and unwired: no routes, cron, provider status, diagnostics, analytics consumers, or `vercel.json` change; production remains on the fenced legacy writer in `legacy`; E3 retains sole ownership of activation and remains unwritten.
+Launch work established Turf War branding, production Clerk configuration, `turfwar.games`, and the dashboard-configured `tscturfwar.com` → `/league/tsc` redirect. These are recorded deployment outcomes, not a fresh domain or authentication audit.
 
-**Optional follow-up debt (non-blocking):**
+POLISH-004 replaced unsuccessful native SVG/CSS stadium constructions with a licensed Adobe Stock photograph and shared `TurfWar` wordmark on landing/login/admin entry. Hero and lower content anchoring replaced margin tuning that fought vertical centering. Decorative-raster guidance superseded the blanket raster prohibition; temporary landing color exceptions were removed. Public HTML remains useful without JavaScript and independent of corrupt league storage.
 
-- E3 wiring contracts documented at the seams (attempt begins after target resolution and before credential/usage checks; quota refusal resolves the attempt once as a truthful failure; durable reread after every possibly-writing attempt) — implemented in E3, not here.
+Wordmark cleanup restored normal tracking and a 0.02em f/W join instead of blanket negative tracking that canceled the font's r/f kerning. Font family, size, and layout were unchanged; the mark remains platform-font-dependent. Full brand-identity expansion was not delivered by the stadium slice.
 
----
+PR references: #272, #465, #466, #468.
 
-**Status:** Complete. Merged to `main` via **PR #411** (merge commit `4e4535d`, 2026-07-25; from `main@b4b7c19`; impl `b4dc496` + remediations `7d0f6ec`/`a2a12ac`/`39745f4`/`3f35cfc`/`353f213`/`413c716` + docs closeout `4f2fc18`). Seven Codex rounds ending clean — round 1 had no production findings; the owner then mandated FULL permutation invariance, and rounds 3–6 eliminated every statically-demonstrable order dependency with counter-example regressions (2-, 6-, and 24-ordering scale); round 7 clean. Gates: `tsc` / `lint:all` / `git diff --check` clean; full `npm test` 2116/2116; five files changed; `teamIdentity.ts` untouched; no provider game id special-cased (test-enforced).
-**PROMPT_ID(s):** PLATFORM-086H3E4-SECOND-ROUND-CONFERENCE-COLLISION-REMEDIATION-v1
+Documentation: `docs/vision.md`.
 
-**Goals completed:**
+### 30. Theme, owner colors, shared navigation, and responsive foundations
 
-- Token/phrase-boundary conference alias matching (`matchConferenceChampionshipSlotByText`): the `sec` inside "Second Round" can no longer read as the SEC alias; multi-token aliases and first-match slot order preserved.
-- Consistent non-FBS negative evidence: explicitly classified FCS/D-II/D-III rows can no longer acquire an inferred FBS conference-championship identity (mirroring the existing CFP suppression); explicit metadata compatibility and eligibility rules unchanged.
-- Permutation-invariant, hybrid-proof `buildAuthoritativeGameCollection`: deferred two-phase content-deterministic resolution; distinct numeric provider ids never merge; a numeric provider id always survives a merge; fragments attach by exact-id affinity or sole-compatibility against the fixed fulls-only set with fail-closed ambiguity; byte-total content ordering; arrival-independent cross-group base-key ownership.
-- Regression evidence: the confirmed `401673469`/`401729753` pair end-to-end in both input orders; all-orderings collection tests; a discriminating byte-distinct-Unicode fold regression; downstream archive assembly over the stale corrupted caches yielding the genuine Texas–Georgia game (19–22, correct ownership, correct E1 snapshot pairing).
+Earlier product-design work established underline navigation, dedicated league routes including Members, consistent History chrome and deep links, FBS Polls presentation, compact/mobile standings, chart/table-as-legend interaction, and Vercel Speed Insights. The temporary hardcoded History founding-year subtitle was replaced by league metadata. Retired selectors, props, and duplicate legends were removed where their consumers disappeared.
 
-**Key outcomes:**
+Owner colors evolved from hardcoded names to a dynamic alphabetical-index palette, constructed from canonical owner ordering and passed to chart/legend consumers; isolated season-arc rendering has its own valid context. Names are color-coded when they serve as a chart legend, not indiscriminately. Hover/highlight mitigates crowding at large owner counts.
 
-- The confirmed 2024 archive-corruption mechanism (FCS "Second Round" inheriting the SEC Championship identity and fieldwise-merging into a hybrid) is closed at classification AND collection, deterministically in every input order. **The 2024 durable archive itself remains corrupted until the runbook §8d operator sequence executes** (deploy while `legacy`/paused → 2021–2025 refreshes → identity verification → collision-audit rerun → full H3E parity-audit rerun → backfills), which PRECEDES the H3E activation audits. `401506450` remains the sole accepted parity exclusion.
+**POLISH-010 supersedes light-mode delivery:** dark became the sole app theme on 2026-08-19 because the champion-accent language could not meet the small-text contrast requirement on white. `dark:` utilities became unconditional and JavaScript palette selection funnels through `isDarkTheme()`; a CSS-only change would leave light hex palettes on dark surfaces. Light base classes and exported palette parameters remain dormant for reversibility, not as completed dual-theme support. Remaining light-parameter escape paths and unwalked surfaces were recorded, not declared fixed.
 
-**Optional follow-up debt (non-blocking):**
+PR references: #500.
 
-- The accepted round-6 nit: an adversarial hand-crafted stored key equal to another candidate's generated suffix could still contest key assignment order-dependently; no schedule-generated input can produce it.
+### 31. Documentation ownership, verification discipline, and preview isolation
 
----
+PRE-LAUNCH-TIDYUP introduced the shared test entry point and removed `papaparse`; markdownlint joined the standard lint chain with an explicit repository policy. DOCS-012 separated execution queue/deferrals, roadmap direction, prompt execution lineage, and completed outcome history. DOCS-013 recorded exact-commit review, evidence-based attribution, bounded remediation, reconstruction when scope is wrong, PR sizing, and independent unmasked gates. These historical milestones point to `AGENTS.md`; they do not duplicate or replace its current instructions.
 
-### PLATFORM-086H3E external scheduler — migration + pre-activation remediation (2026-07-26)
+Recurring lessons are retained once: establish the real consumer/authority before editing; test the behavior actually claimed; prove negative observers with positive controls; mutate one compiling property at a time; and do not infer runtime use from a near-name grep match. An unused second model can contradict its consumer unnoticed, and an extra remediation can introduce defects of its own. Later POLISH-024 explicitly bound read-use claims to mutation evidence.
 
-- **Status:** ✅ MERGED (code); the §8d operator correction sequence PERFORMED; H3E production **activation still PENDING** (production remains in `legacy`).
-- **PROMPT_ID(s):** `PLATFORM-086H3E3-FINAL-ATOMIC-WIRING-v1` (PR #410, incl. the cron durable-observability remediation), `PLATFORM-086H3E-EXTERNAL-SCHEDULER-MIGRATION-v1` (PR #410), `PLATFORM-086H3E-EXTERNAL-SCHEDULER-PRE-ACTIVATION-REMEDIATION-v1` (PR #412, merge `a161e33`).
-- **Goals completed:**
-  - The 15-minute game-stats poll is externalized off Vercel crons onto an external **QStash** schedule that calls the UNCHANGED `GET /api/cron/game-stats` (Vercel Hobby rejects sub-daily crons at deploy time; the Vercel deploy check is now GREEN, no plan requirement for `*/15`). `vercel.json` keeps only the two daily lifecycle crons.
-  - An inspect-first operator CLI (`npm run manage:game-stats-schedule`) provisions/controls the fixed schedule through the QStash management API — read-only default; `-- upsert/pause/resume --apply`; no delete; no QStash SDK. The upsert redacts the forwarded route credential (`Upstash-Redact-Fields: header[Authorization]` → QStash returns `REDACTED:<opaque>` while still delivering the real Bearer to the route); inspect verifies structure + that the readback is redacted (never plaintext), needs no `CRON_SECRET`, and states exact route auth is proven only by the §8e delivery test. Credentials/digest are never printed; `QSTASH_URL` is host-allowlisted before any request.
-  - The cron durable-observability remediation: the activated cron carries the durable reread on every target-resolved failure path and splits provider-transport (`provider-fetch-failed`) from ingestion (`ingestion-failed`) faults via a fully fail-safe `projectDurableBlock`.
-  - The **§8d** post-merge correction sequence (E4 deploy → 2021–2025 full-year schedule refreshes → identity verification → collision + parity audit reruns → all five archive backfills) was PERFORMED and verified clean: the 2024 durable archive now holds the genuine Texas–Georgia game, every archive carries a valid paired `gameStatSlate` snapshot, and `401506450` remains the sole accepted analytics-incomplete residual.
-- **Key outcomes:** the game-stats route, writer-control, quota, one-request, and no-retry behavior are byte-unchanged by the externalization; the runbook §8d is now a completed historical record and §8e is a read-only-verify activation sequence with both automation gates (`globalPause` + dataset `enabled`) held closed until an exact-authentication scheduled-delivery proof passes. Production activation (writer transitions, QStash provisioning, gate opening) has NOT run — the merges activate nothing.
-- **Optional follow-up debt (non-blocking):** two sequential-`getAppState` loops (provider diagnostics; cron target resolution) and a duplicated `fetchCfbdUsage` headers object were reported by `/code-review` and left as low-severity, unapplied.
+PLATFORM-108 removes provider pacing only when both the explicit disable flag and Node test-child signal are present; production timing and all eleven intervals remain unchanged. Injected clocks verify serialization without sleeps. It did not solve JSDOM startup. PLATFORM-121 replaced calendar-expiring Odds route fixtures with execution-relative timing while preserving same-pair separation; the later September closeouts still recorded two separate standing Item 137 odds failures, so this ledger does not turn those runs into an all-green claim.
 
----
+Preview received an isolated database on 2026-08-13. The build-gate correction identifies `vercel.json`'s `ignoreCommand` as the effective docs-only gate and distinguishes a branch ref advance from a deployment; dashboard allowlisting was present but overridden. This documents isolation, not automated branch/database cleanup.
 
-### PLATFORM-086H3E production activation checkpoint (2026-07-26)
+PR references: #306, #392, #429, #444, #506, #553.
 
-- **Status:** Production ACTIVE; steps 1–13 of runbook §8e complete. One gates-open scheduled-delivery observation and restoration of Auto-assign Custom Production Domains remain operational closeout.
-- **PROMPT_ID(s):** `PLATFORM-086H3E3-FINAL-ATOMIC-WIRING-v1`, `PLATFORM-086H3E-EXTERNAL-SCHEDULER-MIGRATION-v1`, `PLATFORM-086H3E-EXTERNAL-SCHEDULER-PRE-ACTIVATION-REMEDIATION-v1`.
-- **Goals completed:**
-  - Promoted the exact reviewed code-bearing artifact — commit `a161e33`, deployment `dpl_73jnt1KDqaAE5dRT9BJ5uLRfpLEt`; docs-only `main@34ffdd8` was deliberately not promoted.
-  - Transitioned durable writer control `legacy → armed → active`. Production must never return to `legacy`; emergency fallback is `active → read-only-safe`.
-  - Reverified cache-only game-stats, missing-partition, Historical Insights, Maleski career, archived-season, and career/season-record paths without identity, unavailable-data, or failed-data warnings.
-  - Performed one controlled manual provider proof for `2025 / week 16 / regular`: `success` / `written-clean`, durable expected/satisfied/published `1/1/1`, zero identity mismatch, zero participant-validation unavailable, and exact scoped status `game-stats:week:2025:16:regular` (`cfbd`, `rowsCommitted: 5`, no partial failure or last error).
-  - Confirmed CFBD `/info` costs zero calls; the single `/games/teams` proof consumed exactly one (`4921 → 4920`), leaving the 1,000-call automation reserve intact.
-  - Provisioned and inspected QStash schedule `turfwar-game-stats-15m` with 15-minute `GET`, retries `0`, no callbacks/queue/delay/scheduler retry, one forwarded Authorization header, and provider-side redaction. A gates-closed scheduled delivery returned HTTP `200`, created no provider-refresh attempt, and left quota at `4920`; then game-stats auto was enabled and global pause cleared last.
-- **Key outcomes:** Current live state is writer `active`, QStash active/unpaused, game-stats auto enabled, global provider pause off, CFBD remaining `4920`; score automation remains separate. The next no-target run should return HTTP `200`, create no provider attempt, and spend no quota.
-- **Known observability gap (non-blocking; PLATFORM-086F):** QStash receives the cron's useful JSON skip message, but the app does not emit a dedicated secret-safe structured log for every scheduler decision. The first 086F slice will add one event per run (`result`, `reason`, target, provider-call decision, committed rows, duration) without logging secrets/payloads and without turning harmless skips into provider-refresh attempts. An independent last-scheduler-check heartbeat is optional. This gap does not reopen or block H3E.
-- **Remaining closeout:** Observe one delivery after both gates opened; require QStash HTTP `200`, CFBD still `4920`, and no unexpected game-stats attempt. Then re-enable Auto-assign Custom Production Domains.
-- **Closeout COMPLETE (follow-up):** the two items above are done. Multiple gates-open scheduled deliveries returned QStash HTTP `200` with CFBD quota unchanged at `4920` (no eligible partition inside the polling window ⇒ no provider-refresh attempt), and Auto-assign Custom Production Domains has been re-enabled. **H3E activation is fully closed — no remaining activation or closeout work.** The next related work is the separate PLATFORM-086F secret-safe scheduler-logging slice (the known non-blocking observability gap above).
+Documentation: `docs/README.md`.
 
----
+## Historical checkpoints
 
-### PLATFORM-086I — Provider Data Status Settings Feedback — Complete
+Dates below are those recorded in the supplied ledger, not inferred from the consolidation date or current production. “Date not recorded” is intentional. A source id identifies the exact per-source index row. These checkpoints preserve the earlier state and later update; they do not present the latest state as if it had always held. Outcomes above remain summaries, not verbatim snapshots of every historical assertion.
 
-- **Status:** Complete. Merged to `main` via PR #413 (`platform/086i-settings-feedback`, merge commit `da99a11`, 2026-07-27). Two commits (implementation + docs closeout); one independent Codex review round, clean (no findings). Closes the last deferred PLATFORM-086A operator-controls finding (#2 / the retired 086D).
-- **PROMPT_ID(s):** `PLATFORM-086I-SETTINGS-FEEDBACK-v1`.
-- **Goals completed:** The Provider Data Status panel already stored the global-pause and per-dataset auto-refresh toggle mutation errors in its action state but only ever rendered manual-refresh feedback. Those stored errors now render as compact red `role="alert"` regions beneath their control: the global pause as a `w-full` alert that wraps beneath the pause row, and an interactive dataset's toggle as an alert beneath that card's control row. Each control carries a conditional `aria-describedby` to a stable alert id (`provider-global-pause-error` / `provider-toggle-<dataset>-error`), so the failure is both visible and programmatically associated with the control that failed. Authoritative-state behavior is preserved — no optimistic toggle, no reload after a failure, and the setting changes only once a successful POST is reloaded from the status feed; a retry sets the action to `loading`, which clears the stale alert while pending, and a successful retry reloads the selected year.
-- **Key outcomes:** An operator who toggles the global pause or a dataset's auto-refresh and hits a server/network failure now sees why, beside the control, instead of a silently reverted control with no explanation. Only a setting-consumed (`interactive`) dataset can raise a toggle alert (Game Stats today); planned/lifecycle-exempt datasets are unaffected, and the separate manual-refresh feedback path is unchanged. Client-only: server API, persisted settings, refresh behavior, provider jobs, and diagnostics information architecture are untouched. Changed only `src/components/admin/ProviderDataStatusPanel.tsx` (rendering) plus a new JSDOM suite `ProviderDataStatusPanel.feedback.test.tsx` (+368). Validation: new suite 3/3, provider-panel helper suites 55/55, provider-status route 23/23, `tsc`/`lint:all` clean, full `npm test` 2166/2166; no provider quota spent.
-- **Optional follow-up debt (non-blocking):** none. The broader diagnostics information-architecture redesign remains deferred to PLATFORM-086F. Next in campaign order: PLATFORM-086B (live-score polling).
+| Recorded date / sequence | Source ids | State at that checkpoint and subsequent change |
+| --- | --- | --- |
+| Date not recorded | S049, S052, S053, S054, S055, S057 | Entries explicitly said complete while PRs #217, #216, #214, #213, and #211 were still open. The index preserves that recorded state; later merge dates are not inferred. |
+| Date not recorded | S032, S033, S037, S028, S029, S031 | Panel direction and two brainstorming sessions were planning checkpoints (queued/in progress/deferred), followed by separately recorded panel/generator/copy implementations. No date is supplied for that sequence and unimplemented proposals are not promoted to shipped work. |
+| Date not recorded | S042, S070 | Preseason setup initially used Go Live to transition immediately; the later season-transition entry decoupled setup completion from automatic season start. |
+| Date not recorded → 2026-08-08 | S067, S068, S124 | Founded Year was initially editable. F2J subsequently froze it after creation with a verified recovery-only exception. The original editable-field decision was real history, not a documentation typo. |
+| Date not recorded → 2026-08-03 | S058, S053, S055, S069, S143 | Initial draft inputs included SP+/win totals and metric-based auto-pick. Later draft polish made auto-pick random; F2G1 retired recommendation inputs and the dead metric setting on 2026-08-03. Original selection policy is preserved as superseded history. |
+| Date not recorded → 2026-08-19 | S066, S147 | Light/dark support and paired owner palettes shipped first. POLISH-010 retired light as an active theme on 2026-08-19; its old implementation was not merely a mistaken claim. |
+| Date not recorded → 2026-08-07 | S059, S060, S116 | Historical backfill API/UI and 2021–2024 import were delivered first. F2H2A removed the standing backfill API/UI on 2026-08-07; builders and deliberate one-off repair capability survived. |
+| Date not recorded → 2026-08-08 | S026, S122 | Launch hardening introduced returning-owner framing. INSIGHTS-022 later removed it because archived membership did not establish a future return, while retaining the engine suppression rule. |
+| 2026-07-17 | S019 | H1 merged dormant (#396); parsing/analytics contracts were production-disconnected and activation remained future work. |
+| 2026-07-18 | S018 | H2 merged dormant (#397); production writers remained legacy-only. A merged durable merge service was not yet the active ingestion path. |
+| 2026-07-21 | S074 | Fenced legacy writer merged (#399); the replacement revision-lineage design was rejected. Initialization was a prerequisite before fenced deployment; the source did not date its execution here. |
+| 2026-07-22 | S075, S076, S077, S078, S079 | C1–C4 and D merged dormant (#400–404); analytics evidence/finality and rollout transitions were implemented without activating consumers. D explicitly recorded no transition executed and production still legacy. |
+| 2026-07-24 | S080, S081, S082, S083 | Alias and classification corrections plus numeric participant ids and paired archive snapshots merged (#405–408). Numeric validation/analytics remained dormant; old schedule caches required refresh and snapshot-bearing archives required rebuild before activation. |
+| 2026-07-25 | S084, S085 | Polling/refresh prerequisite (#409) remained unwired. Collision remediation (#411) closed the code mechanism, but the 2024 durable archive was still recorded as corrupted pending the §8d operator sequence. |
+| 2026-07-26 — preactivation checkpoint | S086 | §8d correction sequence was recorded performed: 2021–2025 schedules refreshed, collision/parity checks rerun, archives rebuilt. H3E activation was still PENDING and writer control remained legacy. #410/#412 being merged did not establish activation. |
+| 2026-07-26 — activation checkpoint | S087 | Writer transitioned legacy → armed → active; production artifact `a161e33` was promoted; the controlled refresh and QStash auth proof succeeded. The entry initially retained two closeout items: observe a gates-open delivery and restore automatic production-domain assignment. |
+| Later follow-up — date not separately recorded | S087 | The same source entry explicitly closes both remaining H3E items: gates-open no-target deliveries were observed and domain assignment restored. It does not give a separate timestamp for this follow-up; it is not silently dated 2026-07-26. |
+| 2026-07-27 | S089 | F1 (#414) subsequently added the secret-safe per-invocation runtime logging that the H3E activation checkpoint had explicitly left as a non-blocking gap. |
+| 2026-07-27 → 2026-07-28 | S090, S091, S092 | Live-score engine B1 merged dormant on July 27; B2A lock convergence remained dormant on July 28. B2B code delivery and the separately executed §8f activation are both recorded July 28. The entry retains preactivation prose as well as the later activation update. |
+| 2026-07-28 → 2026-07-29 | S093, S094, S095 | Odds C1 was dormant at merge; C2 initially described code-only delivery with §8g pending, then records §8g executed. C3 on July 29 confirms/corrects the activation documentation. The source gives July 28 as the C2 merge date but no separately dated §8g operation; no exact activation date is invented. |
+| 2026-07-29 | S096, S097, S098 | E1A and E1B/B1 initially merged dormant. E1B activation was held for the preseason gap; after B1 closed it, §8h was recorded executed July 29. Both dormant-at-merge and subsequent active states are retained. |
+| 2026-07-30 | S099, S100 | Presentation C1 merged manual-only. C2 subsequently wired automatic enrichment under already-active schedulers; §8i observation remained PENDING in the source. Eligibility is not a recorded successful live observation. |
+| 2026-07-30 | S101, S102 | Rankings E2A merged dormant; E2B initially said NOTHING PROVISIONED OR ACTIVATED with §8j pending. Its later follow-up explicitly says §8j EXECUTED 2026-07-30 and automation ACTIVE. Both checkpoints remain historical facts. |
+| 2026-07-30 → 2026-08-07 | S035, S107, S129, S126 | Early manual rollover was tightened to the shared strict gate by F2B on July 30. F2H3A on August 7 retired execution but retained preview; F2H4 later that same recorded date removed the preview, routes, and Season Management page. The source does not supply times within that day. |
+| 2026-08-04 → 2026-08-07 | S141, S138, S137, S136, S135, S128 | Manual demo authority landed first (August 4), then automated targeting/operational-year exclusions (August 5); typed demo feedback and truthful manual-control presentation landed August 7. Intermediate cross-job handoff gaps were real during the staged rollout, not final behavior. |
+| 2026-08-06 | S134, S133, S132, S131 | R1→R4 hardened four registry consumers sequentially. Each intermediate entry still described unconverted siblings; by R4 container handling was complete. R3 explicitly accepted invalid-target standing warnings, superseding R2’s objection. Missing-status recovery was still not delivered. |
+| 2026-08-13 → 2026-08-18 | S152 | Preview database isolation is recorded August 13. Build-gate documentation was corrected on main at `0232d525` on August 18; the source does not call that SHA a merge commit. |
+| 2026-08-25 | S154, S155 | Week-resolution/coverage UI changes and trend-empty/preseason-origin work were recorded promoted. The broader grouped entries carry ranges of implementation dates, not one invented merge timestamp. |
+| 2026-08-26 → 2026-08-27 | S150, S156, S157 | Vanished-game logging was not promoted at its August 26 closeout. Visible transition anchor merged August 26 and was verified live August 27; game-level gap diagnostics were promoted August 27. These are separate delivery records. |
+| 2026-08-27–30 — as recorded | S158, S159, S160, S161, S162, S163, S164, S165, S170 | These merge entries explicitly leave production promotion unverified. The classification fix additionally requires a full-season refresh. No later deployment is inferred from adjacent promoted PRs. |
+| 2026-08-28 → 2026-08-29 | S159, S160, S161, S163, S164, S165 | Recap skeleton and fact slices landed sequentially; record-change and odds facts were initially unwired. 026f on August 29 completed rendering. Durable event-source and Forward Look remained outside delivery. |
+| 2026-08-29 | S166 | POLISH-015’s entry explicitly records owner-confirmed production promotion on the merge date; that confirmation is not generalized to sibling recap or standings PRs. |
+| 2026-08-31 | S172, S017, S016 | Team-records cache initially depended on new-final triggers and an eight-day diagnostic. The production backfill filled the empty cache; PLATFORM-118 added an independent twelve-hour ceiling/hourly job and fourteen-hour diagnostic. All are dated August 31, without invented within-day timestamps. |
+| 2026-09-04 → 2026-09-06 | S009, S008, S007, S004, S002, S001 | Overview ordering and dead-context cleanup superseded older presentation rules. Scoreboard additions landed September 5, Schedule records were explicitly removed pending identity-aware reconciliation, and September 6 row-tint capability remained caller-unwired. |
 
----
+## Per-source evidence index
 
-### PLATFORM-086F1 — Game-Stats Cron Execution Logging — Complete
+Each source milestone carries the four evidence fields below: PR(s), merge commit, recorded date, and outcome number. Source ids/names identify the row; they are not a fifth evidence claim. All 172 source records are mapped once, including four embedded entries. Original lookup titles are retained even when they say “dormant” or “not yet built.”
 
-- **Status:** Complete. Merged to `main` via PR #414 (`platform/086f1-game-stats-cron-logging`, merge commit `a7f5db2`, 2026-07-27). Three commits (implementation + review-finding fixes + docs closeout); independent review clean (Claude foreground 10-angle, no findings; Codex cycle 1 clean). First bounded slice of the former PLATFORM-086F, now formally split (F1 = logging; F2 = the parked admin-diagnostics IA redesign).
-- **PROMPT_ID(s):** `PLATFORM-086F1-GAME-STATS-CRON-EXECUTION-LOGGING-v1`.
-- **Goals completed:** `GET /api/cron/game-stats` now emits exactly ONE secret-safe, single-line JSON `game-stats-cron` event per invocation — `console.log(JSON.stringify(event))`, observed in Vercel Runtime Logs — from a single outer `finally`, so skips, every interpreter outcome (including `partial`), authentication failures, and unexpected exceptions each produce one line. The event carries only allowlisted operational primitives (`result`, stable `reason`, `year`, nullable `week`/`seasonType`, `quotaChecked`, `providerCallAttempted`, `committedGames`, `durationMs`) — never a request/response object, thrown message, provider payload, env value, URL, credential, authorization header, or the free-form canonical-context reason. `quotaChecked` flips before the `/info` probe; `providerCallAttempted` flips only before the billed `/games/teams` request; `committedGames` is the confirmed durable-commit count; `partial` stays first-class.
-- **Key outcomes:** A harmless scheduler skip (e.g. `no-polling-target`) is now visible in Vercel Runtime Logs with a stable reason instead of being buried. Runtime-only: no durable heartbeat, AppStateStore record, admin-panel card, or `vercel.json`/cadence/provider/HTTP-response/refresh-status change, and — critically — no fabricated provider-refresh attempt (paused/no-context/no-target still exit before quota/provider/attempt work). Emission is best-effort, so a logging fault never alters the response or masks a thrown error. New `src/lib/gameStats/cronExecutionLog.ts` (owns the logging policy so the ~400-line route does not) + route instrumentation + a new console-capture suite. Validation: focused suite 36/36, full `npm test` 2181/2181, `tsc`/`lint:all` clean, `npm run build` OK; no provider quota spent.
-- **Optional follow-up debt (non-blocking):** none. `cfbd-api-key-missing` and the defensive `ingestion-failed` catch are unreachable at runtime, so their event mappings are guarded by a static source-pin (matching `coverage.test.ts`). The broader admin-diagnostics information-architecture redesign + optional last-scheduler-check heartbeat remain PLATFORM-086F2 (parked, last). Next in campaign order: PLATFORM-086B (live-score polling).
+- PRs here identify the individual source record, not every PR mentioned in its review or follow-ups. Campaign-level reference lists above remain broader navigation aids.
+- Merge SHAs are copied only where the source identifies a merge, or explicitly associates the campaign’s final slice with its independently recorded merge. A review/implementation/docs SHA is not relabeled as a merge. Multiple PR/merge associations are labeled individually.
+- “Not recorded” means the supplied source lacks that field; it does not assert no PR/merge exists. No repository lookup was performed. Older “complete, PR open” states remain marked. A date may be a merge, promotion, operation, or campaign interval; special cases are labeled.
+- Mentioned source files are not restored as an inventory. The associated Git change is the authority for the actual diff. Review and intermediate SHAs are intentionally not exhaustively reproduced.
 
----
-
-### PLATFORM-086B1 — Live-Score Polling Engine (Dormant) — Complete
-
-- **Status:** Complete. **MERGED to `main` via PR #416 (`platform/086b1-live-score-polling-engine`, merge commit `4cbea60`, 2026-07-27); engine DORMANT (no scheduler invokes it).** First slice of the PLATFORM-086B split (B1 = engine; B2 = activation). Five commits (implementation + two Codex-remediation rounds + a test-strengthen + docs closeout); Claude `/code-review` self-review + three Codex rounds converged (round 1: 5 remediated / 1 deferred; round 2: 3 remediated; round 3: no code findings).
-- **PROMPT_ID(s):** `PLATFORM-086B1-LIVE-SCORE-POLLING-ENGINE-v1`.
-- **Goals completed:** A new authenticated-but-unscheduled `GET /api/cron/live-scores`. One invocation: CRON_SECRET auth → operator pause (`isAutoRefreshAllowed('scores')`) → cache-only canonical context (one `buildScheduleFromApi` build feeding the shared game-stats slate derivation + reconciled-score attachment; a read/build failure is unavailable context, never absent data) → deterministic target selection over the `[-15 min, +24 h]` kickoff window (canceled/postponed excluded, delayed/suspended eligible; `scoreboard` mode while any window game is open, else one exact `final-reconciliation` week partition) → one scoped `weekPartitionScope` attempt per targeted partition begun BEFORE quota/credential/provider work → fresh quota reserve (1,000-call floor) → credential → **exactly ONE** billed CFBD request (global `/scoreboard?classification=fbs` OR one partition `/games`) → durable per-partition merge → one standings invalidation only on a durable change → exactly one secret-safe `live-scores-cron` runtime event from a single `finally`. The durable merge writes only the exact child key `scores/<year>-<providerWeek>-<seasonType>` under a per-key transaction, applies monotonic protection (`scheduled ↛ in-progress ↛ final`) and per-row freshness stamps against the reconciled prior score (child + season-wide aggregate, chosen by the freshest per-game effective timestamp), preserves prior-good rows, records scoreboard finals as `pendingFinalConfirmationIds`, and clears them only once `/games` confirms the game completed with both scores and matching side-for-side participants. Shared infra: `CacheEntry.itemUpdatedAtById`/`pendingFinalConfirmationIds`; season reconciler per-row effective timestamps + `newestEffectiveAt`/`effectiveAtById`; `/api/scores` season freshness from `newestEffectiveAt`; `gameStateFromScore` delegating to `classifyScorePackStatus`; `buildCfbdScoreboardUrl`; corrected `scores` `plannedPolicy` (B1 dormant / B2 activation, `hasActiveAutomation`/`autoRefreshSettingConsumed` still `false`).
-- **Key outcomes:** The polling engine exists and is production-capable while remaining completely inert until PLATFORM-086B2 (no QStash schedule, no `vercel.json`/cron change, no browser polling, no Odds work, no diagnostics redesign). Public/member `/api/scores` reads stay cache-only. Every begun scoped attempt resolves exactly once and no `year` rollup is written; a transient scoreboard row can never regress a better cached score; served-score freshness is never fabricated. Validation: full `npm test` **2268/2268**, `tsc`/`lint:all`/build clean, `git diff --check` clean, no provider quota spent.
-- **Optional follow-up debt (non-blocking):** one deferred item (documented in `scoreMerge.ts`): the `/api/scores?refresh=1` manual-repair path still writes the partition via a plain `setAppState` upsert that does not honor the live-merge advisory lock; unifying every scores writer onto the locked protocol is a **PLATFORM-086B2** concern (inert while dormant, self-healing) — **resolved in PLATFORM-086B2A (below).** The three self-review deferrals (a duplicate cache-only scan, a cross-module row-shape duplication, the unreachable `cfbd-api-key-missing` branch that mirrors the game-stats cron) are minor and non-blocking.
-
----
-
-### PLATFORM-086B2A — Score-Writer Lock Convergence (Dormant) — Complete
-
-- **Status:** Complete. **MERGED to `main` via PR #417 (`platform/086b2a-score-writer-lock-convergence`, merge commit `4039c98`, 2026-07-28); live-score automation DORMANT (no scheduler, no descriptor flip).** First slice of PLATFORM-086B2 (B2A = writer-lock convergence, code-only; B2B = activation). Six commits (implementation + five Codex-remediation rounds + docs closeout); Claude `/code-review` self-review + five Codex rounds, each remediated (P1 then P2 merge-policy corners; all inert while dormant).
-- **PROMPT_ID(s):** `PLATFORM-086B2A-SCORE-WRITER-LOCK-CONVERGENCE-v1`.
-- **Goals completed:** Resolves the B1 concurrency deferral. The authorized manual `/api/scores?refresh=1` durable write now commits through the **same per-key advisory transaction** the live engine uses (`withAppStateKeyTransaction('scores', <year>-<week>-<seasonType>, …)` via the new score-domain `mergeManualPartition`) rather than a plain `setAppState` upsert, so a manual repair and a concurrent live merge on a shared partition key can no longer clobber each other. The CFBD fetch/normalization stays outside the transaction (no lock held during network work); inside it reads the prior partition and merges with authoritative partition-replacement semantics plus targeted concurrency handling: a prior row at least as new as the manual observation is a preserved later live update (tie preserves the live row); a manual `/games` strict monotonic state advance (scheduled → in-progress → final; a final needs both scores) overrides a protected live row; pending-final metadata clears only when a manual `/games` final confirms the same score; the enclosing entry version is bumped monotonically so a cross-instance week-scoped read never prefers a stale cached copy; and any id-less normalized `/games` row is partition uncertainty (schema drift, prior-good retained) rather than an incomplete replacement. Process cache / prune / standings invalidation / success metadata run only after the durable commit; a transaction failure is a truthful refresh failure preserving prior-good. The B1 deferral comment in `scoreMerge.ts` is retired (every production writer of the key now participates in the lock).
-- **Key outcomes:** Both production writers of a `scores/<year>-<week>-<seasonType>` key share the same advisory lock (different merge policies, shared lock + per-row effective-timestamp ordering), so live-score activation (B2B) can proceed without a manual-refresh concurrency hazard. Live-score automation stays DORMANT (no QStash, `vercel.json`, browser polling, or descriptor change). Validation: full `npm test` **2288/2288**, `tsc`/`lint:all`/build clean, `git diff --check` clean, no provider quota spent.
-- **Optional follow-up debt (non-blocking):** none blocking. The rounds-2–5 Codex findings were all merge-policy corner cases in the concurrent manual-vs-live window (authoritative-final override, timestamp ties, id-less rows, differing-final pending retention, mixed id-less payload, monotonic state-advance override); all remediated, and all inert while the engine is dormant (unreachable until B2B activates live polling). The core lock mechanism was stable from round 1.
-
----
-
-### PLATFORM-086B2B — Live-Score Activation Wiring (Dormant) — Complete
-
-- **Status:** Complete + **ACTIVATED IN PRODUCTION 2026-07-28.** MERGED to `main` via PR #418 (`platform/086b2b-live-score-activation`, merge commit `57fab82`, 2026-07-28); the deployment-runbook §8f activation sequence was then executed (recorded via DOCS-011). Live-score polling is ACTIVE: QStash schedule `turfwar-live-scores-3m` active/unpaused, `*/3 * * * *` → `GET /api/cron/live-scores`; **Scores automatic refresh On, Global provider pause Off**, browser polling cache-only, `vercel.json` unchanged. Activation proofs: gates-closed delivery HTTP `200` `skipped / automation-paused-or-disabled`; gates-open delivery HTTP `200` `skipped / no-polling-target` (`quotaChecked: false`, `providerCallAttempted: false`); CFBD quota held at the controlled baseline `4914 → 4914` with no unexpected attempt/durable write (the earlier `4920 → 4914` movement predates this baseline). The first game-window `/scoreboard` / final-reconciliation call is ordinary in-season monitoring, not pending activation. Second slice of PLATFORM-086B2 (B2A = writer-lock convergence; B2B = activation). Two commits (implementation + pre-merge docs closeout); Claude `/code-review` self-review + **eight Codex review passes** (13 findings, 12 remediated / 1 deferred).
-- **PROMPT_ID(s):** `PLATFORM-086B2B-LIVE-SCORE-ACTIVATION-v1`.
-- **Goals completed:** The CODE activation of the merged dormant B1 engine + B2A writer lock. (1) A shared, secret-safe QStash schedule manager — game-stats CLI policy extracted into contract-parameterized `scripts/lib/qstashSchedule.ts` (game-stats behavior byte-identical; its suite passes unchanged) — plus `scripts/manage-live-scores-schedule.ts` + `npm run manage:live-scores-schedule` (fixed `turfwar-live-scores-3m` → GET `/api/cron/live-scores`, `*/3 * * * *`, retries 0, forwarded+redacted `Authorization`, read-only default, `--apply`-gated mutations, NO delete; per-job `authProofRef` so inspect cites §8f for live-scores, §8e for game-stats). (2) A self-rescheduling 3-minute VISIBLE-tab browser timer (`useLiveRefresh.ts`) driven by pure eligibility (`src/lib/liveScores/browserPolling.ts`: canonical current season + `[kickoff−15min, kickoff+24h]`, excludes canceled/postponed, keeps in-window finals for `/games` reconciliation corrections; conference-championship partition → `regular`); it re-arms one interval after the last poll and after focus/visibility polls, and survives navigation via a `refreshLiveData` ref. (3) `fetchScoresByGame` exact-partition cache-read mode (unique `(providerWeek, seasonType)`, week-scoped, never `refresh=1`/creds/season-wide/Odds/CFBD) carrying a cache-only `&live=1` durable-read hint; the route serves `live=1` week reads via the new `loadReconciledWeekScores` (full season-type reconcile — week children + `-all-` aggregate + canonical-week aliases — filtered to the provider week) so a live poll matches the standings view and cannot overwrite/miss an admin correction. (4) Two DISTINCT freshness signals: durable `snapshotAt` (oldest `meta.generatedAt` over nonempty contributors; any partition read failure nulls it) → a new "Scores updated …" `FreshnessLabel`; a separate `scoresObservedAt` (client time of a clean poll) → live-overlay `isStale`, fed a 60-second ticking clock so it stays reactive during outages and does not false-dim during halftimes/delays (threshold 16→7 min). (5) Correction-aware `detectScoreFinalizations` (fires `router.refresh()` on a material final→final score change). (6) `scores` provider descriptor flipped to `hasActiveAutomation: true` + `autoRefreshSettingConsumed: true` (the B1 cron consumes `isAutoRefreshAllowed('scores')`). Docs: deployment-runbook §8f activation sequence (documented, not executed) + §4/§8e `CRON_SECRET` rotation now spans both schedules.
-- **Key outcomes:** The live-score system is fully wired and operator-activatable while remaining completely inert until the operator runs §8f — no QStash schedule, no `vercel.json`/cron change, no live provider/QStash/Vercel-production contact, no quota spent. Promoting the build starts only the cache-only browser polling. Review: Claude `/code-review` (5 findings — 1 fixed, 4 skipped) + eight Codex passes (13 findings, 12 remediated / 1 deferred — see below). Validation: full `npm test` **2322/2322**, `tsc`/`lint:all`/`build` clean (`/api/cron/live-scores` registered), `git diff --check` clean.
-- **Optional follow-up debt (non-blocking):** one deferred item (owner decision 2026-07-28) — per-game live-overlay freshness. `snapshotAt`/`isStale` are per-partition/global, not per-game, so in a provider-gap scenario a fresh game can ride over a stale sibling; strictly better than pre-B2B (which reported every game fresh on any client poll) and no standings/records impact. True fix = thread per-game effective timestamps to the client → per-game `selectLiveDelta` staleness. Recorded in `docs/next-tasks.md` "Unresolved decisions & known deferrals" and `src/lib/scores.ts`. **Operational activation (runbook §8f) was performed 2026-07-28** — the QStash schedule was provisioned and gate-verified with both automation gates closed (exact-authentication delivery proof passed), then the gates were opened in order; §8f is now a completed historical procedure retained as the emergency-stop / `CRON_SECRET`-rotation reference.
-
-### PLATFORM-086C1 — Odds Refresh Authority & Writer Convergence (Dormant) — Complete
-
-- **Status:** Complete, **MERGED to `main`** via PR #419 (merge commit `b9c6cb3`, 2026-07-28). **DORMANT; no activation.** First of two PLATFORM-086C slices (C1 = refresh authority; C2 = polling activation). Independent Claude + Codex reviews across two cycles / three remediation rounds (cycle-3 re-review confirmed clean). Full `npm test` **2377/2377**, `tsc`/`lint:all`/`build`/`git diff --check` clean; **no provider quota spent** (all fetches stubbed).
-- **PROMPT_ID(s):** `PLATFORM-086C1-ODDS-REFRESH-AUTHORITY-v1`.
-- **Goals completed:** A code-only, concurrency-safety prerequisite that makes the Odds refresh/write system safe for later automation while leaving automatic Odds polling completely dormant. (1) A durable **token-safe per-target lease** (`odds-refresh-control/<seasonScopedKey>`, `crypto.randomUUID`, 5-min duration, reclaimable on expiry, token-checked finalize so an older holder can never clear a newer lease) with a durable automatic **1h/2h/6h/12h/24h** backoff; a concurrent manual refresh now returns a truthful **`409 / odds-refresh-in-progress`** before any provider/status work. (2) An **atomic canonical commit**: the raw odds cache (`odds-cache/<key>`) and the durable per-game store (`durable-odds:<season>/store`) commit together in ONE multi-key `withAppStateKeyTransaction` (rooted at the store, `odds-cache` locked second — a legal forward lock, no deadlock), with process caches + provider-refresh success published only after the confirmed commit. (3) **Observation ordering**: an observation captured immediately before `/odds` orders the raw cache and stamps every generated snapshot, so an older request can never overwrite newer raw or per-game state (a late stale request is a truthful `no-op / stale-observation`); filtered targets write only their exact raw key; the empty-response classification runs against transaction-fresh prior state. (4) Public canonical closing-line maintenance routed through the same durable-store advisory transaction (skips the write when unchanged; never downgrades on a stale fallback). (5) **Dormant** (wired to no route/scheduler): a pure Central-date-bounded polling target/cadence (6h baseline / 2h pregame; `automaticNotBefore` override; no all-day-slate acceleration), an automatic quota gate (canonical cost = 3, `remaining ≥ cost + 50` reserve, one-attempt quota-free `/sports` probe, conservative post-`/odds` estimate), a cache-only canonical Odds context (unavailable ≠ empty), and a typed shared refresh-result contract consumed by the manual route now and the future cron later. The `/api/odds` route becomes an adapter over these modules; manual/public behavior (cache-only public reads, admin auth, manual retry/pacing, low-quota warnings, filtered isolation, stale fallback, quota-header capture) is preserved.
-- **Key outcomes:** Manual, future-automatic, and public closing-maintenance writers share one advisory-lock + observation-ordering authority; a canonical-store failure can no longer leave raw odds committed with a fabricated success; concurrent provider requests are suppressed by one durable lease; valid no-ops suppress needless repeats without advancing provider-status success; automatic failure backoff is durable; and the future automatic quota gate preserves the 50-credit reserve with a fresh zero-cost probe and at most one billed request with no retry. `odds.hasActiveAutomation` and `odds.autoRefreshSettingConsumed` remain `false`; no cron route, QStash schedule, `manage:odds-schedule`, `vercel.json` change, descriptor flip, browser polling, provider call, or production operation was added. New `src/lib/odds/{refreshResult,refreshLease,oddsCommit,pollingPolicy,quotaPolicy,canonicalOddsContext}.ts` + the `/api/odds` adapter + focused suites (+50 tests).
-- **Review:** independent Claude + Codex reviews across two cycles / three remediation rounds. Cycle 1 — Claude (2 findings: empty-refresh cache-before-commit regression, lease-resolution guard — both fixed) + Codex (7 findings — 5 fixed: empty-writer observation ordering, stale-observation memo non-publication, lease store-failure classification, filtered-commit ordering, quota-probe fail-closed on out-of-range headers; the other 2 were the Claude findings already fixed). Cycle 2 — Codex re-review confirmed areas 2–5 complete and found one more P1 (the empty-writer guard compared the `lastFetch`-freshest prior rather than the observation-freshest, so a split-brain could still overwrite the observation-newer durable entry) — fixed in round 3 with regression test F1b. Deferred/benign (tracked): a pre-existing `ODDS_API_KEY` in the `UpstreamFetchError` detail body (admin-gated, not diff-attributable) → separate security follow-up; the committed-path durable-memo prime under cross-instance concurrency is the documented best-effort memo limitation.
-- **Optional follow-up debt (non-blocking):** PLATFORM-086C2 (Odds polling activation) — the future `GET /api/cron/odds`, structured execution log, QStash schedule manager, Odds descriptor flip, runbook activation section, and production rollout. Separately: redact `ODDS_API_KEY` from the `UpstreamFetchError` detail body on the Odds upstream-failure path (pre-existing, admin-gated). **(Both delivered in PLATFORM-086C2 — entry below.)**
-
-### PLATFORM-086C2 — Odds Polling Activation (Dormant) — Complete
-
-- **Status:** Complete, **MERGED to `main`** via PR #420 (`platform/086c2-odds-polling-activation`, merge commit `262fdf0`, 2026-07-28); **automatic Odds polling is now ACTIVE in production** (the deployment-runbook §8g operator sequence has been executed). Second slice of PLATFORM-086C (C1 = refresh authority; C2 = polling activation). The PR activated the merged C1 authority in CODE ONLY; the §8g operator sequence then provisioned `turfwar-odds-hourly`, so `GET /api/cron/odds` runs on its hourly cadence. Independent Claude self-review + Codex reviews converged over **four remediation cycles + a clean confirming Codex round** (round 4: "No actionable correctness issues"). Full `npm test` **2435/2435**, `tsc`/`lint:all`/`build`/`git diff --check` clean; **no provider quota spent** (all fetches stubbed).
-- **PROMPT_ID(s):** `PLATFORM-086C2-ODDS-POLLING-ACTIVATION-v1`.
-- **Goals completed:** (1) **One shared server-side execution authority** — `src/lib/odds/oddsRefreshExecutor.ts` (`executeOddsRefresh`) drives provider transport, payload interpretation, canonical/filtered/empty durable commit, and provider-refresh-attempt resolution for BOTH the authorized manual `GET /api/odds?refresh=1` route and the new automatic cron, so the two callers can never diverge on payload meaning or commit; it never throws for a reachable provider/payload/commit fault (only a genuine defect propagates) and emits credential-sanitized diagnostics only. (2) **Credential seam closed (the C1 deferral)** — `sanitizeUpstreamUrl` redacts `apikey`/`key`/`token`/`access_token`/`authorization` query params from every upstream URL, `UpstreamFetchError` detail, and debug log, and the transport-failure path uses a fixed message, so `ODDS_API_KEY` cannot leak through a provider-error detail. (3) **Automatic cron** — `src/app/api/cron/odds/route.ts`: `CRON_SECRET` auth → `isAutoRefreshAllowed('odds')` gate → cache-only canonical context + cache-only closing-line maintenance → pure cadence decision → (only when DUE) durable per-target lease (fresh-clock timestamped) + a post-acquisition cadence re-check against the transaction-fresh control (no duplicate spend after a just-completed manual refresh) → quota-free `/sports` probe + the 50-credit reserve → at most ONE billed `/odds` → atomic durable commit → exactly one secret-safe `odds-cron` runtime event (`src/lib/odds/cronExecutionLog.ts`, allowlisted fields). (4) **Public/member `/api/odds` is now strictly durable-cache-only** — never self-fetches, never spends quota, and never writes the durable store (closing-line maintenance moved to the authorized manual path + the cron), with cross-instance cron commits visible within a bounded 120 s memo (`durableOddsStore.ts`). (5) **QStash CLI** — `scripts/manage-odds-schedule.ts` + `npm run manage:odds-schedule` (fixed contract, id `turfwar-odds-hourly`, `0 * * * *` → GET, retries 0, forwarded+redacted `Authorization`, read-only default, `--apply`-gated, no delete). (6) The Odds provider descriptor flipped `hasActiveAutomation`/`autoRefreshSettingConsumed` → `true` (making the panel's odds auto-refresh toggle interactive). Docs: deployment-runbook §8g activation sequence (documented, NOT executed) + `CRON_SECRET` rotation/emergency-stop now span all THREE QStash schedules.
-- **Key outcomes:** Manual and automatic Odds refresh cannot diverge; `ODDS_API_KEY` cannot leak from any diagnostic surface; public reads never spend quota or write durable state; the automatic cron issues at most one billed `/odds` only when genuinely due, protected against duplicate spend by the durable lease + the post-acquisition re-check + observation ordering; quota accounting is conservative and self-healing (untrusted-header billed failure → estimated deduction; 402/429 → the authoritative zero derived from header trustworthiness, so a malformed `remaining: -1` cannot restore a positive balance; a headerless success commits `null` usage rather than a pre-spend balance; the next `/sports` probe corrects any estimate); a genuinely-due empty payload is classified against the already-loaded context (no misclassifying re-read). The system is fully operator-activatable while completely inert — no QStash schedule, no `vercel.json`/cron change, no provider/QStash/Vercel-production contact, no quota spent. `odds.hasActiveAutomation`/`autoRefreshSettingConsumed` are `true`, but automatic polling stays dormant until §8g.
-- **Review:** independent Claude self-review + Codex reviews across FOUR remediation cycles + a clean confirming Codex round. Cycle 1: transport-message credential leak (fixed message); store/durable faults propagating as unexpected errors (executor + `oddsCommit` tolerance + cron begun-attempt backstop); usage-header trust validation on both response paths; MANUAL canonical refresh mis-billing a post-fetch context failure (preload before the billed request → pre-billing `canonical-context-unavailable`, release-only); closing maintenance skipped on a polling-state failure (reordered before the gate); unbounded `/sports` probe (12 s timeout). Cycle 2 (Codex round 2): manual-then-cron cadence TOCTOU (post-acquisition re-check); billed failure with untrusted headers leaving an overstated balance (conservative estimate); expected empty misclassified on a transient schedule re-read (classify against the loaded context); post-call bookkeeping able to mask a committed success as a 500 (best-effort, result recorded first). Cycle 4 (Codex round 3, user-authorized after the 3-cycle gate): lease timestamped at handler entry not acquisition (fresh clock); 402/429 zero fallback skipped on malformed headers / stale usage reported (gate on header trustworthiness, adopt the zero snapshot); a headerless success committing the pre-spend probe balance (null usage). Codex round 4 (confirming) clean. **Considered and KEPT with rationale:** quota-probe failures return HTTP `200` with `result: 'failure'` (not a non-2xx), matching the sibling live-scores cron's `quota-usage-unknown → 200 failure` convention and the prompt spec — monitoring keys on the structured event `result`/`reason`; documented in `docs/operations/diagnostics.md`.
-- **Activation (operator):** automatic Odds polling is **ACTIVE in production** — the deployment-runbook **§8g** operator sequence (provision `turfwar-odds-hourly` gates-closed → exact-authentication delivery proof → open both gates in order) has been executed. A dedicated §8g production checkpoint recording the specific delivery/quota evidence can still be captured by the operator, mirroring the §8f/DOCS-011 live-score closeout.
-
-### PLATFORM-086C3 — Odds Cache UI Hydration — Complete
-
-- **Status:** Complete, **MERGED to `main`** via PR #421 (`platform/086c3-odds-cache-ui-hydration`, merge commit `8029136`, 2026-07-29). A bounded **client-display** follow-up to PLATFORM-086C2's production rollout — it does NOT reopen or alter C2 activation. Review converged over Codex round 1 (clean) → Claude `/code-review` (4 low findings, all fixed) → three confirming Codex rounds (P2, P2, P3 — all fixed). Full `npm test` **2455/2455**, `tsc`/`lint:all`/`lint:markdown`/`build`/`git diff --check` clean; **no provider or production request** (all fetches stubbed).
-- **PROMPT_ID(s):** `PLATFORM-086C3-ODDS-CACHE-UI-HYDRATION-v1`.
-- **Goals completed:** Fixed the confirmed production gap where a populated canonical Odds cache showed **no lines** on game cards, because the browser only loaded Odds when a visible game sat inside the retired `refreshPolicy` `[-12h, +3d]` window (far-future and completed games' stored lines were hidden). (1) A new `src/components/hooks/useOddsHydration.ts` performs ONE strictly cache-only read per selected season (`GET /api/odds?year=<season>`, **no `refresh=1`, no auth header**, provider-free) that hydrates `oddsByKey` via the existing `buildOddsLookup` **regardless of kickoff time**, applies served-snapshot + usage meta, and guards a stale-season response with an `AbortController`. (2) It re-arms on a season change or a `scheduleGeneration` bump (every full `loadScheduleFromApi` rebuild), so a with-games in-place reload still re-hydrates against the identity-recomputed games; a successful hydration clears any prior failure warning; navigation/focus/visibility/the live-score timer never re-trigger it. (3) `useLiveRefresh` no longer fetches Odds on bootstrap (`shouldFetchOdds` defaults `false`; the dormant authorized manual-refresh seam is preserved). (4) The kickoff-window policy is RETIRED (`getRefreshPlan`/`RefreshPlan`/`RefreshContext`/`SCORES_AUTO_REFRESH_MS` + the already-dead `scores` sub-plan removed; `LIVE_MANUAL_COOLDOWN_MS` kept; its test deleted). Review-remediation additions: a shared `applyOddsResponse` decoder (`src/lib/oddsClientPayload.ts`), freshness-aware `mergeFresherOddsUsage` (`apiUsage.ts`, applied by both the hydration hook and `useAdminOddsUsage`), and the `ODDS_HYDRATION_ISSUE` constant co-located with its exact-value classifier (`cfbScheduleAppHelpers.ts`).
-- **Key outcomes:** Every cached canonical Odds record reaches its matching game card regardless of kickoff time (far-future, live, completed, postseason); browser Odds traffic stays cache-only and provider-free; Odds hydrate per season (and on schedule rebuilds), not periodically. **Server-side Odds polling cadence/lease/quota, the public read-only `/api/odds` route + 120 s memo, the shared executor, canonical attachment/durable storage, QStash, `vercel.json`, provider descriptors, and automation gates are all UNCHANGED** — this is client display only and spends no quota. The same effort also corrected the stale C2 activation documentation to reflect that automatic Odds polling is now active in production (§8g executed).
-
-### PLATFORM-086E1A — Full-Season Schedule Refresh Authority — Complete (Dormant)
-
-- **Status:** Complete, **MERGED to `main`** via PR #422 (`platform/086e1a-schedule-refresh-authority`, merge commit `f320a7e`, 2026-07-29); **merged DORMANT** (no weekly automation existed at merge; the weekly automation that drives this authority — E1B/E1B1 — has since been ACTIVATED IN PRODUCTION 2026-07-29 via the runbook §8h sequence). The correctness prerequisite for weekly schedule automation (PLATFORM-086E1B). Review-converged over 2 cycles: independent Claude review of the initial diff clean; Codex cycle 1 (3 findings — 2 P1 playoff-provenance, 1 P2 stale process-cache) remediated; cycle 2 (a hung/cancelled Codex round, then a fresh scoped Codex round + an independent Claude round both caught the SAME 1 regression — a non-FBS `cfp-*` eventKey-guard lost in the fallback branch — and prescribed the same fix) remediated with a regression test. Full `npm test` **2497/2497**, `tsc`/`lint:all`/`build`/`git diff --check` clean; **all provider fetches stubbed — no CFBD/QStash/Vercel/production contact, no provider quota spent**. The BotID stash was preserved (never popped).
-- **PROMPT_ID(s):** `PLATFORM-086E1A-SCHEDULE-REFRESH-AUTHORITY-v1`.
-- **Goals completed:** Converged every production full-season CFBD schedule writer onto ONE authority. (1) `src/lib/schedule/fullSeasonScheduleRefresh.ts` (`refreshFullSeasonSchedule`) owns the whole lifecycle for a year: fail-fast prior-durable read → durable token-safe per-year lease (`schedule-refresh-control/<year>`, `crypto.randomUUID`, 5-min, no backoff) → year-scoped provider-refresh attempt begun BEFORE credential validation → regular+postseason fetch (reusing the route URL/retry/pacing/`mapCfbdScheduleGame` normalization) with the shared complete-before-commit gate (thrown/non-array/nonempty→zero = uncertainty rejecting the aggregate + retain prior-good; exact `[]` = valid absence; all-empty-over-populated = `empty-replacement-rejected`; genuine all-empty = `empty-response` no-op) → observation-ordered `withAppStateKeyTransaction` commit on `schedule/<year>-all-all` (a newer/equal prior durable observation wins; `unchanged-clean` commits only newer metadata; `written-clean` replaces items) → durable-first → process-cache publish → standings invalidation ONLY on content change → provider-status → token-checked release. A concurrent full-year refresh returns `409 / refresh-in-progress` with NO provider request. (2) New typed closed-vocabulary result contract (`fullSeasonScheduleRefreshResult.ts`) + lease module (`scheduleRefreshLease.ts`). (3) Migrated callers: the authorized full-year `/api/schedule?bypassCache=1` (409 on contention; **targeted season-type/week child-key writers UNCHANGED**), the season-transition cron (drives the authority; 500 only on genuine store outages), and the historical repair `/api/admin/cache-historical-schedule` (August cutoff removed; rejects the app-inferred current season year + any preseason/season league year, `force` cannot bypass). (4) Rollover hardening (`nationalChampionshipRollover.ts`): the season-rollover cron groups leagues by year and evaluates each independently, requiring a **structured** `playoffRoundSource === 'cfbd-structured'` CFP national championship (numeric provider id + valid kickoff + nested-`playoff` competition/round) + a CONFIRMED complete final via the centralized score attachment + the seven-day gate; the "latest postseason game" fallback is removed; a genuine durable read failure surfaces as a failure, never ordinary absence. (5) Retained no-extra-call schedule metadata provider → cache → `AppGame` (`startTimeTBD`, `venueId`, `completed`, `playoffCompetition`, `playoffRound`, `playoffRoundSource`); the raw provider `playoff` object/row is never persisted (`cfbd-structured` requires round AND competition from the nested structured object; flat/mixed is `explicit-provider-field`; text is `text-inferred`, suppressed for explicit non-FBS rows).
-- **Key outcomes:** One authority for every full-season writer; concurrent writers cannot duplicate provider work or overwrite newer state (lease + observation ordering); complete-before-commit + empty-response truth preserved; only confirmed durable commits publish cache/status success/standings invalidation; the active-season historical-repair bypass is closed; automatic rollover requires a structured championship identity + a confirmed canonical final; useful schedule metadata is retained. **Dormant — no scheduler, no `/api/cron/schedule-refresh`, no settings activation, no presentation enrichment, no weather, no UI.** `findNationalChampionshipGameDate`/`isSeasonComplete` are retained only for admin presentation/diagnostics and the manual admin rollover, never the automatic boundary. The same effort corrected the stale `APPSTATESTORE-CACHING` (PLATFORM-082A + 082B) documentation that still labeled the shipped AppStateStore caching "planned".
-- **Optional follow-up debt (non-blocking):** PLATFORM-086E1B (weekly automation + operator-aware settings gate + external scheduler) and PLATFORM-086E1C (broadcast/venue presentation enrichment) are the next slices. The rollover fires only on genuinely structured CFBD data (fail-safe if the provider's structured `playoff` shape differs from what E1B eventually exercises) — worth an activation-time check against real payloads.
-
-### PLATFORM-086E1B — Weekly Schedule Automation with Operation-Aware Controls — Complete (Dormant)
-
-- **Status:** Complete, **MERGED to `main`** via PR #423 (`platform/086e1b-weekly-schedule-automation`, merge commit `2ddf5c4`, 2026-07-29); **merged DORMANT (merging activated nothing; §8h was then HELD for the E1B1 preseason gap), and subsequently ACTIVATED IN PRODUCTION 2026-07-29 via the runbook §8h operator sequence after E1B1 merged** — `turfwar-schedule-weekly` provisioned/active/unpaused (Tuesdays 12:00 UTC, retries 0, redacted forwarded Authorization), Schedule automation On, global pause Off; both §8h proof deliveries were provider-free (`skipped / season-transition-owner`, `providerCallAttempted: false`, zero rows, no data change — no provider call was attempted by either delivery), expected while the 2026 leagues remain in preseason with the daily season-transition cron owning discovery/freshness (checkpoint in `docs/deployment-runbook.md` §8h). Supersedes the unimplemented `PLATFORM-086E1B-WEEKLY-SCHEDULE-AUTOMATION-v1` (which mis-selected Vercel Cron — the scheduling boundary is external provider polling → QStash; internal lifecycle reconciliation → Vercel Cron). Review converged in 1 remediation cycle + a clean confirming round: independent Claude review clean (3 non-actionable P3 observations); independent Codex round 1 — 3 findings, all remediated (P1 sticky-criticality boundary latch; P2 malformed-`seasonType` context refusal; P2 truthful partial `rowsReceived`); Codex round 2 clean. Full `npm test` **2550/2550** (+53 focused tests), `tsc`/`lint:all`/`build`/`git diff --check` clean; **all provider/QStash requests stubbed — no CFBD, QStash, Vercel, or production contact; no schedule provisioned; no quota spent.** The BotID stash was preserved.
-- **PROMPT_ID(s):** `PLATFORM-086E1B-WEEKLY-SCHEDULE-AUTOMATION-v2` (v1 superseded, never implemented).
-- **Goals completed:** Activated the merged E1A full-season schedule authority through one weekly, cache-armed QStash trigger with **operation-aware** operator controls. (1) Pure classifier (`src/lib/schedule/weeklyRefreshOperation.ts`): per active `season` year, from invocation time + the prior-good canonical `schedule/<year>-all-all` entry + a durable boundary latch — before `latestRegularKickoff − 7d` → `ordinary-maintenance` (operator-gated); at/after → `postseason-boundary` (lifecycle-critical, exempt, never consults settings); criticality is STICKY via `schedule-weekly-control/<year>` so a reschedule moving the latest regular kickoff later can never revert a critical year to gated ordinary; a present-but-unrecognized `seasonType` is malformed context (refusal), and unavailable context never triggers provider work. (2) `isAutoRefreshAllowed` now STRICTLY evaluates global pause + dataset toggle (descriptor lifecycle bypass removed — dead code for every pre-existing caller); lifecycle routes stay exempt by not calling it (source-scan-pinned); the Schedule descriptor is setting-consumed, making the admin toggle honestly interactive (Off = ordinary weekly maintenance paused; the preseason transition + postseason-boundary maintenance unaffected). (3) `GET /api/cron/schedule-refresh`: CRON_SECRET first (401); cache-only season-year targeting ascending; classify-all-then-gate (settings read once, only when an ordinary year exists; a settings failure blocks ordinary years with `settings-unavailable`, never critical years); one E1A delegation per allowed year sequentially; controlled outcomes HTTP 200; exactly one secret-safe `schedule-refresh-cron` event per invocation (aggregate skipped/success/partial/no-op/failure; a skipped ordinary year never makes a critical success partial). (4) E1A result instrumentation: `providerCallAttempted` (false pre-provider; true from the fetch pair onward including failures) + truthful `rowsReceived` on partition failures. (5) Shared-manager-bound QStash CLI `manage:schedule-refresh-schedule` (fixed `turfwar-schedule-weekly` → GET `/api/cron/schedule-refresh`, `0 12 * * 2` UTC, retries 0, forwarded + provider-side-redacted Authorization, read-only default, `--apply`-gated, no delete); the shared-manager policy generalized beyond subdaily; `CRON_SECRET` rotation now spans all FOUR schedules (§8h order). `vercel.json` UNCHANGED (lifecycle crons only — test-pinned).
-- **Key outcomes:** Weekly in-season schedule maintenance is production-capable end to end but activates ONLY via the documented §8h sequence (preflight with an ordinary-classification stop condition → gates-closed provisioning → exact-authentication scheduled proof → gate opening → verification → docs-only record; emergency stop per window; postseason structured-data checkpoint). Ordinary maintenance honors the pause/toggle; the preseason transition and postseason-boundary maintenance remain exempt, so an operator pause can never starve the season-rollover boundary; duplicate/overlapping deliveries are safe under E1A's per-year lease + observation ordering.
-- **Optional follow-up debt (non-blocking):** §8h activation (operator) — **EXECUTED 2026-07-29**; the §8h postseason structured-data checkpoint must still confirm CFBD's real nested-`playoff` shape before rollover fires (a mismatch is a separately reviewed normalization task); PLATFORM-086E1C (broadcast/venue presentation enrichment) — now unblocked and NEXT; two P3 observations carried — the sibling-parity non-constant-time `CRON_SECRET` comparison (pre-existing across all four crons) and the deliberate weekly `canonical-context-unavailable` refusal for a year whose regular rows all lack parseable kickoffs (visible in the event log; manual repair recovers).
-
-### PLATFORM-086E1B1 — Preseason Weekly Coverage with Season-Transition Handoff — Complete (Dormant)
-
-- **Status:** Complete, **MERGED to `main`** via PR #424 (`platform/086e1b1-preseason-weekly-coverage`, merge commit `587d5e3`, 2026-07-29); **merged DORMANT (`turfwar-schedule-weekly` was unprovisioned at merge), and subsequently ACTIVATED IN PRODUCTION 2026-07-29 with E1B via the runbook §8h operator sequence** — the current provider-free `skipped / season-transition-owner` deferral for 2026 is the expected preseason state (checkpoint in `docs/deployment-runbook.md` §8h). Review converged in 1 remediation cycle + a clean confirming round: independent Claude review clean (exhaustive property comparison of the preseason classifier against a verbatim replica of the season-transition `shouldFetch` predicate; extraction diffed statement-by-statement vs main); independent Codex round 1 — 1 P1 accepted + remediated (a successful preseason refresh committing an EARLIER first game left the durable probe stale, idling the transition handoff past the true first kickoff → the route now re-derives the probe's `firstGameDate` from the committed items, preserving `baseCachedAt`, mirroring the manual full-year refresh) and 1 P2 rejected as contradicting the prompt's explicit within-seven-days deferral specification; Codex round 2 clean. Full `npm test` **2582/2582** (+32 focused tests), `tsc`/`lint:all`/`build`/`git diff --check` clean; **no CFBD, QStash, Vercel, or production contact** (QStash was never contacted, not even to recheck provisioning). BotID stash preserved.
-- **PROMPT_ID(s):** `PLATFORM-086E1B1-PRESEASON-WEEKLY-COVERAGE-v1`.
-- **Goals completed:** Closed the dormant E1B preseason freshness gap (E1B targeted only `season` leagues while season-transition refreshes preseason schedules only when unarmed or within 7 days — leaving cache-armed early preseason unmaintained) under the corrected ownership model: preseason unarmed → daily season-transition owns discovery; preseason first-game > 7 days away → weekly E1B ordinary maintenance (new `preseason-maintenance` operation — honors the pause + Schedule toggle, blocked by a settings failure, never touches the postseason latch); preseason within 7 days → season-transition owns freshness + the lifecycle transition (`skipped / season-transition-owner`, an intentional provider-free deferral mirroring transition's exact `shouldFetch` comparison, test-pinned on both sides); active season / postseason boundary → existing E1B policy unchanged (sticky latch intact). Route targets `season` AND `preseason` leagues (offseason excluded; any `season` league owns a mixed year — one execution under the active-season policy; E1A never invoked twice per year). Genuine store failures and armed-probe/missing-or-malformed-schedule contradictions stay `canonical-context-unavailable`, never deferrals. A successful preseason refresh re-derives the probe's `firstGameDate` (cycle-1 remediation) so the handoff tracks the freshest committed first game. Event contract: `no-maintenance-target` replaces `no-active-season` (no emitted alias — E1B was never activated); `season-transition-owner` added per-year + top-level; deferrals are skips excluded from the partial comparison.
-- **Key outcomes:** No preseason freshness gap and no competition between the weekly and daily jobs; event/response truth distinguishes maintenance, transition ownership, gating, and context failure; no storage authority, lifecycle state machine, QStash contract, or scheduler changes. §8h preflight/proof expectations corrected (safe provider-free proof states include gated `preseason-maintenance`/`ordinary-maintenance` and `season-transition-owner`; STOP-for-planning only on `postseason-boundary`).
-- **Optional follow-up debt (non-blocking):** §8h activation (operator-run) — **EXECUTED 2026-07-29**; E1C presentation enrichment — now unblocked and NEXT; 086E2 rankings after E1C; the documented conservative unparseable-`firstGameDate` divergence and pre-existing probe-staleness-vs-CFBD property carried as known non-blockers.
-
-### PLATFORM-086E1C1 — Schedule Presentation Cache + Cache-Only UI (Manual-Only) — Complete
-
-- **Status:** Complete, **MERGED to `main`** via PR #425 (`platform/086e1c1-schedule-presentation-cache-ui`, merge commit `1f27f5c`, 2026-07-30); **MANUAL-ONLY — automatic enrichment stays dormant until PLATFORM-086E1C2** (the authority's `weekly`/`season-transition` triggers exist but nothing invokes them). Review converged in 2 cycles + a clean confirming round: independent Claude self-review via subagent (`/code-review` is user-invocation-only in the active environment) — no P0–P2, 3 P3 hardenings remediated (guarded memo fill, row-validated cache entries, canonical id grammar); independent Codex round 1 (a first attempt died to a Codex-runtime stream disconnect after 1h29m with no findings — reported honestly, rerun fresh) — 1 P2 (pre-`await` memo snapshot race, including a stale-null overwrite of a concurrently published entry) + 2 P3s (nonempty-all-invalid stored entries normalized to a "fresh empty" catalog suppressing repair for up to 30 days; a venue-TTL read→lease TOCTOU could spend a duplicate `/venues` request), all remediated; Codex round 2 CLEAN — "No credible P0/P1/P2 findings remain." Full `npm test` **2645/2645** (+63 focused tests), `tsc`/`lint:all`/`build`/`git diff --check` clean; **all provider fetches stubbed — no CFBD, QStash, Vercel, or production contact; no quota spent.** The BotID stash was preserved. (23 changed files crossed the 15-file reassessment signal — one cohesive objective, mirroring the E1B precedent.)
-- **PROMPT_ID(s):** `PLATFORM-086E1C1-SCHEDULE-PRESENTATION-CACHE-UI-v1`.
-- **Goals completed:** (1) Normalized allowlisted presentation caches — `schedule-media/<year>-all` (gameId / closed `tv|radio|web|ppv|mobile` union / outlet; dedup by `(gameId, mediaType, ci-outlet)`; deterministic sort) and `venue-catalog/current` (id/name/city/state/countryCode/timezone/capacity/grass/dome; conflicting rows for one venue id reject the payload; media kickoff fields never modeled — the canonical `/games` schedule remains the only kickoff truth). (2) One shared authority `refreshSchedulePresentation({year, trigger})`: canonical context read cache-only from `schedule/<year>-all-all` exact numeric provider ids (absent/empty → `no-eligible-games` with NO provider call; read failure or zero usable ids → `canonical-context-unavailable`); independent 5-minute token-safe leases; provider attempts begun post-lease/pre-credential; at most one request per part (media year-wide without a classification filter, filtered afterward against canonical ids); 30-day venue TTL enforced by a forced durable freshness read PLUS a post-lease-acquisition re-check; observation-ordered `withAppStateKeyTransaction` commits with prior-good/empty-replacement/schema-drift protections; corrupted (nonempty-all-invalid) stored entries normalize to absence and self-heal; durable write → guarded ~120 s memo publish → status against exact new scopes `schedule:media:<year>`/`schedule:venues` (the admin Schedule card keeps reading only the canonical year scope); one allowlisted `schedule-presentation-refresh` event per invocation. (3) Manual-only seeding: the authorized full-year `/api/schedule?bypassCache=1` refresh with a populated E1A success (after the probe update, never blocking the canonical response); targeted repairs, E1A non-successes, and every automatic caller never seed. (4) Cache-only join on every successful `/api/schedule` response path (media by exact `item.id`, venue display fill by exact `venueId`; the wire/`AppGame` models gain optional `media`; canonical durable records never mutated; presentation faults serve base rows). (5) UI: shared TBD-aware kickoff formatter on Games/Matchups/Overview (`startTimeTBD` → date + "Time TBD"; confirmed format byte-identical; local formatter duplicates retired); deterministic primary broadcast (`tv → web → ppv → mobile → radio`, `Streaming · X` / `Radio · X` labels); GameWeekPanel expanded metadata gains broadcast + enriched venue (capacity/surface/dome/timezone cached, not displayed).
-- **Key outcomes:** Presentation data is manually seedable and automatically dormant; public traffic stays provider-free; game cards truthfully separate confirmed kickoffs from `Time TBD` and show enriched broadcast/venue lines that degrade to exact prior output when enrichment is absent; presentation failures can never block the canonical schedule, standings, probe, lifecycle, or rollover behavior; canonical schedule storage/identity, E1A, QStash schedules/CLIs, `vercel.json`, and automation settings/descriptors are untouched.
-- **Optional follow-up debt (non-blocking):** PLATFORM-086E1C2 (automatic enrichment wiring — the `weekly`/`season-transition` triggers into the weekly cron + season-transition flow) is NEXT; 086E2 rankings follows E1C2. Carried non-blockers: the venue-TTL TOCTOU re-check is source-scan-pinned (the interleave is not deterministically constructible without an injection seam); multi-file store-backed test invocations must set `APP_STATE_TEST_ISOLATION=1` (as `npm test` does) or suites cross-talk through the shared file store.
-
-### PLATFORM-086E1C2 — Automatic Schedule-Presentation Wiring (Weekly + Season-Transition) — Complete
-
-- **Status:** Complete, **MERGED to `main`** via PR #426 (`platform/086e1c2-schedule-presentation-automation`, merge commit `29976c1`, 2026-07-30). Presentation refresh is now **ELIGIBLE on the next qualifying canonical success** — both schedulers were already active, so there is nothing to provision or toggle; the runbook **§8i observation checkpoint remains PENDING** and is recorded only from actual production evidence. Review converged in 1 remediation round + a clean independent round: independent Claude self-review via subagent (`/code-review` is user-invocation-only in the active environment) — no P0–P2; 3 P3s (1 fixed: event-level invocation-leak assertions; 1 rejected as spec-mandated: the gate-exemption piggyback; 1 deferred, tracked: cron `maxDuration`/latency-envelope hardening — a pre-existing E1A exposure); independent Codex round 1 CLEAN — "no credible P0/P1/P2 exists." Full `npm test` **2658/2658** (+13 focused tests), `tsc`/`lint:all`/`build`/`git diff --check` clean; **all provider fetches stubbed — no CFBD, QStash, Vercel, or production contact.** BotID stash preserved.
-- **PROMPT_ID(s):** `PLATFORM-086E1C2-SCHEDULE-PRESENTATION-AUTOMATION-WIRING-v1`.
-- **Goals completed:** Routes + tests only. (1) The weekly cron invokes `refreshSchedulePresentation({year, trigger:'weekly'})` at most once per year, ONLY when that year's E1A result is a populated success (`written-clean` AND `unchanged-clean` — broadcast assignments change independently of canonical rows), strictly after the canonical year entry is recorded and the preseason probe update runs. (2) The season-transition cron sets a per-year `shouldRefreshPresentation` flag on the same qualifying condition and consumes it only after that year's probe save, preseason→season flips, standings invalidation, and league-year sync (`trigger:'season-transition'`). (3) Every skip/deferral/gate/failure/no-op/contention path invokes nothing; both call sites omit `now` (fresh authority clock) and sit behind a narrow defensive catch; presentation outcomes never alter canonical cron results, HTTP behavior, the `schedule-refresh-cron` event, probe truth, lifecycle mutation, standings, or canonical provider status. (4) Automatic bounds per qualifying year: 2 canonical `/games` + 1 `/games/media` + `/venues` only when the 30-day catalog is due (later qualifying years in one invocation observe the fresh commit → `fresh-cache`). Deliberate, test-pinned: presentation follows a lifecycle-critical `postseason-boundary` canonical success even with the operator gates closed (the gates pause ordinary CANONICAL automation). The existing cron fetch stubs were made presentation-aware with a SEPARATE presentation call log so canonical accounting stays byte-identical.
-- **Key outcomes:** Presentation data refreshes automatically alongside every qualifying canonical weekly/season-transition success under the existing schedulers — no new scheduler, cadence, toggle, storage, normalization, UI, or public provider path; automatic ownership mirrors canonical ownership; overlapping deliveries stay safe under E1A's canonical lease + E1C1's independent media/venue leases; manual seeding (`trigger: 'manual'`) unchanged and regression-pinned.
-- **Optional follow-up debt (non-blocking):** the §8i post-merge observation (provider-free weekly skip → first qualifying automatic `schedule-presentation-refresh` event → normal `fresh-cache` venue behavior), recorded docs-only from actual evidence; cron `maxDuration`/latency-envelope hardening (deferred P3); PLATFORM-086E2 rankings refresh is NEXT (the passive observation does not block it).
-
----
-
-### PLATFORM-086E2A — Season Rankings Refresh Authority + Cache-Only Reader — Complete (Dormant)
-
-- **Status:** Complete, **MERGED to `main`** via PR #427 (`platform/086e2a-rankings-refresh-authority`, merge commit `a656861`, 2026-07-30); **DORMANT** — the rankings dataset remains manual/API-only (descriptor untouched; no cron, QStash schedule, `vercel.json`, settings, or UI change; merging activated nothing). Review converged in 2 cycles + a clean confirming round (`/code-review`/`/codex:review` are user-invocation-only in the active environment — independent Claude subagent + Codex rescue-runtime substituted): cycle-1 Claude — no P0–P2, 3 P3s (1 fixed: reader memo-regression race; 1 declined: observedAt-capture pin needing new delay seams; 1 deferred, registered); cycle-1 Codex — 1 P2 fixed (cross-year contamination guard); external user-forwarded Codex review — 2 P2s fixed (preseason-discovery season bleed; fabricated `attemptedSeasonTypes` on pre-fetch exits), 1 P1 dispositioned not-taken (indeterminate-commit vocabulary — spec-pinned to `durable-commit-failed` matching the merged E1A sibling; doc caveat added; cross-authority follow-up registered); Codex round 2 — **CLEAN at every severity**; plus external closeout corrections (commit-fault comment truthfulness, deferral registration, diff-size count). Focused rankings suites **82/82**; full `npm test` **2720/2720**; `tsc`/`lint:all`/`build`/`git diff --check` clean; **all provider fetches stubbed — no CFBD, QStash, Vercel, or production contact; no quota spent.** BotID stash preserved.
-- **PROMPT_ID(s):** `PLATFORM-086E2A-RANKINGS-REFRESH-AUTHORITY-v1`.
-- **Goals completed:** (1) `loadSeasonRankings` is strictly cache-only — 120 s process-memo visibility bound (then a forced durable re-read, with a post-read re-peek so a racing same-instance commit is never regressed), the 8-day descriptor data horizon replacing the retired 6-hour TTL as the staleness signal, and the preserved `503/admin-refresh-required` miss. (2) ONE shared writer `refreshSeasonRankings({year, trigger})`: durable token-safe 5-minute lease `rankings-refresh-control/<year>` (contention → `409 {"error":"rankings-refresh-in-progress"}`, no provider call, no fabricated attempt), year-scoped attempt before credential validation, forced durable prior read (fails closed pre-provider), observation captured immediately pre-fetch, both partitions fetched outside the transaction with the verbatim retry/pacing, independent partition validation + cross-year guard (foreign-season weeks never usable for the requested year), and an observation-ordered `withAppStateKeyTransaction` commit enforcing stale-observation no-ops, empty-replacement rejection, prior-relative completeness (`rankings-partition-incomplete` — coverage may only grow), and `unchanged-clean` metadata-only freshness vs `written-clean` replacement; memo published only post-commit; scoped status resolved exactly once from the typed closed-vocabulary `RankingsRefreshResult`. (3) Dormant pure E2B policies shipped tested and unwired: the publication-slot classifier (five UTC windows, precedence `final-ap-coaches → cfp-publication → opening-week-exception → weekly-ap-coaches → preseason-discovery`, discovery strictly pre-kickoff, deterministic `<year>:<kind>:<date>` duplicate-suppression keys) and the rankings automation quota gate (trustworthy remaining ≥ 1,007 via the shared `evaluateAutomationQuota` with a caller-supplied minimum; the game-stats/live-score 1,002 default unchanged). (4) The previously uncollected route suite relocated under `__tests__` (now in the `npm test` glob) with its stale one-request assertions corrected to two-partition truth.
-- **Key outcomes:** Manual refresh available / public reads provably cache-only / automatic refresh dormant; same-year concurrent refreshes cannot duplicate provider work under a valid lease; stale observations cannot overwrite newer durable rankings; empty, drifted, incomplete, or cross-year partitions cannot erase prior-good weeks or poll sources; cross-instance writes become visible within the 120 s memo bound; existing consumers (Draft, Insights, admin manual refresh) unchanged aside from the intentional 409.
-- **Optional follow-up debt (non-blocking):** two registered deferrals in `docs/next-tasks.md` → "Unresolved decisions & known deferrals" — the cross-authority indeterminate-commit vocabulary (E1A + E2A uniformly) and the synthetic-final-poll partial-postseason replacement window; the rankings `plannedPolicy` descriptor string correction lands with E2B activation. PLATFORM-086E2B (publication-aware cron + QStash activation) is NEXT.
-
----
-
-### PLATFORM-086E2B — Publication-Aware Rankings Automation — Complete (Merged; Unprovisioned)
-
-- **Status:** Complete, **MERGED to `main`** via PR #428 (`platform/086e2b-rankings-publication-automation`, merge commit `1c34352`, 2026-07-30); **NOTHING PROVISIONED OR ACTIVATED** — no `turfwar-rankings-publication` QStash schedule exists, `vercel.json` is untouched, and the operator **§8j** sequence (provision → gates-closed auth proof → toggle On → open-gate policy proof) is the remaining activation checkpoint. Review converged in cycle 1 + a clean confirming round (`/code-review`/`/codex:review` are user-invocation-only — independent Claude subagent + Codex rescue-runtime substituted): independent Claude — no P0–P2, 4 P3s (2 fixed: per-year event truth on a defensive mid-loop double-fault; exact probe→spend interleaving pinned; 2 dispositioned: minute-exact heartbeat slot vs delayed delivery — spec-mandated, documented as the §8j/diagnostics operational note; completed-window record accumulation — accepted housekeeping); Codex round 1 — no P0/P1, 2 P2s fixed (element-level schedule corruption accepted as usable context; foreign-season/malformed cached poll values could suppress a discovery window — both fail closed now, with the deliberate self-healing coverage disposition); Codex round 2 — **CLEAN at P0–P2**, all four remediations verified; the cycle-3 gate was never reached. Focused **210/210**; full `npm test` **2791/2791**; `tsc`/`lint:all`/`build`/`git diff --check` clean; **all provider fetches stubbed — no CFBD, QStash, Vercel, or production contact; no quota spent.** BotID stash preserved.
-- **PROMPT_ID(s):** `PLATFORM-086E2B-RANKINGS-PUBLICATION-AUTOMATION-v1`.
-- **Goals completed:** (1) `GET /api/cron/rankings` — CRON_SECRET first (401s) → Rankings automation gate (all rankings automation noncritical; settings failure fails closed) → registry-selected `preseason`/`season` years ascending (a `season` league owns a mixed year; never calendar-derived) → per-year sequential: cache-only publication context (earliest valid canonical kickoff + the structured championship via the E1A resolver; element-level corruption/malformed state/read failures = `canonical-context-unavailable`; poll coverage counts only well-formed matching-season poll arrays) → the merged E2A publication classifier at the single route-entry instant → durable exact-window claim (`rankings-publication-window/<year>:<kind>:<date>`: completed windows immutable and provider-free forever; 5-minute token-safe claims; store failure fails closed pre-quota) → fresh `/info` probe per due year through the rankings quota gate (≥ 1,007) → `refreshSeasonRankings({trigger:'automatic'})` → success/no-op finalizes the window, contention/failure releases it, unconfirmed completion is a truthful `partial/publication-completion-unconfirmed`. (2) One secret-safe `rankings-cron` event per invocation (allowlisted fields; skip-excluded aggregation; uniform reason or `year-results`). (3) The fixed QStash contract (`turfwar-rankings-publication`, `0 4,22 * * *`, GET, retries 0, forwarded + provider-redacted Authorization) bound into the shared inspect-first/apply-gated/no-delete CLI as `manage:rankings-schedule`; sibling rotation comments four → five schedules. (4) Rankings descriptor flipped active + setting-consumed (8-day horizon unchanged; toggle interactive; conferences the only planned dataset left). (5) Runbook §8j documented (NOT executed) incl. the five-schedule `CRON_SECRET` rotation; diagnostics/deployment/architecture docs updated. (6) Test-only `__resetUpstreamPacingForTests` (production-inert).
-- **Key outcomes:** No provider work outside a due, newly claimed publication window; a completed publication key never spends quota again (at-least-once delivery safe end-to-end: immutable completed windows + token-safe claims + E2A's per-year lease and observation ordering); E2A remains the only rankings writer and its typed result the outcome truth; manual/public rankings behavior untouched; the heartbeat is only a trigger — the application's publication policy decides when provider work is due.
-- **Optional follow-up debt (non-blocking):** the §8j operator activation — **✅ EXECUTED 2026-07-30** (production record in `docs/deployment-runbook.md` §8j; rankings automation ACTIVE); delayed-delivery slot-skips are an accepted operational property (monitor `not-a-heartbeat-slot` frequency); completed-window record accumulation (~50–60/season-year, no TTL) is accepted housekeeping; after §8j, **PLATFORM-086F2** (diagnostics IA redesign) is the remaining provider-campaign implementation item; the passive E1C2 §8i observation still blocks nothing.
-
----
-
-### PRE-LAUNCH-TIDYUP — Complete
-
-- **Status:** Complete (PR #306, commit `1d1b451`). _Record restored by DOCS-012 — this campaign's
-  only written record previously lived in `docs/next-tasks.md` and was removed there during the
-  ledger deconfliction._
-- **PROMPT_ID(s):** PRE-LAUNCH-TIDYUP (pre-registry campaign label).
-- **Outcome:** `npm test` script added (the entry point that later enabled the
-  TEST-SUITE-BASELINE-CLEANUP arc); `papaparse` dependency removed; documentation drift fixes for
-  the cron schedule and the custom-domain redirect; the `ADMIN_API_TOKEN` sunset timeline
-  documented.
-- **Verification:** shipped via PR #306; the follow-on test-baseline arc it surfaced is recorded in
-  `docs/prompt-registry.md` (`TEST-SUITE-HANG-BASELINE-FIX`, `PLATFORM-001`–`PLATFORM-004`).
-- **Open follow-ups:** none (the surfaced test-baseline cleanup completed separately).
-
----
-
-### DOCS-013 — Binding Execution Boundaries — Complete
-
-- **Status:** Complete — merged to `main` via PR #444 (merge commit `2b09e82`, 2026-08-04).
-  Documentation-only; five files (`AGENTS.md`, `CLAUDE.md`, and three ledger/index documents).
-- **PROMPT_ID(s):** `DOCS-013-EXECUTION-BOUNDARIES-v1`.
-- **Outcome:** The boundaries that repeated F2H failures exposed are now binding and discoverable in
-  one place instead of re-derived per prompt. `AGENTS.md` gains three sections. **Review and
-  remediation limits** replaces the fixed three-round convergence loop with an ADAPTIVE limit,
-  because repeated rounds were the mechanism by which remediations introduced their own defects:
-  both reviews are gathered against the SAME commit before anything is patched; every finding is
-  evaluated for reachability and attribution before being accepted or dismissed (refuting with
-  evidence is a valid outcome); at most ONE normal cohesive remediation round runs; a second
-  requires explicit user approval and only for a defect directly caused by the first; after that
-  there is no further patching. The same section prescribes **reconstruction over accumulation** —
-  when a branch has taken two rounds and still yields credible findings, or review shows the scope
-  itself was wrong, abandon it and rebuild from clean `main` by re-deriving rather than
-  cherry-picking, since the stopped history carries the defects that stopped it. **Scope and
-  sizing** absorbs the binding PR-sizing rule from `next-tasks.md` and adds that every surface a PR
-  touches must carry its own tests — an untested widened scope is a scope violation, not a test
-  gap, and if deleting a new guard leaves the suite green the guard is not in the acceptance
-  contract. **Verification** requires each gate to run as its own command with an unmasked exit
-  status, binds results to an exact commit with a clean worktree, requires a regression to be
-  verified failing against its own pre-fix code one fix at a time, and replaces raw suite totals
-  with test deltas mapped to the risk each protects.
-- **Other ledgers:** `CLAUDE.md` reduced from 183 to 127 lines — a pointer table plus
-  Claude-specific invocation guidance only (which review command Claude can start, the single-test
-  env vars, the bracketed-path glob trap), stating explicitly that it is not a source of truth.
-  `next-tasks.md` keeps campaign sequencing and gains an explicit five-condition F2 exit definition
-  so completion is not inferred from slice count. `docs/README.md` ownership rows updated.
-- **Named failure cases recorded:** `PLATFORM-086A` (77 files / ~12k lines);
-  `PLATFORM-086F2H1B` v1 (two automation jobs, the second shipped untested);
-  `PLATFORM-086F2H1T1` v1 (two remediation rounds, a false claim in a commit message, and a
-  client-feedback layer that could not work in production).
-- **Verification:** `npm run lint:all` and `git diff --check`, each run as its own command, both
-  exit 0. No code, tests, or behavior changed, so the suite and build were not re-run.
-
----
-
-### DOCS-012 — Current-Ledger Deconfliction + Ledger-Ownership Governance — Complete
-
-- **Status:** Complete — merged to `main` via PR #429 (merge commit `ea4fa60`, 2026-07-30).
-  Documentation-only; six files (`AGENTS.md` + the five ledger/index documents).
-- **PROMPT_ID(s):** `DOCS-012-CURRENT-LEDGER-DECONFLICTION-v2` (v1 draft scope amended
-  pre-implementation, never registered).
-- **Outcome:** Each ledger now has one clear responsibility, bound by the new `AGENTS.md` → "Ledger
-  ownership during closeout" rules: `next-tasks.md` owns the execution queue and the one canonical
-  deferrals list (and is the only doc that designates `NEXT`); `roadmap.md` owns direction without
-  PR internals; `prompt-registry.md` owns concise execution records (compact template for future
-  entries; no mutable `NEXT` pointers); this file owns outcome milestones (point-in-time warning
-  added; new template below). Displaced evidence was rehomed rather than dropped (the §8c/parity-
-  rerun record into the registry; the PRE-LAUNCH-TIDYUP milestone above), and the server-fetch
-  backlog was corrected to the verified audit findings.
-- **Verification:** `npm run lint:markdown` + `git diff --check` clean; registry-heading uniqueness,
-  local-link resolution, and single-`NEXT` checks passed; independent review + confirming round
-  resolved (2 P1 + 3 P2 + 7 P3 across both rounds, all remediated or explicitly dispositioned).
-- **Open follow-ups:** See the canonical deferrals/current queue in `docs/next-tasks.md`. One
-  residual excluded from this task by instruction: `CLAUDE.md`'s deferrals pointer retains a stale
-  intermediate path segment (its terminal heading resolves).
-
----
-
-### PLATFORM-086F2A — Admin Control-Plane Inventory + Target IA — Complete
-
-- **Status:** Complete — merged to `main` via PR #430 (merge commit `4d6b897`, 2026-07-30).
-  Documentation-only; six files (the new canonical doc + ledger/index projections).
-- **PROMPT_ID(s):** `PLATFORM-086F2A-ADMIN-CONTROL-PLANE-IA-v1` (first slice of the
-  PLATFORM-086F2 admin control-plane redesign).
-- **Outcome:** `docs/architecture/admin-control-plane.md` is now canonical for the admin
-  route/action inventory (source-verified at `7d5741a`, with corrections to the accepted audit
-  draft), the locked decisions, the target information architecture, the hardened
-  `scheduler-execution-status/<job>` receipt contract (post-auth writes only, monotonic ordering),
-  and the F2A–F2J migration map with per-finding slice ownership (high-priority lifecycle
-  correctness → F2B; historical-scores status recording made mandatory for F2C per the binding
-  provider-status invariant).
-- **Verification:** `npm run lint:markdown` clean; relative links validated; route/action matrix
-  independently verified against the admin pages, admin API routes, and cron routes. Review
-  converged: Claude self-review + three Codex rounds (details in `docs/prompt-registry.md`), with
-  the round-3 P2 resolved by explicit user authorization.
-- **Open follow-ups:** See the canonical deferrals/current queue in `docs/next-tasks.md` (F2B is
-  the next F2 slice; the co-located `route.test.ts` relocation is a recorded candidate follow-up).
-
----
-
-### PLATFORM-086F2B — Lifecycle Authority Safety — Complete
-
-- **Status:** Complete — merged to `main` via PR #431 (merge commit `5658413`, 2026-07-30).
-- **PROMPT_ID(s):** `PLATFORM-086F2B-LIFECYCLE-AUTHORITY-SAFETY-v1` (second slice of the
-  PLATFORM-086F2 admin control-plane redesign).
-- **Outcome:** The three F2A lifecycle correctness risks are eliminated. `updateLeagueStatus` is
-  the single lifecycle mutation authority (serialized transactional registry writes;
-  season/preseason synchronize `league.year = status.year`; offseason writes the outgoing
-  `status.year`, healing desynchronized legacy projections); generic configuration paths can no
-  longer mutate the season year (`409 league-year-lifecycle-managed`); new leagues are born with
-  an explicit lifecycle status; admin rendering performs no durable lifecycle write. Manual
-  rollover is per-year behind the SAME strict gate as the automatic cron
-  (`resolveNationalChampionshipRollover`, re-evaluated on every POST), with shared
-  `groupRolloverTargets` targeting, group-atomic archive-first execution, guarded conditional
-  season→offseason transitions in both paths, truthful partial-failure reporting, and no
-  force/emergency bypass. Binding rules: `AGENTS.md` → Lifecycle Authority Invariants.
-- **Verification:** 53 new focused tests; full suite 2846 green; `npx tsc --noEmit`,
-  `npm run lint:all`, `npm run build`, `git diff --check` clean. Review converged: Claude
-  self-review + two Codex rounds (round 2 clean); details in `docs/prompt-registry.md`.
-- **Open follow-ups:** See the canonical deferrals/current queue in `docs/next-tasks.md` (F2C is
-  the next F2 slice; the legacy missing-status lifecycle repair path is owned by F2H).
-
----
-
-### PLATFORM-086F2C — Maintenance Action Model + Data Maintenance & Recovery Foundation — Complete
-
-- **Status:** Complete — merged to `main` via PR #432 (merge commit `5e2c021`, 2026-07-30).
-- **PROMPT_ID(s):** `PLATFORM-086F2C-MAINTENANCE-ACTION-MODEL-v1` (third slice of the
-  PLATFORM-086F2 admin control-plane redesign).
-- **Outcome:** The stable `/admin/data/cache` route presents as **Data Maintenance & Recovery**:
-  three organized sections, and every one of the eight existing maintenance actions discloses its
-  provider, nominal cost, live target, durable mutations, automation owner, and
-  routine/recovery/emergency class through the shared presentation-only contract
-  (`src/lib/admin/maintenanceActions.ts`) — the full game-stats backfill visibly identifies as the
-  emergency action, and request construction is pinned unchanged. Lifecycle rollover left the
-  maintenance surface (the per-year status panel now renders on Season Management, its owner). The
-  historical-score repair records one truthful year-rollup `provider-refresh-status` attempt
-  whenever provider work is required, with shared empty/schema-drift classification before any
-  write, no empty commits, partial-write truth, and a panel that distinguishes a no-op from a
-  cache write — closing the status gap flagged at F2A.
-- **Verification:** 37 new focused tests; full suite 2883 green; `npx tsc --noEmit`,
-  `npm run lint:all`, `npm run build`, `git diff --check` clean. Review converged: Claude
-  self-review + three Codex rounds, with the round-3 P2 resolved by explicit user authorization
-  (details in `docs/prompt-registry.md`).
-- **Open follow-ups:** See the canonical deferrals/current queue in `docs/next-tasks.md` (F2D is
-  the next F2 slice; the repair's lifecycle-active-year guard hardening is a named follow-up in
-  `docs/architecture/admin-control-plane.md`).
-
----
-
-### PLATFORM-086F2D1 — Provider Maintenance Relocation — Complete
-
-- **Status:** Complete — merged to `main` via PR #433 (merge commit `fa5c0f6`, 2026-07-30).
-- **PROMPT_ID(s):** `PLATFORM-086F2D1-PROVIDER-MAINTENANCE-RELOCATION-v1` (first slice of the
-  audit-split F2D operational-mutation relocation).
-- **Outcome:** System Health (`/admin/diagnostics`) no longer performs provider-spending
-  mutations besides its operational safety controls: every manual refresh, the game-stats
-  partition inputs, and the team-database sync left `ProviderDataStatusPanel`/Diagnostics, while
-  the global pause, dataset toggles, mutation-error feedback, status, quota, and diagnostics
-  cards remain. The relocated actions live on Data Maintenance & Recovery — a new Odds & Rankings
-  panel and a Reference data section (Conferences + the renamed Team Database sync) — issuing
-  byte-identical requests through the shared URL authority with truthful fallback interpretation,
-  each with its cost/scope disclosure (contract now 12 actions), and with attempt-scoped refresh
-  feedback (per-dataset sequences; year changes invalidate in-flight attempts). The drifted
-  co-located team-database route test was deleted; the maintained suite gained the upstream
-  bearer-key assertion.
-- **Verification:** Full suite 2892 green; `npx tsc --noEmit`, `npm run lint:all`,
-  `npm run build`, `git diff --check` clean. Review converged: Claude self-review + three Codex
-  rounds (round 3 clean); details in `docs/prompt-registry.md`.
-- **Open follow-ups:** See the canonical deferrals/current queue in `docs/next-tasks.md` (F2D2 is
-  the next F2 slice; the `manualRefresh.ts` dead-surface trim is a recorded candidate follow-up).
-
----
-
-### PLATFORM-086F2D — Operational Mutation Relocation (D1 + D2) — Complete
-
-- **Status:** Complete — merged to `main` via PR #433 (D1, `fa5c0f6`) and PR #434 (D2,
-  `a2a56fc`), 2026-07-30.
-- **PROMPT_ID(s):** `PLATFORM-086F2D1-PROVIDER-MAINTENANCE-RELOCATION-v1`,
-  `PLATFORM-086F2D2-SCORE-ATTACHMENT-RECOVERY-RELOCATION-v1` (the audited F2D split).
-- **Outcome:** Diagnostics (`/admin/diagnostics`) now contains only operational observation and
-  safety controls — provider/cache status with the global pause and dataset toggles, quota
-  observation, and storage diagnostics. Every provider-spending mutation lives on Data
-  Maintenance & Recovery with a cost/scope disclosure: the manual dataset refreshes and Reference
-  data section (D1), and the relocated score-attachment tool as the explicitly confirmed,
-  emergency-class "Refresh scores and run attachment trace" recovery action whose one captured
-  target drives its disclosure, confirmation (including the derived season-wide refresh scope for
-  week-targeted runs), request, and result label, with the trace disclaiming upstream-success
-  proof (D2). Refresh feedback is attempt-scoped throughout; invalid scope can never silently
-  broaden or retarget. Backend routes, auth, provider semantics, and the server-fetch backlog are
-  unchanged and separately owned.
-- **Verification:** D1 full suite 2892; D2 full suite 2906 — all gates clean in both. Reviews
-  converged: D1 self-review + three Codex rounds (round 3 clean); D2 self-review + three Codex
-  rounds with the round-3 finding resolved by explicit user authorization (details in
-  `docs/prompt-registry.md`).
-- **Open follow-ups:** See the canonical deferrals/current queue in `docs/next-tasks.md` (F2E1 is
-  the next F2 slice; the `manualRefresh.ts` dead-surface trim and the server-fetch backlog remain
-  recorded follow-ups).
-
----
-
-### PLATFORM-086F2E1 — External Scheduler Receipts — Complete
-
-- **Status:** Complete — merged to `main` via PR #435 (merge commit `4404ad3`), 2026-07-31.
-- **PROMPT_ID(s):** `PLATFORM-086F2E1-EXTERNAL-SCHEDULER-RECEIPTS-v1` (first scheduler-health
-  slice of the F2 admin control-plane redesign).
-- **Outcome:** A shared authority (`src/lib/server/schedulerExecutionStatus.ts`) writes one
-  latest-only, secret-safe durable receipt per QStash cron job under
-  `scheduler-execution-status/<job>`, so future System Health diagnostics can distinguish
-  scheduler _delivery_ from provider-refresh _data_ activity. Each receipt is allowlisted
-  (version/job/`source:'qstash'`/application-generated `crypto.randomUUID` invocation id created
-  only after `verifyCronSecret` returns `ok`/start+complete instants/route-only duration/verbatim
-  tracker result+reason/provider-call flag/bounded per-job target capped at eight years), committed
-  with monotonic latest-only ordering inside `withAppStateKeyTransaction` (equal-or-newer prior
-  wins by `(startedAt, invocationId)`; malformed/mismatched/obsolete/future-dated priors are
-  replaceable with the future-skew reference read inside the transaction; a genuine read failure
-  writes nothing; one row per job), and persisted post-response via Next.js `after` — fully
-  best-effort, so a receipt failure never changes a cron response, masks a throw, or alters
-  provider/runtime-event behavior. Auth failures never create or advance a receipt. The five
-  routes were instrumented (identity after auth, receipt scheduled from the existing `finally`
-  after the unchanged runtime event), the weekly-schedule route's `exec.years = entries` moved
-  before the per-year loop (matching rankings), and the five stale execution-log comments updated.
-  Responses, provider behavior, cadence, runtime-event schemas, QStash contracts, and `vercel.json`
-  are unchanged; no reader/UI (F2E2).
-- **Verification:** Full suite 2956 (+52 receipt tests: 17 authority + 35 route/harness);
-  `npx tsc --noEmit`, `npm run lint:all`, `npm run build`, `git diff --check` clean. Review
-  converged: self-review (no P0–P2) → Codex round 1 (1 P2 — an unknown-reason prior could win
-  future-dated ordering; fixed with a future-`startedAt` guard) → round 2 (1 P2 — the round-1
-  guard's skew reference could go stale under lock contention; fixed by reading it inside the
-  transaction) → round 3 clean. PR-size reassessment (recorded in `docs/prompt-registry.md`):
-  24 files / ~2,950 net lines crossed both soft signals, dominated by the §8-mandated test suite
-  plus a heavily-documented single-file authority; accepted as one cohesive, revertible contract.
-- **Open follow-ups:** See the canonical deferrals/current queue in `docs/next-tasks.md` (F2E2 —
-  lifecycle-cron receipts + the cache-only admin reader + cadence-aware delivery-health
-  classification — is the next F2 slice).
-
----
-
-### PLATFORM-086F2E2A — Lifecycle Scheduler Receipts + Events — Complete
-
-- **Status:** Complete — merged to `main` via PR #436 (merge commit `fa6e967`), 2026-07-31.
-- **PROMPT_ID(s):** `PLATFORM-086F2E2A-LIFECYCLE-SCHEDULER-RECEIPTS-v1` (first half of the audited
-  F2E2 split).
-- **Outcome:** The merged F2E1 receipt authority now covers all SEVEN scheduled jobs: the two
-  Vercel-native lifecycle crons (season-transition, season-rollover) write one latest-only durable
-  receipt each under `scheduler-execution-status/<job>` with `source: 'vercel-cron'` (the five
-  QStash jobs stay `source: 'qstash'` byte-equivalent), and both crons now emit their
-  previously-missing secret-safe runtime execution-log events (`season-transition-cron` /
-  `season-rollover-cron`, auth failures included). `source` is DERIVED from `job` through a closed
-  map, never accepted from a caller; two bounded target variants (`season-transition-years`,
-  `season-rollover-years`) cap at eight ascending entries with per-shape validation. Both routes
-  were restructured to one outer `try/(catch)/finally` — `invocationId` created only after
-  successful auth, the finally emits the event then schedules one receipt only when authenticated.
-  Season-transition provider truth comes from E1A (`refresh.status`/`providerCallAttempted`);
-  rollover is always `providerCallAttempted: false`. Per-year classification is truthful (probe/
-  lifecycle-write throws; rollover complete/partial/failed keyed on rolled counts AND per-year
-  errors; a resolution throw records the failing year; an invalidation throw is a truthful partial)
-  while every existing HTTP response, lifecycle decision, E1A/probe behavior, archive-first
-  ordering, per-league failure isolation, standings invalidation, suppression clearing, and
-  presentation triggering is byte-preserved. No reader/UI (F2E2B); no scheduler/`vercel.json`
-  changes.
-- **Verification:** Full suite 2988 (+32: 7 authority + 15 season-transition + 10 season-rollover;
-  the 25 existing lifecycle route tests stay green unchanged); `npx tsc --noEmit`,
-  `npm run lint:all`, `npm run build`, `git diff --check` clean. Review converged: Claude
-  `/code-review` (xhigh — 1 correctness/drift finding fixed, 1 reuse note out-of-scope) + Codex
-  three cycles (r1 clean → r2 1 P2 ascending-sort fixed → r3 2 P2 rollover-accuracy gaps fixed
-  under explicit user authorization at the three-cycle gate). PR-size reassessment (in
-  `docs/prompt-registry.md`): ~13 files / ~1,900 net lines crossed the >1,500-net-line signal,
-  dominated by the §8-mandated test suites; user-approved as one cohesive lifecycle-observability
-  contract.
-- **Open follow-ups:** See the canonical deferrals/current queue in `docs/next-tasks.md` (F2E2B —
-  the cache-only admin reader over all seven receipts + cadence-aware delivery-health
-  classification — is the next F2 slice; the lifecycle-aggregation duplication of the
-  rankings/schedule cron policy is a recorded cross-module cleanup follow-up).
-
----
-
-### PLATFORM-086F2E2B — Scheduler Receipt Reader + Delivery Classifier — Complete
-
-- **Status:** Complete — merged to `main` via PR #437 (merge commit `f84b676`), 2026-07-31.
-- **PROMPT_ID(s):** `PLATFORM-086F2E2B-SCHEDULER-RECEIPT-READER-CLASSIFIER-v1` (the final
-  scheduler-receipt foundation before F2F).
-- **Outcome:** A cache-only SERVER reader + schedule-slot-aware delivery classifier over all seven
-  durable scheduler receipts, giving the later F2F System Health model truthful
-  scheduler-DELIVERY evidence without conflating delivery, execution outcome, provider activity, or
-  data freshness. `schedulerExecutionStatus.ts` gains `EXTERNAL_SCHEDULER_JOBS` (canonical ordered
-  tuple; `ExternalSchedulerJob` derived), `schedulerSourceForJob` (single ownership map), and the
-  exported `parseSchedulerExecutionReceipt` that validates AND rebuilds a stored receipt
-  field-by-field (no extra-field leakage, never a raw cast) — reused in the writer's prior-record
-  validation with monotonic ordering, replaceability, and the future-prior guard all unchanged. New
-  `src/lib/server/schedulerDeliveryHealth.ts` owns the seven fixed UTC policies (cron/cadence/grace;
-  source derived), a pure deterministic slot calculator (no cron-parser dep; UTC-only so DST is
-  irrelevant, correct across minute/hour/day/month/year boundaries, Rankings' uneven 04:00/22:00
-  gaps, and Vercel's 65-minute daily window), pure on-time/late classification, and ONE cache-only
-  scope read with an injected loader seam. It returns exactly seven state-bearing rows in canonical
-  order (`on-time`/`late`/`missing`/`invalid`/`unavailable`); timeliness is `startedAt` versus
-  `previousSlot(now − grace)` ONLY — never `result`/`reason`/`providerCallAttempted`/target or the
-  durable `updatedAt` — so a timely skip/no-op/failure is still `on-time`, and a missing/late
-  receipt never identifies a root cause. Server-only: no route, hook, UI, provider call, scheduler
-  mutation, settings change, receipt write, history, `vercel.json`/`package.json` change, or F2F
-  issue/severity logic. Policies are pinned by tests to the five management-script `CRON` exports
-  and both `vercel.json` entries; runtime code imports neither.
-- **Verification:** Full suite 3014 (+26: 23 delivery-health incl. all slot/boundary/DST/parity
-  cases + a real-store integration test, 3 authority parser/job/source); `npx tsc --noEmit`,
-  `npm run lint:all`, `npm run build`, `git diff --check` clean. Review converged: Claude
-  self-review (no P0–P2) + Codex round 1 one P1 (the default-loader integration test could
-  `DELETE FROM app_state` on a configured Postgres store — file fallback keys on `DATABASE_URL`
-  absence, not `NODE_ENV`; fixed by clearing/restoring `DATABASE_URL`) → round 2 clean. PR size:
-  4 files / ~1,000 net lines — under both soft signals.
-- **Open follow-ups:** See the canonical deferrals/current queue in `docs/next-tasks.md` (F2F —
-  the consolidated System Health read model that consumes this reader and adds issue codes,
-  severity, and repair links — is the next F2 slice).
-
----
-
-### PLATFORM-086F2F — System Health Read Model — Complete
-
-- **Status:** Complete — merged to `main` via PR #438 (merge commit `b9a1688`), 2026-08-02.
-- **PROMPT_ID(s):** `PLATFORM-086F2F-SYSTEM-HEALTH-READ-MODEL-v1` (the server-side data authority
-  the F2G UI will render).
-- **Outcome:** One server-side view model, `buildSystemHealthViewModel({ year, nowMs?, loaders? })`
-  (`src/lib/server/systemHealth.ts`), that composes SIX independent fact domains for an explicit,
-  validated year and derives a deterministic, prioritized issue list — ending the incremental
-  Provider panel's conflations. The two axes stay separate (seven scheduler jobs / six provider
-  datasets, not 1:1); delivery ≠ execution ≠ data freshness ≠ gates ≠ quota ≠ storage; a closed
-  automation gate never demotes a missing/late delivery and info-only gate issues never degrade
-  overall state. A new cache-only safe reader (`providerRefreshHealth.ts`) exposes each dataset's
-  canonical status and latest scoped activity separately, rebuilding records field-by-field (never
-  raw-cast; drops `lastError.message`/`source`, keeps a sanitized `hasError` + validated error
-  code/status), gating latest-activity to dataset-owned scope kinds, and requiring a canonical-ISO
-  round-trip so a lenient-`Date.parse` string (with an embedded path) can never be serialized.
-  Canonical freshness stays sourced from the cache/evidence authority (never provider-status
-  timestamps); `providerDataDiagnostics.ts` gains stable codes + repair surfaces with the game-stat
-  defect split (identity → Team Identity, duplicate/conflict → Data Maintenance), and manual-only /
-  identity-only gaps carry no ineffective repair. Quota uses one deliberate 600 s-cached CFBD
-  observation classified by the ACTUAL automation gate (1,007 reserve) and the real 53-credit Odds
-  threshold, rejecting malformed/impossible/legacy snapshots. Issues carry a stable code, severity,
-  a safe STATIC explanation, and a NULLABLE truthful repair destination (Data Maintenance / Season
-  Management / Team Identity / none). Server-only: no route, UI, mutation, durable schema change, or
-  scheduler/provider behavior change; F2G owns the UI.
-- **Verification:** Full suite 3096 (+82 F2F tests incl. all 32 enumerated cases); `npx tsc
-  --noEmit`, `npm run lint:all`, `npm run build`, `git diff --check` clean. No browser verification
-  (no UI). Review process: Claude self-review (no P0–P2) → Codex r1 (4 P2) → r2 (3 P2) → r3 (3 P2,
-  user-authorized) → a confirming round (3 P2, user-authorized); all 13 P2s remediated, no P0/P1
-  ever surfaced. The confirming round surfaced new findings rather than confirming clean — its three
-  fixes are test- and self-review-covered but received no further Codex pass, so the review was
-  closed by user evaluation with the PR as the final checkpoint. PR size: 17 files / ~+4.0k net —
-  crossed both soft signals (mandated four-module split + 32-case test matrix + six doc
-  projections; no single oversized module), surfaced to the user.
-- **Open follow-ups:** See `docs/next-tasks.md` — **F2G (System Health UI)** is the next F2 slice
-  (render this model, split the oversized Provider panel, link every actionable issue to its owning
-  surface).
-
----
-
-### PLATFORM-086F2G — System Health UI — Complete
-
-- **Status:** Complete — merged to `main` via PR #439 (merge commit `c5e38be`), 2026-08-03.
-- **PROMPT_ID(s):** `PLATFORM-086F2G-SYSTEM-HEALTH-UI-v1` (the System Health UI for the admin control
-  plane).
-- **Outcome:** `/admin/diagnostics` is now **System Health**, a current-status dashboard that renders
-  the merged F2F model server-side and presents a stoplight overview → prioritized issues →
-  always-visible scheduler (7) / provider (6) / quota-storage (3) rows with row-level forensic
-  disclosure → Automation safety controls (the only mutation surface, last). It builds ONE model for
-  the server-resolved OPERATIONAL season (`resolveOperationalSeasonYear` — no `?year=` seam; only the
-  provider-data section is season-scoped, everything else current/global). Health policy stays
-  server-side and tested (`systemHealthPanels.ts` — `deriveSystemHealthPanels` + `deriveDatasetFreshness`
-  — and `systemHealthYear.ts`; `SystemHealthViewModel` gains `panels` + per-dataset `freshness`); React
-  only maps status → color. The two axes stay separate; delivery vs execution, and freshness vs refresh
-  outcome vs automation, are distinct facts; the Overall tile is a holistic rollup that never
-  contradicts a section; repair links live ONLY in prioritized issues (nullable); stoplight
-  green/yellow/red/gray always carries a text label; storage is configuration-only (never a DB-liveness
-  claim); automation distinguishes a global pause from a per-dataset "Partially disabled" and names
-  Schedule's lifecycle exemption; missing/invalid/unavailable receipts read distinctly; loaders are
-  bounded (8 s) so a stalled read degrades to `unavailable` rather than blocking render; there is no
-  browser polling and no client GET to provider-status/usage. The settings POST + PLATFORM-086I
-  feedback are unchanged. The incremental `ProviderDataStatusPanel` / `AdminUsagePanel` /
-  `AdminStorageStatusPanel` are retired; the `/admin` landing card is renamed System Health (route
-  unchanged).
-- **Verification:** Full suite 3140 (+~50 F2G tests: panels/freshness, operational-year, page, section
-  renders, automation controls); `npx tsc --noEmit`, `npm run lint:all`, `npm run build`,
-  `git diff --check` clean. Local fixture-driven visual checkpoint (env-gated Clerk/middleware/layout
-  bypass, all removed before commit — 0 residual references); user approved desktop + 390px, light +
-  dark. Review: Claude self-review, then Codex r1 (8 P2) → r2 (4 P2) → r3 (1 P2, user-authorized) — all
-  remediated, no P0/P1. PR size: 31 git-counted files (mandated component split + three panel-retirement
-  deletions + docs), net ~+1.5k (mostly deletions); file count crossed the soft signal, surfaced to the
-  user. No provider/scheduler/production/BotID-stash operation.
-- **Open follow-ups:** See `docs/next-tasks.md` — **F2H (Season Management consolidation)** is the next
-  F2 slice.
-
----
-
-### PLATFORM-086F2H2A — Admin Season Backfill Retired — Complete
-
-- **Status:** Complete — merged to `main` via PR #456 (merge commit `cb40c03`), 2026-08-07. First
-  F2H2 slice, and a DELETION rather than a fix.
-- **PROMPT_ID(s):** `PLATFORM-086F2H2A-RETIRE-SEASON-BACKFILL-v1`.
-- **Outcome:** `POST /api/admin/backfill`, `BackfillPanel`, the `/admin/season` mount, and the dead
-  registry read that fed only that panel are removed. Backfill was a one-time import for historical
-  TSC league data, not a product feature; the only remaining use case — a missed historical year
-  surfacing later — is a deliberate one-off, not a standing admin button.
-- **Why retire rather than harden.** The route performed a write that is DURABLE, PUBLICLY VISIBLE
-  (a season archive renders on the league history page), and IRREVERSIBLE — no code path anywhere
-  deletes an archive — and it shipped COMPLETELY UNTESTED. Two ways to trigger it unintentionally
-  were found: the confirmation gate read `existing !== null && !confirmed`, so a request with no
-  existing archive skipped it entirely and fell through to `saveSeasonArchive` (**the button
-  labelled "Preview Backfill" WAS the write**, and the client acknowledged this in a comment rather
-  than treating it as a defect); and the only year bound was `>= 2000`, so the CURRENT in-season
-  year was accepted and SUCCEEDED, because the live season's schedule cache always exists.
-  Deleting removes the risk class — a wrong keystroke can no longer mint a permanent public archive
-  because there is nothing to click.
-- **Capability preserved:** `buildSeasonArchive` and `saveSeasonArchive` are used by BOTH rollover
-  paths, so they remain live, maintained, and continuously exercised. A future one-off repair is a
-  few lines against tested code, and safer than an admin surface because it cannot be reached
-  accidentally.
-- **The order this happened in is the lesson.** A full hardening slice was built and reviewed first
-  (`d27fffb`, `0bc7f4d`, unmerged, branch deleted) before anyone asked whether the feature should
-  exist. The F2H2 audit questioned rollover and the panels but never asked that of backfill, because
-  NOTHING IN THE CODE MARKS A FEATURE VESTIGIAL — only the owner knew. Its review record is what
-  established both defects, so the sunk work became the retirement's justification rather than its
-  foundation; the branch was reconstructed from `main` rather than layering a deletion on top.
-- **Comment and documentation truthfulness.** Three modules named "the established preview/confirm
-  backfill" as THE repair for a malformed game-stat slate or archive. Four canonical
-  `Status: Current` docs carried the route in their action inventory, admin API surface, page
-  contents, target-IA row, archive writer set, standings verified-wiring list, and E3 repair
-  instructions. All corrected. **One rationale that had ALREADY been reworded was still false** and
-  was fixed properly: it claimed a bogus cached `null` could let a writer "overwrite without
-  confirmation", but no surviving consumer gates a write on archive existence — the manual rollover
-  route is the only write-side reader of `getSeasonArchive`, confirmation is an explicit operator
-  boolean, and `existing` feeds only display fields. The real hazard is a HIDDEN overwrite warning.
-- **Review:** Codex and `/code-review` on the same commit (`48fcdea`). Both confirmed the deletion
-  itself clean — no dangling callers, broken types, or removed guard another path depended on. Every
-  finding was a truth or closeout gap, including a FALSE claim in the original commit message (it
-  said the removed artifacts' test suites went with them; `git ls-tree main` shows neither ever had
-  one). Amended — and that the surface shipped untested strengthens the retirement.
-- **Verification:** `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
-  `git diff --check` each run as their own command with unmasked exit status, all clean. Test delta
-  3386 → 3378 (−8): the hardening suites that never reached `main`. The route is absent from the
-  build manifest; `/admin/season` still renders its three remaining panels.
-- **What F2H2 carries forward.** The audit retired two more chartered items (rollover
-  projection/result convergence — the two surfaces have genuinely different jobs; benign
-  duplicate-delivery reporting — no path was produced where a redelivery reports as failure) and
-  RESCOPED the UI consolidation: neither rollover panel is a superset of the other, so deleting
-  either loses operator information. Open question for F2H3: manual rollover EXECUTION may not be
-  needed at all — it sits behind the identical gate as the daily cron, which runs anyway.
-
----
-
-### PLATFORM-090 — Game-Stats Preseason Health State — Complete
-
-- **Status:** Complete — merged to `main` via PR #470 (merge commit `ee39e09`), 2026-08-11. Six
-  commits: the fix, then four review-driven remediation rounds and one scoped re-derivation.
-- **PROMPT_ID(s):** `PLATFORM-090-GAME-STATS-PRESEASON-HEALTH-STATE-v1`.
-- **Outcome:** System Health distinguishes an absence the schedule says is EXPECTED from a real gap.
-  The provider-data diagnostics publish a per-dataset `ProviderDataExpectation`, derived for
-  `game-stats` from `CanonicalGame.applicability` — the same authority `evaluatePartitionCoverage`
-  counts and `selectPollingTarget` polls from — and an absent cache no evidence is yet owed for
-  renders a neutral gray `None expected` row that is non-degrading in both the Provider data and
-  Overall rollups. Green still requires positive, present evidence; genuine missing evidence still
-  warns once a completed stat-producing slate exists. `game-stats` is the only dataset given an
-  applicability state, so `ProviderCacheAvailability === 'absent'` keeps its meaning everywhere else.
-  No change to polling, provider requests, quota, ingestion, the evidence authority, canonical game
-  construction, schedule identity, durable storage, or scheduler cadence; no new durable state.
-- **THE defect was a decision that was made and then discarded.** The diagnostics already decided
-  whether evidence should exist — that decision gates every missing-evidence branch — but never
-  published it, so the presentation layer could not tell expected absence from a real gap and
-  defaulted to yellow `No cached data`, which propagated to `Attention needed` on two panels with no
-  operator action available to clear it.
-- **THE lesson: when every review round finds a NEW edge case in the same predicate, the predicate's
-  INPUT is wrong.** Rounds 1–3 inferred the expectation from coverage denominators over completed
-  slates and added one guard per round to patch that basis (unreadable kickoffs, dropped-row probes,
-  per-partition raw-vs-canonical accounting, an unservable-record coupling). Re-deriving onto
-  per-game applicability was net −79 production lines and dissolved every accumulated guard. The two
-  rounds after it fixed defects the re-derivation itself introduced — moving one input of a predicate
-  to a new source while leaving another behind, then adding an unguarded durable read to a function
-  whose contract promises no single read can sink it. Ask which authority already answers the
-  question before hardening a predicate a fourth time.
-
----
-
-### PLATFORM-089 — Odds Early-Season Polling — Complete
-
-- **Status:** Complete — merged to `main` via PR #469 (merge commit `ff5aa0c`), 2026-08-10. Four
-  commits: the staged horizon, then three review-driven corrections.
-- **PROMPT_ID(s):** `PLATFORM-089-ODDS-EARLY-SEASON-POLLING-v1`.
-- **Outcome:** Odds polling runs on a staged 45-day horizon keyed to the nearest eligible kickoff —
-  24 h beyond a week out, 6 h inside it, 2 h in the pregame window — instead of not polling at all
-  past 7 days. The Odds health card no longer warns when nothing is pollable, and a book withdrawing
-  a far-out line is recorded as `no-op / early-lines-withdrawn` rather than escalated as a provider
-  fault. QStash cadence, the 50-credit reserve, lease/backoff, canonical identity, and closing-line
-  semantics are unchanged; no new durable state, no new provider endpoint. Budget: ~3 credits/day in
-  the early window.
-- **THE defect was that eligibility and cadence were the SAME number.** A game outside 7 days was not
-  a target at all, rather than a target checked less often — so 125 rows committed on Jul 29 aged
-  into `odds-cache-stale` while every hourly run reported `no-eligible-target`, and the only thing
-  that would refresh the data was the job that kept declining to run.
-- **THE lesson: fixing an unactionable warning kept MOVING it.** Widening the horizon exposed the
-  empty-payload classifier, so a withdrawn line became a daily billed 502. Downgrading that left the
-  cache entry frozen, so the same alarm reappeared as `odds-cache-stale`. Each fix relocated the
-  problem into the next channel, and only the third pass — suppressing on the receipt's REASON, not
-  on "a check completed" — actually closed it. **Ask where a suppressed symptom will surface next.**
-- **A stated requirement was implemented and then REMOVED on evidence**, by owner decision: counting
-  the completed-check clock as freshness would have cleared a warning permanently in the one case
-  where it is correct, and its premise (that an unchanged payload leaves the timestamp frozen) was
-  false. Binding invariant 1 stands unamended.
-- **A deliberate contract in another slice was left ALONE** after the first fix attempt broke four
-  tests, one named for the protection it guards. The verdict was right; only the consequence was
-  wrong, so the split moved to the consumer and no existing test changed.
-- **Verification:** reviewed twice (against `1e6fd2e5` and `9fa332be`), every finding reproduced
-  before acceptance, one remediation round each. Gates per commit; final `21f1804e`: 3537/3537 tests,
-  `tsc`, `lint:all`, `build`. Mutation-checked throughout, including guards against re-introducing
-  both removed rules. **Not verified against the live provider** — no production credential was used.
-- **Open follow-ups:** See the canonical deferrals/current queue in `docs/next-tasks.md`.
-
----
-
-### TURFWAR Wordmark Kerning Cleanup — Complete
-
-- **Status:** Complete — merged to `main` via PR #468 (merge commit `fc77420`), 2026-08-10. Three
-  commits: the typography pass, then two proof-surface remediation rounds.
-- **PROMPT_ID(s):** `TURFWAR-WORDMARK-KERNING-CLEANUP-v1`. Supersedes the treatment shipped by
-  `TURFWAR-HOMEPAGE-WORDMARK-KERNING-v1` and the join rationale in `TURFWAR-APP-WORDMARK-REUSE-v1`.
-- **Outcome:** the shared wordmark reads as one evenly spaced word at every size. `letter-spacing`
-  is `normal` and the `f`/`W` join is `0.02em`, replacing `-0.03em` tracking against a `0.09em` join.
-  No size, layout, copy, font-family, or behaviour change.
-- **THE defect was ONE defect.** The `r`/`f` crowding and the `f`/`W` word-space had a single cause:
-  the UI face kerns `r` → `f` OPEN (+0.023em) because the `r`'s arm and the italic `f` collide
-  without it, and blanket negative tracking applies after every letter, so it cancelled the
-  typeface's own per-pair correction — closing that pair to a 1px pinch at the landing's 96px while
-  its neighbours sat at 5–6px. The oversized join existed only to repay that tracking, and its
-  0.06em net read as a word space. **A global lever cannot fix what a per-pair correction owns.**
-- **Verification:** the values were measured, not tuned — the real font shaped with HarfBuzz so
-  actual GPOS kerning applied, outlines flattened, and the minimum ink-to-ink gap computed for every
-  adjacent pair; candidates were rasterized and compared, and the owner confirmed the render. Gates
-  on `63b0db57`: 3505/3505 tests, `tsc`, `lint:all`, `build`, with the built CSS bundle inspected
-  rather than assumed. Fifteen mutations are pinned against the guards — thirteen defects that must
-  fail, two legitimate stylesheets that must pass.
-- **Open follow-ups:** See the canonical deferrals/current queue in `docs/next-tasks.md` — the
-  `insights-suppression` clock-boundary flake, and the unconsumed `--font-geist-sans` (the app
-  renders in the platform UI face, so the mark's appearance is platform-dependent).
-
----
-
-### POLISH-004 — Public Homepage Stadium — Complete
-
-- **Status:** Complete — merged to `main` via PR #466 (merge commit `38f5719`), 2026-08-09. 17
-  commits; every prompt on the branch is recorded in `docs/prompt-registry.md`.
-- **Outcome:** the public landing is an always-dark stadium composition built on a licensed Adobe
-  Stock photograph, with the `TurfWar` wordmark standing alone over it. The mark became a shared
-  component, adopted at compact scale on `/login` and the `/` admin dashboard; every other surface
-  kept its plain functional page title.
-- **TWO APPROACHES WERE BUILT AND DELETED, and that is the substance of the slice.** The scene was
-  first built natively — SVG geometry plus CSS gradients for turf, yard lines, floodlight beams, a
-  vignette. Two passes of value-tuning could not make vector primitives read as atmosphere: the turf
-  was a flat polygon, the markings a grid, the lighting grey blobs. A vector field strip under the
-  wordmark was then removed as redundant once the photograph carried the football identity, taking
-  `--landing-turf` with it — with no consumer it was not a scoped accent, it was a leftover.
-  **Recorded so a third native attempt is not made.**
-- **THE lesson: three rounds fixed the wrong thing because the LEVER was wrong, not the value.**
-  Attempts to move the guidance card off the goalpost by raising its top margin (1.75 → 2.5 →
-  4.5rem) produced 16px of movement. Content was vertically CENTRED while the background is anchored
-  to the VIEWPORT, so adding margin M grew the block by M and centring lifted its top by M/2 — content
-  moved relative to the photograph at half the requested rate, and everything above drifted up by the
-  rest. The fix replaced the mechanism: the hero anchors and the lower stack claims the slack, which
-  is deterministic rather than a function of content height.
-- **DESIGN.md gained a durable, app-wide rule** — "Decorative raster backgrounds" — superseding the
-  blanket raster prohibition written one slice earlier, before any surface needed atmosphere. A
-  landing-scoped colour exception added mid-branch was later RETIRED, so the semantic colour rules
-  stand unamended everywhere.
-- **Two review rounds, and the second found that the first round's own fixes were untested.** Three
-  of four code fixes survived their own mutations. Also caught: `color-scheme` declared on an element
-  with no scrollbar to govern; `margin-top: auto` with no floor after its markup fallback was deleted
-  in the same commit; `100vh` hiding the sign-out control under iOS Safari's toolbar; and a test
-  helper that swallowed every error while its docstring claimed it never hid a failure — which made
-  three negative assertions vacuous.
-- **Two reviewer findings were WRONG and deliberately not acted on**, verified against the built
-  bundle rather than the source: `-webkit-backdrop-filter` does ship, and Lightning CSS already emits
-  a legacy `image-set` fallback. Acting on either would have added dead CSS.
-- **Verification:** `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
-  `git diff --check` each run as their own command with unmasked exit status, all clean. Full suite
-  3496 → 3503. Mutation passes throughout; the final one is what exposed the untested fixes.
-  **HTTP-surface verification** confirmed end-to-end what had only been argued: the landing renders
-  its full hero in server HTML with no JavaScript, a seeded league leaks nothing to an anonymous
-  visitor, the production assets serve at their exact byte sizes, the retired ones 404, and a
-  corrupted durable store cannot break the public page.
-- **Open follow-ups:** See `docs/next-tasks.md`. HOMEPAGE-BRAND-IDENTITY remains deferred and is NOT
-  absorbed by this slice; the signed-in and admin branches were not reachable in the verification
-  environment and rest on unit tests plus owner device review.
-
----
-
-### PLATFORM-088 — Homepage Entry Truth — Complete
-
-- **Status:** Complete — merged to `main` via PR #465 (merge commit `f578f22`), 2026-08-08.
-- **PROMPT_ID(s):** `PLATFORM-088-HOMEPAGE-ENTRY-TRUTH-v1`, preceded by two independent read-only
-  audits — one static, one including live desktop, mobile, and JavaScript-disabled checks.
-- **Outcome:** the public homepage is server-rendered and reads no league data for anyone who is not
-  a platform admin; admin owner counts resolve each league's own season; the landing explains what
-  Turf War is and points invited members at their commissioner's link.
-- **ONE ORDERING CHANGE CLOSED THREE DEFECTS.** Resolving platform-admin on the SERVER before any
-  registry read fixed all of: the entire league directory being serialized into the payload for
-  anonymous visitors (Clerk's `<Show>` HID it, it did not withhold it — the same shape the Phase 3
-  draft-auth fix closed); the public page rendering **completely blank with JavaScript disabled**,
-  because no landing markup existed in server HTML at all; and signed-in non-admins falling into the
-  admin dashboard.
-- **The most severe finding came from the LIVE audit pass, not the static one.** A page that renders
-  nothing without JavaScript cannot be seen by reading code or by any test in this suite. Worth
-  remembering when scoping an audit: static reading found the leak, live checking found the blank
-  page, and the blank page was worse.
-- **Owner counts were reading the wrong season.** This page was the app's only league-scoped caller
-  of `seasonYearForToday()`, which answers "which season's data are we looking at" rather than "which
-  season is this league in"; both history surfaces already used the league's own year. With
-  production holding one league on 2026 and the demo on 2025, it reported "No owners" for a league
-  with a full roster. Now `resolveLeagueSeason`, per league.
-- **The entry contract was settled but written down NOWHERE**, which is how it drifted out of the
-  copy — the page read "Enter your league URL" above a static code sample with nothing to type into.
-  Now in `docs/vision.md`; `DESIGN.md` gained a landing section, having previously had no homepage
-  rules at all.
-- **TWO review rounds, and every finding in the second was caused by the first.** Round 1 fixed a
-  regression the slice itself introduced: withholding the league data from signed-in non-admins also
-  removed their only sign-out, trapping them in a `/` → `/login` → `/admin` → `/` loop. Round 2 found
-  that fix used a control which re-derives auth in the browser, so the loop reopened during
-  hydration; that the test for it pinned nothing (deleting the control left the suite green); that a
-  new identity helper bypassed the blank-secret refusal its neighbour applies, able to tell a
-  legitimate admin they were not one; and that the new `DESIGN.md` section was scoped to exclude the
-  very state whose defect it would have caught.
-- **THE recurring lesson, sharpest here: a mutation that removes more than the property it claims to
-  test yields a FALSE GREEN.** The round-1 mutation "remove the signed-in exit" flipped the whole
-  branch off, taking the explanatory sentence with it — and the sentence was what the test asserted.
-  The claim "killed by a named test" went into a ledger and was false. Round 2 pinned the exit by
-  PRESENCE and corrected the ledger in place.
-- **Verification:** `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
-  `git diff --check` each run as their own command with unmasked exit status, all clean. Test delta
-  3456 → 3479 — first-ever coverage for this surface. Twelve mutations across three passes, each
-  compiling, applied alone, killed by a named test.
-- **Stated limitations, recorded rather than implied:** contrast is not automatically verified (a
-  guard pins the tokens that failed; the 4.5:1 ratio and the 390px layout are visual checks), and the
-  two behavioural blank-secret tests cannot discriminate because `auth()` throws in the test
-  environment regardless — only the structural test kills that mutation.
-- **Open follow-ups:** See `docs/next-tasks.md` — brand identity (deliberately no colour added here;
-  an accent must be a token applied app-wide, amending the colour rules in the same change) and the
-  orphaned single-tenant `/rankings` route.
-
----
-
-### INSIGHTS-022 — Offseason Roster Content — Complete
-
-- **Status:** Complete — merged to `main` via PR #464 (merge commit `0f48b87`), 2026-08-08.
-- **PROMPT_ID(s):** `INSIGHTS-022-OFFSEASON-ROSTER-CONTENT-v1`.
-- **Outcome, in reader-visible terms:** the "Rookie owner benchmark" card now appears through the
-  ordinary offseason rather than only the January–February window and preseason; and no card calls
-  anyone a "Returning owner" any more. Four career cards used to, whenever the displayed roster was
-  carried over from the prior season.
-- **The returning-owner copy was the real defect.** A carried-over roster proves an owner PLAYED; it
-  never proves they will play again — and the prefix fired hardest in exactly the window where the
-  upcoming roster is least known. Naming who is genuinely returning requires comparing a FINALIZED
-  upcoming roster against league history, which no generator has, so the slice deliberately does not
-  attempt it and the cards keep their neutral descriptions.
-- **The plan's premise was half wrong, and verifying it changed the work.** The backlog claimed two
-  card families went dark in ordinary offseason. Only one did: `TRENDING_LIFECYCLES` already
-  contained `offseason`, and the constant cited was a copy-framing gate rather than an eligibility
-  gate, so career trends were never hidden.
-- **A FALSE PREMISE PULLED AN ENGINE CHANGE INTO SCOPE THAT BROKE TWO BINDING INVARIANTS.** The first
-  implementation also deleted an engine-level suppression rule, reasoning that widening the lifecycle
-  list alone would be invisible because the roster is borrowed all offseason. It is not:
-  `completeSeasonRollover` keeps `league.year` on the COMPLETED season and nothing deletes
-  `owners:<slug>:<year>`, so `usingArchivedRoster` is false through `fresh_offseason` and
-  `offseason`. The widening alone delivered the whole outcome. The deletion broke AGENTS.md
-  invariants 4 and 5, and AGENTS.md was never consulted before modifying the engine — the same
-  failure as PLATFORM-086F2H3B1. Reverted in full on owner ruling; `engine.ts` ended byte-identical
-  to `main`.
-- **A binding invariant WAS amended, deliberately.** Removing the returning-owner framing genuinely
-  contradicted invariant 5, so the rule was rewritten in the same change rather than quietly broken.
-  It had also said every archived-roster generator "must reframe" while leaving career descriptions
-  neutral — a contradiction the owner caught at final read. It now states the two routes that satisfy
-  it: truthful time framing, or already-neutral historical copy that needs no prefix and must not be
-  given one.
-- **Two of the reviewers' findings were fabricated claims of mine, not code defects.** A deleted test
-  was justified as "covered by `insights-cache.test.ts`" when zero test references to
-  `bypassSuppression` remained anywhere; and a new fixture pinned a state production cannot produce
-  (`currentYear` left at 2026 beside a 2025 archive with `isRookie` forced true, when `isRookie` is
-  derived from exactly those two values). Both corrected.
-- **Cache identity bumped.** Copy and eligibility are POLICY with no runtime invalidation signal, so
-  no tag fires; `insightsCacheKeyParts` gained `copy:insights022-neutral-career-copy-v1` following
-  the precedent the same file sets for `ANALYTICS_PROJECTION_VERSION`.
-- **Verification:** `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
-  `git diff --check` each run as their own command with unmasked exit status, all clean. Test delta
-  3455 → 3456 (nine stale tests removed with the behaviour they pinned; ten added). Four mutations,
-  each compiling, applied alone, killed by a named test.
-- **Open follow-ups:** See `docs/next-tasks.md`. Identifying genuinely returning owners remains
-  unbuilt and needs a finalized upcoming roster to compare against league history.
-
----
-
-### PLATFORM-086F2 — Admin Control-Plane IA Redesign (Campaign) — Complete
-
-- **Status:** Complete 2026-08-08, closed by its final slice F2J (PR #463, `d9a8e93`). Spanned
-  F2A–F2J with sub-slices; the per-slice record lives in `docs/prompt-registry.md`.
-- **Outcome:** The admin surface became an information architecture rather than an accumulation of
-  panels. Observation and operation were separated (System Health observes; Data Maintenance &
-  Recovery acts, each action carrying a cost/scope disclosure); a server-side health read model
-  replaced three ad-hoc panels; all seven scheduler jobs gained durable receipts; and lifecycle
-  authority was consolidated so that automation, not an operator, executes rollover and season
-  transition.
-- **The campaign retired more than it built, and that was the point.** `/admin/season`, both rollover
-  panels, `/api/admin/rollover`, `manualRollover.ts`, SP+/win-total draft assistance, and two
-  chartered F2H2 items were deleted or retired outright — F2H4 alone was +271/−2484. The governing
-  question became _should this exist_ before _is this correct_: a backend subsystem does not earn a
-  page by existing, and an admin surface represents what a human can inspect, decide, diagnose, or
-  operate.
-- **Two live security defects were found and closed** mid-campaign: F2H1SA (a middleware matcher
-  whose static-file exclusion was a SUBSTRING rule, so `/admin/audit.css` bypassed `clerkMiddleware`
-  while reaching a worker with all nine Server Actions) and F2H1SB (routing treated as authorization,
-  fixed by putting `requireAdminAction` first in all nine actions).
-- **The recurring lesson, recorded across slices:** claims outrunning what the code or the test
-  supports — a rule authored but not covered, a guard enforced at the surface instead of the
-  authority, a deletion asserted but not performed, a mutation assumed rather than run. Nearly every
-  slice's most valuable finding was a claim, not a defect.
-- **Verification:** every slice ran `npx tsc --noEmit`, `npm run lint:all`, `npm test`,
-  `npm run build`, and `git diff --check` as separate commands with unmasked exit status, plus a
-  mutation pass in which each mutation compiled, was applied alone, and was killed by a named test.
-  Suite growth across the campaign: roughly 2,900 → 3,459 tests.
-- **Open follow-ups:** See `docs/next-tasks.md`. The manual cross-browser/keyboard/screen-reader
-  accessibility pass was explicitly RETIRED as a charter item by owner ruling and re-planned as a
-  dedicated pre-public-launch activity; migrating the remaining `.tsx` suites to
-  `src/test/domEnvironment.ts` is recorded as mechanical follow-up.
-
----
-
-### PLATFORM-086F2J — Commissioner Boundaries and Navigation Closeout — Complete
-
-- **Status:** Complete — merged to `main` via PR #463 (merge commit `d9a8e93`), 2026-08-08.
-  **This slice completed PLATFORM-086F2.**
-- **PROMPT_ID(s):** `PLATFORM-086F2J-COMMISSIONER-BOUNDARIES-AND-NAVIGATION-v2`, preceded by a
-  read-only audit.
-- **The audit reversed the framing twice.** There is NO commissioner identity in code — every
-  league-scoped write requires platform admin, and the league password gates READS only, verified
-  route by route — so there was no boundary to build, only copy implying one. And `foundedYear` is a
-  FOUNDING year (the calendar year the record was created, shown as `Est. N`), not a first
-  competition season; the owner confirmed it had been edited exactly once, deliberately, to
-  backdate one league.
-- **Outcome:** `foundedYear` frozen after creation and enforced in `updateLeague` rather than on the
-  PATCH route, so every caller of the shared authority is bound by it; the orphaned `/admin/draft`
-  surfaced as a platform card; first-ever suites for `LeagueSettingsForm` and the league-password
-  route; every `<label>` across `src/app/admin` and `src/components/admin` associated with its
-  control.
-- **Freezing a field REGRESSED recovery, and the fix had to be reopened twice.** A league restored at
-  its old slug was stamped with the current year and could never be corrected. The owner ruled this
-  a regression F2J created rather than an inherited limitation, and therefore merge-blocking,
-  directing a narrow recovery-only value instead of the optional-`foundedYear`-at-creation design
-  previously ruled out. Round two then found that `adoptExistingData` was **self-justifying**: it
-  suppressed the very residue scan that establishes there is anything to adopt, so any caller could
-  send it on a clean slug and receive the recovery-only year. The source comment asserted this was
-  unreachable. **Asserting narrowness is not enforcing it.** The scan now runs unconditionally and
-  adopting a slug that holds nothing is itself an error.
-- **A RECORDED DIAGNOSIS WAS WRONG, and correcting it closed the gap.** An abandoned test was
-  documented as blocked by `userEvent` and "something specific to this form". The real cause was
-  import order: every `.tsx` suite installs its JSDOM globals in the module body, which runs after
-  the hoisted `react-dom` import has captured `canUseDOM === false`, so React falls back to its
-  legacy IE change path and throws on focus transitions — the field typed SECOND silently keeps its
-  DOM value while state never updates, under `fireEvent` as much as `userEvent`.
-  `src/test/domEnvironment.ts` fixes it and the flow is now covered. **A gap recorded with a
-  fabricated cause is worse than one recorded as unexplained.**
-- **Verification:** `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
-  `git diff --check` each run as their own command with unmasked exit status, all clean. Test delta
-  3425 → 3459. Round one: four mutations. Round two: seven mutations, each compiling, applied alone,
-  and killed by a named test.
-- **Recorded as NOT done:** the remaining `.tsx` suites still inline their JSDOM setup (they pass
-  only because each drives a single field); the manual accessibility pass is retired as a charter
-  item and re-planned before public launch.
-
----
-
-### PLATFORM-086F2I — Platform Configuration and Team Identity — Complete
-
-- **Status:** Complete — merged to `main` via PR #462 (merge commit `cbd3ed5`), 2026-08-08. **F2J is
-  the last remaining F2 slice.**
-- **PROMPT_ID(s):** `PLATFORM-086F2I-PLATFORM-CONFIGURATION-AND-TEAM-IDENTITY-v1`, preceded by a
-  read-only audit.
-- **The audit corrected the charter before any code was written.** Two of three chartered items were
-  already done or overstated — Team Identity's global scope was settled by PLATFORM-064/067, and the
-  only real duplication was the display name. The actual finding was an IRREVERSIBLE league delete
-  with ZERO tests.
-- **Outcome:** `/admin/leagues` is now a registry surface (create, list, delete); configuration moved
-  to `/admin/[slug]/settings`, which each row links to. Deleting a league requires typing its SLUG —
-  not a fixed word, which is identical on every row and would not catch acting on the WRONG league —
-  and the check is enforced IN THE ROUTE, because `requireAdminRequest` accepts a static
-  `ADMIN_API_TOKEN` and a browser-only guard would protect nobody. Creating a league at a slug whose
-  previous occupant's data survives is refused by default. "Aliases" became "Team Identity"
-  throughout; the season-scoped editor at `/debug/teams` is deliberately untouched.
-- **The reuse guard's design changed AT REVIEW, and the reason is worth keeping.** It was written as
-  a flat refusal; both reviewers caught that this was a DEAD END rather than a safeguard, since
-  nothing in the app deletes league-scoped records. Re-creating at the same slug is exactly how an
-  ACCIDENTAL delete was recovered — the same league, its own rosters and archives — so the guard
-  blocked the common correct case with the rule meant for the rare dangerous one. It also bricked
-  the DEMO league permanently: `TEST_LEAGUE_SLUG` is hardcoded, `resetTestLeagueLifecycle` answers
-  `league-not-found` for an absent league, and this POST is the only `addLeague` caller. Now
-  overridable with an explicit `adoptExistingData: true`.
-- **A guard shipped without a test file.** `leagueResidualData` had four unpinned scope literals, so
-  a typo in `preseason-owners` / `insights-suppression` / `postseason-overrides` / `aliases` would
-  have left the suite green while detection silently stopped. Its suite now seeds through the REAL
-  writers (`saveSeasonArchive`, `saveSuppressionRecord`) rather than second literals.
-- **The prefix hazard** is the way this check fails invisibly: `owners:tsc` is a PREFIX of
-  `owners:tsc-old:2025`, so a naive match blocks a valid slug and looks identical to a working
-  guard. Exact scopes compare by equality; suffixed families use a colon-terminated prefix.
-- **Verification:** `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
-  `git diff --check` each run as their own command with unmasked exit status, all clean. Test delta
-  3404 → 3425: DELETE 0 → 5 (first-ever coverage), creation 4 → 11, a new residual-data suite of 6,
-  a new page suite of 3. Eleven mutations, each compiling, applied alone, killed by a named test.
-- **Recorded as NOT done:** `PUT|DELETE /api/admin/leagues/[slug]/password` has no test file at all,
-  and true privacy erasure is deferred by owner decision with the reuse refusal as the stopgap.
-
----
-
-### PLATFORM-086F2H4 — Season Management Retired — Complete
-
-- **Status:** Complete — merged to `main` via PR #461 (merge commit `8f56835`), 2026-08-07.
-  **F2H is complete**, having reopened once for this retirement. `NEXT` is F2I.
-- **PROMPT_ID(s):** `PLATFORM-086F2H4-RETIRE-SEASON-MANAGEMENT-v1`.
-- **Outcome:** `/admin/season` is gone, with both panels, `POST|GET /api/admin/rollover`,
-  `src/lib/manualRollover.ts`, and `diffSeasonArchives`. +271 / −2484. The guiding principle, stated
-  by the owner: an admin surface represents what a human can inspect, decide, diagnose, or operate;
-  a backend subsystem does not earn a page by existing.
-- **Why the rollover panel went:** since F2H3A the cron is the sole executor, and it has **no
-  automation-pause gate** — only cron-secret auth. The preview therefore showed an operator exactly
-  which owners' final standings would move before an irreversible write they had no supported way to
-  prevent: **unactionable by construction**. F2H3A's rationale for preserving that preview answered
-  "which of two panels survives", not "should this surface exist".
-- **Why the archive panel went:** it rendered year badges as `<span>` with no `href` — an inventory,
-  not navigation — over data `/league/<slug>/history` already navigates per league through the same
-  `listSeasonArchives` authority.
-- **The stop condition was discharged with EVIDENCE.** `SeasonRolloverPanel` was the only surface
-  that said WHY a rollover was waiting, so a new receipts test proves a waiting-period skip reaches
-  the runtime event AND survives onto the durable receipt System Health renders, with a positive
-  control showing the same league rolls once past the window. The type union alone would not have
-  proven the value survives the receipt writer's validation and rebuild.
-- **KNOWN GAP, recorded not hidden:** with production years that DISAGREE and skip for different
-  reasons, `aggregateLifecycleCronReason` records `year-results` and the receipt target carries no
-  per-year reason, so the dashboard cannot explain either year. The per-year reasons remain on the
-  runtime event, making it a dashboard limitation rather than lost information. Pinned by a test.
-  Compounding: F2H3A's year-disagreement WARNING lived on the deleted panel, so that abnormal state
-  is now neither flagged nor explained on any surface. Follow-up: persist per-year reasons onto the
-  receipt target — a schema change deliberately kept out of a retirement.
-- **Capability is not surface:** `rolloverTargeting`, `completeSeasonRollover`, `buildSeasonArchive`,
-  `saveSeasonArchive`, and `listSeasonArchives` (14 league-facing consumers) all stay live.
-- **Review — 7 findings, SIX on the claim surface.** Both reviewers confirmed the deletion itself was
-  correct; what was wrong was how it was described. The two that matter: a deletion the commit
-  message and ledger both ASSERTED was never performed (`diffSeasonArchives`, `SeasonArchiveDiff`,
-  and `weeklyStats` left with zero callers — ~100 dead lines in a file absent from the diff), and an
-  AGENTS.md claim BROADER THAN ITS TEST. The prompt scoped the stop condition to "the
-  single-production-league case specifically", so exactly that was tested and then the general rule
-  was asserted. Also: the canonical architecture doc contradicted itself (an amended sentence and an
-  untouched one two lines later gave opposite routing rules), two more stale doc claims, and a
-  permissive test allowlist still holding a surface that had left the type — green while silently
-  unable to catch the regression it exists for.
-- **Verification:** `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
-  `git diff --check` each run as their own command with unmasked exit status, all clean. Test delta
-  3438 → 3404: `manualRollover` (10), `SeasonRolloverPanel` (13), the admin rollover route (21), and
-  the season page (2) went with their subjects. **`npm run build` was the load-bearing gate** — the
-  manifest contains zero occurrences of the retired routes while every sibling admin route is listed.
-  Three mutations, each compiling, applied alone, killed by a named test.
-
----
-
-### PLATFORM-086F2H3B2 — System Health Lifecycle-Integrity Issue — Complete
-
-- **Status:** Complete — merged to `main` via PR #460 (merge commit `5822a16`), 2026-08-07. Second of
-  two F2H3B slices. **F2H3 is complete**; F2I is next.
-- **PROMPT_ID(s):** `PLATFORM-086F2H3B2-SYSTEM-HEALTH-LIFECYCLE-INTEGRITY-v1`.
-- **Outcome:** `lifecycle-data-unusable` — `warning`, axis `global`, subject `lifecycle-integrity`,
-  `repair: null`. Closes deferral (q), carried since PLATFORM-086F2H1R3. Derived entirely from facts
-  the issue model already received: the count rides on the receipt TARGET for the four
-  lifecycle-bearing jobs and the parser normalizes a legacy `undefined` to 0, so **no new read was
-  needed**. It had surfaced only as a suffix inside a collapsed scheduler row.
-- **Never derived from `result`.** R3's ruling is that a valid target can succeed while another
-  production record is refused, so a `success` / `partial` / `no-op` / `skipped` run can still carry
-  refusals. It is ADDITIVE to `scheduler-execution-failed`, never a replacement.
-- **No number, by data constraint.** Counts are per JOB and per RUN and count RECORDS, and the same
-  corrupt league is counted independently by up to four jobs. Summing multiplies one league; a
-  maximum compares runs from different times; a deduplicated league count is not derivable, because
-  a receipt carries counts and never a slug. The issue names the reporting JOBS.
-- **`repair: null`, verified end to end:** no supported operation writes a lifecycle status or year
-  onto a production record. Recovery is PLATFORM-087's, unscheduled; the runbook documents the
-  out-of-band response.
-- **Review — one defect, in the INTEGRATION rather than the derivation.** `providerDataPanel`'s
-  predicate is RESIDUAL, so a new code lands in Provider data by default: an otherwise-healthy
-  system rendered "Provider data · Attention needed · Production lifecycle data is unusable", and
-  because `governing` takes the first match in the globally-sorted list while `compareIssues` ranks
-  the `global` axis ahead of `dataset`, it also DISPLACED a genuine provider fault from that tile's
-  single detail line. **No existing test pinned the residual-bucket behaviour, so the suite stayed
-  green.** Remediated with an explicit `UNTILED_CODES` claim, excluded from the provider predicate
-  and folded into OVERALL — because `overallPanel` rolls up the five SECTION tiles, so excluding it
-  everywhere would have left the dashboard reporting "all systems are operating normally" above an
-  open warning. Five green section tiles under a yellow Overall is deliberate, pinned, and
-  documented.
-- **Verification:** `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
-  `git diff --check` each run as their own command with unmasked exit status, all clean. Test delta
-  3427 → 3438 (+11). Eight mutations, each compiling, applied alone, killed by a named test; one was
-  INERT and replaced — emitting one issue per job with the same global subject is invisible, because
-  the derivation's dedup collapses identical `code|axis|id` identities.
-
----
-
-### PLATFORM-086F2H3B1 — Lifecycle Presentation and Typed Test-Control Feedback — Complete
-
-- **Status:** Complete — merged to `main` via PR #459 (merge commit `b07f2d6`), 2026-08-07. First of
-  two F2H3B slices; **F2H3B2** (System Health lifecycle-integrity warning) is next.
-- **PROMPT_ID(s):** `PLATFORM-086F2H3B1-LIFECYCLE-PRESENTATION-AND-TEST-CONTROL-FEEDBACK-v1`,
-  preceded by `PLATFORM-086F2H3B-SEASON-MANAGEMENT-PRESENTATION-AUDIT-v1` (read-only).
-- **Outcome:** each league's lifecycle STATE and the thing that ADVANCES it now render as two
-  separate facts, with ownership derived from the STORED status and the label keeping the read-only
-  inference. The demo league is described as manually controlled. The demo lifecycle controls return
-  typed results and render persistent inline feedback. Two long-standing deferrals CLOSE: **demo UI
-  copy** (deferred by F2H1T2–T5) and **typed operator feedback in `TestLeagueControls.tsx`**
-  (deferred by F2H1T1).
-- **Two live falsehoods removed.** (1) `/admin/test` promised "Season will go live automatically
-  before the first game" — false since F2H1T2 removed the demo from the season-transition cron.
-  (2) A legacy record with NO stored status reaches no lifecycle job (`groupRolloverTargets` skips
-  `!status`; season-transition filters `status?.state === 'preseason'`), yet the page infers
-  `season` for display — so the new ownership sentence would have claimed automatic rollover for it.
-  The second was NOT in the audit's truth table: that table was built from `status.state` and never
-  considered the inferred branch, and the defect only exists once ownership is stated at all. The
-  same claim also lived on `preseason/page.tsx`; closing a copy deferral means closing it on every
-  surface that makes the claim.
-- **`previousStatus`** is additive on `TestLeagueLifecycleOutcome`'s `applied` variant, captured
-  under the registry lock because the caller cannot learn it safely (`getLeague` is React-`cache`d).
-  Deliberately absent from the reset outcome, which always performs cleanup.
-- **Review:** Codex and `/code-review` against the same commit (`4ac9ee3`); 8 unique findings, all
-  accepted in one round. Three shared one shape — a claim correct in isolation and falsified by the
-  code immediately adjacent to it. `cacheStale` was effectively DEAD, because the unguarded
-  `revalidatePath` after the caught `invalidateStandings` shares one Next store and the real fault
-  takes both; the flag was reachable only under an injected tag-specific failure that production
-  does not produce. A repeated `preseason` request was reported as "no change" while deleting that
-  year's demo owners, roster CSV, and draft — the reasoning already written for `resetTestLeague`
-  one function away. And **AGENTS.md invariant 9 was violated**: the derivation module was created in
-  `src/lib/` rather than `src/lib/selectors/`, with the preseason page separately inlining the same
-  policy. Also corrected: a boolean that badged an UNOWNED record "Manual"; copy falsified by its own
-  page; a regression this slice introduced by replacing four `autoCompleteDraft` diagnostics with one
-  generic sentence; `resetTestLeague` claiming cache freshness it never established; and a stale
-  authorization-test count.
-- **Verification:** `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
-  `git diff --check` each run as their own command with unmasked exit status, all clean. Test delta
-  3393 → 3427 (+34). Fourteen mutations, each compiling, applied alone, killed by a named test.
-- **Known gap, recorded rather than papered over:** `TestLeagueControls`'s clear-then-replace message
-  behaviour has no automated test — mocking the imported Server Actions needs
-  `--experimental-test-module-mocks`, which this suite does not enable, and a JSDOM test executing
-  the real actions is the shape that hung the harness in F2H2A. Both result contracts and all copy
-  are covered; the shared funnel is not.
-
----
-
-### PLATFORM-086F2H3A — Rollover Surface Consolidation — Complete
-
-- **Status:** Complete — merged to `main` via PR #458 (merge commit `6a8b86c`), 2026-08-07. First
-  F2H3 slice; **F2H3B** carries the remaining Season Management presentation work.
-- **PROMPT_ID(s):** `PLATFORM-086F2H3A-ROLLOVER-SURFACE-CONSOLIDATION-v1`, preceded by
-  `PLATFORM-086F2H3-ROLLOVER-SURFACE-AUDIT-v1` (read-only; the owner settled every product decision
-  before implementation).
-- **Outcome:** manual rollover EXECUTION is retired. `GET /api/cron/season-rollover` is the sole
-  rollover executor; `POST /api/admin/rollover` returns status and the archive PREVIEW and performs
-  no durable write of any kind. Season Management ends with ONE rollover panel.
-- **Why retire rather than keep:** the manual path had no unique authority and no unique recovery
-  behavior — identical gate to the daily cron, no force bypass, so its only effect was advancing an
-  ALREADY-ELIGIBLE rollover by less than 24 hours. It predates the cron (2026-04-01 vs 2026-04-17),
-  which is why it existed at all. The PREVIEW was the capability worth keeping: it is the only way
-  to see which owners' final standings would flip before anything is written.
-- **The contract choice:** `confirmed: true` is REJECTED (`rollover-execution-retired`, 409) rather
-  than the field being removed. Removing it would make a stale client's body VALID — unknown
-  properties are ignored — so an execute request would silently receive a PREVIEW, which that client
-  decodes as an execute result, reads `success` as `undefined`, and reports "Rollover did not fully
-  complete": a false statement about an attempt that never happened. The refusal precedes any
-  registry, championship, or archive work, proven by a test that poisons every durable read.
-- **Merged by CAPABILITY, not by deletion.** Neither panel was a superset of the other, so the diff
-  detail unique to `RolloverPanel` — the owners whose outcomes flip BY NAME and the standings
-  positions that move — was ported into `SeasonRolloverPanel` before deletion. `RolloverPanel` could
-  not have been the survivor in any case: it returns `null` when no year is eligible, contradicting
-  the requirement that the empty state stay VISIBLE as proof the check ran.
-- **Production-only with NO new filter:** `groupRolloverTargets` already excluded the demo upstream,
-  so a demo-only season arrives as an empty `years` array. The two empty states stay EXCLUSIVE —
-  refused records keep the R4 repair message, since collapsing them would reintroduce the falsehood
-  R4 removed.
-- **Review:** Codex and `/code-review` against the same commit (`1881021`); 8 findings, all accepted
-  in one round, 7 of them TRUTH gaps rather than defects — which is what deleting a write path
-  produces. Three are worth remembering. (1) A pre-merge MERGE CLAIM written into
-  `admin-control-plane.md` while the two sibling ledgers updated in the same commit said otherwise.
-  (2) `seasonArchive.ts`'s do-not-catch rationale was wrong for the SECOND time — F2H2A had already
-  corrected it once, and that correction named a write-side reader this slice deletes; re-derived
-  rather than reworded, and the hazard turned out to be sharper than before. (3) A reviewer proved a
-  claim made in three places FALSE: the new operator string is unreachable by the stale pre-deploy
-  bundle the rationale cites, because that bundle ships the older `describeManualRolloverRefusal`
-  whose `default:` returns null. The 409 still does the work; the wording was narrowed rather than
-  defended. The one behavioral finding was inherited: `standingsOrderChanged` compares the joined
-  owner SEQUENCE while `standingsMovement` carries only owners in BOTH archives, so an owner added
-  at the tail rendered "changed — " with no evidence after the dash.
-- **Verification:** `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
-  `git diff --check` each run as their own command with unmasked exit status, all clean. Test delta
-  3387 → 3393 (+6); `RolloverPanel`'s suite went with the component (−3). Six mutations, each
-  compiling, applied alone, killed by a named test — including breaking the archive scope key and
-  making preview write, both caught by a positive control built specifically because the observer's
-  ONLY prior control was the confirmed-execution test this slice deleted. Diffstat crossed the
-  15-file stop-and-reassess signal (17 files) with explicit prior approval; net ≈ −1,100 lines.
-- **AGENTS.md invariants 4 AND 5 amended.** Invariant 5 was the known obligation; invariant 4's "a
-  refusal counted at WRITE time counts too" surfaced during the audit and is now cron-only.
-
----
-
-### PLATFORM-086F2H2B — Rollover Operator Truth — Complete
-
-- **Status:** Complete — merged to `main` via PR #457 (merge commit `876d87c`), 2026-08-07. Second
-  and final F2H2 slice; **F2H2 is complete**, having shipped two slices where five were chartered.
-- **PROMPT_ID(s):** `PLATFORM-086F2H2B-ROLLOVER-OPERATOR-TRUTH-v1`.
-- **Outcome:** the daily `GET /api/cron/season-rollover` no longer makes two false statements to the
-  operator. (1) It reported `no-season-leagues` — "no leagues in season state" — whenever the DEMO
-  league was the only in-season record, which needs no data corruption and is the DEFAULT
-  post-reset demo state, so the 00:00 UTC run asserted something false on most nights that
-  production sat in preseason or offseason. Rollover was the LAST of five demo-exclusion sites with
-  no exclusion-truth channel; `RolloverRefusalSink` now carries `excludedDemoCandidate` and the run
-  reports `no-automatic-season-leagues`, matching the three sibling jobs. The flag is GATED on
-  `season` (an offseason or status-less demo was never a candidate and must not displace the honest
-  reason) and is decided BEFORE year validation (a demo carrying an unusable year stays a demo
-  exclusion rather than becoming a refused production target — T3/T4's ordering, now
-  mutation-pinned). It rides on the run STATE and is deliberately not emitted on the event, since
-  the reason it decides is already the event's answer. (2) `invalidateStandings` shared a
-  `try/catch` with the guarded lifecycle write, so a `revalidateTag` throw was reported as
-  `status write failed` for a league whose status write had already SUCCEEDED and been counted in
-  `leaguesRolledOver` — a false statement about durable lifecycle state pointing at the wrong
-  subsystem. It is now separately caught with its own error text.
-- **Why nothing caught either:** every existing `no-season-leagues` assertion seeds an EMPTY
-  registry, where the reason is TRUE. No input could have failed. That is how the falsehood survived
-  four merged R-slices that each touched this exact branch.
-- **Review:** Codex and `/code-review` gathered against the same commit (`096db69`); Codex returned
-  no findings, `/code-review` returned three, all accepted in one round. The load-bearing one: the
-  `try/catch` split silently dropped a `continue`, so suppression clearing — previously SKIPPED when
-  invalidation threw — began running, changing a durable operator-facing counter with nothing
-  pinning it. Kept rather than reverted (the surrounding rule is "only after archive AND status
-  succeeded"; both succeeded, and the old coupling let a transient cache fault leave DURABLE
-  insights suppression in place), but made deliberate, commented, and pinned on the reported counter
-  rather than the code path. The owning operations runbook lacked the new reason while also
-  asserting invalidation and suppression clearing were "unchanged"; both corrected. The third —
-  the manual route still swallowing an `invalidateStandings` failure with a bare `catch {}` — was
-  deliberately CARRIED, because that code is on the `confirmed: true` execution path the recorded
-  F2H3 decision deletes outright; it is recorded with the condition that reverses the call.
-- **Verification:** `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
-  `git diff --check` each run as their own command with unmasked exit status, all clean. Test delta
-  3378 → 3387 (+9): `rolloverTargeting` 10 → 14, cron route 12 → 15, cron receipts 17 → 19. Five
-  mutations, each compiling, applied alone, killed by a named test — including one proving the
-  demo gate and one proving the ordering. The event/receipt reason needed its own pin: the response
-  body and the event carry the reason through SEPARATE expressions, so pinning only the body left
-  the event mutation alive.
-
----
-
-### PLATFORM-086F2H1R4 — Rollover Registry-Container Truth + Year Validity — Complete
-
-- **Status:** Complete — merged to `main` via PR #455 (merge commit `995c18e`), 2026-08-06.
-  **Fourth of five F2H1R slices**; R5 is next and is the FINAL slice.
-- **PROMPT_ID(s):** `PLATFORM-086F2H1R4-ROLLOVER-YEAR-VALIDITY-v1`.
-- **Outcome:** the season-rollover cron and its shared manual `/api/admin/rollover` consumer read
-  the registry CONTAINER through `readLeagueRegistry()`; a malformed one refuses with
-  `failure / registry-malformed` at HTTP 500 on the cron (Vercel-native delivery boundary) and 409
-  on the manual route (admin API contract — the request is well-formed and no dependency is down,
-  so it is stored state preventing the operation). `groupRolloverTargets` takes a REQUIRED refusal
-  sink and validates production `status.year` AFTER the demo exclusion, publishing refusals as it
-  counts them. `completeSeasonRollover` validates independently inside its serialized transaction
-  with a closed `unusable-target-year` outcome that writes nothing. Run-level
-  `invalidLifecycleTargets` on every authenticated response, the event, and the receipt; legacy
-  receipts normalize to 0 and an invalid present value rejects. **This completes container truth
-  across all four registry consumers.**
-- **Why this slice mattered most of the four.** Rollover is the only registry consumer that WRITES
-  durable data derived from the year. `saveSeasonArchive` keys on `String(archive.year)` with no
-  TTL, and the written `{ state: 'offseason' }` status carries NO year — so the top-level
-  `league.year` becomes the ONLY surviving record of the season, and that is the field
-  `resolveOperationalSeasonYear` reads for offseason leagues (F2H1T5). The other three jobs' worst
-  case was a billed provider call and a false report: observable and recoverable. This one would
-  have minted a permanent artifact under a corrupt key and poisoned the operational-year resolver
-  with nothing left to contradict it. The refusal therefore lands before championship resolution,
-  archive build/save, lifecycle write, standings invalidation, and suppression cleanup.
-- **The central review finding, and why it is uncomfortable.** `completeSeasonRollover`'s
-  stored-year check was UNREACHABLE: reaching it already proved `current.status.year === year`, and
-  the requested year had just been validated. A corrupt stored record therefore fell into the
-  mismatch branch and reported `not-in-target-season` — telling an operator another actor moved the
-  league, when the truth is data corruption needing repair. Two different remedies conflated, which
-  is exactly what this slice exists to remove. **My own test named "a corrupt STORED season year is
-  refused even when the caller echoes it" passed only via the REQUESTED-year check** and never
-  entered the branch it claimed to cover; `/code-review` mutation-proved this by replacing the
-  branch with a `throw` and watching all 41 relevant tests still pass. Validity is now decided on
-  BOTH sides BEFORE the equality comparison, and the test is split so each covers the branch it
-  names.
-- **R4 would have introduced this campaign's own falsehood class at the UI layer.** Both rollover
-  panels discarded `invalidLifecycleTargets`, so an all-refused registry rendered "No production
-  league is currently in season" — false, and precisely what F2H1T2/T3/T4 and R1–R3 each refused to
-  ship. The backend removed the falsehood from four jobs while the UI created it. `SeasonRolloverPanel`
-  now states the refusal count truthfully; `RolloverPanel` still hides when nothing is eligible,
-  which is its documented role. The issue code and repair link remain F2H3's (item (q)).
-- **Also corrected in the same round:** an authenticated 500 omitting the count while the event and
-  receipt carried it — with `CronResult` never declaring the field, so five emitting sites escaped
-  the declared contract via `NextResponse<Body>`'s phantom type parameter; a manual-surface sink
-  comment claiming throw-durability the handlers did not implement; two panels rendering a 409
-  refusal body as raw JSON prose instead of the operator-readable string written for it; a
-  `unusable-target-year` message asserting the LEAGUE record is corrupt when the outcome is neutral
-  about which side is; and a run-scoped refusal count worded as though it blocked the specific
-  requested year.
-- **A negative assertion I nearly shipped blind.** The "no durable archive was written" observer
-  used the wrong scope (`archive:<slug>` instead of `standings-archive:<slug>`). The paired POSITIVE
-  CONTROL failed immediately and exposed it — without that control the slice's central claim would
-  have been proven by an observer that could never see an archive at all.
-- **One thing deliberately NOT faked.** A write-time `unusable-target-year` refusal now increments
-  the count. It is a genuine production race (`mutateRegistry` re-reads inside the transaction, so
-  another actor corrupting the record between selection and the write makes the writer refuse where
-  the selector accepted) but is NOT reachable in-process from either suite, because both routes
-  derive the requested year from the same stored value the selector already validated. A test was
-  written, found to assert only a healthy control, and REMOVED in favor of a note explaining why no
-  test exists.
-- **Deferrals closed:** (m) malformed-vs-empty on all four consumers; (r) all four receipt summary
-  branches guard the empty year list — having to fix the same defect four times is itself the
-  argument for (t); (s) the `guardedLifecycleWrite` false claim corrected in place, and the
-  consequence it hid — rollover being the one lifecycle writer with no structural year check —
-  fixed. Converging the two writers remains F2H2's.
-- **Carried:** (t) promoted to READY (its window was "once across R3–R5, when all four consumers
-  exist" — they now do: four near-identical summary branches and three structurally identical
-  refusal-sink declarations). (w) NEW: `registry-malformed` is 500 while `unusable-lifecycle-year`
-  is 200 on the same Vercel-native route, both `result: 'failure'`; R1 has the same asymmetry, so
-  R4 inherited rather than introduced it and it must be decided across R1 and R4 together.
-- **Review:** both reviews gathered against the same commit (`2f19802`) before any patching. Codex
-  raised three P2s; `/code-review` raised fifteen findings and reached the same top three
-  independently. ONE cohesive round under DOCS-013 applied ten and recorded five.
-- **Verification:** `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
-  `git diff --check` each run as their own command with unmasked exit status, all clean. EIGHT
-  mutations, each compiling, applied alone, and killed by a named test. Focused deltas, re-run and
-  verified against the suites rather than carried from memory: `rolloverTargeting` 4 → 10, cron
-  route 6 → 12, cron receipts 10 → 17, manual route 15 → 20, `guardedTransitions` 11 → 15. Full
-  suite 3374 → 3378.
-- **What R5 inherits.** Every job R5's recovery would ARM now refuses malformed containers and
-  unusable years, which was the entire reason the F2H1R audit inverted the charter's implied
-  ordering. R5 owns System Health validity, (i) `resolveOperationalSeasonYear` laundering an
-  unusable year through the clamp, (n) per-RECORD validation inside an `ok` container — the one
-  piece of container truth R1–R4 deliberately left open — and the confirmed missing-status recovery.
-
-### PLATFORM-086F2H1R3 — Rankings Registry-Container Truth + Year Validity — Complete
-
-- **Status:** Complete — merged to `main` via PR #454 (merge commit `10186b2`), 2026-08-06.
-  **Third of five F2H1R slices**; R4 rollover is next.
-- **PROMPT_ID(s):** `PLATFORM-086F2H1R3-RANKINGS-YEAR-VALIDITY-v1`.
-- **Outcome:** `GET /api/cron/rankings` reads the registry CONTAINER through `readLeagueRegistry()`
-  and refuses a malformed one with `failure / registry-malformed` before any publication-context
-  read, window claim, `/info` quota probe, provider request, refresh lease/status write, or rankings
-  commit. The read stays BEHIND the automation gate, so a corrupt registry can never turn a
-  deliberately paused run into a scheduler failure. `selectRankingsTargetYears` validates an active
-  production candidate's `status.year` AFTER the demo exclusion — mutation-pinned, because
-  validating first would count a malformed demo record as an invalid production target and undo
-  F2H1T4's reason. Run-level `invalidLifecycleTargets` reaches every authenticated response, the
-  runtime event, and the receipt on the R1 schema pattern, so no migration; the empty-`years` guard
-  closed the `rankings-years` half of the dangling-colon item.
-- **What it actually prevented, established rather than asserted.** The hazard was NOT
-  fractional-only. `Date.UTC` COERCES, so `Date.UTC('2031', 10, 1)` is a real instant rather than
-  `NaN`, and the CFP publication window is context-free — it needs no cached schedule and no
-  championship. A STRING year therefore made the window become due and billed `/info` plus both
-  rankings partitions under an unusable year. Proven by running at a Wednesday 04:00 UTC CFP slot
-  and pairing the refusal test with a POSITIVE CONTROL showing a valid year on the same fixture
-  does reach the provider.
-- **The P1, and the part worth remembering.** `selectRankingsTargetYears` counted refusals into a
-  local returned after the loop, so a corrupt RECORD throwing mid-selection discarded them and the
-  response, event, and receipt all reported zero. Both reviewers found it independently. It
-  violated the AGENTS.md rule written in **R2's own closeout one slice earlier**, after fixing that
-  exact defect there: R2 put the counter on the run state because the ROUTE owned the loop; R3
-  moved the loop into the pure selector, where the run state is not in scope, and the rule silently
-  stopped being satisfied. The original thirteen-mutation set contained no mid-selection throw, so
-  nothing caught it. **Authoring a binding rule is not coverage for it** — only a mutation is. Fixed
-  with a REQUIRED refusal sink published during iteration (deliberately not also on the return
-  value: two channels for one fact drift, and a caller reading both would double-count).
-- **Also corrected in the same round:** a malformed refusal returning from inside the catch's own
-  try, which would have relabelled corruption as unavailability — the two conditions the slice
-  exists to separate; a doc comment retaining a generalization this slice falsifies; a
-  `REGRESSION TEST` label asserting a mechanism its fixtures did not exhibit (only `undefined` drops
-  the key under `JSON.stringify`; `2031.5` would have parsed cleanly pre-R3); an over-claimed 500
-  precedent; and five hand-maintained copies of one response body.
-- **Two campaign decisions CLOSED, not re-deferred.** (o) HTTP status follows the DELIVERY
-  BOUNDARY, not the reason literal: QStash-delivered routes answer controlled outcomes with 200 and
-  reserve non-200 for auth, because an at-least-once layer must not read a controlled refusal as a
-  transport fault; Vercel-native lifecycle crons keep 500, and R4 follows that side. (p) A deferral
-  alone never causes failure; an unusable production target does, with the valid years' reason
-  always preserved.
-- **The standing-warning consequence, and the user's decision on it.** Because `skipped` is the
-  rankings cron's modal outcome — the publication window is due on a small minority of in-season
-  deliveries and on NONE from January through July — one unrepaired record makes nearly every run
-  classify `failure` and shows a continuous System Health warning. Raised explicitly before merge;
-  the user confirmed the severity is CORRECT: the corrupt record remains actionable on every run,
-  and softening the aggregate to `skipped` would make the scheduler look healthy while it is
-  repeatedly refusing a production target. **The real problem is actionability, not severity** —
-  carried forward as item (q): a dedicated lifecycle-integrity issue derived from
-  `invalidLifecycleTargets > 0` (not from `result`) with a stable code and a repair link, owned by
-  the System Health / F2H3 presentation work.
-- **Review:** both reviews gathered against the same commit (`c2e060f`) before any patching. Codex
-  raised ONE P1; `/code-review` raised eleven findings and reached the same P1 independently. ONE
-  cohesive round under DOCS-013 applied six and recorded five.
-- **Verification:** `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
-  `git diff --check` each run as their own command with unmasked exit status, all clean. SEVENTEEN
-  mutations, each compiling, applied alone, and killed by a named test. Focused deltas:
-  `automaticContext` 20 → 28, `rankings/route` 35 → 47, `rankings/receipts` 10 → 15. Full suite
-  3327 → 3352.
-- **Live intermediate state this leaves.** The malformed-vs-empty collapse is now closed on THREE of
-  four registry consumers. `season-rollover` alone still reports a zero-target reason asserting no
-  league exists on a corrupt registry until R4 lands.
-
-### PLATFORM-086F2H1R2 — Weekly-Schedule Registry-Container Truth + Year Validity — Complete
-
-- **Status:** Complete — merged to `main` via PR #453 (merge commit `3a58767`), 2026-08-06.
-  **Second of five F2H1R slices**; R3 rankings is next.
-- **PROMPT_ID(s):** `PLATFORM-086F2H1R2-WEEKLY-SCHEDULE-YEAR-VALIDITY-v1`.
-- **Outcome:** `GET /api/cron/schedule-refresh` reads the registry CONTAINER through R1's
-  `readLeagueRegistry()` and refuses a malformed one with `failure / registry-malformed` before any
-  schedule read, probe, latch, settings read, provider request, or presentation refresh — instead of
-  `no-maintenance-target`, which asserted no active league exists on a registry that is merely
-  unreadable as a list. Production candidates surviving the demo exclusion are validated with
-  `isStructurallyValidSeasonYear`; the ordering is mutation-pinned, because validating first would
-  count a malformed demo record as an invalid production target and undo F2H1T3's reason. A refused
-  candidate contributes no year key, owner precedence, per-year entry, `schedule/<raw>-all-all`
-  read, boundary-latch or probe operation, settings decision, billed E1A refresh, or presentation
-  refresh. Run-level `invalidLifecycleTargets` reaches the response, the runtime event, and the
-  receipt on R1's schema pattern (required on the type, optional in the stored validator,
-  normalizing to `0`), so no migration. The empty-`years` guard also closed the `schedule-years`
-  half of the recorded dangling-colon item.
-- **What it actually prevented, proven rather than asserted.** Before this slice an unusable
-  `status.year` became a Map key and reached CFBD as `year=undefined`. That was established by
-  deleting the guard and neutralising every other assertion in the unusable-year matrix until only
-  the zero-provider assertion remained — at which point it failed on the real request URL. The same
-  exercise exposed that the matrix's `preseason` half had never been controlled at all: an unarmed
-  probe classifies `season-transition-owner`, a deliberate provider-free deferral that would not
-  have called the provider with or without the guard, so six of the twelve cases were proving
-  nothing. Arming the probe restored the control.
-- **The P1, and why its obvious fix was also wrong.** Refusals counted in the ownership loop were
-  discarded whenever a later league threw, so the response, the event, and the receipt all reported
-  `0` unusable targets on a run that had found them. The natural fix — publish the count after the
-  loop but inside the `try` — does NOT work, because a mid-loop throw skips that line too; mutation
-  testing caught it, the review had not. R1's "publish before the per-year loop" pattern cannot be
-  applied here either: on this route the loop that COUNTS refusals is the loop that can THROW. The
-  run state is now the counter itself. The throw is reachable because the registry array is typed
-  `League[]` while nothing validates each element, so a non-object member throws on property
-  access — a corrupt RECORD, distinct from the corrupt CONTAINER the reader classifies.
-- **Deliberate divergence from R1, stated rather than smoothed over.** `registry-malformed` answers
-  HTTP 200 here, not 500. This route answers every controlled outcome with 200 and reserves non-200
-  for auth; matching R1 would have broken that convention rather than establishing a rule. The
-  consequence — one reason code carrying different HTTP semantics on two jobs — is recorded as a
-  third data point on deferral (o), to be decided campaign-wide before R3 and R4 copy it.
-- **Known and recorded, not fixed.** An all-deferred run that also refuses a target classifies
-  `failure`, because the deferrals' aggregate (`season-transition-owner`,
-  `automation-paused-or-disabled`) is `skipped` — neither `success` nor `partial`. That contradicts
-  the weekly job's long-standing rule that a deferral is never a failure, and it fires on the
-  CURRENT production shape: 2026 is transition-owned, so a single corrupt record would turn every
-  weekly delivery red. The count is the honest signal; the `result` is not. The aggregation table is
-  R1-approved and shared across jobs, so changing it was not this slice's to do alone — recorded as
-  a sharper instance of deferral (p). Also recorded: the two summary branches are now
-  near-duplicates and R2 inlined an aggregation policy R1 expressed as a named helper (t), and
-  `excludedDemoCandidate` is discarded when refusals coexist (u).
-- **Review:** both reviews gathered against the same commit (`3cf4a76`) before any patching. Codex
-  found no actionable regression — its `eslint --no-cache` exit 2 was verified as the same CLI error
-  present on `main`, with eslint clean on all four changed source files. `/code-review` returned 12
-  findings; ONE cohesive round under DOCS-013 applied 6 and recorded 6. One finding (the 401 body
-  omitting the count) was not applied: this route's 401 body is `{error}` only and always has been,
-  and the prompt scoped the field to authenticated bodies.
-- **Verification:** `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
-  `git diff --check` each run as their own command with unmasked exit status, all clean. Focused
-  deltas: `schedule-refresh/route` 53 → 60, `schedule-refresh/receipts` 8 → 12. Full suite
-  3316 → 3327.
-- **Live intermediate state this leaves.** The malformed-vs-empty collapse is now closed on TWO of
-  four registry consumers. `rankings` and `season-rollover` still report zero-target reasons
-  asserting no league exists on a corrupt registry until R3 and R4 land — the intended intermediate
-  state of the split, in the same family as the recorded T2→T3 window, and LIVE while it lasts.
-
-### PLATFORM-086F2H1R1 — Registry-Read Truth + Season-Transition Year Validity — Complete
-
-- **Status:** Complete — merged to `main` via PR #452 (merge commit `e29bb47`), 2026-08-06.
-  **First of five F2H1R slices**; R2 weekly schedule is next.
-- **PROMPT_ID(s):** `PLATFORM-086F2H1R1-SEASON-TRANSITION-YEAR-VALIDITY-v1`.
-- **Why five slices.** F2H1R as chartered crosses FOUR separate automation jobs, which
-  `AGENTS.md` names as a mandatory planning-split trigger by name, and `PLATFORM-086F2H1B` v1 was
-  reconstructed for crossing _two_ with the second untested. The audit also found the ordering the
-  charter implied was backwards: the confirmed missing-status repair must land LAST, because it is
-  the only slice that ARMS automation — a status-less record is inert to every target selector
-  today, and repairing it to `season(Y)` makes it a rollover target (archive-producing), a
-  weekly-schedule `season` owner (the pause-exempt branch), and a rankings target within 24 hours.
-- **Outcome:** `readLeagueRegistry()` classifies the registry CONTAINER as `ok` / `missing` /
-  `malformed`. A store failure still THROWS, so unavailability stays distinct from corruption; a
-  present record whose value is not an array is `malformed`, including a stored JSON `null` — a
-  deliberate divergence from `readScheduleItems`, where a null-valued record is ordinary absence.
-  `getLeagues()` delegates with behavior UNCHANGED (~69 consumers). `GET /api/cron/season-transition`
-  refuses a malformed container with `failure / registry-malformed` (500) before any probe, provider,
-  lifecycle, or invalidation work, then validates production `status.year` with the existing
-  `isStructurallyValidSeasonYear` AFTER the demo exclusion — reversing that order would let a
-  malformed demo record flip the zero-target reason and undo F2H1T2, and that direction is
-  mutation-pinned. Refusals are reported as one run-level `invalidLifecycleTargets` count on the
-  response, event, and receipt; the receipt field is required on the type, optional in the stored
-  validator, normalized to 0 for legacy records, so no schema migration.
-- **The concrete hazard closed.** An `undefined` `status.year` became a Map key, survived the
-  zero-target gate, drove a probe read and a billed E1A refresh, and produced a per-year entry whose
-  `year` key `JSON.stringify` DROPS — failing `isFiniteNumber` so that
-  `parseSchedulerExecutionReceipt` rejected the ENTIRE record. One corrupt league erased a whole
-  job's latest receipt from System Health.
-- **Two deliberate deviations from the prompt's specified aggregation table**, each verified against
-  the code and confirmed by the maintainer before landing. (1) The aggregate reason no longer
-  collapses to `year-results` on a refusal: the refusal already rides on the count across all three
-  surfaces, while the receipt's `season-transition-years` year entries carry counts and NO reason
-  field, so the collapse bought nothing and erased the only durable record of why the valid years
-  failed — and `year-results` is defined in this repo as "the per-year reasons disagree", which is
-  false for a single year. (2) The mixed-case result table mapped `no-op` and `in-progress` UP to
-  `partial` while mapping `skipped` DOWN to `failure`, classifying two "nothing happened" outcomes
-  oppositely and contradicting this route's own rule that a year which "wrote NOTHING" is a clean
-  `failure`. A third correction came from the maintainer: my comment claimed `partial` is reserved
-  for a run that accomplished something, which is NOT an invariant —
-  `aggregateLifecycleCronResult` also returns `partial` for `failure` + `no-op`. The comment now
-  states the exact table and disclaims the stronger reading.
-- **Verification:** each gate its own command with an unmasked exit status against the final
-  behavior commit `1b30ce4` — focused suites (registry reader 6, convergence 41), `npx tsc --noEmit`,
-  `npm run lint:all`, `npm test` 3316/3316, `npm run build`, `git diff --check`. **Test delta: +15
-  (6 registry reader, 9 convergence), 0 weakened.** The closeout commit `344c466` was
-  documentation-only, verified by the absence of any `src/**` diff since `1b30ce4`; `tsc` and
-  `lint:all` were rerun on it and `npm test` / `build` were not, which the PR states.
-- **TWELVE compiling mutations verified one at a time.** The plan had nine; three exist because
-  verification found gaps rather than confirming assumptions. The catch-path mutation was originally
-  killed by NOTHING — every fixture reached the normal post-loop path — so a throw-alongside-refusal
-  fixture was added, and when the round-1 aggregation correction removed the reason discriminator it
-  was redefined as "set the count after the loop". Two presentation mutations exist because
-  `/code-review` correctly found that deleting either new branch left the whole suite green. And the
-  `: 'failure'` arm of the corrected table was found unpinned by the CONFIRMING pass — verified
-  surviving, then killed. Separately, the "bypass the reader" mutation initially only broke
-  compilation: TypeScript proves the downstream `malformed` check dead once the reader is removed,
-  so it was reworked into the full pre-R1 shape and reported only after compiling clean.
-- **Review history.** Codex found no actionable correctness issue on either pass. `/code-review`
-  returned 11 findings on the first pass (7 applied in one authorized round, 4 adjudicated and
-  recorded) and 9 on the confirming pass, which produced a maintainer-approved SECOND round scoped
-  strictly to the one defect the first round caused — the untested `: 'failure'` arm. The recurring
-  campaign lesson held again in a new form: this time it was not a vacuous assertion but an entire
-  branch with no acceptance contract, found only because the mutation was run rather than assumed.
-- **A long-standing false claim corrected.** `leagueRegistry.ts` states that
-  `guardedLifecycleWrite` is the single lifecycle write authority. It is not:
-  `completeSeasonRollover` calls `mutateRegistry` directly, bypasses `applyLifecycleStatus`, and is
-  the only lifecycle writer with no structural year check. `AGENTS.md` now records this; the code
-  fix belongs to R4.
-- **Limits stated rather than left to be discovered.** The predicate is STRUCTURAL, not a
-  plausibility window — an in-range but absurd year (`999999`) still passes and still drives billed
-  work. And the malformed-vs-empty collapse is closed on ONE of four registry consumers, so the
-  falsehood remains live on `season-rollover`, `rankings`, and `schedule-refresh` until their slices
-  land: the intended intermediate state of the split, in the same family as the recorded T2→T3
-  window.
-- **Follow-ups recorded** in `docs/next-tasks.md` as (l)–(s): the missing plausibility bound; the
-  three unmigrated consumers; container-only classification leaving `[null]` to throw downstream;
-  an all-refused run returning HTTP 200 while its event and receipt say `failure`; the mixed case
-  pairing `result: failure` with a benign per-year reason, which also makes `unusable-lifecycle-year`
-  unreachable whenever a valid year exists; the refusal count having no summary-level surface; the
-  dangling `": "` on three sibling receipt kinds; and `completeSeasonRollover`'s bypass. The last two
-  of those are decisions rather than defects and are recorded as such.
-
----
-
-### PLATFORM-086F2H1T5 — System Health Operational-Year Isolation — Complete
-
-- **Status:** Complete — merged to `main` via PR #451 (merge commit `6e881b5`), 2026-08-05.
-  **This completes the F2H1T demo-league automation policy (T1–T5, PRs #445, #448–#451).**
-- **PROMPT_ID(s):** `PLATFORM-086F2H1T5-SYSTEM-HEALTH-YEAR-ISOLATION-v1`.
-- **Outcome:** The last of five slices making the demo league manual-only.
-  `resolveOperationalSeasonYear` filters `TEST_LEAGUE_SLUG` from its population ONCE, before both
-  resolution branches, delegating the unchanged three-step rule to a private helper that receives
-  only the filtered list — so the unfiltered registry is not in lexical scope where the rule runs.
-  Lifecycle authority, both fallbacks, the clamp, `Number.isInteger`, and the `number` return are
-  preserved exactly. No provenance, new reason, receipt field, event, or counter: the resolver is
-  TOTAL, so there is no zero-target state to report and its sole caller consumes only the number.
-- **The sibling shape was the defect here, and that is the transferable lesson.** F2H1T3 and F2H1T4
-  gate their exclusion on an active lifecycle state, because an `offseason` demo was never an
-  automatic TARGET and flagging it would falsify their zero-target reason. Copying that gate here
-  ships the bug: the stored-year branch reads the top-level `league.year`, which
-  `applyLifecycleStatus` keeps synchronized to the demo's lifecycle and RETAINS on the move to
-  `offseason`, so an active-only exclusion leaves a demo parked in offseason still selecting the
-  year. The exclusion is unconditional, offseason and status-less records included, and the
-  `isActive`-gated variant is a verified mutation. The module header leads with a warning against
-  exactly that edit.
-- **Scope truth, stated rather than implied.** The migration map had promised T5 would stop the axis
-  landing on "a year no automation services". It cannot deliver that — an all-offseason registry
-  resolves to the last authoritative production projection and a no-production registry to the
-  calendar season, either of which may still need manual provider-data preparation — so the row now
-  claims only what the code proves: the demo league can no longer select the year System Health
-  reports on. Two adjacent overstatements were corrected in the same pass: `admin-control-plane.md`
-  stated the resolver rule without the production qualifier (the direct analogue of the
-  `game-data-flow.md` line `/code-review` caught during T4), and the "only the provider-data axis is
-  season-scoped" framing was refuted — the FACTS are year-free, but the issues and freshness derived
-  from the year-scoped inputs feed `overallState`, `issueCounts`, and the headline Overall tile, and
-  a wrong year both fabricates faults for the year it names and HIDES genuine provider-refresh
-  failures for the year it displaced.
-- **Verification:** each gate its own command with an unmasked exit status against the final commit
-  `9983a2e` — focused 17/17 (resolver 13, page 4), `npx tsc --noEmit`, `npm run lint:all`,
-  `npm test` 3301/3301, `npm run build`, `git diff --check`. **Test delta: +6 (5 resolver, 1 page),
-  0 weakened**, reconciling with the full-suite 3295 → 3301. SEVEN compiling mutations verified
-  failing one at a time — exclusion removed, active-branch only, stored-branch only, the T3/T4
-  `isActive` copy-paste, the predicate narrowed to `&& league.status`, exclusion only when no
-  production league exists, and the calendar fallback replaced by `getUTCFullYear()` — and all were
-  RE-verified after the remediation round changed the proof surfaces. Contract pins for lifecycle
-  authority, multi-active precedence, empty-registry fallback, and the no-`?year=` seam already
-  existed and were deliberately NOT duplicated.
-- **Review history and the two test weaknesses it caught.** Codex returned no actionable regression;
-  its one failed command was the same `eslint` CLI error as the T4 round (eslint exits 0 on all four
-  changed files). `/code-review` returned 12 findings — nine applied in one authorized round, one
-  newly recorded, two adjudicated as already-recorded or out of scope. Two were real weaknesses in
-  tests written for this slice, both verified empirically before being fixed: a STATUS-LESS demo
-  record had no test, so a predicate narrowed to `slug === TEST_LEAGUE_SLUG && league.status`
-  compiled and survived all sixteen tests while the docblock AND the new binding rule both asserted
-  such records are excluded; and the page-level regression hard-coded years against the real host
-  clock, going vacuous at host year 2025 (the clamp folds the unfiltered answer onto the production
-  one) and failing outright at 2024 — it discriminated only because the current year is 2026. Same
-  class as the F2H1SB, F2H1T3, and F2H1T4 lessons: prove the observation can SEE the forbidden
-  event, and do not assert a property no test stands behind.
-- **Ledger discipline:** the pre-merge closeout initially wrote four self-contradictions of its own —
-  the roadmap calling T5 both "in review" and "next", the execution queue marking an implemented
-  slice **NEXT**, the registry claiming an open PR before the branch was pushed, and a carried-risk
-  bullet still asserting the pre-T5 behavior in the present tense three paragraphs from the text
-  explaining otherwise. All were corrected in the remediation round, before merge.
-- **The shared-predicate decision, deferred since F2H1T2, is CLOSED: no universal predicate is
-  warranted.** The five sites share the canonical slug identity but not lifecycle eligibility or
-  ownership semantics — `{season}` for rollover, `{preseason}` for the season transition,
-  `{season, preseason}` for weekly schedule and rankings, and EVERY league for the operational year.
-  Any predicate carrying an active-state gate is provably wrong at the fifth site, and the largest
-  expression true at all five is `slug === TEST_LEAGUE_SLUG`, which `TEST_LEAGUE_SLUG` already is.
-  A related ledger claim was corrected: a shared abstraction did NOT force F2H1B's reconstruction —
-  the binding record states the cause was crossing two automation jobs with the second untested.
-- **Follow-ups recorded** in `docs/next-tasks.md`: the genuine weekly-schedule/rankings selector
-  duplication (token-identical modulo two renames, needing its own plan and tests); (i)
-  `resolveOperationalSeasonYear` laundering an unusable year through the clamp into one
-  `validateYear` accepts, displacing a real production year (F2H1R); (j) `season-rollover` reporting
-  `no-season-leagues` when the only `season` league is the excluded demo — the exact falsehood T2,
-  T3, and T4 each refused to ship, and the only one of the five sites with no exclusion-truth
-  channel (F2H2); (k) System Health and Data Maintenance now disagreeing on the default year, since
-  the repair link carries none and `/admin/data/cache` still defaults to the first `preseason`
-  league; plus the carried T4 items on demo rankings upkeep and the unreserved `test` slug, whose
-  fix is now known to need a demo bootstrap/recovery path as well.
-
----
-
-### PLATFORM-086F2H1T4 — Rankings Demo-League Exclusion — Complete
-
-- **Status:** Complete — merged to `main` via PR #450 (merge commit `27a6c37`), 2026-08-05.
-- **PROMPT_ID(s):** `PLATFORM-086F2H1T4-RANKINGS-DEMO-EXCLUSION-v1`.
-- **Outcome:** The third of four automation slices making the demo league manual-only.
-  `selectRankingsTargetYears` resolves ownership from PRODUCTION leagues alone, filtering
-  `TEST_LEAGUE_SLUG` PER LEAGUE inside its ownership loop — never against the resolved years, which
-  would drop an entire year a production league also occupies and remove its automatic publication.
-  It returns a closed `{ years, excludedDemoCandidate }`, so the years and the exclusion truth that
-  shaped them are produced by one loop and cannot be observed apart. The flag derives from `slug`
-  and `status.state` ONLY, never `status.year`, so an unvalidated legacy year cannot flip the
-  zero-target reason, and an `offseason` demo record is not an excluded CANDIDATE.
-- **T3's owner-selector rationale did NOT transfer, and saying so was the point.** `season` still
-  outranks `preseason`, so a demo league in `season(Y)` did determine the reported lifecycle of a
-  year whose only production leagues are in `preseason(Y)`. But `RankingsPublicationContext.lifecycle`
-  is INERT — no publication window branches on it, the publication key omits it, and it never reaches
-  the durable receipt — so that direction changes only a reported string: no window decision, quota
-  gate, provider request, or durable write. It is pinned as a REPORTING-truth fix, and the audit
-  explicitly refused to reuse T3's "pause-exempt policy / suppressed probe re-derive" language, which
-  would have been false here. The preserved production-`season` precedence is a CONTRACT PIN, not a
-  regression test, because it passes with the exclusion fully removed — the same mislabel T3 had to
-  correct, avoided here by construction.
-- **Truthful reporting:** a registry whose only active leagues are the demo reports the new
-  `skipped / no-automatic-ranking-target`; `no-ranking-target` keeps its exact meaning (no eligible
-  league at all). No receipt-schema migration or shim was needed — the durable validator accepts any
-  non-empty reason string and System Health branches on `result`, not `reason`. Gate order is
-  UNCHANGED (auth → automation settings → registry/selector): a paused demo-only run still reports
-  `automation-paused-or-disabled`, and a registry fault can never turn a deliberately paused job into
-  a scheduler failure. That ordering was chosen over the alternative because the four sibling routes
-  with the same global-gate design all read the gate immediately after auth, and reordering would
-  have silently changed two untested non-demo paths.
-- **No league-scoped duty transfers to the demo controls** — this path writes none, unlike F2H1T2's
-  standings invalidation. Existing `rankings-publication-window/<year>:<kind>:<date>`,
-  `rankings/<year>`, lease, and year-scoped provider-refresh records are RETAINED: they are
-  year-scoped provider evidence a production league later sharing the year is entitled to read, and a
-  completed window key names a slot that has already ELAPSED, so deleting it could not change any
-  future run. No cleanup or migration was performed, deliberately.
-- **Provider-spend context established by the audit.** The exposure is per publication WINDOW, not
-  two refreshes a day: ~3 billed requests per due window (1 `/info` + 2 partitions). The
-  `cfp-publication` window is the floor case and is CONTEXT-FREE — it needs no cached schedule,
-  championship, or poll data, only a Wednesday 04:00 UTC slot in `[Nov 1, Dec 11)` — so a demo-only
-  year with nothing cached still cost ~15-18 billed requests every November.
-- **Verification:** each gate its own command with an unmasked exit status against the final commit
-  `55b3662` — focused suites 20 / 35 / 10, `npx tsc --noEmit`, `npm run lint:all`, `npm test`
-  3295/3295, `npm run build`, `git diff --check`. **Test delta: +15 (5 selector, 7 route, 3 receipt),
-  0 weakened**, reconciling exactly with the full-suite 3280 → 3295. SIX compiling mutations verified
-  failing one at a time: exclusion removed, subtraction applied after grouping, the `isActive` gate
-  dropped, the reason reused, selection moved ahead of the automation gate, and the observer's push
-  placement. The second of those is killed ONLY by a shared-year registry — demo-only and
-  distinct-year fixtures do not discriminate it — which the audit predicted and the suite was built
-  to satisfy.
-- **Observers.** Both suites record every request URL BEFORE parsing and BEFORE branching, resolving
-  `string | URL | Request` via `.url` (`String(request)` is `"[object Request]"`, which `new URL()`
-  rejects). `receipts.test.ts` had NO observer at all beforehand, and its `providerCallAttempted`
-  field is documented as unusable for that proof — it is trivially false with zero year entries and
-  false by design after a billed `/info` probe.
-- **Review history and the two claims that did not survive it.** Codex returned no actionable finding
-  on the behavior commit and again on the merged head; both of its failed commands were invocation
-  errors on its side (an `eslint` CLI failure where `lint:all` passes, and a focused test run missing
-  `APP_STATE_TEST_ISOLATION=1`, under which five PRE-EXISTING tests also fail). `/code-review`
-  returned 9 findings on the first pass (one authorized round applied 4, recorded 5) and 9 on the
-  confirming pass, which produced a user-authorized DOCS-ONLY second round. That round corrected two
-  claims the FIRST remediation round had introduced and the closeout had propagated into binding
-  `AGENTS.md`, both verified false: that every rankings reader treats a cache miss as absence (the
-  league app instead surfaces a standing `CFBD rankings load failed:` note outside preseason, because
-  `loadSeasonRankings` THROWS on a total miss), and that manual refresh is an unconditional upkeep
-  path (`/api/rankings` rejects years above `currentUTCYear + 1` BEFORE authorizing, while the demo
-  authority has no ceiling). Same class as the F2H1T3 and F2H1SB lessons: an "X is safe/handled"
-  claim must rest on a COMPLETE survey of the consumers, not the two that were convenient to check.
-- **Follow-ups recorded** in `docs/next-tasks.md`: (e) the F2H1R year-validity note escalated — a
-  finite FRACTIONAL `status.year` satisfies the context-free CFP window, reaching a durable claim and
-  billed provider requests while PASSING receipt validation and rendering a nonsense year; (f) four
-  copies of the `providerUrlLog` observer now exist (two from T3, two here), whose convergence into
-  the shared receipt harness would have edited another job's reviewed proof surfaces; (g) a demo year
-  above `currentUTCYear + 1` has NO upkeep path at all, automatic or manual — this slice converted a
-  reachable-but-slow year into an unreachable one; (h) a demo-only `season(Y)` year surfaces a
-  standing user-visible rankings error, a pre-existing mechanism made permanent here. Plus the
-  carried T5 operational-year risk, now three permanently-unclearable System Health signals, and the
-  four-site targeting-predicate consolidation AGENTS.md defers until T5.
-
----
-
-### PLATFORM-086F2H1T3 — Weekly-Schedule Demo-League Exclusion — Complete
-
-- **Status:** Complete — merged to `main` via PR #449 (merge commit `c15413e`), 2026-08-05.
-- **PROMPT_ID(s):** `PLATFORM-086F2H1T3-WEEKLY-SCHEDULE-DEMO-EXCLUSION-v1`.
-- **Outcome:** The second of four automation slices making the demo league manual-only.
-  `TEST_LEAGUE_SLUG` is filtered from `GET /api/cron/schedule-refresh` PER LEAGUE, inside the
-  year-ownership loop — never against the resolved target years, which would drop an entire year a
-  production league also occupies and remove its maintenance, a worse regression than the one this
-  fixes. That ordering is mutation-verified, not assumed. A demo-only year produces no per-year
-  entry, provider request, settings read, probe or latch operation, presentation refresh, or receipt
-  target. The canonical slug is used directly with no cross-job predicate, matching F2H1T2.
-- **It is an owner-selector rule, and only one direction is load-bearing.** `season` outranks
-  `preseason` for a shared year, so a demo league in `season(Y)` would otherwise promote Y to the
-  pause-exempt active-season policy over production leagues in `preseason(Y)`, making that year
-  exempt from the operator gate and suppressing its probe re-derive. That direction is
-  mutation-killed. The opposite direction is PRESERVED, not newly created: the pre-existing
-  precedence already prevented a `preseason` league from displacing a `season` owner, so its test is
-  a contract pin. The first version of that test was labelled a regression test and shipped in the
-  behavior commit; the confirming review demonstrated it passes with the exclusion removed, and the
-  label was corrected before merge.
-- **Truthful reporting:** `no-maintenance-target` keeps its exact meaning (no active league at all);
-  a registry whose only ACTIVE leagues are the demo reports the new
-  `no-automatic-maintenance-target`, because reusing the old reason would tell an operator on the
-  System Health row that no active league exists when one does. An `offseason` demo league was never
-  a candidate and does not change the reason — that gate is separately pinned. The receipt reason
-  type derives from the route union, so the literal propagated without a second vocabulary and
-  stored receipts were unaffected.
-- **No league-scoped duty transfers to the manual control** — every durable key this route writes is
-  year- or global-scoped — but two consequences follow from that same fact and were documented
-  rather than "fixed". Existing `schedule-weekly-control/<year>` boundary latches are RETAINED,
-  including any written while only the demo occupied the year: the latch is a year-level fact
-  derived from the shared canonical schedule, and a production league later sharing the year is
-  entitled to read it. And a demo-only active registry no longer refreshes the GLOBAL
-  `venue-catalog` automatically, since the presentation authority runs only after a populated
-  per-year refresh; an authenticated manual full-year refresh remains the supported path. Shared
-  latch, probe, canonical schedule, and presentation state is deliberately NOT deleted.
-- **Verification:** each gate its own command with an unmasked exit status against the final commit
-  `980f20b` — focused route + receipts 61/61, `npx tsc --noEmit`, `npm run lint:all`, `npm test`
-  3280/3280, `npm run build`, `git diff --check`. **Test delta: +8 (7 route, 1 receipt), 0
-  weakened.** SIX compiling mutations verified failing one at a time: exclusion removed, exclusion
-  applied after owner grouping, the reason reused, demo `season` allowed to own a shared year, the
-  `isActive` gate dropped, and the receipt observer's push placement. Both suites' observers record
-  every request BEFORE URL parsing and before the presentation early returns, and each carries a
-  positive control — the receipt suite's covers canonical requests, presentation requests, and
-  string/`URL`/`Request` inputs.
-- **Review history and the two claims that did not survive it.** Codex returned no findings on the
-  behavior commit and again on the remediated commit. `/code-review` returned 12 findings on the
-  first pass (one authorized remediation round applied 9, recorded 3) and 11 on the confirming pass,
-  which produced a user-authorized PROOF-SURFACE-ONLY round with production behavior frozen: the
-  executable diff between the behavior commit and the merged head is empty, comment and JSDoc lines
-  only. That round corrected two assertions I had made and could not support — the receipt suite's
-  zero-request assertion rested on an observer that recorded only AFTER URL parsing and the
-  presentation early returns while the comment introduced with it claimed that vacuity was fixed,
-  and the precedence test carried a regression-test label it did not earn. Both are the same class
-  as the F2H1SB lesson: prove the observation mechanism can SEE the forbidden event, per FILE, before
-  asserting its absence.
-- **Ledger discipline:** the pre-merge closeout initially wrote "Merged (PR #449)" into three
-  ledgers while the registry entry in the same commit correctly said open. That is what the binding
-  pre-merge closeout rule forbids, and the status flip owns those lines. Corrected before merge.
-- **Follow-ups recorded** in `docs/next-tasks.md`: unvalidated `status.year` in cron target
-  selection (pre-existing, shared by the sibling crons, F2H1R's class); `TEST_LEAGUE_SLUG` missing
-  from `RESERVED_ADMIN_SLUGS`, which lets a real league be created at that slug and silently skipped
-  by three automation jobs if the demo record is deleted; the declarative-vs-interleaved shape
-  difference between the two crons' target selection; and the five-site targeting-predicate
-  consolidation that AGENTS.md defers until T5.
-
----
-
-### PLATFORM-086F2H1T2 — Season-Transition Demo-League Exclusion — Complete
-
-- **Status:** Complete — merged to `main` via PR #448 (merge commit `6ab927c`), 2026-08-05.
-- **PROMPT_ID(s):** `PLATFORM-086F2H1T2-SEASON-TRANSITION-EXCLUSION-v2`. v2 is a user-authorized
-  scope correction on the SAME branch after the normal remediation budget was spent — not an
-  abandoned reconstruction. v1's exclusion and its tests shipped unchanged.
-- **Outcome:** The first of four automation slices making the demo league manual-only.
-  `TEST_LEAGUE_SLUG` is filtered from `GET /api/cron/season-transition` BEFORE the zero-target
-  decision and before grouping by year, so a demo-only year never reaches a schedule-probe read or
-  write, a provider refresh, a lifecycle write, standings invalidation, or any target or disposition
-  count on the HTTP response, runtime event, or durable receipt. Filtering after grouping would
-  still have spent a billed CFBD call on a year no production league occupies — that ordering is
-  mutation-verified, not assumed. The canonical slug is used directly with NO cross-job predicate:
-  F2H1T3–T5 change their own surfaces, and that coupling is what required F2H1B's reconstruction.
-- **Truthful reporting:** `no-preseason-leagues` keeps its exact meaning; a registry whose preseason
-  leagues are all demo reports the new `no-automatic-preseason-leagues`, because reusing the old
-  reason would tell an operator no league awaits transition when one does. The receipt validator
-  deliberately does not enumerate reasons, so stored receipts were unaffected and no compatibility
-  shim was needed; `docs/operations/diagnostics.md` documents the new literal.
-- **The v2 correction:** excluding the demo league made `setTestLeagueStatus` its ONLY
-  preseason→season path, and that control never invalidated standings — the cron always had.
-  `resolveStandingsYear` returns `status.year` for BOTH preseason and season, so the cache key is
-  unchanged across the flip and the entry is tag-only with `revalidate: false`; the demo would have
-  served a stale preseason snapshot indefinitely. The season branch now calls
-  `invalidateStandings(TEST_LEAGUE_SLUG)`, slug-wide, matching what the cron did.
-- **Verification:** each gate its own command with an unmasked exit status against the final
-  behavior-reviewed commit `b24d4e6` — focused 101/101, `npx tsc --noEmit`, `npm run lint:all`,
-  `npm test` 3272/3272, `npm run build`, `git diff --check`. **Test delta: +6 (5 exclusion,
-  1 invalidation), 0 weakened.** FOUR mutations verified failing one at a time: exclusion removed,
-  exclusion applied after grouping, the reason reused, and the invalidation removed — the last
-  against a COMPILING mutant. The provider observer carries a positive control proving it records
-  calls AND their year before any "zero calls" claim rests on it, and resolves URL/Request/string
-  inputs because `String(new Request(url))` would otherwise have made those negative assertions
-  vacuous. `/code-review` independently re-verified all four mutation claims by reverting each fix
-  itself. The closeout commit was comments, import hygiene, and owned documentation only, so only
-  `tsc`, `lint:all`, and `git diff --check` were re-run against it.
-- **Carried consequences, corrected upward from my earlier note.** I had recorded the T2→T3 window
-  as "a receipt that misdescribes reality." That understated it. Until F2H1T3, a demo-only preseason
-  year receives NO automatic schedule maintenance from any job: the weekly cron still builds
-  `ownerByYear` from all leagues, classifies the year `season-transition-owner` on an unarmed probe,
-  and does no provider work — deferring to a cron that now filters the demo out. Nothing arms the
-  probe, so the deferral is permanent and the weekly receipt names an owner that does not exist;
-  sharpest inside the final seven-day window, where the weekly route defers unconditionally. Until
-  F2H1T5, `resolveOperationalSeasonYear` still counts the demo league, so such a year can become the
-  System Health operational season while nothing will ever cache its schedule, making
-  `schedule-cache-missing` a PERSISTENT critical rather than a transient one. Both follow from
-  shipping the exclusions one job at a time, which the binding sizing rule requires.
-- **Follow-ups recorded:** the non-season demo lifecycle paths (preseason re-click, offseason,
-  reset) share the SAME cache-key collision that justified wiring the season branch — un-wired by
-  scope, not because they are safe, and pre-existing since the cron never invalidated on them
-  either; and the season re-click invalidates the umbrella tag for an unchanged state (performance
-  only).
-
----
-
-### PLATFORM-086F2H1SB — Admin Server Action Authorization — Complete
-
-- **Status:** Complete — merged to `main` via PR #447 (merge commit `8021b1f`), 2026-08-05.
-- **PROMPT_ID(s):** `PLATFORM-086F2H1SB-SERVER-ACTION-AUTHORIZATION-v1`.
-- **Outcome:** Every exported admin Server Action now authorizes at its own execution boundary.
-  F2H1SA closed a demonstrated matcher bypass, but routing is defense in depth and never the
-  action's authority: Next resolves an exported Server Action from the `Next-Action` header, so each
-  is a callable endpoint that must authorize itself. `requireAdminAction(name)`
-  (`src/lib/auth/requireAdminAction.ts`, deliberately carrying NO `'use server'` directive — that
-  would make its own exports Server Actions) is the FIRST executable statement of all nine actions,
-  ahead of argument validation, registry/app-state reads, writes, cleanup, standings invalidation,
-  `revalidatePath`, and redirects. It calls `resolvePlatformAdminDecision()` — the CLOSED shared
-  decision, not the `isPlatformAdminSession()` boolean wrapper, which cannot supply a refusal
-  reason — with NO argument, because a `Request` would reach the `ADMIN_API_TOKEN` branch whose
-  no-token path authorizes any caller outside production. Refusal THROWS a stable generic error:
-  never `redirect()` or `notFound()`, which would fetch or render the very route being refused. One
-  allowlisted `admin-action-unauthorized` event is logged from compile-time constants only, which
-  matters because Next does not record a thrown fetch-action error server-side.
-- **The shared decision:** `resolvePlatformAdminDecision` in `src/lib/server/adminAuth.ts` returns
-  `authorized | missing-clerk-secret | not-platform-admin | authorization-unavailable`;
-  `isPlatformAdminSession` remains a boolean wrapper so existing callers are unchanged. The
-  blank-secret refusal lives there because Clerk's header-signature check is an HMAC keyed on
-  `CLERK_SECRET_KEY` and an unset key silently becomes `''`. It is consumed by this guard and by
-  `requireAdminAuth`; **middleware is a separate boundary** calling Clerk directly and does NOT
-  consume it, so admin PAGE gating is unchanged by this slice.
-- **Guarantee, stated precisely:** Next deserializes arguments BEFORE entering the action and Clerk
-  reads while evaluating the session, so "zero reads" is not claimed. What holds is that after
-  action entry, no application or durable read, write, cleanup, revalidation, redirect, or
-  argument-dependent validation precedes authorization.
-- **Verification:** each gate its own command with an unmasked exit status against `a4b217e` —
-  focused 40/40, `npx tsc --noEmit`, `npm run lint:all`, `npm test` 3266/3266, `npm run build`,
-  `git diff --check`. **Test delta: +16 added, 0 weakened**; the 24 pre-existing invocations were
-  retargeted by wrapping two shared runners once, with no assertion edited. Nine mutations verified
-  failing one at a time, including a guard removed, a guard moved below its first validation and
-  below `invalidateStandings`, `notFound()` replacing the throw, an unguarded tenth action, an
-  outage collapsed into a role denial, and the `try` covering only the test seam. A throw from
-  `resolvePlatformAdminDecision()` is NOT inducible without a mocking seam, so that one test is a
-  structural pin labelled as such in its own body.
-- **Corrections recorded, not buried:** the rejected-path tag assertion was vacuous TWICE — commit
-  `3027c58` claimed to fix it and did not (the helper reported tags only on the resolving path while
-  every unauthorized invocation rejects), and `abeb2fa`'s correction was itself incomplete; only the
-  final round's `finally` captures on the rejecting path. Separately, the claim that all THREE
-  boundaries inherit the blank-secret refusal was false, as was AGENTS.md invariant #8's naming of
-  `isPlatformAdminSession()` as the function the guard calls. Also caught pre-review: after moving
-  the decision into the shared authority, the focused suites were green while the FULL suite failed
-  110 admin-API tests, because the request-bearing token fallback had been narrowed.
-- **Review:** two clean Codex passes; `/code-review` ran three times. One normal DOCS-013
-  remediation round plus one explicitly authorized second-and-final round, permitted because the
-  defects it fixed were directly caused by the first. Review closed by explicit user evaluation;
-  no further confirming review was run, which was the authorization's condition.
-- **Deferred:** client refusal UX (**F2H3** — six call sites have no catch, so an expired session
-  reaches the root error boundary, and Next redacts action rejection messages so a message-only
-  surface cannot work); Clerk's four dependency-owned Server Action references including the
-  non-dev-gated `syncKeylessConfigAction`; and `setAssignmentMethod`'s missing runtime validation.
-
----
-
-### PLATFORM-086F2H1SA — Protected-Path Matcher Coverage — Complete
-
-- **Status:** Complete — merged to `main` via PR #446 (merge commit `533aed8`, 2026-08-04).
-- **PROMPT_ID(s):** `PLATFORM-086F2H1SA-PROTECTED-PATH-MATCHER-COVERAGE-v1`.
-- **Outcome:** Closed a demonstrated authentication bypass. The middleware matcher's static-file
-  exclusion was a SUBSTRING rule rather than a suffix rule about real assets, so any path merely
-  containing a listed extension was skipped: `/admin/audit.css` bypassed `clerkMiddleware` entirely
-  while still resolving to `app/admin/[slug]/page` — a worker where all nine Server Actions are
-  registered, none of which authorizes internally. Nothing else stopped it, since `clerkMiddleware`
-  with a callback is allowlist-shaped. Reach was not limited to the demo league: four of the nine
-  actions take a caller-supplied slug, and `confirmPreseasonOwners` validates neither existence,
-  lifecycle, nor year before writing and then invalidates standings, so substituted owner names
-  would have rendered on the PUBLIC league pages. Fixed by matching `/admin/:path*` and
-  `/debug/:path*` explicitly — matcher entries are OR'd, so their existence matters and their
-  position does not. Anchoring the extension group would NOT have fixed the reported case (those
-  paths genuinely end in `.css`); the `$` anchor is added alongside, closing the root-cause
-  `/foo/bar.css/baz` shape. `PLATFORM_ADMIN_PAGE_PREFIXES` is exported and a test asserts every
-  prefix has a matcher entry. The middleware BODY is unchanged — it already failed closed for
-  signed-out and non-admin callers; this slice only ensures it runs.
-- **Verification:** each gate its own command with an unmasked exit status against `b590a5f` —
-  focused matcher + platform-admin 14/14, `npx tsc --noEmit`, `npm run lint:all`, `npm test`
-  3250/3250, `npm run build`, `git diff --check`. Tests evaluate the REAL exported `config` AND the
-  real `next.config.ts` through Next's own `unstable_doesMiddlewareMatch`, because matching depends
-  on both inputs. **Test delta: +8 net (9 added, 1 removed)** — the removed query-string test was
-  vacuous, since the matcher only ever sees `pathname`. Mutation-verified against FIVE wrong states,
-  one revert at a time: the pre-fix config, the rejected anchor-only fix, a third protected prefix
-  without a matcher entry, the `$` anchor removed, and `requiresPlatformAdminPage` skipping
-  extension-looking paths. That last one is the composed invariant — under it this suite fails three
-  tests while `platformAdmin.test.ts` still passes 6/6, which is why both halves are asserted here
-  rather than delegated.
-- **Review:** two clean Codex passes. `/code-review` produced findings in two rounds — the first in
-  the single normal remediation DOCS-013 allows, the second in an explicitly authorized round for a
-  defect that remediation directly caused (it had deleted the composed-invariant assertion citing a
-  false ownership claim). Review closed by explicit user evaluation after the authorized second
-  round.
-- **Deferred, recorded in `docs/next-tasks.md`:** the 307 method- and body-preserving redirect on a
-  non-GET request to a protected path (a middleware BODY change, excluded here; the action never
-  executes, so it is not an authorization escape); the regression test's dependence on an
-  `unstable_` Next API, which fails loudly rather than silently; and the exclusion's remaining
-  NEGATIVE heuristic ("a dotted path is an asset"), false for any dynamic segment that can carry a
-  dot — `app/league/[slug]` has the same shape today. Scoping the exclusion positively would invert
-  the default and remove the two-place literal sync; it changes matching for every route, so it
-  needs its own slice. Encoded, doubled-slash, and case-variant prefixes are NOT recorded as
-  bypasses — none was reproduced.
-- **Still required:** `PLATFORM-086F2H1SB` (in-action Server Action authorization). Next treats an
-  exported Server Action as a public endpoint that must authorize internally, so routing is never
-  the authorization boundary.
-
----
-
-### PLATFORM-086F2H1T1 — Slugless Demo-League Lifecycle Authority — Complete
-
-- **Status:** Complete — merged to `main` via PR #445 (merge commit `8e6f122`, 2026-08-04).
-- **PROMPT_ID(s):** `PLATFORM-086F2H1T1-TEST-CONTROL-SAFETY-v2`. **v1 was never implemented on
-  `main`** — its branch took two remediation rounds, was permanently stopped under the DOCS-013
-  limits, was never pushed, and no PR was opened.
-- **Outcome:** The first slice of the locked manual-only demo-league policy, landing BEFORE any
-  automatic job stops targeting the demo league — exclusion promotes the manual control to that
-  league's sole preseason→season path, so it must not be the weakest lifecycle writer when that
-  happens. `setTestLeagueLifecycleState(state)` and `resetTestLeagueLifecycle()` take NO slug and
-  always target `TEST_LEAGUE_SLUG`; every read, derivation, validation, and write happens inside the
-  serialized registry transaction, closing a path where the action read the league first (through a
-  React-`cache`d `getLeague`) and submitted a year computed from that possibly-stale snapshot.
-  Derivation is behavior-preserving and exhaustive over the closed state union, with a `default`
-  returning a typed `unsupported-state` refusal — reachable because `setTestLeagueStatus` is a
-  Server Action whose argument crosses HTTP unvalidated, and without which an unknown value returned
-  `undefined` and crashed the caller. Every stored and derived year is checked with the existing
-  structural predicate, so an unusable stored year refuses byte-equivalently and an unrepresentable
-  successor refuses rather than persisting a rounded value. Reset derives nothing and builds a fresh
-  status per call, so it always recovers a corrupt record.
-- **Live cross-league defect fixed:** `resetTestLeague()` deleted `schedule-probe/<year>`, a key
-  scoped by YEAR ALONE and shared with every production league, so resetting the sandbox disarmed
-  that year's probe for real leagues and forced the year back from weekly maintenance to the daily
-  season-transition cron. Cleanup now also runs strictly AFTER the confirmed commit, on the year the
-  authority returned — those scopes are separate keys and are not atomic with the registry write.
-- **Retirement:** the arbitrary-slug `updateLeagueStatus` is deleted; all four production callers
-  were demo controls passing the literal `'test'`, and no cron had called it since F2H1B. The
-  projection-contract tests keep every assertion, retargeted to the guarded authorities.
-  `TEST_LEAGUE_SLUG` moved to the lifecycle-neutral `league.ts` with NO re-export.
-- **Deliberately unchanged:** `TestLeagueControls.tsx` is byte-identical to `main` (typed operator
-  feedback is F2H3's — Next redacts Server Action rejection messages in production, so v1's
-  message-only surface could not have worked). No cron route, scheduler, event, receipt, provider
-  call, System Health year selection, or `vercel.json` edit. The reset year stays 2025 as
-  pre-existing behavior; its collision with the live production year is F2H1T2–T5's.
-- **Verification (two scopes, kept separate):** full executable gates on `e755120` — focused 81/81,
-  `npx tsc --noEmit`, `npm run lint:all`, `npm test` 3,242/3,242, `npm run build`, `git diff --check`,
-  each run as its own command with an unmasked exit status. The final commit `b38321a` was
-  comment/docs-only (verified by filtering every changed line under `src/` that is not a comment —
-  none remained, and no assertion changed), so only lint, type-check, and diff check were re-run.
-  **Test delta: +27 added, 9 retargeted, 0 weakened.** SIX guards were mutation-verified, each
-  failing against its own pre-fix code one revert at a time: the shared `schedule-probe` deletion,
-  the derived reset cleanup year, the `rolloverTargeting` re-export, the retirement scan, the
-  `unsupported-state` default, and the non-preseason no-delete guard. The cleanup-year test is
-  recorded as a CONTRACT PIN, not a verified regression: old and new derivations produce the same
-  result for every stored shape, so only concurrency can demonstrate transaction-local derivation.
-- **Size:** 13 files, +1,124 / −112 (+1,012 net) — above the preferred target, below both binding
-  stop-and-reassess signals.
-- **Review:** three clean Codex passes. `/code-review` produced findings in two rounds — the first
-  handled in the single normal remediation round DOCS-013 allows, the second in an explicitly
-  authorized truthfulness-only round correcting six overstated claims (the registry's verification
-  claim, the cleanup test's billing, the `AGENTS.md` cleanup rule, the arity assertion's scope,
-  stale literals in the reset docstring, and "structurally demo-only" reading as an authorization
-  claim) with no executable or assertion change. Review closed by explicit user evaluation.
-- **Follow-up raised:** admin Server Actions perform no authorization of their own. Pre-existing
-  and codebase-wide; deliberately not folded into this slice. Queue position and scope live in
-  `docs/next-tasks.md`.
-
----
-
-### PLATFORM-086F2H1B — Guarded Automatic Season Transition — Complete
-
-- **Status:** Complete — merged to `main` via PR #443 (merge commit `be0c950`), 2026-08-04.
-- **PROMPT_ID(s):** `PLATFORM-086F2H1B-AUTOMATED-TRANSITION-CONVERGENCE-v1` (the automated half of
-  lifecycle-authority convergence, following F2H1A's commissioner half).
-- **Outcome:** The daily season-transition cron no longer writes lifecycle state through an
-  unrestricted setter. `completeSeasonTransition(slug, targetYear)` re-checks the expected state and
-  the exact year INSIDE the serialized registry transaction and returns one of four closed scalar
-  outcomes — `transitioned`, `already-in-target-season` (benign; `healed` marks the variant that
-  durably repaired a stale `league.year` projection), `league-removed`, `not-in-target-preseason` —
-  carrying no league record, credential field, or exception text. This matters because the cron reads
-  its target snapshot once and then performs lengthy provider and probe work, so by write time a
-  target may have been rolled over, moved to another preseason year, transitioned by an overlapping
-  delivery, or deleted. A structurally unsupported year is validated ONCE before any branch, so the
-  idempotent heal cannot sync `league.year` to a bad stored value. The four dispositions are counted
-  INDEPENDENTLY and agree across the HTTP response, the runtime event, and the durable receipt — as
-  counts only, never league slugs. The governing principle throughout is that a run never disowns
-  work it committed: `no-op` is reserved for a run that committed nothing at all, so a durably healed
-  projection AND a durably committed E1A schedule both classify `success`, and the same
-  recorded-work rule governs the post-commit failure paths (otherwise an identical year would read
-  `no-op` when it completed cleanly and `partial` when its cache bust threw). A post-gate throw
-  publishes the dispositions completed so far, so a 500 cannot omit a transition that already
-  committed. Invalidation classification follows the same rule: a confirmed transition, heal,
-  refusal, or canonical refresh makes a failed cache bust `partial`, while a year whose sole target
-  was an untouched idempotent match wrote nothing and is a clean `failure`. The receipt schema grew
-  ADDITIVELY — `version` stays `1`, the reader validates the three new counters as optional and
-  normalizes absent ones to `0`, so a valid pre-H1B receipt keeps parsing instead of degrading its
-  System Health row to `invalid` until the next daily run rewrites it; a present-but-invalid counter
-  still rejects the record. System Health names the dispositions so an operator can distinguish
-  benign deletions from genuinely stale targets. The route declares `maxDuration = 300`, resolving
-  the carried E1C2 envelope deferral; it depends on the project's confirmed Vercel Hobby + Fluid
-  Compute configuration, and `vercel.json`, the daily 00:00 UTC cadence, and the scheduler are
-  untouched. Targeting is UNCHANGED — every `preseason` league remains a target, including `test`.
-- **Scope discipline:** A first attempt also excluded the demo league from automatic lifecycle jobs
-  and rewired the weekly schedule cron's year-ownership computation to match. It was reconstructed
-  from clean `main` because it breached the binding PR-sizing rule by crossing two automation jobs,
-  and because deleting the second job's guard left the entire test suite green — the change that
-  justified widening scope had no route-level coverage. That work, plus retiring the arbitrary-slug
-  `updateLeagueStatus`, became **F2H1T**.
-- **Verification:** Full suite 3213 pass / 0 fail; `npx tsc --noEmit`, `npm run lint:all`,
-  `npm run build`, `git diff --check` all clean, each gate run as its own command with its real exit
-  code recorded against the exact reviewed commit. Reviews: four Codex passes and three
-  `/code-review` passes across the reconstruction. Findings were evaluated against reachability and
-  attribution rather than applied wholesale — several were refuted with evidence, notably the
-  heal-branch year-laundering claim (unreachable: no writer can persist a non-test `preseason`
-  record at an unsupported year, and the heal only syncs `league.year` to the already-stored
-  `status.year`). Accepted findings were remediated in bounded, individually authorized rounds, each
-  regression verified failing against its own pre-fix code before being accepted.
-- **Size (both stop-and-reassess signals tripped; explicitly approved rather than split):** 16 files,
-  +2,177 / −48. ~1,500 insertions are focused regression tests against ~360 lines of implementation
-  across five source files. ONE automation job, so the mandatory split for work crossing separate
-  jobs does not apply. Approved because the authority, cron, event, receipt, and System Health
-  changes form one cross-surface contract that cannot land in halves without shipping a surface that
-  disagrees with the others.
-- **Known deferrals carried forward:** the commit-to-invalidation window (a run can commit the
-  lifecycle change and die before the cache bust; later daily runs no longer select that league,
-  since targeting is preseason-only) — real, self-limiting in practice via other invalidators, and
-  recorded in `docs/next-tasks.md` with the constraint that any fix must preserve provider ownership
-  and quota behavior. Demo-league automation policy and `updateLeagueStatus` retirement are F2H1T.
-
----
-
-### PLATFORM-086F2G1 — Draft-Assistance Retirement — Complete
-
-- **Status:** Complete — merged to `main` via PR #440 (merge commit `9c3b6ce`), 2026-08-03.
-- **PROMPT_ID(s):** `PLATFORM-086F2G1-DRAFT-ASSISTANCE-RETIREMENT-v1` (a draft-readiness slice inserted
-  between F2G and F2H, before the in-person draft).
-- **Outcome:** SP+ ratings and betting win totals are retired as draft inputs — both made team
-  selection artificially easy and silently drove available-team ordering. `selectDraftTeamInsights`
-  now takes no SP+/win-total inputs and returns none of the `spRating`/`spTier`/`winTotalLow`/
-  `winTotalHigh`/`sosTier`/`awaitingRatings` derived fields; it owns one neutral, recommendation-free
-  order — locale-aware alphabetical + stable canonical team-id tie-break (`compareDraftInsightsAlphabetical`)
-  — identical for the commissioner and spectator boards by construction (both call the selector with no
-  page-level re-sort). Neutral factual context is preserved (identity, conference, colors, schedule
-  shape, prior-season record, preseason AP rank, ranked-opponent count). Both draft server entry points
-  stop reading `sp-ratings`/`win-totals`. The admin controls (`SpRatingsCachePanel`,
-  `WinTotalsUploadPanel`, the "Season inputs" section, and the `sp-ratings-refresh`/`win-totals-upload`
-  maintenance descriptors), the server pipelines (`/api/admin/cache-sp-ratings`, `/api/admin/win-totals`),
-  and the orphaned CFBD `buildCfbdSpRatingsUrl` helper are deleted. The dead `autoPickMetric` setting
-  (with its `'sp-plus'` member) is removed — spread-merge-safe on both create/update paths, no reader,
-  no validator; auto-pick stays random. Pick submission, turn order, timer, pause/resume, undo, and
-  durable draft-state compatibility are unchanged. The product decision that the draft embeds no
-  SP+/win-total recommendation signal is recorded as Locked decision #5 in
-  `docs/architecture/admin-control-plane.md`. Game-card/matchup Odds and every provider authority are
-  untouched.
-- **Verification:** Full suite 3147 (+ selector-contract, repo-wide production source-scan guard, and
-  `autoPickMetric` compatibility tests); `npx tsc --noEmit`, `npm run lint:all`, `npm run build`,
-  `git diff --check` clean. Review: `/code-review` skill not model-invocable in this environment
-  (reported); manual self-review substituted, then independent Codex round 1 clean (no actionable
-  finding) → converged. No P0/P1. Local authenticated browser verification of the gated draft board was
-  not run (requires league + admin + Clerk); the successful build plus deterministic selector/guard/page
-  tests stand in. Diff 27 code files + 4 docs, net ~−580 (deletion-dominated); file count over the
-  15-file soft signal (one indivisible retirement), surfaced to the user. Existing durable
-  `sp-ratings`/`win-totals` rows left inert (no destructive cleanup); no external operation; BotID stash
-  preserved.
-- **Open follow-ups:** See `docs/next-tasks.md` — **F2H (Season Management consolidation)** is the next
-  F2 slice.
-
----
-
-### PLATFORM-086F2H1A — Lifecycle Guards Core — Complete
-
-- **Status:** Complete — merged to `main` via PR #442 (merge commit `d800fd6`), 2026-08-04.
-- **PROMPT_ID(s):** `PLATFORM-086F2H1A-LIFECYCLE-GUARDS-CORE-v2` (the clean, bounded
-  reconstruction that superseded closed, unmerged PR #441).
-- **Outcome:** Commissioner offseason→preseason and exact-year setup completion now decide against
-  the registry record held under one serialized transaction; accepted transitions persist lifecycle
-  status and the compatibility year projection atomically, while stale, concurrent, and unusable-year
-  requests write nothing. The compatibility setter delegates through the same authority, new-league
-  creation enforces the integer `2000..currentUTCYear+1` ingress horizon, and the static
-  `/admin/aliases` collision is reserved. Cron policy, lifecycle recovery, rollover, test-control
-  redesign, and Season Management UI remain deliberately separate F2H slices.
-- **Verification:** 35 focused lifecycle/action/creation tests and the full 3,163-test suite pass;
-  TypeScript, `lint:all`, production build, and diff check clean. Independent Codex review remediated
-  one P2 then confirmed clean at P0–P2; final external review independently reproduced every gate,
-  all six findings were addressed, and it recommended approval. No provider, scheduler, lifecycle,
-  rollover, or production operation occurred.
-- **Open follow-ups:** See `docs/next-tasks.md`; F2H1B owns automated transition convergence, F2H1R
-  owns missing-status recovery, F2H2 owns rollover/archive/backfill convergence, and F2H3 owns the
-  operator presentation.
-
-### POLISH-007 — Game-Day Confidence Layer — Complete
-
-- **Status:** Complete — merged to `main` via PR #495 (merge commit `3a76fca3`), 2026-08-19.
-- **PROMPT_ID(s):** `POLISH-007-GAME-DAY-CONFIDENCE-LAYER-v1`.
-- **Outcome:** Members now receive a bounded, neutral game-day signal: preparing only near kickoff,
-  waiting only while an eligible score is absent, and tracking only after a recent exact-partition
-  provider observation attaches an in-progress score in the same read. Owned-team rows use
-  `Awaiting score` in the bounded post-kickoff gap. Known schedule or score disruptions suppress
-  unsupported claims, and the accessible status region remains mounted while idle.
-- **Verification:** Regression coverage pins exact-scope observation and same-read attachment,
-  score-finality precedence over stale in-progress schedule status, raw CFBD disruption propagation
-  across all canonical game constructors, and aligned browser/server disruption handling. Independent
-  review reproduced the original disruption defect and confirmed its repair; the focused confidence
-  suite, full 4,126-test suite, TypeScript, `lint:all`, and diff check passed on the PR head that was
-  merged.
-- **Open follow-ups:** See the canonical deferral in `docs/next-tasks.md`.
-
----
-
-### POLISH-009 — History Stats Mobile Layout and Controls — Complete
-
-- **Status:** Complete — merged to `main` via PR #497 (merge commit `e91f2f65`), 2026-08-19.
-- **PROMPT_ID(s):** `POLISH-009-HISTORY-STATS-MOBILE-v1`.
-- **Outcome:** History record podiums now stack cleanly on mobile while preserving the compact
-  three-column desktop layout. Show all and the owner filter use 44px mobile touch targets, and the
-  Active-only view now derives membership from the confirmed current roster with a latest-archive
-  rollover fallback, so departed owners are actually removed.
-- **Verification:** Independent review found no actionable issue. Responsive, touch-target, filter,
-  and membership-source coverage passed with TypeScript, lint, the full test suite, and a 390px
-  interactive browser check showing no horizontal overflow or framework error overlay.
-
----
-
-### POLISH-010 — Dark-Only Theme — Complete
-
-- **Status:** Complete. Merged to `main` via PR #500 (`polish/010-dark-only-theme`, merge commit
-  `6109df6f`, 2026-08-19). Four commits: implementation, a review round, the pre-merge closeout, and
-  a folded queue entry. Codex returned no findings; `/code-review` returned five, and the two MEDIUMs
-  were defects in this branch's own new test and comments, both fixed before merge.
-- **PROMPT_ID(s):** POLISH-010-DARK-ONLY-THEME-v1.
-- **Outcome:** Dark is the app's only theme. `dark:` utilities are unconditional, so the ~1,127
-  light base classes they pair with are dormant rather than deleted and the retirement reverts by a
-  single variant declaration. JavaScript colour resolution funnels through `isDarkTheme()`, which
-  returns dark unconditionally — owner colours, insight category colours, and the season-arc chart
-  choose from light/dark hex PAIRS in JS, so a CSS-only retirement would have painted light palettes
-  onto a dark UI. The landing page stops being the app's one always-dark exception. Light was
-  retired rather than finished because it could not be finished: the semantic champion accent
-  measures 11.86:1 on the dark ground and 3.19:1 on white, failing WCAG AA at the 10px `Reigning`
-  label, and no amber step is both gold and accessible on white — the accent language the app is
-  built on is not renderable in light.
-- **Verification:** Mechanism confirmed in the emitted bundle and again from a running server —
-  `prefers-color-scheme` appears zero times and `.dark\:text-amber-400` compiles to a plain rule.
-  `npx tsc --noEmit`, `npm test` 4150/4150, `npm run lint:all`, and `npm run build` all pass. The
-  corrected category test and the `matchMedia` guard are both mutation-proven. Visually confirmed on
-  preview from a LIGHT-mode browser across eight surfaces: draft board (spectator and commissioner),
-  draft setup, History, Insights, Overview, Standings, `/admin`, `/admin/diagnostics`.
-- **Open follow-ups:** `getOwnerColor`/`buildOwnerColorMap` still accept an `isDark` parameter and
-  `PALETTE_LIGHT` remains exported, so a new caller can reintroduce light palettes; Members and
-  Matchups were not visually walked. See the canonical deferrals/current queue in
-  `docs/next-tasks.md`.
-
-### PLATFORM-107 — Weekly Final-Score Sweeper — Complete
-
-- **Status:** Complete — merged to `main` via PR #505 (merge commit `878a3466`), 2026-08-21.
-- **PROMPT_ID(s):** `PLATFORM-107-FINAL-SCORE-SWEEPER-v2` (the final reconstruction of the v1
-  implementation after two owner-authorized remediation rounds).
-- **Outcome:** The weekly full-season schedule refresh is now the bounded backstop for a provider
-  final that was never saved inside the live polling window. It groups final candidates by provider
-  week and season type, matches coverage by exact provider game id, filters covered games before
-  handing gaps to the existing transactional score writer, and never rewrites an existing final;
-  different scores are logged for investigation. Missing/duplicate ids fail closed and are counted,
-  already-covered partitions resolve `no-op`, repair and bounded failure metrics reach the scheduler
-  event/receipt, and kickoff-change measurement cannot abort the schedule commit. The weekly cadence,
-  polling windows, cumulative standings coverage gate, and score-cache dedup authority are unchanged.
-- **Verification:** Reviewed implementation head `f67c2435` mutation-proved gap filling,
-  pre-merge no-overwrite filtering, difference reporting, and idless-row refusal. Focused tests were
-  46/46 (+11 from base) and the clean full suite was 4,204/4,204 (+19), with TypeScript,
-  `lint:all`, and diff checks clean. The confirming Codex review found no credible in-scope P0/P1/P2;
-  the final Claude triage left three accepted low-severity follow-ups without reopening the branch.
-- **Open follow-ups:** See the PLATFORM-107 residue and items 67–68 in the canonical queue/deferral
-  list in `docs/next-tasks.md`; the former item 69 member copy is complete under POLISH-011.
-
-### PLATFORM-108 — Test-only Upstream Pacing Bypass — Complete
-
-- **Status:** Complete — merged to `main` via PR #506 (merge commit `1896b149`), 2026-08-22.
-- **PROMPT_ID(s):** `PLATFORM-108-TEST-PACING-AND-STARTUP-v1`.
-- **Outcome:** Tests no longer pay production provider rate-limit delays. The shared runner sets an
-  explicit pacing-disable flag, and the upstream helper honors it only when Node also supplies its
-  test-child signal, so missing or uncertain environment evidence fails closed to normal pacing.
-  An injected clock directly covers same-key spacing and serialization, key independence, and
-  rejection recovery without real sleeping. All eleven provider interval values and production
-  behavior remain unchanged.
-- **Verification:** The fail-closed guard, bypass, and serialization observer were mutation-proven;
-  independent final review found no actionable regression. Exact final PR head `bfe0906f` passed the
-  focused 21/21 suite (+6 from base), full 4,210/4,210 suite (+6, zero cancelled), TypeScript,
-  `lint:all`, and diff checks. The schedule-refresh route family improved from a 15.79 s base best to
-  a 5.69 s post-change best on the same host; full-suite samples remain load-sensitive observations,
-  not a reproducible percentage claim.
-- **Open follow-ups:** Item 71 in `docs/next-tasks.md` retains the unresolved JSDOM-heavy startup and
-  per-file timeout decision; PLATFORM-108 did not directly optimize that class.
-
-### PLATFORM-110 — Vanished CFBD Schedule Record Logging — Complete
-
-- **Status:** Complete — merged to `main` via PR #512 (merge commit `1d550c1e`), 2026-08-26. Not
-  promoted as of this post-merge closeout.
-- **PROMPT_ID(s):** `PLATFORM-110-SCHEDULE-VANISHED-GAME-LOGGING-v2`; the v1 attempt was abandoned
-  unimplemented after two remediation rounds and reconstructed from clean `main`.
-- **Outcome:** A confirmed `written-clean` full-season schedule commit now emits one best-effort,
-  allowlisted `schedule-games-vanished` runtime event when a positive numeric CFBD game id existed
-  in the prior snapshot but not the new one. Same-id kickoff/team/venue rewrites stay silent;
-  malformed rows are isolated; duplicate ids deduplicate; details cap at 25 while retaining the
-  complete count; and logging can never fail the durable commit. A transaction-fresh aggregate is
-  authoritative, with a pre-provider regular/postseason snapshot supplying observability for the
-  first aggregate publication. Polling cadence, provider calls, schedule identity, scores, and UI
-  are unchanged.
-- **Verification:** Nineteen tests were added across integration, baseline-reader, and event-helper
-  suites. The pre-fix event assertion failed against clean `main`; load-bearing mechanisms were
-  mutation-checked individually; the final focused result was 43/43 and the clean full suite was
-  4274/4274 with TypeScript and `lint:all` green. Independent Codex and Claude reviews of
-  implementation commit `05a6c68a` found no credible in-scope P0/P1/P2.
-- **Open follow-ups:** Queue item 63 remains the actual reschedule-detection/repair redesign; item 79
-  records the accepted non-blocking proof and log-triage improvements.
-
-### Season Setup and Draft Readiness — Complete
-
-- **Status:** Complete — merged through the PLATFORM-091→096, PLATFORM-099/100, and PLATFORM-102
-  slices between 2026-08-11 and 2026-08-16.
-- **PROMPT_ID(s):** `PLATFORM-091-PRESEASON-STATUS-BANNER-v1`,
-  `PLATFORM-092-PRESEASON-OWNER-CONFIRMATION-GATE-v2`,
-  `PLATFORM-093-NEW-LEAGUE-PRESEASON-BIRTH-v1`,
-  `PLATFORM-094-DRAFT-PUBLICATION-AND-READINESS-v2`,
-  `PLATFORM-095-PUBLICATION-WAYFINDING-v1`,
-  `PLATFORM-096-PRECONFIRMATION-PICK-EDITING-v1`, `PLATFORM-099-DRAFT-NIGHT-SAFETY-v1`,
-  `PLATFORM-100-NOCLAIM-SORTS-UNOWNED-v1`, and `PLATFORM-102-SERIALIZE-DRAFT-WRITERS-v1`.
-- **Outcome:** Preseason messaging now states observed draft/roster facts rather than inferring
-  readiness from lifecycle state. Drafts take owners from the confirmed roster, new leagues enter a
-  reachable preseason setup state, publication is a durable fact distinct from the last pick, and
-  the commissioner receives a coherent path from owner confirmation through editing, drafting,
-  publication, reopen, and guarded reset. `NoClaim` sorts with unowned teams, and mutations of an
-  existing draft serialize through the app-state transaction authority so concurrent expiry,
-  picking, undo, reset, and reopen operations cannot silently erase one another.
-- **Verification:** Each slice's review, regression proof, and exact merge record is preserved in
-  `docs/prompt-registry.md`; every slice passed its required TypeScript, lint, focused, and full-suite
-  gates before merge.
-- **Open follow-ups:** The canonical queue retains only the remaining setup/recovery, membership,
-  and future multi-writer work under items 12–25, 28, 37, 39, 45, 51, and 65.
-
-### Preview Isolation and Build-Gate Documentation — Complete
-
-- **Status:** Complete — preview received its own database on 2026-08-13; the contradictory preview
-  build-gate documentation was reconciled on `main` in `0232d525` on 2026-08-18.
-- **Outcome:** Preview testing no longer shares production durable state. Current documentation now
-  identifies `vercel.json`'s `ignoreCommand` as the effective docs-only build gate, distinguishes a
-  ref advance from a deployment, and treats the dashboard branch allowlist as present but
-  overridden rather than as the active mechanism.
-- **Verification:** Database isolation was confirmed independently by the owner. The documentation
-  correction was reviewed against observed preview build outcomes; the historical absence of a
-  `preview-codex` deployment remains a conditional investigation only if a second stable preview is
-  wanted.
-
-### Insights Preseason Truth and Engagement Expansion — Complete
-
-- **Status:** Complete — merged through INSIGHTS-019, INSIGHTS-023/023a, INSIGHTS-025, and
-  INSIGHTS-029→032 between 2026-08-15 and 2026-08-18.
-- **PROMPT_ID(s):** `INSIGHTS-019-DIAGNOSTIC-PAGE-v1`,
-  `INSIGHTS-023a-LEAGUE-MEMBERSHIP-v1`, `INSIGHTS-023-PRESEASON-GATES-v1`,
-  `INSIGHTS-025-MEMBERSHIP-CHANGES-v6`, `INSIGHTS-029-STOP-DRAINING-THE-FEED-v1`,
-  `INSIGHTS-030-LEAGUE-RECORD-POPULATION-v1`, `INSIGHTS-031-ROSTER-SCHEDULE-CONTENT-v1`, and
-  `INSIGHTS-032-SEASON-RECAP-v2`.
-- **Outcome:** The admin diagnostic page exposes the generated→served→Overview funnel. Insights now
-  distinguish league membership from team ownership, support safe preseason career facts, stop
-  suppression from draining unchanged standing facts, compute league-wide record claims against
-  the correct population, add roster/schedule self-play narratives and membership-change events,
-  and render a year-framed completed-season recap without hiding departed champions.
-- **Verification:** The prompt ledger preserves the measured real-league diagnostics, regression and
-  mutation proofs, independent reviews, and exact merge status for every slice.
-- **Open follow-ups:** Remaining gate, copy, selector-ownership, rotation, pulse, and parked
-  INSIGHTS-033 work is consolidated under items 30–38, 42–44, 54, 62, and 77 in the active queue.
-
-### Rankings, Week Resolution, and Standings-Coverage Integrity — Complete
-
-- **Status:** Complete — PLATFORM-104, PLATFORM-105, PLATFORM-105A, POLISH-011, and PLATFORM-109
-  merged between 2026-08-18 and 2026-08-25; the relevant UI changes were promoted with the
-  2026-08-25 production builds.
-- **PROMPT_ID(s):** `PLATFORM-104-POLL-SOURCE-MATCHING-v1`,
-  `PLATFORM-105-WEEK-RESOLUTION-v1`, `PLATFORM-105A-SCORE-COVERAGE-INTEGRITY-v1`,
-  `POLISH-011-STANDINGS-COVERAGE-COPY-v1`, and
-  `PLATFORM-109-STANDINGS-PENDING-PAYLOAD-v1`.
-- **Outcome:** Rankings use exact FBS poll-source matching instead of accepting lower-division
-  “Coaches” polls. A week is played only when its real games have concluded, a season is final only
-  when every real game has a result, and score-bearing conclusion evidence cannot resolve standings
-  without numeric points. Member surfaces now say “Waiting on complete results” without inventing a
-  cause, and the server/client boundary drops bulky per-game pending payloads only after deriving the
-  explicit season context from the unstripped canonical snapshot.
-- **Verification:** Production-data reproductions established the former week-one-final and poll
-  collision defects; focused regression suites and the full project gates passed at each reviewed
-  merge head. Detailed evidence remains in `docs/prompt-registry.md` and
-  `docs/architecture/week-resolution.md`.
-- **Open follow-ups:** Items 60, 64(c/e), and 68 retain the remaining rankings recovery,
-  disruption, and archive-policy work.
-
-### Trend Empty States and Preseason Origin — Complete
-
-- **Status:** Complete and active in production — POLISH-013 merged via PR #510 and POLISH-014 via
-  PR #511, both promoted on 2026-08-25.
-- **PROMPT_ID(s):** `POLISH-013-TREND-EMPTY-STATES-v1` and
-  `POLISH-014-TREND-SEASON-ORIGIN-v1`.
-- **Outcome:** Overview trend sections now use one drawability authority and honest sparse-data copy
-  instead of rendering empty axes or hiding useful week-one context. Games-back trends can carry a
-  separately represented Preseason origin when no game concluded before the first plotted week;
-  the origin is not forged as canonical week zero and is omitted from mid-season windows and
-  legacy/played-history cases where it would be false.
-- **Verification:** Selector, component, and browser checks covered zero/one/multi-point states,
-  concluded-game precedence, legacy archives, and the independent coordinate systems used by the
-  compact and full charts. Exact review and gate records are in `docs/prompt-registry.md`.
-- **Open follow-ups:** Item 73 owns the archived season-arc axis domain and any later decision to
-  adopt the origin outside Overview.
-
-### PLATFORM-111 — Visible Season Transition Anchor — Complete
-
-- **Status:** Complete and active in production — merged via PR #514 (merge commit `dc8b3528`),
-  2026-08-26; promoted and verified live on 2026-08-27.
-- **PROMPT_ID(s):** `PLATFORM-111-TRANSITION-ANCHOR-v2`.
-- **Outcome:** The schedule probe now anchors the daily preseason-to-season transition and
-  member-facing season-start placeholder to the earliest UTC calendar date containing a participant
-  resolved through the durable team catalog and league-agnostic aliases. It retains the all-division
-  canonical schedule, falls back to the earliest parseable date when no row is catalog-backed, and
-  keeps exact kickoff time out of the lifecycle policy. Both member consumers share the same
-  through-opening-date boundary, and a post-commit probe derivation failure is reported as partial
-  work instead of denying the committed schedule refresh.
-- **Verification:** Independent Codex and Claude reviews closed without actionable correctness
-  findings after the post-commit classification remediation. The exact final code commit passed
-  TypeScript, ESLint, the 4,289-test full suite, and diff-integrity checks. Production then persisted
-  `firstGameDate = 2026-08-29T00:00:00.000Z` at 02:56 UTC—exact UTC midnight, 21 minutes after
-  promotion—through the QStash schedule-refresh job while preserving `baseCachedAt`, confirming the
-  corrected derivation and durable probe path end to end.
-- **Open follow-ups:** None specific to this milestone; remaining season-operations work stays in
-  `docs/next-tasks.md`.
-
-### PLATFORM-112 — Game-Level Completed-Score Gap Diagnostics — Complete
-
-- **Status:** Complete and active in production — merged via PR #516 (merge commit `30bb515f`) and
-  promoted at 13:44 CDT on 2026-08-27; production was verified serving `30bb515f`.
-- **PROMPT_ID(s):** `PLATFORM-112-GAME-SCORE-GAP-DIAGNOSTICS-v1`.
-- **Outcome:** System Health now checks every addressable expected game in a completed provider
-  partition against its own canonically attached terminal score, so one final row cannot hide a
-  missing sibling. Canceled games resolve scorelessly, pending/disrupted/placeholder games retain
-  the shared conclusion policy, and operator output carries a complete gap count plus at most six
-  sanitized CFBD game and partition identities routed to the existing score-recovery surface.
-- **Verification:** Thirteen focused tests were added and one obsolete slate-granularity assertion
-  was replaced; label and kickoff bounds were mutation-proven. Independent Codex and Claude reviews
-  found no credible in-scope P0/P1/P2. Exact merged PR head `27151e9d` passed TypeScript, `lint:all`,
-  and the 4,301-test full suite.
-- **Open follow-ups:** See evidence-gated item 81 and the remaining season-operations queue in
-  `docs/next-tasks.md`.
-
-### PLATFORM-113 — Elapsed-Time Conclusion Diagnostics — Complete
-
-- **Status:** Merged via PR #518 (merge commit `bc0e741f`), 2026-08-27; production promotion not
-  yet verified.
-- **PROMPT_ID(s):** `PLATFORM-113-ELAPSED-TIME-CONCLUSION-DIAGNOSTICS-v1`.
-- **Outcome:** System Health now identifies unresolved canonical games accepted through the
-  eight-hour all-pending allowance, retaining the complete affected count and exposing at most six
-  sanitized provider identities. The warning supports aggregate and child schedule-cache shapes
-  and runs independently from the completed-slate timing gate that still governs terminal score
-  coverage.
-- **Verification:** Exact code commit `21113f08` passed TypeScript, lint, focused finality and
-  diagnostics coverage, and the 4,316-test full suite. Independent Codex and Claude reviews found
-  no actionable P0/P1/P2 correctness issue, including after the mixed-timing regression fix.
-- **Open follow-ups:** Item 64(c) remains in the canonical queue in `docs/next-tasks.md`.
-
-### INSIGHTS-026a — Request-Time Weekly Recap Skeleton — Complete
-
-- **Status:** Merged via PR #519 (merge commit `68d7f792`), 2026-08-28; production promotion not
-  yet verified.
-- **PROMPT_ID(s):** `INSIGHTS-026a-RECAP-SKELETON-v1`.
-- **Outcome:** The existing Insights page now leads with an exact-active-season weekly recap for the
-  immediately preceding eligible canonical week. Its pure selector and cache-only loader produce
-  per-owner W-L/PF/PA and distinguish unresolved, abandoned, missing-result, absent, and unavailable
-  states while the standing Insights feed remains independent.
-- **Verification:** Thirty-one focused tests were added across selectors, loader/composer, and the
-  RSC page. TypeScript and lint passed; the full 4,347-test suite passed at one file worker after
-  host-constrained four-worker attempts timed out without assertion failures. Independent Codex and
-  Claude review left no open P0/P1/P2 finding.
-- **Open follow-ups:** Item 42 remains in `docs/next-tasks.md` for recap details, record changes, odds
-  upsets, Overview rendering, Forward Look, and the stored event-source artifact.
-
-### INSIGHTS-026b — Weekly Recap Layout and Overview Tile — Complete
-
-- **Status:** Merged via PR #521 (merge commit `af0a2118`), 2026-08-29; production promotion not
-  yet verified.
-- **PROMPT_ID(s):** `INSIGHTS-026b-RECAP-LAYOUT-v3` (superseding the unmerged v1/v2 attempts).
-- **Outcome:** The full Insights recap and collapsed-by-default Overview tile now share the approved
-  recap header and weekly-record grid. The tile consumes the server-coherent recap payload, refreshes
-  at its schedule-independent 06:00 ET boundary, preserves standing insights across recap failures,
-  and remains visible above the podium when client schedule bootstrap fails.
-- **Verification:** Twenty-three test declarations were added relative to the campaign base for the
-  date boundaries, recap response seam, refresh behavior, shared rendering, and degraded/successful
-  Overview placement. Exact PR head `ab8f1561` passed TypeScript, `lint:all`, the full test suite,
-  and production build; desktop and mobile browser checks passed, and final independent Claude and
-  Codex reviews reported no actionable findings.
-- **Open follow-ups:** Item 42 remains in `docs/next-tasks.md` for the remaining fact-family slices,
-  Forward Look, and the stored event-source artifact.
-
-### INSIGHTS-026c — Weekly Recap Details — Complete
-
-- **Status:** Merged via PR #523 (merge commit `e41832ec`), 2026-08-29; production promotion not
-  yet verified.
-- **PROMPT_ID(s):** `INSIGHTS-026c-RECAP-DETAILS-v1`.
-- **Outcome:** Each eligible recap now carries explicit-week movement, distinct-owner matchup
-  detail, aggregate weekly high scores, and per-game closest-game/biggest-blowout facts derived from
-  canonical current-season ownership and finality. Insights and Overview render the approved Week
-  leaders and Movement sections; notable-result UI remains deliberately deferred.
-- **Verification:** Eight test declarations were added for movement boundaries, first-week
-  suppression, multi-team/cardinality handling, tied risers, additive payload compatibility, and
-  full-page rendering/accessibility. Exact PR head `ac5c20b1` passed TypeScript, `lint:all`, the
-  4,378-test full suite, and production build; final independent Claude and Codex reviews reported
-  no remaining findings.
-- **Open follow-ups:** Item 42 remains in `docs/next-tasks.md` for the remaining request-time slices,
-  Forward Look, and the stored event-source artifact.
-
-### PLATFORM-114 — Schedule Eligibility from the Provider Division Label — Complete
-
-- **Status:** Merged via PR #524 (merge commit `4a78d1b5`), 2026-08-29; production promotion not yet
-  verified, and the fix does not take effect there until an authorized full-season schedule refresh
-  repopulates the cache.
-- **PROMPT_ID(s):** `PLATFORM-114-SCHEDULE-PROVIDER-CLASSIFICATION-v1`.
-- **Outcome:** Schedule eligibility now classifies a participant from CFBD's own per-row division
-  label instead of reconstructing it from the conference string and name resolution. This closed a
-  live defect in which a Division II school sharing a normalized identity key with an ownable FBS
-  team put its entire season into the canonical schedule as tracked games. Rows without the label
-  keep the prior inference path, and that fallback was narrowed so only a real catalog record — not
-  an unresolved or ambiguous conference — can assert a below-FBS division.
-- **Verification:** Commit `e1edb680` passed TypeScript, `lint:all`, `next build`, and the 4,388-test
-  full suite; five mutations were each killed by a distinct test. Independent Codex review found no
-  actionable finding; the second reviewer's MEDIUM and LOW were remediated before merge. Behaviour
-  confirmed on preview after an authorized cache refresh: the phantom games were gone from every
-  week, genuine cross-division games survived, and standings carried no stale credit.
-- **Open follow-ups:** See the canonical deferrals/current queue in `docs/next-tasks.md` (Items 83
-  and 84).
-
-### INSIGHTS-026d — Weekly Recap Record-Change Projection — Complete
-
-- **Status:** Merged via PR #525 (merge commit `6b541730`), 2026-08-29; production promotion not yet
-  verified.
-- **PROMPT_ID(s):** `INSIGHTS-026d-RECAP-RECORD-CHANGES-v1`.
-- **Outcome:** The request-time recap now derives six active-season-safe record families against
-  completed historical evidence without feeding partial-season data into career accumulation. Live
-  evidence uses canonical ownership and finality, excludes placeholder owners, deduplicates
-  owned-v-owned games, and preserves the newest tied occurrence for change context. The facts remain
-  deliberately unwired until the final recap rendering pass.
-- **Verification:** Exact code commit `52895e79` passed TypeScript, `lint:all`, the 4,402-test full
-  suite, and production build. One bounded remediation round closed the actionable findings; final
-  independent Codex and Claude reviews found no remaining P0/P1/P2 issue.
-- **Open follow-ups:** Item 42 in `docs/next-tasks.md` retains the review follow-ups, final recap
-  wiring, Forward Look, and stored event-source delivery.
-
-### INSIGHTS-026e — Weekly Recap Odds Upsets — Complete
-
-- **Status:** Merged via PR #527 (merge commit `a1b25582`), 2026-08-29; production promotion not yet
-  verified.
-- **PROMPT_ID(s):** `INSIGHTS-026e-RECAP-ODDS-UPSETS-v1`.
-- **Outcome:** The request-time recap now derives structured odds-vs-result upset facts from the
-  season-scoped durable odds store without a provider or HTTP call. Game badges and recap facts use
-  one shared six-point pregame-spread policy; live ownership/finality remains canonical,
-  owned-v-owned games are deduplicated, placeholder-only games are excluded, and facts are ordered
-  deterministically. The shared policy also now measures asymmetric lines from the favorite side's
-  own spread. The facts remain deliberately unwired until the final recap rendering pass.
-- **Verification:** Exact code commit `3d1ed850` passed TypeScript, `lint:all`, the 4,416-test full
-  suite, and production build. One bounded remediation round fixed the asymmetric-line threshold
-  edge and strengthened ownership/week/order coverage; final independent Codex and Claude reviews
-  found no remaining P0/P1/P2 issue.
-- **Open follow-ups:** Item 42 in `docs/next-tasks.md` retains the final recap wiring pass, the
-  non-blocking Slice 3/4 review follow-ups, Forward Look, and stored event-source delivery.
-
-### INSIGHTS-026f — Weekly Recap Final Wiring — Complete
-
-- **Status:** Merged via PR #529 (merge commit `faadabb4`), 2026-08-29; production promotion not yet
-  verified.
-- **PROMPT_ID(s):** `INSIGHTS-026f-RECAP-FINAL-WIRING-v1`.
-- **Outcome:** The request-time Look Back now renders every completed fact family. The full Insights
-  recap includes owner records, weekly leaders, movement, owner-vs-owner results, accolades,
-  active-season-safe record changes, and odds upsets. The Overview tile keeps its compact headline
-  and uses progressive disclosure for dense records, leaders, movement, and at most three
-  prioritized highlights. Archive or odds uncertainty suppresses only that enrichment family, game
-  facts share one canonical scoreboard presentation, and the unused predecessor pulse view model is
-  removed.
-- **Verification:** Exact final commit `eab9c0cc` passed TypeScript, `lint:all`, the 4,439-test full
-  suite, production build, and desktop/mobile browser checks. Independent Claude and Codex reviews
-  closed without a remaining P0/P1/P2 finding after mutation-proven record-transition and rivalry-
-  identity coverage.
-- **Open follow-ups:** Item 42 in `docs/next-tasks.md` remains open only for the durable event-source
-  artifact and Thursday Forward Look. The broader malformed odds-favorite producer remains in the
-  canonical deferral register.
-
-### POLISH-015 — Overview Games Region Corrections — Complete
-
-- **Status:** Merged via PR #531 (merge commit `50b75f2f`), 2026-08-29; production promotion
-  confirmed by the owner on 2026-08-29.
-- **PROMPT_ID(s):** `POLISH-015-OVERVIEW-GAMES-REGION-v1`.
-- **Outcome:** The Upcoming watchlist now excludes in-progress games, so a live game cannot occupy
-  both Upcoming and Live. Scheduled games sort by kickoff, then same-kickoff ownership priority,
-  then stable game key while quality remains visible in badges. Recent dated finals stay
-  newest-first with undated finals last, and the empty state states only the current condition.
-- **Verification:** Exact PR head `8f95c56e` passed TypeScript, `lint:all`, the 4,442-test full suite,
-  and production build. Three test declarations were added relative to `main` for display-seam
-  chronology, watchlist/Live exclusion, and bounded recent-result date handling; existing selector
-  and empty-copy assertions were retargeted to the approved behavior. Independent Codex and Claude
-  confirmation reviews found no credible in-scope P0/P1/P2.
-- **Open follow-ups:** POLISH-016, POLISH-017, and POLISH-019 shipped Item 87's shared scoreboard,
-  Live, Featured, and Recent-finals promotion work. Item 87 slices 4–5 remain in
-  `docs/next-tasks.md`.
-
-### PLATFORM-115 — CFBD Request Timeout — Complete
-
-- **Status:** Merged via PR #534 (merge commit `6492e68d`), 2026-08-30.
-- **PROMPT_ID(s):** `PLATFORM-115-CFBD-REQUEST-TIMEOUT-v1`.
-- **Outcome:** The two live-score requests, game-stats cron request, and admin scores request now
-  share a 40-second CFBD timeout. The cron paths retain one attempt, while the admin action replaces
-  three short attempts with one longer attempt, so ordinary peak latency no longer exhausts the old
-  12-second ceiling without multiplying billed calls. Eligibility, cadence, quota reserve, schedule
-  windows, fallback behavior, and unrelated provider jobs are unchanged.
-- **Verification:** Eight test declarations were added for 25-second-equivalent success and clean
-  over-ceiling failure, with exact billed-request counts and prior-good cache retention pinned on
-  each targeted path. Exact PR head `c9a580e0` passed TypeScript, `lint:all`, the 4,450-test full
-  suite, and production build; retry mutations were killed by the billed-URL assertions.
-- **Open follow-ups:** None.
-
-### POLISH-016 — Overview Live Scoreboard Component — Complete
-
-- **Status:** Merged via PR #535 (merge commit `5fd59d39`), 2026-08-30.
-- **PROMPT_ID(s):** `POLISH-016-SCOREBOARD-COMPONENT-LIVE-v1`.
-- **Outcome:** The first Item 87 slice established the shared game-scoreboard contract with a real
-  Live consumer. Overview Live now presents neutral structural status, fixed away-to-home rows,
-  position-independent leader emphasis, rank/team/owner identity, and right-anchored scores in a
-  responsive two-column grid. The Live drilldown also targets the displayed game and clears stale
-  conference/team filters that could hide it.
-- **Verification:** Exact PR head `661531a2` passed TypeScript, `lint:all`, the 4,461-test full suite,
-  production build, and browser checks at the two-column and exact one-column boundary. Eleven tests
-  were added relative to the prior `main`; independent Codex review found no actionable regression,
-  and the owner waived the final Claude rerun after the focused test/navigation follow-up.
-- **Open follow-ups:** POLISH-017 and POLISH-019 shipped the Featured/final and Recent-finals
-  promotion consumers. Item 87 slices 4–5 remain in `docs/next-tasks.md`.
-
-### POLISH-017 — Overview Featured Scoreboard and Green Live — Complete
-
-- **Status:** Merged via PR #537 (merge commit `e0a7b8ab`), 2026-08-30.
-- **PROMPT_ID(s):** `POLISH-017-FEATURED-SCOREBOARD-GREEN-LIVE-v1`.
-- **Outcome:** Featured keeps its existing selection and label while rendering through
-  `CompactGameScoreboard` with fixed away-to-home order, neutral final status, and winner emphasis.
-  The additive context slot preserves the seam for later insights-driven reason/substance work.
-  Green now means live within the Overview compact-scoreboard family; the remaining watchlist badge
-  consumer cannot receive final or in-progress games.
-- **Verification:** Exact PR head `3ec1e766` passed TypeScript, `lint:all`, the 4,464-test full suite,
-  and production build. Three test declarations were added, two existing tests were retargeted
-  without removing coverage, and browser checks confirmed two columns at 1200px and one at 700px.
-  Independent Codex and Claude reviews found no attributable P0/P1/P2 issue.
-- **Open follow-ups:** POLISH-019 shipped the promotion model. Item 87 slices 4–5 and the
-  now-unblocked Item 42 notable-results portion remain in `docs/next-tasks.md`.
-
-### PLATFORM-116 — Overview Standings Live Signal — Complete
-
-- **Status:** Merged via PR #539 (merge commit `fce338f3`), 2026-08-30; production promotion not yet
-  verified.
-- **PROMPT_ID(s):** `PLATFORM-116-STANDINGS-LIVE-SIGNAL-v1`.
-- **Outcome:** The Overview standings row now keeps one green provisional W–L badge throughout a
-  tied game or stale score read, renders `+0–0` when live scores are tied or temporarily lack
-  numeric points, and removes the redundant amber live-count pill. Current game state controls
-  visibility, while the new last-known accessor controls badge copy; the existing fresh-only
-  accessor and its Standings/Members callers are unchanged.
-- **Verification:** Eight test declarations were added relative to `main` (three Overview, five
-  selector) for stale replacement, final-state gating with a held delta, current ownership, accessor
-  contracts, and numeric-score absence. Existing only-signal, stale, and tied assertions were
-  retargeted without weakening coverage. Exact PR head `772cf4ca` passed TypeScript, `lint:all`, the
-  4,472-test full suite, and production build. One remediation closed the null-score gap shared by
-  the initial independent reviews; the required Codex and Claude confirmation passes ran late,
-  after merge, and left no credible in-scope P0/P1/P2 finding after reachability/scope evaluation.
-- **Open follow-ups:** Item 90's remaining live-amber sweep and neutral-final re-cut are now
-  unblocked in `docs/next-tasks.md`.
-
-### POLISH-018 — Shared Live Status Treatment — Complete
-
-- **Status:** Merged via PR #541 (merge commit `9a45e1f3`), 2026-08-31.
-- **PROMPT_ID(s):** `POLISH-018-LIVE-STATUS-TREATMENT-v1`.
-- **Outcome:** One shared borderless status label now gives the narrowed game surfaces four
-  semantic tones: emerald live with a static dot, neutral zinc final, sky scheduled, and dimmer
-  accessible zinc unknown. Compact scoreboards, Matchups, Members, and Overview consume it; the
-  dead shared helper and three bespoke consumer class helpers are gone. Matchups keeps its neutral,
-  freshness-gated live pulse because green already means a final win there. Schedule remains
-  deliberately unchanged for Item 87 slice 5.
-- **Verification:** Four test declarations were added relative to `main`, and existing render
-  assertions were retargeted without removing coverage. Exact code commit `db147036` and exact
-  pre-merge head `b1afafed` each passed `npm run lint`, TypeScript, and the 4,476-test full suite.
-  Reverting unknown to zinc-500 fired `unknown label must use dimmer accessible zinc`, proving the
-  focused tone assertion is non-vacuous. Independent Codex and Claude reviews found the same
-  contrast gap; one remediation closed it, and confirmation left no credible in-scope P0/P1/P2
-  after applying the settled Matchups and source-token requirements.
-- **Open follow-ups:** Item 87 slice 5 owns Schedule's accepted green-final/amber-live residual;
-  slices 4–5 remain in `docs/next-tasks.md`.
-
-### PLATFORM-117 — CFBD Team-Records Cache — Complete
-
-- **Status:** Merged via PR #543 (merge commit `9376521e`), 2026-08-31.
-- **PROMPT_ID(s):** `PLATFORM-117-TEAM-RECORDS-v1`.
-- **Outcome:** Added one normalized year-wide CFBD records cache keyed by numeric `teamId`, plus an
-  arbitrary-year refresh authority with its own year-scoped provider-health status. The existing
-  live-scores cron may invoke it only after a newly committed final, at most once per run behind a
-  durable six-hour provider-call floor (124 calls maximum in a 31-day month); an independent
-  eight-day cache-age diagnostic covers weeks with no finals. Prior-good data survives zero-row,
-  invalid, failed, and stale-observation outcomes. No route, UI consumer, or scheduler job shipped,
-  and score commits invalidate standings before awaiting the optional records request.
-- **Verification:** Twenty net test declarations were added relative to the pre-PR base for the
-  URL/cache contract, arbitrary-year refresh, final-transition trigger, durable cadence/lease,
-  prior-good retention, status isolation, health ceiling, quota/catalog propagation, and standings
-  invalidation ordering. Six existing dataset-count/control tests were retargeted from six to seven
-  datasets without dropping their assertions. Exact PR head `021925a3` passed `npm run lint`,
-  TypeScript, and the 4,496-test full suite; mutation proof named each fired assertion. Final
-  `/code-review` found no issue, and the remaining Codex suggestions were rejected against the
-  settled cadence, completeness, and measured quota contracts.
-- **Open follow-ups:** Item 87 slice 4 owns the first cache consumer; Item 88 owns the existing
-  provider-row `No refresh history` display behavior. See `docs/next-tasks.md`.
-
-### Template for future entries
-
-Use this structure for each new completed phase/milestone (DOCS-012). Entries describe shipped
-outcomes — not review-by-review transcripts, live task sequencing, or duplicated deferral text:
-
-```md
-### <Milestone> — Complete
-
-- **Status:**
-- **PROMPT_ID(s):**
-- **Outcome:**
-- **Verification:**
-- **Open follow-ups:** See the canonical deferrals/current queue in `docs/next-tasks.md`, when applicable.
-```
+| Source milestone | PR(s) | Merge commit | Recorded date | Outcome |
+| --- | --- | --- | --- | --- |
+| S001 · PLATFORM-087 Slice 5b — Card-owner scoreboard row modifier — Complete | #575 | `fef083ae` | 2026-09-06 | 01 |
+| S002 · PLATFORM-087 Slice 5 + Item 112 — Schedule scoreboard and disclosure — Complete | #572 | `f424222a` | 2026-09-05 | 01 |
+| S003 · Item 135 — Matchups opponent count and its collapse control — Complete | #571 | Not recorded | 2026-09-05 | 03 |
+| S004 · PLATFORM-087 Slice 5a — Shared Scoreboard Contract — Complete | #570 | `4caa1a79` | 2026-09-05 | 01 |
+| S005 · PLATFORM-BROWSER-POLL-CADENCE — Complete | #567 | `3c2d8774` | 2026-09-05 | 04 |
+| S006 · PLATFORM-RETIRE-POSTSEASON-TEMPLATE — Complete | #565 | `7e505437` | 2026-09-04 | 23 |
+| S007 · POLISH-024 — Retire the Dead OverviewContext Fields — Complete | #564 | `cac6dab9` | 2026-09-04 | 02 |
+| S008 · POLISH-023 — Overview Sort Rules — Complete | #563 | `1546bbc8` | 2026-09-04 | 02 |
+| S009 · POLISH-022 — Overview Section Order — Complete | #562 | `f4e13ad0` | 2026-09-04 | 02 |
+| S010 · POLISH-021 — NoClaim Presentation and Schedule Participant Naming — Complete | #560 | `0b95aeca` | 2026-09-03 | 03 |
+| S011 · PLATFORM-123 — Correct Odds Favorite Pairing — Complete | #556 | `bbd40a47` | 2026-09-03 | 26 |
+| S012 · PLATFORM-121 — Deterministic Odds Route Fixtures — Complete | #553 | `e952a657` | 2026-09-02 | 31 |
+| S013 · PLATFORM-120 — Hot Schedule-Build Relevance Filter and Week-0 Deletion — Complete | #551 | `ce176ccd` | 2026-09-02 | 23 |
+| S014 · POLISH-019 — Overview Recent Finals Promotion — Complete | #549 | `751a86b4` | 2026-09-01 | 01 |
+| S015 · PLATFORM-119 — Pool-Safe Standings Warm-on-Write — Complete | #547 | `197bde67` | 2026-08-31 | 06 |
+| S016 · PLATFORM-118 — Team-Records Freshness Authority — Complete | #546 | `c29801a4` | 2026-08-31 | 05 |
+| S017 · Team-records backfill (2018, 2021-2026) — Complete | None — production operation | Not recorded | 2026-08-31 | 05 |
+| S018 · PLATFORM-086H2 — Durable Game-Stats Merge Service (Dormant) — Complete | #397 | `c48e1ca` | 2026-07-18 | 22 |
+| S019 · PLATFORM-086H1 — Game-Stats Data Contract (Dormant Foundation) — Complete | #396 | `0f8b562` | 2026-07-17 | 22 |
+| S020 · PLATFORM-086G2 — Odds Boundary & Usage Truthfulness — Complete | #395 | `0ee58b4` | 2026-07-16 | 21 |
+| S021 · PLATFORM-086G1 — CFBD Score & Quota Truthfulness — Complete | #394 | `987dd04` | 2026-07-14 | 21 |
+| S022 · PLATFORM-086A — Provider-Refresh Observability Foundation — Complete | #391 | `9da8857` | 2026-07-14 | 21 |
+| S023 · Markdownlint Documentation Tooling — Complete | #392 | `c8b8d12` | 2026-07-14 | 31 |
+| S024 · Draft Timer Integrity + Server-Authoritative Round Boundaries — Complete | #319, #320, #321 | Not recorded | Not recorded | 12 |
+| S025 · HISTORY-RECORDS Phase 2 — Complete | #313 | Not recorded | Not recorded | 08 |
+| S026 · Season Launch Hardening — Complete | #302, #303, #304 | Not recorded | Not recorded | 14 |
+| S027 · Standings Ownership Model Redesign — Complete | Not recorded | Not recorded | Not recorded | 06 |
+| S028 · Insights Panel Redesign + Polish — Complete | Not recorded | Not recorded | Not recorded | 10 |
+| S029 · Insights Engine — Generator Batch 2 — Complete | Not recorded | Not recorded | Not recorded | 09 |
+| S030 · Insights Engine — Context Extension — Complete | Not recorded | Not recorded | Not recorded | 09 |
+| S031 · Copy Variation Architecture — Complete | Not recorded | Not recorded | Not recorded | 09 |
+| S032 · Insights Panel UI Direction — Decided (not yet built) | Not recorded | Not recorded | Not recorded | 10 |
+| S033 · Insights Engine — Opus 1M Brainstorming Session 2 | Not recorded | Not recorded | Not recorded | 09 |
+| S034 · Insights Engine — Generators and Wiring — Complete | #278 | Not recorded | Not recorded | 09 |
+| S035 · Season Rollover — Complete | #278 | Not recorded | Not recorded | 17 |
+| S036 · History Page Polish — Complete | #278 | Not recorded | Not recorded | 08 |
+| S037 · Insights Engine — Opus 1M Brainstorming | Not recorded | Not recorded | Not recorded | 09 |
+| S038 · Insights Engine Foundation — Complete | #276 | Not recorded | Not recorded | 09 |
+| S039 · Game Stats Pipeline — Complete | #274, #275 | Not recorded | Not recorded | 22 |
+| S040 · P7B-6 — Draft Board UI Polish: Complete | Not recorded | Not recorded | Not recorded | 12 |
+| S041 · P7B-5 — Owner Confirmation Flow: Complete | Not recorded | Not recorded | Not recorded | 13 |
+| S042 · P7B-4 — Pre-Season Setup Flow: Complete | Not recorded | Not recorded | Not recorded | 13 |
+| S043 · Phase 7F — Overview Featured Games: Complete | #241 | Not recorded | Not recorded | 01 |
+| S044 · Phase 7A–7E — Product Design Audit (Standings through Speed Insights): Complete | Not recorded | Not recorded | Not recorded | 30 |
+| S045 · P6E — Roster Editor: Complete | #229 | Not recorded | Not recorded | 28 |
+| S046 · P6 — Admin Polish and Commissioner UX: Complete | #230, #231, #232, #233, #234 | Not recorded | Not recorded | 15 |
+| S047 · P6D — Admin UI Restructure: Complete | #228 | Not recorded | Not recorded | 15 |
+| S048 · P6 — Clerk Auth Fixes and Admin Data Cleanup: Complete | #221, #222, #223, #224, #225, #226, #227 | Not recorded | Not recorded | 14 |
+| S049 · Phase 6 — Admin Cleanup and Auth (P6A–P6C): Complete | #217 (open at entry) | Not recorded | Not recorded | 14 |
+| S050 · Phase 6C — Landing Page Polish: Complete | Not recorded | Not recorded | Not recorded | 29 |
+| S051 · Phase 6B — Admin Page Restructure: Complete | Not recorded | Not recorded | Not recorded | 15 |
+| S052 · Phase 6A — Clerk Auth Setup: Complete | #216 (open at entry) | Not recorded | Not recorded | 14 |
+| S053 · Phase 5 — Draft / Owner Assignment Tool (P5A–P5D): Complete | #214 (open at entry) | Not recorded | Not recorded | 12 |
+| S054 · P5D — Draft Summary and Confirmation | #214 (open at entry) | Not recorded | Not recorded | 12 |
+| S055 · P5C — Live Draft Board | #213 (open at entry) | Not recorded | Not recorded | 12 |
+| S056 · P5C — Live Draft Board — Initial Implementation Details | Not recorded | Not recorded | Not recorded | 12 |
+| S057 · P5B — Draft Setup and Settings | #211 (open at entry) | Not recorded | Not recorded | 12 |
+| S058 · P5A — Draft Data Infrastructure | #210 | Not recorded | Not recorded | 12 |
+| S059 · P4D Polish, Backfill, and Historical Data Infrastructure | #207 | Not recorded | Not recorded | 08 |
+| S060 · Historical Season Backfill Endpoint | Not recorded | Not recorded | Not recorded | 08 |
+| S061 · P4D — League History and Owner Career UI | #204 | Not recorded | Not recorded | 08 |
+| S062 · Roster Upload Fuzzy Matching | #202, #203 | Not recorded | Not recorded | 28 |
+| S063 · Phase 4C — Season Detail UI | #201 | Not recorded | Not recorded | 08 |
+| S064 · Navigation, CTA Consistency & History Chrome (standalone) | Not recorded | Not recorded | Not recorded | 30 |
+| S065 · Overview Page Polish (standalone) | Not recorded | Not recorded | Not recorded | 02 |
+| S066 · Light Mode & Owner Color System (standalone) | Not recorded | Not recorded | Not recorded | 30 |
+| S067 · P7A-1 — Founded Year (Phase 7A) | Not recorded | Not recorded | Not recorded | 13 |
+| S068 · Phase 7A — Commissioner Self-Service | Not recorded | Not recorded | Not recorded | 13 |
+| S069 · P7B-7 — Draft Flow Polish | Not recorded | Not recorded | Not recorded | 12 |
+| S070 · P7B Season Transition Architecture — Complete | Not recorded | Not recorded | Not recorded | 13 |
+| S071 · P7B Dry Run Polish — Complete | #270 | Not recorded | Not recorded | 13 |
+| S072 · P7B Launch Preparation — Complete | #272 | Not recorded | Not recorded | 29 |
+| S073 · Event-Centric Date-Aware Odds Attachment — Complete | #331, #332 | Not recorded | Not recorded | 26 |
+| S074 · PLATFORM-086H3B Replacement — Fenced Legacy Game-Stats Writer — Complete | #399 | `69d3770` | 2026-07-21 | 22 |
+| S075 · PLATFORM-086H3C1 — Canonical Game-Stats Evidence Read Model (Dormant) — Complete | #400 | `cf8c584` | 2026-07-22 | 22 |
+| S076 · PLATFORM-086H3C2 — Dormant Safe Ingestion Coordination (Adapter) — Complete | #401 | `61fe69c` | 2026-07-22 | 22 |
+| S077 · PLATFORM-086H3C3 — Dormant Analytics Finality Gate — Complete | #402 | `c41121b` | 2026-07-22 | 22 |
+| S078 · PLATFORM-086H3D — Dormant Writer-Control Rollout Safety — Complete | #403 | `ddc356e` | 2026-07-22 | 22 |
+| S079 · PLATFORM-086H3C4 — Dormant Analytics Readiness Correction — Complete | #404 | `aa91391` | 2026-07-22 | 22 |
+| S080 · PLATFORM-086 — Team-Catalog Derived-Alias Safety — Complete | #405 | `d5ee260` | 2026-07-24 | 23 |
+| S081 · PLATFORM-086 — Schedule Non-FBS Postseason Classification Safety — Complete | #406 | `a015348` | 2026-07-24 | 23 |
+| S082 · PLATFORM-086H3C5 — Numeric Participant Validation (embedded) | #407 | `a0cfff0` | 2026-07-24 | 22 |
+| S083 · PLATFORM-086H3E1 — Paired Analytics Provenance (embedded) | #408 | `a4dd9d5` | 2026-07-24 | 22 |
+| S084 · PLATFORM-086H3E2 — Refresh and Polling Prerequisite (embedded) | #409 | `d04f3b3` | 2026-07-25 | 22 |
+| S085 · PLATFORM-086H3E4 — Second-Round Conference Collision Remediation (embedded) | #411 | `4e4535d` | 2026-07-25 | 23 |
+| S086 · PLATFORM-086H3E external scheduler — migration + pre-activation remediation (2026-07-26) | #410, #412 | #410: not recorded; #412: `a161e33` | 2026-07-26 | 22 |
+| S087 · PLATFORM-086H3E production activation checkpoint (2026-07-26) | None — production operation | Not recorded | 2026-07-26 | 22 |
+| S088 · PLATFORM-086I — Provider Data Status Settings Feedback — Complete | #413 | `da99a11` | 2026-07-27 | 20 |
+| S089 · PLATFORM-086F1 — Game-Stats Cron Execution Logging — Complete | #414 | `a7f5db2` | 2026-07-27 | 20 |
+| S090 · PLATFORM-086B1 — Live-Score Polling Engine (Dormant) — Complete | #416 | `4cbea60` | 2026-07-27 | 25 |
+| S091 · PLATFORM-086B2A — Score-Writer Lock Convergence (Dormant) — Complete | #417 | `4039c98` | 2026-07-28 | 25 |
+| S092 · PLATFORM-086B2B — Live-Score Activation Wiring (Dormant) — Complete | #418 | `57fab82` | 2026-07-28 | 25 |
+| S093 · PLATFORM-086C1 — Odds Refresh Authority & Writer Convergence (Dormant) — Complete | #419 | `b9c6cb3` | 2026-07-28 | 26 |
+| S094 · PLATFORM-086C2 — Odds Polling Activation (Dormant) — Complete | #420 | `262fdf0` | 2026-07-28 | 26 |
+| S095 · PLATFORM-086C3 — Odds Cache UI Hydration — Complete | #421 | `8029136` | 2026-07-29 | 26 |
+| S096 · PLATFORM-086E1A — Full-Season Schedule Refresh Authority — Complete (Dormant) | #422 | `f320a7e` | 2026-07-29 | 24 |
+| S097 · PLATFORM-086E1B — Weekly Schedule Automation with Operation-Aware Controls — Complete (Dormant) | #423 | `2ddf5c4` | 2026-07-29 | 24 |
+| S098 · PLATFORM-086E1B1 — Preseason Weekly Coverage with Season-Transition Handoff — Complete (Dormant) | #424 | `587d5e3` | 2026-07-29 | 24 |
+| S099 · PLATFORM-086E1C1 — Schedule Presentation Cache + Cache-Only UI (Manual-Only) — Complete | #425 | `1f27f5c` | 2026-07-30 | 24 |
+| S100 · PLATFORM-086E1C2 — Automatic Schedule-Presentation Wiring (Weekly + Season-Transition) — Complete | #426 | `29976c1` | 2026-07-30 | 24 |
+| S101 · PLATFORM-086E2A — Season Rankings Refresh Authority + Cache-Only Reader — Complete (Dormant) | #427 | `a656861` | 2026-07-30 | 27 |
+| S102 · PLATFORM-086E2B — Publication-Aware Rankings Automation — Complete (Merged; Unprovisioned) | #428 | `1c34352` | 2026-07-30 | 27 |
+| S103 · PRE-LAUNCH-TIDYUP — Complete | #306 | Not recorded | Not recorded | 31 |
+| S104 · DOCS-013 — Binding Execution Boundaries — Complete | #444 | `2b09e82` | 2026-08-04 | 31 |
+| S105 · DOCS-012 — Current-Ledger Deconfliction + Ledger-Ownership Governance — Complete | #429 | `ea4fa60` | 2026-07-30 | 31 |
+| S106 · PLATFORM-086F2A — Admin Control-Plane Inventory + Target IA — Complete | #430 | `4d6b897` | 2026-07-30 | 15 |
+| S107 · PLATFORM-086F2B — Lifecycle Authority Safety — Complete | #431 | `5658413` | 2026-07-30 | 17 |
+| S108 · PLATFORM-086F2C — Maintenance Action Model + Data Maintenance & Recovery Foundation — Complete | #432 | `5e2c021` | 2026-07-30 | 15 |
+| S109 · PLATFORM-086F2D1 — Provider Maintenance Relocation — Complete | #433 | `fa5c0f6` | 2026-07-30 | 15 |
+| S110 · PLATFORM-086F2D — Operational Mutation Relocation (D1 + D2) — Complete | #433, #434 | #433: `fa5c0f6`; #434: `a2a56fc` | 2026-07-30 | 15 |
+| S111 · PLATFORM-086F2E1 — External Scheduler Receipts — Complete | #435 | `4404ad3` | 2026-07-31 | 20 |
+| S112 · PLATFORM-086F2E2A — Lifecycle Scheduler Receipts + Events — Complete | #436 | `fa6e967` | 2026-07-31 | 20 |
+| S113 · PLATFORM-086F2E2B — Scheduler Receipt Reader + Delivery Classifier — Complete | #437 | `f84b676` | 2026-07-31 | 20 |
+| S114 · PLATFORM-086F2F — System Health Read Model — Complete | #438 | `b9a1688` | 2026-08-02 | 20 |
+| S115 · PLATFORM-086F2G — System Health UI — Complete | #439 | `c5e38be` | 2026-08-03 | 20 |
+| S116 · PLATFORM-086F2H2A — Admin Season Backfill Retired — Complete | #456 | `cb40c03` | 2026-08-07 | 08 |
+| S117 · PLATFORM-090 — Game-Stats Preseason Health State — Complete | #470 | `ee39e09` | 2026-08-11 | 20 |
+| S118 · PLATFORM-089 — Odds Early-Season Polling — Complete | #469 | `ff5aa0c` | 2026-08-10 | 26 |
+| S119 · TURFWAR Wordmark Kerning Cleanup — Complete | #468 | `fc77420` | 2026-08-10 | 29 |
+| S120 · POLISH-004 — Public Homepage Stadium — Complete | #466 | `38f5719` | 2026-08-09 | 29 |
+| S121 · PLATFORM-088 — Homepage Entry Truth — Complete | #465 | `f578f22` | 2026-08-08 | 29 |
+| S122 · INSIGHTS-022 — Offseason Roster Content — Complete | #464 | `0f48b87` | 2026-08-08 | 09 |
+| S123 · PLATFORM-086F2 — Admin Control-Plane IA Redesign (Campaign) — Complete | #463 | Final slice #463: `d9a8e93` | 2026-08-08 campaign closeout | 15 |
+| S124 · PLATFORM-086F2J — Commissioner Boundaries and Navigation Closeout — Complete | #463 | `d9a8e93` | 2026-08-08 | 16 |
+| S125 · PLATFORM-086F2I — Platform Configuration and Team Identity — Complete | #462 | `cbd3ed5` | 2026-08-08 | 16 |
+| S126 · PLATFORM-086F2H4 — Season Management Retired — Complete | #461 | `8f56835` | 2026-08-07 | 17 |
+| S127 · PLATFORM-086F2H3B2 — System Health Lifecycle-Integrity Issue — Complete | #460 | `5822a16` | 2026-08-07 | 20 |
+| S128 · PLATFORM-086F2H3B1 — Lifecycle Presentation and Typed Test-Control Feedback — Complete | #459 | `b07f2d6` | 2026-08-07 | 18 |
+| S129 · PLATFORM-086F2H3A — Rollover Surface Consolidation — Complete | #458 | `6a8b86c` | 2026-08-07 | 17 |
+| S130 · PLATFORM-086F2H2B — Rollover Operator Truth — Complete | #457 | `876d87c` | 2026-08-07 | 17 |
+| S131 · PLATFORM-086F2H1R4 — Rollover Registry-Container Truth + Year Validity — Complete | #455 | `995c18e` | 2026-08-06 | 19 |
+| S132 · PLATFORM-086F2H1R3 — Rankings Registry-Container Truth + Year Validity — Complete | #454 | `10186b2` | 2026-08-06 | 19 |
+| S133 · PLATFORM-086F2H1R2 — Weekly-Schedule Registry-Container Truth + Year Validity — Complete | #453 | `3a58767` | 2026-08-06 | 19 |
+| S134 · PLATFORM-086F2H1R1 — Registry-Read Truth + Season-Transition Year Validity — Complete | #452 | `e29bb47` | 2026-08-06 | 19 |
+| S135 · PLATFORM-086F2H1T5 — System Health Operational-Year Isolation — Complete | #451 | `6e881b5` | 2026-08-05 | 18 |
+| S136 · PLATFORM-086F2H1T4 — Rankings Demo-League Exclusion — Complete | #450 | `27a6c37` | 2026-08-05 | 18 |
+| S137 · PLATFORM-086F2H1T3 — Weekly-Schedule Demo-League Exclusion — Complete | #449 | `c15413e` | 2026-08-05 | 18 |
+| S138 · PLATFORM-086F2H1T2 — Season-Transition Demo-League Exclusion — Complete | #448 | `6ab927c` | 2026-08-05 | 18 |
+| S139 · PLATFORM-086F2H1SB — Admin Server Action Authorization — Complete | #447 | `8021b1f` | 2026-08-05 | 14 |
+| S140 · PLATFORM-086F2H1SA — Protected-Path Matcher Coverage — Complete | #446 | `533aed8` | 2026-08-04 | 14 |
+| S141 · PLATFORM-086F2H1T1 — Slugless Demo-League Lifecycle Authority — Complete | #445 | `8e6f122` | 2026-08-04 | 18 |
+| S142 · PLATFORM-086F2H1B — Guarded Automatic Season Transition — Complete | #443 | `be0c950` | 2026-08-04 | 17 |
+| S143 · PLATFORM-086F2G1 — Draft-Assistance Retirement — Complete | #440 | `9c3b6ce` | 2026-08-03 | 12 |
+| S144 · PLATFORM-086F2H1A — Lifecycle Guards Core — Complete | #442 | `d800fd6` | 2026-08-04 | 17 |
+| S145 · POLISH-007 — Game-Day Confidence Layer — Complete | #495 | `3a76fca3` | 2026-08-19 | 04 |
+| S146 · POLISH-009 — History Stats Mobile Layout and Controls — Complete | #497 | `e91f2f65` | 2026-08-19 | 08 |
+| S147 · POLISH-010 — Dark-Only Theme — Complete | #500 | `6109df6f` | 2026-08-19 | 30 |
+| S148 · PLATFORM-107 — Weekly Final-Score Sweeper — Complete | #505 | `878a3466` | 2026-08-21 | 25 |
+| S149 · PLATFORM-108 — Test-only Upstream Pacing Bypass — Complete | #506 | `1896b149` | 2026-08-22 | 31 |
+| S150 · PLATFORM-110 — Vanished CFBD Schedule Record Logging — Complete | #512 | `1d550c1e` | 2026-08-26 | 24 |
+| S151 · Season Setup and Draft Readiness — Complete | Not recorded | Not recorded | 2026-08-11 → 2026-08-16 | 13 |
+| S152 · Preview Isolation and Build-Gate Documentation — Complete | Not recorded | Not recorded | 2026-08-13 isolation; 2026-08-18 documentation | 31 |
+| S153 · Insights Preseason Truth and Engagement Expansion — Complete | Not recorded | Not recorded | 2026-08-15 → 2026-08-18 | 09 |
+| S154 · Rankings, Week Resolution, and Standings-Coverage Integrity — Complete | Not recorded | Not recorded | 2026-08-18 → 2026-08-25 | 06 |
+| S155 · Trend Empty States and Preseason Origin — Complete | #510, #511 | Not recorded | 2026-08-25 promotion | 07 |
+| S156 · PLATFORM-111 — Visible Season Transition Anchor — Complete | #514 | `dc8b3528` | 2026-08-26 merge; 2026-08-27 promotion | 17 |
+| S157 · PLATFORM-112 — Game-Level Completed-Score Gap Diagnostics — Complete | #516 | `30bb515f` | 2026-08-27 promotion | 20 |
+| S158 · PLATFORM-113 — Elapsed-Time Conclusion Diagnostics — Complete | #518 | `bc0e741f` | 2026-08-27 | 20 |
+| S159 · INSIGHTS-026a — Request-Time Weekly Recap Skeleton — Complete | #519 | `68d7f792` | 2026-08-28 | 11 |
+| S160 · INSIGHTS-026b — Weekly Recap Layout and Overview Tile — Complete | #521 | `af0a2118` | 2026-08-29 | 11 |
+| S161 · INSIGHTS-026c — Weekly Recap Details — Complete | #523 | `e41832ec` | 2026-08-29 | 11 |
+| S162 · PLATFORM-114 — Schedule Eligibility from the Provider Division Label — Complete | #524 | `4a78d1b5` | 2026-08-29 | 23 |
+| S163 · INSIGHTS-026d — Weekly Recap Record-Change Projection — Complete | #525 | `6b541730` | 2026-08-29 | 11 |
+| S164 · INSIGHTS-026e — Weekly Recap Odds Upsets — Complete | #527 | `a1b25582` | 2026-08-29 | 11 |
+| S165 · INSIGHTS-026f — Weekly Recap Final Wiring — Complete | #529 | `faadabb4` | 2026-08-29 | 11 |
+| S166 · POLISH-015 — Overview Games Region Corrections — Complete | #531 | `50b75f2f` | 2026-08-29 | 01 |
+| S167 · PLATFORM-115 — CFBD Request Timeout — Complete | #534 | `6492e68d` | 2026-08-30 | 25 |
+| S168 · POLISH-016 — Overview Live Scoreboard Component — Complete | #535 | `5fd59d39` | 2026-08-30 | 01 |
+| S169 · POLISH-017 — Overview Featured Scoreboard and Green Live — Complete | #537 | `e0a7b8ab` | 2026-08-30 | 01 |
+| S170 · PLATFORM-116 — Overview Standings Live Signal — Complete | #539 | `fce338f3` | 2026-08-30 | 04 |
+| S171 · POLISH-018 — Shared Live Status Treatment — Complete | #541 | `9a45e1f3` | 2026-08-31 | 01 |
+| S172 · PLATFORM-117 — CFBD Team-Records Cache — Complete | #543 | `9376521e` | 2026-08-31 | 05 |
