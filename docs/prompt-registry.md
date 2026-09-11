@@ -504,7 +504,7 @@ These consolidate recurring historical observations, not new project-governance 
 - Cost evidence: Snapshot October live-score firings 214.5/day (−55.3%), annual 57.3 (−88.1%); stats 49.4/13.4 (−48.6%/−86.0%). October decomposition: confirmed-only 190.68, TBD coverage +21.4, carry +2.5. On 2026-09-07 none of the next three weeks' 1,070 kickoffs were TBD; approximately 193/day was therefore an estimate, not realized billing. Original “realized” wording overstates the evidence. No actual-cost claim is made.
 - Verification: App exercised auth, missing cache/no write, bounded windows, failed pause, secret-scan positive control and successful CLI inspect. Zero missing TBD flags and zero cutover gaps were observed in the sampled 2026 data. Owner approved 36 files/+4,579−328; +64 tests. See L1–L3, L6.
 
-- Status: No explicit status field or merge reference in this source entry; activation is described, but no deployment date is inferred.
+- Status: Merged (PR [#578](https://github.com/znpruitt/cfb-app/pull/578), `4e10ec07`, 2026-09-07), and **ACTIVE in production** — `deployment-runbook.md` records the QStash schedule `turfwar-polling-planner-daily` at `50 23 * * *` driving `GET /api/cron/polling-planner`. Recovered 2026-09-11; the source entry carried no merge or activation reference and none was inferred from it.
 
 ### PLATFORM-102-SLICE-3B-DELIVERY-CONSUMER-v1
 
@@ -513,7 +513,7 @@ These consolidate recurring historical observations, not new project-governance 
 - Historical boundary: Live reads, dormant output: two additional durable reads per System Health load; absent records preserve all nine fixed-contract rows on successful reads. A new-query failure can already degrade a row before activation. No new QStash calls or delivery state.
 - Review: Six cycles/39 findings; false commit-message claims about unknown-span handling were recorded, not rewritten. 27 mutations, +51 tests; only Item 137 baseline failures. Final two passes found no defects in the preceding fixes, not an unconditional clean verdict. See L2, L4, L6.
 
-- Status: pre-merge closeout on `claude/102-slice-3b-delivery-consumer` at `7ada7781`.
+- Status: Merged (PR [#577](https://github.com/znpruitt/cfb-app/pull/577), `825aa802`, 2026-09-07). Pre-merge closeout was at `7ada7781`.
 - Other source hashes: `48b7477a`, `9b40611a`, `58c874ee`, `e812b3c0`, `8df69500`, `574b9285`.
 
 ### PLATFORM-102-SLICE-3A-PLANNER-RECORD-v1
@@ -522,7 +522,7 @@ These consolidate recurring historical observations, not new project-governance 
 - Contract: Secret allowlisting and field validation live at the durable sink through the same `parseRun` as reads; optional constructors alone had leaked headers and admitted unsortable timestamps. Non-ISO dates are admitted then normalized, not necessarily rejected. Generated-space tests exposed impossible action/outcome combinations. One frozen unsafe-character table drives both application and CLI tests while production implementations remain separate to avoid application imports into the CLI.
 - Review / boundary: Three cycles/29 findings, 21 mutations, measured +57 tests; only Item 137 baseline failures. Earlier claims that two independent tables were shared and timezone-specific date assertions were corrected. No production writer or CLI reader was wired at this checkpoint. See L1, L3–L4.
 
-- Status: pre-merge closeout on `claude/102-slice-3a-planner-record` at `0e294603`.
+- Status: Merged 2026-09-07 via PR [#577](https://github.com/znpruitt/cfb-app/pull/577) (`825aa802`); the branch had no PR of its own — slice 3b was built on it and carried it to `main`. Pre-merge closeout was at `0e294603`.
 - Other source hashes: `a33d1cab`, `aed26d19`, `909ec242`.
 
 ### PLATFORM-102-SLICE-2-CRON-SYNTHESIS-v1

@@ -24,8 +24,21 @@ Supersedes: (none)
 
 ## Current execution order
 
-`CURRENT`: **Item 102** — polling planner. (Item 88 is superseded in full by **Item 132**; both
-attempts at it were reverted.)
+`CURRENT`: **none on the server track — needs an owner call.** (Item 88 is superseded in full by
+**Item 132**; both attempts at it were reverted.)
+
+> **Item 102 is COMPLETE and LIVE, recovered 2026-09-11.** All four slices merged — slice 1 PR #566,
+> slice 2 PR #574, slices 3a and 3b PR #577, slice 4 PR #578 (`4e10ec07`, 2026-09-07) — and the
+> planner runs in production on `turfwar-polling-planner-daily`. Three registry entries still read
+> *pre-merge closeout* until today, which is why this pointer went stale: **nothing flips a CURRENT
+> pointer when a lane merges its own PR**, so a completed item stays CURRENT until someone reads the
+> ledger against the remote.
+>
+> **The server track's stated order says Item 126 Tier A next, and that ordering predates Item 102
+> finishing.** Tier A is `invocationId` across nine cron-log modules, and this file already records
+> its value as capped — *"it correlates runtime logs that expire."* Against that, **Item 130 (#689)
+> became unblocked the moment Item 102 landed** — it names Item 102's QStash-write capability as its
+> only dependency, and it is the item the Active CPU campaign exists for. **Owner picks.**
 `NEXT`: **Item 115** — Overview section expansion.
 
 Owner-selected run order (2026-09-03), replacing the 2026-09-02 order. Ordering values, stated by the
