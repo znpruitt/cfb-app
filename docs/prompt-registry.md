@@ -51,6 +51,40 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-727-SCHEDULE-AWAITING-RECONSTRUCTION-CODEX-v2
+
+- Purpose: [#727](https://github.com/znpruitt/cfb-app/issues/727) — reconstruct Schedule's
+  awaiting-score derivation from current `main` after the stopped v1 branch accumulated a
+  remediation-created regression. The explicit precedence is score evidence first; usable final or
+  live evidence wins; placeholder, abandonment, and the forward-looking disruption guard constrain
+  only evidence-free rows.
+- Scope: `src/lib/selectors/gameWeek.ts`, `GameWeekPanel.tsx`, and their existing selector/component
+  suites. The component joined the original selector-only scope during review so an `awaiting` row
+  cannot leak partial scores that Matchups already suppresses. NOT the shared `isPlannedGame`
+  fail-open tracked by #740, and NOT #728's `contextSlot` divergence.
+- Outcome: Schedule now derives `awaiting` from the shared scoreboard projector and an explicitly
+  confirmed kickoff (`startTimeTBD === false`), rather than requiring a display label already
+  classified as live. Usable final/live evidence is projected before every schedule-derived gate;
+  evidence also suppresses an abandonment/disruption notice. Score-pack disruption enums reuse the
+  shared token normalizer, while the guard remains documented as forward-looking under #661's
+  authoritative measurement. Within Schedule, `true` and absent kickoff-confidence flags both
+  render `Time TBD`. Awaiting rows receive null score values. The five-row precedence table survived
+  implementation unchanged.
+- Review / verification: review converged with no credible in-scope P0/P1/P2. Measurement across
+  6,410 built FBS games in seven cached seasons found neither a persisted awaiting-with-score row nor
+  a real row combining absent kickoff confidence with missing usable-score evidence, so the final
+  score-nulling and display-confidence remediations are recorded as prospective consistency guards,
+  not production repairs. All three evidence-beats-gate cases were mutation-proven independently;
+  the synthetic disruption test says it is not production coverage. The two final review additions
+  were also mutation-proven with their unaffected side named in the implementation report. Focused
+  tests: 74/74, up 13 from the 61-test baseline; `npx tsc --noEmit` 0; `npm run lint:all` 0; full
+  `npm test` 1 (5,172 tests, 5,170 pass, exactly the two standing Item 137
+  `writer-convergence.test.ts` failures).
+- Status: Implemented on `codex/727-awaiting-v2` (`b966e319` + review remediation `b73fb315`), PR
+  [#741](https://github.com/znpruitt/cfb-app/pull/741); review resolved, merge pending at time of
+  writing. Stopped PR [#736](https://github.com/znpruitt/cfb-app/pull/736) is closed as superseded and
+  remains the v1 review-history record.
+
 ### PLATFORM-661-DISRUPTED-VOCABULARY-NOTE-CLAUDE-v1
 
 - Purpose: [#661](https://github.com/znpruitt/cfb-app/issues/661) — comments described the provider
