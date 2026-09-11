@@ -160,8 +160,8 @@ Run each separately and report its own exit code — never chained behind `&&`, 
 `npm test` on clean `main` exits **0** — there is no known-failure baseline. Item 137 (#696)
 removed the last two time-bomb failures on 2026-09-11, so **any** failure is a stop-and-report,
 not a baseline to verify against.
-**This item's own subject is the other known failure**; report planner results explicitly rather than
-folding them into the baseline.
+**This item's own subject was itself an intermittent failure when this prompt was written**; report
+planner results explicitly rather than folding them into any baseline.
 </verification>
 
 <output_contract>

@@ -153,8 +153,7 @@ Run each separately and report its own exit code — never chained behind `&&`, 
 
 `npm test` on clean `main` exits **0** — there is no known-failure baseline. Item 137 (#696)
 removed the last two time-bomb failures on 2026-09-11, so **any** failure is a stop-and-report,
-not a baseline to verify against. Exactly
-those two, or stop and report.
+not a baseline to verify against.
 </verification>
 
 <output_contract>

@@ -123,8 +123,7 @@ which reports the last command's status rather than the gate's:
 
 `npm test` on clean `main` exits **0** — there is no known-failure baseline. Item 137 (#696)
 removed the last two time-bomb failures on 2026-09-11, so **any** failure is a stop-and-report,
-not a baseline to verify against. Report
-your delta against that. Exactly those two, or stop and report.
+not a baseline to verify against. Report your measured test delta.
 </verification>
 
 <output_contract>

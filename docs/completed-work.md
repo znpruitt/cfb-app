@@ -32,11 +32,14 @@ Supersedes: (none)
 > [`docs/ai/game-stats-writer-fence.md`](ai/game-stats-writer-fence.md) (with the superseded
 > original design frozen in [`docs/ai/platform-086h3-contract.md`](ai/platform-086h3-contract.md)).
 
-### Item 137 — Writer-convergence time bombs; `main` is green — Complete
+### Item 137 — Writer-convergence time bombs — Implemented, awaiting merge
 
-- **Status:** merged 2026-09-11. Closes [#696](https://github.com/znpruitt/cfb-app/issues/696).
+- **Status:** implemented — PR open, NOT yet merged. Closes
+  [#696](https://github.com/znpruitt/cfb-app/issues/696) on merge; the PR and merge commit are
+  recorded here at that point, and the claims below about `main` become true only then.
 - **PROMPT_ID(s):** `PLATFORM-137-WRITER-CONVERGENCE-TIME-BOMBS-CLAUDE-v1`.
-- **Outcome:** `npm test` on clean `main` exits **0** (5,159/5,159). Three test fixtures stopped
+- **Outcome:** at the branch head `npm test` exits **0** (5,159/5,159); on merge that becomes true
+  of clean `main`, which is the whole point of the item. Three test fixtures stopped
   pinning kickoffs to calendar literals and now derive them from `Date.now()`. No assertion was
   weakened and no production code changed — the diff removes four date literals from
   `writer-convergence.test.ts` and one from `odds-quota-guard.test.ts`.
@@ -48,16 +51,20 @@ Supersedes: (none)
   suite does for free.
 - **The item named two bombs; there were three.** `odds-quota-guard.test.ts:340` pinned
   `2026-12-01T19:30:00.000Z` — measured green at +79d, red at +82d. Fixing only the named two would
-  have restored green for 81 days and then falsified all 31 instructions rewritten below, in the
+  have restored green for 81 days and then falsified all 29 rewritten prompt instructions, in the
   dangerous direction: telling lanes to expect zero while `main` was red.
-- **The instruction sweep, both counts.** `Item 137` appears **67 times** across `docs/`. **32
-  occurrences in 31 files were changed** (30 in 29 `docs/prompts/` files — 28 sharing one
-  verification-block wording, one variant in `platform-102-slice-4`; 2 in `docs/next-tasks.md`
-  including the canonical baseline block). **35 occurrences in 5 files were deliberately left** as
-  history: `docs/prompt-registry.md` (29), `docs/completed-work.md` (2), the 2026-09-08 audit (2),
-  the 2026-09-10 queue triage (1), and one sentence inside a live prompt —
-  `platform-207-planner-test-isolation-claude-v1.md:23` — which records a past observation rather
-  than instructing anyone. Renumbering history would falsify the record.
+- **The instruction sweep, both counts.** `Item 137` appears **67 times** across `docs/`, and the two
+  populations account for all 67. **CHANGED: 32 occurrences across 31 files** — 29 in 29
+  `docs/prompts/` verification blocks (28 sharing one wording, one variant in
+  `platform-102-slice-4`), 2 in `docs/next-tasks.md` including the canonical baseline block, and 1 in
+  `docs/campaigns/item-209-app-state-test-isolation.md`, which stated the baseline in the present
+  tense and now carries a dated supersession rather than a rewrite. **LEFT: 35 occurrences across 5
+  files** — `docs/prompt-registry.md` (29), `docs/completed-work.md` (2), the 2026-09-08 audit (2),
+  the 2026-09-10 queue triage (1), and one sentence inside a live prompt,
+  `platform-207-planner-test-isolation-claude-v1.md:23`, which records a past observation rather than
+  instructing anyone. **`platform-207` appears in BOTH populations** — its verification block changed,
+  its line 23 did not — so the two file counts overlap by one. Renumbering history would falsify the
+  record.
 - **The grep term missed the two most binding copies.** `AGENTS.md` §Commands and `CLAUDE.md` merge
   condition 3 both asserted the baseline **without containing the string `Item 137`**, so a sweep
   scoped to that phrase could not see them. `AGENTS.md` said in bold that the suite "is not
@@ -74,6 +81,29 @@ Supersedes: (none)
 - **Measured horizon:** a 14-rung ladder from +0 to +730 days found **no further expiry within two
   years**. 228 future-dated ISO literals remain in test files; the ladder shows none of them is
   currently wired to the real clock in a way that expires inside that window.
+- **The detector's first version corrupted concurrent runs, and both reviewers caught it.** It passed
+  the shim through `NODE_OPTIONS`, which shifted the RUNNER as well as the tests — and the runner
+  sweeps stale `cfb-app-test-store-*` directories by mtime against a 24-hour threshold, so a shifted
+  run judged every real-clock directory stale and deleted it, including the live directory of a suite
+  running concurrently in another worktree. With three worktrees on one `os.tmpdir()` that is normal
+  operation, and the review reproduced a phantom `5158/5159` in an unrelated test because of it.
+  **The mechanism ran one level deeper than either report described.** Removing `NODE_OPTIONS` from
+  the parent was not enough: the variable is inherited by GRANDCHILDREN, and
+  `src/test/__tests__/testRunner.test.ts` deliberately spawns this runner as a real subprocess to
+  prove symlinked invocation works — so that subprocess ran the sweep with the shim silently
+  inherited. Measured: a planted live directory survived every single-FILE shifted run and was
+  deleted only by the FULL suite, which is what pointed at the spawning test. The shim is now an
+  `--import` ARGUMENT applied at the spawn site, keyed on a one-shot `CLOCK_SHIFT_INJECT` flag that
+  the runner consumes and does not forward — because `CLOCK_SHIFT_DAYS` itself must reach the test
+  child, and a test calling `runTests` in-process would otherwise re-inject and break the runner's
+  own argv-contract test. **An argument reaches exactly one process; an environment variable reaches
+  the whole tree.** Verified both ways: a planted directory is DELETED under the old path and
+  SURVIVES under the new, at a full-suite +90d run.
+- **One review claim was refuted by measurement.** The Claude review proposed that the sweep
+  contamination was also the cause of the documented expected floor, and that fixing it would remove
+  the floor entirely. It does not: the floor is `testStoreLifecycle.test.ts`'s own in-test assertion,
+  which builds its own `mkdtemp` root and compares real mtimes against a shifted `now`. After the
+  contamination fix a +90d full run still reports exactly that one failure.
 
 ### PLATFORM-087 Slice 5b — Card-owner scoreboard row modifier — Complete
 

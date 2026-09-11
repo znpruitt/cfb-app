@@ -281,13 +281,16 @@ touches no component file.
 
 **Fillers, safe against both lanes, any order:** Item 136 and Item 138 (both `matchups.ts`, worth
 pairing — same file, same `NoClaim` root), Item 133a (below), 122, 121, 84, 86, 111. Item 139 is
-complete and merge-approved below. **Item 137 shipped 2026-09-11** and is no longer a filler.
+complete and merge-approved below. **Item 137 is implemented and awaiting merge** (#696); it is no
+longer a filler.
 
-> **No known-failure baseline — `npm test` on clean `main` exits 0, as of 2026-09-11.** **Item 137**
-> (#696) removed the last two failures; they were wall-clock time bombs in
-> `src/app/api/odds/__tests__/writer-convergence.test.ts`, not product defects. `CLAUDE.md`'s merge
-> condition 3 now binds to an EMPTY set: any failure, anywhere, is a stop-and-report. If a known
-> failure is ever accepted onto `main` again, it is recorded HERE and named individually.
+> **Known-failure baseline: IN FORCE until Item 137 (#696) merges, EMPTY after.** Item 137 is
+> implemented on `claude/696-writer-convergence-time-bombs` and removes the last two failures — they
+> were wall-clock time bombs in `src/app/api/odds/__tests__/writer-convergence.test.ts`, not product
+> defects. **Until that merge lands the baseline is exactly those two failures in that file**, and
+> one more, or one elsewhere, is a stop-and-report. On merge, `CLAUDE.md`'s merge condition 3 binds
+> to an EMPTY set and any failure anywhere stops the merge. If a known failure is ever accepted onto
+> `main` again, it is recorded HERE and named individually.
 >
 > **Item 135 shipped 2026-09-05** — PR #571, merged
 > `ee68246c`. Both reviewers converged on the content now at `521e79d0`; the pre-rebase `a7f4dead` is

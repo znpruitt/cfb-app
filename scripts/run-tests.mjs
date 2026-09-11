@@ -177,8 +177,44 @@ export function runTests(argumentsToRun, spawnProcess = spawnSync, runParentDire
   if (runDirectory) environment.APP_STATE_TEST_STORE_DIR = runDirectory;
   else delete environment.APP_STATE_TEST_STORE_DIR;
 
+  // The clock-shift shim (Item 137/#696) is attached as an ARGUMENT to the test
+  // child, and deliberately NOT through `NODE_OPTIONS`. Two review rounds found the
+  // two ways this goes wrong, and both are why it is written this way:
+  //
+  //   1. Shifting THIS process poisons the startup sweep above, which deletes stale
+  //      `cfb-app-test-store-*` directories by mtime against a 24-hour threshold. A
+  //      shifted clock makes every real-clock directory look stale — including the
+  //      live directory of a suite running concurrently in another worktree, which
+  //      with three worktrees on one `os.tmpdir()` is normal operation here.
+  //   2. `NODE_OPTIONS` is inherited by GRANDCHILDREN. `testRunner.test.ts` spawns
+  //      this runner as a real subprocess to prove symlinked invocation works, and
+  //      that subprocess IS `run-tests.mjs` running as main — so it performs the
+  //      sweep, with the shim silently inherited. Measured: a planted live directory
+  //      survived every single-file shifted run and was deleted by the full suite.
+  //      An argument reaches exactly one process; an env var reaches the whole tree.
+  //
+  // `CLOCK_SHIFT_DAYS` still travels through the environment because the shim reads
+  // the offset from it, but on its own it shifts nothing — a process that inherits
+  // the variable without the `--import` keeps a real clock.
+  //
+  // The INJECTION is keyed on a separate one-shot flag, which is consumed here and
+  // deliberately not forwarded. `CLOCK_SHIFT_DAYS` has to reach the test child, so a
+  // test calling `runTests` IN-PROCESS would otherwise see it and re-inject, adding
+  // arguments the runner's own argv-contract test does not expect — measured, as a
+  // failure of 'the shared runner passes its computed concurrency cap to the Node
+  // child process' under a shifted run. The detector must not perturb the suite it
+  // is measuring.
+  const spawnArguments = buildNodeTestArguments(testFiles);
+  if (environment.CLOCK_SHIFT_INJECT === '1') {
+    delete environment.CLOCK_SHIFT_INJECT;
+    spawnArguments.unshift(
+      '--import',
+      fileURLToPath(new URL('./clock-shift.mjs', import.meta.url))
+    );
+  }
+
   try {
-    const result = spawnProcess(process.execPath, buildNodeTestArguments(testFiles), {
+    const result = spawnProcess(process.execPath, spawnArguments, {
       env: environment,
       stdio: 'inherit',
     });

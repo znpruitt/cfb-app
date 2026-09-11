@@ -66,7 +66,7 @@ Rules:
   `undefined` rather than a record with a null spread. **A third bomb was found beyond the two the
   item named** (`odds-quota-guard.test.ts:340`, pinned `2026-12-01T19:30:00.000Z`, measured green at
   +79d and red at +82d); leaving it would have re-reddened `main` on 1 December and falsified the
-  29 instructions this item had just rewritten. `scripts/clock-shift.mjs` +
+  29 prompt instructions this item had just rewritten. `scripts/clock-shift.mjs` +
   `scripts/clock-shift-run.mjs` ship the detector as `npm run test:clock-shift -- <days>`, because a
   bisect cannot find this class — an older commit does not roll back the clock.
 - Review / verification: bound to the branch head. `npx tsc --noEmit` 0, `npm run lint:all` 0,
@@ -78,7 +78,7 @@ Rules:
   one failure appears — `testStoreLifecycle.test.ts` sweeping real mtimes against a shifted `now` —
   and it pins no date. The +0 rung is fully green, which is the control that makes those zeros
   readable.
-- Status: Merged — see `docs/completed-work.md` for the sweep counts.
+- Status: Implemented — PR open, not yet merged. See `docs/completed-work.md` for the sweep counts.
 
 ### PLATFORM-661-DISRUPTED-VOCABULARY-NOTE-CLAUDE-v1
 
