@@ -109,7 +109,7 @@ Rules:
      and the answer is NO. The "2 rows" measurement had counted `app_state` rows, one per job, and read
      that as the run count. This inverted the scope ruling: retaining a series was not the more valuable
      half, it had already shipped.
-- Status: Implemented — PR #734 open from `claude/619-planner-settings-conflation`
+- Status: Merged (PR #734, `0c1710ce`, 2026-09-11) from `claude/619-planner-settings-conflation`
 
 ### PLATFORM-703-OPERATOR-WRITE-CREDENTIAL-CLAUDE-v1
 
