@@ -61,6 +61,33 @@ That shape is already the house pattern, twice over on the same type:
 responses. A field added there leaves observation-only territory immediately. Follow the precedent
 that is already on the type you are writing.
 
+## What the stamp MEANS — and the sibling field that completes it
+
+**It is not a game end time, and it must never be described as one.** CFBD publishes no end time, so
+what gets recorded is *when we first saw the provider say final* — the real whistle plus CFBD's
+publication lag plus up to one 3-minute poll interval. **That is the right quantity anyway.** The tail
+exists to keep polling until the provider's data settles; when the whistle actually blew is not what
+our polling is waiting for.
+
+**Do not log every update — half of that already exists.** `itemUpdatedAtById` is already a per-id
+LAST-MATERIAL-CHANGE stamp (`scoreMerge.ts:304`, written when `touched`, i.e. `result.changed`). So
+the two fields bracket the two things the tail is actually for:
+
+| question the tail exists to answer | measured by |
+| --- | --- |
+| how long until the provider FIRST reported final | **the new stamp** − kickoff |
+| how long corrections kept arriving AFTER that | `itemUpdatedAtById` − **the new stamp** |
+
+The second row is the straggler path — PLATFORM-105A's late-arriving finals and CFBD's Sunday cleanup
+pass — and it is the only reason a 24h tail exists at all. A first-final stamp ALONE does not measure
+it; the pair does. **Name this in the closeout**, so whoever runs the query knows both halves are
+there and does not re-file the second one.
+
+Two notes on the sibling: `mergeScoreRow` rejects only a STATE regression (`nextOrder < priorOrder`,
+`scoreMerge.ts:116`), so a post-final SCORE correction still counts as changed and does advance it.
+And it is last-change-only, not a history — it cannot say how many corrections arrived, only when the
+last one did. That is enough to size a tail and is explicitly all this item buys.
+
 ## Three constraints that decide whether this works
 
 **1. FIRST write wins, permanently.** Once an id is stamped it is never re-stamped. A game that reads
