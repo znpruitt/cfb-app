@@ -317,11 +317,12 @@ export {
 /**
  * PLATFORM-086E1A — carry the retained CFBD schedule metadata (structured playoff
  * identity + scalar flags) from a schedule wire item onto its canonical `AppGame`.
- * Each field is included ONLY when the wire item actually carries it, so a game
- * whose schedule row lacks this metadata keeps its exact prior `AppGame` shape
- * (no new `null` keys) — existing consumers and fixtures are unaffected. The
- * `playoffRoundSource` is validated against the closed provenance union so a
- * malformed persisted value can never masquerade as authoritative for rollover.
+ * Each field is included ONLY when the wire item actually carries it, so this
+ * builder does not add absent metadata keys. Later game merges and manual
+ * overrides may materialize participant provider-id keys as `null`/`undefined`
+ * to keep those ids paired with the surviving participant. `playoffRoundSource`
+ * is validated against the closed provenance union so a malformed persisted
+ * value can never masquerade as authoritative for rollover.
  */
 function retainedScheduleMetadata(item: ScheduleWireItem): Partial<AppGame> {
   const fields: Partial<AppGame> = {};

@@ -48,12 +48,16 @@ export function buildScoreboardTeamLogosById(
   games: readonly AppGame[] = []
 ): ScoreboardTeamLogosById {
   const logosById = new Map<string, ScoreboardTeamLogo>();
-  const catalogTeamIds = new Set<string>();
+  const catalogTeamIdsWithLogoData = new Set<string>();
 
   for (const team of teams) {
     const teamId = toTeamIdentityKey(team.school);
     if (!teamId) continue;
-    catalogTeamIds.add(teamId);
+
+    // A populated array is an authoritative catalog decision even when none of
+    // its entries is a usable dark mark. An empty/absent array is missing seed
+    // data, so the schedule's provider id may still supply the same CDN asset.
+    if ((team.logos?.length ?? 0) > 0) catalogTeamIdsWithLogoData.add(teamId);
 
     // The app is dark-only. A missing dark-surface asset is missing artwork,
     // not permission to substitute a light-surface mark with unreadable ink.
@@ -64,14 +68,15 @@ export function buildScoreboardTeamLogosById(
   // The canonical team catalog intentionally remains FBS-only. Schedule rows
   // retain CFBD's numeric participant ids, though, so an FBS-vs-FCS opponent can
   // use the same provider-owned CDN asset without widening the ownable catalog.
-  // Catalog membership is authoritative even when its artwork is rejected; this
-  // fallback fills only identities absent from the catalog (normally FCS opponents).
+  // Populated catalog logo metadata is authoritative even when its artwork is
+  // rejected. The fallback fills identities absent from the catalog and catalog
+  // identities whose seed row carries no logo data at all.
   for (const game of games) {
     for (const side of ['away', 'home'] as const) {
       const participant = game.participants[side];
       if (
         participant.kind !== 'team' ||
-        catalogTeamIds.has(participant.teamId) ||
+        catalogTeamIdsWithLogoData.has(participant.teamId) ||
         logosById.has(participant.teamId)
       ) {
         continue;

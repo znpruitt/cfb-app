@@ -58,6 +58,22 @@ test('scoreboard logos reject light-only, untrusted, and wrong-size artwork', ()
   assert.equal(logos.has('trackingpixel'), false);
 });
 
+test('scoreboard logos use a schedule provider id when the catalog has no logo data', () => {
+  const seedCatalogGame = {
+    awayProviderTeamId: 2440,
+    participants: {
+      away: { kind: 'team', teamId: 'nevada' },
+      home: { kind: 'placeholder', slotId: 'home-tbd', displayName: 'Team TBD' },
+    },
+  } as unknown as AppGame;
+
+  const logos = buildScoreboardTeamLogosById([{ school: 'Nevada', logos: [] }], [seedCatalogGame]);
+
+  assert.deepEqual(logos.get('nevada'), {
+    url: 'https://cdn.collegefootballdata.com/logos-dark/64/2440.png',
+  });
+});
+
 test('scoreboard logos cover FCS opponents from retained schedule provider ids', () => {
   const fcsGame = {
     awayProviderTeamId: 2000,
