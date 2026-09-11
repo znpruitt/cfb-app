@@ -192,8 +192,11 @@ test('neither reader touches `process.env`, whatever its file holds', () => {
   const beforeOther = process.env.SOMETHING_ELSE;
 
   try {
-    // Exactly one key each, into a private object — the mechanism that stops a file
-    // holding two credentials from handing a process the one it must not have.
+    // Exactly one key each is RETURNED. Not "taken": `dotenv` parses the whole file
+    // into the private object, and an earlier version of this comment said otherwise —
+    // the same false claim review found in the module docstring. The mechanism that
+    // stops a two-credential file handing a process the one it must not have is
+    // `processEnv` isolation, asserted below, and nothing else.
     assert.deepEqual(Object.keys(operatorReadOnlyEnv({}, directory)), ['DATABASE_URL_RO']);
     assert.equal(operatorWriteConnectionString(directory), 'postgres://rw');
 
