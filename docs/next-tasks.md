@@ -538,65 +538,15 @@ number.**
 
 ### Item 119 — team-colour bar on the shared scoreboard, and no accent for teams with no colour
 
-**RETIRED 2026-09-10 by owner decision.** The held colour-bar implementation and Item 198 colour
-normalisation prototypes were replaced by the permanent 28px CFBD logo treatment. The investigation
-below remains historical evidence, not queued work.
+**RETIRED 2026-09-10 — replaced by logos, not completed.** PR #719 (`3c000300`) ships **28px team
+logos** at the line start and documents them as the permanent treatment. **The colour bar never
+shipped**, and `src/lib/teamColors.ts` is back to zero production consumers — the state it was in
+before this item, now for the second time.
 
-**Filed 2026-09-03.** Design and evidence: `docs/campaigns/item-87-followon-team-colour.md`. Depends on
-**Item 87 slice 5a** (the bar lands in the shared component). Two separately shippable pieces:
-
-1. **The bar, on the existing normaliser.** An 8px muted bar at the line-start slot reserved for logos,
-   using `teamColors.ts` as it ships today (HSL, contrast-lifted to ≥3:1). Teams with no catalog
-   colour render **no accent**. That last clause is a bug fix as well as a rule: every FCS row today
-   receives the fallback `#059669` (`teamColors.ts:24`, `:267`), a green on a surface where green
-   already means live within the scoreboard family (`DESIGN.md` → Color).
-2. **OKLCH port — only if (1) measures badly** at 8px, with the reserved-hue guard the follow-on
-   specifies. Not a dependency of (1).
-
-**OBSERVED 2026-09-08 — MY observation, not the owner's, and I first misattributed it.** The owner's
-report was the horizontal padding defect now filed as **Item 164**, which has nothing to do with the
-rail. What follows is a separate and real duplication I noticed in the same screenshot: **the rail is
-block-height and the tint is one row, so they visibly disagree.**
-`MatchupsWeekPanel.tsx:98-110` is the rail: `border-l-2` in emerald / rose / violet / zinc for win /
-loss / self / live, applied to the whole game block.
-
-**Do NOT fix this by extending the background to match the rail.** CARRY row 20 retires the rail and
-lets the tint carry outcome, and **the mockup has no rail at all** — outcome is carried by the row
-tint alone, and the short bars visible beside each team row are THIS item's 8px team-colour bars, a
-different element. Extending the background would entrench the thing that is slated for deletion and
-make this item harder, which is what CARRY row 20's "do not entrench it either" clause exists to stop.
-
-**CORRECTED — the rail cannot be retired on its own, and my first note here said it could.** The
-authority is `item-87-followon-presentation-decisions.md` → _The tint tracks state across the game's
-whole life_, marked **CURRENT and UNBUILT**, whose own words are: _"Shipped code renders the neutral
-tint only (slice 5b, Item 117) and still draws the outcome rail beside it."_ **The rail exists BECAUSE
-the tint's outcome states are unbuilt.** Delete it today and nothing carries outcome at all.
-
-**So row 20 is one change, not two** — build the tint's live and final states (green/red base,
-travelling band while live, static at final) **and** retire the rail in the same slice.
-
-**The tint itself is never in question, on either axis.** `team-highlight.md` decides the IDENTITY
-axis — it marks the card owner's team in the matchup, and is never owner colour — and the lifecycle
-table above decides the OUTCOME axis. **Nothing in this campaign proposes removing the owned-team
-tint**, and a prompt that reads "retire the rail" as touching it has misread the row.
-
-**Decision parked:** the normalisation target — the incumbent is tuned to `#0A0A0A`, the mockup and
-follow-on assume `#161616`. One constant, before (1) ships.
-
-- Backlog slug: `POLISH-TEAM-COLOUR-BAR-v1`
-
-**LEDGER GAP CLOSED 2026-09-08, from Item 144's read.** This entry did not record the **slice 5b
-`isolation` dependency**: `team-colour-regression.md:58` requires it be noted against this item.
-`team-highlight.md:37-39` is the reason — a pseudo-element at `z-index: -1` paints behind the
-stacking context, so the row needs `isolation: isolate`; and lifting row content with
-`position: relative` **breaks the team-colour bar**, because the bar is absolutely positioned against
-`.sb-line` and making `.who` positioned re-anchors it. **`isolation` removes the need for that rule
-entirely** — which is why this item depends on 5b having shipped it, and why a future "simplify the
-stacking" change would silently shift every bar.
-
-**Also unrecorded:** the slice 5 registry entry does not mention the team-colour removal, and CARRY
-row 4 — the amber border retired as a deliberate decision with the eyebrow pill carrying its emphasis
-forward — is still absent from `DESIGN.md`.
+**What this invalidates elsewhere:** any width budget reasoned against an 8px bar. The line-start
+element is **20px wider** than planned, which is flagged on
+[#678](https://github.com/znpruitt/cfb-app/issues/678) and
+[#681](https://github.com/znpruitt/cfb-app/issues/681).
 
 ### Insights sequencing note (former item 44)
 
@@ -789,103 +739,12 @@ are removed rather than retained with strikethrough; their outcomes live in `doc
 
 ### Item 198 — a colour that fails normalisation is indistinguishable from no colour
 
-**RETIRED 2026-09-10 by owner decision.** The real-scoreboard walkthrough showed that remapping
-changed familiar team colours and the alternate-colour outline was too garish. The permanent 28px
-CFBD logo treatment replaces the bar, and `teamColors.ts` is removed. The analysis below is retained
-as historical evidence, not queued work.
-
-> **THE CONTRAST TARGET WAS WRONG, AND MY OWN MEASUREMENT USED IT — corrected 2026-09-09.** The Item
-> 119 lane found that the bar renders at **~72% opacity** and the normaliser lifts against the **raw**
-> colour. `teamColors.ts:11` describes the 72% in its own header comment and does not account for it.
->
-> **A colour lifted to exactly 3:1 composites to 2.10:1.** Measured: `#425F88` → `#324765`. The lane
-> counted **54 of 125 outputs below 3:1 raw and 100 of 125 after opacity**. **The prompt's
-> "contrast-lifted to ≥3:1" premise is false as rendered**, and the OKLCH measurement recorded below
-> was taken against the same wrong target.
->
-> **Re-measured at 3:1 AFTER 72% compositing, the answer survives and improves: 132 of 138 rescued
-> with hue intact, ZERO unreachable in gamut.** It simply lifts further — `#041E42 → #617FAB` rather
-> than `#425F88`. Lighter navy, still navy.
->
-> **So piece 2's target is 3:1 COMPOSITED, not 3:1 raw**, and that number is the decisive trigger for
-> building it.
->
-> **Green team brands are NOT guarded — already settled, 2026-09-09 ruling.** `reference-game-row.md`
-> §3: _"Identity, not semantics. It says 'this is Michigan', not 'this is good, active or interactive'
-> — which is why it cannot collide with the reserved palette the way a meaning-bearing hue would."_
-> **The gold guard is an exception for adjacency, not a general hue reservation:** champion amber is a
-> token bound to a purpose and a gold bar can sit beside a champion badge. **The live indicator is a
-> dotted text label, not a bar** — there is no adjacency to break, and distorting a green school's
-> identity to avoid an imagined one is the thing §3 forbids.
->
-> **Matchup-level bar uniqueness is NOT a contract.** Four of the five reported collisions are teams
-> with identical PROVIDER colours; only one was created by normalisation. Guaranteeing two bars in a
-> matchup differ would mean manufacturing colours, which is not identity.
-
-**Observed on preview 2026-09-09 by the owner, then measured against the production catalog.** Item
-119's bars render, and **California and Nevada carry none.**
-
-**They are not missing a colour.** Both hold `#041E42` — **the exact value the design doc names as
-Penn State's**, cited there as the canonical example of a primary invisible on a dark background. The
-normaliser cannot lift it, returns `buildTreatment(FALLBACK_BASE, 'fallback')`, and Item 119's rule
-correctly suppresses the bar for `source: 'fallback'`.
-
-**So two different states render identically: NO COLOUR, and A COLOUR WE COULD NOT USE.** The first is
-the documented rule — FCS teams have no catalog colour and an absent bar reads as missing data. The
-second is a normaliser limitation being reported as missing data.
-
-**Measured against the production `team-database`, 138 teams, all carrying a colour:**
-
-| | |
-| --- | --- |
-| raw colour below 3:1 on `#0A0A0A` | **91 of 138** |
-| pure `#000000` — unliftable while preserving hue | **6** |
-| teams sharing `#041E42` (1.20:1) | 4 |
-
-**The design doc estimated "roughly a fifth of the FBS". It is two thirds.** The lift succeeds for most
-of them — the preview shows bars on 14 of 16 rows — but where it fails it fails silently.
-
-**This is Item 119 piece 1 measuring badly, which is the documented trigger for piece 2** — the OKLCH
-port with its reserved-hue guard, which `item-87-followon-team-colour.md` made conditional on exactly
-this outcome. **Piece 2 is now warranted, on evidence rather than preference.**
-
-**Two things to decide, and they are separable:**
-
-1. **Should the two states render differently at all?** A team whose colour cannot be used is arguably
-   entitled to something — but the argument against a grey bar still holds: it reads as a team whose
-   colour is grey. **Distinguishing them in the DATA is not the same as distinguishing them on screen.**
-2. ~~**Does OKLCH actually rescue `#041E42` and `#000000`?**~~ **MEASURED 2026-09-09, before building.
-   The answer is yes for 85 of 91, and no for the six blacks — for the reason predicted.**
-
-   Method: sRGB → OKLab → OKLCH, hue and chroma held, lightness raised until 3:1 against `#0A0A0A`,
-   run over all 138 production catalog colours.
-
-   | | |
-   | --- | --- |
-   | already ≥3:1 raw | **47** |
-   | **rescued by OKLCH, hue intact** | **85** |
-   | become grey (chroma ≈ 0) | **6** |
-   | unreachable in gamut | **0** |
-
-   **`#041E42 → #425F88` at 3.04:1 with 0.1° of hue drift** — still recognisably that navy. `#0C2340 →
-   #465F80`, `#003594 → #2459BA`, `#782F40 → #914555`, all under 0.2°. **Piece 2 works, and it works
-   without distorting team identity.**
-
-   **`#000000 → #5D5D5D`.** The 89.9° of apparent hue drift is an artefact: black has zero chroma, so
-   there is no hue to preserve and the result is grey — **the exact rendering the design doc rejects.**
-   The six are App State, Army, Cincinnati, Iowa, UCF and Vanderbilt.
-
-   **So piece 2 is warranted on evidence, and its limit is exactly six teams** — not a general
-   weakness.
-
-   **AND THAT LIMIT DISSOLVED THE SAME DAY.** Item 199 confirmed the catalog reads the wrong field
-   name: the provider sends `alternateColor` and the code reads `altColor`, so all 138 alternates were
-   discarded. **All six black teams have an alternate that passes 3:1 RAW, with no lift at all** —
-   Army `#d3bc8d` at 10.70:1, Iowa `#ffcd00` at 13.18:1, Vanderbilt `#cfae70` at 9.37:1. **The six were
-   never an OKLCH limitation; they were a mapping bug.** Fix Item 199 first — it may change what piece
-   2 has left to do.
-
-**Blocker:** none for Item 119 piece 1, which is correct as specified. This is the follow-on it named.
+**RETIRED 2026-09-10 with Item 119.** The band, the remap and the outline prototype are all
+moot — logos replaced the colour treatment entirely. **The measurements are not wasted and should
+not be re-derived:** `item-87-reference-game-row.md` records that only 31 of 135 bars cleared 3:1
+composited, that a clamp collapses a population mostly below its floor, and that four distinct reds
+rendered identically. **That evidence is why logos won**, and it is the reason not to revisit a
+colour accent without new information.
 
 ### Queue migration to GitHub Issues — NEW WORK IS FILED THERE FROM 2026-09-10
 
