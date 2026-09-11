@@ -90,6 +90,15 @@ These consolidate recurring historical observations, not new project-governance 
 
 ## Prompt ledger (source order retained)
 
+### PLATFORM-137-WRITER-CONVERGENCE-TIME-BOMBS-CLAUDE-v1
+
+- Change: three odds fixtures derive kickoffs from `Date.now()` instead of pinned literals, clearing the two-failure baseline for [#696](https://github.com/znpruitt/cfb-app/issues/696); `npm test` on clean `main` exits 0. Past kickoff the writer DELETES the empty durable record rather than writing one, so the assertion read `undefined`. Ships `npm run test:clock-shift -- <days>`.
+- Scope limit: fixtures only, no assertion or production change — four literals in `writer-convergence.test.ts`, one in `odds-quota-guard.test.ts`.
+- Evidence: the item named two bombs; a third, `odds-quota-guard.test.ts:340`, green at +79d and red at +82d, would have re-reddened `main` on 2026-12-01. A 14-rung ladder to +730d found no further expiry within two years against 228 future-dated literals. Both restored invariants mutation-proven at their own assertions. See L1, L4.
+- Historical corrections: `Item 137` appears 67× under `docs/` — 32 occurrences across 31 files changed, 35 across 5 left as history. `AGENTS.md` and `CLAUDE.md` asserted the baseline WITHOUT that string, so a label-scoped sweep missed them.
+- Review / verification: converged in one round; both reviewers found the detector shifting the runner's own store sweep via `NODE_OPTIONS`, deleting concurrent worktrees' live directories — now a spawn-site argument. `tsc`/`lint:all` 0; `npm test` 5,172/5,172.
+- Status: Implemented — PR [#742](https://github.com/znpruitt/cfb-app/pull/742) open.
+
 ### PLATFORM-727-SCHEDULE-AWAITING-RECONSTRUCTION-CODEX-v2
 
 - Change: v2 reconstruction of Schedule's awaiting-score derivation for [#727](https://github.com/znpruitt/cfb-app/issues/727), after v1's remediation-created regression. Score evidence comes first: usable `final`/`live` wins and suppresses conflicting notices; placeholder, abandonment and the forward-looking disruption guard (#661) constrain only evidence-free rows. Kickoff drives `awaiting` (shared projector plus `startTimeTBD === false`), not a live-classified label; awaiting rows carry null scores. The deliberate eight-hour transition is unchanged.

@@ -86,7 +86,10 @@ Three further suites were exposed and were fixed by Item 207 — `polling-planne
 `pollingPlannerRecordWrite` — so the original exposed population was thirteen.
 
 `src/app/api/odds/__tests__/writer-convergence.test.ts` fails 2 tests in **both** arms. That is the
-standing Item 137 baseline, not exposure.
+standing Item 137 baseline, not exposure. **[Superseded 2026-09-11 — the measurement stands, the
+present tense does not.** Item 137 (#696) fixed those two, so the file no longer fails and there is
+no standing baseline. The finding above is preserved as the record of what was observed at the time:
+the 2 failures were never 209 exposure, which is what this paragraph was establishing.]
 
 `src/lib/server/__tests__/providerUsageWriteOutcome.test.ts` is a **grep false positive**: it calls
 `__resetAppStateForTests` only as pool teardown, every test runs against `FakePool` or is a pure

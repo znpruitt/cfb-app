@@ -69,10 +69,14 @@ first commit; if you are not where this table says you should be, stop and say s
      that changed mid-branch is exactly what a ledger written from the prompt gets wrong.
   2. **`git pull` immediately before merging**, and report any conflict resolved. Three writers share
      `main` — both implementation lanes and the planning session.
-  3. **Never gate the merge on a green suite, and never tolerate an unknown failure.** `main` can
-     carry known failures (see the standing baseline in `docs/next-tasks.md`). Merge only when the
-     failures are EXACTLY the known set; one more, or one elsewhere, means stop and report. A
-     "tolerate failures" rule would swallow the next real regression.
+  3. **Never tolerate an unknown failure.** **Once Item 137 (#696) merges the known set is EMPTY** —
+     it removes the last two, so `npm test` on clean `main` exits 0 and the merge condition becomes
+     simply zero failures. The rule is unchanged in substance: merge only when the failures are
+     EXACTLY the known set, and one more, or one elsewhere, means stop and report — it is just that
+     the set is now empty, so ANY failure stops the merge. A "tolerate failures" rule would swallow
+     the next real regression. **Keep this condition written as a SET, not as a count**: if `main`
+     ever carries a known failure again it is recorded beside the two-lane table in
+     `docs/next-tasks.md`, and a count would hide the second one.
   4. **Report the merge SHA and stop.** Anything ambiguous at merge time — a conflict that needed
      thought, an unexpected diff, a ledger wording you were unsure of — is a stop-and-report, not a
      decision. The merge is delegated; the judgement is not.
@@ -183,6 +187,11 @@ Before any UI work, read `DESIGN.md`.
 - `npm run lint:all` — **the pre-merge gate.** Full-project ESLint + Prettier + markdownlint; this
   is what Vercel runs, and `npm run lint` misses violations in test files
 - `npx tsc --noEmit` — type-check
+- `npm run test:clock-shift -- <days> [file...]` — the full suite under a clock shifted `<days>`
+  forward: the time-bomb detector (Item 137/#696). `-- 0` is the control and must be fully green;
+  every non-zero shift expects exactly one failure (`testStoreLifecycle.test.ts` sweeps real file
+  mtimes against a shifted now and pins no date) and **any other failure is a real expiry**, naming
+  the date it starts. A bisect cannot find this class — an older commit is not an older clock.
 - `npm test` — full suite (`node:test` + `tsx`); executable tests live under the nearest
   `__tests__/`, while the full glob scans every `src/**/*.test.ts[x]` file so a misplaced test still
   enters the gate and then fails the layout audit.

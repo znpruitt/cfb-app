@@ -417,11 +417,11 @@ PRE-LAUNCH-TIDYUP introduced the shared test entry point and removed `papaparse`
 
 Recurring lessons are retained once: establish the real consumer/authority before editing; test the behavior actually claimed; prove negative observers with positive controls; mutate one compiling property at a time; and do not infer runtime use from a near-name grep match. An unused second model can contradict its consumer unnoticed, and an extra remediation can introduce defects of its own. Later POLISH-024 explicitly bound read-use claims to mutation evidence.
 
-PLATFORM-108 removes provider pacing only when both the explicit disable flag and Node test-child signal are present; production timing and all eleven intervals remain unchanged. Injected clocks verify serialization without sleeps. It did not solve JSDOM startup. PLATFORM-121 replaced calendar-expiring Odds route fixtures with execution-relative timing while preserving same-pair separation; the later September closeouts still recorded two separate standing Item 137 odds failures, so this ledger does not turn those runs into an all-green claim.
+PLATFORM-108 removes provider pacing only when both the explicit disable flag and Node test-child signal are present; production timing and all eleven intervals remain unchanged. Injected clocks verify serialization without sleeps. It did not solve JSDOM startup. PLATFORM-121 replaced calendar-expiring Odds route fixtures with execution-relative timing while preserving same-pair separation; the later September closeouts still recorded two separate standing Item 137 odds failures, so this ledger does not turn those runs into an all-green claim. Item 137 (#696) finished that work on 2026-09-11: `writer-convergence.test.ts` and one further `odds-quota-guard.test.ts` fixture now derive kickoffs from execution time, clearing both standing failures, so the suite carries no known-failure baseline and is verified against zero. PLATFORM-121's reach was overstated — a third fixture pinned to 2026-12-01 was still live, measured green three days before it and red three days after. `npm run test:clock-shift -- <days>` now detects the class, which no bisect can find because an older commit is not an older clock.
 
 Preview received an isolated database on 2026-08-13. The build-gate correction identifies `vercel.json`'s `ignoreCommand` as the effective docs-only gate and distinguishes a branch ref advance from a deployment; dashboard allowlisting was present but overridden. This documents isolation, not automated branch/database cleanup.
 
-PR references: #306, #392, #429, #444, #506, #553.
+PR references: #306, #392, #429, #444, #506, #553, #742.
 
 Documentation: `docs/README.md`.
 

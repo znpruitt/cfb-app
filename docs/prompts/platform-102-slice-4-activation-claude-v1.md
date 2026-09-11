@@ -315,9 +315,9 @@ primary documentation saying otherwise**, in which case stop and report rather t
 Run each separately and report its own exit code — never chained behind `&&`, never behind a pipe:
 `npx tsc --noEmit`, `npm test`, `npm run lint:all`.
 
-`npm test` on clean `main` exits **1** with a standing known-failure baseline recorded in
-`docs/next-tasks.md` (**Item 137**). Verify against that baseline, not against zero: exactly those
-failures and no others.
+`npm test` on clean `main` exits **0** — the standing known-failure baseline that was recorded in
+`docs/next-tasks.md` (**Item 137**, #696) was removed on 2026-09-11. Verify against zero: **any**
+failure is a stop-and-report.
 </verification>
 
 <output_contract>
