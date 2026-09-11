@@ -1,4 +1,4 @@
-import { promises as fs } from 'node:fs';
+import { mkdtempSync, promises as fs, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -85,15 +85,83 @@ function dataDir(): string {
   return path.join(process.cwd(), 'data');
 }
 
+/**
+ * The prefix every isolated test store directory carries, in `os.tmpdir()` or in
+ * the runner's run directory. `scripts/run-tests.mjs` declares the same constant —
+ * it is plain JS run by bare `node`, so it cannot import this module — and
+ * `src/test/__tests__/testStoreLifecycle.test.ts` asserts the two agree. The
+ * runner's stale-directory sweep matches on exactly this prefix, which is why it
+ * cannot reach the legacy `cfb-app-app-state-test-<pid>.json` FILES the pid scheme
+ * left behind (PLATFORM-620; their disposition is the owner's, not this code's).
+ */
+export const TEST_STORE_DIRECTORY_PREFIX = 'cfb-app-test-store-';
+
+/** Created once per process, on the first isolated path request. */
+let testStoreDirectory: string | null = null;
+
+/**
+ * PLATFORM-620. Create a store directory that CANNOT already exist.
+ *
+ * Exported so a test can call it twice IN ONE PROCESS — same pid, two "runs" — and
+ * assert the two paths differ. Under the pid scheme that assertion was impossible
+ * to satisfy, which is the whole defect.
+ */
+export function createTestStoreDirectory(parentDirectory: string): string {
+  return mkdtempSync(path.join(parentDirectory, TEST_STORE_DIRECTORY_PREFIX));
+}
+
+/**
+ * PLATFORM-620. The isolated test store lives in a directory created by
+ * `mkdtempSync`, which returns a directory that DID NOT EXIST. That is an OS
+ * guarantee, not an argument about pid uniqueness — and `process.pid` is
+ * deliberately absent from the scheme, so there is no uniqueness argument left to
+ * get wrong.
+ *
+ * What it replaces: `os.tmpdir()/cfb-app-app-state-test-${process.pid}.json`, which
+ * nothing ever deleted. macOS recycles pids, so a process could start life owning
+ * an earlier run's fully populated durable store. Measured on the owner's machine
+ * on 2026-09-10, before the fix: 17,315 leaked files, and in one full `npm test`,
+ * 40 of the 154 app-state-initialising processes (26.0%) began with a file already
+ * at their pid path. An inherited `provider-refresh-settings::global` holding both
+ * planner jobs is how a passing suite produced four failing planner tests.
+ *
+ * THE RUN DIRECTORY BUYS CLEANUP, NOT CORRECTNESS. `APP_STATE_TEST_STORE_DIR` is
+ * only the PARENT this directory is created in, so the runner has ONE thing to
+ * delete after a run — which is what covers a child killed with `SIGKILL`, whose
+ * own exit handler never runs. Inheritance is already impossible without it: with
+ * the variable unset (a bare `node --test`), the identical `mkdtempSync` runs in
+ * `os.tmpdir()` and is exactly as safe, only leakier. Read the variable as the
+ * thing that makes the scheme correct and you have it backwards.
+ */
+function testStoreFilePath(): string {
+  if (testStoreDirectory === null) {
+    const parentDirectory = process.env.APP_STATE_TEST_STORE_DIR?.trim() || os.tmpdir();
+    const created = createTestStoreDirectory(parentDirectory);
+    testStoreDirectory = created;
+    // BEST EFFORT, AND LABELLED AS SUCH: a process killed with `SIGKILL` never runs
+    // this. That case is covered by the runner deleting the whole run directory,
+    // and — if the RUNNER was killed too — by its startup sweep aging the run
+    // directory out. Nothing here is load-bearing for isolation.
+    process.on('exit', () => {
+      try {
+        rmSync(created, { recursive: true, force: true });
+      } catch {
+        // A tmpdir already reaped by the OS is the same outcome we wanted.
+      }
+    });
+  }
+  return path.join(testStoreDirectory, 'app-state.json');
+}
+
 function appStateFilePath(): string {
   // Test-only isolation: `node:test` runs each test file in its own process, but the
   // file fallback would otherwise share a single `data/app-state.json`, causing
   // cross-process read/write races and flaky failures during parallel runs. When the
-  // test runner sets APP_STATE_TEST_ISOLATION, give each process its own temp file
-  // (keyed by pid) so appState-backed test files cannot clobber each other. This branch
+  // test runner sets APP_STATE_TEST_ISOLATION, give each process its own store
+  // directory so appState-backed test files cannot clobber each other. This branch
   // is never reached in dev or production, which do not set the flag.
   if (testIsolationEnabled()) {
-    return path.join(os.tmpdir(), `cfb-app-app-state-test-${process.pid}.json`);
+    return testStoreFilePath();
   }
   return path.join(dataDir(), 'app-state.json');
 }

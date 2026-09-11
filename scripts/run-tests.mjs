@@ -1,8 +1,31 @@
 import { spawnSync } from 'node:child_process';
-import { globSync, realpathSync, statSync } from 'node:fs';
-import { availableParallelism } from 'node:os';
+import { globSync, mkdtempSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs';
+import { availableParallelism, tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+/**
+ * PLATFORM-620. The prefix of every isolated app-state store directory. Declared
+ * here as well as in `src/lib/server/appStateStore.ts` because this script is run
+ * by bare `node` and cannot import a TypeScript module;
+ * `src/test/__tests__/testStoreLifecycle.test.ts` asserts the two never drift.
+ *
+ * THE SWEEP BELOW MATCHES ON THIS PREFIX AND ONLY ON DIRECTORIES, so it cannot
+ * reach the legacy `cfb-app-app-state-test-<pid>.json` files the retired pid
+ * scheme left in `$TMPDIR`. Clearing those is the owner's call and a named step,
+ * never a side effect of running the suite.
+ */
+export const TEST_STORE_DIRECTORY_PREFIX = 'cfb-app-test-store-';
+
+/**
+ * A test process lives at most 30 seconds (`--test-timeout`) and a full run takes
+ * about two minutes, so a day is three orders of magnitude of headroom over any
+ * live directory. The window exists for one case only: a run directory orphaned
+ * because `run-tests.mjs` ITSELF was killed with `SIGKILL`, whose `finally` never
+ * ran. Without the sweep that leak is slower than the pid scheme's but still
+ * unbounded, and "slower" is not a fix.
+ */
+export const STALE_TEST_STORE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 const LITERAL_GLOB_ESCAPES = {
   '[': '[[]',
@@ -71,6 +94,42 @@ export function buildNodeTestArguments(testFiles, parallelism = availableParalle
   ];
 }
 
+/**
+ * Remove app-state store directories left by a run whose runner was killed before
+ * its `finally` could delete them. Age-gated, prefix-scoped, and directories only —
+ * see {@link TEST_STORE_DIRECTORY_PREFIX} for why the legacy pid FILES are out of
+ * reach on purpose. Returns the directories it removed so the caller can report
+ * the sweep as a step rather than perform it silently.
+ */
+export function sweepStaleTestStoreDirectories(
+  parentDirectory = tmpdir(),
+  now = Date.now(),
+  maxAgeMs = STALE_TEST_STORE_MAX_AGE_MS
+) {
+  let entries;
+  try {
+    entries = readdirSync(parentDirectory, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const removed = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !entry.name.startsWith(TEST_STORE_DIRECTORY_PREFIX)) continue;
+
+    const directory = path.join(parentDirectory, entry.name);
+    try {
+      if (now - statSync(directory).mtimeMs < maxAgeMs) continue;
+      rmSync(directory, { recursive: true, force: true });
+      removed.push(directory);
+    } catch {
+      // Another user's directory, or one already gone. Neither is this run's problem.
+    }
+  }
+
+  return removed;
+}
+
 export function runTests(argumentsToRun, spawnProcess = spawnSync) {
   if (argumentsToRun.length === 0) {
     console.error('Pass at least one exact test file or test glob.');
@@ -85,25 +144,46 @@ export function runTests(argumentsToRun, spawnProcess = spawnSync) {
     return 1;
   }
 
-  const result = spawnProcess(process.execPath, buildNodeTestArguments(testFiles), {
-    env: {
-      ...process.env,
-      APP_STATE_TEST_ISOLATION: '1',
-      TSX_TSCONFIG_PATH: 'tsconfig.test.json',
-      UPSTREAM_PACING_DISABLED: '1',
-    },
-    stdio: 'inherit',
-  });
+  // PLATFORM-620. One directory per RUN, handed to every child as the parent its
+  // own store directory is created in. It buys cleanup, not correctness: a child
+  // killed with `SIGKILL` skips its own exit handler, and this `finally` collects
+  // it anyway. Isolation itself does not depend on either.
+  const runDirectory = mkdtempSync(path.join(tmpdir(), TEST_STORE_DIRECTORY_PREFIX));
 
-  if (result.error) {
-    console.error(result.error.message);
-    return 1;
+  try {
+    const result = spawnProcess(process.execPath, buildNodeTestArguments(testFiles), {
+      env: {
+        ...process.env,
+        APP_STATE_TEST_ISOLATION: '1',
+        APP_STATE_TEST_STORE_DIR: runDirectory,
+        TSX_TSCONFIG_PATH: 'tsconfig.test.json',
+        UPSTREAM_PACING_DISABLED: '1',
+      },
+      stdio: 'inherit',
+    });
+
+    if (result.error) {
+      console.error(result.error.message);
+      return 1;
+    }
+
+    return result.status ?? 1;
+  } finally {
+    rmSync(runDirectory, { recursive: true, force: true });
   }
-
-  return result.status ?? 1;
 }
 
 const invokedPath = process.argv[1] ? realpathSync(process.argv[1]) : null;
 if (invokedPath === fileURLToPath(import.meta.url)) {
+  // A named step with its own report line when it acts, never a silent side effect.
+  const swept = sweepStaleTestStoreDirectories();
+  if (swept.length > 0) {
+    console.log(
+      `test store sweep: removed ${swept.length} orphaned run ${
+        swept.length === 1 ? 'directory' : 'directories'
+      } older than ${STALE_TEST_STORE_MAX_AGE_MS / 3_600_000}h`
+    );
+  }
+
   process.exitCode = runTests(process.argv.slice(2));
 }
