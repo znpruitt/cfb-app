@@ -69,11 +69,11 @@ first commit; if you are not where this table says you should be, stop and say s
      that changed mid-branch is exactly what a ledger written from the prompt gets wrong.
   2. **`git pull` immediately before merging**, and report any conflict resolved. Three writers share
      `main` — both implementation lanes and the planning session.
-  3. **Never tolerate an unknown failure.** **Once Item 137 (#696) merges the known set is EMPTY** —
-     it removes the last two, so `npm test` on clean `main` exits 0 and the merge condition becomes
-     simply zero failures. The rule is unchanged in substance: merge only when the failures are
-     EXACTLY the known set, and one more, or one elsewhere, means stop and report — it is just that
-     the set is now empty, so ANY failure stops the merge. A "tolerate failures" rule would swallow
+  3. **Never tolerate an unknown failure. THE KNOWN SET IS EMPTY** — Item 137 (#696) removed the last
+     two on 2026-09-11 (PR #742, merged `a8593d9f`), so `npm test` on clean `main` exits 0 and the
+     merge condition is simply zero failures. The rule is unchanged in substance: merge only when the
+     failures are EXACTLY the known set, and one more, or one elsewhere, means stop and report — it is
+     just that the set is empty, so ANY failure stops the merge. A "tolerate failures" rule would swallow
      the next real regression. **Keep this condition written as a SET, not as a count**: if `main`
      ever carries a known failure again it is recorded beside the two-lane table in
      `docs/next-tasks.md`, and a count would hide the second one.

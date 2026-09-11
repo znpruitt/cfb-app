@@ -281,16 +281,15 @@ touches no component file.
 
 **Fillers, safe against both lanes, any order:** Item 136 and Item 138 (both `matchups.ts`, worth
 pairing — same file, same `NoClaim` root), Item 133a (below), 122, 121, 84, 86, 111. Item 139 is
-complete and merge-approved below. **Item 137 is implemented and awaiting merge** (#696); it is no
+complete and merge-approved below. **Item 137 merged 2026-09-11** (#696, PR #742, `a8593d9f`); it is no
 longer a filler.
 
-> **Known-failure baseline: IN FORCE until Item 137 (#696) merges, EMPTY after.** Item 137 is
-> implemented on `claude/696-writer-convergence-time-bombs` and removes the last two failures — they
-> were wall-clock time bombs in `src/app/api/odds/__tests__/writer-convergence.test.ts`, not product
-> defects. **Until that merge lands the baseline is exactly those two failures in that file**, and
-> one more, or one elsewhere, is a stop-and-report. On merge, `CLAUDE.md`'s merge condition 3 binds
-> to an EMPTY set and any failure anywhere stops the merge. If a known failure is ever accepted onto
-> `main` again, it is recorded HERE and named individually.
+> **Known-failure baseline: EMPTY as of 2026-09-11.** Item 137 (#696, PR #742, merged `a8593d9f`)
+> removed the last two — wall-clock time bombs in
+> `src/app/api/odds/__tests__/writer-convergence.test.ts`, not product defects. **`npm test` on clean
+> `main` exits 0.** `CLAUDE.md`'s merge condition 3 now binds to an EMPTY set, so any failure
+> anywhere stops a merge. If a known failure is ever accepted onto `main` again, it is recorded HERE
+> and named individually — a count would hide the second one.
 >
 > **Item 135 shipped 2026-09-05** — PR #571, merged
 > `ee68246c`. Both reviewers converged on the content now at `521e79d0`; the pre-rebase `a7f4dead` is
@@ -468,7 +467,7 @@ number.**
 | **133** | [#711](https://github.com/znpruitt/cfb-app/issues/711) | `zinc-500` at small type fails the contrast floor, repo-wide |
 | **134** | [#678](https://github.com/znpruitt/cfb-app/issues/678) | Overview three-column tier |
 | **136** | [#712](https://github.com/znpruitt/cfb-app/issues/712) | Matchups slate aggregates double-count a self game |
-| **137** | [#696](https://github.com/znpruitt/cfb-app/issues/696) | two `writer-convergence` tests are time bombs; `main` is red |
+| **137** | [#696](https://github.com/znpruitt/cfb-app/issues/696) | RESOLVED 2026-09-11 (PR #742, `a8593d9f`) — the time bombs are fixed, `main` is green, and `test:clock-shift` detects the class |
 | **138** | [#713](https://github.com/znpruitt/cfb-app/issues/713) | `isOwnerVsOwner` counts `NoClaim` as a real owner |
 | **139** | resolved — see the audit appendix | a final can show a pre-game record; reconcile records against completed games |
 | **140** | [#692](https://github.com/znpruitt/cfb-app/issues/692) | stamp when a game first reads final, so the reconciliation tail can be sized |

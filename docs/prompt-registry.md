@@ -97,7 +97,7 @@ These consolidate recurring historical observations, not new project-governance 
 - Evidence: the item named two bombs; a third, `odds-quota-guard.test.ts:340`, green at +79d and red at +82d, would have re-reddened `main` on 2026-12-01. A 14-rung ladder to +730d found no further expiry within two years against 228 future-dated literals. Both restored invariants mutation-proven at their own assertions. See L1, L4.
 - Historical corrections: `Item 137` appears 67× under `docs/` — 32 occurrences across 31 files changed, 35 across 5 left as history. `AGENTS.md` and `CLAUDE.md` asserted the baseline WITHOUT that string, so a label-scoped sweep missed them.
 - Review / verification: converged in one round; both reviewers found the detector shifting the runner's own store sweep via `NODE_OPTIONS`, deleting concurrent worktrees' live directories — now a spawn-site argument. `tsc`/`lint:all` 0; `npm test` 5,172/5,172.
-- Status: Implemented — PR [#742](https://github.com/znpruitt/cfb-app/pull/742) open.
+- Status: Merged (PR [#742](https://github.com/znpruitt/cfb-app/pull/742), `a8593d9f`, 2026-09-11).
 
 ### PLATFORM-727-SCHEDULE-AWAITING-RECONSTRUCTION-CODEX-v2
 
