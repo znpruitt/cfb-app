@@ -51,6 +51,66 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-619-PLANNER-SETTINGS-CONFLATION-CLAUDE-v1
+
+- Purpose: [#619](https://github.com/znpruitt/cfb-app/issues/619) (absorbing Item 189) — the polling
+  planner wrapped its settings read in a bare `catch` and treated the null as every job held, which
+  classified as `no-op` / `plan-held`: the one result `schedulerExecutionIssues` deliberately raises
+  nothing for. A transient settings-read failure therefore stopped the planner silently, in a state
+  indistinguishable from a deliberate operator stop, with the alerting built to ignore it.
+- Scope: `src/app/api/cron/polling-planner/route.ts`, `src/lib/schedule/pollingPlannerCronLog.ts`,
+  `src/lib/server/systemHealthIssues.ts` and the two suites. NOT the held-run series (#732), NOT the
+  planner's repair link (#733) — both filed rather than folded in.
+- Outcome: the classifier branches on the settings failure BEFORE the all-held branch, which is the
+  whole fix — every job genuinely IS held in this case, so that branch is exactly the one an
+  unreadable store must not fall into. A genuine hold is untouched: still `no-op` / `plan-held`,
+  still silent. The operator gets the recovery as TEXT via a reason-keyed hint map rather than a
+  `repair` link, because no settings maintenance action exists and linking one that cannot re-read
+  the store is the dead end `JOBS_WITHOUT_EXECUTION_REPAIR` exists to avoid.
+  **SCOPE BOUND, RECORDED BEFORE MERGE:** in the dominant production form of this fault — the whole
+  `app_state` store unreachable — the receipt write in the route's `finally` fails too, so no receipt
+  is stored and this signal never appears. What the change buys is correct reporting for a fault
+  CONFINED TO THAT SINGLE READ; the store-wide case is covered elsewhere by the storage and
+  `automation: unavailable` facts. Narrower than the issue implied, and carried to #732 as well.
+- Review / verification: against `be0e1330` — `npx tsc --noEmit` 0, `lint:all` 0, `npm test` 5,157 of
+  5,159, exactly the standing Item 137 baseline. Test delta **+3**, measured base-to-branch (5,156 →
+  5,159) by committing first and detaching to the base rather than stashing, so the shared stash stack
+  was never touched. Codex returned no findings; `/code-review high` returned one medium and five low.
+  Six findings, six applied, one remediation round (`b0b6c2da`), mutations one-sided throughout.
+- Adjudications kept as precedent:
+  1. **A COMMIT MESSAGE CLAIMED "MIRRORING RATHER THAN INVENTING" WHILE INVENTING.** `settings-unavailable`
+     is the established cross-route reason for the identical `getProviderRefreshSettings` throw —
+     `rankings/route.ts:234`, `schedule-refresh/route.ts:529`, an aggregation rule in
+     `cronExecutionLog`, and **named in `providerRefreshSettings.ts:129`, the docstring of the module
+     this route calls.** The first draft minted `settings-unreadable`, mirrored the real-but-more-distant
+     `schedule-unreadable`, and missed the closer prior art. One fault with two names leaves every
+     reason-keyed consumer knowing only one — the drift Item 211 exists to prevent, cited in the same
+     commit that created it. Found by review, not by the lane.
+  2. **THE RENAME MADE A "LOW" FINDING LOAD-BEARING.** Once the hint is keyed on a reason THREE routes
+     share, planner-specific wording ships verbatim into the rankings and schedule-refresh rows. Job
+     specificity behind a job-agnostic key is not a cosmetic issue once the key is shared.
+  3. **A WORDING REGEX CANNOT EXPRESS "JOB-NEUTRAL".** `doesNotMatch(/planner/i)` failed correctly —
+     the explanation's own prefix names the job, as it should. The property is tested by rendering the
+     same reason on `rankings` and requiring a byte-identical hint sentence.
+  4. **A CORRUPT `reason` COULD PULL A PROTOTYPE MEMBER INTO OPERATOR-FACING TEXT.**
+     `parseSchedulerExecutionReceipt` accepts any non-empty string, so a row carrying `toString`
+     returned an inherited function through a lookup `?? ''` does not catch, appending
+     `function toString() { [native code] }` to the explanation. The hint map is `Object.create(null)`.
+  5. **ANOTHER COMMENT ASSERTED AN IMPOSSIBILITY.** "the classifier below cannot recover that from the
+     null" is false — `getProviderRefreshSettings` returns `normalizeSettings(...)` and never resolves
+     to null, so the flag and `settings === null` are equivalent today. The flag is kept, because the
+     equivalence is a non-local invariant of another module's return type and reading it off the null
+     would silently rejoin a genuine hold the day that read gains a nullable path — but the comment now
+     says that rather than something untrue. Third false comment caught by review across three slices.
+  6. **THE RECEIPT'S MEASUREMENT CORRECTED THE ISSUE'S CENTRAL CLAIM.** #619 said "There is no series"
+     and that "has this already fired?" is unanswerable. There is one: `POLLING_PLANNER_MAX_RUNS = 400`,
+     appended inside a key transaction. Measured through the read-only rail — 7 runs per job, 4
+     consecutive days, `droppedRuns` 0, no gaps — so the question is answerable for the retained window
+     and the answer is NO. The "2 rows" measurement had counted `app_state` rows, one per job, and read
+     that as the run count. This inverted the scope ruling: retaining a series was not the more valuable
+     half, it had already shipped.
+- Status: Implemented — PR #734 open from `claude/619-planner-settings-conflation`
+
 ### PLATFORM-703-OPERATOR-WRITE-CREDENTIAL-CLAUDE-v1
 
 - Purpose: [#703](https://github.com/znpruitt/cfb-app/issues/703) (from Item 192) —
