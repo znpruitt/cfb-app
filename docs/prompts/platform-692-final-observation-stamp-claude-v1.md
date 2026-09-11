@@ -67,17 +67,38 @@ that is already on the type you are writing.
 final, then is corrected by a later `/games` pass, keeps its ORIGINAL stamp — the question being
 measured is when we first believed it, not when it settled. Merge prior over new, not new over prior.
 
-**2. BOTH rebuilders must carry the map forward, or it vanishes silently.** Two places construct a
-whole `CacheEntry` from scratch, and a new optional field missing from either is dropped on the next
-write with no error:
+**2. ALL THREE writers must carry the map forward, or it vanishes silently.** Enumerated at
+`a774b3f6`, writers and consumers both — a seam audit that stops at writers is half of one:
 
-- `src/lib/liveScores/scoreMerge.ts` — the live merge, `const nextEntry: CacheEntry = {...}`
-- `src/lib/scores/manualPartitionMerge.ts` — the manual merge, same construction
+| site | role | what it must do with the new map |
+| --- | --- | --- |
+| `liveScores/scoreMerge.ts` | rebuilds the entry; **owns the stamp** | write new ids, carry prior ones |
+| `scores/manualPartitionMerge.ts` | rebuilds the entry | carry forward; never synthesize |
+| `app/api/admin/cache-historical-scores/route.ts:327` | `setAppState<CacheEntry>` backfill | carry forward; **never synthesize** |
+
+**The third one is the trap.** It is an admin BACKFILL path writing historical partitions, where
+"the first observation at which we saw this final" is a fact that does not exist — those games
+finished before anything was watching. It must preserve an existing map and must never invent a stamp
+from its own write time, or the distribution is poisoned with values that are really backfill
+timestamps. `/api/scores/route.ts` constructs entry-shaped objects but calls no `setAppState`, so it
+is not a writer; confirm that rather than assuming it.
+
+A new optional field missing from any of the three is dropped on the next write with no error.
 
 **This is the exact failure #732 measured in the planner record**, where `sortAndBound` rebuilds the
 stored value so any added field "is silently dropped by the next write. A naive addition would appear
 to work and then vanish." Same hazard, different file. **A test must prove a stamp survives a
 subsequent unrelated write through each rebuilder** — not that a stamp can be written.
+
+**2b. The consumers are all pure, and the response boundary holds — verified, not assumed.** Four
+modules read a scores `CacheEntry` and none writes, enumerates its keys, measures its serialized
+size, or rejects unknown fields: `server/providerCacheState.ts`, `schedule/finalScoreSweep.ts`,
+`server/scoreCacheReader.ts`, and `liveScores/canonicalContext.ts` — the last of which reads
+`pendingFinalConfirmationIds` and is the worked example of how an optional per-id field is consumed
+here. **And `/api/scores` builds its response as `{ items, meta }` from `ScorePack[]`
+(`route.ts:91-92`), never from the entry** — which is what actually makes the `CacheEntry` choice
+observation-only rather than merely intended to be. Re-derive this; it is the claim that, if wrong,
+means the stamp ships into a public API response.
 
 **3. Nothing reads it yet, and that is correct.** No route, no selector, no UI. The consumer is a
 future `psql` query against the durable store. Do not add a reader "for completeness"; do not resize
@@ -101,11 +122,11 @@ Answer from the files. Every question is one this prompt could be wrong about.
 1. Quote the `finalized` branch at `scoreMerge.ts:274-279` and say whether it can fire **twice** for
    one provider game id across separate writes. What state, if any, prevents it? Your answer decides
    whether constraint 1 needs code or is already guaranteed.
-2. Enumerate **every** site that constructs a `CacheEntry` with all required fields. I claim two
-   rebuilders; `src/lib/scores/historicalScoreWrites.ts`,
-   `src/app/api/admin/cache-historical-scores/route.ts` and `src/app/api/scores/route.ts` all
-   reference the type or its fields. For each, say whether it can persist an entry that would drop
-   the new map.
+2. I claim **three** writers and **four** pure consumers, in the tables above. Prove or break both
+   lists. `src/lib/scores/historicalScoreWrites.ts` references the type and appears in neither —
+   say which it is and why. A name collision already caught me out once here:
+   `app/api/schedule/route.ts` has its own unrelated `CacheEntry`, so a bare grep for the type
+   over-reports.
 3. `manualPartitionMerge.ts` copies `itemUpdatedAtById` forward differently from `scoreMerge.ts`.
    Show both, and say whether the new map can reuse either approach unchanged.
 4. Is the durable store's per-entry size bounded? A 232-kickoff Saturday adds 232 keys to one entry.
