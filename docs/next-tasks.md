@@ -449,79 +449,13 @@ The issue is canonical for the ask, its evidence and its state. **This entry is 
 
 ### Item 128 — every browser poll refetches the whole team catalog it already has
 
-**SHIPPED 2026-09-04** (`PLATFORM-128-LIVE-POLL-TEAM-CATALOG-v1`). Retained below as the record of
-what was found and why it was sequenced with Item 95 portion 1.
-
-**Filed 2026-09-04, found by Codex while implementing Item 95 portion 1. Verified independently.**
-
-**The path.** `useLiveRefresh.ts:321` calls `await fetchTeamsCatalog()` unconditionally on every
-tick. That hits `/api/teams`, which defaults to `level=ALL`, reads one durable `app_state` record
-holding the entire catalog, normalizes every item, applies aliases, maps and sorts every item, and
-serializes the full array — which the browser then parses. 138 teams today, every tick, per visible
-tab.
-
-**The catalog is already in memory.** `CFBScheduleApp.tsx:474` loads and retains it during schedule
-bootstrap, and `fetchScoresByGame` already accepts a supplied catalog (`scores.ts:429`,
-`teams: providedTeams`). Passing the existing array into `useLiveRefresh` removes **one whole function
-invocation, durable read, serialization and client parse per tick** — no new endpoint, no new cache.
-
-**A team-ID-filtered endpoint is the worse fix**, and worth recording so it is not reached for: it
-shrinks transfer but still decodes the full durable record server-side, which is the expensive half.
-
-**Sequencing satisfied.** Item 95 portion 1's 90-second fast tier doubles browser ticks relative to
-the 180-second baseline while armed. Item 128 merged first, so the faster tier never shipped with the
-redundant `/api/teams` invocation: during the fast window, one scores call every 90 seconds matches
-the pre-128 total rate of two calls every 180 seconds while improving expected display staleness by
-about 25%.
-
-**Two adjacent inefficiencies found in the same pass, not part of this item's fix:**
-
-- `loadReconciledWeekScores` (`server/scoreCacheReader.ts:246`) narrowed its HTTP response to one
-  week, but still reads every `${year}-` score entry and reconciles the whole season type before
-  filtering. The comment at `:255` states this deliberately — provider-week and canonical-week alias
-  children must both contribute — so it is a known trade, not an oversight. Recorded so a future
-  reader does not re-derive it.
-- Game-stats canonical context also loads the full team catalog.
-
-**Acceptance boundary:** an auto-poll tick issues no `/api/teams` request, and the catalog used for
-score attachment is the same array the bootstrap already resolved. A test proves the tick makes one
-request rather than two.
-
-- Backlog slug: `PLATFORM-POLL-REUSE-TEAM-CATALOG-v1`
+**MERGED — `PLATFORM-128` — merged `2dace5c5`.** Registry entry present. Status flipped 2026-09-10 during the
+queue migration; **the entry had been stale since the merge.**
 
 ### Item 127 — sample CFBD usage on its own schedule and retain a daily series
 
-**Filed 2026-09-04. Supersedes Item 94's manual read if it ships before 2026-09-30.** Owner question:
-"why not just daily logging? it's a free call." `/info` is unbilled — confirmed by CFBD's developer 2026-09-04, so the sampling costs no
-CFBD quota — but it is a dedicated route on its own six-hourly QStash schedule, not a free ride on an
-existing job. Retaining the observation the game-stats probe already makes was built and removed: one
-durable row with two writers cost more than the resolution it bought.
-
-**The observation is already being made and discarded.** `src/app/api/cron/game-stats/route.ts:284`
-calls `fetchCfbdUsage({ fresh: true })` — the `/info` quota probe, explicitly not a billed provider
-call — reads `remaining` and `limit` for the quota-reserve gate, and keeps nothing.
-`systemHealth.ts:208` and `/api/admin/usage` normalize quota too, but on demand for display, not as a
-record. This is Item 126's shape in a different place: an observation made, not retained.
-
-**The probe is gated, so it is not a daily source.** It sits behind three early returns
-(`route.ts:240-262`), the decisive one being `resolution.target === null`, commented "No exact target
-→ no scoped attempt, **no usage check**, no provider call". It fires only when a polling target
-exists inside the window, so a quiet Tuesday produces no sample — which is precisely the day the
-series needs in order to say what a Saturday costs by comparison.
-
-**Why a dedicated route rather than an existing cron.** `season-transition` is the only cron that
-runs unconditionally every day, but it holds a deliberate guarantee that a refused run makes ZERO
-outbound provider requests, pinned by its own tests. Carrying an unconditional probe there would
-weaken a lifecycle route's guarantee to serve another concern's bookkeeping. A route whose only
-contract is "one unbilled probe per run" violates nothing, and can also sample more often than daily
-— which bounds the month-boundary tail loss that daily sampling cannot.
-
-**Acceptance boundary:** after a month of running, the store alone answers "what did we burn in
-September, and on which days" without a manual read, and its size is bounded by a stated rule rather
-than growing per probe. Observation-only — it must not affect the quota gate, the refusal path, or
-any provider outcome.
-
-- Backlog slug: `PLATFORM-RETAIN-PROVIDER-USAGE-SERIES-v1`
+**MERGED — `PLATFORM-127-RETAIN-PROVIDER-USAGE` — merged `dc82dfd8`.** Registry entry present. Status flipped 2026-09-10 during the
+queue migration; **the entry had been stale since the merge.**
 
 ### Item 126 — schedule-refresh incident evidence is not durable enough to explain the failure
 
@@ -530,106 +464,8 @@ The issue is canonical for the ask, its evidence and its state. **This entry is 
 
 ### Item 144 — reconcile the Item 87 design-document set before the presentation follow-on
 
-**The ask:** make the design documents say what is currently true, so a prompt written from them
-stops inheriting overturned claims. **This BLOCKS Item 143, and after 2026-09-08 it blocks the whole
-remaining spine queue — 115, 119, 134, 118.**
-
-**Kickoff:** [`docs/prompts/platform-144-item-87-doc-reconciliation-claude-v1.md`](prompts/platform-144-item-87-doc-reconciliation-claude-v1.md)
-— **assigned to the IMPLEMENTATION Claude lane by owner exception 2026-09-08**, recorded in
-`CLAUDE.md` → **Worktrees and session roles**. `docs/` normally belongs to planning; the exception is
-conditional on the planning lane standing off `docs/campaigns/item-87-*` and this entry's own Item 87
-neighbours for the duration.
-
-**WHAT THIS IS, PLAINLY: a session's work, no shipped output, and it unblocks 115, 119, 134 and
-118.** Not a tidy-up. Do not squeeze it between implementation slices.
-
-**Scope — 2,273 lines across 16 documents, of which perhaps 350 have ever been read.**
-`live-watchlist-scoreboard.md` alone is **651 lines** and three of them have been read; every "canonical
-for X" claim made about placement or the record rule rests on those three spots. **This is not a
-document set with some stale entries. It is a document set that has never been read.**
-
-**READ ORDER — owner decision 2026-09-08, and the first choice was corrected.**
-
-1. **`live-watchlist-scoreboard.md` (651 lines) FIRST.** It is canonical, so until it is read end to
-   end every claim about what is canonical is unverified — **including the ones this index rests on.**
-2. `team-highlight.md` (90 lines) — the one whose status mark was already wrong.
-3. The remaining thirteen.
-
-**OUTPUT IS EDITS, NOT A REPORT.** A report is a sixteenth document describing fifteen others and goes
-stale the same way. **Mark each claim in place** — current / superseded / discharged — and promote the
-index entries from "the owner's best knowledge" to **verified**. That is what makes the reading
-something the next person inherits rather than redoes.
-
-**THREE VERDICTS, and discharge is the one that saves time.** Of the ten known claims in
-`matchups-schedule-design.md`, **at least five are DISCHARGED rather than stale** — the work was done
-and nothing marked it: `rank`/`rankSource` both exist, `neutralSite` is at `CompactGameScoreboard:23`,
-the contract widenings are in `DESIGN.md`, the recommended sequence has shipped. **An obligation
-satisfied and unmarked gets re-litigated as an error**, and one already was.
-
-**Do NOT transfer that ratio to the unread 1,900 lines.** The owner sized the item as "roughly half"
-on that arithmetic and withdrew it: it is a ratio measured on a sample of identified claims and says
-nothing about the population nobody has read.
-
-**A correction to this entry's own earlier escalation, recorded rather than edited away.** It
-previously read _"the stale documents have now produced SHIPPED CODE"_, citing the owner-row tint. That
-was wrong. `team-highlight.md` is **CURRENT** and does not conflict with `presentation-decisions.md` —
-`:23` rejects owner-IDENTITY colour while `presentation-decisions.md:90` gives the tint OUTCOME
-direction; different axes, both hold. **No document was wrong. Two readers asserted the contents of a
-ninety-line file neither had opened.** The rail/tint collision in shipped code is real and still blocks
-Item 119; its cause is that the tint's outcome-tracking was never implemented and the rail never
-retired.
-
-**WHY THIS HAS NOT HAPPENED, because the same pressure will apply again.** A full read costs a large
-chunk of context and produces no commit and no shipped fix, while every individual question along the
-way was answerable by grepping the specific claim. **Each grep looked like the efficient choice.** The
-cost only appeared in aggregate — three wrong statements and one wrong implementation.
-
-**Full analysis:**
-[`docs/campaigns/item-87-followon-matchups-gap-analysis.md`](campaigns/item-87-followon-matchups-gap-analysis.md),
-owner-authored 2026-09-08, ordered by member impact rather than item ownership — deliberately, because
-sorting by item is what let these accumulate. It also resolves a question this ledger had left open:
-**"records stay off Matchups" and `DESIGN.md:95` cannot both hold**, because the anchor holds the
-record when a game is scheduled. Deferring records leaves the majority of rows structurally
-incomplete.
-
-**Owner diagnosis, 2026-09-07 — structural, not a set of typos.** Roughly **fifteen additive
-follow-on documents** were written, each superseding parts of earlier ones **without editing them**,
-on the reasoning that editing committed docs loses history. The result: the newest statement is
-correct, the older ones still read as current, and **nothing errors when a rule is overridden**. So
-deciding anything from the design doc means deciding from claims that three later documents have
-already reversed.
-
-**Ten stale claims found in one read** of `item-87-followon-matchups-schedule-design.md` — the fourth
-time that document has produced a wrong prompt:
-
-- the "Contract widenings — currently unrecorded" section (classification/FCS, neutral-site metadata,
-  non-final broadcast and tier 2 are all implemented and in `DESIGN.md`)
-- "renders `#rank` only today" and "no neutral-site marker"
-- "no precedence rule is needed" — the canonical rule is that rank wins a ranked-FCS collision
-- present-tense Schedule defect claims about the collapsed owner line, `NoClaim`, lowercase fallback
-  and amber `cardEmphasisClasses` — all describing retired code
-- "the Schedule filter already cuts it to the live handful" — that is Item 118, unbuilt
-- "Open — card-owner treatment" and its dimming choice — settled as a neutral tint 2026-09-05
-- "the row treatment is now identical" / "only two things vary per consumer"
-- "suppressed on Schedule" — narrow to "the odds FOOTER is suppressed"; Schedule keeps odds in tier 2
-- the recommended sequence — the widening and the Schedule conversion have shipped
-
-**And the mockup has the same disease.** `matchups-schedule-mockup.html` carried a pill rule setting
-`#dbc190` and a later typography rule restating it as `#c9a66b`, so it rendered one value while the
-document stated another. **Owner fixed that one 2026-09-07** (the typography rule no longer sets
-colour). The rest are the same shape — narrow-layout wrapping against the unconditional nowrap rule,
-stale green live treatment, rejected outcome-coloured tints, negative vertical tint bleed.
-
-**INTERIM AUTHORITY, owner ruling 2026-09-07, until this pass is done:** the **mockup is
-authoritative for layout and structure**; the **document set is authoritative for values**. Do not
-read a colour off the mockup or a layout off the prose.
-
-**Two acceptable shapes — owner's choice:** correct the stale claims in place with a note of what
-superseded each, or add a status header to each section naming the document that overrides it. The
-first is cleaner to read; the second preserves the history the additive approach was protecting.
-
-**Blocker:** none, but **Item 143 should not be written until this lands**, or the follow-on inherits
-the same problem.
+**MERGED — `PLATFORM-144` — merged, PR #582 (`08a31979`).** Registry entry present. Status flipped 2026-09-10 during the
+queue migration; **the entry had been stale since the merge.**
 
 ### Item 143 — DONE: Matchups status-row seams and shared kickoff state
 
@@ -894,91 +730,8 @@ The issue is canonical for the ask, its evidence and its state. **This entry is 
 
 ### Item 141 — the Insights page does a full-season build on every request
 
-**The ask:** stop `/league/<slug>/insights` rebuilding ~3,700 games per render. Cache the recap
-context the way the insights feed beside it is already cached, or narrow what recap needs.
-
-**Found 2026-09-07** while correcting a false claim in the Item 139 v3 prompt. Not a regression —
-this is how it has always worked; nobody had looked.
-
-**The chain, verified:**
-
-- `src/app/league/[slug]/insights/page.tsx:15` — `export const dynamic = 'force-dynamic'`.
-- It calls `loadWeeklyRecap` on every render → `loadRecapContextForSeasonScope` →
-  `loadRecapContext` → `assembleSeasonScoredBuild` (`seasonBuild.ts:88`).
-- `assembleSeasonScoredBuild` loads the season schedule blob, the team database, the alias map and
-  postseason overrides, runs the full `buildScheduleFromApi` canonical build, builds an identity
-  resolver, loads reconciled full-season regular and postseason scores, and attaches every score to
-  every game. 2026 carries **3,679 games**.
-- `loadRecapContext` is wrapped in **`React.cache` only** (`:174`) — per-request dedup, NOT
-  cross-request.
-
-**The asymmetry is the tell.** On the same page and in the same `Promise.all`, `loadInsights` IS
-wrapped in `unstable_cache` with a TTL (`loadInsights.ts:391-396`). The insights half is cached
-across requests; the recap half is not. One of the two was given a cross-request cache and the other
-was not, and nothing records that as a decision.
-
-**Live today.** The gate is `leagueStatus.state === 'season' && leagueStatus.year === seasonYear`
-(`weeklyRecapFacts.ts:93-98`). Production's registry has `tsc` at
-`{"year":2026,"state":"season"}`, so it passes on every Insights render right now.
-
-**AND ON GAME DAYS IT BUILDS THE SEASON TO RENDER NOTHING — measured 2026-09-07.** The season gate
-(`isWeeklyRecapActiveSeason`) is cheap and passes, so `loadRecapContext` runs the full build. Only
-afterwards does `composeWeeklyRecap` call `selectWeeklyRecapFacts`, which returns `null` when no week
-is yet eligible — and `WeeklyRecapSection` then renders `null`.
-
-A week becomes eligible more than one day after its LAST game, or exactly one day after it at/after
-06:00 ET (`RECAP_ELIGIBILITY_HOUR = 6`). Today, 2026-09-07, week 1's last game is
-**SMU @ Florida State, 23:30 UTC — still scheduled**, so `elapsedDays = 0` and nothing is eligible.
-Every Insights render today pays for a 3,679-game build and discards the result.
-
-**That inverts the cost profile.** The expensive path runs hardest exactly when it produces nothing —
-Thursday through Monday, which is also the highest-traffic window. The cheap check that would settle
-it (is any week eligible?) needs only game dates and `now`, and it runs AFTER the build rather than
-before.
-
-**MEASURED 2026-09-07 — this is NOT a cost item, and the entry originally implied it was.** Vercel Web
-Analytics, 2026-08-31 → 09-07, by route:
-
-| route                          | pageviews |
-| ------------------------------ | --------- |
-| `/league/[slug]`               | 128       |
-| `/league/[slug]/standings`     | 51        |
-| `/`                            | 36        |
-| `/admin/diagnostics`           | 21        |
-| `/league/[slug]/draft/summary` | 12        |
-| **`/league/[slug]/insights`**  | **3**     |
-
-**Three pageviews in a week**, ~1% of 272 total. Against a monthly 4-hour Fluid allowance that is
-seconds, while `/api/cron/live-scores` alone runs 480×/day at 1.20 s — roughly the whole allowance.
-**Insights is not a second source of CPU pressure; it is noise.** Do not schedule this against Item
-102's cost work or cite it in a CPU argument.
-
-_Caveat on the number:_ Web Analytics counts client-side pageviews, so router prefetches that reach
-the server without recording a view are not included. Actual renders may exceed 3 — not by the orders
-of magnitude that would change the conclusion.
-
-**So the real cost is LATENCY, borne by the one person who opens the page.** A full-season build runs
-before first byte, on a `force-dynamic` route, and on game days it produces nothing at all. That is a
-user-experience defect on a rarely-visited page — worth fixing cheaply, never worth a caching layer.
-
-**Cross-reference — do NOT let this become precedent.** Item 139 v3's defining constraint is no
-full-season build on a request or cron path. This item is the counter-example that already exists;
-it is a defect to fix, not a licence to add a second one.
-
-**The cheapest fix may not be a cache at all.** `selectWeeklyRecapTargetWeek` needs only each week's
-latest game date and the clock. Hoisting that check ahead of `assembleSeasonScoredBuild` skips the
-build entirely whenever no week is eligible — no cache, no invalidation, no new state. Establish
-whether that is most of the week or a minority of it before designing anything larger.
-
-**Scope:** `src/lib/recap/loadRecapContext.ts` and its cache wrapper; the eligibility check's position
-relative to the build; possibly narrowing `WeeklyRecapContext` to what `composeWeeklyRecap` actually
-reads. NOT `assembleSeasonScoredBuild`
-itself — rollover and analytics depend on it unchanged.
-
-**Blocker:** none. **Low priority** — measured as ~1% of traffic, so this is a latency polish item, not
-a cost item. It should still follow Item 139 v3's design pass, which may establish a cheaper way to
-get season-scoped facts that this item can simply reuse. If the eligibility hoist above turns out to
-be a few lines, take it on its own; anything larger should wait for v3.
+**MIGRATED to [#714](https://github.com/znpruitt/cfb-app/issues/714) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 140 — stamp when a game first reads final, so the reconciliation tail can be sized
 
@@ -998,61 +751,13 @@ The issue is canonical for the ask, its evidence and its state. **This entry is 
 
 ### Item 138 — `isOwnerVsOwner` counts `NoClaim` as a real owner
 
-**The ask:** judge league membership through the shared sentinel seam, not through `!opponentOwner`.
-
-**The mechanism.** `buildOwnerSlateGames` (`src/lib/matchups.ts:249`) sets
-`isOwnerVsOwner: Boolean(bucket.homeOwner)` and `isOpponentUnownedOrNonLeague: !bucket.homeOwner`.
-After a draft, `buildConfirmedOwnersCsv` writes **`NoClaim` as a real owner** for every undrafted
-eligible team (`src/lib/rosterEditing.ts:23`), so both predicates read a sentinel as a league owner:
-a game against nobody reports `isOwnerVsOwner: true` and `isOpponentUnownedOrNonLeague: false`.
-
-**Same root as Item 135**, which corrected only the opponent-count path. `displayOwner`
-(`src/lib/gameOwnership.ts:24`) is the shared seam that returns `null` for `NoClaim`, and
-`AGENTS.md` rule 11 (**Centralized game ownership**) is the governing rule.
-
-**Reported by the implementation lane during Item 135 and deliberately left untouched** — it was out
-of that item's scope. Consumers must be surveyed before changing it: these flags are on
-`OwnerSlateGame` and a truthy `isOwnerVsOwner` may be feeding presentation or grouping beyond the
-count.
-
-**Blocker:** none. Sits in the same file as Item 136 — worth pairing.
+**MIGRATED to [#713](https://github.com/znpruitt/cfb-app/issues/713) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 136 — Matchups slate aggregates double-count a self game
 
-**The ask:** make the per-owner tiles count games the way the row list now does — once each.
-
-**The mechanism, measured 2026-09-05.** `buildOwnerWeekPerformance` (`src/lib/matchups.ts:306`) takes
-`games: OwnerSlateGame[]` and iterates them directly, incrementing `liveGames` / `finalGames` /
-`scheduledGames` per **entry**. `buildOwnerSlateGames` (`:239`, `:254`) emits **two entries for one
-game** when an owner holds both teams, so every such game counts twice. `totalGames`, `liveGames` and
-`finalGames` on the slate carry the same defect, and `ownerView.ts:346` consumes them.
-
-Probed output for one live self game:
-
-    performance.summary : "0–0 · 2 live"
-    performance.detail  : "2 games"
-    slate.liveGames     : 2
-    rendered rows       : 1
-
-**Visible today.** The 2026 season has **39 games where one owner holds both teams** (measured against
-`owners:tsc:2026`, 138 teams, 16 owners, out of 888 games involving a rostered team). Week 1 alone:
-Whited (Jacksonville State vs North Dakota State), Maleski (Miami vs Stanford, and Baylor vs Auburn).
-Those cards read `2 GAMES` above a single row.
-
-**Item 135 did not cause this — it revealed it.** Before 135 the list rendered the duplicate rows too,
-so the header and the list agreed while both were wrong. Deduplicating the rows made the aggregate
-disagreement visible. Same shape as the `NoClaim` finding: each correct fix exposes what the previous
-defect was masking.
-
-**Correction on record.** An earlier note claimed `performance.summary` was safe because it counts
-buckets rather than slate entries. That holds for the **record** half (`wins`/`losses`) only; the
-live/total counters iterate the un-deduped entries. Recorded so the scope is not under-described.
-
-**Scope:** `src/lib/matchups.ts` — `buildOwnerWeekPerformance` plus the slate's `totalGames`,
-`liveGames`, `finalGames` — and the `src/lib/ownerView.ts:346` consumer. Dedupe on `game.key`, the
-same key `scoresByKey` / `oddsByKey` already treat as unique.
-
-**Blocker:** none. Independent of the UI spine; no shared component. Parallel-safe against both lanes.
+**MIGRATED to [#712](https://github.com/znpruitt/cfb-app/issues/712) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 134 — Overview three-column tier
 
@@ -1061,49 +766,8 @@ The issue is canonical for the ask, its evidence and its state. **This entry is 
 
 ### Item 133 — `zinc-500` at small type fails the contrast floor, repo-wide
 
-**The ask:** audit every remaining `dark:text-zinc-500` and move the ones that are normal text to a
-passing token.
-
-**The finding, measured 2026-09-05 during Item 87 slice 5a.** `zinc-500` (`#71717a`) on the app's
-`#0a0a0a` composition is **4.10:1**. `DESIGN.md` requires **4.5:1 for normal text**, and WCAG large
-text begins at 18.66px bold / 24px — so anything at `text-xs` (12px), `text-[12.5px]` or `text-sm`
-(14px) fails. `zinc-400` (`#a1a1aa`) is 7.72:1.
-
-Slice 5a fixed this inside `CompactGameScoreboard` only, as a deliberately component-local
-prohibition. **184 occurrences across 73 files remain** (measured on `main` at `e5a23313`).
-
-**Split along the UI-spine boundary (2026-09-05), because the halves parallelize differently:**
-
-- **133a — non-spine, ~164 occurrences.** `components/admin` (13 files), `components/history` (10),
-  `components/draft` (8), `components/admin/systemHealth` (6) and the rest. **No spine slice touches
-  any of these**, so 133a is fully parallel-safe against both lanes. It is still not small: a
-  classification pass across roughly 70 files. Good work for a blocked lane, not a third concurrent
-  workstream.
-- **133b — the spine files, 17 occurrences after PR #572.** `OverviewPanel.tsx` (14) and
-  `MatchupsWeekPanel.tsx` (3); slice 5 removed both `GameWeekPanel.tsx` occurrences and one Matchups
-  self-result occurrence, while `CompactGameScoreboard.tsx` remains at 0 from slice 5a. These collide
-  with every slice that touches those files, so **fold each into the spine slice that owns the file**
-  (115 owns `OverviewPanel`, 117 owns `MatchupsWeekPanel`) or run 133b after the spine completes. Do
-  not run it as a separate concurrent item.
-
-**Not all 184 are violations — that is the work.** The count includes borders (`dark:border-zinc-500`
-is not text), backgrounds, and any genuinely large text. The audit must classify each occurrence by
-what it colours and at what size, then fix only the failing ones. **Do not bulk-replace**; a scripted
-substitution across 73 files is exactly the shape that has shipped defects past every gate here
-before.
-
-**Expect a hierarchy cost, and budget for it.** In the scoreboard, moving suffixes off `zinc-500`
-collapsed a colour step against a losing team's name, which was already `zinc-400` — accepted there,
-with type size left as the distinction. The same collapse will recur anywhere `zinc-400` and
-`zinc-500` were being used as adjacent hierarchy levels. Where it matters, the answer is a different
-mechanism (size, weight, spacing), not a return to a failing token.
-
-**Value:** accessibility compliance against a rule `DESIGN.md` already states, on text members read on
-every surface. **Not urgent** — it has been shipping this way — but it is a stated rule the codebase
-does not currently meet.
-
-**Blocker:** none. Independent of the UI spine; touches presentation only. Best run as one audit pass
-with the classification recorded, not folded into a feature slice.
+**MIGRATED to [#711](https://github.com/znpruitt/cfb-app/issues/711) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 132 — the Scores and Game stats health rows read the wrong record
 
@@ -1122,29 +786,8 @@ The issue is canonical for the ask, its evidence and its state. **This entry is 
 
 ### Item 129 — two `usage-sample` follow-ups deferred out of PLATFORM-127
 
-**Filed 2026-09-04, post-merge.** Both were found by review, judged real, and deliberately NOT folded
-into a round that was already about something else. Evidence:
-`docs/prompt-registry.md` → `PLATFORM-127-RETAIN-PROVIDER-USAGE-SERIES-v1`.
-
-**The route has no outer `catch`.** All eight sibling cron routes wrap the handler and return their
-`{result, reason}` shape with a 500; `usage-sample` has only `try`/`finally`, so an unexpected throw
-escapes to Next.js and the declared `NextResponse<UsageSampleResult>` contract is not honoured. The
-sharper half is the receipt: `finally` still files one, and `exec.result` would hold whatever it was
-last set to — so a crash could file a receipt claiming `success`. **Not currently reachable**:
-`fetchCfbdUsage` is wrapped and `recordProviderUsageObservation` never throws. Fix is the sibling
-shape plus setting `exec.result = 'failure'` in the catch, so the receipt cannot outlive the truth.
-
-**Its delivery grace equals exactly one cron period.** `DELIVERY_POLICIES` gives `usage-sample`
-`graceMs = 6h` against `0 */6 * * *`; every sibling QStash policy uses two periods or more
-(live-scores 3m/6m, game-stats 15m/30m, team-records and odds 1h/2h). `requiredStartedAt` therefore
-lands exactly on the previous slot, so a receipt preceding its own slot by any margin reads `late` —
-and the codebase already acknowledges cross-instance clock skew. Low probability, but it would put a
-spurious warning on the job whose whole design goal is a quiet row.
-
-**Value:** both are contract-consistency defects on a job that is now live and unattended. Neither
-changes what the sampler records.
-
-- Backlog slug: `PLATFORM-USAGE-SAMPLE-CONTRACT-PARITY-v1`
+**MIGRATED to [#710](https://github.com/znpruitt/cfb-app/issues/710) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 125 — four Overview section-ordering decisions are decided but unbuilt
 
@@ -1206,93 +849,13 @@ deletion** — the same gate that caught the last retired-module claim.
 
 ### Item 122 — the historical-cache buttons cannot re-cache anything
 
-**Filed 2026-09-04. Operator defect, no seasonal deadline.** Surfaced while answering whether the 2024
-schedule cache could be refreshed.
-
-**`HistoricalCachePanel.tsx:47` and `:70` hardcode `force: false`.** `POST /api/admin/cache-historical-schedule`
-treats an already-cached year as a no-provider-call short-circuit unless `force` is set, and
-`cache-historical-scores` mirrors it. So for any year that already has a cache — which is every year
-the panel is useful for — the button returns `{ alreadyCached: true }`, makes no provider call, and
-changes nothing.
-
-**The panel looks functional while being unable to do the thing a re-cache exists for.** The
-short-circuit is correct behaviour for the endpoint (it exists so a repair does not re-spend a fetch
-on data already held); the defect is that the only UI never offers the other half. The sole way to
-refresh a cached season today is a hand-written authenticated `POST` from a browser console.
-
-**Acceptance boundary:** an operator can refresh an already-cached historical year from `/admin/data`
-without a console, and the destructive half is distinguishable from the idempotent one — a re-cache
-overwrites a durable season, so it should read as a deliberate action rather than a second identical
-button. The active-season protection at the route (`computeProtectedActiveYears`, which `force` cannot
-bypass) already prevents the dangerous case, so the UI does not need to re-derive it.
-
-- Backlog slug: `PLATFORM-HISTORICAL-CACHE-FORCE-AFFORDANCE-v1`
+**MIGRATED to [#709](https://github.com/znpruitt/cfb-app/issues/709) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 121 — every CFP first-round game shares one `eventKey`, and it is the React list key
 
-**Filed 2026-09-04. Data-identity defect, measured not inferred.** Evidence and the grouping work it
-touches: `docs/campaigns/item-87-followon-postseason-refinements.md` §3.
-
-**The collision.** `playoffEventKey` (`cfbdSchedule.ts:366-370`) returns `cfp-${round}` when a playoff
-row has no bowl name to disambiguate. Quarterfinals and semifinals carry bowl names and are safe; the
-championship is singular. **First round is the one round the scheme cannot separate, and the 12-team
-format made it four games.** Measured on the read-only replica in **both** seasons that used the 12-team
-format: all four 2025 first-round rows carry `eventKey: "cfp-first-round"`, and so do all four 2024
-rows, so `schedule.ts:485-486` gives each season four games sharing one `eventId`.
-
-**Two consumers, both reachable.** `schedule.ts:503` sets `key: eventId` for postseason games and
-`GameWeekPanel.tsx:213` renders `key={g.key}` — four identical React keys in one list. The operator
-label override is the second: `GameWeekPanel.tsx:340` saves by `g.eventId` and
-`schedulePostseasonHelpers.ts:372-377` applies it wherever `candidate.eventId === eventId`, so one
-label edit would hit all four games. The placeholder participant slot ids (`schedule.ts:492`, `:498`,
-`${eventId}-home` / `-away`) collide the same way.
-
-**Not reachable today — it lands in December.** `CFBScheduleApp.tsx:313` fixes the season with
-`useState` and no setter exists anywhere in `src/`, so a member sees only their league's season. The
-2026 cache holds **zero** postseason rows, so nothing renders these keys yet. It goes live when the
-2026 first round is ingested, which is exactly when the postseason tab matters.
-
-**This is our key scheme, not a provider gap.** `playoffEventKey` composes `cfp-${round}` and appends
-a bowl slug that first-round games do not have, because they are campus-hosted rather than bowls. The
-distinguishing data is present: CFBD supplies a per-game `id`, **unique across all 3,801 rows of 2024
-and all 3,831 of 2025, never null**, and `AppGame` already carries it as `providerGameId`
-(`schedule.ts:180`, set at four construction sites including the postseason one at `:526`). The
-`eventKey` fallback at `schedule.ts:485` already trusts it — `${item.week}-${item.id}`.
-
-**But it cannot be a blanket swap, and this is the design constraint.** `eventKey` is doing two jobs.
-For a resolved game it is an identity; for a postseason **placeholder** it is a SLOT key —
-`postseason-classify.ts:340-341` mints `eventKey: roundKey` for a Team-TBD row before either team is
-known, and a placeholder has no provider id to key on. `slotOrder` has the same collapse
-(`:325-333`: `20 + slot` when the provider gives an explicit slot, a single `29` when it does not).
-So the fix is to stop resolved games inheriting the slot key, not to abolish it: prefer
-`providerGameId` for identity where a real game exists, keep the round key for the TBD slot.
-
-**The fix introduces a mid-lifecycle key change, and that is the part to specify first.** If a
-resolved game takes `providerGameId` while a placeholder keeps the round key, then a game's key
-CHANGES at the moment the slot resolves and teams are assigned — which for the first round happens
-days before kickoff, in December, on the surface this item exists to protect. Everything holding the
-old key across that boundary must survive or migrate it. Known holders, all reachable:
-
-- **An operator label override** saved against the slot key. `schedulePostseasonHelpers.ts:372-377`
-  matches `candidate.eventId === eventId`, so an override written before resolution silently stops
-  applying after it — the failure is a label quietly disappearing, not an error.
-- **A React list key** on a list spanning the change (`GameWeekPanel.tsx:213`, `key={g.key}`, and
-  `key: eventId` at `schedule.ts:503`). A key that changes remounts the row; four keys collapsing to
-  one is today's bug, and one key becoming four is its mirror.
-- **Any cached or memoised selector keyed on `key`/`eventId`**, and the placeholder participant slot
-  ids at `schedule.ts:492`/`:498` (`${eventId}-home` / `-away`), which feed identity resolution.
-
-**Acceptance boundary:** first-round games get distinct `eventKey` values; a test renders more than one
-first-round game in the same list; the placeholder path still resolves a TBD slot to its game; and a
-test drives the transition itself — a placeholder with a saved override, resolved to a real game,
-still carrying that override afterwards. The transition test is the one that cannot be deferred, since
-it is the failure the fix creates rather than the one it removes. End-to-end confirmation of the
-override and render paths is the first step, not a prerequisite for filing.
-
-**Separable from round grouping** — that work keys on `playoffRound` and `playoffCompetition`, not
-`eventId`, so it is not blocked.
-
-- Backlog slug: `PLATFORM-CFP-EVENT-KEY-COLLISION-v1`
+**MIGRATED to [#708](https://github.com/znpruitt/cfb-app/issues/708) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 120 — CLOSED, no action: the 2023/2024 field gap is unread and fails open
 
@@ -1539,69 +1102,8 @@ The check costs one query.
 
 ### Item 107 — PLATFORM-122 deferred review findings (three, all small)
 
-Accepted `/code-review` findings on PLATFORM-122 that were deliberately NOT taken in its remediation
-round, so the round stayed cohesive. None is a correctness defect; each removes a way the odds
-matching can quietly degrade later. Verified present on `c24950b9` 2026-09-02.
-
-#### 107a — the label normalizer is rebuilt on every call, on a public read path
-
-`oddsAttachment.ts:73` constructs `createOddsTeamLabelNormalizer` per call. Reviewer-measured
-**10.28 ms per build** (1,035 games, 138 teams, 928 mascot rows, averaged over 20 builds). It is built
-once per `buildNextOddsStore` — which `maintainCanonicalClosingLines` invokes on PUBLIC odds reads —
-once per `buildOddsByGame`, and once per `emptyOddsClassifier` reconciliation.
-
-The result is a pure function of `(games, resolver)` and nothing mutates it, so it memoizes cleanly;
-the resolver already caches its own registry by a `JSON.stringify` key for exactly this reason. Small
-against what PLATFORM-120 removed, but it is per-request CPU on a read path, which is the category
-this project just spent a campaign reducing.
-
-#### 107b — `buildDurableOddsSnapshot`'s normalizer parameter is optional, defaulting to pre-fix behavior
-
-`odds.ts:293`. `attachOddsEventsToSchedule` builds a normalizer when none is passed;
-`buildDurableOddsSnapshot` silently does not. A caller that attaches (getting the new matching) but
-omits the parameter here writes a snapshot whose `moneylineHome` / `homeSpread` / `awaySpread` are all
-`null` — **a durable row that exists but carries no line, which is harder to notice than no row at
-all.** Both current callers pass it, so this is prophylactic: make the parameter required, or default
-it the way the attachment layer does.
-
-#### 107c — the mascot table is a THIRD ungoverned team snapshot
-
-**Reframed 2026-09-02.** This was first filed as "add a refresh hook", which would institutionalise
-the problem rather than fix it. The table is a third CFBD-derived team snapshot alongside
-`src/data/teams.json` and the durable catalog, and **the right home for it is the Team-catalog source
-unification campaign** (see Planned and parked campaigns), which was scoped for two snapshots before
-PLATFORM-122 added this one.
-
-Do NOT simply wire `npm run fetch:odds-team-mascots` and call it closed — that makes three
-independently-refreshed sources permanent. Decide the sourcing question first; if unification is
-deferred, a refresh script plus a staleness signal is an acceptable INTERIM, recorded as such.
-
-The concrete defects below are real either way, and are what a divergence guard would have to catch.
-`scripts/fetch-cfbd-odds-team-mascots.ts`, verified 2026-09-02:
-
-- **No `package.json` script.** Every other generator in the repo has one (`fetch:teams`,
-  `manage:odds-schedule`, …). Wire `npm run fetch:odds-team-mascots`.
-- **`CFBD_ODDS_TEAM_MASCOTS_SOURCE` and `CFBD_ODDS_TEAM_MASCOTS_GENERATED_AT` are emitted but read by
-  nothing** — confirmed by grep across `src`, `scripts`, and `docs`. Nothing surfaces the table's age.
-- **`npm run fetch:teams` regenerates `teams.json` without touching the mascot table**, so the two
-  snapshots drift silently.
-- **Line 134 stamps `new Date().toISOString()` unconditionally**, so every regeneration produces a
-  diff even when the data is identical — which trains a reviewer to ignore the diff.
-
-Failure it allows: an FCS school renames or changes mascot next offseason, its provider label stops
-normalizing, its odds silently stop attaching, and the only symptom is an `unmatched_pair` diagnostic
-no surface reports on. Having System Health or the odds diagnostics read `GENERATED_AT` closes it.
-
-**Coverage is complete today, so drift is the ONLY way this breaks.** Measured 2026-09-02 against the
-2026 schedule: all **238** teams appearing in FBS-involving games resolve — every
-`"{School} {Mascot}"` provider label reaches the correct team identity, zero unresolved, zero
-wrong-identity. The table holds 928 rows (fbs 138, fcs 128, ii 171, iii 246, unclassified 245). Note
-this is a point-in-time answer: postseason opponents are not in the 2026 schedule yet, so bowl season
-introduces teams this check has not seen. The residual risk is naming drift, not missing rows —
-Nicholls and SE Louisiana both HAD rows and still needed static aliases because CFBD's school name
-differs from the schedule's.
-
-- Backlog slug: `PLATFORM-ODDS-MASCOT-FOLLOWUPS-v1`
+**MIGRATED to [#707](https://github.com/znpruitt/cfb-app/issues/707) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 106 — a third of fetched odds are discarded: mascot-suffixed non-FBS names never resolve
 
@@ -2239,58 +1741,8 @@ The issue is canonical for the ask, its evidence and its state. **This entry is 
 
 ### Item 100b — internal opening-slate marker for recap and look-ahead
 
-PLATFORM-120 deleted the member-visible week-0 derivation; this future marker must not restore it.
-Provider week 1 remains the rendered label, while the marker supplies only internal grouping.
-
-**DATE GATE REMOVED 2026-09-03 — this has a live 2026 consequence.** The earlier text read "the 2026
-opener is in the past, so nothing consumes this until then." That was wrong, and the defect is
-visible in production today: **Featured games renders nothing from 2026-08-27 through 2026-09-07.**
-
-Measured from the production replica: provider week 1 spans **2026-08-27 to 2026-09-07 with 455
-games**, against ~3 days and ~300 games for every other week (week 2: 09-10 to 09-13). Because that
-one bucket holds finished and upcoming games at the same time for twelve days,
-`deriveActiveSlateStatus` (`overview.ts`) reports `hasUpcoming: true` throughout, so
-`includeFinalWeekGames` is false, so `keyMatchups` filters through `isKeyMatchupState` — which admits
-only `inprogress`/`scheduled`/`unknown` and **excludes finals**. `resultCandidates` needs
-`hasUsableFinalScore`, gets nothing, and Featured is empty; `OverviewPanel.tsx:1644` then suppresses
-the section entirely. (The emptiness also proves standings coverage is `complete`; otherwise
-`includeFinalWeekGames` would be true and the finals would render.)
-
-The internal slate marker fixes exactly this: week 0 becomes its own cluster — all final, nothing
-upcoming — and Featured populates from it, which is the Week 0 recap card this marker was designed
-for. Not a 2027 nicety.
-
-`canonicalWeek` was doing double duty as the member-facing label and the internal grouping.
-PLATFORM-120 settled the label; this adds the grouping back where it belongs:
-
-- **week** stays provider-authoritative — both slates are W1, matching every other source;
-- **slate** becomes an internal date-cluster marker for recap/preview targeting, never rendered as a
-  week tab.
-
-Recap generation is server-side (`loadInsights.ts`, `selectors/insights.ts`), so slate identification
-happens where the full row set exists and the client never needs it.
-
-**The clustering implementation this rule needs was DELETED by PLATFORM-120** — `buildRegularSeasonDateClusters`,
-`buildRegularSeasonDateBuckets`, `normalizeRegularSeasonDateKey`, `diffDays`, and
-`REGULAR_SEASON_CLUSTER_GAP_DAYS = 3` all went with PLATFORM-120, correctly (nothing else consumed
-them).
-Recover them from `d6184c28:src/lib/regularSeasonWeekCalendar.ts` rather than rewriting ~100 lines
-from the rule statement below; that code already implements this exact 3-day-gap clustering.
-
-**A validated splitting rule** — trust the provider from week 2 onward and only disambiguate week 1:
-
-    providerWeek >= 2  -> trust CFBD
-    providerWeek == 1  -> cluster FBS week-1 rows by date, split at the FIRST gap >= 3 days;
-                          first cluster = opening slate
-
-Validated across all seven seasons. Two findings from that validation: **"largest gap" is the wrong
-splitter** (2025 has four games dated 2025-12-13 carrying provider week 1, making the largest gap 102
-days), and **FBS-relevant rows are required** — with all divisions, 2026's lower-division games fill
-Aug 27-31 continuously and no gap appears until Sept 3. The durable schedule intentionally remains
-complete after PLATFORM-120, so Item 100b must apply the shared relevance predicate at consumption
-rather than assume storage was filtered.
-
-- Backlog slug: `PLATFORM-WEEK-ZERO-MODEL-v1`
+**MIGRATED to [#706](https://github.com/znpruitt/cfb-app/issues/706) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 98 — league page content paint: three measured costs
 
@@ -2626,57 +2078,10 @@ diagnosis.
 
 ### Item 88 — Provider data health cannot describe a schedule-armed dataset
 
-Observed on `/admin/diagnostics` during the 2026 opening slate (2026-08-29), with live scoring
-working correctly at the time.
-
-**The issue is a model mismatch, not a wiring bug.** Provider data asks _how long since this dataset
-last refreshed_; Scheduler delivery asks _did the refresh that was expected actually happen_. For a
-fixed-cadence dataset those questions coincide, which is why schedule, rankings, and conferences read
-correctly. Scores is schedule-armed — refreshed per week partition, only while games sit in the
-kickoff window, and legitimately not refreshed for days outside one — so elapsed time carries no
-information about it and the first question has no meaningful answer.
-
-Both observable symptoms are consequences of that one mismatch:
-
-- Canonical status `scores:year:2026` has `lastAttemptAt: null` in production while every other active
-  dataset is populated. Nothing writes it, because scores never refreshes "the year";
-  `/api/cron/live-scores` records `weekPartitionScope(year, week, seasonType)`. Schedule appears
-  healthy only because `fullSeasonScheduleRefresh` happens to write a year scope as well.
-- `staleAfterMs` for scores is 48 hours, so the freshness dot reads `Current` for a scores cache two
-  days old. No fixed threshold can be right here: a two-day gap is correct in the offseason and
-  catastrophic mid-slate.
-
-**Severity corrected 2026-08-29 by live observation, having first been overstated here.** A real
-CFBD degradation later the same afternoon failed both live-scores and game-stats, and the platform
-DID surface it: Prioritized issues raised `JOB - LIVE-SCORES`, `JOB - GAME-STATS`, and
-`DATASET - SCORES  Scores refresh failed`. The week-partition failure write feeds the dataset-level
-warning, so a scores outage is not invisible. What remains true is narrower: the Provider data ROW
-SUMMARY still reads `Current` with `No refresh history` while that warning is active, so the row
-contradicts the issue list directly above it. This is a legibility defect in one column, not a
-detection gap.
-
-**Confirmed on SUCCESS and confirmed to generalize (2026-08-29 19:19Z).** After recovery, with every
-job green and no issues reported, both week-partition writers still read `No refresh history` in the
-row summary: `scores:year:2026` and `game-stats:year:2026` each have `lastAttemptAt: null` while
-game-stats had succeeded three minutes earlier and its cache state had moved `absent` to `available`.
-`schedule:year:2026` was populated at 19:02. So this is not scores-specific and not failure-specific
-— it affects every dataset whose refresh is partition-scoped, and it misreports while things are
-working. Fix it for the class, not for scores.
-
-**Do not fix by writing a synthetic year-scope record.** That populates the row while still answering
-the wrong question. The health model needs to express EXPECTATION for schedule-armed datasets, which
-is what Scheduler delivery already does and what PLATFORM-086B2B established as observation-versus-
-snapshot freshness for live scores. Consider whether the fix generalizes: game-stats is also
-automation-driven and also reads null.
-
-Acceptance boundary:
-
-- The Scores row distinguishes "no refresh was expected" from "a refresh was expected and did not
-  happen"; it never reports healthy in the second case.
-- With games in the kickoff window, the row stops reading healthy within one polling window of live
-  scoring stopping — proven by suppressing the writer in a test, not by reasoning about thresholds.
-- Outside the kickoff window, a multi-day gap does not raise an issue.
-- The row never reads healthy while an active issue names that same dataset.
+**SUPERSEDED by Item 132, now [#691](https://github.com/znpruitt/cfb-app/issues/691).** This is the
+STALE SECOND COPY of Item 88's heading — the first carries the supersession and this one kept the
+original text. **Two headings, one number, one marked and one not**, which is how it survived five
+earlier passes. Both attempts at this were built, reviewed and reverted; neither merged.
 
 ### Item 93 — nine CFBD call sites still carry the pre-PLATFORM-115 timeout
 
@@ -2989,78 +2394,13 @@ composition document's §7 at filing time.
 
 ### Item 168 — Matchups renders no odds, and the mockup says scheduled rows carry them
 
-**Split out of Item 143 on 2026-09-08**, after an implementer's read receipt stopped on the odds
-divergence and the ruling narrowed it. **This is the live half of widening 4**; the "live and final"
-half never existed (INDEX CARRY row 29, corrected).
-
-**The ask:** render odds on **scheduled** Matchups rows, with `Line not posted` when there is no line.
-
-**The data is already there.** `MatchupsWeekPanel` receives `oddsByKey` and reads it at `:158`; it
-simply never passes `footerSlot`. **The seam is open too** — Item 155 made the footer content-gated
-(`CompactGameScoreboard.tsx:245`), so any state may carry one. **This is caller work only.**
-
-**The empty state is specified and is not a spacer.** The mockup renders `Line not posted` as
-CONTENT on rows with no line (`:409`, `:433`). That is deliberately different from Item 155's ruling,
-which removed a reserved empty BAND from Matchups: a vertical list has no peer to align with, so it
-does not reserve height — but every scheduled row carrying a real string means the rows are uniform
-because they all have content, not because one is padded. **Do not reintroduce a reserved band.**
-
-**Live and final rows carry no odds.** Measured: all six `sb-odds` elements in the mockup sit in
-scheduled blocks. Do not add them elsewhere.
-
-**Blocker:** none. Independent of Item 143 — that slice is the status-row seam and this needs no seam.
+**MIGRATED to [#715](https://github.com/znpruitt/cfb-app/issues/715) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 169 — `Close` can fire on a game that has not been played
 
-**Reported from the 157/162/163 branch, 2026-09-08. Pre-existing, not caused by it.**
-
-`DESIGN.md:298`: _"Close" applies to live and final games only. On a scheduled game it is a
-projection, not a fact._ **`gameTags.ts` does not check state.** `gameMargin` (`:70`) reads
-`item.score?.away.score` and `item.score?.home.score` and returns their difference; the `close`
-branch (`:548`) fires on `margin != null && margin <= 7`.
-
-**So a scheduled row carrying a cached `0-0` score pack yields margin 0, takes the chip, and takes 80
-points of `watchlistPriority`** — sorting an unplayed game up a six-card list.
-
-**MEASURED AGAINST PRODUCTION 2026-09-08, read-only replica — the mechanism is REAL and has never hit
-an FBS game.** This is the reachability question the item said to answer first.
-
-Across all seven seasons in the score cache (2018, 2021-2026), packs carrying BOTH scores:
-
-| year | status | packs with scores |
-| --- | --- | --- |
-| 2026 | `final` | 454 |
-| 2026 | `scheduled` | **0** |
-| 2023 | `final` | 3,724 |
-| 2023 | `scheduled` | **6** |
-| all other years | `final` only | — |
-
-**Only two literal statuses exist in production — `final` and `scheduled`.** The provider never emits
-`postponed`, `canceled` or `suspended`, which the classifier's comment anticipates; it just leaves a
-disrupted game as `scheduled`.
-
-**The six are all Alderson-Broaddus**, a Division II school that closed mid-season in 2023. Their
-remaining games were cancelled and the provider left them `scheduled` at `0-0`. **Margin 0, so all six
-would take the chip and its 80 priority points.**
-
-**So: a live mechanism, zero FBS instances in seven seasons.** The trigger is a game cancelled outright
-and left `scheduled` with a zeroed score — a school closing, and plausibly a weather cancellation. The
-2023 rows are D-II and would be pruned by Item 150 anyway, so they never reached a member; nothing
-makes the mechanism division-specific.
-
-**Ruling: a real guard, not an emergency.** Schedule it as ordinary work rather than a fix. **The
-consequence if it does fire is worse than a stray chip** — 80 points of `watchlistPriority` sorts a
-cancelled game to the top of a six-card list, so the failure is "the most prominent upcoming game is
-one that will never be played".
-
-**The ask:** guard `close` on live-or-final, per the rule.
-
-**Why it needs an item rather than a fix in passing:** it is a behaviour change on a shipped surface,
-and the reachability depends on whether a scheduled game can hold a score pack at all. **Establish
-that first** — if it cannot, this is a latent guard rather than a live defect, and the item should say
-which.
-
-**Blocker:** none.
+**MIGRATED to [#716](https://github.com/znpruitt/cfb-app/issues/716) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 170 — CLOSED, NOT A DEFECT. The tertiary element clipping first is the hierarchy working
 
@@ -3306,18 +2646,8 @@ The issue is canonical for the ask, its evidence and its state. **This entry is 
 
 ### Item 182 — two unreachable empty branches on Overview
 
-**Reported from the 174-180 branch.** `FeaturedGamesList`'s `emptyMessage` ("No recent results yet.")
-became unreachable when Item 176 made the section hide, joining `WatchlistScoreboardList`'s, which
-already was — its section is gated on `.length > 0`.
-
-**Left in place deliberately.** Deleting is its own change with its own test surface and was not in the
-ruling; an unreachable BRANCH is also not an orphaned MODULE, so `AGENTS.md`'s no-consumer rule does
-not reach it.
-
-**The ask:** remove both, or record why an empty-state message is retained for a section that cannot
-render empty.
-
-**Blocker:** none. **Small**, but enumerate what each branch does besides print its message first.
+**MIGRATED to [#717](https://github.com/znpruitt/cfb-app/issues/717) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 183 — a vacuous assertion on the Schedule streaming test
 
@@ -3336,25 +2666,8 @@ The issue is canonical for the ask, its evidence and its state. **This entry is 
 
 ### Item 186 — the watchlist reason row has no overflow valve
 
-**Raised by both reviewers, in two separate rounds, with the remedy blocked both times.** That
-rhyming is the reason it is filed rather than patched.
-
-After Item 175 the reason label is a pill, so a card carrying a reason **and** a tag holds two
-`shrink-0` pills in a row that is `overflow-hidden whitespace-nowrap`. At narrow widths it **clips
-rather than ellipsizing**. Both reviewers measured it latent — roughly 270px of chips in a ~360px
-column — so it is not currently reachable.
-
-**The suggested remedy is mechanically blocked, and deliberately.** Adding `min-w-0` to the label turns
-`eyebrowTreatment.test.tsx` red on _the watchlist reason label renders the same treatment as a tag
-beside it_. `LAYOUT_ONLY_CLASSES` is `{inline-flex, hidden, sm:inline-flex}` and its docblock says
-_"exempting a class is how an equality test stops testing equality; keep this set to display alone."_
-**The implementer tried the fix rather than arguing about it, and reverted.**
-
-**This belongs to whoever owns the tag slot's overflow behaviour — Item 143.** The contract that blocks
-the local fix is the same contract that makes the treatment uniform; the valve has to live where the
-slot is defined, not at one caller.
-
-**Blocker:** Item 143.
+**MIGRATED to [#718](https://github.com/znpruitt/cfb-app/issues/718) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 187 — the third chip is uncounted
 
@@ -3512,46 +2825,8 @@ this outcome. **Piece 2 is now warranted, on evidence rather than preference.**
 
 ### Item 199 — the team catalog has zero alternate colours, and the field name is the likely reason
 
-**Found 2026-09-09 while measuring Item 198.** The production `team-database` holds **138 of 138 teams
-with a primary colour and 0 of 138 with an alternate.**
-
-**That is very unlikely to be true of the provider.** Most FBS teams have a documented alternate —
-Army, Iowa and Vanderbilt are gold, and those are three of the six teams whose primary is pure black.
-
-**The likely cause is a field-name mismatch at ingest.** `teamDatabase.ts:233` reads
-`record.altColor`; `:232` reads `record.color`, which works for all 138. **A field that works beside a
-field that returns nothing for every row is the signature.** CFBD's REST API has used `alt_color` in
-snake case.
-
-**CONFIRMED 2026-09-09 — one CFBD call to `/teams/fbs`, HTTP 200, 138 rows.** The field is
-**`alternateColor`**, not `altColor`. `teamDatabase.ts:233` reads a name the provider does not send, so
-every row resolves `undefined` and the count is 0 of 138. **A one-word mapping bug.**
-
-**Every team the catalog reports as colourless-beyond-repair has a usable alternate**, measured on
-`#0A0A0A` and passing the 3:1 floor **raw, with no lift required:**
-
-| team | primary | raw | alternate | raw |
-| --- | --- | --- | --- | --- |
-| Army | `#000000` | 1.06 | `#d3bc8d` | **10.70:1** |
-| Iowa | `#000000` | 1.06 | `#ffcd00` | **13.18:1** |
-| Vanderbilt | `#000000` | 1.06 | `#cfae70` | **9.37:1** |
-| California | `#041e42` | 1.20 | `#ffc72c` | **12.69:1** |
-| Nevada | `#041e42` | 1.20 | `#8a8d8f` | **5.93:1** |
-
-**So the six black teams are not a limit of OKLCH — they are a consequence of this bug.** With the
-mapping fixed and the catalog refreshed, they have gold to fall back to. **California, the team whose
-missing bar started this, has gold at 12.69:1.**
-
-**Why it matters beyond tidiness: it WAS the missing input for Item 198's six black teams, and now it
-is a fix rather than a hypothesis.** OKLCH
-rescues 85 of 91 dark primaries and can do nothing for pure black. **An alternate colour is the only
-remaining source of hue for those six** — grey is rejected by the design doc, and no bar conflates them
-with teams that genuinely have no colour.
-
-**The ask:** confirm the field name against one live response, and if it is wrong, fix the mapping and
-re-run the catalog refresh.
-
-**Blocker:** none. **Small, and it may resolve the only open half of Item 198.**
+**MERGED — merged `1cfa9df1`, PR #591.** Registry entry present. Status flipped 2026-09-10 during the
+queue migration; **the entry had been stale since the merge.**
 
 ### Item 200 — AGENTS.md has binding rules in lines nobody can read
 
@@ -3575,63 +2850,8 @@ The issue is canonical for the ask, its evidence and its state. **This entry is 
 
 ### Item 204 — an empty CFBD response wipes the team catalog, and the seed cannot rescue it
 
-**Found 2026-09-09 by the Item 199 lane, on the refresh path Item 199 asks the owner to click. Traced
-end to end here before filing.**
-
-`src/app/api/admin/team-database/route.ts:38` does `records: Array.isArray(rows) ? rows : []` and then
-commits unconditionally. **A CFBD 200 carrying a non-array body, or a genuine `[]`, replaces the 138-row
-catalog with an empty one.** `AGENTS.md` → **Core rules 1** requires prior-good retention and
-empty-replacement rejection for schedule, rankings and game-stats. **The team catalog — the thing every
-surface reads identity, classification and aliases from — is the one without it.**
-
-**`previousItems` looks like the guard and is not.** `buildTeamDatabaseFile` uses it only to compute
-`updatedCount` (`teamDatabase.ts:270-273`); it never contributes an item. With `records: []` the built
-file is `items: []`.
-
-**And the seed fallback does not fire, because the row is present-but-empty rather than absent.**
-`teamDatabaseStore.ts:112` is `toTeamDatabaseFile(record?.value) ?? (await readSourceCatalogFallback())`,
-and `toTeamDatabaseFile` returns null only when `items` is **not an array** (`:75`) — an empty array
-returns a valid file. **`??` does not fire on `[]`**, which is the identical defect this campaign already
-shipped and fixed in PLATFORM-128. Recovery is another successful sync; until then every surface has no
-team identity.
-
-**Second defect at the same boundary, and the compiler cannot see it.** `teamDatabaseStore.ts:68` reads
-`toNullableString(value.altColor)` where `value` is an untyped `Record<string, unknown>`. Renaming the
-stored field type-checks the object KEY and leaves the READ silent — 138 durable rows would return
-`undefined` with a green build. **The durable catalog is unvalidated in both directions.**
-
-**The ask:** reject an empty or non-array upstream body before committing, retain prior-good, and
-surface the refusal in the operator summary. **Blocker: none, and it should land BEFORE the Item 199
-catalog resync** — that click is what makes this reachable.
-
-> **SCOPE RULING 2026-09-09 — the standings guard is IN, the read-side validation is OUT (Item 205).**
-> The 204 receipt enumerated 17 readers and found **two that persist the degraded result**:
-> `leagueStandings.ts` caches wrong standings under the tag-only (`revalidate: false`) data cache, and
-> `seasonBuild.ts` archives label-only identity. **Damage that outlives the repair is what makes this
-> more than a write guard.**
->
-> **`leagueStandings.ts:880-887` argues against guarding, from a premise this item disproves** — that
-> `getTeamDatabaseItems` "already handles genuine absence internally." It does, for an ABSENT row; a
-> present-but-empty one routes past the fallback. **Two sibling files already carry the correct guard
-> AND the correct comment** (`canonicalSlate.ts:437-443`, `canonicalContext.ts:172-177`), so this is one
-> file holding a stale model, not a missing feature. Transplant the sibling shape verbatim and delete
-> the wrong reasoning — left standing it will talk the next reader out of the fix.
->
-> **Item 205 is the read-side field validation** at `teamDatabaseStore.ts:68`. The lane's "no" earned
-> itself: its trigger is a stored rename, which this slice's gate forbids, and doing it properly means a
-> typed reader over all 14 fields plus a policy for field-level failure — a different item with its own
-> blast radius across those same 17 readers.
->
-> **The partial-response boundary is ACCEPTED as stated: the guard catches total loss, not partial.**
-> No magnitude threshold. FBS membership moves 1-4 schools a year at realignment, so any floor low
-> enough to be safe is inert and any floor high enough to matter would refuse a legitimate conference
-> reshuffle until someone overrode it. **A threshold needing an override path is more machinery than the
-> risk earns.** Not filed; the boundary is written down here instead.
->
-> **The lane's own sharpening is adopted: key the guard on the BUILT item count, not the raw row
-> count.** A 138-row payload where CFBD renames `school` normalizes to `items: []`, and a
-> `rows.length === 0` check never sees it. Three rejection reasons, asserted separately — non-array,
-> empty response, and nonempty-but-zero-usable.
+**MERGED — merged `6ae1bd72`, PR #592.** Registry entry present. Status flipped 2026-09-10 during the
+queue migration; **the entry had been stale since the merge.**
 
 ### Item 205 — the durable catalog is read through an untyped `Record`
 
@@ -3645,68 +2865,8 @@ The issue is canonical for the ask, its evidence and its state. **This entry is 
 
 ### Item 207 — the polling-planner suite flakes on `plan-held`, and `reset()` is not holding
 
-**Observed 2026-09-09 during Item 204's merge gate.** Four tests in
-`src/app/api/cron/polling-planner/__tests__/route.test.ts` failed on one full-suite run and passed on
-the next, same commit:
-
-    405 - a dead day PAUSES both dense schedules and records what it did
-    406 - a game day ARMS both dense schedules with the derived expression
-    407 - an ABSENT or EMPTY season record sends nothing — absence is not a dead day
-    409 - the durable record stores only the PLANNING DAY's windows
-
-**The mechanism is in the failing run's own log:**
-`{"result":"no-op","reason":"plan-held","day":"2026-09-09","jobsHeld":2}`. The planner found a plan
-record already held for the planning day and no-op'd, so `pauses.length` was 0 instead of 2. **Durable
-state, not logic.**
-
-**What the Item 204 lane ruled out:** cross-file contamination — `run-tests.mjs:91` sets
-`APP_STATE_TEST_ISOLATION=1`, keying the backing file by pid, with no stale temp files on disk. The
-planner's tests are sequential and each calls `reset()`, which explicitly nulls the planner scope; its
-own comment says a neighbour's data would otherwise decide the outcome. **So a record exists after
-`reset()` nulled it, which is the part nobody can currently explain.**
-
-**Hypothesis worth testing first: an un-awaited write from a prior test in the same file landing AFTER
-`reset()`.** That would explain the nondeterminism, the ~1-in-3 rate, and why `reset()` appears not to
-work despite running. Sequential tests do not protect against a promise nobody awaited.
-
-**IMPORT-REACHABILITY DOES NOT CLEAR A TIMING-DEPENDENT FLAKE, and the Item 204 analysis should not be
-carried forward as if it did.** The lane established that the planner imports nothing from its diff,
-which is true and rules out a logic path. **It does not rule out perturbation:** Item 204 added 12
-tests, and anything changing execution order or duration can change whether a late write lands before
-or after a `reset()`. **The distinction matters — "this diff cannot cause it" is established, "this
-diff cannot make it more likely" is not.**
-
-> **DIAGNOSIS OVERTURNED TWICE. THE THIRD ONE IS MEASURED — 2026-09-10.**
->
-> **Not the leaked plan record** (`reset()` nulls that scope at `route.test.ts:53-55`), and **not the
-> swallowed `catch`** — planning's theory, refuted by instrumenting `route.ts:371` across **26 runs**:
-> it fired exactly once per run, always the deliberate injection in test 11, never spontaneously. On
-> every planted failure the settings read SUCCEEDED and returned a record that legitimately said paused.
->
-> **The cause is a stale pid-keyed backing file.** `appStateStore.ts:95-97` keys the test store by
-> `os.tmpdir()/cfb-app-app-state-test-${process.pid}.json` and **nothing ever deletes it**. There are
-> **14,022** such files in `$TMPDIR`, days old. macOS recycles pids, so a new test process can start
-> owning a previous run's fully-populated store. **394 of those files carry a
-> `provider-refresh-settings::global` record holding BOTH planner jobs** — and `reset()` clears the
-> planner record, the receipt scopes and the schedule keys, but **never the settings scope.**
->
-> **Measured in the wild: 181 app-state-initialising processes per suite run, of which 260 of 1,086
-> (23.9%) started with a pre-existing file at their pid path.** Planting exactly that payload gives
-> **20/20 with the reported four-test signature, byte for byte.**
->
-> **"Roughly 1 in 3" is NOT supported and should not be carried forward.** 0/6 full-suite runs, 0/60
-> file-only runs. The true rate depends on how the pid counter currently lines up with stale
-> generations, which drifts.
->
-> **The class is 4 suites, not 1.** 139 test files call `__resetAppStateForTests`; **136 also call
-> `await __deleteAppStateFileForTests()`** — the established idiom. Four do not: this one,
-> `usage-sample/route.test.ts`, `pollingPlannerRecordWrite.test.ts`, `providerUsageWriteOutcome.test.ts`.
-> The other three pass under the same planted payload today, but are structurally exposed.
-
-**The ask:** add the repo's own `await __deleteAppStateFileForTests()` idiom to all four exposed
-suites, making them the 137th–140th of 140 that do it. **Blocker:** none. **A flaky test in the
-pre-merge gate is worse than a failing one** — it trains every lane to re-run until green, which is how
-the next real regression gets merged.
+**MERGED — merged `a08c8e7e`, PR #593.** Registry entry present. Status flipped 2026-09-10 during the
+queue migration; **the entry had been stale since the merge.**
 
 ### Queue migration to GitHub Issues — NEW WORK IS FILED THERE FROM 2026-09-10
 
@@ -3719,6 +2879,25 @@ ask, state or evidence lives.**
 **A PR that closes an issue says `Closes #N` in its body.** That state transition is the single
 bookkeeping step that has failed by hand more than once in this campaign, and automating it is the
 main reason the switch is worth making.
+
+**THE QUEUE MIGRATION IS FINISHED. TWO ENTRIES REMAIN AND BOTH ARE CORRECT TO LEAVE:** **Item 87**,
+the active campaign — campaign status is what this file stays canonical for — and **Item 198**, in
+flight with the UI lane as this was written.
+
+**What the triage found across the whole queue, none of it visible before grouping:**
+
+| | |
+| --- | --- |
+| already **done** and still reading as open | **13** |
+| **duplicates** of another entry | **3** |
+| **blockers cleared** without anyone noticing | **2** |
+| items whose **prescription had become harmful** | **2** |
+| a heading carrying **two entries under one number** | **1** |
+
+**The two harmful prescriptions are the finding that justifies the exercise.** #595's fix would deadlock
+a three-client pool process-wide; #636's would reverse a shipped correction. **Both items were still
+accurate about their symptom.** A triage asking only "is this still broken?" marks both LIVE and leaves
+the traps armed.
 
 **THE SUB-100 TAIL IS FINISHED.** 57 items triaged, **53 migrated** (#595-#613, #623-#656), **3
 superseded** (13, 76, and the already-superseded 88), **1 closed** (#609). **Item 87 is NOT migrated
@@ -3821,73 +3000,8 @@ The issue is canonical for the ask, its evidence and its state. **This entry is 
 
 ### Item 210 — `npm test` can DROP PRODUCTION `app_state`, and the only guard is nobody exporting a variable
 
-**Found 2026-09-10 by `/code-review` on the Item 207 branch; mechanism verified here.** Filed ahead of
-Items 208 and 209 — **this is the next platform item.**
-
-`appStateStore.ts:1317-1325`:
-
-    export async function __deleteAppStateFileForTests(): Promise<void> {
-      if (hasDatabaseConfig()) {
-        await ensureDatabase();
-        await getPool().query('delete from app_state');
-        return;
-      }
-      await fs.rm(appStateFilePath(), { force: true });
-    }
-
-**It branches on `hasDatabaseConfig()`, NOT on `APP_STATE_TEST_ISOLATION`** — and `run-tests.mjs:89-91`
-spreads `...process.env` into the child, setting the isolation flag but passing any ambient
-`DATABASE_URL` straight through. **136 test files call this helper**, so an exported `DATABASE_URL`
-means `npm test` issues `delete from app_state` at the first suite that resets.
-
-**`app_state` is the only table in the database.** Leagues, rosters, drafts, archives, provider caches,
-scheduler receipts, the team catalog — all of it, one statement.
-
-**And `.env.operator.local` carries a production read-WRITE `DATABASE_URL` into every worktree by
-setup instruction.** `CLAUDE.md` already records that the guardrail is agent compliance rather than an
-absent credential; **this is the path that converts that weakness into total loss.** One `source` or
-`export` in the wrong shell.
-
-**Attribution, corrected from the review:** this is **pre-existing and broad**, not introduced by Item
-207. 136 files already call the helper, so 207's three additions do not meaningfully widen it. **That
-makes it older and more reachable than the review implied, not less serious.**
-
-**ESCALATED 2026-09-10 — THE DELETE IS THE SYMPTOM.** `APP_STATE_TEST_ISOLATION` appears in
-`appStateStore.ts` **exactly once**, at `:95`, choosing a temp file path inside `appStateFilePath()` —
-which the postgres branch never calls. **It gates no connection.** Ten sites branch on
-`hasDatabaseConfig()` alone (`Boolean(process.env.DATABASE_URL)`), and `getAppStateStorageStatus():114`
-reports `mode: 'postgres'` whenever a URL is present. **So with `DATABASE_URL` exported the entire suite
-transacts against the live store** — `setAppState:1184` rewriting real rows scope by scope for the whole
-run is the COMMON case, and reads at `:1147/:1219/:1252/:1277` mean **assertions run against live
-leagues, drafts and archives**. The `delete` is merely the audible one.
-
-**MEASURED by the lane, and four of my claims were wrong — all in the safe direction.** A
-pool-injection seam **does** exist (`__setAppStatePoolForTests:1439`); `withFakePg` uses it rather than
-mocking `pg`, which appears nowhere in the repo; the branch sites are **10 plus one reporter**, not 11;
-and the helper has **140** callers, not 136.
-
-**Guard cost: ZERO files.** Refusing only where a REAL pool would be constructed leaves 5,103/5,105 —
-exactly the Item 137 baseline. **Not one test constructs a real pool.** Three independent enumerations
-converge on one set of six: those failing under a blanket throw, those calling the injection seam, and
-those setting `DATABASE_URL`. **And `new Pool(` appears exactly once in all of `src/`** (`:209`), with
-`pg` imported nowhere else outside tests and `app_state` the only table — **one refusal covers the
-application's entire database surface.**
-
-**Severity bound, proven not assumed.** One file loads `.env.operator.local`
-(`scripts/recover-game-stats.ts:945`, into its own process); `run-tests.mjs` loads no env file; no shell
-profile references it; and Node v22 auto-loads no `.env` without a flag, so even a `vercel env pull`
-into `.env.local` would not reach `npm test`. **It takes a deliberate `export` or `source`. Not a hair
-trigger** — but when it fires there is no warning and the blast radius is the whole database.
-
-**OWNER RULING 2026-09-10 — TWO GUARDS, covering DIFFERENT failure modes rather than one twice.** The
-pool guard is conditioned on isolation being ON. **Run a test file directly — `node --test src/...`, no
-wrapper — and the flag is unset, so the pool guard never fires** and the delete helper transacts against
-whatever `DATABASE_URL` names; to that guard the case is indistinguishable from ordinary application
-startup. **The helper therefore needs its own refusal, stated as a property of the FUNCTION rather than
-of the connection:** `APP_STATE_TEST_ISOLATION !== '1'` → throw, unconditionally.
-
-**The ask:** both guards — refuse a real pool under isolation, and refuse the destructive helper outside
-isolation. **Blocker:** none. **The most dangerous thing either reviewer surfaced.**
+**MERGED — merged `421fab9c`, PR #594.** Registry entry present. Status flipped 2026-09-10 during the
+queue migration; **the entry had been stale since the merge.**
 
 ### Item 211 — three more destructive test seams with the same hole
 
