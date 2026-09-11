@@ -51,6 +51,9 @@ function realOwnerCount(item: OverviewGameItem): number {
 }
 
 function disruptedStatus(item: OverviewGameItem): OverviewGameRouteStatus | null {
+  // Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
+  // measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
+  // comment (Item 661).
   const rawLabel = isDisruptedStatusLabel(item.score?.status)
     ? item.score?.status
     : isDisruptedStatusLabel(item.bucket.game.rawStatus)

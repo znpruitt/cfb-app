@@ -189,6 +189,9 @@ export function deriveOwnerOutcome(params: { slateGame: OwnerSlateGame; score?: 
 } {
   const { slateGame, score } = params;
   const stateBucket = classifyScorePackStatus(score);
+  // Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
+  // measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
+  // comment (Item 661).
   const state = stateBucket === 'disrupted' ? 'scheduled' : stateBucket;
 
   if (!score) {
