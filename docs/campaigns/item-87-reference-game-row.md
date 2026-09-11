@@ -498,11 +498,12 @@ Overview is the only surface that partitions by state. The others render one lis
 
 **The order is self-managing.** Empty sections hide, so outside a slate Live disappears and the watchlist rises without any conditional logic. The order asserts itself only when Live has content, which is exactly when it should.
 
-**Section counts are totals, not visible counts** — but *not yet*. The current `.length`-after-`.slice` reads false, and making it a true total before Item 115 ships would state that ten games exist while four remain unreachable. The real defect is the silent cap; the count is only how it surfaces. Both land together.
+**Section counts are totals, not visible counts.** Item 115 / PR #744 pairs Live's total with
+reachable surplus for Live, Recent finals, and Watchlist. The latter two retain uncounted headings.
 
 **Recent finals uses displacement, not clearing.** It holds the N most recent completed games, displaced by newer results. No clearing event, no duration to calibrate. Week 0 solves itself.
 
-**Awaiting score** is a distinct state: past kickoff, no score available, `–` on both anchors, routed to Live by kickoff time. It persists up to `GAME_MAX_DURATION_MS` — eight hours — so Live can show blank rows for an afternoon, not a brief gap. Item 115's cap work must handle scoreless rows specifically rather than treating cap as a volume problem.
+**Awaiting score** is a distinct state: past kickoff, no score available, `–` on both anchors, routed to Live by kickoff time. It persists up to `GAME_MAX_DURATION_MS` — eight hours — so Live can show blank rows for an afternoon, not a brief gap. Item 115 pins the failure direction: six earlier awaiting rows may fill the default window while a later scored Live row remains reachable through expansion.
 
 ---
 
