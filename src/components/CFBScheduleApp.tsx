@@ -45,6 +45,7 @@ import { isAwaitingSeasonStartDate } from '../lib/selectors/seasonStartDate';
 import { buildScheduleFromApi, fetchSeasonSchedule, type AppGame } from '../lib/schedule';
 import { fetchTeamsCatalog } from '../lib/teamsCatalog';
 import type { TeamCatalogItem } from '../lib/teamIdentity';
+import { buildScoreboardTeamLogosById } from '../lib/teamLogos';
 import { fetchConferencesCatalog } from '../lib/conferencesCatalog';
 import { seasonStorageKeys } from '../lib/storageKeys';
 import { type OddsUsageSnapshot } from '../lib/apiUsage';
@@ -648,6 +649,12 @@ export default function CFBScheduleApp({
     }
     return m;
   }, [roster, isPreseason, initialPreseasonOwners]);
+  // The ownable catalog is FBS-only, so schedule games supply the provider ids
+  // needed to resolve logos for FCS opponents without widening that catalog.
+  const teamLogosById = useMemo(
+    () => buildScoreboardTeamLogosById(teamCatalog, games),
+    [games, teamCatalog]
+  );
   const filteredWeekGames = useMemo(() => {
     if (selectedWeek == null) return [] as AppGame[];
     const tf = teamFilter.toLowerCase();
@@ -1820,6 +1827,7 @@ export default function CFBScheduleApp({
                   context={overviewSnapshot.context}
                   displayTimeZone={presentationTimeZone}
                   rankingsByTeamId={overviewRankingsByTeamId}
+                  teamLogosById={teamLogosById}
                   rankings={rankings}
                   onOwnerSelect={(owner) => {
                     setSelectedOwner(owner);
@@ -1874,6 +1882,7 @@ export default function CFBScheduleApp({
                   onSavePostseasonOverride={isAdmin ? savePostseasonOverride : undefined}
                   currentDateMs={liveStaleClock || null}
                   focusedGameId={focusedGameId}
+                  teamLogosById={teamLogosById}
                 />
               ) : primarySurfaceKind === 'rankings' ? (
                 <RankingsPageContent
@@ -1904,6 +1913,7 @@ export default function CFBScheduleApp({
                   canonicalStandings={canonicalStandings}
                   liveDelta={liveDelta}
                   nowMs={liveStaleClock}
+                  teamLogosById={teamLogosById}
                 />
               ) : weekViewMode === 'matrix' ? (
                 <MatchupMatrixView
@@ -1924,6 +1934,7 @@ export default function CFBScheduleApp({
                   rankingsByTeamId={rankingsByTeamId}
                   currentDateMs={liveStaleClock || null}
                   focusedGameId={focusedGameId}
+                  teamLogosById={teamLogosById}
                 />
               )}
             </section>

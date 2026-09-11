@@ -130,7 +130,25 @@ Two lines, **away then home, in every state including final.** CFB convention. O
 
 Nominal away/home hold on neutral-site games; the neutral marker goes on the metadata line.
 
-### Line-start slot: the team colour bar
+### Line-start slot: the 28px team logo
+
+**Owner decision 2026-09-10, replacing the colour-bar direction below.** Every shared scoreboard
+team line starts with the CFBD team logo at 28px, drawn from the provider's 64px dark-surface asset.
+The row always reserves a 32px horizontal slot and a 32px minimum content height, including when a
+logo is unavailable. The adjacent team name remains canonical identity, so the image is decorative
+(`alt=""`, `aria-hidden`). FCS opponents resolve from the numeric provider participant id retained on
+the schedule game; the ownable catalog remains FBS-only. Overview, Matchups, Schedule and Postseason
+all consume this shared-row treatment. The recap remains post-adoption work behind Item 143.
+
+The owner compared the remapped solid bar, the alternate-colour outline and six logo sizes on real
+scoreboards. The outline was too garish, while remapping made expected distinctions collapse. At
+28px the logos were readable on mobile and desktop without becoming too large. Items 119 and 198 are
+therefore retired rather than paused, and `teamColors.ts` is removed.
+
+#### Superseded colour-bar investigation — retained as historical evidence
+
+Everything from here through the next `Prefix slot` heading records why the colour treatment was
+rejected. It is not a current implementation instruction.
 
 8px solid bar, ~72% opacity, luminance-normalised.
 
@@ -187,13 +205,13 @@ required to understand content. **This bar is redundant with the team name besid
 defensible aspiration here, not a mandate — and 1.431:1 is indefensible on any reading. **Item 198
 should choose a visibility floor deliberately rather than inheriting 3:1 by default.**
 
-#### The band shipped as 2.5 / 5.5 — and the argument that carried it was WRONG
+#### The band prototype used 2.5 / 5.5 — and the argument that carried it was WRONG
 
 **Recorded 2026-09-10, correcting my own reasoning rather than the decision.** I argued 2.5 over 3.0
 on the grounds that a 3.0 floor collapses the band — 0.734 of span on zinc-950 against 1.541 at 2.5 —
 and that the wider span preserves variation between teams.
 
-**The shipped measurement says the span is barely occupied either way.** Against `#333336`: min
+**The prototype measurement says the span is barely occupied either way.** Against `#333336`: min
 **2.5001**, median **2.5103**, max **3.4810** — the median sits one hundredth above the floor and the
 max IS the ceiling. **At least half the teams clamp to the floor and the remainder pile at the
 ceiling**, because 101 of 135 inputs were below the floor and clamp to it wherever it sits. A 3.0
@@ -363,7 +381,7 @@ The card owner's row takes a background tint. **Matchups only**, because a card 
 
 **Motion spec:** band travels and reverses (`alternate`, `ease-in-out`, ~4.5s each way). Easing matters — a linear reversal snaps at each end and reads as a bounce. Band at ~15% alpha over ~70% of the row: wide and soft rather than narrow and bright, so the same energy spread over more area reads as ambient. `prefers-reduced-motion` stops the sweep and keeps the base tint — a real degradation, since those users lose the provisional marker and keep only direction.
 
-**Requires `isolation: isolate` on the row.** A `z-index: -1` pseudo-element paints behind the *stacking context*, not behind its parent, so without it the tint disappears under the card's background. And the obvious workaround — `position: relative` on row content — re-anchors the team colour bar and shifts it. This is load-bearing.
+**Requires `isolation: isolate` on the row.** A `z-index: -1` pseudo-element paints behind the *stacking context*, not behind its parent, so without it the tint disappears under the card's background. The row is also the containing block for its absolutely positioned logo. This is load-bearing.
 
 ---
 
@@ -435,7 +453,7 @@ Which slots each surface supplies. **A slot a surface does not pass renders noth
 > apply to a date-grouped surface. Do not extend this row by symmetry.
 | **Status row** | yes | yes | yes | yes |
 | **Tag slot** | yes | yes | yes | yes |
-| **Team colour bar** | yes | yes | yes | yes* |
+| **28px team logo** | yes | yes | yes | no* |
 
 | **Rank / FCS prefix** | yes | yes | yes | yes |
 | **Record** | yes | yes | yes | no |
@@ -448,7 +466,9 @@ Which slots each surface supplies. **A slot a surface does not pass renders noth
 | **Date grouping** | no | no | **yes** | no |
 | **Week scoping** | no | **yes** (tab) | no | **yes** (week) |
 
-> **\* The recap's `yes` is a FORECAST, not current — marked 2026-09-09.** The recap is not a consumer of this component at all: `RecapPrimitives.tsx:277` still defines a bespoke `GameScoreboard`. Its row describes what it would supply after adoption, which is blocked behind Item 143's seam. **Item 119 does not give the recap a bar**, and a reader comparing this table to the code should not read the gap as a defect.
+> **\* The recap remains post-adoption work.** It is not a consumer of this component:
+> `RecapPrimitives.tsx` defines a bespoke `GameScoreboard`, and adoption is blocked behind Item 143's
+> seam. The absence of logos there is not a defect in this slice.
 
 **Three rows in that table are the whole reason it exists.** The owner tint is Matchups-only because a card is scoped to one owner. Date grouping is Schedule-only, which is why Schedule cannot reorder finals to the end. And the recap renders no records, which is why its status rows are frequently tag-only — a case no other consumer exercises.
 
@@ -544,8 +564,8 @@ Collected because each was found the hard way.
 
 **Missing `min-width: 0`.** The tag clips instead of the metadata, being last in DOM order — backwards.
 
-**`z-index: -1` without `isolation: isolate`.** The tint paints behind the card, not behind the row. And the obvious workaround shifts every colour bar.
+**`z-index: -1` without `isolation: isolate`.** The tint paints behind the card, not behind the row.
 
 **Reserving a footer band a surface never fills.** Not alignment; dead space.
 
-**A breakpoint derived from row anatomy, then anatomy changing.** Every tier moves when the row does. Logos in the line-start slot are the next one.
+**A breakpoint derived from row anatomy, then anatomy changing.** Every tier moves when the row does. The 32px logo slot is now part of that arithmetic.

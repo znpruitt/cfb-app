@@ -1,5 +1,10 @@
 # Item 87 — Follow-on input: team colour is now unrendered — Item 119 reframed
 
+> **SUPERSEDED 2026-09-10.** Item 119's restoration was prototyped, measured and rejected in favor
+> of a permanent 28px CFBD logo on the shared row. Item 198 is retired with it, and the orphaned
+> `teamColors.ts` module is removed. This document remains the historical account of the slice-5
+> regression; it no longer defines queued work.
+>
 > **Check `item-87-INDEX.md` before deciding from this document.** Parts of it may be superseded.
 >
 > **Status:** input for review, not applied.

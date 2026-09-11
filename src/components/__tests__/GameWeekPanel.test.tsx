@@ -158,6 +158,35 @@ test('each date group stays sorted by kickoff across mixed game states', () => {
   });
 });
 
+test('every date heading carries the full-width rule that explains an unmatched grid cell', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({ key: 'thursday', date: '2025-09-04T23:00:00.000Z' }),
+        game({ key: 'friday', date: '2025-09-05T23:00:00.000Z' }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="America/Chicago"
+    />
+  );
+  const dateHeadingClasses = Array.from(
+    html.matchAll(/<div class="([^"]*)" data-date-header=/g),
+    (match) => match[1] ?? ''
+  );
+
+  assert.equal(dateHeadingClasses.length, 2);
+  for (const classes of dateHeadingClasses) {
+    assert.match(classes, /\bborder-b-2\b/);
+    assert.match(classes, /\bdark:border-zinc-800\/80\b/);
+    assert.match(classes, /\bpb-2\b/);
+  }
+});
+
 test('late-night kickoff header matches kickoff text timezone', () => {
   const html = renderToStaticMarkup(
     <GameWeekPanel
@@ -665,6 +694,11 @@ test('shared scoreboard renders team rows, rankings, scores, and final status', 
       hideByes={true}
       displayTimeZone="UTC"
       rankingsByTeamId={new Map([['mississippi', { rank: 7, rankSource: 'ap' }]])}
+      teamLogosById={
+        new Map([
+          ['mississippi', { url: 'https://cdn.collegefootballdata.com/logos-dark/64/145.png' }],
+        ])
+      }
     />
   );
 
@@ -678,6 +712,8 @@ test('shared scoreboard renders team rows, rankings, scores, and final status', 
   assert.match(html, /data-scoreboard-value="away">38<\/span>/);
   assert.match(html, /data-scoreboard-value="home">19<\/span>/);
   assert.match(html, /data-scoreboard-side="away" data-scoreboard-leading="true"/);
+  assert.match(html, /data-scoreboard-team-logo="away"/);
+  assert.doesNotMatch(html, /data-scoreboard-team-logo="home"/);
 });
 
 test('expanded scoreboard uses provider casing for non-catalog teams and catalog scoreboard labels', () => {

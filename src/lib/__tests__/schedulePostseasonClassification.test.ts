@@ -387,6 +387,8 @@ function e4AppGame(overrides: Partial<AppGame>): AppGame {
     playoffRound: null,
     postseasonRole: overrides.postseasonRole ?? 'conference_championship',
     providerGameId: overrides.providerGameId ?? null,
+    homeProviderTeamId: overrides.homeProviderTeamId,
+    awayProviderTeamId: overrides.awayProviderTeamId,
     neutral: overrides.neutral ?? true,
     neutralDisplay: 'vs',
     venue: overrides.venue ?? null,
@@ -496,6 +498,74 @@ test('E4 collection: compatible placeholder hydration still works', () => {
     merged.participants.home.kind === 'team' ? merged.participants.home.teamId : null,
     'texas'
   );
+});
+
+test('E4 collection: participant provider ids stay paired through compatible fragment merges', () => {
+  const homeFragment = e4AppGame({
+    key: 'paired-provider-fragment-home',
+    participants: {
+      home: teamSlot('alpha', 'Alpha'),
+      away: { kind: 'placeholder', slotId: 'alpha-away', displayName: 'Team TBD' },
+    },
+    homeProviderTeamId: 101,
+    awayProviderTeamId: 102,
+    csvHome: 'Alpha',
+    canHome: 'Alpha',
+  });
+  const awayFragment = e4AppGame({
+    key: 'paired-provider-fragment-away',
+    participants: {
+      home: { kind: 'placeholder', slotId: 'beta-home', displayName: 'Team TBD' },
+      away: teamSlot('beta', 'Beta'),
+    },
+    homeProviderTeamId: 201,
+    awayProviderTeamId: 202,
+    csvAway: 'Beta',
+    canAway: 'Beta',
+  });
+
+  const [merged] = buildAuthoritativeGameCollection([], [homeFragment, awayFragment]);
+  assert.ok(merged, 'compatible fragments merge into one game');
+  assert.equal(merged.participants.home.kind, 'team');
+  assert.equal(merged.participants.away.kind, 'team');
+  assert.equal(merged.homeProviderTeamId, 101, "Alpha keeps its source row's provider id");
+  assert.equal(merged.awayProviderTeamId, 202, "Beta keeps its source row's provider id");
+});
+
+test('E4 collection: a participant override cannot retain the replaced team provider id', () => {
+  const base = e4AppGame({
+    eventId: 'manual-override-provider-pair',
+    providerGameId: '700',
+    participants: {
+      home: teamSlot('alpha', 'Alpha'),
+      away: teamSlot('beta', 'Beta'),
+    },
+    homeProviderTeamId: 101,
+    awayProviderTeamId: 202,
+    csvHome: 'Alpha',
+    csvAway: 'Beta',
+    canHome: 'Alpha',
+    canAway: 'Beta',
+  });
+  const [labelOnly] = buildAuthoritativeGameCollection([base], [], {
+    [base.eventId]: { label: 'Corrected label' },
+  });
+  assert.equal(labelOnly?.homeProviderTeamId, 101, "today's label-only UI path keeps Alpha paired");
+  assert.equal(labelOnly?.awayProviderTeamId, 202, "today's label-only UI path keeps Beta paired");
+
+  const [overridden] = buildAuthoritativeGameCollection([base], [], {
+    [base.eventId]: {
+      participants: {
+        home: teamSlot('gamma', 'Gamma'),
+        away: teamSlot('beta', 'Beta'),
+      },
+    },
+  });
+
+  assert.ok(overridden);
+  assert.equal(overridden.participants.home.kind, 'team');
+  assert.equal(overridden.homeProviderTeamId, null, 'Gamma never inherits the Alpha logo id');
+  assert.equal(overridden.awayProviderTeamId, 202, 'the unchanged Beta pairing survives');
 });
 
 test('E4 collection: a fragment naming a foreign team never hydrates the wrong game', () => {

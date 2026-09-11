@@ -175,6 +175,13 @@ export type AppGame = {
   startTimeTBD?: boolean | null;
   venueId?: number | null;
   completed?: boolean | null;
+  /**
+   * CFBD numeric participant ids retained for provider-owned presentation
+   * metadata such as scoreboard team logos. Canonical identity
+   * remains `participants.*.teamId`; these ids never participate in matching.
+   */
+  homeProviderTeamId?: number | null;
+  awayProviderTeamId?: number | null;
   /** Cache-only presentation media overlay (PLATFORM-086E1C1) — wire metadata only. */
   media?: ScheduleMediaItem[];
   providerGameId: string | null;
@@ -310,11 +317,12 @@ export {
 /**
  * PLATFORM-086E1A — carry the retained CFBD schedule metadata (structured playoff
  * identity + scalar flags) from a schedule wire item onto its canonical `AppGame`.
- * Each field is included ONLY when the wire item actually carries it, so a game
- * whose schedule row lacks this metadata keeps its exact prior `AppGame` shape
- * (no new `null` keys) — existing consumers and fixtures are unaffected. The
- * `playoffRoundSource` is validated against the closed provenance union so a
- * malformed persisted value can never masquerade as authoritative for rollover.
+ * Each field is included ONLY when the wire item actually carries it, so this
+ * builder does not add absent metadata keys. Later game merges and manual
+ * overrides may materialize participant provider-id keys as `null`/`undefined`
+ * to keep those ids paired with the surviving participant. `playoffRoundSource`
+ * is validated against the closed provenance union so a malformed persisted
+ * value can never masquerade as authoritative for rollover.
  */
 function retainedScheduleMetadata(item: ScheduleWireItem): Partial<AppGame> {
   const fields: Partial<AppGame> = {};
@@ -331,6 +339,8 @@ function retainedScheduleMetadata(item: ScheduleWireItem): Partial<AppGame> {
   if (typeof item.startTimeTBD === 'boolean') fields.startTimeTBD = item.startTimeTBD;
   if (typeof item.venueId === 'number') fields.venueId = item.venueId;
   if (typeof item.completed === 'boolean') fields.completed = item.completed;
+  if (typeof item.homeId === 'number') fields.homeProviderTeamId = item.homeId;
+  if (typeof item.awayId === 'number') fields.awayProviderTeamId = item.awayId;
   if (item.homeClassification) fields.homeClassification = item.homeClassification;
   if (item.awayClassification) fields.awayClassification = item.awayClassification;
   if (Array.isArray(item.media) && item.media.length > 0) fields.media = item.media;

@@ -45,6 +45,8 @@ test('media carries from the wire item onto its exact AppGame; absent media adds
         media: [{ gameId: '101', mediaType: 'tv', outlet: 'ESPN' }],
         startTimeTBD: true,
         venueId: 3504,
+        homeId: 251,
+        awayId: 242,
         venue: { stadium: 'DKR', city: 'Austin', state: 'TX', country: 'US' },
       }),
       wireItem({ id: '102', homeTeam: 'Georgia', awayTeam: 'Alabama', week: 2 }),
@@ -56,6 +58,8 @@ test('media carries from the wire item onto its exact AppGame; absent media adds
   assert.deepEqual(withMedia!.media, [{ gameId: '101', mediaType: 'tv', outlet: 'ESPN' }]);
   assert.equal(withMedia!.startTimeTBD, true);
   assert.equal(withMedia!.venueId, 3504);
+  assert.equal(withMedia!.homeProviderTeamId, 251);
+  assert.equal(withMedia!.awayProviderTeamId, 242);
   assert.deepEqual(withMedia!.venue, {
     stadium: 'DKR',
     city: 'Austin',

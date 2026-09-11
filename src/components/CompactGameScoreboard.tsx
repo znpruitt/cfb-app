@@ -1,13 +1,16 @@
 import React from 'react';
+import Image from 'next/image';
 
 import type { ProviderClassification } from '../lib/conferenceSubdivision';
 import { gameStatusLabelPresentation, type GameStatusLabelOptions } from '../lib/gameUi';
 import { rankSourceLabel, type RankSource } from '../lib/rankings';
 import type { GameScoreboardState } from '../lib/selectors/gameScoreboardState';
 import type { TeamRecordClient } from '../lib/selectors/teamRecordsClient';
+import { SCOREBOARD_TEAM_LOGO_DISPLAY_SIZE, type ScoreboardTeamLogo } from '../lib/teamLogos';
 
 export type CompactScoreboardParticipant = {
   teamName: string;
+  teamLogo?: ScoreboardTeamLogo | null;
   owner?: string | null;
   isCardOwnerTeam?: boolean;
   rank?: number | null;
@@ -50,16 +53,59 @@ function participantRowClasses(isLeading: boolean, hasLeader: boolean): string {
   return 'font-medium dark:text-zinc-100';
 }
 
-// The nearest painted app surface is zinc-950 (#09090b); under 5.5% white it rounds to
-// #171718. The current zinc-400 token (about #9f9fa9) remains about 6.8:1 over it,
+// `isCardOwnerTeam` is Matchups-only. Its zinc-800 card and optional zinc-950/10
+// outcome row become #333336 (scheduled) or #303033 (outcome) under 5.5% white.
+// The current zinc-400 token (about #9f9fa9) remains at least 4.8:1 over them,
 // clearing the 4.5:1 normal-text floor carried by record and owner suffixes.
 // `isolate` contains the negative-z tint in this row's stacking context; without that
-// boundary it can descend behind an intervening painted card surface. `relative` here
-// is conditional on the owner tint; Item 119 must supply its own containing block on
-// every row for its absolutely positioned team-colour bar rather than rely on this class.
-// Positioning children to lift them would re-anchor and shift that bar.
+// boundary it can descend behind an intervening painted card surface. The participant
+// row is the containing block for both the tint and the absolutely positioned logo.
 const CARD_OWNER_ROW_CLASSES =
-  "relative isolate after:pointer-events-none after:absolute after:inset-[0_-8px] after:z-[-1] dark:after:bg-[rgba(255,255,255,0.055)] after:content-['']";
+  "isolate after:pointer-events-none after:absolute after:inset-[0_-8px] after:z-[-1] dark:after:bg-[rgba(255,255,255,0.055)] after:content-['']";
+const SCOREBOARD_TEAM_LOGO_MAX_RETRIES = 2;
+const SCOREBOARD_TEAM_LOGO_RETRY_DELAY_MS = 1_000;
+
+function ScoreboardTeamLogoImage({
+  logo,
+  side,
+}: {
+  logo: ScoreboardTeamLogo;
+  side: 'away' | 'home';
+}): React.ReactElement {
+  const [attempt, setAttempt] = React.useState(0);
+  const [failed, setFailed] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!failed || attempt >= SCOREBOARD_TEAM_LOGO_MAX_RETRIES) return;
+
+    const retryTimer = setTimeout(
+      () => {
+        setAttempt((current) => current + 1);
+        setFailed(false);
+      },
+      SCOREBOARD_TEAM_LOGO_RETRY_DELAY_MS * 2 ** attempt
+    );
+    return () => clearTimeout(retryTimer);
+  }, [attempt, failed]);
+
+  return (
+    <Image
+      key={`${logo.url}:${attempt}`}
+      className="absolute left-0 top-1/2 block h-7 w-7 -translate-y-1/2 object-contain"
+      src={logo.url}
+      alt=""
+      width={SCOREBOARD_TEAM_LOGO_DISPLAY_SIZE}
+      height={SCOREBOARD_TEAM_LOGO_DISPLAY_SIZE}
+      unoptimized
+      aria-hidden="true"
+      hidden={failed}
+      onLoad={() => setFailed(false)}
+      onError={() => setFailed(true)}
+      data-scoreboard-team-logo={side}
+      data-scoreboard-team-logo-attempt={attempt}
+    />
+  );
+}
 
 function cardOwnerRowCornerClasses(
   side: 'away' | 'home',
@@ -223,7 +269,7 @@ export default function CompactGameScoreboard({
         return (
           <div
             key={side}
-            className={`flex items-baseline justify-between gap-3 py-0.5 text-sm ${participantRowClasses(
+            className={`relative flex min-h-8 items-baseline justify-between gap-3 py-1.5 pl-8 text-sm ${participantRowClasses(
               isLeading,
               leader !== null
             )}${
@@ -237,7 +283,14 @@ export default function CompactGameScoreboard({
             data-scoreboard-side={side}
             data-scoreboard-leading={isLeading}
           >
-            {/* Team identity leads the row; a future logo belongs immediately before this group. */}
+            {participant.teamLogo ? (
+              <ScoreboardTeamLogoImage
+                key={participant.teamLogo.url}
+                logo={participant.teamLogo}
+                side={side}
+              />
+            ) : null}
+            {/* The slot remains reserved when artwork is unavailable so both rows stay aligned. */}
             <span className="flex min-w-0 items-baseline gap-1.5 overflow-hidden whitespace-nowrap">
               {participant.rank !== null && participant.rank !== undefined ? (
                 <span className="shrink-0 text-xs font-normal dark:text-zinc-400" title={rankTitle}>

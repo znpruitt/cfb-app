@@ -168,7 +168,7 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 
 ## Cards and game results
 
-- Game cards sit on a dark surface tint with a light border — discrete, bordered objects (see Containerization). **They do not currently render a team-colour accent.** The per-line accent formerly provided by `GameScoreboard.tsx` was removed with that component in Item 87 slice 5; `teamColors.ts` is retained with no production consumer pending **Item 119**, which restores the accent as an 8px bar at the line start of each team row — **at FULL opacity, normalised into a lightness BAND, owner decision 2026-09-09 superseding the ~72% mute**, on the shared scoreboard row and therefore across Overview, Matchups and Schedule. The decision that a team with no catalog colour renders NO accent — rather than the former `#059669` fallback — ships with it. See [`docs/campaigns/item-87-followon-team-colour-regression.md`](docs/campaigns/item-87-followon-team-colour-regression.md) and [`docs/campaigns/item-87-followon-team-colour.md`](docs/campaigns/item-87-followon-team-colour.md) §A
+- Game cards sit on a dark surface tint with a light border — discrete, bordered objects (see Containerization). Each team line starts with a **28px CFBD logo**, rendered from the provider's 64px dark-surface asset on the shared scoreboard row and therefore across Overview, Matchups, Schedule and Postseason. The row reserves a 32px horizontal slot and its 32px minimum content height whether artwork is present or absent, so team labels align and adjacent logos cannot overlap. The logo is decorative (`alt=""`, `aria-hidden`) because the adjacent team name is canonical identity. The ownable catalog remains FBS-only; FCS opponents resolve the same CDN asset from the numeric participant id retained on the schedule game. A missing or invalid provider logo renders no image, never a colour fallback. This replaces and retires Items 119 and 198's team-colour bar/remapping direction after the owner compared both treatments on real scoreboards. Owner decision 2026-09-10
 - The shared compact scoreboard uses a status row followed by away and home team lines. Each team is
   the primary label, a single-valued classification marker is its prefix, an owner is a tertiary
   inline suffix, and the state-relevant value stays right-anchored. The prefix has exactly one state:
@@ -178,9 +178,9 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   II, Division III, case variants, and other near matches never render the FCS label. The FCS pill
   uses a hairline border, 3px radius, 3px horizontal padding, 9.5px semibold type, 0.06em tracking,
   and explicit 1.4 line height so it does not alter the participant row's height. Unowned opponents
-  render team-only; the same owner may appear on both lines without special treatment. The team
-  identity begins the row so a future logo slot can be inserted structurally; logos are not part of
-  the current component. An optional context slot immediately before the status row provides
+  render team-only; the same owner may appear on both lines without special treatment. The provider
+  logo leads the team identity in its reserved line-start slot. An optional context slot immediately
+  before the status row provides
   additive space for a reason label and substance without changing the scoreboard rows
 - The optional `isCardOwnerTeam` participant modifier is a caller-supplied ownership decision; the
   scoreboard never compares owner strings itself. When true, it renders a neutral 5.5%-white tint
@@ -262,6 +262,10 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   absent from Schedule until that surface adopts the same projection as separate reviewed work.
 - Compact scoreboard order is always away → home. Position communicates home/away; font weight,
   never reordering, marks the live leader or final winner
+- Schedule groups games by date in a two-column row-major grid. An odd game count therefore leaves an
+  intentional empty right-hand cell rather than moving the next date's first game backward. Every
+  date heading carries a full-width 2px bottom rule — one step heavier than the 1px separator below
+  each game — so that day boundary remains legible across both columns
 - Compact scoreboard state variants share that row anatomy: scheduled uses its metadata header,
   team-record anchors, and an odds footer; live uses a green dot + `Live` + clock status row and score
   anchors; awaiting uses a neutral `Awaiting score` status row with no live dot or live DOM state;

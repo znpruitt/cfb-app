@@ -1,5 +1,11 @@
 # Item 87 — Follow-on input: team colour bar and normalisation
 
+> **SUPERSEDED 2026-09-10.** The owner compared the colour treatments with 14–28px CFBD logo
+> prototypes on real scoreboards and chose a permanent 28px logo in the line-start slot. Items 119
+> and 198 are retired, and `teamColors.ts` is removed. This file is retained as the historical design
+> path, not as a current implementation instruction. The current contract is in `DESIGN.md` and
+> `item-87-reference-game-row.md` §3.
+>
 > **Check `item-87-INDEX.md` before deciding from this document.** Parts of it may be superseded.
 >
 > **Status:** input for review, not applied. Nothing here is recorded in the base addendum or `DESIGN.md` until stated otherwise.

@@ -64,11 +64,18 @@ test('postseason Schedule rows omit team records pending shared reconciliation',
       scoresByKey={{}}
       rosterByTeam={new Map()}
       isDebug={false}
+      teamLogosById={
+        new Map([
+          ['texas', { url: 'https://cdn.collegefootballdata.com/logos-dark/64/251.png' }],
+          ['georgia', { url: 'https://cdn.collegefootballdata.com/logos-dark/64/61.png' }],
+        ])
+      }
     />
   );
 
   assert.doesNotMatch(html, /data-scoreboard-record=/);
   assert.doesNotMatch(html, /data-scoreboard-value-kind="record"/);
+  assert.equal((html.match(/data-scoreboard-team-logo=/g) ?? []).length, 2);
 });
 
 test('postseason panel forwards focused game id to grouped game cards', () => {

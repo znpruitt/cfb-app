@@ -4,6 +4,7 @@ import type { CombinedOdds } from '../lib/odds';
 import { isTruePostseasonGame } from '../lib/postseason-display';
 import type { ScorePack } from '../lib/scores';
 import type { AppGame } from '../lib/schedule';
+import { EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID, type ScoreboardTeamLogosById } from '../lib/teamLogos';
 import GameWeekPanel from './GameWeekPanel';
 
 type PostseasonPanelProps = {
@@ -15,6 +16,7 @@ type PostseasonPanelProps = {
   onSavePostseasonOverride?: (eventId: string, patch: Partial<AppGame>) => void;
   currentDateMs?: number | null;
   focusedGameId?: string | null;
+  teamLogosById?: ScoreboardTeamLogosById;
 };
 
 const GROUP_ORDER = ['bowl', 'playoff', 'national_championship'] as const;
@@ -43,6 +45,7 @@ export default function PostseasonPanel({
   onSavePostseasonOverride,
   currentDateMs = null,
   focusedGameId = null,
+  teamLogosById = EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID,
 }: PostseasonPanelProps): React.ReactElement {
   const postseason = games.filter(isTruePostseasonGame);
 
@@ -85,6 +88,7 @@ export default function PostseasonPanel({
               onSavePostseasonOverride={onSavePostseasonOverride}
               currentDateMs={currentDateMs}
               focusedGameId={focusedGameId}
+              teamLogosById={teamLogosById}
             />
           </div>
         ))

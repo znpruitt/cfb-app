@@ -56,6 +56,7 @@ import {
 } from '../lib/rankings';
 import { getGameParticipantTeamId, type AppGame } from '../lib/schedule';
 import type { ScorePack } from '../lib/scores';
+import { EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID, type ScoreboardTeamLogosById } from '../lib/teamLogos';
 import { standingsCoverageNoticeWithSubject } from '../lib/standings';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
 import type { StandingsHistory } from '../lib/standingsHistory';
@@ -673,11 +674,13 @@ function GameCardList({
   rankingsByTeamId,
   teamRecordsByProviderGameId,
   state,
+  teamLogosById,
 }: {
   items: OverviewSectionItem[];
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
   teamRecordsByProviderGameId: TeamRecordsByProviderGameId;
   state: 'live' | 'final';
+  teamLogosById: ScoreboardTeamLogosById;
 }): React.ReactElement {
   if (items.length === 0) {
     return <p className="text-sm text-gray-500 dark:text-zinc-400">No games.</p>;
@@ -731,6 +734,7 @@ function GameCardList({
             matchupLabel={formatGameMatchupLabel(game)}
             away={{
               teamName: game.csvAway,
+              teamLogo: teamLogosById.get(awayTeamId),
               owner: displayOwner(item.bucket.awayOwner),
               rank: awayRanking.rank,
               rankSource: awayRanking.rankSource,
@@ -739,6 +743,7 @@ function GameCardList({
             }}
             home={{
               teamName: game.csvHome,
+              teamLogo: teamLogosById.get(homeTeamId),
               owner: displayOwner(item.bucket.homeOwner),
               rank: homeRanking.rank,
               rankSource: homeRanking.rankSource,
@@ -759,6 +764,7 @@ function WatchlistScoreboardList({
   rankingsByTeamId,
   teamRecordsByProviderGameId,
   oddsByKey,
+  teamLogosById,
 }: {
   prioritizedItems: PrioritizedOverviewSectionItem[];
   emptyMessage: string;
@@ -766,6 +772,7 @@ function WatchlistScoreboardList({
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
   teamRecordsByProviderGameId: TeamRecordsByProviderGameId;
   oddsByKey: Record<string, CombinedOdds>;
+  teamLogosById: ScoreboardTeamLogosById;
 }): React.ReactElement {
   if (prioritizedItems.length === 0) {
     return <EmptyState message={emptyMessage} compact />;
@@ -845,6 +852,7 @@ function WatchlistScoreboardList({
             }
             away={{
               teamName: game.csvAway,
+              teamLogo: teamLogosById.get(awayTeamId),
               owner: displayOwner(item.bucket.awayOwner),
               rank: awayRanking.rank,
               rankSource: awayRanking.rankSource,
@@ -853,6 +861,7 @@ function WatchlistScoreboardList({
             }}
             home={{
               teamName: game.csvHome,
+              teamLogo: teamLogosById.get(homeTeamId),
               owner: displayOwner(item.bucket.homeOwner),
               rank: homeRanking.rank,
               rankSource: homeRanking.rankSource,
@@ -872,11 +881,13 @@ function FeaturedGamesList({
   emptyMessage,
   rankingsByTeamId,
   teamRecordsByProviderGameId,
+  teamLogosById,
 }: {
   prioritizedItems: PrioritizedOverviewItem[];
   emptyMessage: string;
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
   teamRecordsByProviderGameId: TeamRecordsByProviderGameId;
+  teamLogosById: ScoreboardTeamLogosById;
 }): React.ReactElement {
   if (prioritizedItems.length === 0) {
     return <EmptyState message={emptyMessage} compact />;
@@ -934,6 +945,7 @@ function FeaturedGamesList({
             }
             away={{
               teamName: game.csvAway,
+              teamLogo: teamLogosById.get(awayTeamId),
               owner: displayOwner(item.bucket.awayOwner),
               rank: awayRanking.rank,
               rankSource: awayRanking.rankSource,
@@ -942,6 +954,7 @@ function FeaturedGamesList({
             }}
             home={{
               teamName: game.csvHome,
+              teamLogo: teamLogosById.get(homeTeamId),
               owner: displayOwner(item.bucket.homeOwner),
               rank: homeRanking.rank,
               rankSource: homeRanking.rankSource,
@@ -1343,6 +1356,7 @@ type OverviewPanelProps = {
   scoresByKey?: Record<string, ScorePack>;
   oddsByKey?: Record<string, CombinedOdds>;
   teamRecordsByProviderGameId?: TeamRecordsByProviderGameId;
+  teamLogosById?: ScoreboardTeamLogosById;
   rosterByTeam?: Map<string, string>;
   ownerColorMap?: Record<string, string>;
   canonicalStandings?: CanonicalStandings;
@@ -1390,6 +1404,7 @@ export default function OverviewPanel({
   scoresByKey = {},
   oddsByKey = EMPTY_OVERVIEW_ODDS_BY_KEY,
   teamRecordsByProviderGameId = EMPTY_TEAM_RECORDS_BY_PROVIDER_GAME_ID,
+  teamLogosById = EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID,
   rosterByTeam = new Map(),
   ownerColorMap = {},
   canonicalStandings,
@@ -1746,6 +1761,7 @@ export default function OverviewPanel({
                 emptyMessage="No recent results yet."
                 rankingsByTeamId={rankingsByTeamId}
                 teamRecordsByProviderGameId={teamRecordsByProviderGameId}
+                teamLogosById={teamLogosById}
               />
             </div>
           </section>
@@ -1776,6 +1792,7 @@ export default function OverviewPanel({
                 rankingsByTeamId={rankingsByTeamId}
                 teamRecordsByProviderGameId={teamRecordsByProviderGameId}
                 state="live"
+                teamLogosById={teamLogosById}
               />
             </div>
           </section>
@@ -1802,6 +1819,7 @@ export default function OverviewPanel({
                 rankingsByTeamId={rankingsByTeamId}
                 teamRecordsByProviderGameId={teamRecordsByProviderGameId}
                 state="final"
+                teamLogosById={teamLogosById}
               />
             </div>
           </section>
@@ -1834,6 +1852,7 @@ export default function OverviewPanel({
                 rankingsByTeamId={rankingsByTeamId}
                 teamRecordsByProviderGameId={teamRecordsByProviderGameId}
                 oddsByKey={oddsByKey}
+                teamLogosById={teamLogosById}
               />
             </div>
           </section>

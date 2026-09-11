@@ -7,8 +7,8 @@
 > **INDEX (verified 2026-09-08): CURRENT.** Nothing overrides it. Two things have moved since it was written and are
 > marked inline: the mobile wrapping rule is now RECONCILED into `DESIGN.md` as an amendment (2026-09-08), and the
 > Schedule 1320px arithmetic is Item 152's to settle. The status-row structure, the tint lifecycle and the
-> weight-suppression rule are decided and UNBUILT (Item 143 for Matchups; the rail retirement is Item 119's
-> precondition).
+> weight-suppression rule are decided and UNBUILT (Item 143 for Matchups). The rail retirement requires
+> planning reassignment after Item 119's 2026-09-10 retirement.
 
 **Reference mockup:** `mockups/matchups-schedule-mockup.html` — carries all of this. Where the mockup and this document disagree, the mockup is newer; say so rather than guessing.
 
@@ -154,7 +154,8 @@ The owner-row tint already carries direction on live games, so the dimming was a
 
 > **Surfaces governed:** **Overview, Matchups, Schedule, recap — all four.** — added 2026-09-08 per `item-87-INDEX.md` CARRY row 71. Reading absent or stale records as a defect rather than a sequenced dependency is a reviewer failure available on every surface (CARRY row 1).
 
-Records and team-colour bars absent from shipped rows are expected: Item 119 and the records wiring have not landed.
+Records absent from shipped rows remain expected pending their wiring. **SUPERSEDED 2026-09-10:**
+the team-colour bar did not land; 28px CFBD logos now occupy the shared line-start slot.
 
 > **LIVE — the reviewer-facing form of INDEX CARRY row 1 (verified 2026-09-08).** Records on Matchups and Schedule
 > are a sequencing state, not a defect; the 2026-09-08 ruling in `item-87-live-watchlist-scoreboard.md` → *Watchlist

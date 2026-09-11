@@ -1,7 +1,7 @@
 # Prompt Registry
 
 Status: Current ledger
-Last verified: 2026-09-09
+Last verified: 2026-09-10
 Owner: Project documentation
 Canonical for: prompt ledger / historical implementation record (not an active backlog)
 Supersedes: (none)
@@ -50,6 +50,47 @@ Rules:
 ---
 
 ## Prompt ledger (most recent first)
+
+### PLATFORM-198-COLOUR-BAND-CODEX-v1
+
+- Purpose: replace the scoreboard bar's unmeasured 72% opacity with a bounded identity treatment.
+  The owner rejected the colour implementation after real-scoreboard walkthroughs: remapping made
+  familiar reds converge, and the alternate-colour outline was too garish.
+- Scope: the shared scoreboard identity slot and all four consumers; FBS catalog artwork; retained
+  schedule provider IDs for FCS and seed-backed fallback; schedule date-group boundaries. The
+  temporary remap, outline, and logo-size controls were prototype-only and do not ship.
+- Outcome: a 28px CFBD logo from the guarded 64px dark-surface family now occupies a permanent 32px
+  slot on every participant row, with a 32px minimum row height. Production FBS resolves from the
+  durable catalog; seed-backed FBS and FCS resolve from retained schedule provider IDs. Populated
+  catalog artwork that fails the dark/size/host gate blocks fallback, while empty or absent artwork
+  permits it. Missing or failed artwork leaves the slot empty; `teamColors.ts` and every colour
+  fallback are removed. Schedule date headings add the owner-approved 2px full-width rule.
+- Review / verification: the owner compared 14/18/20/22/24/28px on mobile and desktop and selected
+  28px. Coverage measured 138/138 production FBS, 126/128 provider-catalog FCS, and 100/100 FCS
+  opponents on the live slate. The initial consolidated review found no High/Medium and four Lows;
+  round two found one Medium and three Lows; a targeted follow-up found one seed-only Low. All were
+  fixed, including participant/provider-ID pairing, dark-only rejection, seed fallback, changed-URL
+  recovery, bounded same-URL retries, and the 32px row guarantee. Final targeted reviews cleared
+  runtime code and found only the two registry omissions closed here. On rebased head:
+  `npm run build`, `npx tsc --noEmit`, and `npm run lint:all` exit 0; the full affected surface passes
+  253/253; `npm test` passes 5,143/5,145 with exactly the two standing Item 137 failures. Test delta
+  **+8, measured against current main** (5,137 → 5,145): 14 logo/render/lifecycle/provider-ID/date-rule
+  tests added and 6 assertions for the retired colour treatment removed or replaced.
+- Status: Implemented — PR #719; owner authorized merge after this documentation closeout on
+  2026-09-10.
+
+### PLATFORM-119-TEAM-COLOUR-BAR-CODEX-v2
+
+- Purpose: restore the removed team-colour line-start accent while rendering no accent for missing
+  catalog colour.
+- Scope: an 8px shared-row bar, a catalog colour memo, and conditional HSL/OKLCH measurement.
+- Outcome: superseded by the owner after prototype measurement. The held bar exposed fallback-green,
+  contrast, colour-collision, and near-neutral defects, but neither it nor Item 198's remap/outline
+  treatment ships. PLATFORM-198 records the permanent logo replacement.
+- Review / verification: the branch was mutation-tested for fallback absence, then measured against
+  the production catalog and real slates; that evidence led to Item 199's alternate-colour ingest fix
+  and ultimately to the logo decision rather than a colour-space port.
+- Status: Superseded/unimplemented — no team-colour accent ships.
 
 ### PLATFORM-620-TEST-STORE-LIFECYCLE-CLAUDE-v1
 

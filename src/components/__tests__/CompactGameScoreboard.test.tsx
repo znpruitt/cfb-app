@@ -334,6 +334,57 @@ test('only the exact fcs classification renders FCS, never Division II, III, or 
   assert.match(exactHtml, /data-scoreboard-classification="away">FCS<\/span>/);
 });
 
+test('team logos use the 28px CFBD artwork treatment in the structural line-start slot', () => {
+  const html = renderScoreboard({
+    away: {
+      teamName: 'Ohio State',
+      teamLogo: {
+        url: 'https://cdn.collegefootballdata.com/logos-dark/64/194.png',
+      },
+      owner: 'Gladney',
+      rank: 1,
+      score: 17,
+    },
+  });
+  const document = new JSDOM(html).window.document;
+  const image = document.querySelector('[data-scoreboard-team-logo="away"]');
+
+  assert.ok(image);
+  assert.equal(image.getAttribute('aria-hidden'), 'true');
+  assert.match(image.className, /(?:^|\s)h-7(?:\s|$)/);
+  assert.match(image.className, /(?:^|\s)w-7(?:\s|$)/);
+  assert.equal(
+    image.getAttribute('src'),
+    'https://cdn.collegefootballdata.com/logos-dark/64/194.png'
+  );
+  assert.equal(image.getAttribute('alt'), '');
+  assert.equal(image.getAttribute('width'), '28');
+  assert.equal(image.getAttribute('height'), '28');
+  assert.ok(classTokens(participantOpeningTag(html, 'away')).has('pl-8'));
+  assert.ok(classTokens(participantOpeningTag(html, 'away')).has('py-1.5'));
+  assert.ok(classTokens(participantOpeningTag(html, 'away')).has('min-h-8'));
+});
+
+test('the 32px line-start slot stays reserved when logo artwork is unavailable', () => {
+  const html = renderScoreboard({
+    away: {
+      teamName: 'Chicago State',
+      teamLogo: null,
+      classification: 'fcs',
+      score: 17,
+    },
+  });
+
+  const document = new JSDOM(html).window.document;
+  assert.equal(document.querySelector('[data-scoreboard-team-logo="away"]'), null);
+  for (const side of ['away', 'home'] as const) {
+    const classes = classTokens(participantOpeningTag(html, side));
+    assert.ok(classes.has('pl-8'), `${side} must reserve the 32px logo slot`);
+    assert.ok(classes.has('py-1.5'), `${side} must preserve the 28px logo row height`);
+    assert.ok(classes.has('min-h-8'), `${side} must enforce the 32px minimum row height`);
+  }
+});
+
 test('live scoreboard renders an unowned opponent as team-only', () => {
   const html = renderScoreboard({
     away: { teamName: 'Purdue', owner: null, rank: null, score: 6 },
@@ -409,7 +460,6 @@ test('explicit record states stay equivalent to the former non-scheduled rule ac
 
 test('every scoreboard state adds an isolated neutral tint only to the marked participant row', () => {
   const tintClasses = [
-    'relative',
     'isolate',
     'after:pointer-events-none',
     'after:absolute',
@@ -431,6 +481,11 @@ test('every scoreboard state adds an isolated neutral tint only to the marked pa
       const markedRow = participantOpeningTag(html, markedSide);
       const markedClasses = classTokens(markedRow);
       const unmarkedClasses = classTokens(participantOpeningTag(html, unmarkedSide));
+
+      assert.ok(
+        markedClasses.has('relative') && unmarkedClasses.has('relative'),
+        `${state} rows must preserve the shared containing block for the team-logo slot`
+      );
 
       for (const className of tintClasses) {
         assert.ok(

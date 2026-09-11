@@ -129,7 +129,7 @@ test('PLATFORM-199: a provider alternateColor becomes the stored altColor', () =
   });
 
   // `alternateColor` in, `altColor` stored — one mapping, not a rename. The
-  // stored name is what teamIdentity/teamDatabaseStore/teamColors all read.
+  // stored name is what teamIdentity and teamDatabaseStore read.
   assert.equal(normalized.item?.color, '#041E42');
   assert.equal(normalized.item?.altColor, '#FFC72C');
 });

@@ -38,9 +38,10 @@ They sit left, so their position shifts with tag count and label length instead 
 
 `GAME OF THE WEEK` renders as plain blue uppercase text; `Top 25 Matchup` renders as a title-case chip. Same slot, same row. **Filed as Item 157** — the watchlist is its clearest instance.
 
-### 5. No team colour bars
+### 5. Team identity slot
 
-Expected. **Item 119**, which covers Overview, Matchups and Schedule.
+**SUPERSEDED 2026-09-10.** Item 119's colour bars were retired after the owner walkthrough. The
+shared row instead renders 28px CFBD logos across Overview, Matchups, Schedule and Postseason.
 
 ### 6. No third column tier
 
@@ -88,6 +89,6 @@ Concretely: `item-87-followon-presentation-decisions.md` currently reads as a Sc
 
 ## Scope
 
-Mostly mechanical, and it overlaps Item 143 — the tag-in-status-row seam does not exist yet, so items 1, 2 and 3 above are blocked behind the same component work Matchups and the recap are waiting on. Item 157 owns item 4, Item 119 owns item 5.
+Mostly mechanical, and it overlaps Item 143 — the tag-in-status-row seam does not exist yet, so items 1, 2 and 3 above are blocked behind the same component work Matchups and the recap are waiting on. Item 157 owns item 4; the shared-row logo decision supersedes item 5.
 
 **Sequence it after 143.** Filing it now so the omission is recorded rather than rediscovered from a third screenshot.

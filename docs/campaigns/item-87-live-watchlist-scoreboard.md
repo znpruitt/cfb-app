@@ -11,7 +11,8 @@ slices 4–5 remain planned.
 > (`c730b4d0`), slice 5a via PLATFORM-087 / PR #570 (`4caa1a79`, 2026-09-05), slice 5 via
 > PLATFORM-087-SLICE-5-ITEM-112 / PR #572 (`f424222a`, 2026-09-05), and slice 5b via PR #575 (`fef083ae`,
 > 2026-09-06). The slice table under *Implementation slices* and the *Sequencing across campaigns* table are the
-> record; this header is not. Only Item 119 (team colour), Item 115 (expansion), Item 134 (third column tier) and
+> record; this header is not. Item 119's team-colour work was retired in favor of the 28px shared-row
+> logo on 2026-09-10. Only Item 115 (expansion), Item 134 (third column tier) and
 > the Item 143 Matchups divergences remain open on this surface.
 
 **Reference mockup:** `mockups/live-scoreboard-mockup.html`
@@ -484,7 +485,8 @@ The semantic border hues survived and nothing renders wrongly; the `/10` tint is
 > **DISCHARGED (verified 2026-09-08):** resolved for symmetry by slice 5 ("the declared Matchups result-tint
 > correction", registry PLATFORM-087-SLICE-5-ITEM-112). All three final tones now carry `dark:bg-zinc-950/10` with
 > only the border hue differing (`src/components/MatchupsWeekPanel.tsx:96-102`). The rail itself is the subject of
-> `item-87-followon-matchups-gap-analysis.md` §2 (retire it so Item 119 has the left edge).
+> `item-87-followon-matchups-gap-analysis.md` §2. Its former dependency on Item 119's left edge was
+> superseded by the 2026-09-10 logo decision; the rail/tint duplication itself remains.
 
 **The process note is the more useful half:** the criterion was a proxy for "green means one thing in this component", and optimising the proxy changed the thing the exclusion existed to protect. A count over a file is a proxy — write the invariant, not the count.
 

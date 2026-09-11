@@ -14,6 +14,7 @@ import { getPresentationTimeZone } from '../lib/weekPresentation';
 import type { TeamRankingEnrichment } from '../lib/rankings';
 import type { ScorePack } from '../lib/scores';
 import type { AppGame } from '../lib/schedule';
+import { EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID, type ScoreboardTeamLogosById } from '../lib/teamLogos';
 import CompactGameScoreboard from './CompactGameScoreboard';
 
 type Game = AppGame;
@@ -31,6 +32,7 @@ type GameWeekPanelProps = {
   displayTimeZone?: string;
   currentDateMs?: number | null;
   focusedGameId?: string | null;
+  teamLogosById?: ScoreboardTeamLogosById;
 };
 
 type FocusableElement = {
@@ -61,6 +63,7 @@ export default function GameWeekPanel({
   displayTimeZone = getPresentationTimeZone(),
   currentDateMs = null,
   focusedGameId = null,
+  teamLogosById = EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID,
 }: GameWeekPanelProps): React.ReactElement {
   const gameCardRefs = React.useRef<Map<string, HTMLDivElement>>(new Map());
   const viewModel = deriveGameWeekPanelViewModel({
@@ -87,7 +90,7 @@ export default function GameWeekPanel({
         {viewModel.groupedGames.map((group) => (
           <section key={group.dateKey} className="space-y-1.5">
             <div
-              className="text-sm font-semibold text-gray-700 dark:text-zinc-300"
+              className="border-b-2 border-gray-200 pb-2 text-sm font-semibold text-gray-700 dark:border-zinc-800/80 dark:text-zinc-300"
               data-date-header={group.dateKey}
             >
               {group.label}
@@ -170,6 +173,7 @@ export default function GameWeekPanel({
                       }
                       away={{
                         teamName: card.awayTeamName,
+                        teamLogo: teamLogosById.get(card.awayTeamId),
                         owner: awayDisplayOwner,
                         rank: awayRanking?.rank,
                         rankSource: awayRanking?.rankSource,
@@ -178,6 +182,7 @@ export default function GameWeekPanel({
                       }}
                       home={{
                         teamName: card.homeTeamName,
+                        teamLogo: teamLogosById.get(card.homeTeamId),
                         owner: homeDisplayOwner,
                         rank: homeRanking?.rank,
                         rankSource: homeRanking?.rankSource,

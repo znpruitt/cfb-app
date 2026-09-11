@@ -186,7 +186,7 @@ export const EYEBROW_TAG_CLASSES =
  * that already has some — which is Item 113's unbuilt work and is the only
  * plain-text bronze the design calls for (`mockups/live-scoreboard-mockup.html`
  * → `.fx-reason-row`). Named here rather than deleted per `AGENTS.md` →
- * *Documentation closeout timing*, alongside `teamColors.ts`/Item 119.
+ * *Documentation closeout timing*.
  */
 export const EYEBROW_REASON_CLASSES =
   'text-[10px] font-semibold uppercase tracking-wide text-[#c9a66b]';

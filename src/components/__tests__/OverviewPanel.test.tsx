@@ -349,6 +349,11 @@ test('overview watchlist uses the shared scoreboard with records and one odds fo
       context={defaultContext}
       displayTimeZone="UTC"
       rankingsByTeamId={new Map([['buffalo', { rank: 24, rankSource: 'ap' }]])}
+      teamLogosById={
+        new Map([
+          ['buffalo', { url: 'https://cdn.collegefootballdata.com/logos-dark/64/2084.png' }],
+        ])
+      }
       teamRecordsByProviderGameId={{
         '401868946': {
           away: { wins: 1, losses: 0 },
@@ -427,6 +432,8 @@ test('overview watchlist uses the shared scoreboard with records and one odds fo
   );
   assert.match(scoreboard, /data-scoreboard-odds-footer[^>]*>Buffalo -20\.5 · O\/U 55\.5<\/div>/);
   assert.doesNotMatch(scoreboard, />Scheduled<\/span>|———/);
+  assert.doesNotMatch(scoreboard, /data-scoreboard-team-logo="away"/);
+  assert.match(scoreboard, /data-scoreboard-team-logo="home"/);
 });
 
 /**
@@ -638,6 +645,12 @@ test('overview scoreboards keep current records across scheduled, live, and fina
         'live-pid': { away: { wins: 2, losses: 0 }, home: { wins: 1, losses: 1 } },
         'final-pid': { away: { wins: 3, losses: 0 }, home: { wins: 1, losses: 2 } },
       }}
+      teamLogosById={
+        new Map([
+          ['a', { url: 'https://cdn.collegefootballdata.com/logos-dark/64/1.png' }],
+          ['h', { url: 'https://cdn.collegefootballdata.com/logos-dark/64/2.png' }],
+        ])
+      }
     />
   );
 
@@ -652,6 +665,11 @@ test('overview scoreboards keep current records across scheduled, live, and fina
   assert.match(
     html,
     /data-scoreboard-state="final"[\s\S]*data-scoreboard-team="away">Texas<\/span><span[^>]*data-scoreboard-record="away">\(3–0\)<\/span><span[^>]*data-scoreboard-owner="away">Alice<\/span>[\s\S]*data-scoreboard-value-kind="score" data-scoreboard-value="away">31<\//
+  );
+  assert.equal(
+    (html.match(/data-scoreboard-team-logo=/g) ?? []).length,
+    6,
+    'scheduled, live, and recent-final renderers must each render both team logos'
   );
 });
 
@@ -986,6 +1004,12 @@ test('overview Featured renders its badge and existing tag in the final status r
       ]}
       context={defaultContext}
       displayTimeZone="UTC"
+      teamLogosById={
+        new Map([
+          ['a', { url: 'https://cdn.collegefootballdata.com/logos-dark/64/251.png' }],
+          ['h', { url: 'https://cdn.collegefootballdata.com/logos-dark/64/194.png' }],
+        ])
+      }
     />
   );
 
@@ -994,6 +1018,7 @@ test('overview Featured renders its badge and existing tag in the final status r
     /<article(?=[^>]*data-scoreboard-state="final")[\s\S]*?<\/article>/
   )?.[0];
   assert.ok(finalScoreboard, 'Featured final must render through CompactGameScoreboard');
+  assert.equal((finalScoreboard.match(/data-scoreboard-team-logo=/g) ?? []).length, 2);
   assert.match(finalScoreboard, /aria-label="Texas vs Ohio State"/);
   assert.doesNotMatch(finalScoreboard, /data-scoreboard-context-slot/);
   assert.match(finalScoreboard, /CFP Quarterfinal/);
