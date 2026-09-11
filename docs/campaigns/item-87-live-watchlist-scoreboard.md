@@ -379,7 +379,20 @@ and precedence remain selector-owned. **Must not be forked.**
 ### Resolved since validation
 
 - **Team records confirmed** and ship as the scheduled-state anchor (see Data).
-- **Section migration is immediate.** A finalising game moves to Recent finals at once, including while a section is expanded. Live surface; staleness is worse than motion. Expansion state itself survives (`useLiveRefresh.ts:443`; `router.refresh()` preserves client state) — only the content changes beneath it.
+- **Section migration is immediate.** A finalising game moves to Recent finals at once, including while a section is expanded. Live surface; staleness is worse than motion. Expansion state itself survives a refresh — only the content changes beneath it.
+  > **CORRECTED 2026-09-11 by the #676 read receipt, on two counts.** (1) The migration claim was
+  > unqualified and is not universally true: a final selected by the results-based Featured selector
+  > (`selectors/overview.ts:548-565`) is excluded from all three state sections
+  > (`selectors/overviewGameSections.ts:207`, pinned by *a Featured game remains outside all three
+  > state sections*, `overviewGameSections.test.ts:435`). **The accurate statement is that a
+  > finalising NON-FEATURED game moves to Recent finals immediately**; a Featured-selected final
+  > moves to Featured and stays out of Recent finals. That one-place partition is deliberate and is
+  > preserved. (2) The survival citation read `useLiveRefresh.ts:443`, which does not resolve — the
+  > file is `src/components/hooks/useLiveRefresh.ts` and names `router.refresh()` only in a comment.
+  > The mechanism was re-verified against the installed Next 15.5.24 refresh reducer, which applies a
+  > Flight patch to the current route tree and navigates only if the root layout changes, so an
+  > unkeyed client descendant is reconciled rather than remounted. **Two defects in one sentence is
+  > why standing rule 7 exists.**
 - **`unknown` state** stays in Live with "Awaiting score", per DESIGN.md `:51-52` (see above).
 
 ---

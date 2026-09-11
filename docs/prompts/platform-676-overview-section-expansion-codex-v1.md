@@ -103,6 +103,31 @@ become totals in the same change that makes the surplus reachable.** That is thi
 
 Live is currently the only section rendering a count. Establish that before widening it.
 
+## RULINGS ON THE READ RECEIPT — 2026-09-11, binding
+
+**Featured is OUT of this slice.** CARRY row 11 says *"Remove the results-based Featured rather than
+reworking it, and do not ship both tiles. Route is 113's call."* Adding an expand control to the
+results-based Featured (`OVERVIEW_RESULTS_LIMIT = 4`, `selectors/overview.ts:82`) is reworking it.
+**Three sections get expansion: Live, Recent finals, Watchlist.** This narrows the prompt's own
+"four capped sections" framing above — that framing was wrong, and this ruling supersedes it. Leave
+the Featured cap exactly as it is and do not touch `selectFeaturedGames`.
+
+**This is a selector change, and the receipt established that.** None of the three ordered surplus
+collections reaches the renderer: Live and Recent finals are `.slice`d at
+`overviewGameSections.ts:239-240`, and Watchlist stops *constructing* at the `break` on `:224`, so
+its remainder is never built. Scope stands as written; the weight moves to the selector.
+
+**Preserve the one-place partition.** Your Q6 correction is accepted and the canonical document is
+fixed. A finalising non-Featured game moves to Recent finals immediately; a Featured-selected final
+stays out of Recent finals. Do not change that in this slice.
+
+**Section-keyed state in `OverviewPanel`, per your Q5.** Renderer-keyed state would couple Live and
+Recent finals through `GameCardList`.
+
+**Counts.** Live is the only section with a count today, so row 14 binds there for certain. Whether
+Recent finals and Watchlist gain counts is yours to propose in the implementation report — if they
+do, they are totals from the start, never post-slice lengths.
+
 ## Row 15 — take the ragged option and say so
 
 Caps are counts, not rows. Whether they become tier-dependent belongs with the three-column tier,
