@@ -10,12 +10,9 @@
 // `inspect` would then refuse. Slice 3a built the reader seam for exactly this
 // and left it unwired; this is where slice 4 wires it.
 
-import path from 'node:path';
-
-import dotenv from 'dotenv';
-
 import type { RecordedIntentLookup, RecordedIntentReader } from './qstashSchedule.ts';
 
+import { operatorReadOnlyEnv } from './operatorEnv.ts';
 import { PLANNER_JOB_CONTRACTS } from './plannerScheduleContracts.ts';
 
 type PlannerJob = keyof typeof PLANNER_JOB_CONTRACTS;
@@ -95,28 +92,12 @@ export function plannerRecordConnectionString(
 }
 
 /**
- * The operator's read-only credential, read out of `.env.operator.local` WITHOUT
- * touching `process.env`.
- *
- * `dotenv`'s `processEnv` option is what makes that true: the file also holds the
- * full-privilege `DATABASE_URL`, and an earlier version of this slice loaded the
- * whole file into the environment of all ten CLIs — putting a production write
- * credential in six processes that never touch the store, and disabling
- * `appStateStore`'s local-file fallback so a stray store call would have written
- * to production. Only the one key this reader needs is taken, and only into a
- * private object.
- *
- * A value already in the ambient environment still wins, so a deployed or
- * shell-exported context works without the file.
+ * Re-exported so this module's long-standing import path and its contract test
+ * keep working. The IMPLEMENTATION moved to `operatorEnv.ts` when issue #703 added
+ * the write-side reader beside it: one module owns how an operator credential is
+ * read, so the two cannot grow separate answers to the same question.
  */
-export function operatorReadOnlyEnv(
-  ambient: Record<string, string | undefined> = process.env
-): Record<string, string | undefined> {
-  if (ambient.DATABASE_URL_RO?.trim()) return { DATABASE_URL_RO: ambient.DATABASE_URL_RO };
-  const parsed: Record<string, string> = {};
-  dotenv.config({ path: path.join(process.cwd(), '.env.operator.local'), processEnv: parsed });
-  return { DATABASE_URL_RO: parsed.DATABASE_URL_RO };
-}
+export { operatorReadOnlyEnv };
 
 /**
  * A reader for the four planner-owned schedules, or `unavailable` when this

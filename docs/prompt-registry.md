@@ -51,6 +51,76 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-703-OPERATOR-WRITE-CREDENTIAL-CLAUDE-v1
+
+- Purpose: [#703](https://github.com/znpruitt/cfb-app/issues/703) (from Item 192) —
+  `.env.operator.local` carries a production read-WRITE `DATABASE_URL` alongside the documented
+  read-only rail, and `CLAUDE.md` instructs copying that file into every worktree, so the guardrail
+  against an unauthorised production write was agent compliance rather than an absent credential.
+  Scope the credential to the one run that needs it.
+- Scope: `scripts/recover-game-stats.ts`, a new `scripts/lib/operatorEnv.ts`, and
+  `scripts/lib/plannerIntentReader.ts` (the read-side helper moved out of it). NOT the key move on
+  disk and NOT `CLAUDE.md`'s setup instruction — both the owner's, both still open at merge.
+- Outcome: **the enumeration corrected the issue and made the ask smaller.** The issue named
+  `init-` and `transition-game-stats-writer-control` as tools that "may read from this file today";
+  measured, neither does — both report `injecting env (15) from .env.local` and nothing else, and
+  resolve `storage mode: file-fallback` with `DATABASE_URL` unset, so they already require a shell
+  export. `recover-game-stats` was the ONLY process that put the write credential in `process.env`,
+  and narrower still: `runCapture` contains no write-capable call and `runApply` returns before its
+  single `commit` without `--apply`, so only `apply --apply` needs it. Capture and dry-run apply now
+  resolve `DATABASE_URL` from the read-only rail unconditionally; `apply --apply` reads a separate
+  `.env.operator.write.local` and refuses when it is absent, naming the file, the key, the source and
+  the `vercel env pull` prohibition IN THE ERROR TEXT, because the person reading it is by definition
+  not reading the docs. Verified against production: a real capture completes on the rail
+  (`current_user: audit_ro`, 1,333 ms cold / 198 ms warm).
+- Review / verification: against `8e26f3f9` — `npx tsc --noEmit` 0, `lint:all` 0, `npm test` 5,154 of
+  5,156, exactly the standing Item 137 baseline. Test delta **+11**, measured base-to-branch
+  (5,145 → 5,156). `/code-review high` returned three medium and three low; Codex returned one P2.
+  Seven findings, seven applied, one remediation round (`3d21946f`), three one-sided mutations.
+  **Two fixes are reported as UNCOVERED rather than claimed covered** — the exit code and the
+  writability guard both live in unexported `main()` and need a real database; they are verified by
+  running the tool (measured exit code 2) and by a direct probe, and calling that a test would be the
+  vacuous-test habit two prior slices removed.
+- Adjudications kept as precedent:
+  1. **I ARGUED A PRINCIPLE ON ONE PATH AND VIOLATED IT ON THE PATH BESIDE IT — and my own test
+     asserted the violation.** The read path refuses to honour an ambient credential because "a
+     preference is not a guarantee"; the write path preferred an ambient `DATABASE_URL`. Since `main`
+     runs a bare `dotenv.config()` before the credential is resolved, one stray `.env` or one shell
+     `export` would have become the target of `apply --apply`, with the tool printing a successful
+     merge against a database nobody chose. The test named "an ambient write credential wins" is
+     replaced by its opposite. The remaining asymmetry is now stated as deliberate rather than left
+     looking like an oversight: honouring an ambient READ-ONLY credential cannot cause a destructive
+     write.
+  2. **A FALSE SECURITY COMMENT, GIVEN A SECOND HOME, IS WORSE THAN ONE WRONG COPY.** "Only the one
+     key this reader needs is taken, and only into a private object" is false in its first half:
+     `dotenv` parses the WHOLE file into the private object and only the RETURN is narrowed. Measured
+     — a three-key file yields all three. The claim had been in `plannerIntentReader` since
+     PLATFORM-102 slice 4 and this branch copied it verbatim into a new module. **Its first home is
+     now clean by construction**, because the function moved rather than being duplicated; a test
+     comment that echoed the same wording was corrected too. The guarantee is `processEnv` isolation
+     and nothing more, so the parsed object must never be logged or returned wholesale.
+  3. **A credential is not proof of write access, and the slip is newly reachable.** The operator now
+     hand-populates the write file, so pasting the READ-ONLY string into it is plausible, and
+     `getAppStateStorageStatus()` cannot tell them apart — both report `postgres`, measured. Without
+     a check the run died inside `beginProviderRefreshAttempt` at exit 1 with a raw SQLSTATE 25006
+     AFTER printing `[apply] target …`. Probed directly: with the RO string as `DATABASE_URL`,
+     `assertAppStateWritable()` throws "cannot execute CREATE TABLE in a read-only transaction".
+  4. **A refusal must not contradict the file's own exit-code contract.** The credential refusal
+     exited 3, which this file reserves for "store or provider unavailable" — a transient condition —
+     so a wrapper that retries on 3 and stops on 2 would have retried forever against a file that is
+     never going to appear. Now 2.
+  5. **A test must not assert a fact about the host that ran it.** The suite asserted an unrelated
+     variable was absent from `process.env`; the runner forwards the ambient environment. Fixed by
+     snapshot, and proven by reproducing the host condition rather than reasoning about it — with the
+     variable set, the old assertion is red and the snapshot is green.
+  6. **THE SPLIT IS INERT UNTIL THE KEY MOVES, AND THE REFUSAL SAYS "CREATE" WITHOUT SAYING
+     "REMOVE".** The exposure this item exists to close is unchanged until `DATABASE_URL` is deleted
+     from `.env.operator.local` in every worktree; a half-fix is silent and looks complete. Filed as
+     the permanent detector in [#721](https://github.com/znpruitt/cfb-app/issues/721), deliberately
+     blocked on the deletion — a detector that fires on every machine before the key moves is a check
+     that cannot pass, which teaches people to skip the line.
+- Status: Implemented — PR #720 open from `claude/703-operator-write-credential`
+
 ### PLATFORM-198-COLOUR-BAND-CODEX-v1
 
 - Purpose: replace the scoreboard bar's unmeasured 72% opacity with a bounded identity treatment.
