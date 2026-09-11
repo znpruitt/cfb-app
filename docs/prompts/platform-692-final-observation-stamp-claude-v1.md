@@ -110,7 +110,20 @@ measured is when we first believed it, not when it settled. Merge prior over new
 > written only where `scoreMerge` sees the transition would miss roughly three quarters of games and
 > would silently measure "how fast live polling works" on a biased sample of the ones it caught.
 >
-> **This is a receipt question, not a settled design** — see Q7. Whatever you conclude, first-write-wins
+> **RESOLVED 2026-09-11 by the owner's hypothesis, measured: the gap is non-FBS games, and it is a
+> scope boundary rather than a defect.** Classifying all 454 week-1 rows against the FBS catalog gives
+> a perfect separation — of the 99 live-observed, **51 are FBS-vs-FBS, 48 involve one FBS team, and
+> ZERO involve neither**; of the 355 swept, **all 355 involve neither**. `/scoreboard` is pinned to
+> `classification=fbs` (`cfbd.ts`), so those games are invisible to live polling by construction and
+> the weekly sweep is the only thing that ever finals them. **Live polling is not missing finals; it
+> covers 100% of its own scope.**
+>
+> **So stamp in `scoreMerge` only, and say so.** That covers exactly the FBS population, which is the
+> population the polling tail exists to serve — a non-FBS game never drives a poll. Do NOT stamp on
+> the sweep path: it would record a weekly cron's clock for games that were never polled, and mixing
+> the two silently is the failure Q7 warned about. **The closeout must state that the distribution is
+> FBS-only and why**, so nobody later reads a 78% shortfall as missing coverage. Q7 now asks you to
+> confirm this, not to decide it. Whatever you conclude, first-write-wins
 > still holds: the question is when we FIRST believed a game was final, and a field that a later write
 > can move cannot answer it. **Prove the negative: a test in which a later write touches the row and
 > the stamp does not move.**
@@ -182,7 +195,10 @@ Answer from the files. Every question is one this prompt could be wrong about.
    doubles it.
 5. Does `classifyScorePackStatus` returning `'final'` mean the SCORE is final, or can a statistics-
    only or provisional state reach it? Cite the function. The C3 scope protection turns on this.
-7. **The sweep supplies most finals, and that may break the whole design.** `scoreMerge` is one of
+7. **Confirm the scope boundary rather than deciding it — the ruling above is measured, but verify
+   the mechanism in code.** Show where `/scoreboard`'s `classification=fbs` pinning happens and
+   confirm a game with no FBS participant cannot reach `scoreMerge`'s `finalized` branch at all.
+   If it CAN, the ruling is wrong and the old question returns: `scoreMerge` is one of
    three writers, but `finalScoreSweep` reaches the store through its own merge with a single fixed
    `now: observedAtMs` for the entire run. If the stamp lives only in `scoreMerge`'s `finalized`
    branch, is it written at all for a swept game? Trace it. Then say whether the stamp should also be
