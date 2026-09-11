@@ -748,7 +748,11 @@ task affects multiple documentation files, write only the projection owned by ea
   counts.
 - `docs/prompt-registry.md` owns the concise historical execution record for formal prompts. Record
   purpose, scope, outcome, review/verification, and implementation/merge status. Do not maintain
-  mutable `NEXT` pointers there.
+  mutable `NEXT` pointers there. **"Concise" is a measured budget, not a judgement call: aim at 100
+  words; past 140 the extra room buys measurements, limits and open work only; reconstruct past 200** — that file's "Entry format" section is canonical
+  for the template, those bounds, and the shared `L`/`RV` references that exist so an entry never
+  restates a common lesson or a boilerplate verification sentence. Five bullets is not a length
+  bound; entries have cleared it at 329 words.
 - `docs/completed-work.md` owns concise merged/shipped outcome milestones. It is not a current task
   list and must not restate canonical deferrals or future execution order.
 - Architecture and operations documents change only when the implemented behavior changes their

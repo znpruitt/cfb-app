@@ -47,7 +47,7 @@ v1's defects were all one thing: **Schedule-derived gates outranked positive sco
 
 **`isDisruptedStatusLabel` cannot return true on this data, so `summaryStateKind`'s `'disrupted'` branch is unreachable.**
 
-**v1 read `rawStatus` — a field no production row carries.** That was not a mistake in reasoning; `gameUi.ts:61-62` describes disrupted labels as live behaviour, and **#661 exists because that comment has now caused a wrong conclusion twice.**
+**v1 read `rawStatus` — a POPULATED field that can only hold `scheduled`.** (Corrected 2026-09-11; an earlier draft said "a field no production row carries", which is true of the cached wire row and false of the normalized `AppGame`. **#661's note is canonical — follow it, not this prompt, on any `rawStatus` question.**) That was not a mistake in reasoning; `gameUi.ts:61-62` describes disrupted labels as live behaviour, and **#661 exists because that comment has now caused a wrong conclusion twice.**
 
 **What this means for the reconstruction:**
 
@@ -105,7 +105,8 @@ STOP and report if the table turns out to be incomplete — a missing row is a d
 </gate>
 
 <completeness_contract>
-- **Each of the three evidence-beats-gate cases has its own test.** One test covering all three proves none of them.
+- **All three evidence-beats-gate cases get their own test — as REGRESSION GUARDS, not fixes.** Corrected 2026-09-11: this prompt said "two reachable cases" above and "each of the three" here, which contradicted itself. **All three already render correctly on current `main`** — the placeholder regression existed only on the stopped `80c6b6c2`. So the tests exist to stop the reconstruction re-breaking what v1 broke, and **the placeholder case specifically guards the regression v1 created.** One test covering all three proves none of them.
+- **The disrupted case is labelled SYNTHETIC forward-looking guard coverage**, in the test name or a comment beside it. It is not production coverage and must not read as though it were.
 - **Each is mutation-proven**, and the report names **which side stayed green** — `AGENTS.md` binds this.
 - **Both `startTimeTBD` shapes are asserted separately** — `true` and `undefined`. One test covering both proves neither.
 - **A disrupted row with a winning live score asserts the notice is SUPPRESSED**, not merely that the state is `live`.
