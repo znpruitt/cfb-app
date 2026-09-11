@@ -21,7 +21,7 @@ This is the **source-of-truth map** for the project's documentation. Start here 
 | [`docs/README.md`](README.md) | This documentation map + doc-ownership boundaries + the documentation-system's own maintenance roadmap | Current |
 | [`docs/next-tasks.md`](next-tasks.md) | Current execution order, planned/parked work, blockers, and the ONE canonical list of unresolved decisions/deferrals; the only doc that may mark work `NEXT`/`CURRENT` | Current |
 | [`docs/roadmap.md`](roadmap.md) | Campaign definitions, goals, dependencies, coarse future sequencing, and development philosophy — direction, not PR internals | Current |
-| [`docs/prompt-registry.md`](prompt-registry.md) | Historical ledger of formal prompts and their execution outcomes (IDs, scope, outcomes, merge state) — **not a backlog**, never a `NEXT` pointer | Current (ledger) |
+| [`docs/prompt-registry.md`](prompt-registry.md) | Prompt/version history, with per-entry implementation status, change references, supersession decisions, and verification limits. **Not an active backlog or current runtime authority.** | Current (ledger) |
 | [`docs/completed-work.md`](completed-work.md) | Consolidated point-in-time delivery history, with per-source PR/merge references and historical checkpoints. **Not authoritative for current implementation, deployment state, or planned work.** | Historical |
 | [`docs/architecture/overview.md`](architecture/overview.md) | High-level runtime architecture, canonical data-flow overview, source-of-truth hierarchy, architecture-doc index | Current |
 | [`docs/architecture/game-data-flow.md`](architecture/game-data-flow.md) | Schedule → canonical games, score/odds attachment, game-stats ingestion/evidence flow, public cache-reader + authorized-refresh policy, provider quota | Current |
@@ -63,7 +63,7 @@ ownership during closeout"**; this index summarizes the model rather than duplic
 |---|---|
 | `next-tasks.md` | Current execution order, planned work, parked work, blockers, and the one canonical list of unresolved decisions/deferrals |
 | `roadmap.md` | Campaign definitions, goals, dependencies, and coarse future sequencing |
-| `prompt-registry.md` | Historical ledger of formal prompts and their execution outcomes |
+| `prompt-registry.md` | Prompt/version history, with per-entry implementation status, change references, supersession decisions, and verification limits. Not an active backlog or current runtime authority |
 | `completed-work.md` | Consolidated point-in-time delivery history, with per-source PR/merge references and historical checkpoints. Not authoritative for current implementation, deployment state, or planned work |
 
 Working rules:

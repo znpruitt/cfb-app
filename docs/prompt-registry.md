@@ -1,7 +1,8 @@
 # Prompt Registry
 
-Status: Current ledger
-Last verified: 2026-09-10
+Status: Current ledger; historical entries consolidated
+Source last-verified label: 2026-09-10
+Editorial consolidation: 2026-09-11
 Owner: Project documentation
 Canonical for: prompt ledger / historical implementation record (not an active backlog)
 Supersedes: (none)
@@ -18,7 +19,7 @@ The registry should remain:
 - high-signal
 - manually maintained
 
-`Last verified` for this ledger means the structure, newest entries, ordering, cross-links, and
+The source’s `Last verified` label for this ledger means the structure, newest entries, ordering, cross-links, and
 this file-level guidance were verified — not that every historical implementation claim was
 re-proven against the runtime.
 
@@ -42,14 +43,39 @@ Rules:
 - `Status` records implementation/merge state only (e.g. `Merged (PR #N, <commit>, <date>)`,
   `Implemented — PR open`, `Superseded/unimplemented`). It must NOT carry a mutable `NEXT`
   pointer — the current queue lives only in `docs/next-tasks.md`.
-- Keep most-recent-first ordering.
+- Keep most-recent-first ordering for new entries. Historical source order is retained here; undated entries are not assigned invented dates.
 - **Concise legacy formats are grandfathered.** Do not expand or mechanically restyle an
   already-short record merely to match the current labels. DOCS-014 compacted verbose historical
   records; Git and PR history retain their former forensic detail.
+- Use one entry template only. Binding prompt-ID/header governance remains in `AGENTS.md` / `CLAUDE.md`; this ledger records prompts rather than redefining that governance.
+- Preserve each prompt/version heading and its own status, PR and commit references. Consolidate recurring lessons below, with a source link; do not pool changes across a campaign.
+- Keep a dated correction or supersession beside the historical claim it qualifies. Do not turn “implemented,” “merge approved,” or “merged” into “production activated.”
+- Record unique verification evidence, exceptions and open work; use a shared review statement only when it exactly matches the source assertion.
 
 ---
 
-## Prompt ledger (most recent first)
+## Reading this consolidation
+
+All 608 source entry headings remain in their supplied order, including retroactive and superseded entries. The two example headings were templates, not prompt records; only the opening template remains. Each prompt heading is its own lookup/evidence index: its status and references stay with it. Already concise entries retain their content except exact boilerplate substitutions and scope disclaimers.
+
+This is an editorial consolidation of the attachment, not a repository, provider or deployment audit. Historical statements are attributed to their entries, not asserted as current runtime truth. `Source last-verified label` retains the original date even though newer entries exist. No new verification date is invented for those implementation claims.
+
+Named scope paths are examples, never complete changed-file inventories. Where present, PRs and merge commits recover the actual change. “Other source hashes” retains additional implementation/review/base hashes from that same entry; it does not certify them as merges. Numbered references can also denote issues or review findings. Missing merge metadata remains missing, including entries describing implementation without a merge reference.
+
+## Shared lessons from the recorded reviews
+
+These consolidate recurring historical observations, not new project-governance rules. The binding instructions remain in `AGENTS.md` / `CLAUDE.md`. Distinct evidence, incident consequences and exceptions stay in each source entry.
+
+| Lesson | Reusable conclusion | Example source prompts |
+| --- | --- | --- |
+| L1 — Measure the population | A search pattern, storage-row count, cached snapshot or zero-test invocation may not observe the population named in the claim. Check the instrument and denominator; report coverage and uncertainty. | PLATFORM-661-DISRUPTED-VOCABULARY-NOTE-CLAUDE-v1; PLATFORM-619-PLANNER-SETTINGS-CONFLATION-CLAUDE-v1; PLATFORM-207-PLANNER-TEST-ISOLATION-CLAUDE-v1; POLISH-024-RETIRE-OVERVIEW-SECTION-ORDER-v1 |
+| L2 — Preserve historical evidence | Commit prose is a claim, not proof. Label projections, date-sensitive tests, intermediate designs and retractions. Later truth does not erase earlier state. | PLATFORM-102-SLICE-4-ACTIVATION-v1; POLISH-018-LIVE-STATUS-TREATMENT-v1; PLATFORM-127-RETAIN-PROVIDER-USAGE-SERIES-v1 |
+| L3 — Share the actual boundary | Enforce one contract at the sink and reuse the nearest vocabulary/authority. Two copied helpers, predicates, test tables or sandboxes can diverge while their comments claim unity. | PLATFORM-619-PLANNER-SETTINGS-CONFLATION-CLAUDE-v1; PLATFORM-211-DESTRUCTIVE-SEAM-REFUSALS-CLAUDE-v1; PLATFORM-102-SLICE-3A-PLANNER-RECORD-v1 |
+| L4 — Prove the observer | Negative assertions need positive controls. A mutation must discriminate the intended property, not merely turn a test red. Sandbox harmful paths before breaking their guards, and test the safety observer independently. | PLATFORM-210-TEST-ISOLATION-GUARD-CLAUDE-v1; PLATFORM-211-DESTRUCTIVE-SEAM-REFUSALS-CLAUDE-v1; PLATFORM-204-CATALOG-EMPTY-GUARD-CLAUDE-v1 |
+| L5 — Bound the safety claim | Measurement must preserve its population. Exclusive creation provides isolation; cleanup bounds debris. A credential is not proof of writability, and a verified probe is not automated test coverage. | PLATFORM-620-TEST-STORE-LIFECYCLE-CLAUDE-v1; PLATFORM-703-OPERATOR-WRITE-CREDENTIAL-CLAUDE-v1 |
+| L6 — Re-derive changed assumptions | Repeated adjacent fixes can expose a wrong model or scope. Reconsider existing branches when preconditions change; distinguish absent, empty, failed and uncertain. Preserve owner-decided limits and deferred work. | PLATFORM-110B-CORRECTION-RECONCILIATION-CLAUDE-v1; PLATFORM-102-SLICE-3B-DELIVERY-CONSUMER-v1; PLATFORM-094-TEAM-ASSIGNMENT-READINESS-v1 |
+
+## Prompt ledger (source order retained)
 
 ### PLATFORM-727-SCHEDULE-AWAITING-RECONSTRUCTION-CODEX-v2
 
@@ -87,197 +113,41 @@ Rules:
 
 ### PLATFORM-661-DISRUPTED-VOCABULARY-NOTE-CLAUDE-v1
 
-- Purpose: [#661](https://github.com/znpruitt/cfb-app/issues/661) — comments described the provider
-  disruption vocabulary (`postponed`/`canceled`/`suspended`/`delayed`) as live behaviour, and were
-  read as fact twice: a wrong conclusion about Item 169, and disruption handling built for #727.
-  One authoritative measurement at the classifier; every other comment defers to it.
-- Scope: `src/lib/gameStatus.ts` (the note) plus one identical pointer sentence in 32 further
-  non-test modules — 33 files, comments only, no behaviour change. Widened from the four originally
-  named comments by owner decision 2026-09-11 under `AGENTS.md` ("correcting a claim means grepping
-  for it"); **33 files exceeds the 15-file sizing signal, approved explicitly**, on four conditions
-  (identical sentence, nothing else touched, count reported, `trends.ts` read closely), all met.
-- Outcome: the note records both populations with their date (2026-09-11: 22,760 schedule rows all
-  `scheduled`; 20,424 score values, `final` 19,524 / `scheduled` 900), the Alderson-Broaddus worked
-  example **in the score cache** (6 `scheduled` 0-0, 5 `final` 0-0 — a cancelled game can arrive
-  marked COMPLETE), and a SCOPE section stating what a resting-state snapshot cannot see. Two
-  corrections to the item's own premise shipped with it: **`AppGame.rawStatus` is POPULATED** at all
-  four `schedule.ts` construction sites ("absent from every row" was true of the cached row and
-  false of the derived field), and the consumer count is 10 modules calling `isDisruptedStatusLabel`
-  within a 16-module union, not the 3 the prompt asserted.
-- Review / verification: `npx tsc --noEmit` 0; `npm test` 1 (5159 tests, 5157 pass, 2 fail — the
-  standing Item 137 `writer-convergence` baseline), **test delta 0 measured against an `origin/main`
-  baseline run**, not inferred; `npm run lint:all` 0. Both reviewers ran twice. **The note committed
-  the defect it was written to fix, most sharply inside its own remediation**: round 1 wrote
-  "`postponed`/`suspended`/`delayed` are by nature temporary and resolve to `final`" — an unmeasured
-  provider claim written into the fix for unmeasured provider claims, contradicted by
-  `browserPolling.ts` ("TERMINAL (never corrected)"). Round 1 had already retracted the headline
-  ("has never fired in production", "coverage is total") on two independent mechanisms — `stateOrder`
-  ranks `disrupted` and `final` equally so a final overwrites a disrupted row, and
-  `finalReconciliation.ts` classifies fresh CFBD rows that are never persisted. The branch then
-  **reduced instead of patching a third time**, because all ~10 findings shared one shape: an
-  inventory claim, never a measurement. Deleted a call-site count (14 invocations on 13 lines — the
-  third wrong count in this item), "the one deliberate `null`" (two), "can only hold one value",
-  `#727` specifics that exist only on the unmerged `codex/727` branch, and an `AGENTS.md:725`
-  citation scoped to zero-consumer modules quoted where the predicates are widely consumed.
-  **The measurements survived every pass untouched and were independently re-measured by both
-  reviewers; only the prose around them failed.** That contrast is the item's lesson.
+- Change: Comments-only correction for issue #661: one measured provider-vocabulary note in `gameStatus.ts`, with identical pointers in 32 other modules. The owner explicitly approved the 33-file scope on 2026-09-11; no behavior changed.
+- Evidence: The 2026-09-11 snapshot contained 22,760 schedule rows, all `scheduled`, and 20,424 score values (19,524 `final`, 900 `scheduled`). The Alderson-Broaddus score-cache example had six scheduled 0–0 and five final 0–0 games: cancellation can arrive marked COMPLETE. Derived `AppGame.rawStatus` was populated at all four construction sites; cached-row absence did not establish derived-field absence. The measured consumer population was 10 calling modules within a 16-module union.
+- Limits / review: Retracted “never fired” and “total coverage”: equal `stateOrder` precedence permits final to overwrite disrupted evidence, and reconciliation classifies fresh unpersisted rows. The fix itself initially invented a temporary-status guarantee; that and unsupported inventories, #727 branch-specific prose, and the mis-scoped governance citation were removed. Both reviewers independently remeasured the surviving figures. Test delta 0 against an actual base run; only the standing Item 137 failures remained. See L1–L2 in the shared lessons.
+
 - Status: Merged (PR [#738](https://github.com/znpruitt/cfb-app/pull/738), `3c732582`, 2026-09-11)
+- Source links: [#661](https://github.com/znpruitt/cfb-app/issues/661).
 
 ### PLATFORM-619-PLANNER-SETTINGS-CONFLATION-CLAUDE-v1
 
-- Purpose: [#619](https://github.com/znpruitt/cfb-app/issues/619) (absorbing Item 189) — the polling
-  planner wrapped its settings read in a bare `catch` and treated the null as every job held, which
-  classified as `no-op` / `plan-held`: the one result `schedulerExecutionIssues` deliberately raises
-  nothing for. A transient settings-read failure therefore stopped the planner silently, in a state
-  indistinguishable from a deliberate operator stop, with the alerting built to ignore it.
-- Scope: `src/app/api/cron/polling-planner/route.ts`, `src/lib/schedule/pollingPlannerCronLog.ts`,
-  `src/lib/server/systemHealthIssues.ts` and the two suites. NOT the held-run series (#732), NOT the
-  planner's repair link (#733) — both filed rather than folded in.
-- Outcome: the classifier branches on the settings failure BEFORE the all-held branch, which is the
-  whole fix — every job genuinely IS held in this case, so that branch is exactly the one an
-  unreadable store must not fall into. A genuine hold is untouched: still `no-op` / `plan-held`,
-  still silent. The operator gets the recovery as TEXT via a reason-keyed hint map rather than a
-  `repair` link, because no settings maintenance action exists and linking one that cannot re-read
-  the store is the dead end `JOBS_WITHOUT_EXECUTION_REPAIR` exists to avoid.
-  **SCOPE BOUND, RECORDED BEFORE MERGE:** in the dominant production form of this fault — the whole
-  `app_state` store unreachable — the receipt write in the route's `finally` fails too, so no receipt
-  is stored and this signal never appears. What the change buys is correct reporting for a fault
-  CONFINED TO THAT SINGLE READ; the store-wide case is covered elsewhere by the storage and
-  `automation: unavailable` facts. Narrower than the issue implied, and carried to #732 as well.
-- Review / verification: against `be0e1330` — `npx tsc --noEmit` 0, `lint:all` 0, `npm test` 5,157 of
-  5,159, exactly the standing Item 137 baseline. Test delta **+3**, measured base-to-branch (5,156 →
-  5,159) by committing first and detaching to the base rather than stashing, so the shared stash stack
-  was never touched. Codex returned no findings; `/code-review high` returned one medium and five low.
-  Six findings, six applied, one remediation round (`b0b6c2da`), mutations one-sided throughout.
-- Adjudications kept as precedent:
-  1. **A COMMIT MESSAGE CLAIMED "MIRRORING RATHER THAN INVENTING" WHILE INVENTING.** `settings-unavailable`
-     is the established cross-route reason for the identical `getProviderRefreshSettings` throw —
-     `rankings/route.ts:234`, `schedule-refresh/route.ts:529`, an aggregation rule in
-     `cronExecutionLog`, and **named in `providerRefreshSettings.ts:129`, the docstring of the module
-     this route calls.** The first draft minted `settings-unreadable`, mirrored the real-but-more-distant
-     `schedule-unreadable`, and missed the closer prior art. One fault with two names leaves every
-     reason-keyed consumer knowing only one — the drift Item 211 exists to prevent, cited in the same
-     commit that created it. Found by review, not by the lane.
-  2. **THE RENAME MADE A "LOW" FINDING LOAD-BEARING.** Once the hint is keyed on a reason THREE routes
-     share, planner-specific wording ships verbatim into the rankings and schedule-refresh rows. Job
-     specificity behind a job-agnostic key is not a cosmetic issue once the key is shared.
-  3. **A WORDING REGEX CANNOT EXPRESS "JOB-NEUTRAL".** `doesNotMatch(/planner/i)` failed correctly —
-     the explanation's own prefix names the job, as it should. The property is tested by rendering the
-     same reason on `rankings` and requiring a byte-identical hint sentence.
-  4. **A CORRUPT `reason` COULD PULL A PROTOTYPE MEMBER INTO OPERATOR-FACING TEXT.**
-     `parseSchedulerExecutionReceipt` accepts any non-empty string, so a row carrying `toString`
-     returned an inherited function through a lookup `?? ''` does not catch, appending
-     `function toString() { [native code] }` to the explanation. The hint map is `Object.create(null)`.
-  5. **ANOTHER COMMENT ASSERTED AN IMPOSSIBILITY.** "the classifier below cannot recover that from the
-     null" is false — `getProviderRefreshSettings` returns `normalizeSettings(...)` and never resolves
-     to null, so the flag and `settings === null` are equivalent today. The flag is kept, because the
-     equivalence is a non-local invariant of another module's return type and reading it off the null
-     would silently rejoin a genuine hold the day that read gains a nullable path — but the comment now
-     says that rather than something untrue. Third false comment caught by review across three slices.
-  6. **THE RECEIPT'S MEASUREMENT CORRECTED THE ISSUE'S CENTRAL CLAIM.** #619 said "There is no series"
-     and that "has this already fired?" is unanswerable. There is one: `POLLING_PLANNER_MAX_RUNS = 400`,
-     appended inside a key transaction. Measured through the read-only rail — 7 runs per job, 4
-     consecutive days, `droppedRuns` 0, no gaps — so the question is answerable for the retained window
-     and the answer is NO. The "2 rows" measurement had counted `app_state` rows, one per job, and read
-     that as the run count. This inverted the scope ruling: retaining a series was not the more valuable
-     half, it had already shipped.
+- Change: Issue #619 / Item 189 separates a planner settings-read failure from deliberate `no-op / plan-held`. Classification checks the failure first and uses the existing cross-route `settings-unavailable` reason; genuine holds remain silent. Recovery is reason-keyed text, because no settings repair action can perform the required reread. #732 and #733 remained separate work.
+- Scope limit: This receipt signal works only when failure is confined to the settings read. If the whole `app_state` store is unreachable, the `finally` receipt write also fails; storage and `automation: unavailable` facts cover that case.
+- Evidence / review: The issue's “no series” premise was corrected: the planner retains up to 400 runs per job; the probe found seven runs/job across four consecutive days, no dropped runs or gaps, and no occurrence of this fault in that retained window. Counting storage rows had mistaken two job keys for two runs. Six findings resolved in one round; measured test delta +3, only Item 137 baseline failures.
+- Precedent: Reused the nearest shared reason instead of minting `settings-unreadable`; made its hint job-neutral and the map prototype-free (`Object.create(null)`). Tested cross-job byte equality, not absence of the word “planner.” Kept an explicit failure flag without claiming null was indistinguishable from normal return today. See L1–L3.
+
 - Status: Merged (PR #734, `0c1710ce`, 2026-09-11) from `claude/619-planner-settings-conflation`
+- Source links: [#619](https://github.com/znpruitt/cfb-app/issues/619).
+- Other source hashes: `be0e1330`, `b0b6c2da`.
 
 ### PLATFORM-703-OPERATOR-WRITE-CREDENTIAL-CLAUDE-v1
 
-- Purpose: [#703](https://github.com/znpruitt/cfb-app/issues/703) (from Item 192) —
-  `.env.operator.local` carries a production read-WRITE `DATABASE_URL` alongside the documented
-  read-only rail, and `CLAUDE.md` instructs copying that file into every worktree, so the guardrail
-  against an unauthorised production write was agent compliance rather than an absent credential.
-  Scope the credential to the one run that needs it.
-- Scope: `scripts/recover-game-stats.ts`, a new `scripts/lib/operatorEnv.ts`, and
-  `scripts/lib/plannerIntentReader.ts` (the read-side helper moved out of it). NOT the key move on
-  disk and NOT `CLAUDE.md`'s setup instruction — both the owner's, both still open at merge.
-- Outcome: **the enumeration corrected the issue and made the ask smaller.** The issue named
-  `init-` and `transition-game-stats-writer-control` as tools that "may read from this file today";
-  measured, neither does — both report `injecting env (15) from .env.local` and nothing else, and
-  resolve `storage mode: file-fallback` with `DATABASE_URL` unset, so they already require a shell
-  export. `recover-game-stats` was the ONLY process that put the write credential in `process.env`,
-  and narrower still: `runCapture` contains no write-capable call and `runApply` returns before its
-  single `commit` without `--apply`, so only `apply --apply` needs it. Capture and dry-run apply now
-  resolve `DATABASE_URL` from the read-only rail unconditionally; `apply --apply` reads a separate
-  `.env.operator.write.local` and refuses when it is absent, naming the file, the key, the source and
-  the `vercel env pull` prohibition IN THE ERROR TEXT, because the person reading it is by definition
-  not reading the docs. Verified against production: a real capture completes on the rail
-  (`current_user: audit_ro`, 1,333 ms cold / 198 ms warm).
-- Review / verification: against `8e26f3f9` — `npx tsc --noEmit` 0, `lint:all` 0, `npm test` 5,154 of
-  5,156, exactly the standing Item 137 baseline. Test delta **+11**, measured base-to-branch
-  (5,145 → 5,156). `/code-review high` returned three medium and three low; Codex returned one P2.
-  Seven findings, seven applied, one remediation round (`3d21946f`), three one-sided mutations.
-  **Two fixes are reported as UNCOVERED rather than claimed covered** — the exit code and the
-  writability guard both live in unexported `main()` and need a real database; they are verified by
-  running the tool (measured exit code 2) and by a direct probe, and calling that a test would be the
-  vacuous-test habit two prior slices removed.
-- Adjudications kept as precedent:
-  1. **I ARGUED A PRINCIPLE ON ONE PATH AND VIOLATED IT ON THE PATH BESIDE IT — and my own test
-     asserted the violation.** The read path refuses to honour an ambient credential because "a
-     preference is not a guarantee"; the write path preferred an ambient `DATABASE_URL`. Since `main`
-     runs a bare `dotenv.config()` before the credential is resolved, one stray `.env` or one shell
-     `export` would have become the target of `apply --apply`, with the tool printing a successful
-     merge against a database nobody chose. The test named "an ambient write credential wins" is
-     replaced by its opposite. The remaining asymmetry is now stated as deliberate rather than left
-     looking like an oversight: honouring an ambient READ-ONLY credential cannot cause a destructive
-     write.
-  2. **A FALSE SECURITY COMMENT, GIVEN A SECOND HOME, IS WORSE THAN ONE WRONG COPY.** "Only the one
-     key this reader needs is taken, and only into a private object" is false in its first half:
-     `dotenv` parses the WHOLE file into the private object and only the RETURN is narrowed. Measured
-     — a three-key file yields all three. The claim had been in `plannerIntentReader` since
-     PLATFORM-102 slice 4 and this branch copied it verbatim into a new module. **Its first home is
-     now clean by construction**, because the function moved rather than being duplicated; a test
-     comment that echoed the same wording was corrected too. The guarantee is `processEnv` isolation
-     and nothing more, so the parsed object must never be logged or returned wholesale.
-  3. **A credential is not proof of write access, and the slip is newly reachable.** The operator now
-     hand-populates the write file, so pasting the READ-ONLY string into it is plausible, and
-     `getAppStateStorageStatus()` cannot tell them apart — both report `postgres`, measured. Without
-     a check the run died inside `beginProviderRefreshAttempt` at exit 1 with a raw SQLSTATE 25006
-     AFTER printing `[apply] target …`. Probed directly: with the RO string as `DATABASE_URL`,
-     `assertAppStateWritable()` throws "cannot execute CREATE TABLE in a read-only transaction".
-  4. **A refusal must not contradict the file's own exit-code contract.** The credential refusal
-     exited 3, which this file reserves for "store or provider unavailable" — a transient condition —
-     so a wrapper that retries on 3 and stops on 2 would have retried forever against a file that is
-     never going to appear. Now 2.
-  5. **A test must not assert a fact about the host that ran it.** The suite asserted an unrelated
-     variable was absent from `process.env`; the runner forwards the ambient environment. Fixed by
-     snapshot, and proven by reproducing the host condition rather than reasoning about it — with the
-     variable set, the old assertion is red and the snapshot is green.
-  6. **THE SPLIT IS INERT UNTIL THE KEY MOVES, AND THE REFUSAL SAYS "CREATE" WITHOUT SAYING
-     "REMOVE".** The exposure this item exists to close is unchanged until `DATABASE_URL` is deleted
-     from `.env.operator.local` in every worktree; a half-fix is silent and looks complete. Filed as
-     the permanent detector in [#721](https://github.com/znpruitt/cfb-app/issues/721), deliberately
-     blocked on the deletion — a detector that fires on every machine before the key moves is a check
-     that cannot pass, which teaches people to skip the line.
+- Change: Issue #703 / Item 192 scopes the recovery write credential to `apply --apply`. Capture and dry-run apply use the read-only rail; destructive apply requires `.env.operator.write.local`, refuses ambient write credentials, checks writability, and reports credential refusal with contract exit 2. The error names the file/key/source and prohibits `vercel env pull`.
+- Measured scope: Only `recover-game-stats` loaded the write credential; init/transition scripts already required shell export. A real production capture ran as `audit_ro` (1,333 ms cold / 198 ms warm). `operatorEnv` owns the moved reader; dotenv parses the whole file into an isolated object and narrows its return, so that object must never be logged wholesale.
+- Open at merge: The owner still had to remove `DATABASE_URL` from `.env.operator.local` in every worktree and change the `CLAUDE.md` copying instruction. Code alone does not close that exposure. Issue #721's detector was deliberately blocked on the deletion.
+- Review: Seven findings resolved; measured test delta +11 with only Item 137 baseline failures. Exit-code and writability fixes were tool/probe-verified, explicitly not covered by automated tests. The environment test snapshots ambient state rather than assuming a host variable is absent. See L3–L5.
+
 - Status: Merged (PR #720, `85d5912d`, 2026-09-10) from `claude/703-operator-write-credential`
+- Source links: [#703](https://github.com/znpruitt/cfb-app/issues/703); [#721](https://github.com/znpruitt/cfb-app/issues/721).
+- Other source hashes: `8e26f3f9`, `3d21946f`.
 
 ### PLATFORM-198-COLOUR-BAND-CODEX-v1
 
-- Purpose: replace the scoreboard bar's unmeasured 72% opacity with a bounded identity treatment.
-  The owner rejected the colour implementation after real-scoreboard walkthroughs: remapping made
-  familiar reds converge, and the alternate-colour outline was too garish.
-- Scope: the shared scoreboard identity slot and all four consumers; FBS catalog artwork; retained
-  schedule provider IDs for FCS and seed-backed fallback; schedule date-group boundaries. The
-  temporary remap, outline, and logo-size controls were prototype-only and do not ship.
-- Outcome: a 28px CFBD logo from the guarded 64px dark-surface family now occupies a permanent 32px
-  slot on every participant row, with a 32px minimum row height. Production FBS resolves from the
-  durable catalog; seed-backed FBS and FCS resolve from retained schedule provider IDs. Populated
-  catalog artwork that fails the dark/size/host gate blocks fallback, while empty or absent artwork
-  permits it. Missing or failed artwork leaves the slot empty; `teamColors.ts` and every colour
-  fallback are removed. Schedule date headings add the owner-approved 2px full-width rule.
-- Review / verification: the owner compared 14/18/20/22/24/28px on mobile and desktop and selected
-  28px. Coverage measured 138/138 production FBS, 126/128 provider-catalog FCS, and 100/100 FCS
-  opponents on the live slate. The initial consolidated review found no High/Medium and four Lows;
-  round two found one Medium and three Lows; a targeted follow-up found one seed-only Low. All were
-  fixed, including participant/provider-ID pairing, dark-only rejection, seed fallback, changed-URL
-  recovery, bounded same-URL retries, and the 32px row guarantee. Final targeted reviews cleared
-  runtime code and found only the two registry omissions closed here. On rebased head:
-  `npm run build`, `npx tsc --noEmit`, and `npm run lint:all` exit 0; the full affected surface passes
-  253/253; `npm test` passes 5,143/5,145 with exactly the two standing Item 137 failures. Test delta
-  **+8, measured against current main** (5,137 → 5,145): 14 logo/render/lifecycle/provider-ID/date-rule
-  tests added and 6 assertions for the retired colour treatment removed or replaced.
+- Change: Owner rejected the prototype color remap and alternate-color outline after real-scoreboard walkthroughs. A 28px CFBD logo in a permanent 32px slot replaces the bar across all four consumers; rows have a 32px minimum height. `teamColors.ts`, color fallbacks, and prototype controls were removed. Schedule date headings gained a 2px full-width rule.
+- Contract: Production FBS artwork comes from the durable catalog; seed-backed FBS/FCS can use retained schedule provider IDs. Populated artwork failing the dark-surface/64px-family/host gate blocks fallback; absent/empty artwork permits it. Missing or failed images leave an empty slot. Provider IDs remain paired with their participant; URL changes recover, same-URL retries are bounded.
+- Evidence / review: Owner selected 28px from 14–28px comparisons on phone/desktop. Measured coverage: 138/138 production FBS, 126/128 catalog FCS, 100/100 FCS opponents on the live slate. Review findings resolved; build, TypeScript, lint and 253 affected tests passed. Full suite retained only Item 137 failures; measured net +8 tests (14 added, six retired/replaced).
+
 - Status: Implemented — PR #719; owner authorized merge after this documentation closeout on
   2026-09-10.
 
@@ -296,214 +166,39 @@ Rules:
 
 ### PLATFORM-620-TEST-STORE-LIFECYCLE-CLAUDE-v1
 
-- Purpose: [#620](https://github.com/znpruitt/cfb-app/issues/620) — the isolated app-state test store
-  was keyed by `process.pid` and deleted by nobody, so a recycled pid handed a new process an earlier
-  run's fully populated durable store. Close the class Items 207 and 211 had guarded three instances
-  of each.
-- Scope: `src/lib/server/appStateStore.ts` (the path scheme), `scripts/run-tests.mjs` (run directory +
-  stale sweep), and one new suite. NOT the per-seam refusals (#621, shipped `286476a8`), NOT the
-  per-suite delete idiom (Item 207, shipped) — those calls stay, redundant rather than wrong.
-- Outcome: **correctness now comes from exclusive creation, not from cleanup.** The store directory is
-  created with `mkdtempSync`, which returns a directory that DID NOT EXIST — an OS guarantee, not an
-  argument about pid uniqueness — and `process.pid` leaves the scheme entirely, so there is no
-  uniqueness argument left to get wrong. The owner framed the choice as per-run token + per-process
-  suffix versus per-process with guaranteed cleanup and accepted a third: both framings arrive at
-  `mkdtemp` for their fallback anyway, with two schemes to reason about instead of one.
-  **THE RUN DIRECTORY BUYS CLEANUP, NOT CORRECTNESS** — `run-tests.mjs` creates one per run and
-  removes it in a `finally`, which collects a child killed with `SIGKILL` whose own exit handler never
-  ran; a runner killed the same way orphans one directory, aged out by a prefix-scoped, 24h-gated
-  startup sweep. The sweep matches DIRECTORIES ONLY and on `cfb-app-test-store-`, so it cannot reach
-  the legacy `cfb-app-app-state-test-*.json` files even by accident — that scoping is what makes it
-  reviewable. **Its report line is unit-tested and not yet field-observed**, since no directory has
-  reached 24h. Measured: exposure plant at the pid path across all 391 test files went from 50
-  failures in 11 files to 2 in 1 (the Item 137 baseline alone); a full run's net leak went from
-  ~75–114 files to 0.
-- Review / verification: against `6ca4b97a` — `npx tsc --noEmit` 0, `lint:all` 0, `npm test` 5,135 of
-  5,137 with exactly the standing Item 137 baseline (`convergence #10` and `compatibility #46` in
-  `writer-convergence.test.ts`). Test delta **+13**, measured (5,124 → 5,137). Coverage reported as
-  the 211 receipt did: 391 of 391 glob files probed, zero unprobed, 397 plants all successful, the
-  same test count in the planted and unplanted runs — so no file aborted at import and there are no
-  zero-test rows behind the green. Eleven mutations, each run separately and each one-sided, including
-  the one that matters for the gate: aiming the sweep at `cfb-app-app-state-test-` reddens the suite
-  NAMING that file, so the assertion protecting the legacy population is not vacuous. Codex returned
-  two P2; `/code-review high` returned one medium and three low. Six findings, six applied, one
-  remediation round (`890a57ed`), each fix mutation-proven against its own test.
-- Adjudications kept as precedent:
-  1. **A TEST THAT MEASURES A POPULATION MUST NOT CONSUME IT.** Now binding in `AGENTS.md`, credited to
-     Codex. The 207-plant test wrote to this process's own legacy pid path and unlinked it — and about
-     a quarter of processes already own a file there, which is the defect being fixed. The existing
-     sandbox-precedes-the-mutation rule does not cover this shape: the test was not mutating, it was
-     MEASURING, and its measurement destroyed part of the population it measured. Fix shape: preserve
-     and restore, plus a sentinel when nothing is there, **so the restore is asserted on every run
-     rather than only the one-in-four where a real file exists** — a restore exercised a quarter of the
-     time is not covered.
-  2. **The rhyme was the defect, so the fix was two sets and not four patches.** A change that adopts a
-     best-effort posture at some filesystem calls and leaves others bare is one inconsistency, not four
-     bugs. Both unguarded calls were in the runner: `rmSync` throwing in the `finally` replaced the
-     suite's exit status with a stack trace, so a GREEN run reported failure, and `mkdtempSync` throwing
-     crashed the runner instead of the print-and-return-1 contract every other pre-spawn failure
-     honours.
-  3. **Failing a suite because CLEANUP was unavailable inverts the design's own priority.** An
-     uncreatable run directory now warns and runs without one — the store already falls back to
-     `os.tmpdir()` and isolation is untouched. `APP_STATE_TEST_STORE_DIR` is explicitly cleared on that
-     path, which is what makes the degradation safe rather than merely lenient: a stale export from an
-     earlier run cannot aim this run's children at a dead directory.
-  4. **An unprovable guarantee is taken and reported as unprovable.** Codex's `exit`-before-stdout-
-     `data` finding is a real gap — only `close` guarantees the stdio streams have drained — but 600
-     spawns between the two reviewers, one set with the parent's event loop blocked 400ms, could not
-     make the ordering happen. `close` is the correct contract regardless; taking the fix and refusing
-     the coverage claim is exactly how an unprovable guarantee should be reported.
-  5. **Three handed figures were re-measured and one had a wrong noun.** 14,042 → 17,315 files (+23% in
-     two days) and 394 → 837 carrying the planner settings record (+113%). "1,086 app-state-initialising
-     processes" is not reproducible: a full run spawns 394 node processes, of which 154 initialise app
-     state — 1,086 is ~2.75x the process count, consistent with a count of `appStateFilePath()` CALLS.
-     The RATE survived (26.0% vs 23.9%); the denominator did not.
-  6. **The inheritance rate tracks LOCAL pid density, not global, so the trend is worse than the file
-     count suggests.** 17.4% of the 99,998-pid space held a stale file, but 34.7% of the pid window the
-     run actually drew from did, because the allocator is sequential and the debris clusters where it
-     has been.
-  7. **The OS does reap `$TMPDIR`, contradicting this lane's own receipt.** The receipt argued it would
-     not, citing a seven-day span. Mid-session the population fell 17,963 → 6,987 with nothing of the
-     lane's touching it — every file with mtime on or before 2026-09-08 vanished at once. The span
-     looked deep because the reaper had not run inside it. This lowers the stakes of clearing the
-     remaining files rather than changing the recommendation.
+- Change: Issue #620 replaces pid-keyed test-store paths with exclusive `mkdtempSync` directories. Isolation correctness comes from exclusive creation; runner-owned directories and cleanup only control debris. Existing per-suite deletion and #621 seam refusals remain.
+- Cleanup: Runner `finally` collects killed children's stores. A prefix-scoped, directories-only startup sweep removes run directories older than 24h without touching legacy `cfb-app-app-state-test-*.json`. Failure to create a run directory warns and falls back safely, clearing `APP_STATE_TEST_STORE_DIR`; cleanup errors do not replace the suite result. Completion waits for `close`, not `exit`.
+- Evidence: Legacy-path planting across all 391 files changed 50 failures in 11 files to the two Item 137 failures alone; run leakage fell from approximately 75–114 files to zero. All 397 plants succeeded, with no unprobed/zero-test files or changed test denominator. Measured +13 tests; 11 separate mutations.
+- Historical corrections / limits: The earlier “1,086 processes” figure was not reproducible (394 processes, 154 initializing state); it was consistent with path-call count. Local pid density, not global density, governed reuse. The OS did reap old temp files: 17,963 → 6,987, removing mtimes through 2026-09-08. Sweep reporting remained unit-tested, not field-observed; 600 probes did not reproduce the stdio race, so no reproduction claim accompanies the `close` fix. Measurement tests now preserve/restore the population, with a sentinel proving restoration every run. See L1, L4–L5.
+
 - Status: Merged (PR #666, `4968dffa`, 2026-09-10) from `claude/620-test-store-lifecycle`
+- Source links: [#620](https://github.com/znpruitt/cfb-app/issues/620).
+- Other source hashes: `286476a8`, `6ca4b97a`, `890a57ed`.
+- Other numbered source references: #10, #46.
 
 ### PLATFORM-211-DESTRUCTIVE-SEAM-REFUSALS-CLAUDE-v1
 
-- Purpose: Item 211 — the three destructive test-only seams OUTSIDE `appStateStore.ts` still executed
-  with isolation off, deleting real rows for their scope. Give them Item 210's guard-2 refusal.
-- Scope: the delete seams in `durableOddsStore`, `oddsUsageStore` and `teamDatabaseStore`, their
-  suites, and (at review) the shared sandbox `src/test/appStateSeamSandbox.ts`. NOT `appStateStore.ts`
-  (Item 210, shipped `421fab9c`), NOT the corrupting seam, which shipped with it, NOT the
-  per-run-unique path (Item 209).
-- Outcome: mechanically small — one `assertTestSeamAllowed` prologue per seam — and the value is in
-  two corrections it forced. **`assertTestSeamAllowed` was never exported.** Item 210's lane reported
-  both helpers as exported, the prompt repeated it, and a relay thanked the lane for it; nobody opened
-  the file, where `appStateStore.ts:144` had no `export`. Reused by exporting it rather than restating
-  the prologue three times — a fourth refusal vocabulary is the drift Item 210's finding 5 was about.
-  Each store now declares its seam name and damage ONCE, shared by the refusal constant its test
-  asserts and the guard the seam raises, so the two cannot diverge. **And PINNING IS A DIVERSION, NOT
-  A FILTER.** The queue's reasoning — these seams "have a database branch, so pinning should suffice" —
-  reached the right mitigation from a wrong premise. `deleteAppState` does not SKIP its file write when
-  `DATABASE_URL` is set; it takes the Postgres branch INSTEAD, and the file write sits in the `else`
-  below. With the URL unset all three reach that write, against the durable `data/app-state.json` —
-  and CREATE it when absent. Measured, not read: one `deleteAppState` call in a relocated cwd produced
-  `{"entries": {}}` at `data/app-state.json`. So the pin rests entirely on one branch selection
-  holding, which is why a relocated cwd sits under it. Read `hasDatabaseConfig()` as a filter and you
-  conclude the file path is unreachable; that conclusion is in the code comment as the thing not to
-  draw.
-- Review / verification: against `71819474` — `npx tsc --noEmit` 0, `lint:all` 0, `npm test` 5,122 of
-  5,124, exactly the standing Item 137 baseline (`convergence #10` and `compatibility #46` in
-  `writer-convergence.test.ts`), nothing new and nothing elsewhere. Test delta **+14**, measured: the
-  four affected suites at base `3d142d05` = 30, the five at `71819474` = 44. Four mutations, each run
-  separately, each ONE-SIDED with the green side named — the three seam guards reddened only their own
-  refusal test (7 of 8, 10 of 11, 6 of 7 green, the seam's own under-isolation test green in each),
-  and dropping `inode` from the fingerprint reddened only the byte-identical control (3 of 4 green).
-  Every one caught `connect ECONNREFUSED 127.0.0.1:1` rather than the refusal message, which is what
-  proves the seam genuinely RAN and that a bare `assert.rejects` would have passed on the defect.
-  **No mutation ran unsandboxed**; `data/app-state.json` was checked absent before and after each.
-  Codex returned one P2; `/code-review high` returned no correctness bug and three low findings,
-  having independently reproduced the `teamDatabaseStore` mutation, re-derived the seam enumeration,
-  and empirically confirmed that `node:test` v22.19.0 runs top-level tests sequentially — the claim
-  the `chdir` sandbox rests on.
-- Adjudications kept as precedent:
-  1. **The seam enumeration is 5 destructive of 34, not 4.** Re-run against current `main` — the
-     34 reproduces exactly (`grep -rn "^export \(async \)\?function __" src | grep -v __tests__`),
-     and reading each candidate body discarded seven `__setAppState…ForTests` substring matches that a
-     grep alone reports as writers. The queue's "four" predated the corrupting seam's reclassification
-     into Item 210 and did not follow it. Two guarded there, three here, and the exposed set had
-     **15 calling test files** — the actual population where a bare `node --test` fired this.
-  2. **A NEGATIVE ASSERTION'S OBSERVER NEEDS ITS OWN POSITIVE CONTROL, AND MUTATION-PROVING THE GUARD
-     IS NOT MUTATION-PROVING THE OBSERVER.** `AGENTS.md` → **Verification** already required it. Three
-     production guards were mutation-proved while `assertDurableStoreUntouched` — the check asserting
-     the suite wrote nothing — was never shown detecting a write; an observer that never looks returns
-     the identical green. Found by Codex. Its controls now drive it against a SANDBOXED store path,
-     because pointing that proof at `data/app-state.json` would perform the damage it forbids.
-  3. **A content digest is blind to atomic replacement.** `writeJsonFileAtomic` renames a temp file
-     over the target, so deleting an ABSENT key rewrites byte-identical JSON: sha256 `b62dd01fd1bc`
-     before and after, inode `155116585` → `155116586`. It loses no data — but the observer exists to
-     notice a seam RAN, so the inode is what makes the event visible and the digest what makes the
-     damage visible.
-  4. **Two sandboxes drift exactly as two refusal messages do, and the copy missing a layer is how it
-     shows.** This lane applied "reuse, don't restate" to the messages and violated it for the sandbox,
-     declining to touch Item 210's reviewed suite. Review supplied the consequence that settled it:
-     210's guard tests had layer 1 (pinned URL) without layer 2 (relocated cwd), so a
-     `hasDatabaseConfig()` regression during them would have written the real store, and a fix to the
-     new sandbox would never have reached them. The harness moved to `src/test/` — its correct home
-     once it crosses a subsystem boundary — and all four suites consume it.
-  5. **A shared-file check cannot attribute.** `data/app-state.json` is one repo-root file and the
-     runner runs up to four suites as concurrent sibling PROCESSES, each holding its own baseline, so
-     a write by any suite reddens every suite that imported before it and a suite importing after it
-     adopts the damaged file as its baseline. The failure message states what it measures — the store
-     changed during this run — and no longer names a culprit it cannot identify.
+- Change: Item 211 guards the three destructive delete seams in `durableOddsStore`, `oddsUsageStore`, and `teamDatabaseStore`, complementing Item 210's two. Exported and reused `assertTestSeamAllowed` (contrary to the earlier claim, it was not exported); seam name/damage is declared once for runtime refusal and test expectation.
+- Evidence: Enumeration found five destructive seams among 34 exported test helpers, with 15 calling files. An unset database URL takes the file-write fallback and can create `data/app-state.json`; pinning a URL diverts execution rather than filtering writes. All four suites now share the sandbox with both unreachable URL and relocated cwd.
+- Verification: Measured +14 tests; four separate mutations proved exact refusals and the observer. Bare rejection would have accepted `ECONNREFUSED` as success. The untouched-store observer has its own positive controls and uses inode plus digest because atomic replacement can preserve bytes. A concurrent shared-file change cannot identify its culprit; the message reports only change during the run. No mutation ran unsandboxed. Both reviews resolved, only Item 137 baseline failures.
+- Precedent: Shared guard and sandbox ownership prevents divergent copies; observer coverage is a separate claim from guard coverage. See L3–L5.
+
 - Status: Merged (PR #622, `286476a8`, 2026-09-10) from `claude/211-destructive-seam-refusals`
   (`5f5a82e5` + `71819474` + closeout); both reviews gathered against `5f5a82e5` before any
   remediation, all four findings resolved in one round. First PR under the GitHub Issues convention
   (`Closes #621`); the issue closed as COMPLETED on merge. No production runtime behaviour changed —
   the guards fire only when `APP_STATE_TEST_ISOLATION !== '1'`, which no dev or production process
   sets — so nothing to deploy or click.
+- Other source hashes: `421fab9c`, `3d142d05`, `b62dd01fd1bc`.
+- Other numbered source references: #10, #46.
 
 ### PLATFORM-210-TEST-ISOLATION-GUARD-CLAUDE-v1
 
-- Purpose: Item 210 — `APP_STATE_TEST_ISOLATION` did not prevent database use, so an exported
-  `DATABASE_URL` put the whole suite on the live store and one test-only helper dropped the only
-  table.
-- Scope: `src/lib/server/appStateStore.ts` (pool construction and its two destructive test-only
-  seams) and its suite. NOT the per-suite delete idiom (Item 207, merged), NOT the per-run-unique
-  path (Item 209), NOT the three destructive seams in other files (Item 211).
-- Outcome: **the flag never gated the database.** It was read in exactly one place —
-  `appStateFilePath()` at `:95` — which only the FILE fallback consults, and a configured
-  `DATABASE_URL` is precisely what stops that branch running. Every read and write branched on
-  `hasDatabaseConfig()` alone. `delete from app_state` was the audible failure; the common one was
-  `setAppState` issuing `insert … on conflict do update` over real rows, scope by scope, for a whole
-  run, while the reads made a run's pass/fail depend on production data. **Two guards, because
-  neither implies the other:** pool CONSTRUCTION refuses when isolation is on, and the destructive
-  seams refuse when it is off. The second is not "must not reach the database branch" — guard 1 is
-  conditioned on isolation being ON, so a bare `node --test src/...` leaves the flag unset and guard 1
-  cannot tell that run from ordinary application startup. **The strongest fact in the item is how
-  narrow the choke point is:** `new Pool(` appears exactly once in all of `src/`, `pg` is imported
-  nowhere else outside tests, and `app_state` is the only table — so one refusal covers the
-  application's entire database surface rather than eleven branch sites, which is what makes a
-  zero-cost fix a complete one.
-- Review / verification: blast radius measured, not reasoned — throwing on **every** `getPool()` call
-  fails 93 tests across 6 files; throwing only where a **real** pool would be constructed fails **0**.
-  Three independent enumerations closed on the same six files (fail under a blanket throw, call
-  `__setAppStatePoolForTests`, set `DATABASE_URL`). Every mutation was run separately and each
-  reddened exactly one guard's tests. Severity bound, measured: **nothing sources the credential
-  automatically** — one script loads `.env.operator.local` explicitly, `run-tests.mjs` loads no env
-  file, no shell profile references it, and on Node v22.19.0 neither `node` nor `node --import tsx`
-  auto-loads `.env`/`.env.local`, so even a `vercel env pull` into `.env.local` would not reach
-  `npm test`. It takes a deliberate `export` — and when it fires, the whole database is in scope.
-  Against `5365474`: `npx tsc --noEmit` 0, `lint:all` 0, `npm test` 5,108/5,110 — exactly the standing
-  Item 137 baseline. Test delta **+5**, measured (5,105 → 5,110). Codex returned no findings, having
-  independently exercised guard 1 with `DATABASE_URL` pointed at an unreachable loopback port — the
-  same technique this lane used, and a check that respects the gate forbidding a real demonstration.
-- Adjudications kept as precedent:
-  1. **A test is safe only while the code it tests is correct.** Both guard-2 tests unset the flag and
-     left `DATABASE_URL` ambient, on the reasoning that the flag is the condition under test. True,
-     and beside the point: if the guard regresses — or during the mutation the test's own comment
-     prescribes — the helper RUNS, and destroys either the live table or the dev store.
-     **The mutation had already been run on this branch; nothing was lost only because no dev store
-     existed in that worktree.** Recorded as luck rather than "no impact", which is the difference
-     between a report and a reassurance. Both tests now pin `DATABASE_URL` to an unreachable port,
-     and the corrupting seam's test relocates `cwd` to a `mkdtemp` sandbox — pinning does nothing
-     there, because that seam has no database branch and its write is unconditional. The first run of
-     that mutation, before the sandbox, wrote `{not-valid-json` to `data/app-state.json` for real.
-  2. **A mutation that reddens both the old and new assertion discriminates nothing.** Now binding in
-     `AGENTS.md`. The first attempt to prove the `PRODUCTION UNCHANGED` assertion had been
-     strengthened failed on both sides — on unrelated status assertions, not the predicate at issue —
-     and reads identically to a successful discrimination. The isolating mutation keeps
-     `getAppStateStorageStatus()` reporting `postgres` while forcing the writable check to throw the
-     config error: the old assertion passes GREEN, the new one reddens.
-  3. **Two definitions of one flag is the drift that caused the item.** Round 1 added
-     `testIsolationEnabled()` while leaving the original inline comparison in `appStateFilePath()`.
-     `process.env.APP_STATE_TEST_ISOLATION` now appears exactly once in the file.
-- Follow-on: **Item 211** — the same refusal for `durableOddsStore`, `oddsUsageStore` and
-  `teamDatabaseStore`, whose delete seams route through `deleteAppState()` and are equally exposed in
-  the bare `node --test` case. The boundary is the FILE, by owner ruling: 210 guards every destructive
-  seam in `appStateStore.ts`, 211 guards the three that live elsewhere, reusing
-  `appStateTestSeamRefusal()` and this suite's test shape rather than reinventing them.
+- Change: Item 210 adds two independent protections in `appStateStore.ts`: refuse real pool construction while `APP_STATE_TEST_ISOLATION` is on, and refuse both destructive test seams while it is off. Previously the flag affected only file paths; an exported database credential could redirect all reads/writes to the real table. Centralized the flag predicate.
+- Measured boundary: One pool constructor covers the application database surface. Blanket `getPool` refusal failed 93 tests in six files; refusing only real construction failed zero. The runner does not auto-load credentials, so this exposure required ambient export. Other-file seams remained Item 211; unique paths remained Item 209.
+- Historical incident: An unsandboxed mutation had already written corrupt JSON to the real dev-store path. No pre-existing store was lost because none existed; that was luck, not a safety guarantee. Tests now pin an unreachable database URL and sandbox the unconditional file writer's cwd; Item 211 later shares both layers across suites.
+- Verification: Measured +5 tests, only Item 137 failures. Separate mutations distinguished each guard. The production-behavior assertion was demonstrated against old/new assertions, after an earlier mutation reddened both and proved no discrimination. See L4.
+
 - Status: Merged (PR #594, `421fab9c`, 2026-09-10) from `claude/210-test-isolation-guard`
   (`4c882e2b` + `350d130f` + `5365474` + closeout); Codex clean, Claude's five findings resolved in
   one round. No production runtime behaviour changed — asserted with the flag absent — so nothing to
@@ -511,157 +206,23 @@ Rules:
 
 ### PLATFORM-207-PLANNER-TEST-ISOLATION-CLAUDE-v1
 
-- Purpose: Item 207 — four polling-planner tests intermittently failed on `plan-held`. Two mechanisms
-  were proposed before implementation and **both were wrong**: a plan record surviving `reset()`, and
-  a bare `catch` at `route.ts:371` turning a transient settings-read failure into `settings = null`.
-- Scope: the polling-planner suite, `usage-sample`, `pollingPlannerRecordWrite`, and a comment in
-  `providerUsageWriteOutcome`. Test files only — no production code changed. The production
-  conflation (Item 208), the backing-file path (Item 209) and the destructive delete seam (Item 210)
-  were all split out by owner decision and are untouched here.
-- Outcome: the cause is **pid reuse**. `appStateStore.ts:95-97` keys the test store by
-  `process.pid` and nothing ever unlinks it — 14,022 stale files on the implementation machine,
-  oldest 2026-09-05 — so a recycled pid hands a process an earlier suite run's entire durable store.
-  394 of those files carried a `provider-refresh-settings::global` record holding both planner jobs,
-  and `reset()` cleared every scope except the settings one. Measured: **260 of 1,086 processes
-  across six instrumented full-suite runs (23.9%) started with a pre-existing file.** The fix is the
-  repo's own idiom, already in 136 of 139 app-state suites — delete the backing file before resetting
-  the seams. `reset()` now asserts its three durable inputs are absent rather than nulling two, and
-  the credential-leak POSITIVE CONTROL at test 8 was rebuilt: its four assertions are all absences of
-  a secret, which a run that sends nothing satisfies for free, which is exactly why it stayed green
-  while the four tests around it went red.
-- Review / verification: the blamed `catch` was **instrumented and refuted, not argued about** —
-  across 6 full-suite and 20 planted runs it fired exactly once per run, always
-  `Error: settings scope unavailable` from the deliberate injection at `route.test.ts:580`, and on
-  every planted failure `settings` was non-null and read `globalPause: true`. Determinism, same
-  harness both sides, planting the exact inherited file: **defect present 0/20 green with the exact
-  four-test signature 20/20; with the fix 20/20 green, signature 0/20.** The flake never appeared
-  unplanted (0/60 file-only, 0/6 full-suite), so **no rate is claimed** — the inherited "roughly 1 in
-  3" is withdrawn as unmeasured, and 0/6 only establishes that a 1-in-3 rate would have been unlucky
-  to hide (`(2/3)^6 ~= 0.09`). Two-sided mutation on the rebuilt control: force its run to a no-op and
-  the original stays green while the rebuilt one goes red. Against `4a9f47a6`: `npx tsc --noEmit` 0,
-  `lint:all` 0, `npm test` 5,103/5,105 — exactly the standing Item 137 baseline and no planner
-  failure. Test delta **0**, measured (5,105 -> 5,105): assertions added, not tests.
-- Adjudications kept as precedent, because both are the same failure and it recurred inside one
-  branch:
-  1. **A guard that cannot fail, twice.** Review round 1 found that
-     `assertPlannerInputsAreClean()` runs one line _after_ the delete, and `getAppState` re-reads the
-     file on every call — so an inherited store is already unlinked and the assertions are
-     tautological. That is the identical anti-pattern this branch had just fixed at test 8,
-     reintroduced in `reset()` one commit later, and the mutation offered as proof showed only that
-     the guard fires when the _delete_ is removed, which is not what it was said to prove. The guard
-     is kept with an honest comment; asserting _before_ the delete was rejected because inheritance is
-     normal and that would fail on the ~24% of runs handed a harmless store.
-  2. **A measurement that could not fail.** The same review said the grep used to find exposed suites
-     was structurally blind to suites that reset nothing. Correct — so it was replaced with a probe
-     that plants an _unparseable_ store and runs every test file. **The first pass of that probe was
-     itself blind:** `node --test` treats `[slug]` as a glob, so 23 App Router paths matched zero
-     tests and exited 0, reading identically to a pass. The correction is to report coverage as part
-     of the result: **389 files probed, 0 zero-test rows, 5,105 tests executed** — the full suite's
-     own count. And what the probe proves is bounded and stated: a corrupt payload is maximally
-     hostile, so it proves the suite reads the store and therefore inherits — **not** that a realistic
-     payload would flip any assertion.
-- Follow-ons, all owner-sequenced 2026-09-10: **Item 210** (next) — `__deleteAppStateFileForTests`
-  branches on `hasDatabaseConfig()`, not on `APP_STATE_TEST_ISOLATION`, and runs `delete from
-  app_state` against the live pool; `run-tests.mjs:89-91` spreads `...process.env`, so an ambient
-  production `DATABASE_URL` passes straight through and 136 callers wipe the only table. Pre-existing
-  and older than this branch. **Item 209** — a per-run-unique backing-file path plus exit cleanup,
-  blocked behind 210, carrying the **ten** still-exposed suites measured here and listed in
-  [`docs/campaigns/item-209-app-state-test-isolation.md`](campaigns/item-209-app-state-test-isolation.md).
-  Widening this branch to those ten was declined on the 210 ground: you do not generalise a
-  destructive call the same hour you learn it is destructive. **Item 208** — separating "settings
-  unreadable" from "operator held everything" on the planner route; it entered this item's scope on
-  the belief it caused the flake, and that belief was refuted here. It remains a real hazard: a
-  transient settings-read failure reports `no-op`/`plan-held`, the one result `schedulerExecutionIssues`
-  deliberately ignores, so it would go unnoticed **indefinitely**.
+- Change: Item 207 fixes inherited planner settings in three test suites by deleting the pid-keyed backing file before resetting seams; production code is unchanged. Rebuilt the credential-leak control so a run sending nothing cannot satisfy it vacuously.
+- Evidence: Planted inherited settings produced the exact four-test failure in 20/20 runs before, 0/20 after. The blamed settings-read catch fired only for deliberate injection; both proposed causes were refuted. Unplanted failures were 0/60 file-only and 0/6 full-suite, so the inherited “one in three” rate was withdrawn. The original 260/1,086 “processes” measurement is a historical claim later corrected under #620, not a validated process denominator.
+- Review: A post-delete cleanliness assertion is retained only as a postcondition, not proof of inheritance detection. The first exposure probe silently ran zero tests for bracketed route paths; corrected coverage was 389 files, zero zero-test rows, 5,105 tests. Corrupt-payload probing proves store reads, not that realistic inheritance changes assertions. Test delta 0; Item 137 baseline only.
+- Recorded sequencing (2026-09-10): Item 210 destructive-seam protection first, then Item 209 unique paths/cleanup and ten exposed suites; Item 208 settings-error/hold conflation separately. This slice did not generalize a newly recognized destructive delete. See L1, L4–L5.
+
 - Status: Implemented on `claude/207-planner-test-isolation` (`4a9f47a6` + `f9b65a9f` + this
   closeout); Codex returned no findings, Claude's round resolved in one, merge pending at time of
   writing. No production code changed, so nothing to deploy or click.
+- Source links: [`docs/campaigns/item-209-app-state-test-isolation.md`](campaigns/item-209-app-state-test-isolation.md).
 
 ### PLATFORM-204-CATALOG-EMPTY-GUARD-CLAUDE-v1
 
-- Purpose: Item 204 — the admin team-database sync committed `Array.isArray(rows) ? rows : []`
-  unconditionally, so a CFBD 200 carrying a non-array body or a genuine `[]` replaced the 138-row
-  catalog with an empty one and returned `ok: true`.
-- Scope: the admin sync route and its classifier in `teamDatabase.ts`, the `leagueStandings` reader,
-  `ReferenceDataPanel`, and their suites. The seed script, `src/data/teams.json` (Item 201), the
-  stored `altColor` field name (Item 199) and the read-side field validation (Item 205) were all out
-  of scope and untouched.
-- Outcome: three rejection reasons, all refusing before the durable write and before
-  `invalidateAllLeaguesStandings()` — `team-database-invalid-payload` (non-array, rejected at the
-  fetch boundary as `/api/schedule` does), `team-database-empty-replacement-rejected` (zero rows) and
-  `team-database-schema-drift` (a nonempty payload normalizing to zero teams). The classification
-  keys on the **built** item count, not the fetched row count: a 138-row payload with `school` renamed
-  wipes the catalog just as thoroughly and `rows.length === 0` cannot see it. Unlike the schedule
-  classifier there is deliberately **no `valid-noop` limb** — `GET /teams/fbs` has no publication
-  calendar, so no season phase makes zero FBS teams correct, and that also removes the question of
-  whether prior-good means the durable row or the bundled seed. A **partial** response is an
-  explicit non-event: 4 of 138 commits, because it is a well-formed answer indistinguishable from a
-  legitimate one without a magnitude threshold, and any floor low enough to be safe is inert while any
-  floor high enough to matter refuses a legitimate realignment until overridden. The owner decided
-  that boundary and declined to file the threshold; it is recorded rather than left undiscovered.
-  The slice also transplants the zero-length catalog guard into `leagueStandings`, which did not merely
-  lack one — it argued **against** having one, on the premise that the store handles absence internally
-  via the seed fallback. That premise is what this item disproves: the fallback is reached through
-  `??`, which does not fire on a present-but-empty `items`. Standings is the reader that persists
-  degraded ownership attribution into the tag-only (`revalidate: false`) data cache, outliving the
-  repair, so the wrong comment was the more dangerous half — a comment that talks the next reader out
-  of a fix looks like a decision. Same guard and reason as the sibling guards already in
-  `gameStats/canonicalSlate.ts` and `liveScores/canonicalContext.ts`; a transplant, not an invention.
-- Blast radius (written down for the first time, and what makes the severity real rather than
-  asserted): 17 readers, one writer. Already guarded — `canonicalSlate`, `canonicalContext`,
-  `/api/teams` (404), `loadInsights`. Producing **wrong** output rather than none —
-  `leagueStandings` (guarded here), `scheduleProbe` (returns the earliest **non-FBS** game as the
-  season start), `seasonBuild` (archives label-only identity, durably), `nationalChampionshipRollover`,
-  both `/api/owners` paths (an empty FBS match pool disables the CSV repair path at the moment it is
-  most needed), `insights/context`, `teamRecordsClient`, three draft pages, and both debug routes —
-  which misattribute the cause of a failure they themselves caused.
-- Review / verification: both claimed "guards" were confirmed by **running**, not reading —
-  `buildTeamDatabaseFile({ records: [], previousItems: [one] })` returns `items: []` with an all-zero
-  summary and `errors: []`, and against the real store an absent durable row yields 138 items while a
-  present-but-empty one yields 0. Test delta **+12**, measured (5,093 → 5,105). Three mutations:
-  breaking the classifier to reject everything turned the named "a healthy sync still REPLACES the
-  catalog" test red while **all three negative tests still passed** — the vacuity the contract predicts,
-  demonstrated rather than asserted; the reverse mutation restoring pre-fix behaviour turned all four
-  negative tests red while that one passed; and removing the standings guard produced
-  `Missing expected rejection`, i.e. it resolves to a degraded snapshot. A test bug was found by
-  mutation and fixed: `assert.equal(<jsdom element>, null)` builds its diff with `util.inspect`, which
-  walks `ownerDocument → defaultView → window` and does not return, so a regression hung to the file's
-  30s budget and reported as a timeout instead of a failed assertion; the assertions now compare
-  booleans and fail in 2s. Against `4f5e92de`: `npx tsc --noEmit` 0, `lint:all` 0, `npm test`
-  5,103/5,105 — exactly the standing Item 137 baseline, two `writer-convergence` failures and nothing
-  else.
-- Adjudications kept as precedent, because the reasoning generalises past this slice:
-  1. **A decided question is not new information.** The round-1 review re-raised the truncated-response
-     hole (3 of 138 commits, and the standings guard does not backstop it because `length === 0` is
-     false at 3). The mechanism is correct and was stated in the read receipt before any code; the
-     owner then closed it deliberately and declined the threshold. Re-raising it was rejected on that
-     ground alone, not on its merits.
-  2. **Reachability settled a finding that argument would not have.** The same review wanted
-     `readSourceCatalogFallback` to throw rather than return `[]`, framing the new standings throw as a
-     regression from "degraded-but-usable" standings. The conflation it names is real, but the
-     consequence framing is wrong — degraded standings over an empty identity catalog are the
-     wrong-output-cached harm this item exists to stop, which the review's own sibling finding asserts.
-     It was settled by **measuring**: `src/data/teams.json` is statically imported in 8 places and also
-     read via `process.cwd()` by `/api/scores` and `/api/odds`, both live in production, so the cwd read
-     is sound and the trigger is a transient FS error, not a systematic one. Rethrowing from that catch
-     would change behaviour for every catalog reader, wider than a guard slice should take unreviewed.
-     Absorbed by Item 205 with the coupling stated: **this slice made that `[]` fatal, so 204 changed
-     the severity of a defect it did not introduce.**
-  3. **A fix opened a gap in the same motion.** Adding `setSyncResult(null)` to stop a stale green
-     "No skipped rows." block rendering beneath a red refusal also discarded the response payload the
-     panel had been reading — so on schema drift, the one failure the guard exists for, the operator
-     was left with less diagnostic detail than the **wiping** behaviour it replaced. The per-row
-     normalization reasons now ride on `detail`, which is what survives a non-ok. Accepted and fixed in
-     `4f5e92de`; recorded because the shape recurs — the defect was introduced by the remedy, in the
-     same edit, and no negative test could have caught it.
-  Codex returned no findings, but flagged two of its own commands as failed, one a run of this
-  branch's route suite. Re-running that file alone (13/13), the three lib files together (73/73) and
-  all four touched files together (84/84) turned a suspected tooling artefact into a known one.
-  Neither taking the red line at face value nor ignoring it is the handling being recorded.
-- Follow-ons filed by planning, not by this lane: **Item 205** (durable-catalog read validation, now
-  also carrying the seed-fallback absence-vs-failure conflation) and **Item 206** (no durable
-  provider-health record on a refusal, unlike the schedule precedent's `recordProviderRefreshFailure`;
-  filed as pre-existing, since this route has never had `providerRefreshStatus` integration).
+- Change: Item 204 prevents an invalid/empty FBS catalog response from replacing durable data or invalidating standings. Refusals distinguish `team-database-invalid-payload`, `team-database-empty-replacement-rejected`, and `team-database-schema-drift`; schema drift keys on normalized item count. There is no valid-empty seasonal state for `/teams/fbs`. The panel preserves normalization detail while clearing stale success copy.
+- Scope / decisions: Added a present-but-empty guard to `leagueStandings`: `??` seed fallback does not handle `items: []`, and degraded ownership would persist in the tag-only cache. A nonempty partial catalog (e.g. four of 138) still commits; the owner explicitly declined a magnitude threshold. Read validation/seed-fallback failure is Item 205, refusal health recording Item 206; seed generation and alternate-color naming stayed outside scope.
+- Impact / evidence: Source enumeration found 17 readers/one writer. Empty catalogs also threaten season probes, archives, rollover, owner CSV repair, Insights, records, draft pages and debug output; guarding standings did not fix those readers. Executed builder/store probes confirmed empty replacement and absence-vs-empty behavior.
+- Review: Measured +12 tests; positive replacement and negative refusal mutations discriminated both directions. Removing the standings guard exposed degraded success. JSDOM assertions were changed to booleans so regression fails rather than hanging during object inspection. Reviewer command failures were reproduced with passing targeted suites before being classified as tooling artifacts. Only Item 137 baseline failures remained; production resync was still the owner's unperformed action. See L1, L4, L6.
+
 - Status: Implemented on `claude/204-catalog-empty-guard` (`ca70a2c3` + `4f5e92de` + this closeout);
   both reviews resolved in one round, merge pending at time of writing. **Production still needs its
   resync click — the owner's action, deliberately not performed, and now guarded:** a bad CFBD
@@ -670,105 +231,38 @@ Rules:
 
 ### PLATFORM-199-ALTERNATE-COLOUR-MAPPING-CLAUDE-v1
 
-- Purpose: Item 199 — the catalog ingest read `record.altColor`, a field CFBD does not send on
-  `GET /teams/fbs`, so every alternate colour was discarded and the durable catalog held 138
-  primaries and zero alternates.
-- Scope: `teamDatabase.ts` (the `CfbdTeamRecord` provider type and its read), the normaliser and
-  admin-sync route suites, and this closeout. The stored `altColor` name, `teamColors.ts`, the
-  fallback rule and the seed script were all out of scope and untouched.
-- Outcome: `record.alternateColor` in, `altColor` stored — a two-line production change. No rendering
-  logic changed and nothing renders differently from this commit: `getSafeScoreboardTeamColor` was
-  already correct (`primary → alt → fallback`) and has zero production consumers, so the payoff is
-  ordering — Item 119 renders the bar and ships correct because this landed first. A resync will move
-  the sync summary's `withAltColorCount` from 0 to 138; running it against production is the owner's
-  action and was deliberately not performed, so the live catalog stays colourless until then.
-- Review / verification: measured before writing — CFBD `GET /teams/fbs` returned HTTP 200 / 138 rows
-  with `alternateColor` on every row and `altColor` on none, and `DATABASE_URL_RO` reproduced the
-  138/138/0 catalog. Executing the resolver over all 138 rows: 13 teams fall back today, 3 after
-  (navy primary + `#ffffff` alternate, rejected as an extreme neutral), so 10 gain a colour including
-  all six pure blacks — the limit Item 198 attributed to OKLCH. Test delta +4 (three normaliser, one
-  end-to-end through the route); four existing provider fixtures retargeted with every assertion
-  preserved, one of which had been asserting the defect. All five verified failing against the
-  reverted fix, each on its own assertion, including `expected null, actual '#FFFFFF'` — the retired
-  name being read. The stored name's immovability was proven by mutation (19 errors across 8 files,
-  4 of them production, versus 4 in 1 file for the provider rename). Both independent reviews of
-  `d8007afe` returned no findings. Against `d8007afe` with a clean worktree: `npx tsc --noEmit` 0,
-  `lint:all` 0, and `npm test` 5,091/5,093 — exactly the standing Item 137 baseline, two
-  writer-convergence failures and nothing else.
+- Change: Item 199 reads CFBD `alternateColor` and preserves the stored `altColor` contract. No renderer, fallback rule, or seed-script change. Provider fixtures that had encoded the wrong field were corrected.
+- Evidence: CFBD returned 138 rows with `alternateColor` and none with `altColor`; the durable catalog had 138 primaries/zero alternates. Resolver replay reduced fallback teams 13 → 3 (navy plus extreme-neutral white still rejected). All five relevant checks failed against the reverted fix; changing the stored name affected eight files, including four production files. Measured +4 tests, both reviews clean, Item 137 baseline only.
+- Historical boundary: This entry anticipated Item 119's color bar and required an owner resync, which was not performed here. The resolver had no production consumers at this checkpoint. The later PLATFORM-198 entry records the owner's logo replacement; that does not erase the ingest correction or its original rationale.
+
 - Status: Implemented on `claude/199-alternate-colour-mapping` (`d8007afe` + this closeout); reviews
   resolved, merge pending at time of writing.
 
 ### PLATFORM-179-AWAITING-ANCHOR-CODEX-v2
 
-- Purpose: Item 179 — replace the awaiting scoreboard anchor's em dash with the en dash specified by
-  the shared-row contract. Item 170 was paired at kickoff but closed without code when its trade
-  confirmed that owner-first clipping is the intended primary/tertiary hierarchy.
-- Scope: `CompactGameScoreboard.tsx`, its existing Matchups render assertions, and this closeout. No
-  owner-layout, retired-pill, tag-seam, selection, outcome-rail, or owner-tint change.
-- Outcome: the shared non-scheduled null-score fallback now renders `–` (U+2013). Awaiting rows match
-  `item-87-reference-game-row.md` §4 and §11; because the fallback is shared, a live row with
-  only one populated score uses the en dash too. Final presentation requires both scores. The two
-  old-glyph assertions were retargeted exactly, and the scheduled blank-anchor guard was strengthened
-  to reject either dash.
-- Review / verification: independent review of `6d3014fc` was clean with no correctness findings and
-  confirmed all three changed literals as U+2013, no stray em dash in the component, and no other
-  consumer pin requiring a change. Test delta 0; both old-glyph assertions failed before retargeting.
-  TypeScript and `lint:all` exited 0, component tests passed 663/663, and full `npm test` matched the
-  standing Item 137 baseline exactly (5,023/5,025; two writer-convergence failures).
+- Change: Item 179 uses en dash `–` (U+2013) for the shared non-scheduled null-score anchor, including a live row with one missing score. Scheduled anchors stay blank; final presentation requires both scores. Item 170 closed without code after confirming intended owner-first clipping.
+- Verification: Three literals checked, old-glyph assertions retargeted, scheduled guard rejects either dash. Independent review clean; test delta 0, 663 component tests passed, only Item 137 baseline failures. No layout, tag, outcome-rail, or tint change.
+
 - Status: Implemented on `codex/170-179-scoreboard-row` (`6d3014fc` + this closeout); reviews resolved,
   merge pending at time of writing.
 
 ### PLATFORM-173A-FEATURED-TAG-SLOT-CODEX-v2
 
-- Purpose: back-apply the shared status-row tag seam to Featured, which already received prioritized
-  items with `highlightTags` but dropped those tags and rendered its postseason badge on a separate
-  line through `contextSlot`.
-- Scope: `OverviewPanel.tsx`, its focused tests, the shared eyebrow-treatment regression test, and
-  this closeout. No selector, Live/Recent-finals section builder, shared scoreboard contract, tag
-  selection, or precedence change.
-- Outcome: Featured now passes its existing highlight tags and postseason badge through `tagSlot`,
-  placing them at the right edge of the status row without adding a line. The badge keeps its slate
-  colour, border, fill, font size, and padding; review corrected the prompt's line-height premise —
-  preserving `leading-normal` in the fixed 16px slot clipped the 21px badge, so it inherits the
-  slot's `leading-none` and fits exactly. Test count delta 0.
-- Review / verification: both independent reviews ran against `05873bc0` before remediation. Both
-  found the clipping; `/code-review` also found one whole-article greedy regex and raised the
-  three-pill cap question. One remediation (`64497b51`) removed `leading-normal`, inverted its
-  regression assertion, and replaced the affected regex with a scoped JSDOM assertion. The
-  confirming Codex review was clean; confirming `/code-review` verified both fixes and left two low
-  proof/design follow-ups, already filed as Items 187 and 195. On clean `64497b51`, TypeScript and
-  `lint:all` exited 0; the focused suites passed 74/74; full `npm test` passed 4,990/4,992 with exactly
-  Item 137's two standing failures. Mutations proved Featured tag rendering and badge fit; the
-  watchlist assertion was scoped to its own article and stayed green when Featured tags were removed.
+- Change: Featured forwards existing highlight tags and its postseason badge through the shared status-row `tagSlot`, replacing the separate `contextSlot` line; selection/precedence stay unchanged. Badge styling survives except `leading-normal`: the 21px badge clipped in a 16px slot, so it now inherits `leading-none`.
+- Review: Both reviewers found clipping; remediation also replaced a greedy article-wide regex with scoped JSDOM. Mutations proved tags and fit, while the watchlist assertion stayed green when Featured tags were removed. Confirmations left only filed Items 187/195. Test delta 0, 74 focused tests passed, only Item 137 baseline failures.
+
 - Status: Implemented on `codex/173-overview-tags` (`05873bc0`, `64497b51` + this closeout); reviews
   resolved, merge pending at time of writing.
 
 ### PLATFORM-143-MATCHUPS-STATUS-ROW-CODEX-v5
 
-- Purpose: reconstruct stopped v3 around the real Matchups defect: a post-kickoff row without a
-  usable score was classified as scheduled, while the shared row lacked the tag and caller-status
-  seams needed for the intended presentation. V4 stopped at receipt when the documented consumer
-  contract contradicted `awaiting`; v5 corrected the contract before implementation.
-- Scope: `CompactGameScoreboard`, `MatchupsWeekPanel`, the app clock seam, `gameUi`, a new pure
-  scoreboard-state projection consumed by Matchups and Overview, and focused tests. No
-  `gameStatus.ts`, odds, `statusMetadataSlot`, disrupted-status rendering, awaiting timeout,
-  Overview sectioning/omission, polling policy, or Schedule behavior.
-- Outcome: `(score, kickoff, now)` projects explicit final → live → scheduled → awaiting precedence;
-  Matchups now renders `SCH` only before kickoff and `Awaiting score` after kickoff without usable
-  evidence. Eyebrow tags sit at the fixed right edge of the status row, with a scheduled-only phone
-  wrap; `leading-none` keeps the shared 10px pill inside the 16px clipped header. Matchups retains its
-  neutral live hue and adds a freshness-gated, reduced-motion-safe pulse. Overview's behavior and
-  disruption guard are unchanged. Static JSDOM markup cannot prove rendered pixel height; the
-  recursive renderability detection preserves the exact untagged branch.
-- Review / verification: both independent reviews ran against `d399411a`; three unique findings
-  reduced to one accepted P2, independently found by both reviewers. The disrupted-label and
-  awaiting-window findings were refuted by the explicit measured v5 rulings. One cohesive
-  remediation (`71cf1250`) added `leading-none`; its structural assertion failed first against the
-  clipped code and then passed 30/30. On clean `71cf1250`, TypeScript and `lint:all` exited 0 and full
-  `npm test` passed 4,990/4,992 with exactly Item 137's two standing failures. Test delta +5. Final
-  pre-closeout diff: 12 files, +467/−95; net growth is 20.5% smaller than v3's +559/−91.
+- Change: v5 reconstructs stopped v3 after v4 stopped at a contradictory contract. A shared pure `(score, kickoff, now)` projection gives final → live → scheduled → awaiting precedence. Matchups renders `SCH` before kickoff and `Awaiting score` afterward without usable evidence; neutral live hue gains a freshness-gated, reduced-motion-safe pulse.
+- Contract: Tags use the fixed right edge of the 16px status row with scheduled-only phone wrapping and `leading-none`; recursive renderability preserves the exact untagged branch. Overview's disruption guard/sectioning, Schedule behavior, odds, provider classification and polling were unchanged.
+- Review: Both reviewers found the accepted clipping P2; one remediation passed its previously failing assertion. Static markup does not prove pixel height. Disrupted-label and awaiting-window findings were rejected against the explicit v5 rulings. Measured +5 tests; only Item 137 baseline failures. Net diff +467/−95 across 12 files, smaller than abandoned v3.
+
 - Status: Implemented on `codex/143-status-row-v2` (`63e92a15`, `71cf1250` + this closeout); reviews
   resolved, merge pending at time of writing.
+- Other source hashes: `d399411a`.
 
 ### PLATFORM-143-MATCHUPS-STATUS-ROW-CODEX-v3
 
@@ -789,303 +283,67 @@ Rules:
 
 ### PLATFORM-110B-CORRECTION-RECONCILIATION-CLAUDE-v1
 
-- Purpose: Item 110B — recurring correction reconciliation. Revisit satisfied game-stat partitions
-  so provider revisions are picked up instead of sitting until someone audits. The cadence was
-  UNDECIDED and the slice measured before it designed.
-- Scope: a reconciliation path over the existing game-stats ingestion authority, its scheduling, and
-  tests. NOT the initial polling window (131), NOT the raw-category merge gap (193), NOT
-  `provider-refresh-status` correction (194).
-- The measurement came first, and it inverted the framing. Three billed CFBD calls across three
-  partitions: `2026:1:regular` re-observed +34h after the cron's last write showed **zero** of the 26
-  recognized categories changed across 203 games and no points changed; `2025:16:regular` after 44
-  days and `2025:1:regular` after 146 days were **byte-identical** across 146 games. The 64 games
-  that did differ differ only in categories `mergeRawEvidence` cannot overwrite — frozen cache, not
-  provider drift. The discriminating argument is that the parser boundary is an artifact of this
-  codebase and CFBD has no knowledge of it, so a provider still revising would not revise exclusively
-  the categories this repo cannot write. Four of 409 team-sides hold a `tackles` value below 10,
-  impossible as a completed-game final.
-- Outcome: one pass per current-season partition at ~48h after its LAST stat-applicable kickoff, one
-  at ~7 days, then never; historical seasons never swept. ~20 partitions per season × 2 passes ≈ 40
-  CFBD calls a season, one billed call per run. Reconciliation is a SECOND CONSUMER of the
-  game-stats cron's existing run slot, never a second job — considered only once ordinary polling
-  has no target, so the one-fetch-per-run promise, the quota reserve, the attempt bookkeeping, the
-  writer fence, the ingestion coordinator and the outcome interpreter are all unchanged. No new
-  schedule: the planner keeps a slow game-stats schedule armed daily. The two target sets are
-  disjoint BY CONSTRUCTION — `now >= latestKickoff + 48h` proves every game is more than 24h past
-  kickoff — and a generated sweep asserts that against `listKickoffWindowPartitions` itself.
-- What it added: `reconciliationTarget.ts` (pure due-time derivation), `reconciliationLedger.ts` (a
-  durable per-season record, reserve-before-spend), `reconciliationRun.ts` (the run-scoped adapter),
-  a `week-reconciliation` provider-refresh scope kind, and `mode` on the game-stats scheduler
-  receipt.
-- Gated on SATISFACTION by owner ruling: only a partition whose coverage is `complete` is
-  reconciled. A pass that quietly filled a partition polling never collected would MASK the
-  collection gap instead of surfacing it, and a never-collected partition is a health problem (Item
-  132). The lane had widened this during design and reported the deviation rather than leaving it
-  implicit.
-- The +7d pass is labelled in code as the half the measurement does NOT support — the interval from
-  ~2 days to ~44 days is unmeasured, because both historical partitions were first observed 7.6
-  months after their games. It is insurance against CFBD's stated weekly cycle landing after the
-  +48h look, and the ledger records each pass's corrected count so a season of empty `p2` entries can
-  retire it on evidence.
-- Review / verification: three independent reviews across two rounds — `/code-review` and Codex on
-  `1329fef9`, then `/code-review`, a native Codex review and a Codex confirming review all on
-  `2003dd69`. Round 1 closed three roots: closure keyed on the merge's verdict rather than the
-  route's control flow, the attempt recorded before the spend, and a scope kind game-stats does not
-  own. Round 2 closed one property in both directions — a fault must be visible and a benign state
-  must not read as a fault. Test delta **+64** against `main` (5,025 → 5,089 measured); `tsc` and
-  `lint:all` clean; `npm test` at the standing Item 137 two-failure baseline.
-- **A verification run against the real route found what neither review could show.** Driven at its
-  surface on a file-store copy of production data, a writer-control refusal consumed `p1`
-  permanently, reported `corrected: 0` as though the partition had been compared and found clean, and
-  the correction never happened. Production was proved untouched by impossibility — the partition's
-  `updated_at` was byte-identical before and after.
-- **The failure mode worth carrying past this branch: a fact changed underneath a branch that had
-  already been reasoned about.** Round 1 added the satisfaction gate and the verdict predicate
-  together, and the empty-response case was never re-derived against the new precondition — the gate
-  made an empty CFBD array mean the OPPOSITE of what it had meant an hour earlier (it now contradicts
-  proven coverage rather than asserting emptiness). Not a missed test; a multi-change round moving the
-  ground under its own earlier reasoning.
-- Findings raised, not fixed here: a `pending` unknown-kickoff game can let a partition read
-  `complete` around it — bounded, and it ends with reconciliation declining the partition once the
-  kickoff is repaired, which leaves the collection gap visible as ruled; and unreconcilable
-  partitions are re-probed on every idle run (no spend, no correctness impact, and the fix trades
-  read count against fairness). **Item 197** — reconciliation status has no dedicated health reader —
-  was filed by planning and unblocks when this lands. Measured incidentally and worth recording:
-  CFBD's `/info` usage probe costs **zero** quota calls, which `quotaPolicy.ts` documents as
-  unverified while reserving a 2-call margin for it.
+- Change: Item 110B reconciles only complete current-season game-stat partitions at approximately 48h and seven days after their last applicable kickoff; no historical sweep. It uses the existing cron's idle slot, one fetch/run, existing quota/fence/ingestion semantics, a reserve-before-spend ledger, `week-reconciliation` scope, and receipt `mode`. The planner keeps a slow daily schedule armed. Polling and reconciliation targets are disjoint by construction; incomplete coverage remains a collection fault.
+- Evidence / limits: Three calls found no recognized-category/points revision across 203 games at +34h and byte-identical recognized data across 146 games at +44/+146 days. The 64 differing games involved raw categories the merge could not overwrite; four of 409 team-sides had tackles below ten. The +2-to-44-day interval was unmeasured: the +7d pass is insurance for CFBD's weekly cycle, approximately 40 calls/season, with corrected counts supporting later retirement. `/info` was measured quota-free.
+- Review: Route-level verification on a file-store copy caught a writer refusal consuming a pass and falsely reporting corrected zero; production `updated_at` remained identical. Changing the satisfaction gate required re-deriving empty-response semantics. Measured +64 tests; only Item 137 baseline failures.
+- Open: Initial polling window Item 131, raw-category gap Item 193, refresh-status correction Item 194, dedicated health reader Item 197; unknown-kickoff coverage and repeated idle re-probes retained as bounded findings. No production reconciliation was run. See L1, L4, L6.
+
 - Status: Implemented on `claude/110b-correction-reconciliation` (`1329fef9`, `2003dd69`,
   `1d4d984d` + this closeout); reviews resolved, no production run — the gate forbids it and
   promotion stays with the owner.
 
 ### PLATFORM-110A-GAME-STAT-RECOVERY-CLAUDE-v1
 
-- Purpose: Item 110A — recover the five measured game-stat records that disagreed with newer CFBD
-  observations, through the existing authorized writer, with before/after evidence. Bounded to those
-  five.
-- Scope: a bounded recovery path over the game-stats ingestion authority, an operator CLI, and
-  tests. NOT the recurring reconciliation (110B), NOT the polling window (131), NOT the provider-
-  status comments (172).
-- Outcome: the writer was never the defect — CFBD `/games/teams` is partition-granular while the
-  repair is not, so reaching five games meant rewriting all 203 and advancing 198 fences nobody
-  asked to move, which is 110B shipped without its review. The coordinator gained ONE optional
-  caller-supplied bound, `restrictToProviderGameIds`: never derived, never defaulted, absent leaves
-  the route and cron byte-identical, empty refused rather than read as a wildcard, unmatched
-  refused, partially matched merged but never reported clean. Everything downstream sees only the
-  selected observations, so H2 reports the rest in `retainedExisting` and they survive byte-
-  identical, fence included. `scripts/recover-game-stats.ts` splits capture from apply: one provider
-  request instead of two, and the observation fence stays honest because the capture records when
-  the fetch actually started. A capture holds a raw provider payload, so a path inside the
-  repository is refused outright.
-- Evidence and the apply: capture at `2026-09-09T05:43:43.425Z` found **all five still differing**.
-  The owner ran the dry run and then the apply from their own terminal on
-  2026-09-09T05:57:02.928Z — `written-clean`, five updated, 202 retained untouched. The apply ran
-  the PRE-remediation script (`03cf0d90`); the remediated version has never been run against
-  production.
-- **The evidence table the owner approved was incomplete.** It compared normalized rows and showed
-  26 deltas; the merge also rewrote roughly thirty RAW-only categories it never listed, including
-  Florida State `tackles 0 → 33`. Nothing in it was false — every delta was backed by a present
-  category, checked — but a data change was approved against a table that understated what
-  differed. The rebuilt table compares raw category dictionaries, which is the unit H2 merges.
-- Review / verification: Codex and `/code-review` both gathered on `03cf0d90` before any
-  remediation; seven findings each, one cohesive round (`b04ce2b9`). The pattern in the Claude
-  findings was one thing — invariants written into doc comments and not enforced: an empty response
-  under a restriction returned a successful no-op four lines below a comment promising it could not,
-  a partially matched restriction reported `written-clean`, and a `stale` merge exited 0. Codex
-  additionally established that the apply path is a refresh entry point recording no scoped status,
-  and that a normalized evidence comparison can invent a zero-fallback revision the merge will never
-  perform. One Codex finding refuted: hardcoding the five ids into the tool — the gate binds this
-  item's run, not the tool's vocabulary. Seven mutations, each naming the assertion that caught it.
-  Test delta **+33** (4,992 → 5,025 measured). `tsc` and `lint:all` clean; `npm test` at the
-  standing Item 137 two-failure baseline.
-- Findings raised, not fixed here: **Item 193** — the merge repairs modelled categories and never
-  raw-only ones (`mergeRawEvidence` replaces an existing category only when
-  `parseCategoryValue(...).status === 'valid'`, and `tackles`/`sacks`/`qbHurries`/`yardsPerPass`/
-  `completionAttempts` are all `unknown-category`), so replaying the same capture now returns
-  `unchanged`. **No reader is affected** — `RECOGNIZED_GAME_STAT_CATEGORIES`, the list
-  `publicProjection.ts` loops over to build the exposed raw record, derives from the same specs as
-  the parsers, so those categories are stored and never projected. Storage hygiene, not wrong data
-  reaching anyone; it belongs to 110B. Acceptance for 110A is met; **Item 194** — `provider-refresh-status` for this partition still claims the
-  2026-09-08 cron's 203-row success and is false until a cron success overwrites it; **Item 192** —
-  `.env.operator.local` carries a production read-write credential that this repo's own tooling
-  loads on startup in every worktree.
+- Change: Item 110A adds caller-supplied `restrictToProviderGameIds` to the existing ingestion authority for the five-game recovery. Absent preserves existing callers; empty/unmatched refuses; partial matching never reports clean. Unselected data and observation fences survive unchanged. The CLI separates capture/apply, preserves fetch-start time, and refuses raw capture files inside the repository.
+- Production checkpoints: Capture at 2026-09-09T05:43:43.425Z still found all five differences. The owner applied pre-remediation `03cf0d90` at 2026-09-09T05:57:02.928Z: `written-clean`, five updated, 202 retained. The remediated script was never run in production.
+- Evidence correction: The approved normalized table showed 26 deltas but omitted approximately thirty raw-only differences (including Florida State tackles 0 → 33); it understated the change. Rebuilt evidence compares raw category dictionaries, the merge unit. Existing raw-only unknown categories cannot be overwritten and replay reports unchanged; they are not publicly projected, so Item 193 is storage hygiene, not exposed wrong data.
+- Review / open: One cohesive round fixed unenforced empty/partial/stale invariants and evidence errors; seven mutations, measured +33 tests, only Item 137 baseline failures. Item 194 retained the stale partition success receipt; Item 192 recorded the startup write-credential exposure. Recurring reconciliation belongs to 110B. See L1, L4–L6.
+
 - Status: Implemented on `claude/110a-game-stat-recovery` (`03cf0d90`, `b04ce2b9` + this closeout);
   reviews resolved, production apply authorized and performed by the owner, merged to `main`.
   Promotion stays with the owner.
 
 ### PLATFORM-174-175-176-178-180-OVERVIEW-CONFORMANCE-CLAUDE-v3
 
-- Purpose: Items 174, 175, 176, 178 and 180 — five Overview divergences the owner ruled on the day
-  Item 167's audit found them. v3 after a read receipt found the fifth `SectionHeader` caller and
-  corrected two of the prompt's own claims.
-- Scope: `OverviewPanel.tsx`, `gameUi.ts`, `gameCardPresentation.ts`, `DESIGN.md`, their tests, and
-  this closeout. NOT `CompactGameScoreboard.tsx` (Item 143, concurrent in the Codex lane), NOT tag
-  selection or precedence.
-- Outcome: live and awaiting rows carry their broadcast and finals do not, enumerated at the CALL
-  SITE so the rule holds without depending on the shared component's own `state !== 'final'`; the
-  `Streaming ·` prefix is gone from the shared formatter (so Schedule changes too, deliberately —
-  the rule is a property of the shared row) while `Radio ·` is retained as a guard against a
-  radio-only game; the watchlist reason label is the same bronze pill as the tag beside it, and the
-  mis-citation that justified the split is deleted rather than repointed; Featured hides when empty;
-  and `DESIGN.md`'s 17px/650 game-section exception is implemented for the first time since it was
-  recorded on 2026-09-03, opt-in so GB Race — the caller that document excludes by name — keeps
-  15px/500. `DESIGN.md` gains the two rendered rules the slice changes, plus the recorded gap that
-  unifying the treatment brought a third chip under a cap counting two.
-- Review / verification: Codex and `/code-review` both gathered on `4ba486e3` before any
-  remediation; one cohesive round (`e5a3cbb4`) corrected three false prose claims and two
-  instruments that could report clean without looking. Both reviewers re-run on the remediated
-  commit: Codex clean, `/code-review` three low findings, all adjudicated as follow-ups (Items 185,
-  186, 187). No P0/P1/P2 at any point. `tsc` clean, `lint:all` clean, `npm test` at the standing
-  Item 137 two-failure baseline. Test delta +6, measured per file. Featured-hides and the streaming
-  cut are mutation-proven; the broadcast enumeration is NOT observable at the DOM — proven by a
-  mutation that stayed green — so it carries a structural pin with its retirement condition.
+- Change: Items 174/175/176/178/180 implement Overview conformance: live/awaiting broadcast, no final broadcast; remove shared `Streaming ·` while retaining `Radio ·` (Schedule deliberately inherits this); bronze-pill watchlist reason; hide empty Featured; opt-in 17px/650 game-section headers, leaving GB Race 15px/500. The header exception had been documented since 2026-09-03 but not implemented. Tag selection/shared-scoreboard code stayed outside scope.
+- Review: Corrected prompt/citation claims and two blind verification instruments. Featured visibility and streaming removal were mutation-proven; DOM output cannot observe caller-side broadcast enumeration because the shared component already filters it, so a structural pin carries a retirement condition. Measured +6 tests; Item 137 baseline only. Final lows filed as Items 185–187, including the third chip under a cap counting two. See L1–L2, L4.
+
 - Status: Implemented on `claude/174-178-overview-conformance` (`0f2ec105`, `e5a3cbb4` + this
   closeout); reviews resolved, merge pending at time of writing.
+- Other source hashes: `4ba486e3`.
 
 ### PLATFORM-157-162-163-TAG-VOCABULARY-CLAUDE-v2
 
-- Purpose: Items 157, 162 and 163 as ONE decision about what the game-marker vocabulary IS — three
-  markers each restating something already on the row. v2 after the read receipt corrected the
-  prompt's `DESIGN.md` citations and two contract errors.
-- Scope: `src/lib/gameTags.ts`, `src/lib/selectors/overview.ts`, `MatchupsWeekPanel.tsx`, their
-  tests, and this closeout. NOT tag placement (Item 143, concurrent in the Codex lane), NOT the
-  treatment (Item 153).
-- Outcome: `LEAGUE_TAG_LABELS` renders `Top 25 Matchup`; the identifier is unchanged. `Ranked Team`,
-  `Contender Watch` and Matchups' `vs <owner>` pill are retired, and `topOwnerNames` went with the
-  second — nothing about who leads the league reaches the tag selector now. **The receipt corrected
-  the prompt in five places**, all of them the author's own: `DESIGN.md:284`/`:295` are the
-  bowl-badge and rankings-inline lines (the rules are `:289` and `:296-297`), `gameTags.ts:596`/`:609`
-  are `:597`/`:611`, `CARRIES:` was not verbatim in three of three rows, `deriveOpponentDescriptor`
-  has FIVE branches not four (`Self` was missed), and the contract asked for `NoClaim (FBS)` to be
-  asserted on rendered output when it never renders. **Three things nobody had:** after the rename
-  ONE label sat behind TWO predicates, since the highlight family's `top25` was gated on
-  `rank != null` with no bound at all — now `isRankedTop25` on both sides, bounded 1–25 at both ends;
-  `Ranked Team` had been supplying 70 to `watchlistPriority` on every one-ranked game, so retiring it
-  could drop ranked games off the six-card board (restored by owner ruling as the signal
-  `hasTop25RankedTeam`, no chip); and `Contender Watch`'s five-of-six was never reproduced and did
-  not need to be, because at priority 90 it was also a SORT KEY feeding a six-card list. Owner
-  additions mid-branch: every Top 25 Matchup outranks every non-top-25 game and the strongest PAIR
-  leads, by lowest average rank. `DESIGN.md` gains three rules — position decides whether a
-  restating marker aids scanning, the vocabulary is game facts only, and the watchlist ranking band.
-  Reference §2 corrected in four places; `item-87-INDEX.md` CARRY row 72 DISCHARGED.
-- Review / verification: four passes. Round 1 (`a008b39c`): no P0/P1; remediated in `1f4b83a4` —
-  `top25` bounded to match `computeGameTags`, a false ownership claim in a test docblock, and a
-  `TOP_BADGE_LIMIT` comment claiming "the next tag added hits it" when only a tag able to CO-FIRE
-  with both survivors would. Round 2 (`ca2a13f9`) found the bound had no LOWER end and that two more
-  rank readers were unbounded; both closed in `3da3c42e`. Round 3 (`3da3c42e`): **Codex clean**;
-  `/code-review` returned one MEDIUM and five LOW, all about CLAIMS rather than logic — my "one bound
-  for every rank read" comment was false, since `upsetWatch`/`isRankUpset`/`rankingTension`
-  deliberately keep raw ranks (favouritism is relative, membership is bounded); two production
-  measurements of one population sat in one file with nothing marking which was current; and
-  `PrioritizedOverviewItem.hasRankedTeam` collided by name with `gameWeek.ts`'s UNBOUNDED
-  `hasRankedTeam`, reintroducing by naming the divergence the item removed. All corrected in
-  `0d741e81`. Two reported and not fixed, now Items 169 and 170; the dead scoring term is Item 171. **Measured, read-only replica,
-  2026-09-08:** 19 stored weeks, none with zero poll entries, 777 entries across ap/coaches/cfp, all
-  integers, min 1 max 25 — so both bounds are latent, not live. Gates at `0d741e81`, each run
-  separately: `npx tsc --noEmit` exit 0; `npm run lint:all` exit 0; `npm test` exit 1 with 4,979 of
-  4,981 passing and exactly the two standing Item 137 `writer-convergence` failures. Test delta
-  measured per file against `origin/main` in the same worktree: **+9 tests** (4,972 → 4,981), none
-  removed, none weakened. Diffstat 10 files, +945/−62.
+- Change: Items 157/162/163 define markers as game facts. Rename the label to `Top 25 Matchup`; retire `Ranked Team`, `Contender Watch`, and Matchups' `vs <owner>` pill plus `topOwnerNames`. Both top-25 predicates use rank 1–25; relative-favoritism readers deliberately retain raw ranks.
+- Ranking decision: Retiring a chip must not silently remove its watchlist signal. `hasTop25RankedTeam` preserves the one-ranked signal without a chip. Owner ruled every Top 25 Matchup above non-top-25 games, with lowest average pair rank first. Contender Watch's selection influence was real even though its claimed five-of-six prevalence was not reproduced.
+- Evidence / review: Corrected citations, a missed `Self` descriptor branch, and an assertion about never-rendered `NoClaim (FBS)`. On 2026-09-08, 777 poll entries across 19 stored weeks were all integers 1–25, so bound protections were latent. Four passes corrected upper/lower bounds, false universal-bound claims, colliding `hasRankedTeam` names and unlabeled measurements. +9 tests, only Item 137 baseline failures. Items 169/170 and dead scoring term 171 remained follow-ups. See L1–L3.
+
 - Status: Implemented on `claude/157-162-163-tag-vocabulary` (`a008b39c`, `1f4b83a4`, `ca2a13f9`,
   `2e9c7468`, `3da3c42e`, `0d741e81` + this closeout); merge pending.
 
 ### PLATFORM-153-EYEBROW-TREATMENT-CLAUDE-v1
 
-- Purpose: collapse three eyebrow treatments into one across Overview, Schedule and Matchups, and
-  correct Overview's blue — a live `DESIGN.md` violation Item 117 had already fixed on the other two
-  surfaces.
-- Scope: `src/lib/gameUi.ts` (the shared constants), `OverviewPanel.tsx`, `GameWeekPanel.tsx`,
-  `MatchupsWeekPanel.tsx`, their tests, and this closeout. NOT tag selection, NOT tag placement
-  (Item 143), NOT the champion amber token.
-- Outcome: `EYEBROW_TAG_CLASSES` and `EYEBROW_REASON_CLASSES` are the single source; no component
-  carries a bronze literal. Reconciled on the value each surface already had right — Matchups'
-  `0.5px rgba(201,166,107,0.40)` border and Schedule's 10px text — so **Schedule's border visibly
-  changed from 1px**. Radius, padding and tracking held as shipped, deliberately diverging from the
-  mockup, which `AGENTS.md` rules non-authoritative on those three. **The receipt found more than the
-  prompt stated:** five blue spots in the three files rather than four, and a FOURTH eyebrow spelling
-  the prompt did not list — Overview's watchlist chips, neutral gray with a fill, which also gained
-  `uppercase` and lost their fill in the conversion. Overview's reason row went plain bronze
-  `#c9a66b`; its conference-championship badge went neutral slate rather than bronze, matching the
-  CFP branch of the same two-branch family. `DESIGN.md` amended in four places: the chip rule to
-  bronze, the amber reservation gains a pointer to the adjacent token, the conference-championship
-  colour recorded as a decision, and the amber `upset` border recorded as deliberately retired
-  (INDEX CARRY row 4). **The campaign's 1.37:1 figure did not reproduce** — recomputed at 2.13:1 for
-  pill text against champion amber, corrected on `main` at `67224b39`; 1.32:1 is border against text,
-  a pair nobody looks at.
-- Review / verification: both reviewers against `59f7003e`; neither found a runtime or correctness
-  bug in the production diff. Seven findings, all remediated in `10d0e046`: the chip conversion
-  contradicted `DESIGN.md`'s chip rule (owner ruled amend, not revert); the single-source guard named
-  three paths and so could not see a fourth consumer (now repository-wide over `src`, excluding only
-  the defining and pinning files); `shrink-0` was exempted in the equality test's allowlist and is
-  now part of the constant; cwd-relative reads moved to `import.meta.url`; four Schedule assertions
-  regained a styling signal; the badge comment's citation narrowed. **Runtime verification** drove
-  the three panels in the running app: all four arbitrary utilities are emitted from `src/lib`
-  (`border-[0.5px]`, `border-[rgba(201,166,107,0.40)]`, `text-[#dbc190]`, `text-[#c9a66b]`), and
-  sampled glyph pixels read `#c9a66b`, `#dbc190` and `slate-300` exactly. Gates on the remediated
-  branch, each run separately: `npx tsc --noEmit` exit 0; `npm run lint:all` exit 0; `npm test`
-  exit 1 with 4,965 of 4,967 passing and exactly the two standing Item 137 `writer-convergence`
-  failures. Test delta measured against `main` in the same worktree: 4,962 → 4,967.
-  Two findings filed rather than fixed: Overview's featured badge keeps a 1px border and a fill
-  beside a hairline chip in the same slot, and `MatchupsWeekPanel.tsx:346` is a separate blue
-  violation on the owner-card summary.
+- Change: Shared `EYEBROW_TAG_CLASSES` / `EYEBROW_REASON_CLASSES` replace four treatments across Overview, Schedule and Matchups. Use the 0.5px bronze border and 10px text; preserve shipped radius/padding/tracking rather than non-authoritative mockup values. Schedule's 1px border changes visibly; neutral filled watchlist chips become uppercase/unfilled. Overview reason text is bronze and its conference-championship badge slate; amber upset border retired. Selection/placement and champion amber stay outside scope.
+- Evidence / review: Runtime confirmed emitted utilities and actual glyph colors. The claimed 1.37:1 contrast did not reproduce: pill text/champion amber is 2.13:1; 1.32:1 describes a different pair. Seven findings fixed, including a repository-wide guard replacing a three-file inventory, shared `shrink-0`, stable file reads, and restored styling assertions. Measured +5 tests, Item 137 baseline only. Featured badge styling and Matchups owner-summary blue remained follow-ups. See L1–L3.
+
 - Status: Implemented on `claude/153-eyebrow-treatment` (`8cb888e9`, `10d0e046` + this closeout);
   merge pending.
+- Other source hashes: `67224b39`, `59f7003e`.
 
 ### PLATFORM-155-MATCHUPS-SCHEDULED-ROW-CODEX-v2
 
-- Purpose: wire the already-loaded team-record projection into Matchups and make the compact
-  scoreboard's scheduled odds band an explicit consumer request; v2 superseded v1's mistaken
-  assumption that the reservation itself was accidental.
-- Scope: `CFBScheduleApp`, `MatchupsWeekPanel`, `CompactGameScoreboard`, Overview's sole production
-  `footerSlot` call site, and focused component tests. No selector, route loading, shared scoreboard
-  prop, Schedule-record wiring, outcome-rail, or promotion change.
-- Outcome: Matchups passes both participants' current records into the shared scoreboard, so scheduled
-  rows use records as right-edge anchors and live/final/awaiting rows retain the equivalent inline
-  placement. Missing records stay blank. Footer height is now reserved only when a caller supplies a
-  slot: Overview explicitly preserves its two-column alignment band, while Matchups and Schedule drop
-  their dead scheduled space; Schedule odds remain in tier 2.
-- Review / verification: implementation `00ab9d69`; focused component tests 179/179 (+5 from the
-  measured base), TypeScript and `lint:all` exit 0, and full `npm test` is 4,965/4,967 with exactly the
-  two standing Item 137 failures. Mutations proved blank-anchor behavior despite available spread,
-  caller-owned footer rendering, awaiting-state equivalence, and unchanged Overview markup. Both
-  independent reviews found no correctness defect; runtime verification exercised the real app data
-  path, orientation, five route payloads, and cross-year isolation. The accepted normalization-drift
-  P3 is carried to Item 156. The other two lows—the Overview reservation already guarded by two
-  comments plus its unchanged test, and the source-text forwarding pin—were evaluated as requiring no
-  remediation.
+- Change: Matchups consumes the already-loaded participant records: right-edge anchors for scheduled rows, equivalent inline placement otherwise; absent records remain blank. Footer space is reserved only for a caller-supplied slot. Overview explicitly retains its two-column band; Matchups/Schedule lose dead scheduled space, with Schedule odds still tier 2. v2 corrects v1's assumption that all reservation was accidental.
+- Verification / limits: +5 tests, 179 focused tests, TypeScript/lint clean and Item 137 baseline only. Mutations proved blank anchors, footer ownership, awaiting equivalence and unchanged Overview. Runtime exercised orientation, five route payloads and cross-year isolation. Normalization drift goes to Item 156; Schedule records remain unwired. No new selector, loader, scoreboard prop, outcome-rail or promotion behavior.
+
 - Status: Implemented and reviewed on `codex/155-matchups-scheduled-row` (`00ab9d69` + this closeout);
   merge pending.
 
 ### PLATFORM-144-ITEM-87-DOC-RECONCILIATION-CLAUDE-v1
 
-- Purpose: read the sixteen-document Item 87 design set end to end and mark every claim in place —
-  current, superseded, or discharged — so the next prompt author reads a corrected source instead of
-  a summary of one; promote every obligation into the index's CARRY block with its state.
-- Scope: `docs/campaigns/item-87-*.md` (15 documents + the index) and
-  `mockups/matchups-schedule-mockup.html`. Docs and mockup only; no `src/`, no `docs/prompts/`, no
-  `docs/next-tasks.md`. Assigned to the implementation lane by owner exception (2026-09-08).
-- Outcome: 80 claim-level marks across the 15 documents (30 discharged, 17 superseded, 8
-  current/extended/adopted, 11 live obligations, 14 corrections, answers and rulings), each placed at
-  the claim in the document that makes it; 13 index-level verdicts replacing the earlier
-  best-knowledge marks (no document wholly superseded; `team-highlight.md` and
-  `postseason-context.md` corrected to CURRENT). The index CARRY block now holds 70 rows covering the
-  81 obligation occurrences found (24 discharged, 2 answered, the rest live, 8 of them unfiled
-  queue findings). Two owner rulings recorded in the canonical document: blank anchor governs and
-  the spread fallback is marked superseded at its four restatements; a store failure is not the
-  same condition as "not wired to this surface". `records.md`'s degradation rule made visibly
-  conditional. Mockup reconciled: tint inset to `0 -8px` with squared facing corners (CARRY row 6),
-  missing state label, owner-card `ESPN2` restored, four stale notes marked, the 1320 arithmetic
-  annotated for Item 152 (owner had already fixed the mid-file `</body>`, the untinted row, the tint
-  comment, and the two-column prose). Every DISCHARGED verdict checked against `src/`, `DESIGN.md`,
-  `AGENTS.md` or this registry.
-- Review / verification: docs-only change, no review round (nothing to review against the code).
-  Gates against `62f9c6a5` on a clean tree: `npm run lint:all` exit 0; `npx tsc --noEmit` exit 0;
-  `npm test` exit 1 with 4,960 of 4,962 passing and exactly the two standing Item 137
-  `writer-convergence` failures — the baseline, unchanged, as a docs-only branch requires.
-  Queue findings reported to planning rather than filed: postseason round grouping has no item;
-  Overview's Featured eyebrow is still `text-blue-300`; the `0–0` owner header, the viewing-member
-  highlight and the data-seam `displayOwner` guard are recorded only in the set; the Item 119 entry
-  lacks the slice 5b dependency and the slice 5 closeout lacks the team-colour removal; `DESIGN.md`
-  line citations across the set drifted again on 2026-09-08.
+- Change: Docs/mockup-only reconciliation of the sixteen-document Item 87 set, owner exception dated 2026-09-08. Annotated claims in their original homes: 80 marks across 15 docs, 13 index verdicts, and 70 CARRY rows covering 81 obligation occurrences (24 discharged, two answered, eight unfiled findings). No document was wholly superseded.
+- Decisions: Blank anchor supersedes spread fallback at all four restatements; storage failure differs from an unwired surface; records degradation is conditional. Mockup retained squared facing tint corners at `0 -8px`, restored status label/ESPN2, marked stale notes, and annotated Item 152's 1320 arithmetic. Discharged claims were checked against code or binding docs.
+- Verification / open: No runtime change or review round; lint/TypeScript passed, tests retained Item 137 baseline. Reported queue gaps included postseason grouping, Featured blue, 0–0 owner header, member highlight, `displayOwner` guard, missing color-removal/dependency notes, and drifting design line citations. This is historical reconciliation, not fresh implementation of those obligations.
+
 - Status: Implemented on `claude/144-item-87-doc-reconciliation` (`62f9c6a5` + this closeout); merge pending.
 
 ### PLATFORM-117-MATCHUPS-SCOREBOARD-CODEX-v2
@@ -1108,30 +366,13 @@ Rules:
 
 ### PLATFORM-139-RECORD-RECONCILIATION-v3
 
-- Purpose: make an Overview final carry the team record including that result during the six-to-
-  twelve-hour interval before the next provider records refresh, without repeating v1's client
-  payload growth or v2's full-season render-path build.
-- Scope: a pure positional-tail selector, a request-scoped server loader and exact-provider-id score
-  projection, the five league route seams, the two-number client projection, and focused tests. No
-  provider call, cross-request cache, cache invalidation, browser counting, Schedule restoration, or
-  `CompactGameScoreboard` change.
-- Outcome: the server joins schedule and records on numeric CFBD participant IDs, supplements
-  schedule completion only with participant-validated final score evidence, and folds every readable
-  win, loss, or tie beyond the stored game count. Unreadable outcomes are skipped. Newest score facts
-  win by effective timestamp; equal-time conflicts and participant mismatches are logged. Tail-derived
-  identity registries bypass the unbounded process cache, durable reads begin concurrently, and only
-  `{ wins, losses }` crosses the client boundary. Payload stayed byte-flat at 262,172 bytes.
-- Review / verification: implementation heads `36cb3d79` and `e0a63788`; final behavior-neutral work-
-  metric rename `7efadd0d`. The final reviewed behavior passed TypeScript, `lint:all`, 110 focused
-  tests, and full `npm test` at 4,844/4,846 with exactly the two standing Item 137 failures. Test delta
-  is +21. Mutations proved multi-game suffix folding and rejection of the live wrong-opponent fixture
-  `401858427`. The production score-entry read measured 208,246 serialized bytes / 986 row
-  occurrences, 389.24 ms cold and 41.98 ms median; the five-run projection measured 596 ms cold and
-  184.63 ms warm median. Final review's identity-collision P2 is owner-deferred to Item 83: 6 of
-  22,761 production IDs disagree, none collide; Missouri S&T has no score rows and all nine games are
-  outside the FBS feed.
+- Change: v3 avoids v1's client payload growth and v2's full-season render build. Server-side numeric CFBD participant joins fold every readable win/loss/tie beyond the stored game count, using participant-validated final score evidence; unreadable outcomes skip. Only `{ wins, losses }` crosses the client boundary.
+- Contract / evidence: Newest effective timestamp wins; equal-time conflicts and participant mismatches log. Tail identity registries bypass the unbounded process cache; durable reads start concurrently. Payload stayed 262,172 bytes. Score read: 208,246 serialized bytes/986 occurrences, 389.24 ms cold and 41.98 ms median; projection 596 ms cold/184.63 ms warm median.
+- Review / boundary: +21 tests, 110 focused tests, Item 137 baseline only. Mutations proved multi-game folding and rejection of wrong-opponent fixture `401858427`. Identity-collision P2 deferred to Item 83: six of 22,761 IDs disagreed, none collided; Missouri S&T had no score rows and nine games outside the FBS feed. No provider fetch/cache/browser counting; Schedule records remain separate.
+
 - Status: Complete and reviewed; merge approved 2026-09-07. Records remain absent from Schedule;
   restoring them is separate work.
+- Other source hashes: `36cb3d79`, `e0a63788`, `7efadd0d`.
 
 ### PLATFORM-139-RECORD-RECONCILIATION-v2
 
@@ -1160,48 +401,22 @@ Rules:
 
 ### PLATFORM-087-SLICE-5B-CARD-OWNER-ROW-CODEX-v1
 
-- Purpose: add the per-participant card-owner modifier required before Matchups can adopt the shared
-  scoreboard and highlight the card owner's team without re-deriving ownership inside presentation.
-- Scope: `CompactGameScoreboard`, its focused suite, and the post-review design/queue closeout; no
-  caller, selector, provider, dependency, preview branch, or product-surface wiring.
-- Outcome: the optional boolean adds an isolated neutral row tint only when true. Its zero vertical
-  inset prevents overlap; self games square the two facing corners and retain only the rounded outer
-  corners. The field has zero consumers pending Item 117, and absent/undefined/false output remains
-  byte-identical. The tint remains `dark:`-gated so restoring theme awareness cannot erase it. Tests
-  derive one named/arbitrary theme-utility space, including `text-shadow`, and pin the exact-zero
-  seam.
-- Review / verification: four review passes completed. Codex returned no findings on `af70abd4`;
-  Claude's third pass prompted the test-only `687a95d6`. Claude's fourth pass on
-  `e2c2bc09` found the dormant-theme gating violation and missing `text-shadow` guard family; the
-  owner approved final follow-up `89079e17` and closed further review below P0/P1. On that exact
-  remediation commit, TypeScript and `lint:all` exited 0, the focused suite passed 26/26 (+3), and
-  full `npm test` passed 4,715/4,717 with exactly the two standing Item 137 odds failures, reconfirmed
-  in their focused file at 12/14. Mutations proved that ungating the tint or omitting `text-shadow`
-  turns the suite red, alongside the earlier flag, corner, and positive/negative seam mutations.
+- Change: Optional per-participant card-owner flag adds an isolated neutral tint; absent/undefined/false output stays byte-identical. Zero vertical inset avoids overlap; self games square facing corners and retain outer rounding. Tint stays `dark:`-gated and guards cover the full named/arbitrary theme-utility space, including `text-shadow`.
+- Historical boundary: No caller or product wiring shipped; zero consumers pending Item 117. Later adoption must not rewrite that dormant-at-merge fact.
+- Review: Four passes; owner approved the final theme-gating/text-shadow remediation and stopped further review below P0/P1. Exact remediation passed TypeScript/lint, 26 focused tests (+3), and the full suite with the two Item 137 odds failures. Mutations proved flag, corner, inset, theme gate and guard-family behavior.
+
 - Status: Merged via PR #575 (merge commit `fef083ae`), 2026-09-06. Implementation head `89079e17`;
   review closed after four passes.
+- Other source hashes: `af70abd4`, `687a95d6`, `e2c2bc09`.
 
 ### PLATFORM-087-SLICE-5-ITEM-112-CODEX-v1
 
-- Purpose: replace Schedule's collapsed game cards with the shared scoreboard row and put only
-  tier-2 venue, odds, conference, and postseason-admin detail behind an in-place disclosure.
-- Scope: `GameWeekPanel` plus its selector and regular/postseason consumers, the declared Matchups
-  result-tint correction, obsolete scoreboard/helper deletion, and focused tests; no widening of
-  `CompactGameScoreboard`, provider work, filter, navigation, preview-branch mutation, or promotion.
-- Outcome: regular and postseason Schedule rows now keep tier 1 visible, sort within each date by
-  kickoff, render the settled scheduled/live/awaiting/final metadata, use bronze eyebrow pills, and
-  expose matchup-specific More/Less disclosures. The retired one-line/card-emphasis implementation
-  and orphaned legacy scoreboard family are gone. **Records do not render on Schedule:** the attempted
-  browser-finalization gate was deleted, Overview's existing records feed was restored unchanged,
-  and Item 139 owns shared completed-game reconciliation before records return here.
-- Review / verification: exact code head `c6b01169` passed TypeScript, `lint:all`, and all 83 focused
-  tests. Full `npm test` ran 4,685 tests: 4,683 passed and exactly the two
-  `writer-convergence.test.ts` failures recorded as the standing Item 137 baseline remained. Six
-  review passes converged with no new final-pass finding. Disrupted/placeholder findings were not
-  patched: measurement across 11,311 production schedule rows from 2024–2026 found no provider
-  disrupted status, and the owner rejected those branches as unreachable rather than contractual
-  blockers.
+- Change: Schedule regular/postseason rows adopt the shared scoreboard, keep tier 1 visible, sort by kickoff within date, and expose venue/odds/conference/admin detail through per-matchup More/Less. Bronze eyebrows and settled state metadata replace the retired card/one-line and orphaned scoreboard family. Matchups result tint was corrected in declared scope.
+- Boundary: Schedule records were removed; the browser-finalization attempt was deleted and Overview's existing records feed restored. Item 139 owns reconciliation before Schedule records return. No provider, navigation, filter or promotion work.
+- Review: 83 focused tests and TypeScript/lint passed; full suite retained exactly Item 137's two failures. Six passes converged. At this checkpoint the owner rejected disrupted/placeholder branches after a 2024–2026 snapshot of 11,311 schedule rows showed none. The later #661 note bounds what such a snapshot proves; this retains the original ruling as history, not universal reachability proof.
+
 - Status: Merged via PR #572 (merge commit `f424222a`), 2026-09-05.
+- Other source hashes: `c6b01169`.
 
 ### PLATFORM-087-SLICE-5A-SCOREBOARD-CONTRACT-v2
 
@@ -1252,453 +467,84 @@ Rules:
 
 ### PLATFORM-135-OPPONENT-COUNT-CLAUDE-v1
 
-- Purpose: the Matchups owner card rendered a wrong number — `Show N more opponents` understated,
-  because the opponent summary counted sentinel labels rather than distinct opponents.
-- Scope: `src/lib/selectors/matchups.ts`, `src/components/MatchupsWeekPanel.tsx`, and the three suites
-  covering them. No shared scoreboard component, no other panel, no new dependency.
-- Outcome: **the counting model changed mid-branch, so what shipped is not what the prompt first
-  specified.** The control counts DISTINCT GAMES, the unit its list renders; the opponent grouping it
-  had borrowed from the dormant `formatSlateSummaryText` is gone from the count path, and that
-  function keeps its own grouping untouched for Item 117. Three defects shared one root — a label
-  counting a different unit than the list showed. (1) Unowned opponents collapsed onto the `FCS` and
-  `NoClaim (FBS)` sentinels, so three counted as one. (2) The control was INERT: `isExpanded` was read
-  only for the button's own text while the list rendered `slate.games` unsliced, so clicking hid
-  nothing — which also meant a count fix alone would have put a DEAD button on more cards, because
-  `hasHiddenOpponents` gated on the very length the sentinel collapse was suppressing. (3)
-  `buildOwnerSlateGames` emits one slate entry per owned SIDE, so an owner holding both teams rendered
-  two mirrored rows for one game — 39 such games in the 2026 season out of 888 involving a rostered
-  team. `selectDistinctSlateGames` dedupes on `game.key`, first occurrence winning; and
-  `selectSlateGameVisibility` returns the count and the visible games together, so the label and the
-  list cannot disagree. The button also gained `aria-expanded`/`aria-controls`, absent because while
-  inert it controlled nothing, and a singular label at N=1, which the count fix made routine. The
-  rendered opponent descriptor is unchanged — `MatchupsWeekPanel:191` does not appear in the diff.
-- Review / verification: an intermediate design re-keyed only the two sentinel branches onto opponent
-  team identity, and Codex refuted it as still broken. `buildConfirmedOwnersCsv` writes the reserved
-  `NoClaim` OWNER for every undrafted eligible team and `rosterByTeam` carries those rows through
-  unfiltered, so on a drafted league an unclaimed opponent has a TRUTHY owner, took the owned branch,
-  and five distinct opponents still summarised to one — measured through the real path as 1 entry
-  before and 5 after. That refutation is what prompted the move to counting games, which removed the
-  class rather than the instance. Verification bound to `521e79d0`, the final code commit and the
-  exact commit both reviewers ran against: TypeScript and `lint:all` clean; `npm test` reported 4,697
-  tests with 4,695 passing and exactly two failures, both pre-existing in
-  `src/app/api/odds/__tests__/writer-convergence.test.ts` — a file this branch does not touch,
-  reproduced on clean `origin/main`, and since diagnosed as an expired fixture kickoff rather than a
-  defect. Test delta +18 across the three suites (6→15, 25→25, and 9 in a new file). Four mutations
-  each killed named tests and were restored: dedupe removed (7 red), collapse removed (6 red),
-  `NoClaim (FBS)` suppression disabled (1 red), fixed-plural label restored (1 red). Three pre-existing
-  tests were retargeted with every other assertion preserved and the reason stated at each call site;
-  all three had encoded the row duplication as intended behaviour. Codex returned clean;
-  `/code-review` returned no finding in the production code, one out-of-scope defect now filed as
-  Item 136, and two comment inaccuracies corrected in the final commit.
+- Change: Item 135 ultimately counts distinct games, the list's actual unit, rather than opponents/sentinel labels. `selectDistinctSlateGames` dedupes `game.key`, first occurrence winning; one visibility selector returns both count and sliced rows. Collapse now works, with singular copy and `aria-expanded`/`aria-controls`; rendered opponent descriptors and dormant summary grouping stay unchanged.
+- Evidence / rejected path: Sentinel grouping collapsed three unowned opponents into one, expansion previously changed only button text, and self games produced mirrored rows (39 of 888 roster-involving games in 2026). Rekeying only sentinel branches still failed because reserved `NoClaim` is a truthy owner; the real path gave one entry instead of five. Counting games removed the class.
+- Review: +18 tests and four named mutations proved dedupe, collapse, suppression and singular labels. Three tests had encoded duplication and were retargeted. TypeScript/lint passed; the two Item 137 failures were reproduced on clean main and diagnosed as expired fixture time. Item 136 remained separate.
+
 - Status: Merged via PR #571, 2026-09-05. The closeout commit that follows `521e79d0` changes
   documentation only.
 
 ### PLATFORM-127-RETAIN-PROVIDER-USAGE-SERIES-v1
 
-- Purpose: retain the CFBD quota figures the app already probes, because `/info` reports the CURRENT
-  PERIOD only and CFBD exposes no history — so a calendar-month rollover destroys the prior month's
-  burn permanently, and no second source counts provider calls.
-- Scope: a new ungated QStash cron (`turfwar-usage-sample-6h` → `GET /api/cron/usage-sample`, every
-  6 hours) plus its schedule manager, a durable observation log at `app_state` scope `provider-usage`
-  key `cfbd-observations`, a scheduler receipt and cron execution log matching the sibling jobs, and
-  `usage-sample` added to the closed `EXTERNAL_SCHEDULER_JOBS` contract. Observation-only: nothing in
-  `src/` reads the log, and it must never become an input to the game-stats quota gate, which needs a
-  FRESH reading.
-- Outcome: the store holds raw observations — `{ at, remaining, limit }` per probe, sorted, bounded at
-  1,700 entries — and derives nothing at write time. An earlier accumulating design (one entry per UTC
-  day carrying `usedMax`/`usedLatest`/`periodSequence`) was rewritten after five review rounds each
-  found a defect in the same write-time decisions; the rewrite removed 767 lines. `limit` is context
-  only, never subtracted, because `used` is `limit − remaining` and a patron-tier change therefore
-  moves it with no calls made. A quota-period boundary is now read off the series, where `remaining`
-  rises. A second opportunistic producer on the game-stats probe was built and then removed: one
-  durable row with two writers produced lost updates, clock skew reading as a reset, and out-of-order
-  commits.
-- Review / verification: FOUR paired review rounds. Earlier rounds were reviewed at `c057eee6`,
-  `26638026` and `0ceb2121`; `c057eee6` is no longer an ancestor of this branch — the rebase onto
-  `main` after Item 128 rewrote it as `cda2bc88` — so it is recorded as history, not as the verified
-  commit. The FINAL reviewed commit is the one that merges. Findings across the rounds: an
-  availability gate keyed on the derived `used`; a receipt asserting a definite loss on an uncertain
-  commit; a coherence check that reintroduced the first defect through a fabricated Tier 0 limit; a
-  reread that could confirm a commit that never happened; and a tolerant reader on the WRITE path
-  that would have destroyed the whole log on one unparseable row. Each was remediated and
-  mutation-proven. Gate evidence is stated against the merged commit below, each command run
-  separately with its own exit code.
-- Second remediation round (owner-authorized): the confirming passes returned two Codex P2s and one
-  `/code-review` finding, none caused by the first round — a receipt that asserted a definite loss
-  when a lost COMMIT acknowledgement left durability unknown, a rotation-checklist step demanding
-  "no provider attempt" from a deliberately ungated job, and a writer that ignored the coherence
-  verdict the route computed three lines above it. The write now resolves the uncertainty with a
-  reread rather than reporting it, `buildProviderUsageObservation` is the single place a reading
-  becomes an observation (so gate and stored value cannot disagree), and runbook step 7 exempts
-  `usage-sample` with §8m's proof in its place.
-- Re-derivation round (owner-authorized, after the second confirming pass): that pass showed the
-  previous round had been net-negative — its coherence check REINTRODUCED the availability defect it
-  followed, because `cfbdCanonicalLimitForTier` fabricates Tier 0's 1,000 for any unrecognised tier,
-  so a true `remaining` was discarded and `partial` filed indefinitely; and its reread could confirm
-  a commit that never happened, since this module deliberately permits two observations to share a
-  timestamp. Both were DELETED rather than guarded: nothing derives from `limit`, and an uncertain
-  write is reported rather than resolved. The tri-state now reaches the reader — `recorded: boolean |
-null` through response, receipt target, validator and UI, which renders a third distinct
-  "durability unknown". Stale eight/six-job counts corrected in `operations/deployment.md`,
-  `architecture/admin-control-plane.md` and `lifecycleCronExecutionLog.ts`, and two ninth-job
-  coverage gaps closed (`sections.test.tsx` asserted eight labels; the receipt enumeration skipped
-  `usage-sample`).
-- `/info` billing: CFBD's developer confirmed on 2026-09-04 that `/info` and `/info/usage` do not
-  count against the allowance. Every place this branch asserted it now cites that source.
-  `quotaPolicy.ts`'s "verified empirically during the operator manual proof" parenthetical is stale
-  as a result — left untouched as out of scope, and filed.
-- Open follow-ups, deliberately NOT folded in: the route has no outer `catch`, diverging from sibling
-  cron routes (no reachable throw today); and `usage-sample`'s delivery grace equals exactly one cron
-  period where every sibling uses two or more, so clock skew could file a spurious `late`.
+- Change: Item 127 retains raw CFBD quota observations `{ at, remaining, limit }`, sorted and bounded to 1,700, through one ungated six-hour QStash job and durable series. Nothing in `src/` reads the series; quota gates still require a fresh probe.
+- Rejected designs: Accumulating daily usage was rewritten after repeated review failures (767 lines removed); a second opportunistic writer was removed for lost-update/clock-order hazards. `limit` is context, not a trustworthy usage baseline across tier changes. Boundaries are interpreted from rising `remaining`; uncertain commit acknowledgement remains `recorded: null` / “durability unknown,” because timestamp rereads can falsely confirm an uncommitted observation. The write path rejects malformed stored history instead of silently dropping it.
+- Historical corrections: An intermediate remediation claimed reread resolved uncertainty and added coherence checks; the subsequent re-derivation deleted both. Earlier `c057eee6` ceased being an ancestor after rebase to `cda2bc88`. CFBD's developer confirmed on 2026-09-04 that `/info` and `/info/usage` are quota-free; a stale empirical-verification parenthetical was filed separately.
+- Boundaries: Ninth-job reader/runbook coverage fixed; outer-catch and one-period delivery-grace follow-ups remained. Despite earlier “shipped/merged” review prose, final Status explicitly says unmerged and schedule unprovisioned; no later activation is inferred. See L2, L6.
+
 - Status: Complete and reviewed; NOT yet merged, and the QStash schedule is NOT yet provisioned —
   `manage:usage-sample-schedule upsert --apply` requires the owner's `QSTASH_TOKEN`. Until it runs,
   System Health correctly reports `usage-sample` with a scheduler-delivery warning.
+- Other source hashes: `26638026`, `0ceb2121`.
 
 ### PLATFORM-126B-INCIDENT-EVIDENCE-CLAUDE-v1
 
-- Purpose: Item 126 Tier B — make a failed multi-year refresh durably say WHICH year failed, WHY,
-  which CFBD partition, and what class of upstream fault caused it. The September 1, 2026 12:00 UTC
-  weekly schedule failure is the production proof: 153 hours later the entire surviving record was
-  `failure / year-results` over `years: [{ year: 2026, operation: "ordinary-maintenance" }]`, and
-  `provider-refresh-status` had already been overwritten by a later success.
-- Scope: `schedule-refresh` and `rankings` — the two multi-year jobs — their two authorities, the
-  receipt target builder/parser, and the System Health copy that reads it. NOT Tier A
-  (`invocationId` on runtime events, still open). NOT the four single-unit jobs, which are pinned
-  byte-identical by a mutation-proven test.
-- Outcome: one shared closed upstream class (`src/lib/api/upstreamFaultClass.ts`) replaces the
-  `fetch-failed` collapse that existed as the same line of code in both jobs. **FIVE members
-  mirroring `UpstreamErrorKind` exactly** — `timeout`, `aborted`, `network`, `http` with a bounded
-  status, `parse` — built from `details.kind` and `details.status` ONLY, never by spreading
-  `UpstreamError` (which carries `message`, `statusText`, `url` and the full `responseBody`). The
-  item's prose said four and omitted `aborted`; the code won, on the implementer's argument that
-  collapsing `aborted` onto `network` is the lossy mapping this work exists to remove (owner ruling
-  2026-09-07). The class is recorded **per failed partition**, not once per year, because a year with
-  one partition committed and one timed out is a real state a per-year class could only express
-  through a lossy tie-break (owner ruling 2026-09-07); `failedSeasonTypes` on both authority results
-  became `failedPartitions`, one home for the fact. Each receipt year entry gained the per-year
-  `result`, `reason`, `providerCallAttempted`, `rowsReceived`, `rowsCommitted`, `dataChanged`,
-  `attemptedSeasonTypes` and `failedPartitions`. Absent fields normalize to `null`/`[]`, never
-  `0`/`false` — a zero row count is a real observation, and defaulting an absent field to it would
-  manufacture the evidence this item exists to stop fabricating.
-- Review / verification: three independent reviews plus a runtime pass, all against `cd1f6901`;
-  six findings accepted and remediated, then two confirming reviews against `1556739a` returned
-  **no P0/P1/P2** and three LOW findings, which the owner approved as a second round. **All three
-  reviewers independently found the same first defect** — `attemptedSeasonTypes` was filled at
-  function entry, so two pre-provider exits wrote both partitions beside
-  `providerCallAttempted: false`. Its cause was pre-existing on `main`; THIS branch is what made it
-  durable, because the field never reached the receipt before. A `/verify` run against a live dev
-  server with an invalid CFBD key **confirmed a second finding at the surface**: the rankings cron
-  returned `exec.years` verbatim, so `failedPartitions` had leaked into the QStash response body,
-  contradicting this slice's own invariant two files away. Two further findings were defects in the
-  branch's OWN tests — a structural pin that scanned the run-level union and so missed the year-only
-  `score-sweep-failed`, and a parity test comparing two hard-coded lists that a sixth
-  `UpstreamErrorKind` member would have passed. Every regression test was verified failing against
-  its own pre-fix code, reverted one at a time; the two test fixes are mutation-proven against the
-  exact case each previously missed. Legacy tolerance was verified by EXECUTING the pre-widening
-  parser (`0834d21e`) against widened rows and by seeding a pre-widening receipt into a live run and
-  observing it preserved — which it could only be if it parsed. Gates at the shipped commit, each its
-  own command on a clean tree: `npx tsc --noEmit` 0, `npm run lint:all` 0, `npm test` 1 with exactly
-  the two known Item 137 `writer-convergence` failures and none elsewhere. Test delta **+47, none
-  removed**; two assertions were retargeted by the round-2 status change and strengthened rather than
-  weakened (from "rejects" to "accepted AND normalized AND renders as the bare kind").
-  **Diffstat, approved 2026-09-07 and measured at the shipped implementation commit: 31 files under
-  `src/`, +2,817/−96** — 739 lines of production against 2,078 of tests. Scope approval was granted
-  at +2,693/−96 and the owner-authorized second round added the rest; both stop-and-reassess signals
-  are crossed, and a further split was rejected because the item requires one shared vocabulary
-  across both jobs and route coverage for both in the same PR.
+- Change: Item 126 Tier B retains per-year result, reason, provider-attempt flag, received/committed counts, data-change flag, attempted season types and per-failed-partition upstream faults for schedule-refresh/rankings. Missing legacy fields become null/empty, never fabricated zero/false. Shared fault vocabulary mirrors all five `UpstreamErrorKind` members: timeout, aborted, network, bounded HTTP, parse; provider bodies/URLs/headers are excluded.
+- Decisions / evidence: Owner ruled five classes and per-partition faults on 2026-09-07. The September 1 12:00 UTC failure had lost its detailed evidence by +153h. Tier A invocation IDs remained open; four single-unit jobs stayed byte-identical. Attempted types now reflect actual provider work, and widened faults stay out of the QStash response.
+- Verification: Runtime reproduced response leakage; legacy-parser execution proved compatibility. Mutations corrected tests blind to year-only variants and future type members. +47 tests, none removed; Item 137 baseline only. Owner approved the indivisible 31-file +2,817/−96 scope and second round. Item 145 covers debug-log leakage, 146 all-seven-key secret scanning; 147 was absorbed into round two. See L1, L4, L6.
+
 - Status: implemented and reviewed; Tier A remains open. Follow-ups filed rather than folded in:
   **Item 145** (the upstream debug logger writes provider URLs and headers to the server log,
   observed live because `NEXT_PUBLIC_DEBUG=1` is set in this repo's `.env.local`), **Item 146** (the
   secret-scan tests covered the receipt while a run writes seven durable keys), and **Item 147**,
   which the owner ruled INTO the second round rather than leaving as a gap.
+- Other source hashes: `cd1f6901`, `1556739a`, `0834d21e`.
 
 ### PLATFORM-102-SLICE-4-ACTIVATION-v1
 
-- Purpose: Item 102 slice 4 — activate the planner. A daily cron derives the next UTC day's polling
-  windows from the canonical schedule, synthesizes each planner-owned job's dense and slow crons,
-  records what it derived and sent, and applies it to QStash. The slice where the saving lands, and
-  the first in the campaign that is NOT dormant.
-- Scope: `src/app/api/cron/polling-planner/route.ts`, `pollingPlanner.ts`, `pollingPlannerApply.ts`,
-  `pollingPlannerCronLog.ts`; `scripts/lib/qstashSchedule.ts` for `upsert`'s authority plus three new
-  `scripts/lib/` modules and three new manage CLIs; the nothing-due display; the seven credential
-  statements. NOT `pollingWindows.ts`, `pollingCron.ts` or `pollingPlannerRecord.ts`.
-- Outcome: `live-scores` 480 → **214.5 firings/day in October (−55.3%)**, 57.3 annual (−88.1%);
-  `game-stats` 96 → **49.4 in October (−48.6%)**, 13.4 annual (−86.0%). October is the binding month
-  (the Hobby allowance is monthly) and is quoted first deliberately. **214.5 is a SNAPSHOT worst
-  case**, not the realized figure — see the TBD note below.
-- Diffstat 36 files / +4,579 −328, over the sizing signal and approved as such; test delta **+64**
-  (4,825 → 4,889).
+- Change: Slice 4 wires the daily polling planner: derive next UTC day's windows, synthesize/apply dense and slow crons, and record outcomes. It is the first non-dormant slice; the source provides no explicit merge/activation SHA or date. Operator settings are authoritative: held jobs skip, unreadable settings hold all; held runs write the planner receipt rather than inventing a per-job outcome.
+- Safety: Polling turns off only on positive evidence. Absent/empty season cache is not a verified dead day; unconfirmed pause retains the potentially firing cron. Store only the planning day's windows while deriving season-wide to preserve cluster boundaries. Reader failure must not show fixed-cadence claims for planner-owned jobs.
+- Historical correction: Initial round widened write-credential exposure to all CLIs; isolated read-only loading and no write-credential fallback closed it. The CLI wrapper moved out of route-imported policy because dotenv is a dev dependency. Later #703 corrects the reader's “only one key parsed” prose; later #619 separates read failure from deliberate hold.
+- Cost evidence: Snapshot October live-score firings 214.5/day (−55.3%), annual 57.3 (−88.1%); stats 49.4/13.4 (−48.6%/−86.0%). October decomposition: confirmed-only 190.68, TBD coverage +21.4, carry +2.5. On 2026-09-07 none of the next three weeks' 1,070 kickoffs were TBD; approximately 193/day was therefore an estimate, not realized billing. Original “realized” wording overstates the evidence. No actual-cost claim is made.
+- Verification: App exercised auth, missing cache/no write, bounded windows, failed pause, secret-scan positive control and successful CLI inspect. Zero missing TBD flags and zero cutover gaps were observed in the sampled 2026 data. Owner approved 36 files/+4,579−328; +64 tests. See L1–L3, L6.
 
-- **The October gap from slice 2's 190.7 is TBD coverage, not the cutover carry.** Measured
-  decomposition against production `2026-all-all`: confirmed kickoffs only, no carry → **190.68**
-  (reproducing slice 2 exactly); + whole-day arming of the 421 kickoffs with no published time →
-  212.06 (+21.4, 90% of the gap); + the carry → 214.52 (+2.5, 10%). The owner's hypothesis that the
-  carry cost ~20/day was checked and refuted.
-- **214.5 is a snapshot; the realized figure is near 193/day (−60%).** Whole-day arming is paid only
-  for a game still TBD on its OWN day, and the planner re-derives daily. Measured 2026-09-07: **0 of
-  1,070 kickoffs in the next three weeks are TBD**, against 12–16% at four-plus weeks and 32%/60% at
-  twelve and thirteen. TBD resolves as the date approaches, so applying today's TBD set to every
-  future day — which the 214.5 figure does — is a worst case by construction.
-- **The recurring failure of this branch family appeared three more times, all one root: a guard on
-  what something MEANS while what it IS goes unchecked.** An ABSENT season cache read as a verified
-  dead day and paused both dense schedules (`loadCachedScheduleItems` returns `[]` and never throws,
-  so a try/catch guarded the failure that does not happen); an UNCONFIRMED pause recorded as
-  `dense: null`, which `installedState` reads as "not expected to fire", so a schedule still firing
-  every three minutes was recorded as deliberately off; and `deliveryNothingDue` keyed on the row-level
-  reason while a faulted per-schedule entry went unchecked, rendering gray "Nothing due" for a job
-  half of which could not be checked — confirmed by running it.
-- **THE PLANNER MAY ONLY TURN POLLING OFF ON POSITIVE EVIDENCE** is the sentence round 1 turns on.
-  `AGENTS.md` settles the reading of an empty season record — "a schedule is never committed empty" —
-  so zero usable kickoffs means the record was never established, never that the season has no games.
-  Silence is now emitted only on a confirmed pause, an `isPaused: true` readback, or a schedule that
-  does not exist; an unconfirmed pause records the cron that is still firing.
-- **The durable record stored the WHOLE SEASON's windows every run** — 479 windows, 46,014 bytes,
-  ~18 MB per job key at the store's 400-run bound, rewritten in a transaction daily and re-parsed on
-  every System Health render, of a field no consumer reads. On an item whose purpose is cutting Active
-  CPU. It records only the planning day's windows; the derivation still runs season-wide, because a
-  pre-filter would move cluster boundaries.
-- **A fix in round 1 widened a credential boundary, which round 2 closed.** Loading
-  `.env.operator.local` in `runScheduleCli` put the full-privilege production `DATABASE_URL` — which
-  that file holds alongside the read-only one — into all ten CLIs, six of which never touch the store,
-  and disabled `appStateStore`'s local-file fallback so a stray store call would have written to
-  PRODUCTION. `operatorReadOnlyEnv` now takes the one key it needs through dotenv's `processEnv`, and
-  `plannerRecordConnectionString` has NO fallback to the write credential: a preference is not a
-  guarantee.
-- **`systemHealth.ts` carried a note written FOR this slice and it was missed until round 2**: "the
-  published cadence is the fixed contract, which stops being true for the two planner-owned jobs once
-  slice 4 lands". The reader-failure fallback was rendering "Live scores · every 3 minutes" for a
-  schedule the planner had deliberately paused.
-- **The operator emergency stop needed no new state, and that is the round-3 design.** The runbook's
-  single-job stop is already "enable global pause, disable its dataset, pause its schedule" — the
-  first two steps write durable operator-owned settings before the third touches QStash, and the
-  planner was ignoring them, so its next run undid step three. It cannot tell its own pause from an
-  operator's by looking at QStash, so inference was never available. It now reads the SAME
-  `provider-refresh-settings` switch each handler gates itself on, so planner and route cannot
-  disagree; a held job is skipped ENTIRELY and an unreadable settings store holds everything.
-- **A held run writes no per-job record**, because `PlannerScheduleOutcome` has no `held` member and
-  `pollingPlannerRecord.ts` is slice 3a's. The hold is recorded on the planner's own receipt
-  (`jobsHeld`, and `no-op / plan-held` when all are held) — `no-op` deliberately, since
-  `schedulerExecutionIssues` raises nothing for it and a deliberate stop must not page anyone.
-- **`dotenv` is a devDependency, so the CLI wrapper had to move out of the policy module** before a
-  Next.js route could import it. `qstashScheduleCli.ts` is that split; it is load-bearing, not tidying.
-- **Reachability cut both ways.** Refuted with production data: the `startTimeTBD` fail-open worry (421
-  `true`, 3,259 `false`, **0 missing**); the cutover-carry gap (**0 occurrences** across 2026); and a
-  reviewer's "a game moves onto a dead day" P1 — no weekday is structurally dead in season (Wed 24 and
-  Tue 7 kickoffs), and dead days are calendar gaps spread 7–13 across every weekday. Against that: on
-  the last round the same discipline lapsed, and a recommendation to revert the dead-day cadence —
-  giving up 17.4 wakeups/day, the entire value of the pause rule — was made on an unchecked scenario
-  and withdrawn after the owner challenged it.
-- **Verified by running the app, not by tests.** With QStash gated two ways and the gate proven first:
-  401 on bad auth; an absent cache sending NOTHING and writing no state; a seeded season recording 2
-  windows rather than 3; an established dead day with QStash unreachable recording `outcome: failed`
-  rather than silence; a secret scan over record, receipt, responses and logs with a positive control;
-  and `manage-live-scores-schedule inspect` at EXIT=0 where reviewers had measured EXIT=3.
+- Status: No explicit status field or merge reference in this source entry; activation is described, but no deployment date is inferred.
 
 ### PLATFORM-102-SLICE-3B-DELIVERY-CONSUMER-v1
 
-- Purpose: Item 102 slice 3b — delivery health reads what the planner ACTUALLY scheduled from slice
-  3a's durable record, instead of walking today's cron backwards as if it were eternal. The four
-  inherited items, on functions every System Health load calls. This is what stops slice 4 shipping a
-  permanent false alarm.
-- Scope: `src/lib/server/schedulerDeliveryHealth.ts` and a new suite; `systemHealth.ts` and
-  `systemHealthIssues.ts` where the row shape and its operator text had to follow;
-  `SchedulerHealthSection.tsx` for the required-slot detail. NOT `pollingPlannerRecord.ts` — 3a owns
-  the store. No QStash call, `QSTASH_TOKEN`, cron ownership, or sixth `SchedulerDeliveryState`.
-- Outcome: the record is read as a PIECEWISE-CONSTANT TIMELINE. Each run's `at` opens a span; the
-  CLI's own exit vocabulary says what it left in force (`confirmed`/`unchanged` → the intent,
-  `refused`/`failed` → the previous cron, `indeterminate` → no basis); the following run's
-  `previousCron` cross-checks that span, resolving it where the run itself could not and unresolving
-  it where the two disagree — a dropped row, or a cron changed outside the planner. The required slot
-  is the LATEST across both schedules, each judged with two intervals of ITS OWN expression's cadence.
-  Measured on the shipped module: a game day following a differently-armed day read `late` for 1,144
-  contiguous minutes (19h04m) and now reads `on-time`; a slow-schedule failure inside the
-  reconciliation tail, invisible for a measured 15.0 h, is caught.
-- **The row model was wrong, and three findings across two rounds were that one defect at different
-  levels.** The row carried a single `planUnavailableReason` under an invariant that a reason blanked
-  the row — all-or-nothing uncertainty on a row describing two schedules that fail INDEPENDENTLY. An
-  unknown span blanked the row; an `indeterminate` dense upsert switched off `missing`/`late` for a
-  job whose slow schedule was fully determinate; the planner's FIRST run blanked both rows for 176
-  measured minutes on the day slice 4's cutover begins. Patching each closed one and invited the next.
-  The owner authorized a model re-derivation rather than a third round: per-schedule state (measured /
-  not due / unavailable-with-its-own-reason), the row unavailable only when NO schedule is known, and
-  `cron`/`graceMs`/`requiredStartedAt` all taken from the entry that produced the latest slot so the
-  row cannot name a schedule it did not measure. That closed all five at once, including one nobody
-  had filed.
-- **AN UNKNOWN PAST CANNOT CREATE AN OBLIGATION** is the sentence the re-derivation turns on. A
-  schedule whose history is unreadable but whose present is known is not late — it is not yet due, and
-  `requiredStartedAt` became nullable to say so. 176 blanked minutes → 0.
-- **A guessed lookback window drew four findings from both reviewers across three rounds, so the guess
-  was deleted rather than widened again.** In order: an eight-day walk could not reach a monthly cron's
-  obligation, so a receipt fifteen days stale read `on-time`; widening to 366 days still missed a
-  leap-day expression; the bound was chosen from the CURRENT cron while the walk crosses OLDER spans,
-  so a monthly schedule replaced by a not-yet-due daily one had its obligation skipped; and the wide
-  path cost a MEASURED 132 ms of blocking CPU per job per render, on the admin page of the project
-  whose entire point is an Active CPU budget. The walk now steps DAYS across the calendar and scans
-  minutes only inside a day the date fields admit, so no cadence can outrun it because it is not sized
-  in days at all. `0 0 29 2 *`: 132 ms → 0.16 ms, and `on-time` → `late` against `2024-02-29`.
-- **Two false claims in my own commit messages, both caught by a reviewer rather than by me, both
-  about behaviour I had designed and not implemented.** `48b7477a` claimed the row is unresolved only
-  when the current expression is unknown — false, a row whose schedules were all known but none due
-  was blanked too. `9b40611a` claimed `spanState` had stopped short-circuiting on `unknown` and now
-  used the following run's observation — the function still returned before ever looking at it. A
-  commit message is a verification assertion; these are recorded in the following commits rather than
-  rewritten. A third correction: my "176 measured minutes" understated the exposure by holding the
-  slow schedule in its all-day form; on the idle-slot shape it is thirteen hours.
-- **The false alarm this slice exists to remove has three directions, and I shipped the second one.**
-  Concluding from "a row with no obligation cannot be LATE" that it must be `on-time` put a green dot
-  on a job dead for five days, in 53 of 53 samples across slice 4's cutover morning — while the
-  identical shape with NO receipt reported `missing`. Absence raised a warning; a five-day outage
-  rendered healthy. It is now `unavailable`, this module's word for "no basis to judge". The third
-  direction is filed as a slice-4 blocker below.
-- **A parser hardened against the wrong half, twice.** `parseCron` was made strict about FIELD COUNT
-  and left lax about field CONTENT in the same commit, for the same stated reason — so a range inside
-  a comma list was dropped while its siblings were kept (`8,12-23` → hour 8 alone; a receipt 14h33m
-  stale read `on-time`). The fix then guarded the VALUE and not the SHAPE, so `Number('')` still
-  admitted an empty part as slot zero. Parts are now matched against `*`, `*/<n>` and `<digits>`; the
-  record's own stored pattern admits both `-` and stray commas, so both arrived from durable
-  operator-writable input.
-- Owner rulings that shaped it: reuse `unavailable` with a companion reason field rather than a sixth
-  state (`deliveryState` describes the RECEIPT, and plan corruption is orthogonal — a row can hold a
-  good receipt and an unusable plan); "live read, dormant output" as the honest framing; and the model
-  re-derivation over a third patch round.
-- Ships **LIVE READ, DORMANT OUTPUT**. Two additional durable reads per System Health load, one
-  `getAppState` per planner-owned job — `readSchedulerDeliveryHealth`'s own durable reads go from one
-  to three. Nothing writes a planner record in production, so both answer `absent` and all nine rows
-  resolve through the fixed contract exactly as on `main` — asserted by deep-equality across every
-  job, and confirmed independently by both reviewers. The claim holds on the read-SUCCESS path only: a
-  transient failure on either new query degrades that row today, before slice 4 writes anything.
-- Review / verification: six cycles, both reviewers against each commit, 39 findings raised across
-  `58c874ee`, `48b7477a`, `9b40611a`, `e812b3c0`, `8df69500`, `574b9285`. The convergence signal is not
-  a clean verdict — it is that the final two passes found nothing wrong with the PREVIOUS pass's fixes,
-  after four that did, and that two reviewers independently converged on the same four filed items. 27
-  mutation runs, each proven red and restored; two of them caught NOTHING on the first attempt, which
-  is how the missing-title and fallback-shape tests came to exist. `npx tsc --noEmit` exit 0;
-  `npm run lint:all` exit 0; `npm test` exit 1 with exactly the two known `writer-convergence` failures
-  (Item 137 baseline), 4,823/4,825 — each gate run separately. Test delta **+51**.
+- Change: Slice 3b reads planner history as a piecewise timeline. Confirmed/unchanged uses intent, refused/failed retains previous cron, indeterminate remains unknown; the following run's observation can resolve or contradict a span. Dense and slow schedules keep separate known/not-due/unavailable states. Latest obligation wins with its own cron/grace; unknown history creates no obligation, but a stale receipt without a basis is unavailable, not healthy.
+- Evidence: Re-derivation removed a 1,144-minute false-late interval and caught a slow-tail failure formerly hidden 15h. The initially quoted 176 blanked minutes understated idle-slot exposure (13h). Guessed 8/366-day lookbacks failed monthly/leap-day history and cost 132ms; calendar stepping reduced the leap-day case to 0.16ms. Parser validation rejects unsupported ranges/empty comma parts instead of silently dropping them.
+- Historical boundary: Live reads, dormant output: two additional durable reads per System Health load; absent records preserve all nine fixed-contract rows on successful reads. A new-query failure can already degrade a row before activation. No new QStash calls or delivery state.
+- Review: Six cycles/39 findings; false commit-message claims about unknown-span handling were recorded, not rewritten. 27 mutations, +51 tests; only Item 137 baseline failures. Final two passes found no defects in the preceding fixes, not an unconditional clean verdict. See L2, L4, L6.
+
 - Status: pre-merge closeout on `claude/102-slice-3b-delivery-consumer` at `7ada7781`.
+- Other source hashes: `48b7477a`, `9b40611a`, `58c874ee`, `e812b3c0`, `8df69500`, `574b9285`.
 
 ### PLATFORM-102-SLICE-3A-PLANNER-RECORD-v1
 
-- Purpose: Item 102 slice 3a — a durable record of what the polling planner derived and sent, and
-  `inspect` diffing live QStash state against that recorded intent instead of a fixed constant
-  (collision 1). The reconstructibility replacement that must exist before slice 4 takes cron
-  ownership. Ships dormant; nothing writes a record and no CLI supplies a reader.
-- Scope: new `src/lib/server/pollingPlannerRecord.ts` and two suites; an injected recorded-intent
-  reader in `scripts/lib/qstashSchedule.ts` and its suite. NOT `schedulerDeliveryHealth.ts` (slice
-  3b). No route, cron, QStash call, `QSTASH_TOKEN`, or component.
-- Outcome: a bounded per-job series (~400 runs ≈ 13 months) carrying the input windows, BOTH
-  synthesized crons, the previous cron, applied-or-skipped, the outcome, and a nullable
-  `invocationId` — `createSchedulerInvocationId` returns null on UUID failure and a record must not be
-  lost to that. The projection is an explicit per-field allowlist enforced at the SINK: a denylist
-  fails open the moment a header is added, and `buildUpsertRequest` carries both
-  `Authorization: Bearer <QSTASH_TOKEN>` and `Upstash-Forward-Authorization: Bearer <CRON_SECRET>`.
-  `inspect` distinguishes THREE states — absent falls back to the fixed constant, present-and-readable
-  is diffed against, present-but-unreadable or a store read failure REFUSES — because collapsing
-  absence and unreadability turns a broken record into a permanent false "correct" on the job that
-  most needs a tampering signal. Only `cron` is substituted into the comparison basis, since
-  `SynthesizedCron` produces nothing else; a record disagreeing with the contract on
-  destination/method/retries is REFUSED with exit 2, not ignored, because the planner cannot produce
-  one and its existence is itself the signal. Owner decisions during the branch: bounded history over
-  latest-only ("when did this cron start diverging" is the question the record exists to answer), and
-  a `droppedRuns` counter so a partial parse loss stops being silent without changing drop semantics.
-- **One recurring root across three review rounds, and it is the useful part of this entry.** Every
-  round's most severe finding was the same asymmetry, one level in each time: a guarantee enforced
-  where a caller MAY pass rather than where every value MUST. Round 1 — the excess-property allowlist
-  sat in an optional constructor, so a run assembled from a variable reached the durable write with
-  its headers intact (both reviewers found this independently). Round 3 — round 2's new FIELD
-  contracts sat on the read side only, so the write path accepted `at` values the read path rejects,
-  and `sortAndBound` orders by the RAW string. Read as two roots it looks like bad luck; named as one
-  it is a pattern a reader can recognise on their own branch. The final shape admits through
-  `parseRun` ITSELF, so write and read cannot diverge because they are the same function.
-- **The generated-space rule paid off sideways.** Ranging over the TYPE's contract rather than a
-  caller's output did not just find bad values — it revealed that the type ADMITS IMPOSSIBLE STATES
-  (`action: 'skipped'` with `outcome: 'confirmed'` both validate). That is a stronger result than
-  finding a reachable defect, and it is an argument `AGENTS.md`'s rule does not currently make.
-- Two corrections recorded because a ledger that lists only fixes gets trusted further than it should:
-  (1) the round-3 review predicted the non-ISO `at` case would be REJECTED; the actual behaviour is
-  admission-then-normalization, since `Date.parse` accepts JavaScript's own `toString` form — the
-  ordering hazard is closed by rewriting the value, not by refusing it. (2) The first assertion written
-  for that test was timezone-dependent (it pinned the weekday name, which `toString` renders in local
-  time); the real property is that a weekday name outranks a digit. Also refuted in round 1: the claim
-  that a redirected stderr loses the divergence authority — the authority phrase and the mismatch list
-  are one string on one stream.
-- **What the shared character table proved, not merely that it exists.** Round 2 claimed "a test pins
-  the two `hasUnsafeCharacter` implementations against the same table" while the two suites carried
-  independently hand-maintained lists that HAD ALREADY DRIFTED — the CLI's was missing `0x009f` and
-  `0x2069`, so mutating that twin would have passed silently. One frozen
-  `__tests__/unsafeCharacterTable.ts` now drives both, and mutating EITHER twin alone fails. The
-  claim was false and it was hiding a live gap; the table closed it rather than preventing a
-  hypothetical. The two implementations stay separate because the operator CLI carries no application
-  import — it references the table by name in its docstring; only the tests import it.
-- Review / verification: three cycles, both reviewers against each commit, 29 findings raised. `a33d1cab`
-  — `/code-review` eight (one refuted with evidence), Codex two, one duplicate pair. `aed26d19` —
-  `/code-review` seven, Codex three; remediated as one derivation (validate each field against its
-  CONSUMER's contract) rather than four patches, which is what stopped the next round finding the next
-  character class. `909ec242` — `/code-review` six, Codex three; round 3 authorized by the owner under
-  `AGENTS.md` step 6 and limited to the five defects round 2 caused. Final `0e294603`. Twenty-one
-  mutation runs, each proven red and restored, across the branch. `npx tsc --noEmit` exit 0; `npm run lint:all` exit
-  0; `npm test` exit 1 with exactly the two known `writer-convergence` failures (Item 137 baseline),
-  4,769/4,771 — each gate run separately. Test delta +57.
+- Change: Dormant per-job planner series retains approximately 400 runs, input windows, both crons, previous cron, action/outcome, nullable invocation ID and dropped-run count. Injected CLI `inspect` distinguishes absent (fixed fallback), readable (compare recorded cron), and corrupt/read failure (refuse). Destination/method/retries disagreement refuses with exit 2; only cron may vary.
+- Contract: Secret allowlisting and field validation live at the durable sink through the same `parseRun` as reads; optional constructors alone had leaked headers and admitted unsortable timestamps. Non-ISO dates are admitted then normalized, not necessarily rejected. Generated-space tests exposed impossible action/outcome combinations. One frozen unsafe-character table drives both application and CLI tests while production implementations remain separate to avoid application imports into the CLI.
+- Review / boundary: Three cycles/29 findings, 21 mutations, measured +57 tests; only Item 137 baseline failures. Earlier claims that two independent tables were shared and timezone-specific date assertions were corrected. No production writer or CLI reader was wired at this checkpoint. See L1, L3–L4.
+
 - Status: pre-merge closeout on `claude/102-slice-3a-planner-record` at `0e294603`.
+- Other source hashes: `a33d1cab`, `aed26d19`, `909ec242`.
 
 ### PLATFORM-102-SLICE-2-CRON-SYNTHESIS-v1
 
-- Purpose: Item 102 slice 2 — two pure functions over slice 1's polling windows: synthesize the cron
-  expressions covering them, and derive the scheduler delivery expectation from the same windows so
-  `schedulerDeliveryHealth.ts` no longer hardcodes the two polling jobs' cadence and grace
-  (collision 2). Ships dormant; nothing calls either.
-- Scope: new `src/lib/schedule/pollingCron.ts` and its suite; an optional `plan` parameter on
-  `schedulerDeliveryPolicy`/`schedulerDeliveryPolicies` plus tests. No route, cron, QStash call,
-  environment variable, durable write, or component. `SchedulerDeliveryState` and its four consumers
-  untouched.
-- Outcome: TWO crons per job, not one. The read receipt established that one 5-field expression
-  cannot carry two cadences — `parseCron` applies a single minute-set to every hour it matches — which
-  reversed the planned single-cron design before any code was written. The dense cron covers the dense
-  hours at the job's existing rate; the slow cron covers the reconciliation tail MINUS those hours, so
-  the pair covers every armed hour with no hour billed twice. Hour fields are comma lists because
-  `parseCronField` reads a range as an empty set. A day with no reconciliation hours holds one idle
-  slot; a day with nothing armed holds hourly-all-day, because no cron can mean "never". The delivery
-  expectation falls back to today's exact constants when no plan is supplied, which is what makes the
-  slice a no-op: absence and emptiness are distinct inputs in the signature.
-- Measured cost, from the shipped synthesizer replayed against production `schedule / 2026-all-all`
-  (3,679 rows, 421 `startTimeTBD` excluded, 58 windows): `live-scores` 63.2 runs/day annual and 190.7
-  in October against today's 480; `game-stats` 28.8 and 45.1 against 96. These supersede Item 102's
-  windows-only table, which was computed on the pre-slice-1 `kickoff + 24h` arming rule.
-- Review / verification: four cycles, both reviewers against each commit. `edcebdbe` — `/code-review`
-  one HIGH (delivery health extrapolates a daily-rewritten cron backwards, ~19h of false `late`;
-  assigned to slice 3, which owns the consumer that removes it), Codex one P2. `f81b5fd7`, `d833331a`,
-  `84e50c4a`, final `575ec6cd` — Codex clean, `/code-review` four issues, none P0/P1, all recorded as
-  Item 102 follow-ups under the owner's stop boundary. Two owner decisions were reversed by evidence
-  found during the branch: the floor cadence (its stated rationale was false about `buildDeliveryRow`)
-  and the union slow cron (its Saturday justification was mine, and I disproved it by re-running my
-  own measurement). `npx tsc --noEmit` exit 0; `npm run lint:all` exit 0; `npm test` exit 1 with
-  exactly the two known `writer-convergence` failures (Item 137 baseline), 4,724/4,726 — each gate run
-  separately.
+- Change: Dormant pure synthesis creates two crons per job: dense cadence plus slow reconciliation hours excluding dense hours. One five-field cron cannot express both cadences; comma lists avoid the existing range-parser limitation. No reconciliation hours gives one idle slot; no armed hours gives hourly-all-day because cron cannot mean never. Absent plan preserves existing delivery-policy constants, distinct from an empty plan.
+- Evidence: Production replay (3,679 rows, 421 TBD excluded, 58 windows) estimated live-score 63.2 annual/190.7 October firings per day and stats 28.8/45.1, versus 480/96. These replace the older windows-only +24h estimate; later slice 4 adds TBD coverage and carry.
+- Review / boundary: Four cycles. Backward extrapolation of rewritten daily crons caused approximately 19h false late, assigned to slice 3 before activation. Floor-cadence and union-slow decisions were reversed on evidence. Final non-P0/P1 findings remained follow-ups under the owner's stop boundary; gates retained Item 137 baseline only. No caller or scheduler activation shipped.
+
 - Status: pre-merge closeout on `claude/102-slice-2-cron-synthesis` at `575ec6cd`.
+- Other source hashes: `edcebdbe`, `f81b5fd7`, `d833331a`, `84e50c4a`.
 
 ### PLATFORM-128-LIVE-POLL-TEAM-CATALOG-v1
 
-- Purpose: stop every browser live-score poll from refetching the full team catalog it already holds
-  in memory, so Item 95 portion 1's 90-second fast tier does not double an avoidable cost.
-- Scope: pass `CFBScheduleApp`'s existing `teamCatalog` state into `useLiveRefresh` instead of calling
-  `fetchTeamsCatalog()` inside `refreshLiveData`; no new endpoint, no new cache, no change to score
-  attachment, provider calls, or the poll cadence itself.
-- Outcome: removed one `/api/teams` function invocation, durable catalog read, server-side
-  normalize/filter/sort/serialize and client parse per tick, per visible tab. `fetchTeamsCatalog` sets
-  `cache: 'no-store'`, so the removed call was never browser-cached. An empty catalog forwards as
-  `undefined`, which makes `fetchScoresByGame` fetch one itself — a deliberate improvement over the
-  old `[]`, which `??` does not treat as absent and which therefore attached scores against an empty
-  catalog with no retry. Accepted trade recorded in the param doc: polls are now pinned to the
-  bootstrap catalog until a full schedule reload, where the old per-tick fetch picked up an operator
-  re-sync within one tick.
-- Review / verification: exact commit reviewed by both reviewers, `9f98315c` — Codex no findings,
-  `/code-review` three LOW, all remediated in `62dd1843`. The load-bearing one was a stale closure:
-  `teamCatalog` was read inside `refreshLiveData` but omitted from its `useCallback` deps, and this
-  repo does not enable `react-hooks/exhaustive-deps`. Confirming pass on `62dd1843`: Codex no
-  findings, `/code-review` two LOW and no correctness defect, both folded in here. `npx tsc --noEmit`
-  exit 0; `npm test` exit 0 at 4,593 tests; `npm run lint:all` exit 0, each run separately.
+- Change: `useLiveRefresh` reuses `CFBScheduleApp`'s catalog, removing one uncached `/api/teams` invocation/read/serialization per visible-tab poll. Empty catalog forwards `undefined` so score fetching can retry catalog loading; old `[]` suppressed that fallback.
+- Trade / review: Catalog changes now wait for a full schedule reload instead of the next poll. Review fixed the stale callback dependency (exhaustive-deps is disabled); TypeScript/lint and all 4,593 tests passed. No cadence, endpoint, provider or attachment change. The later PR #567 fast tier therefore shipped after this saving.
+
 - Status: Merged to `main`, 2026-09-04. Sequencing satisfied: Item 95 portion 1 merged after it via
   PR #567, so the faster browser tier never shipped with the redundant catalog request.
+- Other source hashes: `9f98315c`, `62dd1843`.
 
 ### PLATFORM-RETIRE-POSTSEASON-TEMPLATE-v1
 
@@ -1745,45 +591,19 @@ null` through response, receipt target, validator and UI, which renders a third 
 
 ### POLISH-024-RETIRE-OVERVIEW-SECTION-ORDER-v1
 
-- Purpose: Item 124 — retire `OverviewContext` fields that are declared, populated, and read by
-  nothing, one of which had begun contradicting the section order POLISH-022 shipped.
-- Scope: `src/lib/overview.ts` and the four Overview test fixtures. No component, selector or
-  data-layer change; no user-visible change.
-- Outcome: `OverviewContext` reduced to `{ scopeDetail }` — the single field anything reads. Removed
-  `sectionOrder`, `scopeLabel`, `highlightsTitle`, `highlightsDescription`, `liveDescription` and
-  `emphasis`, plus the orphaned `OverviewSectionKind` type; `deriveOverviewContext` lost both
-  parameters that only fed deleted fields and collapsed from four slate branches to one line.
-- Notes: THREE false reader claims were made and corrected on this branch, all from greps that
-  matched near-namesakes — `highlightsTitle` (the Featured heading is a literal string),
-  `context.emphasis` "five components branch on it" (nothing reads it), and the second written one
-  sentence after correcting the first. `AGENTS.md` → Verification gained a binding rule as a result:
-  a claim that something IS READ requires a mutation, not a grep. One test was deleted rather than
-  gutted, its subject having been `scopeLabel`; a comment records why.
-- Review / verification: exact pre-merge head `8742d6dd`. `npx tsc --noEmit` exit 0,
-  `npm run lint:all` exit 0, `npm test` exit 0 with 4,590 passing (−1, the deleted test),
-  `npm run build` exit 0 — added as a gate because an exported type's surface changed. Codex clean
-  in both rounds; `/code-review` found the `emphasis` claim in round 2.
+- Change: Reduce `OverviewContext` to the sole consumed `scopeDetail`; delete `sectionOrder`, `scopeLabel`, `highlightsTitle`, `highlightsDescription`, `liveDescription`, `emphasis`, the orphaned section type and unused derivation parameters. No rendered/data behavior changes; delete the test whose entire subject was removed.
+- Review / precedent: Three reader claims based on near-name grep matches were false. The source records the resulting binding mutation requirement in `AGENTS.md`; see L1. Build, TypeScript, lint and all 4,590 tests passed (−1 intentional deletion).
+
 - Status: Merged via PR #564 (merge commit `cac6dab9`), 2026-09-04.
+- Other source hashes: `8742d6dd`.
 
 ### POLISH-023-OVERVIEW-ORDERING-REMAINDER-v1
 
-- Purpose: Item 125 portions 1 and 2 — Live sorts by kickoff alone, and a Featured final carries no
-  date or time. Extended at review to every Overview game section.
-- Scope: `src/lib/selectors/overviewGameSections.ts`, `src/lib/selectors/overview.ts`,
-  `src/components/OverviewPanel.tsx`, `DESIGN.md`, and the nearest tests. No data-layer change.
-- Outcome: every owner-count sort key on Overview is gone — Live, Recent finals, the watchlist
-  tiebreak, and Featured — leaving `watchlistPriority` as the sole deliberate non-kickoff key.
-  `compareOverviewLiveItems` also lost the in-progress-before-awaiting partition. Featured stops
-  passing `clock`, and `DESIGN.md` was amended, since it required the opposite.
-- Review / verification: two rounds. Codex clean in round 2. Round 1 found the `DESIGN.md` conflict
-  and a cap test whose date template produced `T110:00:00`, so a row was undated and sliced for the
-  wrong reason. Round 2 found three false exhaustiveness claims of mine — Featured still held the
-  key I had scoped out — a `DESIGN.md` rationale citing containers Overview does not have, and a
-  test coupled to a fixture's literal kickoff. The owner then ruled the Featured key out.
-  Exact head `c0cba813`: `npx tsc --noEmit` exit 0, `npm run lint:all` exit 0, `npm test` exit 0
-  with 4,591 passing (+5). Every new assertion mutation-proven; two drafts of the watchlist test
-  were vacuous and the mutation caught both.
+- Change: Remove all Overview owner-count sort keys, including Featured after owner review, and Live's in-progress/awaiting partition. Kickoff orders games except deliberate watchlist priority. Featured finals no longer receive a clock; DESIGN was amended because it previously required one.
+- Review: Fixed a malformed `T110:00:00` fixture and two vacuous watchlist assertions through mutation. Three false exhaustiveness claims and a nonexistent-container rationale were corrected. Both rounds resolved; +5 tests, all 4,591 tests and TypeScript/lint passed. No data-layer changes. See L1, L4.
+
 - Status: Merged via PR #563 (merge commit `1546bbc8`), 2026-09-04.
+- Other source hashes: `c0cba813`.
 
 ### POLISH-022-OVERVIEW-SECTION-ORDER-v1
 
@@ -1963,98 +783,36 @@ null` through response, receipt target, validator and UI, which renders a third 
 
 ### PLATFORM-117-TEAM-RECORDS-v1
 
-- Purpose: cache CFBD year-wide team records so Item 87 slice 4 can anchor scheduled matchups on
-  each team's W-L record without adding a provider call to any public read.
-- Scope: one `/records?year=` URL builder, normalized year-scoped records/cache-control state, a
-  finalisation-triggered refresh inside the existing live-scores job, an independent `records`
-  provider-health row, cache diagnostics, and tests. No consumer, route, or scheduler job shipped.
-- Outcome: `refreshTeamRecords({ year })` works for any requested year without canonical-season
-  context; it opens its own year-scoped attempt, commits allowlisted rows keyed by `teamId`, rejects
-  zero-row replacement of prior-good data, and is bounded to one call per qualifying run behind a
-  durable six-hour floor (at most 124 calls in 31 days). Cache health has an independent eight-day
-  ceiling, and score commits invalidate standings before the optional records request can wait.
-- Review / verification: exact PR head `021925a3` passed lint, TypeScript, and the 4,496-test suite.
-  Mutation checks named the failing assertions for final-transition gating, arbitrary-year refresh,
-  scope isolation, the durable floor, zero-row retention, the eight-day no-final health ceiling, and
-  standings-invalidation ordering. Final `/code-review` found no issue; Codex's repeat suggestions
-  were rejected against the fixed final-only cadence, the specified zero-row drift boundary (there
-  is no authoritative arbitrary-year team roster), and the measured quota-free `/info` behavior
-  used by the 1,002 reserve gate.
+- Change: Year-scoped CFBD team records refresh after qualifying live-score finalization, keyed by team ID with allowlisted rows and independent attempt/health state. Reject empty replacement of prior-good data; durable six-hour floor limits to 124 calls/31 days. An independent eight-day health ceiling catches no-final staleness; standings invalidate before optional records waiting.
+- Boundary / verification: No consumer, route or scheduler job shipped. Arbitrary-year refresh does not require canonical-season context. Mutations proved trigger, scope, floor, retention and ordering; exact head passed lint/TypeScript and 4,496 tests. Owner retained final-only cadence and zero-row drift boundary; quota reserve uses measured quota-free `/info`. Later PLATFORM-118 changes freshness policy.
+
 - Status: Merged via PR #543 (merge commit `9376521e`), 2026-08-31.
+- Other source hashes: `021925a3`.
 
 ### POLISH-020-OVERVIEW-WATCHLIST-SCOREBOARD-v1
 
-- Purpose: convert the Overview watchlist to the shared compact scoreboard with team records and a
-  single odds footer, completing slice 4 of Item 87 and removing the last Overview surface with a
-  bespoke row type.
-- Scope: `OverviewPanel`'s watchlist renderer, `CompactGameScoreboard`, `teamRecordsClient`, the
-  `canonicalStandingsClientProps` server-prop threading across all five `league/[slug]` routes, the
-  Overview highlight/chip labels, the watchlist depth constant, and focused component/selector
-  coverage. Slice 5 (Schedule), row disclosure, and section-level expansion remained out of scope.
-- Outcome: watchlist rows use the shared scoreboard anatomy; records arrive as a server prop rather
-  than a client fetch; one odds footer per row; the section renders single-column on mobile via an
-  `@container` ancestor. The highlight eyebrow and the owner-proximity chip were renamed to what each
-  measures (`Game of the Week`, `Contender Watch`) — they previously rendered the same words for
-  different signals. Watchlist depth raised 4 → 6 to match Live and Recent finals.
-- Review / verification: exact pre-merge head `2bf34d9c` passed TypeScript, `lint:all`, and all 4,581
-  tests, each gate its own command and exit code against a clean tree. Two mutations were observed
-  failing rather than assumed: removing the watchlist `@container` fires the shared-scoreboard
-  assertion, and widening `OVERVIEW_WATCHLIST_LIMIT` to 8 fires the cap assertion. The cap test was
-  rebuilt from a five-game pool to eight, because a cap of six would otherwise have left the original
-  assertion passing while exercising no truncation. The owner verified both late adjustments on
-  preview. **Review state is incomplete and deliberately recorded as such:** review and remediation
-  ran against `086c0d1c`, and the `2bf34d9c` delta (one string, one integer, four test assertions)
-  carries no review outcome. Diffstat 18 files / +986 −209 crosses the AGENTS.md:306 >15-file signal;
-  the expansion is the five-route records threading (~140 lines) and a 265-line server/client
-  boundary test added during remediation, with approval requested in the PR rather than assumed.
+- Change: Overview watchlist uses the shared scoreboard, server-threaded records across five league routes, one odds footer and mobile single-column container layout. Rename distinct signals `Game of the Week` / `Contender Watch`; expand depth four → six. Schedule/disclosure remain later slices.
+- Verification: Exact pre-merge head passed TypeScript/lint and 4,581 tests. Mutations proved container and cap; the cap fixture grew to eight games because five could not exercise a six-game bound. Owner checked the late changes on preview.
+- Historical exception: Reviews covered `086c0d1c`, not the final `2bf34d9c` delta (string, integer, four assertions). The owner accepted that unreviewed delta by inspection and explicitly approved the 18-file +986/−209 scope at merge. This was requested, not assumed; do not relabel it fully reviewed. Later vocabulary changes do not erase these original labels.
+
 - Status: Merged via PR #558 (merge commit `c730b4d0`), 2026-09-03. The owner approved the
   18-file diffstat and accepted the unreviewed `2bf34d9c` delta by inspection at merge; both were
   requested in the PR rather than assumed.
 
 ### POLISH-019-RECENT-FINALS-PROMOTION-v1
 
-- Purpose: add Recent finals to Overview and make each owned game move through exactly one of the
-  watchlist, Live, or Recent finals sections as kickoff and score evidence change.
-- Scope: `OverviewPanel`, the Overview section-routing selectors, the compact scoreboard's neutral
-  awaiting state, the Item 87 campaign/design contract, and focused selector/component coverage.
-  Watchlist records, Schedule rework, and the postseason team-id merger remained out of scope.
-- Outcome: Recent finals is a complete newest-first list with no recap-content deduplication and a
-  shared Thursday 06:00 ET expiry boundary. Confirmed kickoff promotes a game to Live; missing or
-  unusable score evidence renders neutral `Awaiting score` for at most eight hours; usable finals
-  promote immediately; abandonment and ownership exclusion are per-game and precede state routing.
-- Review / verification: exact code commit `5d83e035` passed TypeScript, `lint:all`, and 74/74
-  focused tests, with one net test added. The full suite retained four odds-route failures later
-  completed under PLATFORM-121; one unchanged diagnostics file timed out under aggregate host load and then
-  passed 89/89 directly. Routing mutations fired their named transition/exclusivity assertions.
-  Independent Codex and Claude confirmation left no credible in-scope P0/P1/P2; the remaining LOW
-  findings share the currently unreachable disruption-label seam tracked beside Item 63.
+- Change: Owned games occupy exactly one watchlist/Live/Recent-finals section. Recent finals is complete, newest-first, without recap deduplication, expiring Thursday 06:00 ET. Confirmed kickoff promotes to Live; missing usable evidence shows neutral Awaiting score for at most eight hours; usable finals promote immediately. Per-game abandonment/ownership exclusion precedes routing.
+- Review / boundary: +1 net test, 74 focused tests and TypeScript/lint passed; routing mutations proved exclusivity. Four full-suite odds failures were later handled by PLATFORM-121; an unchanged diagnostics timeout passed 89/89 directly. Reviews left only the disruption-label follow-up beside Item 63. Watchlist records, Schedule and postseason identity merger remained out of scope.
+
 - Status: Merged via PR #549 (merge commit `751a86b4`), 2026-09-01.
+- Other source hashes: `5d83e035`.
 
 ### POLISH-018-LIVE-STATUS-TREATMENT-v1
 
-- Purpose: replace the partial green-live/amber-live conversion with one shared status-label
-  treatment and re-cut final status from green to neutral.
-- Scope: `gameUi.ts`, `CompactGameScoreboard`, Matchups, Members, Overview, and focused coverage.
-  Schedule and recap stayed unchanged; Item 87 slice 5 owns the accepted Schedule residual.
-- Outcome: one borderless uppercase label now supplies live emerald plus a static dot, neutral final,
-  sky scheduled, and dimmer accessible unknown tones. Matchups consumes the same shape with its
-  neutral freshness-gated pulse. The dead `statusClasses` and all three bespoke consumer class
-  helpers were deleted.
-- Review / verification: exact code commit `db147036` passed `npm run lint`, TypeScript, and the
-  4,476-test full suite. **RETRACTED 2026-09-02 — the accusation was wrong; this entry's claim was
-  accurate.** A correction posted here earlier the same day asserted the full-suite claim was false,
-  on the basis that re-running the odds route tests at commit `db147036` yields four failures. That
-  method was invalid: the four failing fixtures carry a fixed kickoff of `2026-09-01T19:30Z`, and
-  `applyPregameOddsSnapshot` (`src/lib/odds.ts:225`) correctly refuses a first-seen pregame snapshot
-  once the wall clock passes it. Re-running an old commit TODAY therefore fails for today's date, not
-  for that commit's code. On 2026-08-31 the kickoff was still in the future and the suite genuinely
-  passed. POLISH-018 reported accurately; the retracted correction is left visible so the faulty
-  method is not repeated. See `PLATFORM-121-ODDS-FIXTURE-EXPIRY-v2`. Four test declarations were
-  added relative to `main`; existing render assertions were retargeted without removing coverage.
-  Reverting unknown to zinc-500 failed on
-  `unknown label must use dimmer accessible zinc`. Independent Codex and Claude reviews found the
-  same contrast gap; one remediation closed it, and confirmation left no credible in-scope
-  P0/P1/P2 after the settled Matchups and source-token requirements were applied.
+- Change: One borderless uppercase status treatment: emerald live with static dot, neutral final, sky scheduled, accessible dim unknown. Matchups keeps neutral freshness-gated pulse; dead bespoke helpers removed. Schedule/recap unchanged, with Schedule residual owned by Item 87 slice 5.
+- Dated verification correction: At `db147036` on 2026-08-31, all 4,476 tests genuinely passed. An accusation posted and RETRACTED on 2026-09-02 wrongly used a later rerun to dispute that result: four odds fixtures expired at 2026-09-01T19:30Z. Old code under today's clock did not reproduce its historical conditions. Retain both the original pass and the retraction; PLATFORM-121-ODDS-FIXTURE-EXPIRY-v2 covers repair.
+- Review: Four tests added; mutation proved accessible unknown color. Both reviewers' contrast finding was remediated; confirmation left no credible in-scope P0/P1/P2. See L2.
+
 - Status: Merged via PR #541 (merge commit `9a45e1f3`), 2026-08-31.
 
 ### PLATFORM-116-STANDINGS-LIVE-SIGNAL-v1
@@ -2203,27 +961,12 @@ null` through response, receipt target, validator and UI, which renders a third 
 
 ### PLATFORM-114-SCHEDULE-PROVIDER-CLASSIFICATION-v1
 
-- Purpose: stop schedule eligibility reconstructing a participant's division when CFBD already
-  stamps it on the same `/games` row, after a name-normalization collision put an entire Division II
-  season into the canonical schedule as tracked games belonging to an ownable FBS team.
-- Scope: provider `home_classification` / `away_classification` normalized at the mapper and
-  persisted through `ScheduleItem`, `ScheduleWireItem`, and `AppGame`; preferred over conference and
-  name inference in `classifyTeamSubdivision`, re-validated at that boundary because durable rows and
-  postseason overrides arrive as unvalidated JSON; the conference fallback narrowed to the one match
-  source that can assert a division; provider label surfaced in the eligibility diagnostic. Identity
-  resolution, score attachment, scheduling, and lifecycle policy are unchanged.
-- Outcome: a row the provider classifies `ii`/`iii` can no longer be promoted to FBS by a resolver
-  collision (`Missouri S&T` and `Missouri State` share the normalized key `missourist`). Rows lacking
-  the label keep the prior inference path, so the fix reaches production only after a full-season
-  schedule refresh repopulates the cache.
-- Review / verification: commit `e1edb680` passed TypeScript, `lint:all`, the 4,388-test full suite,
-  and `next build`; five mutations each killed by a distinct test. Independent Codex review found no
-  actionable finding; the second reviewer's MEDIUM (unvalidated provider label at the boundary) and
-  LOW (unreachable policy-source disjunct) were remediated, and its observability finding is tracked
-  as a deferral rather than folded in. Behaviour confirmed on preview after an authorized cache
-  refresh.
+- Change: Carry CFBD home/away classification through mapper, durable/wire schedule and AppGame, preferring revalidated provider labels over conference/name inference. This prevents `Missouri S&T` → `Missouri State` normalization collision from promoting Division II/III rows to FBS. Narrow conference inference to its authoritative match source; expose provider label in diagnostics.
+- Boundary / verification: Unlabeled rows retain prior inference; production needs a full-season cache refresh, separately unverified at merge. No identity resolver, attachment, scheduler or lifecycle redesign. Authorized preview refresh verified behavior; five mutations, TypeScript/lint/build and 4,388 tests passed. Boundary validation and unreachable disjunct fixed; observability deferred.
+
 - Status: Merged via PR #524 (merge commit `4a78d1b5`), 2026-08-29; production promotion and the
   required schedule-cache refresh not yet verified.
+- Other source hashes: `e1edb680`.
 
 ### INSIGHTS-026c-RECAP-DETAILS-v1
 
@@ -2267,27 +1010,9 @@ null` through response, receipt target, validator and UI, which renders a third 
 
 ### INSIGHTS-026b-RECAP-LAYOUT-v2
 
-- Purpose: rebuild the weekly recap's approved layout and Overview tile on the proven Slice 1 facts
-  without changing the remaining vertical content slices.
-- Scope: shared recap header and weekly-record grid, the Insights lead section, a request-time
-  Overview tile derived from already-hydrated app data, calendar-only tile phase selection, focused
-  rendering/selector coverage, and the three owning design-system amendments. No new endpoint,
-  durable artifact, scheduler, record projection, odds policy, or unwired content placeholder.
-- Outcome: the Insights recap now uses the mockup's headline and four-column weekly-record layout;
-  Overview gets a normal-flow, collapsed-by-default recap tile during the eligible-to-Thursday
-  window, with expansion revealing the compact shared rows. Schedule rebuilds now clear stale
-  identity-bound scores and re-arm hydration, while regular/postseason cleanliness gates the exact
-  recap week independently. Recap context uncertainty remains independent from standing insights,
-  and the mounted tile reevaluates the 06:00 ET boundaries.
-- Review / verification: the first independent Claude/Codex review round found lifecycle,
-  incomplete-copy, accessibility, and mockup-fidelity seams; remediation cycle 1 addresses them
-  with focused hook, selector, composer, RSC, and component coverage. The independent rereview found
-  two remaining hydration seams: cross-phase failures were aggregated, and an older in-flight build
-  could suppress the replacement generation's bootstrap. Remediation cycle 2 makes hydration
-  phase-specific and generation-aware, restores the two member-facing uncertainty notices, moves
-  Overview applicability into a tested selector, and applies the final row-hairline correction.
-  Full gates and the final independent rereview are required before merge and are reported with the
-  implementation handoff.
+- Historical attempt: v2 built the approved shared recap header/record grid and collapsible Overview tile from hydrated app data, with calendar eligibility, independent recap uncertainty and 06:00 ET reevaluation. Two remediation rounds added phase-specific/generation-aware hydration and restored uncertainty notices.
+- Why superseded: Final review still found a server/client roster-generation seam in Overview. Full final gates/review were requirements, not evidence of completion. v3 preserves the approved Slice 1 layout/facts but replaces this client-derived seam with one server-coherent request-time payload. No v2 merge or durable recap artifact is claimed.
+
 - Status: Superseded/unmerged by `INSIGHTS-026b-RECAP-LAYOUT-v3` after final review found a
   server/client roster-generation seam in the Overview data path.
 
@@ -2341,112 +1066,33 @@ null` through response, receipt target, validator and UI, which renders a third 
 
 ### PLATFORM-112-GAME-SCORE-GAP-DIAGNOSTICS-v1
 
-- Purpose: stop one terminal score from hiding a missing completed-game result elsewhere in the
-  same provider week and give the operator enough identity to run the existing recovery action.
-- Scope: cache-only score diagnostics, the shared canonical live-score context and conclusion
-  fields it consumes, bounded structured System Health identities, focused tests, and owning
-  documentation. Score ingestion, attachment precedence, refresh cadence, and repair actions are
-  unchanged.
-- Outcome: every addressable expected game in a completed `(providerWeek, seasonType)` partition is
-  checked against its own canonically attached score. Canceled games resolve scorelessly;
-  placeholder, pending, and disrupted games do not owe a final without stronger conclusion
-  evidence; a final requires both numeric scores. Diagnostics retain the complete affected count
-  while exposing at most six sanitized, bounded game identities with CFBD id and provider partition.
-- Review / verification: thirteen focused tests were added and the obsolete slate-granularity
-  assertion was replaced with the sibling-gap contract; coverage includes exact-snapshot use,
-  pending/disrupted/placeholder treatment, incomplete finals, bounded totals, identity sanitization,
-  System Health rendering, and repair routing. Sanitizer and kickoff-normalization protections were
-  mutation-proven. Exact code commit `b035d890` passed TypeScript, `lint:all`, and the 4,301-test full
-  suite; independent Codex and Claude reviews found no credible in-scope P0/P1/P2. Their
-  non-blocking observations are retained as evidence-gated queue item 81. Production was verified
-  serving `30bb515f` after its 13:44 CDT promotion on 2026-08-27.
+- Change: Score diagnostics check every expected addressable game in each completed provider partition against its own canonical score. Canceled resolves scorelessly; pending/disrupted/placeholder needs stronger conclusion evidence; final requires both numeric scores. Keep the total affected count but expose at most six sanitized identities with provider ID/partition for existing recovery.
+- Verification / boundary: Thirteen tests added and obsolete slate-wide assertion replaced. Sanitizer/kickoff protections mutation-proven; TypeScript/lint and all 4,301 tests passed. No ingestion/cadence/repair changes. Review observations stayed in evidence-gated Item 81. Production served `30bb515f` after 13:44 CDT promotion on 2026-08-27.
+
 - Status: Merged via PR #516 (merge commit `30bb515f`), 2026-08-27.
+- Other source hashes: `b035d890`.
 
 ### PLATFORM-111-TRANSITION-ANCHOR-v2
 
-- Purpose: anchor the daily preseason-to-season transition and member-facing season-start date to a
-  game a league can actually see, while keeping every consumer date-based and without filtering
-  non-FBS rows out of the canonical schedule.
-- Scope: the shared schedule-probe authority; the three live durable probe writers in the manual
-  schedule route, weekly schedule-refresh cron, and season-transition cron (plus the manual route's
-  pre-existing unreachable duplicate block); the pure UTC-date boundary shared by `StandingsPanel`
-  and `CFBScheduleApp`; focused policy, route, selector, and component tests; owning documentation.
-- Outcome: `firstGameDate` is now midnight UTC on the earliest date with an FBS participant resolved
-  through the durable catalog and league-agnostic aliases. Provider-only observed names cannot
-  self-resolve; exact kickoff time and TBD confidence are ignored; no eligible row falls back to the
-  earliest parseable UTC date and no parseable date returns `null`. The whole post-commit probe
-  update—identity reads plus durable write—shares one typed failure phase, so a derivation failure
-  preserves committed schedule work as `partial / probe-write-failed` in events and receipts.
-  Awaiting-season presentation remains active before and throughout the opening UTC date, then
-  expires at the following UTC midnight; legacy exact-kickoff probe values normalize to their UTC
-  date. A durable Southern Conference identity is explicitly pinned as FCS rather than
-  league-visible.
-- Review / verification: Claude confirmed one P2 in the initial diff: asynchronous identity reads
-  could throw after schedule commit while the route still classified the phase as `other`. The
-  first remediation is pinned through the event, receipt, committed schedule, and absent probe. A
-  later seam audit found that two member consumers still interpreted the new midnight anchor as an
-  exact kickoff; v2 centralizes their UTC end-of-date boundary without restoring kickoff-time state.
-  Expanded focused helper, probe, selector, and component suites passed 118/118; the mandatory full
-  suite passed 4,289/4,289. TypeScript, ESLint, Prettier, Markdown lint, diff checks, and the React
-  review checklist passed. Tests used local provider stubs; no external provider request or
-  production-state mutation occurred. After promotion, the QStash schedule-refresh job persisted
-  the corrected exact-midnight `2026-08-29T00:00:00.000Z` probe at 02:56 UTC on 2026-08-27 while
-  preserving `baseCachedAt`, verifying the production path end to end.
+- Change: League-visible season anchor is midnight UTC on the earliest FBS-participant date resolved through durable catalog/global aliases. Provider-only names cannot self-resolve; exact time/TBD is irrelevant. With no eligible row, fall back to earliest parseable UTC date; with none, null. Legacy exact-time probes normalize to date. Awaiting-season presentation lasts through opening date, expiring next UTC midnight.
+- Failure contract: Identity reads plus post-commit probe write share `partial / probe-write-failed`, preserving committed schedule success. v2 fixed two consumers still interpreting midnight as kickoff; Southern Conference identity remains FCS.
+- Verification: 118 focused/4,289 full tests passed with local provider stubs. Code merged 2026-08-26; on 2026-08-27 at 02:56 UTC the promoted QStash path wrote `2026-08-29T00:00:00.000Z` while preserving `baseCachedAt`. This separates merge from observed production correction.
+
 - Status: Merged via PR #514 (merge commit `dc8b3528`), 2026-08-26.
 
 ### DOCS-019-AUDIT-QUEUE-RECONCILIATION-v1
 
-- Purpose: reconcile `docs/next-tasks.md` around the consolidated 2026-09-08 codebase and production
-  audit, establishing one authoritative audit-first execution order and storing the audit's detail once
-  as dated evidence.
-- Scope: documentation only. No repairs, code changes, configuration changes, deployments, or agent
-  dispatches. `docs/next-tasks.md`, `docs/campaigns/vercel-active-cpu.md`, `docs/archive/README.md`, and
-  the new `docs/archive/audits/codebase-audit-existing-plans-2026-09-08.md`.
-- Outcome: one dispatch section, audit-first after work in progress — 110A, 110B, 188, 20, 189, 190, 47
-  — with the validation gates and near-term integrity sequence beneath it, and presentation work
-  preserved with 119 before 134. Item 110 split into recovery (110A) and prevention (110B) under its
-  existing identity. Four new entries: 188 body deadlines, 189 planner failure classification, 190
-  invalidation recovery, 191 targeted schedule convergence. Items 20, 47, 140 and 131 annotated with
-  classification, evidence link and acceptance boundary; 140 and 131 explicitly scope-protected against
-  absorption into 110. Spent lane sequences REMOVED rather than marked superseded, since every entry had
-  shipped and a spent sequence reads as an instruction. The Active CPU campaign's opening corrected —
-  it described the planner as future work for a week after it shipped — with its savings figures kept
-  labelled as projections.
-- Deliberately left open, recorded as decisions rather than omissions: 110B's reconciliation cadence,
-  Item 20's timeout values, historical repair policy, preview isolation, the deployed-standings
-  comparison, and actual-cost validation.
-- Review / verification: two of the audit's code-level claims were independently reproduced by the
-  planning session before the queue was touched — R1's body-outside-deadline in
-  `src/lib/api/fetchUpstream.ts`, and S1's league-not-admin gate in the Insights route. The audit's own
-  release checks are retained as dated evidence; **no new runtime verification is claimed and no repair
-  was performed.** `npm run lint:all` clean, plus an explicit markdownlint pass on the archived audit
-  file and the archive index, which the normal glob excludes.
+- Change: Docs-only reconciliation around the 2026-09-08 audit: one dispatch order after in-progress work (110A, 110B, 188, 20, 189, 190, 47), with presentation 119 before 134. Split recovery/prevention under Item 110; add 188–191, annotate 20/47/140/131 and protect 140/131 from absorption. Store audit evidence once in the dated archive; remove spent queue sequences.
+- Historical correction: Active CPU docs described the planner as future work after delivery; corrected that state while retaining savings as projections. This order records that planning checkpoint, not today's queue.
+- Open / verification: Cadence, timeout values, historical repair, preview isolation, deployed-standings comparison and actual costs remained undecided. Planning reproduced body-outside-deadline and Insights league-not-admin gates before editing. No repair or new runtime verification; lint and explicit archive Markdown checks passed. No explicit merge metadata recorded.
 
 ### DOCS-018-CURRENT-AUTHORITY-RECONCILIATION-v1
 
-- Purpose: remove completed rollout/migration history and stale provider/auth claims from documents
-  that are supposed to describe current architecture and operations.
-- Scope: current auth, provider-data, storage, diagnostics, admin-control-plane, game-stats writer,
-  onboarding, architecture-map, roadmap, and related user-facing provider-description wording;
-  archive only the historical context still useful for future tasking. No runtime policy, cadence,
-  permission, provider call, durable state, or deployment change. The owner approved each document
-  reconstruction in sequence and then explicitly authorized the remaining cross-doc authority pass;
-  review remediation added the binding auth authority and two directly cited current/source files;
-  the final branch diff is 25 files, +3,362/-10,616, still dominated by deleting duplicated history
-  from the queue, prompt ledger, and operator references rather than runtime expansion.
-- Outcome: current docs now distinguish today's platform-admin-only enforcement from the planned
-  commissioner/member role model and describe all active provider jobs; the admin and game-stats
-  authorities were reconstructed around present behavior; completed F2 migration history moved to a
-  dated archive; doc maps and roadmap references point to the right current or historical owner; two
-  stale System Health automation descriptions were corrected.
-- Review / verification: audited against live route inventories, auth helpers, maintenance-action
-  descriptors, scheduler receipt types, provider settings, and writer-control/ingestion/evidence
-  code. Independent Claude and Codex reviews were gathered against `67195db3` before remediation;
-  the accepted authority, operator-procedure, link, archive-convention, and retained-rationale
-  findings were handled together under the owner's ruling that commissioner/member roles remain
-  planned product direction. Pre-remediation TypeScript, focused regression, lint, and Markdown
-  gates passed; remediation verification is reported against its exact commit in PR #513.
+- Change: Reconstruct current architecture/operations around present auth, provider jobs, storage, diagnostics and control-plane behavior; move useful completed F2 history to a dated archive and repair doc maps/roadmap links. Distinguish enforced platform-admin-only access from planned commissioner/member roles. Correct two stale System Health descriptions without changing runtime policy or permissions.
+- Review / boundary: Owner approved sequential reconstructions and the cross-doc pass; 25-file +3,362/−10,616 diff chiefly deletes repeated history. Reviewed against live code inventories before cohesive authority/procedure/link remediation. Pre-remediation gates passed; exact remediation evidence belongs to PR #513. Feature branch remained unmerged at this entry.
+
 - Status: Implemented on the feature branch; not yet merged.
+- Other source hashes: `67195db3`.
 
 ### DOCS-017-APP-ARCHITECTURE-SKETCH-v1
 
@@ -2507,7 +1153,7 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: make a CFBD game record that disappears between canonical schedule snapshots visible to operators without treating ordinary same-id rewrites as incidents.
 - Scope: the shared full-season schedule refresh authority, an observability-only partition baseline reader, a secret-safe structured runtime event, direct helper tests, integration controls, and operator documentation.
 - Outcome: after a confirmed `written-clean` durable commit, positive numeric ids absent from the new snapshot emit one `schedule-games-vanished` event. Same-id kickoff/team/venue rewrites are silent; prior ids deduplicate; malformed rows are skipped individually; details cap at 25 while preserving the total count; logging cannot fail the commit.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV4](#shared-review-statements).
 - Status: Merged via PR #512 (`1d550c1e`), 2026-08-26. Not promoted at the recorded closeout.
 
 ### PLATFORM-110-SCHEDULE-VANISHED-GAME-LOGGING-v1
@@ -2529,17 +1175,17 @@ null` through response, receipt target, validator and UI, which renders a third 
 ### POLISH-014-TREND-SEASON-ORIGIN-v1
 
 - Purpose: make week one an ordinary trend instead of a special case, closing `docs/next-tasks.md` item 74 and the two MEDIUM findings folded into it.
-- Scope: Primary touched areas: `selectors/trends.ts`, `MiniTrendsGrid.tsx`, `OverviewPanel.tsx`, `history/SeasonArcChart.tsx`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `selectors/trends.ts`, `MiniTrendsGrid.tsx`, `OverviewPanel.tsx`, `history/SeasonArcChart.tsx`, plus tests/docs.
 - Outcome: `SEASON_ORIGIN_GAMES_BACK` states what `deriveStandings` already claims about an unplayed record — everyone level at 0 games back — rather than inventing data, and gives a one-week series the second endpoint a line needs. Measured: one resolved week renders `M7.0,0.0 L462.9,0.0` and `M7.0,0.0 L462.9,145.5` where the pre-fix render produced moveto-only paths.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV4](#shared-review-statements).
 - Status: Merged via PR #511 (`2b81da6a`), 2026-08-25. Promoted at the recorded closeout.
 
 ### POLISH-013-TREND-EMPTY-STATES-v1
 
 - Purpose: stop Overview's "GB Race" rendering a heading, a divider and a link over a completely empty body, and close `docs/next-tasks.md` item 72.
-- Scope: Primary touched areas: `OverviewPanel.tsx`, `lib/trendEmptyState.ts`, `MiniTrendsGrid.tsx`, `selectors/historyResolution.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `OverviewPanel.tsx`, `lib/trendEmptyState.ts`, `MiniTrendsGrid.tsx`, `selectors/historyResolution.ts`, plus tests/docs.
 - Outcome: the section asks `selectGamesBackTrend` — the selector both children reduce to — and keeps rendering when it is empty, with an explained empty state and no axes. It applies whenever the league has owner rows, so a `preseason-names` league no longer sees it appear at the draft. The section requires a DRAWABLE series — one with at least two points — because a one-point series emits a moveto-only path that SVG does not render.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV3](#shared-review-statements).
 - Status: Merged via PR #510 (`cf159341`), 2026-08-25. Promoted at the recorded closeout.
 
 ### PLATFORM-109-STANDINGS-PENDING-PAYLOAD-v1
@@ -2547,7 +1193,7 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: stop shipping the whole season's unplayed-game list to the browser so the browser can reduce it to one of three strings, and close `docs/next-tasks.md` item 64(a) and 64(d).
 - Scope: new `selectors/canonicalStandingsClient.ts`; the five `league/[slug]` route pages; `CFBScheduleApp` and `OverviewPanel` prop contracts; `selectors/seasonContext.ts`, `selectors/overview.ts`, `selectors/leagueStandings.ts`, `insights/loadInsights.ts`; tests.
 - Outcome: `canonicalStandingsClientProps` derives the season context server-side from the UNSTRIPPED snapshot and strips `pending` before the client boundary; the pages spread both together so one cannot ship without the other. Measured on the real production 2026 schedule (3,610 rows): 898 pending entries, canonical snapshot 80,922 → 16,789 JSON bytes.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV3](#shared-review-statements).
 - Status: Merged via PR #509 (`be80181a`), 2026-08-25. Promoted at the recorded closeout.
 
 ### POLISH-012-TREND-CHART-HOOKS-CRASH-v1
@@ -2555,7 +1201,7 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Fix a LIVE production crash — clicking the Win % chart tab on the standings page threw and dropped the whole page to the error boundary — and enforce the rule that prevents its class.
 - Scope: `SharedTrendChart` / `TrendChartBody` in `TrendsDetailSurface.tsx`, the three trend selectors in `selectors/trends.ts`, `history/SeasonArcChart.tsx`, `eslint.config.mjs`, and tests.
 - Outcome: two causes, both fixed. `SharedTrendChart` ran five hooks, took an early return for `rows.length === 0`, then ran three more; both metric charts sit in a ternary at the SAME position so React reconciles them onto ONE fiber, and a metric switch crossing that boundary changed the hook count. Extracted `TrendChartBody` (all hooks, no early return) behind a hook-free wrapper.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV6](#shared-review-statements).
 - Status: Merged via PR #508 (`013ec32b`), 2026-08-23. Promoted at the recorded closeout.
 
 ### POLISH-011-STANDINGS-COVERAGE-COPY-v1
@@ -2563,15 +1209,15 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Replace the member-facing standings coverage message with the owner's decided wording, and remove two coverage variants no production caller could reach.
 - Scope: `deriveStandingsCoverage`, the `coverageOptions` pass-through on `deriveStandingsHistory`, the Overview notice, and their tests.
 - Outcome: the incomplete state makes ONE claim, `Waiting on complete results`.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered tests, build as applicable.
+- Review / verification: [RV10](#shared-review-statements).
 - Status: Merged via PR #507 (`15573589`), 2026-08-23. Not promoted at the recorded closeout.
 
 ### PLATFORM-108-TEST-PACING-AND-STARTUP-v1
 
 - Purpose: Stop test suites paying the production provider pacing delay, deliberately cover the shared pacing gate, and re-measure the suite before deciding whether to change the 30-second per-file limit.
-- Scope: Primary touched areas: `fetchUpstream.ts`, `run-tests.mjs`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `fetchUpstream.ts`, `run-tests.mjs`, plus tests/docs.
 - Outcome: The runner sets `UPSTREAM_PACING_DISABLED=1`; `applyPacing` honors it only when Node also supplies the exact test-child signal `NODE_TEST_CONTEXT=child-v8`. This is deliberately independent of `NODE_ENV` (route harnesses overwrite it) and `APP_STATE_TEST_ISOLATION` (store isolation has one meaning). Missing or changed signals fail closed to pacing.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV4](#shared-review-statements).
 - Status: Merged via PR #506 (`1896b149`), 2026-08-22.
 
 ### PLATFORM-107-FINAL-SCORE-SWEEPER-v2
@@ -2579,15 +1225,15 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Give a provider-final, score-required game that missed its ordinary live-polling window automatic eventual recovery on the next weekly schedule refresh, while keeping recorded finals immutable and measuring kickoff churn.
 - Scope: The whole-season schedule wire/normalization seam, an opt-in final-score sweep through the existing `mergeScoresIntoPartition` authority, exact score-refresh status resolution, cron event/receipt projections, and tests.
 - Outcome: Weekly cron refreshes now group CFBD finals by provider week and season type, match cache coverage by exact `seasonType:providerGameId`, and submit only missing usable finals. Existing finals are never restated; different scores are logged with bounded identity.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV6](#shared-review-statements).
 - Status: Merged via PR #505 (`878a3466`), 2026-08-21.
 
 ### PLATFORM-106-SCHEDULE-REFRESH-TEST-SPLIT-v1
 
 - Purpose: Stop two test files crossing the 30-second per-file budget under full-suite contention, which made `npm test` fail intermittently on the maintenance host.
-- Scope: Primary touched areas: `scripts/run-tests.mjs`, `_routeHarness.ts`, `_pageHarness.tsx`, `src/test/__tests__/testRunner.test.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `scripts/run-tests.mjs`, `_routeHarness.ts`, `_pageHarness.tsx`, `src/test/__tests__/testRunner.test.ts`, plus tests/docs.
 - Outcome: `nodeTestConcurrency` is `Math.min(4, Math.max(1, availableParallelism() - 1))` — a true cap that never exceeds Node's default on a constrained host. **The cap is the load-bearing fix; the two splits add margin and do not make higher file concurrency safe** — recorded in `run-tests.mjs` because that is where someone would remove it.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV6](#shared-review-statements).
 - Status: Merged via PR #504 (`792b27a6`), 2026-08-21.
 
 ### PLATFORM-105A-SCORE-COVERAGE-INTEGRITY-v1
@@ -2595,7 +1241,7 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Prevent a cumulative standings snapshot from resolving when an owned game has strong score-bearing conclusion evidence but no attached numeric result, while preserving canceled games as legitimate scoreless terminal outcomes.
 - Scope: one ordered conclusion-evidence classifier shared by week progress and standings coverage; the coverage guard order; focused precedence, production-shape, and cumulative-policy tests; and the canonical week-resolution model.
 - Outcome: final score evidence, schedule `completed: true`, or schedule `status: 'final'` now require both numeric points before an owned game satisfies standings coverage; any of those signals beats a conflicting cancellation label, while cancellation alone remains `scoreless-terminal`. Coverage remains cumulative and fail-closed intentionally: an early missing owned result blocks every later snapshot because those standings omit the same result.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV6](#shared-review-statements).
 - Status: Merged via PR #503 (`31db3706`), 2026-08-20.
 
 ### PLATFORM-105-WEEK-RESOLUTION-v1
@@ -2603,15 +1249,15 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: A week counts as played only when its games have concluded, so a season in progress stops reporting itself as over from its first Saturday.
 - Scope: the week-resolution predicate, `selectSeasonContext`, and the consumers of the meaning they changed. Model in `docs/architecture/week-resolution.md`.
 - Outcome: A week is resolved only when real planned games have concluded, and season finality is based on every real game having a result rather than vacuous score coverage. This made early- and mid-season lifecycle states reachable instead of reporting the season as final from week one.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV4](#shared-review-statements).
 - Status: Merged via PR #502 (`e197d449`), 2026-08-20.
 
 ### POLISH-010-DARK-ONLY-THEME-v1
 
 - Purpose: Retire light mode.
-- Scope: Primary touched areas: `globals.css`, `publicLanding.css`, `DESIGN.md`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `globals.css`, `publicLanding.css`, `DESIGN.md`, plus tests/docs.
 - Outcome: `dark:` utilities are unconditional, so the ~1,127 light base classes they pair with are dormant rather than deleted and the retirement reverts by the single variant declaration.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #500 (`6109df6f`), 2026-08-19.
 
 ### POLISH-009-HISTORY-STATS-MOBILE-v1
@@ -2619,7 +1265,7 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Repair the History → Stats mobile view after owner ranks, names, values, and controls collapsed into the fixed desktop grid; make its small controls usable by touch and restore the apparently inert Active-only filter.
 - Scope: the owner-ranking and event-record responsive layouts, their Show-all controls, `ActiveOnlyToggle`, History Stats roster wiring, a pure History membership selector, and focused component/selector coverage.
 - Outcome: Mobile record podiums stack below the label/actions header and return to three columns at `lg`; Show all and the owner switch have 44px mobile targets. Active filtering now takes current membership from the canonical confirmed roster. Before a new roster is confirmed it uses only the most recent archived roster (then that archive's final standings as a backstop), instead of the union of every archived owner that made every former owner appear active.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV4](#shared-review-statements).
 - Status: Merged via PR #497 (`e91f2f65`), 2026-08-19.
 
 ### POLISH-008-POLL-MOVEMENT-COLUMN-v1
@@ -2627,7 +1273,7 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Stop the FBS Polls tab claiming every ranked team was unranked a week ago.
 - Scope: `RankingsPageContent` and its tests. No selector, route, data-model or cache change.
 - Outcome: When no prior poll exists, the movement column is omitted rather than labeling every ranked team NR. In-season movement remains visible under the accurate “vs last” label, including genuine new entrants.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV4](#shared-review-statements).
 - Status: Merged via PR #496 (`3a11696f`), 2026-08-19.
 
 ### POLISH-007-GAME-DAY-CONFIDENCE-LAYER-v1
@@ -2635,7 +1281,7 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Give members a truthful sign that the app is alive around kickoff without reviving the false page-wide live claims cut from POLISH-005.
 - Scope: exact-week score-response observation evidence, the client live-refresh hook, a pure game-day confidence selector.
 - Outcome: The neutral header moves through bounded `Preparing for kickoff`, `Waiting for scores`, and `Tracking scores` states. Tracking requires a recent successful exact-scope provider attempt plus an in-progress score attached in that same poll; stale, incomplete, historical, and disrupted inputs fail closed, including canceled/postponed games with no score row.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV4](#shared-review-statements).
 - Status: Merged via PR #495 (`3a76fca3`), 2026-08-19.
 
 ### PLATFORM-104-POLL-SOURCE-MATCHING-v1
@@ -2643,7 +1289,7 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Stop a non-FBS poll from claiming an FBS rankings column. Owner report, 2026-08-18, from production: the Coaches Poll showed one row, `se louisiana` at rank 20.
 - Scope: `normalizePollSource` in `src/lib/rankings.ts`, `mergeWeekRankings` in `src/lib/server/rankings.ts`, and `src/lib/__tests__/rankings.test.ts`. No UI, route, or cache change.
 - Outcome: Poll normalization now uses an exact fail-closed allowlist and one-claim-per-source merging, preventing FCS or lower-division coaches polls from replacing the FBS Coaches Poll. AP and CFP coverage was added, and unmatched provider names are observable without accepting them.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #494 (`cb2bd7f0`), 2026-08-19.
 
 ### PLATFORM-103-TEST-SUITE-HYGIENE-v1
@@ -2659,7 +1305,7 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Remove the week summary bar above the week pills on the league surface. Owner framing, 2026-08-18: "the bar is just carrying duplicative information that is already presented more cleanly on the page, i would argue for full removal of it."
 - Scope: `CFBScheduleApp`, `WeekControls`, `src/lib/matchups.ts`, the `CFBScheduleApp` and `WeekControls` tests, and the queue/registry entries. No selector, route, or data-model change. `WeekControls` entered scope at review — see the accessibility finding below.
 - Outcome: The duplicate week-summary bar and its misleading owner-count metric were removed. The existing week pills, empty state, and excluded-games panel remain the single member-facing presentation, with selected-week accessibility exposed directly by WeekControls.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV6](#shared-review-statements).
 - Status: Merged via PR #492 (`5abed2ff`), 2026-08-18.
 
 ### POLISH-005-MEMBER-SURFACE-BOUNDARY-v1
@@ -2667,15 +1313,15 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Remove operator and debug data-state UI from member-facing surfaces, so a member sees the app rather than its plumbing.
 - Scope: `CFBScheduleApp`, `GameWeekPanel`, `MatchupsWeekPanel`, `TrendsDetailSurface`, `RankingsPageContent`.
 - Outcome: Member surfaces no longer expose score/odds coverage counters, raw provider issues, fatal-bootstrap detail, or the Data notes prop chain; those diagnostics remain operator concerns. A proposed live indicator was removed after repeated evidence showed it could not state freshness truthfully.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #491 (`c08667f3`), 2026-08-18.
 
 ### INSIGHTS-032-SEASON-RECAP-v2
 
 - Purpose: the season recap survives rollover.
-- Scope: Primary touched areas: `selectors/insights.ts`, `generators/existing.ts`, `OverviewPanel.tsx`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `selectors/insights.ts`, `generators/existing.ts`, `OverviewPanel.tsx`, plus tests/docs.
 - Outcome: The recap now reads the adjacent completed-season archive during preseason, names the season it describes, gates on finality, and derives the chase from the games-back slope. The failed v1 attempt was abandoned and v2 was re-derived from clean main.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #490 (`30fe85ee`), 2026-08-18.
 
 ### INSIGHTS-025-MEMBERSHIP-CHANGES-v6
@@ -2683,7 +1329,7 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Publish who joined, who returned and who left, derived at request time from the season archives and the season's confirmed draft.
 - Scope: `src/lib/insights/` (generator, history, context, engine, loader), the insights diagnostics surface, and publication-transition cache invalidation across the five draft writers.
 - Outcome: Merged as the INSIGHTS-025 slice. Membership for a season is the owner set of that season's CONFIRMED DRAFT (`context.seasonOwners`), with departures a set difference against the previous year's archive. Owner rulings: "a confirmed draft should be the gate to report results on who joined/left" and "a simple compare between the confirmed roster and the previous year's owners."
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered tests, build as applicable.
+- Review / verification: [RV10](#shared-review-statements).
 - Status: Merged via PR #487 (`0d28595b`), 2026-08-17.
 
 ### INSIGHTS-031-ROSTER-SCHEDULE-CONTENT-v1
@@ -2691,7 +1337,7 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: The first insight content about the DRAFT rather than about college football. A game between two of an owner's own teams caps their upside — two roster-games that cannot beat anyone else.
 - Scope: `insights/rosterSchedule.ts` (the pure cross-product), a generator emitting two types.
 - Outcome: **the copy was written WITH the owner, line by line, rather than drafted and reviewed** — a deliberate process change, because a reviewer can check whether a sentence is true and only the owner can say whether it is any good, and this campaign had burned rounds on the difference. Every aside shipped is his or was cut by him.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV4](#shared-review-statements).
 - Status: Merged via PR #486 (`cad8362e`), 2026-08-17.
 
 ### INSIGHTS-023-PRESEASON-GATES-v1
@@ -2699,29 +1345,29 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Career records and league history were dark in preseason. Not by decision — the gates were set one at a time over months and disagreed: `career:volatility` ran, `career:points_leader` did not, though both are facts about finished seasons.
 - Scope: `career:points_leader` and `career:greatest_season` opened into preseason, the AGENTS.md invariant-5 amendment, the copy-policy cache bump, and a gates suite. **Narrowed at review from four gate groups** — `historical` and `rivalry` were reverted to `main`.
 - Outcome: decided by a two-question rule written at each gate — (1) does it need current-season evidence? (2) otherwise, is it a fact about a completed season or an accumulated record? Measured over HTTP against `main` on identical seeded data: 4 insights → 6, nothing else moved, both new lines carrying INSIGHTS-030's record citations with a real departed owner.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV4](#shared-review-statements).
 - Status: Merged via PR #485 (`389765fa`), 2026-08-16.
 
 ### INSIGHTS-030-LEAGUE-RECORD-POPULATION-v1
 
 - Purpose: A record is a fact about the league's history; membership decides only who may be NAMED.
-- Scope: Primary touched areas: `src/lib/insights/superlative.ts`, `career.ts`, `historical.ts`, `rivalry.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/insights/superlative.ts`, `career.ts`, `historical.ts`, `rivalry.ts`, plus tests/docs.
 - Outcome: `resolveSuperlative` takes ONE population plus an `isMember` predicate. Eligibility is applied once to everyone and membership only partitions what survives, which makes member-cited-as-departed unrepresentable rather than merely tested for. Three standings — `holds` / `shares` / `trails`. Copy is gated on `leagueMembersSource`: when membership is only last season's roster the copy states both figures and claims nothing about who is playing.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV4](#shared-review-statements).
 - Status: Merged via PR #484 (`94e0d6da`), 2026-08-16.
 
 ### INSIGHTS-023a-LEAGUE-MEMBERSHIP-v1
 
 - Purpose: Give the insights engine the league's actual membership.
-- Scope: Primary touched areas: `src/lib/insights/context.ts`, `types.ts`, `loadInsights.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/insights/context.ts`, `types.ts`, `loadInsights.ts`, plus tests/docs.
 - Outcome: membership resolves confirmed list → current roster → previous roster, with the source carried through to the diagnostic page. **The precedence was ruled by the owner and it inverted my first fix.** I had made the team→owner CSV win over the confirmed list; `confirmedRoster.ts` documents the opposite, because a confirmed list is an owner DECISION and a CSV is a derived artefact.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #483 (`084dec88`), 2026-08-16.
 
 ### INSIGHTS-019-DIAGNOSTIC-PAGE-v1
 
 - Purpose: Make the Insights funnel observable — "why is my feed thin, and would rotation have anything to work with?" was answerable only by reading code.
-- Scope: Primary touched areas: `src/lib/server/insightsDiagnostics.ts`, `/admin/[slug]/insights`, `src/lib/insights/limits.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/server/insightsDiagnostics.ts`, `/admin/[slug]/insights`, `src/lib/insights/limits.ts`, plus tests/docs.
 - Outcome: reports generated → served (All Insights) → Overview, per generator and per insight, with the Overview shortfall that client-side fallback cards cover. The backlog spec was STALE and was not built to: it called for the "suppressed set" and NEW-tag verification, both retired or deferred. Owner confirmed the funnel is the question.
 - Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, build as applicable.
 - Status: Merged via PR #482 (`bfcba960`), 2026-08-16.
@@ -2729,36 +1375,22 @@ null` through response, receipt target, validator and UI, which renders a third 
 ### PLATFORM-102-SERIALIZE-DRAFT-WRITERS-v1
 
 - Purpose: Stop concurrent draft writers from silently erasing each other's picks, before the league's first real draft.
-- Scope: Primary touched areas: `DELETE /confirm`, `PUT /api/owners`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `DELETE /confirm`, `PUT /api/owners`, plus tests/docs.
 - Outcome: `DraftBoardClient` fires the expire PUT automatically at countdown zero, so a pick submitted as the clock ran out was erased by expiry's stale whole-record write while its caller got a 200 — and the board then prompted for an auto-pick on a filled slot, assigning a random team. Reading under the lock makes the buzzer-beater win instead.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV3](#shared-review-statements).
 - Status: Merged via PR #481 (`a99a1038`), 2026-08-16.
 
 ### INSIGHTS-018-ROTATION-AND-NEW-TAG-v1 (ABANDONED — not merged)
 
-- Purpose: Rotate the Insights feed on a weekly boundary and badge genuinely-changed items NEW.
-- Outcome: **Stopped after four review rounds at `7b4b7664`; the branch was abandoned, not merged.**
-  The un-draining half was cut out and shipped alone as INSIGHTS-029.
-- **The SCOPE was the defect, not any single finding.** Rotation does nothing until the pool exceeds
-  the feed, and the live league had fewer insights than it had slots. Building it first meant four
-  rounds of findings against machinery with no job to do yet. Deferred behind INSIGHTS-023 (which
-  widens the pool) rather than cancelled — the requirements worth reusing are recorded in
-  `docs/next-tasks.md`, which is canonical for what is queued.
-- **Rotation must not order by anything the write path advances.** Two attempts ordered by "least
-  recently shown"; both failed, and the second failed BECAUSE of the first — showing an insight
-  changed the next selection's input, so the feed churned within a bucket and then pinned the same
-  set forever.
-- **Every defect that reached a commit was one the tests could not observe.** A control comparing
-  arrays where only the SET mattered; badge assertions passing on a still-open window rather than on
-  the thing under test; a coverage guarantee asserted only under the conditions where it holds.
-  Mutation testing caught several — but only because it was run after the tests already passed.
+- Historical outcome: Stopped after four review rounds at `7b4b7664`; abandoned, not merged. Feed un-draining was extracted and shipped as INSIGHTS-029. Rotation/NEW was deferred behind pool-widening INSIGHTS-023, not canceled; the queue owns reusable requirements.
+- Decision / lesson: The live league had fewer insights than slots, so rotation had no present value. Ordering by a value updated when shown made selection churn within a bucket and then pin forever. Tests confused sets/order, open badge windows/change, and conditional/universal coverage; mutation exposed blind assertions. See L4, L6.
 
 ### INSIGHTS-029-STOP-DRAINING-THE-FEED-v1
 
 - Purpose: Stop per-insight suppression from emptying a league's Insights feed. Split out of INSIGHTS-018 and shipped alone.
-- Scope: Primary touched areas: `src/lib/insights/engine.ts`, `src/lib/insights/loadInsights.ts`, `AGENTS.md`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/insights/engine.ts`, `src/lib/insights/loadInsights.ts`, `AGENTS.md`, plus tests/docs.
 - Outcome: The served feed now uses a pure sort-and-cap instead of per-insight suppression, preventing unchanged historical facts from disappearing permanently. Suppression writes left the serving path, and the debug endpoint reports that truthfully.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV5](#shared-review-statements).
 - Status: Merged via PR #479 (`49c76ee9`), 2026-08-15.
 
 ### PLATFORM-100-NOCLAIM-SORTS-UNOWNED-v1
@@ -2766,7 +1398,7 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: a confirmed roster spells "unowned" as the literal owner `NoClaim`, and the roster editor recognised only an empty string.
 - Scope: `src/lib/rosterEditing.ts` (an `isUnowned` predicate shared by the sort, the Save gate and the dropped-owner count), the confirmation sentence in `src/components/admin/RosterEditorPanel.tsx`, and `src/lib/__tests__/rosterEditing.test.ts`.
 - Outcome: **TWO representations of one fact, and the tests only ever saw one.** Before confirmation an unowned team is absent from the roster and reads as `''`; `buildConfirmedOwnersCsv` then writes `NoClaim` for every undrafted team. PLATFORM-099's fixture used the first shape and its assertion — "unowned teams sort LAST in both directions" — generalised to both. It was true for the shape it tested and false for the shape production writes.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV3](#shared-review-statements).
 - Status: Merged via PR #478 (`c5293a14`), 2026-08-14.
 
 ### PLATFORM-099-DRAFT-NIGHT-SAFETY-v1
@@ -2774,7 +1406,7 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: remove the ways the draft and roster surfaces could destroy or misreport work on draft night, without touching the membership-authority predicate that stopped PLATFORM-098.
 - Scope: Draft reset and roster-editing surfaces, lifecycle-aware operating-year resolution, active-season roster overwrite protection, their focused tests, and owning documentation.
 - Outcome: Draft reset now requires a typed league slug; roster editing sorts by committed ownership and reports replacements/dropped rows truthfully; lifecycle-aware year resolution preserves the active-season overwrite guard while leaving genuine historical backfills unguarded.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV5](#shared-review-statements).
 - Status: Merged via PR #477 (`9537f7e8`), 2026-08-14.
 
 ### PLATFORM-098-MEMBERSHIP-AUTHORITY-AFTER-PUBLICATION-v1
@@ -2790,7 +1422,7 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: let a commissioner correct a mis-entered draft before confirming it.
 - Scope: Draft summary pick editing, draft mutation routes and transactions, vacancy/reassignment helpers, affected roster projections, and focused route/component tests.
 - Outcome: Commissioners can reassign, swap, unassign, and refill draft picks before publication while preserving roster consistency and refusing invalid or conflicting edits.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV3](#shared-review-statements).
 - Status: Merged via PR #476 (`6b0b8eca`), 2026-08-14.
 
 ### PLATFORM-095-PUBLICATION-WAYFINDING-v1
@@ -2798,48 +1430,40 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: make every surface point at Confirm before publication, and offer `Continue Setup` only after it.
 - Scope: `DraftHeaderArea`, `DraftSummaryClient`, the preseason checklist copy, `AssignmentMethodCard`, and `setAssignmentMethod`, plus `DraftSetupShell` and `AssignmentMethodCard`.
 - Outcome: Every draft surface now directs commissioners to Confirm before publication and offers Continue Setup only afterward. The summary exposes the publish action prominently, assignment-method changes are guarded by draft state, and broken/self-referential destinations were corrected.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV3](#shared-review-statements).
 - Status: Merged via PR #475 (`7d7b4c62`), 2026-08-13.
 
 ### PLATFORM-094-DRAFT-PUBLICATION-AND-READINESS-v2
 
 - Purpose: make a draft's PUBLICATION a fact the app can ask about, and make setup readiness ask for it. The preseason checklist and the Complete Setup action disagreed about "are teams assigned?", and both were reading a phase that cannot answer it.
-- Scope: Primary touched areas: `DraftState.publishedPicks`, `selectors/teamAssignment.ts`, `server/teamAssignmentStore.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `DraftState.publishedPicks`, `selectors/teamAssignment.ts`, `server/teamAssignmentStore.ts`, plus tests/docs.
 - Outcome: Draft publication became explicit durable state backed by a picks digest. Confirmation publishes rosters atomically, later edits resynchronize publication, and preseason readiness requires the published assignment rather than inferring it from draft phase.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #474 (`263a48b0`), 2026-08-13.
 
 ### PLATFORM-094-TEAM-ASSIGNMENT-READINESS-v1
 
+- Why superseded: Successive publication flag/timestamp fixes moved defects between seams: nine writer sites with only two updated, unrelated metadata retracting publication, same-millisecond equality, and pick resync losing its phase gate. Reconstructed from clean main rather than cherry-picking.
+- Historical correction: Late audit found six official-roster writers and twenty `phase === 'complete'` reads serving two meanings; complete still exposed Undo/Reset/timer. The recorded reason for rejecting serialization was wrong because it considered only the ordering with the other writer last. Keep that rejected reasoning visible as history; see L6.
+
 - Status: **Superseded/unimplemented.** Branch `platform/094-team-assignment-readiness` abandoned at
   `51c4beab` after two remediation rounds, per `AGENTS.md` → reconstruction over accumulation.
   Rebuilt from clean `main` as `-v2` by re-deriving, not cherry-picking.
-- **Why it stopped.** Each round's fix relocated the defect into the next seam. Round 1 fixed the
-  dead end and moved the problem into a publication FLAG that every draft writer had to clear by
-  hand — nine write sites, two updated. Round 2 made it a timestamp, which retracted publication on
-  unrelated metadata edits and could compare equal within a millisecond, and its own change lost the
-  pick-edit resync's phase gate so an edit mid-reopen rewrote live ownership.
-- **The audit that should have come first, and did not.** Three commands established: the official
-  roster has six writers (not the two designed around); `phase: 'complete'` exposes Undo, Reset and
-  the pick timer, so it is not a resting state; and twenty sites read `phase === 'complete'` meaning
-  two different things. Every round of findings came from a seam that inventory would have listed.
-- Recorded rather than discarded: my stated reason for declining the writer-serialization finding in
-  round 2 was wrong — it considered only the ordering where the other writer lands last.
 
 ### PLATFORM-093-NEW-LEAGUE-PRESEASON-BIRTH-v1
 
 - Purpose: let a newly created league be set up. Every league was born `season`, and the whole owner-confirmation flow is gated on `preseason`, so a new league could never confirm owners — and since PLATFORM-092 it could not create a draft either.
 - Scope: `POST /api/admin/leagues` and the admin create form. Nothing else.
 - Outcome: a new league is born `{ state: 'preseason', year }`, and the season year is DERIVED rather than entered. An unconfigured league with no owners, no roster and no draft is setting up, not in season.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered tests, build as applicable.
+- Review / verification: [RV10](#shared-review-statements).
 - Status: Merged via PR #473 (`7deafdb3`), 2026-08-12.
 
 ### PLATFORM-092-PRESEASON-OWNER-CONFIRMATION-GATE-v2
 
 - Purpose: enforce "owners must be confirmed before a draft can occur" by removing the unreconciled copy of the roster that `DraftState` carries — not by validating that copy against its source.
-- Scope: Primary touched areas: `selectors/confirmedRoster`, `server/confirmedRosterStore`, `/api/draft/[slug]/[year]`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `selectors/confirmedRoster`, `server/confirmedRosterStore`, `/api/draft/[slug]/[year]`, plus tests/docs.
 - Outcome: a draft now TAKES its owners from the confirmed roster instead of accepting them from the request, so a draft holding names nothing else agrees with is unrepresentable rather than merely detected.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered tests, build as applicable.
+- Review / verification: [RV7](#shared-review-statements).
 - Status: Merged via PR #472 (`4b301296`), 2026-08-11.
 
 ### PLATFORM-092-PRESEASON-OWNER-CONFIRMATION-GATE-v1
@@ -2853,9 +1477,9 @@ null` through response, receipt target, validator and UI, which renders a third 
 ### PLATFORM-091-PRESEASON-STATUS-BANNER-v1
 
 - Purpose: make the league banner state the league's actual preseason readiness instead of claiming `{year} Draft scheduled · Date TBD` from the lifecycle state alone, and give every league surface the facts that decision needs.
-- Scope: Primary touched areas: `selectors/preseasonBanner`, `selectors/leagueLifecycle`, `/league/[slug]/*`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `selectors/preseasonBanner`, `selectors/leagueLifecycle`, `/league/[slug]/*`, plus tests/docs.
 - Outcome: a LIFECYCLE state was standing in as evidence for a DRAFT-STATUS claim. Because `DraftSettings.scheduledAt` is nullable by design, a null date was reconciled with `· Date TBD` rather than treated as the absence of evidence, so one lifecycle fact licensed four materially different states.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered tests as applicable.
+- Review / verification: [RV9](#shared-review-statements).
 - Status: Merged via PR #471 (`75d32b7b`), 2026-08-11.
 
 ### PLATFORM-090-GAME-STATS-PRESEASON-HEALTH-STATE-v1
@@ -2871,7 +1495,7 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: poll Odds on a staged horizon so already-available lines are maintained before the old 7-day cliff, and stop the Odds health card warning when nothing is pollable.
 - Scope: `pollingPolicy`, `cronExecutionLog`, `cron/odds/route`, `providerDataDiagnostics`, plus `schedulerExecutionStatus` (its closed cadence set gates the validating receipt reader).
 - Outcome: eligibility and cadence were the SAME 7-day number, so a game outside it was not a target at all rather than one checked less often. Production on 2026-08-09: 125 rows committed Jul 29, then `skipped / no-eligible-target · 0 eligible game(s)` on every hourly delivery while the snapshot aged into `odds-cache-stale`.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered tests as applicable.
+- Review / verification: [RV11](#shared-review-statements).
 - Status: Merged via PR #469 (`ff5aa0c`), 2026-08-10.
 
 ### TURFWAR-WORDMARK-KERNING-CLEANUP-v1
@@ -2879,7 +1503,7 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: one shared-wordmark typography pass — balance the whole `T-u-r-f-W-a-r` sequence as an optical composition instead of patching one pair at a time.
 - Scope: `src/styles/wordmark.css`, `src/components/brand/Wordmark.tsx`, one stale comment in `src/styles/publicLanding.css`, and the two test files that pinned the old arithmetic. No size, layout, copy, font-family, or behaviour change.
 - Outcome: **the `r`/`f` crowding and the `f`/`W` word-space were ONE defect.** The UI faces this app renders in kern `r` → `f` OPEN (+0.023em in SF at weight 800) because the `r`'s arm and the italic `f` collide without it; the mark's blanket `letter-spacing: -0.03em` applies after every letter and so cancelled that per-pair correction wholesale, closing the pair to a **1px pinch at the landing's 96px while its neighbours sat at 5–6px**.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered tests as applicable.
+- Review / verification: [RV11](#shared-review-statements).
 - Status: Merged via PR #468 (`fc77420`), 2026-08-10.
 
 ### TURFWAR-APP-WORDMARK-REUSE-v1
@@ -2887,7 +1511,7 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Extract the homepage wordmark into a shared treatment and adopt it on the two interior surfaces that render product identity, at their existing compact scale.
 - Scope: new `src/components/brand/Wordmark.tsx` and `src/styles/wordmark.css`, `PublicLanding`, `/login`, `AdminLeagueDashboard`, a new `src/test/renderTree.ts` helper, and tests. Two commits: extraction with no rendered change, then adoption.
 - Outcome: The homepage wordmark became a shared accessible component and was adopted by login and the admin dashboard without changing their compact scale. Rendered-contract tests replaced import-shape assertions.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV3](#shared-review-statements).
 - Status: superseded on the branch before merge; merged as history via PR #466 (`38f5719`), 2026-08-09. The revision it describes never reached `main` as live code.
 
 ### TURFWAR-HOMEPAGE-WORDMARK-SIMPLIFY-v1
@@ -2895,25 +1519,13 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Remove the vector perspective-field strip beneath the wordmark, now redundant against the stadium plate, and let the wordmark stand on its own.
 - Scope: `PublicLanding`, the landing stylesheet, landing tests, `DESIGN.md`. `LandingFieldArt.tsx` DELETED — the strip was its only remaining export. No replacement decoration added, by instruction.
 - Outcome: The public wordmark treatment was simplified and its spacing made explicit while preserving the approved brand composition and accessibility contract.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV3](#shared-review-statements).
 - Status: Merged via PR #466 (`38f5719`), 2026-08-09.
 
 ### TURFWAR-HOMEPAGE-ADOBE-STADIUM-PLATE-v1
 
-- Purpose: Replace the generated plate with the licensed Adobe Stock stadium photograph.
-- Scope: production derivatives, the scene rule, and the landing asset contract. No behaviour change.
-- **The prompt stated a 2048×1365 source; the supplied file was 6144×4096** — the same 3:2
-  composition at 3×. Producing the named `stadium-2048` asset therefore required a DOWNSCALE, which
-  is the permitted direction, and the derivatives were attributed to the v3 source by CONTENT
-  FINGERPRINT rather than by filename (mean pixel distance 0.86 vs v3, 32.4 vs the superseded v2).
-  `stadium-2048.avif` 91 KB / `stadium-2048.webp` 143 KB; `stadium-1672.*` retired. The 9.5 MB
-  licensed original stays in the gitignored `references/`, so the repository does not redistribute it.
-- **`center bottom` became `center`, and the aspect ratio is the reason.** A 3:2 source under `cover`
-  crops vertically on any desktop viewport, and `bottom` takes that entire crop off the TOP where the
-  light banks are: 15.6% at 1920×1080, 36.7% at 2560×1080 — which removes them completely.
-- **A legibility scrim was REQUIRED, not stylistic:** this field is vividly lit where the generated
-  one was dim, and the guidance card and sign-in link cross it. Legibility is measured against the
-  brightest region text actually crosses, not the average.
+- Change: Licensed Adobe Stock stadium replaces the generated plate. Source was 6144×4096, not the prompt's 2048×1365; downscaled to `stadium-2048.avif` (91 KB) / `.webp` (143 KB), retiring `stadium-1672.*`. Content fingerprint tied derivatives to v3 (mean pixel distance 0.86 versus 32.4 for v2); the 9.5 MB licensed original stays gitignored in `references/`.
+- Decisions: `center` replaces `center bottom`: 3:2 cover cropping at 1920×1080/2560×1080 otherwise removes 15.6%/36.7% from the light-bank region. The brighter photograph requires a legibility scrim assessed where text crosses the brightest image region. No behavior change; explicit merge/status metadata not recorded.
 
 ### TURFWAR-HOMEPAGE-STADIUM-PLATE-V2-v1
 
@@ -2952,7 +1564,7 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Replace the unsuccessful native CSS/SVG stadium scene with the approved decorative raster plate, preserving homepage structure, behaviour, and the improved hero composition.
 - Scope: `PublicLanding`, `LandingFieldArt`, the landing stylesheet, landing tests, `DESIGN.md`, and two production image derivatives. No routing, auth, registry, or application-shell change.
 - Outcome: The landing page gained a local decorative stadium scene while keeping meaningful content in the DOM and the product mark vector-based. Tests require the local asset and prevent a DOM image/canvas/video replacement.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV3](#shared-review-statements).
 - Status: Merged via PR #466 (`38f5719`), 2026-08-09.
 
 ### POLISH-004-PUBLIC-HOMEPAGE-STADIUM-v1
@@ -2960,23 +1572,23 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Redesign the public landing with a restrained, always-dark stadium atmosphere while preserving PLATFORM-088's server-rendered authentication, privacy, and entry behaviour exactly.
 - Scope: `PublicLanding`, a new `LandingFieldArt` module, a landing stylesheet, `SignOutControl` colour tokens, focused tests, `DESIGN.md`, and the queue/registry entries.
 - Outcome: The public landing shipped as an always-dark, accessible stadium composition built from scoped CSS/SVG decoration while preserving PLATFORM-088 authentication, privacy, and entry behavior.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV3](#shared-review-statements).
 - Status: Merged via PR #466 (`38f5719`), 2026-08-09.
 
 ### PLATFORM-088-HOMEPAGE-ENTRY-TRUTH-v1
 
 - Purpose: Make the homepage tell the truth to each visitor — a server-rendered public entry page that works without JavaScript and leaks no registry data, and an admin-only league dashboard that reads each league's own season.
-- Scope: Primary touched areas: `src/app/page.tsx`, `src/components/home/*`, `src/app/layout.tsx`, `DESIGN.md`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/app/page.tsx`, `src/components/home/*`, `src/app/layout.tsx`, `DESIGN.md`, plus tests/docs.
 - Outcome: The root page now renders a no-JavaScript public entry without exposing registry data and an admin-only dashboard whose league cards resolve each league’s own operating season.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #465 (`f578f22`), 2026-08-08.
 
 ### INSIGHTS-022-OFFSEASON-ROSTER-CONTENT-v1
 
 - Purpose: Keep the retrospective rookie benchmark available through the whole offseason, and stop four career cards from calling people "Returning owner" on the strength of a borrowed prior-season roster.
-- Scope: Primary touched areas: `src/lib/insights/generators/career.ts`, `src/lib/insights/framing.ts`, `src/lib/insights/loadInsights.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/insights/generators/career.ts`, `src/lib/insights/framing.ts`, `src/lib/insights/loadInsights.ts`, plus tests/docs.
 - Outcome: The retrospective rookie benchmark remains available through offseason, while four career generators no longer infer “Returning owner” from a borrowed prior-season roster. The copy-policy cache identity was bumped.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV3](#shared-review-statements).
 - Status: Merged via PR #464 (`0f48b87`), 2026-08-08.
 
 ### PLATFORM-086F2H1R4-ROLLOVER-YEAR-VALIDITY-v1
@@ -2984,15 +1596,15 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Prevent malformed registry containers and unusable lifecycle years from reaching automatic or manual season rollover, permanent archive storage, or lifecycle persistence.
 - Scope: the season-rollover cron, its shared manual `/api/admin/rollover` consumer, `groupRolloverTargets`, `completeSeasonRollover`, and their event/receipt/manual contracts. No recovery implementation, UI redesign, archive cleanup, or other automation job.
 - Outcome: `groupRolloverTargets` takes a REQUIRED refusal sink and validates production `status.year` AFTER the demo exclusion, publishing refusals as it counts them. The cron refuses a malformed container with `failure / registry-malformed` at HTTP 500 (Vercel-native delivery boundary) and the manual route with 409 (admin API contract: the request is well-formed and no dependency is down).
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #455 (`995c18e`), 2026-08-06.
 
 ### PLATFORM-086F2H2A-RETIRE-SEASON-BACKFILL-v1
 
 - Purpose: Retire the admin season-backfill surface rather than harden it.
-- Scope: Primary touched areas: `POST /api/admin/backfill`, `/admin/season`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `POST /api/admin/backfill`, `/admin/season`, plus tests/docs.
 - Outcome: The obsolete season-backfill operation and UI were retired while preserving the legitimate historical data readers and recovery boundaries identified by the audit.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #456 (`cb40c03`), 2026-08-07.
 
 ### PLATFORM-086F2H2B-ROLLOVER-OPERATOR-TRUTH-v1
@@ -3000,31 +1612,31 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Stop the daily season-rollover cron from making two false statements to the operator.
 - Scope: `GET /api/cron/season-rollover` zero-target reason and per-league error separation, `RolloverRefusalSink`.
 - Outcome: Rollover presentation now distinguishes genuine archive/transition outcomes from skipped or misattributed work, removing two operator-facing false claims and preserving the underlying cron authority.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #457 (`876d87c`), 2026-08-07.
 
 ### PLATFORM-086F2J-COMMISSIONER-BOUNDARIES-AND-NAVIGATION-v2
 
 - Purpose: Freeze the league's founding year after creation, surface the orphaned Draft Sequencing page, correct copy describing authority the app does not have, and put the league-password route under test. Final F2 slice.
-- Scope: Primary touched areas: `PATCH /api/admin/leagues/[slug]`, `/admin`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `PATCH /api/admin/leagues/[slug]`, `/admin`, plus tests/docs.
 - Outcome: League configuration became immutable after creation where required, destructive operations gained explicit orphan/slug-reuse protections, and commissioner navigation was aligned with supported authority boundaries.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #463 (`d9a8e93`), 2026-08-08.
 
 ### PLATFORM-086F2I-PLATFORM-CONFIGURATION-AND-TEAM-IDENTITY-v1
 
 - Purpose: Make League Management a REGISTRY surface rather than a second configuration surface, protect the irreversible league delete from being too easy, and finish Team Identity's naming.
-- Scope: Primary touched areas: `/admin/leagues`, `POST /api/admin/leagues`, `DELETE /api/admin/leagues/[slug]`, `/debug/teams`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `/admin/leagues`, `POST /api/admin/leagues`, `DELETE /api/admin/leagues/[slug]`, `/debug/teams`, plus tests/docs.
 - Outcome: Platform configuration and team-identity repair were consolidated behind guarded admin operations, including safe delete, slug-reuse rejection, orphan verification, and canonical team resolution.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #462 (`cbd3ed5`), 2026-08-08.
 
 ### PLATFORM-086F2H4-RETIRE-SEASON-MANAGEMENT-v1
 
 - Purpose: Retire `/admin/season` and everything that existed only to serve it. An admin surface represents what a human can inspect, decide, diagnose, or operate; a backend subsystem does not earn a page by existing.
-- Scope: Primary touched areas: `/api/admin/rollover`, `src/lib/manualRollover.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `/api/admin/rollover`, `src/lib/manualRollover.ts`, plus tests/docs.
 - Outcome: The remaining Season Management page and preview-only rollover route were retired, leaving the season-rollover cron as the sole rollover surface and System Health as its operator-facing evidence.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #461 (`8f56835`), 2026-08-07.
 
 ### PLATFORM-086F2H3B2-SYSTEM-HEALTH-LIFECYCLE-INTEGRITY-v1
@@ -3032,15 +1644,15 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Surface a dedicated System Health issue when any scheduler receipt reports refused production lifecycle records, independently of the aggregate job result.
 - Scope: `src/lib/server/systemHealthIssues.ts` (new code + derivation), its test and fixtures, and the owning operations documentation.
 - Outcome: `lifecycle-data-unusable` — `warning`, axis `global`, subject `lifecycle-integrity`, `repair: null`. Derived purely from facts the issue model already receives: the count rides on the receipt TARGET for the four lifecycle-bearing jobs and the parser normalizes a legacy `undefined` to 0, so no new read was needed. Until now it surfaced only as a suffix inside a collapsed scheduler row.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #460 (`5822a16`), 2026-08-07.
 
 ### PLATFORM-086F2H3B1-LIFECYCLE-PRESENTATION-AND-TEST-CONTROL-FEEDBACK-v1
 
 - Purpose: Render each league's lifecycle STATE separately from what ADVANCES it, correct the demo league's automation copy, and return typed operator feedback from the demo lifecycle controls.
-- Scope: Primary touched areas: `[slug]/page.tsx`, `TestLeagueControls.tsx`, `[slug]/actions.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `[slug]/page.tsx`, `TestLeagueControls.tsx`, `[slug]/actions.ts`, plus tests/docs.
 - Outcome: Lifecycle state and advancement ownership now render as separate facts, demo automation copy matches actual targeting, and demo lifecycle controls return persistent typed feedback.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #459 (`b07f2d6`), 2026-08-07.
 
 ### PLATFORM-086F2H3B-SEASON-MANAGEMENT-PRESENTATION-AUDIT-v1
@@ -3058,9 +1670,9 @@ null` through response, receipt target, validator and UI, which renders a third 
 ### PLATFORM-086F2H3A-ROLLOVER-SURFACE-CONSOLIDATION-v1
 
 - Purpose: Retire manual rollover EXECUTION and consolidate the two rollover panels into one production-only status surface that keeps the preview. The daily cron becomes the sole rollover executor; `/api/admin/rollover` becomes preview-only.
-- Scope: Primary touched areas: `POST /api/admin/rollover`, `src/lib/manualRollover.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `POST /api/admin/rollover`, `src/lib/manualRollover.ts`, plus tests/docs.
 - Outcome: Manual rollover execution was retired because it duplicated the cron without unique recovery semantics. The cron became the sole executor while the uniquely useful archive preview and owner-level movement detail remained temporarily available.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #458 (`6a8b86c`), 2026-08-07.
 
 ### PLATFORM-086F2H3-ROLLOVER-SURFACE-AUDIT-v1
@@ -3079,25 +1691,25 @@ null` through response, receipt target, validator and UI, which renders a third 
 ### PLATFORM-086F2H1R3-RANKINGS-YEAR-VALIDITY-v1
 
 - Purpose: Apply the R1/R2 registry-container and lifecycle-year truth to the rankings publication cron.
-- Scope: Primary touched areas: `GET /api/cron/rankings`, `/api/rankings`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `GET /api/cron/rankings`, `/api/rankings`, plus tests/docs.
 - Outcome: the container is read through `readLeagueRegistry()` and a malformed one refuses with `failure / registry-malformed` before any publication-context read, window claim, `/info` probe, provider request, refresh lease/status write, or commit. The read stays BEHIND the automation gate, so a corrupt registry can never turn a deliberately paused run into a scheduler failure.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #454 (`10186b2`), 2026-08-06.
 
 ### PLATFORM-086F2H1R2-WEEKLY-SCHEDULE-YEAR-VALIDITY-v1
 
 - Purpose: Ensure weekly schedule automation rejects corrupt registries and invalid lifecycle years before selecting a maintenance year or spending provider quota.
-- Scope: Primary touched areas: `GET /api/cron/schedule-refresh`, `cronExecutionLog.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `GET /api/cron/schedule-refresh`, `cronExecutionLog.ts`, plus tests/docs.
 - Outcome: the route reads the container through `readLeagueRegistry()` and refuses a malformed one with `failure / registry-malformed` before any schedule read, probe, latch, settings read, provider request, or presentation refresh — instead of `no-maintenance-target`, which asserted no active league exists.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #453 (`3a58767`), 2026-08-06.
 
 ### PLATFORM-086F2H1R1-SEASON-TRANSITION-YEAR-VALIDITY-v1
 
 - Purpose: Give the league-registry read a truthful container classification, and stop malformed production lifecycle years entering the season-transition cron's grouping, provider, lifecycle, event, or receipt paths.
-- Scope: Primary touched areas: `leagueRegistry.ts`, `GET /api/cron/season-transition`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `leagueRegistry.ts`, `GET /api/cron/season-transition`, plus tests/docs.
 - Outcome: `readLeagueRegistry()` classifies `ok` / `missing` / `malformed`; a store failure still throws, so unavailability stays distinct from corruption, and a present non-array value — including a stored JSON `null` — is malformed, deliberately unlike `readScheduleItems`.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #452 (`e29bb47`), 2026-08-06.
 
 ### PLATFORM-086F2H1T5-SYSTEM-HEALTH-YEAR-ISOLATION-v1
@@ -3105,39 +1717,39 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Stop the demo league selecting the System Health operational season, resolving the year from production registry state alone while preserving lifecycle precedence, both fallbacks, the clamp, and the numeric return type.
 - Scope: `resolveOperationalSeasonYear` (`src/lib/server/systemHealthYear.ts`), its focused suite, the diagnostics page suite, truthful source comments, and the owning documentation.
 - Outcome: The resolver filters `TEST_LEAGUE_SLUG` from its population ONCE, before both branches, delegating the unchanged three-step rule to a private helper that receives only the filtered list — so the unfiltered registry is out of lexical scope where the rule runs.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV3](#shared-review-statements).
 - Status: Merged via PR #451 (`6e881b5`), 2026-08-05.
 
 ### PLATFORM-086F2H1T4-RANKINGS-DEMO-EXCLUSION-v1
 
 - Purpose: Make the demo league manual-only for automatic rankings publication by resolving target-year ownership from production leagues alone, eliminating its quota and scheduler impact without changing publication-window policy.
-- Scope: Primary touched areas: `src/lib/rankings/automaticContext.ts`, `GET /api/cron/rankings`, `vercel.json`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/rankings/automaticContext.ts`, `GET /api/cron/rankings`, `vercel.json`, plus tests/docs.
 - Outcome: The selector filters `TEST_LEAGUE_SLUG` per league inside its ownership loop — never against the resolved years, which would drop a year a production league also occupies — and returns a closed `{ years, excludedDemoCandidate }`. The exclusion flag derives from `slug` and `status.state` only, so a malformed legacy year cannot flip the zero-target reason and an `offseason` demo record is not an excluded candidate.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #450 (`27a6c37`), 2026-08-05.
 
 ### PLATFORM-086F2H1T3-WEEKLY-SCHEDULE-DEMO-EXCLUSION-v1
 
 - Purpose: Make the demo league manual-only for weekly schedule maintenance by removing it from the weekly cron's year-ownership computation, and close the false `season-transition-owner` deferral T2 left behind.
-- Scope: Primary touched areas: `GET /api/cron/schedule-refresh`, `vercel.json`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `GET /api/cron/schedule-refresh`, `vercel.json`, plus tests/docs.
 - Outcome: `TEST_LEAGUE_SLUG` is filtered PER LEAGUE inside the ownership loop — never against the resolved `targetYears`, which would drop a year a production league also occupies. It is an owner-selector change, not only a target removal: `season` outranks `preseason`, so a demo league in `season(Y)` must not promote Y to the pause-exempt active-season policy over production leagues in `preseason(Y)`.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV6](#shared-review-statements).
 - Status: Merged via PR #449 (`c15413e`), 2026-08-05.
 
 ### PLATFORM-086F2H1T2-SEASON-TRANSITION-EXCLUSION-v2
 
 - Purpose: Make the demo league manual-only for preseason→season by excluding it from the daily season-transition cron before any provider work, lifecycle write, or operational count.
-- Scope: Primary touched areas: `GET /api/cron/season-transition`, `vercel.json`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `GET /api/cron/season-transition`, `vercel.json`, plus tests/docs.
 - Outcome: `TEST_LEAGUE_SLUG` is filtered BEFORE the zero-target decision and before grouping, so a demo-only year never reaches a probe read/write, provider refresh, lifecycle write, invalidation, or any count on the response, event, or receipt. A demo-only registry reports `skipped / no-automatic-preseason-leagues`; `no-preseason-leagues` keeps its exact meaning, since reusing it would tell an operator no league awaits transition when one does.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered tests as applicable.
+- Review / verification: [RV8](#shared-review-statements).
 - Status: Merged via PR #448 (`6ab927c`), 2026-08-05.
 
 ### PLATFORM-086F2H1SB-SERVER-ACTION-AUTHORIZATION-v1
 
 - Purpose: Make every repository-owned admin Server Action enforce platform-admin authorization at its own execution boundary.
-- Scope: Primary touched areas: `src/lib/auth/requireAdminAction.ts`, `src/app/admin/[slug]/actions.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/auth/requireAdminAction.ts`, `src/app/admin/[slug]/actions.ts`, plus tests/docs.
 - Outcome: `requireAdminAction(name)` calls `resolvePlatformAdminDecision()` (the closed shared decision, NOT the `isPlatformAdminSession()` boolean wrapper) with NO argument — a `Request` would reach the token branch, whose no-token path authorizes any caller outside production — and refuses outright when `CLERK_SECRET_KEY` is blank, since Clerk's signature check degrades to an HMAC over the empty string. A thrown authorization evaluation is a refusal, never a pass.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered tests as applicable.
+- Review / verification: [RV8](#shared-review-statements).
 - Status: Merged via PR #447 (`8021b1f`), 2026-08-05.
 
 ### PLATFORM-086F2H1SA-PROTECTED-PATH-MATCHER-COVERAGE-v1
@@ -3145,23 +1757,23 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Close a demonstrated authentication bypass that let protected `/admin` and `/debug` paths containing a static-file extension skip Clerk middleware.
 - Scope: The middleware matcher and a focused test that evaluates the real middleware and Next configuration; no authentication logic, action, UI, API, or lifecycle change.
 - Outcome: `/admin/:path*` and `/debug/:path*` are matched explicitly. Matcher entries are OR'd, so their POSITION in the array carries no meaning — only their existence does.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered tests as applicable.
+- Review / verification: [RV8](#shared-review-statements).
 - Status: Merged via PR #446 (`533aed8`), 2026-08-04.
 
 ### PLATFORM-086F2H1T1-TEST-CONTROL-SAFETY-v2
 
 - Purpose: Make the demo league's manual lifecycle controls structurally safe BEFORE removing the demo league from automatic jobs — exclusion promotes the manual control to that league's sole preseason→season path.
-- Scope: Primary touched areas: `src/lib/leagueRegistry.ts`, `src/app/admin/[slug]/actions.ts`, `src/lib/league.ts`, `TestLeagueControls.tsx`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/leagueRegistry.ts`, `src/app/admin/[slug]/actions.ts`, `src/lib/league.ts`, `TestLeagueControls.tsx`, plus tests/docs.
 - Outcome: `setTestLeagueLifecycleState(state)` / `resetTestLeagueLifecycle()` take NO slug and derive + structurally validate the year INSIDE the serialized registry transaction, so a caller cannot compute a year from a React-`cache`d pre-lock read and submit it against a record that moved. An unusable stored year or an unrepresentable successor refuses with the registry byte-equivalent; reset derives nothing and always recovers a corrupt record.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered tests as applicable.
+- Review / verification: [RV8](#shared-review-statements).
 - Status: Merged via PR #445 (`8e6f122`), 2026-08-04.
 
 ### PLATFORM-086F2H1B-AUTOMATED-TRANSITION-CONVERGENCE-v1
 
 - Purpose: Migrate the daily season-transition cron onto an exact-year, transaction-guarded transition, and make concurrent/deleted/refused targets explicit across every reporting surface.
-- Scope: Primary touched areas: `src/lib/leagueRegistry.ts`, `GET /api/cron/season-transition`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/leagueRegistry.ts`, `GET /api/cron/season-transition`, plus tests/docs.
 - Outcome: Binding behavior is in [`AGENTS.md`](../AGENTS.md) → **Lifecycle Authority Invariants**; the contract is in [`docs/architecture/admin-control-plane.md`](architecture/admin-control-plane.md) → **Automated transition convergence**; the additive backward-compatible receipt counters are in [`docs/architecture/storage-and-caching.md`](architecture/storage-and-caching.md).
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered tests as applicable.
+- Review / verification: [RV8](#shared-review-statements).
 - Status: Merged via PR #443 (`be0c950`), 2026-08-04.
 
 ### PLATFORM-086F2H1A-LIFECYCLE-GUARDS-CORE-v2
@@ -3169,87 +1781,87 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Reconstruct the lifecycle-guard core from clean `main` after the larger PR #441 attempt accumulated review-driven scope and was rejected before merge.
 - Scope: One `guardedLifecycleWrite` authority and shared `applyLifecycleStatus` projection for the commissioner offseason→preseason and exact-year setup-completion actions; the compatibility `updateLeagueStatus` setter delegates through that authority.
 - Outcome: State validation or successor derivation occurs against the registry record held under the transaction lock; accepted changes persist lifecycle status and top-level year together; stale, concurrent, or unusable-year requests write nothing. Persisted legacy years remain structurally tolerated while new records use the existing `2000..currentUTCYear+1` horizon.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Merged via PR #442 (`d800fd6`), 2026-08-04.
 
 ### PLATFORM-086F2G1-DRAFT-ASSISTANCE-RETIREMENT-v1
 
 - Purpose: Remove SP+ ratings and win totals from the draft experience before the in-person draft. These inputs made team selection artificially easy and silently drove available-team ordering.
-- Scope: Primary touched areas: `src/lib/selectors/draftTeamInsights.ts`, `src/app/league/[slug]/draft/page.tsx`, `.../draft/board/page.tsx`, `src/app/admin/data/cache/page.tsx`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/selectors/draftTeamInsights.ts`, `src/app/league/[slug]/draft/page.tsx`, `.../draft/board/page.tsx`, `src/app/admin/data/cache/page.tsx`, plus tests/docs.
 - Outcome: The draft embeds no SP+/win-total recommendation signal. Available teams are shown in one deterministic, recommendation-free order (locale-aware alphabetical + stable canonical team-id tie-break) identical for the commissioner and spectator boards; only neutral factual context (identity, conference, colors, schedule shape, prior-season record, preseason AP rank, ranked- opponent count) remains.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #440 (`9c3b6ce`), 2026-08-03.
 
 ### PLATFORM-086F2G-SYSTEM-HEALTH-UI-v1
 
 - Purpose: The System Health UI for the admin control plane.
-- Scope: Primary touched areas: `src/app/admin/diagnostics/page.tsx`, `src/components/admin/systemHealth/*`, `systemHealthPanels.ts`, `systemHealthYear.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/app/admin/diagnostics/page.tsx`, `src/components/admin/systemHealth/*`, `systemHealthPanels.ts`, `systemHealthYear.ts`, plus tests/docs.
 - Outcome: Current-status dashboard — stoplight overview → prioritized issues → always-visible scheduler (7) / provider (6) / quota-storage (3) rows with row-level forensic disclosure → Automation safety controls last. Health policy stays server-side (panels/freshness derived + tested); React maps status → color.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #439 (`c5e38be`), 2026-08-03.
 
 ### PLATFORM-086F2F-SYSTEM-HEALTH-READ-MODEL-v1
 
 - Purpose: The consolidated server-side System Health read model that F2G will render.
-- Scope: Primary touched areas: `src/lib/server/systemHealth.ts`, `providerRefreshHealth.ts`, `lastError.message`, `systemHealthIssues.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/server/systemHealth.ts`, `providerRefreshHealth.ts`, `lastError.message`, `systemHealthIssues.ts`, plus tests/docs.
 - Outcome: Six independent facts; gates never demote a missing/late delivery; canonical freshness stays cache/evidence-sourced (never provider-status timestamps); one CFBD observation vs the 1,007 reserve and Odds vs the real 53-credit threshold; nullable truthful repair destinations (Data Maintenance / Season Management / Team Identity / none — never an ineffective action); subsystem failures degrade independently without leaking raw errors/paths/credentials.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #438 (`b9a1688`), 2026-08-02.
 
 ### PLATFORM-086F2E2B-SCHEDULER-RECEIPT-READER-CLASSIFIER-v1
 
 - Purpose: The final scheduler-receipt foundation before F2F.
-- Scope: Primary touched areas: `schedulerExecutionStatus.ts`, `src/lib/server/schedulerDeliveryHealth.ts`, `vercel.json`, `package.json`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `schedulerExecutionStatus.ts`, `src/lib/server/schedulerDeliveryHealth.ts`, `vercel.json`, `package.json`, plus tests/docs.
 - Outcome: The reader loads `scheduler-execution-status` ONCE and returns exactly seven state-bearing rows in canonical order; each carries its policy, the `requiredStartedAt` slot, a `deliveryState` (`on-time`/`late`/`missing`/`invalid`/`unavailable`), and the safely-parsed receipt or `null`.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #437 (`f84b676`), 2026-07-31.
 
 ### PLATFORM-086F2E2A-LIFECYCLE-SCHEDULER-RECEIPTS-v1
 
 - Purpose: First half of the audited F2E2 split — extend the merged F2E1 receipt system to the two Vercel-native lifecycle crons and add their previously-missing secret-safe runtime execution-log events.
-- Scope: Primary touched areas: `schedulerExecutionStatus.ts`, `src/lib/lifecycleCronExecutionLog.ts`, `vercel.json`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `schedulerExecutionStatus.ts`, `src/lib/lifecycleCronExecutionLog.ts`, `vercel.json`, plus tests/docs.
 - Outcome: Every authenticated lifecycle invocation writes one allowlisted receipt (`source: 'vercel-cron'`); the five QStash jobs keep `source: 'qstash'` byte-equivalent. Both routes emit exactly one secret-safe event per invocation (auth failures included). Season transition provider truth is `exec.years.some(...providerCallAttempted)` (E1A's field); rollover is always `providerCallAttempted: false`.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #436 (`fa6e967`), 2026-07-31.
 
 ### PLATFORM-086F2E1-EXTERNAL-SCHEDULER-RECEIPTS-v1
 
 - Purpose: First scheduler-health slice of the F2 admin control-plane redesign.
-- Scope: Primary touched areas: `src/lib/server/schedulerExecutionStatus.ts`, `scheduler-execution-status/<job>`, `crypto.randomUUID`, `exec.years = entries`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/server/schedulerExecutionStatus.ts`, `scheduler-execution-status/<job>`, `crypto.randomUUID`, `exec.years = entries`, plus tests/docs.
 - Outcome: Each successfully authenticated invocation writes ONE allowlisted receipt (`version`/job/`source:'qstash'`/`invocationId`/start+complete instants/nonnegative-integer duration/result/reason/`providerCallAttempted`/bounded target — multi-year jobs cap at eight entries).
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #435 (`4404ad3`), 2026-07-31.
 
 ### PLATFORM-086F2D2-SCORE-ATTACHMENT-RECOVERY-RELOCATION-v1
 
 - Purpose: Complete the F2D operational-mutation relocation.
-- Scope: Primary touched areas: `/admin/data/cache`, `/admin`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `/admin/data/cache`, `/admin`, plus tests/docs.
 - Outcome: One captured target (year 2000..currentUTCYear+1 / blank-or-bounded week 0–99 / all|regular|postseason) drives the disclosure, the mandatory `window.confirm` (naming the target, cache mutations, possible per-week fan-out, and — for week-scoped runs — the route's ACTUAL derivation: season-wide refresh per season type with games in that week, no games → no refresh), the exact request params, and the result label.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #434 (`a2a56fc`), 2026-07-30.
 
 ### PLATFORM-086F2D1-PROVIDER-MAINTENANCE-RELOCATION-v1
 
 - Purpose: First slice of the F2D operational-mutation relocation (split at its audit into D1/D2).
-- Scope: Primary touched areas: `/admin/data/cache`, `team-database/route.test.ts`, `manualRefresh.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `/admin/data/cache`, `team-database/route.test.ts`, `manualRefresh.ts`, plus tests/docs.
 - Outcome: System Health is observational plus operational safety controls only.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #433 (`fa5c0f6`), 2026-07-30.
 
 ### PLATFORM-086F2C-MAINTENANCE-ACTION-MODEL-v1
 
 - Purpose: Establish the Data Maintenance & Recovery page foundation.
-- Scope: Primary touched areas: `src/lib/admin/maintenanceActions.ts`, `/admin/data/cache`, `/admin`, `/admin/season`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/admin/maintenanceActions.ts`, `/admin/data/cache`, `/admin`, `/admin/season`, plus tests/docs.
 - Outcome: All eight maintenance actions now disclose cost, scope, and effect accessibly; lifecycle rollover moved to Season Management; and historical-score repair records one truthful refresh attempt while distinguishing valid no-ops from writes.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #432 (`5e2c021`), 2026-07-30.
 
 ### PLATFORM-086F2B-LIFECYCLE-AUTHORITY-SAFETY-v1
 
 - Purpose: Eliminate the three lifecycle correctness risks identified by PLATFORM-086F2A.
-- Scope: Primary touched areas: `src/lib/leagueRegistry.ts`, `src/lib/rolloverTargeting.ts`, `src/lib/manualRollover.ts`, `/api/admin/rollover`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/leagueRegistry.ts`, `src/lib/rolloverTargeting.ts`, `src/lib/manualRollover.ts`, `/api/admin/rollover`, plus tests/docs.
 - Outcome: `updateLeagueStatus` is the ONE lifecycle mutation authority.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #431 (`5658413`), 2026-07-30.
 
 ### PLATFORM-086F2A-ADMIN-CONTROL-PLANE-IA-v1
@@ -3257,13 +1869,13 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Establish the audited admin control-plane inventory and target information architecture as canonical documentation before any PLATFORM-086F2 code slice.
 - Scope: Documentation-only. New `docs/architecture/admin-control-plane.md` (canonical); queue and roadmap projections (`docs/next-tasks.md` Active priority 1, `docs/roadmap.md` 086 table); doc-index rows (`docs/README.md`, `docs/architecture/overview.md`); this entry.
 - Outcome: The audit (read-only, `main` @ `7d5741a`, 2026-07-30) is recorded with independent source verification, including corrections: the rollover cron path is `/api/cron/season-rollover`; the `/admin/leagues` legacy-token copy references a panel that IS present (the real defect is a label mismatch plus legacy-fallback wording); five co-located `route.test.ts` convention violations exist (the team-database one also behaviorally drifted).
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered lint, tests as applicable.
+- Review / verification: [RV12](#shared-review-statements).
 - Status: Merged via PR #430 (`4d6b897`), 2026-07-30.
 
 ### DOCS-013-EXECUTION-BOUNDARIES-v1
 
 - Purpose: Make the execution boundaries that repeated F2H failures exposed BINDING and discoverable in one place, instead of re-deriving them per prompt.
-- Scope: Primary touched areas: `AGENTS.md`, `CLAUDE.md`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `AGENTS.md`, `CLAUDE.md`, plus tests/docs.
 - Outcome: The review limit is ADAPTIVE, not a round count — both reviews are gathered on the same commit before any patch, one normal cohesive remediation is allowed, a second requires explicit user approval and only for a defect directly caused by the first, and there is no third. Reconstruction from clean `main` is the prescribed response to accumulation, re-derived rather than cherry-picked.
 - Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered lint, tests as applicable.
 - Status: Merged via PR #444 (`2b09e82`), 2026-08-04.
@@ -3279,49 +1891,49 @@ null` through response, receipt target, validator and UI, which renders a third 
 ### PLATFORM-086E2B-RANKINGS-PUBLICATION-AUTOMATION-v1
 
 - Purpose: Activate the merged PLATFORM-086E2A rankings authority through a publication-aware cron route.
-- Scope: Primary touched areas: `GET /api/cron/rankings`, `src/app/api/cron/rankings/route.ts`, `league.year`, `src/lib/rankings/automaticContext.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `GET /api/cron/rankings`, `src/app/api/cron/rankings/route.ts`, `league.year`, `src/lib/rankings/automaticContext.ts`, plus tests/docs.
 - Outcome: no provider work outside a due, newly claimed publication window.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #428 (`1c34352`), 2026-07-30.
 
 ### PLATFORM-086E2A-RANKINGS-REFRESH-AUTHORITY-v1
 
 - Purpose: The first bounded slice of PLATFORM-086E2 (rankings automation).
-- Scope: Primary touched areas: `src/lib/rankings/{refreshAuthority,refreshLease,refreshResult,publicationPolicy,quotaPolicy}.ts`, `src/lib/server/rankings.ts`, `src/app/api/rankings/route.ts`, `src/lib/gameStats/quotaPolicy.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/rankings/{refreshAuthority,refreshLease,refreshResult,publicationPolicy,quotaPolicy}.ts`, `src/lib/server/rankings.ts`, `src/app/api/rankings/route.ts`, `src/lib/gameStats/quotaPolicy.ts`, plus tests/docs.
 - Outcome: manual refresh available / public reads cache-only / automatic refresh dormant.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #427 (`a656861`), 2026-07-30.
 
 ### PLATFORM-086E1C2-SCHEDULE-PRESENTATION-AUTOMATION-WIRING-v1
 
 - Purpose: Invoke the proven E1C1 schedule-presentation authority automatically after successful canonical weekly and season-transition schedule refreshes.
-- Scope: Primary touched areas: `src/app/api/cron/schedule-refresh/route.ts`, `src/app/api/cron/season-transition/route.ts`, `refresh.status === 'success' && refresh.items.length > 0`, `/api/schedule`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/app/api/cron/schedule-refresh/route.ts`, `src/app/api/cron/season-transition/route.ts`, `refresh.status === 'success' && refresh.items.length > 0`, `/api/schedule`, plus tests/docs.
 - Outcome: presentation data refreshes automatically alongside every qualifying canonical weekly/season-transition success under the existing schedulers.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #426 (`29976c1`), 2026-07-30.
 
 ### PLATFORM-086E1C1-SCHEDULE-PRESENTATION-CACHE-UI-v1
 
 - Purpose: The first combined E1C slice — cache normalized CFBD game-media and venue metadata, join it cache-only into schedule responses.
-- Scope: Primary touched areas: `src/lib/schedule/{schedulePresentation,schedulePresentationResult,schedulePresentationLease,schedulePresentationLog,schedulePresentationRefresh,schedulePresentationJoin}.ts`, `/games/media?year=`, `/venues`, `/games`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/schedule/{schedulePresentation,schedulePresentationResult,schedulePresentationLease,schedulePresentationLog,schedulePresentationRefresh,schedulePresentationJoin}.ts`, `/games/media?year=`, `/venues`, `/games`, plus tests/docs.
 - Outcome: presentation data is manually seedable and automatically dormant; public traffic remains provider-free; game cards truthfully separate confirmed kickoffs from `Time TBD`, show one deterministic preferred outlet, and display catalog-enriched venue lines, all degrading to exact prior output when enrichment is absent.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #425 (`1f27f5c`), 2026-07-30.
 
 ### PLATFORM-086E1B1-PRESEASON-WEEKLY-COVERAGE-v1
 
 - Purpose: Close the dormant E1B preseason freshness gap before provisioning `turfwar-schedule-weekly`.
-- Scope: Primary touched areas: `src/lib/schedule/weeklyRefreshOperation.ts`, `cronExecutionLog.ts`, `vercel.json`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/schedule/weeklyRefreshOperation.ts`, `cronExecutionLog.ts`, `vercel.json`, plus tests/docs.
 - Outcome: the corrected ownership model — preseason unarmed → daily transition owns discovery; preseason first-game > 7d → weekly E1B ordinary maintenance; preseason within 7d → transition owns freshness + lifecycle transition; active season / postseason boundary → existing E1B policy.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #424 (`587d5e3`), 2026-07-29.
 
 ### PLATFORM-086E1B-WEEKLY-SCHEDULE-AUTOMATION-v2
 
 - Purpose: Activate the merged E1A full-season schedule authority through one weekly, cache-armed QStash trigger with **operation-aware** controls.
-- Scope: Primary touched areas: `src/lib/schedule/weeklyRefreshOperation.ts`, `schedule/<year>-all-all`, `FullSeasonScheduleRefreshResult.providerCallAttempted`, `GET /api/cron/schedule-refresh`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/schedule/weeklyRefreshOperation.ts`, `schedule/<year>-all-all`, `FullSeasonScheduleRefreshResult.providerCallAttempted`, `GET /api/cron/schedule-refresh`, plus tests/docs.
 - Outcome: at merge the weekly route was production-capable but **DORMANT — no QStash schedule existed**; activation is the separate operator-run runbook **§8h** sequence (since EXECUTED — see Status) (preflight → provision gates-closed → exact-authentication scheduled proof (`skipped / automation-paused-or-disabled`, `providerCallAttempted: false`, quota unchanged) → open the Schedule toggle → verify one gated run → docs-only record).
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #423 (`2ddf5c4`), 2026-07-29.
 
 ### PLATFORM-086E1B-WEEKLY-SCHEDULE-AUTOMATION-v1
@@ -3339,33 +1951,33 @@ null` through response, receipt target, validator and UI, which renders a third 
 ### PLATFORM-086E1A-SCHEDULE-REFRESH-AUTHORITY-v1
 
 - Purpose: The correctness prerequisite for weekly schedule automation (PLATFORM-086E1B).
-- Scope: Primary touched areas: `src/lib/schedule/{fullSeasonScheduleRefreshResult,scheduleRefreshLease,fullSeasonScheduleRefresh,nationalChampionshipRollover}.ts`, `schedule-refresh-control/<year>`, `crypto.randomUUID`, `schedule/<year>-all-all`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/schedule/{fullSeasonScheduleRefreshResult,scheduleRefreshLease,fullSeasonScheduleRefresh,nationalChampionshipRollover}.ts`, `schedule-refresh-control/<year>`, `crypto.randomUUID`, `schedule/<year>-all-all`, plus tests/docs.
 - Outcome: one authority for every full-season writer; concurrent writers cannot duplicate provider work or overwrite newer state (lease + observation ordering); complete-before-commit + empty-response truth preserved; only confirmed durable commits publish cache/status success/invalidation; the active-season historical bypass is closed; rollover requires a structured championship + confirmed canonical final; useful no-extra-call schedule metadata is retained.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #422 (`f320a7e`), 2026-07-29.
 
 ### PLATFORM-086C3-ODDS-CACHE-UI-HYDRATION-v1
 
 - Purpose: Fix the confirmed production gap where a successful Odds refresh populated the durable canonical cache but game cards showed no lines.
-- Scope: Primary touched areas: `src/components/hooks/useOddsHydration.ts`, `GET /api/odds?year=<season>`, `Odds fetch failed: unable to load current odds.`, `src/components/hooks/useLiveRefresh.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/components/hooks/useOddsHydration.ts`, `GET /api/odds?year=<season>`, `Odds fetch failed: unable to load current odds.`, `src/components/hooks/useLiveRefresh.ts`, plus tests/docs.
 - Outcome: every cached canonical Odds record reaches its matching game card regardless of kickoff time (far-future, live, completed, postseason); browser Odds traffic is cache-only and provider-free; Odds hydrate once per selected season, not periodically; the misleading window policy no longer suppresses cached-line display. `GameScoreboard` renders spread / over-under / moneyline from the hydrated cache as before (no UI redesign).
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #421 (`8029136`), 2026-07-29.
 
 ### PLATFORM-086C2-ODDS-POLLING-ACTIVATION-v1
 
 - Purpose: Activate the merged, DORMANT PLATFORM-086C1 Odds refresh authority in CODE ONLY.
-- Scope: Primary touched areas: `src/lib/odds/oddsRefreshExecutor.ts`, `src/app/api/cron/odds/route.ts`, `/sports`, `/odds`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/odds/oddsRefreshExecutor.ts`, `src/app/api/cron/odds/route.ts`, `/sports`, `/odds`, plus tests/docs.
 - Outcome: the manual and automatic Odds refresh paths cannot diverge (one executor).
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #420 (`262fdf0`), 2026-07-28.
 
 ### PLATFORM-086C1-ODDS-REFRESH-AUTHORITY-v1
 
 - Purpose: Build the shared, concurrency-safe Odds refresh authority required before automatic Odds polling (PLATFORM-086C2) can be activated.
-- Scope: Primary touched areas: `src/app/api/odds/route.ts`, `src/lib/odds/`, `refreshResult.ts`, `refreshLease.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/app/api/odds/route.ts`, `src/lib/odds/`, `refreshResult.ts`, `refreshLease.ts`, plus tests/docs.
 - Outcome: Manual `/api/odds?refresh=1`, the future automatic refresh, and public canonical closing-line maintenance share the lease + observation-ordering authority.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #419 (`b9c6cb3`), 2026-07-28.
 
 ### DOCS-011-PLATFORM-086B2B-PRODUCTION-ACTIVATION-CLOSEOUT-v1
@@ -3379,49 +1991,49 @@ null` through response, receipt target, validator and UI, which renders a third 
 ### PLATFORM-086B2B-LIVE-SCORE-ACTIVATION-v1
 
 - Purpose: Activate the merged, dormant PLATFORM-086B1 live-score engine + PLATFORM-086B2A writer-lock in CODE ONLY (one reviewed PR). Provide the operator tooling and browser/route wiring for schedule-armed 3-minute live-score polling.
-- Scope: Primary touched areas: `scripts/lib/qstashSchedule.ts`, `scripts/manage-live-scores-schedule.ts`, `/api/cron/live-scores`, `*/3 * * * *`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `scripts/lib/qstashSchedule.ts`, `scripts/manage-live-scores-schedule.ts`, `/api/cron/live-scores`, `*/3 * * * *`, plus tests/docs.
 - Outcome: **Deferred (owner decision):** per-game overlay freshness — `snapshotAt`/`isStale` are per-partition/global, not per-game, so in a provider-gap scenario a fresh game can ride over a stale sibling (strictly better than pre-B2B, which reported every game fresh on any poll; true fix = per-game timestamps → per-game staleness, a separate slice). Documented in `src/lib/scores.ts` and `docs/next-tasks.md` deferrals.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #418 (`57fab82`), 2026-07-28.
 
 ### PLATFORM-086B2A-SCORE-WRITER-LOCK-CONVERGENCE-v1
 
 - Purpose: Eliminate the concurrency gap between authorized manual score refreshes and the dormant PLATFORM-086B1 live-score engine BEFORE automation is activated — the B1-deferred item.
-- Scope: Primary touched areas: `src/lib/scores/manualPartitionMerge.ts`, `src/app/api/scores/route.ts`, `scoreMerge.ts`, `manualPartitionMerge.test.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/scores/manualPartitionMerge.ts`, `src/app/api/scores/route.ts`, `scoreMerge.ts`, `manualPartitionMerge.test.ts`, plus tests/docs.
 - Outcome: Code-only prerequisite; **no activation** — B2B still owns the QStash schedule, browser refresh, descriptor flip, and rollout. The rounds-2–5 findings were all merge-policy corner cases in the concurrent manual-vs-live window (inert while dormant); the core lock mechanism was stable from round 1. After eventual merge, follow the post-merge status-flip convention with the real merge commit.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #417 (`4039c98`), 2026-07-28.
 
 ### PLATFORM-086B1-LIVE-SCORE-POLLING-ENGINE-v1
 
 - Purpose: Implement and verify the DORMANT backend engine for schedule-armed CFBD live-score polling.
-- Scope: Primary touched areas: `GET /api/cron/live-scores`, `src/lib/liveScores/*`, `/games`, `CacheEntry.itemUpdatedAtById`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `GET /api/cron/live-scores`, `src/lib/liveScores/*`, `/games`, `CacheEntry.itemUpdatedAtById`, plus tests/docs.
 - Outcome: Engine stays dormant until **PLATFORM-086B2** activates it. One deferred non-blocker (documented in `scoreMerge.ts`): the `/api/scores?refresh=1` manual-repair path still writes the partition via a plain `setAppState` upsert that does not honor the live-merge advisory lock — a B2 concern (inert while dormant, self-healing).
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #416 (`4cbea60`), 2026-07-27.
 
 ### PLATFORM-086F1-GAME-STATS-CRON-EXECUTION-LOGGING-v1
 
 - Purpose: Add one secret-safe, machine-readable runtime event for every invocation of the QStash-triggered game-stats cron, making scheduler decisions.
-- Scope: Primary touched areas: `GET /api/cron/game-stats`, `src/lib/gameStats/cronExecutionLog.ts`, `console.log`, `src/app/api/cron/game-stats/__tests__/execution-logging.test.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `GET /api/cron/game-stats`, `src/lib/gameStats/cronExecutionLog.ts`, `console.log`, `src/app/api/cron/game-stats/__tests__/execution-logging.test.ts`, plus tests/docs.
 - Outcome: `partial` is a first-class truthful outcome (never collapsed to success/failure). `cfbd-api-key-missing` and the defensive `ingestion-failed` catch are unreachable at runtime (`fetchCfbdUsage` throws on an empty key so the quota gate refuses first with `usage-unavailable`; H2 funnels every expected ingestion fault into a typed interpreter outcome), so their event mappings are guarded by a static source-pin rather than fabricated runtime states.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #414 (`a7f5db2`), 2026-07-27.
 
 ### PLATFORM-086I-SETTINGS-FEEDBACK-v1
 
 - Purpose: Surface the global-pause and per-dataset auto-refresh toggle mutation errors the Provider Data Status panel already stored but never rendered.
-- Scope: Primary touched areas: `src/components/admin/ProviderDataStatusPanel.tsx`, `src/components/admin/__tests__/ProviderDataStatusPanel.feedback.test.tsx`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/components/admin/ProviderDataStatusPanel.tsx`, `src/components/admin/__tests__/ProviderDataStatusPanel.feedback.test.tsx`, plus tests/docs.
 - Outcome: Only a setting-consumed (`interactive`) dataset can populate a toggle-error key, so the toggle alert renders only on the Game Stats card today; planned/lifecycle-exempt datasets have no toggle and no alert. The manual-refresh feedback path is separate and unchanged. This closes the PLATFORM-086 deferred finding #2; provider automation continues with 086B (live-score polling) per the campaign execution order.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV5](#shared-review-statements).
 - Status: Merged via PR #413 (`da99a11`), 2026-07-27.
 
 ### DOCS-010-CURRENT-DOCUMENTATION-RECONCILIATION-v1
 
 - Purpose: Post-PLATFORM-086H3E-activation reconciliation of the repository's current/canonical documentation and production-code comments with the activated game-stats architecture.
-- Scope: Primary touched areas: `AGENTS.md`, `game-data-flow.md`, `storage-and-caching.md`, `auth-and-privacy.md`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `AGENTS.md`, `game-data-flow.md`, `storage-and-caching.md`, `auth-and-privacy.md`, plus tests/docs.
 - Outcome: Reconciled current architecture, operations, comments, and documentation ownership with the activated provider/game-stats runtime, replacing stale dormant or planned wording without changing behavior.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV6](#shared-review-statements).
 - Status: **✅ COMPLETE — self-verified and independent Codex review clean.** Documentation/comment-only; no runtime behavior change.
 
 ### PLATFORM-086H3E3-FINAL-ATOMIC-WIRING-v1
@@ -3429,39 +2041,39 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Atomically activate the complete live game-stats path across admin reads and refresh, cron polling, analytics, diagnostics, and writer controls.
 - Scope: Admin game-stats route, 15-minute cron, analytics consumers, evidence diagnostics, admin cache panel, activation invariants, scheduler configuration, and operations documentation.
 - Outcome: The game-stats contract was activated end to end: admin refresh and cron share one ingestion path and interpreter, analytics consume paired provenance, diagnostics are evidence-based, and writer control is durably active.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Merged via PR #410 (`23baf4f`), 2026-07-26.
 
 ### PLATFORM-086H3E-EXTERNAL-SCHEDULER-MIGRATION-v1
 
 - Purpose: Move the 15-minute game-stats poll off Vercel crons (Vercel Hobby rejects sub-daily cron expressions at deploy time, which blocked the E3 staged-production build) onto an external QStash schedule that calls the UNCHANGED.
-- Scope: Primary touched areas: `GET /api/cron/game-stats`, `*/15`, `process.exitCode`, `/code-review`, plus related tests and documentation. Git and PR history retain the complete file-level scope.
+- Scope: `GET /api/cron/game-stats`, `*/15`, `process.exitCode`, `/code-review`, plus tests/docs.
 - Outcome: Changes only `vercel.json` (removed the `/api/cron/game-stats` cron; kept the two daily lifecycle crons), `package.json` (`manage:game-stats-schedule` script), `src/lib/gameStats/__tests__/activation-invariants.test.ts` (flipped: the game-stats cron must be ABSENT), and adds `scripts/manage-game-stats-schedule.ts` + its test. The route (`src/app/api/cron/game-stats/route.ts`) and the E3 serving behavior are byte-unchanged.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV1](#shared-review-statements).
 - Status: Merged via PR #410 (`23baf4f`), 2026-07-26.
 
 ### PLATFORM-086H3E-EXTERNAL-SCHEDULER-PRE-ACTIVATION-REMEDIATION-v1
 
 - Purpose: The bounded fix-forward remediation required before PLATFORM-086H3E activation, on `main` after PR #410.
-- Scope: Primary touched areas: `scripts/manage-game-stats-schedule.ts`, `src/app/api/cron/game-stats/route.ts`, `vercel.json`, plus related tests and documentation. Git and PR history retain the complete file-level scope.
+- Scope: `scripts/manage-game-stats-schedule.ts`, `src/app/api/cron/game-stats/route.ts`, `vercel.json`, plus tests/docs.
 - Outcome: **CLI (`scripts/manage-game-stats-schedule.ts`):** the upsert request now includes the exact raw HTTP header `Upstash-Redact-Fields: header[Authorization]` (NOT the SDK's `header: true`), so QStash stores/returns the forwarded route credential as `REDACTED:<opaque>` while still delivering the real `Bearer <CRON_SECRET>` to the route — keeping the plaintext secret out of QStash's readable state.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered tests as applicable.
+- Review / verification: [RV9](#shared-review-statements).
 - Status: Merged via PR #412 (`a161e33`), 2026-07-26.
 
 ### PLATFORM-086H3E4-SECOND-ROUND-CONFERENCE-COLLISION-REMEDIATION-v1
 
 - Purpose: Correct the reproducible postseason identity collision that corrupted the 2024 TSC archive.
-- Scope: Primary touched areas: `src/lib/teamIdentity.ts`, plus related tests and documentation. Git and PR history retain the complete file-level scope.
+- Scope: `src/lib/teamIdentity.ts`, plus tests/docs.
 - Outcome: The three corrections: (1) `matchConferenceChampionshipSlotByText` matches aliases as complete normalized tokens/phrases.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Merged via PR #411 (`4e4535d`), 2026-07-25.
 
 ### PLATFORM-086H3E2-DORMANT-REFRESH-POLLING-PREREQUISITE-v1
 
 - Purpose: Second prerequisite slice of the approved PLATFORM-086H3E activation decomposition.
-- Scope: Primary touched areas: `vercel.json`, `publicProjection.ts`, `git diff --name-status main -- src/`, `refreshOutcome.ts`, plus related tests and documentation. Git and PR history retain the complete file-level scope.
+- Scope: `vercel.json`, `publicProjection.ts`, `git diff --name-status main -- src/`, `refreshOutcome.ts`, plus tests/docs.
 - Outcome: `refreshOutcome.ts` — `interpretGameStatsRefreshOutcome` classifies a `GameStatsIngestionResult`.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Merged via PR #409 (`d04f3b3`), 2026-07-25.
 
 ### PLATFORM-086H3E1-PAIRED-ANALYTICS-PROVENANCE-v1
@@ -3469,23 +2081,23 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: First prerequisite slice of the approved PLATFORM-086H3E activation decomposition.
 - Scope: Canonical slate snapshot construction and parsing, season archives, backfill and preview integration, dormant-boundary allowance, focused tests, and documentation; no live consumer or writer activation.
 - Outcome: New archives persist a minimal, strict `gameStatSlate` derived from the exact schedule build and paired only with that archive's own scores; malformed snapshots fail closed and no consumers were activated.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Merged via PR #408 (`a4dd9d5`), 2026-07-24.
 
 ### PLATFORM-086H3C5-DORMANT-NUMERIC-PARTICIPANT-VALIDATION-v1
 
 - Purpose: Resolve the PLATFORM-086H3C1 numeric participant-validation deferral before PLATFORM-086H3E activation.
-- Scope: Primary touched areas: `/api/schedule`, `ParticipantSlot.teamId`, `teamIdentity.ts`, plus related tests and documentation. Git and PR history retain the complete file-level scope.
+- Scope: `/api/schedule`, `ParticipantSlot.teamId`, `teamIdentity.ts`, plus tests/docs.
 - Outcome: (1) **Schedule persistence (additive, shared-mapper only):** `CfbdScheduleGame` recognizes `homeId`/`awayId` in camel and snake casings.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Merged via PR #407 (`a0cfff0`), 2026-07-24.
 
 ### PLATFORM-086-SCHEDULE-NON-FBS-POSTSEASON-CLASSIFICATION-SAFETY-IMPLEMENTATION-v1
 
 - Purpose: Correct the schedule-normalization defect that assigns CFP event identities to explicitly non-FBS postseason games.
-- Scope: Primary touched areas: `/verify`, `/api/schedule`, `src/lib/schedule/cfbdSchedule.ts`, `fbs/fbs`, plus related tests and documentation. Git and PR history retain the complete file-level scope.
+- Scope: `/verify`, `/api/schedule`, `src/lib/schedule/cfbdSchedule.ts`, `fbs/fbs`, plus tests/docs.
 - Outcome: One production file — `src/lib/schedule/cfbdSchedule.ts`.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Merged via PR #406 (`a015348`), 2026-07-24.
 
 ### PLATFORM-086-TEAM-CATALOG-DERIVED-ALIAS-SAFETY-IMPLEMENTATION-v1
@@ -3493,31 +2105,31 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Prevent CFBD's bare `San Diego` label from resolving to San Diego State while preserving curated shorthand and safe production catalog behavior.
 - Scope: Derived-alias generation, curated overrides, bundled catalog regeneration, durable-catalog read sanitation, standings and Insights cache identities, and focused identity tests.
 - Outcome: (1) Both alias generators (`buildDerivedAlts` in `scripts/fetch-cfbd-teams.ts`; `buildDerivedTeamAliases` in `src/lib/teamDatabase.ts`) now emit the compact tokens-first join ONLY when the two tokens are the whole variant (`tokens.length === 2`); three-token compaction preserved.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Merged via PR #405 (`d5ee260`), 2026-07-24.
 
 ### PLATFORM-086H3C4-DORMANT-ANALYTICS-READINESS-CORRECTION-v1
 
 - Purpose: Correct the dormant canonical analytics path so final-and-complete eligibility is INDEPENDENT of C1's six-hour missing-data/recovery threshold.
-- Scope: Primary touched areas: `/verify`, `PartitionCoverage.games`, `src/lib/gameStats/publicProjection.ts`, `classifyScorePackStatus(input.scoresByKey[game.key]) === 'final'`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `/verify`, `PartitionCoverage.games`, `src/lib/gameStats/publicProjection.ts`, `classifyScorePackStatus(input.scoresByKey[game.key]) === 'final'`, plus tests/docs.
 - Outcome: `projectAnalyticsPartition` (`src/lib/gameStats/publicProjection.ts`) now takes the required paired input `CanonicalAnalyticsReadInput = { slate, scoresByKey }` plus `(week, seasonType, committedRecord: WeeklyGameStats | null, seasonRelation)` — the old `(PartitionCoverage, scoresByKey)` signature is REMOVED with no overload or compatibility path.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Merged via PR #404 (`aa91391`), 2026-07-22.
 
 ### PLATFORM-086H3D-DORMANT-WRITER-CONTROL-ROLLOUT-SAFETY-v1
 
 - Purpose: Complete the PLATFORM-086H3B writer-control fence into a full.
-- Scope: Primary touched areas: `/verify`, `game-stats-writer-control/state`, `src/lib/gameStats/writerControlTransition.ts`, `scripts/transition-game-stats-writer-control.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `/verify`, `game-stats-writer-control/state`, `src/lib/gameStats/writerControlTransition.ts`, `scripts/transition-game-stats-writer-control.ts`, plus tests/docs.
 - Outcome: (1) `src/lib/gameStats/writerControlTransition.ts` — `transitionWriterControl({expected, to, apply})`, one atomic operation in one transaction rooted (advisory-locked) on the control key: presence-aware reread → strict parse → expected-state check → edge validation → conditional write of ONLY the exact `{recordVersion, state}` shape.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV5](#shared-review-statements).
 - Status: Merged via PR #403 (`ddc356e`), 2026-07-22.
 
 ### PLATFORM-086H3C3-DORMANT-ANALYTICS-FINALITY-GATE-v1
 
 - Purpose: Make C1's dormant analytics projection require canonical FINAL-score evidence IN ADDITION to complete game-stat evidence, per the approved read-only audit — not a reader redesign, and not reopening the product decision.
-- Scope: Primary touched areas: `/verify`, `AppGame.key`, `meta.cache=hit`, `src/lib/gameStats/publicProjection.ts`, plus related tests and documentation. Git and PR history retain the complete file-level scope.
+- Scope: `/verify`, `AppGame.key`, `meta.cache=hit`, `src/lib/gameStats/publicProjection.ts`, plus tests/docs.
 - Outcome: `projectAnalyticsPartition(coverage, scoresByKey)` in `src/lib/gameStats/publicProjection.ts` gains a REQUIRED `scoresByKey` map keyed by the canonical `AppGame.key` (the attachment key).
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Merged via PR #402 (`c41121b`), 2026-07-22.
 
 ### PLATFORM-086H3C2-DORMANT-SAFE-INGESTION-COORDINATION-v1
@@ -3525,23 +2137,23 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: The smallest dormant adapter connecting ONE already-fetched CFBD `/games/teams` response to H1 parsing.
 - Scope: `src/lib/gameStats/ingestionCoordinator.ts`, focused tests, and the dormant-boundary guard only; no provider, route, cron, status, or reader wiring.
 - Outcome: Added a dormant ingestion coordinator that validates provider payloads, classifies empty, invalid, and non-persistable responses, forwards all parsed observations to H2, and returns its durable merge result unchanged.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV5](#shared-review-statements).
 - Status: Merged via PR #401 (`61fe69c`), 2026-07-22.
 
 ### PLATFORM-086H3C1-CANONICAL-EVIDENCE-READ-MODEL-v1
 
 - Purpose: The dormant, schedule-authoritative canonical game-stats evidence **READ** model.
-- Scope: Primary touched areas: `/verify`, `meta.cache=hit`, `src/lib/gameStats/`, `canonicalSlate.ts`, plus related tests and documentation. Git and PR history retain the complete file-level scope.
+- Scope: `/verify`, `meta.cache=hit`, `src/lib/gameStats/`, `canonicalSlate.ts`, plus tests/docs.
 - Outcome: 4 dormant modules under `src/lib/gameStats/` — `canonicalSlate.ts` (schedule-authoritative expectation via `buildScheduleFromApi`; addressable-game slate; duplicate CFBD-id rejection by parsed numeric id), `evidenceAuthority.ts`.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Merged via PR #400 (`cf8c584`), 2026-07-22.
 
 ### PLATFORM-086H3B-REPLACEMENT-LEGACY-WRITER-FENCE-v1
 
 - Purpose: Replace the frozen PLATFORM-086H3B revision-status authority with the small reliability core the audits endorsed — a durable writer-control fence for the LIVE legacy game-stats writer, reusing prerequisite A.
-- Scope: Primary touched areas: `/verify`, `.env.local`, `.env`, `src/lib/gameStats/writerFence.ts`, plus related tests and documentation. Git and PR history retain the complete file-level scope.
+- Scope: `/verify`, `.env.local`, `.env`, `src/lib/gameStats/writerFence.ts`, plus tests/docs.
 - Outcome: (1) `src/lib/gameStats/writerFence.ts` — durable writer-control record.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV5](#shared-review-statements).
 - Status: Merged via PR #399 (`69d3770`), 2026-07-21.
 
 ### PLATFORM-086H3B-VALUE-AND-SCOPE-AUDIT-v1 / PLATFORM-086H3B-SPLIT-EXTRACTION-PLAN-v1
@@ -3553,9 +2165,9 @@ null` through response, receipt target, validator and UI, which renders a third 
 ### PLATFORM-086H3A-APP-STATE-MULTI-KEY-TRANSACTION-v1
 
 - Purpose: Add a generic, durable **multi-key** app-state transaction capability so a later prerequisite can atomically co-commit an evidence row with its revision-ledger row.
-- Scope: Primary touched areas: `/verify`, `src/lib/server/appStateStore.ts`, `JSON.stringify([scope, key])`, `1817/1817`, plus related tests and documentation. Git and PR history retain the complete file-level scope.
+- Scope: `/verify`, `src/lib/server/appStateStore.ts`, `JSON.stringify([scope, key])`, `1817/1817`, plus tests/docs.
 - Outcome: `src/lib/server/appStateStore.ts` — `AppStateKeyTxn` gains `readKey(scope,key)` / `writeKey(scope,key,value)` / `lockKey(scope,key)`, preserving the existing single-key `read`/`write` and every current caller.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Merged via PR #398 (`2793a6f`), 2026-07-19.
 
 ### PLATFORM-086H2-DURABLE-GAME-STATS-MERGE-SERVICE-v1
@@ -3563,7 +2175,7 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Provide the **dormant** durable merge authority PLATFORM-086H3 will activate atomically across validated ingestion → durable merge → cache completeness → schedule-relative recovery → analytics projection → truthful availability.
 - Scope: `src/lib/gameStats/durableMerge.ts`, transactional app-state support, merge and transaction tests, and dormant-boundary protections; no production caller.
 - Outcome: Added the dormant durable merge authority with provider-id identity, conservative category merging, per-game observation fencing, deterministic duplicate handling, transactional same-key serialization, and typed durability outcomes.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV4](#shared-review-statements).
 - Status: Merged via PR #397 (`c48e1ca`), 2026-07-18.
 
 ### PLATFORM-086H1-GAME-STATS-DATA-CONTRACT-IMPLEMENTATION-v1
@@ -3571,23 +2183,23 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Establish the game-stats data contract — strict parsing, typed classification, bounded legacy compatibility, canonical projection, duplicate selection.
 - Scope: `src/lib/gameStats/contract.ts`, its pure and boundary tests, and the recursive dormant-boundary guard; no production writer or reader activation.
 - Outcome: Added a dormant strict game-stats contract covering parsing, classification, bounded legacy compatibility, analytics projection, and deterministic duplicate selection while production behavior remained unchanged.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV4](#shared-review-statements).
 - Status: Merged via PR #396 (`0f8b562`), 2026-07-17.
 
 ### PLATFORM-086G2-ODDS-BOUNDARY-USAGE-TRUTHFULNESS-v1
 
 - Purpose: Close deferred PLATFORM-086A findings #4 and #3 at the Odds boundary as one cohesive PR.
-- Scope: Primary touched areas: `src/app/api/odds/route.ts`, `src/lib/odds/emptyOddsClassifier.ts`, `Promise.allSettled`, `src/lib/server/oddsUsageStore.ts`, plus related tests and documentation. Git and PR history retain the complete file-level scope.
+- Scope: `src/app/api/odds/route.ts`, `src/lib/odds/emptyOddsClassifier.ts`, `Promise.allSettled`, `src/lib/server/oddsUsageStore.ts`, plus tests/docs.
 - Outcome: **Odds payload boundary** (`src/app/api/odds/route.ts` + new pure `src/lib/odds/emptyOddsClassifier.ts`): a 200 response is no longer valid merely because it coerces to an empty array.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV3](#shared-review-statements).
 - Status: Merged via PR #395 (`0ee58b4`), 2026-07-16.
 
 ### PLATFORM-086G1-CFBD-SCORE-QUOTA-TRUTHFULNESS-v1
 
 - Purpose: Close deferred PLATFORM-086A findings #6 and #7 at the CFBD boundary as one cohesive PR.
-- Scope: Primary touched areas: `src/lib/scores/emptyScoresClassifier.ts`, `src/app/api/scores/route.ts`, `src/lib/api/cfbdUsage.ts`, `src/app/api/admin/usage/route.ts`, plus related tests and documentation. Git and PR history retain the complete file-level scope.
+- Scope: `src/lib/scores/emptyScoresClassifier.ts`, `src/app/api/scores/route.ts`, `src/lib/api/cfbdUsage.ts`, `src/app/api/admin/usage/route.ts`, plus tests/docs.
 - Outcome: **Scores empty classification** (new pure `src/lib/scores/emptyScoresClassifier.ts`; wired in `src/app/api/scores/route.ts`): `refreshScorePartition` no longer maps every empty CFBD array to a no-op.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV4](#shared-review-statements).
 - Status: Merged via PR #394 (`987dd04`), 2026-07-14.
 
 ### DOCS-009-PLATFORM-086-PLANNING-RECONCILIATION-v1
@@ -3595,7 +2207,7 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Implement the approved post-PLATFORM-086A planning reset as a narrow documentation-only change.
 - Scope: `docs/next-tasks.md`, `docs/roadmap.md`, `docs/prompt-registry.md`, `docs/completed-work.md`, `CLAUDE.md`, and the quota row in `docs/operations/deployment.md`; no runtime changes.
 - Outcome: Reconciled provider-campaign planning after PLATFORM-086A, split deferred correctness work by provider family, established cohesive PR-sizing guidance, and corrected current quota and cadence documentation.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered lint, tests as applicable.
+- Review / verification: [RV12](#shared-review-statements).
 - Status: Complete — merged via PR #391; Git history retains the exact commit and date.
 
 ### PLATFORM-086A-REFRESH-OBSERVABILITY-v1
@@ -3603,77 +2215,77 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Build truthful durable provider-refresh observability, controls, cache-only diagnostics, and freshness reporting as the foundation for later automation.
 - Scope: Provider refresh status, target scoping, automatic/manual refresh entry points, admin health presentation, durable status storage, tests, and operating documentation across schedule, scores, odds, rankings, and game stats.
 - Outcome: **Status model** (`src/lib/server/providerRefreshStatus.ts`, scope `provider-refresh-status`, one key per dataset): `beginProviderRefreshAttempt` / `recordProviderRefreshSuccess` / `recordProviderRefreshFailure`.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV3](#shared-review-statements).
 - Status: Merged via PR #391, 2026-07-14.
 
 ### PLATFORM-085C-SCHEDULE-ROUTE-SCHEMA-DRIFT-SAFETY-v1
 
 - Purpose: Close the narrow edge PLATFORM-085B intentionally left open.
-- Scope: Primary touched areas: `/api/schedule`, `src/app/api/schedule/route.ts`, `upstream.length > 0`, `items.length === 0`, plus related tests and documentation. Git and PR history retain the complete file-level scope.
+- Scope: `/api/schedule`, `src/app/api/schedule/route.ts`, `upstream.length > 0`, `items.length === 0`, plus tests/docs.
 - Outcome: `fetchSeasonType` now **throws** on (a) a non-array upstream payload and (b) a nonempty upstream (`upstream.length > 0`) that maps to zero rows (`items.length === 0`) — schema drift → uncertainty.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV3](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-085B-SEASON-TRANSITION-SCHEDULE-SAFETY-v1
 
 - Purpose: Make season-transition schedule refreshes safe against partial provider results.
-- Scope: Primary touched areas: `src/app/api/cron/season-transition/route.ts`, `/api/scores`, `/api/odds`, `AGENTS.md`, plus related tests and documentation. Git and PR history retain the complete file-level scope.
+- Scope: `src/app/api/cron/season-transition/route.ts`, `/api/scores`, `/api/odds`, `AGENTS.md`, plus tests/docs.
 - Outcome: `fetchCfbdSchedule` now returns `{ items, failedSeasonTypes }`, classifying each requested partition: a fetch that **throws**, returns a **non-array**, or normalizes a **nonempty** payload to **zero** rows (schema drift) is recorded as failed/uncertain; a successful fetch returning **zero** rows (e.g. postseason before bowls) is valid absence.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV4](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-085A-PROVIDER-CACHE-COMMIT-ORDER-v1
 
 - Purpose: Make provider cache writes durable-first so process memory never publishes "fresh" provider data before durable storage succeeds.
-- Scope: Primary touched areas: `oddsCache.entries`, `src/lib/server/rankings.ts`, `await setAppState(...)`, `/api/scores`, plus related tests and documentation. Git and PR history retain the complete file-level scope.
+- Scope: `oddsCache.entries`, `src/lib/server/rankings.ts`, `await setAppState(...)`, `/api/scores`, plus tests/docs.
 - Outcome: Audited every provider refresh write path that maintains a process-local cache alongside durable app-state and reordered each to persist durably BEFORE publishing to memory and BEFORE invalidating standings.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV4](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-084B-CANONICAL-SCORE-CACHE-RECONCILIATION-v1
 
 - Purpose: Make canonical standings, rollover/archive, and public `/api/scores` use the SAME cache-only score reconciliation, so a week-specific score cache refresh.
-- Scope: Primary touched areas: `/api/scores`, `src/lib/server/scoreCacheReader.ts`, `teamIdentity.ts`, `src/lib/__tests__/scoreCacheReader.test.ts`, plus related tests and documentation. Git and PR history retain the complete file-level scope.
+- Scope: `/api/scores`, `src/lib/server/scoreCacheReader.ts`, `teamIdentity.ts`, `src/lib/__tests__/scoreCacheReader.test.ts`, plus tests/docs.
 - Outcome: Extracted the public season-wide reconciliation (`aggregateSeasonScoresResponse`) into a shared cache-only reader `loadReconciledSeasonScores` (`src/lib/server/scoreCacheReader.ts`).
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV3](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-084A-CANONICAL-CACHE-FAILURE-SEMANTICS-v1
 
 - Purpose: Stop the canonical standings selector from caching _uncertainty_ as valid output.
-- Scope: Primary touched areas: `src/lib/preseasonOwnerStore.ts`, `try/catch → null`, `src/lib/selectors/leagueStandings.ts`, `.catch(() => [])`, plus related tests and documentation. Git and PR history retain the complete file-level scope.
+- Scope: `src/lib/preseasonOwnerStore.ts`, `try/catch → null`, `src/lib/selectors/leagueStandings.ts`, `.catch(() => [])`, plus tests/docs.
 - Outcome: Audited every app-state read in the `getCanonicalStandings` → `computeCanonicalStandings` → `resolve{Offseason,Season,Preseason}` → `liveDeriveStandings` path and classified each as absence-cacheable vs failure-must-reject.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV3](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-083-OWNERS-CSV-OPERATOR-GUARD-v1
 
 - Purpose: Add an active-season owner-roster overwrite guard so a CSV import or inline roster-editor save cannot silently clobber a confirmed current-season roster.
-- Scope: Primary touched areas: `PUT /api/owners`, `src/app/api/owners/route.ts`, `year >= league.year`, `parseOwnersCsv(existing).length > 0`, plus related tests and documentation. Git and PR history retain the complete file-level scope.
+- Scope: `PUT /api/owners`, `src/app/api/owners/route.ts`, `year >= league.year`, `parseOwnersCsv(existing).length > 0`, plus tests/docs.
 - Outcome: `PUT /api/owners` (`src/app/api/owners/route.ts`) now guards league-scoped writes: for the league's active season (`year >= league.year`; past years are historical backfill), a write that would replace an already-populated roster (`parseOwnersCsv(existing).length > 0`) returns `409 { error: 'owner_roster_overwrite_requires_override', message }` unless `?override=1` is passed.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV3](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-082B-INSIGHTS-CACHE-ENTRYPOINTS-v1
 
 - Purpose: Second/final split of `APPSTATESTORE-CACHING` — cache Insights output so it is not rebuilt on every page visit when inputs are unchanged, and review Insights entry-point cache behavior.
-- Scope: Primary touched areas: `src/lib/insights/engine.ts`, `src/lib/insights/loadInsights.ts`, `React.cache`, `leagueStandings.ts`, plus related tests and documentation. Git and PR history retain the complete file-level scope.
+- Scope: `src/lib/insights/engine.ts`, `src/lib/insights/loadInsights.ts`, `React.cache`, `leagueStandings.ts`, plus tests/docs.
 - Outcome: Split the engine (`src/lib/insights/engine.ts`) into `generateRawInsights` (pure, deterministic in `context`) and `applySuppression` (stateful — reads+writes the suppression store; output depends on run count); `runInsightsEngine` now composes them with identical behavior.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV3](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-082A-ARCHIVE-READ-CACHE-v1
 
 - Purpose: First split of `APPSTATESTORE-CACHING` — add a safe cross-request cache to season archive reads to cut repeated Postgres reads (and egress) on the hot history/insights paths before the August draft.
-- Scope: Primary touched areas: `src/lib/seasonArchive.ts`, `React.cache`, `incremental-cache/index.js:309`, `src/lib/__tests__/seasonArchive.test.ts`, plus related tests and documentation. Git and PR history retain the complete file-level scope.
+- Scope: `src/lib/seasonArchive.ts`, `React.cache`, `incremental-cache/index.js:309`, `src/lib/__tests__/seasonArchive.test.ts`, plus tests/docs.
 - Outcome: Wrapped `getSeasonArchive(slug, year)` and `listSeasonArchives(slug)` (`src/lib/seasonArchive.ts`) in `React.cache` (per-request dedup) over `unstable_cache` (cross-request, tag-only, `revalidate: false`), mirroring the canonical-standings pattern. Cache keys are `['season-archive', slug, year]` and `['season-archive-years', slug]`; a per-year read carries tags `archive:${slug}` + `archive:${slug}:${year}`, the year list carries `archive:${slug}`.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV4](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### DOCS-008-FINAL-DOCS-CONSISTENCY-CLEANUP-v1 (PR #382)
 
 - Purpose: Resolve the five small documentation-consistency findings from the broad post-closeout Codex review (after PRs #375–#381). Narrow docs-only cleanup; does not reopen the consolidation sequence.
-- Scope: Primary touched areas: `AGENTS.md`, `/admin`, `roadmap.md`, `README.md`, plus related tests and documentation. Git and PR history retain the complete file-level scope.
+- Scope: `AGENTS.md`, `/admin`, `roadmap.md`, `README.md`, plus tests/docs.
 - Outcome: (1) **Prompt-ID hygiene** — relabeled every `**Prompt ID to assign:**` bullet in `docs/next-tasks.md` (7) and `docs/roadmap.md` (7) to `**Backlog slug (provisional):**`, and added a note in each doc that backlog slugs are provisional planning labels, not formal prompt IDs — the formal `PROMPT_ID` (`<CAMPAIGN>-<###>-<SHORT_NAME>-v<version>` per `AGENTS.md`) is assigned only at task activation (with `<###>` checked against this registry then).
 - Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered lint, tests, build as applicable.
 - Status: Complete — merged via PR #382; Git history retains the exact commit and date.
@@ -3681,57 +2293,57 @@ null` through response, receipt target, validator and UI, which renders a third 
 ### DOCS-007-ROOT-DOCS-ARCHIVE-HYGIENE-v1 (PR #381)
 
 - Purpose: Narrow post-DOCS-006 hygiene pass — audit the three remaining legacy-looking `docs/` root files and either archive them or justify keeping them, so root `docs/` reads cleanly. Docs-only; not a new archive campaign.
-- Scope: Primary touched areas: `CLAUDE.md`, `architecture/overview.md`, `README.md`, `AGENTS.md`, plus related tests and documentation. Git and PR history retain the complete file-level scope.
+- Scope: `CLAUDE.md`, `architecture/overview.md`, `README.md`, `AGENTS.md`, plus tests/docs.
 - Outcome: Audited all three. **Kept `docs/CFB_APP_ARCHITECTURE.md` in place** — it is genuinely `Status: Current (reference)` and actively cited by `CLAUDE.md` and `docs/architecture/overview.md` as a current quick-sketch companion, so archiving would mislabel it; it only _looked_ legacy because it was a bare ASCII diagram, so added a proper H1 + lifecycle metadata header (and a "reference, not authority; see `architecture/overview.md`" note) to de-legacy it.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered tests, build as applicable.
+- Review / verification: [RV7](#shared-review-statements).
 - Status: Complete — merged via PR #381; Git history retains the exact commit and date.
 
 ### DOCS-006-ARCHIVE-PATH-DECISION-v1 (PR #380)
 
 - Purpose: Resolve the final deferred documentation-closeout item — the `archive/` path decision — so standalone historical audit/design/prompt artifacts are preserved without reading as current implementation authority.
-- Scope: Primary touched areas: `archive/`, `Scope: docs/game-stats-audit.md`, plus related tests and documentation. Git and PR history retain the complete file-level scope.
+- Scope: `archive/`, `Scope: docs/game-stats-audit.md`, plus tests/docs.
 - Outcome: Standardized `docs/archive/` for standalone historical artifacts, retained campaign retrospectives in place, moved ten files with history preserved, and added archive policy and indexing.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered tests, build as applicable.
+- Review / verification: [RV7](#shared-review-statements).
 - Status: Complete — merged via PR #380; Git history retains the exact commit and date.
 
 ### DOCS-005-LIFECYCLE-METADATA-ROLLOUT-v1 (PR #379)
 
 - Purpose: Complete the deferred lifecycle-metadata rollout.
-- Scope: Primary touched areas: `Status / Last verified (2026-07-09) / Owner / Canonical for / Supersedes`, `AGENTS.md`, `cfb-engineering-operating-instructions.md`, `CLAUDE.md`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `Status / Last verified (2026-07-09) / Owner / Canonical for / Supersedes`, `AGENTS.md`, `cfb-engineering-operating-instructions.md`, `CLAUDE.md`, plus tests/docs.
 - Outcome: Added standard lifecycle metadata to ten active governance and reference documents, leaving the archive-path decision as the sole documentation follow-up.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered tests, build as applicable.
+- Review / verification: [RV7](#shared-review-statements).
 - Status: Complete — merged via PR #379; Git history retains the exact commit and date.
 
 ### DOCS-004-DESIGN-CONTRADICTION-CLEANUP-v1 (PR #378)
 
 - Purpose: Resolve the two known `DESIGN.md` self-contradictions deferred through DOCS-002A/C so the canonical UI/design doc is internally consistent — docs-only, no runtime UI change.
-- Scope: Primary touched areas: `DESIGN.md`, `StandingsPanel.tsx`, `style={{ color: ownerColorFn(row.owner) }}`, `GameWeekPanel.tsx`, plus related tests and documentation. Git and PR history retain the complete file-level scope.
+- Scope: `DESIGN.md`, `StandingsPanel.tsx`, `style={{ color: ownerColorFn(row.owner) }}`, `GameWeekPanel.tsx`, plus tests/docs.
 - Outcome: Verified current intended behavior from implementation (two read-only code sweeps) before editing.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered tests as applicable.
+- Review / verification: [RV9](#shared-review-statements).
 - Status: Complete — merged via PR #378; Git history retains the exact commit and date.
 
 ### DOCS-002C-ARCHITECTURE-OPERATIONS-DOCS-v1 (PR #377)
 
 - Purpose: Create canonical current-architecture and operations documentation so runtime behavior and operator guidance no longer live only in governance files and the deployment runbook.
-- Scope: Primary touched areas: `AGENTS.md`, `CFB_APP_ARCHITECTURE.md`, `deployment-runbook.md`, `overview.md`, plus related tests and documentation. Git and PR history retain the complete file-level scope.
+- Scope: `AGENTS.md`, `CFB_APP_ARCHITECTURE.md`, `deployment-runbook.md`, `overview.md`, plus tests/docs.
 - Outcome: Added six architecture docs under `docs/architecture/`.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered tests, build as applicable.
+- Review / verification: [RV7](#shared-review-statements).
 - Status: Complete — merged via PR #377; Git history retains the exact commit and date.
 
 ### DOCS-002B-PLANNING-HISTORY-CLEANUP-v1
 
 - Purpose: Second DOCS-002 slice — planning/history docs cleanup so the current queue, roadmap, ledger, and completed-work stop competing.
-- Scope: Primary touched areas: `prompt-registry.md`, `completed-work.md`, `AGENTS.md`, `DESIGN.md`, plus related tests and documentation. Git and PR history retain the complete file-level scope.
+- Scope: `prompt-registry.md`, `completed-work.md`, `AGENTS.md`, `DESIGN.md`, plus tests/docs.
 - Outcome: `docs/next-tasks.md` — collapsed the completed "Audit-driven correctness + docs sequence".
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered tests, build as applicable.
+- Review / verification: [RV7](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### DOCS-002A-GOVERNANCE-AND-DOCUMENTATION-INDEX-v1
 
 - Purpose: First, narrowed slice of the DOCS-002 structural docs consolidation — establish a documentation index / source-of-truth map and tighten the root governance docs, without the larger planning/history/architecture restructure.
-- Scope: Primary touched areas: `AGENTS.md`, `DESIGN.md`, `CLAUDE.md`, `README.md`, plus related tests and documentation. Git and PR history retain the complete file-level scope.
+- Scope: `AGENTS.md`, `DESIGN.md`, `CLAUDE.md`, `README.md`, plus tests/docs.
 - Outcome: Docs-only.
-- Review / verification: Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered tests as applicable.
+- Review / verification: [RV11](#shared-review-statements).
 - Status: Complete — merged via PR #375; Git history retains the exact commit and date.
 
 ### DOCS-001B-GOVERNANCE-CORRECTNESS-DOCS-CLEANUP-v1
@@ -3749,9 +2361,9 @@ null` through response, receipt target, validator and UI, which renders a third 
 ### PLATFORM-081b-CLEANUP-DRYRUN-READONLY-v1
 
 - Purpose: Tooling hotfix (no runtime alias change).
-- Scope: Primary touched areas: `src/lib/server/appStateStore.ts`, `scripts/cleanup-legacy-league-aliases.ts`, `src/lib/server/__tests__/appStateStore.test.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/server/appStateStore.ts`, `scripts/cleanup-legacy-league-aliases.ts`, `src/lib/server/__tests__/appStateStore.test.ts`, plus tests/docs.
 - Outcome: Codex clean, no findings (first pass). Verification: `git diff --check`/`tsc`/`lint:all` clean; targeted tests 11/11 (9 legacy alias cleanup + 2 new appStateStore). Branch `platform/platform-081b-cleanup-dryrun-readonly`, PR #373.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV5](#shared-review-statements).
 - Status: Complete — merged via PR #373; Git history retains the exact commit and date.
 
 ### DOCS-003-STANDINGS-PRESEASON-STATE-CONTRADICTION-VERIFICATION-v1
@@ -3759,127 +2371,127 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Resolve the tracked `STANDINGS-PRESEASON-STATE` table-vs-prose contradiction by verifying from source whether the preseason cold-cache blank-standings behavior shipped or a correctness gap remains.
 - Scope: Docs only. `docs/next-tasks.md` — resolved the tracked contradiction item and corrected the stale INSIGHTS-017 backlog line (status table at line 39 was already correct).
 - Outcome: **Docs-stale.** The fix shipped in the Season Launch Hardening campaign (Phase 2, commits `88af434` + `43516b0`) and is verified present + tested. `src/lib/selectors/leagueStandings.ts` defines the `CanonicalStandingsSource` value `'preseason-awaiting-kickoff'` + `inferredSeasonStart` field; the season/preseason empty paths call `getScheduleProbeState(year)` and return `preseasonAwaitingKickoffSnapshot(...)` (no `Date.now()` in the cached selector).
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV4](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-081-SEED-KEY-CLEANUP-LEGACY-LEAGUE-SCOPED-ALIASES-v1
 
 - Purpose: Clean up redundant legacy `aliases:${slug}:${year}` seed-copy app-state keys left behind after the PLATFORM-067 alias migration made runtime resolution ignore league-scoped keys.
-- Scope: Primary touched areas: `src/lib/server/legacyAliasCleanup.ts`, `scripts/cleanup-legacy-league-aliases.ts`, `src/lib/server/appStateStore.ts`, `src/lib/server/__tests__/legacyAliasCleanup.test.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/server/legacyAliasCleanup.ts`, `scripts/cleanup-legacy-league-aliases.ts`, `src/lib/server/appStateStore.ts`, `src/lib/server/__tests__/legacyAliasCleanup.test.ts`, plus tests/docs.
 - Outcome: Three Codex rounds. Round-1 two P2s: (1) `safeToDelete` trusted the sentinel → fixed to per-entry promotion check; (2) script accessed app-state before loading env → silent file fallback → fixed with dotenv + postgres storage gate. Round-2 one P1: promotion counted key-existence, so a repair over a demoted seed copy was a false positive → fixed to require the stored global VALUE to equal the repair's target. Round-3 clean.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV5](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-080-IN-SESSION-FINALIZED-GAME-RSC-REFRESH-v1
 
 - Purpose: Fix the pre-existing in-session standings staleness surfaced in the PLATFORM-079a review.
-- Scope: Primary touched areas: `src/components/hooks/useLiveRefresh.ts`, `src/components/CFBScheduleApp.tsx`, `router.refresh()`, `src/components/hooks/__tests__/useLiveRefresh.test.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/components/hooks/useLiveRefresh.ts`, `src/components/CFBScheduleApp.tsx`, `router.refresh()`, `src/components/hooks/__tests__/useLiveRefresh.test.ts`, plus tests/docs.
 - Outcome: **Why `router.refresh()` suffices** — `getCanonicalStandings` is `unstable_cache`-wrapped (cached until `revalidateTag`), but the `/api/scores` write path already calls `invalidateStandingsForYear` when it writes a final, so the tag is busted and `router.refresh()`'s recompute picks up the new final.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV5](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-079b-ADMINDEBUGSURFACE-USELIVEREFRESH-DEAD-PLUMBING-CLEANUP-v1
 
 - Purpose: Remove the PLATFORM-078-deferred `AdminDebugSurface` + `surface==='admin'` path and the now-dead state/handler/hook-prop chain it was the sole consumer of.
-- Scope: Primary touched areas: `src/components/AdminDebugSurface.tsx`, `src/components/CFBScheduleApp.tsx`, `src/components/hooks/useLiveRefresh.ts`, `src/components/hooks/useScheduleBootstrap.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/components/AdminDebugSurface.tsx`, `src/components/CFBScheduleApp.tsx`, `src/components/hooks/useLiveRefresh.ts`, `src/components/hooks/useScheduleBootstrap.ts`, plus tests/docs.
 - Outcome: `AdminDebugSurface` was reachable only through `CFBScheduleApp`'s `surface==='admin'` branch, which no production route mounts (only a test did). `refreshLiveData` and the `manual` authorized-refresh machinery are RETAINED — `refreshLiveData` powers internal auto-refresh (useEffect), and `manual` still authorizes upstream scores/odds refresh (PLATFORM-075 semantics unchanged); it simply has no live caller now.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV5](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-079a-CFBSCHEDULEAPP-CANONICAL-STANDINGS-v1
 
 - Purpose: Retire the client-side `deriveStandings` path in `CFBScheduleApp` (outside `src/lib/selectors/`) and source Members owner options/selection + owner colors + standings-fed surfaces from the canonical selector output.
-- Scope: Primary touched areas: `src/components/CFBScheduleApp.tsx`, `src/components/__tests__/CFBScheduleApp.test.tsx`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/components/CFBScheduleApp.tsx`, `src/components/__tests__/CFBScheduleApp.test.tsx`, plus tests/docs.
 - Outcome: Verified (via subagent map) canonical is guaranteed present at all 4 league routes (`getCanonicalStandings` never returns null/undefined; pages pass it unconditionally) and that every records-bearing surface already resolved `canonicalStandings?.rows ?? clientRows` → canonical won in production.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-078-DEAD-CODE-SWEEP-ALIASES-TEAMNAMES-ADMINDEBUGSURFACE-v1
 
 - Purpose: Conservative P3 dead-code sweep — remove only code proven unreferenced/unreachable by static search; do not trust the candidate list blindly.
-- Scope: Primary touched areas: `src/lib/aliases.ts`, `src/lib/teamNames.ts`, `./teamNormalization`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/aliases.ts`, `src/lib/teamNames.ts`, `./teamNormalization`, plus tests/docs.
 - Outcome: Removed the unreferenced aliases module and dead team-name helpers. AdminDebugSurface was retained after static and trial-removal evidence showed it was reachable and entangled with live refresh state, making its removal a separate architecture task.
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV3](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-077-INSIGHTS-CANONICAL-GAMES-IN-PROCESS-v1
 
 - Purpose: Stop Insights from HTTP self-fetching its own app routes and privately rebuilding schedule/game state; consume the same canonical in-process game/lifecycle inputs production standings use.
-- Scope: Primary touched areas: `src/lib/insights/loadInsights.ts`, `next/headers`, `/api/schedule`, `/api/teams`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/insights/loadInsights.ts`, `next/headers`, `/api/schedule`, `/api/teams`, plus tests/docs.
 - Outcome: The self-fetch was server-calling-its-own-routes-over-HTTP — bypassing the in-process pipeline and (subtly) omitting `manualOverrides`, so Insights' `games` could diverge from the standings the same function already consumes via `getCanonicalStandings`. Fix aligns Insights' game build exactly with `liveDeriveStandings` (identical inputs → identical `AppGame[]`).
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-076-DEBUG-ROUTE-CANONICAL-PARITY-v1
 
 - Purpose: Make `/api/debug/*` diagnostics trustworthy by resolving identity/schedule/attachment against the SAME canonical pipeline production uses, instead of a weaker parallel one.
-- Scope: Primary touched areas: `src/app/api/debug/_lib/loadDebugSeasonContext.ts`, `/api/conferences`, `src/app/api/debug/scores/route.ts`, `src/app/api/debug/postseason-score-attachment/route.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/app/api/debug/_lib/loadDebugSeasonContext.ts`, `/api/conferences`, `src/app/api/debug/scores/route.ts`, `src/app/api/debug/postseason-score-attachment/route.ts`, plus tests/docs.
 - Outcome: Root cause was uniform — debug routes fetched `/api/aliases?year=` (the year-only stored editor view) rather than the effective resolver map, so every identity/eligibility verdict resolved against a strictly weaker alias set than production. Audited all 14 debug routes via four parallel read-only analyses; `debug/schedule`, `debug/scores-attachment`, `conference-diagnostics`, and both insights routes were already canonical.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-075-PROVIDER-QUOTA-HARDENING-PUBLIC-STALE-READS-v1
 
 - Purpose: Protect the CFBD/Odds monthly quotas from public traffic by making the public `/api/odds` and `/api/scores` surfaces pure cache readers.
-- Scope: Primary touched areas: `src/app/api/odds/route.ts`, `src/app/api/odds/routeInternals.ts`, `src/app/api/scores/route.ts`, `src/lib/server/appStateStore.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/app/api/odds/route.ts`, `src/app/api/odds/routeInternals.ts`, `src/app/api/scores/route.ts`, `src/lib/server/appStateStore.ts`, plus tests/docs.
 - Outcome: Product call resolved as interpretation A — public is a pure cache reader; all upstream fetches require an authorized `refresh=1` (platform admin / server cron / `ADMIN_API_TOKEN` via `requireAdminAuth`); the league-password gate grants no fetch authority; public freshness is best-effort and quota protection wins.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-074-DEBUG-ROUTES-PLATFORM-ADMIN-MIDDLEWARE-GATE-v1
 
 - Purpose: Gate the `/debug/*` browser page family behind platform-admin authorization (the `/debug/teams` page had no server-side gate) and consolidate the platform-admin definition into one shared predicate.
-- Scope: Primary touched areas: `src/lib/auth/platformAdmin.ts`, `publicMetadata.role`, `/admin`, `/debug`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/auth/platformAdmin.ts`, `publicMetadata.role`, `/admin`, `/debug`, plus tests/docs.
 - Outcome: `/api/debug/*` is intentionally NOT middleware-gated — all 12 routes already call `requireAdminAuth` at the route boundary (PLATFORM-020), which uniquely supports the `ADMIN_API_TOKEN` fallback middleware can't express. The four concerns stay distinct: Clerk auth, Clerk admin role, league password (`LEAGUE_AUTH_SECRET`), admin API token.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV5](#shared-review-statements).
 - Status: Complete — merged via PR #364; Git history retains the exact commit and date.
 
 ### PLATFORM-073-POSTSEASON-ATTACHMENT-EDGE-CASES-v1
 
 - Purpose: Fix three postseason edge cases in the canonical score/schedule attachment layer without introducing cross-phase mismatches or missing provider-id matches.
-- Scope: Primary touched areas: `src/lib/scoreAttachment.ts`, `match.orientation`, `src/lib/schedule.ts`, `lib/__tests__/postseasonAttachmentEdges.test.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/scoreAttachment.ts`, `match.orientation`, `src/lib/schedule.ts`, `lib/__tests__/postseasonAttachmentEdges.test.ts`, plus tests/docs.
 - Outcome: Odds attachment uses a separate pair-keyed index (`gameAttachment.ts`, no provider-id path), so defect 1 is scoped to the score path.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV5](#shared-review-statements).
 - Status: Complete — merged via PR #363; Git history retains the exact commit and date.
 
 ### PLATFORM-072-POST-CONFIRM-DRAFT-EDIT-OWNERSHIP-DRIFT-v1
 
 - Purpose: Fix ownership drift when a draft pick is edited after confirmation.
-- Scope: Primary touched areas: `src/lib/draft.ts`, `src/app/api/draft/[slug]/[year]/confirm/route.ts`, `src/app/api/draft/[slug]/[year]/pick/[n]/route.ts`, `lib/__tests__/draft.test.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/draft.ts`, `src/app/api/draft/[slug]/[year]/confirm/route.ts`, `src/app/api/draft/[slug]/[year]/pick/[n]/route.ts`, `lib/__tests__/draft.test.ts`, plus tests/docs.
 - Outcome: Only `phase === 'complete'` resyncs; pre-confirm phases (incl. a draft reopened via confirm `DELETE`, which intentionally holds the last confirmed CSV until re-confirm) are unchanged. The patch MOVES the pick's claim (old-team→new-team) rather than rebuilding from picks, so it preserves unrelated `/api/owners` admin repairs.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Complete — merged via PR #362; Git history retains the exact commit and date.
 
 ### PLATFORM-071-CRON-PRESEASON-STANDINGS-INVALIDATION-SWEEP-v1
 
 - Purpose: Close the remaining documented `invalidateStandings` gaps for season-lifecycle and preseason ownership flows — mutations that change a league's standings surface but left the cached canonical snapshot stale (hard-refresh workaround).
-- Scope: Primary touched areas: `src/app/admin/[slug]/actions.ts`, `src/app/api/cron/season-rollover/route.ts`, `src/app/api/cron/season-transition/route.ts`, `src/lib/selectors/leagueStandings.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/app/admin/[slug]/actions.ts`, `src/app/api/cron/season-rollover/route.ts`, `src/app/api/cron/season-transition/route.ts`, `src/lib/selectors/leagueStandings.ts`, plus tests/docs.
 - Outcome: All four flows are league-scoped → per-league `invalidateStandings` (umbrella tag covers all cached years); no global tag, no registry enumeration. Failure/unauthorized/no-op/skip paths do not invalidate. Deliberately not wired (recorded in the docstring): `completeSetup` (setupComplete flag; no standings-content change) and the `slug='test'` dev-tooling actions.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV5](#shared-review-statements).
 - Status: Complete — merged via PR #361; Git history retains the exact commit and date.
 
 ### PLATFORM-070-TEAM-DB-WRITES-STANDINGS-INVALIDATION-v1
 
 - Purpose: Close the team-database write → canonical standings invalidation gap.
-- Scope: Primary touched areas: `src/lib/selectors/leagueStandings.ts`, `src/app/api/admin/team-database/route.ts`, `src/app/api/aliases/route.ts`, `src/lib/server/teamDatabaseStore.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/selectors/leagueStandings.ts`, `src/app/api/admin/team-database/route.ts`, `src/app/api/aliases/route.ts`, `src/lib/server/teamDatabaseStore.ts`, plus tests/docs.
 - Outcome: Year/league-scoped mutations still use `invalidateStandings(slug, year)` unchanged. Design converged across three Codex rounds — P2 (registry-read ordering) → P1 (cross-instance catalog staleness defeated tag invalidation) → P2 (pre-write snapshot registry race) — landing on a single shared tag (race-free, no post-commit `getLeagues()` to fail) plus per-request catalog reads.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV5](#shared-review-statements).
 - Status: Complete — merged via PR #360; Git history retains the exact commit and date.
 
 ### PLATFORM-069-DRAFT-WIN-TOTALS-CANONICAL-ALIAS-SOURCE-v1
 
 - Purpose: Fix the remaining draft/win-totals alias-source bypass after PLATFORM-067 — resolve team names through the shared canonical scoped alias source instead of a locally built year+seed map that ignored stored global aliases.
-- Scope: Primary touched areas: `src/app/api/draft/[slug]/[year]/pick/route.ts`, `pick/[n]/route.ts`, `src/app/api/admin/win-totals/route.ts`, `{ ...SEED_ALIASES, ...aliases:${year} }`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/app/api/draft/[slug]/[year]/pick/route.ts`, `pick/[n]/route.ts`, `src/app/api/admin/win-totals/route.ts`, `{ ...SEED_ALIASES, ...aliases:${year} }`, plus tests/docs.
 - Outcome: `confirm/route.ts` inspected — writes already-canonical eligible team names, resolves no raw labels, so unchanged. No league-scoped runtime aliases reintroduced; no unrelated runtime behavior changed. Post-confirm draft-edit ownership drift remains **PLATFORM-072** (out of scope). Verification: new suites 12/12; related draft/teamIdentity/alias/odds suites 162/162; `git diff --check`, `tsc --noEmit`, `lint:all` clean.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests as applicable.
+- Review / verification: [RV5](#shared-review-statements).
 - Status: Complete — merged via PR #359; Git history retains the exact commit and date.
 
 ### PLATFORM-067-REMOVE-LEAGUE-ALIAS-LAYER-v1
 
 - Purpose: Remove league-scoped aliases from canonical alias resolution — team aliases are not league-specific (settled product decision). Final runtime precedence: **stored global → year → SEED_ALIASES**.
-- Scope: Primary touched areas: `src/lib/server/globalAliasStore.ts`, `draftSchedule.ts`, `board/boardData.ts`, `bootstrap.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/server/globalAliasStore.ts`, `draftSchedule.ts`, `board/boardData.ts`, `bootstrap.ts`, plus tests/docs.
 - Outcome: `getScopedAliasMap(_leagueSlug, year)` keeps the slug arg for API/call-site compatibility but it no longer affects resolution. **PLATFORM-066 production data check** found NO unique league-scoped repairs — all prod `aliases:${slug}:${year}` entries (`test:2025`, `test:2026`, `tsc:2025`) were copied current-seed defaults already represented in `aliases:global` + `SEED_ALIASES`, so **no migration was required** (prod migration sentinel already set).
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Complete — merged via PR #355; Git history retains the exact commit and date.
 
 ### PLATFORM-066-LEAGUE-ALIAS-DATA-CHECK-v1
@@ -3891,17 +2503,17 @@ null` through response, receipt target, validator and UI, which renders a third 
 ### PLATFORM-065-CLEANUP-ORPHANED-STAGING-UTILS-v1
 
 - Purpose: Dead-code cleanup of the alias-**staging** helpers left orphaned after PLATFORM-064 removed the hidden league-scoped alias editor and its write path. No behavior change.
-- Scope: Primary touched areas: `src/lib/aliasStaging.ts`, `src/lib/adminDiagnostics.ts`, `CFBScheduleApp.test.tsx`, `IssuesPanel.test.tsx`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/aliasStaging.ts`, `src/lib/adminDiagnostics.ts`, `CFBScheduleApp.test.tsx`, `IssuesPanel.test.tsx`, plus tests/docs.
 - Outcome: Reachability confirmed all three helpers had **zero reachable production callers** post-064 (`aliasStaging.ts` no importers; `hasStagedAliasChanges` no refs; `getAdminAlertCount` test-only). Kept `splitIssueDiagnostics` — still live in `IssuesPanel.tsx`.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Complete — merged via PR #354; Git history retains the exact commit and date.
 
 ### PLATFORM-064-REMOVE-HIDDEN-LEAGUE-ALIAS-EDITOR-v1
 
 - Purpose: Remove the unreachable in-app league-scoped alias editor + its write path (surfaced by the PLATFORM-061 audit; safe now per PLATFORM-062/063 follow-ups). No reachable behavior change.
-- Scope: Primary touched areas: `CFBScheduleApp.tsx`, `AdminDebugSurface.tsx`, `IssuesPanel.tsx`, `aliasesApi.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `CFBScheduleApp.tsx`, `AdminDebugSurface.tsx`, `IssuesPanel.tsx`, `aliasesApi.ts`, plus tests/docs.
 - Outcome: The league editor rendered only under `CFBScheduleApp surface==='admin'`, which no route mounts (only a test), so its `PUT /api/aliases?league=` write path had no reachable caller. The league RESOLUTION layer in `getScopedAliasMap` is untouched (separate data-gated follow-up); it stays the ONLY client path to league-scoped repairs (via `GET ?scope=effective`). Client identity now flows solely through the effective resolver map.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Complete — merged via PR #353; Git history retains the exact commit and date.
 
 ### PLATFORM-063-REMOVE-DEAD-TRENDS-PAGEDATA-v1
@@ -3916,7 +2528,7 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Align the remaining odds/trends alias consumers with canonical effective resolution. Focused correctness PR — does NOT remove league-scoped aliases or the hidden editor.
 - Scope: `src/app/api/odds/route.ts` (+ `route.test.ts`). Trends was found to be **dead code** (see below) — not modified.
 - Outcome: `odds/route.ts` `readAliasesForSeason` read only `aliases:${season}` (year scope) + hand-merged `SEED_ALIASES`, **missing stored global aliases**, so odds identity could diverge from canonical schedule/standings. Odds requests carry **no league context** (`/api/odds` query is season+markets; client fetches `?year=` only), so odds now resolves via `getScopedAliasMap('', season)` → stored global > year > SEED_ALIASES (league+year layer N/A).
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-060-CANONICAL-ALIAS-REMAINING-CONSUMERS-v1
@@ -3924,15 +2536,15 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Fix the two remaining raw alias-consumer divergences found after the alias-model sequence (055→057→059→058). Focused correctness PR — does NOT remove league-scoped aliases.
 - Scope: `src/app/league/[slug]/draft/page.tsx`, new `src/app/league/[slug]/draft/draftSchedule.ts` (+ test), `src/app/api/debug/{archive-audit,archive-integrity,game-stats-diagnostic}/route.ts`.
 - Outcome: `draft/page.tsx` had hand-merged `{ ...SEED_ALIASES, ...aliases:${year}, ...aliases:${slug}:${year} }` for both current- and prior-year schedules — it **missed stored `aliases:global`** and used **inverted precedence** (league > year, no stored-global tier), so draft-board identity could mis/unresolve a global- or seed-resolved team vs canonical/live.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-058-CLIENT-EFFECTIVE-ALIAS-BOOTSTRAP-v1
 
 - Purpose: Final alias-model item — make the client resolve schedule/liveDelta identity via the effective scoped alias map.
-- Scope: Primary touched areas: `src/app/api/aliases/route.ts`, `src/lib/aliasesApi.ts`, `src/lib/bootstrap.ts`, `src/components/hooks/useScheduleBootstrap.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/app/api/aliases/route.ts`, `src/lib/aliasesApi.ts`, `src/lib/bootstrap.ts`, `src/components/hooks/useScheduleBootstrap.ts`, plus tests/docs.
 - Outcome: **Stored vs effective are deliberately distinct.** `GET /api/aliases?scope=effective` is the read-only resolver view (`getScopedAliasMap`); the default `?league=` GET stays the editable STORED view, so the in-app alias editor never round-trips global/seed defaults into a scope.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-059-CANONICAL-ALIAS-SERVER-CONSUMERS-v1
@@ -3945,9 +2557,9 @@ null` through response, receipt target, validator and UI, which renders a third 
 ### PLATFORM-057-SEED-ALIASES-TO-GLOBAL-v1
 
 - Purpose: Make the static `SEED_ALIASES` bundle globally available to all server alias consumers so PLATFORM-058 can safely change client alias bootstrap. Prerequisite for 058.
-- Scope: Primary touched areas: `src/lib/server/globalAliasStore.ts`, `src/lib/selectors/leagueStandings.ts`, `src/app/api/aliases/route.ts`, `src/app/api/owners/route.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/server/globalAliasStore.ts`, `src/lib/selectors/leagueStandings.ts`, `src/app/api/aliases/route.ts`, `src/app/api/owners/route.ts`, plus tests/docs.
 - Outcome: **Approach (user-approved): seeds are merged IN-MEMORY, not persisted.** After weighing a persist+versioned-sentinel design, chose to expose `SEED_ALIASES` as a code-defined lowest-precedence layer, which dissolved the write/invalidation/versioning problems at the root. Final model: - Effective precedence **stored global > league+year > year > SEED_ALIASES** (seeds are defaults; any persisted manual repair beats them).
-- Review / verification: Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV3](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-055-CODEX-FINDINGS-REMEDIATION-2-v1
@@ -3955,23 +2567,23 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Address Codex re-review of PLATFORM-055 — align every active alias consumer with canonical's effective (global-first) alias semantics.
 - Scope: `src/lib/insights/context.ts` (P2, shipped); P1 flagged as a scope boundary (not shipped). Tests: new `src/lib/__tests__/insights-context-aliases.test.ts`.
 - Outcome: **P2 shipped** — `insights/context.ts` `loadOwnerSeasonStats` now resolves via `getScopedAliasMap` instead of the private `[league, year, global]` accumulator-wins merge (which was league-first and lacked the normalized dedup). Same resolver wiring as canonical; removed dead `loadAliasMap` + now-unused `getAppState`/`AliasMap` imports.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-055-CODEX-FINDINGS-REMEDIATION-v1
 
 - Purpose: Fix the two Codex review findings on PLATFORM-055 before merge (in-scope corrections, not follow-ups).
-- Scope: Primary touched areas: `src/lib/server/globalAliasStore.ts`, `src/app/api/aliases/route.ts`, `globalAliasStore.test.ts`, `aliases/route.test.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/server/globalAliasStore.ts`, `src/app/api/aliases/route.ts`, `globalAliasStore.test.ts`, `aliases/route.test.ts`, plus tests/docs.
 - Outcome: Normalized alias precedence by resolver identity and added standings invalidation for year-only alias writes and actual global-alias migrations.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-055-CANONICAL-GLOBAL-ALIAS-MERGE-v1
 
 - Purpose: Make canonical standings consume the effective (scoped) alias map instead of the league-only scope, and invalidate affected canonical standings caches when global aliases change.
-- Scope: Primary touched areas: `src/lib/selectors/leagueStandings.ts`, `src/app/api/aliases/route.ts`, `src/lib/server/__tests__/globalAliasStore.test.ts`, `src/app/api/aliases/__tests__/route.test.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/selectors/leagueStandings.ts`, `src/app/api/aliases/route.ts`, `src/lib/server/__tests__/globalAliasStore.test.ts`, `src/app/api/aliases/__tests__/route.test.ts`, plus tests/docs.
 - Outcome: Precedence preserved (global > league+year > year) via the existing `getScopedAliasMap`; no new merge helper, all matching still through `teamIdentity.ts`. Global alias writes invalidate the per-league umbrella tag only (no year), since a global alias can affect any cached year.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-053-INSIGHTS-CANONICAL-STANDINGS-INPUTS-v1
@@ -3979,7 +2591,7 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Make `loadInsightsForLeague` consume canonical standings rows/history from `getCanonicalStandings` instead of independently re-deriving standings.
 - Scope: `src/lib/insights/loadInsights.ts` (standings rows/history from canonical; removed the local derivation + the score fetch that only fed it). Tests: new `loadInsights.test.ts`.
 - Outcome: Standings rows/history now come from `getCanonicalStandings({ slug, year, currentDate })` (`canonical.rows` → currentStandings; `canonical.standingsHistory` → weeklyStandings + `selectSeasonContext`); authoritative even when empty/null, no local fallback. `games`/roster/rankings/lifecycle/suppression preserved.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-051-OVERVIEW-LIVEDELTA-OVERLAY-v1
@@ -3991,9 +2603,9 @@ null` through response, receipt target, validator and UI, which renders a third 
 ### PLATFORM-049-STANDINGS-COVERAGE-CANONICAL-CONTRACT-v1
 
 - Purpose: Make Standings rows, history, and coverage come from the same canonical snapshot whenever one is supplied.
-- Scope: Primary touched areas: `src/lib/selectors/standingsCanonicalInputs.ts`, `src/components/StandingsPanel.tsx`, `standingsCanonicalInputs.test.ts`, `StandingsPanel.test.tsx`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/selectors/standingsCanonicalInputs.ts`, `src/components/StandingsPanel.tsx`, `standingsCanonicalInputs.test.ts`, `StandingsPanel.test.tsx`, plus tests/docs.
 - Outcome: Standings coverage now canonical-preferred; local coverage only when NO canonical snapshot is supplied; missing/null canonical coverage → conservative `{ state: 'error', message: 'Standings coverage is unavailable.' }` (never local; `CanonicalStandings.coverage` stays required — defensive runtime handling).
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-046-MEMBER-HEADER-LIVE-OVERLAY-v1
@@ -4005,17 +2617,17 @@ null` through response, receipt target, validator and UI, which renders a third 
 ### PLATFORM-048-OVERVIEW-COVERAGE-CANONICAL-CONTRACT-v1
 
 - Purpose: Make Overview coverage canonical-preferred whenever a canonical standings snapshot is supplied (closing the remaining gap PLATFORM-047 characterized: rows/history were canonical but coverage stayed local).
-- Scope: Primary touched areas: `src/lib/selectors/overview.ts`, `src/components/OverviewPanel.tsx`, `src/components/CFBScheduleApp.tsx`, `overview-canonical-contract.test.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/selectors/overview.ts`, `src/components/OverviewPanel.tsx`, `src/components/CFBScheduleApp.tsx`, `overview-canonical-contract.test.ts`, plus tests/docs.
 - Outcome: Overview coverage now comes from canonical when a snapshot is supplied; client-derived coverage is used only when NO snapshot is supplied. A supplied snapshot with missing/null coverage returns the conservative `{ state: 'error', message: 'Standings coverage is unavailable.' }` (never local) — `CanonicalStandings.coverage` stays required at the type level (defensive runtime handling only).
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-047-OVERVIEW-CANONICAL-CONTRACT-CHARACTERIZATION-v1
 
 - Purpose: Test-first characterization of the Overview canonical-vs-local source boundary before any behavioral migration. No behavior change.
-- Scope: Primary touched areas: `src/lib/selectors/overview.ts`, `src/components/OverviewPanel.tsx`, `overview-canonical-contract.test.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/selectors/overview.ts`, `src/components/OverviewPanel.tsx`, `overview-canonical-contract.test.ts`, plus tests/docs.
 - Outcome: Pinned Overview contract — **rows**: canonical when a snapshot is supplied.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-044-CANONICAL-MEMBER-RECORDS-v1
@@ -4023,7 +2635,7 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Make the Members view owner header (rank/record/win%/point differential) use canonical standings rows instead of locally derived standings, so Members agrees with the Standings surface.
 - Scope: `src/lib/ownerView.ts` (`deriveOwnerViewSnapshot` takes optional `canonicalStandingsRows`; header sourced from it), `src/components/CFBScheduleApp.tsx` (pass `canonicalStandings?.rows`). Tests: `ownerView.test.ts`.
 - Outcome: Members owner header now prefers canonical standings. **Canonical is authoritative when supplied** (per review decision): when a canonical snapshot is passed — even empty or omitting the owner — the header is the canonical row or `null`, never the local row, so Members never resurrects an owner/standings canonical excludes. Local rows are used for the header only when NO canonical snapshot is supplied (`undefined`, e.g. Trends/History routes).
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-043-SCHEDULE-ROUTE-CANONICAL-INPUTS-v1
@@ -4031,7 +2643,7 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Make `/league/[slug]/schedule` provide the same canonical standings, league status, and archive context as the root league route, so entering directly through Schedule is a route-specific entry into the same canonical app state.
 - Scope: `src/app/league/[slug]/schedule/page.tsx` (load `getCanonicalStandings` + `listSeasonArchives` + derive `leagueStatus`/`mostRecentArchivedYear`, mirroring the root route). Test: new `src/app/league/[slug]/schedule/__tests__/page.test.tsx`.
 - Outcome: `/league/[slug]/schedule` now receives the same canonical standings/status/archive inputs as the root league route. Component fallbacks remain intentionally in place (empty/unavailable leagues still receive a canonical snapshot the fallback branches handle).
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-042-LEAGUE-SEASON-RESOLUTION-v1
@@ -4039,39 +2651,39 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Make `CFBScheduleApp` schedule/scores/aliases/rankings/insights/storage use the league-resolved season instead of falling back to global `DEFAULT_SEASON` for active-season and offseason leagues.
 - Scope: new pure `src/lib/leagueSeason.ts` (`resolveLeagueSeason`); `src/components/CFBScheduleApp.tsx` (seed `selectedSeason` via the resolver; collapse the duplicate `draftLookupYear`). Tests: new `leagueSeason.test.ts` + a `CFBScheduleApp` active-season regression.
 - Outcome: Client schedule/scores/aliases/rankings/insights/storage now use the league-resolved season. `resolveLeagueSeason` precedence: `leagueStatus.year` (preseason/season) → `leagueYear` → `defaultSeason`; active-season and offseason leagues no longer silently use `DEFAULT_SEASON` when league-specific year info exists.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-039-CANONICAL-GAME-OWNERSHIP-LOOKUP-v1
 
 - Purpose: Make current-season ownership resolution use centralized, resolver-free game-identity candidates instead of raw provider-name equality.
-- Scope: Primary touched areas: `src/lib/gameOwnership.ts`, `gameTags.ts`, `standings.ts`, `selectors/liveDelta.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/gameOwnership.ts`, `gameTags.ts`, `standings.ts`, `selectors/liveDelta.ts`, plus tests/docs.
 - Outcome: Current-season ownership lookup now uses centralized resolver-free game ownership candidates (participant teamId → canonical/display/raw → `canHome/away` → `csvHome/away` legacy fallback; exact-match). This does **not** preserve or expand CSV-upload architecture. Provider-facing display labels (`csvHome/csvAway`) preserved. Codex P2 addressed: `OverviewPanel.liveCountByOwner` also routed through the shared helper.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-036-FBS-FCS-MATCHUP-SELECTOR-CLASSIFICATION-v1
 
 - Purpose: Classify FCS opponents through canonical conference-subdivision policy instead of local conference-name regexes.
-- Scope: Primary touched areas: `src/lib/conferenceSubdivision.ts`, `src/lib/matchups.ts`, `src/lib/selectors/matchups.ts`, `src/lib/selectors/gameWeek.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/conferenceSubdivision.ts`, `src/lib/matchups.ts`, `src/lib/selectors/matchups.ts`, `src/lib/selectors/gameWeek.ts`, plus tests/docs.
 - Outcome: Matchup selector/display FCS classification now uses shared conference subdivision policy (`isPolicyFcsConference`, backed by `resolvePresentDayConferencePolicy`) instead of local regexes; the helper is pure and does not consult the mutable CFBD conference index.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-035-DRAFT-BOARD-CANONICAL-ALIAS-LOADING-v1
 
 - Purpose: Load draft-board aliases from server-safe scoped storage so server-rendered schedule insights populate.
-- Scope: Primary touched areas: `src/lib/server/globalAliasStore.ts`, `src/app/league/[slug]/draft/board/boardData.ts`, `src/app/league/[slug]/draft/board/page.tsx`, `aliases.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/server/globalAliasStore.ts`, `src/app/league/[slug]/draft/board/boardData.ts`, `src/app/league/[slug]/draft/board/page.tsx`, `aliases.ts`, plus tests/docs.
 - Outcome: Spectator draft board alias loading now uses server-safe appState sources. `getScopedAliasMap` walks `aliases:global` + deprecated `aliases:{slug}:{year}` / `aliases:{year}` scopes with precedence **global > league+year > year** (global is the canonical store; legacy scopes are deprecated and migration preserves global entries — matches the owners upload merge).
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-031-EVENT-DATE-AWARE-ATTACHMENT-v1
 
 - Purpose: Make production odds attachment event-centric and date-aware so upstream odds events attach to the correct canonical schedule game via team identity + commence time, with no same-pair fan-out and no arbitrary duplicate first-win.
-- Scope: Primary touched areas: `src/lib/oddsAttachment.ts`, `src/lib/gameAttachment.ts`, `ScheduleAttachmentGame.date`, `src/app/api/odds/routeInternals.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/oddsAttachment.ts`, `src/lib/gameAttachment.ts`, `ScheduleAttachmentGame.date`, `src/app/api/odds/routeInternals.ts`, plus tests/docs.
 - Outcome: Commit `(this PR)`. Algorithm: iterate events → resolve pair via `teamIdentity` `buildPairKey` → candidate canonical games from `buildSchedulePairIndex` → if `commenceTime` present and any candidate dated, narrow to ±24h window → attach only when exactly one candidate remains; skip on zero/multiple. One-to-one safety via a consumed-game set (a claimed game is never overwritten).
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-030-ATTACHMENT-REGRESSION-TESTS-v1
@@ -4079,23 +2691,23 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Purpose: Add regression coverage for schedule-based score/odds attachment and schedule eligibility BEFORE changing odds matching behavior (PLATFORM-031-EVENT-DATE-AWARE-ATTACHMENT-v1).
 - Scope: Test-only. `src/lib/__tests__/{oddsAttachment,scoreAttachment,schedule-eligibility}.test.ts`. No production changes; no testability exports needed.
 - Outcome: Commit `(this PR)`. Odds: passing tests document current schedule-canonical safety (unmatched events create no entries; only canonical games attach) AND current UNSAFE pair-only behavior (one event fans out to both same-pair games; duplicate provider events first-win).
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-020-ADMIN-DEBUG-API-GATES-v1
 
 - Purpose: Require admin authorization on `/api/admin/*` and `/api/debug/*` GET routes that expose diagnostics / storage / API-usage state or can trigger quota-bearing internal fetches.
-- Scope: Primary touched areas: `admin/{usage,storage,odds-usage}`, `admin/win-totals`, `lib/apiUsage.ts`, `lib/scoreAttachmentDebug.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `admin/{usage,storage,odds-usage}`, `admin/win-totals`, `lib/apiUsage.ts`, `lib/scoreAttachmentDebug.ts`, plus tests/docs.
 - Outcome: Commit `(this PR)`. `admin/usage` makes a live CFBD call (`fetchCfbdUsage`) — the primary quota-exposure fix.
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### DRAFT-010-CONFIRM-ELIGIBILITY-v1
 
 - Purpose: Fix draft confirmation so it uses the same eligible-team definition as draft setup and works with the current `src/data/teams.json` shape.
-- Scope: Primary touched areas: `src/lib/draft.ts`, `src/app/api/draft/[slug]/[year]/{confirm,route,pick/route,pick/[n]/route}.ts`, `src/lib/__tests__/draft.test.ts`, `src/app/api/draft/[slug]/[year]/__tests__/confirm-eligibility.test.ts`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `src/lib/draft.ts`, `src/app/api/draft/[slug]/[year]/{confirm,route,pick/route,pick/[n]/route}.ts`, `src/lib/__tests__/draft.test.ts`, `src/app/api/draft/[slug]/[year]/__tests__/confirm-eligibility.test.ts`, plus tests/docs.
 - Outcome: Commit `(this PR)`. Added one source of truth in `draft.ts` — `getDraftEligibleTeams`/`isDraftEligibleTeam`/`NON_DRAFTABLE_SCHOOLS` defining eligibility as "exclude the `NoClaim` placeholder" (not a `classification` field).
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable.
+- Review / verification: [RV2](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### PLATFORM-003-TEST-APPSTATE-ISOLATION-v1
@@ -4121,9 +2733,9 @@ null` through response, receipt target, validator and UI, which renders a third 
 ### PLATFORM-001-TEST-BASELINE-CLEANUP-v1
 
 - Purpose: Clean up the stale Node test baseline surfaced once `npm test` could terminate.
-- Scope: Primary touched areas: `OverviewPanel.test.tsx`, `TrendsDetailSurface.test.tsx`, `MatchupsWeekPanel.test.tsx`, `MatchupMatrixView.test.tsx`, plus focused tests and owning documentation; Git and PR history retain the complete scope.
+- Scope: `OverviewPanel.test.tsx`, `TrendsDetailSurface.test.tsx`, `MatchupsWeekPanel.test.tsx`, `MatchupMatrixView.test.tsx`, plus tests/docs.
 - Outcome: Commit `711a032`. The two cancellations were emergent: ~26 (OverviewPanel) / ~13 (TrendsDetailSurface) stale `assert.match` failures each carried the full ~14KB rendered HTML, and the accumulation choked the runner into a file-level timeout (TrendsDetailSurface's `selected focus mode` case also hit an async-teardown spin).
-- Review / verification: Review and verification details remain in the linked Git and PR history. Reported verification covered tests as applicable.
+- Review / verification: [RV9](#shared-review-statements).
 - Status: Complete — historical execution record; Git history retains the exact commit and merge metadata.
 
 ### TEST-SUITE-HANG-BASELINE-FIX
@@ -5790,8 +4402,6 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Scope: docs only — AGENTS.md, docs/roadmap.md, docs/next-tasks.md, docs/completed-work.md, docs/prompt-registry.md, docs/cfb-engineering-operating-instructions.md, docs/vision.md.
 - Notes: Active. Single-commit docs reconciliation pass.
 
----
-
 ## Retroactively Registered Prompts
 
 ### P2D-TRENDS-TITLE-CHASE-v1
@@ -6056,8 +4666,6 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Scope: Read-only audit. No commits.
 - Notes: Found `totalRounds` is user-configurable (1–50), stored in draft state, with `ceil(fbsTeamCount/ownerCount)` suggestion. No hardcoded value of 10 found.
 
----
-
 ## Superseded Prompts
 
 ### P3A-OVERVIEW-REDESIGN-v1
@@ -6075,16 +4683,21 @@ null` through response, receipt target, validator and UI, which renders a third 
 - Superseded by: P2D-TRENDS-FORM-DOTS-v1
 - Reason: Phase numbering reconciliation (DOCS-PHASE-RECONCILIATION-v1).
 
----
+## Shared review statements
 
-## Ledger entry template (example only)
+Each RV reference replaces an exactly matching repeated statement from the supplied ledger. These are inherited reports, not independently verified results; “as applicable” does not prove every named gate ran. Entry-specific evidence or exceptions take precedence. No shared statement is applied merely because a neighboring entry used it.
 
-Illustrative shape for a ledger entry — **not** current prompt-governance authority. The binding ID format and header rules live in `AGENTS.md` / `CLAUDE.md`; entries follow the current `<CAMPAIGN>-<###>-<SHORT_NAME>-v<version>` format (campaign prefixes: `INSIGHTS`, `DRAFT`, `PLATFORM`, `POLISH`, `DOCS`).
-
-### `<CAMPAIGN>-<###>-<SHORT_NAME>-v<version>`
-
-- Purpose: [one sentence]
-- Scope: [files or modules affected]
-- Outcome: [shipped, stopped, or superseded behavior]
-- Review / verification: [concise evidence and review state]
-- Status: [implementation/merge state only]
+| Code | Original statement |
+| --- | --- |
+| RV1 | Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests, build as applicable. |
+| RV2 | Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable. |
+| RV3 | Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests, build as applicable. |
+| RV4 | Review and verification were completed as recorded in Git and PR history. Reported verification covered TypeScript, lint, tests as applicable. |
+| RV5 | Review and verification details remain in the linked Git and PR history. Reported verification covered TypeScript, lint, tests as applicable. |
+| RV6 | Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered TypeScript, lint, tests as applicable. |
+| RV7 | Review and verification details remain in the linked Git and PR history. Reported verification covered tests, build as applicable. |
+| RV8 | Review and verification were completed as recorded in Git and PR history. Reported verification covered tests as applicable. |
+| RV9 | Review and verification details remain in the linked Git and PR history. Reported verification covered tests as applicable. |
+| RV10 | Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered tests, build as applicable. |
+| RV11 | Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered tests as applicable. |
+| RV12 | Independent Codex and Claude reviews were completed; accepted findings were adjudicated and remediated as recorded. Reported verification covered lint, tests as applicable. |
