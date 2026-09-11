@@ -648,6 +648,16 @@ browser navigation_.
 
 **The cost of not doing it, measured:** four comments asserted that CFBD marks games `postponed`/`canceled`/`suspended`/`delayed`. It does not, and never has — 22,760 schedule rows are all `scheduled` and score packs carry only `final` or `scheduled` (Item 172). **An implementation branch ran three review rounds and was abandoned at ~560 lines, two of those rounds hardening a state that cannot occur**, and the planning session spent an hour reasoning from one of the comments to a wrong conclusion. **The query that settled it took ten minutes and had never been run**, because the comment was plausible — **the proxy that argues for itself**, one level up from the code.
 
+**A GREP OF THE WRONG TREE RETURNS ZERO AND LOOKS EXACTLY LIKE A GREP OF THE RIGHT ONE.** Added 2026-09-11 after the planning session did it three times in one day, and it is the rule above with `git` as its subject. **The number is identical; only the coverage differs, and nobody states the coverage.**
+
+**Three mechanisms, each of which produced a confident wrong answer that day:**
+
+- **`git fetch` updates refs ONLY — it never moves the working tree.** A grep run after a fetch still reads the old content. The completeness check on Item 661's shipped note returned **zero for all ten items** and was one sentence away from being reported as a missing note; the tree was seven commits behind. **To read a ref without pulling, use `git show origin/main:<path>`.**
+- **`git branch -r` reads a local cache that `fetch` does not prune.** It listed 25 merged branches that GitHub had already deleted on merge, which produced a wrong conclusion about whether `delete_branch_on_merge` was configured. **`git ls-remote --heads origin` asks the server.**
+- **`git cat-file -e <sha>` cannot distinguish "fetched from origin" from "another worktree wrote it",** because all three worktrees share one object database (`CLAUDE.md` → **Worktrees and session roles**). Finding the object was read as evidence a branch had been pushed; it had not. **For "did this reach the remote", `git ls-remote origin <ref>`.**
+
+**The protocol an implementation lane proposed and which is now the rule: when a reported zero contradicts something already verified as shipped, ask which SHA it was measured at BEFORE treating it as a defect.** A stale-tree zero and a real absence are the same number, and the cheap question separates them.
+
 **A MEASUREMENT'S COVERAGE IS PART OF ITS RESULT.** Added 2026-09-08, and it is the corollary to the
 rule above: that one says a grep cannot prove a read, this one says **a tool returning zero because it
 did not look is indistinguishable from one that looked and found nothing** — unless you report what it
