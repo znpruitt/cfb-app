@@ -124,7 +124,7 @@ Rules:
      lane's touching it — every file with mtime on or before 2026-09-08 vanished at once. The span
      looked deep because the reaper had not run inside it. This lowers the stakes of clearing the
      remaining files rather than changing the recommendation.
-- Status: Implemented — PR #666 open from `claude/620-test-store-lifecycle`
+- Status: Merged (PR #666, `4968dffa`, 2026-09-10) from `claude/620-test-store-lifecycle`
 
 ### PLATFORM-211-DESTRUCTIVE-SEAM-REFUSALS-CLAUDE-v1
 
