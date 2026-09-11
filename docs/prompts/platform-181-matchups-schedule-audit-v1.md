@@ -29,7 +29,7 @@ nothing — it does not reserve space, and it does not fall back._
 | | Matchups | Schedule |
 | --- | --- | --- |
 | **States rendered** | scheduled, live, final | scheduled, live, final |
-| **Status row / Tag slot / Colour bar / Rank-FCS prefix / Record / Owner suffix** | yes | yes |
+| **Status row / Tag slot / Team logo / Rank-FCS prefix / Record / Owner suffix** | yes | yes |
 | **Anchor** | record / score | record / score |
 | **Odds footer** | yes | **tier-2 body** |
 | **Tier-2 expansion** | no | **yes** |
@@ -57,13 +57,31 @@ do not count it.
 **3. The recap is out of scope.** It is not a consumer yet — `RecapPrimitives.tsx:277` still defines a
 bespoke `GameScoreboard` — so auditing it against a contract it does not consume would measure nothing.
 
-## Map against this list, current as of `3497aa80`
+## Map against this list — RENUMBERED 2026-09-10, items are now GitHub issues
 
-**113** Featured nature and ordering · **115** counts and the silent cap · **119** colour bars ·
-**134** third column tier · **143** Matchups status-row seam (excluded above) · **154** postseason ·
-**156** Schedule records · **160** the six Overview watchlist divergences · **168** Matchups scheduled
-odds · **169** `Close` on unplayed games · **170** owner-name truncation · **171** dead scoring term ·
-**172** disrupted-status comments · **173-180** the Overview audit's residue.
+**#675** Featured nature and ordering · **#676** counts and the silent cap · **#678** third column tier ·
+**#682** postseason · **#683** Schedule records · **#669** the six Overview watchlist divergences ·
+**#715** Matchups scheduled odds · **#716** `Close` on unplayed games · **#685** dead scoring term ·
+**#661** disrupted-status comments · **#671** the Overview audit's tag residue · **#679** kickoff
+metadata on forbidden rows · **#680** `awaiting` on Schedule and Matchups · **#681** the Schedule
+breakpoint.
+
+**Item 119 (colour bars) is GONE from this list — retired 2026-09-10.** PR #719 ships **28px team
+logos** at the line start instead, documented as permanent. **Audit the logo, not a colour bar**, and
+a divergence in logo treatment maps to no filed item.
+
+**Item 143's Matchups status-row seam remains excluded**, as below.
+
+## ⚠️ ADDED 2026-09-10 — TWO WIDTH BUDGETS ARE KNOWN STALE, AND THAT IS PART OF WHAT YOU MEASURE
+
+**#678 and #681 both reason about column breakpoints from a line-start element they describe as an 8px
+colour bar. It is now a 28px logo — twenty pixels wider, on the element those budgets are built from.**
+
+**Do not re-derive the breakpoints here** — that is those issues' work. **But when a column or
+truncation divergence appears, say whether the 28px line-start element explains it**, because the
+existing issues will otherwise absorb a finding they were not scoped for and their own numbers are
+wrong.
+
 
 **A partial match is RESIDUE, not a match** — same rendering wrong for a different reason than the item
 names. **Name the near-miss item beside each residue entry** so the count can be re-derived rather than
