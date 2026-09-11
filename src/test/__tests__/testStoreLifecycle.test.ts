@@ -1,6 +1,15 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -114,6 +123,20 @@ test('the PLATFORM-207 plant at this process’s own pid path is no longer reach
   };
   const serialized = JSON.stringify(planted);
   const livePath = getAppStateStorageStatus().filePath;
+  const legacyPath = legacyPidPath();
+  // THIS TEST DOES NOT GET TO DELETE ONE OF THE FILES THE ITEM IS ABOUT. Roughly a
+  // quarter of processes already own a legacy file at their pid path — that rate IS
+  // the defect being fixed — so planting here without preserving what was there
+  // would quietly dispose of an owner artifact once every few runs, which is the
+  // side-effect deletion this branch's gate forbids. Found by review.
+  //
+  // When nothing is there, a sentinel is written so the restore is ASSERTED on every
+  // run rather than only on the one-in-four where a real file exists — a preservation
+  // that is exercised by chance is a preservation nobody has tested.
+  const priorLegacyBytes = existsSync(legacyPath) ? readFileSync(legacyPath) : null;
+  const ownedByThisTest = priorLegacyBytes === null;
+  const bytesToRestore = priorLegacyBytes ?? Buffer.from('{"entries":{"sentinel-620":{}}}');
+  writeFileSync(legacyPath, bytesToRestore);
 
   try {
     // POSITIVE CONTROL FIRST, on the same bytes: at the store path this process
@@ -126,17 +149,41 @@ test('the PLATFORM-207 plant at this process’s own pid path is no longer reach
     __resetAppStateForTests();
 
     // Now the same bytes at the retired path. Same process, same pid.
-    await writeFile(legacyPidPath(), serialized, 'utf8');
+    await writeFile(legacyPath, serialized, 'utf8');
 
     assert.equal(
       await getAppState(PROVIDER_REFRESH_SETTINGS_SCOPE, PROVIDER_REFRESH_SETTINGS_KEY),
       null
     );
     assert.equal((await getProviderRefreshSettings()).globalPause, false);
+
+    writeFileSync(legacyPath, bytesToRestore);
+    assert.deepEqual(readFileSync(legacyPath), bytesToRestore);
   } finally {
-    await unlink(legacyPidPath()).catch(() => undefined);
+    writeFileSync(legacyPath, bytesToRestore);
+    if (ownedByThisTest) await unlink(legacyPath).catch(() => undefined);
     await __deleteAppStateFileForTests();
     __resetAppStateForTests();
+  }
+});
+
+test('an absent parent directory is recreated rather than thrown out of the read path', () => {
+  const parent = path.join(
+    mkdtempSync(path.join(os.tmpdir(), 'cfb-620-absent-parent-')),
+    'gone',
+    'deeper'
+  );
+
+  try {
+    // The OS reaps `$TMPDIR` on its own schedule — observed doing so mid-session — and
+    // an exported APP_STATE_TEST_STORE_DIR outlives its run. Without the recreate, an
+    // absent parent makes every app-state read and write in the process throw ENOENT.
+    const created = createTestStoreDirectory(parent);
+
+    assert.equal(existsSync(created), true);
+    assert.equal(path.dirname(created), parent);
+  } finally {
+    rmSync(path.dirname(path.dirname(parent)), { recursive: true, force: true });
   }
 });
 
@@ -160,8 +207,15 @@ type ChildStoreProbe = {
 /**
  * Start a real isolated process that creates its store directory and then either
  * exits or waits to be killed. It must be a CHILD: `process.on('exit')` cleanup and
- * `SIGKILL` skipping it are both properties of a process ending, which an
- * in-process assertion cannot observe.
+ * `SIGKILL` skipping it are both properties of a process ENDING, which no in-process
+ * assertion can observe.
+ *
+ * Settles on `close`, never on `exit`. Only `close` guarantees the stdio streams
+ * have drained — `exit` can in principle arrive while a written line is still
+ * buffered in the pipe, which would reject a probe that had in fact printed its
+ * path. Neither reviewer could make that ordering happen here (600 spawns between
+ * them, one with the parent's event loop blocked), so this is the guarantee being
+ * taken rather than a flake being chased.
  */
 function startStoreChild(runDirectory: string, hold: boolean): ChildStoreProbe {
   const driver = `
@@ -186,36 +240,76 @@ function startStoreChild(runDirectory: string, hold: boolean): ChildStoreProbe {
     }
   );
 
+  // STDERR IS READ, NOT MERELY PIPED. An unread pipe blocks its writer at ~64 KB,
+  // so a chatty child would hang to the 30s timeout instead of failing; and when the
+  // child dies before printing — a tsx resolution failure, or a throw inside the
+  // module under test — its stderr is the only account of why, so it belongs in the
+  // rejection rather than in a discarded buffer. Found by review.
+  let stderr = '';
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', (chunk: string) => {
+    stderr += chunk;
+  });
+
   const storeDirectory = new Promise<string>((resolve, reject) => {
-    let buffered = '';
-    child.stdout.on('data', (chunk: Buffer) => {
-      buffered += chunk.toString('utf8');
-      const newline = buffered.indexOf('\n');
-      if (newline >= 0) resolve(path.dirname(buffered.slice(0, newline).trim()));
+    let stdout = '';
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk: string) => {
+      stdout += chunk;
+      const newline = stdout.indexOf('\n');
+      if (newline >= 0) resolve(path.dirname(stdout.slice(0, newline).trim()));
     });
-    child.on('exit', () => reject(new Error(`child exited before printing a store path`)));
     child.on('error', reject);
+    child.on('close', () => {
+      reject(
+        new Error(
+          `the store child closed without printing a store path.\nstderr:\n${stderr || '(empty)'}`
+        )
+      );
+    });
   });
 
   return { child, storeDirectory };
 }
 
-function whenExited(child: ReturnType<typeof spawn>): Promise<void> {
-  return new Promise((resolve) => child.on('exit', () => resolve()));
+/** Resolves once the child has ended AND its stdio has drained. */
+function whenClosed(child: ReturnType<typeof spawn>): Promise<void> {
+  return new Promise((resolve) => child.on('close', () => resolve()));
+}
+
+/**
+ * Kill unconditionally on the way out. The held child is a bare `setInterval` that
+ * never returns on its own, and Node does not reap a child when its parent exits —
+ * so a single failed assertion before the explicit kill would leave a `node` process
+ * spinning on the developer's machine, holding nothing the sweep can see. Killing an
+ * already-dead child is a no-op. Found by review.
+ */
+async function withStoreChild(
+  runDirectory: string,
+  hold: boolean,
+  body: (probe: ChildStoreProbe) => Promise<void>
+): Promise<void> {
+  const probe = startStoreChild(runDirectory, hold);
+  try {
+    await body(probe);
+  } finally {
+    probe.child.kill('SIGKILL');
+  }
 }
 
 test('a normal exit removes the store directory the process created', async () => {
   const runDirectory = mkdtempSync(path.join(os.tmpdir(), 'cfb-620-exit-'));
 
   try {
-    const probe = startStoreChild(runDirectory, false);
-    const storeDirectory = await probe.storeDirectory;
+    await withStoreChild(runDirectory, false, async (probe) => {
+      const storeDirectory = await probe.storeDirectory;
 
-    assert.equal(path.dirname(storeDirectory), runDirectory);
+      assert.equal(path.dirname(storeDirectory), runDirectory);
 
-    await whenExited(probe.child);
+      await whenClosed(probe.child);
 
-    assert.equal(existsSync(storeDirectory), false);
+      assert.equal(existsSync(storeDirectory), false);
+    });
   } finally {
     rmSync(runDirectory, { recursive: true, force: true });
   }
@@ -225,25 +319,26 @@ test('SIGKILL SKIPS that cleanup — the run directory is what collects it', asy
   const runDirectory = mkdtempSync(path.join(os.tmpdir(), 'cfb-620-sigkill-'));
 
   try {
-    const probe = startStoreChild(runDirectory, true);
-    const storeDirectory = await probe.storeDirectory;
+    await withStoreChild(runDirectory, true, async (probe) => {
+      const storeDirectory = await probe.storeDirectory;
 
-    assert.equal(existsSync(storeDirectory), true);
+      assert.equal(existsSync(storeDirectory), true);
 
-    probe.child.kill('SIGKILL');
-    await whenExited(probe.child);
+      probe.child.kill('SIGKILL');
+      await whenClosed(probe.child);
 
-    // ASSERTED AS WHAT IT IS, not hidden inside the previous test: an exit handler
-    // a killed process never runs leaves the directory exactly where it was.
-    assert.equal(existsSync(storeDirectory), true);
+      // ASSERTED AS WHAT IT IS, not hidden inside the previous test: an exit handler
+      // a killed process never runs leaves the directory exactly where it was.
+      assert.equal(existsSync(storeDirectory), true);
 
-    // What makes that survivable is containment, not cleanup — the orphan is inside
-    // the run directory, so the runner's `finally` takes it with the run.
-    assert.equal(path.dirname(storeDirectory), runDirectory);
+      // What makes that survivable is containment, not cleanup — the orphan is inside
+      // the run directory, so the runner's `finally` takes it with the run.
+      assert.equal(path.dirname(storeDirectory), runDirectory);
 
-    rmSync(runDirectory, { recursive: true, force: true });
+      rmSync(runDirectory, { recursive: true, force: true });
 
-    assert.equal(existsSync(storeDirectory), false);
+      assert.equal(existsSync(storeDirectory), false);
+    });
   } finally {
     rmSync(runDirectory, { recursive: true, force: true });
   }
@@ -291,6 +386,74 @@ test('the run directory is removed even when the spawn throws', () => {
 
   assert.ok(directory);
   assert.equal(existsSync(directory), false);
+});
+
+test('an uncreatable run directory warns and runs anyway — cleanup never fails the run', () => {
+  // The run directory buys CLEANUP, so failing the suite when it cannot be made
+  // would invert the design's own priority: isolation is intact either way, because
+  // the store falls back to `os.tmpdir()` when the variable is absent.
+  const staleValue = process.env.APP_STATE_TEST_STORE_DIR;
+  const warnings: string[] = [];
+  const originalWarn = console.warn;
+  let environment: NodeJS.ProcessEnv | undefined;
+
+  const fakeSpawn = ((
+    _executable: string,
+    _args: readonly string[],
+    options: { env?: NodeJS.ProcessEnv }
+  ) => {
+    environment = options.env;
+    return { status: 0 };
+  }) as never;
+
+  try {
+    // A stale export from an earlier run must not survive into the children.
+    process.env.APP_STATE_TEST_STORE_DIR = '/tmp/a-directory-that-this-run-does-not-own';
+    console.warn = (message: string) => warnings.push(String(message));
+
+    const status = runTests(
+      ['src/test/__tests__/testStoreLifecycle.test.ts'],
+      fakeSpawn,
+      // `mkdtemp` under a path whose parent is a FILE cannot succeed.
+      path.join(os.devNull, 'unreachable')
+    );
+
+    assert.equal(status, 0);
+    assert.equal(environment?.APP_STATE_TEST_STORE_DIR, undefined);
+    assert.equal(environment?.APP_STATE_TEST_ISOLATION, '1');
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0], /Could not create a test store run directory/);
+  } finally {
+    console.warn = originalWarn;
+    if (staleValue === undefined) delete process.env.APP_STATE_TEST_STORE_DIR;
+    else process.env.APP_STATE_TEST_STORE_DIR = staleValue;
+  }
+});
+
+test('a run directory that cannot be removed does not turn a green run red', () => {
+  const parent = mkdtempSync(path.join(os.tmpdir(), 'cfb-620-unremovable-'));
+  let runDirectory: string | undefined;
+
+  const fakeSpawn = ((
+    _executable: string,
+    _args: readonly string[],
+    options: { env?: NodeJS.ProcessEnv }
+  ) => {
+    runDirectory = options.env?.APP_STATE_TEST_STORE_DIR;
+    // Removing a directory needs write permission on its PARENT, so this makes the
+    // `finally`'s `rmSync` fail with EACCES exactly when it runs.
+    chmodSync(parent, 0o555);
+    return { status: 0 };
+  }) as never;
+
+  try {
+    assert.equal(runTests(['src/test/__tests__/testStoreLifecycle.test.ts'], fakeSpawn, parent), 0);
+    assert.ok(runDirectory);
+    assert.equal(existsSync(runDirectory), true);
+  } finally {
+    chmodSync(parent, 0o755);
+    rmSync(parent, { recursive: true, force: true });
+  }
 });
 
 // ---------------------------------------------------------------------------

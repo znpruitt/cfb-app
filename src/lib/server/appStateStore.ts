@@ -1,4 +1,4 @@
-import { mkdtempSync, promises as fs, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, promises as fs, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -107,6 +107,15 @@ let testStoreDirectory: string | null = null;
  * to satisfy, which is the whole defect.
  */
 export function createTestStoreDirectory(parentDirectory: string): string {
+  // THE PARENT MAY BE GONE, AND NOT HYPOTHETICALLY: the OS reaps `$TMPDIR` on its own
+  // schedule — observed doing exactly that, mid-session, while this item was being
+  // measured — and an exported `APP_STATE_TEST_STORE_DIR` outlives the run that
+  // created it. Without this line an absent parent turns EVERY app-state read and
+  // write in the process into an `ENOENT` from inside `appStateFilePath()`, which no
+  // caller is written to expect: `readFileStore` special-cases ENOENT on the FILE, not
+  // on the directory it lives in. Recreating it takes nothing away from the guarantee
+  // below, which comes from `mkdtemp` itself. Found by review.
+  mkdirSync(parentDirectory, { recursive: true });
   return mkdtempSync(path.join(parentDirectory, TEST_STORE_DIRECTORY_PREFIX));
 }
 

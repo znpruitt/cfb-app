@@ -130,7 +130,7 @@ export function sweepStaleTestStoreDirectories(
   return removed;
 }
 
-export function runTests(argumentsToRun, spawnProcess = spawnSync) {
+export function runTests(argumentsToRun, spawnProcess = spawnSync, runParentDirectory = tmpdir()) {
   if (argumentsToRun.length === 0) {
     console.error('Pass at least one exact test file or test glob.');
     return 1;
@@ -146,19 +146,40 @@ export function runTests(argumentsToRun, spawnProcess = spawnSync) {
 
   // PLATFORM-620. One directory per RUN, handed to every child as the parent its
   // own store directory is created in. It buys cleanup, not correctness: a child
-  // killed with `SIGKILL` skips its own exit handler, and this `finally` collects
-  // it anyway. Isolation itself does not depend on either.
-  const runDirectory = mkdtempSync(path.join(tmpdir(), TEST_STORE_DIRECTORY_PREFIX));
+  // killed with `SIGKILL` skips its own exit handler, and the `finally` below
+  // collects it anyway. Isolation itself does not depend on either.
+  //
+  // WHICH IS WHY NEITHER HALF MAY FAIL THE RUN. If the directory cannot be created,
+  // the store falls back to `os.tmpdir()` on its own and isolation is untouched —
+  // refusing to run the suite because a CLEANUP convenience was unavailable would
+  // invert the priority the paragraph above just stated. Found by review, which
+  // noticed these were the only unguarded filesystem calls in a change that is
+  // deliberately best-effort everywhere else.
+  let runDirectory = null;
+  try {
+    runDirectory = mkdtempSync(path.join(runParentDirectory, TEST_STORE_DIRECTORY_PREFIX));
+  } catch (error) {
+    console.warn(
+      `Could not create a test store run directory (${
+        error instanceof Error ? error.message : String(error)
+      }); each test process will clean up after itself instead.`
+    );
+  }
+
+  const environment = {
+    ...process.env,
+    APP_STATE_TEST_ISOLATION: '1',
+    TSX_TSCONFIG_PATH: 'tsconfig.test.json',
+    UPSTREAM_PACING_DISABLED: '1',
+  };
+  // Explicitly cleared rather than left to `...process.env`, so a stale value
+  // exported by an earlier run cannot point this run's children at a dead directory.
+  if (runDirectory) environment.APP_STATE_TEST_STORE_DIR = runDirectory;
+  else delete environment.APP_STATE_TEST_STORE_DIR;
 
   try {
     const result = spawnProcess(process.execPath, buildNodeTestArguments(testFiles), {
-      env: {
-        ...process.env,
-        APP_STATE_TEST_ISOLATION: '1',
-        APP_STATE_TEST_STORE_DIR: runDirectory,
-        TSX_TSCONFIG_PATH: 'tsconfig.test.json',
-        UPSTREAM_PACING_DISABLED: '1',
-      },
+      env: environment,
       stdio: 'inherit',
     });
 
@@ -169,7 +190,15 @@ export function runTests(argumentsToRun, spawnProcess = spawnSync) {
 
     return result.status ?? 1;
   } finally {
-    rmSync(runDirectory, { recursive: true, force: true });
+    // A throw here would replace the suite's exit status with a stack trace, so a
+    // GREEN run would report failure. Cleanup does not get to do that.
+    if (runDirectory) {
+      try {
+        rmSync(runDirectory, { recursive: true, force: true });
+      } catch {
+        // The next run's sweep ages it out.
+      }
+    }
   }
 }
 
