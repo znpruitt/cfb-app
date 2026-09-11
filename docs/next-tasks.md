@@ -965,33 +965,8 @@ recorded the asymmetry as a decision nobody made. See
 
 ### Item 148 — only Overview can render `awaiting`; Schedule and Matchups cannot
 
-**The ask:** let Schedule and Matchups express the `awaiting` scoreboard state, as Overview does.
-
-**Measured 2026-09-07:** `awaiting` appears **twice** in `OverviewPanel.tsx` and **zero** times in
-`GameWeekPanel.tsx` and `MatchupsWeekPanel.tsx`. So one of three surfaces can say a game is underway
-but indeterminate; the other two render it as not yet started.
-
-**The owner ruled on what `awaiting` means, 2026-09-03:** _"awaiting is a subset of live — it was
-supposed to start and is in an indeterminate state — it should show the broadcast info."_ That ruling
-is honoured on Overview and unreachable on the other two.
-
-**A live instance arrived the same day this was found.** SMU @ Florida State kicked 23:30 UTC on
-2026-09-07; a stadium power failure took the press-box stat feed down, and CFBD reported
-`status: "scheduled"` with `points: null` for **two and a half hours** while the game was being played
-and broadcast. Everything venue-originated was null (points, lineScores, period, clock, possession,
-attendance); everything externally sourced was present (weather, betting lines, TV). **That is exactly
-`awaiting`** — and on two of three surfaces it would have read as a game that had not kicked.
-
-**NOT caused by Item 117 and correctly excluded from its remediation** — Matchups inherited the gap
-from its bespoke row, and Schedule has never had it either. Filed so it is a decision rather than an
-omission.
-
-**Cross-reference:** distinct from **Item 143**, which owns the four seam divergences (status pill,
-live indicator, tag placement, odds). This is a missing STATE, not a presentation variant. Also
-distinct from **Item 142**.
-
-**Blocker:** none. Whether this rides with 143's presentation pass or ships alone is a sequencing
-call, not a dependency.
+**MIGRATED to [#680](https://github.com/znpruitt/cfb-app/issues/680) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 151 — `buildCfbdGamesUrl`'s `division` parameter is inert; CFBD ignores it
 
@@ -1014,31 +989,8 @@ Kept as a pointer rather than migrated — a decision item whose decision exists
 
 ### Item 152 — the Schedule three-column breakpoint reproduces nowhere
 
-**The ask:** pick the Schedule grid's three-column breakpoint and correct the two statements that
-disagree with it. **One number, three sources, no two alike.**
-
-**Found 2026-09-08 during Item 144's read.** The Schedule tier is documented as 1320px, and the
-arithmetic behind it does not reproduce:
-
-| source | arithmetic | result |
-| --- | --- | --- |
-| `presentation-decisions.md:72` | 3 × (400 + 24) + 2 × 16 | **1304** |
-| `matchups-schedule-mockup.html:320` (comment) | 3 × (400 + 24) + 2 × 20 | **1312** |
-| the mockup's own CSS — 10px block padding (`:278`), 16px gap (`:306`) | derived | **1300** |
-| stated everywhere | — | **1320** |
-
-**So "derived, not chosen" is currently FALSE for Schedule.** It is true for Matchups, where the
-1372px figure reproduces from its stated inputs (`mockup:210-212`).
-
-**Same class as the 1300-versus-1280 error in Item 134**, where the breakpoint's headroom turned out
-to be exactly what Item 119 would consume. A breakpoint whose arithmetic does not reproduce cannot be
-checked against a change to the anatomy it measures.
-
-**Deliberately NOT chosen during the 144 edit pass** — the implementer flagged it rather than
-resolving it silently, which was right. Someone has to pick the number; the other two then get
-corrected to match rather than averaged.
-
-**Blocker:** none. Related to Item 134 (Overview's tier) but a different grid and a different number.
+**MIGRATED to [#681](https://github.com/znpruitt/cfb-app/issues/681) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 153 — DONE: three surfaces, three eyebrow treatments, and one was the blue violation
 
@@ -1078,113 +1030,19 @@ like. Independent, and this one carries a live violation.
 
 ### Item 154 — postseason round grouping is specified in three documents and has no item
 
-**The ask:** file the postseason round-grouping work, or record why it is not being done.
-
-**Found 2026-09-08 by Item 144's read.** Three documents carry its rules — `postseason-context.md`,
-`postseason-grouping-notes.md` and `postseason-refinements.md` — including acceptance criteria and a
-first-round handling decision. **Nothing in this queue tracks it**, so the specification exists and
-the work does not.
-
-The INDEX's CARRY block holds the obligations (rows 32–35), which is where a prompt author will meet
-them — but an obligation with no item is a decision nobody has scheduled.
-
-**One concrete blocker recorded inside those documents:** `postseason-context.md:57` requires widening
-the round union or matching on string; `schedule.ts:124` still omits `'first-round'`. So the first
-piece of work is identified and unstarted.
-
-**Decide the disposition rather than leaving it implicit.** Postseason is months away, and "not now"
-is a fine answer — but it should be an entry saying so, not silence across three documents.
-
-**Blocker:** none. Seasonally distant.
+**MIGRATED to [#682](https://github.com/znpruitt/cfb-app/issues/682) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 156 — Schedule is the last surface with records not wired
 
-**The ask:** wire records into Schedule, as Item 155 does for Matchups. **Required to exist by the
-2026-09-08 ruling**, which states that "not wired to this surface" is a sequencing state needing a
-filed item — not a transient condition. Once Item 155 merges, Schedule is the only surface still in it.
-
-**Item 87 slice 5 removed records from Schedule deliberately**, pending Item 139's reconciliation.
-139 shipped. So the dependency that justified the removal is closed and nothing has restored them.
-
-**Expect it to be small, for the reason Item 155 was.** Verify rather than assume: 155 found the
-Matchups page already loading records and already spreading them into the shell, with only the panel
-never accepting the prop. Check whether Schedule's page does the same before scoping.
-
-**One thing Schedule has that Matchups does not**, and it is a real difference rather than a detail:
-`GameWeekPanel` places its focus ring **flush around the scoreboard**. `team-highlight.md` records that
-a tinted descendant would paint over that ring, which is why the card-owner tint was scoped away from
-Schedule. Records are not the tint and should not collide — but the ring is the reason Schedule was
-excluded once already, so confirm it rather than inherit the exclusion.
-
-**Sequenced after Item 155.** Item 155 is implemented and review-complete; this item becomes unblocked
-when that merge lands. Its review also found the provider-game-id lookup duplicated between Overview
-and Matchups. When Schedule becomes the third records consumer, establish or reuse one shared lookup
-helper so the exact-key normalization cannot drift by surface.
-
-Until this ships, a blank Schedule anchor remains observationally identical between a transiently
-unavailable record and the surface's not-wired state. Item 156 removes the not-wired state; it does not
-add a second member-facing placeholder or error treatment.
+**MIGRATED to [#683](https://github.com/znpruitt/cfb-app/issues/683) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 155 — the Matchups scheduled row: records as the anchor, and the dead footer
 
-**IMPLEMENTED — review complete, awaiting merge.** Code head `00ab9d69` threads the existing record
-projection through `CFBScheduleApp` into both Matchups participants, moves footer reservation to the
-requesting consumer, and preserves Overview's rendered alignment band. Five focused tests were added;
-both independent reviews found no correctness defect, and runtime verification exercised the real app
-data path. Closeout is recorded under `PLATFORM-155-MATCHUPS-SCHEDULED-ROW-CODEX-v2` in the prompt
-registry.
-
-**Kickoff:** [`docs/prompts/platform-155-matchups-scheduled-row-codex-v2.md`](prompts/platform-155-matchups-scheduled-row-codex-v2.md).
-**v2 answers a blocking finding from the implementer, who was right and stopped before editing.** v1
-framed the empty odds-footer reservation as an accident; it is deliberate, documented in `DESIGN.md`,
-and asserted by an Overview test. **Ruled caller-specific on structural grounds:** the band keeps two
-grid cards level when one has odds and the other does not, so it earns its place on Overview — the only
-`footerSlot` caller in the repo — and does nothing on Matchups (a vertical list) or Schedule (a grid
-that never passes a footer at all). The component now reserves nothing on its own and the consumer that
-needs the band asks for it. `DESIGN.md` amended the same day. **Schedule changes visibly and that is
-intended**, so the old byte-identical contract line was replaced.
-**RECORDS-ON-MATCHUPS DECIDED 2026-09-08 — owner: yes.** So this is one slice, not two, and it is
-smaller than filed: `matchups/page.tsx:33` already calls `loadTeamRecordsClientProps` and `:57` already
-spreads `{...teamRecordProps}`, identical to Overview. `MatchupsWeekPanel` simply never accepts them,
-and `CompactGameScoreboard` already implements both placements. **A threading job, not a wiring job.**
-
-**The ask:** give scheduled Matchups rows a right-edge anchor and stop reserving an empty odds
-footer. **This is what members see right now** — Week 1 is over, Week 2 does not start until Thursday,
-so every row on the surface is scheduled.
-
-**REQUIRED BY OWNER RULING 2026-09-02, restated 2026-09-08.** Blank governs when the record store
-fails — that is a transient condition needing no item. **"Not wired to this surface" is a SEQUENCING
-state and needs a filed item with the dependency stated in the prompt.** This is that item. Without
-it, a permanently blank column ships as "correct degradation".
-
-**ONE COMPOUND FAILURE, NOT TWO DEFECTS — owner framing, and it changes the fix.** No right-edge
-anchor plus roughly 40px of dead footer under every game. Separately each is small; together the row
-reads as a **rendering error** rather than as sparse. **Fixing one without the other will not change
-how it reads.**
-
-| half | cause | fix |
-| --- | --- | --- |
-| **no anchor** | records deferred off Matchups; a scheduled row has no score, no record, no odds | records as the anchor — the mockup's answer (`3–5` on scheduled rows) |
-| **dead footer** | Matchups passes no `footerSlot`, but `CompactGameScoreboard:243` reserves `min-h-4` on `state === 'scheduled'` regardless | suppress the reservation when nothing is passed — **one conditional, no decision needed** |
-
-**The anchor half settles a question this ledger left open.** `DESIGN.md`'s right-edge anchor rule and
-"records stay off Matchups" cannot both hold, because **the anchor holds the record when a game is
-scheduled** — that is why it holds different content per state. Item 139 shipped the reconciliation,
-so the data exists; 139's entry names Schedule only.
-
-**The footer half can ship alone and immediately.** It needs no seam, no decision, and no document.
-If the anchor half waits on scheduling, take the footer anyway — it removes the visible gap while the
-rest is decided.
-
-**The empty-footer reservation is the enumeration defect** `DESIGN.md` now names: the wrapper renders
-on `state === 'scheduled'` whether or not content exists. Fix by asking whether there is content, not
-by adding another state to the condition.
-
-**Cross-references, so this does not absorb them:** kickoff on NON-scheduled rows is **Item 142**;
-where the tag sits is **Item 143**; what the tag looks like is **Item 153**.
-
-**Blocker:** none for the footer. The anchor half needs the records-on-Matchups decision, which is
-this item's own first question.
+**MERGED — `PLATFORM-155-MATCHUPS-SCHEDULED-ROW-CODEX-v2`, registry entry present.** Matchups now
+passes both participants' current records into the shared scoreboard. **This unblocked Item 156**,
+now [#683](https://github.com/znpruitt/cfb-app/issues/683), which was waiting on it.
 
 ### Item 145 — the upstream debug logger writes provider URLs and headers to the server log
 
@@ -1230,36 +1088,8 @@ widened scan finds something.
 
 ### Item 142 — Matchups prints kickoff metadata on rows `DESIGN.md` says must not carry it
 
-**The ask:** stop `GameRow` rendering kickoff time on every non-scheduled row.
-
-**Found 2026-09-07** during Item 117's read receipt, unprompted. `DESIGN.md` forbids time on final
-rows; Matchups prints kickoff metadata on every row that is not `scheduled` — so live and final rows
-both carry it. **A correction to shipped, member-visible.**
-
-**MECHANISM CORRECTED 2026-09-08, after two agents disagreed and both were half right.** The kickoff
-does **not** arrive via the `clock` prop — that is correctly `undefined` on finals
-(`MatchupsWeekPanel.tsx:216-221`), which is why a check of `clock` alone reported no defect. It
-arrives through **`metadataEntries` in the `contextSlot`**, at `:200-204`:
-
-    if (statusTone !== 'scheduled') {
-      metadataEntries.push(formatExpandedKickoff(...));
-    }
-
-**`DESIGN.md:250-252` was stale about the ROUTE only** — it blamed `deriveExpandedMetadataLines`,
-which no longer exists. Corrected there. **The behaviour is unchanged and the policy is unchanged:
-finals show no date or time.**
-
-**And the gate is `!== 'scheduled'` — opt-out, not opt-in.** Live, final and `awaiting` all inherit
-it without anyone deciding they should. That is now a `DESIGN.md` rule in its own right: state-
-dependent rendering is enumerated per state, never defined by negation. Fixing this one by adding
-`&& statusTone !== 'final'` would repeat the shape; enumerate instead.
-
-**Filed separately rather than folded into Item 117 — owner decision, same reasoning as Item 138's
-`NoClaim`:** small, member-visible, and independent of the scoreboard transition. Folding a second
-defect into a conversion makes the conversion's diff unreadable and couples a trivial fix to a
-blocked one.
-
-**Blocker:** none. Independent of 117, 143 and 144.
+**MIGRATED to [#679](https://github.com/znpruitt/cfb-app/issues/679) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 141 — the Insights page does a full-season build on every request
 
@@ -1614,49 +1444,8 @@ same key `scoresByKey` / `oddsByKey` already treat as unique.
 
 ### Item 134 — Overview three-column tier
 
-**The ask:** Overview's game grid gains a third tier — 1 column below 760px, 2 to 1300px, 3 above.
-
-**Design:** [`docs/campaigns/item-87-followon-three-column-tier.md`](campaigns/item-87-followon-three-column-tier.md);
-`mockups/live-scoreboard-mockup.html` (the Middle Tennessee State row in Live is the stress case).
-
-**Filed as its own item, not folded into Item 115.** Same surface, different concern — 115 is
-disclosure and counts, this is grid columns. But see 115's cross-reference: caps are counts, not
-rows, so a cap produces a ragged final row at three columns, and that interaction belongs to 115's
-cap work.
-
-**MUST RUN AFTER ITEM 119, and the reason is arithmetic.** The breakpoint is derived from the longest
-row's minimum width — 400px for team, record, owner and score. Item 119 puts an 8px team-colour bar
-in the line-start slot, which is exactly the anatomy the derivation depends on:
-
-| row anatomy         | min column | requirement (3 × col + 2 × 40px gap) | vs the 1300 breakpoint |
-| ------------------- | ---------- | ------------------------------------ | ---------------------- |
-| today               | 400px      | 1280                                 | fits, 20px slack       |
-| + 8px bar           | 408px      | 1304                                 | **exceeds by 4px**     |
-| + 8px bar + 6px gap | 414px      | 1322                                 | **exceeds by 22px**    |
-
-The 20px of headroom the design records is precisely what 119 consumes. Ship the tier first and its
-breakpoint is derived against anatomy 119 then changes, so the longest rows begin clipping at the low
-end of the three-column range — **silently, because nothing tests rendered column width.**
-
-**Sequencing only half-fixes this.** After 119 the breakpoint is correct again — until the NEXT
-anatomy change, which restores the identical silent failure. The design doc already names logos as
-the likely one. Two requirements follow, and neither is optional:
-
-1. **Make the dependency visible in code, not only in prose.** The minimum column width becomes a
-   named constant, with the breakpoint derived from it in a comment ADJACENT to the container query.
-   Container queries cannot take a `var()`, so the derivation stays manual — but manual and adjacent
-   beats manual and three files away.
-2. **Test that the longest row fits at the breakpoint.** This is the real gap: nothing today asserts
-   rendered column width, which is why the 119 interaction would have shipped unnoticed. A test
-   pinned to the stress-case row catches EVERY future anatomy change, not just this one. It ships
-   with whichever item ships the tier.
-
-**Also open, from the design doc:** confirm the ragged remainder aligns left rather than centring,
-and decide whether Schedule inherits the tier at all — sixty-plus rows across three columns is a
-different reading problem from six, and Schedule's date grouping means each group renders its own
-partial final row.
-
-**Blocker:** Item 119.
+**MIGRATED to [#678](https://github.com/znpruitt/cfb-app/issues/678) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 133 — `zinc-500` at small type fails the contrast floor, repo-wide
 
@@ -2159,69 +1948,13 @@ forward — is still absent from `DESIGN.md`.
 
 ### Item 118 — Schedule status filter with counts
 
-**Filed 2026-09-03.** Design: `docs/campaigns/item-87-followon-matchups-schedule-design.md` → _The
-status key becomes a real filter_. Replaces the FINAL / IN PROGRESS / SCHEDULED colour key, which was
-a legend for card colours the Schedule rework deletes. Single-select; counts on each chip; zero-count
-states dim rather than disappear; chips neutral, never status-coloured; empty date groups hide under
-a filter. Additive functionality — scoped after **Item 87 slice 5**, not inside it.
-
-- Backlog slug: `POLISH-SCHEDULE-STATUS-FILTER-v1`
+**MIGRATED to [#677](https://github.com/znpruitt/cfb-app/issues/677) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 115 — Overview sections truncate with no expansion, though "bounded default" was decided
 
-**Sharpened 2026-09-04 by a `/code-review` finding on PR #563.** POLISH-023 made Live sort by
-kickoff alone, which changes the cap from "scored rows win the slots" to "earliest kickoffs win the
-slots". A provider gap across one kickoff window — the PLATFORM-105A failure mode — routes those
-games to `awaiting-score`, and `routeForItem`'s abandonment gate keeps them there for up to
-`GAME_MAX_DURATION_MS` (8h from kickoff, `standingsHistory.ts:109`). Six such rows hold the earliest
-`sortDate`s, fill Live, and every later game carrying a real score is sliced off: **the Live section
-can show six "Awaiting score" rows and zero scores during a live slate, for hours.** That is not a
-defect of the sort — the rows are in the decided order — it is the hard cap with no expand control,
-which is this item. It is the sharpest argument yet for the expansion, sharper than the count.
-**Owner note 2026-09-04:** this makes the cap fix a scoreless-row problem, not purely a volume one.
-"Brief gap" was the load-bearing assumption behind rejecting the awaiting-score partition, and eight
-hours is not a brief gap. It does not reopen that decision — repositioning on a polling surface is
-still worse — but six blank rows and zero scores for an afternoon is a different failure than the one
-priced, and this item has to handle it specifically.
-**Also a test gap to close here:** `live rows ignore owner count and keep the six-row cap on kickoff
-order` uses one unscored row plus six scored ones, so it never exercises the direction where
-unscored rows consume the cap.
-
-**Filed 2026-09-03. Owner decision already exists — this is unbuilt work, not an open question.**
-`item-87-live-watchlist-scoreboard.md:244` settles it: _"Progressive disclosure per section: bounded
-default, expands in place. Header link → Matchups tab; footer control expands this week's slate."_
-The cap was designed as a **default view you open past**, not a ceiling.
-
-**Nothing expands.** Verified across `OverviewPanel.tsx`, `CompactGameScoreboard.tsx`, and
-`navigation/ViewMoreLink.tsx`: no `useState`, no `aria-expanded`, no show-more control anywhere. All
-four sections truncate hard — Live, Watchlist, and Recent finals at 6
-(`overviewGameSections.ts:10-12`), Featured at 4 (`overview.ts:69`). The only route to more games is
-the `All results →` header link (`OverviewPanel.tsx:1651`, `:1737`), which navigates to Schedule
-rather than expanding in place.
-
-**The coverage consequence, and why it is Recent finals' problem specifically.** The campaign doc
-calls Recent finals **complete** — _"every recent result"_ (`:95`, settled 2026-09-01, in the context
-of refusing recap deduplication). It is not: it caps at six. Featured's picks are removed from the
-routing pool first (`featuredGameKeys` → `overviewGameSections.ts:172`), and Recent finals then takes
-up to six of the remainder without growing to compensate. Measured at PR #559's head on a 12-final
-slate: Featured 6 + Recent finals 6 = 12 visible; Featured 4 + Recent finals 6 = 10 visible. **This
-predates PR #559** — any slate over twelve finals already hides games on `main` today.
-
-**Do not fix this by raising caps.** The decided design is expansion, and raising a cap trades one
-arbitrary number for another while leaving the same failure at the next boundary. Featured is exempt
-from the coverage argument — it is a curated subset by design (owner, 2026-09-03) and a small cap is
-its point; this item is about the sections that claim completeness.
-
-**Distinct from the Schedule row disclosure delivered by PR #572.** Row disclosure (tapping a row
-reveals detail about that game) and section expansion (revealing more rows) are different
-affordances. They are not one ticket.
-
-**Acceptance boundary:** a section whose pool exceeds its default shows an in-place control that
-lengthens it, and no game reachable in the current slate is absent from Overview without an
-affordance that reveals it. The `All results →` navigation may remain, but it is not the answer to
-truncation.
-
-- Backlog slug: `POLISH-OVERVIEW-SECTION-DISCLOSURE-v1`
+**MIGRATED to [#676](https://github.com/znpruitt/cfb-app/issues/676) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 114 — CLOSED, MISDIAGNOSED. Featured empties early; expiry was never involved
 
@@ -2257,86 +1990,8 @@ carried the error forward before anyone looked at the page.
 
 ### Item 113 — Featured games is a plain finals list; the insights-hook reframe was decided but never built
 
-> **SCOPE WIDENED 2026-09-08 — this item now owns Featured's ORDERING as well as its selection.** Item
-> 167 found Featured re-sorting by postseason round tier (`selectors/overview.ts:466`) where the
-> ordering resolutions say kickoff descending. **That cannot be settled until Featured's nature is:**
-> results-based wants kickoff descending, **must-watch could legitimately want round tier** — a
-> championship is more watch-worthy than a bowl regardless of when it kicks. **So the shipped behaviour
-> may be right for a reason nobody wrote down.** Filed detail in **Item 177**, which blocks on this.
-
-**Carried in from POLISH-023, 2026-09-04.** Specify what _does_ promote a game into Featured, rather
-than leaving the slot unfilled. Featured spent this whole campaign ordering and selecting by an
-owner-count key nobody chose — it arrived by inheritance from a shared tiebreak and quietly did the
-relevance job until a review found it. An unclaimed slot in a selection pipeline is how that happens,
-so this item's output must name its signals rather than only removing the wrong one.
-
-**Filed 2026-09-03 from an audit of `docs/campaigns/item-87-live-watchlist-scoreboard.md` against
-current code, prompted by the owner asking whether Featured was state-agnostic.** It is not, and the
-gap between the doc and the shipped behavior is the reason that question had a wrong-sounding answer.
-
-**What ships today.** `selectFeaturedGames` (`src/lib/selectors/overview.ts:376`) is a plain selector:
-drop games where both sides are `NoClaim`, sort postseason games by round tier, slice to a limit.
-`deriveFeaturedGameBadge` (`OverviewPanel.tsx:157`) renders a badge only for CFP round labels
-(`CFP Semifinal`, `CFP Championship`, ...) — every other featured game carries no reason at all.
-Selection is finals-only: `resultCandidates` filters to `hasUsableFinalScore` (`overview.ts:470`), so
-a game is invisible to Featured while scheduled or live and only enters once it is final.
-
-**What the campaign doc decided, and marked "resolved" (`item-87-live-watchlist-scoreboard.md:530-571`),
-none of it built:**
-
-- **State-agnostic, one place for the whole cycle (`:530`).** "A featured game enters when selected
-  and stays through scheduled, live and final, so it appears only in the Featured tile, never in the
-  state sections." Today a featured game is an ordinary Watchlist or Live row until it finishes, with
-  no distinct treatment, then moves to Featured only at the end.
-- **Selection ownership moves to the insights pipeline (`:557-568`).** Featured stops asking "which
-  games are worth watching" (football criteria) and starts asking "which games activate a fact the
-  league already knows" — reusing the existing insight taxonomy and `INSIGHTS-018`'s priority/
-  suppression machinery rather than a parallel calibration.
-- **Filter — pair-anchored insights only (`:569`).** Only insights whose subject is a pair of owners
-  who happen to be meeting qualify; "longest active title drought" has no game to attach to.
-- **Feed-duplicate suppression (`:571`).** An insight surfaced in Featured must not also appear in
-  the regular insights feed that week — the same one-place principle as the section promotion model,
-  applied to the insights feed instead of the game sections.
-- **Copy and colour inherit from the insight (`:566-567`).** Reason text generates from the insight,
-  not a game-specific template; colour takes whatever `INSIGHTS-017-PALETTE` assigns to that insight
-  category. `INSIGHTS-017-PALETTE` itself is tracked only as a prose bullet under "Unresolved
-  decisions," not a numbered item — decide whether this dependency needs one before scoping colour.
-- **Cap — settled at FOUR, merged 2026-09-03 via PR #559 (`ce75380b`), separately from this item.**
-  It shipped at 6 by inheriting a default; the doc had argued three. Four rather than three because a
-  CFP first round and quarterfinal are four games each, and at three one game of a round is demoted
-  into Recent finals, which renders it without its round badge or kickoff line.
-  **Correction — an earlier version of this entry claimed the cap "does not touch
-  Live/Watchlist/Recent finals." That was false**, and review disproved it by measurement:
-  `recentResults` feeds `featuredGameKeys` (`OverviewPanel.tsx:1481`), used as an exclusion set at
-  `overviewGameSections.ts:172` before routing, so Featured's cap does move how many finals reach
-  Recent finals. Accepted rather than fixed: Featured is a curated subset by design. The coverage
-  question belongs to Recent finals — see [[Item 115]].
-
-**One architectural question the original design didn't address.** Today's postseason-round sort
-(`hasPostseasonGames` branch, `overview.ts:388-395`) is a second, independent selection path with no
-insight involved. Reframing selection around pair-anchored insights needs an explicit answer for
-whether postseason significance becomes its own insight category feeding the same pipeline, or
-remains a separate override layered ahead of it — the campaign doc's design was written for
-regular-season rivalry-shaped insights and never considered this case.
-
-**Still open, inherited from the original design record (`:291`) — do not re-decide, just don't
-lose them:** reset cadence (weekly, or can a game stay featured across weeks); whether zero
-qualifying games hides the tile or renders an empty state; which insight categories are
-pair-anchorable, and whether any new generators are needed.
-
-**Re-verify the mockup against current Overview before building.** The design predates POLISH-020
-(Watchlist converted to the shared scoreboard, 2026-09-03); confirm the mockup's assumptions still
-hold rather than trusting it as current. Item 112 ultimately landed on Schedule only and did not
-change Overview.
-
-**Acceptance boundary:** a featured game is selected once and renders in exactly one place —
-Featured — for its entire scheduled→live→final lifecycle, never duplicated into Live, Watchlist, or
-Recent finals. Selection reads from the insight taxonomy via pair-anchored matching, not from
-`prioritizeOverviewItems`'s football criteria. An insight consumed by Featured does not also render
-in that week's insights feed. Reason copy and colour come from the insight, not a game-specific
-template.
-
-- Backlog slug: `INSIGHTS-FEATURED-GAME-HOOK-v1`
+**MIGRATED to [#675](https://github.com/znpruitt/cfb-app/issues/675) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 111 — `/api/odds` fetches its own origin, costing two extra invocations per request
 
@@ -3450,45 +3105,8 @@ doc's operator notes.
 
 ### Item 101 — Recent finals can empty out at season boundaries
 
-Recent finals expires when the recap tile stops showing that week. `expiredFinalWeeks`
-(`overviewGameSections.ts:147`) filters on `selectWeeklyRecapTileState(target, now) === 'upcoming'`.
-**Corrected 2026-09-03 — the cutoff is not a fixed Thursday.** `selectWeeklyRecapTileState`
-(`selectors/weeklyRecapFacts.ts:329`, cutoff computed at `:349`) takes the day AFTER that week's
-LAST game and advances to the first Thursday 06:00 ET on or after it. The expiry therefore FLOATS
-with the week's last game: a week ending Sunday releases the Thursday four days later, while a week
-whose last game falls on a Thursday does not release for a further seven days. Verified live —
-week 1 (last game 2026-09-07) does not expire until **2026-09-10**, which is why last weekend's
-finals were still rendering on Thursday 2026-09-03 afternoon.
-Both surfaces therefore release week N at the same instant rather than handing off.
-
-**In-season this is nearly harmless.** Midweek football fills the gap: 2026's FBS regular season has
-61 distinct game days including Thursday, Friday, Wednesday and Tuesday slates, so new games usually
-kick off the same evening that finals expire. The empty window is hours, on a weekday morning.
-
-**At season boundaries it is not.** The largest gap between consecutive FBS regular-season game days
-in 2026 is **13 days — 2026-11-29 to 2026-12-12** — the run from the last regular-season Saturday
-through conference-championship week and Army-Navy. Finals expire and nothing replaces them, so
-Overview carries no results at the most-watched point of the season. The same shape recurs into bowl
-season.
-
-**Re-derive the empty window before sizing this — 2026-09-03.** The figures above were computed
-against the fixed-Thursday reading corrected above. With the real floating cutoff, the empty window
-is the span from that week's own cutoff (first Thursday 06:00 ET after its last game) to the next
-slate's first final, which is NOT the same as the 13-day game-day gap and may be materially shorter.
-The 13-day gap between game days is measured and stands; the length of the resulting empty window is
-NOT, and no number for it should be quoted until it is recomputed.
-
-**Do not decouple from the recap predicate.** Sharing one definition of the Thursday boundary is
-correct and was defended on review; duplicating it would be worse. The defect is _when_ finals
-expire, not _what_ computes the date. Candidate fix: hold the most recent completed slate until a
-newer slate produces finals, so the two surfaces hand off instead of both letting go.
-
-**Not a POLISH-019 blocker.** Slice 3's routing is correct; this is the expiry rule, it predates the
-slice, and it is an edge case rather than the weekly defect first reported. Verify against a real
-season boundary before changing anything — the fix trades an empty region for stale-looking results,
-and which is worse is a judgement call.
-
-- Backlog slug: `PLATFORM-FINALS-EXPIRY-BOUNDARY-v1`
+**MIGRATED to [#674](https://github.com/znpruitt/cfb-app/issues/674) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 100b — internal opening-slate marker for recap and look-ahead
 
@@ -4198,34 +3816,8 @@ what the row was designed to contain, and this element is absent from it.
 
 ### Item 164 — the owner tint bleeds 8px into padding the block does not have
 
-**Owner report 2026-09-08, from a zoomed crop of production.** On a Matchups card the block's dark
-background stops flush against the scores while the owned-team tint clears them by 8px, so the two
-regions disagree at the right edge.
-
-**Diagnosed, one asymmetry:**
-
-- `CompactGameScoreboard.tsx:56` gives the owner tint `after:inset-[0_-8px]` — it bleeds **8px left AND
-  right** beyond the row's content box. **This is deliberate and must not be changed:** CARRY row 6
-  states the shipped `0 -8px` is correct and that anyone reconciling it against the mockup changes the
-  MOCKUP, not the code.
-- `MatchupsWeekPanel.tsx:213` renders the block as `<li>` carrying `ownerOutcomeRowClasses`, which is
-  `… bg-zinc-950/10 pl-2` — **`pl-2` and no `pr-2`.**
-
-So the left bleed lands exactly on the block's left edge and **the right bleed has nothing to land
-in.** The background is painted on the `<li>` box, which ends where the content ends.
-
-**The ask:** give the block the right-side padding its left side already has, so the background
-contains the bleed on both edges.
-
-**Scope check — this is Matchups only.** The tint is driven by `isCardOwnerTeam`, which Overview does
-not pass (`OverviewPanel.tsx` supplies `teamName`, `owner`, `rank`, `rankSource`, `record`, `score` and
-no card-owner flag). **Verify that before widening the fix**, and verify Schedule the same way.
-
-**NOT the outcome rail.** I first read this report as the rail overrunning the tint and attached it to
-Item 119; that was wrong and is corrected there. **The rail is a vertical, block-height element and
-this defect is horizontal.** They are unrelated, and this one is independently fixable today.
-
-**Blocker:** none. **One class**, plus a test that asserts the block contains the bleed on both edges.
+**MIGRATED to [#684](https://github.com/znpruitt/cfb-app/issues/684) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 165 — the tag cap: three sources, three answers
 
@@ -4409,19 +4001,8 @@ up.**
 
 ### Item 171 — a dead scoring term in the watchlist sort
 
-**Reported from the 157/162/163 branch, and proven by mutation rather than accepted on report:**
-neutralising `isRankedSpotlight ? 70 : 0` in `watchlistPriority` (`selectors/overview.ts`) leaves
-**122 tests green**, so the term never changes an outcome.
-
-**The ask:** delete `rankedHighlight` / `rankedHighlightKey` and the dead term, or record why they stay.
-
-**Left in place deliberately for now**, and the reason is worth keeping: `isRankedSpotlight` is still a
-**true, distinct fact** that the ordering tests use to discriminate WHICH mechanism produced a given
-result. Removing the fields outright is a separate deletion with its own test surface, and doing it
-inside a tag-vocabulary branch would have mixed two unrelated risks.
-
-**Blocker:** none. **Small**, but it is a deletion — enumerate what the fields do besides feed this
-term before removing them.
+**MIGRATED to [#685](https://github.com/znpruitt/cfb-app/issues/685) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 172 — the code describes a provider vocabulary the provider has never used
 
@@ -4522,29 +4103,12 @@ nothing about the empty case.
 
 ### Item 177 — Featured's postseason ordering is the exact reverse of the rule
 
-**Item 167 residue R6.** `selectFeaturedGames` (`selectors/overview.ts:466`) re-sorts by
-`postseasonRole` tier whenever **any** postseason game is present. Rendered: championship (Jan 1) →
-quarterfinal (Jan 5) → bowl (Jan 9).
-
-**`item-87-followon-section-ordering-resolutions.md:94`: Featured — kickoff DESCENDING, tiebreak game
-key.** Kickoff-descending is the exact reverse of what renders.
-
-**The ordering rule was set 2026-09-04 without reference to the postseason branch**, which predates it.
-Neither knows about the other.
-
-**Not urgent — unreachable until the postseason.** But it is unreachable in TESTING too, which is how
-it survived: nothing exercises a slate carrying `postseasonRole`.
-
-**RULED 2026-09-08 — this belongs to Item 113, and 113's scope widens to claim it.** It is not residue
-with no home; **it is residue whose home had not claimed it yet.**
-
-**Featured's ordering cannot be settled until its NATURE is.** Results-based wants kickoff descending.
-**Must-watch could legitimately want round tier in the postseason** — a championship is more
-watch-worthy than a bowl regardless of when it kicks. **So the current behaviour may turn out to be
-right for a reason nobody wrote down.** Do not "fix" it to kickoff-descending before 113 resolves.
-
-**Blocker:** **Item 113.** Related: **Item 154** (postseason grouping), which should not be built
-against the current behaviour either way.
+**DUPLICATE — absorbed into [#675](https://github.com/znpruitt/cfb-app/issues/675) on 2026-09-10.**
+Both this entry and Item 113 name `selectFeaturedGames` (`selectors/overview.ts:466`) and both trace
+to Item 167's residue. **Item 113's scope was widened on 2026-09-08 to own Featured's ordering while
+this entry already did** — neither author saw the other. **This framing is the sharper one and was
+kept in #675:** the rendered order is championship (Jan 1) → quarterfinal (Jan 5) → bowl (Jan 9),
+the exact reverse of the rule.
 
 ### Item 178 — DONE: the 17px section-header exception was decided, marked landed, and never built
 
