@@ -663,7 +663,7 @@ test('an unreadable settings store holds everything AND REPORTS A FAILURE', asyn
     assert.equal(calls.length, 0, 'nothing is sent when the hold cannot be read');
     const receipt = await readReceipt();
     assert.equal(receipt?.result, 'failure', 'an unreadable store is not a quiet no-op');
-    assert.equal(receipt?.reason, 'settings-unreadable');
+    assert.equal(receipt?.reason, 'settings-unavailable');
     // The behaviour this must NOT change: every job still held, nothing applied,
     // nothing failed at the schedule level — identical to a genuine hold.
     const target = receipt?.target as {

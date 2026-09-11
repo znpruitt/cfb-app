@@ -146,8 +146,13 @@ export function receiptFor(
  * A receipt carrying an EXPLICIT reason rather than the job's default.
  *
  * Issue #619 needs two receipts for one job that differ ONLY in the reason —
- * `settings-unreadable` must raise while `plan-held` stays silent — and
+ * `settings-unavailable` must raise while `plan-held` stays silent — and
  * {@link receiptFor} pins one reason per job, so it cannot express the pair.
+ *
+ * DELEGATES to `buildReceipt` rather than copying it. The first version was a
+ * verbatim copy with one field changed, which would have silently stopped matching
+ * the moment `buildReceipt` gained a field — and it has grown several. Found by
+ * review.
  */
 export function receiptWithReason(
   job: ExternalSchedulerJob,
@@ -155,18 +160,7 @@ export function receiptWithReason(
   reason: SchedulerExecutionReceiptInput['reason'],
   startedAtMs: number = NOW - 60_000
 ): SchedulerExecutionReceipt {
-  const receipt = buildSchedulerExecutionReceipt({
-    job,
-    invocationId: `id-${job}-${startedAtMs}`,
-    startedAtMs,
-    completedAtMs: startedAtMs + 1000,
-    result,
-    reason,
-    providerCallAttempted: false,
-    target: targetFor(job, 0),
-  });
-  if (!receipt) throw new Error(`fixture receipt failed to build for ${job}`);
-  return receipt;
+  return buildReceipt(job, result, startedAtMs, 0, reason);
 }
 
 /**
@@ -193,7 +187,8 @@ function buildReceipt(
   job: ExternalSchedulerJob,
   result: SchedulerExecutionResult,
   startedAtMs: number,
-  refusals: number
+  refusals: number,
+  reason: SchedulerExecutionReceiptInput['reason'] = REASON_FOR[job]
 ): SchedulerExecutionReceipt {
   const receipt = buildSchedulerExecutionReceipt({
     job,
@@ -201,7 +196,7 @@ function buildReceipt(
     startedAtMs,
     completedAtMs: startedAtMs + 1000,
     result,
-    reason: REASON_FOR[job],
+    reason,
     providerCallAttempted: false,
     target: targetFor(job, refusals),
   });

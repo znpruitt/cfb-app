@@ -69,7 +69,7 @@ test('timely skipped receipt raises no delivery or execution issue', () => {
 // Issue #619 — the two planner outcomes that behave identically and mean opposite
 // things. This is the item's whole point: both hold every job and send nothing, and
 // only one of them is something an operator chose.
-test('a settings-unreadable planner run RAISES; a genuine operator hold stays silent', () => {
+test('a settings-unavailable planner run RAISES; a genuine operator hold stays silent', () => {
   const plannerRow = (receipt: ReturnType<typeof receiptWithReason>) =>
     healthyDelivery().jobs.map((row) =>
       row.job === 'polling-planner' ? deliveryRow('polling-planner', 'on-time', receipt) : row
@@ -78,7 +78,7 @@ test('a settings-unreadable planner run RAISES; a genuine operator hold stays si
   const unreadable = deriveSystemHealthIssues(
     baseInputs({
       schedulerDelivery: deliverySnapshot(
-        plannerRow(receiptWithReason('polling-planner', 'failure', 'settings-unreadable'))
+        plannerRow(receiptWithReason('polling-planner', 'failure', 'settings-unavailable'))
       ),
     })
   );
@@ -102,7 +102,7 @@ test('a settings-unreadable planner run RAISES; a genuine operator hold stays si
   );
 });
 
-test('the settings-unreadable explanation says it is NOT an operator pause', () => {
+test('the settings-unavailable explanation says it is NOT an operator pause', () => {
   // Text, not a `repair` link: there is no planner or settings maintenance action,
   // and linking one that cannot re-read the store is the dead end
   // `JOBS_WITHOUT_EXECUTION_REPAIR` exists to avoid.
@@ -114,7 +114,7 @@ test('the settings-unreadable explanation says it is NOT an operator pause', () 
             ? deliveryRow(
                 'polling-planner',
                 'on-time',
-                receiptWithReason('polling-planner', 'failure', 'settings-unreadable')
+                receiptWithReason('polling-planner', 'failure', 'settings-unavailable')
               )
             : row
         )
@@ -124,12 +124,43 @@ test('the settings-unreadable explanation says it is NOT an operator pause', () 
   const raised = find(issues, 'scheduler-execution-failed');
 
   assert.match(raised?.explanation ?? '', /not an operator pause/);
+
+  // JOB-NEUTRALITY, TESTED AS THE PROPERTY RATHER THAN AS WORDING. Three routes
+  // answer a `getProviderRefreshSettings` throw with this reason, and the hint is
+  // keyed by reason alone — so the same sentence must serve a different job. A
+  // regex forbidding "planner" cannot express this: the explanation's own prefix
+  // names the job, correctly. Render the identical reason on `rankings` and require
+  // the hint to come out identical.
+  const onRankings = deriveSystemHealthIssues(
+    baseInputs({
+      schedulerDelivery: deliverySnapshot(
+        healthyDelivery().jobs.map((row) =>
+          row.job === 'rankings'
+            ? deliveryRow(
+                'rankings',
+                'on-time',
+                receiptWithReason('rankings', 'failure', 'settings-unavailable')
+              )
+            : row
+        )
+      ),
+    })
+  );
+  const rankingsIssue = find(onRankings, 'scheduler-execution-failed');
+  const hintOf = (explanation: string) => explanation.slice(explanation.indexOf(' The provider'));
+
+  assert.ok(rankingsIssue, 'rankings raises on the same reason');
+  assert.equal(
+    hintOf(rankingsIssue?.explanation ?? ''),
+    hintOf(raised?.explanation ?? ''),
+    'one reason, one sentence — no job inherits another job&apos;s wording'
+  );
   // ASSERTED AS IT IS, NOT AS I FIRST EXPECTED. `polling-planner` is not in
   // `JOBS_WITHOUT_EXECUTION_REPAIR`, so it keeps the Data Maintenance link this
   // change did not touch. Whether that link can act on a PLANNER fault is a
   // separate question — Data Maintenance has no planner or settings action — but
   // it is pre-existing behaviour for every planner failure, not something
-  // `settings-unreadable` introduces, and #619's ruling was explanation text
+  // `settings-unavailable` introduces, and #619's ruling was explanation text
   // rather than a repair change. Recorded, not silently altered.
   assert.equal(raised?.repair?.surface, 'data-maintenance');
 
@@ -153,6 +184,41 @@ test('the settings-unreadable explanation says it is NOT an operator pause', () 
   assert.doesNotMatch(
     find(other, 'scheduler-execution-failed')?.explanation ?? '',
     /operator pause/
+  );
+});
+
+test('a corrupt reason cannot pull a prototype member into the explanation', () => {
+  // `parseSchedulerExecutionReceipt` accepts ANY non-empty string as `reason`, so a
+  // corrupt durable row can carry `toString`. With a plain object literal the hint
+  // lookup returned the inherited function — which `?? ''` does not catch — and the
+  // operator's explanation ended with `function toString() { [native code] }`.
+  // Found by review.
+  //
+  // Mutation target: change `Object.create(null, …)` to a plain literal and this
+  // goes red while every other case stays green.
+  const issues = deriveSystemHealthIssues(
+    baseInputs({
+      schedulerDelivery: deliverySnapshot(
+        healthyDelivery().jobs.map((row) =>
+          row.job === 'polling-planner'
+            ? deliveryRow(
+                'polling-planner',
+                'on-time',
+                receiptWithReason(
+                  'polling-planner',
+                  'failure',
+                  'toString' as unknown as Parameters<typeof receiptWithReason>[2]
+                )
+              )
+            : row
+        )
+      ),
+    })
+  );
+
+  assert.doesNotMatch(
+    find(issues, 'scheduler-execution-failed')?.explanation ?? '',
+    /native code|function/
   );
 });
 

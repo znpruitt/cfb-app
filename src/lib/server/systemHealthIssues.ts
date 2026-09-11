@@ -538,24 +538,42 @@ function evidenceClause(evidence: string | null): string {
  *
  * A MAP RATHER THAN A SPECIAL CASE, with one entry today. Most execution failures
  * are answered by the job's own repair action or by the next scheduled run, and a
- * sentence saying so would be noise on every row. `settings-unreadable` is the
- * exception it was written for (#619): the planner held everything, NOBODY ASKED
- * IT TO, and the operator's likely first instinct — check who paused it — is the
- * wrong one.
+ * sentence saying so would be noise on every row. `settings-unavailable` is the
+ * exception it was written for (#619): the job held everything, NOBODY ASKED IT TO,
+ * and the operator's likely first instinct — check who paused it — is the wrong one.
+ *
+ * JOB-NEUTRAL WORDING, because the key is a reason and reasons are shared. Three
+ * routes already answer a `getProviderRefreshSettings` throw with this reason —
+ * polling-planner, rankings and schedule-refresh — so a sentence naming the planner
+ * would have been inherited verbatim by the other two the moment one of them failed.
+ * Found by review.
  *
  * It is text, not a `repair` link, deliberately. A repair link is a claim the
- * destination can act on the fault; there is no planner or settings maintenance
- * action, and inventing a link to a page that cannot re-read the store would be
- * the dead end the `JOBS_WITHOUT_EXECUTION_REPAIR` rule above exists to avoid.
+ * destination can act on the fault; there is no settings maintenance action, and
+ * inventing a link to a page that cannot re-read the store would be the dead end the
+ * `JOBS_WITHOUT_EXECUTION_REPAIR` rule above exists to avoid. The sentence therefore
+ * does NOT tell the operator that no action is required: `polling-planner` still
+ * carries a Data Maintenance link (#733), and a hint contradicting a visible control
+ * is worse than one that says less.
  */
-const EXECUTION_RECOVERY_HINTS: Partial<Record<SchedulerExecutionReason, string>> = {
-  'settings-unreadable':
-    ' The provider refresh settings could not be read, so every planner job was held ' +
-    'and no schedule was changed — this is not an operator pause. No action is ' +
-    'required if the next run succeeds; a run that keeps reporting it means the ' +
-    'settings record itself needs an operator.',
-};
+const EXECUTION_RECOVERY_HINTS: Record<string, string> = Object.create(null, {
+  'settings-unavailable': {
+    enumerable: true,
+    value:
+      ' The provider refresh settings could not be read, so this run changed nothing ' +
+      'and held its work — that is a store fault, not an operator pause. A run that ' +
+      'keeps reporting it means the settings record itself needs an operator.',
+  },
+});
 
+/**
+ * PROTOTYPE-SAFE BY CONSTRUCTION, and the hazard is real rather than theoretical:
+ * `parseSchedulerExecutionReceipt` accepts ANY non-empty string as `reason` — its
+ * own comment describes "a record … that carries an unrecognized `reason`" — so a
+ * corrupt durable row could carry `toString`, and a plain object literal would have
+ * returned an inherited function that `?? ''` does not catch, appending
+ * `function toString() { [native code] }` to what an operator reads. Found by review.
+ */
 function recoveryHint(reason: SchedulerExecutionReason): string {
   return EXECUTION_RECOVERY_HINTS[reason] ?? '';
 }

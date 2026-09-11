@@ -366,17 +366,22 @@ export async function GET(req: Request): Promise<NextResponse<PollingPlannerResu
     // documents noncritical callers failing closed for exactly this reason, and
     // here the direction that matters is not undoing an operator's stop.
     let settings: ProviderRefreshSettings | null = null;
-    // WHY THE FLAG AND NOT JUST `settings === null`. Both a settings-read FAILURE
-    // and a genuine operator hold end with every job held and nothing sent, and
-    // that behaviour is correct in both cases. What differs is whether anyone
-    // CHOSE it — and the classifier below cannot recover that from the null,
-    // because holding is what a null causes rather than what it means.
-    let settingsUnreadable = false;
+    // WHY A FLAG WHEN `settings === null` WOULD DO TODAY — stated accurately, because
+    // the first version of this comment claimed the classifier "cannot recover that
+    // from the null" and that is false: `getProviderRefreshSettings` returns
+    // `normalizeSettings(...)` and never resolves to null, so the two are exactly
+    // equivalent right now. Found by review.
+    //
+    // The flag is kept because the equivalence is a NON-LOCAL invariant of another
+    // module's return type. Reading it off the null would make the classification
+    // silently rejoin a genuine hold the day that read gains a nullable path, and
+    // that rejoining is the entire defect this change exists to undo.
+    let settingsUnavailable = false;
     try {
       settings = await getProviderRefreshSettings();
     } catch {
       settings = null;
-      settingsUnreadable = true;
+      settingsUnavailable = true;
     }
 
     for (const job of PLANNER_OWNED_JOBS) {
@@ -393,7 +398,7 @@ export async function GET(req: Request): Promise<NextResponse<PollingPlannerResu
     }
 
     const failed = exec.schedulesFailed + exec.recordsNotWritten;
-    if (settingsUnreadable) {
+    if (settingsUnavailable) {
       // FIRST, ahead of the all-held branch, because that branch is exactly the one
       // this must not fall into: every job IS held here, so ordering is what keeps
       // an unreadable store out of the result alerting ignores. Mirrors
@@ -404,7 +409,7 @@ export async function GET(req: Request): Promise<NextResponse<PollingPlannerResu
       // it to operator holds would change a validated receipt shape to restate what
       // the reason already says.
       exec.result = 'failure';
-      exec.reason = 'settings-unreadable';
+      exec.reason = 'settings-unavailable';
     } else if (exec.jobsHeld === PLANNER_OWNED_JOBS.length) {
       // Every job is held, so the planner touched nothing and that is CORRECT.
       // `no-op` rather than `failure`, because `schedulerExecutionIssues` raises
@@ -439,7 +444,7 @@ export async function GET(req: Request): Promise<NextResponse<PollingPlannerResu
       // Named in the response for the same reason `schedule-unreadable` names its
       // own: the operator reading this must not have to infer that nothing was sent,
       // and must not read the hold as one somebody asked for.
-      ...(settingsUnreadable
+      ...(settingsUnavailable
         ? {
             error:
               'the provider refresh settings could not be read — every planner job was ' +
