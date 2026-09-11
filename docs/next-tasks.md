@@ -36,9 +36,22 @@ Supersedes: (none)
 >
 > **The server track's stated order says Item 126 Tier A next, and that ordering predates Item 102
 > finishing.** Tier A is `invocationId` across nine cron-log modules, and this file already records
-> its value as capped — *"it correlates runtime logs that expire."* Against that, **Item 130 (#689)
-> became unblocked the moment Item 102 landed** — it names Item 102's QStash-write capability as its
-> only dependency, and it is the item the Active CPU campaign exists for. **Owner picks.**
+> its value as capped — *"it correlates runtime logs that expire."* Against that, **And #689 is NOT the alternative I first
+> claimed — CORRECTED 2026-09-11 within the hour.** Item 102 did not unblock #689's step 1; it
+> *delivered* it. `derivePollingWindows` is called with no options at `pollingPlanner.ts:176`, so
+> production runs every default step 1 specifies: 15m lead (`CLUSTER_LEAD_MS`), dense to last kickoff
+> +8h (`CLUSTER_MARGIN_MS`), hourly to +24h (`SLOW_STEP_MINUTES = 60`,
+> `RECONCILIATION_GUARANTEE_MS`), then off — and a real contiguous-cluster loop, not a per-day one.
+> **The 59-61% saving is already banked.** I read two issue titles that sound alike and did not open
+> the file; the constants are named `CLUSTER_*` and would have shown it in one grep.
+>
+> **What remains of #689 is step 2 only** — standing down when games actually finish rather than
+> waiting out the 8h margin, estimated ~9 points. **And #689 itself says what to do first:** *"shipping
+> [step 1] first yields production evidence of how often games really overrun the margin — which
+> prices step 2 with data instead of this item's estimate."* Step 1 has been live since 2026-09-07.
+> **So the next server-track action is a measurement, not a branch:** actual live-scores wakeups since
+> activation against the projected 6,156 for October, and the real overrun distribution past +8h.
+> **Owner picks** between that, Item 126 Tier A, and #732/#733.
 `NEXT`: **Item 115** — Overview section expansion.
 
 Owner-selected run order (2026-09-03), replacing the 2026-09-02 order. Ordering values, stated by the
