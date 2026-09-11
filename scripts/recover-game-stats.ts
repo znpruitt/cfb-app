@@ -61,6 +61,12 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import dotenv from 'dotenv';
 
+import {
+  OPERATOR_READ_CREDENTIAL_REFUSAL,
+  OPERATOR_WRITE_CREDENTIAL_REFUSAL,
+  operatorReadOnlyEnv,
+  operatorWriteConnectionString,
+} from './lib/operatorEnv.ts';
 import { fetchCfbdUsage } from '../src/lib/api/cfbdUsage.ts';
 import { fetchUpstreamJson, UpstreamFetchError } from '../src/lib/api/fetchUpstream.ts';
 import { buildCfbdGameTeamStatsUrl, type CfbdSeasonType } from '../src/lib/cfbd.ts';
@@ -102,6 +108,56 @@ const CFBD_RETRY_POLICY = {
 } as const;
 
 const CFBD_PACING_POLICY = { key: 'cfbd', minIntervalMs: 150 } as const;
+
+// === Credentials ===
+
+/**
+ * WHICH PRIVILEGE A RUN NEEDS, and it is not "whatever the operator has".
+ *
+ * `capture` reads the stored partition and calls the provider; it contains no
+ * write-capable call at all. `apply` without `--apply` is a dry run that returns
+ * before the commit. Only `apply --apply` writes, so only `apply --apply` may see
+ * the production write credential — every other run is confined to the read-only
+ * rail, where the `audit_ro` role cannot write even if this function is wrong.
+ */
+export function runNeedsWriteCredential(args: RecoveryArgs): boolean {
+  return args.mode === 'apply' && args.apply;
+}
+
+/**
+ * Put the connection string this run is entitled to into `process.env.DATABASE_URL`,
+ * or return the refusal that names the file it is missing.
+ *
+ * THE VARIABLE NAME STOPS IMPLYING WRITE ACCESS HERE, which is why this is loud
+ * rather than a quiet assignment. `appStateStore` takes its connection from
+ * `process.env.DATABASE_URL` and offers no injection point, so reading through the
+ * rail means putting the READ-ONLY string in a variable called `DATABASE_URL`.
+ * That is safe because of the runbook's two independent guarantees: the credential
+ * is the `audit_ro` ROLE (CONNECT/USAGE/SELECT only), not merely the RO endpoint,
+ * so a `DATABASE_URL` holding it cannot write at any host.
+ *
+ * THE ASSIGNMENT IS UNCONDITIONAL. An operator with the write credential exported
+ * in their shell must still have `capture` run on the rail — "prefer the rail" is a
+ * preference, and a preference is not a guarantee. Same lesson as
+ * `plannerRecordConnectionString`, which refuses to fall back for the same reason.
+ */
+export function applyRunCredential(
+  args: RecoveryArgs,
+  env: Record<string, string | undefined> = process.env,
+  directory: string = process.cwd()
+): { ok: true } | { ok: false; refusal: string } {
+  if (runNeedsWriteCredential(args)) {
+    const write = operatorWriteConnectionString(env, directory);
+    if (!write) return { ok: false, refusal: OPERATOR_WRITE_CREDENTIAL_REFUSAL };
+    env.DATABASE_URL = write;
+    return { ok: true };
+  }
+
+  const readOnly = operatorReadOnlyEnv(env, directory).DATABASE_URL_RO?.trim();
+  if (!readOnly) return { ok: false, refusal: OPERATOR_READ_CREDENTIAL_REFUSAL };
+  env.DATABASE_URL = readOnly;
+  return { ok: true };
+}
 
 // === Arguments ===
 
@@ -939,16 +995,27 @@ async function runApply(args: ApplyArgs): Promise<number> {
 }
 
 async function main(): Promise<void> {
-  // `.env.local` carries CFBD_API_KEY; the production connection string lives in
-  // `.env.operator.local`. Neither is created here and neither is printed.
+  // `.env.local` carries CFBD_API_KEY. It does NOT carry a connection string, and
+  // neither operator file is loaded wholesale any more: `.env.operator.local` holds
+  // the read-only rail AND, until issue #703's key move, a production write
+  // credential, so loading it put the write credential in `process.env` for every
+  // run of this tool including a read-only capture. Neither file is created here
+  // and neither is printed.
   dotenv.config({ path: path.join(process.cwd(), '.env.local') });
-  dotenv.config({ path: path.join(process.cwd(), '.env.operator.local') });
   dotenv.config();
 
+  // ARGUMENTS BEFORE CREDENTIALS, because the mode is what decides the privilege.
   const parsed = parseRecoveryArgs(process.argv.slice(2));
   if ('error' in parsed) {
     console.error(`REFUSED: ${parsed.error}\n${USAGE}`);
     process.exitCode = 2;
+    return;
+  }
+
+  const credential = applyRunCredential(parsed);
+  if (!credential.ok) {
+    console.error(`REFUSED: ${credential.refusal}`);
+    process.exitCode = 3;
     return;
   }
   const code = parsed.mode === 'capture' ? await runCapture(parsed) : await runApply(parsed);
