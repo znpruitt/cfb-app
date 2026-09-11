@@ -51,6 +51,44 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-661-DISRUPTED-VOCABULARY-NOTE-CLAUDE-v1
+
+- Purpose: [#661](https://github.com/znpruitt/cfb-app/issues/661) — comments described the provider
+  disruption vocabulary (`postponed`/`canceled`/`suspended`/`delayed`) as live behaviour, and were
+  read as fact twice: a wrong conclusion about Item 169, and disruption handling built for #727.
+  One authoritative measurement at the classifier; every other comment defers to it.
+- Scope: `src/lib/gameStatus.ts` (the note) plus one identical pointer sentence in 32 further
+  non-test modules — 33 files, comments only, no behaviour change. Widened from the four originally
+  named comments by owner decision 2026-09-11 under `AGENTS.md` ("correcting a claim means grepping
+  for it"); **33 files exceeds the 15-file sizing signal, approved explicitly**, on four conditions
+  (identical sentence, nothing else touched, count reported, `trends.ts` read closely), all met.
+- Outcome: the note records both populations with their date (2026-09-11: 22,760 schedule rows all
+  `scheduled`; 20,424 score values, `final` 19,524 / `scheduled` 900), the Alderson-Broaddus worked
+  example **in the score cache** (6 `scheduled` 0-0, 5 `final` 0-0 — a cancelled game can arrive
+  marked COMPLETE), and a SCOPE section stating what a resting-state snapshot cannot see. Two
+  corrections to the item's own premise shipped with it: **`AppGame.rawStatus` is POPULATED** at all
+  four `schedule.ts` construction sites ("absent from every row" was true of the cached row and
+  false of the derived field), and the consumer count is 10 modules calling `isDisruptedStatusLabel`
+  within a 16-module union, not the 3 the prompt asserted.
+- Review / verification: `npx tsc --noEmit` 0; `npm test` 1 (5159 tests, 5157 pass, 2 fail — the
+  standing Item 137 `writer-convergence` baseline), **test delta 0 measured against an `origin/main`
+  baseline run**, not inferred; `npm run lint:all` 0. Both reviewers ran twice. **The note committed
+  the defect it was written to fix, most sharply inside its own remediation**: round 1 wrote
+  "`postponed`/`suspended`/`delayed` are by nature temporary and resolve to `final`" — an unmeasured
+  provider claim written into the fix for unmeasured provider claims, contradicted by
+  `browserPolling.ts` ("TERMINAL (never corrected)"). Round 1 had already retracted the headline
+  ("has never fired in production", "coverage is total") on two independent mechanisms — `stateOrder`
+  ranks `disrupted` and `final` equally so a final overwrites a disrupted row, and
+  `finalReconciliation.ts` classifies fresh CFBD rows that are never persisted. The branch then
+  **reduced instead of patching a third time**, because all ~10 findings shared one shape: an
+  inventory claim, never a measurement. Deleted a call-site count (14 invocations on 13 lines — the
+  third wrong count in this item), "the one deliberate `null`" (two), "can only hold one value",
+  `#727` specifics that exist only on the unmerged `codex/727` branch, and an `AGENTS.md:725`
+  citation scoped to zero-consumer modules quoted where the predicates are widely consumed.
+  **The measurements survived every pass untouched and were independently re-measured by both
+  reviewers; only the prose around them failed.** That contrast is the item's lesson.
+- Status: Merged (PR [#738](https://github.com/znpruitt/cfb-app/pull/738), `d9543404`, 2026-09-11)
+
 ### PLATFORM-619-PLANNER-SETTINGS-CONFLATION-CLAUDE-v1
 
 - Purpose: [#619](https://github.com/znpruitt/cfb-app/issues/619) (absorbing Item 189) — the polling
