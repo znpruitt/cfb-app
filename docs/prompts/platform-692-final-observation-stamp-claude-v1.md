@@ -94,18 +94,26 @@ last one did. That is enough to size a tail and is explicitly all this item buys
 final, then is corrected by a later `/games` pass, keeps its ORIGINAL stamp — the question being
 measured is when we first believed it, not when it settled. Merge prior over new, not new over prior.
 
-> **This is the whole item, and production proves it. Measured 2026-09-11 on `scores/2026-1-regular`:**
-> of 454 stamped rows, **355 carry the identical `itemUpdatedAtById` value `2026-09-08T12:00Z`** —
-> matching the entry's own `at` of `2026-09-08T12:00:05.549Z`. **One bulk write erased the finish-time
-> signal for 78% of week 1 in a single second.** The 99 survivors are spread over 81 distinct minutes,
-> 95 of them in minutes holding ≤3 rows, and they produce a clean 3–4h cluster for 88 games — agreeing
-> with Item 108's `kickoff + 3.40h..4.75h`.
+> **Production context, measured 2026-09-11 on `scores/2026-1-regular`, and the second reading
+> corrected the first.** Of 454 stamped rows, **355 carry the identical `itemUpdatedAtById` value
+> `2026-09-08T12:00Z`**. My first reading called that a bulk rewrite erasing the signal. **It is not.**
+> The audit trail names it: the weekly `schedule-refresh` cron (`0 12 * * 2`) ran its final-score
+> sweep and committed **355 score repairs** — `scheduler-execution-status/schedule-refresh` records
+> `scoreRepairs: 355`, `scoreDifferences: 0`; `provider-refresh-status/scores:week:2026:1:regular`
+> records `rowsCommitted: 355`, succeeded. The sweep merges under `onlyIfMissingUsableFinal: true`,
+> **so those rows had no usable final at all until Tuesday noon.** Nothing was overwritten. The stamp
+> is honest; it records when the SWEEP supplied the final.
 >
-> A LAST-change field cannot survive routine operation. **A first-write-wins field is immune by
-> construction, and that is the only reason this item is worth building** rather than querying what
-> already exists. If your implementation can be overwritten by a resync, a backfill, or a
-> metadata-only rewrite, it reproduces the defect it exists to fix. **Prove the negative: a test in
-> which a bulk rewrite touches every row and the stamps do not move.**
+> **The consequence for this item is larger than the one I first claimed.** Only **99 of 454** week-1
+> rows ever received a final from live observation — and on the 09-05 Saturday it was 60 live against
+> 145 swept. **The reconciliation sweep, not live polling, is supplying most finals.** So a stamp
+> written only where `scoreMerge` sees the transition would miss roughly three quarters of games and
+> would silently measure "how fast live polling works" on a biased sample of the ones it caught.
+>
+> **This is a receipt question, not a settled design** — see Q7. Whatever you conclude, first-write-wins
+> still holds: the question is when we FIRST believed a game was final, and a field that a later write
+> can move cannot answer it. **Prove the negative: a test in which a later write touches the row and
+> the stamp does not move.**
 
 **2. ALL THREE writers must carry the map forward, or it vanishes silently.** Enumerated at
 `a774b3f6`, writers and consumers both — a seam audit that stops at writers is half of one:
@@ -174,6 +182,14 @@ Answer from the files. Every question is one this prompt could be wrong about.
    doubles it.
 5. Does `classifyScorePackStatus` returning `'final'` mean the SCORE is final, or can a statistics-
    only or provisional state reach it? Cite the function. The C3 scope protection turns on this.
-6. **What in this prompt contradicts what you found in the files?**
+7. **The sweep supplies most finals, and that may break the whole design.** `scoreMerge` is one of
+   three writers, but `finalScoreSweep` reaches the store through its own merge with a single fixed
+   `now: observedAtMs` for the entire run. If the stamp lives only in `scoreMerge`'s `finalized`
+   branch, is it written at all for a swept game? Trace it. Then say whether the stamp should also be
+   written on the sweep path — and if so, whether a sweep-supplied stamp is even the same
+   measurement, given it records a weekly cron's clock rather than anything about the game. **A
+   distribution mixing the two silently is worse than one that excludes swept games and says so.**
+   Recommend which, and what distinguishes them at read time.
+8. **What in this prompt contradicts what you found in the files?**
 
 Do not start until the receipt is answered and I have ruled on it.
