@@ -250,3 +250,111 @@ test('pending metadata: a protected newer live final keeps pending; a manual-cov
   // `a` protected (live-newer) → pending retained; `c` manual-covered → cleared.
   assert.deepEqual(merged.pendingFinalConfirmationIds, ['a']);
 });
+
+// ---- First-final observation stamp (PLATFORM-692 / #692) ------------------
+//
+// This rebuilder CARRIES stamps and never mints one. It is an operator-triggered
+// `/games` refresh — a stamp minted here would record when someone clicked
+// refresh — and it can target `${year}-all-*`, where a stamp has no meaning.
+// Because it also DELETES rows, the carry must be projected over the surviving
+// key set, not copied wholesale.
+
+test('a first-final stamp SURVIVES an authoritative manual refresh over the same row', () => {
+  // The failure mode is silence: this rebuilder constructs a fresh entry, so an
+  // uncarried field is dropped by the next manual repair with no error.
+  const prior = entry({
+    at: 2000,
+    items: [pack('a', 'final', 21, 17)],
+    itemUpdatedAtById: { a: 2000 },
+    firstFinalObservedAtById: { a: 2000 },
+  });
+  const merged = mergeManualPartition({
+    manualItems: [pack('a', 'final', 24, 17)], // a `/games` score correction
+    prior,
+    now: 5000,
+  });
+  assert.equal(merged.items[0]!.home.score, 24, 'the authoritative correction landed');
+  assert.equal(merged.itemUpdatedAtById!['a'], 5000, 'last-material-change advanced');
+  assert.equal(merged.firstFinalObservedAtById!['a'], 2000, 'first-final did NOT');
+});
+
+test('a stamp survives on a PROTECTED newer live row the manual response did not win', () => {
+  const prior = entry({
+    at: 6000,
+    items: [pack('a', 'final', 21, 17)],
+    itemUpdatedAtById: { a: 6000 }, // newer than the manual observation
+    firstFinalObservedAtById: { a: 6000 },
+  });
+  const merged = mergeManualPartition({
+    manualItems: [pack('a', 'Q4 1:00', 21, 14)],
+    prior,
+    now: 5000,
+  });
+  assert.equal(merged.items[0]!.status, 'final', 'the newer live row was preserved');
+  assert.equal(merged.firstFinalObservedAtById!['a'], 6000);
+});
+
+test('the manual path NEVER MINTS a stamp for a final it supplies itself', () => {
+  // An authoritative manual final over a prior that was never observed final by
+  // live polling. A stamp here would record an operator's click.
+  const prior = entry({
+    at: 1000,
+    items: [pack('a', 'Q2 5:00', 7, 3)],
+    itemUpdatedAtById: { a: 1000 },
+  });
+  const merged = mergeManualPartition({
+    manualItems: [pack('a', 'final', 24, 17)],
+    prior,
+    now: 5000,
+  });
+  assert.equal(merged.items[0]!.status, 'final');
+  assert.equal(merged.firstFinalObservedAtById, undefined);
+  assert.equal(Object.hasOwn(merged, 'firstFinalObservedAtById'), false);
+});
+
+test('a DROPPED row drops its stamp — the map cannot accumulate orphan keys', () => {
+  // Authoritative replacement deletes a prior row older than the observation
+  // that the response omits. Copying the prior map wholesale would leave `b`'s
+  // stamp behind forever, keyed to a game no longer in the partition.
+  const prior = entry({
+    at: 1000,
+    items: [pack('a', 'final', 21, 17), pack('b', 'final', 10, 3)],
+    itemUpdatedAtById: { a: 1000, b: 1000 },
+    firstFinalObservedAtById: { a: 1000, b: 1000 },
+  });
+  const merged = mergeManualPartition({
+    manualItems: [pack('a', 'final', 21, 17)], // response omits `b`
+    prior,
+    now: 5000,
+  });
+  assert.equal(
+    merged.items.some((i) => i.id === 'b'),
+    false,
+    'the row is gone'
+  );
+  assert.deepEqual(merged.firstFinalObservedAtById, { a: 1000 }, 'and so is its stamp');
+});
+
+test('a manual refresh over a prior with no map writes no map', () => {
+  const merged = mergeManualPartition({
+    manualItems: [pack('a', 'final', 21, 17)],
+    prior: entry({ at: 1000, items: [pack('a', 'Q2 5:00', 7, 3)] }),
+    now: 5000,
+  });
+  assert.equal(merged.firstFinalObservedAtById, undefined);
+});
+
+test('a non-finite stored stamp is not carried (durable JSON is untrusted at rest)', () => {
+  const prior = entry({
+    at: 2000,
+    items: [pack('a', 'final', 21, 17)],
+    itemUpdatedAtById: { a: 2000 },
+    firstFinalObservedAtById: { a: null } as unknown as Record<string, number>,
+  });
+  const merged = mergeManualPartition({
+    manualItems: [pack('a', 'final', 21, 17)],
+    prior,
+    now: 5000,
+  });
+  assert.equal(merged.firstFinalObservedAtById, undefined);
+});

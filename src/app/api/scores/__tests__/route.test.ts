@@ -1611,3 +1611,64 @@ test('PLATFORM-075: scores refresh requires admin authorization when a token is 
     else process.env.ADMIN_API_TOKEN = prior;
   }
 });
+
+// ---- Observation-only boundary (PLATFORM-692 / #692) ----------------------
+
+test('a first-final stamp on the durable entry never reaches the /api/scores response', async () => {
+  // The whole reason the stamp lives on `CacheEntry` rather than `ScorePack` is
+  // that this route builds `{ items, meta }` from `ScorePack[]`, never from the
+  // entry. That is the claim which, if wrong, ships an internal observation
+  // into a public API — so it is asserted against the serialized body, over
+  // BOTH the fresh-hit and the stale-serve paths, not read off the types.
+  const now = Date.now();
+  const row = {
+    id: 'g1',
+    seasonType: 'regular',
+    week: 7,
+    status: 'STATUS_FINAL',
+    startDate: '2026-10-17T18:00:00Z',
+    home: { team: 'Alabama', score: 27 },
+    away: { team: 'Georgia', score: 24 },
+    time: 'Final',
+  };
+  setMockFetch(async () => new Response('[]', { status: 200 }));
+
+  // Distinct weeks per path: the route holds a module-level in-process cache
+  // that outlives a test, so reusing one key would let the fresh read's warm
+  // copy answer the stale read and silently collapse this into one path.
+  for (const [label, week, at] of [
+    ['fresh hit', 7, now],
+    ['stale serve', 8, now - 48 * 60 * 60 * 1000],
+  ] as const) {
+    await setAppState('scores', `2026-${week}-regular`, {
+      at,
+      items: [{ ...row, week }],
+      source: 'cfbd',
+      cfbdFallbackReason: 'none',
+      itemUpdatedAtById: { g1: at },
+      firstFinalObservedAtById: { g1: at },
+    });
+    const res = await GET(
+      new Request(`http://localhost/api/scores?year=2026&week=${week}&seasonType=regular`)
+    );
+    const body = await res.text();
+    assert.equal(res.status, 200);
+    assert.ok(body.includes('"g1"'), `${label}: the row itself IS served`);
+    assert.equal(
+      body.includes('firstFinalObservedAt'),
+      false,
+      `${label}: the stamp is not in the response body`
+    );
+    assert.equal(
+      body.includes('itemUpdatedAtById'),
+      false,
+      `${label}: nor is its sibling — the entry is never serialized`
+    );
+    const json = JSON.parse(body);
+    assert.deepEqual(Object.keys(json).sort(), ['items', 'meta']);
+    // Proves the loop exercised two DIFFERENT serving paths rather than the
+    // same one twice — a negative assertion on a path that never ran is worth
+    // nothing.
+    assert.equal(json.meta.cache, label === 'fresh hit' ? 'hit' : 'stale');
+  }
+});

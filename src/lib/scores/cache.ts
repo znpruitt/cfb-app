@@ -34,7 +34,68 @@ export type CacheEntry = {
    * every pre-B1 entry (nothing pending) and never required by any reader.
    */
   pendingFinalConfirmationIds?: string[];
+  /**
+   * Optional per-provider-game-id FIRST-OBSERVATION-OF-FINAL timestamps
+   * (PLATFORM-692 / #692). The instant at which LIVE POLLING first saw the
+   * provider report this game's SCORE as final — written once, never moved.
+   *
+   * READ THIS BEFORE QUERYING IT; three things it is not.
+   *
+   * 1. NOT a game end time. CFBD publishes none — `/games` exposes no temporal
+   *    field but `startDate`/`startTimeTBD`, and `/scoreboard` nulls `period`
+   *    and `clock` the instant a row reads `completed`. What is recorded is the
+   *    real whistle PLUS CFBD's publication lag PLUS up to one poll interval.
+   *    That is the right quantity for sizing the reconciliation tail, which
+   *    waits on the provider's data settling, not on the whistle.
+   * 2. NOT a confirmed final. A `/scoreboard` `completed` row is displayed as
+   *    final immediately and recorded in {@link pendingFinalConfirmationIds}
+   *    awaiting `/games`; it is stamped here at that PROVISIONAL observation.
+   *    And `classifyScorePackStatus` classifies off the status LABEL alone, so
+   *    a final carrying no scores yet can be stamped.
+   * 3. NOT every game. Only the live paths stamp — `mergeScoresIntoPartition`
+   *    writes this map only when its caller opts in via
+   *    `stampFirstFinalObservation`, which the weekly `finalScoreSweep` does
+   *    NOT. `/scoreboard` is pinned to `classification=fbs`, so live polling
+   *    covers exactly the FBS population, and the sweep (`/games`, no division
+   *    filter) supplies most non-FBS finals at one fixed weekly cron clock —
+   *    a number about the cron, not about the game. Stamping both would mix
+   *    two measurements silently, so swept games are EXCLUDED and the exclusion
+   *    is self-describing: such a row is present in {@link itemUpdatedAtById}
+   *    and absent here, so "no stamp" never reads as "no data".
+   *
+   * Paired with {@link itemUpdatedAtById}, which is the LAST-material-change
+   * stamp, the two bracket both halves of what the tail exists for: `stamp −
+   * kickoff` is how long until the provider first reported final, and
+   * `itemUpdatedAtById − stamp` is how long corrections kept arriving after
+   * that (the straggler path). Neither half is a history — the second says when
+   * the last correction landed, not how many there were.
+   *
+   * Write-once, permanently: every rebuilder carries an existing value forward
+   * by RAW lookup and never re-stamps, because the question is when we FIRST
+   * believed a game was final. No fallback to `at`: unlike
+   * {@link effectiveRowTimestamp}, an absent stamp means ABSENT, never the
+   * entry version. Nothing reads this map in the application — the consumer is
+   * a durable-store query. Backward compatible: absent on every pre-692 entry,
+   * and omitted entirely when empty.
+   */
+  firstFinalObservedAtById?: Record<string, number>;
 };
+
+/**
+ * One carried-forward first-final stamp, or undefined when the entry holds none
+ * for this id. The single place the RAW (no-fallback) read is expressed, so
+ * every rebuilder carries the map identically and none reaches for
+ * {@link effectiveRowTimestamp}, whose `at` fallback would synthesize a stamp
+ * for a row never observed final. A non-finite stored value is ignored —
+ * durable JSON is untrusted at rest.
+ */
+export function priorFirstFinalObservedAt(
+  entry: CacheEntry | null | undefined,
+  id: string
+): number | undefined {
+  const stamped = entry?.firstFinalObservedAtById?.[id];
+  return typeof stamped === 'number' && Number.isFinite(stamped) ? stamped : undefined;
+}
 
 /**
  * The EFFECTIVE last-updated timestamp of one cached row: its per-row timestamp

@@ -1,5 +1,5 @@
 import { classifyScorePackStatus } from '../gameStatus.ts';
-import { effectiveRowTimestamp, type CacheEntry } from './cache.ts';
+import { effectiveRowTimestamp, priorFirstFinalObservedAt, type CacheEntry } from './cache.ts';
 import type { ScorePack } from './types.ts';
 
 /** A complete, terminal final: classified `final` with BOTH scores present. */
@@ -132,10 +132,24 @@ export function mergeManualPartition(params: {
 
   const items: ScorePack[] = [];
   const itemUpdatedAtById: Record<string, number> = {};
+  // First-final stamps (PLATFORM-692) are CARRIED FORWARD ONLY — this path never
+  // writes one. It is an operator-triggered `/games` refresh, so a stamp minted
+  // here would record when someone clicked refresh, not when live polling first
+  // saw the provider report final; and it can target `${year}-all-*`, where a
+  // stamp has no meaning at all. Two properties this loop gets for free by
+  // projecting over the SURVIVING `byId` key set rather than copying the prior
+  // map wholesale: an id this authoritative replacement DROPS (a prior row older
+  // than the observation that the manual response omits) drops its stamp with
+  // it, so the map cannot accumulate orphan keys; and the value is a RAW lookup,
+  // never `effectiveRowTimestamp`, whose `at` fallback would mint a stamp for
+  // every row never observed final.
+  const firstFinalObservedAtById: Record<string, number> = {};
   const nextPending = new Set<string>();
   for (const [id, { item, at, source }] of byId) {
     items.push(item);
     itemUpdatedAtById[id] = at;
+    const priorFirstFinal = priorFirstFinalObservedAt(prior, id);
+    if (priorFirstFinal !== undefined) firstFinalObservedAtById[id] = priorFirstFinal;
     // A preserved live final's pending marker clears ONLY when the manual `/games`
     // complete final CONFIRMS THE SAME score. A DIFFERING `/games` final is a
     // discrepancy we cannot safely resolve here — this manual observation predates
@@ -174,5 +188,6 @@ export function mergeManualPartition(params: {
     cfbdFallbackReason: 'none',
     itemUpdatedAtById,
     ...(nextPending.size > 0 ? { pendingFinalConfirmationIds: [...nextPending].sort() } : {}),
+    ...(Object.keys(firstFinalObservedAtById).length > 0 ? { firstFinalObservedAtById } : {}),
   };
 }
