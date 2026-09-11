@@ -10,6 +10,49 @@ export type GameConclusionEvidence = {
 
 export type GameConclusionKind = 'score-required' | 'scoreless-terminal' | 'unresolved';
 
+/**
+ * THE DISRUPTED VOCABULARY IS A FORWARD-LOOKING GUARD. IT HAS NEVER FIRED IN PRODUCTION.
+ *
+ * This is the one authoritative record of that fact. Every other comment in `src/` that names
+ * `postponed` / `canceled` / `suspended` / `delayed` defers here instead of restating it, because
+ * four copies of one claim is how they drifted into four different phrasings (Item 661).
+ *
+ * Measured 2026-09-08 and re-measured 2026-09-11 through the read-only replica (`DATABASE_URL_RO`;
+ * `docs/deployment-runbook.md`), over two independent populations:
+ *
+ *   - schedule cache, 7 partitions (2018, 2021-2026): 22,760 rows, `status` = `scheduled` on
+ *     22,760 of 22,760. No row is missing a `status` key.
+ *   - score cache, 15 partitions: 20,424 status values, exactly two distinct — `final` (19,524)
+ *     and `scheduled` (900).
+ *
+ * Not one disrupted label on either field, across seven seasons. CFBD leaves a disrupted game
+ * `scheduled` — that is how six cancelled Alderson-Broaddus games reached the cache at 0-0, and
+ * how the Week 1 power-outage game presented. A disrupted game is therefore indistinguishable
+ * from an ordinary scheduled one in production.
+ *
+ * Those two caches are the only inputs these predicates see, so the coverage is total rather than
+ * a sample: `classifyStatusLabel` has never returned `'disrupted'` on real data, and
+ * `isDisruptedStatusLabel` has never returned `true` on it.
+ *
+ * `AppGame.rawStatus` IS POPULATED — it is not an unwritten field. `schedule.ts` sets it at all
+ * four `AppGame` construction sites as `item.status ?? null`, so every game carries a value, and
+ * that value is `scheduled` because `scheduled` is the only thing the provider has ever sent. A
+ * cached schedule ROW carries no `rawStatus` key at all: the field is derived at normalization,
+ * not stored. Conflating the two reads as "nothing writes it", which is false — the accurate and
+ * more useful statement is that it is written everywhere and can only hold one value.
+ *
+ * KEEP THE GUARD. A provider that starts emitting these labels is a real possibility, the
+ * predicates have live consumers (10 modules, 13 call sites), and `AGENTS.md` requires a guard to
+ * say why it exists rather than be removed. What is NOT licensed is reasoning FROM it. The
+ * disrupted branch is unreachable on measured data, so any behaviour, test expectation or design
+ * premised on a disrupted game OCCURRING is premised on nothing. That has now cost twice: a wrong
+ * conclusion about Item 169, and disruption handling built into Schedule's scoreboard derivation
+ * for #727 — including a `rawStatus` branch on a field that can only hold one value.
+ *
+ * Existing unit coverage of these predicates is SYNTHETIC: labels constructed in tests, never
+ * drawn from a production population. It shows the guard would classify such a label correctly if
+ * one arrived. It is not evidence that one does.
+ */
 const DISRUPTED_RE = /\b(postponed|canceled|cancelled|suspended|delayed)\b/;
 const CANCELED_RE = /\b(canceled|cancelled)\b/;
 const CANCELED_OR_POSTPONED_RE = /\b(?:canceled|cancelled|postponed)\b/;

@@ -67,6 +67,10 @@ type WindowGame = { game: CanonicalGame; kickoffMs: number };
  */
 function windowGame(game: CanonicalGame, nowMs: number): WindowGame | null {
   // Placeholder shells and disrupted games never produce stats.
+  //
+  // Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
+  // measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
+  // comment (Item 661).
   if (game.applicability === 'not-expected') return null;
   const kickoffMs = typeof game.kickoff === 'string' ? Date.parse(game.kickoff) : Number.NaN;
   // An unprovable kickoff age never polls (fail-safe, quota-first). The age

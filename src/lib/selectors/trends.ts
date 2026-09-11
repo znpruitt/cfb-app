@@ -103,6 +103,10 @@ export const SEASON_ORIGIN_GAMES_BACK = 0;
  *    cumulative standings. Review probed it: first drawn week 2,
  *    `seasonOriginApplies` true, week 1 carrying real results.
  *
+ * Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
+ * measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
+ * comment (Item 661).
+ *
  * `finalGames` is the evidence both flags were standing in for.
  *
  * Also false for a recent-window slice — Overview charts the last five resolved

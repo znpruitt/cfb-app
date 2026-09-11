@@ -79,6 +79,10 @@ export type PartitionMergeResult = {
  * Monotonic state order. Disrupted (canceled/postponed) is terminal, so a live
  * or scheduled observation can never regress it; a final may still correct it
  * (same order).
+ *
+ * Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
+ * measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
+ * comment (Item 661).
  */
 function stateOrder(bucket: GameStatusBucket): number {
   switch (bucket) {

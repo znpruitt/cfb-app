@@ -10,6 +10,10 @@
  * polling horizon (PLATFORM-089; it was 7 days through C2). No eligible game ⇒
  * `skipped / no-eligible-target`.
  *
+ * Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
+ * measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
+ * comment (Item 661).
+ *
  * Cadence (QStash invokes the route hourly; this pure policy decides whether a
  * provider request is actually DUE — the scheduler's cadence is unchanged, and
  * most hourly deliveries remain provider-free skips):

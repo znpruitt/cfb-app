@@ -296,6 +296,10 @@ async function providerConfirmedNoLines(year: number, now: number): Promise<bool
  * reintroducing the health-vs-cron disagreement this whole change removes. The
  * caller's items are still used when they are populated, so the common path
  * costs no extra read.
+ *
+ * Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
+ * measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
+ * comment (Item 661).
  */
 async function hasPollableOddsTarget(
   year: number,

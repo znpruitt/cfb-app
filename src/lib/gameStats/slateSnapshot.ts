@@ -90,6 +90,10 @@ export function buildGameStatSlateSnapshot(input: {
   const games: GameStatSlateSnapshotGame[] = [];
   for (const game of slate.games) {
     // Placeholder shells and disrupted games never produce stats — not persisted.
+    //
+    // Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
+    // measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
+    // comment (Item 661).
     if (game.applicability === 'not-expected') continue;
     // Explicit field-by-field projection (never a spread) so no runtime-only
     // field can leak into the persisted allowlist.

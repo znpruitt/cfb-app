@@ -226,6 +226,10 @@ function classifyApplicability(input: {
     return { applicability: 'not-expected', notExpectedReason: 'placeholder' };
   }
   // Disrupted (canceled/postponed/suspended/delayed) games never produce stats.
+  //
+  // Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
+  // measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
+  // comment (Item 661).
   if (isDisruptedStatusLabel(rawStatus)) {
     return { applicability: 'not-expected', notExpectedReason: 'disrupted' };
   }

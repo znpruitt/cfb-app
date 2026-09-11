@@ -225,6 +225,10 @@ export function classifyEmptyOddsResponse(params: {
       // odds rows expected; only games strictly ahead of now and inside the
       // horizon create an expectation (kicked-off games drop from the provider
       // feed, and far-out games may legitimately have no posted lines yet).
+      //
+      // Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
+      // measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
+      // comment (Item 661).
       if (isDisruptedStatusLabel(item.status)) continue;
       if (item.startDate === null) continue;
       const startMs = Date.parse(item.startDate);

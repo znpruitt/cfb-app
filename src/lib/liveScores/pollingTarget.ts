@@ -13,6 +13,10 @@ import type { LiveScoreContext, LiveScoreGame } from './canonicalContext';
  * canceled or postponed (delayed/suspended stay eligible), and whose cached
  * result is not authoritatively resolved (a confirmed final).
  *
+ * Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
+ * measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
+ * comment (Item 661).
+ *
  * Mode priority per invocation:
  *   1. any in-window game still open (scheduled/live/unconfirmed) → scoreboard
  *      (one global fetch may touch several week partitions);

@@ -416,6 +416,10 @@ export function projectAnalyticsPartition(
   // Addressable, stat-producing games of this partition: `expected` AND
   // `pending` (the six-hour threshold has no analytics authority); placeholders
   // and disrupted games are excluded by the partition selection itself.
+  //
+  // Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
+  // measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
+  // comment (Item 661).
   const partition = selectCanonicalPartition(input.slate, week, seasonType);
   const rowsById = groupRowsById(validated);
 

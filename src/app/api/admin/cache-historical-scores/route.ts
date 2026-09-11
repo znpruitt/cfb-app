@@ -244,6 +244,10 @@ export async function POST(req: Request): Promise<Response> {
   // unexpected empty is a provider FAILURE that writes nothing — prior-good
   // historical rows are never replaced by an empty payload — and a genuinely
   // absent target resolves as a NO-OP with no empty commit.
+  //
+  // Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
+  // measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
+  // comment (Item 661).
   const emptyPartitions = REPAIR_SEASON_TYPES.filter(
     (seasonType) => itemsByPartition[seasonType].length === 0
   );

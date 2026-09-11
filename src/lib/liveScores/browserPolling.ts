@@ -91,6 +91,10 @@ export function isLiveScoreEligibleGame(
 
   // Canceled/postponed are terminal → end eligibility; delayed/suspended (also
   // `disrupted`) and finals (still correctable until the window closes) do not.
+  //
+  // Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
+  // measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
+  // comment (Item 661).
   if (
     score &&
     classifyScorePackStatus(score) === 'disrupted' &&

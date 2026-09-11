@@ -10,6 +10,10 @@ export type CfbdFallbackReason =
   // data is retained and no empty result is published — never a valid no-op
   // (PLATFORM-086G1, deferred finding #6). Distinct from 'cfbd-empty', which is
   // a legitimately empty target (e.g. postseason before bowls).
+  //
+  // Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
+  // measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
+  // comment (Item 661).
   | 'cfbd-empty-unexpected'
   | 'cfbd-timeout'
   | 'cfbd-aborted'

@@ -60,6 +60,10 @@ export function gameStateFromScore(
   // `In Progress` — are recognized as in-progress consistently with every other
   // status consumer (PLATFORM-086B1). Disrupted labels (postponed/canceled/
   // suspended/delayed) present as 'scheduled', matching the classifier's buckets.
+  //
+  // Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
+  // measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
+  // comment (Item 661).
   if (!(score.status ?? '').trim()) return 'unknown';
   const bucket = classifyScorePackStatus(score);
   if (bucket === 'final') return 'final';
