@@ -158,10 +158,11 @@ export type PendingGame = {
  * clock, but they must not re-derive which games are real, concluded,
  * disrupted, or planned.
  *
- * `requireUsableFinalScore` is the Overview row policy: score-required progress
- * evidence (`completed: true`, or an incomplete final pack) remains pending
- * until a final pack carries both scores. The default preserves weekly finality,
- * where positive completion evidence and score coverage are separate facts.
+ * `requireUsableFinalScore` is the shared Overview/Schedule row policy:
+ * score-required progress evidence (`completed: true`, or an incomplete final
+ * pack) remains pending until a final pack carries both scores. The default
+ * preserves weekly finality, where positive completion evidence and score
+ * coverage are separate facts.
  */
 export function derivePendingGame(
   game: AppGame,

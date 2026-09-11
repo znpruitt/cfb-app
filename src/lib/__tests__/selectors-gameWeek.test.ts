@@ -2,8 +2,52 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { deriveGameWeekPanelViewModel } from '../selectors/gameWeek.ts';
-import type { AppGame } from '../schedule';
+import { buildScheduleFromApi, type AppGame, type ScheduleWireItem } from '../schedule';
 import type { ScorePack } from '../scores';
+import { GAME_MAX_DURATION_MS } from '../standingsHistory';
+import type { TeamCatalogItem } from '../teamIdentity';
+
+const pipelineTeams: TeamCatalogItem[] = [
+  { school: 'Away', level: 'FBS', conference: 'SEC' },
+  { school: 'Home', level: 'FBS', conference: 'SEC' },
+];
+
+function cardFromWireStatus(status: string, kickoff: string, currentDateMs: number) {
+  const scheduleItem: ScheduleWireItem = {
+    id: `pipeline-${status}`,
+    week: 1,
+    startDate: kickoff,
+    neutralSite: false,
+    conferenceGame: true,
+    homeTeam: 'Home',
+    awayTeam: 'Away',
+    homeConference: 'SEC',
+    awayConference: 'SEC',
+    status,
+    completed: status === 'completed' || status === 'final',
+    seasonType: 'regular',
+  };
+  const built = buildScheduleFromApi({
+    scheduleItems: [scheduleItem],
+    teams: pipelineTeams,
+    aliasMap: {},
+    season: 2026,
+  });
+  assert.equal(built.games.length, 1, status);
+
+  const vm = deriveGameWeekPanelViewModel({
+    games: built.games,
+    oddsByKey: {},
+    scoresByKey: {},
+    rosterByTeam: new Map(),
+    rankingsByTeamId: new Map(),
+    displayTimeZone: 'UTC',
+    currentDateMs,
+  });
+  const card = vm.groupedGames[0]?.games[0];
+  assert.ok(card, status);
+  return card;
+}
 
 function game(overrides: Partial<AppGame>): AppGame {
   return {
@@ -55,7 +99,7 @@ function game(overrides: Partial<AppGame>): AppGame {
   };
 }
 
-test('scheduled provider state becomes awaiting at kickoff, with non-playable rows excluded', () => {
+test('scheduled provider state becomes awaiting at kickoff without overriding excluded row states', () => {
   const kickoff = '2026-09-05T16:00:00.000Z';
   const kickoffMs = Date.parse(kickoff);
   const cases: Array<{
@@ -105,6 +149,57 @@ test('scheduled provider state becomes awaiting at kickoff, with non-playable ro
     });
 
     assert.equal(vm.groupedGames[0]?.games[0]?.scoreboardState, scenario.expected, scenario.name);
+  }
+});
+
+test('wire disruption evidence preserves its label on scoreless Schedule rows', () => {
+  const kickoff = '2026-09-05T16:00:00.000Z';
+  const expectedByRawStatus = new Map([
+    ['canceled', { state: 'scheduled', notice: 'Canceled' }],
+    ['STATUS_POSTPONED', { state: 'scheduled', notice: 'Postponed' }],
+    ['suspended', { state: 'scheduled', notice: 'Suspended' }],
+  ] as const);
+
+  for (const [rawStatus, expected] of expectedByRawStatus) {
+    const card = cardFromWireStatus(rawStatus, kickoff, Date.parse(kickoff) + 60_000);
+    assert.equal(card.scoreboardState, expected.state, rawStatus);
+    assert.equal(card.scheduleNotice, expected.notice, rawStatus);
+    assert.equal(card.statusRowValue, null, rawStatus);
+  }
+});
+
+test('wire completion labels without usable scores remain awaiting after kickoff', () => {
+  const kickoff = '2026-09-05T16:00:00.000Z';
+
+  for (const rawStatus of ['scheduled', 'completed', 'final']) {
+    const card = cardFromWireStatus(rawStatus, kickoff, Date.parse(kickoff) + 60_000);
+    assert.equal(card.scoreboardState, 'awaiting', rawStatus);
+    assert.equal(card.scheduleNotice, null, rawStatus);
+    assert.equal(card.statusRowValue, null, rawStatus);
+  }
+});
+
+test('scoreless playable rows await through eight hours, then restore scheduled kickoff', () => {
+  const kickoff = '2026-09-05T16:00:00.000Z';
+
+  for (const [elapsedMs, expectedState] of [
+    [GAME_MAX_DURATION_MS, 'awaiting'],
+    [GAME_MAX_DURATION_MS + 1, 'scheduled'],
+  ] as const) {
+    for (const rawStatus of ['scheduled', 'completed']) {
+      const card = cardFromWireStatus(rawStatus, kickoff, Date.parse(kickoff) + elapsedMs);
+      assert.equal(card.scoreboardState, expectedState, `${rawStatus}:${elapsedMs}`);
+      assert.equal(
+        card.scheduleNotice,
+        expectedState === 'scheduled' ? 'Scheduled' : null,
+        `${rawStatus}:${elapsedMs}`
+      );
+      assert.equal(
+        card.statusRowValue,
+        expectedState === 'scheduled' ? '4:00 PM' : null,
+        `${rawStatus}:${elapsedMs}`
+      );
+    }
   }
 });
 
