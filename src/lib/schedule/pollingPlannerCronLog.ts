@@ -40,6 +40,31 @@ export type PollingPlannerCronExecutionReason =
    */
   | 'plan-held'
   /**
+   * The SETTINGS store could not be read, so whether a hold exists is unknown.
+   *
+   * THE NAME IS BORROWED, NOT COINED. `rankings/route.ts` and
+   * `schedule-refresh/route.ts` already answer the identical `getProviderRefreshSettings`
+   * throw with `settings-unavailable`, `cronExecutionLog` carries it with an
+   * aggregation rule, and `providerRefreshSettings` names it in its own docstring —
+   * "noncritical callers fail closed (`settings-unavailable`)". A planner-only synonym
+   * would have given one fault two names and left every reason-keyed consumer knowing
+   * only one of them. Found by review, which located the closer prior art this
+   * vocabulary's first draft missed.
+   *
+   * PAIRED WITH `failure`, AND THAT IS THE POINT. The planner still fails closed and
+   * holds every job — refusing to mutate schedules under uncertain settings is
+   * correct. Reporting that uncertainty as `no-op` / `plan-held` was not:
+   * `schedulerExecutionIssues` deliberately raises nothing for `no-op`, so a transient
+   * settings-read failure stopped the planner silently, in a state indistinguishable
+   * from a deliberate operator stop, with the alerting built to ignore it (issue #619,
+   * and Item 189 before it).
+   *
+   * A GENUINE HOLD IS UNCHANGED — still `no-op` / `plan-held`, still silent. The
+   * distinction is the cause, not the behaviour: both hold everything, and only one
+   * of them is something an operator chose.
+   */
+  | 'settings-unavailable'
+  /**
    * The canonical schedule could not be read, so no windows could be derived.
    * The planner FAILS CLOSED here rather than planning an empty day: an empty
    * window list is a legitimate plan for a dead day, and treating an unreadable

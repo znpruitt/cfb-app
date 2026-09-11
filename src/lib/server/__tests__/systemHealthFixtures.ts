@@ -143,6 +143,27 @@ export function receiptFor(
 }
 
 /**
+ * A receipt carrying an EXPLICIT reason rather than the job's default.
+ *
+ * Issue #619 needs two receipts for one job that differ ONLY in the reason —
+ * `settings-unavailable` must raise while `plan-held` stays silent — and
+ * {@link receiptFor} pins one reason per job, so it cannot express the pair.
+ *
+ * DELEGATES to `buildReceipt` rather than copying it. The first version was a
+ * verbatim copy with one field changed, which would have silently stopped matching
+ * the moment `buildReceipt` gained a field — and it has grown several. Found by
+ * review.
+ */
+export function receiptWithReason(
+  job: ExternalSchedulerJob,
+  result: SchedulerExecutionResult,
+  reason: SchedulerExecutionReceiptInput['reason'],
+  startedAtMs: number = NOW - 60_000
+): SchedulerExecutionReceipt {
+  return buildReceipt(job, result, startedAtMs, 0, reason);
+}
+
+/**
  * PLATFORM-086F2H3B2 — a receipt whose TARGET reports refused production
  * lifecycle records. Only the four lifecycle-bearing jobs carry the field;
  * asking for refusals on any other job throws rather than silently producing a
@@ -166,7 +187,8 @@ function buildReceipt(
   job: ExternalSchedulerJob,
   result: SchedulerExecutionResult,
   startedAtMs: number,
-  refusals: number
+  refusals: number,
+  reason: SchedulerExecutionReceiptInput['reason'] = REASON_FOR[job]
 ): SchedulerExecutionReceipt {
   const receipt = buildSchedulerExecutionReceipt({
     job,
@@ -174,7 +196,7 @@ function buildReceipt(
     startedAtMs,
     completedAtMs: startedAtMs + 1000,
     result,
-    reason: REASON_FOR[job],
+    reason,
     providerCallAttempted: false,
     target: targetFor(job, refusals),
   });
