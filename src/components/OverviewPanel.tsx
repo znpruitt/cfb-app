@@ -33,6 +33,9 @@ import {
   type PrioritizedOverviewItem,
 } from '../lib/selectors/overview';
 import {
+  OVERVIEW_LIVE_LIMIT,
+  OVERVIEW_RECENT_FINALS_LIMIT,
+  OVERVIEW_WATCHLIST_LIMIT,
   selectOverviewGameSections,
   type OverviewSectionItem,
   type PrioritizedOverviewSectionItem,
@@ -410,6 +413,37 @@ function SectionHeader({
       </h2>
       {action ?? null}
     </div>
+  );
+}
+
+function SectionExpansionControl({
+  sectionLabel,
+  controlsId,
+  expanded,
+  hiddenGameCount,
+  onToggle,
+}: {
+  sectionLabel: string;
+  controlsId: string;
+  expanded: boolean;
+  hiddenGameCount: number;
+  onToggle: () => void;
+}): React.ReactElement | null {
+  if (hiddenGameCount <= 0) return null;
+
+  return (
+    <button
+      type="button"
+      aria-label={expanded ? `Show fewer ${sectionLabel}` : `Show all ${sectionLabel}`}
+      aria-expanded={expanded}
+      aria-controls={controlsId}
+      className="mt-3 min-h-11 w-full rounded-md border border-gray-200 py-1.5 text-xs font-semibold text-gray-600 transition-colors hover:bg-gray-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-700/50"
+      onClick={onToggle}
+    >
+      {expanded
+        ? 'Show less ↑'
+        : `Show ${hiddenGameCount} more game${hiddenGameCount === 1 ? '' : 's'} ↓`}
+    </button>
   );
 }
 
@@ -1433,6 +1467,18 @@ export default function OverviewPanel({
   lifecycleState,
   currentYear,
 }: OverviewPanelProps): React.ReactElement {
+  type ExpandableSectionKey = 'live' | 'recentFinals' | 'watchlist';
+  const [expandedSections, setExpandedSections] = React.useState<
+    Record<ExpandableSectionKey, boolean>
+  >({
+    live: false,
+    recentFinals: false,
+    watchlist: false,
+  });
+  const toggleExpandedSection = (section: ExpandableSectionKey) => {
+    setExpandedSections((current) => ({ ...current, [section]: !current[section] }));
+  };
+
   // Canonical owns the resolved-week snapshot for Overview: rows, standings
   // history, and color order all flow from it directly. The client-derived
   // overlay (in-progress games, pending W/L) is passed separately as
@@ -1582,6 +1628,18 @@ export default function OverviewPanel({
       }),
     [featuredGameKeys, games, nowMs, sectionItems, viewModel.watchlistCandidates]
   );
+  // Item 115: these caps are item counts, not grid rows. An odd expanded total stays
+  // ragged at two columns and must stay ragged when the deferred three-column tier lands
+  // (#678 / #726); tier-dependent caps belong to that work, not this disclosure.
+  const visibleLiveItems = expandedSections.live
+    ? gameSections.live
+    : gameSections.live.slice(0, OVERVIEW_LIVE_LIMIT);
+  const visibleRecentFinals = expandedSections.recentFinals
+    ? gameSections.recentFinals
+    : gameSections.recentFinals.slice(0, OVERVIEW_RECENT_FINALS_LIMIT);
+  const visibleWatchlistItems = expandedSections.watchlist
+    ? gameSections.scheduled
+    : gameSections.scheduled.slice(0, OVERVIEW_WATCHLIST_LIMIT);
   const liveTitle = `Live · ${gameSections.live.length}`;
   const sharedInsights = React.useMemo(() => {
     // Insight narratives compare against historyForRender's resolved weeks. If
@@ -1789,15 +1847,22 @@ export default function OverviewPanel({
                 </button>
               }
             />
-            <div className="mt-2.5">
+            <div id="overview-live-games" className="mt-2.5">
               <GameCardList
-                items={gameSections.live}
+                items={visibleLiveItems}
                 rankingsByTeamId={rankingsByTeamId}
                 teamRecordsByProviderGameId={teamRecordsByProviderGameId}
                 state="live"
                 teamLogosById={teamLogosById}
               />
             </div>
+            <SectionExpansionControl
+              sectionLabel="Live games"
+              controlsId="overview-live-games"
+              expanded={expandedSections.live}
+              hiddenGameCount={gameSections.live.length - OVERVIEW_LIVE_LIMIT}
+              onToggle={() => toggleExpandedSection('live')}
+            />
           </section>
         </>
       ) : null}
@@ -1816,15 +1881,22 @@ export default function OverviewPanel({
                 </button>
               }
             />
-            <div className="mt-2.5">
+            <div id="overview-recent-finals" className="mt-2.5">
               <GameCardList
-                items={gameSections.recentFinals}
+                items={visibleRecentFinals}
                 rankingsByTeamId={rankingsByTeamId}
                 teamRecordsByProviderGameId={teamRecordsByProviderGameId}
                 state="final"
                 teamLogosById={teamLogosById}
               />
             </div>
+            <SectionExpansionControl
+              sectionLabel="Recent finals"
+              controlsId="overview-recent-finals"
+              expanded={expandedSections.recentFinals}
+              hiddenGameCount={gameSections.recentFinals.length - OVERVIEW_RECENT_FINALS_LIMIT}
+              onToggle={() => toggleExpandedSection('recentFinals')}
+            />
           </section>
         </>
       ) : null}
@@ -1847,9 +1919,9 @@ export default function OverviewPanel({
                 </button>
               }
             />
-            <div className="mt-2.5">
+            <div id="overview-watchlist-games" className="mt-2.5">
               <WatchlistScoreboardList
-                prioritizedItems={gameSections.scheduled}
+                prioritizedItems={visibleWatchlistItems}
                 emptyMessage="No featured matchups yet for this slate."
                 timeZone={timeZone}
                 rankingsByTeamId={rankingsByTeamId}
@@ -1858,6 +1930,13 @@ export default function OverviewPanel({
                 teamLogosById={teamLogosById}
               />
             </div>
+            <SectionExpansionControl
+              sectionLabel="Upcoming watchlist"
+              controlsId="overview-watchlist-games"
+              expanded={expandedSections.watchlist}
+              hiddenGameCount={gameSections.scheduled.length - OVERVIEW_WATCHLIST_LIMIT}
+              onToggle={() => toggleExpandedSection('watchlist')}
+            />
           </section>
         </>
       ) : null}

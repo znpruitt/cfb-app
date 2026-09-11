@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { afterEach } from 'node:test';
+import { cleanup, fireEvent, render } from '@testing-library/react';
+import { JSDOM } from 'jsdom';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
@@ -10,6 +12,20 @@ import type { ScorePack } from '../../lib/scores';
 import type { StandingsCoverage } from '../../lib/standings';
 import OverviewPanel from '../OverviewPanel';
 import RecapTile from '../recap/RecapTile';
+
+const dom = new JSDOM('<!doctype html><html><body></body></html>', {
+  url: 'https://example.test/',
+});
+(globalThis as { window: Window }).window = dom.window as unknown as Window;
+(globalThis as { document: Document }).document = dom.window.document;
+(globalThis as { self: Window }).self = dom.window as unknown as Window;
+Object.defineProperty(globalThis, 'navigator', {
+  value: dom.window.navigator,
+  writable: true,
+  configurable: true,
+});
+
+afterEach(() => cleanup());
 
 const coverage: StandingsCoverage = { state: 'complete', message: null };
 const matchupMatrix: OwnerMatchupMatrix = { owners: [], rows: [] };
@@ -107,6 +123,208 @@ function renderPanel(args: {
   );
 }
 
+const EXPANSION_NOW = '2026-09-05T20:00:00.000Z';
+
+function expansionFixtures(): {
+  live: OverviewGameItem[];
+  finals: OverviewGameItem[];
+  watchlist: OverviewGameItem[];
+} {
+  const live = Array.from({ length: 8 }, (_, index) => {
+    const key = `live-${index}`;
+    return item(
+      game({
+        key,
+        csvAway: `${key} Away`,
+        csvHome: `${key} Home`,
+        date: `2026-09-05T${String(12 + index).padStart(2, '0')}:00:00.000Z`,
+      }),
+      {
+        status: 'In Progress',
+        away: { team: `${key} Away`, score: index },
+        home: { team: `${key} Home`, score: index + 3 },
+        time: 'Q2',
+      }
+    );
+  });
+  const finals = Array.from({ length: 7 }, (_, index) => {
+    const key = `final-${index}`;
+    return item(
+      game({
+        key,
+        csvAway: `${key} Away`,
+        csvHome: `${key} Home`,
+        date: `2026-09-05T${String(4 + index).padStart(2, '0')}:00:00.000Z`,
+      }),
+      {
+        status: 'Final',
+        away: { team: `${key} Away`, score: 17 },
+        home: { team: `${key} Home`, score: 24 },
+        time: null,
+      }
+    );
+  });
+  const watchlist = Array.from({ length: 7 }, (_, index) => {
+    const key = `watch-${index}`;
+    return item(
+      game({
+        key,
+        csvAway: `${key} Away`,
+        csvHome: `${key} Home`,
+        date: `2026-09-06T${String(12 + index).padStart(2, '0')}:00:00.000Z`,
+      })
+    );
+  });
+  return { live, finals, watchlist };
+}
+
+function expansionPanel(
+  fixtures: ReturnType<typeof expansionFixtures>,
+  sectionItems = [...fixtures.live, ...fixtures.finals, ...fixtures.watchlist]
+): React.ReactElement {
+  return (
+    <OverviewPanel
+      games={sectionItems.map((entry) => entry.bucket.game)}
+      standingsLeaders={[]}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={fixtures.watchlist}
+      sectionItems={sectionItems}
+      nowMs={Date.parse(EXPANSION_NOW)}
+      context={context}
+      displayTimeZone="UTC"
+    />
+  );
+}
+
+function scoreboardCount(container: HTMLElement, id: string): number {
+  return container.querySelectorAll(`#${id} [data-game-scoreboard]`).length;
+}
+
+test('Overview bounds each game section independently and exposes every ordered surplus row', () => {
+  const fixtures = expansionFixtures();
+  const rendered = render(expansionPanel(fixtures));
+  const { container, getByRole } = rendered;
+
+  assert.match(container.textContent ?? '', /Live · 8/);
+  assert.match(container.textContent ?? '', /Recent finals/);
+  assert.match(container.textContent ?? '', /Upcoming watchlist/);
+  assert.doesNotMatch(container.textContent ?? '', /Recent finals ·|Upcoming watchlist ·/);
+  assert.equal(scoreboardCount(container, 'overview-live-games'), 6);
+  assert.equal(scoreboardCount(container, 'overview-recent-finals'), 6);
+  assert.equal(scoreboardCount(container, 'overview-watchlist-games'), 6);
+
+  const liveControl = getByRole('button', { name: 'Show all Live games' });
+  const finalsControl = getByRole('button', { name: 'Show all Recent finals' });
+  const watchlistControl = getByRole('button', { name: 'Show all Upcoming watchlist' });
+  assert.equal(liveControl.getAttribute('aria-expanded'), 'false');
+  assert.equal(finalsControl.getAttribute('aria-expanded'), 'false');
+  assert.equal(watchlistControl.getAttribute('aria-expanded'), 'false');
+  assert.equal(liveControl.getAttribute('aria-controls'), 'overview-live-games');
+  assert.equal(finalsControl.getAttribute('aria-controls'), 'overview-recent-finals');
+  assert.equal(watchlistControl.getAttribute('aria-controls'), 'overview-watchlist-games');
+
+  fireEvent.click(liveControl);
+  assert.equal(scoreboardCount(container, 'overview-live-games'), 8);
+  assert.equal(scoreboardCount(container, 'overview-recent-finals'), 6);
+  assert.equal(scoreboardCount(container, 'overview-watchlist-games'), 6);
+  assert.equal(
+    getByRole('button', { name: 'Show fewer Live games' }).getAttribute('aria-expanded'),
+    'true'
+  );
+
+  fireEvent.click(finalsControl);
+  fireEvent.click(watchlistControl);
+  assert.equal(scoreboardCount(container, 'overview-recent-finals'), 7);
+  assert.equal(scoreboardCount(container, 'overview-watchlist-games'), 7);
+});
+
+test('Overview expansion survives a content refresh, follows migration, and resets after navigation', () => {
+  const fixtures = expansionFixtures();
+  const rendered = render(expansionPanel(fixtures));
+
+  fireEvent.click(rendered.getByRole('button', { name: 'Show all Live games' }));
+  fireEvent.click(rendered.getByRole('button', { name: 'Show all Recent finals' }));
+  fireEvent.click(rendered.getByRole('button', { name: 'Show all Upcoming watchlist' }));
+
+  const migratingGame = fixtures.live[0]!.bucket.game;
+  const migratedFinal = item(migratingGame, {
+    status: 'Final',
+    away: { team: migratingGame.csvAway, score: 21 },
+    home: { team: migratingGame.csvHome, score: 24 },
+    time: null,
+  });
+  const refreshedItems = [
+    migratedFinal,
+    ...fixtures.live.slice(1),
+    ...fixtures.finals,
+    ...fixtures.watchlist,
+  ];
+
+  // `router.refresh()` reconciles this same unkeyed client component instance. A rerender
+  // with new server-derived props exercises the state property this feature relies on:
+  // all three disclosures stay open while their selector-owned contents change beneath them.
+  rendered.rerender(expansionPanel(fixtures, refreshedItems));
+
+  assert.equal(scoreboardCount(rendered.container, 'overview-live-games'), 7);
+  assert.equal(scoreboardCount(rendered.container, 'overview-recent-finals'), 8);
+  assert.equal(scoreboardCount(rendered.container, 'overview-watchlist-games'), 7);
+  assert.equal(
+    rendered.getByRole('button', { name: 'Show fewer Live games' }).getAttribute('aria-expanded'),
+    'true'
+  );
+  assert.equal(
+    rendered
+      .getByRole('button', { name: 'Show fewer Recent finals' })
+      .getAttribute('aria-expanded'),
+    'true'
+  );
+  assert.equal(
+    rendered
+      .getByRole('button', { name: 'Show fewer Upcoming watchlist' })
+      .getAttribute('aria-expanded'),
+    'true'
+  );
+  assert.equal(
+    rendered.container.querySelectorAll(
+      '#overview-live-games [aria-label="live-0 Away at live-0 Home"]'
+    ).length,
+    0,
+    'the finalising game must leave Live immediately'
+  );
+  assert.equal(
+    rendered.container.querySelectorAll(
+      '#overview-recent-finals [aria-label="live-0 Away at live-0 Home"]'
+    ).length,
+    1,
+    'the same non-Featured game must enter Recent finals immediately'
+  );
+
+  // CFBScheduleApp renders OverviewPanel only while Overview is active. Replacing it
+  // models leaving that conditional branch; returning mounts a fresh bounded default.
+  rendered.rerender(<div>Matchups</div>);
+  rendered.rerender(expansionPanel(fixtures, refreshedItems));
+
+  assert.equal(scoreboardCount(rendered.container, 'overview-live-games'), 6);
+  assert.equal(scoreboardCount(rendered.container, 'overview-recent-finals'), 6);
+  assert.equal(scoreboardCount(rendered.container, 'overview-watchlist-games'), 6);
+  assert.equal(
+    rendered.getByRole('button', { name: 'Show all Live games' }).getAttribute('aria-expanded'),
+    'false'
+  );
+  assert.equal(
+    rendered.getByRole('button', { name: 'Show all Recent finals' }).getAttribute('aria-expanded'),
+    'false'
+  );
+  assert.equal(
+    rendered
+      .getByRole('button', { name: 'Show all Upcoming watchlist' })
+      .getAttribute('aria-expanded'),
+    'false'
+  );
+});
+
 test('Awaiting score renders neutrally inside the Live section without claiming the game is live', () => {
   const awaiting = item(game({ key: 'awaiting-score' }));
   const html = renderPanel({
@@ -124,6 +342,7 @@ test('Awaiting score renders neutrally inside the Live section without claiming 
   assert.match(scoreboard, /data-scoreboard-header[^>]*>[\s\S]*>Awaiting score<\/span>/);
   assert.doesNotMatch(scoreboard, />Live<\/span>|dark:text-emerald-400|rounded-full bg-current/);
   assert.doesNotMatch(scoreboard, />Scheduled<\/span>/);
+  assert.doesNotMatch(html, /aria-label="Show all Live games"/);
 });
 
 test('Recent finals renders score anchors and no records join', () => {
