@@ -64,30 +64,12 @@ committed `c9f76081`) surfaced four new items and one split; the remaining open 
    work, not to the tier.
    **Design:** `docs/campaigns/item-87-followon-section-ordering-resolutions.md` §5 (counts, which
    that document explicitly defers to this item); `docs/campaigns/item-87-followon-section-ordering.md`.
-4. **Item 119** — **restore the team-colour accent, removed in slice 5**, as a solid **8px muted bar
-   at ~72%** at the line start of each team row, on the existing HSL normaliser. No accent for teams
-   with no catalog colour — which also removes the green `#059669` fallback every FCS row carried.
-   OKLCH only if measured.
-   **Reframed 2026-09-06: this is a RESTORATION, not a widening.** `§A` of the design doc opens "the
-   incumbent renders 2–3px", and there is no longer an incumbent — `GameScoreboard.tsx` carried that
-   line-start accent and went with the orphaned legacy tile in slice 5, leaving `teamColors.ts` with
-   **zero production consumers**. The `§A` DECISION is unchanged; only the framing of the work is
-   stale.
-   **Covers Overview, Matchups AND Schedule** — the treatment belongs to the shared row, not to one
-   consumer.
-   **Prerequisite delivered by slice 5b / PR #575.** Its `isolation: isolate` on a tinted participant
-   row lets an absolutely-positioned bar coexist with the card-owner tint; Item 119 must still supply
-   its own containing block on every row rather than rely on slice 5b's conditional `relative`.
-   **Blocks Item 134** — it changes row anatomy at the line-start slot, which is what Item 134's
-   breakpoint is derived from. See that entry for the arithmetic.
-   **Design:** `docs/campaigns/item-87-followon-team-colour-regression.md` (read first — it corrects
-   the framing); `docs/campaigns/item-87-followon-team-colour.md` §A;
-   `docs/campaigns/item-87-followon-presentation-decisions.md`;
-   `docs/campaigns/item-87-live-watchlist-scoreboard.md`;
-   `mockups/live-scoreboard-mockup.html` and `mockups/matchups-schedule-mockup.html` (both now carry
-   the bar).
-5. **Item 134** — Overview three-column tier. **Must run AFTER Item 119**, which consumes its
-   headroom. See the Item 134 entry.
+4. **Items 119 and 198 — RETIRED by owner decision 2026-09-10.** Real-scoreboard prototypes showed
+   that colour remapping collapsed familiar distinctions and the alternate-colour outline was too
+   garish. A permanent **28px CFBD team logo** now owns the shared line-start slot across Overview,
+   Matchups, Schedule, and Postseason; `DESIGN.md` carries the current contract.
+5. **Item 134** — Overview three-column tier. Re-derive its breakpoint against the permanent
+   **32px logo slot**; the old headroom calculation assumed the retired colour bar.
 6. **Item 118** — Schedule status filter with counts. Purely additive; after the rework it filters.
    **Design:** none written, so its prompt needs an owner design pass first rather than a paraphrase
    of this entry.
@@ -127,18 +109,18 @@ gate, no action. **Item 122** (the historical-cache button cannot re-cache) and 
 which the shipped rule forbids. Small and user-facing. **Item 124** (retire the dead `sectionOrder`)
 is DONE — POLISH-024, merged via PR #564 (`cac6dab9`).
 
-**Decision parked, with the item that consumes it:** normalisation target `#0A0A0A` vs `#161616`
-→ Item 119.
+**Retired decision:** the `#0A0A0A` versus `#161616` colour-normalisation target disappeared when
+the owner selected logos instead of a solid colour accent.
 
 **Parallel tracks (added 2026-09-04).** File surfaces verified, not inferred. The server track and
 the UI spine do not touch each other, so they can run concurrently:
 
 - **Server track, strictly serial with itself:** Item 102 + 88, then Item 126. All three converge on
   `schedulerExecutionStatus.ts` / `schedulerDeliveryHealth.ts` / `systemHealthIssues.ts`.
-- **UI spine, strictly serial with itself:** 115 → 119 → **134** → 118. The shared component
-  widening, Schedule transition, and card-owner row modifier merged via PRs #570, #572, and #575.
-  The remaining load-bearing constraint is **119 before 134**, because 119 changes the row anatomy
-  134's breakpoint is derived from.
+- **UI spine, strictly serial with itself:** 115 → the **28px shared-row logo treatment** → **134** →
+  118. The shared component widening, Schedule transition, and card-owner row modifier merged via
+  PRs #570, #572, and #575. Item 134 must use the permanent 32px logo slot when deriving its
+  breakpoint.
 - **Independent, parallel-safe against both:** Item 122 (`admin/HistoricalCachePanel.tsx`), Item 121
   (`schedule/cfbdSchedule.ts`, `schedule.ts`, `schedulePostseasonHelpers.ts` — pipeline, not
   components), and Items 84, 86, 111. **Item 123 shipped 2026-09-04** via PR #565.
@@ -206,23 +188,10 @@ each other.**
 > asserted. `/code-review` added that `normalizeCfbdTeamRecord` is the only path from a raw CFBD teams
 > payload to colours, so no second ingest needed the same fix.
 >
-> **The resync click is BLOCKED on Item 204.** Nothing on screen changed and the live catalog stays
-> colourless until it runs; the witness when it does is `With alternate color: 0 → 138`.
-
-**199 IS NEXT — owner decision 2026-09-09, ahead of the remaining audit items.** It is a one-word
-mapping fix with a confirmed diagnosis and a measured payoff, and **it unblocks a UI item that is live
-on preview right now**: Item 119's bars fall back to green on California and Nevada, and the alternate
-colour that fixes both is in the provider response being discarded at ingest. **The audit items are all
-latent; this one gates a UI merge.**
-
-**It also has to precede Item 198's OKLCH port.** Fixing the mapping changes the port's input — 138
-teams gain a second colour, and all six the port cannot help are rescued by their alternate without any
-lift. **Building piece 2 first would be designing against a catalog known to be incomplete.**
-
-**Scope it carefully:** the fix is the field name, plus re-running the catalog refresh so the durable
-store actually gains the alternates. **The fallback RULE already exists** in
-`resolveTeamColorCandidate` and fires on the alternate as soon as one is present; **tuning it — the
-`< 0.015` floor, the hue a near-neutral gets lifted to — is Item 198's.**
+> **Historical sequencing is complete.** Items 199 and 204 merged before the catalog refresh and UI
+> measurement. Their colour-bar dependency disappeared when the owner retired Items 119 and 198 in
+> favour of logos; the alternate-colour ingest fix remains catalog correctness, not a scoreboard
+> rendering dependency.
 
 **110A first and unconditionally.** It is the only item with measured wrong data in production, and it
 is bounded — five named provider IDs, not a sweep. **188, 20 and 47 follow because they are cheap,
@@ -259,10 +228,10 @@ gates first-round ingestion**; **archive completeness gates rollover** (**68**);
 (**132**) and invocation correlation (**126A**); **expected-position validation gates expanded draft
 participation**.
 
-**Remaining presentation work continues beneath all of the above, with its existing dependencies
-intact — notably 119 before 134.** What the UI lane takes now (173, 170, 179) is the subset Item 143
-unblocked; the rest of the Item 87 queue — 115, 119, 134, 118, the recap adoption — is sequenced after
-the audit spine, not cancelled.
+**Remaining presentation work continues beneath all of the above.** What the UI lane takes now (173,
+170, 179) is the subset Item 143 unblocked; the rest of the Item 87 queue — 115, 134, 118, the recap
+adoption — is sequenced after the audit spine. Items 119 and 198 are retired; Item 134 must derive its
+breakpoint from the replacement 32px logo slot.
 
 **No P0 was established.** Most findings are P2. **Immediate scheduling priority does not make a finding
 P1**, and the queue should not be read as though it did.
@@ -569,6 +538,10 @@ number.**
 
 ### Item 119 — team-colour bar on the shared scoreboard, and no accent for teams with no colour
 
+**RETIRED 2026-09-10 by owner decision.** The held colour-bar implementation and Item 198 colour
+normalisation prototypes were replaced by the permanent 28px CFBD logo treatment. The investigation
+below remains historical evidence, not queued work.
+
 **Filed 2026-09-03.** Design and evidence: `docs/campaigns/item-87-followon-team-colour.md`. Depends on
 **Item 87 slice 5a** (the bar lands in the shared component). Two separately shippable pieces:
 
@@ -816,6 +789,11 @@ are removed rather than retained with strikethrough; their outcomes live in `doc
 
 ### Item 198 — a colour that fails normalisation is indistinguishable from no colour
 
+**RETIRED 2026-09-10 by owner decision.** The real-scoreboard walkthrough showed that remapping
+changed familiar team colours and the alternate-colour outline was too garish. The permanent 28px
+CFBD logo treatment replaces the bar, and `teamColors.ts` is removed. The analysis below is retained
+as historical evidence, not queued work.
+
 > **THE CONTRAST TARGET WAS WRONG, AND MY OWN MEASUREMENT USED IT — corrected 2026-09-09.** The Item
 > 119 lane found that the bar renders at **~72% opacity** and the normaliser lifts against the **raw**
 > colour. `teamColors.ts:11` describes the 72% in its own header comment and does not account for it.
@@ -921,9 +899,9 @@ ask, state or evidence lives.**
 bookkeeping step that has failed by hand more than once in this campaign, and automating it is the
 main reason the switch is worth making.
 
-**THE QUEUE MIGRATION IS FINISHED. TWO ENTRIES REMAIN AND BOTH ARE CORRECT TO LEAVE:** **Item 87**,
-the active campaign — campaign status is what this file stays canonical for — and **Item 198**, in
-flight with the UI lane as this was written.
+**THE QUEUE MIGRATION IS FINISHED.** **Item 87** remains because it is the active campaign and
+campaign status is what this file stays canonical for. Item 198 remains only as a retired historical
+record of the prototype that led to the permanent logo decision.
 
 **What the triage found across the whole queue, none of it visible before grouping:**
 
@@ -1008,28 +986,35 @@ documented single-operator assumption that #610 would invalidate." **The issue w
 **What has NOT been decided:** whether the remaining 36 migrate. **26 sub-100 items remain untriaged**,
 plus the 100+ range.
 
-### Logos as the identity accent — MEASURED 2026-09-10, no decision taken
+### Logos as the identity accent — DECIDED 2026-09-10, implementation ready to merge
 
-**The owner is prototyping logos in place of the colour bar, in the UI lane. Recorded as measurement
-only; nothing here decides anything.**
+**Owner decision:** a 28px CFBD logo permanently replaces the colour bar on shared scoreboard rows.
+The 14/18/20/22/24/28px treatments were viewed on mobile and desktop; 28px was the first size that
+read clearly on both without dominating the row. Items 119 and 198 and the temporary colour/outline
+prototypes are retired.
 
-- **All 138 teams already carry logos in the production catalog.** Mapped at `teamDatabase.ts:242`,
-  persisted at `teamDatabaseStore.ts:69`. **No Item 199 repeat — nothing is being discarded.**
-- **16 variants per team:** 8 sizes (500, 256, 128, 96, 64, 48, 32, 16) x 2 themes. A 20px row logo can
-  fetch the 32px asset rather than downscaling a 500px PNG.
-- **One host,** `cdn.collegefootballdata.com`. No auth; 200s on every probe.
-- **`logos-dark` is byte-identical to `logos` for 42% of teams** (19 of 45 sampled at 32px, md5). CFBD
-  has no genuine dark-background variant for Army, Arizona, Boise State, Colorado and others.
-- **BLOCKER: `next.config.ts` is 7 lines with no `images` config.** `next/image` rejects the CDN host
-  until `remotePatterns` names it. No CSP is configured, so that is the only gate.
+- **Production FBS coverage is 138/138** from the durable catalog's 64px dark-surface assets. The
+  checked-in seed deliberately has no logo arrays; in seed-backed local and verify runs, retained
+  schedule provider IDs construct the same guarded CDN family instead.
+- **FCS coverage is 126/128 in the provider catalog and 100/100 among opponents on the measured live
+  slate.** Retaining provider IDs through schedule construction supplies those logos without widening
+  the FBS-only catalog.
+- **Catalog state is explicit:** valid dark-64px artwork wins; populated artwork that fails the
+  dark/size/host gate blocks fallback; empty or absent artwork permits the schedule provider-ID
+  fallback. Missing or failed artwork leaves the reserved slot empty — there is no colour substitute.
+- **The row uses the 64px source at 28px rendered size** and reserves a 32px line-start slot plus a
+  32px minimum row height whether artwork exists or not.
+- **The runtime image gate is `teamLogos.ts`.** Its protocol, host, path-family, and size checks are
+  load-bearing. `next/image` is unoptimized for these provider assets, so `remotePatterns` is
+  defense-in-depth rather than the enforcing gate; no image CSP is configured.
+- **Schedule day boundaries gain a 2px full-width rule.** It explains deliberate empty cells in the
+  two-column grid without changing date grouping or game order.
 
 **Why logos are more robust here than colours, and it is not a preference.** A logo carries its own
 internal contrast. Army's mark is a black shield — invisible as a solid bar — but the gold helmet and
 white outline inside it still read on `#0a0a0a`. **A dark solid bar has no interior; a dark logo does.**
 That is why this direction sidesteps the remap/outline problem rather than inheriting it.
 
-**Two questions to settle before, not after.** Serving 138 school marks from a third-party CDN is
-conventional for the genre but is a different posture than colour swatches, and it is an owner call.
-And **if logos replace the accent, Items 119, 198 and the outline prototype are RETIRED, not paused** —
-`teamColors.ts` returns to having no consumer, and several campaign documents currently assert the bar
-ships.
+**Serving the provider's CDN marks is an explicit owner choice.** The feature does not add a refresh
+job or provider call: logo metadata refreshes with the existing team-database sync, while browsers
+fetch immutable-sized artwork from CFBD's CDN.
