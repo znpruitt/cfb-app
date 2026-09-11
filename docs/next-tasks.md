@@ -995,175 +995,22 @@ call, not a dependency.
 
 ### Item 151 — `buildCfbdGamesUrl`'s `division` parameter is inert; CFBD ignores it
 
-**The ask:** `buildCfbdGamesUrl` sends `division`, which CFBD silently ignores. The working parameter
-is `classification`. Fix the name, or delete the parameter.
-
-**Measured against the live API 2026-09-08**, `/games?year=2026&seasonType=regular&week=1`:
-
-| call | returned | verdict |
-| --- | --- | --- |
-| `&division=fbs` | **456 games** — 110 iii-vs-iii, 109 ii-vs-ii, 73 fcs-vs-fcs, 51 fbs-vs-fbs, 48 fbs-vs-fcs | **identical to unfiltered — ignored** |
-| `&classification=fbs` | **99 games** — 51 fbs-vs-fbs, 48 fbs-vs-fcs | works, either-participant |
-
-**The surface:** `cfbd.ts:7` types `division?: 'fbs' | 'fcs'`; `:15-16` sets it on the URL. The
-**scoreboard** builder thirty lines below at `:62` uses `classification` **correctly**, so the right
-name was known in the same file.
-
-**Why nothing caught it — three reasons, and the third is the interesting one.**
-
-1. **No caller supplies it.** All three call sites omit it
-   (`api/schedule/route.ts:325`, `api/scores/route.ts:399`,
-   `api/admin/cache-historical-scores/route.ts:50`), so the code path has never run in production.
-2. **It is a silent no-op, not an error.** CFBD returns 200 with the full population. A caller would
-   get every division back and nothing would indicate the filter had not applied.
-3. **A test exists and CANNOT catch it.** `cfbd.test.ts:7` — _"CFBD games URL builder does not include
-   division by default"_ — asserts `searchParams.get('division') === null`. **A URL-builder test
-   asserts what we SEND, never what the provider HONOURS.** A test written the other way, asserting
-   the URL carries `division=fbs`, would pass just as confidently while the parameter did nothing. The
-   defect is unfalsifiable from inside the suite by construction.
-
-**Filed separately from Item 150 deliberately.** 150 is a scoping change with two datasets and its own
-stop-and-report conditions; this is a two-character-class bug in a shared builder that predates it and
-would outlive it. Bundling would hide a defect inside a feature.
-
-**Decide which fix.** Renaming to `classification` makes the parameter work and is what Item 150
-needs. Deleting it is also defensible — an unused parameter that has never worked is not a capability.
-**Do not leave both a working `classification` and a dead `division`.**
-
-**Verify by the response, not by the URL.** Whatever the fix, the test that proves it must assert on
-what comes back for a known week — 99 versus 456 — or it repeats the failure that let this sit.
-
-**Blocker:** none, but Item 150 depends on it and should not re-derive it.
+**MIGRATED to [#660](https://github.com/znpruitt/cfb-app/issues/660) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 150 — stop ingesting D-II/D-III: schedule fetch filter and records prune
 
-**The ask:** implement Item 149's ruling. Two datasets, two mechanisms, one place each.
-**Item 149 is the decision and the evidence; this is the build.**
-
-**Owner ruling 2026-09-08:** D-II and D-III are never used in-app. FCS appears only against FBS
-schools and **stays** — 127 FBS-vs-FCS games in 2026, and those rows render the FCS opponent with its
-record.
-
-**Two mechanisms, because the endpoints differ:**
-
-| dataset | lever | drop | keep |
-| --- | --- | --- | --- |
-| schedule | **`classification=fbs` on the fetch** — NOT `division`; see the defect below | 2,792 of 3,680 rows (76%) | FBS + FCS-against-FBS |
-| team records | **prune at the WRITE.** `/records` takes only `year` (`cfbd.ts:26-27`); there is no division filter to pass | 432 of 687 entries (63%) | fbs + fcs |
-
-Schedule: 2.69 MB → ~1.18 MB. Records: ~113 KB per year, seven years stored.
-
-**MEASURED AGAINST THE LIVE API 2026-09-08, and it resolved the open question — ONE request, and the
-parameter name in our code is WRONG.**
-
-| call | games returned | contents |
-| --- | --- | --- |
-| `?division=fbs` | **456** — the full unfiltered week | 110 iii-vs-iii, 109 ii-vs-ii, 73 fcs-vs-fcs, 51 fbs-vs-fbs, 48 fbs-vs-fcs, 37 with a null classification |
-| `?classification=fbs` | **99** | **51 fbs-vs-fbs + 48 fbs-vs-fcs** |
-
-**`division` IS SILENTLY IGNORED. `classification` is the working parameter, and it is
-either-participant** — one call returns FBS games AND the FBS-vs-FCS games we render. **The owner's
-read was right: calling FBS schedules gives us the FCS games we care about.** No second request, no
-quota change.
-
-**LATENT DEFECT, and it is why nobody noticed.** `buildCfbdGamesUrl` (`cfbd.ts:15-17`) sets
-`division`, which CFBD ignores. The scoreboard builder at `:62` already uses `classification`
-correctly. The wrong name has never been exercised because **no caller supplies it** — a parameter
-that exists, is typed, and does nothing. Fix the builder as part of this item; a caller passing
-`division` and getting the full population back is a worse failure than not filtering at all.
-
-**Three call sites** — `api/schedule/route.ts:325`, `api/scores/route.ts:399`,
-`api/admin/cache-historical-scores/route.ts:50`.
-
-**The null-classification worry is MOOT under this filter.** The unfiltered week carries 37 games with
-a null classification on one side — Marian (IN), Kentucky Christian, Texas Wesleyan and similar — and
-every one drops out under `classification=fbs`. **Do not build null-handling for a population the
-filter removes.**
-
-**The records prune is a WRITE-path filter and must not become a read-path one.** Filtering at read
-leaves the full payload in the store and adds a consumer every future reader must remember.
-
-**STOP-AND-REPORT conditions, both real:**
-
-1. **Historical years already stored carry the full population.** Pruning the fetch does not prune
-   2018–2025. Decide whether stored years are backfilled, left as-is, or pruned on next write — and
-   note that Item 139's positional counting reads historical records.
-2. **`teamRecordsCache`'s `uncreditableTeamIds` derives from `wins + losses + ties !== games`.**
-   Confirm a pruned population does not change which teams are uncreditable before shipping.
-
-**What this unblocks or clarifies, and none of it should be re-measured first:** Item 141 (Insights
-rebuilds the season per request) gets ~56% cheaper on the same code; Item 140's tail sizing is
-currently computed over a population that is majority invisible; and every "N completed games" figure
-in this ledger means roughly a fifth of N once this lands.
-
-**Blocker:** none. Independent of the Item 87 document work and of both lanes' current slices.
+**MIGRATED to [#659](https://github.com/znpruitt/cfb-app/issues/659) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 149 — 56% of the schedule is D-II/D-III games nothing displays
 
-**The ask:** decide whether the canonical schedule should carry games with no FBS or FCS participant.
-This is a scoping question, not a bug — **answer it before shrinking anything.**
-
-**Measured against production `2026-all-all`, 2026-09-08:**
-
-| population | games | share |
-| --- | --- | --- |
-| FBS-involving | 888 | 24.1% |
-| FCS-involving (no FBS) | 722 | 19.6% |
-| **neither FBS nor FCS — D-II, D-III, other** | **2,070** | **56.3%** |
-
-3,680 games, **2.69 MB**. Dropping the third bucket alone would take the blob to **~1.18 MB, 56%
-smaller**. That bucket spans **47 distinct conferences**.
-
-**Found by asking what the weekly sweep actually repaired.** The 2026-09-08 refresh reported **355
-score repairs**, which reads as significant until the population is split. Of 456 COMPLETED games:
-**99 involve an FBS team, all scored, zero missing**; **247 are D-II/D-III**, and the season's only
-**2** missing scores are both in that bucket. FBS games are scored live by the `*/3` feed; the sweep
-exists for what the live feed does not cover, and that is overwhelmingly games no member sees.
-
-**Why it is worth a decision rather than a shrug — four consumers pay for it:**
-
-1. **The blob is read by five `force-dynamic` routes.** 2.69 MB where 1.18 MB would do.
-2. **The weekly sweep works the whole population**, and the run that surfaced this took 44.6 s.
-3. **Every measurement in this campaign was computed against it.** Item 139's positional counting,
-   Item 140's tail sizing, the polling-window derivation. None is WRONG — they operate per team and
-   per game — but "456 completed games" means 99 that matter, and a future reader will not know that.
-4. **The 2 unreadable finals that shaped Item 139's withholding ruling are in this bucket.** The
-   ruling stands; the denominator it was argued against was 54% invisible.
-
-**RESOLVED 2026-09-08 — owner ruling: D-II and D-III are never used in-app. FCS appears only in the
-context of games against FBS schools. Drop D-II/D-III; keep FCS.**
-
-**AND THE RECORDS CACHE HAS THE SAME SHAPE — this is two datasets, not one.** `/records` is fetched
-**unfiltered** (`cfbd.ts:25`). Measured on `team-records/2018`, 687 entries:
-
-| classification | teams | keep? |
-| --- | --- | --- |
-| fbs | 130 | yes |
-| fcs | 125 | **yes** — FCS records RENDER on an FBS opponent's row |
-| ii | 179 | no |
-| iii | 253 | no |
-
-**432 of 687 teams — 63% — are never displayed.** Cache is ~113 KB per year across seven years.
-
-**Why FCS stays, in both datasets.** 2026 has **127 FBS-vs-FCS games** and 2025 has 126. Those rows
-render an FCS opponent with its record — the mockup shows `FCS Norfolk State … 1–7`. Dropping FCS
-breaks a rendered surface; dropping D-II/D-III cannot, because **no FBS team plays one.**
-
-**Measurement limitation, stated so it is not over-quoted.** The FBS-opponent split is verifiable for
-**2025 and 2026 only** — `awayClassification` / `homeClassification` do not exist on the 2021–2024
-blobs, which predate the provider division label. Both measurable seasons show FBS opponents as
-exclusively `fbs` and `fcs`, zero otherwise. The ruling rests on product knowledge; the measurement
-corroborates two seasons of it.
-
-**Do NOT filter at read time as a workaround — but the two datasets need different mechanisms.**
-Schedule has a `division` parameter on the fetch (`cfbd.ts:9-19`); that is the right lever.
-**`/records` takes only `year`** — no division filter exists — so records must be pruned **at the
-write, before caching**, not at every read. Either way it is ONE place, and a read-time filter every
-consumer must remember is the wrong answer for both.
-
-**Blocker:** none, but it interacts with Item 141 (Insights rebuilds the season per request) and Item
-140 (tail sizing) — both would get cheaper or clearer, and neither should be measured again until
-this is settled.
+**ANSWERED — the decision was taken 2026-09-08 and this entry is spent.** It asked whether the
+canonical schedule should carry games with no FBS or FCS participant. **Owner ruling: D-II and
+D-III are never used in-app; FCS stays**, because it appears only against FBS schools (127
+FBS-vs-FCS games in 2026) and those rows render the FCS opponent with its record.
+**The ruling and the build both live in [#659](https://github.com/znpruitt/cfb-app/issues/659).**
+Kept as a pointer rather than migrated — a decision item whose decision exists is not open work.
 
 ### Item 152 — the Schedule three-column breakpoint reproduces nowhere
 
@@ -2588,63 +2435,8 @@ template.
 
 ### Item 111 — `/api/odds` fetches its own origin, costing two extra invocations per request
 
-**Filed 2026-09-03 from a preview symptom that turned out to be an architecture finding.** Odds
-rendered nowhere on preview — not the Overview watchlist, not the full Schedule page — while
-production served all 168 attached entries with correct favorites.
-
-**What it is.** `loadCanonicalScheduleInputs` (`src/app/api/odds/route.ts:278`) resolves its inputs
-with a `Promise.all` in which two of the four legs are **HTTP requests back to the route's own
-origin**:
-
-- `fetchCanonicalSchedule` (`:239`) → `new URL('/api/schedule?year=${season}', reqUrl.origin)`
-- `readConferenceRecords` (`:220`) → `new URL('/api/conferences', reqUrl.origin)`
-
-This is the only route under `src/app/api` that self-fetches; every other consumer of the canonical
-schedule reads it in-process.
-
-**How it fails on preview.** Vercel deployment protection intercepts the self-fetch and returns the
-SSO login page with a **200**, so the `!response.ok` guards at `:224` and `:245` pass. `.json()` then
-hits `<!DOCTYPE` and throws, and the catch at `:679` returns HTTP 500 with the parse error as its
-body. Observed at `cfb-app-preview.vercel.app/api/odds?year=2026`:
-
-    {"error":"Unexpected token '<', \"<!DOCTYPE \"... is not valid JSON"}
-
-The 200-with-HTML reading is an inference from the error text, not from an observed status line: had
-SSO answered 401/403, the guard would have thrown `conferences 401 …` instead of a parse error.
-
-**Consequence on preview: odds can never be validated there.** `useOddsHydration`
-(`src/components/hooks/useOddsHydration.ts:56`) is gated only on `scheduleLoaded && hasGames`, so it
-fires for every visitor, sees `!res.ok`, and installs no lookup. Records still render because they
-arrive as a server prop. This is structural while deployment protection is on, and it silently
-removes odds from every preview walkthrough — which is why it went unnoticed until an owner
-walkthrough of the Item 87 slice-4 watchlist asked why no spread appeared.
-
-**The production question, UNMEASURED.** Production has no SSO, so the self-fetch succeeds and the
-route works. But each odds request still spawns **two additional function invocations**, one of them
-`/api/schedule` — the route the Active CPU campaign measured rebuilding thousands of rows. The client
-hydration is ungated, so this runs per visitor per page load.
-
-**This is a hypothesis, not a finding.** The campaign's residual non-cron cost of ~220 s/day is
-currently unattributed, and this is a plausible contributor — but nothing here has been measured
-against the Vercel Observability function breakdown. Do that measurement BEFORE scoping a fix; the
-mistake this campaign has already made five times is fitting arithmetic to a story.
-
-**Scope if it lands.** Replace both self-fetches with the in-process reads the rest of the codebase
-uses. That removes two invocations and two cold starts per odds request and fixes preview as a side
-effect. Contained to one file, but it crosses a shared schedule-read boundary, so it needs the full
-suite rather than a focused slice.
-
-**One open sub-question.** `ODDS_HYDRATION_ISSUE` (`src/lib/cfbScheduleAppHelpers.ts:34`, "Odds fetch
-failed: unable to load current odds.") is set on `!res.ok` and is classified live-visible by
-`isLiveOddsIssue`. Whether it actually renders was not confirmed during the preview walkthrough. If
-it does not, the surfacing is broken independently of this item and IS member-visible in production
-whenever an odds fetch genuinely fails — file that separately rather than folding it in.
-
-**Adjacent, do not fold in.** `readTeamsCatalog` (`:233`) reads the checked-in `src/data/teams.json`
-seed from disk rather than the durable catalog — the same two-sources-of-truth split the
-catalog-unification campaign owns. Noted here only because it sits in the same `Promise.all`.
-
-- Backlog slug: `PLATFORM-ODDS-SELF-FETCH-v1`
+**MIGRATED to [#658](https://github.com/znpruitt/cfb-app/issues/658) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 105 — the postseason override endpoint writes an unvalidated `Partial<AppGame>`
 
@@ -3084,77 +2876,8 @@ differs from the schedule's.
 
 ### Item 106 — a third of fetched odds are discarded: mascot-suffixed non-FBS names never resolve
 
-**Measured 2026-09-02 against production.** We fetch odds for games we then fail to attach, so
-members see no line on games the books have priced.
-
-    raw provider events cached : 146
-    attached + stored          : 110
-    dropped in attachment      :  36
-
-Reproduced locally against the exact cached events, the live catalog, and the durable alias map:
-
-    events=146  attached=98  dropped=48
-    drop reasons: { unmatched_pair: 48 }
-
-**Every drop is `unmatched_pair`, and every one has a non-FBS team on one side.** The FBS side always
-resolves; the other side never does:
-
-    [unmatched_pair] "Bethune-Cookman Wildcats"         @ "UCF Knights"
-    [unmatched_pair] "Merrimack Warriors"               @ "Delaware Blue Hens"
-    [unmatched_pair] "Arkansas Pine Bluff Golden Lions" @ "Missouri Tigers"
-    [unmatched_pair] "LIU Sharks"                       @ "Kansas Jayhawks"
-
-**Mechanism.** `attachOddsEventsToSchedule` gates on `resolver.buildPairKey(homeTeam, awayTeam)`
-(`oddsAttachment.ts:88`); a miss reports `unmatched_pair` and the event is dropped. The provider sends
-mascot-suffixed names, and stripping a mascot requires catalog metadata — **the team catalog holds
-only the 138 FBS teams**. The schedule does carry "Bethune-Cookman" as a canonical name, so it reaches
-`observedNames`, but that is the bare school; `"Bethune-Cookman Wildcats"` never normalizes onto it.
-
-**Member impact.** 51 of 99 week-1 FBS games have no line displayed; **47 of those are `fbs/fcs`**
-pairings whose odds we already hold. Confirmed independently by the owner finding a FanDuel line for
-Bethune-Cookman @ UCF.
-
-**Not the causes that were considered and ruled out.** The Odds API request carries no date filter and
-no limit (`oddsRefreshExecutor.ts:83-89`) — only seven bookmakers and three markets — so this is not a
-provider-coverage or configuration gap. Not diacritics either: San José State's catalog alts already
-include `"san jose state spartans"`, and that game attaches.
-
-**Fix direction — a matching aid, not an identity authority.** The catalog must remain the FBS
-identity authority; do not mint canonical identities for non-FBS schools from it. Prefer a
-mascot/alias lookup used ONLY to normalize provider strings before `buildPairKey`, sourced from CFBD
-`/teams` (which returns all divisions with mascots). Sizing note: this touches the odds attachment
-seam that PLATFORM-086C1/C2 consolidated, so it needs its own review.
-
-**Second failure, now isolated: the aggregator does not carry every game the books price.** UMass @
-Rutgers has a live DraftKings line, and DraftKings is FIRST in our seven bookmakers
-(`routeInternals.ts:220`), yet the game is absent from our raw events under every spelling tried
-(Rutgers, Scarlet, Massachusetts, UMass, Minutemen).
-
-Two candidate explanations were ruled out by measurement rather than argument:
-
-- **Not bookmaker scope** — DraftKings is queried, and the line is on DraftKings.
-- **Not staleness.** A forced `GET /api/odds?year=2026&refresh=1` at 2026-09-02T20:06:29Z returned
-  `cache: miss` with usage 18 → 21, i.e. a genuine live fetch 26 hours before kickoff. It returned
-  **the same 146 events**, still no Rutgers, still 5 of the 6 scheduled Sep-3 games. An earlier
-  hypothesis that our 4-hour-old cache explained the absence was a plausible mechanism that turned out
-  to be wrong; the cadence policy is behaving correctly (verified: `pregame` arms at
-  2026-09-03T16:00Z, exactly six hours before the 22:00Z opener, refreshing every 2h through kickoff).
-
-So this is **provider coverage** — The Odds API's feed is not what the books post. Nothing on our side
-recovers it.
-
-**The size of that coverage bucket is NOT measured, deliberately.** A hand-rolled schedule↔feed
-matcher produced false negatives (it missed "UAlbany"/"Albany" and mangled "San José State" on the
-accent), and a season-wide "absent" count is meaningless anyway because books post late — 737 of 880
-future games have no line simply because it is September. Measuring this properly means running the
-app's own resolver in REVERSE, schedule games → feed events, which is its own piece of work. Do not
-quote a number until then.
-
-**It does not change this item's scope.** The 48 dropped events are ones we ALREADY HOLD; fixing the
-match recovers all of them regardless of what the feed omits. Coverage is a separate, smaller,
-unquantified residual.
-
-- Backlog slug: `PLATFORM-ODDS-NONFBS-MATCHING-v1`
+**MIGRATED to [#657](https://github.com/znpruitt/cfb-app/issues/657) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 104 — `canonicalWeek` compresses `(seasonType, week)` into one integer and derives the offset from data
 
@@ -4945,58 +4668,8 @@ term before removing them.
 
 ### Item 172 — the code describes a provider vocabulary the provider has never used
 
-**Measured against production 2026-09-08**, read-only replica, prompted by the owner: _"we've
-established that there is no disrupted state status, i've said it multiple times. i bet we have
-conflicting comments in the code."_ There are.
-
-**`gameStatus.ts:13` defines `DISRUPTED_RE = /\b(postponed|canceled|cancelled|suspended|delayed)\b/`,
-and roughly ten call sites branch on it.** Both fields it is ever applied to were measured across all
-seven seasons in the cache:
-
-| field | source | values observed |
-| --- | --- | --- |
-| `game.rawStatus` | schedule cache `status` (`schedule.ts:449`) | **`scheduled`, 22,761 of 22,761** |
-| `score.status` | score cache | **`final` or `scheduled`, nothing else** |
-
-**Not one disrupted label, ever.** The provider does not mark a game postponed, cancelled, suspended
-or delayed — it leaves it `scheduled` (which is how the six cancelled Alderson-Broaddus games in
-Item 169 reached the cache at `0-0`, and how the Week 1 power-outage game presented).
-
-**The guards are not the defect. The COMMENTS are**, because they are written as descriptions of live
-behaviour and a reader takes them as fact:
-
-- `gameUi.ts:61-62` — _"Disrupted labels (postponed/canceled/suspended/delayed) present as
-  'scheduled', matching the classifier's buckets."_ **I reasoned from this sentence today** and
-  concluded a suspended game was the likely path into Item 169. It was not; the provider emits no such
-  label.
-- `useLiveRefresh.ts:51` — _"Canceled/postponed games drop…"_
-- `standingsHistory.ts:135` — _"Postponed / suspended / delayed: still coming, so never abandoned."_
-- `api/scores/route.ts:452` — _"canceled/postponed only"_
-
-**The ask:** put ONE authoritative note at `gameStatus.ts`'s classifier recording the measurement —
-these labels have never been observed on either field in seven seasons, the guard is forward-looking,
-and a disrupted game presents as `scheduled` in practice. Then make the four comments above defer to
-it instead of each restating a behaviour nobody has seen.
-
-**Do NOT delete the classifier or its consumers.** A guard against a provider value that could appear
-is legitimate, and `AGENTS.md` requires a module with no live consumer to say why rather than be
-removed. **The fix is making the comments true, not making the code smaller.**
-
-**PRIORITY RAISED 2026-09-08 — THIS ALREADY COST AN IMPLEMENTATION BRANCH.** Item 143's v3 was
-abandoned after three rounds and ~560 discarded lines, and **two of those rounds hardened a state that
-cannot occur** — the branch added 23 references to disrupted / suspended / postponed / cancelled
-against 3 for `awaiting`. The implementer had no way to know; the comments say the labels exist and
-nothing contradicted them. **It also cost the planning session an hour**, reasoning from
-`gameUi.ts:61-62` to a wrong conclusion about Item 169's reachability.
-
-**The measurement that dissolved it took about ten minutes** — one query against the read-only
-replica. **It had never been run.** The comment was plausible, so every reader downstream inherited it.
-
-**Do this before the next slice that touches game status.** It is still small; it is no longer
-optional.
-
-**Blocker:** none. Related: Item 169, whose reachability answer came from this measurement, and
-Item 143, whose reconstruction carries it.
+**MIGRATED to [#661](https://github.com/znpruitt/cfb-app/issues/661) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 173 — back-apply tag decisions across Overview sections
 
@@ -5408,21 +5081,8 @@ the slot holds.
 
 ### Item 188 — the provider deadline ends before the response body downloads
 
-**Dispatch position 3.** Evidence: [the 2026-09-08 audit](archive/audits/codebase-audit-existing-plans-2026-09-08.md) → **R1**, independently reproduced by the planning session
-2026-09-08.
-
-`fetchUpstreamResponse` (`src/lib/api/fetchUpstream.ts:279`) returns the response, and its
-`finally { clearTimeout(timeoutHandle) }` fires on that return. `fetchUpstreamJson` (`:409`) then
-awaits `response.json()` **outside the deadline**. The audit's reproduction completed an ~80ms body
-successfully against a **5ms** timeout, elapsed 81ms.
-
-**Body failures also fall outside the fetch retry boundary** and can be given inaccurate parsing
-classifications.
-
-**The ask:** carry the deadline through body consumption, preserve timeout-versus-network
-classification, and cover delayed **and truncated** bodies. **Prior-good data must survive failure.**
-
-**Blocker:** none.
+**MIGRATED to [#662](https://github.com/znpruitt/cfb-app/issues/662) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 189 — an unreadable planner settings store reports itself as an operator pause
 
@@ -5453,23 +5113,8 @@ gates, and its result attaches here.**
 
 ### Item 191 — targeted schedule repairs never converge on the whole-season snapshot
 
-**Near-term integrity.** Evidence: [the 2026-09-08 audit](archive/audits/codebase-audit-existing-plans-2026-09-08.md) → **A1**. Confirmed defect; **no current production divergence
-found.**
-
-`loadCachedScheduleItems` (`src/lib/server/canonicalScheduleCache.ts`) returns a populated
-`year-all-all` immediately, and otherwise reads whole regular/postseason partitions — **it never
-reconciles week partitions.** The schedule API supports targeted child writes, so a corrected week can
-stay invisible to whole-season readers and a newer season-type repair can hide beneath an older
-aggregate. Standings and Insights keep the old schedule.
-
-**Why it is not urgent, stated precisely:** the production inventory held exactly seven schedule keys —
-whole-year aggregates for 2018 and 2021-2026 — and **no child entries at all**, so there is currently
-no persisted repair for the defect to hide. **A local probe did reproduce the precedence problem.**
-
-**The ask:** define an authoritative convergence contract for targeted repairs, preserving completeness,
-observation ordering, concurrency protection and dependent-view invalidation.
-
-**Blocker:** none.
+**MIGRATED to [#663](https://github.com/znpruitt/cfb-app/issues/663) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 192 — the operator env file carries a production write credential
 
@@ -5540,53 +5185,13 @@ because a recurring reconciliation should decide whether unparsed evidence is wo
 
 ### Item 194 — `provider-refresh-status` is false after an out-of-band partition write
 
-**Found 2026-09-09, verified.** `game-stats:week:2026:1:regular` reads
-`lastSuccessAt: 2026-09-08T04:45:12.739Z`, `rowsCommitted: 203`, `outcome: succeeded`. **The partition
-changed on 2026-09-09** — five rows, new fence. The status record describes a state that no longer
-exists.
-
-**Cause: the recovery script recorded no status.** The route and the cron both do; the pre-remediation
-script did not. **The remediation on `b04ce2b9` adds scoped recording**, so the next such write is
-honest — but **the currently stored record is stale and nothing will correct it** until the next cron
-success overwrites it.
-
-**Two asks, and they are different.** Correct the stored record now, or accept it will self-correct on
-the next successful game-stats refresh. **And decide whether any writer to a partition must record
-status** — the invariant that would have prevented it, rather than the instance.
-
-**Why it matters beyond tidiness:** System Health and the provider-data panel read this record. **A
-false `lastSuccessAt` is exactly the signal an operator uses to decide whether a partition is current**,
-and it currently says the partition is a day older than it is.
-
-**Blocker:** none. **Small**, but the invariant question is the useful half.
-
-Use `docs/deployment-runbook.md` for hosted environment setup, activation, production observations,
-and operator checkpoints. Operational observations are not implementation queue items unless they
-surface a defect.
+**MIGRATED to [#664](https://github.com/znpruitt/cfb-app/issues/664) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 196 — 96 of 97 game-stat partitions are legacy schema
 
-**Measured 2026-09-09 by the Item 110B lane.** 96 of 97 `game-stats` partitions are **legacy rows** —
-no `fetchStartedAt`, no `schemaVersion`. The single exception is `2025:16:regular`, written
-`2026-07-27` in v2. Everything else was backfilled `2026-04-16`.
-
-**The hazard is in the merge, not the storage.** `computeWeeklyGameStatsMerge`
-(`durableMerge.ts:598-606`) classifies a legacy row **`updated` unconditionally**, with no content
-comparison. **So any sweep over historical partitions would rewrite all 96 and report every game as
-changed while changing nothing** — which makes truthful outcome reporting unachievable on that path,
-independently of the call cost.
-
-**This is why Item 110B does not sweep history**, and it is not a reason to build around it.
-
-**The ask:** decide whether to migrate the 96 to v2. **It is a MIGRATION, not a reconciliation** — the
-lane drew that distinction itself and did not conflate them.
-
-**What it would buy:** upgrading those rows would backfill categories absent at legacy-write time and
-make future comparisons on historical data meaningful rather than uniformly `updated`. **What it
-costs:** ~96 CFBD calls once, plus a merge path that can tell "legacy row, no basis for comparison"
-from "content changed".
-
-**Blocker:** none. **Do not fold it into 110B.**
+**MIGRATED to [#665](https://github.com/znpruitt/cfb-app/issues/665) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 197 — reconciliation has no durable diagnostic beyond the scheduler receipt
 
