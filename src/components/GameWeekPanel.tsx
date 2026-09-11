@@ -178,7 +178,10 @@ export default function GameWeekPanel({
                         rank: awayRanking?.rank,
                         rankSource: awayRanking?.rankSource,
                         classification: g.awayClassification,
-                        score: card.score?.away.score ?? null,
+                        score:
+                          card.scoreboardState === 'awaiting'
+                            ? null
+                            : (card.score?.away.score ?? null),
                       }}
                       home={{
                         teamName: card.homeTeamName,
@@ -187,7 +190,10 @@ export default function GameWeekPanel({
                         rank: homeRanking?.rank,
                         rankSource: homeRanking?.rankSource,
                         classification: g.homeClassification,
-                        score: card.score?.home.score ?? null,
+                        score:
+                          card.scoreboardState === 'awaiting'
+                            ? null
+                            : (card.score?.home.score ?? null),
                       }}
                       tier2Slot={
                         hasTier2Content ? (

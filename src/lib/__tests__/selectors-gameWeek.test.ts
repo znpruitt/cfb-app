@@ -153,6 +153,7 @@ test('an explicit startTimeTBD true never supplies kickoff evidence', () => {
   });
 
   assert.equal(card.scoreboardState, 'scheduled');
+  assert.equal(card.statusRowValue, 'Time TBD');
 });
 
 test('an absent startTimeTBD never supplies kickoff evidence', () => {
@@ -161,6 +162,7 @@ test('an absent startTimeTBD never supplies kickoff evidence', () => {
 
   assert.equal(card.game.startTimeTBD, undefined);
   assert.equal(card.scoreboardState, 'scheduled');
+  assert.equal(card.statusRowValue, 'Time TBD');
 });
 
 test('SYNTHETIC forward-looking wire disruption guard preserves a specific notice', () => {

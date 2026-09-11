@@ -117,7 +117,7 @@ function formatScheduleKickoff(
   if (!date) return 'TBD';
   const kickoff = new Date(date);
   if (Number.isNaN(kickoff.getTime())) return 'TBD';
-  if (startTimeTBD === true) return 'Time TBD';
+  if (startTimeTBD !== false) return 'Time TBD';
   return kickoff.toLocaleTimeString(undefined, {
     timeZone,
     hour: 'numeric',

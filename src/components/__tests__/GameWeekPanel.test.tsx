@@ -197,6 +197,7 @@ test('late-night kickoff header matches kickoff text timezone', () => {
           csvAway: 'Visitor',
           csvHome: 'Home',
           date: '2025-09-07T04:30:00.000Z',
+          startTimeTBD: false,
         }),
       ]}
       byes={[]}
@@ -221,8 +222,15 @@ test('selected week panel stays aligned with week metadata date basis for the sa
       csvAway: 'Visitor',
       csvHome: 'Home',
       date: '2025-09-07T04:30:00.000Z',
+      startTimeTBD: false,
     }),
-    game({ key: 'daytime', csvAway: 'Guest', csvHome: 'Host', date: '2025-09-07T19:00:00.000Z' }),
+    game({
+      key: 'daytime',
+      csvAway: 'Guest',
+      csvHome: 'Host',
+      date: '2025-09-07T19:00:00.000Z',
+      startTimeTBD: false,
+    }),
   ];
   const html = renderToStaticMarkup(
     <GameWeekPanel
@@ -1296,6 +1304,7 @@ test('tier 1 renders kickoff while tier 2 preserves venue on its own line', () =
           csvAway: 'TCU',
           csvHome: 'Oklahoma State',
           date: '2025-09-01T17:00:00.000Z',
+          startTimeTBD: false,
           venue: {
             stadium: 'Boone Pickens Stadium',
             city: 'Stillwater',
@@ -1308,6 +1317,7 @@ test('tier 1 renders kickoff while tier 2 preserves venue on its own line', () =
           csvAway: 'Navy',
           csvHome: 'Notre Dame',
           date: '2025-09-01T19:00:00.000Z',
+          startTimeTBD: false,
           venue: { stadium: 'Aviva Stadium', city: 'Dublin', state: null, country: 'Ireland' },
         }),
       ]}
@@ -2038,6 +2048,7 @@ test('scheduled row renders the preferred broadcast outlet and enriched venue', 
           csvAway: 'Ohio State',
           csvHome: 'Texas',
           date: '2025-08-30T00:00:00.000Z',
+          startTimeTBD: false,
           neutral: true,
           neutralDisplay: 'vs',
           media: [
@@ -2106,6 +2117,7 @@ test('missing presentation enrichment omits placeholders from the shared row', (
           csvAway: 'TCU',
           csvHome: 'Baylor',
           date: '2025-09-01T17:00:00.000Z',
+          startTimeTBD: false,
           venue: null,
         }),
       ]}
@@ -2237,6 +2249,45 @@ test('an at-kickoff scheduled game renders as awaiting without a live provider l
   assert.match(html, /data-scoreboard-state="awaiting"/);
   assert.match(html, />Awaiting score<\/span>/);
   assert.doesNotMatch(html, />Scheduled<\/span>|>7:00 PM<\/span>/);
+});
+
+test('PROSPECTIVE parity guard: awaiting rows suppress partial score values', () => {
+  // No measured built-FBS cache row carries this shape; keep Schedule aligned with Matchups if
+  // a transient scheduled-status score reaches the row at kickoff.
+  const kickoff = '2025-09-01T19:00:00.000Z';
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'awaiting-with-score',
+          date: kickoff,
+          status: 'scheduled',
+          startTimeTBD: false,
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'awaiting-with-score': {
+          away: { team: 'Away', score: 7 },
+          home: { team: 'Home', score: 3 },
+          status: 'scheduled',
+          time: null,
+        },
+      }}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+      currentDateMs={Date.parse(kickoff)}
+    />
+  );
+
+  assert.match(html, /data-scoreboard-state="awaiting"/);
+  assert.match(html, />Awaiting score<\/span>/);
+  assert.match(html, /data-scoreboard-value="away">–<\/span>/);
+  assert.match(html, /data-scoreboard-value="home">–<\/span>/);
+  assert.doesNotMatch(html, /data-scoreboard-value="(?:away|home)">(?:7|3)<\/span>/);
 });
 
 test('a SYNTHETIC forward-looking raw disruption renders its normalized label', () => {
