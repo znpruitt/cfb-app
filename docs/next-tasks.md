@@ -879,45 +879,13 @@ now [#683](https://github.com/znpruitt/cfb-app/issues/683), which was waiting on
 
 ### Item 145 — the upstream debug logger writes provider URLs and headers to the server log
 
-**The ask:** stop `NEXT_PUBLIC_DEBUG=1` logging `statusText`, the provider URL and response headers.
-
-**Found 2026-09-07 during Item 126B's `/verify`, by driving the running route — not by reading.**
-`collegefootballdata` appeared four times in the server log. The credential itself was correctly
-redacted to `Bearer ***`; the URL, `statusText` and headers were not.
-
-**`NEXT_PUBLIC_DEBUG=1` IS SET in this repo's own `.env.local`**, so this is live in local
-development today, not a hypothetical behind a flag nobody sets.
-
-**Pre-existing on `main` and correctly scoped OUT of 126B** — it is a LOG, not the durable store
-126B's gate governs, and folding it in would have widened a branch already at both stop-and-reassess
-signals. Filed rather than fixed, per that gate.
-
-**Scope:** the upstream debug logger only. Decide what a debug log may carry: a URL is arguably
-diagnostic rather than secret, but response headers are not, and the two are emitted together.
-
-**Blocker:** none. Independent of 126.
+**MIGRATED to [#697](https://github.com/znpruitt/cfb-app/issues/697) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 146 — the secret scan covers the receipt; a run writes seven durable keys
 
-**The ask:** widen the secret-scan test population from the receipt to every durable key a run writes.
-
-**Found 2026-09-07 by the Item 126B implementer, raised by no reviewer.** A `schedule-refresh` run
-writes **seven** durable keys. 126B's secret-scan tests scanned only the **receipt** — so the tests
-proved a property about one of seven writes and were named as though they proved it about the run.
-
-**The concrete instance is benign and that is why it is worth filing.** The same run writes a
-free-text `"message"` into `provider-refresh-status`:
-`"schedule 2026: regular, postseason partition partition-fetch-failed"`. Constructed, secret-free, no
-leak. **The defect is the test population, not the value** — a scan whose scope is narrower than the
-risk it names will keep passing while an unscanned writer changes.
-
-**Same shape as the vacuous-test findings this campaign keeps producing:** the test named the run and
-measured one write. It passes today for the right reason and would pass tomorrow for the wrong one.
-
-**Scope:** the secret-scan test helpers and their population. Not a production change unless the
-widened scan finds something.
-
-**Blocker:** none, but it should follow 126B so it can cover what that branch adds.
+**MIGRATED to [#698](https://github.com/znpruitt/cfb-app/issues/698) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 142 — Matchups prints kickoff metadata on rows `DESIGN.md` says must not carry it
 
@@ -1025,37 +993,8 @@ unreflected results are included, so a final no longer shows a pre-game record.
 
 ### Item 137 — two `writer-convergence` tests are time bombs; `main` is red
 
-**Standing known-failure baseline.** Until this ships, `npm test` on clean `main` exits **1** with
-**exactly two** failures, both in `src/app/api/odds/__tests__/writer-convergence.test.ts`:
-
-    not ok - convergence #10: a canonical success is recorded only after the atomic commit
-    not ok - compatibility #46: an authorized manual refresh returns the compatible 200 shape
-
-**This is the baseline `CLAUDE.md`'s merge condition 3 refers to.** A lane may merge only when the
-failures are EXACTLY these two. One more, or one elsewhere, is a stop-and-report.
-
-**Root cause, diagnosed 2026-09-05.** The fixture pins its kickoff at `2026-09-05T19:30:00.000Z`
-(`scheduleItem()` and the odds event's `commence_time`). Past kickoff the odds writer correctly stops
-attaching a line — closing-line behaviour — so no durable store record is created, and
-`assert.equal(record?.latestSnapshot?.homeSpread, -3.5)` sees `undefined` rather than `null`. Correct
-production behaviour meeting a stale fixture. **The durable path itself is healthy**:
-`durable-odds:2026 / store` holds 115KB in production.
-
-**This is Item 103's residue.** Item 103 was filed 2026-09-02 as "at least six odds-route tests are
-time bombs; four expired first", and `PLATFORM-121` replaced the fixtures in
-`src/app/api/odds/__tests__/route.test.ts` — which now passes 21/21 — then closed and removed the
-item. **`writer-convergence.test.ts` has the same fixed-kickoff pattern and was never touched.** Its
-two expired on 2026-09-05. PLATFORM-121's closeout claim to have "removed at least six latent time
-bombs" overstated its reach.
-
-**Fix:** the PLATFORM-121 treatment applied to this file — kickoffs relative to now, not fixed.
-
-**A bisect will lie to you.** Checking out an older commit does not roll back the clock, so a
-time-dependent test fails at EVERY commit once expired. A sweep across four historical commits during
-diagnosis produced four false positives before the fixture date was read.
-
-**Blocker:** none. Test-only; no production defect. But it costs every branch a clean baseline, which
-is the condition under which a third failure hides.
+**MIGRATED to [#696](https://github.com/znpruitt/cfb-app/issues/696) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 138 — `isOwnerVsOwner` counts `NoClaim` as a real owner
 
@@ -2899,29 +2838,8 @@ The issue is canonical for the ask, its evidence and its state. **This entry is 
 
 ### Item 159 — `tailwind.config.ts` is never loaded, and states the opposite of what ships
 
-**Found 2026-09-08** while confirming whether ~100 `tailwindcss-intellisense` `cssConflict` hints on
-`OverviewPanel.tsx` were false positives. They are not — the extension is correct — and the reason is
-this file.
-
-Tailwind v4 loads a JS/TS config **only** through an `@config` directive. `globals.css:2` does a plain
-`@import 'tailwindcss'` and **no `@config` exists anywhere in the repo** (the single grep hit is inside
-a comment). So `tailwind.config.ts` is inert. What actually governs is `globals.css:41`
-`@custom-variant dark (&)`, which makes every `dark:` utility match unconditionally — the POLISH-010
-dark-only theme.
-
-**The ask:** delete the file, or make it load and tell the truth.
-
-**Why it matters:** the file asserts `darkMode: 'media'`. That is not merely unused, it is **false** —
-`dark:` is unconditional, not media-driven. And **six `package.json` scripts lint and prettier-check
-it**, so it carries every signal of a maintained, live config. A reader deciding how theming works has
-one file that answers plainly and wrongly, and one CSS line 40 lines into a stylesheet that answers
-correctly.
-
-**Do NOT strip the base light-palette classes** while resolving this. `globals.css:10-12` retains them
-deliberately so reverting that one file restores theme-awareness; they are a preserved palette, not
-dead code.
-
-**Blocker:** none. **Small.**
+**MIGRATED to [#699](https://github.com/znpruitt/cfb-app/issues/699) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 160 — Overview never received the shared-row decisions
 
@@ -3403,72 +3321,18 @@ render empty.
 
 ### Item 183 — a vacuous assertion on the Schedule streaming test
 
-**Found while cutting the prefix.** `GameWeekPanel.test.tsx:2020` asserts
-`doesNotMatch(html, /Streaming ·/)` **on a fixture carrying no media at all**, so it passed identically
-before and after Item 180 and could never have caught the prefix.
-
-**Its own subject is missing enrichment, so it is not wrong** — it is testing something else and the
-regex is decoration. **The real Schedule coverage is the new test beside it**, which supplies the
-positive control this one lacked.
-
-**The ask:** remove the decorative assertion, or give it a fixture that could fail.
-
-**Why file it rather than fix it in passing:** a passing assertion that cannot fail is the vacuous-test
-family this campaign has shipped four times, and removing one silently teaches nothing. **This is the
-cheapest possible instance to point at** — the fixture is two lines away from the thing it claims to
-check.
-
-**Blocker:** none. **Trivial.**
+**MIGRATED to [#700](https://github.com/znpruitt/cfb-app/issues/700) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 184 — a failing assertion can present as a file-level timeout with no subtest output
 
-**Observed on the 174-180 branch, mechanism NOT established, and reported as an observation for that
-reason.** With four assertions failing mid-build in `OverviewPanel.test.tsx`, `npm run test:file`
-reported the **whole file cancelled after 30 seconds and named no test.** Skipping those four ran the
-file in under a second; retargeted, it passes in 465ms.
-
-**It reads as a hang and misattributes the cause** — the natural response is to look for an infinite
-loop or a slow render, not for an assertion. It cost the implementer real time.
-
-**A synthetic large-TSX reproduction did NOT reproduce it**, so there is no mechanism to state and none
-is claimed.
-
-**The ask:** reproduce it deliberately, or record that it could not be reproduced and what was tried.
-
-**Why it matters beyond the annoyance:** the harness is the instrument every gate reads. **An
-instrument that reports "cancelled, no test named" for "your assertion failed" will send the next
-person looking in the wrong place**, and this session has already spent an hour on a diagnosis that
-pointed away from its cause.
-
-**Blocker:** none. **Investigation, not a fix** — it may end in a recorded non-reproduction, which is a
-complete answer.
+**MIGRATED to [#701](https://github.com/znpruitt/cfb-app/issues/701) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 185 — two web fonts are downloaded on every page and neither is used
 
-**Found during the 174-180 review, ranked first by the implementer, and it is bigger than the header
-question that surfaced it.**
-
-`app/layout.tsx:3` imports `Geist` and `Geist_Mono` from `next/font/google`; `:10` and `:15` define
-`--font-geist-sans` and `--font-geist-mono`; `:31` applies both variable classes to `<body>`.
-**`--font-geist-sans` is consumed by nothing** — its only occurrence in `src/` is its own definition. **Geist Mono is dead too:** the `font-mono` classes in the admin pages resolve to Tailwind's DEFAULT mono stack, because nothing maps `--font-geist-mono` to it and `tailwind.config.ts` is inert (Item 159).
-`globals.css:48-61` sets the body to a pure system stack: `ui-sans-serif, system-ui, -apple-system, …`
-
-**So every page load fetches two web fonts that render nothing.** Live, pre-existing, app-wide.
-
-**It is also why Item 178's `font-[650]` cannot render as specified.** System families are static
-400/700, and CSS font matching for a target above 500 searches weights ≥ target ascending — so 650
-resolves to **700**. A variable family expresses 650; the one that is loaded is never applied.
-
-**The ask:** either apply Geist, or stop downloading it. **Both are defensible and they are different
-decisions** — one is a design choice about the app's typeface, the other is removing dead weight.
-
-**Do not fold this into Item 178.** 178 built what `DESIGN.md` specifies and proved it compiles; the
-ruling was build-it-not-retract-it. **Whether the platform can express 650 is a property of the font
-stack and affects every weight token in the app** — the previous `font-medium` rendered 400 on those
-same platforms, not 500. Fixing the stack fixes the class of problem; changing 650 to 600 hides one
-instance of it.
-
-**Blocker:** none. Related: **178**, whose rendered weight depends on the answer.
+**MIGRATED to [#702](https://github.com/znpruitt/cfb-app/issues/702) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 186 — the watchlist reason row has no overflow valve
 
@@ -3499,18 +3363,8 @@ The issue is canonical for the ask, its evidence and its state. **This entry is 
 
 ### Item 195 — the Featured badge-label assertion does not prove containment
 
-**From Item 173a's review, accepted and not fixed there** — the single permitted remediation was already
-spent, and this is follow-up rather than a defect the remediation caused.
-
-The test proves `CFP Quarterfinal` appears **after** the badge attribute in the markup, not that it is
-**inside** the badge element. A label that escaped its badge and rendered as a sibling would pass.
-
-**The ask:** replace it with a JSDOM `textContent` assertion on the badge element.
-
-**Blocker:** none. **Trivial**, and it is the assertion the badge move should have carried.
-
-**Blocker:** none, but it interacts with **169** and **186**; the three are one conversation about what
-the slot holds.
+**MIGRATED to [#704](https://github.com/znpruitt/cfb-app/issues/704) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 188 — the provider deadline ends before the response body downloads
 
@@ -3538,40 +3392,8 @@ The issue is canonical for the ask, its evidence and its state. **This entry is 
 
 ### Item 192 — the operator env file carries a production write credential
 
-**Found 2026-09-09** by the Item 110A lane while discharging its read receipt. **Not found by any
-gate.**
-
-`.env.operator.local` contains **both** `DATABASE_URL_RO` (the documented `audit_ro` rail) **and a
-production read-write `DATABASE_URL`** — `neondb_owner` on the primary endpoint. `CLAUDE.md` described
-that file as the home of the read-only rail and said the rail exists so an agent **never needs the
-production secret set**. **It was set the whole time.** Corrected 2026-09-09.
-
-**The exposure is not hypothetical and not about trust.** `CLAUDE.md` instructs copying
-`.env.operator.local` into every new worktree, so the write credential is present in both
-implementation lanes by instruction. **The guardrail against an unauthorized production write is
-therefore agent compliance rather than an absent credential** — which is what the corrected wording now
-says.
-
-**The ask:** split the write credential out of the operator file, or record why it must stay.
-
-**Do not simply delete it before checking what needs it.** Operator scripts that legitimately write —
-`scripts/init-game-stats-writer-control.ts`, `scripts/transition-game-stats-writer-control.ts` — may
-read from this file today. **Enumerate the consumers first**; a credential removed from under a working
-tool is how the next operator reaches for `vercel env pull`, which is the thing the rail exists to
-prevent.
-
-**Related: Item 110A**, whose production apply is gated on owner approval precisely because the
-mechanism is available without it.
-
-**ESCALATED 2026-09-09.** During 110A's review the lane could not rule out that one of its own review
-agents had written to production — the write turned out to be the owner's own authorized apply, but
-**the investigation was reasonable precisely because nothing made it impossible.** A review agent is
-forked from the lane's context, inherits the worktree, and this repo's own tooling loads
-`.env.operator.local` on startup. **A process nobody dispatched can therefore reach the production
-primary by running an ordinary `npm run` script.** That is the exposure, independent of whether it has
-ever fired.
-
-**Blocker:** none. **Small**, once the consumers are enumerated.
+**MIGRATED to [#703](https://github.com/znpruitt/cfb-app/issues/703) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 193 — the merge repairs modelled categories and never raw-only ones
 
@@ -3733,28 +3555,8 @@ re-run the catalog refresh.
 
 ### Item 200 — AGENTS.md has binding rules in lines nobody can read
 
-**Measured 2026-09-09.** `AGENTS.md:146` is a **single line of 17,908 characters** — roughly 3,000
-words in one unbroken paragraph. Seven lines exceed 2,000 characters; four exceed 6,000.
-
-| line | characters |
-| --- | --- |
-| 146 | **17,908** |
-| 814 | 10,165 |
-| 802 | 9,109 |
-| 820 | 6,974 |
-
-**Line 146 carries the whole provider-refresh scope contract** — canonical, binding, and structurally
-unreadable. **This is not a style complaint.** This campaign has spent days on rules that were present
-and unfindable: the Item 87 obligations at 88% depth, the `Landed` mark on an unbuilt amendment, the
-disrupted-status comments, the chip cap. **The owner's own framing of that failure was that prominence
-is not the variable — position relative to where reading happens is.** A 17,908-character line is the
-same failure by a different mechanism: everything after the first sentence is past where anyone reads.
-
-**And it is still growing.** The `week-reconciliation` description added on 2026-09-09 went into line
-146, by the planning session, without anyone noticing the line was already 16,000 characters long.
-
-**The ask:** break the longest lines into structured subsections — the content is not the problem, the
-packaging is. **Change no rule while doing it.**
+**MIGRATED to [#705](https://github.com/znpruitt/cfb-app/issues/705) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 201 — the seed catalog carries no colours at all
 
