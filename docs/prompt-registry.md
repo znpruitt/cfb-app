@@ -119,7 +119,7 @@ Rules:
      the permanent detector in [#721](https://github.com/znpruitt/cfb-app/issues/721), deliberately
      blocked on the deletion — a detector that fires on every machine before the key moves is a check
      that cannot pass, which teaches people to skip the line.
-- Status: Implemented — PR #720 open from `claude/703-operator-write-credential`
+- Status: Merged (PR #720, `85d5912d`, 2026-09-10) from `claude/703-operator-write-credential`
 
 ### PLATFORM-198-COLOUR-BAND-CODEX-v1
 
