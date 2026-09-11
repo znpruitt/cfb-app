@@ -103,6 +103,13 @@ first commit; if you are not where this table says you should be, stop and say s
   shared store.** The lane's reflog check gave the right answer. **To ask whether something is on the
   remote, query the remote** — `git ls-remote origin <ref>`, or `git branch -r --contains` — never
   `cat-file`, which cannot distinguish "fetched" from "another worktree wrote it."
+- **A LANE MAKING A POST-MERGE FLIP USES A TEMPORARY DETACHED WORKTREE, NEVER THE PLANNING CHECKOUT.**
+  Added 2026-09-10, after the Item 620 lane hit a gap this file did not address and solved it correctly.
+  Post-merge status flips go straight to `main` (no PR), but `main` is checked out in the PLANNING
+  worktree — so a lane has nowhere to make one. **The answer is a temporary worktree in the scratchpad,
+  used and then removed**, leaving `git worktree list` back at the three lanes. **Never `cd` into
+  `/Users/zach/cfb-app` to do it**: two sessions in one checkout share an index and a branch, which is
+  the whole reason the lanes are separate.
 - **Prefer explicit paths over `git add -A`** in every session. `-A` is what makes a shared or
   mistaken checkout destructive rather than merely confusing.
 - A new worktree needs what git does not carry: `npm ci`, plus `.env.local` and `.env.operator.local`
