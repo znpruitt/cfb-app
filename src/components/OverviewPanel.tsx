@@ -442,10 +442,16 @@ function SectionExpansionControl({
       aria-controls={controlsId}
       className="mt-3 min-h-11 w-full rounded-md border border-gray-200 py-1.5 text-xs font-semibold text-gray-600 transition-colors hover:bg-gray-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-700/50"
       onClick={(event) => {
-        if (expanded) {
-          event.currentTarget.closest('section')?.scrollIntoView?.({ block: 'start' });
-        }
+        const control = event.currentTarget;
+        const shouldRestoreFocusViewport = expanded;
         onToggle();
+
+        if (!shouldRestoreFocusViewport) return;
+        window.requestAnimationFrame(() => {
+          if (control.isConnected) {
+            control.scrollIntoView?.({ block: 'nearest' });
+          }
+        });
       }}
     >
       {controlText}

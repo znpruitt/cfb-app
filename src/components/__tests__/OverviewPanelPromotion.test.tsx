@@ -231,33 +231,58 @@ test('Overview bounds each game section independently and exposes every ordered 
   assert.equal(scoreboardCount(container, 'overview-watchlist-games'), 7);
 });
 
-test('collapsing an expanded section scrolls its section back into view', () => {
+test('collapsing schedules the focused control into view after the rows are removed', () => {
   const fixtures = expansionFixtures();
   const prototype = window.HTMLElement.prototype;
   const originalDescriptor = Object.getOwnPropertyDescriptor(prototype, 'scrollIntoView');
+  const originalFrameDescriptor = Object.getOwnPropertyDescriptor(window, 'requestAnimationFrame');
+  const scheduledFrames: FrameRequestCallback[] = [];
   let scrollCalls = 0;
   let scrollOptions: ScrollIntoViewOptions | undefined;
+  let expectedScrollTarget: Element | null = null;
   Object.defineProperty(prototype, 'scrollIntoView', {
     configurable: true,
-    value(options?: ScrollIntoViewOptions) {
+    value(this: Element, options?: ScrollIntoViewOptions) {
+      assert.equal(this, expectedScrollTarget);
       scrollCalls += 1;
       scrollOptions = options;
+    },
+  });
+  Object.defineProperty(window, 'requestAnimationFrame', {
+    configurable: true,
+    value(callback: FrameRequestCallback) {
+      scheduledFrames.push(callback);
+      return scheduledFrames.length;
     },
   });
 
   try {
     const rendered = render(expansionPanel(fixtures));
     fireEvent.click(rendered.getByRole('button', { name: 'Show 2 more games — Live games' }));
-    fireEvent.click(rendered.getByRole('button', { name: 'Show less — Live games' }));
+    const collapseControl = rendered.getByRole('button', { name: 'Show less — Live games' });
+    expectedScrollTarget = collapseControl;
+    collapseControl.focus();
+    fireEvent.click(collapseControl);
 
-    assert.equal(scrollCalls, 1);
-    assert.equal(scrollOptions?.block, 'start');
     assert.equal(scoreboardCount(rendered.container, 'overview-live-games'), 6);
+    assert.equal(document.activeElement, collapseControl);
+    assert.equal(scrollCalls, 0, 'scrolling must wait until after the collapse commits');
+    assert.equal(scheduledFrames.length, 1);
+
+    scheduledFrames[0]!(0);
+    assert.equal(scrollCalls, 1);
+    assert.equal(scrollOptions?.block, 'nearest');
+    assert.equal(document.activeElement, collapseControl);
   } finally {
     if (originalDescriptor) {
       Object.defineProperty(prototype, 'scrollIntoView', originalDescriptor);
     } else {
       delete (prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
+    if (originalFrameDescriptor) {
+      Object.defineProperty(window, 'requestAnimationFrame', originalFrameDescriptor);
+    } else {
+      delete (window as { requestAnimationFrame?: unknown }).requestAnimationFrame;
     }
   }
 });
@@ -406,7 +431,7 @@ test('Awaiting score renders neutrally inside the Live section without claiming 
   assert.match(scoreboard, /data-scoreboard-header[^>]*>[\s\S]*>Awaiting score<\/span>/);
   assert.doesNotMatch(scoreboard, />Live<\/span>|dark:text-emerald-400|rounded-full bg-current/);
   assert.doesNotMatch(scoreboard, />Scheduled<\/span>/);
-  assert.doesNotMatch(html, /aria-label="Show all Live games"/);
+  assert.doesNotMatch(html, /aria-controls="overview-live-games"/);
 });
 
 test('Recent finals renders score anchors and no records join', () => {
