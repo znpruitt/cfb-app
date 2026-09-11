@@ -51,6 +51,35 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-137-WRITER-CONVERGENCE-TIME-BOMBS-CLAUDE-v1
+
+- Purpose: [#696](https://github.com/znpruitt/cfb-app/issues/696) — `npm test` on clean `main` exited
+  1 with two failures that were wall-clock expiries, not defects. The cost was not the two tests: a
+  red `main` makes every gate report a failure COUNT against a remembered baseline instead of a
+  failure SET against zero, which is the state in which a third failure hides.
+- Scope: fixtures only in two odds test suites — no assertion changed, no production code changed —
+  plus the instruction sweep the fix invalidates, and a checked-in detector for the defect class.
+- Outcome: `writer-convergence.test.ts` and `odds-quota-guard.test.ts` derive their kickoffs from
+  `Date.now()` instead of pinned literals. **The mechanism is a DELETION, not a missing write**:
+  past kickoff `applyPregameOddsSnapshot` returns a frozen-empty record, `hasStoredOddsData` is
+  false, and `buildNextOddsStore` deletes the key — so the store is `{}` and the assertion reads
+  `undefined` rather than a record with a null spread. **A third bomb was found beyond the two the
+  item named** (`odds-quota-guard.test.ts:340`, pinned `2026-12-01T19:30:00.000Z`, measured green at
+  +79d and red at +82d); leaving it would have re-reddened `main` on 1 December and falsified the
+  29 instructions this item had just rewritten. `scripts/clock-shift.mjs` +
+  `scripts/clock-shift-run.mjs` ship the detector as `npm run test:clock-shift -- <days>`, because a
+  bisect cannot find this class — an older commit does not roll back the clock.
+- Review / verification: bound to the branch head. `npx tsc --noEmit` 0, `npm run lint:all` 0,
+  `npm test` **0 with 5,159/5,159** — the first green full suite since the baseline was recorded.
+  Both restored invariants were mutation-proven rather than merely observed green: disabling the
+  pregame-snapshot application in `oddsCommit.ts` turns exactly `convergence #10` and the manual
+  `compatibility #46` red, at their durable-line assertions and no others. A 14-rung clock ladder
+  from +0 to +730 days found **no further expiry within two years**; at every non-zero rung exactly
+  one failure appears — `testStoreLifecycle.test.ts` sweeping real mtimes against a shifted `now` —
+  and it pins no date. The +0 rung is fully green, which is the control that makes those zeros
+  readable.
+- Status: Merged — see `docs/completed-work.md` for the sweep counts.
+
 ### PLATFORM-661-DISRUPTED-VOCABULARY-NOTE-CLAUDE-v1
 
 - Purpose: [#661](https://github.com/znpruitt/cfb-app/issues/661) — comments described the provider

@@ -33,6 +33,28 @@ import {
   oddsCache,
 } from '../routeInternals.ts';
 
+const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * Fixture instants are derived from the run's own clock, never pinned to a
+ * calendar date. Item 137/#696: this file's kickoff was pinned to a fixed
+ * literal, and once the calendar crossed it the odds writer correctly refused
+ * to attach a pregame line — so `convergence #10` and the manual-refresh
+ * `compatibility #46` began failing at EVERY commit, on the date alone. A
+ * relative kickoff cannot expire; moving the literal forward only reloads it.
+ */
+function testTimeFromNow(hours: number): string {
+  return new Date(Date.now() + hours * HOUR_MS).toISOString();
+}
+
+/**
+ * The shared canonical kickoff: one instant for BOTH the schedule item and the
+ * odds event's `commence_time`, because attachment narrows candidates by
+ * kickoff tolerance and the two must align. 24h out keeps every test in this
+ * file PREGAME — which is the state each of them is about.
+ */
+const KICKOFF = testTimeFromNow(24);
+
 const SEASON = 2026;
 
 test.beforeEach(async () => {
@@ -51,7 +73,7 @@ function scheduleItem() {
   return {
     id: 'game-1',
     week: 1,
-    startDate: '2026-09-05T19:30:00.000Z',
+    startDate: KICKOFF,
     neutralSite: false,
     conferenceGame: false,
     homeTeam: 'Georgia',
@@ -69,7 +91,7 @@ function oddsEventPayload() {
     {
       home_team: 'Georgia Bulldogs',
       away_team: 'Clemson Tigers',
-      commence_time: '2026-09-05T19:30:00.000Z',
+      commence_time: KICKOFF,
       bookmakers: [
         {
           key: 'draftkings',
@@ -332,7 +354,7 @@ test('remediation F1: a stale empty refresh never overwrites newer raw odds', as
       {
         homeTeam: 'Georgia Bulldogs',
         awayTeam: 'Clemson Tigers',
-        commenceTime: '2026-09-05T19:30:00.000Z',
+        commenceTime: KICKOFF,
         bookmakers: [],
       },
     ],
@@ -380,7 +402,7 @@ test('remediation F1b: the empty guard judges by observation, not lastFetch (spl
       {
         homeTeam: 'Georgia Bulldogs',
         awayTeam: 'Clemson Tigers',
-        commenceTime: '2026-09-05T19:30:00.000Z',
+        commenceTime: KICKOFF,
         bookmakers: [],
       },
     ],

@@ -146,8 +146,9 @@ the mute existed for, and it reappearing means the band's ceiling is wrong, not 
 Run each separately and report its own exit code — never chained behind `&&`, never behind a pipe:
 `npx tsc --noEmit`, `npm test`, `npm run lint:all`.
 
-`npm test` on clean `main` exits **1** with exactly two failures in
-`src/app/api/odds/__tests__/writer-convergence.test.ts` — the standing **Item 137** baseline.
+`npm test` on clean `main` exits **0** — there is no known-failure baseline. Item 137 (#696)
+removed the last two time-bomb failures on 2026-09-11, so **any** failure is a stop-and-report,
+not a baseline to verify against.
 **Item 207 is an open flake in `polling-planner/__tests__/route.test.ts`** — roughly 1 in 3, four
 tests, `plan-held`. If you see it, re-run once and **say that you did, and why**; never report the
 clean number alone.

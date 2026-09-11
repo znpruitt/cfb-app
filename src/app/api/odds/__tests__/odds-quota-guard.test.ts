@@ -39,6 +39,21 @@ import {
 
 const ODDS_TEST_SEASON = 2026;
 const ODDS_API_HOST = 'api.the-odds-api.com';
+const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * Derived from the run's own clock, never a pinned calendar date — the same
+ * treatment `writer-convergence.test.ts` received (Item 137/#696). This file's
+ * `scheduleItem()` kickoff was pinned to `2026-12-01T19:30:00.000Z`; past that
+ * instant the odds writer correctly refuses to attach a pregame line, the
+ * durable record is dropped rather than written, and the seed step of
+ * `suppressed fallback does not persist ...` has no snapshot to defend. Measured
+ * under a shifted clock before the fix: green at +79d, red at +82d. Moving the
+ * literal forward only reloads the fuse; a relative kickoff cannot expire.
+ */
+function testTimeFromNow(hours: number): string {
+  return new Date(Date.now() + hours * HOUR_MS).toISOString();
+}
 
 test.beforeEach(async () => {
   await __deleteAppStateFileForTests();
@@ -337,7 +352,7 @@ function scheduleItem(): Record<string, unknown> {
   return {
     id: 'game-1',
     week: 1,
-    startDate: '2026-12-01T19:30:00.000Z',
+    startDate: testTimeFromNow(24),
     neutralSite: false,
     conferenceGame: false,
     homeTeam: 'Georgia',

@@ -32,6 +32,49 @@ Supersedes: (none)
 > [`docs/ai/game-stats-writer-fence.md`](ai/game-stats-writer-fence.md) (with the superseded
 > original design frozen in [`docs/ai/platform-086h3-contract.md`](ai/platform-086h3-contract.md)).
 
+### Item 137 — Writer-convergence time bombs; `main` is green — Complete
+
+- **Status:** merged 2026-09-11. Closes [#696](https://github.com/znpruitt/cfb-app/issues/696).
+- **PROMPT_ID(s):** `PLATFORM-137-WRITER-CONVERGENCE-TIME-BOMBS-CLAUDE-v1`.
+- **Outcome:** `npm test` on clean `main` exits **0** (5,159/5,159). Three test fixtures stopped
+  pinning kickoffs to calendar literals and now derive them from `Date.now()`. No assertion was
+  weakened and no production code changed — the diff removes four date literals from
+  `writer-convergence.test.ts` and one from `odds-quota-guard.test.ts`.
+- **Why it mattered:** the two failures were correct production behaviour meeting a stale fixture —
+  past kickoff the odds writer stops attaching a line, and the durable record is DELETED rather than
+  written, so the assertion saw `undefined`. The cost was never the two tests. It was that a red
+  `main` trains every lane to verify a failure COUNT against a remembered baseline instead of a
+  failure SET against zero, and `CLAUDE.md` merge condition 3 existed to do by rule what a green
+  suite does for free.
+- **The item named two bombs; there were three.** `odds-quota-guard.test.ts:340` pinned
+  `2026-12-01T19:30:00.000Z` — measured green at +79d, red at +82d. Fixing only the named two would
+  have restored green for 81 days and then falsified all 31 instructions rewritten below, in the
+  dangerous direction: telling lanes to expect zero while `main` was red.
+- **The instruction sweep, both counts.** `Item 137` appears **67 times** across `docs/`. **32
+  occurrences in 31 files were changed** (30 in 29 `docs/prompts/` files — 28 sharing one
+  verification-block wording, one variant in `platform-102-slice-4`; 2 in `docs/next-tasks.md`
+  including the canonical baseline block). **35 occurrences in 5 files were deliberately left** as
+  history: `docs/prompt-registry.md` (29), `docs/completed-work.md` (2), the 2026-09-08 audit (2),
+  the 2026-09-10 queue triage (1), and one sentence inside a live prompt —
+  `platform-207-planner-test-isolation-claude-v1.md:23` — which records a past observation rather
+  than instructing anyone. Renumbering history would falsify the record.
+- **The grep term missed the two most binding copies.** `AGENTS.md` §Commands and `CLAUDE.md` merge
+  condition 3 both asserted the baseline **without containing the string `Item 137`**, so a sweep
+  scoped to that phrase could not see them. `AGENTS.md` said in bold that the suite "is not
+  currently GREEN"; both are corrected. A sixth file,
+  `docs/campaigns/item-209-app-state-test-isolation.md:88`, stated the baseline in the present tense
+  inside a historical finding and now carries a dated supersession rather than a rewrite.
+- **A detector shipped with the fix.** `npm run test:clock-shift -- <days>` runs the whole suite
+  under a shifted clock. A bisect cannot find this defect class — checking out an older commit does
+  not roll back the calendar, so an expired test fails at every commit and four historical commits
+  produced four false positives during the original 2026-09-05 diagnosis. Coverage is stated rather
+  than assumed: a +0 run is fully green (the control), and at every non-zero shift exactly one
+  failure appears — `testStoreLifecycle.test.ts` sweeping real filesystem mtimes against a shifted
+  `now`, which pins no date and will not fail on the real one. Any other failure is a real expiry.
+- **Measured horizon:** a 14-rung ladder from +0 to +730 days found **no further expiry within two
+  years**. 228 future-dated ISO literals remain in test files; the ladder shows none of them is
+  currently wired to the real clock in a way that expires inside that window.
+
 ### PLATFORM-087 Slice 5b — Card-owner scoreboard row modifier — Complete
 
 - **Status:** Merged via PR #575 (merge commit `fef083ae`), 2026-09-06.

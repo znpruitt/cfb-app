@@ -144,8 +144,9 @@ Item 170's premise is wrong and the item needs re-filing, not building.
 Run each separately and report its own exit code — never chained behind `&&`, never behind a pipe:
 `npx tsc --noEmit`, `npm test`, `npm run lint:all`.
 
-`npm test` on clean `main` exits **1** with exactly two failures in
-`src/app/api/odds/__tests__/writer-convergence.test.ts` — the standing **Item 137** baseline.
+`npm test` on clean `main` exits **0** — there is no known-failure baseline. Item 137 (#696)
+removed the last two time-bomb failures on 2026-09-11, so **any** failure is a stop-and-report,
+not a baseline to verify against.
 </verification>
 
 <output_contract>
