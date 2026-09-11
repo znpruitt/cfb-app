@@ -1912,109 +1912,14 @@ changes what the sampler records.
 
 ### Item 125 — four Overview section-ordering decisions are decided but unbuilt
 
-**Filed 2026-09-04.** The decisions and their evidence:
-`docs/campaigns/item-87-followon-section-ordering.md` and its two children. Decision 1 (section
-order) shipped as POLISH-022; decision 4 was documentation only. This item is the queue home for the
-rest, so the document is not the only place they live.
-
-1. **DONE — Live sorts by kickoff alone.** POLISH-023, merged via PR #563 (`1546bbc8`). `compareOverviewLiveItems` reduced
-   to kickoff ascending; the in-progress partition and the owner-count key both removed. §2 was
-   scoped by the owner on 2026-09-04 to the **three state sections**, so the same key also came out
-   of `compareOverviewRecentFinals` and out of the watchlist's `compareWatchlistItems` — the
-   watchlist keeps `watchlistPriority`, its curation score, which is not an owner-count key. Sort
-   rules for all three are now written down in the resolutions doc.
-   **Featured too, by owner ruling 2026-09-04** — `compareRecentResultItems` lost the same key.
-   The relevance-surface argument for keeping it holds only for signals someone chose; owner count
-   arrived by inheritance. It was worse than a sort key because `selectFeaturedGames` slices without
-   re-sorting, so at the cap it decided which games appeared, and `NoClaim` being truthy meant it
-   was not measuring what it claimed to. **Every owner-count key is now gone**; the watchlist's
-   `watchlistPriority` is the sole surviving non-kickoff key, deliberately.
-2. **DONE — no date or time on a Featured final.** POLISH-023, merged via PR #563 (`1546bbc8`). `DESIGN.md` said the
-   opposite and was amended. **Still outstanding, and the rule is repo-wide:** Matchups
-   (`MatchupsWeekPanel.tsx`, the non-scheduled metadata branch) and Schedule
-   (`deriveExpandedMetadataLines`, `gameCardPresentation.ts:125`) both still print a kickoff on final
-   rows. Those two surfaces are unbuilt work under this item, not closed by PR #563.
-3. **Counts are totals, not visible counts** — belongs to **Item 115**, not here. `liveTitle` reads
-   `.length` after `.slice(0, OVERVIEW_LIVE_LIMIT)`, so it is a visible count, and today the surplus
-   is dropped with no expand control at all. A total before Item 115 exists would promise games the
-   UI cannot reach; the count and the cap are one fix.
-4. **"Today" is the only relative date label** — constrains **Item 87 slice 5**, not a change on its
-   own. No relative label ships today; every date is absolute.
-
-Items 1 and 2 together are an hour and both are user-facing. 3 and 4 are recorded here only so the
-decision is not lost when someone opens Item 115 or slice 5.
-
-- Backlog slug: `POLISH-OVERVIEW-ORDERING-REMAINDER-v1`
+**MIGRATED to [#667](https://github.com/znpruitt/cfb-app/issues/667) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 124 — `OverviewContext.sectionOrder` is dead and now contradicts the shipped order
 
-**Filed 2026-09-04 from a `/code-review` finding on PR #562. Pre-existing, not introduced there.**
-
-`overview.ts:41` declares `sectionOrder: OverviewSectionKind[]` and four construction sites populate
-it (`:141`, `:154`, `:167`, `:179`). **Nothing outside `overview.ts` and test fixtures reads it** —
-`OverviewPanel.tsx` hardcodes section order in static JSX. The live-emphasis value at `:141`,
-`['live', 'highlights', 'standings', 'matrix']`, asserts Live leads the page above Standings, which
-is now contradicted by the owner decision POLISH-022 implemented.
-
-**Two sibling fields are dead the same way.** `liveDescription` and `highlightsDescription` have no
-`.tsx` reader; `liveDescription` at `:159` is copy — "If games go live, they will automatically move
-to the top of Overview" — that no surface renders and that describes behaviour the page does not
-have.
-
-**Why it matters:** someone edits `sectionOrder` to change the layout, nothing renders differently,
-and the model quietly disagrees with the JSX. A second unread model of the same fact is the shape
-Item 123 documents in the postseason template.
-
-**Deliberately not folded into PR #562**, which is a 28-line pure block move. Deleting these fields
-touches the type, four construction sites and four test files, which would make a presentation-only
-change into a data-model one.
-
-**DONE — POLISH-024, merged via PR #564 (`cac6dab9`).** Six fields removed, not three: `sectionOrder`, `scopeLabel`,
-`highlightsTitle`, `highlightsDescription` and `liveDescription`. `OverviewContext` is now
-`{ scopeDetail, emphasis }`.
-
-**Correcting this item's own scope note.** It said `highlightsTitle` "IS read
-(`context.highlightsTitle` supplies the Featured heading), so this is a partial deletion". That was
-wrong and unchecked — the Featured heading is the literal string `"Featured games"` in
-`OverviewPanel.tsx`, and `highlightsTitle` has no reader outside `overview.ts` and test fixtures.
-`scopeLabel` was dead the same way. Only `scopeDetail` (read by
-`selectors/overview.ts:237` for the week label) is genuinely read.
-
-**And the same error, one sentence later — caught by `/code-review` on PR #564.** The paragraph
-above originally continued "and `emphasis` (five components branch on it) survive", inside the very
-correction it was making. That claim was also false and also unchecked: it came from grepping the
-bare word `emphasis`, which matches `cardEmphasisClasses`, `data-leader-emphasis` and an unrelated
-`CareerSummaryCard` prop. **Nothing in `src/` reads `context.emphasis`** — proved by renaming the
-field, which errors in four test files and zero production files. `emphasis` therefore met the
-exact criterion the five deleted fields failed, and the owner ruled it out too: **`OverviewContext`
-is now `{ scopeDetail }`.** The Item 113 argument did not survive contact with what 113 needs —
-`emphasis` is a slate-level fact, and Featured selection is per-game, so a slate signal cannot say
-which game to promote; if 113 wants slate context it will derive it in the shape its selector needs.
-And "a future item might want this" is the weakest reason to retain code — it is the reason that
-produced both false claims, because a field kept for a hypothetical consumer accumulates a story
-about being used until someone writes that story down as fact.
-
-**The collapse was an argument for deleting, not against.** With `emphasis` gone,
-`deriveOverviewContext`'s four slate branches all returned the same object, so the function reduces
-to `{ scopeDetail: selectedWeekLabel ?? null }`. It was never deriving context; it was deriving one
-field with ceremony around it. `activeSlateStatus` left its parameters and is still used elsewhere
-for `includeFinalWeekGames` and `recentMode`.
-
-**Rule written into `AGENTS.md` → Verification (binding):** a claim that something IS READ requires a
-mutation, not a grep. All three of this branch's false claims came from greps that returned matches
-on near-namesakes; a rename answers in one command and cannot return a false positive.
-
-**One test deleted rather than gutted.** `overview uses postseason context when the active slate is
-postseason-driven` had `scopeLabel` as its entire subject; with the field gone,
-`deriveOverviewContext` has no postseason-specific output left, so keeping it meant an `emphasis`
-assertion other tests already make. Deleted with a comment in place saying why. `weekGames` also
-left `deriveOverviewContext`'s parameters — it existed only to run `isTruePostseasonGame` for that
-label.
-
-**Net: 256 lines removed, 36 added.** `npm run build` was run as a gate alongside the usual three,
-since the change alters an exported type's surface.
-
-- Backlog slug: `POLISH-RETIRE-OVERVIEW-SECTION-ORDER-v1`
+**SUPERSEDED — done the day it was filed, and the entry never said so.** `overview.ts:35` records
+it: "Five fields were removed here on 2026-09-04 (Item 124): `sectionOrder`, `scopeLabel`, ..."
+**Found 2026-09-10 by grouping the Overview cluster** — invisible while it sat among unrelated numbers.
 
 ### Item 123 — DONE: `buildPostseasonTemplate` retired
 
@@ -4181,19 +4086,8 @@ and the colour drift Item 153 fixed grew from exactly this kind of split.
 
 ### Item 158 — Overview renders two chip shapes in the same slot
 
-**Found during Item 153, confirmed by pixel sampling.** The championship badge keeps a 1px border and
-a fill; the watchlist chip a few lines below is a 0.5px hairline with no fill. **Both are
-`contextSlot` content on the same page**, so a week with a Featured final and a watchlist game shows
-both at once. The campaign's settled treatment is hairline, no fill.
-
-**The ask:** reconcile the two shapes, or record why the badge is deliberately a different object.
-
-**Why it matters:** Item 153 was scoped to colour and explicitly barred from the champion amber token,
-so shape was out of its reach. But the two shapes sit inches apart in the same slot, which is where a
-reader judges consistency.
-
-**Blocker:** none. Item 153 must land first — it is what made the colours match and left shape as the
-only visible difference.
+**MIGRATED to [#668](https://github.com/znpruitt/cfb-app/issues/668) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 159 — `tailwind.config.ts` is never loaded, and states the opposite of what ships
 
@@ -4223,69 +4117,13 @@ dead code.
 
 ### Item 160 — Overview never received the shared-row decisions
 
-**Design:** [`docs/campaigns/item-87-followon-overview-back-application.md`](campaigns/item-87-followon-overview-back-application.md),
-which is canonical for this item. **INDEX row added; CARRY rows 71 and 72 come from it.**
-
-**The ask:** apply the six shared-row decisions to Overview's watchlist.
-
-**It is ONE omission, not six divergences.** All six were decided during the Schedule and Matchups
-work, recorded in `presentation-decisions.md`, and never applied back — **because the decisions were
-recorded as Schedule decisions, though every one is a property of the SHARED row.** Overview had
-shipped and nothing prompted a revisit.
-
-**Only the first is visible at a glance.** Tags stacking above the row make a two-tag card a line
-taller than a one-tag card, so grid columns fall out of alignment — Oklahoma/Michigan sits at a
-different height from Ohio State/Texas beside it in the current build. The other five need inspection.
-
-> **OBSERVED ON PRODUCTION 2026-09-08, after promoting the tag-vocabulary work.** The misalignment is
-> **not visible at desktop width** — a one-tag card and a two-tag card sit level, because both fit on a
-> single line. **It appears when a card's tags wrap**, which is narrower than the two-column tier. So
-> the defect is real but its trigger is narrower than "any two-tag card".
->
-> **What IS visible at every width is the line count.** A tagged card renders the chips on their own
-> line, then the date/broadcast line, then the teams — **three header lines where the mockup has one**,
-> because the mockup puts state, date, broadcast and the tag in a single status row. **That is the
-> whole of finding 1**, and it is what Item 143's seam exists to make possible. An untagged card
-> already reads correctly at one line, which is why the gap only shows on cards that carry a tag.
-
-**Sequence it after Item 143.** Items 1–3 need the tag-in-status-row seam, which does not exist yet;
-item 4 is **Item 157**; item 5 is **Item 119**.
-
-**Carry the `margin-left: auto` trap** (CARRY row 25). It bites harder here than elsewhere: some
-watchlist rows are **tag-only**, with no metadata to hold the left group open.
-
-**The durable fix is filed separately as CARRY row 71** and is the part worth acting on — this item
-closes one instance and does nothing about the next.
+**MIGRATED to [#669](https://github.com/znpruitt/cfb-app/issues/669) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 161 — record the surfaces a shared-row decision governs
 
-**Owner, 2026-09-08.** A shared-row decision should **name the surfaces it governs at the point it is
-recorded** — Overview, Matchups, Schedule, recap — so a later reader can **check rather than assume**.
-
-**The ask:** add a surfaces line to each section of `item-87-followon-presentation-decisions.md`.
-
-**Why it matters:** that document reads as a Schedule and Matchups document because that is where the
-work happened, but **every decision in it about the status row, the tag slot or row anatomy applies to
-all four surfaces.** Item 160 is what its absence cost — six decisions that reached one surface and
-not another, found in a screenshot weeks later.
-
-**This is the discharge problem inverted.** Discharge is work completed and unmarked; this is a
-decision recorded and unapplied. **Same gap underneath: nothing tracks whether a cross-surface
-decision reached every surface it governs.**
-
-**THE COST OF ITS ABSENCE IS NOW MEASURED: EIGHT.** Item 167 audited the three Overview sections
-nobody had checked and found **eight divergences mapping to no filed item** — every one the same
-mechanism this rule prevents: a decision recorded against the surface where the work happened and never
-applied back. **Cite the eight as the measurement of what this rule's absence cost**, not as a general
-count of Overview defects.
-
-**Carry the coverage caveat wherever the number is cited** — the auditor's own phrasing: _eight
-residual divergences in the statically- and render-analysable behaviour of the four sections' own code
-paths_, **not eight in Overview.** A layout-dependent divergence would not appear, and **check 7, the
-third column tier, is exactly where one would hide** — it was answered from class strings because
-nothing in the tree measures rendered width.
-
-**Blocker:** none. **A few minutes**, and it makes the omission checkable rather than rediscoverable.
+**MIGRATED to [#670](https://github.com/znpruitt/cfb-app/issues/670) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 162 — DONE: `Contender Watch` was owner standing rendered as a chip
 
@@ -4391,47 +4229,9 @@ this defect is horizontal.** They are unrelated, and this one is independently f
 
 ### Item 165 — the tag cap: three sources, three answers
 
-**Surfaced 2026-09-08** by `item-87-reference-game-row.md` putting the claims side by side. Invisible
-while they sat in separate files.
-
-| source | says |
-| --- | --- |
-| `item-87-followon-recap-scoreboard.md:29` | **a hard cap of two**, because three pills crowd the metadata out entirely at column width |
-| `DESIGN.md:293` | **not capped** — _As many as are true — several ranked matchups on one slate all carry the chip_ |
-| `gameTags.ts:644` `prioritizeGameTags` | **neither** — dedupes and orders by priority, returns `primary` plus **all** `secondary` |
-
-**RULED 2026-09-08 — the cap is TWO, and `DESIGN.md:293` is amended to say so.** Done in this commit;
-the amendment is marked as an amendment and carries its reason. **The uncapped rule is superseded by
-the layout it predates, not wrong on its own terms:** the tag slot is `flex: none` and now sits IN the
-status row, so at three tags the metadata absorbs the whole squeeze and ellipses to nothing. It was
-written while the tag was not yet a fixed-width competitor for that space.
-
-**Remaining work — the code.** `prioritizeGameTags` must apply the cap, **in the selector, not the
-renderer.** A render-time truncation of a list the selector still builds in full is a different
-behaviour wearing the same number: consumers disagree about how many tags exist, `secondary` keeps
-carrying tags nothing will show, and the Matchups `hidden sm:inline-flex` breakpoint rule starts
-interacting with a cap it was never designed against.
-
-**THE PROCESS FAILURE MATTERS MORE THAN THE VALUE — owner, and it is now a closeout rule.** A decision
-that contradicts `DESIGN.md` **is not settled until `DESIGN.md` changes.** Recording it in a campaign
-document instead produces exactly this: a conflict visible only when somebody consolidates.
-**"Canonical unless something more recent disagrees" is not a rule anyone can apply** — it means every
-reader must know the whole document set before trusting the canonical one, which is the opposite of
-what canonical means. Landed in `AGENTS.md` → **Documentation closeout timing**.
-
-**Why it is not obvious.** `DESIGN.md` is canonical for UI, so as written it wins. But the cap is the
-**later and more specific** decision and carries a stated reason, which is the shape of a decision that
-should have amended `DESIGN.md` and did not. **This is the amendment-versus-application distinction the
-campaign has hit before**, so the ruling should say which it is rather than only picking a number.
-
-**The code is not evidence for either.** It caps nothing. The nearest thing to a limit is Matchups
-hiding secondary tags below the `sm` breakpoint (`MatchupsWeekPanel.tsx`, `hidden sm:inline-flex`),
-which is responsive behaviour, not a cap — **do not read it as the decision already having been made.**
-
-**Related:** Items 157, 162 and 163 all retire or rename a tag. **If they land first the cap may never
-bind in practice** — but the rule still has to say something, because the next tag added would hit it.
-
-**Blocker:** none.
+**RULED AND DONE 2026-09-08.** The cap is **TWO**, and `DESIGN.md:293` was amended to say so in the
+same commit, marked as an amendment and carrying its reason. **The uncapped rule is superseded by the
+layout it predates, not wrong on its own terms.** #673 is the separate defect that evades the cap.
 
 ### Item 166 — CLOSED, ALREADY SATISFIED. The cap ships, in the selector, with the test
 
@@ -4481,54 +4281,11 @@ from the cases that happen to be available passes while the actual case goes unt
 
 ### Item 167 — audit Overview's other sections against the row reference
 
-**Kickoff:** [`docs/prompts/platform-167-overview-audit-claude-v2.md`](prompts/platform-167-overview-audit-claude-v2.md).
-**Design:** `item-87-reference-overview-composition.md` §7, which is the brief. **Eleven checks**, seven at
-row level and four at page level. **That section has not been run** — it is proposed scope, not findings.
-
-> **RUN AND ANSWERED 2026-09-08. RESIDUE COUNT: 8.** Filed as Items **173-179** (R3 and R4 share one
-> item — both are "the tag decisions reached only the watchlist"). **The question this item existed to
-> answer:** Item 160 is **NOT** the whole back-application problem. It is the part that was visible in
-> a screenshot, and its own text says so — its ask is scoped to the watchlist because a screenshot of
-> the watchlist prompted it. The same class of gap exists in all three other sections with nothing
-> filed against it.
->
-> **The honest form of the number**, in the auditor's words: **8 residual divergences in the
-> statically- and render-analysable behaviour of the four sections' own code paths** — not 8 in
-> Overview. A layout-dependent divergence would not appear, and **check 7 (the third column tier) is
-> exactly where one would hide**: it was answered from class strings, since nothing in the tree
-> measures rendered width and Item 134 lists that missing test as one of its own requirements.
->
-> **Sharpest single finding:** `Close`'s only reachable render path on Overview is the forbidden one.
-> At audit time it could not render on Live, Recent finals or Featured because those sections passed
-> no tags (Item 173),
-> and on the watchlist it fires only through Item 169's `0-0` scheduled pack — the case
-> `DESIGN.md:313` prohibits. Neither item named the other.
->
-> **173a discharge, 2026-09-09:** Featured now renders its existing tags, closing the Featured part of
-> R3, and its postseason badge moved into the status row, closing R4. Live and Recent finals remain
-> the 173b selector slice. Items 187 and 195 own the two follow-ups accepted during 173a's review.
->
-> **179 discharge, 2026-09-09:** R8 was one of the original eight and is now removed by Item 179.
-> The historical residue count remains **8** — it was the audit's measured deliverable, not a live
-> counter — and this annotation records what removed that finding rather than silently shrinking it.
-
-**The ask:** run the audit across **Live, Recent finals, Featured and the watchlist**.
-
-**Why, and it is not "more documentation".** The watchlist's six divergences (Item 160) all came from ONE
-omission — decisions made during the Schedule and Matchups work were recorded as Schedule decisions and never
-applied back. **If back-application missed the watchlist, it plausibly missed the other sections, and nobody
-has looked.** This determines whether more work is needed at all.
-
-**THE VALUE IS THE RESIDUE — owner, and it governs how findings are handled.** Most divergences should
-already be attributable to a filed item: **115** counts and caps, **119** colour bars, **134** the third
-tier, **143** the tag seam, **157** and **162** tag vocabulary. **Those get recorded against those items,
-not filed again.** What matters is **anything that maps to no item** — that is a genuine back-application
-gap, and its size is currently unknown.
-
-**Report the mapping explicitly**, item by item, including the count that mapped to nothing. A report that
-only lists divergences has not delivered the thing this item exists for.
-
-**Blocker:** none — the audit is observation. **Acting on the residue may block behind 143.**
+**DONE — the audit ran, and its cost is the number that justified [#670].** It found **EIGHT**
+divergences on Overview, every one recorded as a Schedule decision while being a property of the
+shared row. Its residue became #671 (tags on Live and Recent finals) and #672 (the same audit on
+Matchups and Schedule). **The entry's "that section has not been run" is stale** — it described the
+composition document's §7 at filing time.
 
 ### Item 168 — Matchups renders no odds, and the mockup says scheduled rows carry them
 
@@ -4673,42 +4430,8 @@ The issue is canonical for the ask, its evidence and its state. **This entry is 
 
 ### Item 173 — back-apply tag decisions across Overview sections
 
-**Item 167 residue R3 + R4, at filing.** Live, Recent finals and Featured **passed no tags at all**.
-`Upset` existed in the league family and reached Recent finals never; a Live game that was both a Top
-25 Matchup and Close rendered `[]`. And the one marker Featured did pass — the CFP/conference badge —
-went through `contextSlot`, so it rendered **above** the status row, left-aligned, on its own line.
-
-**§11 gives Overview a tag slot; §2 makes selection tags valid in any state; §15 puts the bowl name
-"in the tag slot".** The mockup carries `Top matchup` eyebrows on Live cards.
-
-**This is Item 160's defect one section over, owned by nobody.** 160 is scoped to the watchlist because
-a screenshot of the watchlist is what prompted it. **Item 143 is the seam** (where a tag goes); this is
-that three sections supply none.
-
-**CROSS-REFERENCE — Item 169.** At filing, together these described a tag that rendered exactly where
-it must not and nowhere it should. **`Close`'s only reachable path on Overview was the forbidden one:**
-it could not fire on Live, Recent finals or Featured because this item's three sections passed no
-tags, and on the watchlist it fired only through 169's `0-0` scheduled pack, which `DESIGN.md:313`
-prohibits. **Neither item named the other until the audit put them side by side.**
-
-**SPLIT 2026-09-09, on the implementer's receipt.** They are different slices:
-
-**173a — Featured. ✅ MERGED 2026-09-09 — PR #588, `00e3fccc`.** This was wiring: Featured now passes the `highlightTags` it already
-received to Item 143's `tagSlot`, and its postseason badge moved from `contextSlot` into that same
-status-row seam. The badge retains its slate treatment and fits the seam without adding a line.
-Items 187 and 195 own the accepted review follow-ups. Kickoff:
-`platform-173a-featured-tag-slot-codex-v2.md`.
-
-**173b — Live and Recent finals. SELECTOR SLICE, not yet dispatched.** `selectOverviewGameSections`
-(`overviewGameSections.ts:188`) takes `sectionItems: OverviewGameItem[]` — **unprioritized** — and its
-`routesByKey` (`:196-198`) carries them straight through. The prioritized inputs
-`prioritizeOverviewItems` needs are `highlightSignals` and `rankingsByTeamId`. **`topOwnerNames` is NOT
-one of them — it was retired with Item 162** and survives only in comments and tests
-(`overview.ts:312-314`). **Giving these two sections tags is a signature change on the section builder**, touching ordering and section composition, which is Item
-115's neighbourhood. **It gets its own review.**
-
-**Blocker:** 173a none. **173b interacts with Item 115** — both change what the section builder
-produces, and they should be sequenced rather than run concurrently.
+**MIGRATED to [#671](https://github.com/znpruitt/cfb-app/issues/671) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 174 — DONE: Live rows render no broadcast
 
@@ -4906,31 +4629,8 @@ outlets in the schedule-media cache and check none reads as something other than
 
 ### Item 181 — audit Matchups and Schedule the way Item 167 audited Overview
 
-**Kickoff:** [`docs/prompts/platform-181-matchups-schedule-audit-v1.md`](prompts/platform-181-matchups-schedule-audit-v1.md).
-
-**Owner, 2026-09-08, on reading Item 167's result.** That audit found **eight** divergences on Overview
-mapping to no filed item, and its conclusion was that the back-application gap sits **wherever nobody
-has looked** — Item 160 covered the watchlist only because a screenshot of the watchlist prompted it.
-
-**Overview has now been measured. Matchups and Schedule have not.** Leaving two of the four consumers
-unaudited leaves the same open question across two thirds of the surface.
-
-**The ask:** run the adapted checks and report the residue count, per surface and combined.
-
-**The question it must answer directly:** is the gap the same size here as on Overview, larger, or
-smaller? **Eight is the number to compare against.** That comparison is what says whether the
-campaign's remaining scope is known or still guessed.
-
-**Three exclusions, all deliberate:** Item 143 v4 is reconstructing Matchups' tag seam, status label
-and live indicator right now — those three are not audited, since counting known in-flight work
-inflates the number. The outcome rail and owner tint are not divergences (CARRY row 20; the tint is
-documented on two axes and nothing proposes removing it). And the recap is not a consumer yet, so
-auditing it against a contract it does not consume would measure nothing.
-
-**Lane:** whichever frees first. **Read-only, so it collides with no branch** — but it must not run
-against Matchups' status row while 143 v4 is rewriting it, which the exclusions handle.
-
-**Blocker:** none.
+**MIGRATED to [#672](https://github.com/znpruitt/cfb-app/issues/672) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 182 — two unreachable empty branches on Overview
 
@@ -5040,29 +4740,8 @@ slot is defined, not at one caller.
 
 ### Item 187 — the third chip is uncounted
 
-**Raised in review of the 174-180 branch.** A watchlist card can carry a reason label **and** two tags
-under `TOP_BADGE_LIMIT = 2` — three chips in a slot whose cap counts two, because the reason label is
-not a tag and does not pass through `prioritizeGameTags`.
-
-**Reachable only through Item 169's unguarded `Close`** in practice, and **169's own production
-measurement bounds that: zero FBS instances across seven seasons**; the six real cases were D-II
-cancellations left `scheduled` at `0-0`.
-
-**WIDENED 2026-09-09 — the same defect exists on FEATURED, and that instance is the reachable one.**
-Found in Item 173a's review: Featured can render its **postseason badge plus two highlight tags** —
-three pills in a slot the design caps at two — because `deriveFeaturedGameBadge` does not pass through
-`prioritizeGameTags` either. **This is one question on two surfaces**, and the Featured instance is
-straightforwardly reachable in the postseason, where the watchlist's depends on Item 169's unguarded
-`Close` and has zero FBS instances in seven seasons.
-
-**The ask, stated once for both:** does `TOP_BADGE_LIMIT` count NON-TAG pills that share the slot — the
-watchlist reason label and the Featured postseason badge? **It is a cap question, not a rendering one.**
-If the answer is yes, the cap is being applied to the wrong population and the fix is in the selector,
-not at either call site.
-
-**The accepted disposition from 173a's review, if it stands:** the postseason badge counts toward the
-cap and takes **priority over selector-owned tags** — a badge is a fact about which game this is, a tag
-is a reason it was surfaced. **That needs a selector slice**, which is why 173a did not implement it.
+**MIGRATED to [#673](https://github.com/znpruitt/cfb-app/issues/673) on 2026-09-10, labelled `actionable`.**
+The issue is canonical for the ask, its evidence and its state. **This entry is a pointer.**
 
 ### Item 195 — the Featured badge-label assertion does not prove containment
 
