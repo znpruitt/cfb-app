@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { deriveGameWeekPanelViewModel } from '../selectors/gameWeek.ts';
 import type { AppGame } from '../schedule';
+import type { ScorePack } from '../scores';
 
 function game(overrides: Partial<AppGame>): AppGame {
   return {
@@ -49,9 +50,63 @@ function game(overrides: Partial<AppGame>): AppGame {
     canHome: overrides.canHome ?? 'Home',
     awayConf: overrides.awayConf ?? 'SEC',
     homeConf: overrides.homeConf ?? 'SEC',
+    startTimeTBD: overrides.startTimeTBD,
     sources: overrides.sources,
   };
 }
+
+test('scheduled provider state becomes awaiting at kickoff, with non-playable rows excluded', () => {
+  const kickoff = '2026-09-05T16:00:00.000Z';
+  const kickoffMs = Date.parse(kickoff);
+  const cases: Array<{
+    name: string;
+    nowMs: number;
+    expected: 'scheduled' | 'awaiting';
+    overrides?: Partial<AppGame>;
+    score?: ScorePack;
+  }> = [
+    { name: 'before kickoff', nowMs: kickoffMs - 1, expected: 'scheduled' },
+    { name: 'at kickoff', nowMs: kickoffMs, expected: 'awaiting' },
+    { name: 'after kickoff', nowMs: kickoffMs + 1, expected: 'awaiting' },
+    {
+      name: 'TBD kickoff',
+      nowMs: kickoffMs + 1,
+      expected: 'scheduled',
+      overrides: { startTimeTBD: true },
+    },
+    {
+      name: 'placeholder',
+      nowMs: kickoffMs + 1,
+      expected: 'scheduled',
+      overrides: { isPlaceholder: true },
+    },
+    {
+      name: 'postponed',
+      nowMs: kickoffMs + 1,
+      expected: 'scheduled',
+      score: {
+        status: 'Postponed',
+        time: null,
+        away: { team: 'Away', score: null },
+        home: { team: 'Home', score: null },
+      },
+    },
+  ];
+
+  for (const scenario of cases) {
+    const vm = deriveGameWeekPanelViewModel({
+      games: [game({ key: scenario.name, date: kickoff, ...scenario.overrides })],
+      oddsByKey: {},
+      scoresByKey: scenario.score ? { [scenario.name]: scenario.score } : {},
+      rosterByTeam: new Map(),
+      rankingsByTeamId: new Map(),
+      displayTimeZone: 'UTC',
+      currentDateMs: scenario.nowMs,
+    });
+
+    assert.equal(vm.groupedGames[0]?.games[0]?.scoreboardState, scenario.expected, scenario.name);
+  }
+});
 
 test('deriveGameWeekPanelViewModel groups games and computes counts', () => {
   const games = [game({ key: 'a' }), game({ key: 'b', status: 'in_progress' })];

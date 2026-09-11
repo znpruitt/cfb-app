@@ -2184,6 +2184,27 @@ test('status row renders kickoff, game clock, or no value according to scoreboar
   assert.doesNotMatch(finalHeader, /8:00 PM|Q\d/);
 });
 
+test('an at-kickoff scheduled game renders as awaiting without a live provider label', () => {
+  const kickoff = '2025-09-01T19:00:00.000Z';
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[game({ key: 'kickoff-awaiting', date: kickoff, status: 'scheduled' })]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+      currentDateMs={Date.parse(kickoff)}
+    />
+  );
+
+  assert.match(html, /data-scoreboard-state="awaiting"/);
+  assert.match(html, />Awaiting score<\/span>/);
+  assert.doesNotMatch(html, />Scheduled<\/span>|>7:00 PM<\/span>/);
+});
+
 test('broadcast renders for scheduled, live, and awaiting rows, but not final or unlisted rows', () => {
   const media = (outlet: string) => [
     { gameId: 'broadcast-test', mediaType: 'tv' as const, outlet },

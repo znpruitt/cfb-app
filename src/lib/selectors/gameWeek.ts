@@ -14,8 +14,9 @@ import { groupGamesByDisplayDate } from '../weekPresentation';
 import { isPolicyFcsConference } from '../conferenceSubdivision';
 import { getOwnerForGameSide } from '../gameOwnership';
 import { formatLiveGameClock } from '../gameUi';
+import { projectGameScoreboardState, type GameScoreboardState } from './gameScoreboardState';
 
-export type ScheduleScoreboardState = 'scheduled' | 'live' | 'final' | 'awaiting';
+export type ScheduleScoreboardState = GameScoreboardState;
 
 function resolveSummaryStateLabel(
   game: AppGame,
@@ -44,11 +45,14 @@ function summaryStateKind(summaryState: string): 'final' | 'live' | 'disrupted' 
 
 function scoreboardState(
   stateKind: ReturnType<typeof summaryStateKind>,
-  score: ScorePack | undefined
+  score: ScorePack | undefined,
+  kickoff: string | null,
+  currentDateMs: number | null | undefined
 ): ScheduleScoreboardState {
   if (stateKind === 'final') return 'final';
   if (stateKind === 'live') return score ? 'live' : 'awaiting';
-  return 'scheduled';
+  if (stateKind === 'disrupted') return 'scheduled';
+  return projectGameScoreboardState(score, kickoff, currentDateMs ?? Number.NaN);
 }
 
 function formatScheduleKickoff(
@@ -239,7 +243,12 @@ export function deriveGameWeekPanelViewModel(params: {
         computeGameTags(game, score, odds, rosterByTeam, rankingsByTeamId)
       );
       const stateKind = summaryStateKind(summaryState);
-      const resolvedScoreboardState = scoreboardState(stateKind, score);
+      const resolvedScoreboardState = scoreboardState(
+        stateKind,
+        score,
+        isPlaceholder || game.startTimeTBD === true ? null : game.date,
+        currentDateMs
+      );
       const showBroadcast =
         resolvedScoreboardState === 'live' ||
         resolvedScoreboardState === 'awaiting' ||
