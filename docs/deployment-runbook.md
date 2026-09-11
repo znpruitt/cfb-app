@@ -250,8 +250,11 @@ against the REAL schedule?"* cannot be answered there. The `cfb-audit-read-repli
 - Connection string lives in `.env.operator.local` as `DATABASE_URL_RO` (gitignored). Use the
   **direct** host, not `-pooler`: operator diagnostics want a full session.
 - **Autosuspend is 5 minutes** (set 2026-08-31; it was `never`, which cost ~$19/month for a compute
-  with zero connections — see `next-tasks.md` Item 96). It suspends between uses and wakes on
-  connect, so expect a sub-second cold start.
+  with zero connections — see [#656](https://github.com/znpruitt/cfb-app/issues/656)). It suspends
+  between uses and wakes on connect. **MEASURED 2026-09-10, correcting an optimistic claim here:** first
+  connect after idle **1,333 ms**, warm connect **198 ms**. The earlier wording said "sub-second", which
+  is wrong by about a third — **not enough to matter for an operator tool, and enough to matter if
+  someone ever budgets a timeout against it.**
 - **Two independent guarantees, deliberately.** The **role** `audit_ro` holds only `CONNECT`,
   `USAGE ON SCHEMA public`, and `SELECT` (plus a default-privileges grant so new tables are covered).
   The **endpoint** is `RO`. Either alone would do; both means a leaked string pointed at the primary
