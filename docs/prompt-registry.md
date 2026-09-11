@@ -51,6 +51,81 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-620-TEST-STORE-LIFECYCLE-CLAUDE-v1
+
+- Purpose: [#620](https://github.com/znpruitt/cfb-app/issues/620) — the isolated app-state test store
+  was keyed by `process.pid` and deleted by nobody, so a recycled pid handed a new process an earlier
+  run's fully populated durable store. Close the class Items 207 and 211 had guarded three instances
+  of each.
+- Scope: `src/lib/server/appStateStore.ts` (the path scheme), `scripts/run-tests.mjs` (run directory +
+  stale sweep), and one new suite. NOT the per-seam refusals (#621, shipped `286476a8`), NOT the
+  per-suite delete idiom (Item 207, shipped) — those calls stay, redundant rather than wrong.
+- Outcome: **correctness now comes from exclusive creation, not from cleanup.** The store directory is
+  created with `mkdtempSync`, which returns a directory that DID NOT EXIST — an OS guarantee, not an
+  argument about pid uniqueness — and `process.pid` leaves the scheme entirely, so there is no
+  uniqueness argument left to get wrong. The owner framed the choice as per-run token + per-process
+  suffix versus per-process with guaranteed cleanup and accepted a third: both framings arrive at
+  `mkdtemp` for their fallback anyway, with two schemes to reason about instead of one.
+  **THE RUN DIRECTORY BUYS CLEANUP, NOT CORRECTNESS** — `run-tests.mjs` creates one per run and
+  removes it in a `finally`, which collects a child killed with `SIGKILL` whose own exit handler never
+  ran; a runner killed the same way orphans one directory, aged out by a prefix-scoped, 24h-gated
+  startup sweep. The sweep matches DIRECTORIES ONLY and on `cfb-app-test-store-`, so it cannot reach
+  the legacy `cfb-app-app-state-test-*.json` files even by accident — that scoping is what makes it
+  reviewable. **Its report line is unit-tested and not yet field-observed**, since no directory has
+  reached 24h. Measured: exposure plant at the pid path across all 391 test files went from 50
+  failures in 11 files to 2 in 1 (the Item 137 baseline alone); a full run's net leak went from
+  ~75–114 files to 0.
+- Review / verification: against `6ca4b97a` — `npx tsc --noEmit` 0, `lint:all` 0, `npm test` 5,135 of
+  5,137 with exactly the standing Item 137 baseline (`convergence #10` and `compatibility #46` in
+  `writer-convergence.test.ts`). Test delta **+13**, measured (5,124 → 5,137). Coverage reported as
+  the 211 receipt did: 391 of 391 glob files probed, zero unprobed, 397 plants all successful, the
+  same test count in the planted and unplanted runs — so no file aborted at import and there are no
+  zero-test rows behind the green. Eleven mutations, each run separately and each one-sided, including
+  the one that matters for the gate: aiming the sweep at `cfb-app-app-state-test-` reddens the suite
+  NAMING that file, so the assertion protecting the legacy population is not vacuous. Codex returned
+  two P2; `/code-review high` returned one medium and three low. Six findings, six applied, one
+  remediation round (`890a57ed`), each fix mutation-proven against its own test.
+- Adjudications kept as precedent:
+  1. **A TEST THAT MEASURES A POPULATION MUST NOT CONSUME IT.** Now binding in `AGENTS.md`, credited to
+     Codex. The 207-plant test wrote to this process's own legacy pid path and unlinked it — and about
+     a quarter of processes already own a file there, which is the defect being fixed. The existing
+     sandbox-precedes-the-mutation rule does not cover this shape: the test was not mutating, it was
+     MEASURING, and its measurement destroyed part of the population it measured. Fix shape: preserve
+     and restore, plus a sentinel when nothing is there, **so the restore is asserted on every run
+     rather than only the one-in-four where a real file exists** — a restore exercised a quarter of the
+     time is not covered.
+  2. **The rhyme was the defect, so the fix was two sets and not four patches.** A change that adopts a
+     best-effort posture at some filesystem calls and leaves others bare is one inconsistency, not four
+     bugs. Both unguarded calls were in the runner: `rmSync` throwing in the `finally` replaced the
+     suite's exit status with a stack trace, so a GREEN run reported failure, and `mkdtempSync` throwing
+     crashed the runner instead of the print-and-return-1 contract every other pre-spawn failure
+     honours.
+  3. **Failing a suite because CLEANUP was unavailable inverts the design's own priority.** An
+     uncreatable run directory now warns and runs without one — the store already falls back to
+     `os.tmpdir()` and isolation is untouched. `APP_STATE_TEST_STORE_DIR` is explicitly cleared on that
+     path, which is what makes the degradation safe rather than merely lenient: a stale export from an
+     earlier run cannot aim this run's children at a dead directory.
+  4. **An unprovable guarantee is taken and reported as unprovable.** Codex's `exit`-before-stdout-
+     `data` finding is a real gap — only `close` guarantees the stdio streams have drained — but 600
+     spawns between the two reviewers, one set with the parent's event loop blocked 400ms, could not
+     make the ordering happen. `close` is the correct contract regardless; taking the fix and refusing
+     the coverage claim is exactly how an unprovable guarantee should be reported.
+  5. **Three handed figures were re-measured and one had a wrong noun.** 14,042 → 17,315 files (+23% in
+     two days) and 394 → 837 carrying the planner settings record (+113%). "1,086 app-state-initialising
+     processes" is not reproducible: a full run spawns 394 node processes, of which 154 initialise app
+     state — 1,086 is ~2.75x the process count, consistent with a count of `appStateFilePath()` CALLS.
+     The RATE survived (26.0% vs 23.9%); the denominator did not.
+  6. **The inheritance rate tracks LOCAL pid density, not global, so the trend is worse than the file
+     count suggests.** 17.4% of the 99,998-pid space held a stale file, but 34.7% of the pid window the
+     run actually drew from did, because the allocator is sequential and the debris clusters where it
+     has been.
+  7. **The OS does reap `$TMPDIR`, contradicting this lane's own receipt.** The receipt argued it would
+     not, citing a seven-day span. Mid-session the population fell 17,963 → 6,987 with nothing of the
+     lane's touching it — every file with mtime on or before 2026-09-08 vanished at once. The span
+     looked deep because the reaper had not run inside it. This lowers the stakes of clearing the
+     remaining files rather than changing the recommendation.
+- Status: Implemented — PR #666 open from `claude/620-test-store-lifecycle`
+
 ### PLATFORM-211-DESTRUCTIVE-SEAM-REFUSALS-CLAUDE-v1
 
 - Purpose: Item 211 — the three destructive test-only seams OUTSIDE `appStateStore.ts` still executed
