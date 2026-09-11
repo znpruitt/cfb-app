@@ -384,6 +384,29 @@ and one still live at **6.4h** behind a weather delay. Any fixed window slows po
 while it is on the clock; delayed and suspended games stay eligible in `pollingTarget`, so a
 state-driven cluster holds itself open.
 
+> **Those six games are still the ONLY tail measurement, and the instrument to replace them lands
+> 2026-09-11 (#692, PR #743).** `CacheEntry.firstFinalObservedAtById` records, per game, the first
+> observation at which a score read final — so `stamp − kickoff` becomes a distribution instead of a
+> six-game sample. **It is not a backfill and it is not retrospective**: CFBD publishes no end time
+> on `/games` or `/scoreboard` (both verified 2026-09-11 — `startDate` and `startTimeTBD` are the only
+> temporal fields, and `/scoreboard` nulls `period`/`clock` the instant a row reads `completed`), so
+> the value exists only for games played after deploy. **Do not resize the tail until it has collected
+> across live weekends.**
+>
+> Read it with three limits in mind, all measured rather than assumed. It is **FBS-only** — the stamp
+> is opt-in from the two `live-scores` call sites, and the weekly `finalScoreSweep` reaches the same
+> shared merge with `/games` and no division filter, so a swept row is present in `itemUpdatedAtById`
+> and absent here; that exclusion is the intended reading, not missing data. It records a
+> **provisional** final (a `/scoreboard` `completed` row awaiting `/games` confirmation). And it is
+> biased **short** against wall-clock: `now` is captured at the route's start, before the quota probe,
+> the context load, and a provider request that can run to 40s — `itemUpdatedAtById` shares that
+> basis, so the straggler term is unaffected, but `stamp − kickoff` carries the prologue as a term to
+> subtract.
+>
+> The straggler half — how long corrections keep arriving after a first final — needs no new field:
+> it is `itemUpdatedAtById − firstFinalObservedAtById`. **Both halves are required to size the tail**,
+> and only the first was missing.
+
 ---
 
 ## What the planner must deal with
