@@ -114,6 +114,11 @@ first commit; if you are not where this table says you should be, stop and say s
   mistaken checkout destructive rather than merely confusing.
 - A new worktree needs what git does not carry: `npm ci`, plus `.env.local` and `.env.operator.local`
   copied from the primary worktree. Without them the gates cannot run.
+  **NEVER copy `.env.operator.write.local`.** Updated 2026-09-10 — **this instruction is what created
+  the exposure #703 closed.** Copying the operator file into every worktree put a production
+  read-WRITE credential in all three by instruction. The write credential now lives in its own file,
+  and **that file stays in the primary worktree only.** A lane that needs `recover-game-stats --apply`
+  is a lane doing an owner action, and it should stop and ask rather than copy a secret to reach it.
 
 ## Interaction preferences
 
@@ -222,8 +227,19 @@ puts every credential on disk to do a job a `SELECT` already does.
 > rather than softened.
 >
 > **The rail still stands and is still the rule: read through `DATABASE_URL_RO`.** Never open a
-> connection with `DATABASE_URL` from a worktree. **Splitting the write credential out of this file is
-> filed as Item 192.**
+> connection with `DATABASE_URL` from a worktree.
+>
+> **RESOLVED IN CODE 2026-09-10 — [#703](https://github.com/znpruitt/cfb-app/issues/703), merged
+> `85d5912d`.** `recover-game-stats` now reads the write credential from `.env.operator.write.local`
+> and **only in `--apply`**; its `capture` mode runs on the read-only rail and cannot write even by
+> accident. The refusal names the file, the key, the source, and says **not** to run `vercel env pull`.
+>
+> **BUT THE GUARDRAIL ARRIVED AHEAD OF THE CREDENTIAL MOVE, AND THAT HALF IS THE OWNER'S.** Until
+> `DATABASE_URL` is deleted from `.env.operator.local` in every worktree, **the exposure is exactly what
+> it was** — the refusal tells an operator to CREATE the new file and never to REMOVE the old key, so a
+> half-done migration looks complete. [#721](https://github.com/znpruitt/cfb-app/issues/721) is the
+> permanent detector, deliberately blocked on the deletion: a check that cannot pass on any machine is a
+> line people learn to skip.
 
 `docs/deployment-runbook.md` is canonical for the contract, the autosuspend behaviour, and the
 privilege probe. The application must never read through this rail; `src/` contains no reference to
