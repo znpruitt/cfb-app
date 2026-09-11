@@ -123,6 +123,10 @@ export function deriveCompletedScoreCoverage(input: {
     // played. This also makes a concurrent schedule replacement harmless: a
     // future row from the newer snapshot cannot inherit the older snapshot's
     // completed-slate expectation.
+    //
+    // Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
+    // measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
+    // comment (Item 661).
     if (
       (canonical.notExpectedReason === 'disrupted' || canonical.applicability === 'pending') &&
       conclusion !== 'score-required'

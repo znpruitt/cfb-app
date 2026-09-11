@@ -164,6 +164,10 @@ type PartitionAnchor = {
  * parsed contributes no anchor: an unprovable kickoff can never prove an age, so
  * it never starts a billed request. A partition with no anchorable game
  * therefore has no due time and is never a candidate.
+ *
+ * Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
+ * measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
+ * comment (Item 661).
  */
 function collectPartitionAnchors(slate: CanonicalSlate): PartitionAnchor[] {
   const byPartition = new Map<string, PartitionAnchor>();

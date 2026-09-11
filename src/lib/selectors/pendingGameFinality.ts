@@ -15,6 +15,10 @@ export type PendingGameFinality = {
  * TBD, or disrupted sibling is therefore not reported as an accepted conclusion.
  * The caller owns the population boundary; this result alone does not imply that
  * an entire week or season is final.
+ *
+ * Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
+ * measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
+ * comment (Item 661).
  */
 export function selectPendingGameFinality(input: {
   pendingGames: readonly PendingGame[];

@@ -137,6 +137,9 @@ function classifyPriorRow(params: {
   const commenceExpired = Number.isFinite(commenceMs) && commenceMs <= now;
 
   if (game !== null) {
+    // Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
+    // measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
+    // comment (Item 661).
     if (isDisruptedStatusLabel(game.status)) return 'matched-obsolete';
     const startMs = game.startDate === null ? Number.NaN : Date.parse(game.startDate);
     if (Number.isFinite(startMs) && startMs > now) return 'matched-healthy';

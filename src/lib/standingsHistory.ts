@@ -132,7 +132,13 @@ export function isPlannedGame(game: AppGame): boolean {
   return isRealGame(game) && Boolean(game.date) && game.startTimeTBD !== true;
 }
 
-/** Postponed / suspended / delayed: still coming, so never abandoned. */
+/**
+ * Postponed / suspended / delayed: still coming, so never abandoned.
+ *
+ * Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
+ * measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
+ * comment (Item 661).
+ */
 export function isDisruptedGame(game: AppGame, score: ScorePack | undefined): boolean {
   return isDisruptedStatusLabel(game.rawStatus) || isDisruptedStatusLabel(score?.status);
 }

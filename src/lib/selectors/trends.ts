@@ -107,6 +107,10 @@ export const SEASON_ORIGIN_GAMES_BACK = 0;
  *
  * Also false for a recent-window slice — Overview charts the last five resolved
  * weeks, so from week six the window starts mid-season and earlier games count.
+ *
+ * Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
+ * measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
+ * comment (Item 661).
  */
 export function seasonOriginApplies(
   fullHistory: StandingsHistory,

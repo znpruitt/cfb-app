@@ -453,6 +453,10 @@ async function refreshScorePartition(params: {
       // the empty response remains a valid absence: the caller records a
       // no-op, never a failure, and never a successful empty commit. No ESPN
       // fallback either way.
+      //
+      // Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
+      // measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
+      // comment (Item 661).
       const evidence = await gatherEmptyScoresEvidence({ year, cacheKey });
       const classification = classifyEmptyScoresResponse({
         priorGoodRowCount: evidence.priorGoodRowCount,

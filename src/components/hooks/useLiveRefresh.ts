@@ -53,6 +53,10 @@ type UseLiveRefreshParams = {
    * positive final score evidence from these packs; missing or ambiguous evidence
    * stays fast until the hard time ceiling. Not a write path; the hook still owns
    * updates via `setScoresByKey`.
+   *
+   * Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
+   * measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
+   * comment (Item 661).
    */
   scoresByKey: Record<string, ScorePack>;
   /**

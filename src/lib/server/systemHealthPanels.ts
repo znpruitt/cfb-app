@@ -445,6 +445,10 @@ export function deriveDatasetFreshness(input: {
     // every game is canceled/postponed — and "awaiting" asserts a future arrival
     // that never comes. "None expected" is true of both branches and still
     // communicates that the absence is expected rather than merely unknown.
+    //
+    // Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
+    // measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
+    // comment (Item 661).
     return expectation === 'not-yet-expected'
       ? { status: 'gray', label: 'None expected', intentional: true }
       : { status: 'yellow', label: 'No cached data', intentional: false };

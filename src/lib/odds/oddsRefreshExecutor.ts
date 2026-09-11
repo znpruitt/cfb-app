@@ -271,6 +271,9 @@ async function commitEmptyOddsRefresh(params: {
             evidence.scheduleItems.length > 0 &&
             evidence.resolver !== null &&
             !evidence.scheduleItems.some((item) => {
+              // Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read
+              // the measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before
+              // reasoning from this comment (Item 661).
               if (isDisruptedStatusLabel(item.status)) return false;
               const startMs = item.startDate === null ? Number.NaN : Date.parse(item.startDate);
               return (

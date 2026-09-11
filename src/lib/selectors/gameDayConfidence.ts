@@ -33,6 +33,10 @@ function kickoffMs(game: AppGame): number | null {
  * Whether an owned-team row may truthfully say it is awaiting a score. This is
  * bounded to the same current-season kickoff window as browser cache polling and
  * excludes any attached score state known to be disrupted.
+ *
+ * Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
+ * measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
+ * comment (Item 661).
  */
 export function isAwaitingScoreGame(params: {
   game: AppGame;

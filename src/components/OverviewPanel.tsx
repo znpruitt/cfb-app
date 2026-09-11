@@ -806,6 +806,9 @@ function WatchlistScoreboardList({
             clock={kickoff}
             broadcast={broadcast}
             scheduleNotice={
+              // Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read
+              // the measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before
+              // reasoning from this comment (Item 661).
               prioritized.routeStatus.kind === 'disrupted'
                 ? prioritized.routeStatus.label
                 : undefined

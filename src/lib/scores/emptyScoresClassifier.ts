@@ -83,6 +83,10 @@ export function classifyEmptyScoresResponse(params: {
     if (week !== null && item.week !== week) continue;
     // Canceled/postponed/suspended/delayed games must not independently make
     // score rows expected (finding #6 conservatism requirement).
+    //
+    // Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
+    // measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
+    // comment (Item 661).
     if (isDisruptedStatusLabel(item.status)) continue;
     if (item.startDate === null) continue;
     const startMs = Date.parse(item.startDate);

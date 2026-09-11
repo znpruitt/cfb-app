@@ -10,6 +10,84 @@ export type GameConclusionEvidence = {
 
 export type GameConclusionKind = 'score-required' | 'scoreless-terminal' | 'unresolved';
 
+/**
+ * THE DISRUPTED VOCABULARY IS A FORWARD-LOOKING GUARD. NO DISRUPTED LABEL IS RESTING IN EITHER
+ * CACHE.
+ *
+ * This is the one authoritative record of that measurement. Every other comment in `src/` that
+ * names `postponed` / `canceled` / `suspended` / `delayed` defers here instead of restating it,
+ * because four copies of one claim is how they drifted into four different phrasings (Item 661).
+ *
+ * Measured 2026-09-11 through the read-only replica (`DATABASE_URL_RO`;
+ * `docs/deployment-runbook.md`), over two independent populations:
+ *
+ *   - schedule cache, 7 partitions (2018, 2021-2026): 22,760 rows, `status` = `scheduled` on
+ *     22,760 of 22,760. No row is missing a `status` key.
+ *   - score cache, 15 partitions: 20,424 status values, exactly two distinct — `final` (19,524)
+ *     and `scheduled` (900).
+ *
+ * An earlier run on 2026-09-08 counted 22,761 schedule rows. One row, three days apart; the
+ * figures above are the 2026-09-11 run only, so the two dates are not silently averaged.
+ *
+ * WORKED EXAMPLE, IN THE SCORE CACHE. Alderson-Broaddus shut its programme down mid-2023. Its 11
+ * cancelled 2023 games are all still in the SCORE cache, split two ways: SIX carry
+ * `status = scheduled` at 0-0, and FIVE carry `status = final` at 0-0. (Its 11 SCHEDULE rows are
+ * all `scheduled`, like every other schedule row.) So a cancelled game can arrive marked COMPLETE
+ * with a real-looking result, which `hasUsableFinalScore` accepts because 0 is not null. Those
+ * particular rows are unreachable — `isTrackedGame` (`scheduleTracking.ts`, applied in
+ * `schedule.ts` where the tracked set is built) drops both-non-FBS games before they reach
+ * `games` — so this is an illustration, not a live defect. It is why "the provider leaves a
+ * disrupted game `scheduled`" is too generous a summary to reason from.
+ *
+ * SCOPE — WHAT THIS MEASUREMENT CANNOT SEE. It is a snapshot of the RESTING state of two caches.
+ * It is not a history of what the classifier has been called with, and no such history exists:
+ * nothing in `src/lib` records a game's prior status. Two mechanisms put a label beyond its reach,
+ * both found in review:
+ *
+ *   - A LATER ROW CAN OVERWRITE A DISRUPTED ONE. In `scoreMerge.ts`, `stateOrder` ranks
+ *     `disrupted` and `final` EQUALLY, and `mergeScoreRow` rejects only a strict regression
+ *     (`next < prior`) — so a final row overwrites a disrupted one rather than being rejected by
+ *     it, leaving nothing behind in the rows measured above.
+ *   - SOME ROWS ARE CLASSIFIED AND NEVER PERSISTED. The live-score final-reconciliation path calls
+ *     `classifyScorePackStatus` on a freshly normalized CFBD `/games` row BEFORE any durable merge
+ *     (`finalReconciliation.ts`, the `!== 'final'` guard). A disrupted row there is classified,
+ *     skipped as not-yet-final, and discarded — the classifier fires and the cache never sees it.
+ *
+ * Both are mechanisms in this repo's own code, checkable by reading it. This note deliberately
+ * makes NO claim about how provider states evolve over time — whether a given label is transient
+ * or terminal is exactly the kind of unmeasured provider assertion the item exists to remove.
+ *
+ * So the supported claim is exactly this: NO DISRUPTED LABEL IS RESTING IN EITHER CACHE, across
+ * 22,760 schedule rows and 20,424 score values. Whether one has ever been classified in flight is
+ * NOT established here, and would need invocation telemetry that does not exist.
+ *
+ * `AppGame.rawStatus` IS POPULATED — it is not an unwritten field. `schedule.ts` sets it at all
+ * four `AppGame` construction sites as `item.status ?? null`, so every game carries whatever the
+ * provider sent; in the rows measured above that value is `scheduled`. A cached schedule ROW
+ * carries no `rawStatus` key at all: the field is derived at normalization, not stored. Conflating
+ * the two reads as "nothing writes it", which is false. Some construction paths assign it an
+ * explicit `null` rather than a provider string, so a null here is not evidence of absence either.
+ *
+ * KEEP THE GUARD — that is Item 661's own decision, taken deliberately and recorded here: a
+ * provider that starts emitting these labels is a real possibility, and the predicates are widely
+ * consumed. (It is NOT the `AGENTS.md` zero-consumer retention rule, which does not apply.)
+ *
+ * What is NOT licensed is reasoning FROM the absence. No disrupted label rests in the caches, so a
+ * behaviour, test expectation or design premised on a disrupted game being VISIBLE THERE is
+ * premised on nothing — which has now cost twice, a wrong conclusion about Item 169 and disruption
+ * handling built for #727. Equally, this is NOT a licence to DELETE disruption handling: the scope
+ * above says a label could be classified in flight unobserved, and deleting a guard on that basis
+ * would be the same error in the other direction.
+ *
+ * AND DO NOT READ IT THROUGH A SHARED BRANCH. `applicability === 'not-expected'`
+ * (`canonicalSlate.ts`) covers BOTH `placeholder` and `disrupted`, and the placeholder half is
+ * fully live — bowl and playoff shells reach it constantly. Comments about `not-expected` carry
+ * the pointer to this note because they name the vocabulary, not because the branch is dead.
+ *
+ * Existing unit coverage of these predicates is SYNTHETIC: labels constructed in tests, never
+ * drawn from a production population. It shows the guard would classify such a label correctly if
+ * one arrived. It is not evidence that one does.
+ */
 const DISRUPTED_RE = /\b(postponed|canceled|cancelled|suspended|delayed)\b/;
 const CANCELED_RE = /\b(canceled|cancelled)\b/;
 const CANCELED_OR_POSTPONED_RE = /\b(?:canceled|cancelled|postponed)\b/;

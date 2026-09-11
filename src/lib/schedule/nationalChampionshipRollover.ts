@@ -23,6 +23,10 @@
  * failure) rather than being treated as ordinary absence, so a store outage can
  * never masquerade as "no championship yet."
  *
+ * Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
+ * measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
+ * comment (Item 661).
+ *
  * Cache-only: it never contacts CFBD. Scores remain owned by the score cache.
  */
 

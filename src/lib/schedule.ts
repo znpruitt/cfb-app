@@ -154,6 +154,9 @@ export type AppGame = {
   stage: GameStage;
   status: GameStatus;
   /** Raw provider schedule status, preserved for disruption-aware client behavior. */
+  // Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
+  // measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
+  // comment (Item 661).
   rawStatus?: string | null;
   stageOrder: number;
   slotOrder: number;

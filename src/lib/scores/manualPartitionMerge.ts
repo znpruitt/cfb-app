@@ -111,6 +111,10 @@ export function mergeManualPartition(params: {
       // Override only on a strict monotonic ADVANCE (a game cannot regress), and a
       // final advance must carry both scores. Neither side being disrupted (null
       // rank) participates, so the newer live row is preserved.
+      //
+      // Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
+      // measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
+      // comment (Item 661).
       const manualAdvances =
         manualRank !== null &&
         liveRank !== null &&
