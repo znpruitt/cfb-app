@@ -1,7 +1,8 @@
+import '../../test/domEnvironment';
+
 import assert from 'node:assert/strict';
 import test, { afterEach } from 'node:test';
 import { cleanup, fireEvent, render } from '@testing-library/react';
-import { JSDOM } from 'jsdom';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
@@ -12,18 +13,6 @@ import type { ScorePack } from '../../lib/scores';
 import type { StandingsCoverage } from '../../lib/standings';
 import OverviewPanel from '../OverviewPanel';
 import RecapTile from '../recap/RecapTile';
-
-const dom = new JSDOM('<!doctype html><html><body></body></html>', {
-  url: 'https://example.test/',
-});
-(globalThis as { window: Window }).window = dom.window as unknown as Window;
-(globalThis as { document: Document }).document = dom.window.document;
-(globalThis as { self: Window }).self = dom.window as unknown as Window;
-Object.defineProperty(globalThis, 'navigator', {
-  value: dom.window.navigator,
-  writable: true,
-  configurable: true,
-});
 
 afterEach(() => cleanup());
 
@@ -215,9 +204,11 @@ test('Overview bounds each game section independently and exposes every ordered 
   assert.equal(scoreboardCount(container, 'overview-recent-finals'), 6);
   assert.equal(scoreboardCount(container, 'overview-watchlist-games'), 6);
 
-  const liveControl = getByRole('button', { name: 'Show all Live games' });
-  const finalsControl = getByRole('button', { name: 'Show all Recent finals' });
-  const watchlistControl = getByRole('button', { name: 'Show all Upcoming watchlist' });
+  const liveControl = getByRole('button', { name: 'Show 2 more games — Live games' });
+  const finalsControl = getByRole('button', { name: 'Show 1 more game — Recent finals' });
+  const watchlistControl = getByRole('button', {
+    name: 'Show 1 more game — Upcoming watchlist',
+  });
   assert.equal(liveControl.getAttribute('aria-expanded'), 'false');
   assert.equal(finalsControl.getAttribute('aria-expanded'), 'false');
   assert.equal(watchlistControl.getAttribute('aria-expanded'), 'false');
@@ -230,7 +221,7 @@ test('Overview bounds each game section independently and exposes every ordered 
   assert.equal(scoreboardCount(container, 'overview-recent-finals'), 6);
   assert.equal(scoreboardCount(container, 'overview-watchlist-games'), 6);
   assert.equal(
-    getByRole('button', { name: 'Show fewer Live games' }).getAttribute('aria-expanded'),
+    getByRole('button', { name: 'Show less — Live games' }).getAttribute('aria-expanded'),
     'true'
   );
 
@@ -240,13 +231,82 @@ test('Overview bounds each game section independently and exposes every ordered 
   assert.equal(scoreboardCount(container, 'overview-watchlist-games'), 7);
 });
 
+test('collapsing an expanded section scrolls its section back into view', () => {
+  const fixtures = expansionFixtures();
+  const prototype = window.HTMLElement.prototype;
+  const originalDescriptor = Object.getOwnPropertyDescriptor(prototype, 'scrollIntoView');
+  let scrollCalls = 0;
+  let scrollOptions: ScrollIntoViewOptions | undefined;
+  Object.defineProperty(prototype, 'scrollIntoView', {
+    configurable: true,
+    value(options?: ScrollIntoViewOptions) {
+      scrollCalls += 1;
+      scrollOptions = options;
+    },
+  });
+
+  try {
+    const rendered = render(expansionPanel(fixtures));
+    fireEvent.click(rendered.getByRole('button', { name: 'Show 2 more games — Live games' }));
+    fireEvent.click(rendered.getByRole('button', { name: 'Show less — Live games' }));
+
+    assert.equal(scrollCalls, 1);
+    assert.equal(scrollOptions?.block, 'start');
+    assert.equal(scoreboardCount(rendered.container, 'overview-live-games'), 6);
+  } finally {
+    if (originalDescriptor) {
+      Object.defineProperty(prototype, 'scrollIntoView', originalDescriptor);
+    } else {
+      delete (prototype as { scrollIntoView?: unknown }).scrollIntoView;
+    }
+  }
+});
+
+test('Overview keeps a section expanded across an empty auto-refresh interval', () => {
+  const fixtures = expansionFixtures();
+  const rendered = render(expansionPanel(fixtures));
+  fireEvent.click(rendered.getByRole('button', { name: 'Show 2 more games — Live games' }));
+
+  rendered.rerender(expansionPanel(fixtures, []));
+  assert.equal(rendered.queryByText(/Live ·/), null);
+
+  const refillLive = [
+    ...fixtures.live,
+    ...Array.from({ length: 3 }, (_, index) => {
+      const key = `refill-live-${index}`;
+      return item(
+        game({
+          key,
+          csvAway: `${key} Away`,
+          csvHome: `${key} Home`,
+          date: `2026-09-05T${String(20 + index).padStart(2, '0')}:30:00.000Z`,
+        }),
+        {
+          status: 'In Progress',
+          away: { team: `${key} Away`, score: index },
+          home: { team: `${key} Home`, score: index + 3 },
+          time: 'Q1',
+        }
+      );
+    }),
+  ];
+  const refilledFixtures = { ...fixtures, live: refillLive };
+  rendered.rerender(expansionPanel(refilledFixtures, refillLive));
+
+  assert.equal(scoreboardCount(rendered.container, 'overview-live-games'), 11);
+  assert.equal(
+    rendered.getByRole('button', { name: 'Show less — Live games' }).getAttribute('aria-expanded'),
+    'true'
+  );
+});
+
 test('Overview expansion survives a content refresh, follows migration, and resets after navigation', () => {
   const fixtures = expansionFixtures();
   const rendered = render(expansionPanel(fixtures));
 
-  fireEvent.click(rendered.getByRole('button', { name: 'Show all Live games' }));
-  fireEvent.click(rendered.getByRole('button', { name: 'Show all Recent finals' }));
-  fireEvent.click(rendered.getByRole('button', { name: 'Show all Upcoming watchlist' }));
+  fireEvent.click(rendered.getByRole('button', { name: 'Show 2 more games — Live games' }));
+  fireEvent.click(rendered.getByRole('button', { name: 'Show 1 more game — Recent finals' }));
+  fireEvent.click(rendered.getByRole('button', { name: 'Show 1 more game — Upcoming watchlist' }));
 
   const migratingGame = fixtures.live[0]!.bucket.game;
   const migratedFinal = item(migratingGame, {
@@ -271,18 +331,18 @@ test('Overview expansion survives a content refresh, follows migration, and rese
   assert.equal(scoreboardCount(rendered.container, 'overview-recent-finals'), 8);
   assert.equal(scoreboardCount(rendered.container, 'overview-watchlist-games'), 7);
   assert.equal(
-    rendered.getByRole('button', { name: 'Show fewer Live games' }).getAttribute('aria-expanded'),
+    rendered.getByRole('button', { name: 'Show less — Live games' }).getAttribute('aria-expanded'),
     'true'
   );
   assert.equal(
     rendered
-      .getByRole('button', { name: 'Show fewer Recent finals' })
+      .getByRole('button', { name: 'Show less — Recent finals' })
       .getAttribute('aria-expanded'),
     'true'
   );
   assert.equal(
     rendered
-      .getByRole('button', { name: 'Show fewer Upcoming watchlist' })
+      .getByRole('button', { name: 'Show less — Upcoming watchlist' })
       .getAttribute('aria-expanded'),
     'true'
   );
@@ -310,16 +370,20 @@ test('Overview expansion survives a content refresh, follows migration, and rese
   assert.equal(scoreboardCount(rendered.container, 'overview-recent-finals'), 6);
   assert.equal(scoreboardCount(rendered.container, 'overview-watchlist-games'), 6);
   assert.equal(
-    rendered.getByRole('button', { name: 'Show all Live games' }).getAttribute('aria-expanded'),
-    'false'
-  );
-  assert.equal(
-    rendered.getByRole('button', { name: 'Show all Recent finals' }).getAttribute('aria-expanded'),
+    rendered
+      .getByRole('button', { name: 'Show 1 more game — Live games' })
+      .getAttribute('aria-expanded'),
     'false'
   );
   assert.equal(
     rendered
-      .getByRole('button', { name: 'Show all Upcoming watchlist' })
+      .getByRole('button', { name: 'Show 2 more games — Recent finals' })
+      .getAttribute('aria-expanded'),
+    'false'
+  );
+  assert.equal(
+    rendered
+      .getByRole('button', { name: 'Show 1 more game — Upcoming watchlist' })
       .getAttribute('aria-expanded'),
     'false'
   );

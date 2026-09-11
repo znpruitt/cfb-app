@@ -430,19 +430,26 @@ function SectionExpansionControl({
   onToggle: () => void;
 }): React.ReactElement | null {
   if (hiddenGameCount <= 0) return null;
+  const controlText = expanded
+    ? 'Show less'
+    : `Show ${hiddenGameCount} more game${hiddenGameCount === 1 ? '' : 's'}`;
 
   return (
     <button
       type="button"
-      aria-label={expanded ? `Show fewer ${sectionLabel}` : `Show all ${sectionLabel}`}
+      aria-label={`${controlText} — ${sectionLabel}`}
       aria-expanded={expanded}
       aria-controls={controlsId}
       className="mt-3 min-h-11 w-full rounded-md border border-gray-200 py-1.5 text-xs font-semibold text-gray-600 transition-colors hover:bg-gray-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-700/50"
-      onClick={onToggle}
+      onClick={(event) => {
+        if (expanded) {
+          event.currentTarget.closest('section')?.scrollIntoView?.({ block: 'start' });
+        }
+        onToggle();
+      }}
     >
-      {expanded
-        ? 'Show less ↑'
-        : `Show ${hiddenGameCount} more game${hiddenGameCount === 1 ? '' : 's'} ↓`}
+      {controlText}
+      <span aria-hidden="true">{expanded ? ' ↑' : ' ↓'}</span>
     </button>
   );
 }
