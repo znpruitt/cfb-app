@@ -176,6 +176,57 @@ from it running for weeks**, which is the argument for shipping it tomorrow rath
 
 ---
 
+## RULINGS ON THE READ RECEIPT — 2026-09-11, binding. These supersede the text above.
+
+**Q7 ACCEPTED, and it is the finding that changes the build. My ruling was wrong.** "Stamp in
+`scoreMerge` only" does NOT mean "FBS only": `mergeScoresIntoPartition` has **three** callers, and
+`finalScoreSweep.ts:335` is one of them — `/games`, no division filter, one fixed `observedAtMs`,
+`onlyIfMissingUsableFinal: true`. Non-FBS games reach the `finalized` branch weekly. Implemented
+literally, my ruling stamps 355 games with a Tuesday-noon cron clock: the exact poisoning the same
+paragraph forbade. Verified independently.
+
+**Take the explicit opt-in.** Add `stampFirstFinalObservation?: boolean` to
+`mergeScoresIntoPartition`, **absent by default**, passed `true` from the two `live-scores` call
+sites (`route.ts:403`, `:559`) and omitted by `finalScoreSweep`. **Do NOT key it on
+`onlyIfMissingUsableFinal`** — that is a race guard that correlates today and would silently
+re-couple if its policy changed. The falsifiable test is the one you named: a sweep-path merge that
+commits a final and writes **no** stamp.
+
+**Exclusion over tagging, for the reason you gave.** A swept game is a row present in
+`itemUpdatedAtById` and absent from the new map, so the exclusion is self-describing in the data and
+"no stamp" never reads as "no data". Say this in the closeout.
+
+**`cache-historical-scores` — LEAVE IT ALONE. Ruling for you, and the reason is stronger than the one
+you offered.** Stamps can only ever ORIGINATE on a week partition: `mergeScoresIntoPartition` writes
+`${year}-${week}-${seasonType}` (`scoreMerge.ts:202`), and it is the only thing holding the branch.
+That route rejects the active season with a 400 (`route.ts:145-152`) and writes only `${year}-all-*`.
+**An aggregate key can therefore never hold a stamp, so that route cannot destroy one.** Do not grow
+it a prior-read. "Never synthesize" still binds and is satisfied by it doing nothing. Strike the
+"third writer is the trap" framing above.
+
+**`mergeManualPartition` DOES need the carry-forward**, projected over the surviving `byId` key set
+per your Q3.3 — it can write `${year}-all-*` and it deletes rows, so a wholesale copy would accumulate
+orphan keys. Value expression is a RAW lookup: `prior?.firstFinalObservedAtById?.[id]`, **never
+through `effectiveRowTimestamp`**, whose `prior.at` fallback would synthesize a stamp for every row
+never observed final. Correct on both counts.
+
+**Constraint 1 needs code — confirmed.** Two re-fire paths, `chooseProtectionBaseline` preferring a
+non-final aggregate, and `manualPartitionMerge.ts:104` regressing a committed final with no monotonic
+check. Merge prior over new, and mutation-prove it.
+
+**Three corrections to this prompt, all yours, all confirmed:**
+`/api/scores/route.ts:527` **is** a durable writer via `txn.write` — my "calls no `setAppState`"
+reasoning was literally true and materially wrong, and a `setAppState`-scoped grep missed the second
+of three writers. `historicalScoreWrites.ts` does **not** reference `CacheEntry`; strike receipt Q2's
+mention of it. Readers are **eight**, not four — all still pure, so the response boundary holds.
+
+**Record in the closeout**, both from Q5: the stamp captures a **provisional** final (a `/scoreboard`
+`completed` row awaiting `/games` confirmation), and `classifyScorePackStatus` does not require
+scores, so a **score-less** final can be stamped. Neither blocks the item; both change what the
+number means to whoever queries it.
+
+Proceed to implementation.
+
 ## STOP — read receipt before writing any code
 
 Answer from the files. Every question is one this prompt could be wrong about.
