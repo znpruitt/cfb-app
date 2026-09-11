@@ -94,6 +94,19 @@ last one did. That is enough to size a tail and is explicitly all this item buys
 final, then is corrected by a later `/games` pass, keeps its ORIGINAL stamp — the question being
 measured is when we first believed it, not when it settled. Merge prior over new, not new over prior.
 
+> **This is the whole item, and production proves it. Measured 2026-09-11 on `scores/2026-1-regular`:**
+> of 454 stamped rows, **355 carry the identical `itemUpdatedAtById` value `2026-09-08T12:00Z`** —
+> matching the entry's own `at` of `2026-09-08T12:00:05.549Z`. **One bulk write erased the finish-time
+> signal for 78% of week 1 in a single second.** The 99 survivors are spread over 81 distinct minutes,
+> 95 of them in minutes holding ≤3 rows, and they produce a clean 3–4h cluster for 88 games — agreeing
+> with Item 108's `kickoff + 3.40h..4.75h`.
+>
+> A LAST-change field cannot survive routine operation. **A first-write-wins field is immune by
+> construction, and that is the only reason this item is worth building** rather than querying what
+> already exists. If your implementation can be overwritten by a resync, a backfill, or a
+> metadata-only rewrite, it reproduces the defect it exists to fix. **Prove the negative: a test in
+> which a bulk rewrite touches every row and the stamps do not move.**
+
 **2. ALL THREE writers must carry the map forward, or it vanishes silently.** Enumerated at
 `a774b3f6`, writers and consumers both — a seam audit that stops at writers is half of one:
 
