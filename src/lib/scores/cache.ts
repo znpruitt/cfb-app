@@ -44,14 +44,29 @@ export type CacheEntry = {
    * 1. NOT a game end time. CFBD publishes none — `/games` exposes no temporal
    *    field but `startDate`/`startTimeTBD`, and `/scoreboard` nulls `period`
    *    and `clock` the instant a row reads `completed`. What is recorded is the
-   *    real whistle PLUS CFBD's publication lag PLUS up to one poll interval.
-   *    That is the right quantity for sizing the reconciliation tail, which
-   *    waits on the provider's data settling, not on the whistle.
+   *    real whistle PLUS CFBD's publication lag PLUS up to one poll interval
+   *    MINUS the run prologue. That last term is a real bias, not a rounding
+   *    note: both callers pass `now.getTime()`, and `now` is captured at the
+   *    TOP of the cron (`live-scores/route.ts:154`) — before the quota probe,
+   *    the canonical-context load, and the provider request, which alone may
+   *    run to `CFBD_PEAK_LATENCY_TIMEOUT_MS` (40s) plus retry and pacing. So
+   *    the stamp can PREDATE the observation it names, by more than the fetch.
+   *    `itemUpdatedAtById` shares that basis exactly, so the two stay
+   *    comparable and a tail sized from their DIFFERENCE is unaffected; a tail
+   *    sized from `stamp − kickoff` is biased short, and that is the term to
+   *    subtract. Net of all of it this is still the right quantity for sizing
+   *    the reconciliation tail, which waits on the provider's data settling,
+   *    not on the whistle.
    * 2. NOT a confirmed final. A `/scoreboard` `completed` row is displayed as
    *    final immediately and recorded in {@link pendingFinalConfirmationIds}
    *    awaiting `/games`; it is stamped here at that PROVISIONAL observation.
-   *    And `classifyScorePackStatus` classifies off the status LABEL alone, so
-   *    a final carrying no scores yet can be stamped.
+   *    It IS a scored final, though: both opt-in callers require both scores
+   *    before a row can reach this map (`scoreboardPayload.ts`'s
+   *    `scoreboardStatusLabel` emits `final` only with both points present;
+   *    `finalReconciliation.ts` skips a row missing either). Note that
+   *    `classifyScorePackStatus` itself does NOT require scores — it tests the
+   *    status label alone — so that guarantee lives in the callers, and a new
+   *    caller opting in must preserve it or this contract changes.
    * 3. NOT every game. Only the live paths stamp — `mergeScoresIntoPartition`
    *    writes this map only when its caller opts in via
    *    `stampFirstFinalObservation`, which the weekly `finalScoreSweep` does
@@ -61,7 +76,13 @@ export type CacheEntry = {
    *    a number about the cron, not about the game. Stamping both would mix
    *    two measurements silently, so swept games are EXCLUDED and the exclusion
    *    is self-describing: such a row is present in {@link itemUpdatedAtById}
-   *    and absent here, so "no stamp" never reads as "no data".
+   *    and absent here, so "no stamp" never reads as "no data". Stated
+   *    precisely, because the weaker reading is the one that is true: what is
+   *    absent is a stamp from any LIVE-PATH write. A game the sweep finalled
+   *    and live polling later re-observed would be stamped at that live
+   *    observation — correct under this field's own definition, and bounded by
+   *    the guard in `scoreMerge` that withholds a stamp when the child row is
+   *    already final.
    *
    * Paired with {@link itemUpdatedAtById}, which is the LAST-material-change
    * stamp, the two bracket both halves of what the tail exists for: `stamp −

@@ -692,3 +692,42 @@ test('the reconciliation call shape stamps when the /games final is the first on
   assert.equal(entry!.pendingFinalConfirmationIds, undefined, 'confirmed and cleared');
   assert.deepEqual(entry!.firstFinalObservedAtById, { a: 9000 });
 });
+
+test('a child row ALREADY final is never stamped, even when the branch re-fires (Claude review)', async () => {
+  // The reachable poison, and the reason the stamp needs a condition the
+  // `finalized` counter does not. A final already sitting in the child with no
+  // stamp — a pre-692 entry, or one the weekly sweep supplied — plus a NEWER
+  // non-final baseline makes `chooseProtectionBaseline` pick the non-final row
+  // and the branch fire. Minting `now` there would record a RE-observation as
+  // the first one, and the row would then be indistinguishable from a genuine
+  // live first final.
+  await seed(3, {
+    at: 2000,
+    items: [pack('a', 'final', 21, 17)],
+    itemUpdatedAtById: { a: 2000 },
+    // No firstFinalObservedAtById — this is the unstamped case.
+  });
+  const result = await mergeScoresIntoPartition({
+    year: 2025,
+    week: 3,
+    seasonType: 'regular',
+    updates: [
+      {
+        pack: pack('a', 'final', 24, 17),
+        provisionalFinal: false,
+        baseline: pack('a', 'Q4 0:30', 21, 17),
+        baselineAt: 5000,
+      },
+    ],
+    stampFirstFinalObservation: true,
+    now: 8000,
+  });
+  // The counter is a committed-transition count and stays correct...
+  assert.equal(result.finalized, 1, 'the branch really does fire');
+  assert.equal(result.committed, 1);
+  const entry = await read(3);
+  assert.equal(entry!.items[0]!.home.score, 24, 'the correction landed');
+  // ...while the stamp is withheld, because when this row FIRST became final is
+  // not knowable from this call.
+  assert.equal(entry!.firstFinalObservedAtById, undefined);
+});

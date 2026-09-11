@@ -306,7 +306,21 @@ export async function mergeScoresIntoPartition(params: {
           (!protectionRef || classifyScorePackStatus(protectionRef) !== 'final')
         ) {
           finalized += 1;
-          firstFinalIds.add(id);
+          // The STAMP needs one condition the counter does not, and this is the
+          // only place both are in scope. `finalized` fires whenever the chosen
+          // protection reference is non-final, and `chooseProtectionBaseline`
+          // prefers the FRESHER row regardless of state — so a newer non-final
+          // aggregate row re-fires it for a game the CHILD already holds as
+          // final. If that child final carries no stamp (a pre-692 entry, or a
+          // final the weekly sweep supplied), minting `now` here would record a
+          // re-observation as if it were the first one. When the child is
+          // already final, when it FIRST became final is not knowable from this
+          // call, so nothing is written. `finalized` is deliberately untouched:
+          // it is a committed-transition count consumed by the cron event and
+          // the partition receipts, and it is still correct.
+          if (!childPrior || classifyScorePackStatus(childPrior) !== 'final') {
+            firstFinalIds.add(id);
+          }
         }
       }
     }
