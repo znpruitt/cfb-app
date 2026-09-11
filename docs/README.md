@@ -22,7 +22,7 @@ This is the **source-of-truth map** for the project's documentation. Start here 
 | [`docs/next-tasks.md`](next-tasks.md) | Current execution order, planned/parked work, blockers, and the ONE canonical list of unresolved decisions/deferrals; the only doc that may mark work `NEXT`/`CURRENT` | Current |
 | [`docs/roadmap.md`](roadmap.md) | Campaign definitions, goals, dependencies, coarse future sequencing, and development philosophy — direction, not PR internals | Current |
 | [`docs/prompt-registry.md`](prompt-registry.md) | Historical ledger of formal prompts and their execution outcomes (IDs, scope, outcomes, merge state) — **not a backlog**, never a `NEXT` pointer | Current (ledger) |
-| [`docs/completed-work.md`](completed-work.md) | Append-only, outcome-focused record of merged/shipped milestones; entry status text is point-in-time history | Historical (append-only) |
+| [`docs/completed-work.md`](completed-work.md) | Consolidated point-in-time delivery history, with per-source PR/merge references and historical checkpoints. **Not authoritative for current implementation, deployment state, or planned work.** | Historical |
 | [`docs/architecture/overview.md`](architecture/overview.md) | High-level runtime architecture, canonical data-flow overview, source-of-truth hierarchy, architecture-doc index | Current |
 | [`docs/architecture/game-data-flow.md`](architecture/game-data-flow.md) | Schedule → canonical games, score/odds attachment, game-stats ingestion/evidence flow, public cache-reader + authorized-refresh policy, provider quota | Current |
 | [`docs/architecture/identity-and-ownership.md`](architecture/identity-and-ownership.md) | Team-name canonicalization boundary, alias precedence, current-season ownership attribution, CSV's role | Current |
@@ -64,7 +64,7 @@ ownership during closeout"**; this index summarizes the model rather than duplic
 | `next-tasks.md` | Current execution order, planned work, parked work, blockers, and the one canonical list of unresolved decisions/deferrals |
 | `roadmap.md` | Campaign definitions, goals, dependencies, and coarse future sequencing |
 | `prompt-registry.md` | Historical ledger of formal prompts and their execution outcomes |
-| `completed-work.md` | Append-only, outcome-focused record of merged/shipped milestones |
+| `completed-work.md` | Consolidated point-in-time delivery history, with per-source PR/merge references and historical checkpoints. Not authoritative for current implementation, deployment state, or planned work |
 
 Working rules:
 
