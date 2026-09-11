@@ -130,6 +130,9 @@ export function parseFinalReconciliation(params: {
     const candidates = packsByProviderId.get(providerId) ?? [];
     if (candidates.length !== 1) continue; // absent or ambiguous → stays pending
     const pack = candidates[0]!;
+    // Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
+    // measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
+    // comment (Item 661).
     if (classifyScorePackStatus(pack) !== 'final') continue; // not final yet → stays pending
     if (pack.home.score === null || pack.away.score === null) continue; // incomplete → stays pending
     // Confirm only when the `/games` orientation matches the canonical sides — a

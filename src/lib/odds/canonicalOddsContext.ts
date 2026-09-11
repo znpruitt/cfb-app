@@ -13,6 +13,10 @@
  * and the existing event/date-aware attachment remain authoritative — this adds no
  * second matcher.
  *
+ * Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
+ * measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
+ * comment (Item 661).
+ *
  * A schedule / catalog / alias / build read failure is
  * `canonical-context-unavailable` — NEVER "no games". A genuinely empty schedule
  * (loaded successfully, zero rows) is an AVAILABLE context with no games.
