@@ -25,10 +25,17 @@ export type GameConclusionKind = 'score-required' | 'scoreless-terminal' | 'unre
  *   - score cache, 15 partitions: 20,424 status values, exactly two distinct — `final` (19,524)
  *     and `scheduled` (900).
  *
- * Not one disrupted label on either field, across seven seasons. CFBD leaves a disrupted game
- * `scheduled` — that is how six cancelled Alderson-Broaddus games reached the cache at 0-0, and
- * how the Week 1 power-outage game presented. A disrupted game is therefore indistinguishable
- * from an ordinary scheduled one in production.
+ * Not one disrupted label on either field, across seven seasons. A disrupted game is therefore
+ * indistinguishable from an ordinary scheduled one in production — and the worked example is
+ * worse than that. Alderson-Broaddus shut its programme down mid-2023; its 11 cancelled games are
+ * all still in the cache, and the provider split them two ways (measured 2026-09-11): SIX carry
+ * `status = scheduled` at 0-0, and FIVE carry `status = final` at 0-0. So a cancelled game can
+ * arrive marked COMPLETE with a real-looking result, which `hasUsableFinalScore` accepts (0 is
+ * not null). Those particular rows are unreachable — `isTrackedGame` drops both-non-FBS games
+ * before they reach `games` (see `standingsHistory.ts`) — so this is an illustration of provider
+ * behaviour, not a live defect. It is the reason "the provider leaves a disrupted game
+ * `scheduled`" is too generous a summary to reason from. The issue also records a Week 1
+ * power-outage game presenting without a disrupted label; that one is not re-measured here.
  *
  * Those two caches are the only inputs these predicates see, so the coverage is total rather than
  * a sample: `classifyStatusLabel` has never returned `'disrupted'` on real data, and
@@ -39,7 +46,9 @@ export type GameConclusionKind = 'score-required' | 'scoreless-terminal' | 'unre
  * that value is `scheduled` because `scheduled` is the only thing the provider has ever sent. A
  * cached schedule ROW carries no `rawStatus` key at all: the field is derived at normalization,
  * not stored. Conflating the two reads as "nothing writes it", which is false — the accurate and
- * more useful statement is that it is written everywhere and can only hold one value.
+ * more useful statement is that it is written everywhere and can only hold one value. (The one
+ * deliberate `null` is `slateSnapshot.ts`'s snapshot reconstruction, which documents itself as
+ * not schedule truth; it is a `CanonicalGame`, not an `AppGame`.)
  *
  * KEEP THE GUARD. A provider that starts emitting these labels is a real possibility, the
  * predicates have live consumers (10 modules, 13 call sites), and `AGENTS.md` requires a guard to
