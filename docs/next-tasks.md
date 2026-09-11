@@ -5426,20 +5426,12 @@ classification, and cover delayed **and truncated** bodies. **Prior-good data mu
 
 ### Item 189 — an unreadable planner settings store reports itself as an operator pause
 
-**Dispatch position 5.** Evidence: [the 2026-09-08 audit](archive/audits/codebase-audit-existing-plans-2026-09-08.md) → **R2**. Confirmed in code; no settings outage was observed.
-
-The planner catches a settings-store failure as `null`, counts every job as held, and records
-`no-op / plan-held`. **Its test explicitly expects that classification**, so the wrong outcome is
-pinned.
-
-**Refusing to mutate schedules under uncertain settings is correct. Reporting that uncertainty as an
-operator-requested pause is not** — it is indistinguishable from a deliberate hold on the surface an
-operator reads.
-
-**The ask:** keep the fail-closed mutation behaviour, emit a **distinct settings-unavailable failure**,
-preserve the previous plan, and expose the recovery action.
-
-**Blocker:** none.
+**DUPLICATE — merged into [#619](https://github.com/znpruitt/cfb-app/issues/619) on 2026-09-10.**
+This was filed 2026-09-08 from the audit (**R2**). Planning filed the same defect again as Item 208 on
+2026-09-10, out of the Item 207 chain, **without searching the queue first** — #619 is that issue, and
+it now carries both. **This entry's content was the better write-up** and was folded in, including the
+point that the planner's own test pins the wrong classification, and the "preserve the previous plan"
+half of the ask that Item 208 omitted.
 
 ### Item 190 — a failed standings invalidation can leave results stale indefinitely
 
