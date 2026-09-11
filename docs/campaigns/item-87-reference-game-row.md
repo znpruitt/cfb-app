@@ -387,7 +387,15 @@ The card owner's row takes a background tint. **Matchups only**, because a card 
 
 ## 8. Weight emphasis
 
-Winner weighted, loser dimmed. **On finals only.**
+Winner weighted, loser dimmed.
+
+> **CORRECTED 2026-09-11 — this said "On finals only" and contradicted canonical `DESIGN.md`.**
+> `DESIGN.md:263-264`: *"font weight, never reordering, marks **the live leader or final winner**."*
+> Line 273's "the winner receives primary weight" describes the FINAL VARIANT specifically and does not
+> exclude live. **Live-leader emphasis is contracted, the shipped code is correct, and the test
+> defending it at `CompactGameScoreboard.test.tsx:216` is correct.** Found by the #672 audit, which
+> counted it as a code divergence on both surfaces on the strength of this line; `AGENTS.md` binds that
+> `DESIGN.md` wins, so the defect was here.
 
 Suppressed on live games: dimming a team down three in the first quarter overstates what the score says, and the owner-row tint already carries direction there. A claim about a settled result should only be made once the result is settled.
 
@@ -401,7 +409,7 @@ Suppressed on live games: dimming a team down three in the first quarter oversta
 
 **Block layout ignores grid `gap`.** At one column the grids become `display: block` and stack with no separation at all. Adjacent-sibling margins are required. This is easy to ship unnoticed because it appears at one breakpoint only.
 
-**Date headings** carry a full-width rule above, asymmetric spacing binding them to the group below, and uppercase tertiary styling. A date heading is chrome, not content: making it bigger would fight the game rows; making it quieter but structurally distinct separates without competing.
+**Date headings** carry a full-width **2px BOTTOM** rule — corrected 2026-09-11; this said "rule above" and disagreed with canonical `DESIGN.md:267`, which places it below and one step heavier than the 1px separator under each game — asymmetric spacing binding them to the group below, and uppercase tertiary styling. A date heading is chrome, not content: making it bigger would fight the game rows; making it quieter but structurally distinct separates without competing.
 
 ---
 
@@ -431,7 +439,7 @@ Which slots each surface supplies. **A slot a surface does not pass renders noth
 
 | | Overview | Matchups | Schedule | Recap |
 |---|---|---|---|---|
-| **States rendered** | scheduled, live, final, awaiting | scheduled, live, final, **awaiting** | scheduled, live, final | final only |
+| **States rendered** | scheduled, live, final, awaiting | scheduled, live, final, **awaiting** | scheduled, live, final, **awaiting** | final only |
 
 > **AMENDED 2026-09-08 — Matchups renders `awaiting`, and this row previously said it did not.** It recorded
 > what SHIPS rather than what is correct: Matchups never reaches `awaiting` because it decides its own status
@@ -464,8 +472,16 @@ Which slots each surface supplies. **A slot a surface does not pass renders noth
 | **Owner tint** | no | **yes** | no | no |
 | **Broadcast** | scheduled, live | scheduled, live | scheduled, live | n/a |
 | **Date grouping** | no | no | **yes** | no |
-| **Week scoping** | no | **yes** (tab) | no | **yes** (week) |
+| **Week scoping** | no | **yes** (tab) | **yes** (week) | **yes** (week) |
 
+> **THREE MATRIX ROWS CORRECTED 2026-09-11, all found by the #672 audit reading the code against them.**
+> **Schedule renders `awaiting`** — `gameWeek.ts:50` produces it and `GameWeekPanel.tsx:145` passes it;
+> the row said it could not. **Schedule IS week-scoped** — `CFBScheduleApp.tsx:1733` supplies
+> `filteredWeekGames` under the same `WeekControls` Matchups uses; the row said no. **These were not
+> code divergences.** An audit measuring against them would have counted two defects that do not exist,
+> and did — which is why the audit's own contradictions list was worth more than its residue count on
+> those two rows.
+>
 > **\* The recap remains post-adoption work.** It is not a consumer of this component:
 > `RecapPrimitives.tsx` defines a bespoke `GameScoreboard`, and adoption is blocked behind Item 143's
 > seam. The absence of logos there is not a defect in this slice.
