@@ -51,6 +51,19 @@ Rules:
 - Preserve each prompt/version heading and its own status, PR and commit references. Consolidate recurring lessons below, with a source link; do not pool changes across a campaign.
 - Keep a dated correction or supersession beside the historical claim it qualifies. Do not turn “implemented,” “merge approved,” or “merged” into “production activated.”
 - Record unique verification evidence, exceptions and open work; use a shared review statement only when it exactly matches the source assertion.
+- **Length has a measured budget, because "five concise bullets" is not one.** The longest records in
+  this ledger all satisfy the bullet count; one arrived at 329 words. Measured over these records:
+  median 65, p75 102, p90 141, p95 173. So — **aim at 100 words. Past 140, every extra word is a
+  measurement, a named limit or open work — never restated method. Past 200, reconstruct or split**; only 2.5% of records are above that line and
+  none of them should have been. These are bounds the existing corpus actually satisfies: a ceiling
+  that most entries already violate is a line people learn to skip.
+- **Say what is unique; reference what is shared.** A recurring review lesson goes as `See L1`, a
+  boilerplate verification sentence as an `RV` code, both defined below. An entry earns its length
+  with measurements, named limits and open work, not with restated method.
+- **Longer records may use the condensed alternative:** replace `Purpose`/`Outcome` with a single
+  `Change:` bullet, then add only the bullets that carry something — `Scope limit`, `Evidence`,
+  `Historical corrections`, `Precedent`. Close with `Source links:` and `Other source hashes:` so
+  every issue, PR and commit stays recoverable per entry even when the prose around it is cut.
 
 ---
 
@@ -79,37 +92,12 @@ These consolidate recurring historical observations, not new project-governance 
 
 ### PLATFORM-727-SCHEDULE-AWAITING-RECONSTRUCTION-CODEX-v2
 
-- Purpose: [#727](https://github.com/znpruitt/cfb-app/issues/727) — reconstruct Schedule's
-  awaiting-score derivation from current `main` after the stopped v1 branch accumulated a
-  remediation-created regression. The explicit precedence is score evidence first; usable final or
-  live evidence wins; placeholder, abandonment, and the forward-looking disruption guard constrain
-  only evidence-free rows.
-- Scope: `src/lib/selectors/gameWeek.ts`, `GameWeekPanel.tsx`, and their existing selector/component
-  suites. The component joined the original selector-only scope during review so an `awaiting` row
-  cannot leak partial scores that Matchups already suppresses. NOT the shared `isPlannedGame`
-  fail-open tracked by #740, and NOT #728's `contextSlot` divergence.
-- Outcome: Schedule now derives `awaiting` from the shared scoreboard projector and an explicitly
-  confirmed kickoff (`startTimeTBD === false`), rather than requiring a display label already
-  classified as live. Usable final/live evidence is projected before every schedule-derived gate;
-  evidence also suppresses an abandonment/disruption notice. Score-pack disruption enums reuse the
-  shared token normalizer, while the guard remains documented as forward-looking under #661's
-  authoritative measurement. Within Schedule, `true` and absent kickoff-confidence flags both
-  render `Time TBD`. Awaiting rows receive null score values. The five-row precedence table survived
-  implementation unchanged.
-- Review / verification: review converged with no credible in-scope P0/P1/P2. Measurement across
-  6,410 built FBS games in seven cached seasons found neither a persisted awaiting-with-score row nor
-  a real row combining absent kickoff confidence with missing usable-score evidence, so the final
-  score-nulling and display-confidence remediations are recorded as prospective consistency guards,
-  not production repairs. All three evidence-beats-gate cases were mutation-proven independently;
-  the synthetic disruption test says it is not production coverage. The two final review additions
-  were also mutation-proven with their unaffected side named in the implementation report. Focused
-  tests: 74/74, up 13 from the 61-test baseline; `npx tsc --noEmit` 0; `npm run lint:all` 0; full
-  `npm test` 1 (5,172 tests, 5,170 pass, exactly the two standing Item 137
-  `writer-convergence.test.ts` failures).
-- Status: Implemented on `codex/727-awaiting-v2` (`b966e319` + review remediation `b73fb315`), PR
-  [#741](https://github.com/znpruitt/cfb-app/pull/741); review resolved, merge pending at time of
-  writing. Stopped PR [#736](https://github.com/znpruitt/cfb-app/pull/736) is closed as superseded and
-  remains the v1 review-history record.
+- Change: v2 reconstruction of Schedule's awaiting-score derivation for [#727](https://github.com/znpruitt/cfb-app/issues/727), after v1's remediation-created regression. Score evidence comes first: usable `final`/`live` wins and suppresses an abandonment/disruption notice; placeholder, abandonment and the forward-looking disruption guard (#661) constrain only evidence-free rows. `awaiting` derives from the shared scoreboard projector plus a confirmed kickoff (`startTimeTBD === false`), not a label already classified live, and carries null scores.
+- Scope limit: `gameWeek.ts`, `GameWeekPanel.tsx` — the component joined a selector-only scope at review, so awaiting cannot leak the partial scores Matchups suppresses. NOT #740's `isPlannedGame` fail-open, NOT #728's `contextSlot`.
+- Evidence: 6,410 built FBS games over seven cached seasons held no persisted awaiting-with-score row, and no real row pairing absent kickoff confidence with missing score evidence — so the score-nulling and display-confidence remediations are **prospective guards, not production repairs**. Three evidence-beats-gate cases mutation-proven; the synthetic disruption test disclaims production coverage. See L1, L4.
+- Review / verification: converged, no credible in-scope P0/P1/P2. Focused 74/74 (+13); `tsc`/`lint:all` 0; `npm test` 5,170 of 5,172, the standing Item 137 pair.
+- Status: Merged (PR [#741](https://github.com/znpruitt/cfb-app/pull/741), `ff0c5e38`, 2026-09-11). Stopped PR [#736](https://github.com/znpruitt/cfb-app/pull/736) closed as superseded, retained as v1's review history.
+- Other source hashes: `b966e319`, `b73fb315`.
 
 ### PLATFORM-661-DISRUPTED-VOCABULARY-NOTE-CLAUDE-v1
 
