@@ -87,7 +87,7 @@ Rules:
   citation scoped to zero-consumer modules quoted where the predicates are widely consumed.
   **The measurements survived every pass untouched and were independently re-measured by both
   reviewers; only the prose around them failed.** That contrast is the item's lesson.
-- Status: Merged (PR [#738](https://github.com/znpruitt/cfb-app/pull/738), `d9543404`, 2026-09-11)
+- Status: Merged (PR [#738](https://github.com/znpruitt/cfb-app/pull/738), `3c732582`, 2026-09-11)
 
 ### PLATFORM-619-PLANNER-SETTINGS-CONFLATION-CLAUDE-v1
 
