@@ -80,7 +80,11 @@ import { interpretGameStatsRefreshOutcome } from '../src/lib/gameStats/refreshOu
 import type { GameStatsRefreshInterpretation } from '../src/lib/gameStats/refreshOutcome.ts';
 import { weekPartitionScope } from '../src/lib/providerRefreshScope.ts';
 import type { ProviderRefreshScope } from '../src/lib/providerRefreshScope.ts';
-import { getAppState, getAppStateStorageStatus } from '../src/lib/server/appStateStore.ts';
+import {
+  assertAppStateWritable,
+  getAppState,
+  getAppStateStorageStatus,
+} from '../src/lib/server/appStateStore.ts';
 import {
   beginProviderRefreshAttempt,
   nextProviderCommitSeq,
@@ -147,7 +151,7 @@ export function applyRunCredential(
   directory: string = process.cwd()
 ): { ok: true } | { ok: false; refusal: string } {
   if (runNeedsWriteCredential(args)) {
-    const write = operatorWriteConnectionString(env, directory);
+    const write = operatorWriteConnectionString(directory);
     if (!write) return { ok: false, refusal: OPERATOR_WRITE_CREDENTIAL_REFUSAL };
     env.DATABASE_URL = write;
     return { ok: true };
@@ -1014,9 +1018,36 @@ async function main(): Promise<void> {
 
   const credential = applyRunCredential(parsed);
   if (!credential.ok) {
+    // EXIT 2, per this file's own contract at the top: a missing credential file is
+    // "refused … nothing fetched and nothing written", not "store or provider
+    // unavailable", which is 3 and means a transient condition. A wrapper that
+    // retries on 3 and stops on 2 — the distinction that contract exists to support —
+    // would otherwise retry forever against a file that is never going to appear.
+    // Found by review; the first version of this block exited 3.
     console.error(`REFUSED: ${credential.refusal}`);
-    process.exitCode = 3;
+    process.exitCode = 2;
     return;
+  }
+
+  // A CREDENTIAL IS NOT PROOF OF WRITE ACCESS, and this is newly reachable: the
+  // operator now hand-populates `.env.operator.write.local`, so pasting the
+  // READ-ONLY string into it is a plausible slip. `getAppStateStorageStatus().mode`
+  // cannot tell them apart — both are `postgres` — so without this the run gets past
+  // the mode check, past the partition SELECT, and dies inside
+  // `beginProviderRefreshAttempt` with a raw SQLSTATE 25006 at exit 1, AFTER printing
+  // `[apply] target …`. `init-game-stats-writer-control` already guards its own
+  // `--apply` this way. Found by review.
+  if (runNeedsWriteCredential(parsed)) {
+    try {
+      await assertAppStateWritable();
+    } catch {
+      console.error(
+        'FAILED: the credential in `.env.operator.write.local` cannot write to the durable ' +
+          'store (read-only or unavailable). Nothing was fetched and nothing was written.'
+      );
+      process.exitCode = 3;
+      return;
+    }
   }
   const code = parsed.mode === 'capture' ? await runCapture(parsed) : await runApply(parsed);
   // `process.exitCode`, never `process.exit`: on POSIX a stdout write to a pipe

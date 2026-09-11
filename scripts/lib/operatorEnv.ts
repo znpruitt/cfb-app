@@ -11,10 +11,9 @@
 // be the owner's authorised apply, but the investigation was reasonable precisely
 // because nothing made it impossible.
 //
-// NEITHER READER PUTS ANYTHING IN `process.env`. `dotenv`'s `processEnv` option
-// is what makes that true: each takes the one key it needs into a private object,
-// so a file that holds two credentials cannot hand a process the one it has no
-// business having.
+// NEITHER READER PUTS ANYTHING IN `process.env`. `dotenv`'s `processEnv` option is
+// what makes that true, and it is the ONLY thing that makes it true — read the
+// correction on `operatorReadOnlyEnv` below before relying on anything stronger.
 
 import path from 'node:path';
 
@@ -39,8 +38,15 @@ export const OPERATOR_WRITE_ENV_FILE = '.env.operator.write.local';
  * loaded the whole file into the environment of all ten CLIs — putting a
  * production write credential in six processes that never touch the store, and
  * disabling `appStateStore`'s local-file fallback so a stray store call would have
- * written to production. Only the one key this reader needs is taken, and only
- * into a private object.
+ * written to production.
+ *
+ * WHAT THE ISOLATION IS, STATED CORRECTLY. The previous wording — "only the one key
+ * this reader needs is taken, and only into a private object" — was false in its
+ * first half. `dotenv` parses the WHOLE file into `parsed`; it is the RETURN value
+ * that is narrowed to one key. Measured: a three-key file yields all three in
+ * `parsed`. The guarantee is `processEnv` isolation and nothing more, so `parsed`
+ * must never be logged or returned wholesale. Found by review; the claim had been
+ * carried verbatim from `plannerIntentReader` since PLATFORM-102 slice 4.
  *
  * A value already in the ambient environment still wins, so a deployed or
  * shell-exported context works without the file. `directory` exists so a test can
@@ -58,22 +64,32 @@ export function operatorReadOnlyEnv(
 }
 
 /**
- * The operator's WRITE credential, read out of `.env.operator.write.local` the
- * same way — one key, private object, `process.env` untouched.
+ * The operator's WRITE credential. `process.env` untouched, same as above — and
+ * `.env.operator.write.local` IS THE ONLY SOURCE, which is where this deliberately
+ * differs from the reader above.
  *
- * Returns `null` rather than throwing so the caller can refuse with a message
- * that names the file; see {@link OPERATOR_WRITE_CREDENTIAL_REFUSAL}, and note
- * that a caller which merely warns and continues would land on the local file
- * fallback, which is not what an operator asking to write production wants.
+ * The asymmetry is the point, not an oversight. Honouring an ambient
+ * `DATABASE_URL_RO` cannot cause a destructive write, so the read path takes one and
+ * a deployed context works without the file. Honouring an ambient `DATABASE_URL`
+ * can silently retarget a production write: `main` runs a bare `dotenv.config()`
+ * before the credential is resolved, so a stray `.env` — or one `export` in a shell —
+ * would become what `apply --apply` commits to, and the tool would print a
+ * successful merge against a database nobody chose. Found by review, which noticed
+ * the write path was a PREFERENCE while the read path beside it refuses to be one.
+ *
+ * Returns `null` rather than throwing so the caller can refuse with a message that
+ * names the file; see {@link OPERATOR_WRITE_CREDENTIAL_REFUSAL}. A caller that merely
+ * warned and continued would land on the local file fallback, which is not what an
+ * operator asking to write production wants.
  */
-export function operatorWriteConnectionString(
-  ambient: Record<string, string | undefined> = process.env,
-  directory: string = process.cwd()
-): string | null {
-  if (ambient.DATABASE_URL?.trim()) return ambient.DATABASE_URL;
+export function operatorWriteConnectionString(directory: string = process.cwd()): string | null {
   const parsed: Record<string, string> = {};
   dotenv.config({ path: path.join(directory, OPERATOR_WRITE_ENV_FILE), processEnv: parsed });
-  return parsed.DATABASE_URL?.trim() ? parsed.DATABASE_URL : null;
+  // Trimmed on the way OUT, not merely tested: a value pasted from `$(cat …)` or a
+  // here-doc carries a newline, and an untrimmed string reaches `new Pool` and fails
+  // inside pg instead of at the refusal above. Found by review.
+  const value = parsed.DATABASE_URL?.trim();
+  return value ? value : null;
 }
 
 /**

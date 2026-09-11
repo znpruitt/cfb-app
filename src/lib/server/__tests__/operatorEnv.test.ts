@@ -138,7 +138,7 @@ test('no write file + the legacy key STILL in the rail file refuses — the pre-
   try {
     const env: Record<string, string | undefined> = {};
 
-    assert.equal(operatorWriteConnectionString({}, directory), null);
+    assert.equal(operatorWriteConnectionString(directory), null);
     assert.deepEqual(applyRunCredential(APPLY_COMMIT, env, directory), {
       ok: false,
       refusal: OPERATOR_WRITE_CREDENTIAL_REFUSAL,
@@ -186,35 +186,62 @@ test('neither reader touches `process.env`, whatever its file holds', () => {
   });
   const beforeUrl = process.env.DATABASE_URL;
   const beforeRo = process.env.DATABASE_URL_RO;
+  // Snapshotted, not assumed absent: the runner forwards the ambient environment, so
+  // asserting `undefined` outright would make this suite's result depend on the host
+  // that ran it. Found by review. `AGENTS.md` requires the gate be deterministic.
+  const beforeOther = process.env.SOMETHING_ELSE;
 
   try {
     // Exactly one key each, into a private object — the mechanism that stops a file
     // holding two credentials from handing a process the one it must not have.
     assert.deepEqual(Object.keys(operatorReadOnlyEnv({}, directory)), ['DATABASE_URL_RO']);
-    assert.equal(operatorWriteConnectionString({}, directory), 'postgres://rw');
+    assert.equal(operatorWriteConnectionString(directory), 'postgres://rw');
 
     assert.equal(process.env.DATABASE_URL, beforeUrl, 'ambient DATABASE_URL untouched');
     assert.equal(process.env.DATABASE_URL_RO, beforeRo, 'ambient DATABASE_URL_RO untouched');
-    assert.equal(process.env.SOMETHING_ELSE, undefined);
+    assert.equal(process.env.SOMETHING_ELSE, beforeOther);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
 });
 
-test('an ambient write credential wins without the file being read', () => {
+test('an exported DATABASE_URL is NOT what `apply --apply` writes to', () => {
+  // THE TEST THAT USED TO ASSERT THE OPPOSITE. It read "an ambient write credential
+  // wins without the file being read", which made the suite defend the defect review
+  // found: `main` runs a bare `dotenv.config()` before the credential is resolved, so
+  // a stray `.env` or one `export` would have become the target of a production write
+  // and the tool would have reported a successful merge against a database nobody
+  // chose. The read path beside it already refused to be a preference; this one now
+  // matches it.
   const directory = fixture({ [OPERATOR_WRITE_ENV_FILE]: 'DATABASE_URL=postgres://from-file\n' });
+  const previous = process.env.DATABASE_URL;
 
   try {
-    assert.equal(
-      operatorWriteConnectionString({ DATABASE_URL: 'postgres://ambient' }, directory),
-      'postgres://ambient'
-    );
-    // A blank is not a credential — otherwise an empty export would silently select
-    // the file and the caller could not tell which one it got.
-    assert.equal(
-      operatorWriteConnectionString({ DATABASE_URL: '   ' }, directory),
-      'postgres://from-file'
-    );
+    process.env.DATABASE_URL = 'postgres://EXPORTED-BY-THE-SHELL';
+
+    assert.equal(operatorWriteConnectionString(directory), 'postgres://from-file');
+
+    const env: Record<string, string | undefined> = {
+      DATABASE_URL: 'postgres://EXPORTED-BY-THE-SHELL',
+    };
+    assert.deepEqual(applyRunCredential(APPLY_COMMIT, env, directory), { ok: true });
+    assert.equal(env.DATABASE_URL, 'postgres://from-file');
+  } finally {
+    if (previous === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previous;
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('a trailing newline is trimmed OFF the value, not merely tested for', () => {
+  // `$(cat …)` and here-docs carry one. Untrimmed it reaches `new Pool` and fails
+  // inside pg rather than at the refusal. Found by review.
+  const directory = fixture({
+    [OPERATOR_WRITE_ENV_FILE]: 'DATABASE_URL="postgres://rw   "\n',
+  });
+
+  try {
+    assert.equal(operatorWriteConnectionString(directory), 'postgres://rw');
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
