@@ -53,7 +53,12 @@ Supersedes: (none)
 > activation against the projected 6,156 for October, and the real overrun distribution past +8h.
 > **Owner picks** between that, Item 126 Tier A, and #733. (#732 shipped 2026-09-12, PR #748,
 > `8208c7d9` — held planner runs now leave a durable trace under a separate `held:<job>` series.)
-`NEXT`: **Item 134** — Overview three-column tier.
+`NEXT`: **Item 134** — Overview three-column tier. **v1 STOPPED 2026-09-12** — PR #747 did not
+converge and must not merge; reconstruct from clean `main` per
+[`docs/prompts/platform-678-overview-three-column-codex-v2.md`](prompts/platform-678-overview-three-column-codex-v2.md),
+do not cherry-pick. **v1 ran without a prompt**, from this queue line and a campaign document, so the
+two Item 134 CARRY obligations reached nobody. That is the gap the `CARRIES:` field exists to close
+and it was left open here.
 
 Owner-selected run order (2026-09-03), replacing the 2026-09-02 order. Ordering values, stated by the
 owner: **user-facing improvements, data correction, and bug fixes first; prerequisites persisted in
