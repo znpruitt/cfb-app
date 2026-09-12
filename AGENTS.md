@@ -748,8 +748,8 @@ task affects multiple documentation files, write only the projection owned by ea
   counts.
 - `docs/prompt-registry.md` owns the concise historical execution record for formal prompts. Record
   purpose, scope, outcome, review/verification, and implementation/merge status. Do not maintain
-  mutable `NEXT` pointers there. **"Concise" is a measured budget, not a judgement call: aim at 100
-  words; past 140 the extra room buys measurements, limits and open work only; reconstruct past 200** — that file's "Entry format" section is canonical
+  mutable `NEXT` pointers there. **"Concise" is a measured budget, not a judgement call: aim at 170
+  words; past 225 the extra room buys measurements, limits and open work only; reconstruct past 300** — that file's "Entry format" section is canonical
   for the template, those bounds, and the shared `L`/`RV` references that exist so an entry never
   restates a common lesson or a boilerplate verification sentence. Five bullets is not a length
   bound; entries have cleared it at 329 words.

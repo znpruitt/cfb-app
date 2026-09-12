@@ -53,8 +53,13 @@ Rules:
 - Record unique verification evidence, exceptions and open work; use a shared review statement only when it exactly matches the source assertion.
 - **Length has a measured budget, because "five concise bullets" is not one.** The longest records in
   this ledger all satisfy the bullet count; one arrived at 329 words. Measured over these records:
-  median 65, p75 102, p90 141, p95 173. So — **aim at 100 words. Past 140, every extra word is a
-  measurement, a named limit or open work — never restated method. Past 200, reconstruct or split**; only 2.5% of records are above that line and
+  median 169, p75 224, p90 271 across the 49 entries written in this
+  format — **CORRECTED 2026-09-12.** The first version of this rule said 100/140/200, derived from all
+  615 records, whose median is 65 only because hundreds of short legacy entries dominate it. Seventeen
+  of the forty-nine entries this rule actually governs exceeded that 200 line, and it was overridden
+  three times in three days. A bound between the median and p75 of its own population is a coin flip,
+  not a ceiling. So — **aim at 170 words. Past 225, every extra word is a
+  measurement, a named limit or open work — never restated method. Past 300, reconstruct or split**; only 2.5% of records are above that line and
   none of them should have been. These are bounds the existing corpus actually satisfies: a ceiling
   that most entries already violate is a line people learn to skip.
 - **Say what is unique; reference what is shared.** A recurring review lesson goes as `See L1`, a
@@ -97,7 +102,7 @@ These consolidate recurring historical observations, not new project-governance 
 - Historical corrections: all three of the issue's claims are refuted at `3671d9ed` — the two booleans have no reader outside their own file (renaming them errored only in a fixture), `vs NoClaim` is suppressed at `MatchupsWeekPanel.tsx:240-247`, and `buildMatchupCardViewModel` has no caller. The live defect, unnamed by the issue, was `OwnerPanel.tsx:518` joining `opponentOwners`, stranding its `'Unowned / non-league only'` fallback. Two undrafted teams also produced a `NoClaim` card reported as playing itself, claiming `1W / 1L`.
 - Evidence: `selectors/overview.ts:463`'s Featured filter was deleted only after measuring both directions — reverted, that game reaches `keyMatchups` at `priority=2`; with the seam, absent. The reverted run is the positive control, the filter having no coverage. `/code-review`'s medium is sound in mechanism but unreachable: `owners:tsc:2026` is 138 rows, 3 `NoClaim`, sparsest measured 42 of 138, and it needs EVERY postseason game unclaimed ([#752](https://github.com/znpruitt/cfb-app/issues/752)).
 - Review / verification: Codex none; three findings, none applied — one unreachable, one refuted on rule 11 (`displayOwner` at a render seam IS the seam; the deleted inline comparison was the duplication), one filed. Both Item 135 controls re-expressed in two halves, so neither passes on a sentinel-free fixture. `npm test` 5,227/5,227 exit 0 (+9); `tsc`/`lint:all`/`build` exit 0. See L3, L4, L6.
-- Status: Implemented — PR [#754](https://github.com/znpruitt/cfb-app/pull/754) open.
+- Status: Merged (PR [#754](https://github.com/znpruitt/cfb-app/pull/754), `42c73536`, 2026-09-12) from `claude/713-matchups-noclaim-seam`.
 
 ### PLATFORM-733-PLANNER-REPAIR-DEAD-END-CLAUDE-v1
 
