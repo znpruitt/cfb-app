@@ -418,9 +418,12 @@ function comparePrioritizedWatchlistItems(
  * It was also worse than a sort key. `selectFeaturedGames` slices this order without
  * re-sorting, so at the cap a two-owner game DISPLACED a one-owner game sharing its
  * kickoff — an unchosen signal deciding what appears at all, not merely where. And
- * `NO_CLAIM_OWNER` is a truthy string, so a NoClaim-vs-real-owner final scored 2 and
+ * `NoClaim` is a truthy string, so a NoClaim-vs-real-owner final scored 2 and
  * was indistinguishable from a genuine two-owner game: the signal did not measure what
- * it claimed to.
+ * it claimed to. (Item 713 fixed that miscount at its source — `MatchupBucket` no
+ * longer carries the sentinel — so `priority` now counts real owners. The key stays
+ * gone on its own merits: it was never a CHOSEN relevance signal, which is the
+ * argument above and is unaffected.)
  *
  * Featured's real relevance selection is Item 113's insight-anchored work. Ordering by
  * kickoff until then is legible, and honest that the selection logic is not built yet.
@@ -442,8 +445,6 @@ export function deriveStandingsContextLabel(standingsLeaders: OwnerStandingsRow[
   return `Tight race: ${leader.owner} and ${runnerUp.owner} are separated by ${formatPctGap(gap)} win%.`;
 }
 
-const NO_CLAIM_OWNER = 'NoClaim';
-
 function postseasonRolePriority(role: string | null): number {
   if (role === 'national_championship') return 0;
   if (role === 'playoff') return 1;
@@ -456,12 +457,25 @@ function selectFeaturedGames(
   prioritized: PrioritizedOverviewItem[],
   limit: number
 ): PrioritizedOverviewItem[] {
-  // Exclude games where both sides are NoClaim — no real owner is involved
-  const eligible = prioritized.filter((p) => {
-    const a = p.item.bucket.awayOwner;
-    const h = p.item.bucket.homeOwner;
-    return !(a === NO_CLAIM_OWNER && h === NO_CLAIM_OWNER);
-  });
+  // Item 713 REMOVED the both-NoClaim filter that stood here. It is not a
+  // relaxation: the games it excluded can no longer reach this function.
+  //
+  // It existed because `MatchupBucket` lied. `deriveWeekMatchupSections` decided
+  // ownership by truthiness, and the reserved `NoClaim` sentinel is truthy, so a
+  // game between two UNDRAFTED teams was filed as an owner matchup and arrived
+  // here as a candidate. Item 713 moved that resolution onto the `displayOwner`
+  // seam at the one place owners enter the model, so such a game is now filed in
+  // `otherGames` — which `deriveOverviewSnapshot` never folds into `keyMatchups`,
+  // the input to this function.
+  //
+  // Measured both ways before removing: with the seam in place a both-NoClaim
+  // final is ABSENT from `keyMatchups`; with it reverted the same fixture puts
+  // that game in the input carrying `awayOwner`/`homeOwner` of `NoClaim`. The
+  // filter was doing real work against the old model and can do none against
+  // this one. A downstream compensation outliving the defect it compensated for
+  // reads as protection and is not — restoring it would only hide a regression
+  // in the seam.
+  const eligible = prioritized;
 
   const hasPostseasonGames = eligible.some((item) => item.item.bucket.game.postseasonRole != null);
   if (!hasPostseasonGames) return eligible.slice(0, limit);

@@ -4,7 +4,7 @@ import type { ScorePack } from './scores.ts';
 import { getGameParticipantTeamId, type AppGame } from './schedule.ts';
 import { deriveFinalOwnedParticipations } from './standings.ts';
 import { isPolicyFcsConference } from './conferenceSubdivision.ts';
-import { getOwnerForGameSide } from './gameOwnership.ts';
+import { displayOwner, getOwnerForGameSide } from './gameOwnership.ts';
 
 export type MatchupBucket = {
   game: AppGame;
@@ -74,11 +74,27 @@ export function deriveWeekMatchupSections(
       game.participants.home.kind === 'team' && !isPolicyFcsConference(game.homeConf);
     const awayIsLeagueTeam =
       game.participants.away.kind === 'team' && !isPolicyFcsConference(game.awayConf);
+    // Item 713 — ownership enters the bucket through the shared seam, so no
+    // consumer has to know the sentinel exists.
+    //
+    // `buildConfirmedOwnersCsv` writes `NoClaim` as a real owner row for every
+    // undrafted eligible team, so after a draft is confirmed `getOwnerForGameSide`
+    // resolves an UNOWNED team to a truthy string. Every read below — the
+    // sectioning predicates, the owner set that builds slates, the opponent list
+    // — decides ownership by truthiness, so each one counted the sentinel as a
+    // member. `displayOwner` is the seam that already hides it for
+    // `OverviewPanel`/`GameWeekPanel`; applying it HERE, at the one place owners
+    // enter the model, is what makes every downstream read correct at once
+    // rather than one guard per reader, each of which can be forgotten.
+    //
+    // `?? undefined` because `MatchupBucket` encodes "no owner" as absent, which
+    // is what `''` already meant before a draft is confirmed. The two
+    // representations collapse to one here.
     const homeOwner = homeIsLeagueTeam
-      ? getOwnerForGameSide(game, 'home', rosterByTeam)
+      ? (displayOwner(getOwnerForGameSide(game, 'home', rosterByTeam)) ?? undefined)
       : undefined;
     const awayOwner = awayIsLeagueTeam
-      ? getOwnerForGameSide(game, 'away', rosterByTeam)
+      ? (displayOwner(getOwnerForGameSide(game, 'away', rosterByTeam)) ?? undefined)
       : undefined;
 
     const bucket = {

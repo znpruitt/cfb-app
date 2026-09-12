@@ -90,6 +90,15 @@ These consolidate recurring historical observations, not new project-governance 
 
 ## Prompt ledger (source order retained)
 
+### PLATFORM-713-MATCHUPS-NOCLAIM-SEAM-CLAUDE-v1
+
+- Change: the reserved `NoClaim` sentinel is now resolved where owners ENTER the model ([#713](https://github.com/znpruitt/cfb-app/issues/713)) — `deriveWeekMatchupSections` routes both sides through `displayOwner`, so `MatchupBucket` never carries it and every truthiness read below is correct at once rather than by one guard per reader.
+- Scope limit: `matchups.ts`, `selectors/matchups.ts`; Overview verification and the `OwnerPanel` render assertion added by ruling. `gameWeek.ts` is a SECOND sentinel source, safe only because both its readers call `displayOwner` ([#753](https://github.com/znpruitt/cfb-app/issues/753)). Rule 11's historical deferral untouched.
+- Historical corrections: all three of the issue's claims are refuted at `3671d9ed` — the two booleans have no reader outside their own file (renaming them errored only in a fixture), `vs NoClaim` is suppressed at `MatchupsWeekPanel.tsx:240-247`, and `buildMatchupCardViewModel` has no caller. The live defect, unnamed by the issue, was `OwnerPanel.tsx:518` joining `opponentOwners`, stranding its `'Unowned / non-league only'` fallback. Two undrafted teams also produced a `NoClaim` card reported as playing itself, claiming `1W / 1L`.
+- Evidence: `selectors/overview.ts:463`'s Featured filter was deleted only after measuring both directions — reverted, that game reaches `keyMatchups` at `priority=2`; with the seam, absent. The reverted run is the positive control, the filter having no coverage. `/code-review`'s medium is sound in mechanism but unreachable: `owners:tsc:2026` is 138 rows, 3 `NoClaim`, sparsest measured 42 of 138, and it needs EVERY postseason game unclaimed ([#752](https://github.com/znpruitt/cfb-app/issues/752)).
+- Review / verification: Codex none; three findings, none applied — one unreachable, one refuted on rule 11 (`displayOwner` at a render seam IS the seam; the deleted inline comparison was the duplication), one filed. Both Item 135 controls re-expressed in two halves, so neither passes on a sentinel-free fixture. `npm test` 5,227/5,227 exit 0 (+9); `tsc`/`lint:all`/`build` exit 0. See L3, L4, L6.
+- Status: Implemented — PR [#754](https://github.com/znpruitt/cfb-app/pull/754) open.
+
 ### PLATFORM-733-PLANNER-REPAIR-DEAD-END-CLAUDE-v1
 
 - Change: `polling-planner`'s execution repair link becomes REASON-keyed ([#733](https://github.com/znpruitt/cfb-app/issues/733)). Four of its five reachable non-success reasons route nowhere Data Maintenance can act; `schedule-unreadable` is fixed by `schedule-full-year-refresh` on that exact page, so it keeps the link and the explanation now names the season that failed. The flat `JOBS_WITHOUT_EXECUTION_REPAIR` set became `EXECUTION_REPAIR_POLICY`, total over `ExternalSchedulerJob` so an eleventh job must decide rather than inherit a link by omission.
