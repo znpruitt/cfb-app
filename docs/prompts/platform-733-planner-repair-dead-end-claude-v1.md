@@ -98,6 +98,48 @@ survey, and it is the thing that stops the next reader re-opening the question.
 
 Proceed to implementation.
 
+## RULING 2 — 2026-09-12. C IS APPROVED. MY EARLIER RULING WAS WRONG.
+
+**Finding 1 is real and I verified it.** `seasonYearForToday` is `month >= 6 ? year : year - 1`
+(`scores/normalizers.ts:3-7`), 0-indexed, so the flip is **1 July** and `2027-01-01` returns 2026 —
+the reviewer's calendar scenario was wrong and yours is right. `resolveOperationalSeasonYear` reads
+`status.year` off active leagues (`systemHealthYear.ts:62-72`), so it advances only at lifecycle
+rollover. The two authorities diverge for the whole July-onward window until the new season's cache
+is first populated, the schedule dataset row evaluates the OLD year and stays healthy, and the
+planner's row is the only one that fires. `schedule-unreadable` is set at `route.ts:423` and its
+remediation is `schedule-full-year-refresh` on the page I told you to stop linking to.
+
+**Take option C: a per-job reason predicate.** The planner links on `schedule-unreadable` and is null
+for `plan-not-applied`, `settings-unavailable`, `plan-partially-applied` and `unexpected-error`. A is
+worse than the status quo and B is knowingly defective; C is correct for all five and sits inside the
+SCOPE line already written. **The data-structure change is authorized** — a flat membership test
+cannot express a property that is per-reason.
+
+**RULED IN, and it is what makes the surviving link honest: name the failed year in the
+`schedule-unreadable` explanation.** The receipt target carries `day`, so the year is derivable. An
+operator who follows that link lands on a page whose year comes from the registry — which in the
+exact window this fires is the WRONG year. A link to a page defaulted to the wrong season is a
+subtler version of the dead end this item exists to remove. One sentence, from data already present.
+
+**Findings 2, 3 and 4 fold into the same round.** 2 and 3 are corrections to text that is wrong
+either way. On 3 I was wrong to wave it off — you raised the `:604` comment and I answered "nothing to
+add"; an independent reviewer finding the same thing is the second signal, and I should have taken
+the first. 4 is the real coverage gap: the route suite exercises `schedule-unreadable`, the issues
+suite never does, and whatever shape lands must pin it.
+
+**Stopping instead of patching was the right call and is the reason this is recoverable.** The
+scope grew past what I approved, so bringing it back was correct — a lane that had patched C in
+silently would have shipped a data-structure change under a one-line approval.
+
+**Where my approval failed, recorded because it generalises.** Receipt question 1 asked whether an
+action can act on *that job's fault*, and both of us answered per JOB. The property is per REASON,
+and the planner is the first candidate for this set whose reasons split. Your five-reason count was
+truncated by a `grep -A 20`; my approval never tested the denominator at all. **A clean measurement of
+the wrong population reads exactly like a clean measurement** — which is the note in your own file,
+and the second time this week a tidy count made a wrong conclusion feel settled.
+
+Proceed to implementation on C.
+
 ## STOP — read receipt before writing any code
 
 Answer from the files.
