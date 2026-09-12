@@ -778,6 +778,75 @@ test('overview Live section consumes the shared scoreboard in a row-major respon
   assert.doesNotMatch(html, /STATUS_IN_PROGRESS|amber/);
 });
 
+test('overview Live and Recent finals render their selector-owned tag ids in the status row', () => {
+  const liveGame = itemWithScore(
+    game({
+      key: 'tagged-live-row',
+      csvAway: 'Auburn',
+      csvHome: 'Georgia',
+      date: '2026-09-01T15:00:00.000Z',
+    }),
+    {
+      status: 'In Progress',
+      away: { team: 'Auburn', score: 17 },
+      home: { team: 'Georgia', score: 14 },
+      time: 'Q3 4:55',
+    }
+  );
+  const finalGame = itemWithScore(
+    game({
+      key: 'tagged-final-row',
+      csvAway: 'Michigan',
+      csvHome: 'Ohio State',
+      date: '2026-09-01T12:00:00.000Z',
+    }),
+    {
+      status: 'Final',
+      away: { team: 'Michigan', score: 24 },
+      home: { team: 'Ohio State', score: 28 },
+      time: null,
+    }
+  );
+
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[liveGame]}
+      keyMatchups={[]}
+      sectionItems={[liveGame, finalGame]}
+      rankingsByTeamId={
+        new Map([
+          ['a', { rank: 6, rankSource: 'ap' }],
+          ['h', { rank: 11, rankSource: 'ap' }],
+        ])
+      }
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  const cardFor = (label: string) => {
+    const card = html.match(
+      new RegExp(`<article(?=[^>]*aria-label="${label}")[\\s\\S]*?</article>`)
+    )?.[0];
+    assert.ok(card, `${label} must render`);
+    return new JSDOM(card).window.document;
+  };
+  const tagIdsFor = (label: string) => {
+    const card = cardFor(label);
+    const tagSlot = card.querySelector('[data-scoreboard-tag-slot]');
+    assert.ok(tagSlot, `${label} must render tags in the status-row slot`);
+    return [...tagSlot.querySelectorAll('[data-eyebrow-tag]')].map((tag) =>
+      tag.getAttribute('data-eyebrow-tag')
+    );
+  };
+
+  assert.deepEqual(tagIdsFor('Auburn at Georgia'), ['top25', 'close']);
+  assert.deepEqual(tagIdsFor('Michigan at Ohio State'), ['top25', 'close']);
+});
+
 /**
  * ITEM 174 — the rule differs BY STATE and one component serves both states, so
  * both halves are asserted from ONE render. A test that only covered live would

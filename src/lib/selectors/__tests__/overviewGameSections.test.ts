@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { OverviewGameItem } from '../../overview';
+import type { TeamRankingEnrichment } from '../../rankings';
 import type { AppGame } from '../../schedule';
 import type { ScorePack } from '../../scores';
 import type { PrioritizedOverviewItem } from '../overview';
@@ -119,13 +120,15 @@ function prioritized(itemValue: OverviewGameItem, priority = 0): PrioritizedOver
 function select(
   sectionItems: OverviewGameItem[],
   now: string,
-  watchlistCandidates = sectionItems.map((entry) => prioritized(entry))
+  watchlistCandidates = sectionItems.map((entry) => prioritized(entry)),
+  rankingsByTeamId = new Map<string, TeamRankingEnrichment>()
 ) {
   return selectOverviewGameSections({
     sectionItems,
     scheduleGames: sectionItems.map((entry) => entry.bucket.game),
     watchlistCandidates,
     featuredGameKeys: new Set(),
+    rankingsByTeamId,
     now: new Date(now),
   });
 }
@@ -166,6 +169,46 @@ test('Live promotes to Recent finals only when a final score attaches', () => {
 
   assert.deepEqual(memberships(select([live], now), gameValue.key), ['live']);
   assert.deepEqual(memberships(select([final], now), gameValue.key), ['recentFinals']);
+});
+
+test('Live and Recent finals carry selector-owned fact tags without container-state tags', () => {
+  const live = item(game({ key: 'tagged-live', date: KICKOFF }), {
+    score: score('In Progress', 14, 10),
+  });
+  const final = item(game({ key: 'tagged-final', date: KICKOFF }), {
+    score: score('Final', 21, 17),
+  });
+  const rankingsByTeamId = new Map<string, TeamRankingEnrichment>([
+    ['tagged-live-away', { rank: 6, rankSource: 'ap' }],
+    ['tagged-live-home', { rank: 11, rankSource: 'ap' }],
+    ['tagged-final-away', { rank: 14, rankSource: 'ap' }],
+    ['tagged-final-home', { rank: 18, rankSource: 'ap' }],
+  ]);
+
+  const sections = select([live, final], '2026-09-05T17:00:00.000Z', [], rankingsByTeamId);
+
+  assert.deepEqual(
+    sections.live[0]?.highlightTags.map((tag) => tag.id),
+    ['top25', 'close']
+  );
+  assert.deepEqual(
+    sections.recentFinals[0]?.highlightTags.map((tag) => tag.id),
+    ['top25', 'close']
+  );
+});
+
+test('an awaiting 0-0 score pack does not manufacture a Close tag', () => {
+  const awaiting = item(game({ key: 'awaiting-zero-zero', date: KICKOFF }), {
+    score: score('Scheduled', 0, 0),
+  });
+
+  const sections = select([awaiting], '2026-09-05T17:00:00.000Z');
+
+  assert.equal(sections.live[0]?.routeStatus.kind, 'awaiting-score');
+  assert.deepEqual(
+    sections.live[0]?.highlightTags.map((tag) => tag.id),
+    []
+  );
 });
 
 test('the abandonment gate runs before in-progress score-state routing', () => {
@@ -461,6 +504,7 @@ test('a Featured game remains outside all three state sections', () => {
     scheduleGames: [featured.bucket.game],
     watchlistCandidates: [],
     featuredGameKeys: new Set([featured.bucket.game.key]),
+    rankingsByTeamId: new Map(),
     now: new Date('2026-09-05T17:00:00.000Z'),
   });
 
@@ -477,6 +521,7 @@ test('Recent finals clears at Thursday 06:00 ET and not one minute before', () =
     scheduleGames: [final.bucket.game, lateWeekGame],
     watchlistCandidates: [],
     featuredGameKeys: new Set(),
+    rankingsByTeamId: new Map(),
     now: new Date('2026-09-10T09:59:00.000Z'),
   });
   const atBoundary = selectOverviewGameSections({
@@ -484,6 +529,7 @@ test('Recent finals clears at Thursday 06:00 ET and not one minute before', () =
     scheduleGames: [final.bucket.game, lateWeekGame],
     watchlistCandidates: [],
     featuredGameKeys: new Set(),
+    rankingsByTeamId: new Map(),
     now: new Date('2026-09-10T10:00:00.000Z'),
   });
 
