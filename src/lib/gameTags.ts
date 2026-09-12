@@ -529,8 +529,9 @@ export function hasTop25RankedTeam(params: {
 export function deriveGameHighlightTags(params: {
   item: OverviewGameItem;
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
+  excludedTagIds?: ReadonlySet<GameHighlightTag['id']>;
 }): GameHighlightTag[] {
-  const { item, rankingsByTeamId } = params;
+  const { item, rankingsByTeamId, excludedTagIds } = params;
   const margin = gameMargin(item);
   const tags: GameHighlightTag[] = [];
 
@@ -553,7 +554,10 @@ export function deriveGameHighlightTags(params: {
     });
   }
 
-  return tags.sort((a, b) => b.priority - a.priority).slice(0, TOP_BADGE_LIMIT);
+  return tags
+    .filter((tag) => !excludedTagIds?.has(tag.id))
+    .sort((a, b) => b.priority - a.priority)
+    .slice(0, TOP_BADGE_LIMIT);
 }
 
 export type LeagueStandingRow = {

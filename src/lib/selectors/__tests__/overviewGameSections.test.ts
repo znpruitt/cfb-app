@@ -201,13 +201,17 @@ test('an awaiting 0-0 score pack does not manufacture a Close tag', () => {
   const awaiting = item(game({ key: 'awaiting-zero-zero', date: KICKOFF }), {
     score: score('Scheduled', 0, 0),
   });
+  const rankingsByTeamId = new Map<string, TeamRankingEnrichment>([
+    ['awaiting-zero-zero-away', { rank: 6, rankSource: 'ap' }],
+    ['awaiting-zero-zero-home', { rank: 11, rankSource: 'ap' }],
+  ]);
 
-  const sections = select([awaiting], '2026-09-05T17:00:00.000Z');
+  const sections = select([awaiting], '2026-09-05T17:00:00.000Z', [], rankingsByTeamId);
 
   assert.equal(sections.live[0]?.routeStatus.kind, 'awaiting-score');
   assert.deepEqual(
     sections.live[0]?.highlightTags.map((tag) => tag.id),
-    []
+    ['top25']
   );
 });
 

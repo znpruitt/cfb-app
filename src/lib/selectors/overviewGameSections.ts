@@ -13,6 +13,9 @@ import { selectWeeklyRecapTileState, selectWeeklyRecapWeekTargets } from './week
 export const OVERVIEW_LIVE_LIMIT = 6;
 export const OVERVIEW_RECENT_FINALS_LIMIT = 6;
 export const OVERVIEW_WATCHLIST_LIMIT = 6;
+const AWAITING_SCORE_EXCLUDED_HIGHLIGHT_TAG_IDS: ReadonlySet<GameHighlightTag['id']> = new Set([
+  'close',
+]);
 
 export type OverviewGameRouteStatus =
   | { kind: 'scheduled'; label: 'Scheduled' }
@@ -248,14 +251,16 @@ export function selectOverviewGameSections(params: {
   for (const { item, section, status } of routesByKey.values()) {
     if (section !== 'live' && section !== 'recentFinals') continue;
 
-    const derivedHighlightTags = deriveGameHighlightTags({ item, rankingsByTeamId });
     // A provider score pack can carry numeric 0-0 values while the row still routes
     // to Awaiting score. That is not evidence of a close game, so containment lives
-    // beside the route status rather than weakening the shared tag predicate.
-    const highlightTags =
-      status.kind === 'awaiting-score'
-        ? derivedHighlightTags.filter((tag) => tag.id !== 'close')
-        : derivedHighlightTags;
+    // beside the route status. Passing the exclusion into the shared selector lets
+    // it remove the ineligible candidate before applying its two-tag cap.
+    const highlightTags = deriveGameHighlightTags({
+      item,
+      rankingsByTeamId,
+      excludedTagIds:
+        status.kind === 'awaiting-score' ? AWAITING_SCORE_EXCLUDED_HIGHLIGHT_TAG_IDS : undefined,
+    });
     const taggedItem = { ...item, routeStatus: status, highlightTags };
 
     if (section === 'live') live.push(taggedItem);
