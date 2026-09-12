@@ -106,7 +106,6 @@ These consolidate recurring historical observations, not new project-governance 
 - Review / verification: two two-reviewer passes resolved four lows and one medium; one refresh-reset finding was rejected against the owner ruling and pinned. Guard removal is mutation-proven. `tsc`, lint, build, focused tests, full suite, and clock-shift control pass.
 - Status: Implemented and reviewed in PR [#744](https://github.com/znpruitt/cfb-app/pull/744) (`5bd45585`, `51ae096a`, `bc0c77c7`); merge pending.
 
-
 ### PLATFORM-137-WRITER-CONVERGENCE-TIME-BOMBS-CLAUDE-v1
 
 - Change: three odds fixtures derive kickoffs from `Date.now()` instead of pinned literals, clearing the two-failure baseline for [#696](https://github.com/znpruitt/cfb-app/issues/696); `npm test` on clean `main` exits 0. Past kickoff the writer DELETES the empty durable record rather than writing one, so the assertion read `undefined`. Ships `npm run test:clock-shift -- <days>`.
