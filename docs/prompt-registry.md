@@ -104,10 +104,12 @@ These consolidate recurring historical observations, not new project-governance 
   ordering, caps, Featured, Watchlist, Matchups and Schedule are unchanged.
 - Outcome: Live and Recent finals render the existing fact-only `top25` / `close` vocabulary; no
   Overview producer emits `Upset`, whose predicate remains separate work. An exact numeric 0-0 pack
-  excludes only `close`, independent of Live versus Awaiting routing, while a real nonzero close
-  margin remains eligible. With an empty rankings map, `top25` cannot fire and rows remain untagged;
-  that is a sequenced dependency. [#716](https://github.com/znpruitt/cfb-app/issues/716) remains open:
-  Watchlist is unchanged.
+  is indistinguishable here between a placeholder and a real live tie. Preventing the unacceptable
+  placeholder `close` excludes both: a genuine 0-0 live game also loses the tag. That false negative
+  is routine but mostly benign in the opening minutes; the real cost is a rare late defensive 0-0,
+  exactly when `close` is most informative. Nonzero close margins remain eligible. With an empty
+  rankings map, `top25` cannot fire and rows remain untagged; that is a sequenced dependency.
+  [#716](https://github.com/znpruitt/cfb-app/issues/716) remains open because Watchlist is unchanged.
 - Review / verification: two passes, no Codex findings; its second verification did not execute, so
   only the verdict carries. `/code-review` found status-keyed containment and a vacuous fixture.
   Reinstating that predicate failed both boundary assertions; excluding both ids failed the ranked

@@ -255,10 +255,10 @@ export function selectOverviewGameSections(params: {
   for (const { item, section, status } of routesByKey.values()) {
     if (section !== 'live' && section !== 'recentFinals') continue;
 
-    // A numeric 0-0 provider pack is not evidence of a close game, regardless of
-    // whether its status routes the row to Live or Awaiting score. Key containment
-    // on that score fact so a real nonzero margin remains eligible in either state.
-    // The shared selector removes the ineligible candidate before applying its cap.
+    // A numeric 0-0 pack is indistinguishable here: it may be a placeholder or a
+    // real live tie. The placeholder tag is unacceptable, so both cases exclude
+    // Close; a genuinely 0-0 live game therefore loses that tag. The shared selector
+    // removes the candidate before applying its cap; nonzero margins remain eligible.
     const highlightTags = deriveGameHighlightTags({
       item,
       rankingsByTeamId,
