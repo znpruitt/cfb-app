@@ -66,6 +66,38 @@ that pins a defect must not outlive the defect, and its comment is the breadcrum
 
 ---
 
+## RULINGS ON THE READ RECEIPT — 2026-09-12, binding
+
+**The plan is approved exactly as you stated it.** All four steps: add `'polling-planner'` to
+`JOBS_WITHOUT_EXECUTION_REPAIR` in the `usage-sample` comment form; correct the `:551-557` clause;
+flip `systemHealthIssues.test.ts:165` to `assert.equal(raised?.repair, null)` with a positive control
+on `rankings`; update the `:105-108` comment. Nothing to add, nothing to cut.
+
+**The `:551-557` catch is the most valuable thing in the receipt, and your handling is right.** That
+comment gives the planner's visible link as the REASON the hint shows restraint — so changing `:593`
+makes it assert a premise that no longer holds. Restating the surviving reason (two other jobs inherit
+the sentence) rather than deleting the restraint is correct: the restraint outlives its original
+justification because a second, independent one exists. **This is the same failure you hit on #692** —
+a patch stapled to a sentence whose premise had changed — and pre-empting it is the difference.
+
+**Hint stays byte-identical. Confirmed.** File separately if you conclude it should change.
+
+**Q5 accepted: record it in the closeout.** "Nothing on any admin page repairs a planner fault" is a
+finding, not a blocker, and your table of the three reasons plus the self-correcting daily re-plan is
+what makes it a finding rather than an admission. Include the `AutomationSafetyControls` detail —
+the nearest planner-adjacent controls live on System Health itself, not Data Maintenance, and they
+hold/release rather than repair. Someone will ask why the row doesn't link THERE; the answer is that
+it would be the same class of lie, and the closeout should say so once.
+
+**Carry your Q4 framing into the closeout too:** the planner's RECORD fault already renders
+`repair: null` through `PLAN_UNAVAILABLE_EXPLANATION` on the planner-owned jobs, so only its
+EXECUTION fault lies. That sentence explains why this is a one-line set membership rather than a
+survey, and it is the thing that stops the next reader re-opening the question.
+
+**My citation was wrong:** `:589`, not `:590-593`. Confirmed.
+
+Proceed to implementation.
+
 ## STOP — read receipt before writing any code
 
 Answer from the files.
