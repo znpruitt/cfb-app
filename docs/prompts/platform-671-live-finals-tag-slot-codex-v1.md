@@ -20,6 +20,9 @@ CARRIES:
 - **Row 8 (LIVE).** Selection and precedence stay selector-owned; the scoreboard **must not be forked**. **CORRECTED 2026-09-08 — "four consumers plus the recap" was wrong on both halves.** There are **five direct renderers**: Overview `GameCardList` (serving Live AND Recent finals), Overview `WatchlistScoreboardList`, Overview `FeaturedGamesList`, `GameWeekPanel`, and Matchups `GameRow` — three importing modules, six rendered contexts. **And the recap is NOT a consumer**: `RecapPrimitives.tsx:277` still defines a bespoke `GameScoreboard`, which is what Item 143 creates the seam for.
 - **Row 9 (LIVE).** **Never suppress individual finals against recap content**, and do not reintroduce a subtler version. Recent finals is complete; the recap is curated.
 
+Issue: [#671](https://github.com/znpruitt/cfb-app/issues/671), scoped to the 173b residue after
+173a shipped Featured.
+
 ---
 
 ## Lane and branch
@@ -157,3 +160,32 @@ vocabulary decision as taken, not as this prompt proposed it.
 - `#678`'s three-column tier shipped (PR #751, `4cfae75a`) and Live/Recent finals caps stay
   count-based. Tags must not change how a row wraps at the wide tier; if they do, that is a finding,
   not a licence to adjust caps.
+
+## STOP — read receipt before writing any code
+
+1. **Enumerate every tag producer reachable from Overview**, with the tag ids each one emits. Confirm
+   or break the claim that `deriveGameHighlightTags` emits exactly two (`top25`, `close`) and that
+   **no producer on this path can emit `Upset`**. If a third producer exists, this prompt's central
+   decision is wrong and I want to know before you build.
+2. **Measure the `Close` hazard; do not reason about it.** Can a row routed `awaiting-score` reach
+   `GameCardList` carrying a non-null `0-0` score pack? Say what you RAN — a fixture, a production
+   read, a trace — not what the types permit. **If the answer is "no", say which mechanism prevents
+   it**, because #716 proves the same shape is live one section over.
+3. **Populations.** `highlightSignals` is derived from `keyMatchups` (`overview.ts:565`), while these
+   two sections are built from `sectionItems`. **Are those the same set?** Give the counts on a real
+   slate. If `sectionItems` holds games `keyMatchups` does not, then any tag computed from
+   `highlightSignals` is derived over a different population than it renders on — which is a defect
+   this prompt has not named.
+4. **Both shapes, costed.** Prioritize BEFORE routing (signature change on
+   `selectOverviewGameSections`) versus prioritize AFTER routing, in `OverviewPanel`. For each: how
+   many call sites change, and **which existing tests would catch an ordering regression?** Name
+   them. If the answer is "none", that is the coverage gap and it goes in the receipt.
+5. Does `hasRenderableContent` (`CompactGameScoreboard.tsx:126`) treat `[]` and `undefined`
+   identically for `tagSlot`? **Prove it by running it**, not by reading it — an untagged row must
+   stay pixel-identical and that is the function deciding it.
+6. **Count the tests that would go RED if the tag slot were wired and the cap were applied in the
+   RENDERER instead of the selector.** If the answer is zero, `DESIGN.md`'s "the selector must apply
+   the cap, not the renderer" is unenforced today and your branch is where that gets pinned.
+7. **What in this prompt contradicts what you found in the files?**
+
+Do not start until the receipt is answered and I have ruled on it.
