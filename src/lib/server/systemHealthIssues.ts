@@ -207,6 +207,15 @@ const JOBS_WITHOUT_EXECUTION_REPAIR: ReadonlySet<ExternalSchedulerJob> = new Set
   // cannot help. The remediation is a provider or credential problem, not a
   // dataset repair.
   'usage-sample',
+  // #733 — the same situation, a different job. Data Maintenance & Recovery has
+  // no planner action of any kind: eleven maintenance actions, and the five other
+  // linked jobs are each matched by a descriptor whose `automationOwner` names
+  // that job's own schedule, while nothing in the catalog is planner-related. The
+  // remediation for every planner execution fault is outside this app — a QStash
+  // credential or outage (`plan-not-applied`), the durable settings record
+  // (`settings-unavailable`), or the next daily run, which re-plans the whole day
+  // from scratch (`plan-partially-applied`). None of those is a dataset repair.
+  'polling-planner',
 ]);
 
 function repairFor(surface: ProviderDiagnosticRepairSurface | null): SystemHealthRepair {
@@ -551,10 +560,16 @@ function evidenceClause(evidence: string | null): string {
  * It is text, not a `repair` link, deliberately. A repair link is a claim the
  * destination can act on the fault; there is no settings maintenance action, and
  * inventing a link to a page that cannot re-read the store would be the dead end the
- * `JOBS_WITHOUT_EXECUTION_REPAIR` rule above exists to avoid. The sentence therefore
- * does NOT tell the operator that no action is required: `polling-planner` still
- * carries a Data Maintenance link (#733), and a hint contradicting a visible control
- * is worse than one that says less.
+ * `JOBS_WITHOUT_EXECUTION_REPAIR` rule above exists to avoid.
+ *
+ * THE SENTENCE STILL DOES NOT TELL THE OPERATOR THAT NO ACTION IS REQUIRED — but
+ * #733 replaced the reason, so do not read the restraint as unexplained. It used to
+ * be that `polling-planner` carried a Data Maintenance link and a hint contradicting
+ * a visible control is worse than one that says less; #733 removed that link, and
+ * that premise with it. The surviving reason is the JOB-NEUTRALITY above: the hint
+ * is keyed by REASON, and `rankings` and `schedule-refresh` answer this same reason
+ * while keeping real Data Maintenance actions. "Nothing to do here" would be
+ * inherited verbatim by two jobs where it is false.
  */
 const EXECUTION_RECOVERY_HINTS: Record<string, string> = Object.create(null, {
   'settings-unavailable': {

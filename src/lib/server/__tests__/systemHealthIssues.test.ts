@@ -105,7 +105,9 @@ test('a settings-unavailable planner run RAISES; a genuine operator hold stays s
 test('the settings-unavailable explanation says it is NOT an operator pause', () => {
   // Text, not a `repair` link: there is no planner or settings maintenance action,
   // and linking one that cannot re-read the store is the dead end
-  // `JOBS_WITHOUT_EXECUTION_REPAIR` exists to avoid.
+  // `JOBS_WITHOUT_EXECUTION_REPAIR` exists to avoid. As of #733 the planner is IN
+  // that set, so the row now carries no link at all — the hint is still text, and
+  // it is no longer the only honest thing on the row.
   const issues = deriveSystemHealthIssues(
     baseInputs({
       schedulerDelivery: deliverySnapshot(
@@ -155,14 +157,22 @@ test('the settings-unavailable explanation says it is NOT an operator pause', ()
     hintOf(raised?.explanation ?? ''),
     'one reason, one sentence — no job inherits another job&apos;s wording'
   );
-  // ASSERTED AS IT IS, NOT AS I FIRST EXPECTED. `polling-planner` is not in
-  // `JOBS_WITHOUT_EXECUTION_REPAIR`, so it keeps the Data Maintenance link this
-  // change did not touch. Whether that link can act on a PLANNER fault is a
-  // separate question — Data Maintenance has no planner or settings action — but
-  // it is pre-existing behaviour for every planner failure, not something
-  // `settings-unavailable` introduces, and #619's ruling was explanation text
-  // rather than a repair change. Recorded, not silently altered.
-  assert.equal(raised?.repair?.surface, 'data-maintenance');
+  // #733 — THIS ASSERTION USED TO PIN THE OPPOSITE, deliberately. #619 recorded the
+  // planner's Data Maintenance link rather than silently altering it, because the
+  // link was pre-existing behaviour for every planner failure and that item's ruling
+  // was explanation text. The separate question it deferred — whether that
+  // destination can act on a PLANNER fault — has now been answered: it cannot.
+  // `MAINTENANCE_ACTIONS` holds eleven ids, none planner-related, and `polling-planner`
+  // was the only linked job with no matching action. It is in
+  // `JOBS_WITHOUT_EXECUTION_REPAIR` now, so the row offers no destination.
+  assert.equal(raised?.repair, null);
+
+  // POSITIVE CONTROL, on the snapshot already derived above. `rankings` answers the
+  // SAME reason and keeps its link, so the null is set membership rather than repairs
+  // having stopped working — and it is the second half of why the hint above stays
+  // job-neutral instead of being strengthened to "nothing to do here".
+  assert.equal(rankingsIssue?.repair?.surface, 'data-maintenance');
+  assert.equal(rankingsIssue?.repair?.href, '/admin/data/cache');
 
   // A DIFFERENT failure reason gets no hint, which is what keeps the map from
   // becoming a sentence on every row.
