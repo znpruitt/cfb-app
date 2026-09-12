@@ -9,8 +9,12 @@ export type ScoreboardTeamLogosById = ReadonlyMap<string, ScoreboardTeamLogo>;
 
 export const EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID: ScoreboardTeamLogosById = new Map();
 export const SCOREBOARD_TEAM_LOGO_DISPLAY_SIZE = 28;
-// `CompactGameScoreboard` reserves this with `pl-8`; Overview's grid budget includes the slot.
-export const SCOREBOARD_TEAM_LOGO_SLOT_SIZE = 32;
+export const SCOREBOARD_TEAM_LOGO_SLOT_PADDING_CLASS = 'pl-8';
+const TAILWIND_SPACING_UNIT_PX = 4;
+// Derived from the static Tailwind class consumed by `CompactGameScoreboard`, so changing its
+// reservation also changes the Overview grid budget instead of leaving two independent literals.
+export const SCOREBOARD_TEAM_LOGO_SLOT_SIZE =
+  Number(SCOREBOARD_TEAM_LOGO_SLOT_PADDING_CLASS.slice('pl-'.length)) * TAILWIND_SPACING_UNIT_PX;
 
 const CFBD_LOGO_HOST = 'cdn.collegefootballdata.com';
 const CFBD_SCOREBOARD_LOGO_ASSET_SIZE = 64;

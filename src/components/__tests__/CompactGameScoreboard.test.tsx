@@ -5,7 +5,10 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import CompactGameScoreboard from '../CompactGameScoreboard';
-import { SCOREBOARD_TEAM_LOGO_SLOT_SIZE } from '../../lib/teamLogos';
+import {
+  SCOREBOARD_TEAM_LOGO_SLOT_PADDING_CLASS,
+  SCOREBOARD_TEAM_LOGO_SLOT_SIZE,
+} from '../../lib/teamLogos';
 
 function renderScoreboard(
   overrides: Partial<React.ComponentProps<typeof CompactGameScoreboard>> = {}
@@ -361,7 +364,9 @@ test('team logos use the 28px CFBD artwork treatment in the structural line-star
   assert.equal(image.getAttribute('alt'), '');
   assert.equal(image.getAttribute('width'), '28');
   assert.equal(image.getAttribute('height'), '28');
-  assert.ok(classTokens(participantOpeningTag(html, 'away')).has('pl-8'));
+  assert.ok(
+    classTokens(participantOpeningTag(html, 'away')).has(SCOREBOARD_TEAM_LOGO_SLOT_PADDING_CLASS)
+  );
   assert.ok(classTokens(participantOpeningTag(html, 'away')).has('py-1.5'));
   assert.ok(classTokens(participantOpeningTag(html, 'away')).has('min-h-8'));
 });
@@ -378,10 +383,14 @@ test('the 32px line-start slot stays reserved when logo artwork is unavailable',
 
   const document = new JSDOM(html).window.document;
   assert.equal(document.querySelector('[data-scoreboard-team-logo="away"]'), null);
+  assert.equal(SCOREBOARD_TEAM_LOGO_SLOT_PADDING_CLASS, 'pl-8');
   assert.equal(SCOREBOARD_TEAM_LOGO_SLOT_SIZE, 32);
   for (const side of ['away', 'home'] as const) {
     const classes = classTokens(participantOpeningTag(html, side));
-    assert.ok(classes.has('pl-8'), `${side} must reserve the 32px logo slot`);
+    assert.ok(
+      classes.has(SCOREBOARD_TEAM_LOGO_SLOT_PADDING_CLASS),
+      `${side} must consume the class that defines the 32px logo slot`
+    );
     assert.ok(classes.has('py-1.5'), `${side} must preserve the 28px logo row height`);
     assert.ok(classes.has('min-h-8'), `${side} must enforce the 32px minimum row height`);
   }

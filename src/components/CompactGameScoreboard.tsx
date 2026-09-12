@@ -6,7 +6,11 @@ import { gameStatusLabelPresentation, type GameStatusLabelOptions } from '../lib
 import { rankSourceLabel, type RankSource } from '../lib/rankings';
 import type { GameScoreboardState } from '../lib/selectors/gameScoreboardState';
 import type { TeamRecordClient } from '../lib/selectors/teamRecordsClient';
-import { SCOREBOARD_TEAM_LOGO_DISPLAY_SIZE, type ScoreboardTeamLogo } from '../lib/teamLogos';
+import {
+  SCOREBOARD_TEAM_LOGO_DISPLAY_SIZE,
+  SCOREBOARD_TEAM_LOGO_SLOT_PADDING_CLASS,
+  type ScoreboardTeamLogo,
+} from '../lib/teamLogos';
 
 export type CompactScoreboardParticipant = {
   teamName: string;
@@ -269,7 +273,7 @@ export default function CompactGameScoreboard({
         return (
           <div
             key={side}
-            className={`relative flex min-h-8 items-baseline justify-between gap-3 py-1.5 pl-8 text-sm ${participantRowClasses(
+            className={`relative flex min-h-8 items-baseline justify-between gap-3 py-1.5 ${SCOREBOARD_TEAM_LOGO_SLOT_PADDING_CLASS} text-sm ${participantRowClasses(
               isLeading,
               leader !== null
             )}${

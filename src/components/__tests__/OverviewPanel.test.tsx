@@ -9,8 +9,10 @@ import OverviewPanelImpl, {
   OVERVIEW_SCOREBOARD_GRID_GAP_PX,
   OVERVIEW_SCOREBOARD_GRID_CLASSES,
   OVERVIEW_SCOREBOARD_GRID_MIN_COLUMN_PX,
+  OVERVIEW_SCOREBOARD_GRID_ONE_COLUMN_MAX_PX,
+  OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_HEADROOM_PX,
   OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_MIN_PX,
-  OVERVIEW_SCOREBOARD_GRID_TWO_COLUMN_MIN_PX,
+  OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_REQUIREMENT_PX,
 } from '../OverviewPanel';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../../lib/overview';
 import { deriveLeagueInsights, deriveOverviewInsights } from '../../lib/selectors/insights';
@@ -421,7 +423,7 @@ test('overview watchlist uses the shared scoreboard with records and one odds fo
   );
   assert.match(
     html,
-    /grid grid-flow-row grid-cols-1 gap-x-10 @min-\[904px\]:grid-cols-2 @min-\[1376px\]:grid-cols-3" data-watchlist-scoreboard-grid/
+    /grid grid-flow-row grid-cols-2 gap-x-10 @max-\[760\.01px\]:grid-cols-1 @min-\[1396px\]:grid-cols-3" data-watchlist-scoreboard-grid/
   );
   assert.match(scoreboard, /data-watchlist-reason-row/);
   assert.match(scoreboard, /<div(?=[^>]*data-watchlist-reason-row)(?=[^>]*min-h-\[22px\])[^>]*>/);
@@ -761,7 +763,7 @@ test('overview Live section consumes the shared scoreboard in a row-major respon
 
   assert.match(
     html,
-    /grid grid-flow-row grid-cols-1 gap-x-10 @min-\[904px\]:grid-cols-2 @min-\[1376px\]:grid-cols-3" data-live-scoreboard-grid/
+    /grid grid-flow-row grid-cols-2 gap-x-10 @max-\[760\.01px\]:grid-cols-1 @min-\[1396px\]:grid-cols-3" data-live-scoreboard-grid/
   );
   assert.equal((html.match(/data-game-scoreboard=/g) ?? []).length, 2);
   const awayLeadingCard = html.indexOf('aria-label="Utah at Arizona State"');
@@ -841,22 +843,20 @@ test('overview grids publish the logo-era width budget and reject centered orpha
 
   assert.equal(SCOREBOARD_TEAM_LOGO_SLOT_SIZE, 32);
   assert.equal(OVERVIEW_SCOREBOARD_GRID_MIN_COLUMN_PX, 432);
+  assert.equal(OVERVIEW_SCOREBOARD_GRID_ONE_COLUMN_MAX_PX, 760.01);
   assert.equal(
-    (OVERVIEW_SCOREBOARD_GRID_TWO_COLUMN_MIN_PX - OVERVIEW_SCOREBOARD_GRID_GAP_PX) / 2,
+    (OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_REQUIREMENT_PX - 2 * OVERVIEW_SCOREBOARD_GRID_GAP_PX) /
+      3,
     OVERVIEW_SCOREBOARD_GRID_MIN_COLUMN_PX,
-    'the two-column floor must retain the same declared per-column budget'
+    'the three-column requirement must retain the declared per-column budget'
   );
-  assert.equal(OVERVIEW_SCOREBOARD_GRID_TWO_COLUMN_MIN_PX, 904);
-  assert.equal(
-    (OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_MIN_PX - 2 * OVERVIEW_SCOREBOARD_GRID_GAP_PX) / 3,
-    OVERVIEW_SCOREBOARD_GRID_MIN_COLUMN_PX,
-    'the three-column floor must retain the same declared per-column budget'
-  );
-  assert.equal(OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_MIN_PX, 1376);
+  assert.equal(OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_REQUIREMENT_PX, 1376);
+  assert.equal(OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_HEADROOM_PX, 20);
+  assert.equal(OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_MIN_PX, 1396);
   assert.equal(grid.className, OVERVIEW_SCOREBOARD_GRID_CLASSES);
-  assert.ok(grid.classList.contains('grid-cols-1'));
-  assert.ok(grid.classList.contains('@min-[904px]:grid-cols-2'));
-  assert.ok(grid.classList.contains('@min-[1376px]:grid-cols-3'));
+  assert.ok(grid.classList.contains('grid-cols-2'));
+  assert.ok(grid.classList.contains('@max-[760.01px]:grid-cols-1'));
+  assert.ok(grid.classList.contains('@min-[1396px]:grid-cols-3'));
   for (const centeredClass of [
     'justify-center',
     'justify-items-center',
@@ -1178,7 +1178,7 @@ test('overview Featured renders its badge and existing tag in the final status r
   assert.match(liveScoreboard, /Q2 6:14/);
   assert.match(
     html,
-    /<section class="@container">[\s\S]*?<div class="grid grid-flow-row grid-cols-1 gap-x-10 @min-\[904px\]:grid-cols-2 @min-\[1376px\]:grid-cols-3" data-featured-scoreboard-grid="true">/
+    /<section class="@container">[\s\S]*?<div class="grid grid-flow-row grid-cols-2 gap-x-10 @max-\[760\.01px\]:grid-cols-1 @min-\[1396px\]:grid-cols-3" data-featured-scoreboard-grid="true">/
   );
 });
 

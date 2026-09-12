@@ -80,21 +80,24 @@ const OVERVIEW_SCOREBOARD_TEXT_VALUE_BUDGET_PX = 400;
 export const OVERVIEW_SCOREBOARD_GRID_MIN_COLUMN_PX =
   OVERVIEW_SCOREBOARD_TEXT_VALUE_BUDGET_PX + SCOREBOARD_TEAM_LOGO_SLOT_SIZE;
 export const OVERVIEW_SCOREBOARD_GRID_GAP_PX = 40;
-export const OVERVIEW_SCOREBOARD_GRID_TWO_COLUMN_MIN_PX =
-  2 * OVERVIEW_SCOREBOARD_GRID_MIN_COLUMN_PX + OVERVIEW_SCOREBOARD_GRID_GAP_PX;
-export const OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_MIN_PX =
+export const OVERVIEW_SCOREBOARD_GRID_ONE_COLUMN_MAX_PX = 760.01;
+export const OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_HEADROOM_PX = 20;
+export const OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_REQUIREMENT_PX =
   3 * OVERVIEW_SCOREBOARD_GRID_MIN_COLUMN_PX + 2 * OVERVIEW_SCOREBOARD_GRID_GAP_PX;
+export const OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_MIN_PX =
+  OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_REQUIREMENT_PX +
+  OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_HEADROOM_PX;
 
 /**
  * Item 134: 432px per column = the 400px team/record/owner/value budget + the permanent
- * 32px logo slot. That makes the two-column floor 2 × 432 + 40 = 904px and the
- * three-column floor 3 × 432 + 2 × 40 = 1376px. These are exact floors with no added
- * headroom: a narrower container keeps the lower tier instead of squeezing a declared
- * minimum. Container-query variants cannot interpolate the constants above, so the literals
- * stay adjacent to the arithmetic and the browser regression pins them together.
+ * 32px logo slot. It applies to the NEW three-column tier: 3 × 432 + 2 × 40 = 1376px,
+ * plus the campaign's deliberate 20px headroom, gives 1396px. The established 760.01px
+ * one-column collapse remains independent; the browser regression confirms its 360.5px
+ * two-column cards retain the named stress row without clipping. Container-query variants
+ * cannot interpolate these constants, so the literals stay adjacent to the arithmetic.
  */
 export const OVERVIEW_SCOREBOARD_GRID_CLASSES =
-  'grid grid-flow-row grid-cols-1 gap-x-10 @min-[904px]:grid-cols-2 @min-[1376px]:grid-cols-3';
+  'grid grid-flow-row grid-cols-2 gap-x-10 @max-[760.01px]:grid-cols-1 @min-[1396px]:grid-cols-3';
 
 /**
  * The last `n` weeks that are RESOLVED — played, with a usable snapshot.

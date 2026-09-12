@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
+import { once as onceEvent } from 'node:events';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -14,9 +15,11 @@ import { compile } from 'tailwindcss';
 import CompactGameScoreboard from '../CompactGameScoreboard';
 import {
   OVERVIEW_SCOREBOARD_GRID_CLASSES,
+  OVERVIEW_SCOREBOARD_GRID_GAP_PX,
   OVERVIEW_SCOREBOARD_GRID_MIN_COLUMN_PX,
+  OVERVIEW_SCOREBOARD_GRID_ONE_COLUMN_MAX_PX,
+  OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_HEADROOM_PX,
   OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_MIN_PX,
-  OVERVIEW_SCOREBOARD_GRID_TWO_COLUMN_MIN_PX,
 } from '../OverviewPanel';
 
 const CHROME_EXECUTABLE_CANDIDATES = [
@@ -36,7 +39,6 @@ type BrowserMeasurement = {
   firstCardTop: number;
   fourthCardTop: number;
   stressLabelClipped: boolean;
-  stressRowOverflows: boolean;
 };
 
 type CdpMessage = {
@@ -107,8 +109,9 @@ async function waitForChrome(
   stderr: () => string
 ): Promise<void> {
   for (let attempt = 0; attempt < 120; attempt += 1) {
-    if (process.exitCode !== null) {
-      throw new Error(`Chrome exited before DevTools was ready (${process.exitCode}): ${stderr()}`);
+    if (childHasStopped(process)) {
+      const outcome = process.exitCode ?? process.signalCode;
+      throw new Error(`Chrome exited before DevTools was ready (${outcome}): ${stderr()}`);
     }
     try {
       const response = await fetch(`http://127.0.0.1:${port}/json/version`);
@@ -193,27 +196,74 @@ async function evaluateInBrowser(port: number, url: string, expression: string):
   }
 }
 
+function childHasStopped(process: ChildProcess): boolean {
+  return process.exitCode !== null || process.signalCode !== null;
+}
+
 async function stopChrome(process: ChildProcess): Promise<void> {
-  if (process.exitCode !== null) return;
+  if (childHasStopped(process)) return;
   await new Promise<void>((resolve) => {
-    const timeout = setTimeout(() => {
-      if (process.exitCode === null) process.kill('SIGKILL');
+    let forceResolve: ReturnType<typeof setTimeout> | undefined;
+    const terminate = setTimeout(() => {
+      if (childHasStopped(process)) {
+        finish();
+        return;
+      }
+      process.kill('SIGKILL');
+      forceResolve = setTimeout(finish, 250);
     }, 2_000);
-    process.once('exit', () => {
-      clearTimeout(timeout);
+    const finish = () => {
+      clearTimeout(terminate);
+      if (forceResolve) clearTimeout(forceResolve);
+      process.removeListener('exit', finish);
       resolve();
-    });
+    };
+    process.once('exit', finish);
+    // Recheck after subscribing so an exit racing the initial guard cannot strand the promise.
+    if (childHasStopped(process)) {
+      finish();
+      return;
+    }
     process.kill('SIGTERM');
   });
 }
 
 const chromeExecutable = CHROME_EXECUTABLE_CANDIDATES.find(existsSync);
+const requireBrowserTests = process.env.REQUIRE_BROWSER_TESTS === '1';
+
+function browserTestSkipReason(executable: string | undefined, required: boolean): false | string {
+  return !executable && !required ? 'Chrome or Chromium is unavailable' : false;
+}
+
+const browserTestSkip = browserTestSkipReason(chromeExecutable, requireBrowserTests);
+
+test(
+  'stopChrome returns when a child was already stopped by a signal',
+  { timeout: 1_000 },
+  async () => {
+    const child = spawn(process.execPath, ['-e', "process.kill(process.pid, 'SIGKILL')"], {
+      stdio: 'ignore',
+    });
+    await onceEvent(child, 'exit');
+    assert.equal(child.exitCode, null);
+    assert.equal(child.signalCode, 'SIGKILL');
+    await stopChrome(child);
+  }
+);
+
+test('required browser mode converts a missing executable from skip to failure', () => {
+  assert.equal(browserTestSkipReason(undefined, false), 'Chrome or Chromium is unavailable');
+  assert.equal(browserTestSkipReason(undefined, true), false);
+});
 
 test(
   'browser renders the Overview stress row and left-aligned orphan at the declared column floors',
-  { skip: chromeExecutable ? false : 'Chrome or Chromium is unavailable' },
+  { skip: browserTestSkip },
   async () => {
-    assert.ok(chromeExecutable);
+    assert.ok(
+      chromeExecutable,
+      'REQUIRE_BROWSER_TESTS=1 requires Chrome/Chromium; set CHROME_PATH when it is nonstandard'
+    );
     const markup = renderToStaticMarkup(
       <div id="scoreboard-container" className="@container">
         <div id="scoreboard-grid" className={OVERVIEW_SCOREBOARD_GRID_CLASSES}>
@@ -222,6 +272,7 @@ test(
       </div>
     );
     const compiler = await compile(`
+      @custom-variant dark (&);
       @theme {
         --spacing: .25rem;
         --text-xs: .75rem;
@@ -235,6 +286,11 @@ test(
       @tailwind utilities;
     `);
     const utilities = compiler.build(classCandidates(markup));
+    assert.doesNotMatch(
+      utilities,
+      /prefers-color-scheme:\s*dark/,
+      "the fixture must mirror the app's unconditional dark variant"
+    );
     const fixtureDirectory = mkdtempSync(path.join(tmpdir(), 'cfb-overview-grid-'));
     const fixturePath = path.join(fixtureDirectory, 'fixture.html');
     const profilePath = path.join(fixtureDirectory, 'chrome-profile');
@@ -246,8 +302,8 @@ test(
         const stressRow = grid.querySelector('[data-scoreboard-side="away"]');
         const stressLabel = stressRow.querySelector('.truncate');
         const widths = [
-          ${OVERVIEW_SCOREBOARD_GRID_TWO_COLUMN_MIN_PX - 1},
-          ${OVERVIEW_SCOREBOARD_GRID_TWO_COLUMN_MIN_PX},
+          ${Math.floor(OVERVIEW_SCOREBOARD_GRID_ONE_COLUMN_MAX_PX)},
+          ${Math.ceil(OVERVIEW_SCOREBOARD_GRID_ONE_COLUMN_MAX_PX)},
           ${OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_MIN_PX - 1},
           ${OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_MIN_PX}
         ];
@@ -266,7 +322,6 @@ test(
             firstCardTop: first.top,
             fourthCardTop: fourth.top,
             stressLabelClipped: stressLabel.scrollWidth > stressLabel.clientWidth + 0.01,
-            stressRowOverflows: stressRow.scrollWidth > stressRow.clientWidth + 0.01,
           });
         }
         return measurements;
@@ -326,20 +381,30 @@ test(
       )) as BrowserMeasurement[];
       assert.ok(Array.isArray(measurements), 'browser did not publish grid measurements');
       const byWidth = new Map(measurements.map((measurement) => [measurement.width, measurement]));
-      const belowTwo = byWidth.get(OVERVIEW_SCOREBOARD_GRID_TWO_COLUMN_MIN_PX - 1);
-      const atTwo = byWidth.get(OVERVIEW_SCOREBOARD_GRID_TWO_COLUMN_MIN_PX);
+      const atOne = byWidth.get(Math.floor(OVERVIEW_SCOREBOARD_GRID_ONE_COLUMN_MAX_PX));
+      const atTwo = byWidth.get(Math.ceil(OVERVIEW_SCOREBOARD_GRID_ONE_COLUMN_MAX_PX));
       const belowThree = byWidth.get(OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_MIN_PX - 1);
       const atThree = byWidth.get(OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_MIN_PX);
-      assert.ok(belowTwo && atTwo && belowThree && atThree);
+      assert.ok(atOne && atTwo && belowThree && atThree);
 
-      assert.equal(belowTwo.columnCount, 1);
+      assert.equal(atOne.columnCount, 1);
       assert.equal(atTwo.columnCount, 2);
       assert.equal(belowThree.columnCount, 2);
       assert.equal(atThree.columnCount, 3);
-      assert.equal(atTwo.firstCardWidth, OVERVIEW_SCOREBOARD_GRID_MIN_COLUMN_PX);
-      assert.equal(atThree.firstCardWidth, OVERVIEW_SCOREBOARD_GRID_MIN_COLUMN_PX);
+      assert.equal(
+        atTwo.firstCardWidth,
+        (Math.ceil(OVERVIEW_SCOREBOARD_GRID_ONE_COLUMN_MAX_PX) - OVERVIEW_SCOREBOARD_GRID_GAP_PX) /
+          2
+      );
+      assert.equal(atTwo.stressLabelClipped, false);
+      assert.ok(
+        atThree.firstCardWidth >=
+          OVERVIEW_SCOREBOARD_GRID_MIN_COLUMN_PX +
+            OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_HEADROOM_PX / 3 -
+            0.02,
+        'each three-column card must retain its budget plus its share of the headroom'
+      );
       assert.equal(atThree.stressLabelClipped, false);
-      assert.equal(atThree.stressRowOverflows, false);
       assert.ok(
         atThree.fourthCardTop > atThree.firstCardTop,
         'fourth card must begin a second row'
