@@ -171,9 +171,12 @@ test('Live promotes to Recent finals only when a final score attaches', () => {
   assert.deepEqual(memberships(select([final], now), gameValue.key), ['recentFinals']);
 });
 
-test('Live and Recent finals carry selector-owned fact tags without container-state tags', () => {
+test('nonzero close margins retain selector-owned tags across Live, awaiting, and Recent finals', () => {
   const live = item(game({ key: 'tagged-live', date: KICKOFF }), {
     score: score('In Progress', 14, 10),
+  });
+  const awaiting = item(game({ key: 'tagged-awaiting', date: KICKOFF }), {
+    score: score('Scheduled', 10, 7),
   });
   const final = item(game({ key: 'tagged-final', date: KICKOFF }), {
     score: score('Final', 21, 17),
@@ -181,14 +184,28 @@ test('Live and Recent finals carry selector-owned fact tags without container-st
   const rankingsByTeamId = new Map<string, TeamRankingEnrichment>([
     ['tagged-live-away', { rank: 6, rankSource: 'ap' }],
     ['tagged-live-home', { rank: 11, rankSource: 'ap' }],
+    ['tagged-awaiting-away', { rank: 8, rankSource: 'ap' }],
+    ['tagged-awaiting-home', { rank: 12, rankSource: 'ap' }],
     ['tagged-final-away', { rank: 14, rankSource: 'ap' }],
     ['tagged-final-home', { rank: 18, rankSource: 'ap' }],
   ]);
 
-  const sections = select([live, final], '2026-09-05T17:00:00.000Z', [], rankingsByTeamId);
+  const sections = select(
+    [live, awaiting, final],
+    '2026-09-05T17:00:00.000Z',
+    [],
+    rankingsByTeamId
+  );
+  const liveByKey = new Map(sections.live.map((entry) => [entry.bucket.game.key, entry]));
 
+  assert.equal(liveByKey.get('tagged-live')?.routeStatus.kind, 'live');
   assert.deepEqual(
-    sections.live[0]?.highlightTags.map((tag) => tag.id),
+    liveByKey.get('tagged-live')?.highlightTags.map((tag) => tag.id),
+    ['top25', 'close']
+  );
+  assert.equal(liveByKey.get('tagged-awaiting')?.routeStatus.kind, 'awaiting-score');
+  assert.deepEqual(
+    liveByKey.get('tagged-awaiting')?.highlightTags.map((tag) => tag.id),
     ['top25', 'close']
   );
   assert.deepEqual(
@@ -197,20 +214,31 @@ test('Live and Recent finals carry selector-owned fact tags without container-st
   );
 });
 
-test('an awaiting 0-0 score pack does not manufacture a Close tag', () => {
+test('exact 0-0 score packs exclude only Close across Live route states', () => {
   const awaiting = item(game({ key: 'awaiting-zero-zero', date: KICKOFF }), {
     score: score('Scheduled', 0, 0),
+  });
+  const live = item(game({ key: 'live-zero-zero', date: KICKOFF }), {
+    score: score('In Progress', 0, 0),
   });
   const rankingsByTeamId = new Map<string, TeamRankingEnrichment>([
     ['awaiting-zero-zero-away', { rank: 6, rankSource: 'ap' }],
     ['awaiting-zero-zero-home', { rank: 11, rankSource: 'ap' }],
+    ['live-zero-zero-away', { rank: 14, rankSource: 'ap' }],
+    ['live-zero-zero-home', { rank: 18, rankSource: 'ap' }],
   ]);
 
-  const sections = select([awaiting], '2026-09-05T17:00:00.000Z', [], rankingsByTeamId);
+  const sections = select([awaiting, live], '2026-09-05T17:00:00.000Z', [], rankingsByTeamId);
+  const liveByKey = new Map(sections.live.map((entry) => [entry.bucket.game.key, entry]));
 
-  assert.equal(sections.live[0]?.routeStatus.kind, 'awaiting-score');
+  assert.equal(liveByKey.get('awaiting-zero-zero')?.routeStatus.kind, 'awaiting-score');
   assert.deepEqual(
-    sections.live[0]?.highlightTags.map((tag) => tag.id),
+    liveByKey.get('awaiting-zero-zero')?.highlightTags.map((tag) => tag.id),
+    ['top25']
+  );
+  assert.equal(liveByKey.get('live-zero-zero')?.routeStatus.kind, 'live');
+  assert.deepEqual(
+    liveByKey.get('live-zero-zero')?.highlightTags.map((tag) => tag.id),
     ['top25']
   );
 });

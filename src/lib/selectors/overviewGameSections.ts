@@ -13,7 +13,7 @@ import { selectWeeklyRecapTileState, selectWeeklyRecapWeekTargets } from './week
 export const OVERVIEW_LIVE_LIMIT = 6;
 export const OVERVIEW_RECENT_FINALS_LIMIT = 6;
 export const OVERVIEW_WATCHLIST_LIMIT = 6;
-const AWAITING_SCORE_EXCLUDED_HIGHLIGHT_TAG_IDS: ReadonlySet<GameHighlightTag['id']> = new Set([
+const ZERO_ZERO_EXCLUDED_HIGHLIGHT_TAG_IDS: ReadonlySet<GameHighlightTag['id']> = new Set([
   'close',
 ]);
 
@@ -189,6 +189,10 @@ function uniqueOverviewItems(items: OverviewGameItem[]): OverviewGameItem[] {
   });
 }
 
+function hasZeroZeroScorePack(item: OverviewGameItem): boolean {
+  return item.score?.away.score === 0 && item.score.home.score === 0;
+}
+
 function expiredFinalWeeks(scheduleGames: AppGame[], now: Date): ReadonlySet<number> {
   return new Set(
     selectWeeklyRecapWeekTargets(scheduleGames)
@@ -251,15 +255,14 @@ export function selectOverviewGameSections(params: {
   for (const { item, section, status } of routesByKey.values()) {
     if (section !== 'live' && section !== 'recentFinals') continue;
 
-    // A provider score pack can carry numeric 0-0 values while the row still routes
-    // to Awaiting score. That is not evidence of a close game, so containment lives
-    // beside the route status. Passing the exclusion into the shared selector lets
-    // it remove the ineligible candidate before applying its two-tag cap.
+    // A numeric 0-0 provider pack is not evidence of a close game, regardless of
+    // whether its status routes the row to Live or Awaiting score. Key containment
+    // on that score fact so a real nonzero margin remains eligible in either state.
+    // The shared selector removes the ineligible candidate before applying its cap.
     const highlightTags = deriveGameHighlightTags({
       item,
       rankingsByTeamId,
-      excludedTagIds:
-        status.kind === 'awaiting-score' ? AWAITING_SCORE_EXCLUDED_HIGHLIGHT_TAG_IDS : undefined,
+      excludedTagIds: hasZeroZeroScorePack(item) ? ZERO_ZERO_EXCLUDED_HIGHLIGHT_TAG_IDS : undefined,
     });
     const taggedItem = { ...item, routeStatus: status, highlightTags };
 
