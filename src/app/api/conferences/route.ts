@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { CONFERENCES_SNAPSHOT } from '@/data/conferencesSnapshot';
+import { CFBD_PEAK_LATENCY_TIMEOUT_MS } from '@/lib/api/cfbdRequestPolicy';
 import { fetchUpstreamJson } from '@/lib/api/fetchUpstream';
 import { buildCfbdConferencesUrl } from '@/lib/cfbd';
 import type { CfbdConferenceRecord } from '@/lib/conferenceSubdivision';
@@ -163,7 +164,7 @@ export async function GET(req: Request) {
       buildCfbdConferencesUrl().toString(),
       {
         cache: 'no-store',
-        timeoutMs: 12_000,
+        timeoutMs: CFBD_PEAK_LATENCY_TIMEOUT_MS,
         headers: { Authorization: `Bearer ${cfbdApiKey}` },
       }
     );

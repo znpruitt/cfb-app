@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+import { CFBD_PEAK_LATENCY_TIMEOUT_MS } from '@/lib/api/cfbdRequestPolicy';
 import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
 import { buildCfbdGamesUrl } from '@/lib/cfbd';
 import {
@@ -342,7 +343,7 @@ async function fetchSeasonType(params: {
 
   const upstream = await fetchUpstreamJson<CfbdScheduleGame[]>(cfbdUrl.toString(), {
     cache: 'no-store',
-    timeoutMs: 12_000,
+    timeoutMs: CFBD_PEAK_LATENCY_TIMEOUT_MS,
     headers: { Authorization: authHeader },
     retry: CFBD_RETRY_POLICY,
     pacing: CFBD_PACING_POLICY,

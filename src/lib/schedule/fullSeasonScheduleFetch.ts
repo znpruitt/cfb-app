@@ -1,3 +1,4 @@
+import { CFBD_PEAK_LATENCY_TIMEOUT_MS } from '@/lib/api/cfbdRequestPolicy';
 import { fetchUpstreamJson } from '@/lib/api/fetchUpstream';
 import { classifyUpstreamFault, type UpstreamFaultClass } from '@/lib/api/upstreamFaultClass';
 import { buildCfbdGamesUrl } from '@/lib/cfbd';
@@ -65,7 +66,7 @@ export async function fetchFullSeasonSchedulePartition(params: {
   try {
     upstream = await fetchUpstreamJson<CfbdScheduleGame[]>(url.toString(), {
       cache: 'no-store',
-      timeoutMs: 12_000,
+      timeoutMs: CFBD_PEAK_LATENCY_TIMEOUT_MS,
       headers: { Authorization: `Bearer ${apiKey}` },
       retry: CFBD_RETRY_POLICY,
       pacing: CFBD_PACING_POLICY,

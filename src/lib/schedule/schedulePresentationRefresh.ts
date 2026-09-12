@@ -35,6 +35,7 @@
 
 import type { CacheEntry } from '@/app/api/schedule/cache';
 
+import { CFBD_PEAK_LATENCY_TIMEOUT_MS } from '../api/cfbdRequestPolicy.ts';
 import { fetchUpstreamJson } from '../api/fetchUpstream.ts';
 import { buildCfbdGamesMediaUrl, buildCfbdVenuesUrl } from '../cfbd.ts';
 import { scheduleMediaScope, venueCatalogScope } from '../providerRefreshScope.ts';
@@ -272,7 +273,7 @@ async function refreshMediaPart(params: {
     try {
       payload = await fetchUpstreamJson<unknown>(buildCfbdGamesMediaUrl({ year }).toString(), {
         cache: 'no-store',
-        timeoutMs: 12_000,
+        timeoutMs: CFBD_PEAK_LATENCY_TIMEOUT_MS,
         headers: { Authorization: `Bearer ${apiKey}` },
         retry: CFBD_RETRY_POLICY,
         pacing: CFBD_PACING_POLICY,
@@ -513,7 +514,7 @@ async function refreshVenuesPart(params: { now: number }): Promise<SchedulePrese
     try {
       payload = await fetchUpstreamJson<unknown>(buildCfbdVenuesUrl().toString(), {
         cache: 'no-store',
-        timeoutMs: 12_000,
+        timeoutMs: CFBD_PEAK_LATENCY_TIMEOUT_MS,
         headers: { Authorization: `Bearer ${apiKey}` },
         retry: CFBD_RETRY_POLICY,
         pacing: CFBD_PACING_POLICY,

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { buildCfbdTeamsUrl } from '@/lib/cfbd';
+import { CFBD_PEAK_LATENCY_TIMEOUT_MS } from '@/lib/api/cfbdRequestPolicy';
 import { fetchUpstreamJson } from '@/lib/api/fetchUpstream';
 import {
   buildTeamDatabaseFile,
@@ -34,7 +35,7 @@ export async function POST(req: Request): Promise<NextResponse> {
         Authorization: `Bearer ${apiKey}`,
         Accept: 'application/json',
       },
-      timeoutMs: 15_000,
+      timeoutMs: CFBD_PEAK_LATENCY_TIMEOUT_MS,
       retry: { maxAttempts: 2, baseDelayMs: 300 },
       pacing: { key: 'cfbd-teams', minIntervalMs: 250 },
     });

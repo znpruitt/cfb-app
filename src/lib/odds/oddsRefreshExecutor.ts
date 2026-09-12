@@ -325,9 +325,27 @@ function usageHeadersTrustworthy(headers: Headers): boolean {
 
 /**
  * ONE deadline value for both phases of the odds provider request (PLATFORM-662).
- * The header phase takes it via `fetchUpstreamResponse`; the body phase re-arms
- * the same budget at `readUpstreamJsonWithDeadline`. Two arming sites, one
- * number — a second, different value here would be the fork worth objecting to.
+ * The header phase takes it via `fetchUpstreamResponse`; the body phase takes the
+ * REMAINder of it at `startUpstreamBodyDeadline`. Two arming sites, one budget —
+ * a second, different value here would be the fork worth objecting to.
+ *
+ * ## Why this stays at 12s when the ten CFBD sites moved to 40s
+ *
+ * PLATFORM-662 changed what every upstream `timeoutMs` MEANS: it used to bound
+ * connect+headers, and now bounds the whole exchange. Ten CFBD call sites were
+ * therefore raised to `CFBD_PEAK_LATENCY_TIMEOUT_MS`, because leaving 12s would
+ * have silently moved them from effectively unbounded to below CFBD's MEASURED
+ * completion band (PLATFORM-115: 8.2s, 16.0s, 21.5s).
+ *
+ * This is THE ODDS API, a different provider, and [#632](…/issues/632) names it
+ * explicitly: "Decide separately; do not sweep it in on pattern-match alone."
+ * No equivalent latency band has been measured for it, so raising it to a
+ * CFBD-derived constant would assert something about a provider nobody sampled.
+ *
+ * RECORDED SO IT IS NOT MISTAKEN FOR AN OVERSIGHT: this lane did narrow, from
+ * unbounded-body to a 12s total, and that narrowing is deliberate and unproven
+ * rather than measured. It wants its own observation before it is trusted or
+ * changed — the honest next step is a measured band, not a borrowed number.
  */
 const ODDS_UPSTREAM_TIMEOUT_MS = 12_000;
 
