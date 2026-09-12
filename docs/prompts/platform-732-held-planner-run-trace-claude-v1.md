@@ -62,6 +62,53 @@ same applied runs.** A test that proves the second half is the one that matters.
 
 ---
 
+## RULINGS ON THE READ RECEIPT — 2026-09-12, binding
+
+**Shape C accepted: a separate series, key `held:<job>`, inside `pollingPlannerRecord.ts`.** Your
+argument is the right one and it is stronger than the test I asked for — byte-identical timeline
+segments hold **by construction** because the applied series' input is bit-for-bit unchanged, so the
+boundary test documents the guarantee instead of being the only thing defending it. Same-module
+placement accepted for the reason you gave: the held parser needs `POLLING_PLANNER_FUTURE_SKEW_MS`,
+the exact-midnight `dayStartMs` rule and the `at` normalization verbatim, and a second module that
+re-implements them is the trap `:172-176` already names.
+
+**A is rejected on your finding, not mine.** `pollingPlannerApply.ts:69-85` says in terms that closing
+the dead-day case *"needs `slow` to become nullable in slice 3a's store."* It wants nullable `slow` to
+mean **paused / not expected to fire**; a held job's slow schedule is **armed and firing**. One
+encoding, two opposite meanings, and the collision lands the day that follow-up ships. Verified.
+
+**B is rejected on the rollback path.** Build N+1 writes a held row, a rollback to build N rejects it,
+and if the key holds only such rows `readPollingPlannerRunsForWrite:641` refuses every subsequent
+write — permanently, with no bug, by deploy alone. That it also takes the operator's repair path down
+with it (Q2) makes it worse than the gap.
+
+**Q5's route-throw is the real hazard under C, and your framing is correct.** The held write sits on
+the `continue` branch inside the `for` at `route.ts:387`; a throw there escapes to the outer catch and
+**the job that was NOT held loses its whole day**. Build all four tests. Test 1's mutation control —
+delete the try/catch and it must go red — is the one that matters; the others can pass vacuously
+without it.
+
+**Q7 accepted as a shaping constraint, not scope.** Make the held row's `reason` a **string**, not a
+boolean, so the `read.kind !== 'usable'` day (`:351-358`, returns before the loop) can be added later
+without a second durable-schema change. Do not add that day here.
+
+**Reuse the receipt's vocabulary and `invocationId`** per your Q1 — `plan-held` / `settings-unavailable`
+and the same id, so the two correlate. That is free Item 126 Tier A correlation on this surface.
+
+**Three corrections to this prompt, all yours:**
+`schedulerDeliveryHealth.ts` is **not** the only reader — `scripts/lib/plannerIntentReader.ts` reads
+the raw row by SQL over the read-only rail and refuses on `{ok:false}`, so the operator's `inspect`
+and `upsert --apply` go down at the same instant the record does. I warned the grep might
+under-report and it did, which is the third time this week I enumerated from the wrong layer.
+Production holds **8 runs per key across two keys**, not 7 — mine was correct when measured and a
+planning day passed. And **"never written at all" is true of the planner record, not of the system**:
+the receipt carries `reason` and `jobsHeld`, latest-only. The gap is HISTORY, not trace.
+
+**The orphaned follow-up is filed as #746** — nullable `slow` for the dead-day case, which existed
+only in a code comment. Not yours; do not fold it in.
+
+Proceed to implementation.
+
 ## STOP — read receipt before writing any code
 
 1. Quote the exact point in `route.ts` where a held run is decided and show what it returns. Does the
