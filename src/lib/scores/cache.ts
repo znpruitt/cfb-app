@@ -76,13 +76,15 @@ export type CacheEntry = {
    *    a number about the cron, not about the game. Stamping both would mix
    *    two measurements silently, so swept games are EXCLUDED and the exclusion
    *    is self-describing: such a row is present in {@link itemUpdatedAtById}
-   *    and absent here, so "no stamp" never reads as "no data". Stated
-   *    precisely, because the weaker reading is the one that is true: what is
-   *    absent is a stamp from any LIVE-PATH write. A game the sweep finalled
-   *    and live polling later re-observed would be stamped at that live
-   *    observation — correct under this field's own definition, and bounded by
-   *    the guard in `scoreMerge` that withholds a stamp when the child row is
-   *    already final.
+   *    and absent here, so "no stamp" never reads as "no data".
+   *
+   *    An absent stamp means we NEVER OBSERVED THE TRANSITION on a live path —
+   *    not that we observed one we cannot date. `scoreMerge` withholds a stamp
+   *    whenever the child row is ALREADY final, so once the weekly sweep (or a
+   *    pre-692 write) has finalled a row, no later live re-observation can
+   *    stamp it. That is what makes the exclusion hold permanently per row
+   *    rather than only until the next poll, and it is why an unstamped row is
+   *    safe to drop from the distribution rather than treat as a late final.
    *
    * Paired with {@link itemUpdatedAtById}, which is the LAST-material-change
    * stamp, the two bracket both halves of what the tail exists for: `stamp −
