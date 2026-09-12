@@ -90,6 +90,15 @@ These consolidate recurring historical observations, not new project-governance 
 
 ## Prompt ledger (source order retained)
 
+### PLATFORM-733-PLANNER-REPAIR-DEAD-END-CLAUDE-v1
+
+- Change: `polling-planner` joins `JOBS_WITHOUT_EXECUTION_REPAIR` ([#733](https://github.com/znpruitt/cfb-app/issues/733)) — the only linked job with no action for its fault. Measured at `0a47d36e`: ten scheduler jobs, four exempt, six linked, eleven maintenance actions; the other five each match a descriptor whose `automationOwner` names their own schedule, and nothing in the catalog is planner-related. The rule was already in the file, on `usage-sample`.
+- Scope limit: one set member and its suites. No planner action added; the `settings-unavailable` hint is byte-identical — keyed by REASON, so `rankings` and `schedule-refresh` inherit any strengthening verbatim.
+- Evidence: only the EXECUTION fault lied — a planner RECORD fault already rendered `repair: null` through `PLAN_UNAVAILABLE_EXPLANATION`. **No admin page repairs a planner fault**: `plan-not-applied` is a QStash credential or outage, `settings-unavailable` the settings record, `plan-partially-applied` self-corrects on the next daily re-plan. System Health's `scores`/`game-stats` toggles hold and release rather than repair — linking there is the same class of lie.
+- Historical corrections: [#619](https://github.com/znpruitt/cfb-app/issues/619) justified the hint's restraint by the planner's then-visible link; that premise is gone, so the comment states the surviving one. Its deliberate pinning assertion is flipped here.
+- Review / verification: both assertions mutation-proven at their own lines, `rankings` positive control. `npm test` 5,216/5,216 exit 0 (delta 0); `tsc`/`lint:all`/`build` exit 0. See L4.
+- Status: Implemented — PR open.
+
 ### PLATFORM-732-HELD-PLANNER-RUN-TRACE-CLAUDE-v1
 
 - Change: a held planner run writes a durable row to a SEPARATE series, key `held:<job>`, same scope ([#732](https://github.com/znpruitt/cfb-app/issues/732)). The hold branch reached no writer; the receipt is latest-only, so the gap was HISTORY.
