@@ -5,7 +5,7 @@ import type { OverviewGameItem } from '../../overview';
 import type { AppGame } from '../../schedule';
 import type { ScorePack } from '../../scores';
 import type { PrioritizedOverviewItem } from '../overview';
-import { selectOverviewGameSections } from '../overviewGameSections';
+import { OVERVIEW_LIVE_LIMIT, selectOverviewGameSections } from '../overviewGameSections';
 
 const FUTURE = '2026-09-12T16:00:00.000Z';
 const KICKOFF = '2026-09-05T16:00:00.000Z';
@@ -320,7 +320,7 @@ test('live rows sort by kickoff, and an attached score does not promote a row', 
   );
 });
 
-test('live rows ignore owner count and keep the six-row cap on kickoff order', () => {
+test('live rows ignore owner count and retain the complete kickoff-ordered collection', () => {
   // Section-ordering resolutions §2: relevance promotion belongs to Featured, not a
   // hidden sort key. A no-owner game kicking off first still leads the section.
   // One real owner, not zero: routeForItem drops a game with no real owners before
@@ -335,7 +335,7 @@ test('live rows ignore owner count and keep the six-row cap on kickoff order', (
   );
   const sections = select([...twoOwner, oneOwner], '2026-09-05T21:00:00.000Z');
 
-  assert.equal(sections.live.length, 6, 'the cap still holds at six');
+  assert.equal(sections.live.length, 7, 'every ordered row must reach the renderer');
   assert.equal(
     sections.live[0]?.bucket.game.key,
     'one-owner-first',
@@ -343,12 +343,34 @@ test('live rows ignore owner count and keep the six-row cap on kickoff order', (
   );
   assert.equal(
     sections.live.at(-1)?.bucket.game.key,
-    'owned-4',
-    // owned-5 kicks off at 20:00 and is the row the cap drops. An earlier version of
-    // this template produced `T110:00:00` for that index, so the row was undated and
-    // was sliced for the WRONG reason — the assertion passed without proving the cap
-    // works on kickoff order at all.
-    'the cap drops the latest kickoff (owned-5, 20:00), not the least relevant game'
+    'owned-5',
+    'the latest kickoff remains at the end instead of being discarded by the selector'
+  );
+});
+
+test('six earlier awaiting rows do not make a later scored Live game unreachable', () => {
+  const awaiting = Array.from({ length: OVERVIEW_LIVE_LIMIT }, (_, index) =>
+    item(
+      game({
+        key: `awaiting-${index}`,
+        date: `2026-09-05T${String(12 + index).padStart(2, '0')}:00:00.000Z`,
+      })
+    )
+  );
+  const scored = item(game({ key: 'scored-surplus', date: '2026-09-05T18:00:00.000Z' }), {
+    score: score('In Progress', 21, 17),
+  });
+  const sections = select([scored, ...awaiting], '2026-09-05T19:00:00.000Z');
+
+  assert.deepEqual(
+    sections.live.slice(0, OVERVIEW_LIVE_LIMIT).map((entry) => entry.routeStatus.kind),
+    Array.from({ length: OVERVIEW_LIVE_LIMIT }, () => 'awaiting-score'),
+    'the bounded default is genuinely occupied by six earlier awaiting rows'
+  );
+  assert.deepEqual(
+    sections.live.slice(OVERVIEW_LIVE_LIMIT).map((entry) => entry.bucket.game.key),
+    ['scored-surplus'],
+    'the scored row remains in the ordered surplus that Overview can expand'
   );
 });
 
@@ -397,7 +419,7 @@ test('Recent finals ignores owner count when two games share a kickoff', () => {
   );
 });
 
-test('undated live rows retain a deterministic key order under the six-row cap', () => {
+test('undated live rows retain a deterministic key order', () => {
   const laterKey = item(game({ key: 'z-undated' }), {
     score: score('In Progress', 0, 0),
   });
@@ -414,7 +436,7 @@ test('undated live rows retain a deterministic key order under the six-row cap',
   );
 });
 
-test('watchlist routes the full prioritised pool and caps six survivors', () => {
+test('watchlist builds the complete prioritised pool after skipping promoted candidates', () => {
   const kickedOff = item(game({ key: 'promoted', date: KICKOFF }));
   const future = Array.from({ length: 8 }, (_, index) =>
     item(game({ key: `future-${index}`, date: `2026-09-12T${16 + index}:00:00.000Z` }))
@@ -427,7 +449,7 @@ test('watchlist routes the full prioritised pool and caps six survivors', () => 
 
   assert.deepEqual(
     sections.scheduled.map((entry) => entry.item.bucket.game.key),
-    ['future-0', 'future-1', 'future-2', 'future-3', 'future-4', 'future-5']
+    ['future-0', 'future-1', 'future-2', 'future-3', 'future-4', 'future-5', 'future-6', 'future-7']
   );
   assert.deepEqual(memberships(sections, kickedOff.bucket.game.key), ['live']);
 });

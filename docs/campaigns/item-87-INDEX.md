@@ -38,8 +38,8 @@ Rows 1–6 keep the numbers earlier prompts cited; rows 7 onward were promoted b
 | 11 | Item 113 | **Remove the results-based Featured rather than reworking it**, and **do not ship both** tiles. Route is 113's call. | `featured-intent.md` → *Recommendation* (82–91%) |
 | 12 | Item 113 | **Specify what DOES promote** — an unclaimed slot is how owner count got in. | `section-ordering-resolutions.md` → *Sort rules* (71%) |
 | 13 | Item 113 / recap | Recap notable-results records: **work in later as an additive change**, uncoupled from the records cache. | `live-watchlist-scoreboard.md` → *Open decisions* 2 (45%) |
-| 14 | Item 115 | **Counts become totals in the same change that makes the surplus reachable**; visible-only until then. | `section-ordering-resolutions.md` §5 (46%); `section-ordering.md` → *Resolved* (80%) |
-| 15 | Item 115 / 134 | Caps are counts, not rows; decide whether they become tier-dependent or stay ragged. | `three-column-tier.md` → *Caps interact with the tier* (83%) |
+| 14 | **DISCHARGED by PLATFORM-676** | Live's count is total in the same change that makes all three state-section surpluses reachable. | `section-ordering-resolutions.md` §5; `section-ordering.md` → *Resolved* |
+| 15 | **DISCHARGED by PLATFORM-676 / remains Item 134** | Six-item caps remain count-based and deliberately ragged; any tier-dependent change belongs to #678/#726. | `three-column-tier.md` → *Caps interact with the tier* |
 | 16 | Retired Items 119/198 | **DISCHARGED 2026-09-10 — direction retired.** Item 119's bar measured badly and Item 198 explored the warranted follow-on, but the owner chose 28px CFBD logos after comparing both treatments on real rows. | `team-colour.md` → historical sequence; `reference-game-row.md` §3 current logo contract |
 | 17 | Retired Item 198 | **DISCHARGED 2026-09-10 — normaliser removed.** The six real underlays and two-ended contrast constraint were correctly derived, then made irrelevant to the shipped row when logos replaced solid colours. | `reference-game-row.md` §3 historical colour investigation |
 | 18 | Retired Item 198 | **DISCHARGED 2026-09-10 — OKLCH does not ship.** Near-neutral chroma preservation remains a valid finding, but no colour-space transform remains in the scoreboard path. | `team-colour.md` → *Reserved-hue guard* (historical) |
@@ -191,15 +191,15 @@ The two Featured concepts and the product intent. Cross-references Item 113, whi
 
 **`item-87-followon-section-ordering.md`** (112 → 128 lines) — **PARTLY SUPERSEDED — status lines only**
 Six decisions found living only in mockup markup. The six decisions stand; both of its status statements were
-wrong in opposite directions and are marked: decision 3 (counts as totals) did NOT merge in POLISH-023 (visible
-count still, `OverviewPanel.tsx:1475`), while decision 5 ("Today") DID ship in slice 5. Its four open items are
+wrong in opposite directions and are marked: decision 3 (counts as totals) is implemented in Item 115 /
+[PR #744](https://github.com/znpruitt/cfb-app/pull/744) with merge pending, while decision 5 ("Today") DID ship in slice 5. Its four open items are
 answered by its child.
 
 **`item-87-followon-section-ordering-resolutions.md`** (146 → 161 lines) — **CURRENT**
 Live sorts by kickoff alone (confirmed: `overviewGameSections.ts:155-161`); owner-count key removed; no date or
-time on final rows; Matchups sorts kickoff with finals last (§4, still unbuilt after Item 117); counts wait for
-Item 115. Carries the sort-rules table for all four sections. The §3 postseason call is ANSWERED by
-`postseason-context.md`.
+time on final rows; Matchups sorts kickoff with finals last (§4, still unbuilt after Item 117). Item 115 /
+[PR #744](https://github.com/znpruitt/cfb-app/pull/744) supplies the total and disclosure. Carries the sort-rules table for all four sections. The §3 postseason
+call is ANSWERED by `postseason-context.md`.
 
 ### Postseason
 

@@ -52,7 +52,7 @@ Supersedes: (none)
 > **So the next server-track action is a measurement, not a branch:** actual live-scores wakeups since
 > activation against the projected 6,156 for October, and the real overrun distribution past +8h.
 > **Owner picks** between that, Item 126 Tier A, and #732/#733.
-`NEXT`: **Item 115** — Overview section expansion.
+`NEXT`: **Item 134** — Overview three-column tier, after Item 115 / PR #744 merges.
 
 Owner-selected run order (2026-09-03), replacing the 2026-09-02 order. Ordering values, stated by the
 owner: **user-facing improvements, data correction, and bug fixes first; prerequisites persisted in
@@ -83,8 +83,9 @@ committed `c9f76081`) surfaced four new items and one split; the remaining open 
    **Operationally independent, though:** 126's incident is the weekly `schedule-refresh` job, while
    102 narrows `live-scores` and `game-stats`. Neither blocks the other; the conflict is in files.
    Observation-only by its own acceptance boundary, so it is the lower-risk half of the pair.
-3. **Item 115** — Overview section expansion. Recent finals is documented as complete and truncates
-   at six today; this reuses the disclosure pattern slice 5 settles rather than inventing one.
+3. **Item 115** — Overview section expansion. **Implemented and reviewed in PR #744; merge pending.**
+   Live, Recent finals, and Watchlist keep six-item bounded defaults and expose their complete
+   selector-owned collections through independent in-place disclosure.
    **Cross-reference Item 134:** caps are counts, not rows, so at three columns a cap produces a
    ragged final row (seven live games renders 3 + 3 + 1). That interaction belongs to THIS item's cap
    work, not to the tier.
@@ -475,7 +476,7 @@ number.**
 | **111** | [#658](https://github.com/znpruitt/cfb-app/issues/658) | `/api/odds` fetches its own origin, costing two extra invocations per request |
 | **113** | [#675](https://github.com/znpruitt/cfb-app/issues/675) | Featured games is a plain finals list; the insights-hook reframe was decided b |
 | **114** | resolved — see the audit appendix | CLOSED, MISDIAGNOSED. Featured empties early; expiry was never involved |
-| **115** | [#676](https://github.com/znpruitt/cfb-app/issues/676) | Overview sections truncate with no expansion, though "bounded default" was dec |
+| **115** | [PR #744](https://github.com/znpruitt/cfb-app/pull/744) — merge pending | Overview section expansion for [#676](https://github.com/znpruitt/cfb-app/issues/676) |
 | **118** | [#677](https://github.com/znpruitt/cfb-app/issues/677) | Schedule status filter with counts |
 | **120** | resolved — see the audit appendix | CLOSED, no action: the 2023/2024 field gap is unread and fails open |
 | **121** | [#708](https://github.com/znpruitt/cfb-app/issues/708) | every CFP first-round game shares one `eventKey`, and it is the React list key |

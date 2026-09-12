@@ -98,6 +98,15 @@ These consolidate recurring historical observations, not new project-governance 
 - Review / verification: converged in one round, three findings accepted — Codex P3 refuted this record's own score-less-final claim: both opt-in callers require both scores, and it came from the classifier, not the population. `tsc`/`lint:all` 0; `npm test` 5,193/5,193 (+21); ten mutations, each at its own assertion.
 - Status: Implemented — PR open.
 
+### PLATFORM-676-OVERVIEW-SECTION-EXPANSION-CODEX-v1
+
+- Purpose: implement Item 115 / [#676](https://github.com/znpruitt/cfb-app/issues/676): bounded, in-place disclosure for Overview game sections and a truthful Live total.
+- Scope: Live, Recent finals, and Watchlist selectors/rendering only. Featured and its four-game cap remain unchanged; six-item defaults stay count-based and deliberately ragged pending #678/#726.
+- Outcome: selectors expose complete ordered collections; section-keyed controls expand independently, survive refresh and game migration, reset on Overview remount, and keep the focused collapse control visible.
+- Review / verification: two two-reviewer passes resolved four lows and one medium; one refresh-reset finding was rejected against the owner ruling and pinned. Guard removal is mutation-proven. `tsc`, lint, build, focused tests, full suite, and clock-shift control pass.
+- Status: Implemented and reviewed in PR [#744](https://github.com/znpruitt/cfb-app/pull/744) (`5bd45585`, `51ae096a`, `bc0c77c7`); merge pending.
+
+
 ### PLATFORM-137-WRITER-CONVERGENCE-TIME-BOMBS-CLAUDE-v1
 
 - Change: three odds fixtures derive kickoffs from `Date.now()` instead of pinned literals, clearing the two-failure baseline for [#696](https://github.com/znpruitt/cfb-app/issues/696); `npm test` on clean `main` exits 0. Past kickoff the writer DELETES the empty durable record rather than writing one, so the assertion read `undefined`. Ships `npm run test:clock-shift -- <days>`.
