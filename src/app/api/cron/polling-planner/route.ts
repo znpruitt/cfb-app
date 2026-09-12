@@ -301,8 +301,18 @@ async function planOneJob(
  *      moving it after the loop is what makes that structural rather than
  *      probabilistic. NOT closed by a timeout race: cancelling an in-flight
  *      transaction would leave durability unknown and nothing here may round that.
- *      What remains after the move is the route's PRE-EXISTING exposure — the
- *      `finally` receipt write goes to the same store — rather than a new one.
+ *
+ *      STATE THE BOUND PRECISELY, BECAUSE THE FIRST VERSION OF THIS PARAGRAPH DID
+ *      NOT. What the move buys is that a hang here CANNOT BLOCK PLANNING — every
+ *      schedule is derived, sent and confirmed before this write is attempted. It
+ *      is NOT that a hang cannot block the RUN: a pending promise never resolves,
+ *      so the response below and the `finally` receipt are never reached either,
+ *      and a day whose four schedules all applied would then show a missing
+ *      planner receipt. That class of exposure is pre-existing — `planOneJob`'s
+ *      own `recordPollingPlannerRun` is the same unbounded transaction, inside the
+ *      same loop — but this adds one more point at which it can happen, and
+ *      calling the bound "cannot block the run" would have overstated it. Owner
+ *      ruling at merge, 2026-09-12.
  *   2. Its failure fed `recordsNotWritten`, which feeds `failed`, which gates the
  *      `success` branch. So a held job whose TRACE failed downgraded a run in
  *      which every schedule reached its planned state to `partial`, and
