@@ -9,6 +9,8 @@ import {
 } from '@/lib/server/appStateStore';
 import {
   POLLING_PLANNER_RECORD_SCOPE,
+  pollingPlannerHoldRecordKey,
+  readPollingPlannerHoldRuns,
   readPollingPlannerRuns,
 } from '@/lib/server/pollingPlannerRecord';
 import {
@@ -88,11 +90,20 @@ async function reset(): Promise<void> {
  * assertion trail explains, which is the failure mode worth naming at its cause.
  */
 async function assertPlannerInputsAreClean(): Promise<void> {
-  for (const job of ['live-scores', 'game-stats']) {
+  for (const job of ['live-scores', 'game-stats'] as const) {
     assert.equal(
       await getAppState(POLLING_PLANNER_RECORD_SCOPE, job),
       null,
       `${job}: a planner record survived reset()`
+    );
+    // PLATFORM-732 — the HELD series is a second key under the same scope, and it
+    // inherits the same recycled-pid hazard the applied one does. Left unasserted,
+    // an inherited trace would make the hold tests below pass on a previous run's
+    // row rather than on one this run wrote.
+    assert.equal(
+      await getAppState(POLLING_PLANNER_RECORD_SCOPE, pollingPlannerHoldRecordKey(job)),
+      null,
+      `${job}: a held planner trace survived reset()`
     );
   }
   const { PROVIDER_REFRESH_SETTINGS_SCOPE, PROVIDER_REFRESH_SETTINGS_KEY } = await import(
@@ -676,6 +687,201 @@ test('an unreadable settings store holds everything AND REPORTS A FAILURE', asyn
     assert.equal(target.schedulesFailed, 0);
   } finally {
     __setAppStateReadFailureForTests(null);
+    await clearHolds();
+    deferrer.restore();
+    restore();
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-732 — the durable trace of a run that planned nothing
+// ---------------------------------------------------------------------------
+
+test('an operator hold leaves a durable trace naming the cause and the invocation', async () => {
+  // Before this, a held job reached no writer at all: `planOneJob` is the only
+  // caller of `recordPollingPlannerRun` and the loop `continue`s past it. The
+  // receipt did carry `reason` and `jobsHeld` — but latest-only, so it answers
+  // "did the LAST run hold" and never "has one ever", which is the gap (#732).
+  await reset();
+  await clearHolds();
+  const deferrer = installReceiptDeferrer();
+  installQstash({ scheduleFor: (id) => readbackFor(id) });
+  try {
+    const dayStartMs = await seedDay();
+    await seedSchedule([
+      { startDate: new Date(dayHour(dayStartMs, 19)).toISOString(), startTimeTBD: false },
+    ]);
+    await holdJob('scores');
+    await GET(request());
+    await deferrer.flush();
+
+    const held = await readPollingPlannerHoldRuns('live-scores');
+    assert.equal(held.kind, 'ok');
+    const runs = held.kind === 'ok' ? held.series.runs : [];
+    assert.equal(runs.length, 1);
+    assert.equal(runs[0]?.reason, 'plan-held', 'an operator chose this one');
+    assert.equal(runs[0]?.dayStartMs, dayStartMs, 'the day that was NOT planned');
+
+    // ITEM 126 TIER A CORRELATION. The trace carries the receipt's own id, so the
+    // durable history and the latest-only receipt describe one run rather than
+    // two accounts nobody can join.
+    const receipt = await readReceipt();
+    assert.equal(typeof receipt?.invocationId, 'string');
+    assert.equal(runs[0]?.invocationId, receipt?.invocationId);
+
+    // The UNHELD job gets an applied record and NO trace. The two series never
+    // describe the same job on the same run.
+    assert.equal((await readPollingPlannerHoldRuns('game-stats')).kind, 'absent');
+    assert.equal((await readPollingPlannerRuns('game-stats')).kind, 'ok');
+    // And the held job's APPLIED series stays absent — nothing was observed, so
+    // there is nothing to record there.
+    assert.deepEqual(await readPollingPlannerRuns('live-scores'), { kind: 'absent' });
+  } finally {
+    await clearHolds();
+    deferrer.restore();
+    restore();
+  }
+});
+
+test('an unreadable settings store traces settings-unavailable, not an operator hold', async () => {
+  // THE QUESTION #732 EXISTS TO MAKE ANSWERABLE. Both causes hold every job and
+  // send nothing, and only one of them is something somebody chose — the
+  // distinction #619 established one layer up, now durable rather than latest-only.
+  //
+  // Mutation target: write a single constant reason instead of branching on
+  // `settings === null` and this reads `plan-held`, which is the state an operator
+  // would then read as a deliberate stop nobody made.
+  await reset();
+  await clearHolds();
+  const deferrer = installReceiptDeferrer();
+  const calls = installQstash({ scheduleFor: (id) => readbackFor(id) });
+  const { __setAppStateReadFailureForTests } = await import('@/lib/server/appStateStore');
+  try {
+    const dayStartMs = await seedDay();
+    await seedSchedule([
+      { startDate: new Date(dayHour(dayStartMs, 19)).toISOString(), startTimeTBD: false },
+    ]);
+    __setAppStateReadFailureForTests(
+      new Error('settings scope unavailable'),
+      'provider-refresh-settings'
+    );
+    await GET(request());
+    __setAppStateReadFailureForTests(null);
+    await deferrer.flush();
+
+    assert.equal(calls.length, 0, 'nothing is sent when the hold cannot be read');
+    for (const job of ['live-scores', 'game-stats'] as const) {
+      const held = await readPollingPlannerHoldRuns(job);
+      assert.equal(held.kind, 'ok', `${job}: every held job is traced, not just the first`);
+      const runs = held.kind === 'ok' ? held.series.runs : [];
+      assert.equal(runs.length, 1);
+      assert.equal(
+        runs[0]?.reason,
+        'settings-unavailable',
+        `${job}: nobody chose this, and reading it as an operator hold is the defect`
+      );
+    }
+  } finally {
+    __setAppStateReadFailureForTests(null);
+    await clearHolds();
+    deferrer.restore();
+    restore();
+  }
+});
+
+test('a trace that CANNOT be written does not cost the unheld job its day', async () => {
+  // THE HAZARD THIS WHOLE SHAPE IS ARRANGED AROUND. The held write sits on the
+  // `continue` branch inside the per-job loop: anything that escapes there reaches
+  // the route's outer catch, and the job that was NOT held is never planned —
+  // an observability write costing a planning run, which is strictly worse than
+  // the gap it closes.
+  //
+  // Driven by a permanently-unreadable held key, which is the realistic form:
+  // `readPollingPlannerHoldRunsForWrite` refuses a present value that yields
+  // nothing, so this key can never be written again. The totality guard itself is
+  // mutation-proven in `pollingPlannerHoldRecord.test.ts` with an injected
+  // throwing writer, because the store catches everything a seam can produce.
+  await reset();
+  await clearHolds();
+  const deferrer = installReceiptDeferrer();
+  const calls = installQstash({ scheduleFor: (id) => readbackFor(id) });
+  try {
+    const dayStartMs = await seedDay();
+    await seedSchedule([
+      { startDate: new Date(dayHour(dayStartMs, 19)).toISOString(), startTimeTBD: false },
+    ]);
+    await setAppState(POLLING_PLANNER_RECORD_SCOPE, pollingPlannerHoldRecordKey('live-scores'), {
+      runs: [{ at: 'not-a-date' }],
+    });
+    await holdJob('scores');
+    const response = await GET(request());
+    await deferrer.flush();
+
+    // POSITIVE CONTROL: the trace really was refused, so this test is not passing
+    // because the failure never happened.
+    assert.equal(
+      (await readPollingPlannerHoldRuns('live-scores')).kind,
+      'unreadable',
+      'the held write must actually have failed for this test to mean anything'
+    );
+
+    // The un-held job was planned, its schedules were sent, and its record landed.
+    assert.ok(
+      calls.some((call) => call.url.includes(GAME_STATS_DENSE_CONTRACT.scheduleId)),
+      'the unheld job still reached QStash'
+    );
+    assert.equal((await readPollingPlannerRuns('game-stats')).kind, 'ok');
+
+    // 200 and a receipt, never a 5xx: QStash must not read a controlled outcome
+    // as a transport fault.
+    assert.equal(response.status, 200);
+    const receipt = await readReceipt();
+    assert.equal(receipt?.result, 'partial');
+    const target = receipt?.target as { recordsNotWritten: number; jobsHeld: number };
+    // COUNTED IN `recordsNotWritten`, whose meaning already covers it —
+    // "planner-owned jobs whose durable record write did not confirm" — and which
+    // System Health renders on the planner row. A lost trace is visible without
+    // any schema change and without moving the result branches.
+    assert.equal(target.recordsNotWritten, 1);
+    assert.equal(target.jobsHeld, 1);
+  } finally {
+    await clearHolds();
+    deferrer.restore();
+    restore();
+  }
+});
+
+test('an all-held run stays a silent no-op even when its traces are lost', async () => {
+  // THE BRANCH ORDER IS DELIBERATELY UNTOUCHED. A deliberate operator stop must
+  // not page anyone — `schedulerExecutionIssues` raises nothing for `no-op` — so a
+  // failed trace must not promote a held run to `partial`. The loss is still
+  // visible: `recordsNotWritten` is non-zero on the receipt, and System Health
+  // renders it on the planner row regardless of result.
+  await reset();
+  await clearHolds();
+  const deferrer = installReceiptDeferrer();
+  try {
+    const dayStartMs = await seedDay();
+    await seedSchedule([
+      { startDate: new Date(dayHour(dayStartMs, 19)).toISOString(), startTimeTBD: false },
+    ]);
+    for (const job of ['live-scores', 'game-stats'] as const) {
+      await setAppState(POLLING_PLANNER_RECORD_SCOPE, pollingPlannerHoldRecordKey(job), {
+        runs: [{ at: 'not-a-date' }],
+      });
+    }
+    await holdJob('scores');
+    await holdJob('game-stats');
+    await GET(request());
+    await deferrer.flush();
+
+    const receipt = await readReceipt();
+    assert.equal(receipt?.result, 'no-op', 'a deliberate stop must not start paging');
+    assert.equal(receipt?.reason, 'plan-held');
+    const target = receipt?.target as { recordsNotWritten: number; jobsHeld: number };
+    assert.equal(target.jobsHeld, 2);
+    assert.equal(target.recordsNotWritten, 2, 'the loss is counted even though it raises nothing');
+  } finally {
     await clearHolds();
     deferrer.restore();
     restore();

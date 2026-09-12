@@ -22,9 +22,12 @@ import {
   slowWithoutCarriedHours,
 } from '@/lib/server/pollingPlannerApply';
 import {
+  buildPollingPlannerHoldRun,
   buildPollingPlannerRun,
+  recordPollingPlannerHoldRunSafely,
   recordPollingPlannerRun,
   type PlannerScheduleRun,
+  type PollingPlannerHoldReason,
 } from '@/lib/server/pollingPlannerRecord';
 import {
   PLANNER_OWNED_JOBS,
@@ -274,6 +277,50 @@ async function planOneJob(
   if (outcome !== 'recorded') exec.recordsNotWritten += 1;
 }
 
+/**
+ * The durable trace of a run that planned nothing for one job (PLATFORM-732).
+ *
+ * WHY IT IS NEEDED AT ALL. `planOneJob` is the only caller of
+ * `recordPollingPlannerRun`, and a held job never reaches it — the loop below
+ * `continue`s — so before this a hold left NO durable history. The receipt does
+ * carry `reason` and `jobsHeld`, but latest-only: it answers "did the last run
+ * hold" and never "has a settings-unreadable hold ever happened", which is the
+ * question issue #732 exists to make answerable.
+ *
+ * WHY IT CANNOT THROW. This runs on the `continue` branch INSIDE the per-job loop.
+ * A throw here escapes to the route's outer catch and the job that was NOT held
+ * loses its whole day — an observability write costing a planning run, which is
+ * strictly worse than the gap it closes. `recordPollingPlannerHoldRunSafely` is
+ * the total form, and it is the only form this route may call.
+ *
+ * WHY THE FAILURE IS COUNTED IN `recordsNotWritten`. The field already means
+ * "planner-owned jobs whose durable record write did not confirm", which is
+ * exactly what a lost trace is, and System Health renders it on the planner row
+ * (`· N record(s) not written`) regardless of result. The result BRANCHES ARE
+ * UNTOUCHED: an all-held run still reports `no-op` / `plan-held` and still pages
+ * nobody, because a deliberate stop must not raise an issue — the count is
+ * visible without the classification moving.
+ */
+async function recordHeldJob(
+  job: PlannerOwnedJob,
+  input: { at: Date; invocationId: string | null; dayStartMs: number },
+  reason: PollingPlannerHoldReason,
+  exec: PollingPlannerCronExecutionState
+): Promise<void> {
+  const outcome = await recordPollingPlannerHoldRunSafely(
+    job,
+    buildPollingPlannerHoldRun({
+      at: input.at,
+      // The RECEIPT's id, so the durable history and the latest-only receipt
+      // describe one run rather than two (Item 126 Tier A correlation).
+      invocationId: input.invocationId,
+      dayStartMs: input.dayStartMs,
+      reason,
+    })
+  );
+  if (outcome !== 'recorded') exec.recordsNotWritten += 1;
+}
+
 const nativeFetch = async (
   url: string,
   init: { method: string; headers: Record<string, string> }
@@ -387,6 +434,17 @@ export async function GET(req: Request): Promise<NextResponse<PollingPlannerResu
     for (const job of PLANNER_OWNED_JOBS) {
       if (settings === null || jobIsHeld(job, settings)) {
         exec.jobsHeld += 1;
+        // The CAUSE, not merely the fact. `settings === null` is the store read
+        // failing closed — nobody chose it, and it is the state #732 exists to
+        // make findable afterwards; `jobIsHeld` is an operator's deliberate stop.
+        // Both hold everything, and only one of them is something someone asked
+        // for, which is the whole distinction issue #619 established one layer up.
+        await recordHeldJob(
+          job,
+          { at, invocationId: receiptInvocationId, dayStartMs },
+          settings === null ? 'settings-unavailable' : 'plan-held',
+          exec
+        );
         continue;
       }
       await planOneJob(

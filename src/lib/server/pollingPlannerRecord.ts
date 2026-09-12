@@ -863,3 +863,358 @@ export function latestRecordedIntentForSchedule(
   }
   return { kind: 'none' };
 }
+
+// ---------------------------------------------------------------------------
+// The HELD series (PLATFORM-732)
+// ---------------------------------------------------------------------------
+//
+// A SECOND SERIES, UNDER ITS OWN KEY, AND THAT IS THE WHOLE DESIGN DECISION.
+//
+// The planner skips a held job entirely — no read, no upsert, no pause — and so
+// it never reaches {@link recordPollingPlannerRun}. Whether a settings-unreadable
+// hold has ever happened in production was therefore unanswerable: the receipt
+// (`scheduler-execution-status/polling-planner`) carries `reason` and `jobsHeld`,
+// but it is LATEST-ONLY, so it answers "did the last run hold" and never "has one
+// ever". The gap is HISTORY, not trace.
+//
+// THREE SHAPES WERE PRICED. Both of the ones that put a held row in the EXISTING
+// series were rejected on measurement, not taste:
+//
+//   1. `slow: PlannerScheduleRun | null`. `installedState` reads a missing
+//      schedule as `silent`, which means "not expected to fire" — and a held
+//      job's slow schedule is armed and firing, because the planner deliberately
+//      left it exactly as the operator did. Delivery health would stop requiring
+//      a receipt from a live schedule, so a real outage of a held job becomes
+//      invisible. Worse, `pollingPlannerApply.ts` records a follow-up (#746)
+//      wanting nullable `slow` for the dead-day "both paused" case, where
+//      `silent` is CORRECT. One encoding, two opposite meanings, colliding the
+//      day that follow-up ships.
+//   2. A discriminated union inside `runs[]`. `scheduleTimeline` would have to
+//      filter the new rows back out at its first line — the only consumer of the
+//      array excluding the rows being added to it is the tell that they belong
+//      elsewhere — and the 400-row bound would be shared, so a long hold shortens
+//      applied history. It also makes {@link readPollingPlannerRunsForWrite}'s
+//      present-but-unparseable refusal reachable by DEPLOY ALONE: build N+1
+//      writes a held row, a rollback to build N rejects it, and if the key holds
+//      only such rows every subsequent write is refused, permanently. That takes
+//      the operator's repair path down with it — `scripts/lib/plannerIntentReader.ts`
+//      reads this same stored value and answers `unreadable`, so `inspect` refuses
+//      and `upsert --apply` declines at the same instant.
+//
+// A SEPARATE KEY COSTS NONE OF THAT, and the guarantee is structural rather than
+// tested: `scheduleTimeline`, `installedState`, `spanState`,
+// `latestRecordedIntentForSchedule`, `sortAndBound`, `parsePollingPlannerRuns`,
+// `readPollingPlannerRunsForWrite` and `resolveDeliverySchedules` are untouched,
+// so the applied series' input is bit-for-bit what it was and its timeline
+// segments are byte-identical BY CONSTRUCTION. The boundary test below documents
+// that guarantee; it is not the only thing defending it.
+//
+// SAME MODULE, DELIBERATELY. The held parser needs {@link POLLING_PLANNER_FUTURE_SKEW_MS},
+// the exact-midnight `dayStartMs` rule and the `at` normalization VERBATIM, and a
+// second module re-implementing them is the two-behaviours-for-one-problem trap
+// `PollingPlannerRunSeries.droppedRuns` already names.
+//
+// THE TWO SERIES ARE READ, CLASSIFIED AND REFUSED INDEPENDENTLY. Nothing merges
+// them, and nothing may: a held-key refusal must never degrade the applied read,
+// which is precisely what a variant row could not offer.
+
+/**
+ * The durable key for one job's HELD series.
+ *
+ * Prefixed rather than scoped separately so an operator's
+ * `where scope = 'polling-planner-record'` still returns everything the planner
+ * knows about a job. The prefix cannot collide with a job key: every
+ * {@link ExternalSchedulerJob} identifier is a bare slug with no colon.
+ */
+export function pollingPlannerHoldRecordKey(job: ExternalSchedulerJob): string {
+  return `held:${job}`;
+}
+
+/**
+ * WHY THE VOCABULARY IS BORROWED, NOT COINED. These are the planner route's own
+ * `PollingPlannerCronExecutionReason` values for the two ways a run holds, and
+ * the same two the receipt already carries. Reusing them — with the receipt's
+ * `invocationId` on the same row — makes the durable history and the latest-only
+ * receipt correlate for free (Item 126 Tier A), and stops one fault acquiring two
+ * names, which is the defect issue #619 closed one layer up.
+ *
+ * - `plan-held` — an operator holds this job's dataset. Deliberate, and silent by
+ *   design: `schedulerExecutionIssues` raises nothing for the `no-op` it produces.
+ * - `settings-unavailable` — the settings store could not be read, so whether a
+ *   hold exists is UNKNOWN and the planner failed closed. Not something anyone
+ *   chose, and the state this series exists to make findable afterwards.
+ */
+export type PollingPlannerHoldReason = 'plan-held' | 'settings-unavailable';
+
+/**
+ * One run that planned nothing for one job.
+ *
+ * `reason` IS TYPED AS A STRING ON THE ROW, not as the union above, and that is a
+ * deliberate shaping constraint rather than looseness. The writer is narrow — the
+ * builder takes {@link PollingPlannerHoldReason} — but the PARSER admits any
+ * short printable value, so a reason added by a later build survives a rollback
+ * to this one instead of being dropped as corruption. The `read.kind !== 'usable'`
+ * day (`polling-planner/route.ts` returns before the job loop, so a
+ * `schedule-unreadable` run records nothing either) is the known next candidate,
+ * and it must not cost a second durable-schema change.
+ *
+ * NO SCHEDULE FIELDS, and that is the point rather than an omission: a held run
+ * has no intent, no previous cron and no outcome, because the planner did not
+ * look. Storing a placeholder for any of them would be a claim about QStash state
+ * that nothing observed.
+ */
+export type PollingPlannerHoldRun = {
+  /** When the planner ran, normalized ISO. The only ordering key. */
+  at: string;
+  /** The receipt's own id, so the two accounts of one run join. Best-effort. */
+  invocationId: string | null;
+  /** Midnight UTC of the day that was NOT planned. */
+  dayStartMs: number;
+  /** Why nothing was planned. See the type doc for why this is a string. */
+  reason: string;
+};
+
+export type PollingPlannerHoldRunSeries = {
+  runs: PollingPlannerHoldRun[];
+  /** Unparseable rows discarded, cumulative — {@link PollingPlannerRunSeries} states the rule. */
+  droppedRuns: number;
+};
+
+/** Long enough for the vocabulary plus room for a later addition; short enough to bound the row. */
+export const MAX_HOLD_REASON_LENGTH = 60;
+
+/** The allowlist AT THE SINK, for the same reason {@link projectPollingPlannerRun} is. */
+export function projectPollingPlannerHoldRun(run: PollingPlannerHoldRun): PollingPlannerHoldRun {
+  return {
+    at: run.at,
+    invocationId: run.invocationId,
+    dayStartMs: run.dayStartMs,
+    reason: run.reason,
+  };
+}
+
+/** The one place a held run becomes a stored row. */
+export function buildPollingPlannerHoldRun(input: {
+  at: Date;
+  invocationId: string | null;
+  dayStartMs: number;
+  reason: PollingPlannerHoldReason;
+}): PollingPlannerHoldRun {
+  return projectPollingPlannerHoldRun({
+    at: input.at.toISOString(),
+    invocationId: input.invocationId,
+    dayStartMs: input.dayStartMs,
+    reason: input.reason,
+  });
+}
+
+/**
+ * One stored held row, validated against the SAME field contracts the applied
+ * parser enforces — the future-skew bound on `at`, the exact-UTC-midnight rule on
+ * `dayStartMs`, `at` normalized to canonical ISO so lexicographic ordering is
+ * chronological, and `invocationId` degrading to null rather than costing the row.
+ *
+ * The contracts are re-stated by CALLING the same helpers, never by restating the
+ * rules: two parsers that agree today and are edited separately tomorrow is how
+ * one stored value acquires two readings.
+ */
+function parseHoldRun(value: unknown, nowMs: number): PollingPlannerHoldRun | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const record = value as Record<string, unknown>;
+  const raw = typeof record.at === 'string' ? record.at : '';
+  if (!raw) return null;
+  const parsedAt = Date.parse(raw);
+  if (Number.isNaN(parsedAt)) return null;
+  if (parsedAt > nowMs + POLLING_PLANNER_FUTURE_SKEW_MS) return null;
+  const dayStartMs = parseFiniteNumber(record.dayStartMs);
+  if (dayStartMs === null || dayStartMs % DAY_MS !== 0) return null;
+  const reason = printableString(record.reason, MAX_HOLD_REASON_LENGTH);
+  // A held row whose reason is unreadable is not a smaller true statement: the
+  // reason IS the row's content, and "the planner held for some cause" answers
+  // nothing this series exists to answer.
+  if (reason === null) return null;
+  return {
+    at: new Date(parsedAt).toISOString(),
+    invocationId:
+      typeof record.invocationId === 'string' && record.invocationId.length > 0
+        ? record.invocationId
+        : null,
+    dayStartMs,
+    reason,
+  };
+}
+
+/** Tolerant of anything, exactly as {@link parsePollingPlannerRuns} is, and for the same reason. */
+export function parsePollingPlannerHoldRuns(
+  value: unknown,
+  nowMs: number = Date.now()
+): PollingPlannerHoldRunSeries {
+  const empty: PollingPlannerHoldRunSeries = { runs: [], droppedRuns: 0 };
+  if (typeof value !== 'object' || value === null) return empty;
+  const raw = (value as { runs?: unknown }).runs;
+  if (!Array.isArray(raw)) return empty;
+  const runs: PollingPlannerHoldRun[] = [];
+  for (const entry of raw) {
+    const run = parseHoldRun(entry, nowMs);
+    if (run) runs.push(run);
+  }
+  const carried = parseDroppedRuns((value as { droppedRuns?: unknown }).droppedRuns);
+  const droppedRuns = carried + (raw.length - runs.length);
+  return runs.length > 0 ? sortAndBoundHolds(runs, droppedRuns) : { runs: [], droppedRuns };
+}
+
+/**
+ * Sort by time and enforce the bound; stable, and nothing is deduplicated.
+ *
+ * ONE bound for both series, not two. A held job produces at most one row per day,
+ * exactly as a planned one does, so {@link POLLING_PLANNER_MAX_RUNS}' thirteen-month
+ * argument transfers verbatim — and a second constant would be a second number to
+ * keep in step with the first, for a horizon that is the same horizon.
+ */
+function sortAndBoundHolds(
+  runs: PollingPlannerHoldRun[],
+  droppedRuns: number
+): PollingPlannerHoldRunSeries {
+  const sorted = [...runs].sort((a, b) => a.at.localeCompare(b.at));
+  return { runs: sorted.slice(-POLLING_PLANNER_MAX_RUNS), droppedRuns };
+}
+
+/** Append one held run. The bound applies to the whole set; nothing is discarded. */
+export function appendPollingPlannerHoldRun(
+  series: PollingPlannerHoldRunSeries,
+  run: PollingPlannerHoldRun
+): PollingPlannerHoldRunSeries {
+  return sortAndBoundHolds([...series.runs, projectPollingPlannerHoldRun(run)], series.droppedRuns);
+}
+
+/**
+ * The write-path read for the held key.
+ *
+ * Same refusal as {@link readPollingPlannerRunsForWrite} and for the same reason —
+ * appending onto an empty stand-in for a value we could not read would write one
+ * row over the whole history. THE BLAST RADIUS IS DIFFERENT, though, and that is
+ * the point of the separate key: a permanently-unreadable held value stops the
+ * planner recording HOLDS, and cannot stop it recording applied runs, cannot
+ * degrade delivery health, and cannot refuse the operator CLI. Under a variant row
+ * those were one value and one refusal.
+ */
+export function readPollingPlannerHoldRunsForWrite(
+  value: unknown,
+  nowMs: number = Date.now()
+): { ok: true; series: PollingPlannerHoldRunSeries } | { ok: false } {
+  if (value === null || value === undefined) {
+    return { ok: true, series: { runs: [], droppedRuns: 0 } };
+  }
+  if (typeof value !== 'object') return { ok: false };
+  const raw = (value as { runs?: unknown }).runs;
+  if (!Array.isArray(raw)) return { ok: false };
+  const parsed = parsePollingPlannerHoldRuns(value, nowMs);
+  if (raw.length > 0 && parsed.runs.length === 0) return { ok: false };
+  return { ok: true, series: parsed };
+}
+
+/** The write gate is the READ parser itself, for the reason {@link admitPollingPlannerRun} states. */
+export function admitPollingPlannerHoldRun(
+  run: PollingPlannerHoldRun,
+  nowMs: number = Date.now()
+): PollingPlannerHoldRun | null {
+  return parseHoldRun(projectPollingPlannerHoldRun(run), nowMs);
+}
+
+export async function recordPollingPlannerHoldRun(
+  job: ExternalSchedulerJob,
+  run: PollingPlannerHoldRun
+): Promise<PollingPlannerWriteOutcome> {
+  const admissible = admitPollingPlannerHoldRun(run);
+  if (admissible === null) return 'rejected';
+  try {
+    await withAppStateKeyTransaction(
+      POLLING_PLANNER_RECORD_SCOPE,
+      pollingPlannerHoldRecordKey(job),
+      async (txn) => {
+        const record = await txn.read<unknown>();
+        const prior = readPollingPlannerHoldRunsForWrite(record?.value);
+        if (!prior.ok) throw new PollingPlannerRecordUnreadableError();
+        await txn.write(appendPollingPlannerHoldRun(prior.series, admissible));
+      }
+    );
+    return 'recorded';
+  } catch (error) {
+    if (isUnreadableRefusal(error)) return 'unreadable';
+    const uncertain =
+      (error instanceof AppStateTxnFinalizeError || error instanceof AppStateTxnCleanupError) &&
+      error.writeAttempted;
+    return uncertain ? 'indeterminate' : 'not-recorded';
+  }
+}
+
+/**
+ * THE TOTAL FORM, and the only one the planner route may call.
+ *
+ * The held write sits on the `continue` branch of the route's per-job loop. A
+ * throw there escapes to the route's outer catch, and **the job that was NOT held
+ * loses its whole day** — an observability write costing a planning run is
+ * strictly worse than the gap it was added to close, and it is the one way this
+ * change can make the planner stop recording.
+ *
+ * {@link recordPollingPlannerHoldRun} catches everything it can reach today, so
+ * this wrapper is defence in depth. It is still the right place for the
+ * guarantee: totality is an invariant of THAT function's body, one module away
+ * from the loop that depends on it, and a guarantee enforced where the caller can
+ * see it is a property rather than a convention — the same argument that moved
+ * this store's allowlist to its sink. The injected writer exists so the guarantee
+ * has a red state: hand it a throwing writer and this must still resolve.
+ *
+ * A throw resolves to `not-recorded` rather than `indeterminate`: nothing is known
+ * to have been submitted, because the failure was not reported by the transaction.
+ */
+export async function recordPollingPlannerHoldRunSafely(
+  job: ExternalSchedulerJob,
+  run: PollingPlannerHoldRun,
+  write: (
+    job: ExternalSchedulerJob,
+    run: PollingPlannerHoldRun
+  ) => Promise<PollingPlannerWriteOutcome> = recordPollingPlannerHoldRun
+): Promise<PollingPlannerWriteOutcome> {
+  try {
+    return await write(job, run);
+  } catch {
+    // No thrown value is inspected, logged or returned — a message can carry
+    // anything, including a credential.
+    return 'not-recorded';
+  }
+}
+
+/**
+ * The held series' read, with the same four states {@link readPollingPlannerRuns}
+ * exposes and for the same reasons. NOTHING IN `src/` CONSUMES IT YET, exactly as
+ * slice 3a shipped its own reader before slice 3b existed: the durable trace is
+ * the deliverable, and a System Health surface for it would reach
+ * `schedulerDeliveryHealth.ts`, which shape C deliberately does not touch. An
+ * operator answers "has a settings-unreadable hold ever happened" from this
+ * reader or from one `SELECT` on the read-only rail.
+ */
+export async function readPollingPlannerHoldRuns(
+  job: ExternalSchedulerJob
+): Promise<
+  | { kind: 'absent' }
+  | { kind: 'ok'; series: PollingPlannerHoldRunSeries }
+  | { kind: 'unreadable' }
+  | { kind: 'failed' }
+> {
+  let record: { value: unknown } | null;
+  try {
+    record = await getAppState<unknown>(
+      POLLING_PLANNER_RECORD_SCOPE,
+      pollingPlannerHoldRecordKey(job)
+    );
+  } catch {
+    return { kind: 'failed' };
+  }
+  if (record === null || record.value === null || record.value === undefined) {
+    return { kind: 'absent' };
+  }
+  const parsed = readPollingPlannerHoldRunsForWrite(record.value);
+  if (!parsed.ok) return { kind: 'unreadable' };
+  return { kind: 'ok', series: parsed.series };
+}
