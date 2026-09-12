@@ -12,7 +12,7 @@ slices 4–5 remain planned.
 > PLATFORM-087-SLICE-5-ITEM-112 / PR #572 (`f424222a`, 2026-09-05), and slice 5b via PR #575 (`fef083ae`,
 > 2026-09-06). The slice table under *Implementation slices* and the *Sequencing across campaigns* table are the
 > record; this header is not. Item 119's team-colour work was retired in favor of the 28px shared-row
-> logo on 2026-09-10. Item 115 expansion is implemented in PR #744; only Item 134 (third column tier) and
+> logo on 2026-09-10. Item 115 expansion merged in PR #744; only Item 134 (third column tier) and
 > the Item 143 Matchups divergences remain open on this surface.
 
 **Reference mockup:** `mockups/live-scoreboard-mockup.html`
@@ -316,7 +316,7 @@ entry in `docs/prompt-registry.md`.
   > above 1300px on Overview (Item 134, unbuilt). Two columns between 760px and 1300px stand.
 - **Container query at 760px**, per DESIGN.md `:120` preferring container over viewport queries. The doc specifies the mechanism but no value; three disagree in code (640 `FeaturedGamesList`, 821 recap, 760 here). 760 is chosen on content width — below it each card gets under ~350px, which clips team + owner + anchor on the longest rows. See Proposed amendments.
 - **Progressive disclosure per section:** bounded default, expands in place. Header link → Matchups tab; footer control expands this week's slate.
-  > **IMPLEMENTED by Item 115 / PR #744:** Live, Recent finals, and Watchlist show six items by
+  > **MERGED via Item 115 / PR #744:** Live, Recent finals, and Watchlist show six items by
   > default and expand independently in place; Live's heading count reads the complete collection.
 - **Header rows single-line by contract** (nowrap + ellipsis). Any wrap desynchronises team rows across a grid row.
 - Cards with no precedence reason **reserve the title row and hide it** to keep team lines aligned.
@@ -566,7 +566,7 @@ blocker. Items 87 and 90 are independent.
    weight-not-position emphasis, and the state variants.
 2. **Landed — §Color:** record amber live-clock badges and amber live-card borders as drift, make green the
    compact-scoreboard live treatment, and record the component-family enforcement clause.
-3. **Implemented, merge pending — §Containerization:** the two-column game grid is documented;
+3. **Landed — §Containerization:** the two-column game grid is documented;
    Item 115 / PR #744 adds per-section progressive disclosure without changing the grid tiers.
 4. **Landed — §Responsive column degradation:** the game grid's container breakpoint is 760px.
 

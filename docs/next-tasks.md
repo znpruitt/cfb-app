@@ -52,7 +52,7 @@ Supersedes: (none)
 > **So the next server-track action is a measurement, not a branch:** actual live-scores wakeups since
 > activation against the projected 6,156 for October, and the real overrun distribution past +8h.
 > **Owner picks** between that, Item 126 Tier A, and #732/#733.
-`NEXT`: **Item 134** — Overview three-column tier, after Item 115 / PR #744 merges.
+`NEXT`: **Item 134** — Overview three-column tier.
 
 Owner-selected run order (2026-09-03), replacing the 2026-09-02 order. Ordering values, stated by the
 owner: **user-facing improvements, data correction, and bug fixes first; prerequisites persisted in
@@ -83,31 +83,23 @@ committed `c9f76081`) surfaced four new items and one split; the remaining open 
    **Operationally independent, though:** 126's incident is the weekly `schedule-refresh` job, while
    102 narrows `live-scores` and `game-stats`. Neither blocks the other; the conflict is in files.
    Observation-only by its own acceptance boundary, so it is the lower-risk half of the pair.
-3. **Item 115** — Overview section expansion. **Implemented and reviewed in PR #744; merge pending.**
-   Live, Recent finals, and Watchlist keep six-item bounded defaults and expose their complete
-   selector-owned collections through independent in-place disclosure.
-   **Cross-reference Item 134:** caps are counts, not rows, so at three columns a cap produces a
-   ragged final row (seven live games renders 3 + 3 + 1). That interaction belongs to THIS item's cap
-   work, not to the tier.
-   **Design:** `docs/campaigns/item-87-followon-section-ordering-resolutions.md` §5 (counts, which
-   that document explicitly defers to this item); `docs/campaigns/item-87-followon-section-ordering.md`.
-4. **Items 119 and 198 — RETIRED by owner decision 2026-09-10.** Real-scoreboard prototypes showed
+3. **Items 119 and 198 — RETIRED by owner decision 2026-09-10.** Real-scoreboard prototypes showed
    that colour remapping collapsed familiar distinctions and the alternate-colour outline was too
    garish. A permanent **28px CFBD team logo** now owns the shared line-start slot across Overview,
    Matchups, Schedule, and Postseason; `DESIGN.md` carries the current contract.
-5. **Item 134** — Overview three-column tier. Re-derive its breakpoint against the permanent
+4. **Item 134** — Overview three-column tier. Re-derive its breakpoint against the permanent
    **32px logo slot**; the old headroom calculation assumed the retired colour bar.
-6. **Item 118** — Schedule status filter with counts. Purely additive; after the rework it filters.
+5. **Item 118** — Schedule status filter with counts. Purely additive; after the rework it filters.
    **Design:** none written, so its prompt needs an owner design pass first rather than a paraphrase
    of this entry.
-7. **Item 100b** — internal slate marker. Date gate removed 2026-09-03; its 2026 consequence
+6. **Item 100b** — internal slate marker. Date gate removed 2026-09-03; its 2026 consequence
    (Featured empty through 2026-09-07) closes on its own, but the recap and look-ahead targeting it
    exists for recur next August. Cheap: the clustering code is recoverable from `d6184c28`.
-8. **Item 113** — Featured as insight-selected, state-agnostic. Largest, and gated on a decision
+7. **Item 113** — Featured as insight-selected, state-agnostic. Largest, and gated on a decision
    about `INSIGHTS-017-PALETTE` (a prose bullet today, not an item).
    **Design:** `docs/campaigns/item-87-followon-featured-intent.md` — it supplies the product
    intent and states that THIS item owns the reconciliation. Do not re-derive what it settles.
-9. **Item 101** — season-boundary finals gap. Re-derive the empty window against the floating cutoff
+8. **Item 101** — season-boundary finals gap. Re-derive the empty window against the floating cutoff
     first; fix before late November.
 
 **Abandoned branches — dispositions recorded 2026-09-05.** `platform/browser-poll-cadence` and
@@ -476,7 +468,6 @@ number.**
 | **111** | [#658](https://github.com/znpruitt/cfb-app/issues/658) | `/api/odds` fetches its own origin, costing two extra invocations per request |
 | **113** | [#675](https://github.com/znpruitt/cfb-app/issues/675) | Featured games is a plain finals list; the insights-hook reframe was decided b |
 | **114** | resolved — see the audit appendix | CLOSED, MISDIAGNOSED. Featured empties early; expiry was never involved |
-| **115** | [PR #744](https://github.com/znpruitt/cfb-app/pull/744) — merge pending | Overview section expansion for [#676](https://github.com/znpruitt/cfb-app/issues/676) |
 | **118** | [#677](https://github.com/znpruitt/cfb-app/issues/677) | Schedule status filter with counts |
 | **120** | resolved — see the audit appendix | CLOSED, no action: the 2023/2024 field gap is unread and fails open |
 | **121** | [#708](https://github.com/znpruitt/cfb-app/issues/708) | every CFP first-round game shares one `eventKey`, and it is the React list key |

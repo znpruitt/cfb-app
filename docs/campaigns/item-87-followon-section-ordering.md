@@ -94,12 +94,12 @@ The CLI report was about **shipped behaviour**, read from `OverviewPanel.tsx` ra
 | --- | --- | --- | --- |
 | 1 | Featured → Live → Recent finals → Upcoming watchlist | Featured `:1644` → Upcoming watchlist `:1671` → Live `:1702` → Recent finals `:1731`, static JSX with no reordering logic | **BUILT** — POLISH-022, PR #562 |
 | 2 | Live sorts by kickoff; progress not a sort input | `compareOverviewLiveItems` (`overviewGameSections.ts:124`) sorts in-progress before awaiting-score FIRST, then real-owner count DESC, then kickoff | Change request; deletes two existing sort keys |
-| 3 | Counts are totals | Before PR #744, `liveTitle` read the already-sliced collection; the PR reads the complete collection while presentation applies the six-item default | **IMPLEMENTED** — PLATFORM-676, PR #744; merge pending |
+| 3 | Counts are totals | Before PR #744, `liveTitle` read the already-sliced collection; the PR reads the complete collection while presentation applies the six-item default | **MERGED** — PLATFORM-676, PR #744 |
 | 4 | No "Why these →" link | Never shipped; the string appears nowhere in `src/` | Documentation only |
 | 5 | "Today" is the only relative label | No relative label ships at all; every date is absolute | Additive; constrains Item 87 slice 5 — **DISCHARGED**, slice 5 labels today's group `Today` (`gameWeek.ts:211`) and no other relative label exists |
 | 6 | Final rows show no date or time | Recent finals already compliant (`clock: undefined`); Featured is not | Change request scoped to Featured |
 
-**Decision 3 is implemented with Item 115 / PR #744.** Live now counts the complete collection while Live,
+**Decision 3 merged with Item 115 / PR #744.** Live now counts the complete collection while Live,
 Recent finals, and Watchlist expose every ordered surplus row through independent in-place controls.
 Recent finals and Watchlist retain their existing uncounted headings.
 

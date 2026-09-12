@@ -35,15 +35,17 @@ Supersedes the original one-line Schedule collapse, orphaned `GameScoreboard`, a
 
 PR references: #241, #531, #535, #537, #541, #549, #570, #572, #575.
 
-### 02. Overview ordering and removal of competing presentation state
+### 02. Overview ordering, disclosure, and removal of competing presentation state
 
-Merged through 2026-09-04. Overview game sections now appear Featured → Live → Recent finals → Upcoming watchlist. Kickoff orders Live ascending and Recent finals/Featured descending; the watchlist retains its curation score above kickoff. Owner-count tie-breaks were removed, including the upstream selector that determines which Featured games survive the cap. Featured finals no longer carry a kickoff date/time.
+Merged through 2026-09-11. Overview game sections now appear Featured → Live → Recent finals → Upcoming watchlist. Kickoff orders Live ascending and Recent finals/Featured descending; the watchlist retains its curation score above kickoff. Owner-count tie-breaks were removed, including the upstream selector that determines which Featured games survive the cap. Featured finals no longer carry a kickoff date/time.
+
+Item 115 made the complete selector-owned Live, Recent-finals, and Watchlist collections reachable through independent in-place disclosure, with six-item bounded defaults. Expansion survives refresh and game migration but resets when Overview unmounts. Live now reports its true total; the other two headings remain uncounted. Featured selection and its four-game cap were deliberately unchanged. Six-item caps remain count-based and ragged pending the three-column tier.
 
 `OverviewContext` shrank from seven fields to the sole consumed `{ scopeDetail }`. Unread `sectionOrder` and descriptive copy had contradicted the actual JSX; deleting them removed a second, drifting model of presentation. The recorded section-order decisions live in the Item 87 campaign documents.
 
 Earlier Overview work established section dividers instead of redundant outer cards, equal podium cards with champion-only accent, an AP/CFP poll snapshot, compact standings/insights composition, and a games-back race with its companion table as legend. Champion margin is described in games back, with Win% used as a tiebreaker. Later ordering and shared-scoreboard rules supersede the earlier layouts and owner-priority sorting; the owner-color implementation is recorded under theme/navigation.
 
-PR references: #562, #563, #564.
+PR references: #562, #563, #564, #744.
 
 Documentation: `docs/campaigns/item-87-followon-section-ordering-resolutions.md`, `docs/campaigns/item-87-followon-section-ordering.md`.
 

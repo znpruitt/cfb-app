@@ -63,7 +63,7 @@ Each state section renders a **bounded default** and expands in place.
 
 **Counts in section headings are totals, not visible counts** — the count answers *how much is there*, the expand control answers *how much is hidden*, and seven shown plus "Show 3 more" reconciles to ten.
 
-**Implemented by Item 115 / PR #744.** Live reads the complete selector collection for its count;
+**Merged via Item 115 / PR #744.** Live reads the complete selector collection for its count;
 Live, Recent finals, and Watchlist each show six items by default and expose every ordered surplus
 row in place. Expansion survives refresh and content migration, then resets when Overview unmounts.
 
