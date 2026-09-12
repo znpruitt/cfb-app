@@ -2,11 +2,11 @@
 
 > **Check `item-87-INDEX.md` before deciding from this document.** Parts of it may be superseded.
 >
-> **Status:** input for review, not applied.
+> **Status:** implemented by `PLATFORM-678-OVERVIEW-THREE-COLUMN-CODEX-v2`; pre-merge closeout.
 
 Adds a third column tier to the game-list grid on Overview. Extends the tiering recorded in `item-87-followon-matchups-schedule-design.md`, which established the container-query mechanism and the 760px single-column breakpoint.
 
-> **INDEX (verified 2026-09-08): CURRENT** for Overview (Item 134, unbuilt), with one mis-citation: the container
+> **INDEX (verified 2026-09-11): DISCHARGED** for Overview (Item 134), with one mis-citation: the container
 > query and the 760px breakpoint were established in `item-87-live-watchlist-scoreboard.md` → *Layout*, not in the
 > Matchups/Schedule design document.
 
@@ -18,13 +18,27 @@ Adds a third column tier to the game-list grid on Overview. Extends the tiering 
 
 | Container width | Columns |
 |---|---|
-| under 760px | 1 |
-| 760 – 1300px | 2 |
-| above 1300px | 3 |
+| `< 760.01px` | 1 |
+| `>= 760.01px` and `< 1348px` | 2 |
+| `>= 1348px` | 3 |
 
-**Where 1300 comes from:** the requirement is **1280** — three 400px columns plus two 40px gaps. The value is **1300**, which is that requirement plus **20px of deliberate headroom**. Page padding is deliberately not a term: `container-type: inline-size` queries the content box, so page padding is already excluded and adding it would double-count. At exactly 1300 the columns are 406.7px; at the page's 1440px max the content box is 1376px, giving 432px columns. 400px is the width the longest row needs without clipping — team name, record, owner suffix and right-anchored score. The stress case is a row like *Middle Tennessee State (3–5) Shambaugh · 13*; the mockup carries one in Live for exactly this reason.
+The lower boundary preserves the existing `@max-[760.01px]` expression. Tailwind emits that maximum
+as a strict `< 760.01px` query, so exactly 760.01px belongs to the two-column band; the required
+integer checks remain one column at 760px and two at 761px.
 
-The requirement is arithmetic and the 20px on top is a choice, stated so it is not mistaken for a term. Recomputing gives 1280, not 1300, and the gap is the headroom rather than an error. If the row anatomy changes — a sixth element on the team line, or logos taking the line-start slot — the minimum column width changes and 1300 moves with it.
+**Where 1348 comes from:** the working column width is a **416px target, not a minimum**. Its sources
+are not equally strong and must not be collapsed into an unexplained equation: **400px is unmeasured
+prose** in `mockups/live-scoreboard-mockup.html`, described there as a comfortable row width and never
+measured in production; **16px** is that mockup's historical `.sb-line` left padding; only the
+replacement **32px** `pl-8` logo slot comes from shipped code. Thus the inherited target is
+`400 - 16 + 32 = 416px`; three targets, two 40px gaps, and 20px deliberate headroom give
+`3 × 416 + 2 × 40 + 20 = 1348px`. Page padding is not another term because the container query sees
+the content box.
+
+The required browser gate tests the real Tailwind output and compact scoreboard at 760/761,
+1347/1348, and the 1392px reference container. Its pinned-font stress row fits at 1348 with no
+clipping and substantial space before the right-anchored score. That slack was reported rather than
+used to silently revise the owner-authorized target.
 
 **Rationale:** at two columns on a wide display, rows occupy roughly a third of their column and the rest is empty. The space is there.
 
@@ -42,7 +56,10 @@ The requirement is arithmetic and the 20px on top is a choice, stated so it is n
 
 **Orphan rows.** Section counts rarely divide by three. Five live games render as 3 + 2, leaving a gap in the final row. Acceptable, but worth confirming the gap sits on the right rather than centring the remainder — a centred orphan breaks the column alignment the grid exists to provide.
 
-**Caps interact with the tier.** Caps are currently expressed as counts, not rows. Six live games is two full rows at three columns and three at two columns, but seven is 3 + 1 — a nearly-empty final row. If caps are meant to fill rows cleanly they need to be multiples of the column count, which makes them tier-dependent. Simpler alternative: leave caps as counts and accept ragged final rows.
+**Caps interact with the tier.** Caps remain counts, not rows. Six live/recent/watchlist games make
+two full rows at three columns; Featured deliberately remains capped at four and therefore renders
+`3 + 1`. That last item stays in column one, leaving the two gaps on the right. The ragged row is an
+accepted consequence, not an expansion-control requirement.
 
 **Matchups and Schedule are separate questions.** This tier is specified for Overview's game lists. Schedule carries far more rows and its own density argument; Matchups uses a two-column owner-card grid whose cards are wider than a scoreboard row. Neither inherits this automatically.
 
@@ -53,10 +70,12 @@ The requirement is arithmetic and the 20px on top is a choice, stated so it is n
 
 ---
 
-## Open
+## Scope boundary
 
-Whether Schedule adopts the same tier. Its rows are the same component, so the 1300px arithmetic holds, but sixty-plus games across three columns is a different reading problem from six — and Schedule's date grouping means each group renders its own partial final row.
+Schedule does not inherit this tier. Its sixty-plus games and date-grouped blocks create a different
+reading problem even though they share the compact scoreboard row.
 
-> **ANSWERED (verified 2026-09-08):** Schedule adopts a three-column tier of its own, higher than 1300 because each
+> **ANSWERED (verified 2026-09-08):** Schedule adopts a three-column tier of its own, historically described as
+> higher than the former 1300px Overview proposal because each
 > block carries padding — `item-87-followon-presentation-decisions.md` → *Three-column tier at 1320px*. The exact
-> number is Item 152's.
+> Schedule number remains Item 152's; Overview's 1348px target is independent.

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -16,12 +17,17 @@ import {
   OVERVIEW_SCOREBOARD_GRID_CLASSES,
   OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX,
 } from '../OverviewPanel';
+import { OVERVIEW_RESULTS_LIMIT } from '../../lib/selectors/overview';
 import { SCOREBOARD_TEAM_LOGO_SLOT } from '../../lib/teamLogos';
 
 const CDP_OPERATION_TIMEOUT_MS = 5_000;
 const CHROME_READY_TIMEOUT_MS = 15_000;
 const CHROME_STOP_TIMEOUT_MS = 2_000;
+// The shared runner caps each test at 30s. Work gets 24s total, then the two
+// stop phases get at most 4s, leaving 2s for the final profile removal.
+const BROWSER_WORK_TIMEOUT_MS = 24_000;
 const REQUIRED_WIDTHS = [760, 761, 1347, 1348, 1392] as const;
+const FIXTURE_FONT_FAMILY = 'Overview Grid Fixture Geist';
 
 type PendingCommand = {
   resolve: (value: unknown) => void;
@@ -35,18 +41,32 @@ type LayoutMeasurement = {
   columnGap: number;
   cardRects: Array<{ left: number; top: number; width: number }>;
   stressLabelClipped: boolean;
-  stressLabelClientWidth: number;
+  stressLabelWidth: number;
   stressLabelContentWidth: number;
   stressLabelSlack: number;
+  stressContentToScoreGap: number;
   stressRowPaddingLeft: number;
+  fixtureFontFamily: string;
+  fixtureFontLoaded: boolean;
 };
+
+function remainingTimeout(deadline: number, maximumMs: number, operation: string): number {
+  const remainingMs = deadline - Date.now();
+  if (remainingMs <= 0) {
+    throw new Error(`Browser-test work deadline expired before ${operation}`);
+  }
+  return Math.min(maximumMs, remainingMs);
+}
 
 class CdpClient {
   private nextId = 1;
   private readonly pending = new Map<number, PendingCommand>();
   private closedError: Error | null = null;
 
-  private constructor(private readonly socket: WebSocket) {
+  private constructor(
+    private readonly socket: WebSocket,
+    private readonly workDeadline: number
+  ) {
     socket.addEventListener('message', (event) => this.handleMessage(event));
     socket.addEventListener('error', () => {
       this.rejectAll(new Error('Chrome DevTools socket errored'));
@@ -60,16 +80,19 @@ class CdpClient {
     });
   }
 
-  static async connect(url: string): Promise<CdpClient> {
+  static async connect(url: string, workDeadline: number): Promise<CdpClient> {
     const socket = new WebSocket(url);
     await new Promise<void>((resolve, reject) => {
+      const timeoutMs = remainingTimeout(
+        workDeadline,
+        CDP_OPERATION_TIMEOUT_MS,
+        'the DevTools socket connection'
+      );
       const timeout = setTimeout(() => {
         cleanup();
         socket.close();
-        reject(
-          new Error(`Chrome DevTools socket did not open within ${CDP_OPERATION_TIMEOUT_MS}ms`)
-        );
-      }, CDP_OPERATION_TIMEOUT_MS);
+        reject(new Error(`Chrome DevTools socket did not open within ${timeoutMs}ms`));
+      }, timeoutMs);
       const onOpen = () => {
         cleanup();
         resolve();
@@ -97,7 +120,7 @@ class CdpClient {
       socket.addEventListener('error', onError);
       socket.addEventListener('close', onClose);
     });
-    return new CdpClient(socket);
+    return new CdpClient(socket, workDeadline);
   }
 
   command<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
@@ -106,14 +129,15 @@ class CdpClient {
     const id = this.nextId;
     this.nextId += 1;
     return new Promise<T>((resolve, reject) => {
+      const timeoutMs = remainingTimeout(
+        this.workDeadline,
+        CDP_OPERATION_TIMEOUT_MS,
+        `Chrome DevTools command ${method}`
+      );
       const timeout = setTimeout(() => {
         this.pending.delete(id);
-        reject(
-          new Error(
-            `Chrome DevTools command ${method} timed out after ${CDP_OPERATION_TIMEOUT_MS}ms`
-          )
-        );
-      }, CDP_OPERATION_TIMEOUT_MS);
+        reject(new Error(`Chrome DevTools command ${method} timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
       this.pending.set(id, {
         resolve: resolve as (value: unknown) => void,
         reject,
@@ -138,11 +162,19 @@ class CdpClient {
   private handleMessage(event: MessageEvent): void {
     if (typeof event.data !== 'string') return;
 
-    const message = JSON.parse(event.data) as {
+    let message: {
       id?: number;
       result?: unknown;
       error?: { message?: string };
     };
+    try {
+      message = JSON.parse(event.data) as typeof message;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      this.rejectAll(new Error(`Chrome DevTools sent malformed JSON: ${detail}`));
+      this.socket.close();
+      return;
+    }
     if (message.id === undefined) return;
 
     const pending = this.pending.get(message.id);
@@ -230,10 +262,11 @@ async function waitForChromeDevTools(
   profileDirectory: string,
   child: ChildProcess,
   stderr: () => string,
-  spawnError: () => Error | null
+  spawnError: () => Error | null,
+  workDeadline: number
 ): Promise<number> {
   const activePortPath = path.join(profileDirectory, 'DevToolsActivePort');
-  const deadline = Date.now() + CHROME_READY_TIMEOUT_MS;
+  const deadline = Math.min(Date.now() + CHROME_READY_TIMEOUT_MS, workDeadline);
 
   while (Date.now() < deadline) {
     const launchError = spawnError();
@@ -252,15 +285,22 @@ async function waitForChromeDevTools(
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
 
-  throw new Error(
-    `Chrome DevTools did not become ready within ${CHROME_READY_TIMEOUT_MS}ms. ${stderr()}`.trim()
-  );
+  const reason =
+    Date.now() >= workDeadline
+      ? `Browser-test work deadline expired after ${BROWSER_WORK_TIMEOUT_MS}ms`
+      : `Chrome DevTools did not become ready within ${CHROME_READY_TIMEOUT_MS}ms`;
+  throw new Error(`${reason}. ${stderr()}`.trim());
 }
 
-async function createPageTarget(port: number, url: string): Promise<string> {
+async function createPageTarget(port: number, url: string, workDeadline: number): Promise<string> {
+  const timeoutMs = remainingTimeout(
+    workDeadline,
+    CDP_OPERATION_TIMEOUT_MS,
+    'Chrome target creation'
+  );
   const response = await fetch(`http://127.0.0.1:${port}/json/new?${encodeURIComponent(url)}`, {
     method: 'PUT',
-    signal: AbortSignal.timeout(CDP_OPERATION_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!response.ok) throw new Error(`Chrome target creation failed with HTTP ${response.status}`);
 
@@ -284,8 +324,17 @@ async function compileFixtureStyles(): Promise<string> {
   return result.css;
 }
 
-function fixtureMarkup(styles: string): string {
-  const scoreboards = Array.from({ length: 5 }, (_, index) => (
+async function fixtureFontDataUrl(): Promise<string> {
+  const require = createRequire(import.meta.url);
+  const nextPackageDirectory = path.dirname(require.resolve('next/package.json'));
+  const font = await readFile(
+    path.join(nextPackageDirectory, 'dist/next-devtools/server/font/geist-latin.woff2')
+  );
+  return `data:font/woff2;base64,${font.toString('base64')}`;
+}
+
+function fixtureMarkup(styles: string, fontDataUrl: string): string {
+  const scoreboards = Array.from({ length: OVERVIEW_RESULTS_LIMIT }, (_, index) => (
     <CompactGameScoreboard
       key={index}
       state="final"
@@ -311,11 +360,21 @@ function fixtureMarkup(styles: string): string {
       </div>
     </div>
   );
-  return `<!doctype html><html><head><meta charset="utf-8"><style>${styles}</style></head><body>${body}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+    @font-face {
+      font-family: '${FIXTURE_FONT_FAMILY}';
+      src: url('${fontDataUrl}') format('woff2');
+      font-style: normal;
+      font-weight: 100 900;
+      font-display: block;
+    }
+    html, body { font-family: '${FIXTURE_FONT_FAMILY}', sans-serif; }
+    ${styles}
+  </style></head><body>${body}</body></html>`;
 }
 
-async function waitForDocument(client: CdpClient): Promise<void> {
-  const deadline = Date.now() + CDP_OPERATION_TIMEOUT_MS;
+async function waitForDocument(client: CdpClient, workDeadline: number): Promise<void> {
+  const deadline = Math.min(Date.now() + CDP_OPERATION_TIMEOUT_MS, workDeadline);
   while (Date.now() < deadline) {
     const response = await client.command<{
       result: { value?: unknown };
@@ -326,7 +385,11 @@ async function waitForDocument(client: CdpClient): Promise<void> {
     if (response.result.value === 'complete') return;
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
-  throw new Error(`Fixture document did not load within ${CDP_OPERATION_TIMEOUT_MS}ms`);
+  throw new Error(
+    Date.now() >= workDeadline
+      ? `Browser-test work deadline expired after ${BROWSER_WORK_TIMEOUT_MS}ms`
+      : `Fixture document did not load within ${CDP_OPERATION_TIMEOUT_MS}ms`
+  );
 }
 
 async function measureWidths(
@@ -339,6 +402,7 @@ async function measureWidths(
   }>('Runtime.evaluate', {
     expression: `
       (async () => {
+        await document.fonts.ready;
         const widths = ${JSON.stringify(widths)};
         const container = document.querySelector('[data-layout-container]');
         const grid = document.querySelector('[data-layout-grid]');
@@ -363,22 +427,34 @@ async function measureWidths(
           const stressTeam = grid.querySelector('[data-scoreboard-team="away"]');
           const stressLabel = stressTeam?.parentElement;
           const stressRow = stressTeam?.closest('[data-scoreboard-side="away"]');
-          if (!(stressLabel instanceof HTMLElement) || !(stressRow instanceof HTMLElement)) {
+          const stressValue = stressRow?.querySelector('[data-scoreboard-value="away"]');
+          if (
+            !(stressLabel instanceof HTMLElement) ||
+            !(stressRow instanceof HTMLElement) ||
+            !(stressValue instanceof HTMLElement)
+          ) {
             throw new Error('stress row did not render');
           }
           const stressContentRange = document.createRange();
           stressContentRange.selectNodeContents(stressLabel);
-          const stressLabelContentWidth = stressContentRange.getBoundingClientRect().width;
+          const stressContentRect = stressContentRange.getBoundingClientRect();
+          const stressLabelRect = stressLabel.getBoundingClientRect();
+          const stressValueRect = stressValue.getBoundingClientRect();
+          const stressLabelContentWidth = stressContentRect.width;
+          const stressLabelWidth = stressLabelRect.width;
           results.push({
             width,
             columns: gridStyle.gridTemplateColumns.trim().split(/\\s+/).filter(Boolean).length,
             columnGap: round(parseFloat(gridStyle.columnGap)),
             cardRects: cards,
-            stressLabelClipped: stressLabel.scrollWidth > stressLabel.clientWidth,
-            stressLabelClientWidth: stressLabel.clientWidth,
+            stressLabelClipped: stressLabelContentWidth > stressLabelWidth + 0.5,
+            stressLabelWidth: round(stressLabelWidth),
             stressLabelContentWidth: round(stressLabelContentWidth),
-            stressLabelSlack: round(stressLabel.clientWidth - stressLabelContentWidth),
+            stressLabelSlack: round(stressLabelWidth - stressLabelContentWidth),
+            stressContentToScoreGap: round(stressValueRect.left - stressContentRect.right),
             stressRowPaddingLeft: round(parseFloat(getComputedStyle(stressRow).paddingLeft)),
+            fixtureFontFamily: getComputedStyle(document.body).fontFamily,
+            fixtureFontLoaded: document.fonts.check('14px "${FIXTURE_FONT_FAMILY}"'),
           });
         }
         return results;
@@ -416,11 +492,18 @@ test('Overview scoreboard grid renders its required container tiers and 416px ta
   let fixtureDirectory: string | null = null;
   let chrome: ChildProcess | null = null;
   let client: CdpClient | null = null;
+  let testFailure: unknown = null;
+  const cleanupErrors: unknown[] = [];
+  const workDeadline = Date.now() + BROWSER_WORK_TIMEOUT_MS;
   try {
     fixtureDirectory = await mkdtemp(path.join(tmpdir(), 'cfb-overview-grid-'));
     const profileDirectory = path.join(fixtureDirectory, 'chrome-profile');
     const fixturePath = path.join(fixtureDirectory, 'index.html');
-    await writeFile(fixturePath, fixtureMarkup(await compileFixtureStyles()), 'utf8');
+    await writeFile(
+      fixturePath,
+      fixtureMarkup(await compileFixtureStyles(), await fixtureFontDataUrl()),
+      'utf8'
+    );
 
     let stderr = '';
     let launchError: Error | null = null;
@@ -451,11 +534,16 @@ test('Overview scoreboard grid renders its required container tiers and 416px ta
       profileDirectory,
       chrome,
       () => stderr.trim(),
-      () => launchError
+      () => launchError,
+      workDeadline
     );
-    const targetSocketUrl = await createPageTarget(port, pathToFileURL(fixturePath).href);
-    client = await CdpClient.connect(targetSocketUrl);
-    await waitForDocument(client);
+    const targetSocketUrl = await createPageTarget(
+      port,
+      pathToFileURL(fixturePath).href,
+      workDeadline
+    );
+    client = await CdpClient.connect(targetSocketUrl, workDeadline);
+    await waitForDocument(client, workDeadline);
 
     const measurements = await measureWidths(client, [...REQUIRED_WIDTHS, 240]);
     const byWidth = new Map(measurements.map((measurement) => [measurement.width, measurement]));
@@ -474,17 +562,23 @@ test('Overview scoreboard grid renders its required container tiers and 416px ta
     const clippingControl = byWidth.get(240);
     assert.ok(atThree && clippingControl, 'all required measurements must be returned');
     t.diagnostic(
-      `1348px: ${atThree.cardRects[0]!.width}px columns, ${atThree.stressLabelContentWidth}px stress content in ${atThree.stressLabelClientWidth}px, ${atThree.stressLabelSlack}px range slack`
+      `1348px: ${atThree.cardRects[0]!.width}px columns, ${atThree.stressLabelContentWidth}px stress content in a ${atThree.stressLabelWidth}px fractional label box, ${atThree.stressLabelSlack}px slack, ${atThree.stressContentToScoreGap}px to the score`
     );
+    assert.match(atThree.fixtureFontFamily, new RegExp(`^"?${FIXTURE_FONT_FAMILY}`));
+    assert.equal(atThree.fixtureFontLoaded, true, 'the deterministic fixture font must load');
     assert.equal(clippingControl.stressLabelClipped, true, 'the clipping observer needs a control');
     assert.ok(
-      clippingControl.stressLabelContentWidth > clippingControl.stressLabelClientWidth + 0.5,
+      clippingControl.stressLabelContentWidth > clippingControl.stressLabelWidth + 0.5,
       'the text-range observer must measure a real overrun in the clipping control'
+    );
+    assert.ok(
+      clippingControl.stressContentToScoreGap < 0,
+      'the clipping control must make the untruncated text collide with the score'
     );
     assert.equal(atThree.stressLabelClipped, false, 'the named stress row must fit at 1348px');
     assert.ok(
-      atThree.stressLabelContentWidth <= atThree.stressLabelClientWidth + 0.5,
-      'subpixel text geometry must stay within half a rendered pixel of the available label width'
+      atThree.stressContentToScoreGap >= 11.5,
+      'the stress content must retain the rendered 12px flex gap before the score'
     );
     assert.equal(atThree.stressRowPaddingLeft, SCOREBOARD_TEAM_LOGO_SLOT.widthPx);
     assert.equal(atThree.columnGap, 40);
@@ -495,18 +589,46 @@ test('Overview scoreboard grid renders its required container tiers and 416px ta
       'three rendered columns must distribute the specified total headroom'
     );
 
-    const [first, second, third, fourth, fifth] = atThree.cardRects;
-    assert.ok(first && second && third && fourth && fifth);
+    assert.equal(OVERVIEW_RESULTS_LIMIT, 4, 'Featured keeps its owner-approved four-item cap');
+    const [first, second, third, fourth] = atThree.cardRects;
+    assert.ok(first && second && third && fourth);
     assertNear(first.top, second.top, 'the first grid row must be row-major');
     assertNear(first.top, third.top, 'the first grid row must contain three cards');
-    assertNear(fourth.top, fifth.top, 'the final two cards must share the second row');
     assert.ok(fourth.top > first.top, 'the remainder must follow the first row');
     assertNear(fourth.left, first.left, 'the remainder must start in column one');
-    assertNear(fifth.left, second.left, 'the second remainder must stay in column two');
-    assert.ok(third.left > second.left, 'the unused final-row gap must remain on the right');
+    assert.ok(
+      third.left > fourth.left,
+      "Featured's two unused final-row tracks must remain on the right"
+    );
+  } catch (error) {
+    testFailure = error;
   } finally {
-    client?.close();
-    await stopChrome(chrome);
-    if (fixtureDirectory) await rm(fixtureDirectory, { recursive: true, force: true });
+    try {
+      client?.close();
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+    try {
+      await stopChrome(chrome);
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+    try {
+      if (fixtureDirectory) await rm(fixtureDirectory, { recursive: true, force: true });
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
   }
+
+  if (cleanupErrors.length > 0) {
+    const cleanupMessage = cleanupErrors
+      .map((error) => (error instanceof Error ? error.message : String(error)))
+      .join('; ');
+    if (testFailure) {
+      t.diagnostic(`Browser cleanup also failed: ${cleanupMessage}`);
+    } else {
+      throw new AggregateError(cleanupErrors, `Browser cleanup failed: ${cleanupMessage}`);
+    }
+  }
+  if (testFailure) throw testFailure;
 });

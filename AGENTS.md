@@ -249,6 +249,11 @@ When practical, verify key runtime flows still behave:
 
 1. **The full `npm test` suite is a valid verification gate; scoped suites are the fast path.**
    - The historical Overview-related full-suite hang was fixed under the `TEST-SUITE-BASELINE-CLEANUP` arc (`--test-timeout` + baseline cleanup + per-process app-state isolation), so `npm test` now runs deterministically to completion. Do not repeat the old "the full suite hangs / gives no signal" warning.
+   - `npm test` is browser-required: it sets `REQUIRE_BROWSER_TESTS=1`, and the Overview layout gate
+     fails rather than skips when Chrome/Chromium is unavailable. Use `npm run test:browser:required`
+     for that gate alone; set `CHROME_PATH` when the executable is outside its standard macOS/Linux
+     locations. A direct scoped `test:file` invocation may report a visible skip, but it is not the
+     full verification gate.
    - For tightly-scoped changes, `npm run test:file -- <path-or-glob...>` plus selector tests in `src/lib/selectors/__tests__/` is the quickest way to iterate; the subsystem scripts provide broader, intentionally overlapping intermediate slices rather than a partition of the full suite.
    - Keep helpers used only by one domain beside that domain's suites. New or relocated fixtures and harnesses imported across subsystem boundaries belong under `src/test/`; do not create more cross-domain imports from another subsystem's `__tests__/` directory. Existing violations are tracked as cleanup debt in `docs/next-tasks.md` item 48.
    - Report the TEST DELTA and the risk each new test protects, not a raw suite total — see **Verification → Test accounting**. The historical "71-failure" full-suite baseline is obsolete; do not compare against it.

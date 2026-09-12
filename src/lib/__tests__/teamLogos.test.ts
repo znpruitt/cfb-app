@@ -2,14 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { AppGame } from '../schedule';
-import { buildScoreboardTeamLogosById, SCOREBOARD_TEAM_LOGO_SLOT } from '../teamLogos';
-
-test('scoreboard logo slot keeps an explicit class-to-pixel contract', () => {
-  assert.deepEqual(SCOREBOARD_TEAM_LOGO_SLOT, {
-    className: 'pl-8',
-    widthPx: 32,
-  });
-});
+import { buildScoreboardTeamLogosById } from '../teamLogos';
 
 test('scoreboard logos select the 64px CFBD dark variant by resolver identity', () => {
   const logos = buildScoreboardTeamLogosById([

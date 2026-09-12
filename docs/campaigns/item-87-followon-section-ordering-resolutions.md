@@ -77,8 +77,8 @@ Before Item 115, `liveTitle` read `.length` after `.slice(0, 6)`, so "Live · 6"
 
 **The real defect was upstream of the label.** Sections hard-capped at six and dropped the surplus silently; the count was only how that loss became visible. PR #744 fixes both together.
 
-The six-item defaults remain counts rather than rows and deliberately produce a ragged last row;
-three-column tier behavior remains #678/#726.
+The six-item defaults remain counts rather than rows. PLATFORM-678 preserves them while adding the
+third tier; Featured's separate four-item cap deliberately produces a left-aligned `3 + 1` row.
 
 ---
 

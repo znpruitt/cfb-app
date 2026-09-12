@@ -381,9 +381,22 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 ## Containerization
 
 - Outer card containers are removed from all Overview sections except the season podium
-- Compact game scoreboards flow row-major in a two-column grid and collapse to one column when their
-  container is 760px wide or narrower. The breakpoint is based on card content width, not viewport
-  width
+- Overview compact game scoreboards flow row-major through three container-width tiers: one column
+  below `760.01px`, two columns from `760.01px` through `1347.99px`, and three columns at `1348px`
+  and above. Tailwind emits the preserved `@max-[760.01px]` utility as a strict `< 760.01px`
+  condition, so exactly `760.01px` is in the two-column tier; the practical integer boundary remains
+  one column at 760px and two at 761px. Remainders stay left-aligned, leaving empty tracks on the
+  right. Featured deliberately keeps its four-item cap, so its wide tier is `3 + 1`; the six-item
+  section caps likewise remain count-based rather than tier-dependent.
+- The Overview wide-tier arithmetic uses a `416px` **target**, not a minimum the two-column tier
+  enforces. Its provenance is intentionally mixed: `400px` is unmeasured prose in
+  `mockups/live-scoreboard-mockup.html`, described there as a comfortable width and never measured in
+  production; `16px` is that mockup's historical `.sb-line` left padding; and only the replacement
+  `32px` `pl-8` logo slot comes from shipped code. With that provenance visible, the inherited target
+  is `400 - 16 + 32 = 416px`, and three targets plus two 40px gaps and 20px deliberate headroom give
+  `1348px`. The required browser gate verifies the rendered row at that width; its deterministic
+  Geist fixture shows no clipping and substantial space before the score, but the owner-authorized
+  target remains the design choice rather than being silently tightened to that one fixture.
 - The weekly recap tile is the one timely-content exception: its full-width dark surface and 8px
   radius bind a collapsed editorial headline to its expand-in-place disclosure. It carries no
   decorative border or accent color, and this exception does not authorize card chrome for ordinary
@@ -431,7 +444,7 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 - No card chrome around section headers
 - **Game-section exception (17px, weight 650):** owner decision, 2026-09-03, evaluated directly
   against the mockups — the 15px/500 default reads weakly as a section boundary against dense
-  two-column scoreboard content stacked three sections deep. Applies to Overview's Live, Featured
+  multi-column scoreboard content stacked three sections deep. Applies to Overview's Live, Featured
   games, Watchlist, and Recent finals headers; not a new default elsewhere.
 
 ## Trends / GB Race

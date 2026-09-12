@@ -12,8 +12,9 @@ slices 4–5 remain planned.
 > PLATFORM-087-SLICE-5-ITEM-112 / PR #572 (`f424222a`, 2026-09-05), and slice 5b via PR #575 (`fef083ae`,
 > 2026-09-06). The slice table under *Implementation slices* and the *Sequencing across campaigns* table are the
 > record; this header is not. Item 119's team-colour work was retired in favor of the 28px shared-row
-> logo on 2026-09-10. Item 115 expansion merged in PR #744; only Item 134 (third column tier) and
-> the Item 143 Matchups divergences remain open on this surface.
+> logo on 2026-09-10. Item 115 expansion merged in PR #744; Item 134's third-column tier is in
+> pre-merge closeout under PLATFORM-678, and only the Item 143 Matchups divergences remain open on
+> this surface.
 
 **Reference mockup:** `mockups/live-scoreboard-mockup.html`
 **Related:** `INSIGHTS-026b-RECAP-LAYOUT-v1` (dispatched). Shares the scoreboard micro-component — see Sequencing.
@@ -311,9 +312,11 @@ entry in `docs/prompt-registry.md`.
 
 ### Layout
 
-- **Two-column game grid**, following existing precedent rather than introducing it — `FeaturedGamesList` already ships `grid-cols-1 sm:grid-cols-2` on this surface. Row-major flow, matching `RecapPrimitives.tsx:75`.
-  > **EXTENDED, not superseded (verified 2026-09-08):** `item-87-followon-three-column-tier.md` adds a third tier
-  > above 1300px on Overview (Item 134, unbuilt). Two columns between 760px and 1300px stand.
+- **Responsive game grid**, following existing precedent rather than introducing it. Row-major flow
+  matches `RecapPrimitives.tsx:75`.
+  > **EXTENDED by PLATFORM-678 (pre-merge closeout 2026-09-11):**
+  > `item-87-followon-three-column-tier.md` adds a third tier at 1348px on Overview. One column applies
+  > below 760.01px, two below 1348px, and the exact 760.01px endpoint belongs to the two-column tier.
 - **Container query at 760px**, per DESIGN.md `:120` preferring container over viewport queries. The doc specifies the mechanism but no value; three disagree in code (640 `FeaturedGamesList`, 821 recap, 760 here). 760 is chosen on content width — below it each card gets under ~350px, which clips team + owner + anchor on the longest rows. See Proposed amendments.
 - **Progressive disclosure per section:** bounded default, expands in place. Header link → Matchups tab; footer control expands this week's slate.
   > **MERGED via Item 115 / PR #744:** Live, Recent finals, and Watchlist show six items by

@@ -98,6 +98,21 @@ These consolidate recurring historical observations, not new project-governance 
 - Review / verification: both reviewers found one root — an unbounded transaction inside the job loop, ahead of an unplanned job, whose failure also downgraded an all-applied run to `partial`. Moved after planning and classification; reason union enforced at the sink. The bound is **cannot block PLANNING** — a hang there still costs the response and the `finally` receipt. Delta +18 (5,198 → 5,216 measured), not the +23 first reported. Reading the cause off the null has no red state.
 - Status: Merged (PR [#748](https://github.com/znpruitt/cfb-app/pull/748), `8208c7d9`, 2026-09-12) from `claude/732-held-planner-run-trace`.
 
+### PLATFORM-678-OVERVIEW-THREE-COLUMN-CODEX-v2
+
+- Purpose: reconstruct Item 134 / [#678](https://github.com/znpruitt/cfb-app/issues/678) from clean
+  `main`, adding Overview's three-column compact-scoreboard tier without inheriting stopped v1 code.
+- Scope: Overview only; preserve `@max-[760.01px]`, Featured's four-item cap, six-item count caps,
+  row-major order, and left-aligned remainders. Matchups and Schedule remain independent.
+- Outcome: three columns begin at 1348px from a provenance-qualified 416px target. `DESIGN.md` records
+  that 400px is unmeasured mockup prose, 16px is mockup padding, and only the 32px `pl-8` slot ships.
+- Review / verification: both reviewers cleared the production layout. Remediation made the pinned-font
+  Chrome gate required by `npm test`, bounded it below the runner timeout, hardened CDP/cleanup, and
+  proved the four-card `3 + 1` remainder. At 1348px the stress row has no clipping and 111.438px to
+  the score; the reported slack did not silently revise the owner-authorized target.
+- Status: Implemented — pre-merge closeout. Unprompted v1 PR
+  [#747](https://github.com/znpruitt/cfb-app/pull/747) is superseded/unimplemented and must not merge.
+
 ### PLATFORM-692-FINAL-OBSERVATION-STAMP-CLAUDE-v1
 
 - Change: `CacheEntry.firstFinalObservedAtById` records when LIVE polling first saw CFBD report a score final ([#692](https://github.com/znpruitt/cfb-app/issues/692)) — write-once, unread. **Not a game end time, and a PROVISIONAL final** (stamped when `/scoreboard` says `completed`, awaiting `/games`); the field's own comment is canonical for its lag terms. Brackets the tail with `itemUpdatedAtById`: `stamp − kickoff`, then `itemUpdatedAtById − stamp` for stragglers.

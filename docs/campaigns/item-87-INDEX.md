@@ -39,7 +39,7 @@ Rows 1–6 keep the numbers earlier prompts cited; rows 7 onward were promoted b
 | 12 | Item 113 | **Specify what DOES promote** — an unclaimed slot is how owner count got in. | `section-ordering-resolutions.md` → *Sort rules* (71%) |
 | 13 | Item 113 / recap | Recap notable-results records: **work in later as an additive change**, uncoupled from the records cache. | `live-watchlist-scoreboard.md` → *Open decisions* 2 (45%) |
 | 14 | **DISCHARGED by PLATFORM-676** | Live's count is total in the same change that makes all three state-section surpluses reachable. | `section-ordering-resolutions.md` §5; `section-ordering.md` → *Resolved* |
-| 15 | **DISCHARGED by PLATFORM-676 / remains Item 134** | Six-item caps remain count-based and deliberately ragged; any tier-dependent change belongs to #678/#726. | `three-column-tier.md` → *Caps interact with the tier* |
+| 15 | **DISCHARGED by PLATFORM-676 and PLATFORM-678** | Six-item caps remain count-based. Featured's four-item cap is unchanged and deliberately renders `3 + 1` at the wide tier. | `three-column-tier.md` → *Caps interact with the tier* |
 | 16 | Retired Items 119/198 | **DISCHARGED 2026-09-10 — direction retired.** Item 119's bar measured badly and Item 198 explored the warranted follow-on, but the owner chose 28px CFBD logos after comparing both treatments on real rows. | `team-colour.md` → historical sequence; `reference-game-row.md` §3 current logo contract |
 | 17 | Retired Item 198 | **DISCHARGED 2026-09-10 — normaliser removed.** The six real underlays and two-ended contrast constraint were correctly derived, then made irrelevant to the shipped row when logos replaced solid colours. | `reference-game-row.md` §3 historical colour investigation |
 | 18 | Retired Item 198 | **DISCHARGED 2026-09-10 — OKLCH does not ship.** Near-neutral chroma preservation remains a valid finding, but no colour-space transform remains in the scoreboard path. | `team-colour.md` → *Reserved-hue guard* (historical) |
@@ -47,7 +47,7 @@ Rows 1–6 keep the numbers earlier prompts cited; rows 7 onward were promoted b
 | 20 | Planning reassignment | **LIVE, but no longer owned by Item 119.** The Matchups outcome rail/tint duplication survives the logo decision and needs its own owner; this lane does not file a new item. | `matchups-gap-analysis.md` §2 (49%), *Sequencing note* (98%) |
 | 21 | Retired Item 119 | **DISCHARGED 2026-09-10 — dependency absorbed.** The row remains `isolate` for the owner tint and is now also the containing block for the permanent logo. | `reference-game-row.md` §7; `CompactGameScoreboard.tsx` |
 | 22 | Retired Item 119 | **SUPERSEDED 2026-09-10.** The retrospective note is preserved in the historical colour-regression document; the current closeout records that the colour restoration itself was retired. | `team-colour-regression.md` → *What the closeout should have said* |
-| 23 | Item 134 | **Confirm orphan rows sit on the right**, not centred. | `three-column-tier.md` → *Orphan rows* (79%) |
+| 23 | **DISCHARGED by PLATFORM-678** | Required-browser layout proof confirms remainders start in column one and unused tracks sit on the right; no centering utility was added. | `three-column-tier.md` → *Orphan rows* (79%) |
 | 24 | Item 142 | Matchups finals still carry a kickoff, through `metadataEntries` in the `contextSlot`, not `clock`. | `matchups-gap-analysis.md` §3.1 (56%) |
 | 25 | **DISCHARGED by PLATFORM-143** | The `margin-left: auto` trap is implemented in the shared status row: the metadata group grows with `flex-auto min-w-0`, while the tag group is `flex-none`. | `presentation-decisions.md` → *Implementation note* (28%); `CompactGameScoreboard.tsx` |
 | 26 | **DISCHARGED by PLATFORM-143** | The single-column wrap exception is limited to tagged scheduled rows at phone width; live, awaiting, final, and untagged rows do not inherit it. | `presentation-decisions.md` → *Mobile* (40%); `CompactGameScoreboard.tsx` |
@@ -108,7 +108,7 @@ Rows 1–6 keep the numbers earlier prompts cited; rows 7 onward were promoted b
 
 | # | question | answered in | source (depth) |
 | --- | --- | --- | --- |
-| 69 | Does Schedule adopt the three-column tier? | `presentation-decisions.md` → *Three-column tier at 1320px* (number: Item 152) | `three-column-tier.md` → *Open* (100%) |
+| 69 | Does Schedule adopt the three-column tier? | `presentation-decisions.md` → *Three-column tier at 1320px* (number: Item 152) | `three-column-tier.md` → *Scope boundary* (100%) |
 | 70 | Postseason finals: keep a date, or accept no temporal context? | `postseason-context.md` (group by round) | `section-ordering-resolutions.md` §3 (29%) |
 | 71 | **LIVE — durable** | **A shared-row decision NAMES THE SURFACES IT GOVERNS at the point it is recorded** — Overview, Matchups, Schedule, recap. Added 2026-09-08 after Overview was found six decisions behind, every one recorded as a "Schedule decision" while being a property of the shared row. **`presentation-decisions.md` reads as a Schedule/Matchups document because that is where the work happened; every decision in it about the status row, the tag slot or row anatomy applies to all four surfaces.** Without the line a later reader must ASSUME rather than CHECK, and the omission surfaces in a screenshot weeks later. | `overview-back-application.md` → *The durable fix* (owner, 2026-09-08) |
 | 72 | DISCHARGED | Rename the league label to `Top 25 Matchup` and retire `Ranked Team` — **done** by PLATFORM-157-162-163 (`gameTags.ts`, `LEAGUE_TAG_LABELS`). Schedule and Matchups had shipped the lossy short form while `DESIGN.md` already prescribed the long one, so the code came to the doc rather than the other way round. **Two things the row did not have:** the highlight family's `top25` was gated on `rank != null` with no bound at all, so after the rename ONE label sat behind TWO predicates — now `isRankedTop25` on both sides, bounded 1–25 at both ends; and retiring `ranked` removed a watchlist curation signal nobody had noticed it was carrying, restored as `hasTop25RankedTeam` (owner ruling). `Contender Watch` (Item 162) and the `vs <owner>` pill (Item 163) went in the same slice; the vocabulary is now game facts only, recorded in `DESIGN.md`. | `overview-back-application.md` → *Two label cuts*; verified against `gameTags.ts:705` |
@@ -272,8 +272,10 @@ here; read against the code, **most were obligations that had been met**:
 - **The "Matchups keeps its two-column owner-card grid" line was never in this document.** It was in the mockup's
   notes block, and the owner replaced it with the 1372 arithmetic on 2026-09-08.
 
-**`item-87-followon-three-column-tier.md`** (47 → 62 lines) — **CURRENT for Overview** (Item 134)
-Overview grid tiers: 1 / 2 / 3 columns, third above 1300px, derived (1280 + 20px headroom). Two marks: its
+**`item-87-followon-three-column-tier.md`** (47 → 81 lines) — **DISCHARGED for Overview** (Item 134)
+Overview grid tiers: 1 / 2 / 3 columns, third at 1348px from the provenance-qualified 416px target,
+two 40px gaps and 20px headroom. Its four-item Featured cap deliberately renders `3 + 1`, left
+aligned. Two historical marks: its
 "Matchups uses a two-column owner-card grid" is superseded by the mockup's 1372px tier (recorded only there,
 `mockup:218-220`, the `.owner-grid` container query), and its *Open* question is answered by `presentation-decisions.md`. Its citation of the 760px
 breakpoint to the Matchups/Schedule document is wrong — that decision is the canonical document's *Layout*.

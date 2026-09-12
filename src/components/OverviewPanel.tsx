@@ -92,6 +92,9 @@ export const OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX =
   3 * OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX +
   2 * OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX +
   OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX;
+// Tailwind emits the preserved max variant as `width < 760.01px`: exactly
+// 760.01px is therefore in the two-column band, while practical whole-pixel
+// checks at 760px and 761px land on the intended sides.
 export const OVERVIEW_SCOREBOARD_GRID_CLASSES =
   'grid grid-cols-2 gap-x-10 @max-[760.01px]:grid-cols-1 @min-[1348px]:grid-cols-3';
 

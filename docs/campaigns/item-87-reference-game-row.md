@@ -405,7 +405,12 @@ Suppressed on live games: dimming a team down three in the first quarter oversta
 
 **Schedule games are discrete blocks** — neutral fill `rgba(255,255,255,0.022)`, 5px radius, 7px/10px padding, no divider rules. At sixty games a flat divider list reads as one object. This is a partial reversal of removing card chrome, and deliberately so: what was removed was *status-coloured borders carrying meaning*; a neutral fill carrying grouping is a different instrument.
 
-**Column tiers** are driven by container queries. Overview games 1/2/3 columns with the third above 1300px; Matchups owner cards at 1372px (higher — each card carries its own padding); Schedule blocks at 1320px. Each is derived from a minimum row width, not chosen. **If row anatomy changes — logos taking the line-start slot — the minimum moves and every breakpoint moves with it.**
+**Column tiers** are driven by container queries and are independent by surface. Overview games use
+1/2/3 columns with the third at 1348px, derived from an owner-authorized 416px **target** that replaces
+the mockup's 16px reservation with the shipped 32px logo slot; it is not a minimum. Matchups owner
+cards use the mockup's 1372px query. Schedule blocks remain stated at 1320px, whose arithmetic does
+not reproduce and belongs to Item 152. A shared unmeasured 400px mockup premise does not require the
+three surfaces' breakpoints to agree.
 
 **Block layout ignores grid `gap`.** At one column the grids become `display: block` and stack with no separation at all. Adjacent-sibling margins are required. This is easy to ship unnoticed because it appears at one breakpoint only.
 
