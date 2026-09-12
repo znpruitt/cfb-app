@@ -483,7 +483,7 @@ number.**
 | **85** | [#654](https://github.com/znpruitt/cfb-app/issues/654) | repair archived seasons polluted by the identity collision |
 | **86** | [#612](https://github.com/znpruitt/cfb-app/issues/612) | the archive audit's integrity check can never pass |
 | **88** | resolved — see the audit appendix | Provider data health cannot describe a schedule-armed dataset — SUPERSEDED by Item 132 ([#691](https://github.com/znpruitt/cfb-app/issues/691)). **Had TWO headings under one number.** |
-| **93** | [#632](https://github.com/znpruitt/cfb-app/issues/632) | nine CFBD call sites still carry the pre-PLATFORM-115 timeout |
+| **93** | [#632](https://github.com/znpruitt/cfb-app/issues/632) | **TEN** CFBD call sites still carry the pre-PLATFORM-115 timeout — this row read *nine* until 2026-09-12; the tenth writes `12000` without the underscore, which a `12_000` grep misses. **Being absorbed by the #662 branch**, which raises all ten to `CFBD_PEAK_LATENCY_TIMEOUT_MS` because #662 changes what `timeoutMs` MEANS; closes on that merge |
 | **94** | [#655](https://github.com/znpruitt/cfb-app/issues/655) | measure the first full in-season month of CFBD burn (READ 2026-09-30) |
 | **95** | [#604](https://github.com/znpruitt/cfb-app/issues/604) | remaining live-score cadence work |
 | **96** | [#656](https://github.com/znpruitt/cfb-app/issues/656) | pause the in-season QStash schedules through the offseason |
