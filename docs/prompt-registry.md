@@ -96,7 +96,7 @@ These consolidate recurring historical observations, not new project-governance 
 - Scope limit: store and route only; the applied timeline is byte-identical by construction. A `settings-unavailable` hold is traced only when the failure was confined to the settings read, because it writes through the store whose failure caused it ([#619](https://github.com/znpruitt/cfb-app/issues/619)'s limit, inherited).
 - Evidence: "one reader" was wrong — `plannerIntentReader.ts` reads the raw row by SQL, so a variant row's refusal also takes `inspect` and `upsert --apply` down. Nullable `slow` rejected: absent reads as `silent` for an ARMED schedule, the encoding [#746](https://github.com/znpruitt/cfb-app/issues/746) wants for paused. Production: 8 runs per key, two keys, 0 dropped, no gap since 2026-09-07.
 - Review / verification: both reviewers found one root — an unbounded transaction inside the job loop, ahead of an unplanned job, whose failure also downgraded an all-applied run to `partial`. Moved after planning and classification; reason union enforced at the sink. The bound is **cannot block PLANNING** — a hang there still costs the response and the `finally` receipt. Delta +18 (5,198 → 5,216 measured), not the +23 first reported. Reading the cause off the null has no red state.
-- Status: Implemented — PR [#748](https://github.com/znpruitt/cfb-app/pull/748) open.
+- Status: Merged (PR [#748](https://github.com/znpruitt/cfb-app/pull/748), `8208c7d9`, 2026-09-12) from `claude/732-held-planner-run-trace`.
 
 ### PLATFORM-692-FINAL-OBSERVATION-STAMP-CLAUDE-v1
 

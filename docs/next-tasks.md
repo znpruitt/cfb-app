@@ -51,7 +51,8 @@ Supersedes: (none)
 > prices step 2 with data instead of this item's estimate."* Step 1 has been live since 2026-09-07.
 > **So the next server-track action is a measurement, not a branch:** actual live-scores wakeups since
 > activation against the projected 6,156 for October, and the real overrun distribution past +8h.
-> **Owner picks** between that, Item 126 Tier A, and #732/#733.
+> **Owner picks** between that, Item 126 Tier A, and #733. (#732 shipped 2026-09-12, PR #748,
+> `8208c7d9` — held planner runs now leave a durable trace under a separate `held:<job>` series.)
 `NEXT`: **Item 134** — Overview three-column tier.
 
 Owner-selected run order (2026-09-03), replacing the 2026-09-02 order. Ordering values, stated by the
