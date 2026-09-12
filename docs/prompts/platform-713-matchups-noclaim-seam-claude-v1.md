@@ -69,6 +69,62 @@ own closeout recorded that all three call sites had encoded the duplication as i
 
 ---
 
+## RULINGS ON THE READ RECEIPT — 2026-09-12, binding. THE PROMPT ABOVE IS SUBSTANTIALLY WRONG.
+
+**Three claims refuted, all verified:**
+
+1. **"`displayOwner` is applied nowhere on the Matchups path" is FALSE.** It is applied at
+   `MatchupsWeekPanel.tsx:198`, `:199` and `:496`. **My grep was `head -8` and those lines are 11–14
+   of the output** — the command truncated the evidence that refutes the claim. I wrote a ruling
+   about this exact failure on #733 one item ago, then reproduced it.
+2. **"vs NoClaim" never reaches a member.** `MatchupsWeekPanel:240-247` computes
+   `opponentOwnedBySomeoneElse` on `opponentOwner != null && !== owner`, which includes the sentinel,
+   and suppresses the descriptor. Computed and discarded.
+3. **`matchups.ts:126,138` reach nobody.** `buildMatchupCardViewModel` has exactly one reference in
+   `src/` — its own definition. The whole `MatchupCardViewModel` path is dead, and it was my headline
+   defect.
+
+Q4's premise was also broken: Matchups tests already construct `NoClaim` rosters.
+
+**The live member-visible defect is the one you found and I never looked at:** `OwnerPanel.tsx:518`,
+`opponentOwners.join(', ')` unfiltered, fed by `matchups.ts:424-430` via `ownerView.ts:345,372`. The
+adjacent `'Unowned / non-league only'` fallback is the intent, stated in the code, unreachable today.
+
+### Ruling 1 — FIX AT THE SOURCE. Scope expanded.
+
+Stop `deriveWeekMatchupSections` writing the sentinel into `bucket.homeOwner`/`awayOwner`. Sixteen
+reads become correct at once, and **a downstream compensation is itself evidence the model is wrong
+upstream** — `selectors/overview.ts:463` filtering both-NoClaim games out of Featured exists only
+because the buckets lie. Patching four readers keeps the lie and keeps the compensation.
+
+**SCOPE now includes verifying the Overview consumers** (`overview.ts:91,192,316,388,397` and
+`selectors/overview.ts:463`) — verifying, not redesigning. **Determine whether the Featured
+compensation becomes dead. Remove it only if you can prove it dead with a mutation; if it survives
+for an independent reason, say which.** Do not leave a filter that does nothing without a sentence
+explaining why it stays.
+
+### Ruling 2 — YES, add the `OwnerPanel` test. The SCOPE line was written from the wrong model.
+
+`OwnerPanel.tsx` and `ownerView.ts` are in scope for **tests and any guard the source fix does not
+reach**. If the source fix makes `opponentOwners` sentinel-free, they need no production change — but
+the assertion that proves it belongs at the render, because that is where the defect is visible and
+where its absence was never covered.
+
+### Ruling 3 — your `CARRIES` reading is correct.
+
+Rule 11's deferral names `historySelectors`, `trends`, `leagueRecords` and the Insights
+context/generators. `ownerView.ts` and `OwnerPanel.tsx` are current-season member surfaces and are not
+on that list. Reaching them is not extending into the deferral.
+
+### Also fix, since the source change reaches it
+
+Q5's self-matchup is a live wrong model behind one component filter: both sides undrafted produces
+`finalSelf` and a `1W / 1L` accounting claim for a game no member owns, and empties `otherGames` so
+`deriveExcludedGamesSummary` would claim every game appears on an owner card. The source fix should
+close it — **assert that it does.**
+
+Proceed to implementation.
+
 ## STOP — read receipt before writing any code
 
 1. Confirm or break the claim that `isOwnerVsOwner` and `isOpponentUnownedOrNonLeague` have no reader
