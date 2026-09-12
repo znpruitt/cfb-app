@@ -38,6 +38,7 @@ import {
   type SchedulerExecutionReceipt,
 } from './schedulerExecutionStatus.ts';
 import { formatYearFailureEvidence } from './schedulerYearEvidence.ts';
+import { seasonYearForToday } from '../scores/normalizers.ts';
 import {
   getProviderDatasetDescriptor,
   PROVIDER_DATASETS,
@@ -197,26 +198,86 @@ export type SystemHealthIssueInputs = {
 
 // -- Repair materialization ----------------------------------------------------
 
-const JOBS_WITHOUT_EXECUTION_REPAIR: ReadonlySet<ExternalSchedulerJob> = new Set([
-  'team-records',
-  'season-transition',
-  'season-rollover',
+/**
+ * Can Data Maintenance & Recovery act on this job's execution fault?
+ *
+ * A REPAIR LINK IS A CLAIM THAT THE DESTINATION CAN ACT ON THIS FAULT. This was a
+ * flat `JOBS_WITHOUT_EXECUTION_REPAIR` set until #733, which proved the claim is
+ * not always answerable per JOB: `polling-planner` has five reachable non-success
+ * reasons, four with no in-app remediation and one — `schedule-unreadable` — fixed
+ * by exactly the action on that page. A membership test cannot express that, so
+ * the answer is a policy per job and, where it must be, per reason.
+ *
+ * TOTAL OVER `ExternalSchedulerJob` ON PURPOSE. An eleventh job must decide rather
+ * than inherit `data-maintenance` by omission — inheriting it by omission is how
+ * the planner acquired a link nobody chose for it, and a `Record` makes that a
+ * compile error instead of a silent default.
+ */
+type ExecutionRepairPolicy =
+  /** Every fault this job can report is answered by a Data Maintenance action. */
+  | { kind: 'data-maintenance' }
+  /** None is. The fault stays observable; the operator is not sent anywhere. */
+  | { kind: 'none' }
+  /** Only these reasons are. Any other reason, known or corrupt, is a dead end. */
+  | { kind: 'by-reason'; repairable: ReadonlySet<SchedulerExecutionReason> };
+
+const EXECUTION_REPAIR_POLICY: Record<ExternalSchedulerJob, ExecutionRepairPolicy> = {
+  'live-scores': { kind: 'data-maintenance' },
+  'game-stats': { kind: 'data-maintenance' },
+  odds: { kind: 'data-maintenance' },
+  'schedule-refresh': { kind: 'data-maintenance' },
+  rankings: { kind: 'data-maintenance' },
+  // PLATFORM-118 — Team records has no manual endpoint and no Data Maintenance
+  // action.
+  'team-records': { kind: 'none' },
+  // Lifecycle jobs have no supported repair operation. These used to link Season
+  // Management, a page that could not repair a lifecycle fault and has since been
+  // retired (PLATFORM-086F2H4).
+  'season-transition': { kind: 'none' },
+  'season-rollover': { kind: 'none' },
   // Item 127 — the usage sampler reports `partial` when `/info` is unavailable,
   // which raises an issue by design. But Data Maintenance & Recovery has no
   // sampler repair action, so linking there would send an operator to a page that
   // cannot help. The remediation is a provider or credential problem, not a
   // dataset repair.
-  'usage-sample',
-  // #733 — the same situation, a different job. Data Maintenance & Recovery has
-  // no planner action of any kind: eleven maintenance actions, and the five other
-  // linked jobs are each matched by a descriptor whose `automationOwner` names
-  // that job's own schedule, while nothing in the catalog is planner-related. The
-  // remediation for every planner execution fault is outside this app — a QStash
-  // credential or outage (`plan-not-applied`), the durable settings record
-  // (`settings-unavailable`), or the next daily run, which re-plans the whole day
-  // from scratch (`plan-partially-applied`). None of those is a dataset repair.
-  'polling-planner',
-]);
+  'usage-sample': { kind: 'none' },
+  // #733 — THE JOB THAT SPLIT, and the reason this is a policy rather than a set.
+  // Nothing in the eleven-action catalog is planner-related: the five other linked
+  // jobs are each matched by a descriptor whose `automationOwner` names that job's
+  // own schedule, and no descriptor mentions the planner. So `plan-not-applied` (a
+  // QStash credential or outage), `settings-unavailable` (the durable settings
+  // record), `plan-partially-applied` (self-corrects on the next daily re-plan,
+  // which rebuilds the whole day from scratch) and `unexpected-error` all route
+  // nowhere this page can act.
+  //
+  // `schedule-unreadable` IS THE EXCEPTION, and the first draft of #733 removed
+  // its link by mistake. The planner fails closed when the canonical schedule for
+  // the day it is planning cannot be read or yields no kickoff; the fix is
+  // `schedule-full-year-refresh` on that exact page, for the year named in the
+  // explanation below. Found by review.
+  'polling-planner': { kind: 'by-reason', repairable: new Set(['schedule-unreadable']) },
+};
+
+/**
+ * FAIL-CLOSED BY CONSTRUCTION, twice over. An unrecognized reason is not in any
+ * `repairable` set, so it renders no link; and a `job` outside the ten — which
+ * `isValidStoredTarget` should already have rejected — reaches no `kind` the
+ * switch names and falls to the same `null`. Neither can invent a destination.
+ */
+function executionRepair(
+  job: ExternalSchedulerJob,
+  reason: SchedulerExecutionReason
+): SystemHealthRepair {
+  const policy = EXECUTION_REPAIR_POLICY[job];
+  switch (policy?.kind) {
+    case 'data-maintenance':
+      return repairFor('data-maintenance');
+    case 'by-reason':
+      return policy.repairable.has(reason) ? repairFor('data-maintenance') : null;
+    default:
+      return null;
+  }
+}
 
 function repairFor(surface: ProviderDiagnosticRepairSurface | null): SystemHealthRepair {
   switch (surface) {
@@ -559,17 +620,21 @@ function evidenceClause(evidence: string | null): string {
  *
  * It is text, not a `repair` link, deliberately. A repair link is a claim the
  * destination can act on the fault; there is no settings maintenance action, and
- * inventing a link to a page that cannot re-read the store would be the dead end the
- * `JOBS_WITHOUT_EXECUTION_REPAIR` rule above exists to avoid.
+ * inventing a link to a page that cannot re-read the store would be the dead end
+ * `EXECUTION_REPAIR_POLICY` above exists to avoid.
  *
- * THE SENTENCE STILL DOES NOT TELL THE OPERATOR THAT NO ACTION IS REQUIRED — but
- * #733 replaced the reason, so do not read the restraint as unexplained. It used to
- * be that `polling-planner` carried a Data Maintenance link and a hint contradicting
- * a visible control is worse than one that says less; #733 removed that link, and
- * that premise with it. The surviving reason is the JOB-NEUTRALITY above: the hint
- * is keyed by REASON, and `rankings` and `schedule-refresh` answer this same reason
- * while keeping real Data Maintenance actions. "Nothing to do here" would be
- * inherited verbatim by two jobs where it is false.
+ * THE SENTENCE STILL DOES NOT TELL THE OPERATOR THAT NO ACTION IS REQUIRED, and
+ * #733 both weakened and replaced the reason — do not read the restraint as
+ * unexplained. #619's reason was that `polling-planner` carried a Data Maintenance
+ * link on every fault, and a hint contradicting a visible control is worse than one
+ * that says less. That is now only half true: the planner's link survives for
+ * `schedule-unreadable` and is gone for every other reason, INCLUDING this one, so
+ * on a `settings-unavailable` row there is no longer a control to contradict.
+ *
+ * The surviving reason is the JOB-NEUTRALITY above, and it is sufficient on its
+ * own: the hint is keyed by REASON, and `rankings` and `schedule-refresh` answer
+ * this same reason while keeping real Data Maintenance actions. "Nothing to do
+ * here" would be inherited verbatim by two jobs where it is false.
  */
 const EXECUTION_RECOVERY_HINTS: Record<string, string> = Object.create(null, {
   'settings-unavailable': {
@@ -593,6 +658,49 @@ function recoveryHint(reason: SchedulerExecutionReason): string {
   return EXECUTION_RECOVERY_HINTS[reason] ?? '';
 }
 
+/**
+ * The season a `schedule-unreadable` planner run failed on, named because the
+ * operator cannot infer it from this page — and following the repair link without
+ * it lands on a form defaulted to the WRONG season.
+ *
+ * THE TWO YEARS COME FROM DIFFERENT AUTHORITIES. System Health resolves its season
+ * from the league registry (`resolveOperationalSeasonYear` takes `status.year` off
+ * active leagues, so it advances only at rollover); the planner resolves its own
+ * from the calendar day it was planning (`seasonYearForToday`, which flips on
+ * 1 July). Through every July until the new season's schedule cache is first
+ * populated the two differ by one — and in exactly that window the schedule
+ * DATASET row is evaluated at the page's year and stays healthy, leaving this row
+ * the only one that fires. A link to a page defaulted to the wrong season is a
+ * quieter version of the dead end #733 removed, so the sentence is part of what
+ * makes keeping the link honest. Ruled in by the owner at remediation.
+ *
+ * NOT IN `EXECUTION_RECOVERY_HINTS`: that map is static text keyed by reason
+ * alone, and this needs the receipt's target.
+ *
+ * EXACT, NOT APPROXIMATE. `day` is a midnight-UTC `YYYY-MM-DD` already validated
+ * as a real calendar date by `isValidStoredTarget`, and `seasonYearForToday` reads
+ * only UTC fields — so this reproduces the route's own
+ * `seasonYearForToday(new Date(dayStartMs))` rather than re-deriving it. The guards
+ * below are for a target that predates that validation, not for a shape it admits.
+ */
+function plannerScheduleYearClause(receipt: SchedulerExecutionReceipt): string {
+  // BOTH GUARDS LIVE HERE, not at the call site. The sentence asserts the schedule
+  // could not be read, which is false of every other planner fault — a future
+  // caller must not be able to render it for `plan-not-applied`.
+  if (receipt.reason !== 'schedule-unreadable') return '';
+  const target = receipt.target;
+  if (target.kind !== 'polling-planner' || target.day === null) return '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(target.day)) return '';
+  const dayMs = Date.parse(`${target.day}T00:00:00.000Z`);
+  if (!Number.isFinite(dayMs)) return '';
+  const year = seasonYearForToday(new Date(dayMs));
+  return (
+    ` No canonical schedule could be read for the ${year} season — the season the planned ` +
+    `day (${target.day}) falls in, which is not necessarily the season this page is showing. ` +
+    `A full-year schedule refresh for ${year} is what clears it.`
+  );
+}
+
 function schedulerExecutionIssues(snapshot: SchedulerDeliveryHealthSnapshot): SystemHealthIssue[] {
   // Execution outcome is inspected from the safely-parsed receipt INDEPENDENTLY
   // of delivery timeliness: a late-but-successful run raises no execution fault,
@@ -601,13 +709,12 @@ function schedulerExecutionIssues(snapshot: SchedulerDeliveryHealthSnapshot): Sy
   for (const row of snapshot.jobs) {
     const receipt = row.receipt;
     if (!receipt) continue;
-    // A repair link is a claim that the destination can act on this fault.
-    // Lifecycle jobs have no supported repair operation, and Team records has no
-    // manual endpoint or Data Maintenance action in PLATFORM-118. Keep those
-    // execution faults observable without routing the operator to a dead end.
-    const repair = JOBS_WITHOUT_EXECUTION_REPAIR.has(row.job)
-      ? null
-      : repairFor('data-maintenance');
+    // A repair link is a claim that the destination can act on this fault, and
+    // `EXECUTION_REPAIR_POLICY` is where every job's answer is stated with its
+    // reason. KEYED ON THE RECEIPT'S REASON, not the job alone: #733 found one job
+    // whose faults split, and a gloss here naming a few members is how the old
+    // comment came to describe three of five. The policy carries the why now.
+    const repair = executionRepair(row.job, receipt.reason);
     // PLATFORM-126B — the SEVERITY, code, subject and repair are unchanged and
     // still derive from `receipt.result` alone. Only the explanation is enriched:
     // a run-level result cannot say which year failed when a run spans several,
@@ -620,7 +727,7 @@ function schedulerExecutionIssues(snapshot: SchedulerDeliveryHealthSnapshot): Sy
         severity: 'warning',
         subject: { axis: 'job', id: row.job },
         title: `${row.job} execution failed`,
-        explanation: `The most recent ${row.job} invocation reported a failed execution result.${evidence}${recoveryHint(receipt.reason)}`,
+        explanation: `The most recent ${row.job} invocation reported a failed execution result.${evidence}${plannerScheduleYearClause(receipt)}${recoveryHint(receipt.reason)}`,
         repair,
       });
     } else if (receipt.result === 'partial') {

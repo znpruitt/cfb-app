@@ -27,6 +27,7 @@ import {
   lateReceiptFor,
   planUnavailableRow,
   receiptWithRefusals,
+  plannerReceiptForDay,
   refreshSnapshot,
   safeStatus,
   unavailableDelivery,
@@ -105,9 +106,10 @@ test('a settings-unavailable planner run RAISES; a genuine operator hold stays s
 test('the settings-unavailable explanation says it is NOT an operator pause', () => {
   // Text, not a `repair` link: there is no planner or settings maintenance action,
   // and linking one that cannot re-read the store is the dead end
-  // `JOBS_WITHOUT_EXECUTION_REPAIR` exists to avoid. As of #733 the planner is IN
-  // that set, so the row now carries no link at all — the hint is still text, and
-  // it is no longer the only honest thing on the row.
+  // `EXECUTION_REPAIR_POLICY` exists to avoid. As of #733 the planner's policy is
+  // `by-reason` and `settings-unavailable` is NOT in its repairable set, so this
+  // row carries no link at all — the hint is still text, and it is no longer the
+  // only honest thing on the row.
   const issues = deriveSystemHealthIssues(
     baseInputs({
       schedulerDelivery: deliverySnapshot(
@@ -161,10 +163,10 @@ test('the settings-unavailable explanation says it is NOT an operator pause', ()
   // planner's Data Maintenance link rather than silently altering it, because the
   // link was pre-existing behaviour for every planner failure and that item's ruling
   // was explanation text. The separate question it deferred — whether that
-  // destination can act on a PLANNER fault — has now been answered: it cannot.
-  // `MAINTENANCE_ACTIONS` holds eleven ids, none planner-related, and `polling-planner`
-  // was the only linked job with no matching action. It is in
-  // `JOBS_WITHOUT_EXECUTION_REPAIR` now, so the row offers no destination.
+  // destination can act on a PLANNER fault — is answered PER REASON, not per job:
+  // nothing in the eleven-action catalog can re-read the settings store, so this
+  // reason offers no destination. `schedule-unreadable` is the one that does, and
+  // it is pinned in its own test below.
   assert.equal(raised?.repair, null);
 
   // POSITIVE CONTROL, on the snapshot already derived above. `rankings` answers the
@@ -194,6 +196,63 @@ test('the settings-unavailable explanation says it is NOT an operator pause', ()
   assert.doesNotMatch(
     find(other, 'scheduler-execution-failed')?.explanation ?? '',
     /operator pause/
+  );
+});
+
+// #733 — THE PLANNER FAULT DATA MAINTENANCE *CAN* ANSWER. The first draft of this
+// item removed the planner's link wholesale, on a measurement taken per JOB; the
+// property is per REASON, and one planner reason is repairable on that exact page.
+// Found by review.
+const plannerRowWith = (receipt: ReturnType<typeof plannerReceiptForDay>) =>
+  healthyDelivery().jobs.map((row) =>
+    row.job === 'polling-planner' ? deliveryRow('polling-planner', 'on-time', receipt) : row
+  );
+
+const plannerFailure = (
+  day: string,
+  reason: Parameters<typeof plannerReceiptForDay>[1] = 'schedule-unreadable'
+) =>
+  find(
+    deriveSystemHealthIssues(
+      baseInputs({
+        schedulerDelivery: deliverySnapshot(
+          plannerRowWith(plannerReceiptForDay('failure', reason, day))
+        ),
+      })
+    ),
+    'scheduler-execution-failed'
+  );
+
+test('a schedule-unreadable planner run KEEPS its Data Maintenance link', () => {
+  const raised = plannerFailure('2026-10-15');
+  assert.ok(raised, 'an unreadable canonical schedule must not be invisible');
+  assert.equal(raised?.repair?.surface, 'data-maintenance');
+  assert.equal(raised?.repair?.href, '/admin/data/cache');
+
+  // NEGATIVE CONTROL ON THE SAME JOB, which is the whole point of the policy being
+  // per reason. Same row, same fixture, a different reason — and the link is gone.
+  // A job-keyed membership test cannot make these two differ.
+  assert.equal(plannerFailure('2026-10-15', 'plan-not-applied')?.repair, null);
+});
+
+test('the schedule-unreadable explanation names the season the PLANNED DAY falls in', () => {
+  // THE ONE ROW WHOSE YEAR IS NOT THE PAGE'S YEAR. System Health resolves its season
+  // from the league registry, which advances at rollover; the planner resolves its
+  // own from the day it was planning, which flips on 1 July. Both sides of that flip
+  // are asserted, because a sentence that merely echoed the page's year would pass
+  // against the October fixture alone and be wrong in exactly the window this fires.
+  assert.match(plannerFailure('2027-07-15')?.explanation ?? '', /for the 2027 season/);
+  assert.match(plannerFailure('2027-07-15')?.explanation ?? '', /planned day \(2027-07-15\)/);
+  assert.match(plannerFailure('2027-07-15')?.explanation ?? '', /refresh for 2027/);
+
+  // 30 June 2027 is still the 2026 season. One day apart, one year apart.
+  assert.match(plannerFailure('2027-06-30')?.explanation ?? '', /for the 2026 season/);
+
+  // NOT RENDERED FOR ANY OTHER PLANNER FAULT. The sentence asserts the schedule
+  // could not be read, which is false of the other four reasons.
+  assert.doesNotMatch(
+    plannerFailure('2027-07-15', 'plan-not-applied')?.explanation ?? '',
+    /canonical schedule could be read/
   );
 });
 

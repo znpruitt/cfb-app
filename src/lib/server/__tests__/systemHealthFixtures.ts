@@ -164,6 +164,42 @@ export function receiptWithReason(
 }
 
 /**
+ * #733 — a planner receipt whose target names an EXPLICIT planned day.
+ *
+ * The day is the input the `schedule-unreadable` explanation derives its season
+ * from, and the shared `targetFor` day is fixed at `2026-10-15`. A test proving
+ * that the named season comes from the DAY rather than from the page's year needs
+ * to choose both sides of the 1 July flip, so it needs this.
+ */
+export function plannerReceiptForDay(
+  result: SchedulerExecutionResult,
+  reason: SchedulerExecutionReceiptInput['reason'],
+  day: string,
+  startedAtMs: number = NOW - 60_000
+): SchedulerExecutionReceipt {
+  const receipt = buildSchedulerExecutionReceipt({
+    job: 'polling-planner',
+    invocationId: `id-polling-planner-${day}`,
+    startedAtMs,
+    completedAtMs: startedAtMs + 1000,
+    result,
+    reason,
+    providerCallAttempted: false,
+    target: {
+      kind: 'polling-planner',
+      day,
+      schedulesApplied: 0,
+      schedulesUnchanged: 0,
+      schedulesFailed: 0,
+      recordsNotWritten: 0,
+      jobsHeld: 0,
+    },
+  });
+  if (!receipt) throw new Error(`fixture planner receipt failed to build for day ${day}`);
+  return receipt;
+}
+
+/**
  * PLATFORM-086F2H3B2 — a receipt whose TARGET reports refused production
  * lifecycle records. Only the four lifecycle-bearing jobs carry the field;
  * asking for refusals on any other job throws rather than silently producing a
