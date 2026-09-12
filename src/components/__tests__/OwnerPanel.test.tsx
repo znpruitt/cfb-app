@@ -4,7 +4,9 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import OwnerPanel from '../OwnerPanel';
-import type { OwnerViewSnapshot } from '../../lib/ownerView';
+import { deriveOwnerViewSnapshot, type OwnerViewSnapshot } from '../../lib/ownerView';
+import { NO_CLAIM_OWNER, type OwnerStandingsRow } from '../../lib/standings';
+import type { AppGame } from '../../lib/schedule';
 import type { CanonicalStandings } from '../../lib/selectors/leagueStandings';
 import type { LiveDelta } from '../../lib/selectors/liveDelta';
 
@@ -489,4 +491,165 @@ test('no liveDelta prop renders the canonical header with no badge', () => {
   );
   assert.doesNotMatch(html, /data-owner-live-pending/);
   assert.match(html, /Record 4–1/);
+});
+
+// ---------------------------------------------------------------------------
+// Item 713 — the sentinel must not reach the member-facing opponent list.
+//
+// `buildConfirmedOwnersCsv` writes `NoClaim` as a real owner row for every
+// undrafted eligible team, so after a draft is confirmed an unclaimed opponent
+// resolves to a truthy owner string. `OwnerWeekSlate.opponentOwners` kept every
+// truthy value and `OwnerPanel` joins that list verbatim, so this card read
+// `Opponents: NoClaim, Foster`.
+//
+// These build the snapshot through the REAL derivation. The hand-built
+// `snapshot` above cannot reach this defect — it never runs
+// `deriveOwnerWeekSlates` — which is why the list shipped uncovered while three
+// sibling surfaces were guarded.
+// ---------------------------------------------------------------------------
+
+function ownedTeam(id: string, name: string) {
+  return {
+    kind: 'team' as const,
+    teamId: id,
+    displayName: name,
+    canonicalName: name,
+    rawName: name,
+  };
+}
+
+function confirmedDraftGame(key: string, away: string, home: string): AppGame {
+  return {
+    key,
+    eventId: key,
+    week: 1,
+    providerWeek: 1,
+    canonicalWeek: 1,
+    date: '2026-09-01T17:00:00.000Z',
+    stage: 'regular',
+    status: 'scheduled',
+    stageOrder: 1,
+    slotOrder: 1,
+    eventKey: key,
+    label: null,
+    conference: null,
+    bowlName: null,
+    playoffRound: null,
+    postseasonRole: null,
+    providerGameId: null,
+    neutral: false,
+    neutralDisplay: 'home_away',
+    venue: null,
+    isPlaceholder: false,
+    participants: { away: ownedTeam(`${away}-id`, away), home: ownedTeam(`${home}-id`, home) },
+    csvAway: away,
+    csvHome: home,
+    canAway: away,
+    canHome: home,
+    awayConf: 'SEC',
+    homeConf: 'SEC',
+    sources: undefined,
+  } as AppGame;
+}
+
+const BALLARD_ROW: OwnerStandingsRow = {
+  owner: 'Ballard',
+  wins: 1,
+  losses: 0,
+  winPct: 1,
+  pointsFor: 30,
+  pointsAgainst: 7,
+} as OwnerStandingsRow;
+
+const FOSTER_ROW: OwnerStandingsRow = {
+  owner: 'Foster',
+  wins: 0,
+  losses: 1,
+  winPct: 0,
+  pointsFor: 7,
+  pointsAgainst: 30,
+} as OwnerStandingsRow;
+
+function renderDerivedOwnerPanel(params: {
+  games: AppGame[];
+  rosterByTeam: Map<string, string>;
+  standingsRows: OwnerStandingsRow[];
+}): { html: string; derived: OwnerViewSnapshot } {
+  const derived = deriveOwnerViewSnapshot({
+    selectedOwner: 'Ballard',
+    standingsRows: params.standingsRows,
+    allGames: params.games,
+    weekGames: params.games,
+    rosterByTeam: params.rosterByTeam,
+    scoresByKey: {},
+  });
+
+  const html = renderToStaticMarkup(
+    <OwnerPanel
+      snapshot={derived}
+      selectedWeekLabel="Week 1"
+      displayTimeZone="UTC"
+      onOwnerChange={() => {}}
+    />
+  );
+
+  return { html, derived };
+}
+
+test('the reserved NoClaim owner is never listed as an opponent (Item 713)', () => {
+  const games = [
+    confirmedDraftGame('g-unclaimed', 'Texas', 'Akron'),
+    confirmedDraftGame('g-owned', 'Michigan', 'Georgia'),
+  ];
+  // The shape a CONFIRMED draft writes: unclaimed teams carry the sentinel as a
+  // real owner row. A fixture that merely omits them reads `''` and cannot reach
+  // this branch — the trap `rosterEditing.ts`'s `isUnowned` docblock records.
+  const rosterByTeam = new Map([
+    ['Texas', 'Ballard'],
+    ['Michigan', 'Ballard'],
+    ['Georgia', 'Foster'],
+    ['Akron', NO_CLAIM_OWNER],
+  ]);
+
+  assert.equal(
+    rosterByTeam.get('Akron'),
+    NO_CLAIM_OWNER,
+    'positive control: the unclaimed opponent is rostered with the reserved sentinel'
+  );
+
+  const { html, derived } = renderDerivedOwnerPanel({
+    games,
+    rosterByTeam,
+    standingsRows: [BALLARD_ROW, FOSTER_ROW],
+  });
+
+  assert.deepEqual(
+    derived.weekSummary?.opponentOwners,
+    ['Foster'],
+    'only the real owner is an opponent'
+  );
+  assert.match(html, /Opponents:/);
+  assert.match(html, /Foster/);
+  assert.doesNotMatch(html, /NoClaim/, 'the sentinel must not reach a member');
+});
+
+test('an owner whose opponents are all unclaimed gets the unowned copy, not the sentinel (Item 713)', () => {
+  // The `'Unowned / non-league only'` fallback is the intent stated in
+  // `OwnerPanel`, and it was unreachable for a confirmed draft: the sentinel is
+  // truthy, so the list was never empty and the copy never rendered.
+  const games = [confirmedDraftGame('g-unclaimed', 'Texas', 'Akron')];
+  const rosterByTeam = new Map([
+    ['Texas', 'Ballard'],
+    ['Akron', NO_CLAIM_OWNER],
+  ]);
+
+  const { html, derived } = renderDerivedOwnerPanel({
+    games,
+    rosterByTeam,
+    standingsRows: [BALLARD_ROW],
+  });
+
+  assert.deepEqual(derived.weekSummary?.opponentOwners, []);
+  assert.match(html, /Unowned \/ non-league only/);
+  assert.doesNotMatch(html, /NoClaim/);
 });

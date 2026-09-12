@@ -3,7 +3,7 @@ import test from 'node:test';
 
 import { deriveAutonomousOverviewScope, deriveOverviewSnapshot } from '../overview.ts';
 import type { AppGame } from '../schedule.ts';
-import type { OwnerStandingsRow, StandingsCoverage } from '../standings.ts';
+import { NO_CLAIM_OWNER, type OwnerStandingsRow, type StandingsCoverage } from '../standings.ts';
 
 function game(overrides: Partial<AppGame>): AppGame {
   return {
@@ -515,4 +515,103 @@ test('recent-results mode keeps latest completed finals ordered in the uncapped 
     snapshot.keyMatchups.map((item) => item.bucket.game.key),
     ['final-5', 'final-4', 'final-3', 'final-2', 'final-1']
   );
+});
+
+// ---------------------------------------------------------------------------
+// Item 713 — the Overview consequence of resolving the sentinel at the seam.
+//
+// `selectors/overview.ts` carried a both-NoClaim filter on Featured results. It
+// existed only because `MatchupBucket` lied: the reserved sentinel is truthy, so
+// a game between two UNDRAFTED teams was filed as an owner matchup and reached
+// `keyMatchups`, the Featured input. Item 713 removed that filter, and this is
+// what replaced it — the game never enters the input at all.
+//
+// Pinned HERE because the filter it replaces had NO coverage: deleting the
+// filter broke no test, which is exactly why the protection needs a test now
+// rather than a second silent compensation.
+// ---------------------------------------------------------------------------
+
+test('a game between two unclaimed teams never becomes an overview candidate (Item 713)', () => {
+  const rosterByTeam = new Map([
+    ['Texas', 'Alice'],
+    ['Oklahoma', 'Bob'],
+    ['Akron', NO_CLAIM_OWNER],
+    ['Tulane', NO_CLAIM_OWNER],
+  ]);
+
+  assert.ok(
+    ['Akron', 'Tulane'].every((teamName) => rosterByTeam.get(teamName) === NO_CLAIM_OWNER),
+    'positive control: both unclaimed teams are rostered with the reserved sentinel'
+  );
+
+  const ownerVsOwner = game({ key: 'ou-tex', csvAway: 'Texas', csvHome: 'Oklahoma' });
+  const bothUnclaimed = game({ key: 'akr-tul', csvAway: 'Akron', csvHome: 'Tulane' });
+  const finalScore = (away: string, home: string, awayScore: number, homeScore: number) => ({
+    status: 'Final',
+    away: { team: away, score: awayScore },
+    home: { team: home, score: homeScore },
+    time: null,
+  });
+
+  const snapshot = deriveOverviewSnapshot({
+    standingsRows,
+    standingsCoverage: coverage,
+    weekGames: [ownerVsOwner, bothUnclaimed],
+    allGames: [ownerVsOwner, bothUnclaimed],
+    rosterByTeam,
+    scoresByKey: {
+      'ou-tex': finalScore('Texas', 'Oklahoma', 30, 7),
+      'akr-tul': finalScore('Akron', 'Tulane', 21, 14),
+    },
+  });
+
+  assert.deepEqual(
+    snapshot.keyMatchups.map((item) => item.bucket.game.key),
+    ['ou-tex'],
+    'the unclaimed-vs-unclaimed game is not an overview candidate'
+  );
+
+  const owned = snapshot.keyMatchups[0]!;
+  assert.equal(owned.priority, 2, 'two REAL owners');
+  assert.equal(
+    snapshot.keyMatchups.some(
+      (item) => item.bucket.awayOwner === NO_CLAIM_OWNER || item.bucket.homeOwner === NO_CLAIM_OWNER
+    ),
+    false,
+    'no candidate bucket carries the sentinel as an owner'
+  );
+});
+
+test('one real owner against an unclaimed team counts as one owner, not two (Item 713)', () => {
+  // `toOverviewItem` scores `priority` by owner count. The sentinel being truthy
+  // made a real-vs-unclaimed game score 2 — indistinguishable from a genuine
+  // head-to-head, which is the miscount `compareRecentResultItems` documents.
+  const rosterByTeam = new Map([
+    ['Texas', 'Alice'],
+    ['Akron', NO_CLAIM_OWNER],
+  ]);
+
+  const mixed = game({ key: 'tex-akr', csvAway: 'Texas', csvHome: 'Akron' });
+
+  const snapshot = deriveOverviewSnapshot({
+    standingsRows,
+    standingsCoverage: coverage,
+    weekGames: [mixed],
+    allGames: [mixed],
+    rosterByTeam,
+    scoresByKey: {
+      'tex-akr': {
+        status: 'Final',
+        away: { team: 'Texas', score: 40 },
+        home: { team: 'Akron', score: 3 },
+        time: null,
+      },
+    },
+  });
+
+  const item = snapshot.keyMatchups.find((candidate) => candidate.bucket.game.key === 'tex-akr');
+  assert.ok(item, 'the mixed game is still a candidate — it involves a real owner');
+  assert.equal(item.priority, 1, 'one real owner');
+  assert.equal(item.bucket.awayOwner, 'Alice');
+  assert.equal(item.bucket.homeOwner, undefined);
 });
