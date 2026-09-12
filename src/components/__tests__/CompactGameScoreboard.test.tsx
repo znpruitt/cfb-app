@@ -5,6 +5,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import CompactGameScoreboard from '../CompactGameScoreboard';
+import { SCOREBOARD_TEAM_LOGO_SLOT_SIZE } from '../../lib/teamLogos';
 
 function renderScoreboard(
   overrides: Partial<React.ComponentProps<typeof CompactGameScoreboard>> = {}
@@ -377,6 +378,7 @@ test('the 32px line-start slot stays reserved when logo artwork is unavailable',
 
   const document = new JSDOM(html).window.document;
   assert.equal(document.querySelector('[data-scoreboard-team-logo="away"]'), null);
+  assert.equal(SCOREBOARD_TEAM_LOGO_SLOT_SIZE, 32);
   for (const side of ['away', 'home'] as const) {
     const classes = classTokens(participantOpeningTag(html, side));
     assert.ok(classes.has('pl-8'), `${side} must reserve the 32px logo slot`);

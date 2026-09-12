@@ -59,7 +59,11 @@ import {
 } from '../lib/rankings';
 import { getGameParticipantTeamId, type AppGame } from '../lib/schedule';
 import type { ScorePack } from '../lib/scores';
-import { EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID, type ScoreboardTeamLogosById } from '../lib/teamLogos';
+import {
+  EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID,
+  SCOREBOARD_TEAM_LOGO_SLOT_SIZE,
+  type ScoreboardTeamLogosById,
+} from '../lib/teamLogos';
 import { standingsCoverageNoticeWithSubject } from '../lib/standings';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
 import type { StandingsHistory } from '../lib/standingsHistory';
@@ -71,6 +75,22 @@ import {
 import { getPresentationTimeZone } from '../lib/weekPresentation';
 
 const EMPTY_OVERVIEW_ODDS_BY_KEY: Record<string, CombinedOdds> = {};
+
+const OVERVIEW_SCOREBOARD_TEXT_VALUE_BUDGET_PX = 400;
+export const OVERVIEW_SCOREBOARD_GRID_MIN_COLUMN_PX =
+  OVERVIEW_SCOREBOARD_TEXT_VALUE_BUDGET_PX + SCOREBOARD_TEAM_LOGO_SLOT_SIZE;
+export const OVERVIEW_SCOREBOARD_GRID_GAP_PX = 40;
+export const OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_MIN_PX =
+  3 * OVERVIEW_SCOREBOARD_GRID_MIN_COLUMN_PX + 2 * OVERVIEW_SCOREBOARD_GRID_GAP_PX;
+
+/**
+ * Item 134: 432px per column = the 400px team/record/owner/value budget + the permanent
+ * 32px logo slot. With two 40px gaps, 3 × 432 + 2 × 40 = 1376px. Container-query
+ * variants cannot interpolate the constants above, so the literal stays adjacent to the
+ * arithmetic and the component test pins them together.
+ */
+const OVERVIEW_SCOREBOARD_GRID_CLASSES =
+  'grid grid-flow-row grid-cols-2 gap-x-10 @max-[760.01px]:grid-cols-1 @min-[1376px]:grid-cols-3';
 
 /**
  * The last `n` weeks that are RESOLVED — played, with a usable snapshot.
@@ -734,10 +754,7 @@ function GameCardList({
   }
 
   return (
-    <div
-      className="grid grid-cols-2 gap-x-10 @max-[760.01px]:grid-cols-1"
-      data-live-scoreboard-grid
-    >
+    <div className={OVERVIEW_SCOREBOARD_GRID_CLASSES} data-live-scoreboard-grid>
       {items.map((item) => {
         const game = item.bucket.game;
         const isAwaitingScore = state === 'live' && item.routeStatus.kind === 'awaiting-score';
@@ -826,10 +843,7 @@ function WatchlistScoreboardList({
   }
 
   return (
-    <div
-      className="grid grid-cols-2 gap-x-10 @max-[760.01px]:grid-cols-1"
-      data-watchlist-scoreboard-grid
-    >
+    <div className={OVERVIEW_SCOREBOARD_GRID_CLASSES} data-watchlist-scoreboard-grid>
       {prioritizedItems.map((prioritized) => {
         const item = prioritized.item;
         const game = item.bucket.game;
@@ -944,10 +958,7 @@ function FeaturedGamesList({
   }
 
   return (
-    <div
-      className="grid grid-cols-2 gap-x-10 @max-[760.01px]:grid-cols-1"
-      data-featured-scoreboard-grid
-    >
+    <div className={OVERVIEW_SCOREBOARD_GRID_CLASSES} data-featured-scoreboard-grid>
       {prioritizedItems.map((prioritized) => {
         const item = prioritized.item;
         const game = item.bucket.game;

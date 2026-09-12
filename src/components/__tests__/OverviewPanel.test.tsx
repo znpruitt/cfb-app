@@ -5,7 +5,11 @@ import { JSDOM } from 'jsdom';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import OverviewPanelImpl from '../OverviewPanel';
+import OverviewPanelImpl, {
+  OVERVIEW_SCOREBOARD_GRID_GAP_PX,
+  OVERVIEW_SCOREBOARD_GRID_MIN_COLUMN_PX,
+  OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_MIN_PX,
+} from '../OverviewPanel';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../../lib/overview';
 import { deriveLeagueInsights, deriveOverviewInsights } from '../../lib/selectors/insights';
 import { TREND_EMPTY_MESSAGE } from '../../lib/trendEmptyState';
@@ -17,6 +21,7 @@ import type { StandingsHistory } from '../../lib/standingsHistory';
 import type { AppGame } from '../../lib/schedule';
 import type { ScorePack } from '../../lib/scores';
 import { buildOddsByGame } from '../../lib/odds';
+import { SCOREBOARD_TEAM_LOGO_SLOT_SIZE } from '../../lib/teamLogos';
 
 type OverviewPanelProps = React.ComponentProps<typeof OverviewPanelImpl>;
 type OverviewPanelTestProps = Omit<OverviewPanelProps, 'sectionItems' | 'nowMs'> &
@@ -412,6 +417,10 @@ test('overview watchlist uses the shared scoreboard with records and one odds fo
     '<section class="@container">',
     'the watchlist section itself must establish the scoreboard container query'
   );
+  assert.match(
+    html,
+    /grid grid-flow-row grid-cols-2 gap-x-10 @max-\[760\.01px\]:grid-cols-1 @min-\[1376px\]:grid-cols-3" data-watchlist-scoreboard-grid/
+  );
   assert.match(scoreboard, /data-watchlist-reason-row/);
   assert.match(scoreboard, /<div(?=[^>]*data-watchlist-reason-row)(?=[^>]*min-h-\[22px\])[^>]*>/);
   assert.match(scoreboard, /Game of the Week/);
@@ -750,7 +759,7 @@ test('overview Live section consumes the shared scoreboard in a row-major respon
 
   assert.match(
     html,
-    /grid grid-cols-2 gap-x-10 @max-\[760\.01px\]:grid-cols-1" data-live-scoreboard-grid/
+    /grid grid-flow-row grid-cols-2 gap-x-10 @max-\[760\.01px\]:grid-cols-1 @min-\[1376px\]:grid-cols-3" data-live-scoreboard-grid/
   );
   assert.equal((html.match(/data-game-scoreboard=/g) ?? []).length, 2);
   const awayLeadingCard = html.indexOf('aria-label="Utah at Arizona State"');
@@ -766,6 +775,95 @@ test('overview Live section consumes the shared scoreboard in a row-major respon
   assert.match(html, /title="CFP rank #24"/);
   assert.match(html, /title="AP rank #7"/);
   assert.doesNotMatch(html, /STATUS_IN_PROGRESS|amber/);
+});
+
+test('overview three-column tier fits the logo-era stress row and leaves orphan space on the right', () => {
+  const stressGame = game({
+    key: 'stress-row',
+    providerGameId: 'stress-row',
+    date: '2026-09-01T17:00:00.000Z',
+    csvAway: 'Middle Tennessee State',
+    csvHome: 'Louisiana Tech',
+  });
+  const stressItem = {
+    ...itemWithScore(stressGame, {
+      status: 'In Progress',
+      away: { team: 'Middle Tennessee State', score: 13 },
+      home: { team: 'Louisiana Tech', score: 10 },
+      time: 'Q2',
+    }),
+    sortDate: 0,
+    bucket: {
+      ...item(stressGame).bucket,
+      awayOwner: 'Shambaugh',
+    },
+  };
+  const remainingItems = Array.from({ length: 4 }, (_, index) => ({
+    ...itemWithScore(
+      game({
+        key: `orphan-${index + 1}`,
+        date: `2026-09-01T${String(18 + index).padStart(2, '0')}:00:00.000Z`,
+        csvAway: `Away ${index + 1}`,
+        csvHome: `Home ${index + 1}`,
+      }),
+      {
+        status: 'In Progress',
+        away: { team: `Away ${index + 1}`, score: index },
+        home: { team: `Home ${index + 1}`, score: index + 1 },
+        time: 'Q3',
+      }
+    ),
+    sortDate: index + 1,
+  }));
+
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[stressItem, ...remainingItems]}
+      keyMatchups={[]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+      teamRecordsByProviderGameId={{
+        'stress-row': { away: { wins: 3, losses: 5 }, home: { wins: 4, losses: 4 } },
+      }}
+      teamLogosById={
+        new Map([['a', { url: 'https://cdn.collegefootballdata.com/logos-dark/64/2393.png' }]])
+      }
+    />
+  );
+  const document = new JSDOM(html).window.document;
+  const grid = document.querySelector('[data-live-scoreboard-grid]');
+  assert.ok(grid, 'the live scoreboard grid must render');
+
+  assert.equal(SCOREBOARD_TEAM_LOGO_SLOT_SIZE, 32);
+  assert.equal(OVERVIEW_SCOREBOARD_GRID_MIN_COLUMN_PX, 432);
+  assert.equal(
+    (OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_MIN_PX - 2 * OVERVIEW_SCOREBOARD_GRID_GAP_PX) / 3,
+    OVERVIEW_SCOREBOARD_GRID_MIN_COLUMN_PX,
+    'each column at the 1376px threshold must retain the full 432px stress-row budget'
+  );
+  assert.equal(OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_MIN_PX, 1376);
+  assert.ok(grid.classList.contains('@min-[1376px]:grid-cols-3'));
+  assert.ok(grid.classList.contains('grid-flow-row'));
+
+  const scoreboards = [...grid.querySelectorAll('[data-game-scoreboard]')];
+  assert.equal(scoreboards.length, 5, 'five games exercise a 3 + 2 orphan layout');
+  const stressScoreboard = scoreboards.find(
+    (scoreboard) =>
+      scoreboard.getAttribute('aria-label') === 'Middle Tennessee State at Louisiana Tech'
+  );
+  assert.ok(stressScoreboard, 'the named stress row must reach the three-column grid');
+  assert.ok(
+    stressScoreboard.querySelector('[data-scoreboard-team-logo="away"]'),
+    'the stress row must exercise the permanent logo slot included in the width budget'
+  );
+  assert.match(
+    stressScoreboard.textContent ?? '',
+    /Middle Tennessee State\(3–5\)Shambaugh13/,
+    'the breakpoint budget must be pinned to the named logo-era stress row'
+  );
 });
 
 /**
@@ -1059,7 +1157,7 @@ test('overview Featured renders its badge and existing tag in the final status r
   assert.match(liveScoreboard, /Q2 6:14/);
   assert.match(
     html,
-    /<section class="@container">[\s\S]*?<div class="grid grid-cols-2 gap-x-10 @max-\[760\.01px\]:grid-cols-1" data-featured-scoreboard-grid="true">/
+    /<section class="@container">[\s\S]*?<div class="grid grid-flow-row grid-cols-2 gap-x-10 @max-\[760\.01px\]:grid-cols-1 @min-\[1376px\]:grid-cols-3" data-featured-scoreboard-grid="true">/
   );
 });
 

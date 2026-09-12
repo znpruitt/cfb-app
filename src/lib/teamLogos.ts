@@ -9,6 +9,8 @@ export type ScoreboardTeamLogosById = ReadonlyMap<string, ScoreboardTeamLogo>;
 
 export const EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID: ScoreboardTeamLogosById = new Map();
 export const SCOREBOARD_TEAM_LOGO_DISPLAY_SIZE = 28;
+// `CompactGameScoreboard` reserves this with `pl-8`; Overview's grid budget includes the slot.
+export const SCOREBOARD_TEAM_LOGO_SLOT_SIZE = 32;
 
 const CFBD_LOGO_HOST = 'cdn.collegefootballdata.com';
 const CFBD_SCOREBOARD_LOGO_ASSET_SIZE = 64;
