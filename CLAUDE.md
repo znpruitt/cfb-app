@@ -243,12 +243,22 @@ puts every credential on disk to do a job a `SELECT` already does.
 > and **only in `--apply`**; its `capture` mode runs on the read-only rail and cannot write even by
 > accident. The refusal names the file, the key, the source, and says **not** to run `vercel env pull`.
 >
-> **BUT THE GUARDRAIL ARRIVED AHEAD OF THE CREDENTIAL MOVE, AND THAT HALF IS THE OWNER'S.** Until
-> `DATABASE_URL` is deleted from `.env.operator.local` in every worktree, **the exposure is exactly what
-> it was** — the refusal tells an operator to CREATE the new file and never to REMOVE the old key, so a
-> half-done migration looks complete. [#721](https://github.com/znpruitt/cfb-app/issues/721) is the
-> permanent detector, deliberately blocked on the deletion: a check that cannot pass on any machine is a
-> line people learn to skip.
+> **THE CREDENTIAL MOVE IS NOW DONE, AND THIS PARAGRAPH USED TO SAY IT WAS NOT.** It read: *"Until
+> `DATABASE_URL` is deleted from `.env.operator.local` in every worktree, the exposure is exactly what it
+> was."* **Verified 2026-09-12 on this machine, key names only:** all three worktrees
+> (`cfb-app`, `cfb-app-claude`, `cfb-app-codex`) carry `DATABASE_URL_RO` and nothing else, and
+> `.env.operator.write.local` exists in the primary worktree ALONE. That is exactly the end state #703
+> specified.
+>
+> **Scope of that check, stated because the claim decays:** one machine, one moment, filenames and key
+> names — not values, not any other machine, and not tomorrow. The setup instruction above still says to
+> copy `.env.operator.local` into each new worktree, so **the exposure remains recreatable by following
+> the documented setup**, which is why the detector still matters rather than being obviated.
+>
+> **[#721](https://github.com/znpruitt/cfb-app/issues/721) is therefore UNBLOCKED.** It was deliberately
+> gated on this deletion — a check that cannot pass on any machine is a line people learn to skip — and
+> it can now ship green. It is a detector, not a fix: it warns when `DATABASE_URL` reappears in
+> `.env.operator.local`, and #721 itself rules that it must not be fatal.
 
 `docs/deployment-runbook.md` is canonical for the contract, the autosuspend behaviour, and the
 privilege probe. The application must never read through this rail; `src/` contains no reference to
