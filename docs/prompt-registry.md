@@ -95,6 +95,31 @@ These consolidate recurring historical observations, not new project-governance 
 
 ## Prompt ledger (source order retained)
 
+### PLATFORM-671-LIVE-FINALS-TAG-SLOT-CODEX-v1
+
+- Purpose: finish Item 173b / [#671](https://github.com/znpruitt/cfb-app/issues/671): give Overview
+  Live and Recent finals the shared scoreboard's status-row tag slot.
+- Scope: `selectOverviewGameSections` derives directly over `sectionItems`; it does not route 884
+  items through signals derived over the measured 79-item `keyMatchups` population. Routing,
+  ordering, caps, Featured, Watchlist, Matchups and Schedule are unchanged.
+- Outcome: Live and Recent finals render the existing fact-only `top25` / `close` vocabulary; no
+  Overview producer emits `Upset`, whose predicate remains separate work. An exact numeric 0-0 pack
+  excludes only `close`, independent of Live versus Awaiting routing, while a real nonzero close
+  margin remains eligible. With an empty rankings map, `top25` cannot fire and rows remain untagged;
+  that is a sequenced dependency. [#716](https://github.com/znpruitt/cfb-app/issues/716) remains open:
+  Watchlist is unchanged.
+- Review / verification: two passes, no Codex findings; its second verification did not execute, so
+  only the verdict carries. `/code-review` found status-keyed containment and a vacuous fixture.
+  Reinstating that predicate failed both boundary assertions; excluding both ids failed the ranked
+  positive control. Test delta: +3 tests, one existing test expanded, none removed. At `63600dd9`,
+  `lint:all`, TypeScript, the full suite and required browser gate exited 0. The two-id vocabulary
+  cannot exercise the two-chip cap or produce a container-state tag; those are contract/structural
+  pins, not claimed behavioral regressions. Phone-width relief awaits owner decision
+  [#758](https://github.com/znpruitt/cfb-app/issues/758).
+- Status: Implemented and reviewed on `codex/671-live-finals-tag-slot` (`1bfecf1d`, `ecfc36e6`,
+  `63600dd9` + this closeout); [#671](https://github.com/znpruitt/cfb-app/issues/671) stays open until
+  merge.
+
 ### PLATFORM-713-MATCHUPS-NOCLAIM-SEAM-CLAUDE-v1
 
 - Change: the reserved `NoClaim` sentinel is now resolved where owners ENTER the model ([#713](https://github.com/znpruitt/cfb-app/issues/713)) — `deriveWeekMatchupSections` routes both sides through `displayOwner`, so `MatchupBucket` never carries it and every truthiness read below is correct at once rather than by one guard per reader.

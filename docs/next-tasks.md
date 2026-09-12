@@ -245,7 +245,7 @@ a multi-round slice.
 
 | # | item | what |
 | --- | --- | --- |
-| **1** | **173b** | tags on Live and Recent finals — both sections render none. **Kickoff written 2026-09-12:** [`docs/prompts/platform-671-live-finals-tag-slot-codex-v1.md`](prompts/platform-671-live-finals-tag-slot-codex-v1.md) |
+| **1** | **173b** | IMPLEMENTED AND REVIEWED 2026-09-12 — Live and Recent finals use the shared status-row tag slot with selector-owned `top25` / `close`; exact 0-0 packs suppress only `close`. Pre-merge closeout is on `codex/671-live-finals-tag-slot`; [#671](https://github.com/znpruitt/cfb-app/issues/671) remains open until merge. |
 | ✅ | ~~170~~ | CLOSED, NOT A DEFECT — the tertiary element clipping first is the hierarchy working |
 | ✅ | ~~179~~ | DONE — the awaiting anchor renders the contract's en dash |
 
@@ -554,7 +554,7 @@ number.**
 | **170** | resolved — see the audit appendix | CLOSED, NOT A DEFECT. The tertiary element clipping first is the hierarchy wor |
 | **171** | [#685](https://github.com/znpruitt/cfb-app/issues/685) | a dead scoring term in the watchlist sort |
 | **172** | [#661](https://github.com/znpruitt/cfb-app/issues/661) | the code describes a provider vocabulary the provider has never used |
-| **173** | [#671](https://github.com/znpruitt/cfb-app/issues/671) | back-apply tag decisions across Overview sections |
+| **173** | [#671](https://github.com/znpruitt/cfb-app/issues/671) | IMPLEMENTED AND REVIEWED 2026-09-12 — Live and Recent finals tag-slot residue; merge pending |
 | **174** | resolved — see the audit appendix | DONE: Live rows render no broadcast |
 | **175** | resolved — see the audit appendix | DONE: two tag treatments in one slot, and the code cites the wrong row |
 | **176** | resolved — see the audit appendix | DONE: the Featured section renders empty instead of hiding |
@@ -700,6 +700,10 @@ Acceptance boundary:
 This is the canonical deferral register. These items are explicitly not scheduled. Resolved entries
 are removed rather than retained with strikethrough; their outcomes live in `docs/completed-work.md`.
 
+- **Overview Live / Recent-finals phone tag fit ([#758](https://github.com/znpruitt/cfb-app/issues/758)).** Their fact pills use the fixed status-row edge
+  without Featured's `max-sm:` relief. `DESIGN.md` gates that wrapping exemption on scheduled state,
+  while these rows are Live or Final. Decide whether to widen the established Featured pattern;
+  PLATFORM-671 deliberately makes no phone-width style change.
 - **Team-record reconciliation log volume.** Persistent equal-time score conflicts or participant
   mismatches emit one structured error on every request to each of five dynamic league routes. The
   failure must remain distinguishable from a legitimate empty reconciliation, so any rate limit or
