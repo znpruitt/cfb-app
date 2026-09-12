@@ -615,3 +615,78 @@ test('a not-yet-final /games response leaves the pending final unconfirmed', asy
   const entry = await readScores(3);
   assert.deepEqual(entry!.pendingFinalConfirmationIds, ['401001']); // still pending
 });
+
+// ---- First-final observation stamp, end-to-end (PLATFORM-692 / #692) -------
+
+test('the scoreboard path stamps the first observation at which a score read final', async () => {
+  // The merge-level suite proves the rule; this proves the CALL SITE is wired,
+  // which is the half a unit test of `mergeScoresIntoPartition` cannot see —
+  // `stampFirstFinalObservation` is absent by default, so an unwired route
+  // would leave every entry unstamped in production while every merge test
+  // stayed green.
+  const before = Date.now();
+  await seedSchedule([{ id: 401001, week: 3, ageHours: 3, homeId: 333, awayId: 61 }]);
+  stubProvider({
+    remainingCalls: 1002,
+    scoreboard: [
+      scoreboardRow({
+        id: 401001,
+        status: 'completed',
+        homeId: 333,
+        awayId: 61,
+        home: 'Alabama',
+        away: 'Georgia',
+        hp: 27,
+        ap: 24,
+      }),
+    ],
+    records: [],
+  });
+  const { event } = await runCron();
+  assert.equal(event.result, 'success');
+
+  const entry = await readScores(3);
+  const stamp = entry!.firstFinalObservedAtById!['401001'];
+  assert.equal(typeof stamp, 'number');
+  assert.ok(stamp >= before && stamp <= Date.now(), 'stamped at this run, not a fixture constant');
+  // The pairing the tail is sized from: the stamp is when we FIRST saw final,
+  // `itemUpdatedAtById` is when the last material change landed. Both present.
+  assert.equal(typeof entry!.itemUpdatedAtById!['401001'], 'number');
+  // And what the stamp actually records here is a PROVISIONAL final — a
+  // `/scoreboard` `completed` row still awaiting its `/games` confirmation.
+  assert.deepEqual(entry!.pendingFinalConfirmationIds, ['401001']);
+});
+
+test('the reconciliation path carries an existing stamp through its own entry rewrite', async () => {
+  // `/games` reconciliation rebuilds the whole entry too, so it is the third
+  // rebuilder a stamp has to survive. A corrected final makes it a real write.
+  await seedSchedule([
+    { id: 401001, week: 3, ageHours: 4, status: 'STATUS_FINAL', homeId: 333, awayId: 61 },
+  ]);
+  await seedScoreEntry(3, 'regular', {
+    at: 1000,
+    items: [finalPack('401001', 'Alabama', 'Georgia', 27, 24)],
+    itemUpdatedAtById: { '401001': 1000 },
+    pendingFinalConfirmationIds: ['401001'],
+    firstFinalObservedAtById: { '401001': 1000 },
+  });
+  stubProvider({
+    games: [
+      {
+        id: 401001,
+        home_team: 'Alabama',
+        away_team: 'Georgia',
+        home_points: 31,
+        away_points: 24,
+        status: 'final',
+      },
+    ],
+  });
+  const { event } = await runCron();
+  assert.equal(event.mode, 'final-reconciliation');
+  assert.equal(event.committedGames, 1, 'the correction is a real durable write');
+  const entry = await readScores(3);
+  assert.equal(entry!.items[0]!.home.score, 31);
+  assert.equal(entry!.itemUpdatedAtById!['401001'] > 1000, true, 'last-change advanced');
+  assert.equal(entry!.firstFinalObservedAtById!['401001'], 1000, 'first-final did not');
+});

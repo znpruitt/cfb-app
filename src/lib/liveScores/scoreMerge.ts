@@ -1,6 +1,10 @@
 import type { CfbdSeasonType } from '@/lib/cfbd';
 import { classifyScorePackStatus, type GameStatusBucket } from '@/lib/gameStatus';
-import { effectiveRowTimestamp, type CacheEntry } from '@/lib/scores/cache';
+import {
+  effectiveRowTimestamp,
+  priorFirstFinalObservedAt,
+  type CacheEntry,
+} from '@/lib/scores/cache';
 import type { ScorePack } from '@/lib/scores/types';
 import { withAppStateKeyTransaction } from '@/lib/server/appStateStore';
 
@@ -188,6 +192,26 @@ export async function mergeScoresIntoPartition(params: {
    * be allowed to replace that final.
    */
   onlyIfMissingUsableFinal?: boolean;
+  /**
+   * Opt in to recording `CacheEntry.firstFinalObservedAtById` for rows this call
+   * transitions into `final` (PLATFORM-692). ABSENT BY DEFAULT, and deliberately
+   * a caller decision rather than anything this function can infer.
+   *
+   * Only the two live paths pass it. This function is the SHARED merge — the
+   * weekly `finalScoreSweep` reaches the store through it too, with `/games`
+   * (no division filter) and ONE fixed `observedAtMs` for the whole run, so on
+   * the sweep the `finalized` branch fires for every non-FBS game at a cron
+   * clock that says nothing about the game. Stamping there would mix two
+   * measurements into one map. Excluding it keeps the distribution to the
+   * FBS population `/scoreboard` actually polls, and keeps the exclusion
+   * legible: a swept row is stamped in `itemUpdatedAtById` and absent here.
+   *
+   * NOT derived from `onlyIfMissingUsableFinal`, which separates the same two
+   * callers today purely by coincidence — it is a snapshot→commit race guard,
+   * and keying the stamp off it would silently re-couple the two if that
+   * guard's policy ever changed.
+   */
+  stampFirstFinalObservation?: boolean;
   now: number;
 }): Promise<PartitionMergeResult> {
   const {
@@ -197,6 +221,7 @@ export async function mergeScoresIntoPartition(params: {
     updates,
     confirmFinalIds = [],
     onlyIfMissingUsableFinal = false,
+    stampFirstFinalObservation = false,
     now,
   } = params;
   const key = `${year}-${week}-${seasonType}`;
@@ -230,6 +255,11 @@ export async function mergeScoresIntoPartition(params: {
 
     let committed = 0;
     let finalized = 0;
+    // Ids this call transitioned INTO final. Collected beside the `finalized`
+    // counter because they are the same event; whether any of them is durably
+    // stamped is decided ONCE, at the rebuild below, by
+    // `stampFirstFinalObservation`.
+    const firstFinalIds = new Set<string>();
     for (const update of updates) {
       const id = update.pack.id?.trim();
       if (!id) continue;
@@ -276,6 +306,21 @@ export async function mergeScoresIntoPartition(params: {
           (!protectionRef || classifyScorePackStatus(protectionRef) !== 'final')
         ) {
           finalized += 1;
+          // The STAMP needs one condition the counter does not, and this is the
+          // only place both are in scope. `finalized` fires whenever the chosen
+          // protection reference is non-final, and `chooseProtectionBaseline`
+          // prefers the FRESHER row regardless of state — so a newer non-final
+          // aggregate row re-fires it for a game the CHILD already holds as
+          // final. If that child final carries no stamp (a pre-692 entry, or a
+          // final the weekly sweep supplied), minting `now` here would record a
+          // re-observation as if it were the first one. When the child is
+          // already final, when it FIRST became final is not knowable from this
+          // call, so nothing is written. `finalized` is deliberately untouched:
+          // it is a committed-transition count consumed by the cron event and
+          // the partition receipts, and it is still correct.
+          if (!childPrior || classifyScorePackStatus(childPrior) !== 'final') {
+            firstFinalIds.add(id);
+          }
         }
       }
     }
@@ -299,9 +344,23 @@ export async function mergeScoresIntoPartition(params: {
     // `now`; preserved rows carry their prior effective timestamp forward.
     const items: ScorePack[] = [];
     const itemUpdatedAtById: Record<string, number> = {};
+    // First-final stamps (PLATFORM-692): FIRST WRITE WINS, PERMANENTLY. A prior
+    // stamp always beats a fresh one, because the question is when we first
+    // BELIEVED a game was final, not when it settled — a later correction, a
+    // stale-aggregate protection reference, or a manual refresh that regressed
+    // the row can all re-fire the `finalized` branch for an id already stamped,
+    // and none of them may move it. Carried by RAW lookup: an id absent from the
+    // prior map stays absent unless THIS call first-finalized it, so the entry
+    // version can never be mistaken for an observation.
+    const firstFinalObservedAtById: Record<string, number> = {};
     for (const [id, { item, touched }] of mergedById) {
       items.push(item);
       itemUpdatedAtById[id] = touched ? now : prior ? effectiveRowTimestamp(prior, item) : now;
+      const priorFirstFinal = priorFirstFinalObservedAt(prior, id);
+      if (priorFirstFinal !== undefined) firstFinalObservedAtById[id] = priorFirstFinal;
+      else if (stampFirstFinalObservation && firstFinalIds.has(id)) {
+        firstFinalObservedAtById[id] = now;
+      }
     }
     for (const item of unkeyedPrior) items.push(item);
 
@@ -326,6 +385,10 @@ export async function mergeScoresIntoPartition(params: {
       cfbdFallbackReason: 'none',
       itemUpdatedAtById,
       ...(nextPending.size > 0 ? { pendingFinalConfirmationIds: [...nextPending].sort() } : {}),
+      // Omitted entirely when empty, so an entry no live path has ever stamped
+      // (a sweep-only partition, every pre-692 entry) is written exactly as it
+      // is today rather than gaining an empty object.
+      ...(Object.keys(firstFinalObservedAtById).length > 0 ? { firstFinalObservedAtById } : {}),
     };
     await txn.write(nextEntry);
     return { wrote: true, committed, finalized };

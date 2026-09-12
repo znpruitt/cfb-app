@@ -90,6 +90,14 @@ These consolidate recurring historical observations, not new project-governance 
 
 ## Prompt ledger (source order retained)
 
+### PLATFORM-692-FINAL-OBSERVATION-STAMP-CLAUDE-v1
+
+- Change: `CacheEntry.firstFinalObservedAtById` records when LIVE polling first saw CFBD report a score final ([#692](https://github.com/znpruitt/cfb-app/issues/692)) — write-once, unread. **Not a game end time, and a PROVISIONAL final** (stamped when `/scoreboard` says `completed`, awaiting `/games`); the field's own comment is canonical for its lag terms. Brackets the tail with `itemUpdatedAtById`: `stamp − kickoff`, then `itemUpdatedAtById − stamp` for stragglers.
+- Scope limit: observation-only; not `ScorePack`, cadence, or any response — `/api/scores` builds `{ items, meta }` from `ScorePack[]`, asserted on the serialized body, positive-controlled.
+- Evidence: "stamp in `scoreMerge` only ⇒ FBS only" was wrong — the merge is SHARED, and `finalScoreSweep` finalizes the non-FBS population `/scoreboard` (`classification=fbs`) never sees: 355 of 454 week-1 rows at one `2026-09-08T12:00Z` cron clock, on the read-only replica. Hence `stampFirstFinalObservation`, default-absent, two live sites, not keyed on `onlyIfMissingUsableFinal`. Self-describing: a swept row is stamped in `itemUpdatedAtById`, absent here. The branch re-fires for an already-final id, so first-write-wins is code and a child already final is never stamped. See L1, L4.
+- Review / verification: converged in one round, three findings accepted — Codex P3 refuted this record's own score-less-final claim: both opt-in callers require both scores, and it came from the classifier, not the population. `tsc`/`lint:all` 0; `npm test` 5,193/5,193 (+21); ten mutations, each at its own assertion.
+- Status: Implemented — PR open.
+
 ### PLATFORM-676-OVERVIEW-SECTION-EXPANSION-CODEX-v1
 
 - Purpose: implement Item 115 / [#676](https://github.com/znpruitt/cfb-app/issues/676): bounded, in-place disclosure for Overview game sections and a truthful Live total.

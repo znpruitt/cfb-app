@@ -410,6 +410,10 @@ async function runScoreboard(args: {
           baseline: m.game.cachedScore,
           baselineAt: m.game.cachedScoreAt,
         })),
+        // PLATFORM-692 — a LIVE observation, so it stamps first-final. The
+        // `/scoreboard` fetch above is pinned to `classification=fbs`, which is
+        // what makes this population exactly the one the polling tail serves.
+        stampFirstFinalObservation: true,
         now: now.getTime(),
       });
       committed = result.committed;
@@ -562,6 +566,10 @@ async function runFinalReconciliation(args: {
       seasonType: partition.seasonType,
       updates: parse.updates,
       confirmFinalIds: parse.confirmedIds,
+      // PLATFORM-692 — also live: these targets are ids the FBS scoreboard
+      // already recorded pending, so a first-final here is still a live
+      // observation of this run's clock.
+      stampFirstFinalObservation: true,
       now: now.getTime(),
     });
   } catch (error) {

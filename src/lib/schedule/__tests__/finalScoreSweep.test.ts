@@ -219,3 +219,53 @@ test('without a provider id, unresolved participants still produce ignored_score
   assert.equal(attached.diagnostics[0]?.type, 'ignored_score_row');
   assert.equal(attached.diagnostics[0]?.reason, 'unresolved_both_teams');
 });
+
+// ---- First-final stamp exclusion (PLATFORM-692 / #692) --------------------
+
+test('THE WEEKLY SWEEP WRITES NO FIRST-FINAL STAMP, at its own entry point', async () => {
+  // The sweep shares `mergeScoresIntoPartition` with live polling, so its
+  // `finalized` branch fires for every game it repairs — and it repairs the
+  // non-FBS population that `/scoreboard` (pinned `classification=fbs`) never
+  // sees: 355 of 454 week-1 rows in production on 2026-09-11, all stamped with
+  // this one weekly cron clock. Excluding them is what keeps the distribution
+  // a measurement of live polling rather than of the cron schedule.
+  //
+  // Asserted HERE, at the caller that must omit the opt-in, and not only at the
+  // merge — the merge cannot tell who called it, so the merge-level test proves
+  // the mechanism while this one proves the wiring.
+  const candidate = finalScoreCandidateFromScheduleRow(
+    {
+      id: 601,
+      week: 5,
+      home_team: 'Mercer',
+      away_team: 'Samford',
+      start_date: '2031-09-27T00:00:00Z',
+      home_points: 24,
+      away_points: 21,
+      completed: true,
+    },
+    'regular'
+  );
+  assert.ok(candidate);
+
+  const sweep = await sweepMissingFinalScores({
+    year: YEAR,
+    candidates: [candidate],
+    observedAtMs: NOW,
+  });
+  assert.equal(sweep.repaired, 1, 'the sweep still does its job');
+
+  const stored = await getAppState<CacheEntry>('scores', `${YEAR}-5-regular`);
+  const entry = stored!.value;
+  assert.equal(entry.items[0]!.status, 'final', 'the final was committed');
+  assert.equal(
+    entry.itemUpdatedAtById!['601'],
+    NOW,
+    "the sibling stamp IS written, at the run's single fixed clock"
+  );
+  assert.equal(
+    entry.firstFinalObservedAtById,
+    undefined,
+    'and the first-final map is absent — a swept row is knowable by exactly that'
+  );
+});
