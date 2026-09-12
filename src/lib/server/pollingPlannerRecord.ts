@@ -917,6 +917,22 @@ export function latestRecordedIntentForSchedule(
 // THE TWO SERIES ARE READ, CLASSIFIED AND REFUSED INDEPENDENTLY. Nothing merges
 // them, and nothing may: a held-key refusal must never degrade the applied read,
 // which is precisely what a variant row could not offer.
+//
+// A KNOWN LIMIT, STATED RATHER THAN IMPLIED — and it bites the half this exists
+// for. `getProviderRefreshSettings` is one `getAppState` call, so it throws ONLY
+// when the durable store throws, and this series is written through that same
+// store. A store-wide outage therefore produces the `settings-unavailable` hold
+// AND loses its trace: the write returns `not-recorded`, the loss is counted on
+// the receipt, and no row lands. The `plan-held` half is unaffected, because an
+// operator hold happens while the store is healthy.
+//
+// So this records a settings-unavailable hold when the failure was CONFINED to
+// the settings read, which is exactly the limit issue #619 recorded for the
+// receipt signal one layer up, and for the same reason. Closing it would need a
+// second storage layer outside `app_state` — which is Item 126's layer 2, and
+// rebuilding that here is explicitly out of bounds. A runtime event is NOT the
+// answer either: this module exists because Vercel's log retention is far too
+// short to serve as incident history.
 
 /**
  * The durable key for one job's HELD series.
@@ -945,6 +961,31 @@ export function pollingPlannerHoldRecordKey(job: ExternalSchedulerJob): string {
  *   chose, and the state this series exists to make findable afterwards.
  */
 export type PollingPlannerHoldReason = 'plan-held' | 'settings-unavailable';
+
+/**
+ * The write sink's vocabulary, and the ONE place it is enforced.
+ *
+ * THE READER AND THE WRITER DELIBERATELY DIVERGE HERE, which is the only place in
+ * this module they do. {@link admitPollingPlannerHoldRun} refuses a reason outside
+ * this set; {@link parseHoldRun} admits any short printable value. Both halves are
+ * load-bearing and they point opposite ways on purpose:
+ *
+ * - NARROW ON WRITE, because a guarantee enforced at an OPTIONAL constructor is a
+ *   convention rather than a property — the identical argument that moved this
+ *   module's excess-property allowlist to its sink. `PollingPlannerHoldRun.reason`
+ *   is typed `string`, so a caller assembling a row from a variable could otherwise
+ *   persist a typo or an arbitrary classification and TypeScript would not object.
+ * - PERMISSIVE ON READ, because a reason added by a LATER build must survive a
+ *   rollback to this one instead of being dropped as corruption. The
+ *   `schedule-unreadable` day is the known next candidate.
+ *
+ * So the divergence is strictly `write ⊆ read`, and every other field contract
+ * stays literally the same function on both paths.
+ */
+export const POLLING_PLANNER_HOLD_REASONS: ReadonlySet<string> = new Set<PollingPlannerHoldReason>([
+  'plan-held',
+  'settings-unavailable',
+]);
 
 /**
  * One run that planned nothing for one job.
@@ -1113,12 +1154,18 @@ export function readPollingPlannerHoldRunsForWrite(
   return { ok: true, series: parsed };
 }
 
-/** The write gate is the READ parser itself, for the reason {@link admitPollingPlannerRun} states. */
+/**
+ * The write gate: the READ parser itself, for the reason {@link admitPollingPlannerRun}
+ * states, PLUS the reason union — see {@link POLLING_PLANNER_HOLD_REASONS} for why
+ * that one field is narrower here than on the read path.
+ */
 export function admitPollingPlannerHoldRun(
   run: PollingPlannerHoldRun,
   nowMs: number = Date.now()
 ): PollingPlannerHoldRun | null {
-  return parseHoldRun(projectPollingPlannerHoldRun(run), nowMs);
+  const parsed = parseHoldRun(projectPollingPlannerHoldRun(run), nowMs);
+  if (parsed === null) return null;
+  return POLLING_PLANNER_HOLD_REASONS.has(parsed.reason) ? parsed : null;
 }
 
 export async function recordPollingPlannerHoldRun(

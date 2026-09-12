@@ -16,6 +16,7 @@ import {
   MAX_HOLD_REASON_LENGTH,
   parsePollingPlannerHoldRuns,
   POLLING_PLANNER_MAX_RUNS,
+  POLLING_PLANNER_HOLD_REASONS,
   POLLING_PLANNER_RECORD_SCOPE,
   pollingPlannerHoldRecordKey,
   pollingPlannerRecordKey,
@@ -32,6 +33,7 @@ import {
   type PollingPlannerRun,
 } from '../pollingPlannerRecord';
 import { readSchedulerDeliveryHealth } from '../schedulerDeliveryHealth';
+import { EXTERNAL_SCHEDULER_JOBS } from '../schedulerExecutionStatus';
 import { SAFE_CHARACTER_SAMPLES, UNSAFE_CHARACTER_CODES } from './unsafeCharacterTable';
 
 /**
@@ -111,12 +113,57 @@ async function reset(): Promise<void> {
 // The key, and why it is prefixed rather than scoped separately
 // ---------------------------------------------------------------------------
 
-test('the held key is prefixed and cannot collide with an applied one', () => {
+test('no job key and no held key collide, across the WHOLE job domain', () => {
+  // Checking one representative leaves the claim resting on `live-scores`: if a
+  // job identifier containing `:` were ever added, an applied key `held:live-scores`
+  // could collide with the held key for `live-scores` while a one-job test stayed
+  // green. Compare the complete sets instead, so the domain is the assertion.
+  const applied = EXTERNAL_SCHEDULER_JOBS.map(pollingPlannerRecordKey);
+  const heldKeys = EXTERNAL_SCHEDULER_JOBS.map(pollingPlannerHoldRecordKey);
+  const all = [...applied, ...heldKeys];
+
+  assert.equal(new Set(all).size, all.length, 'every key across both series is distinct');
+  assert.equal(
+    applied.some((key) => heldKeys.includes(key)),
+    false,
+    'no applied key is also a held key'
+  );
+  // The property that makes the prefix safe, asserted over the domain rather than
+  // assumed: every job identifier is a bare slug.
+  for (const job of EXTERNAL_SCHEDULER_JOBS) {
+    assert.equal(job.includes(':'), false, `${job} must not contain the prefix separator`);
+  }
   assert.equal(pollingPlannerHoldRecordKey(JOB), 'held:live-scores');
-  assert.notEqual(pollingPlannerHoldRecordKey(JOB), pollingPlannerRecordKey(JOB));
-  // Every scheduler job identifier is a bare slug, so no job name can ever parse
-  // as a held key and no held key can ever be read as a job's applied series.
-  assert.equal(pollingPlannerRecordKey(JOB).includes(':'), false);
+});
+
+test('the write sink enforces the reason union that the read path deliberately does not', () => {
+  // The module's own lesson, applied to one more field: a guarantee enforced at an
+  // OPTIONAL constructor is a convention. `PollingPlannerHoldRun.reason` is typed
+  // `string`, so a caller assembling a row from a variable can hand the writer a
+  // typo, and only the sink can refuse it.
+  const nowMs = Date.parse('2026-09-07T12:00:00.000Z');
+  const base = heldRun('2026-09-07T11:00:00.000Z');
+
+  for (const reason of POLLING_PLANNER_HOLD_REASONS) {
+    assert.notEqual(admitPollingPlannerHoldRun({ ...base, reason }, nowMs), null, reason);
+  }
+  for (const reason of ['plan-heldd', 'settings unavailable', 'schedule-unreadable', 'held']) {
+    assert.equal(
+      admitPollingPlannerHoldRun({ ...base, reason }, nowMs),
+      null,
+      `${reason} must not be writable by THIS build`
+    );
+  }
+
+  // AND THE DIVERGENCE RUNS ONE WAY ONLY. The same value this build refuses to
+  // WRITE is still READ, because a reason added by a later build must survive a
+  // rollback to this one rather than be dropped as corruption.
+  assert.equal(
+    parsePollingPlannerHoldRuns({ runs: [{ ...base, reason: 'schedule-unreadable' }] }, nowMs).runs
+      .length,
+    1,
+    'write ⊆ read: the sink is narrow, the parser is not'
+  );
 });
 
 // ---------------------------------------------------------------------------

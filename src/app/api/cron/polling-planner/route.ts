@@ -287,38 +287,54 @@ async function planOneJob(
  * hold" and never "has a settings-unreadable hold ever happened", which is the
  * question issue #732 exists to make answerable.
  *
- * WHY IT CANNOT THROW. This runs on the `continue` branch INSIDE the per-job loop.
- * A throw here escapes to the route's outer catch and the job that was NOT held
- * loses its whole day — an observability write costing a planning run, which is
- * strictly worse than the gap it closes. `recordPollingPlannerHoldRunSafely` is
- * the total form, and it is the only form this route may call.
+ * WHY IT RUNS AFTER THE JOB LOOP, AND AFTER THE CLASSIFICATION. Both reviews
+ * found the same root from opposite ends, and the first version had it wrong:
  *
- * WHY THE FAILURE IS COUNTED IN `recordsNotWritten`. The field already means
- * "planner-owned jobs whose durable record write did not confirm", which is
- * exactly what a lost trace is, and System Health renders it on the planner row
- * (`· N record(s) not written`) regardless of result. The result BRANCHES ARE
- * UNTOUCHED: an all-held run still reports `no-op` / `plan-held` and still pages
- * nobody, because a deliberate stop must not raise an issue — the count is
- * visible without the classification moving.
+ *   1. INSIDE the loop, this durable write sat AHEAD of a still-unplanned job.
+ *      `recordPollingPlannerHoldRunSafely` absorbs a throw, but a throw was never
+ *      the whole hazard — `withAppStateKeyTransaction` can stay PENDING on a pool
+ *      connection or an advisory lock, and `appStateStore`'s pool sets only
+ *      `idleTimeoutMillis`, so there is no application bound on how long. With
+ *      `live-scores` held and `game-stats` armed, the route could time out before
+ *      ever planning `game-stats`, leaving a live job on yesterday's schedule.
+ *      An observability write must never be able to cost a planning run, and
+ *      moving it after the loop is what makes that structural rather than
+ *      probabilistic. NOT closed by a timeout race: cancelling an in-flight
+ *      transaction would leave durability unknown and nothing here may round that.
+ *      What remains after the move is the route's PRE-EXISTING exposure — the
+ *      `finally` receipt write goes to the same store — rather than a new one.
+ *   2. Its failure fed `recordsNotWritten`, which feeds `failed`, which gates the
+ *      `success` branch. So a held job whose TRACE failed downgraded a run in
+ *      which every schedule reached its planned state to `partial`, and
+ *      `schedulerExecutionIssues` raises a warning with a repair link for exactly
+ *      that — every day, forever, on a permanently-unreadable held key. Nothing
+ *      consumes this series, so it must not raise an alarm the way a lost PLANNER
+ *      record does, whose absence really does blind delivery health.
+ *
+ * The count still lands on the receipt, because it is applied before the receipt
+ * is written in `finally` — so System Health still renders `· N record(s) not
+ * written` on the planner row. Visible without the classification moving, which
+ * is what the first version claimed and this one is.
  */
-async function recordHeldJob(
-  job: PlannerOwnedJob,
+async function recordHeldJobs(
+  held: ReadonlyArray<{ job: PlannerOwnedJob; reason: PollingPlannerHoldReason }>,
   input: { at: Date; invocationId: string | null; dayStartMs: number },
-  reason: PollingPlannerHoldReason,
   exec: PollingPlannerCronExecutionState
 ): Promise<void> {
-  const outcome = await recordPollingPlannerHoldRunSafely(
-    job,
-    buildPollingPlannerHoldRun({
-      at: input.at,
-      // The RECEIPT's id, so the durable history and the latest-only receipt
-      // describe one run rather than two (Item 126 Tier A correlation).
-      invocationId: input.invocationId,
-      dayStartMs: input.dayStartMs,
-      reason,
-    })
-  );
-  if (outcome !== 'recorded') exec.recordsNotWritten += 1;
+  for (const entry of held) {
+    const outcome = await recordPollingPlannerHoldRunSafely(
+      entry.job,
+      buildPollingPlannerHoldRun({
+        at: input.at,
+        // The RECEIPT's id, so the durable history and the latest-only receipt
+        // describe one run rather than two.
+        invocationId: input.invocationId,
+        dayStartMs: input.dayStartMs,
+        reason: entry.reason,
+      })
+    );
+    if (outcome !== 'recorded') exec.recordsNotWritten += 1;
+  }
 }
 
 const nativeFetch = async (
@@ -431,20 +447,20 @@ export async function GET(req: Request): Promise<NextResponse<PollingPlannerResu
       settingsUnavailable = true;
     }
 
+    // COLLECTED, NOT WRITTEN, so no durable write sits ahead of an unplanned job.
+    const heldJobs: Array<{ job: PlannerOwnedJob; reason: PollingPlannerHoldReason }> = [];
     for (const job of PLANNER_OWNED_JOBS) {
       if (settings === null || jobIsHeld(job, settings)) {
         exec.jobsHeld += 1;
-        // The CAUSE, not merely the fact. `settings === null` is the store read
-        // failing closed — nobody chose it, and it is the state #732 exists to
-        // make findable afterwards; `jobIsHeld` is an operator's deliberate stop.
-        // Both hold everything, and only one of them is something someone asked
-        // for, which is the whole distinction issue #619 established one layer up.
-        await recordHeldJob(
-          job,
-          { at, invocationId: receiptInvocationId, dayStartMs },
-          settings === null ? 'settings-unavailable' : 'plan-held',
-          exec
-        );
+        // THE CAUSE, read off the FLAG and never off the null. The comment above
+        // `settingsUnavailable` says why it exists: deriving the classification
+        // from `settings === null` would silently rejoin a genuine hold with an
+        // unreadable store the day that read gains a nullable path — "the entire
+        // defect this change exists to undo". Reading it off the null HERE would
+        // reintroduce it on the durable row instead of the receipt, and the two
+        // would then disagree about one run under one `invocationId`, which is
+        // precisely what sharing that id was meant to prevent. Found by review.
+        heldJobs.push({ job, reason: settingsUnavailable ? 'settings-unavailable' : 'plan-held' });
         continue;
       }
       await planOneJob(
@@ -488,6 +504,11 @@ export async function GET(req: Request): Promise<NextResponse<PollingPlannerResu
       exec.result = 'failure';
       exec.reason = 'plan-not-applied';
     }
+
+    // AFTER the classification, deliberately: see `recordHeldJobs`. The count it
+    // adds still reaches the receipt, which is written in `finally`, and the
+    // response body below, which is built after this line.
+    await recordHeldJobs(heldJobs, { at, invocationId: receiptInvocationId, dayStartMs }, exec);
 
     // 200 even on a partial. QStash retries a non-2xx, and a retried planner run
     // would re-derive the same day and re-send the same idempotent mutations —

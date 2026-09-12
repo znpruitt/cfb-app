@@ -836,12 +836,22 @@ test('a trace that CANNOT be written does not cost the unheld job its day', asyn
     // as a transport fault.
     assert.equal(response.status, 200);
     const receipt = await readReceipt();
-    assert.equal(receipt?.result, 'partial');
+    // SUCCESS, NOT `partial`, and this assertion is the remediation. The first
+    // version let a failed TRACE feed `failed`, which gates this branch — so a run
+    // in which every schedule reached its planned state reported `partial`, and
+    // `schedulerExecutionIssues` raised a warning with a repair link for it. On a
+    // permanently-unreadable held key that is a warning every day, forever, for an
+    // observability row nothing consumes. A lost PLANNER record still downgrades
+    // the run, because its absence really does blind delivery health.
+    // AND THIS IS THE ORDERING CONTROL TOO. `success` is reachable only if the
+    // hold failure is counted AFTER `failed` is computed — so moving the
+    // `recordHeldJobs` call back inside the job loop, which is the edit that
+    // reintroduces the unbounded write ahead of an unplanned job, reds this test.
+    assert.equal(receipt?.result, 'success');
     const target = receipt?.target as { recordsNotWritten: number; jobsHeld: number };
-    // COUNTED IN `recordsNotWritten`, whose meaning already covers it —
-    // "planner-owned jobs whose durable record write did not confirm" — and which
-    // System Health renders on the planner row. A lost trace is visible without
-    // any schema change and without moving the result branches.
+    // VISIBLE WITHOUT MOVING THE CLASSIFICATION: the count still lands on the
+    // receipt, and System Health renders it on the planner row regardless of
+    // result. That is what the first version claimed and this one is.
     assert.equal(target.recordsNotWritten, 1);
     assert.equal(target.jobsHeld, 1);
   } finally {
