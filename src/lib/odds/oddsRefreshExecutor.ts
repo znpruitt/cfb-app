@@ -21,6 +21,7 @@
 
 import {
   fetchUpstreamResponse,
+  readUpstreamJsonWithDeadline,
   sanitizeUpstreamUrl,
   UpstreamFetchError,
   type UpstreamPacingPolicy,
@@ -322,6 +323,14 @@ function usageHeadersTrustworthy(headers: Headers): boolean {
   );
 }
 
+/**
+ * ONE deadline value for both phases of the odds provider request (PLATFORM-662).
+ * The header phase takes it via `fetchUpstreamResponse`; the body phase re-arms
+ * the same budget at `readUpstreamJsonWithDeadline`. Two arming sites, one
+ * number — a second, different value here would be the fork worth objecting to.
+ */
+const ODDS_UPSTREAM_TIMEOUT_MS = 12_000;
+
 function safeDetailFromUpstream(error: UpstreamFetchError): SafeUpstreamDetail {
   return {
     kind: error.details.kind,
@@ -418,14 +427,22 @@ export async function executeOddsRefresh(params: {
   });
 
   // ---- Provider request (real credential URL; caller retry policy) ----
+  //
+  // PLATFORM-662: the body is read below, AFTER a durable usage write, so it
+  // cannot ride the shared retry loop's deadline. `bodyAbort` is passed as the
+  // request signal purely so the body read has something to abort — it is armed
+  // only after the headers arrive, so it can never fire during the header phase
+  // (which would misreport this lane's own deadline as a caller `aborted`).
   let upstreamRes: Response;
+  const bodyAbort = new AbortController();
   try {
     upstreamRes = await fetchUpstreamResponse(buildOddsProviderUrl(apiKey, query), {
       cache: 'no-store',
-      timeoutMs: 12000,
+      timeoutMs: ODDS_UPSTREAM_TIMEOUT_MS,
       retry,
       pacing,
       throwOnHttpError: false,
+      signal: bodyAbort.signal,
     });
   } catch (error) {
     // Transport/timeout/network — record failure, return a safe detail.
@@ -504,8 +521,31 @@ export async function executeOddsRefresh(params: {
 
   let upstreamData: unknown;
   try {
-    upstreamData = await upstreamRes.json();
-  } catch {
+    upstreamData = await readUpstreamJsonWithDeadline<unknown>({
+      response: upstreamRes,
+      url: buildOddsProviderUrl(apiKey, query),
+      timeoutMs: ODDS_UPSTREAM_TIMEOUT_MS,
+      abortController: bodyAbort,
+    });
+  } catch (error) {
+    // PLATFORM-662: a body that timed out or whose transport died is a FETCH
+    // failure, not a payload rejection — the provider never finished answering,
+    // so nothing was learned about the shape of what it sends. Reporting it as
+    // `odds-invalid-payload` claimed knowledge of a payload this code never saw.
+    // Only a `parse` kind — bytes that arrived and were not JSON — is a payload
+    // rejection. Usage is already captured above either way: the request was
+    // billed regardless of how the body ended.
+    if (error instanceof UpstreamFetchError && error.details.kind !== 'parse') {
+      const detail = safeDetailFromUpstream(error);
+      const result = oddsRefreshResult('failure', 'provider-fetch-failed', 502);
+      await recordProviderRefreshFailure('odds', scope, {
+        attempt,
+        error: detail.message,
+        code: 'provider-fetch-failed',
+        status: detail.status ?? 502,
+      });
+      return base(result, { providerErrorDetail: detail });
+    }
     return await rejectPayload('odds-invalid-payload');
   }
   if (!Array.isArray(upstreamData)) {
