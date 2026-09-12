@@ -98,9 +98,15 @@ function slateOfSize(gameCount: number): {
 
 /**
  * The shape a confirmed draft actually writes: every undrafted eligible team
- * carries the reserved `NoClaim` OWNER, so an unclaimed opponent has a truthy
- * `opponentOwner`. A fixture that merely omits them from the roster cannot reach
- * the branch this covers.
+ * carries the reserved `NoClaim` OWNER in the ROSTER. A fixture that merely omits
+ * them from the roster cannot reach the branch this covers — before a draft is
+ * confirmed an unowned team is absent and reads `''`, which every predicate here
+ * already handled.
+ *
+ * Item 713 changed what the DERIVATION does with that roster, not what the roster
+ * says: the sentinel no longer enters `MatchupBucket`, so `opponentOwner` is now
+ * absent rather than truthy. The fixture is unchanged; the contract it proves is
+ * stronger.
  */
 function noClaimRoster(gameCount: number): {
   games: AppGame[];
@@ -213,15 +219,24 @@ test('the count is indifferent to who owns the opponents (Item 135)', () => {
   // team carries the reserved `NoClaim` OWNER, which grouped them into ONE
   // opponent and suppressed the control entirely. Counting games ignores that.
   const visible = getDefaultVisibleGamesCount();
-  const { games, rosterByTeam } = noClaimRoster(visible + 2);
+  const { games, rosterByTeam, opponentNames } = noClaimRoster(visible + 2);
 
   const slate = deriveOwnerWeekSlates(games, rosterByTeam, {}).find(
     (entry) => entry.owner === OWNER
   );
   assert.ok(slate, 'owner slate should exist');
+  // The positive control has TWO halves since Item 713, and it needs both. The
+  // ROSTER carrying the sentinel is what makes this fixture reach the branch —
+  // asserting only the derived half would pass on a fixture that never wrote a
+  // sentinel at all, which is the exact trap `rosterEditing.ts`'s `isUnowned`
+  // docblock records.
   assert.ok(
-    slate.games.every((slateGame) => slateGame.opponentOwner === NO_CLAIM_OWNER),
-    'positive control: every opponent carries the reserved NoClaim owner'
+    opponentNames.every((opponent) => rosterByTeam.get(opponent) === NO_CLAIM_OWNER),
+    'positive control: every opponent is rostered with the reserved NoClaim owner'
+  );
+  assert.ok(
+    slate.games.every((slateGame) => slateGame.opponentOwner === undefined),
+    'Item 713: the sentinel is resolved away before it reaches the slate'
   );
 
   const { container } = renderPanel(games, rosterByTeam);

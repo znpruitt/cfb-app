@@ -51,8 +51,9 @@ Supersedes: (none)
 > prices step 2 with data instead of this item's estimate."* Step 1 has been live since 2026-09-07.
 > **So the next server-track action is a measurement, not a branch:** actual live-scores wakeups since
 > activation against the projected 6,156 for October, and the real overrun distribution past +8h.
-> **Owner picks** between that, Item 126 Tier A, and #733. (#732 shipped 2026-09-12, PR #748,
-> `8208c7d9` — held planner runs now leave a durable trace under a separate `held:<job>` series.)
+> **Owner picks** between that and Item 126 Tier A. (#732 and #733 both shipped 2026-09-12 — PR #748,
+> `8208c7d9`, and PR #749, `717fb842`. Held planner runs now leave a durable trace under a separate
+> `held:<job>` series, and the planner's repair link is reason-keyed rather than job-keyed.)
 `NEXT`: **Item 134** — Overview three-column tier. **v1 STOPPED 2026-09-12** — PR #747 did not
 converge and must not merge; reconstruct from clean `main` per
 [`docs/prompts/platform-678-overview-three-column-codex-v2.md`](prompts/platform-678-overview-three-column-codex-v2.md),

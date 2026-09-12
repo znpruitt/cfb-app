@@ -298,10 +298,19 @@ function unownedSlateOfSize(gameCount: number): OwnerWeekSlate {
 
 /**
  * The production shape a confirmed draft produces: every undrafted eligible team
- * is written with the reserved `NoClaim` OWNER, so an unclaimed opponent has a
- * truthy `opponentOwner`. Built through the real derivation rather than by hand.
+ * is written with the reserved `NoClaim` OWNER in the ROSTER. Built through the
+ * real derivation rather than by hand.
+ *
+ * Item 713 changed what that derivation does with it — the sentinel no longer
+ * enters `MatchupBucket`, so an unclaimed opponent now has an ABSENT
+ * `opponentOwner` rather than a truthy one. The roster is returned alongside the
+ * slate so a caller can assert both halves: that the fixture wrote the sentinel,
+ * and that the derivation resolved it away.
  */
-function noClaimRosterSlate(opponents: string[]): OwnerWeekSlate {
+function noClaimRosterSlate(opponents: string[]): {
+  slate: OwnerWeekSlate;
+  rosterByTeam: Map<string, string>;
+} {
   const games = opponents.map((opponent, index) =>
     game({
       key: `g-${index}`,
@@ -336,7 +345,7 @@ function noClaimRosterSlate(opponents: string[]): OwnerWeekSlate {
     (entry) => entry.owner === 'Taylor'
   );
   assert.ok(ownerSlate, 'owner slate should exist');
-  return ownerSlate;
+  return { slate: ownerSlate, rosterByTeam };
 }
 
 /** An owner holding BOTH teams in a game — 39 of these in the 2026 season. */
@@ -478,11 +487,20 @@ test('NoClaim-rostered opponents do not collapse the game count (Item 135)', () 
   // The Codex finding that prompted the model change. On a drafted league every
   // unclaimed team carries the reserved `NoClaim` OWNER, which grouped them all
   // into one opponent. Counting games is indifferent to it.
-  const source = noClaimRosterSlate(['Rice', 'Tulane', 'SMU', 'Navy', 'Temple']);
+  const opponents = ['Rice', 'Tulane', 'SMU', 'Navy', 'Temple'];
+  const { slate: source, rosterByTeam } = noClaimRosterSlate(opponents);
 
+  // The positive control has TWO halves since Item 713, and it needs both. The
+  // ROSTER carrying the sentinel is what makes this fixture reach the branch —
+  // asserting only the derived half would pass on a fixture that never wrote a
+  // sentinel at all.
   assert.ok(
-    source.games.every((slateGameItem) => slateGameItem.opponentOwner === NO_CLAIM_OWNER),
-    'positive control: every opponent carries the reserved NoClaim owner'
+    opponents.every((opponent) => rosterByTeam.get(opponent) === NO_CLAIM_OWNER),
+    'positive control: every opponent is rostered with the reserved NoClaim owner'
+  );
+  assert.ok(
+    source.games.every((slateGameItem) => slateGameItem.opponentOwner === undefined),
+    'Item 713: the sentinel is resolved away before it reaches the slate'
   );
 
   const collapsed = selectSlateGameVisibility(source, false);
@@ -501,5 +519,213 @@ test('summarizeSlateOpponents counts a self game once (Item 135)', () => {
   assert.equal(
     formatSlateSummaryText({ entries, totalGames: 1, expanded: false }),
     '1 game · vs Self'
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Item 713 — the reserved sentinel is resolved away where owners ENTER the model.
+//
+// `buildConfirmedOwnersCsv` writes `NoClaim` as a real owner row for every
+// undrafted eligible team, so after a draft is confirmed `getOwnerForGameSide`
+// resolves an UNOWNED team to a truthy string. Every predicate on the Matchups
+// path decided ownership by truthiness, so each one counted the sentinel as a
+// member — the sectioning, the owner set that builds slates, the opponent list
+// and the self-matchup check alike.
+//
+// These pin the CONSEQUENCES at the seam rather than at each reader, because the
+// fix is one resolution in `deriveWeekMatchupSections` and not four guards.
+// Every fixture below carries the sentinel in the ROSTER: a fixture that omits
+// unowned teams reads `''` and cannot reach any of this.
+// ---------------------------------------------------------------------------
+
+function confirmedDraftScenario() {
+  const games = [
+    game({
+      key: 'g-mixed',
+      csvAway: 'Alabama',
+      canAway: 'Alabama',
+      csvHome: 'Akron',
+      canHome: 'Akron',
+      participants: {
+        away: {
+          kind: 'team',
+          teamId: 'Alabama-id',
+          displayName: 'Alabama',
+          canonicalName: 'Alabama',
+          rawName: 'Alabama',
+        },
+        home: {
+          kind: 'team',
+          teamId: 'Akron-id',
+          displayName: 'Akron',
+          canonicalName: 'Akron',
+          rawName: 'Akron',
+        },
+      },
+    }),
+    game({
+      key: 'g-unclaimed',
+      csvAway: 'Akron',
+      canAway: 'Akron',
+      csvHome: 'Tulane',
+      canHome: 'Tulane',
+      participants: {
+        away: {
+          kind: 'team',
+          teamId: 'Akron-id',
+          displayName: 'Akron',
+          canonicalName: 'Akron',
+          rawName: 'Akron',
+        },
+        home: {
+          kind: 'team',
+          teamId: 'Tulane-id',
+          displayName: 'Tulane',
+          canonicalName: 'Tulane',
+          rawName: 'Tulane',
+        },
+      },
+    }),
+    game({
+      key: 'g-owned',
+      csvAway: 'Michigan',
+      canAway: 'Michigan',
+      csvHome: 'Georgia',
+      canHome: 'Georgia',
+      participants: {
+        away: {
+          kind: 'team',
+          teamId: 'Michigan-id',
+          displayName: 'Michigan',
+          canonicalName: 'Michigan',
+          rawName: 'Michigan',
+        },
+        home: {
+          kind: 'team',
+          teamId: 'Georgia-id',
+          displayName: 'Georgia',
+          canonicalName: 'Georgia',
+          rawName: 'Georgia',
+        },
+      },
+    }),
+  ];
+
+  const rosterByTeam = new Map<string, string>([
+    ['Alabama', 'Alice'],
+    ['Michigan', 'Alice'],
+    ['Georgia', 'Bob'],
+    ['Akron', NO_CLAIM_OWNER],
+    ['Tulane', NO_CLAIM_OWNER],
+  ]);
+
+  assert.ok(
+    ['Akron', 'Tulane'].every((teamName) => rosterByTeam.get(teamName) === NO_CLAIM_OWNER),
+    'positive control: both unclaimed teams are rostered with the reserved sentinel'
+  );
+
+  return { games, rosterByTeam };
+}
+
+test('an undrafted opponent does not make a game an owner matchup (Item 713)', () => {
+  const { games, rosterByTeam } = confirmedDraftScenario();
+  const sections = deriveWeekMatchupSections(games, rosterByTeam);
+
+  assert.deepEqual(
+    sections.ownerMatchups.map((bucket) => bucket.game.key),
+    ['g-owned'],
+    'only a game with two REAL owners is a head-to-head'
+  );
+  assert.deepEqual(
+    sections.secondaryGames.map((bucket) => bucket.game.key),
+    ['g-mixed'],
+    'one real owner against an unclaimed team is secondary, not head-to-head'
+  );
+  assert.deepEqual(
+    sections.otherGames.map((bucket) => bucket.game.key),
+    ['g-unclaimed'],
+    'two unclaimed teams involve no owner at all'
+  );
+
+  const mixed = sections.secondaryGames[0]!;
+  assert.equal(mixed.awayOwner, 'Alice');
+  assert.equal(mixed.homeOwner, undefined, 'the sentinel never enters the bucket');
+});
+
+test('the excluded-games summary counts a game between two unclaimed teams (Item 713)', () => {
+  // With the sentinel truthy, `otherGames` was empty and this claimed every game
+  // appeared on an owner card while one of the three involved no owner.
+  const { games, rosterByTeam } = confirmedDraftScenario();
+
+  assert.equal(
+    deriveExcludedGamesSummary(deriveWeekMatchupSections(games, rosterByTeam)),
+    '1 excluded game does not involve owned teams.'
+  );
+});
+
+test('no owner slate is built for the reserved sentinel (Item 713)', () => {
+  const { games, rosterByTeam } = confirmedDraftScenario();
+  const slates = deriveOwnerWeekSlates(games, rosterByTeam, {});
+
+  assert.deepEqual(
+    slates.map((slate) => slate.owner).sort(),
+    ['Alice', 'Bob'],
+    'the sentinel is not an owner and gets no card'
+  );
+
+  const alice = slates.find((slate) => slate.owner === 'Alice');
+  assert.ok(alice, "Alice's slate should exist");
+  assert.deepEqual(
+    alice.opponentOwners,
+    ['Bob'],
+    'the sentinel is not listed as an opponent — this is what OwnerPanel joins'
+  );
+
+  const unclaimedOpponent = alice.games.find((slateGame) => slateGame.game.key === 'g-mixed');
+  assert.ok(unclaimedOpponent, 'the mixed game is on the slate');
+  assert.equal(unclaimedOpponent.opponentOwner, undefined);
+  assert.equal(unclaimedOpponent.isOwnerVsOwner, false, 'an unclaimed opponent is not an owner');
+  assert.equal(unclaimedOpponent.isOpponentUnownedOrNonLeague, true);
+});
+
+test('an unclaimed FBS opponent takes the non-owner descriptor branch (Item 713)', () => {
+  // `displayOwner` returning null is the right TEST but the wrong VALUE here: the
+  // descriptor must fall through to the FCS/placeholder/NoClaim (FBS) ladder
+  // rather than substitute an empty owner. Previously this rendered `vs NoClaim`.
+  const { games, rosterByTeam } = confirmedDraftScenario();
+  const alice = deriveOwnerWeekSlates(games, rosterByTeam, {}).find(
+    (slate) => slate.owner === 'Alice'
+  );
+  assert.ok(alice, "Alice's slate should exist");
+  const unclaimedOpponent = alice.games.find((slateGame) => slateGame.game.key === 'g-mixed');
+  assert.ok(unclaimedOpponent, 'the mixed game is on the slate');
+
+  assert.equal(deriveOpponentDescriptor(unclaimedOpponent), 'NoClaim (FBS)');
+});
+
+test('two unclaimed teams are not a self matchup (Item 713)', () => {
+  // `SELF_DESCRIPTOR` and `isSelfGame` both fire on `opponentOwner === owner`.
+  // Two sentinels compared equal, so a game between two undrafted teams was
+  // reported as one owner playing themselves — with a `Counts as 1W / 1L`
+  // accounting claim — for a game no member owns.
+  const { games, rosterByTeam } = confirmedDraftScenario();
+  const slates = deriveOwnerWeekSlates(games, rosterByTeam, {});
+
+  assert.equal(
+    slates.some((slate) => slate.owner === NO_CLAIM_OWNER),
+    false,
+    'the sentinel has no slate, so it cannot play itself'
+  );
+  assert.equal(
+    slates.some((slate) => slate.games.some((slateGame) => slateGame.game.key === 'g-unclaimed')),
+    false,
+    'the game between two unclaimed teams reaches no owner card'
+  );
+  assert.equal(
+    slates.some((slate) =>
+      slate.games.some((slateGame) => slateGame.opponentOwner === slateGame.owner)
+    ),
+    false,
+    'no slate game is a self matchup, so no finalSelf tone or 1W / 1L claim is reachable'
   );
 });
