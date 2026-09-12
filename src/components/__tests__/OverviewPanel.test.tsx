@@ -7,8 +7,10 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 import OverviewPanelImpl, {
   OVERVIEW_SCOREBOARD_GRID_GAP_PX,
+  OVERVIEW_SCOREBOARD_GRID_CLASSES,
   OVERVIEW_SCOREBOARD_GRID_MIN_COLUMN_PX,
   OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_MIN_PX,
+  OVERVIEW_SCOREBOARD_GRID_TWO_COLUMN_MIN_PX,
 } from '../OverviewPanel';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../../lib/overview';
 import { deriveLeagueInsights, deriveOverviewInsights } from '../../lib/selectors/insights';
@@ -419,7 +421,7 @@ test('overview watchlist uses the shared scoreboard with records and one odds fo
   );
   assert.match(
     html,
-    /grid grid-flow-row grid-cols-2 gap-x-10 @max-\[760\.01px\]:grid-cols-1 @min-\[1376px\]:grid-cols-3" data-watchlist-scoreboard-grid/
+    /grid grid-flow-row grid-cols-1 gap-x-10 @min-\[904px\]:grid-cols-2 @min-\[1376px\]:grid-cols-3" data-watchlist-scoreboard-grid/
   );
   assert.match(scoreboard, /data-watchlist-reason-row/);
   assert.match(scoreboard, /<div(?=[^>]*data-watchlist-reason-row)(?=[^>]*min-h-\[22px\])[^>]*>/);
@@ -759,7 +761,7 @@ test('overview Live section consumes the shared scoreboard in a row-major respon
 
   assert.match(
     html,
-    /grid grid-flow-row grid-cols-2 gap-x-10 @max-\[760\.01px\]:grid-cols-1 @min-\[1376px\]:grid-cols-3" data-live-scoreboard-grid/
+    /grid grid-flow-row grid-cols-1 gap-x-10 @min-\[904px\]:grid-cols-2 @min-\[1376px\]:grid-cols-3" data-live-scoreboard-grid/
   );
   assert.equal((html.match(/data-game-scoreboard=/g) ?? []).length, 2);
   const awayLeadingCard = html.indexOf('aria-label="Utah at Arizona State"');
@@ -777,7 +779,7 @@ test('overview Live section consumes the shared scoreboard in a row-major respon
   assert.doesNotMatch(html, /STATUS_IN_PROGRESS|amber/);
 });
 
-test('overview three-column tier fits the logo-era stress row and leaves orphan space on the right', () => {
+test('overview grids publish the logo-era width budget and reject centered orphan placement', () => {
   const stressGame = game({
     key: 'stress-row',
     providerGameId: 'stress-row',
@@ -840,16 +842,35 @@ test('overview three-column tier fits the logo-era stress row and leaves orphan 
   assert.equal(SCOREBOARD_TEAM_LOGO_SLOT_SIZE, 32);
   assert.equal(OVERVIEW_SCOREBOARD_GRID_MIN_COLUMN_PX, 432);
   assert.equal(
+    (OVERVIEW_SCOREBOARD_GRID_TWO_COLUMN_MIN_PX - OVERVIEW_SCOREBOARD_GRID_GAP_PX) / 2,
+    OVERVIEW_SCOREBOARD_GRID_MIN_COLUMN_PX,
+    'the two-column floor must retain the same declared per-column budget'
+  );
+  assert.equal(OVERVIEW_SCOREBOARD_GRID_TWO_COLUMN_MIN_PX, 904);
+  assert.equal(
     (OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_MIN_PX - 2 * OVERVIEW_SCOREBOARD_GRID_GAP_PX) / 3,
     OVERVIEW_SCOREBOARD_GRID_MIN_COLUMN_PX,
-    'each column at the 1376px threshold must retain the full 432px stress-row budget'
+    'the three-column floor must retain the same declared per-column budget'
   );
   assert.equal(OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_MIN_PX, 1376);
+  assert.equal(grid.className, OVERVIEW_SCOREBOARD_GRID_CLASSES);
+  assert.ok(grid.classList.contains('grid-cols-1'));
+  assert.ok(grid.classList.contains('@min-[904px]:grid-cols-2'));
   assert.ok(grid.classList.contains('@min-[1376px]:grid-cols-3'));
-  assert.ok(grid.classList.contains('grid-flow-row'));
+  for (const centeredClass of [
+    'justify-center',
+    'justify-items-center',
+    'place-content-center',
+    'place-items-center',
+  ]) {
+    assert.ok(
+      !grid.classList.contains(centeredClass),
+      `${centeredClass} would center the final-row remainder`
+    );
+  }
 
   const scoreboards = [...grid.querySelectorAll('[data-game-scoreboard]')];
-  assert.equal(scoreboards.length, 5, 'five games exercise a 3 + 2 orphan layout');
+  assert.equal(scoreboards.length, 5, 'five games provide the 3 + 2 browser-regression fixture');
   const stressScoreboard = scoreboards.find(
     (scoreboard) =>
       scoreboard.getAttribute('aria-label') === 'Middle Tennessee State at Louisiana Tech'
@@ -862,7 +883,7 @@ test('overview three-column tier fits the logo-era stress row and leaves orphan 
   assert.match(
     stressScoreboard.textContent ?? '',
     /Middle Tennessee State\(3–5\)Shambaugh13/,
-    'the breakpoint budget must be pinned to the named logo-era stress row'
+    'the named logo-era stress row must remain the fixture measured by the browser regression'
   );
 });
 
@@ -1157,7 +1178,7 @@ test('overview Featured renders its badge and existing tag in the final status r
   assert.match(liveScoreboard, /Q2 6:14/);
   assert.match(
     html,
-    /<section class="@container">[\s\S]*?<div class="grid grid-flow-row grid-cols-2 gap-x-10 @max-\[760\.01px\]:grid-cols-1 @min-\[1376px\]:grid-cols-3" data-featured-scoreboard-grid="true">/
+    /<section class="@container">[\s\S]*?<div class="grid grid-flow-row grid-cols-1 gap-x-10 @min-\[904px\]:grid-cols-2 @min-\[1376px\]:grid-cols-3" data-featured-scoreboard-grid="true">/
   );
 });
 

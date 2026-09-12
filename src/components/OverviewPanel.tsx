@@ -80,17 +80,21 @@ const OVERVIEW_SCOREBOARD_TEXT_VALUE_BUDGET_PX = 400;
 export const OVERVIEW_SCOREBOARD_GRID_MIN_COLUMN_PX =
   OVERVIEW_SCOREBOARD_TEXT_VALUE_BUDGET_PX + SCOREBOARD_TEAM_LOGO_SLOT_SIZE;
 export const OVERVIEW_SCOREBOARD_GRID_GAP_PX = 40;
+export const OVERVIEW_SCOREBOARD_GRID_TWO_COLUMN_MIN_PX =
+  2 * OVERVIEW_SCOREBOARD_GRID_MIN_COLUMN_PX + OVERVIEW_SCOREBOARD_GRID_GAP_PX;
 export const OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_MIN_PX =
   3 * OVERVIEW_SCOREBOARD_GRID_MIN_COLUMN_PX + 2 * OVERVIEW_SCOREBOARD_GRID_GAP_PX;
 
 /**
  * Item 134: 432px per column = the 400px team/record/owner/value budget + the permanent
- * 32px logo slot. With two 40px gaps, 3 × 432 + 2 × 40 = 1376px. Container-query
- * variants cannot interpolate the constants above, so the literal stays adjacent to the
- * arithmetic and the component test pins them together.
+ * 32px logo slot. That makes the two-column floor 2 × 432 + 40 = 904px and the
+ * three-column floor 3 × 432 + 2 × 40 = 1376px. These are exact floors with no added
+ * headroom: a narrower container keeps the lower tier instead of squeezing a declared
+ * minimum. Container-query variants cannot interpolate the constants above, so the literals
+ * stay adjacent to the arithmetic and the browser regression pins them together.
  */
-const OVERVIEW_SCOREBOARD_GRID_CLASSES =
-  'grid grid-flow-row grid-cols-2 gap-x-10 @max-[760.01px]:grid-cols-1 @min-[1376px]:grid-cols-3';
+export const OVERVIEW_SCOREBOARD_GRID_CLASSES =
+  'grid grid-flow-row grid-cols-1 gap-x-10 @min-[904px]:grid-cols-2 @min-[1376px]:grid-cols-3';
 
 /**
  * The last `n` weeks that are RESOLVED — played, with a usable snapshot.
@@ -856,7 +860,7 @@ function WatchlistScoreboardList({
         const teamRecords = teamRecordsForGame(game, teamRecordsByProviderGameId);
         const highlightTags = prioritized.highlightTags;
         const hasReason = Boolean(prioritized.highlightLabel || highlightTags.length > 0);
-        // Overview's two-column grid explicitly requests this band even when the slot resolves to
+        // Overview's multi-column grid explicitly requests this band even when the slot resolves to
         // null, keeping scheduled peer cards aligned when only one has displayable odds.
         const footerSlot = <WatchlistOddsFooterSlot odds={oddsByKey[game.key]} />;
 
