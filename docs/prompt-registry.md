@@ -104,7 +104,7 @@ These consolidate recurring historical observations, not new project-governance 
 - Scope: Live, Recent finals, and Watchlist selectors/rendering only. Featured and its four-game cap remain unchanged; six-item defaults stay count-based and deliberately ragged pending #678/#726.
 - Outcome: selectors expose complete ordered collections; section-keyed controls expand independently, survive refresh and game migration, reset on Overview remount, and keep the focused collapse control visible.
 - Review / verification: two two-reviewer passes resolved four lows and one medium; one refresh-reset finding was rejected against the owner ruling and pinned. Guard removal is mutation-proven. `tsc`, lint, build, focused tests, full suite, and clock-shift control pass.
-- Status: Implemented and reviewed in PR [#744](https://github.com/znpruitt/cfb-app/pull/744) (`5bd45585`, `51ae096a`, `bc0c77c7`); merge pending.
+- Status: Merged (PR [#744](https://github.com/znpruitt/cfb-app/pull/744), `11350f11`, 2026-09-11). Source commits: `5bd45585`, `51ae096a`, `bc0c77c7`.
 
 ### PLATFORM-137-WRITER-CONVERGENCE-TIME-BOMBS-CLAUDE-v1
 

@@ -191,8 +191,8 @@ The two Featured concepts and the product intent. Cross-references Item 113, whi
 
 **`item-87-followon-section-ordering.md`** (112 → 128 lines) — **PARTLY SUPERSEDED — status lines only**
 Six decisions found living only in mockup markup. The six decisions stand; both of its status statements were
-wrong in opposite directions and are marked: decision 3 (counts as totals) is implemented in Item 115 /
-[PR #744](https://github.com/znpruitt/cfb-app/pull/744) with merge pending, while decision 5 ("Today") DID ship in slice 5. Its four open items are
+wrong in opposite directions and are marked: decision 3 (counts as totals) merged with Item 115 /
+[PR #744](https://github.com/znpruitt/cfb-app/pull/744), while decision 5 ("Today") DID ship in slice 5. Its four open items are
 answered by its child.
 
 **`item-87-followon-section-ordering-resolutions.md`** (146 → 161 lines) — **CURRENT**

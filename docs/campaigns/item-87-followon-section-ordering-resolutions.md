@@ -4,7 +4,7 @@
 >
 > **Status:** §1, §2 and §3 are shipped — POLISH-023, merged via PR #563 (`1546bbc8`), 2026-09-04. §3 is landed on Overview only and
 > is now recorded in `DESIGN.md`, which previously said the opposite. §4 (Matchups slate ordering) and
-> §5 is implemented by Item 115 / PR #744; merge is pending. The sort rules below were added on 2026-09-04.
+> §5 merged via Item 115 / PR #744. The sort rules below were added on 2026-09-04.
 >
 > **INDEX (verified 2026-09-08 against the code): CURRENT.** §1–§2 confirmed — `compareOverviewLiveItems`
 > (`overviewGameSections.ts:155-161`) is kickoff ascending with a key tiebreak and nothing else. §4 is still
@@ -68,9 +68,9 @@ The two views never show the same set — Matchups is one owner's subset per car
 
 ---
 
-## 5. Section counts implemented with Item 115
+## 5. Section counts shipped with Item 115
 
-**PLATFORM-676 / PR #744 implements the paired change:** Live counts the complete collection, and all
+**PLATFORM-676 / PR #744 shipped the paired change:** Live counts the complete collection, and all
 three state sections make their surplus reachable through independent in-place controls.
 
 Before Item 115, `liveTitle` read `.length` after `.slice(0, 6)`, so "Live · 6" against ten live games was false. Making it a total before the surplus was reachable would instead have promised data with no path to it.
