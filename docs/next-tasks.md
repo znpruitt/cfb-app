@@ -49,9 +49,21 @@ Supersedes: (none)
 > waiting out the 8h margin, estimated ~9 points. **And #689 itself says what to do first:** *"shipping
 > [step 1] first yields production evidence of how often games really overrun the margin — which
 > prices step 2 with data instead of this item's estimate."* Step 1 has been live since 2026-09-07.
-> **So the next server-track action is a measurement, not a branch:** actual live-scores wakeups since
-> activation against the projected 6,156 for October, and the real overrun distribution past +8h.
-> **Owner picks** between that and Item 126 Tier A. (#732 and #733 both shipped 2026-09-12 — PR #748,
+> **THAT MEASUREMENT WAS RUN 2026-09-12 — see
+> [`docs/campaigns/vercel-active-cpu.md`](campaigns/vercel-active-cpu.md) → *MEASURED IN PRODUCTION
+> 2026-09-12*, which is canonical for the figures.** In short: the planner installed 993 `live-scores`
+> wakeups over its first six days (165.5/day against 504/day before it), and October replays on the
+> shipped code at **6,574**, 55.8% below the pre-planner fixed cron. **The 6,156 this line used to
+> project has no derivation on record anywhere in the repo** — the two replays bracket it (6,063
+> all-confirmed, 6,574 as the schedule stands), and the campaign document's 190.7/day was the
+> all-confirmed floor, not the installed cadence.
+>
+> **Step 2 is priced: ~323 October wakeups per hour of margin removed, so 8h→5h is 969** — real, and
+> roughly a seventh of what the planner already banked. **The tail evidence is NOT yet there.** Item
+> 140's stamp holds five finals, all from one Friday night, all final within 4.45h of their own
+> kickoff and 4.03h inside the margin. **Five observations from one slate is not a distribution.**
+> **So step 2 is not ready to branch: re-run the measurement after two or three full Saturdays.**
+> **Owner picks** between waiting on that and Item 126 Tier A. (#732 and #733 both shipped 2026-09-12 — PR #748,
 > `8208c7d9`, and PR #749, `717fb842`. Held planner runs now leave a durable trace under a separate
 > `held:<job>` series, and the planner's repair link is reason-keyed rather than job-keyed.)
 
@@ -233,13 +245,22 @@ a multi-round slice.
 
 | # | item | what |
 | --- | --- | --- |
-| 1 | **173** | tags on Live, Recent finals and Featured — three sections render none |
-| 2 | **170** | the owner name truncating, in the file 143 just finished with |
-| 3 | **179** | the awaiting anchor's em dash |
+| **1** | **173b** | tags on Live and Recent finals — both sections render none. **Kickoff written 2026-09-12:** [`docs/prompts/platform-671-live-finals-tag-slot-codex-v1.md`](prompts/platform-671-live-finals-tag-slot-codex-v1.md) |
+| ✅ | ~~170~~ | CLOSED, NOT A DEFECT — the tertiary element clipping first is the hierarchy working |
+| ✅ | ~~179~~ | DONE — the awaiting anchor renders the contract's en dash |
 
-**Roughly two slices.** All three were blocked on 143's status-row seam and are unblocked by it. **Do
-this now rather than later** — the seam exists, the campaign context is warm, and 170 and 179 are in the
-file that lane has just been working in.
+**173a shipped** (PR #588, `00e3fccc`), so Featured is done and the item is scoped to its residue.
+**Item 115 has since shipped too** (PR #744, `11350f11`), which discharges the issue's "sequence 173b
+after 115" blocker.
+
+**AND THE UI LANE'S QUEUE IS NO LONGER JUST THIS TRIO.** The **#672 audit RAN on 2026-09-11** — this
+file and the issue both still described it as unrun — and filed ten residue
+issues — #715, #722, #723, #724, #725, #726, #728, #729, #730 and #731 (#727 already shipped,
+PR #741). That is Matchups and
+Schedule conformance work the 2026-09-08 dispatch order could not have sequenced, and it needs an
+owner pass against 173b for order. **Two of them are gated:** #726 (no third-column tier on either
+surface) waits on the width numbers in #678/#681 being re-derived against the 28px logo slot,
+and #750 is the owner's call on whether Overview's tier starts below 1348px.
 
 #### Then both lanes converge
 
@@ -541,7 +562,7 @@ number.**
 | **178** | resolved — see the audit appendix | DONE: the 17px section-header exception was decided, marked landed, and never  |
 | **179** | resolved — see the audit appendix | DONE: the awaiting anchor renders the contract's en dash |
 | **180** | resolved — see the audit appendix | DONE: the `Streaming ·` prefix, agreed and never filed |
-| **181** | [#672](https://github.com/znpruitt/cfb-app/issues/672) | audit Matchups and Schedule the way Item 167 audited Overview |
+| **181** | [#672](https://github.com/znpruitt/cfb-app/issues/672) | AUDIT RUN 2026-09-11 — ten residue issues filed (#715, #722-#726, #728-#731; #727 shipped). The issue's own triage verdict still reads *audit not run* and is stale |
 | **182** | [#717](https://github.com/znpruitt/cfb-app/issues/717) | two unreachable empty branches on Overview |
 | **183** | [#700](https://github.com/znpruitt/cfb-app/issues/700) | a vacuous assertion on the Schedule streaming test |
 | **184** | [#701](https://github.com/znpruitt/cfb-app/issues/701) | a failing assertion can present as a file-level timeout with no subtest output |

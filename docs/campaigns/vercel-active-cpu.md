@@ -516,3 +516,75 @@ provider data as stale. Correct, not a regression.
   `team-records` figure is used as a floor proxy.
 - The 30-day rolling figure will not fall immediately; historical usage must age out. The next useful
   observation is daily Active CPU across a full paused day.
+
+### MEASURED IN PRODUCTION 2026-09-12 — the planner's first six days, and a corrected October
+
+**This section supersedes the two projections above for October.** Both of them replayed the
+synthesizer against `derivePollingWindows(...).windows` only. **Production does not plan that way:**
+`plannerWindows` (`pollingPlanner.ts:174`) adds one WHOLE-DAY window per unconfirmed kickoff, and 421
+of the 3,679 rows are `startTimeTBD`. That is **479 windows, not 58** — so the table above understates
+what the planner actually installs.
+
+**What was read, and what could not be.** Source is `app_state / polling-planner-record`, the bounded
+daily series slice 3a ships, read through `DATABASE_URL_RO`. It records the cron the planner
+**installed** each day. **Delivery is not measurable durably** — the scheduler receipt is latest-only
+and Vercel runtime logs expire — so every figure here is *scheduled* wakeups, which is what the cron
+determines and what the saving is stated in.
+
+**The six recorded days** (2026-09-07, activation, through 2026-09-12), `live-scores`:
+
+| day | 09-07 | 09-08 | 09-09 | 09-10 | 09-11 | 09-12 |
+| --- | --- | --- | --- | --- | --- | --- |
+| installed wakeups | 195 | 195 | 1 | 41 | 214 | 347 |
+
+993 over six days, mean **165.5/day**, against the **504/day** the activation run recorded as
+`previousCron` (480 dense + 24 slow). The dead day is real: 2026-09-09 installed **one** wakeup.
+
+**The replay is controlled, not asserted.** Re-running the shipped `plannerWindows` →
+`synthesizePollingCrons` → `desiredJobState` → `plannedFiringsFor` chain against today's schedule
+record reproduces **five of the six days exactly**. Only 09-08 differs (176 replayed vs 195
+installed), because the schedule record has changed since that day was planned — which is the
+expected direction and the reason the control is stated rather than skipped.
+
+**October 2026, replayed on the shipped code against the schedule as it stands today:**
+
+| job | October wakeups | per day | vs the pre-planner fixed cron |
+| --- | --- | --- | --- |
+| `live-scores` | **6,574** | 212.1 | 55.8% below (14,880) |
+| `game-stats` | **1,518** | 49.0 | 49.0% below (2,976) |
+
+**206 of October's 1,487 kickoffs still have no published time**, and each arms its whole day. If
+every one were published the month falls to **6,063** (`live-scores`) and **1,423** (`game-stats`) —
+so **511 wakeups, 7.8% of the month, resolve on their own as CFBD publishes times.** That figure is a
+countdown, not a lever; it needs no work.
+
+**The 190.7/day in the table above is the all-confirmed variant**, which is the floor, not the
+installed cadence. It was never wrong about what it computed; it was read as though it described
+production.
+
+### What #689 step 2 is worth, priced against the binding month
+
+Step 2 stands down when games finish instead of waiting out `CLUSTER_MARGIN_MS`. Replaying October at
+shorter margins, `live-scores`:
+
+| margin | 8h (today) | 7h | 6h | 5h | 4h | 3h |
+| --- | --- | --- | --- | --- | --- | --- |
+| October wakeups | 6,574 | 6,251 | 5,928 | 5,605 | 5,282 | 4,959 |
+| vs today | — | −323 | −646 | −969 | −1,292 | −1,615 |
+
+**Linear at roughly 323 wakeups per hour removed — about 4.9% of the month per hour.** An 8h→5h
+margin is **969 wakeups, 14.7% of October's remaining live-scores load**, on top of the 55.8% the
+planner already banked.
+
+**The tail evidence does not yet exist.** Item 140's stamp (#692) merged 2026-09-11 and production
+holds **five** stamped finals, all from the Friday 2026-09-11 night slate — 5 of the 8 kickoffs in
+that cluster, so the classification rate is 5/8 and the other three are unstamped, not proven late.
+Every one of the five read final between **3.15h and 4.45h after its own kickoff**; the cluster's
+dense phase ran to 08:00Z (last kickoff + 8h) and the last final was observed at 03:57Z, leaving
+**4.03h of margin unused on the one cluster measured.**
+
+**Five observations from one Friday night is not a distribution, and must not be quoted as one.** It
+is consistent with a shorter margin and proves nothing about the tail, which is the only part that
+matters — the margin exists for the games that overrun, not the ones that do not. **Re-run this after
+two or three full Saturdays.** The scripts are in this document's method above; the stamp is the input
+they were waiting for.
