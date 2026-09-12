@@ -136,8 +136,10 @@ These consolidate recurring historical observations, not new project-governance 
   On the verified macOS host the production stack leaves 104.844px before the score at 1348px; the
   reported slack did not silently revise the owner-authorized target. Follow-up [#750](https://github.com/znpruitt/cfb-app/issues/750)
   owns any decision to lower the breakpoint.
-- Status: Implemented — pre-merge closeout. Unprompted v1 PR
-  [#747](https://github.com/znpruitt/cfb-app/pull/747) is superseded/unimplemented and must not merge.
+- Status: Merged (PR [#751](https://github.com/znpruitt/cfb-app/pull/751), `4cfae75a`, 2026-09-12)
+  from `codex/678-overview-three-column-v2`. Unprompted v1 PR
+  [#747](https://github.com/znpruitt/cfb-app/pull/747) is superseded/unimplemented and was closed
+  without merging.
 
 ### PLATFORM-692-FINAL-OBSERVATION-STAMP-CLAUDE-v1
 

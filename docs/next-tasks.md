@@ -54,12 +54,18 @@ Supersedes: (none)
 > **Owner picks** between that and Item 126 Tier A. (#732 and #733 both shipped 2026-09-12 — PR #748,
 > `8208c7d9`, and PR #749, `717fb842`. Held planner runs now leave a durable trace under a separate
 > `held:<job>` series, and the planner's repair link is reason-keyed rather than job-keyed.)
-`NEXT`: **Item 134** — Overview three-column tier. **v1 STOPPED 2026-09-12** — PR #747 did not
-converge and must not merge; reconstruct from clean `main` per
-[`docs/prompts/platform-678-overview-three-column-codex-v2.md`](prompts/platform-678-overview-three-column-codex-v2.md),
-do not cherry-pick. **v1 ran without a prompt**, from this queue line and a campaign document, so the
-two Item 134 CARRY obligations reached nobody. That is the gap the `CARRIES:` field exists to close
-and it was left open here.
+
+`NEXT`: **Item 118** — Schedule status filter with counts. **Its prompt needs an owner design pass
+first**; the entry below is a placement, not a specification.
+
+> **Item 134 SHIPPED 2026-09-12** — PR #751, `4cfae75a`, three columns at ≥1348px. **v1 was stopped
+> and closed unmerged (PR #747).** It ran without a prompt, from this queue line and a campaign
+> document, so both Item 134 CARRY obligations reached nobody — the gap the `CARRIES:` field exists
+> to close, left open here by planning. The v2 reconstruction carried them and converged.
+> **[#750](https://github.com/znpruitt/cfb-app/issues/750) is open and is the owner's:** whether the
+> tier should start below 1348px. Measured under a realistic worst case — rank, record, three-digit
+> score — the row still retained 52.766px, so the breakpoint is conservative by a knowable margin
+> rather than by guess.
 
 Owner-selected run order (2026-09-03), replacing the 2026-09-02 order. Ordering values, stated by the
 owner: **user-facing improvements, data correction, and bug fixes first; prerequisites persisted in
@@ -94,19 +100,17 @@ committed `c9f76081`) surfaced four new items and one split; the remaining open 
    that colour remapping collapsed familiar distinctions and the alternate-colour outline was too
    garish. A permanent **28px CFBD team logo** now owns the shared line-start slot across Overview,
    Matchups, Schedule, and Postseason; `DESIGN.md` carries the current contract.
-4. **Item 134** — Overview three-column tier. Re-derive its breakpoint against the permanent
-   **32px logo slot**; the old headroom calculation assumed the retired colour bar.
-5. **Item 118** — Schedule status filter with counts. Purely additive; after the rework it filters.
+4. **Item 118** — Schedule status filter with counts. Purely additive; after the rework it filters.
    **Design:** none written, so its prompt needs an owner design pass first rather than a paraphrase
    of this entry.
-6. **Item 100b** — internal slate marker. Date gate removed 2026-09-03; its 2026 consequence
+5. **Item 100b** — internal slate marker. Date gate removed 2026-09-03; its 2026 consequence
    (Featured empty through 2026-09-07) closes on its own, but the recap and look-ahead targeting it
    exists for recur next August. Cheap: the clustering code is recoverable from `d6184c28`.
-7. **Item 113** — Featured as insight-selected, state-agnostic. Largest, and gated on a decision
+6. **Item 113** — Featured as insight-selected, state-agnostic. Largest, and gated on a decision
    about `INSIGHTS-017-PALETTE` (a prose bullet today, not an item).
    **Design:** `docs/campaigns/item-87-followon-featured-intent.md` — it supplies the product
    intent and states that THIS item owns the reconciliation. Do not re-derive what it settles.
-8. **Item 101** — season-boundary finals gap. Re-derive the empty window against the floating cutoff
+7. **Item 101** — season-boundary finals gap. Re-derive the empty window against the floating cutoff
     first; fix before late November.
 
 **Abandoned branches — dispositions recorded 2026-09-05.** `platform/browser-poll-cadence` and
