@@ -468,6 +468,7 @@ number.**
 | **111** | [#658](https://github.com/znpruitt/cfb-app/issues/658) | `/api/odds` fetches its own origin, costing two extra invocations per request |
 | **113** | [#675](https://github.com/znpruitt/cfb-app/issues/675) | Featured games is a plain finals list; the insights-hook reframe was decided b |
 | **114** | resolved — see the audit appendix | CLOSED, MISDIAGNOSED. Featured empties early; expiry was never involved |
+| **115** | [#676](https://github.com/znpruitt/cfb-app/issues/676) | RESOLVED 2026-09-11 — Overview section expansion shipped (PR #744, `11350f11`) |
 | **118** | [#677](https://github.com/znpruitt/cfb-app/issues/677) | Schedule status filter with counts |
 | **120** | resolved — see the audit appendix | CLOSED, no action: the 2023/2024 field gap is unread and fails open |
 | **121** | [#708](https://github.com/znpruitt/cfb-app/issues/708) | every CFP first-round game shares one `eventKey`, and it is the React list key |
@@ -488,7 +489,7 @@ number.**
 | **137** | [#696](https://github.com/znpruitt/cfb-app/issues/696) | RESOLVED 2026-09-11 (PR #742, `a8593d9f`) — the time bombs are fixed, `main` is green, and `test:clock-shift` detects the class |
 | **138** | [#713](https://github.com/znpruitt/cfb-app/issues/713) | `isOwnerVsOwner` counts `NoClaim` as a real owner |
 | **139** | resolved — see the audit appendix | a final can show a pre-game record; reconcile records against completed games |
-| **140** | [#692](https://github.com/znpruitt/cfb-app/issues/692) | stamp when a game first reads final, so the reconciliation tail can be sized |
+| **140** | [#692](https://github.com/znpruitt/cfb-app/issues/692) | RESOLVED 2026-09-11 — the stamp ships (PR #743, `65cf8fb3`); the DISTRIBUTION needs live weekends before the tail moves |
 | **141** | [#714](https://github.com/znpruitt/cfb-app/issues/714) | the Insights page does a full-season build on every request |
 | **142** | [#679](https://github.com/znpruitt/cfb-app/issues/679) | Matchups prints kickoff metadata on rows `DESIGN.md` says must not carry it |
 | **143** | resolved — see the audit appendix | DONE: Matchups status-row seams and shared kickoff state |
