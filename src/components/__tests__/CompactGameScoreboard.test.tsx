@@ -5,6 +5,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import CompactGameScoreboard from '../CompactGameScoreboard';
+import { SCOREBOARD_TEAM_LOGO_SLOT } from '../../lib/teamLogos';
 
 function renderScoreboard(
   overrides: Partial<React.ComponentProps<typeof CompactGameScoreboard>> = {}
@@ -360,7 +361,11 @@ test('team logos use the 28px CFBD artwork treatment in the structural line-star
   assert.equal(image.getAttribute('alt'), '');
   assert.equal(image.getAttribute('width'), '28');
   assert.equal(image.getAttribute('height'), '28');
-  assert.ok(classTokens(participantOpeningTag(html, 'away')).has('pl-8'));
+  assert.equal(SCOREBOARD_TEAM_LOGO_SLOT.className, 'pl-8');
+  assert.equal(SCOREBOARD_TEAM_LOGO_SLOT.widthPx, 32);
+  assert.ok(
+    classTokens(participantOpeningTag(html, 'away')).has(SCOREBOARD_TEAM_LOGO_SLOT.className)
+  );
   assert.ok(classTokens(participantOpeningTag(html, 'away')).has('py-1.5'));
   assert.ok(classTokens(participantOpeningTag(html, 'away')).has('min-h-8'));
 });

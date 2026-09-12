@@ -1,8 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -14,6 +13,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 import CompactGameScoreboard from '../CompactGameScoreboard';
 import {
+  OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX,
   OVERVIEW_SCOREBOARD_GRID_CLASSES,
   OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX,
 } from '../OverviewPanel';
@@ -27,7 +27,6 @@ const CHROME_STOP_TIMEOUT_MS = 2_000;
 // stop phases get at most 4s, leaving 2s for the final profile removal.
 const BROWSER_WORK_TIMEOUT_MS = 24_000;
 const REQUIRED_WIDTHS = [760, 761, 1347, 1348, 1392] as const;
-const FIXTURE_FONT_FAMILY = 'Overview Grid Fixture Geist';
 
 type PendingCommand = {
   resolve: (value: unknown) => void;
@@ -46,8 +45,7 @@ type LayoutMeasurement = {
   stressLabelSlack: number;
   stressContentToScoreGap: number;
   stressRowPaddingLeft: number;
-  fixtureFontFamily: string;
-  fixtureFontLoaded: boolean;
+  computedFontFamily: string;
 };
 
 function remainingTimeout(deadline: number, maximumMs: number, operation: string): number {
@@ -81,13 +79,13 @@ class CdpClient {
   }
 
   static async connect(url: string, workDeadline: number): Promise<CdpClient> {
+    const timeoutMs = remainingTimeout(
+      workDeadline,
+      CDP_OPERATION_TIMEOUT_MS,
+      'the DevTools socket connection'
+    );
     const socket = new WebSocket(url);
     await new Promise<void>((resolve, reject) => {
-      const timeoutMs = remainingTimeout(
-        workDeadline,
-        CDP_OPERATION_TIMEOUT_MS,
-        'the DevTools socket connection'
-      );
       const timeout = setTimeout(() => {
         cleanup();
         socket.close();
@@ -207,17 +205,42 @@ function chromeExecutable(): { path: string | null; reason: string } {
       : { path: null, reason: `CHROME_PATH does not exist: ${configured}` };
   }
 
-  const candidates = [
+  const executableNames = [
+    'google-chrome',
+    'google-chrome-stable',
+    'chromium',
+    'chromium-browser',
+    'microsoft-edge',
+    'microsoft-edge-stable',
+  ];
+  const executableSuffixes = process.platform === 'win32' ? ['', '.exe'] : [''];
+  const pathCandidates = (process.env.PATH ?? '')
+    .split(path.delimiter)
+    .filter(Boolean)
+    .flatMap((directory) =>
+      executableNames.flatMap((name) =>
+        executableSuffixes.map((suffix) => path.join(directory, `${name}${suffix}`))
+      )
+    );
+  const knownCandidates = [
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary',
+    '/Applications/Chromium.app/Contents/MacOS/Chromium',
+    '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+    '/opt/homebrew/bin/chromium',
+    '/usr/local/bin/chromium',
+    '/snap/bin/chromium',
     '/usr/bin/google-chrome',
     '/usr/bin/google-chrome-stable',
     '/usr/bin/chromium',
     '/usr/bin/chromium-browser',
   ];
-  const discovered = candidates.find(existsSync) ?? null;
+  const discovered = [...new Set([...pathCandidates, ...knownCandidates])].find(existsSync) ?? null;
   return {
     path: discovered,
-    reason: discovered ? '' : 'No Chrome or Chromium executable was found',
+    reason: discovered
+      ? ''
+      : 'No compatible Chrome, Chromium, or Edge executable was found on PATH or in known locations; set CHROME_PATH explicitly',
   };
 }
 
@@ -312,28 +335,21 @@ async function createPageTarget(port: number, url: string, workDeadline: number)
 }
 
 async function compileFixtureStyles(): Promise<string> {
-  const source = `
-    @import 'tailwindcss' source(none);
-    @custom-variant dark (&);
+  const from = fileURLToPath(new URL('../../app/globals.css', import.meta.url));
+  const productionStyles = await readFile(from, 'utf8');
+  const source = `${productionStyles.replace(
+    "@import 'tailwindcss';",
+    "@import 'tailwindcss' source(none);"
+  )}
     @source '../components/OverviewPanel.tsx';
     @source '../components/CompactGameScoreboard.tsx';
     @source '../lib/teamLogos.ts';
   `;
-  const from = fileURLToPath(new URL('../../app/globals.css', import.meta.url));
   const result = await postcss([tailwindcss()]).process(source, { from });
   return result.css;
 }
 
-async function fixtureFontDataUrl(): Promise<string> {
-  const require = createRequire(import.meta.url);
-  const nextPackageDirectory = path.dirname(require.resolve('next/package.json'));
-  const font = await readFile(
-    path.join(nextPackageDirectory, 'dist/next-devtools/server/font/geist-latin.woff2')
-  );
-  return `data:font/woff2;base64,${font.toString('base64')}`;
-}
-
-function fixtureMarkup(styles: string, fontDataUrl: string): string {
+function fixtureMarkup(styles: string): string {
   const scoreboards = Array.from({ length: OVERVIEW_RESULTS_LIMIT }, (_, index) => (
     <CompactGameScoreboard
       key={index}
@@ -360,17 +376,7 @@ function fixtureMarkup(styles: string, fontDataUrl: string): string {
       </div>
     </div>
   );
-  return `<!doctype html><html><head><meta charset="utf-8"><style>
-    @font-face {
-      font-family: '${FIXTURE_FONT_FAMILY}';
-      src: url('${fontDataUrl}') format('woff2');
-      font-style: normal;
-      font-weight: 100 900;
-      font-display: block;
-    }
-    html, body { font-family: '${FIXTURE_FONT_FAMILY}', sans-serif; }
-    ${styles}
-  </style></head><body>${body}</body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><style>${styles}</style></head><body>${body}</body></html>`;
 }
 
 async function waitForDocument(client: CdpClient, workDeadline: number): Promise<void> {
@@ -453,8 +459,7 @@ async function measureWidths(
             stressLabelSlack: round(stressLabelWidth - stressLabelContentWidth),
             stressContentToScoreGap: round(stressValueRect.left - stressContentRect.right),
             stressRowPaddingLeft: round(parseFloat(getComputedStyle(stressRow).paddingLeft)),
-            fixtureFontFamily: getComputedStyle(document.body).fontFamily,
-            fixtureFontLoaded: document.fonts.check('14px "${FIXTURE_FONT_FAMILY}"'),
+            computedFontFamily: getComputedStyle(document.body).fontFamily,
           });
         }
         return results;
@@ -495,34 +500,43 @@ test('Overview scoreboard grid renders its required container tiers and 416px ta
   let testFailure: unknown = null;
   const cleanupErrors: unknown[] = [];
   const workDeadline = Date.now() + BROWSER_WORK_TIMEOUT_MS;
+  const emergencyCleanup = () => {
+    try {
+      if (chrome && !childHasStopped(chrome)) chrome.kill('SIGKILL');
+    } catch {
+      // Process teardown cannot recover or report cleanup failures safely.
+    }
+    try {
+      if (fixtureDirectory) rmSync(fixtureDirectory, { recursive: true, force: true });
+    } catch {
+      // Best effort only during process teardown; normal cleanup reports errors below.
+    }
+  };
+  process.once('exit', emergencyCleanup);
   try {
     fixtureDirectory = await mkdtemp(path.join(tmpdir(), 'cfb-overview-grid-'));
     const profileDirectory = path.join(fixtureDirectory, 'chrome-profile');
     const fixturePath = path.join(fixtureDirectory, 'index.html');
-    await writeFile(
-      fixturePath,
-      fixtureMarkup(await compileFixtureStyles(), await fixtureFontDataUrl()),
-      'utf8'
-    );
+    await writeFile(fixturePath, fixtureMarkup(await compileFixtureStyles()), 'utf8');
 
     let stderr = '';
     let launchError: Error | null = null;
-    chrome = spawn(
-      browser.path,
-      [
-        '--headless=new',
-        '--disable-gpu',
-        '--disable-background-networking',
-        '--disable-component-update',
-        '--disable-features=MediaRouter,OptimizationHints',
-        '--no-first-run',
-        '--no-default-browser-check',
-        '--remote-debugging-port=0',
-        `--user-data-dir=${profileDirectory}`,
-        'about:blank',
-      ],
-      { stdio: ['ignore', 'ignore', 'pipe'] }
-    );
+    const chromeArguments = [
+      '--headless=new',
+      '--disable-gpu',
+      '--disable-background-networking',
+      '--disable-component-update',
+      '--disable-features=MediaRouter,OptimizationHints',
+      '--no-first-run',
+      '--no-default-browser-check',
+      '--remote-debugging-port=0',
+      `--user-data-dir=${profileDirectory}`,
+      'about:blank',
+    ];
+    if (typeof process.getuid === 'function' && process.getuid() === 0) {
+      chromeArguments.splice(1, 0, '--no-sandbox');
+    }
+    chrome = spawn(browser.path, chromeArguments, { stdio: ['ignore', 'ignore', 'pipe'] });
     chrome.once('error', (error) => {
       launchError = error;
     });
@@ -564,8 +578,11 @@ test('Overview scoreboard grid renders its required container tiers and 416px ta
     t.diagnostic(
       `1348px: ${atThree.cardRects[0]!.width}px columns, ${atThree.stressLabelContentWidth}px stress content in a ${atThree.stressLabelWidth}px fractional label box, ${atThree.stressLabelSlack}px slack, ${atThree.stressContentToScoreGap}px to the score`
     );
-    assert.match(atThree.fixtureFontFamily, new RegExp(`^"?${FIXTURE_FONT_FAMILY}`));
-    assert.equal(atThree.fixtureFontLoaded, true, 'the deterministic fixture font must load');
+    assert.match(
+      atThree.computedFontFamily,
+      /^ui-sans-serif, system-ui/,
+      'the fixture must inherit the production body font stack from globals.css'
+    );
     assert.equal(clippingControl.stressLabelClipped, true, 'the clipping observer needs a control');
     assert.ok(
       clippingControl.stressLabelContentWidth > clippingControl.stressLabelWidth + 0.5,
@@ -581,7 +598,7 @@ test('Overview scoreboard grid renders its required container tiers and 416px ta
       'the stress content must retain the rendered 12px flex gap before the score'
     );
     assert.equal(atThree.stressRowPaddingLeft, SCOREBOARD_TEAM_LOGO_SLOT.widthPx);
-    assert.equal(atThree.columnGap, 40);
+    assert.equal(atThree.columnGap, OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX);
     assert.ok(atThree.cardRects[0]!.width >= OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX);
     assertNear(
       3 * (atThree.cardRects[0]!.width - OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX),
@@ -618,6 +635,7 @@ test('Overview scoreboard grid renders its required container tiers and 416px ta
     } catch (error) {
       cleanupErrors.push(error);
     }
+    process.removeListener('exit', emergencyCleanup);
   }
 
   if (cleanupErrors.length > 0) {

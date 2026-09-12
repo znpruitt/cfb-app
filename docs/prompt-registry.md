@@ -106,10 +106,13 @@ These consolidate recurring historical observations, not new project-governance 
   row-major order, and left-aligned remainders. Matchups and Schedule remain independent.
 - Outcome: three columns begin at 1348px from a provenance-qualified 416px target. `DESIGN.md` records
   that 400px is unmeasured mockup prose, 16px is mockup padding, and only the 32px `pl-8` slot ships.
-- Review / verification: both reviewers cleared the production layout. Remediation made the pinned-font
-  Chrome gate required by `npm test`, bounded it below the runner timeout, hardened CDP/cleanup, and
-  proved the four-card `3 + 1` remainder. At 1348px the stress row has no clipping and 111.438px to
-  the score; the reported slack did not silently revise the owner-authorized target.
+- Review / verification: both v2 reviewers cleared the production layout. The one remediation round
+  switched the Chrome gate from a private Next/Geist asset to compiled production `globals.css`,
+  added portable browser discovery/root-container launch and exit cleanup, closed the pre-connect
+  socket leak, and coupled gap/logo utility literals to their pixel values outside the browser test.
+  On the verified macOS host the production stack leaves 104.844px before the score at 1348px; the
+  reported slack did not silently revise the owner-authorized target. Follow-up [#750](https://github.com/znpruitt/cfb-app/issues/750)
+  owns any decision to lower the breakpoint.
 - Status: Implemented — pre-merge closeout. Unprompted v1 PR
   [#747](https://github.com/znpruitt/cfb-app/pull/747) is superseded/unimplemented and must not merge.
 

@@ -35,10 +35,13 @@ replacement **32px** `pl-8` logo slot comes from shipped code. Thus the inherite
 `3 × 416 + 2 × 40 + 20 = 1348px`. Page padding is not another term because the container query sees
 the content box.
 
-The required browser gate tests the real Tailwind output and compact scoreboard at 760/761,
-1347/1348, and the 1392px reference container. Its pinned-font stress row fits at 1348 with no
-clipping and substantial space before the right-anchored score. That slack was reported rather than
-used to silently revise the owner-authorized target.
+The required browser gate compiles the production `globals.css` and tests the compact scoreboard at
+760/761, 1347/1348, and the 1392px reference container using the app's effective
+`ui-sans-serif, system-ui, ...` stack. On the verified macOS host the stress row uses 268.094px and
+retains 104.844px before the right-anchored score at 1348. Those measurements are host-specific by
+design: the gate checks the production stack of the environment that runs it rather than imposing a
+test-only typeface. The slack was reported rather than used to silently revise the owner-authorized
+target.
 
 **Rationale:** at two columns on a wide display, rows occupy roughly a third of their column and the rest is empty. The space is there.
 

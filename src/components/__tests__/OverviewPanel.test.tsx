@@ -6,6 +6,8 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import OverviewPanelImpl, {
+  OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS,
+  OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX,
   OVERVIEW_SCOREBOARD_GRID_CLASSES,
   OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX,
   OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX,
@@ -1072,6 +1074,9 @@ test('overview Featured renders its badge and existing tag in the final status r
 });
 
 test('overview three-column grid arithmetic stays coupled to its literal utility', () => {
+  assert.equal(OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS, 'gap-x-10');
+  assert.equal(OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX, 40);
+  assert.ok(OVERVIEW_SCOREBOARD_GRID_CLASSES.includes(OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS));
   assert.equal(OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX, 416);
   assert.equal(OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX, 1348);
   assert.ok(

@@ -394,9 +394,12 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   production; `16px` is that mockup's historical `.sb-line` left padding; and only the replacement
   `32px` `pl-8` logo slot comes from shipped code. With that provenance visible, the inherited target
   is `400 - 16 + 32 = 416px`, and three targets plus two 40px gaps and 20px deliberate headroom give
-  `1348px`. The required browser gate verifies the rendered row at that width; its deterministic
-  Geist fixture shows no clipping and substantial space before the score, but the owner-authorized
-  target remains the design choice rather than being silently tightened to that one fixture.
+  `1348px`. The required browser gate compiles the production `globals.css` and measures the same
+  `ui-sans-serif, system-ui, ...` stack the app renders rather than substituting a test font. On the
+  verified macOS host the stress row uses 268.094px and retains 104.844px before the score at the
+  threshold. The result is deliberately host-specific production evidence, not a universal font
+  metric; the owner-authorized target remains the design choice rather than being silently tightened
+  to that one environment.
 - The weekly recap tile is the one timely-content exception: its full-width dark surface and 8px
   radius bind a collapsed editorial headline to its expand-in-place disclosure. It carries no
   decorative border or accent color, and this exception does not authorize card chrome for ordinary

@@ -82,7 +82,13 @@ const EMPTY_OVERVIEW_ODDS_BY_KEY: Record<string, CombinedOdds> = {};
 // Three targets, two 40px gaps, and 20px deliberate headroom produce 1348px.
 const OVERVIEW_SCOREBOARD_MOCKUP_TARGET_PX = 400;
 const OVERVIEW_SCOREBOARD_MOCKUP_PREFIX_SLOT_PX = 16;
-const OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX = 40;
+const OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX_BY_CLASS = {
+  'gap-x-10': 40,
+} as const;
+export const OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS =
+  'gap-x-10' satisfies keyof typeof OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX_BY_CLASS;
+export const OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX =
+  OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX_BY_CLASS[OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS];
 const OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX = 20;
 export const OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX =
   OVERVIEW_SCOREBOARD_MOCKUP_TARGET_PX -
@@ -95,8 +101,7 @@ export const OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX =
 // Tailwind emits the preserved max variant as `width < 760.01px`: exactly
 // 760.01px is therefore in the two-column band, while practical whole-pixel
 // checks at 760px and 761px land on the intended sides.
-export const OVERVIEW_SCOREBOARD_GRID_CLASSES =
-  'grid grid-cols-2 gap-x-10 @max-[760.01px]:grid-cols-1 @min-[1348px]:grid-cols-3';
+export const OVERVIEW_SCOREBOARD_GRID_CLASSES = `grid grid-cols-2 ${OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS} @max-[760.01px]:grid-cols-1 @min-[1348px]:grid-cols-3`;
 
 /**
  * The last `n` weeks that are RESOLVED — played, with a usable snapshot.
