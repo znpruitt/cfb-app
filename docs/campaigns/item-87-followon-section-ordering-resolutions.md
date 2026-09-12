@@ -4,11 +4,11 @@
 >
 > **Status:** §1, §2 and §3 are shipped — POLISH-023, merged via PR #563 (`1546bbc8`), 2026-09-04. §3 is landed on Overview only and
 > is now recorded in `DESIGN.md`, which previously said the opposite. §4 (Matchups slate ordering) and
-> §5 (counts, deferred to Item 115) remain unbuilt. The sort rules below were added on 2026-09-04.
+> §5 is implemented by Item 115 / PR #744; merge is pending. The sort rules below were added on 2026-09-04.
 >
 > **INDEX (verified 2026-09-08 against the code): CURRENT.** §1–§2 confirmed — `compareOverviewLiveItems`
 > (`overviewGameSections.ts:155-161`) is kickoff ascending with a key tiebreak and nothing else. §4 is still
-> unbuilt after Item 117 (no slate sort in `selectors/matchups.ts`). §5 confirmed unbuilt (`OverviewPanel.tsx:1475`).
+> unbuilt after Item 117 (no slate sort in `selectors/matchups.ts`). §5's former gap is closed by PR #744.
 > The one open call under §3 is answered by `item-87-followon-postseason-context.md` (marked below).
 
 **Child of `item-87-followon-section-ordering.md`** — that document recorded six decisions found living only in mockup markup and left four items open. This one answers those four, plus the sequencing question on section counts. Read the parent first. Written after CLI verification established that five of the six section-ordering decisions were change requests against shipped behaviour, not documentation.
@@ -68,15 +68,17 @@ The two views never show the same set — Matchups is one owner's subset per car
 
 ---
 
-## 5. Section counts wait for Item 115
+## 5. Section counts implemented with Item 115
 
-**Keep counts visible-only until the expand control ships.**
+**PLATFORM-676 / PR #744 implements the paired change:** Live counts the complete collection, and all
+three state sections make their surplus reachable through independent in-place controls.
 
-The current state is already a truth defect: `liveTitle` reads `.length` after `.slice(0, 6)`, so "Live · 6" against ten live games is false. But making it a total *before* Item 115 exists produces a worse failure — the UI would state that ten games exist while four remain unreachable, which is a promise it cannot keep. That is the trend empty-state failure in numeric form: copy telling a member data exists when there is no path to it.
+Before Item 115, `liveTitle` read `.length` after `.slice(0, 6)`, so "Live · 6" against ten live games was false. Making it a total before the surplus was reachable would instead have promised data with no path to it.
 
-**The real defect is upstream of the label.** Sections hard-cap at six and drop the surplus silently — that is silent data loss, and the count is only how it becomes visible. Fixing the count without fixing the cap fixes nothing.
+**The real defect was upstream of the label.** Sections hard-capped at six and dropped the surplus silently; the count was only how that loss became visible. PR #744 fixes both together.
 
-**Recommend:** counts become totals as part of Item 115, in the same change that makes the surplus reachable.
+The six-item defaults remain counts rather than rows and deliberately produce a ragged last row;
+three-column tier behavior remains #678/#726.
 
 ---
 

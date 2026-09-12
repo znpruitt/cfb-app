@@ -7,6 +7,7 @@ import type { PrioritizedOverviewItem } from './overview';
 import { projectGameScoreboardState } from './gameScoreboardState';
 import { selectWeeklyRecapTileState, selectWeeklyRecapWeekTargets } from './weeklyRecapFacts';
 
+// Presentation-only bounded defaults. The selector still returns each complete ordered collection.
 export const OVERVIEW_LIVE_LIMIT = 6;
 export const OVERVIEW_RECENT_FINALS_LIMIT = 6;
 export const OVERVIEW_WATCHLIST_LIMIT = 6;
@@ -187,7 +188,12 @@ function expiredFinalWeeks(scheduleGames: AppGame[], now: Date): ReadonlySet<num
   );
 }
 
-/** Route every non-Featured game from the approved score × kickoff × ownership table. */
+/**
+ * Route every non-Featured game from the approved score × kickoff × ownership table.
+ *
+ * Each returned collection is complete and ordered. OverviewPanel applies the bounded default as
+ * presentation-only slicing so the remaining items stay reachable through progressive disclosure.
+ */
 export function selectOverviewGameSections(params: {
   sectionItems: OverviewGameItem[];
   scheduleGames: AppGame[];
@@ -221,7 +227,6 @@ export function selectOverviewGameSections(params: {
     if (scheduledKeys.has(gameKey) || route?.section !== 'scheduled') continue;
     scheduledKeys.add(gameKey);
     scheduled.push({ ...candidate, routeStatus: route.status });
-    if (scheduled.length === OVERVIEW_WATCHLIST_LIMIT) break;
   }
 
   const live: OverviewSectionItem[] = [];
@@ -236,7 +241,7 @@ export function selectOverviewGameSections(params: {
 
   return {
     scheduled,
-    live: live.slice(0, OVERVIEW_LIVE_LIMIT),
-    recentFinals: recentFinals.slice(0, OVERVIEW_RECENT_FINALS_LIMIT),
+    live,
+    recentFinals,
   };
 }

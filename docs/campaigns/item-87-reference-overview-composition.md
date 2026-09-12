@@ -63,7 +63,9 @@ Each state section renders a **bounded default** and expands in place.
 
 **Counts in section headings are totals, not visible counts** — the count answers *how much is there*, the expand control answers *how much is hidden*, and seven shown plus "Show 3 more" reconciles to ten.
 
-**Not yet, though.** The current implementation reads `.length` after `.slice`, so the count is false. Making it a true total *before* the expand control exists would state that ten games exist while four are unreachable — the trend empty-state failure in numeric form. The real defect is the silent cap; the count is only how it surfaces. **Both land together in Item 115.**
+**Implemented by Item 115 / PR #744.** Live reads the complete selector collection for its count;
+Live, Recent finals, and Watchlist each show six items by default and expose every ordered surplus
+row in place. Expansion survives refresh and content migration, then resets when Overview unmounts.
 
 ---
 
