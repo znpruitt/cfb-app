@@ -21,8 +21,8 @@
 
 import {
   fetchUpstreamResponse,
-  readUpstreamJsonWithDeadline,
   sanitizeUpstreamUrl,
+  startUpstreamBodyDeadline,
   UpstreamFetchError,
   type UpstreamPacingPolicy,
   type UpstreamRetryPolicy,
@@ -435,6 +435,7 @@ export async function executeOddsRefresh(params: {
   // (which would misreport this lane's own deadline as a caller `aborted`).
   let upstreamRes: Response;
   const bodyAbort = new AbortController();
+  const requestStartedAtMs = Date.now();
   try {
     upstreamRes = await fetchUpstreamResponse(buildOddsProviderUrl(apiKey, query), {
       cache: 'no-store',
@@ -514,39 +515,58 @@ export async function executeOddsRefresh(params: {
   // that PRE-SPEND value into the raw cache (which public `/api/odds` prefers). A
   // null here keeps the committed entry from advertising a stale balance; the
   // automatic caller applies a conservative global estimate instead (remediation).
-  usageFromHeaders = usageHeadersTrustworthy(upstreamRes.headers);
-  usage = usageFromHeaders
-    ? await captureOddsUsageSnapshot(upstreamRes.headers, usageContext)
-    : null;
+  // PLATFORM-662 (review remediation): the deadline is armed HERE — the first
+  // statement after the headers return — not at the body read below. The usage
+  // write between them is durable and unbounded (a cold Neon start can take
+  // seconds), and `fetchUpstreamResponse` has already cleared its own timer, so
+  // arming it any later leaves the body streaming with no deadline for exactly
+  // as long as that write takes.
+  const bodyDeadline = startUpstreamBodyDeadline({
+    url: buildOddsProviderUrl(apiKey, query),
+    remainingMs: ODDS_UPSTREAM_TIMEOUT_MS - (Date.now() - requestStartedAtMs),
+    budgetMs: ODDS_UPSTREAM_TIMEOUT_MS,
+    abortController: bodyAbort,
+  });
 
   let upstreamData: unknown;
   try {
-    upstreamData = await readUpstreamJsonWithDeadline<unknown>({
-      response: upstreamRes,
-      url: buildOddsProviderUrl(apiKey, query),
-      timeoutMs: ODDS_UPSTREAM_TIMEOUT_MS,
-      abortController: bodyAbort,
-    });
+    usageFromHeaders = usageHeadersTrustworthy(upstreamRes.headers);
+    usage = usageFromHeaders
+      ? await captureOddsUsageSnapshot(upstreamRes.headers, usageContext)
+      : null;
+
+    upstreamData = await bodyDeadline.readJson<unknown>(upstreamRes);
   } catch (error) {
     // PLATFORM-662: a body that timed out or whose transport died is a FETCH
     // failure, not a payload rejection — the provider never finished answering,
     // so nothing was learned about the shape of what it sends. Reporting it as
     // `odds-invalid-payload` claimed knowledge of a payload this code never saw.
-    // Only a `parse` kind — bytes that arrived and were not JSON — is a payload
-    // rejection. Usage is already captured above either way: the request was
-    // billed regardless of how the body ended.
-    if (error instanceof UpstreamFetchError && error.details.kind !== 'parse') {
-      const detail = safeDetailFromUpstream(error);
-      const result = oddsRefreshResult('failure', 'provider-fetch-failed', 502);
-      await recordProviderRefreshFailure('odds', scope, {
-        attempt,
-        error: detail.message,
-        code: 'provider-fetch-failed',
-        status: detail.status ?? 502,
-      });
-      return base(result, { providerErrorDetail: detail });
+    // Usage is already captured either way: the request was billed regardless of
+    // how the body ended.
+    //
+    // Written POSITIVELY (review remediation): ONLY a `parse` kind — bytes that
+    // arrived and were not JSON — may claim a payload. The negative form
+    // (`kind !== 'parse'`) sent every non-`UpstreamFetchError` to the payload
+    // rejection, which is the same false claim this change exists to remove, and
+    // it was safe only because a helper in another file happens to wrap
+    // everything. This form fails safe if that ever stops being true.
+    if (error instanceof UpstreamFetchError && error.details.kind === 'parse') {
+      return await rejectPayload('odds-invalid-payload');
     }
-    return await rejectPayload('odds-invalid-payload');
+    const detail =
+      error instanceof UpstreamFetchError
+        ? safeDetailFromUpstream(error)
+        : { kind: 'network' as const, message: 'odds provider body read failed', url: '' };
+    const result = oddsRefreshResult('failure', 'provider-fetch-failed', 502);
+    await recordProviderRefreshFailure('odds', scope, {
+      attempt,
+      error: detail.message,
+      code: 'provider-fetch-failed',
+      status: detail.status ?? 502,
+    });
+    return base(result, { providerErrorDetail: detail });
+  } finally {
+    bodyDeadline.dispose();
   }
   if (!Array.isArray(upstreamData)) {
     return await rejectPayload('odds-invalid-payload');

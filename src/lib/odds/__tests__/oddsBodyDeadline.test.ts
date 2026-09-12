@@ -37,13 +37,22 @@ const YEAR = 2026;
 const KEY = defaultOddsCacheKey(YEAR);
 const SCOPE = oddsTargetScope(YEAR, 'canonical', KEY);
 
-type BodyMode = 'ok' | 'slow-body' | 'socket-death' | 'malformed';
+type BodyMode = 'ok' | 'slow-body' | 'socket-death' | 'malformed' | 'slow-headers';
 let server: Server;
 let baseUrl = '';
 let mode: BodyMode = 'ok';
 
 test.before(async () => {
   server = createServer((_req, res) => {
+    if (mode === 'slow-headers') {
+      // Headers deliberately late so the body phase's REMAINING budget is
+      // measurably smaller than the full one.
+      NATIVE_SET_TIMEOUT(() => {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end('[]');
+      }, 60);
+      return;
+    }
     res.writeHead(200, { 'content-type': 'application/json' });
     if (mode === 'ok') return void res.end('[]');
     if (mode === 'malformed') return void res.end('not json at all');
@@ -147,4 +156,44 @@ test('#662 CONTROL: a complete, valid body is unaffected by the deadline', async
   // with an empty slate, it must not be one of the two body-failure reasons.
   assert.notEqual(result.reason, 'provider-fetch-failed');
   assert.notEqual(result.reason, 'odds-invalid-payload');
+});
+
+test('#662: the odds body deadline is armed at the HEADERS on the REMAINING budget', async () => {
+  // Review remediation, pinned deterministically rather than by racing a clock.
+  //
+  // Two regressions must be caught: arming the body deadline only where the body
+  // is READ (leaving the durable usage write in an unbounded window), and
+  // granting the body a FRESH full budget (making the lane's real ceiling
+  // `timeoutMs` twice over, plus the write).
+  //
+  // Both show up in the DELAY the executor arms with. The request timer is armed
+  // at exactly ODDS_UPSTREAM_TIMEOUT_MS; a correct body deadline is armed at that
+  // budget MINUS however long the headers took, so it is strictly smaller. A
+  // fresh-budget regression arms two timers of exactly 12000 and no smaller one.
+  // The timer never has to fire, so there is nothing to flake.
+  mode = 'slow-headers';
+  const nativeSetTimeout = globalThis.setTimeout;
+  const armedDelays: number[] = [];
+  globalThis.setTimeout = ((handler: never, delay?: number, ...args: never[]) => {
+    if (typeof delay === 'number') armedDelays.push(delay);
+    return nativeSetTimeout(handler, delay as number, ...args);
+  }) as typeof globalThis.setTimeout;
+
+  try {
+    await runRefresh();
+  } finally {
+    globalThis.setTimeout = nativeSetTimeout;
+  }
+
+  const FULL_BUDGET_MS = 12_000;
+  assert.ok(
+    armedDelays.includes(FULL_BUDGET_MS),
+    `the request timer should arm at the full budget; saw ${JSON.stringify(armedDelays)}`
+  );
+  const bodyDeadlines = armedDelays.filter((d) => d < FULL_BUDGET_MS && d > FULL_BUDGET_MS - 1_000);
+  assert.ok(
+    bodyDeadlines.length >= 1,
+    'the body deadline must be armed on the REMAINING budget (strictly less than the full one), ' +
+      `which also proves it was armed at the headers rather than at the read; saw ${JSON.stringify(armedDelays)}`
+  );
 });

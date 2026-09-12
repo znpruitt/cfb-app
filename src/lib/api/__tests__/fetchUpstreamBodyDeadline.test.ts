@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import test, { after, before } from 'node:test';
 
-import { fetchUpstreamJson, UpstreamFetchError } from '../fetchUpstream.ts';
+import {
+  fetchUpstreamJson,
+  fetchUpstreamResponse,
+  startUpstreamBodyDeadline,
+  UpstreamFetchError,
+} from '../fetchUpstream.ts';
 
 /**
  * PLATFORM-662 — the deadline must span BODY consumption, and the three ways a
@@ -183,25 +188,134 @@ test('#662: a body-failure message never embeds the unsanitized URL', async () =
   }
 });
 
-test('#662: the headers-only path leaves no armed timer behind', async () => {
-  // `fetchUpstreamResponse` still clears its timer when it returns the headers —
-  // its contract is unchanged. A leak here would keep the process alive past the
-  // test, so the assertion is that nothing is pending once the read completes.
-  const { fetchUpstreamResponse } = await import('../fetchUpstream.ts');
+test('#662: the headers-only path clears its attempt timer without reading the body', async () => {
+  // REPLACES a vacuous assertion, and the replacement is the point.
+  //
+  // The first version filtered `process._getActiveHandles()` for `Timeout` and
+  // asserted the result was empty. Measured afterwards: Node 22 does not expose
+  // ordinary `setTimeout` handles there at all — an armed 10s timer yields `[]`
+  // — so the assertion could never fail. It was a negative claim with no
+  // positive control, shipped in a branch where every other claim was
+  // mutation-proven. It was also wrapped in a `typeof === 'function'` guard, so
+  // it could skip itself silently, and it counted EVERY timer in the process:
+  // a bare `fetch` arms undici's own 499ms fast-timer through
+  // `globalThis.setTimeout`, which would have failed it for unrelated reasons.
+  //
+  // This version instruments `setTimeout`/`clearTimeout`, identifies the attempt
+  // timer by its distinctive delay, and proves the instrument can SEE an
+  // uncleared timer before trusting it to report none.
+  const ATTEMPT_TIMEOUT_MS = 7_777; // distinctive: nothing else arms this delay
+  const nativeSetTimeout = globalThis.setTimeout;
+  const nativeClearTimeout = globalThis.clearTimeout;
+  const liveByHandle = new Map<unknown, number>();
+
+  globalThis.setTimeout = ((handler: never, delay?: number, ...args: never[]) => {
+    const handle = nativeSetTimeout(handler, delay as number, ...args);
+    liveByHandle.set(handle, delay ?? 0);
+    return handle;
+  }) as typeof globalThis.setTimeout;
+  globalThis.clearTimeout = ((handle: never) => {
+    liveByHandle.delete(handle);
+    return nativeClearTimeout(handle);
+  }) as typeof globalThis.clearTimeout;
+
+  const liveAttemptTimers = () =>
+    [...liveByHandle.values()].filter((delay) => delay === ATTEMPT_TIMEOUT_MS).length;
+
+  try {
+    // POSITIVE CONTROL — the instrument must be able to report a leak, or the
+    // assertion below means nothing.
+    const control = globalThis.setTimeout(() => {}, ATTEMPT_TIMEOUT_MS);
+    assert.equal(liveAttemptTimers(), 1, 'control: an armed timer must be observable');
+    globalThis.clearTimeout(control);
+    assert.equal(liveAttemptTimers(), 0, 'control: clearing it must be observable too');
+
+    const { fetchUpstreamResponse } = await import('../fetchUpstream.ts');
+    const res = await fetchUpstreamResponse(`${baseUrl}/?mode=ok`, {
+      timeoutMs: ATTEMPT_TIMEOUT_MS,
+      retry: { maxAttempts: 1 },
+    });
+
+    // THE CLAIM: the timer is gone once the headers are in hand, with the body
+    // deliberately still unread — which is the state `fetchUpstreamResponse`
+    // hands to its one caller.
+    assert.equal(
+      liveAttemptTimers(),
+      0,
+      'the attempt timer must be cleared when the headers return, body unread'
+    );
+
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { ok: true });
+  } finally {
+    globalThis.setTimeout = nativeSetTimeout;
+    globalThis.clearTimeout = nativeClearTimeout;
+  }
+});
+
+test('#662: the body deadline covers time spent BEFORE the read, not just the read', async () => {
+  // The review finding this replaces, as a permanent property.
+  //
+  // `oddsRefreshExecutor` persists a durable usage snapshot between the headers
+  // arriving and the body being read. The first cut armed the deadline at the
+  // READ, so that write sat in an unbounded window — and `fetchUpstreamResponse`
+  // has already cleared its own timer by then. Reproduced before fixing: with a
+  // 400ms write ahead of it, a 507ms body was ACCEPTED against a 300ms deadline.
+  //
+  // Modelled exactly: arm, do slow work, then read a body that would otherwise
+  // have succeeded. The read itself is fast; only the interval before it is
+  // long. A deadline armed at the read cannot fail this, which is the point.
+  const abort = new AbortController();
   const res = await fetchUpstreamResponse(`${baseUrl}/?mode=ok`, {
     timeoutMs: 5_000,
     retry: { maxAttempts: 1 },
+    signal: abort.signal,
   });
-  assert.equal(res.status, 200);
-  assert.deepEqual(await res.json(), { ok: true });
 
-  // If the attempt timer were still armed, an unref'd handle would remain; the
-  // runner's 30s process timeout is the backstop, this is the direct check.
-  const pending = (process as unknown as { _getActiveHandles?: () => unknown[] })._getActiveHandles;
-  if (typeof pending === 'function') {
-    const timers = pending
-      .call(process)
-      .filter((h) => h?.constructor?.name === 'Timeout') as unknown[];
-    assert.equal(timers.length, 0, 'no attempt timer may outlive the response');
-  }
+  const deadline = startUpstreamBodyDeadline({
+    url: `${baseUrl}/?mode=ok`,
+    remainingMs: 40,
+    budgetMs: 5_000,
+    abortController: abort,
+  });
+
+  // The "durable usage write" — unbounded work standing between the two phases.
+  await new Promise((resolve) => setTimeout(resolve, 120));
+
+  await assert.rejects(
+    () => deadline.readJson(res),
+    (error: unknown) => {
+      assert.ok(error instanceof UpstreamFetchError);
+      assert.equal(error.details.kind, 'timeout');
+      // The message names the CONTRACT the caller set, not the remainder that
+      // happened to be left when the body phase started.
+      assert.equal(error.details.message, 'Upstream request timed out after 5000ms');
+      return true;
+    }
+  );
+});
+
+test('#662: disposing the body deadline stops it aborting a later reader', async () => {
+  // Every path that does NOT read the body must dispose, or a timer fires into a
+  // request that already returned. `dispose` is idempotent because `readJson`
+  // also disposes in its own `finally`.
+  const abort = new AbortController();
+  const res = await fetchUpstreamResponse(`${baseUrl}/?mode=ok`, {
+    timeoutMs: 5_000,
+    retry: { maxAttempts: 1 },
+    signal: abort.signal,
+  });
+
+  const deadline = startUpstreamBodyDeadline({
+    url: `${baseUrl}/?mode=ok`,
+    remainingMs: 20,
+    budgetMs: 5_000,
+    abortController: abort,
+  });
+  deadline.dispose();
+  deadline.dispose(); // idempotent
+
+  await new Promise((resolve) => setTimeout(resolve, 80)); // past the disposed deadline
+  assert.equal(abort.signal.aborted, false, 'a disposed deadline must never abort');
+  assert.deepEqual(await res.json(), { ok: true });
 });

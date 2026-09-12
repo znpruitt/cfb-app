@@ -322,8 +322,8 @@ function toBodyFailureError(
 }
 
 /**
- * Read a JSON body under a deadline the caller arms itself, classifying failures
- * exactly as the shared attempt loop does (PLATFORM-662).
+ * A body-phase deadline the caller ARMS ITSELF, classifying failures exactly as
+ * the shared attempt loop does (PLATFORM-662).
  *
  * For callers that must observe the RESPONSE between the headers arriving and
  * the body being read — `oddsRefreshExecutor` persists a usage snapshot there,
@@ -333,34 +333,68 @@ function toBodyFailureError(
  * takes the deadline with it. The CLASSIFIER is shared; only the arming site
  * differs.
  *
+ * ARM IT THE MOMENT THE HEADERS RETURN, NOT WHERE THE BODY IS READ. Review
+ * remediation: the first cut armed it immediately before `readJson`, leaving the
+ * durable usage write in between — and `fetchUpstreamResponse` has already
+ * cleared its own timer by then, so for the whole of that round trip the body
+ * streamed with no deadline at all. Measured: with a 400ms write ahead of it, a
+ * 507ms body was ACCEPTED against a 300ms deadline. An await that sits ahead of
+ * consequential work has to be inside the budget, not before it.
+ *
+ * `remainingMs` is what is LEFT of the request's budget, so the two phases share
+ * one ceiling rather than granting the body a fresh full timeout (which would
+ * make the real bound `timeoutMs` twice over, plus the write). `budgetMs` is
+ * only what the timeout MESSAGE reports, so the error names the contract the
+ * caller set rather than the remainder that happened to be left.
+ *
  * `abortController` must be the controller whose signal was passed to the
  * request as `signal` — aborting it is what errors the body stream. A timer that
  * merely rejects a race would leave the download running.
  */
-export async function readUpstreamJsonWithDeadline<T>(params: {
-  response: Response;
+export type UpstreamBodyDeadline = {
+  /** Read and classify. Disposes the timer on every exit. */
+  readJson<T>(response: Response): Promise<T>;
+  /** Idempotent. Must be called on any path that does NOT read the body. */
+  dispose(): void;
+};
+
+export function startUpstreamBodyDeadline(params: {
   url: string;
-  timeoutMs: number;
+  remainingMs: number;
+  budgetMs: number;
   abortController: AbortController;
   requestSignal?: AbortSignal;
-}): Promise<T> {
-  const { response, url, timeoutMs, abortController, requestSignal } = params;
+}): UpstreamBodyDeadline {
+  const { url, remainingMs, budgetMs, abortController, requestSignal } = params;
   const safeUrl = sanitizeUpstreamUrl(url);
-  const timeoutHandle = setTimeout(() => abortController.abort(), timeoutMs);
+  // A budget already spent fires on the next tick rather than never.
+  const timeoutHandle = setTimeout(() => abortController.abort(), Math.max(0, remainingMs));
+  let disposed = false;
 
-  try {
-    return (await response.json()) as T;
-  } catch (error) {
-    throw toBodyFailureError({
-      error,
-      url: safeUrl,
-      timeoutController: abortController,
-      requestSignal,
-      timeoutMs,
-    });
-  } finally {
+  const dispose = (): void => {
+    if (disposed) return;
+    disposed = true;
     clearTimeout(timeoutHandle);
-  }
+  };
+
+  return {
+    async readJson<T>(response: Response): Promise<T> {
+      try {
+        return (await response.json()) as T;
+      } catch (error) {
+        throw toBodyFailureError({
+          error,
+          url: safeUrl,
+          timeoutController: abortController,
+          requestSignal,
+          timeoutMs: budgetMs,
+        });
+      } finally {
+        dispose();
+      }
+    },
+    dispose,
+  };
 }
 
 /**
@@ -509,7 +543,7 @@ async function runUpstreamAttempts<T>(
  * Headers-only fetch. CONTRACT UNCHANGED by PLATFORM-662: the per-attempt
  * deadline still ends when this returns, because the caller — not this function
  * — decides when and whether to read the body. A caller that does read one must
- * bound it: {@link readUpstreamJsonWithDeadline}, or `fetchUpstreamJson`, which
+ * bound it: {@link startUpstreamBodyDeadline}, or `fetchUpstreamJson`, which
  * reads inside the loop.
  */
 export async function fetchUpstreamResponse(
