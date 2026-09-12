@@ -90,6 +90,15 @@ These consolidate recurring historical observations, not new project-governance 
 
 ## Prompt ledger (source order retained)
 
+### PLATFORM-733-PLANNER-REPAIR-DEAD-END-CLAUDE-v1
+
+- Change: `polling-planner`'s execution repair link becomes REASON-keyed ([#733](https://github.com/znpruitt/cfb-app/issues/733)). Four of its five reachable non-success reasons route nowhere Data Maintenance can act; `schedule-unreadable` is fixed by `schedule-full-year-refresh` on that exact page, so it keeps the link and the explanation now names the season that failed. The flat `JOBS_WITHOUT_EXECUTION_REPAIR` set became `EXECUTION_REPAIR_POLICY`, total over `ExternalSchedulerJob` so an eleventh job must decide rather than inherit a link by omission.
+- Scope limit: `systemHealthIssues.ts` and its suites. No planner maintenance action added; `EXECUTION_RECOVERY_HINTS` is byte-identical — keyed by REASON, so `rankings` and `schedule-refresh` inherit any strengthening verbatim.
+- Evidence: the named season comes from the PLANNED DAY (`seasonYearForToday`, flips 1 July), not the page (`resolveOperationalSeasonYear` reads `status.year`, advances at rollover). They differ every July until the new season's schedule cache is populated — and in exactly that window the schedule DATASET row evaluates the old year and stays healthy, leaving the planner's row the only one that fires. A link defaulted to the wrong season is the quieter form of the same dead end. Planner RECORD faults already rendered `repair: null` via `PLAN_UNAVAILABLE_EXPLANATION`; only the EXECUTION fault lied.
+- Historical corrections: the first draft removed the link wholesale and was wrong — receipt question 1 was answered per JOB when the property is per FAULT, and the reason union was read truncated, so the comment claimed "every planner execution fault" over three of five reasons. Caught by `/code-review`, not by any gate. [#619](https://github.com/znpruitt/cfb-app/issues/619)'s docblock cited the planner's link as the reason for the hint's restraint; that is now half true and says so.
+- Review / verification: five mutations, five distinct assertion sites — both directions pinned (the link cannot silently return for a non-repairable reason, nor vanish for `schedule-unreadable`). `npm test` 5,218/5,218 exit 0 (+2); `tsc`/`lint:all`/`build` exit 0. See L1, L4.
+- Status: Implemented — PR [#749](https://github.com/znpruitt/cfb-app/pull/749) open.
+
 ### PLATFORM-732-HELD-PLANNER-RUN-TRACE-CLAUDE-v1
 
 - Change: a held planner run writes a durable row to a SEPARATE series, key `held:<job>`, same scope ([#732](https://github.com/znpruitt/cfb-app/issues/732)). The hold branch reached no writer; the receipt is latest-only, so the gap was HISTORY.
