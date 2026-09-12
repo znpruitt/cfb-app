@@ -59,7 +59,11 @@ import {
 } from '../lib/rankings';
 import { getGameParticipantTeamId, type AppGame } from '../lib/schedule';
 import type { ScorePack } from '../lib/scores';
-import { EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID, type ScoreboardTeamLogosById } from '../lib/teamLogos';
+import {
+  EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID,
+  SCOREBOARD_TEAM_LOGO_SLOT,
+  type ScoreboardTeamLogosById,
+} from '../lib/teamLogos';
 import { standingsCoverageNoticeWithSubject } from '../lib/standings';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
 import type { StandingsHistory } from '../lib/standingsHistory';
@@ -71,6 +75,33 @@ import {
 import { getPresentationTimeZone } from '../lib/weekPresentation';
 
 const EMPTY_OVERVIEW_ODDS_BY_KEY: Record<string, CombinedOdds> = {};
+
+// Item 134. The 400px target is unmeasured prose from the live-scoreboard mockup,
+// whose team line already reserved 16px at line start. Production now reserves the
+// explicit 32px logo slot, so the inherited target becomes 400 - 16 + 32 = 416px.
+// Three targets, two 40px gaps, and 20px deliberate headroom produce 1348px.
+const OVERVIEW_SCOREBOARD_MOCKUP_TARGET_PX = 400;
+const OVERVIEW_SCOREBOARD_MOCKUP_PREFIX_SLOT_PX = 16;
+const OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX_BY_CLASS = {
+  'gap-x-10': 40,
+} as const;
+export const OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS =
+  'gap-x-10' satisfies keyof typeof OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX_BY_CLASS;
+export const OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX =
+  OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX_BY_CLASS[OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS];
+const OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX = 20;
+export const OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX =
+  OVERVIEW_SCOREBOARD_MOCKUP_TARGET_PX -
+  OVERVIEW_SCOREBOARD_MOCKUP_PREFIX_SLOT_PX +
+  SCOREBOARD_TEAM_LOGO_SLOT.widthPx;
+export const OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX =
+  3 * OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX +
+  2 * OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX +
+  OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX;
+// Tailwind emits the preserved max variant as `width < 760.01px`: exactly
+// 760.01px is therefore in the two-column band, while practical whole-pixel
+// checks at 760px and 761px land on the intended sides.
+export const OVERVIEW_SCOREBOARD_GRID_CLASSES = `grid grid-cols-2 ${OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS} @max-[760.01px]:grid-cols-1 @min-[1348px]:grid-cols-3`;
 
 /**
  * The last `n` weeks that are RESOLVED — played, with a usable snapshot.
@@ -734,10 +765,7 @@ function GameCardList({
   }
 
   return (
-    <div
-      className="grid grid-cols-2 gap-x-10 @max-[760.01px]:grid-cols-1"
-      data-live-scoreboard-grid
-    >
+    <div className={OVERVIEW_SCOREBOARD_GRID_CLASSES} data-live-scoreboard-grid>
       {items.map((item) => {
         const game = item.bucket.game;
         const isAwaitingScore = state === 'live' && item.routeStatus.kind === 'awaiting-score';
@@ -826,10 +854,7 @@ function WatchlistScoreboardList({
   }
 
   return (
-    <div
-      className="grid grid-cols-2 gap-x-10 @max-[760.01px]:grid-cols-1"
-      data-watchlist-scoreboard-grid
-    >
+    <div className={OVERVIEW_SCOREBOARD_GRID_CLASSES} data-watchlist-scoreboard-grid>
       {prioritizedItems.map((prioritized) => {
         const item = prioritized.item;
         const game = item.bucket.game;
@@ -842,7 +867,7 @@ function WatchlistScoreboardList({
         const teamRecords = teamRecordsForGame(game, teamRecordsByProviderGameId);
         const highlightTags = prioritized.highlightTags;
         const hasReason = Boolean(prioritized.highlightLabel || highlightTags.length > 0);
-        // Overview's two-column grid explicitly requests this band even when the slot resolves to
+        // Overview's multi-column grid explicitly requests this band even when the slot resolves to
         // null, keeping scheduled peer cards aligned when only one has displayable odds.
         const footerSlot = <WatchlistOddsFooterSlot odds={oddsByKey[game.key]} />;
 
@@ -944,10 +969,7 @@ function FeaturedGamesList({
   }
 
   return (
-    <div
-      className="grid grid-cols-2 gap-x-10 @max-[760.01px]:grid-cols-1"
-      data-featured-scoreboard-grid
-    >
+    <div className={OVERVIEW_SCOREBOARD_GRID_CLASSES} data-featured-scoreboard-grid>
       {prioritizedItems.map((prioritized) => {
         const item = prioritized.item;
         const game = item.bucket.game;

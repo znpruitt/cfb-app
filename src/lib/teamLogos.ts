@@ -9,6 +9,15 @@ export type ScoreboardTeamLogosById = ReadonlyMap<string, ScoreboardTeamLogo>;
 
 export const EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID: ScoreboardTeamLogosById = new Map();
 export const SCOREBOARD_TEAM_LOGO_DISPLAY_SIZE = 28;
+const SCOREBOARD_TEAM_LOGO_SLOT_WIDTH_BY_CLASS = {
+  'pl-8': 32,
+} as const;
+const SCOREBOARD_TEAM_LOGO_SLOT_CLASS_NAME =
+  'pl-8' satisfies keyof typeof SCOREBOARD_TEAM_LOGO_SLOT_WIDTH_BY_CLASS;
+export const SCOREBOARD_TEAM_LOGO_SLOT = {
+  className: SCOREBOARD_TEAM_LOGO_SLOT_CLASS_NAME,
+  widthPx: SCOREBOARD_TEAM_LOGO_SLOT_WIDTH_BY_CLASS[SCOREBOARD_TEAM_LOGO_SLOT_CLASS_NAME],
+} as const;
 
 const CFBD_LOGO_HOST = 'cdn.collegefootballdata.com';
 const CFBD_SCOREBOARD_LOGO_ASSET_SIZE = 64;

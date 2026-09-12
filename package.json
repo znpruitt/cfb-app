@@ -14,6 +14,7 @@
     "test:lib": "npm run test:file -- 'src/lib/**/*.test.ts' 'src/lib/**/*.test.tsx'",
     "test:api": "npm run test:file -- 'src/app/api/**/*.test.ts' 'src/app/api/**/*.test.tsx'",
     "test:components": "npm run test:file -- 'src/components/**/*.test.ts' 'src/components/**/*.test.tsx'",
+    "test:browser:required": "REQUIRE_BROWSER_TESTS=1 npm run test:file -- src/components/__tests__/OverviewScoreboardGrid.browser.test.tsx",
     "test:clock-shift": "node scripts/clock-shift-run.mjs",
     "lint": "npm run lint:eslint && npm run lint:format && npm run lint:markdown",
     "lint:eslint": "eslint --cache --cache-strategy content --concurrency auto src/app src/components src/lib src/types scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts --ignore-pattern 'src/**/__tests__/**' --ignore-pattern 'src/data/**'",

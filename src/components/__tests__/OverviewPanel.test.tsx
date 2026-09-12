@@ -5,7 +5,13 @@ import { JSDOM } from 'jsdom';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import OverviewPanelImpl from '../OverviewPanel';
+import OverviewPanelImpl, {
+  OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS,
+  OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX,
+  OVERVIEW_SCOREBOARD_GRID_CLASSES,
+  OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX,
+  OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX,
+} from '../OverviewPanel';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../../lib/overview';
 import { deriveLeagueInsights, deriveOverviewInsights } from '../../lib/selectors/insights';
 import { TREND_EMPTY_MESSAGE } from '../../lib/trendEmptyState';
@@ -401,6 +407,10 @@ test('overview watchlist uses the shared scoreboard with records and one odds fo
     /<article(?=[^>]*aria-label="UAlbany at Buffalo")(?=[^>]*data-scoreboard-state="scheduled")[\s\S]*?<\/article>/
   )?.[0];
   assert.ok(scoreboard, 'the FCS matchup must render through CompactGameScoreboard');
+  const document = new JSDOM(html).window.document;
+  const watchlistGrid = document.querySelector('[data-watchlist-scoreboard-grid]');
+  assert.ok(watchlistGrid, 'the watchlist scoreboard grid must render');
+  assert.equal(watchlistGrid.className, OVERVIEW_SCOREBOARD_GRID_CLASSES);
   const watchlistHeadingIndex = html.indexOf('Upcoming watchlist');
   assert.notEqual(watchlistHeadingIndex, -1, 'the watchlist heading must render');
   const watchlistSectionIndex = html.lastIndexOf('<section', watchlistHeadingIndex);
@@ -750,7 +760,7 @@ test('overview Live section consumes the shared scoreboard in a row-major respon
 
   assert.match(
     html,
-    /grid grid-cols-2 gap-x-10 @max-\[760\.01px\]:grid-cols-1" data-live-scoreboard-grid/
+    /grid grid-cols-2 gap-x-10 @max-\[760\.01px\]:grid-cols-1 @min-\[1348px\]:grid-cols-3" data-live-scoreboard-grid/
   );
   assert.equal((html.match(/data-game-scoreboard=/g) ?? []).length, 2);
   const awayLeadingCard = html.indexOf('aria-label="Utah at Arizona State"');
@@ -1059,7 +1069,21 @@ test('overview Featured renders its badge and existing tag in the final status r
   assert.match(liveScoreboard, /Q2 6:14/);
   assert.match(
     html,
-    /<section class="@container">[\s\S]*?<div class="grid grid-cols-2 gap-x-10 @max-\[760\.01px\]:grid-cols-1" data-featured-scoreboard-grid="true">/
+    /<section class="@container">[\s\S]*?<div class="grid grid-cols-2 gap-x-10 @max-\[760\.01px\]:grid-cols-1 @min-\[1348px\]:grid-cols-3" data-featured-scoreboard-grid="true">/
+  );
+});
+
+test('overview three-column grid arithmetic stays coupled to its literal utility', () => {
+  assert.equal(OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS, 'gap-x-10');
+  assert.equal(OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX, 40);
+  assert.ok(OVERVIEW_SCOREBOARD_GRID_CLASSES.includes(OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS));
+  assert.equal(OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX, 416);
+  assert.equal(OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX, 1348);
+  assert.ok(
+    OVERVIEW_SCOREBOARD_GRID_CLASSES.includes(
+      `@min-[${OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX}px]:grid-cols-3`
+    ),
+    'the rendered Tailwind breakpoint must match the documented arithmetic'
   );
 });
 

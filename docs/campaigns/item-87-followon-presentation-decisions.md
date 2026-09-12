@@ -89,7 +89,11 @@ Subtle neutral fill (`rgba(255,255,255,0.022)`), 5px radius, 7px/10px padding. D
 
 ### Three-column tier at 1320px
 
-`3 × (400px minimum row + 24px block padding) + 2 × 16px gap = 1320`. Higher than the Overview game grid's 1300 because each block now carries its own padding — **a consequence of the boxing decision**, not an independent choice. If the fill is ever dropped, the number returns to 1300.
+`3 × (400px minimum row + 24px block padding) + 2 × 16px gap = 1320`. This was described as higher
+than Overview's former 1300px proposal because each block carries its own padding. PLATFORM-678 has
+since set Overview independently at 1348px after accounting for its shipped logo slot, so that
+historical comparison no longer describes the current ordering. Schedule's own number remains Item
+152's.
 
 > **DOES NOT REPRODUCE — Item 152 (verified 2026-09-08).** The arithmetic as written gives **1304**, the mockup's
 > comment (2 × 20px gap) gives **1312**, and the mockup's own CSS (10px block padding, 16px column gap) gives

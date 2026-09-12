@@ -91,7 +91,7 @@ Shipped is `lg:grid-cols-2` with no third tier. The three-column tier at 1372px 
 *The prose line in the Matchups design doc saying "Matchups keeps its two-column owner-card grid" is the stale side of that contradiction. The CSS and the tier doc are correct.*
 
 > **CORRECTED (verified 2026-09-08):** the 1372px figure and its arithmetic (3 × (400 + 44) + 2 × 20) are recorded
-> only in `mockups/matchups-schedule-mockup.html:218-220`, the `.owner-grid` container query; `three-column-tier.md` specifies Overview's 1300px tier and
+> only in `mockups/matchups-schedule-mockup.html:218-220`, the `.owner-grid` container query; `three-column-tier.md` specifies Overview's independent 1348px tier and
 > says Matchups is a separate question. The stale prose line lived in the mockup's notes block, not in
 > `matchups-schedule-design.md`; the owner replaced it with the 1372 arithmetic on 2026-09-08, so that contradiction
 > is DISCHARGED. The Schedule tier's number is Item 152.

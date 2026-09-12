@@ -98,7 +98,7 @@ For **Live**, **Recent finals**, **Featured** and the **watchlist**, against `it
 4. **Owner rendering** — `NoClaim` suppressed?
 5. **Tags** — one vocabulary, bronze pills, capped at two, no tag restating its container?
 6. **Final rows** — no date or time?
-7. **Column tiers** — third tier present above 1300px?
+7. **Column tiers** — third tier present at 1348px, with the 760/761 and 1347/1348 boundaries intact?
 
 At page level:
 
