@@ -90,6 +90,14 @@ These consolidate recurring historical observations, not new project-governance 
 
 ## Prompt ledger (source order retained)
 
+### PLATFORM-732-HELD-PLANNER-RUN-TRACE-CLAUDE-v1
+
+- Change: a held planner run now writes a durable row to a SEPARATE series — key `held:<job>`, same scope — carrying `at`, the receipt's `invocationId`, `dayStartMs` and `reason` (`plan-held` / `settings-unavailable`) ([#732](https://github.com/znpruitt/cfb-app/issues/732)). The hold branch never reached `recordPollingPlannerRun`, and the receipt carries the same two facts latest-only, so the gap was HISTORY rather than trace.
+- Scope limit: store and route only; no `src/` consumer, because a surface would reach `schedulerDeliveryHealth.ts`, which this shape deliberately leaves untouched. `reason` is a string on the row, so the `schedule-unreadable` day costs no second durable-schema change. A lost trace is counted in `recordsNotWritten` without moving any result branch, so an all-held run stays a silent `no-op`.
+- Evidence: the prompt's "one reader" claim was wrong — `scripts/lib/plannerIntentReader.ts` reads the same raw row by SQL, so a variant row's refusal would take `inspect` and `upsert --apply` down with the record. Nullable `slow` was rejected on `installedState` reading absent as `silent` ("not expected to fire") for a schedule that is armed and firing, an encoding [#746](https://github.com/znpruitt/cfb-app/issues/746) wants for paused. Production measured 8 runs per key across two keys, `droppedRuns` 0, no gap since 2026-09-07 — so no hold has occurred since activation.
+- Review / verification: `tsc`, `lint:all` and `build` clean; `npm test` 5,215/5,215 (+23); `test:clock-shift -- 0` and `-- 400` green on both suites. Five mutations, each red at its own tests and reverted: totality guard, key collapse, trace write, one constant reason, uncounted loss. See L3, L4, L6.
+- Status: Implemented — PR open.
+
 ### PLATFORM-692-FINAL-OBSERVATION-STAMP-CLAUDE-v1
 
 - Change: `CacheEntry.firstFinalObservedAtById` records when LIVE polling first saw CFBD report a score final ([#692](https://github.com/znpruitt/cfb-app/issues/692)) — write-once, unread. **Not a game end time, and a PROVISIONAL final** (stamped when `/scoreboard` says `completed`, awaiting `/games`); the field's own comment is canonical for its lag terms. Brackets the tail with `itemUpdatedAtById`: `stamp − kickoff`, then `itemUpdatedAtById − stamp` for stragglers.
