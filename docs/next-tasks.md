@@ -204,11 +204,11 @@ each other.**
 | ✅ | ~~110A~~ | bounded recovery — **merged and applied 2026-09-09** |
 | ✅ | ~~110B~~ | recurring correction reconciliation — **merged `9b150eb0`, PR #590** |
 | ✅ | ~~199~~ | the catalog read `altColor`; the provider sends `alternateColor` — **merged `1cfa9df1`, PR #591** |
-| **1** | **204** | **empty-body guard on the catalog refresh — BLOCKS the Item 199 resync click** |
+| ✅ | ~~204~~ | empty-body guard on the catalog refresh — **merged `6ae1bd72`, PR #592**; the Item 199 resync click is unblocked |
 | ✅ | ~~188~~ | provider deadlines carried through body consumption — **merged `57fdbd82`, PR #762**; closed #632 alongside. The ODDS body read is NOT covered and is #759 |
 | 2 | [#755](https://github.com/znpruitt/cfb-app/issues/755) | the CFBD `/info` quota probe had no deadline — **MERGED `7b70ee6c` (PR #765) 2026-09-13; #755 closed.** **Built but NOT promoted** — auto-promotion is off, so the probe stays unbounded in production until the owner promotes. Both phases now share a 40,000 ms ceiling via `fetchUpstreamJson`. Reproduced at **301.3s** before undici's stock 300s `headersTimeout`, so the hang was two 300s timers rather than none. Value derived from the `provider-usage` series, not borrowed from the `/games` ceiling, and held in its own constant after both reviewers found the alias rebuilt the coupling. Residue: [#764](https://github.com/znpruitt/cfb-app/issues/764) (`systemHealth` races its loader without aborting it); `cfbd` pacing on the probe is undecided and deliberately not swept in |
-| 3 | **20** | bounded database waits |
-| 4 | **47** | admin authorization for the Insights diagnostic bypass |
+| 3 | **20** ([#625](https://github.com/znpruitt/cfb-app/issues/625)) | bounded database waits — **BLOCKED on the owner**: the timeout values are deliberately unset and must fit the invocation budget |
+| **4** | **47** ([#627](https://github.com/znpruitt/cfb-app/issues/627)) | **NEXT DISPATCHABLE** — admin authorization for the Insights diagnostic bypass. Triage ACTIONABLE, reproduced and re-verified 2026-09-10; needs no decision, so it is takeable while 20 waits |
 
 > **199 CHANGES NOTHING VISIBLE — and I got this wrong in both directions before the lane measured it.**
 > I first wrote that 199 only makes the colour available; the owner asked whether it changes the Item 119
