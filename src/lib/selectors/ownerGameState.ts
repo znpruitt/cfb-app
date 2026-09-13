@@ -37,6 +37,11 @@ export function projectMembersGameState(params: {
   // row agreement is the invariant; cross-surface equality is deliberately not.
   if (scoreState === 'final') return 'final';
   if (scoreState === 'inprogress') return 'live';
+
+  // A TBD date is a schedule placeholder, not kickoff evidence. Live/final
+  // provider evidence above still wins, but the placeholder alone can never
+  // mature into either "Awaiting score" or the terminal no-score state.
+  if (game.startTimeTBD === true) return 'scheduled';
   if (isAwaitingScoreGame({ game, score, context })) return 'awaiting';
 
   // A disrupted game is not an evidence-free result that merely aged out of the

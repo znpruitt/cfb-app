@@ -332,7 +332,7 @@ function buildOwnerWeekPerformance(
     };
   }
 
-  if (unavailableGames > 0) {
+  if (unavailableGames === games.length) {
     return {
       summary: NO_SCORE_REPORTED_LABEL,
       detail: `${games.length} game${games.length === 1 ? '' : 's'}`,
@@ -343,7 +343,7 @@ function buildOwnerWeekPerformance(
   return {
     summary: 'Scheduled',
     detail: `${games.length} game${games.length === 1 ? '' : 's'}`,
-    tone: 'scheduled',
+    tone: unavailableGames > 0 ? 'neutral' : 'scheduled',
   };
 }
 

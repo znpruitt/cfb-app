@@ -3,7 +3,11 @@ import { usesNeutralSiteSemantics } from './gameUi.ts';
 import { deriveOwnerWeekSlates, deriveWeekMatchupSections } from './matchups.ts';
 import type { GameDayContext } from './selectors/gameDayConfidence.ts';
 import { NO_SCORE_REPORTED_LABEL } from './selectors/gameScoreboardState.ts';
-import { selectMembersRowGame, type MembersRowGameProjection } from './selectors/ownerGameState.ts';
+import {
+  projectMembersGameState,
+  selectMembersRowGame,
+  type MembersRowGameProjection,
+} from './selectors/ownerGameState.ts';
 import type { ScorePack } from './scores.ts';
 import { getGameParticipantTeamId, type AppGame } from './schedule.ts';
 import type { OwnerStandingsRow } from './standings.ts';
@@ -156,12 +160,12 @@ export function deriveOwnerRoster(
 
     for (const game of teamGames) {
       const score = scoresByKey[game.key];
-      const projection = selectMembersRowGame({
-        games: [game],
-        scoresByKey,
+      const state = projectMembersGameState({
+        game,
+        score,
         context: gameDayContext,
       });
-      if (!projection || !isFinalOwnerRosterProjection(projection)) continue;
+      if (state !== 'final') continue;
 
       const side = getOwnerTeamSide(teamName, game);
       const teamScore = side === 'away' ? score?.away.score : score?.home.score;

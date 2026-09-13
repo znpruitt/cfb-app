@@ -201,6 +201,7 @@ test('owner panel shows live, final, and upcoming week-row detail correctly', ()
   assert.match(html, /dark:text-zinc-300">Final<\/span>/);
   assert.match(html, /dark:text-sky-400">Upcoming<\/span>/);
   assert.match(html, /dark:text-zinc-400">Awaiting score<\/span>/);
+  assert.doesNotMatch(html, /No score reported\./);
   assert.doesNotMatch(html, /amber/);
 });
 

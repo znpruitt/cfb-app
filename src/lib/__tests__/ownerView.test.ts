@@ -395,7 +395,7 @@ test('Members counts a post-window scoreless game from the same state its row re
   );
 });
 
-test('Members uses its complete row authority for a startTimeTBD slate count', () => {
+test('Members never turns a startTimeTBD placeholder into a terminal no-score claim', () => {
   const kickoff = '2026-09-05T17:00:00.000Z';
   const tbdGame = mismatchGame({ key: 'tbd', date: kickoff, startTimeTBD: true });
   const snapshot = deriveOwnerViewSnapshot({
@@ -406,10 +406,11 @@ test('Members uses its complete row authority for a startTimeTBD slate count', (
     weekGames: [tbdGame],
     rosterByTeam: roster,
     scoresByKey: {},
-    gameDayContext: { season: 2026, now: Date.parse(kickoff) + 60_000 },
+    gameDayContext: { season: 2026, now: Date.parse(kickoff) + 25 * 60 * 60_000 },
   });
 
-  assert.equal(snapshot.weekRows[0]?.currentStatus, 'Awaiting score');
-  assert.equal(snapshot.weekSummary?.liveGames, 1);
-  assert.equal(snapshot.weekSummary?.scheduledGames, 0);
+  assert.equal(snapshot.weekRows[0]?.currentStatus, 'Upcoming');
+  assert.equal(snapshot.weekSummary?.liveGames, 0);
+  assert.equal(snapshot.weekSummary?.scheduledGames, 1);
+  assert.equal(snapshot.weekSummary?.unavailableGames, 0);
 });

@@ -879,3 +879,22 @@ test('slate state counts partition the distinct game population', () => {
     slate.totalGames
   );
 });
+
+test('a mixed upcoming and unavailable slate does not headline every game as unreported', () => {
+  const nowMs = Date.parse('2026-09-06T18:00:00.000Z');
+  const games = [
+    game({ key: 'unavailable', date: '2026-09-05T17:00:00.000Z', csvAway: 'Unavailable' }),
+    game({ key: 'scheduled', date: '2026-09-06T19:00:00.000Z', csvAway: 'Scheduled' }),
+  ];
+  const slate = deriveOwnerWeekSlates(
+    games,
+    new Map(games.map((entry) => [entry.csvAway, 'Alice'])),
+    {},
+    { surface: 'matchups', nowMs }
+  )[0];
+
+  assert.equal(slate?.unavailableGames, 1);
+  assert.equal(slate?.scheduledGames, 1);
+  assert.equal(slate?.performance.summary, 'Scheduled');
+  assert.equal(slate?.performance.tone, 'neutral');
+});

@@ -521,9 +521,11 @@ export default function OwnerPanel({
             <span className="rounded-md bg-white/80 px-2.5 py-2 dark:bg-zinc-900/70">
               {snapshot.weekSummary.finalGames} final
             </span>
-            <span className="rounded-md bg-white/80 px-2.5 py-2 dark:bg-zinc-900/70">
-              {snapshot.weekSummary.unavailableGames} — {NO_SCORE_REPORTED_LABEL}
-            </span>
+            {snapshot.weekSummary.unavailableGames > 0 ? (
+              <span className="rounded-md bg-white/80 px-2.5 py-2 dark:bg-zinc-900/70">
+                {snapshot.weekSummary.unavailableGames} — {NO_SCORE_REPORTED_LABEL}
+              </span>
+            ) : null}
             <span className="rounded-md bg-white/80 px-2.5 py-2 dark:bg-zinc-900/70">
               Opponents:{' '}
               {snapshot.weekSummary.opponentOwners.length > 0
