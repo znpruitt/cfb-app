@@ -95,6 +95,35 @@ These consolidate recurring historical observations, not new project-governance 
 
 ## Prompt ledger (source order retained)
 
+### PLATFORM-755-CFBD-USAGE-DEADLINE-CLAUDE-v1
+
+- Change: `fetchCfbdUsage` called `fetch` unbounded, ahead of the work it gates. It now routes
+  through `fetchUpstreamJson`, so both phases share one 40,000 ms ceiling.
+  `CFBD_USAGE_PROBE_TIMEOUT_MS` is a separate constant holding a LITERAL — both reviewers found that
+  aliasing `CFBD_PEAK_LATENCY_TIMEOUT_MS` rebuilt the coupling it exists to prevent.
+- Scope limit: no call site changed. `systemHealth`'s race bounds its render, not the invocation —
+  [#764](https://github.com/znpruitt/cfb-app/issues/764), untouched. `cfbd` pacing not adopted, per
+  [#632](https://github.com/znpruitt/cfb-app/issues/632). **No retry**: the reserve's 2-call margin
+  accounts for one `/info` call, so there is **no `maxAttempts > 1` path to cover**, recorded because
+  [#662](https://github.com/znpruitt/cfb-app/issues/662)'s HIGH shipped through that silence.
+- Evidence: a TLS server that completed the handshake and never answered held the call **301.3s**
+  (301.1s on the default dispatcher) before undici's stock 300s `headersTimeout` — two 300s timers,
+  not zero, correcting the issue's mechanism. `next: { revalidate: 600 }` survives the shared helper:
+  3 requests = 1 upstream hit, against a `no-store` control at 3. Value from the retained
+  `provider-usage` series (N=33: p50 10,809 ms, p90 24,953 ms, max 37,027 ms); 30s drops 2 of 33
+  samples, 40s none.
+- Corrections: the prompt named five callers; there are **eight**, including `live-scores`.
+  Zero prior coverage, so both surviving behaviours are new pins: +14 tests (5,244 → 5,258, measured
+  at both ends). Known limit: `admin/usage`, the one caller that 500s rather than degrading, now fails
+  on a `/info` over 40s where it previously rendered.
+- Review / verification: [RV6](#shared-review-statements). `tsc`, `lint:all` and the full suite each
+  exited 0 as its own command; four mutations each named the assertion that fired. LIMITATION of the
+  review evidence, not of the branch: a reviewer's full-suite run exited 1, nothing attributable in
+  its log — neither confirming nor excluding a real failure, and deliberately not called
+  environmental —
+  [#767](https://github.com/znpruitt/cfb-app/issues/767).
+- Status: Implemented — PR open.
+
 ### PLATFORM-671-LIVE-FINALS-TAG-SLOT-CODEX-v1
 
 - Purpose: finish Item 173b / [#671](https://github.com/znpruitt/cfb-app/issues/671): give Overview

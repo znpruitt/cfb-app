@@ -1,3 +1,5 @@
+import { CFBD_USAGE_PROBE_TIMEOUT_MS } from './cfbdRequestPolicy.ts';
+import { fetchUpstreamJson } from './fetchUpstream.ts';
 import { cfbdCanonicalLimitForTier } from './providerQuota.ts';
 
 type CfbdInfoResponse = {
@@ -55,7 +57,56 @@ export function resolveCfbdUsage(data: CfbdInfoResponse): CfbdUsage {
   };
 }
 
+/**
+ * Fetch the CFBD `/info` quota observation under a DEADLINE (PLATFORM-755).
+ *
+ * ## What changed and why
+ *
+ * This used to call `fetch` directly, with no `AbortController` and no timeout.
+ * Measured against a TLS server that completed the handshake, received the
+ * request and never answered: the call hung for **301.3 seconds** before
+ * `undici`'s stock 300s `headersTimeout` ended it (`UND_ERR_HEADERS_TIMEOUT`),
+ * and the same shape on Node's default dispatcher took 301.1s. So it was never
+ * literally unbounded — it was bounded by two independent 300s `undici` timers
+ * (headers, then body), either of which outlasts any invocation envelope. On a
+ * serverless invocation that is not a slow probe: it is a cron that spends the
+ * whole invocation here and never reaches the work this call gates.
+ *
+ * It now routes through {@link fetchUpstreamJson}, which reads the body INSIDE
+ * the attempt's deadline (PLATFORM-662), so both phases are bounded by one
+ * ceiling — {@link CFBD_USAGE_PROBE_TIMEOUT_MS}, whose derivation and the
+ * measured latency distribution behind it live on that constant.
+ *
+ * ## No retry, deliberately
+ *
+ * `maxAttempts` stays the shared helper's default of 1. This is a quota
+ * consideration, not a style one: the comment below records that the reserve's
+ * 2-call margin accounts for exactly ONE `/info` call, so a retry would spend a
+ * second billed call against the very reserve the probe exists to protect.
+ *
+ * ## A timed-out probe is not a provider-data failure
+ *
+ * It throws, and the six `fresh: true` QUOTA GATES already map a thrown probe to
+ * "usage unavailable" — the same conservative path a probe that RETURNS
+ * unavailable lands on. The gate's job is to decide whether to spend; a deadline
+ * changes when that decision is reached, never what it is.
+ *
+ * The two CACHED callers differ and are named rather than swept into that
+ * sentence, which an earlier revision of this docblock did:
+ *   - `systemHealth.ts` already races this call against its own 8s loader bound,
+ *     so its behaviour is unchanged for any ceiling above 8s.
+ *   - `admin/usage/route.ts` returns HTTP 500 `usage-fetch-failed`, and
+ *     `fetchCfbdUsageSnapshot` re-throws on it. So on that ONE surface the
+ *     deadline is a real behaviour change: a `/info` slower than the ceiling
+ *     used to render eventually and now 500s. Against the measured distribution
+ *     (max 37.0s) the ceiling leaves ~8% headroom, so this is a narrow tail, but
+ *     it is a tail and not nothing.
+ */
 export async function fetchCfbdUsage(options: { fresh?: boolean } = {}): Promise<CfbdUsage> {
+  return probeCfbdUsage(options, CFBD_USAGE_PROBE_TIMEOUT_MS);
+}
+
+async function probeCfbdUsage(options: { fresh?: boolean }, timeoutMs: number): Promise<CfbdUsage> {
   const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
   if (!cfbdApiKey) {
     throw new Error('CFBD_API_KEY missing');
@@ -66,30 +117,58 @@ export async function fetchCfbdUsage(options: { fresh?: boolean } = {}): Promise
   // season backfill) reuse one pre-spend snapshot and collectively cross the
   // reserve. `fresh` bypasses the framework cache for exactly those callers
   // (its cost is the one /info call the reserve's 2-call margin accounts for).
-  const res = await fetch(
-    'https://api.collegefootballdata.com/info',
-    options.fresh
-      ? {
-          headers: { Authorization: `Bearer ${cfbdApiKey}`, Accept: 'application/json' },
-          cache: 'no-store',
-        }
-      : {
-          headers: { Authorization: `Bearer ${cfbdApiKey}`, Accept: 'application/json' },
-          next: { revalidate: 600 },
-        }
-  );
+  //
+  // MEASURED (PLATFORM-755), because this split surviving the move to the shared
+  // helper was the open question of the item: `next: { revalidate: 600 }` DOES
+  // reach `fetch` through `fetchUpstreamJson` and Next honours it. Three
+  // requests through the helper against a counting upstream, production build,
+  // cold fetch cache => ONE upstream hit; the same three with `cache: 'no-store'`
+  // => three. Neither the helper's unconditional `signal` nor the `Authorization`
+  // header defeats it.
+  const cacheInit = options.fresh
+    ? ({ cache: 'no-store' } as const)
+    : ({ next: { revalidate: 600 } } as const);
 
-  if (!res.ok) {
-    throw new Error(`CFBD usage fetch failed: ${res.status}`);
-  }
+  // NO PACING, decided rather than overlooked. Every other CFBD call through
+  // this helper passes a `cfbd`-keyed 150ms policy, and a review reasonably
+  // asked why this one does not. Two reasons. The pattern-match is not itself an
+  // argument — #632 records the rule for exactly this situation ("Decide
+  // separately; do not sweep it in on pattern-match alone") — and the shared key
+  // would make the probe queue behind unrelated CFBD traffic, converting other
+  // callers' spacing into latency for a call that sits AHEAD of the work it
+  // gates and inside the same invocation budget. Adopting it is a real decision
+  // with a real cost, so it is reported as follow-up work, not swept in here.
+  const parsed = await fetchUpstreamJson<unknown>('https://api.collegefootballdata.com/info', {
+    headers: { Authorization: `Bearer ${cfbdApiKey}`, Accept: 'application/json' },
+    timeoutMs,
+    ...cacheInit,
+  });
 
   // A 200 with a non-object body is a MALFORMED payload, not a read failure:
   // resolve it to all-unavailable rather than throwing, keeping "unavailable"
-  // distinct from the thrown provider-read-failure path above.
-  const parsed: unknown = await res.json();
+  // distinct from the thrown provider-read-failure path. `null` is the case that
+  // makes this guard load-bearing rather than decorative — an unguarded
+  // `null.patronLevel` throws, which would report a payload problem as a read
+  // failure.
   const data: CfbdInfoResponse =
     parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
       ? (parsed as CfbdInfoResponse)
       : {};
   return resolveCfbdUsage(data);
+}
+
+/**
+ * Test-only: the production probe with an INJECTABLE deadline, following the
+ * `__…ForTests` seam convention in `fetchUpstream.ts`. It exists because the
+ * runner caps a test process at 30s (`scripts/run-tests.mjs`), so the real 40s
+ * ceiling cannot be waited out; the deadline MECHANISM is proven here at a few
+ * hundred milliseconds and the production value is pinned by assertion.
+ * {@link fetchCfbdUsage} is a single delegation, so there is nothing between the
+ * two but the constant. Never called in production paths.
+ */
+export function __fetchCfbdUsageWithTimeoutForTests(
+  options: { fresh?: boolean },
+  timeoutMs: number
+): Promise<CfbdUsage> {
+  return probeCfbdUsage(options, timeoutMs);
 }

@@ -206,6 +206,7 @@ each other.**
 | ✅ | ~~199~~ | the catalog read `altColor`; the provider sends `alternateColor` — **merged `1cfa9df1`, PR #591** |
 | **1** | **204** | **empty-body guard on the catalog refresh — BLOCKS the Item 199 resync click** |
 | ✅ | ~~188~~ | provider deadlines carried through body consumption — **merged `57fdbd82`, PR #762**; closed #632 alongside. The ODDS body read is NOT covered and is #759 |
+| 2 | [#755](https://github.com/znpruitt/cfb-app/issues/755) | the CFBD `/info` quota probe had no deadline — **IMPLEMENTED AND REVIEWED 2026-09-13, PR open**. Both phases now share a 40,000 ms ceiling via `fetchUpstreamJson`. Reproduced at **301.3s** before undici's stock 300s `headersTimeout`, so the hang was two 300s timers rather than none. Value derived from the `provider-usage` series, not borrowed from the `/games` ceiling, and held in its own constant after both reviewers found the alias rebuilt the coupling. Residue: [#764](https://github.com/znpruitt/cfb-app/issues/764) (`systemHealth` races its loader without aborting it); `cfbd` pacing on the probe is undecided and deliberately not swept in |
 | 3 | **20** | bounded database waits |
 | 4 | **47** | admin authorization for the Insights diagnostic bypass |
 
