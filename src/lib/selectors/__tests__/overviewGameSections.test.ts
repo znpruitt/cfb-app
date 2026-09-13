@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { OverviewGameItem } from '../../overview';
+import type { TeamRankingEnrichment } from '../../rankings';
 import type { AppGame } from '../../schedule';
 import type { ScorePack } from '../../scores';
 import type { PrioritizedOverviewItem } from '../overview';
@@ -119,13 +120,15 @@ function prioritized(itemValue: OverviewGameItem, priority = 0): PrioritizedOver
 function select(
   sectionItems: OverviewGameItem[],
   now: string,
-  watchlistCandidates = sectionItems.map((entry) => prioritized(entry))
+  watchlistCandidates = sectionItems.map((entry) => prioritized(entry)),
+  rankingsByTeamId = new Map<string, TeamRankingEnrichment>()
 ) {
   return selectOverviewGameSections({
     sectionItems,
     scheduleGames: sectionItems.map((entry) => entry.bucket.game),
     watchlistCandidates,
     featuredGameKeys: new Set(),
+    rankingsByTeamId,
     now: new Date(now),
   });
 }
@@ -166,6 +169,124 @@ test('Live promotes to Recent finals only when a final score attaches', () => {
 
   assert.deepEqual(memberships(select([live], now), gameValue.key), ['live']);
   assert.deepEqual(memberships(select([final], now), gameValue.key), ['recentFinals']);
+});
+
+test('Close requires a trusted Live or Recent-final route even when scores are nonzero', () => {
+  const live = item(game({ key: 'tagged-live', date: KICKOFF }), {
+    score: score('In Progress', 14, 10),
+  });
+  const awaiting = item(game({ key: 'tagged-awaiting', date: KICKOFF }), {
+    score: score('Scheduled', 10, 7),
+  });
+  const final = item(game({ key: 'tagged-final', date: KICKOFF }), {
+    score: score('Final', 21, 17),
+  });
+  const rankingsByTeamId = new Map<string, TeamRankingEnrichment>([
+    ['tagged-live-away', { rank: 6, rankSource: 'ap' }],
+    ['tagged-live-home', { rank: 11, rankSource: 'ap' }],
+    ['tagged-awaiting-away', { rank: 8, rankSource: 'ap' }],
+    ['tagged-awaiting-home', { rank: 12, rankSource: 'ap' }],
+    ['tagged-final-away', { rank: 14, rankSource: 'ap' }],
+    ['tagged-final-home', { rank: 18, rankSource: 'ap' }],
+  ]);
+
+  const sections = select(
+    [live, awaiting, final],
+    '2026-09-05T17:00:00.000Z',
+    [],
+    rankingsByTeamId
+  );
+  const liveByKey = new Map(sections.live.map((entry) => [entry.bucket.game.key, entry]));
+
+  assert.equal(liveByKey.get('tagged-live')?.routeStatus.kind, 'live');
+  assert.deepEqual(
+    liveByKey.get('tagged-live')?.highlightTags.map((tag) => tag.id),
+    ['top25', 'close']
+  );
+  assert.equal(liveByKey.get('tagged-awaiting')?.routeStatus.kind, 'awaiting-score');
+  assert.deepEqual(
+    liveByKey.get('tagged-awaiting')?.highlightTags.map((tag) => tag.id),
+    ['top25']
+  );
+  assert.deepEqual(
+    sections.recentFinals[0]?.highlightTags.map((tag) => tag.id),
+    ['top25', 'close']
+  );
+});
+
+test('untrusted 0-0 score packs exclude only Close across awaiting and generic Live states', () => {
+  const awaiting = item(game({ key: 'awaiting-zero-zero', date: KICKOFF }), {
+    score: score('Scheduled', 0, 0),
+  });
+  const live = item(game({ key: 'live-zero-zero', date: KICKOFF }), {
+    score: { ...score('In Progress', 0, 0), time: KICKOFF },
+  });
+  const rankingsByTeamId = new Map<string, TeamRankingEnrichment>([
+    ['awaiting-zero-zero-away', { rank: 6, rankSource: 'ap' }],
+    ['awaiting-zero-zero-home', { rank: 11, rankSource: 'ap' }],
+    ['live-zero-zero-away', { rank: 14, rankSource: 'ap' }],
+    ['live-zero-zero-home', { rank: 18, rankSource: 'ap' }],
+  ]);
+
+  const sections = select([awaiting, live], '2026-09-05T17:00:00.000Z', [], rankingsByTeamId);
+  const liveByKey = new Map(sections.live.map((entry) => [entry.bucket.game.key, entry]));
+
+  assert.equal(liveByKey.get('awaiting-zero-zero')?.routeStatus.kind, 'awaiting-score');
+  assert.deepEqual(
+    liveByKey.get('awaiting-zero-zero')?.highlightTags.map((tag) => tag.id),
+    ['top25']
+  );
+  assert.equal(liveByKey.get('live-zero-zero')?.routeStatus.kind, 'live');
+  assert.deepEqual(
+    liveByKey.get('live-zero-zero')?.highlightTags.map((tag) => tag.id),
+    ['top25']
+  );
+});
+
+test('an explicit Live period and clock preserve Close on a genuine 0-0 tie', () => {
+  const live = item(game({ key: 'clocked-live-zero-zero', date: KICKOFF }), {
+    score: { ...score('Q1 15:00', 0, 0), time: KICKOFF },
+  });
+  const rankingsByTeamId = new Map<string, TeamRankingEnrichment>([
+    ['clocked-live-zero-zero-away', { rank: 6, rankSource: 'ap' }],
+    ['clocked-live-zero-zero-home', { rank: 11, rankSource: 'ap' }],
+  ]);
+
+  const sections = select([live], '2026-09-05T17:00:00.000Z', [], rankingsByTeamId);
+
+  assert.equal(sections.live[0]?.routeStatus.kind, 'live');
+  assert.deepEqual(
+    sections.live[0]?.highlightTags.map((tag) => tag.id),
+    ['top25', 'close']
+  );
+});
+
+test('a final excludes Close only for exact 0-0, not every tied score', () => {
+  const final = item(game({ key: 'final-zero-zero', date: KICKOFF }), {
+    score: score('Final', 0, 0),
+  });
+  const tiedFinal = item(game({ key: 'final-fourteen-all', date: KICKOFF }), {
+    score: score('Final', 14, 14),
+  });
+  const rankingsByTeamId = new Map<string, TeamRankingEnrichment>([
+    ['final-zero-zero-away', { rank: 6, rankSource: 'ap' }],
+    ['final-zero-zero-home', { rank: 11, rankSource: 'ap' }],
+    ['final-fourteen-all-away', { rank: 14, rankSource: 'ap' }],
+    ['final-fourteen-all-home', { rank: 18, rankSource: 'ap' }],
+  ]);
+
+  const sections = select([final, tiedFinal], '2026-09-05T17:00:00.000Z', [], rankingsByTeamId);
+  const finalsByKey = new Map(sections.recentFinals.map((entry) => [entry.bucket.game.key, entry]));
+
+  assert.equal(finalsByKey.get('final-zero-zero')?.routeStatus.kind, 'final');
+  assert.deepEqual(
+    finalsByKey.get('final-zero-zero')?.highlightTags.map((tag) => tag.id),
+    ['top25']
+  );
+  assert.deepEqual(
+    finalsByKey.get('final-fourteen-all')?.highlightTags.map((tag) => tag.id),
+    ['top25', 'close']
+  );
 });
 
 test('the abandonment gate runs before in-progress score-state routing', () => {
@@ -461,6 +582,7 @@ test('a Featured game remains outside all three state sections', () => {
     scheduleGames: [featured.bucket.game],
     watchlistCandidates: [],
     featuredGameKeys: new Set([featured.bucket.game.key]),
+    rankingsByTeamId: new Map(),
     now: new Date('2026-09-05T17:00:00.000Z'),
   });
 
@@ -477,6 +599,7 @@ test('Recent finals clears at Thursday 06:00 ET and not one minute before', () =
     scheduleGames: [final.bucket.game, lateWeekGame],
     watchlistCandidates: [],
     featuredGameKeys: new Set(),
+    rankingsByTeamId: new Map(),
     now: new Date('2026-09-10T09:59:00.000Z'),
   });
   const atBoundary = selectOverviewGameSections({
@@ -484,6 +607,7 @@ test('Recent finals clears at Thursday 06:00 ET and not one minute before', () =
     scheduleGames: [final.bucket.game, lateWeekGame],
     watchlistCandidates: [],
     featuredGameKeys: new Set(),
+    rankingsByTeamId: new Map(),
     now: new Date('2026-09-10T10:00:00.000Z'),
   });
 

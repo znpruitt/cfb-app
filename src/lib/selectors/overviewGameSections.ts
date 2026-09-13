@@ -1,5 +1,7 @@
 import { isDisruptedStatusLabel, normalizeStatusTokens } from '../gameStatus';
+import { deriveGameHighlightTags, type GameHighlightTag } from '../gameTags';
 import type { OverviewGameItem } from '../overview';
+import type { TeamRankingEnrichment } from '../rankings';
 import type { AppGame } from '../schedule';
 import { NO_CLAIM_OWNER } from '../standings';
 import { derivePendingGame, hasGameBeenAbandoned } from '../standingsHistory';
@@ -26,14 +28,18 @@ export type OverviewSectionItem = OverviewGameItem & {
   routeStatus: OverviewGameRouteStatus;
 };
 
+export type TaggedOverviewSectionItem = OverviewSectionItem & {
+  highlightTags: GameHighlightTag[];
+};
+
 export type PrioritizedOverviewSectionItem = PrioritizedOverviewItem & {
   routeStatus: OverviewGameRouteStatus;
 };
 
 export type OverviewGameSections = {
   scheduled: PrioritizedOverviewSectionItem[];
-  live: OverviewSectionItem[];
-  recentFinals: OverviewSectionItem[];
+  live: TaggedOverviewSectionItem[];
+  recentFinals: TaggedOverviewSectionItem[];
 };
 
 type OverviewStateSection = 'scheduled' | 'live' | 'recentFinals';
@@ -199,9 +205,17 @@ export function selectOverviewGameSections(params: {
   scheduleGames: AppGame[];
   watchlistCandidates: PrioritizedOverviewItem[];
   featuredGameKeys: ReadonlySet<string>;
+  rankingsByTeamId: Map<string, TeamRankingEnrichment>;
   now: Date;
 }): OverviewGameSections {
-  const { sectionItems, scheduleGames, watchlistCandidates, featuredGameKeys, now } = params;
+  const {
+    sectionItems,
+    scheduleGames,
+    watchlistCandidates,
+    featuredGameKeys,
+    rankingsByTeamId,
+    now,
+  } = params;
   const routesByKey = new Map<
     string,
     { item: OverviewGameItem; section: OverviewStateSection; status: OverviewGameRouteStatus }
@@ -229,11 +243,19 @@ export function selectOverviewGameSections(params: {
     scheduled.push({ ...candidate, routeStatus: route.status });
   }
 
-  const live: OverviewSectionItem[] = [];
-  const recentFinals: OverviewSectionItem[] = [];
+  const live: TaggedOverviewSectionItem[] = [];
+  const recentFinals: TaggedOverviewSectionItem[] = [];
   for (const { item, section, status } of routesByKey.values()) {
-    if (section === 'live') live.push({ ...item, routeStatus: status });
-    if (section === 'recentFinals') recentFinals.push({ ...item, routeStatus: status });
+    if (section !== 'live' && section !== 'recentFinals') continue;
+
+    const highlightTags = deriveGameHighlightTags({
+      item,
+      rankingsByTeamId,
+    });
+    const taggedItem = { ...item, routeStatus: status, highlightTags };
+
+    if (section === 'live') live.push(taggedItem);
+    if (section === 'recentFinals') recentFinals.push(taggedItem);
   }
 
   live.sort(compareOverviewLiveItems);

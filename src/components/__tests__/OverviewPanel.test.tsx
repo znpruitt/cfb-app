@@ -447,9 +447,9 @@ test('overview watchlist uses the shared scoreboard with records and one odds fo
 });
 
 /**
- * RENDERED-OUTPUT proof of both retirements, on the one surface that renders the
- * highlight family: the Overview watchlist. `FeaturedGamesList` never renders
- * `highlightTags`, so this component is the whole rendered consumer set.
+ * RENDERED-OUTPUT proof of both retirements on the Overview watchlist. Featured
+ * also renders `highlightTags`; this fixture targets the scheduled consumer of
+ * the shared prioritization path.
  *
  * Both games have `Alice` away and `Bob` home (the `item()` helper), and `Alice`
  * is the only row in `standingsLeaders` and so was in `topOwnerNames`. Before
@@ -776,6 +776,75 @@ test('overview Live section consumes the shared scoreboard in a row-major respon
   assert.match(html, /title="CFP rank #24"/);
   assert.match(html, /title="AP rank #7"/);
   assert.doesNotMatch(html, /STATUS_IN_PROGRESS|amber/);
+});
+
+test('overview Live and Recent finals render their selector-owned tag ids in the status row', () => {
+  const liveGame = itemWithScore(
+    game({
+      key: 'tagged-live-row',
+      csvAway: 'Auburn',
+      csvHome: 'Georgia',
+      date: '2026-09-01T15:00:00.000Z',
+    }),
+    {
+      status: 'In Progress',
+      away: { team: 'Auburn', score: 17 },
+      home: { team: 'Georgia', score: 14 },
+      time: 'Q3 4:55',
+    }
+  );
+  const finalGame = itemWithScore(
+    game({
+      key: 'tagged-final-row',
+      csvAway: 'Michigan',
+      csvHome: 'Ohio State',
+      date: '2026-09-01T12:00:00.000Z',
+    }),
+    {
+      status: 'Final',
+      away: { team: 'Michigan', score: 24 },
+      home: { team: 'Ohio State', score: 28 },
+      time: null,
+    }
+  );
+
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[liveGame]}
+      keyMatchups={[]}
+      sectionItems={[liveGame, finalGame]}
+      rankingsByTeamId={
+        new Map([
+          ['a', { rank: 6, rankSource: 'ap' }],
+          ['h', { rank: 11, rankSource: 'ap' }],
+        ])
+      }
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  const cardFor = (label: string) => {
+    const card = html.match(
+      new RegExp(`<article(?=[^>]*aria-label="${label}")[\\s\\S]*?</article>`)
+    )?.[0];
+    assert.ok(card, `${label} must render`);
+    return new JSDOM(card).window.document;
+  };
+  const tagIdsFor = (label: string) => {
+    const card = cardFor(label);
+    const tagSlot = card.querySelector('[data-scoreboard-tag-slot]');
+    assert.ok(tagSlot, `${label} must render tags in the status-row slot`);
+    return [...tagSlot.querySelectorAll('[data-eyebrow-tag]')].map((tag) =>
+      tag.getAttribute('data-eyebrow-tag')
+    );
+  };
+
+  assert.deepEqual(tagIdsFor('Auburn at Georgia'), ['top25', 'close']);
+  assert.deepEqual(tagIdsFor('Michigan at Ohio State'), ['top25', 'close']);
 });
 
 /**
@@ -2629,6 +2698,105 @@ test('a ranked close final renders its two selector-owned tags in Featured', () 
     ['Top 25 Matchup', 'Close']
   );
   assert.doesNotMatch(html, />Contender Watch</);
+});
+
+test('central Close eligibility reaches both Featured finals and the scheduled watchlist', () => {
+  const participants = (awayId: string, homeId: string) =>
+    ({
+      away: {
+        kind: 'team' as const,
+        teamId: awayId,
+        displayName: awayId,
+        canonicalName: awayId,
+        rawName: awayId,
+      },
+      home: {
+        kind: 'team' as const,
+        teamId: homeId,
+        displayName: homeId,
+        canonicalName: homeId,
+        rawName: homeId,
+      },
+    }) satisfies AppGame['participants'];
+  const finalZeroZero = itemWithScore(
+    game({
+      key: 'featured-zero-zero',
+      csvAway: 'Final Away',
+      csvHome: 'Final Home',
+      date: '2026-09-01T12:00:00.000Z',
+      participants: participants('final-away', 'final-home'),
+    }),
+    {
+      status: 'Final',
+      away: { team: 'Final Away', score: 0 },
+      home: { team: 'Final Home', score: 0 },
+      time: null,
+    }
+  );
+  const scheduledWithScores = itemWithScore(
+    game({
+      key: 'watchlist-scored-scheduled',
+      csvAway: 'Future Away',
+      csvHome: 'Future Home',
+      date: '2026-09-01T17:00:00.000Z',
+      participants: participants('future-away', 'future-home'),
+    }),
+    {
+      status: 'Scheduled',
+      away: { team: 'Future Away', score: 10 },
+      home: { team: 'Future Home', score: 7 },
+      time: null,
+    }
+  );
+
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[finalZeroZero, scheduledWithScores]}
+      rankingsByTeamId={
+        new Map([
+          ['final-away', { rank: 6, rankSource: 'ap' }],
+          ['final-home', { rank: 11, rankSource: 'ap' }],
+          ['future-away', { rank: 14, rankSource: 'ap' }],
+          ['future-home', { rank: 18, rankSource: 'ap' }],
+        ])
+      }
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  const cardFor = (label: string, state: 'final' | 'scheduled') => {
+    const card = html.match(
+      new RegExp(
+        `<article(?=[^>]*aria-label="${label}")(?=[^>]*data-scoreboard-state="${state}")[\\s\\S]*?</article>`
+      )
+    )?.[0];
+    assert.ok(card, `${label} must render as ${state}`);
+    return new JSDOM(card).window.document;
+  };
+  const tagTexts = (card: Document) =>
+    [...card.querySelectorAll('[data-eyebrow-tag]')].map((tag) => tag.textContent);
+
+  const featuredCard = cardFor('Final Away at Final Home', 'final');
+  assert.deepEqual(tagTexts(featuredCard), ['Top 25 Matchup']);
+  assert.equal(
+    featuredCard.querySelector('[data-scoreboard-value="away"]')?.textContent,
+    '0',
+    'positive control: Featured visibly renders the 0-0 pack whose Close tag is suppressed'
+  );
+  assert.equal(featuredCard.querySelector('[data-scoreboard-value="home"]')?.textContent, '0');
+
+  const watchlistCard = cardFor('Future Away at Future Home', 'scheduled');
+  assert.deepEqual(tagTexts(watchlistCard), ['Top 25 Matchup']);
+  assert.equal(
+    watchlistCard.querySelector('[data-scoreboard-value-kind="score"]'),
+    null,
+    'positive control: the scheduled card with attached scores still displays no score referent'
+  );
 });
 
 test('overview highlights consume shared insights instead of matchup-derived headline copy', () => {

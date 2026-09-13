@@ -95,6 +95,51 @@ These consolidate recurring historical observations, not new project-governance 
 
 ## Prompt ledger (source order retained)
 
+### PLATFORM-671-LIVE-FINALS-TAG-SLOT-CODEX-v1
+
+- Purpose: finish Item 173b / [#671](https://github.com/znpruitt/cfb-app/issues/671): give Overview
+  Live and Recent finals the shared scoreboard's status-row tag slot.
+- Scope: `selectOverviewGameSections` derives directly over `sectionItems`; it does not route 884
+  items through signals derived over the measured 79-item `keyMatchups` population. Routing,
+  ordering, caps, Matchups and Schedule are unchanged. Review remediation moved `Close` eligibility
+  into `deriveGameHighlightTags`, the shared boundary consumed directly by Live / Recent finals and
+  through `prioritizeOverviewItems` by Featured / Watchlist, so no caller can omit the policy.
+- Outcome: Live and Recent finals render the existing fact-only `top25` / `close` vocabulary; no
+  Overview producer emits `Upset`, whose predicate remains separate work. `Close` now requires a
+  trusted score state and evidence the reader can verify: scheduled/unknown packs are never eligible,
+  finals at margins ≤7 are eligible except exact 0-0, and Live at margins ≤7 needs nonzero points or
+  period/clock evidence. A real clocked 0-0 Live tie therefore keeps `Close`; a generic `In Progress`
+  0-0 loses it until clock/period or scoring evidence arrives. The latter is the deliberate false
+  negative that prevents a kickoff placeholder claiming a close contest. A nonzero tied final such
+  as 14-14 remains eligible; the exclusion is narrowly exact 0-0. An owner read-only measurement on
+  2026-09-12 found 20,497 score-row occurrences, 42 at 0-0 and 33 of those marked final; 0-0 finals
+  are treated as disrupted or incomplete artifacts, never close contests. With an empty rankings
+  map, `top25` cannot fire and rows remain untagged; that is a sequenced dependency. Centralizing the
+  policy also resolves the scheduled Watchlist path in [#716](https://github.com/znpruitt/cfb-app/issues/716),
+  which remains open until merge and must be closed by the eventual PR body alongside #671.
+- Evidence / verification: the `ScorePack.time` writer/consumer audit covered both typed shapes via
+  compiler mutation plus every loose production mirror. All semantic writers persist kickoff or
+  null there; the scoreboard puts period/clock in `status`. A separate read-only measurement of all
+  15 current production score partitions found 20,496 row occurrences at that instant: 19,969 null
+  times, 527 ISO kickoffs, and no clocks, status labels or other values. `formatLiveGameClock` is
+  reused rather than giving `time` a new meaning. The two production callers and all four rendered
+  consumers were enumerated. Mutations admitting scheduled scores, evidence-free Live, or exact
+  final 0-0, plus a mutation excluding every tied final, each failed a named assertion; rendered
+  ranked `top25` controls prove only `close` is excluded. Focused tests passed 125/125; `lint:all`,
+  TypeScript, the unrestricted full suite (5,235/5,235), and the required browser gate (1/1) exited
+  0. The sandboxed full-suite attempt passed 5,233/5,235 and failed only the repository's known
+  Chrome-start and loopback capability checks; it is recorded as non-authoritative. The two-id
+  vocabulary cannot exercise the two-chip cap or produce a
+  container-state tag; those remain honest structural/contract pins rather than claimed behavioral
+  regressions. Phone-width relief awaits owner decision [#758](https://github.com/znpruitt/cfb-app/issues/758).
+- Deferred finding: the pre-existing normalized-rank lookup mismatch is filed separately as
+  [#760](https://github.com/znpruitt/cfb-app/issues/760); PLATFORM-671 widens its rendered population
+  but does not change ranking identity.
+- Status: Implemented on `codex/671-live-finals-tag-slot` (`1bfecf1d`, `ecfc36e6`, `63600dd9`,
+  `8ba38f31`, `97c03ecb`, `a6eb1e89`, `fa0c6573` + this closeout); four review rounds are complete
+  and merge is pending. [#671](https://github.com/znpruitt/cfb-app/issues/671) and
+  [#716](https://github.com/znpruitt/cfb-app/issues/716) stay open until merge.
+
 ### PLATFORM-662-UPSTREAM-BODY-DEADLINE-CLAUDE-v1
 
 - Change: the upstream request deadline now spans BODY consumption for `fetchUpstreamJson` ([#662](https://github.com/znpruitt/cfb-app/issues/662)). It was cleared when the response HEADERS arrived, so the body downloaded unbounded — measured on `main`, a 1,000 ms body resolved against a 50 ms deadline. The body is consumed inside the attempt loop via a shared `runUpstreamAttempts`, so one deadline covers both phases and a body failure reaches the same retry decision as a header failure. Classification survives, and the discriminant was MEASURED rather than assumed: bytes that arrived and did not parse throw `SyntaxError` (`parse`), a destroyed socket throws `TypeError: terminated` (`network`), a fired deadline throws `AbortError` (`timeout`). Covers 14 of the 15 call sites — every `fetchUpstreamJson` caller.

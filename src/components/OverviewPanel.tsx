@@ -37,8 +37,8 @@ import {
   OVERVIEW_RECENT_FINALS_LIMIT,
   OVERVIEW_WATCHLIST_LIMIT,
   selectOverviewGameSections,
-  type OverviewSectionItem,
   type PrioritizedOverviewSectionItem,
+  type TaggedOverviewSectionItem,
 } from '../lib/selectors/overviewGameSections';
 import type { SeasonContext } from '../lib/selectors/seasonContext';
 import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
@@ -754,7 +754,7 @@ function GameCardList({
   state,
   teamLogosById,
 }: {
-  items: OverviewSectionItem[];
+  items: TaggedOverviewSectionItem[];
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
   teamRecordsByProviderGameId: TeamRecordsByProviderGameId;
   state: 'live' | 'final';
@@ -807,6 +807,21 @@ function GameCardList({
             }
             broadcast={broadcast}
             matchupLabel={formatGameMatchupLabel(game)}
+            tagSlot={
+              item.highlightTags.length > 0 ? (
+                <>
+                  {item.highlightTags.map((tag) => (
+                    <span
+                      key={tag.id}
+                      className={`inline-flex ${EYEBROW_TAG_CLASSES}`}
+                      data-eyebrow-tag={tag.id}
+                    >
+                      {tag.text}
+                    </span>
+                  ))}
+                </>
+              ) : undefined
+            }
             away={{
               teamName: game.csvAway,
               teamLogo: teamLogosById.get(awayTeamId),
@@ -1659,9 +1674,10 @@ export default function OverviewPanel({
         scheduleGames: games,
         watchlistCandidates: viewModel.watchlistCandidates,
         featuredGameKeys,
+        rankingsByTeamId,
         now: new Date(nowMs),
       }),
-    [featuredGameKeys, games, nowMs, sectionItems, viewModel.watchlistCandidates]
+    [featuredGameKeys, games, nowMs, rankingsByTeamId, sectionItems, viewModel.watchlistCandidates]
   );
   // Item 115: these caps are item counts, not grid rows. An odd expanded total stays
   // ragged at two columns and must stay ragged when the deferred three-column tier lands

@@ -1,4 +1,4 @@
-import { gameStateFromScore } from './gameUi.ts';
+import { formatLiveGameClock, gameStateFromScore } from './gameUi.ts';
 import { DEFAULT_ODDS_UPSET_SPREAD_THRESHOLD, evaluateOddsUpset } from './oddsUpsetPolicy.ts';
 import type { OverviewGameItem } from './overview.ts';
 import type { TeamRankingEnrichment } from './rankings.ts';
@@ -72,6 +72,27 @@ function gameMargin(item: OverviewGameItem): number | null {
   const homeScore = item.score?.home.score;
   if (awayScore == null || homeScore == null) return null;
   return Math.abs(awayScore - homeScore);
+}
+
+function isCloseGameHighlightEligible(item: OverviewGameItem): boolean {
+  const score = item.score;
+  const margin = gameMargin(item);
+  if (!score || margin == null || margin > 7) return false;
+
+  // Close is a score-derived assertion, so scheduled and unknown packs are never
+  // eligible: those states say the attached numbers are not trusted as a live or
+  // completed result. An exact 0-0 final is likewise excluded: an owner read-only
+  // measurement on 2026-09-12 found 33 final 0-0 rows among 20,497 score-row
+  // occurrences, all treated as disrupted/incomplete artifacts rather than played
+  // scoreless ties. Live 0-0 is ambiguous between a kickoff placeholder and a real
+  // tie, so it needs period/clock evidence; a genuine clocked 0-0 keeps Close.
+  if (gameStateFromScore(score) === 'final') {
+    return score.away.score !== 0 || score.home.score !== 0;
+  }
+  if (gameStateFromScore(score) !== 'inprogress') return false;
+
+  const hasNonzeroPoints = score.away.score !== 0 || score.home.score !== 0;
+  return hasNonzeroPoints || formatLiveGameClock(score) !== null;
 }
 
 function isTopOwnerGame(item: OverviewGameItem, topOwners: Set<string>): boolean {
@@ -531,7 +552,6 @@ export function deriveGameHighlightTags(params: {
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
 }): GameHighlightTag[] {
   const { item, rankingsByTeamId } = params;
-  const margin = gameMargin(item);
   const tags: GameHighlightTag[] = [];
 
   // ONE predicate decides the tag and the watchlist sort key, so they cannot
@@ -545,7 +565,7 @@ export function deriveGameHighlightTags(params: {
     });
   }
 
-  if (margin != null && margin <= 7) {
+  if (isCloseGameHighlightEligible(item)) {
     tags.push({
       id: 'close',
       text: 'Close',
