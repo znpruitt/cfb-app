@@ -52,6 +52,40 @@ lane at **~157 ms median** on a 900-game file-backed fixture (7 concurrent store
 are network round trips, so production is higher. And **each distinct value mints another
 `unstable_cache` entry** — unbounded key cardinality from an anonymous caller, not merely wasted work.
 
+## A SECOND CONSUMER — added 2026-09-13, after the owner asked whether I had audited readers and writers and I had not
+
+**The prompt above originally treated the cache key as the only reader of `resolvedYear`. It is not.**
+The same value feeds a second subsystem, concurrently, in the same `Promise.all` (`route.ts:77-82`):
+
+```ts
+loadInsightsForLeague(slug, resolvedYear, { bypassSuppression }),
+league && resolvedYear
+  ? loadWeeklyRecap({ leagueSlug: slug, seasonYear: resolvedYear, ... })
+```
+
+`loadWeeklyRecap` → `loadRecapContextForSeasonScope` → `loadRecapContext`
+(`src/lib/recap/loadRecapContext.ts:174`, memoized with React `cache()` on
+`(leagueSlug, seasonYear, now)` — per request, so it does not accumulate across requests the way
+`unstable_cache` does; it still does the work).
+
+**And the recap path AMPLIFIES an absurd year rather than merely wasting a lookup.**
+`loadRecapContext.ts:44`:
+
+```ts
+const years = (await listSeasonArchives(leagueSlug)).filter((year) => year < seasonYear);
+```
+
+**With `seasonYear = 987654321`, every archive passes that filter.** A real year selects the archives
+before it; an absurd one selects ALL of them. So the second consumer's cost grows with the league's
+archive count, in the same request, on the same anonymous input.
+
+**This changes the shape of the fix, not just its size.** A bound applied only where the cache key is
+built would leave the recap path reading the raw value. **The bound belongs where the year is
+RESOLVED — one place, before either consumer — not at either consumer.**
+
+**Treat my reader list as incomplete and re-derive it.** Receipt item 8 is the enumeration I should
+have done before writing this.
+
 ## A class, not an instance — and its reachability differs
 
 **There are EIGHT copies of `parseYear` in `src/app`, every one `n >= 2000` with no ceiling.** The
@@ -136,6 +170,12 @@ that file is planning's; report the sentence rather than editing it.**
 6. **Is `unstable_cache` key cardinality bounded by anything** — eviction, TTL, a platform limit? If
    you cannot establish it, say so; the answer decides whether the second cost is real or theoretical,
    and I would rather have "unknown" than a guess.
-7. **What in this prompt contradicts what you found in the files?**
+7. **Enumerate EVERY reader of `resolvedYear`**, not the two this prompt names, and say what each
+   does with it — a cache key, a filter bound, a durable key, a display string. **My list was
+   incomplete once already**, so treat it as a starting point rather than a survey, and give the
+   count. **A reader that uses the year as a COMPARISON BOUND (like `loadRecapContext.ts:44`) fails
+   differently from one that uses it as a KEY** — the first widens a set, the second misses a lookup,
+   and a fix aimed only at keys leaves the first live.
+8. **What in this prompt contradicts what you found in the files?**
 
 Do not start until the receipt is answered and I have ruled on it.
