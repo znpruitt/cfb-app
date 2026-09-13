@@ -279,7 +279,7 @@ were read in full; the grouping is stated so a future reader can check it rather
 
 | # | slice | issues | file(s) | state |
 | --- | --- | --- | --- | --- |
-| 1 | Matchups derived state | **#722**, **#724** | `src/lib/matchups.ts` | ready |
+| 1 | Matchups derived state | **#722**, **#724** | `matchups.ts`, `ownerView.ts`, selector seams | **IMPLEMENTED AND REVIEWED 2026-09-13 — pending merge; #712 and #766 close consequentially with it** |
 | 2 | Matchups caller work | **#723**, **#725**, **#715** | `MatchupsWeekPanel.tsx` | ready |
 | 3 | Schedule presentation | **#728**, **#730**, **#731** | `GameWeekPanel.tsx` | ready |
 | 4 | Schedule team-name form | **#729** | `gameWeek.ts`, `DESIGN.md` | **BLOCKED — owner decision** |
@@ -573,7 +573,7 @@ number.**
 | **132** | [#691](https://github.com/znpruitt/cfb-app/issues/691) | the Scores and Game stats health rows read the wrong record |
 | **133** | [#711](https://github.com/znpruitt/cfb-app/issues/711) | `zinc-500` at small type fails the contrast floor, repo-wide |
 | **134** | [#678](https://github.com/znpruitt/cfb-app/issues/678) | Overview three-column tier |
-| **136** | [#712](https://github.com/znpruitt/cfb-app/issues/712) | Matchups slate aggregates double-count a self game |
+| **136** | [#712](https://github.com/znpruitt/cfb-app/issues/712) | RESOLVED ON MERGE by #722/#724's distinct-game population; consequential, not separately targeted |
 | **137** | [#696](https://github.com/znpruitt/cfb-app/issues/696) | RESOLVED 2026-09-11 (PR #742, `a8593d9f`) — the time bombs are fixed, `main` is green, and `test:clock-shift` detects the class |
 | **138** | [#713](https://github.com/znpruitt/cfb-app/issues/713) | `isOwnerVsOwner` counts `NoClaim` as a real owner |
 | **139** | resolved — see the audit appendix | a final can show a pre-game record; reconcile records against completed games |
