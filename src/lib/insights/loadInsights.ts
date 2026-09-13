@@ -441,6 +441,20 @@ export async function loadInsightsForLeague(
     return emptyResponse('offseason', `League '${slug}' not found`);
   }
 
+  // FLOOR ONLY, AND DELIBERATELY SO — do not "fix" this by adding a ceiling.
+  //
+  // #770 bounded the caller-supplied `?year=` at its single entry point,
+  // `api/insights/[slug]/route.ts`, which is the only place that can tell a
+  // value a CALLER sent from one the SERVER derived. This function's two
+  // callers are that route (now bounded) and the `/league/[slug]/insights` RSC
+  // page, which passes `resolveLeagueOperatingYear(league)` — a server-derived
+  // year that must always be served.
+  //
+  // So a ceiling here would guard nothing the route does not already guard, and
+  // could refuse a league its own feed: if a registry record ever carried a year
+  // above `maxCreatableSeasonYear` (a bad rollover, a legacy record), this is
+  // the path that still has to render it. The route is the authority for
+  // caller-supplied years; this stays the fallback it has always been.
   const resolvedYear =
     typeof year === 'number' && Number.isFinite(year) && year >= 2000 ? year : league.year;
 
