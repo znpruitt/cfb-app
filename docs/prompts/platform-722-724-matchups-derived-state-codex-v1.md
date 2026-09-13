@@ -161,6 +161,52 @@ lane's instruction is suspended.
 **Nothing else in the receipt needs a ruling.** Item 4's zero is the answer I wanted: the sort is
 unpinned today, so your test is the first thing asserting the contract.
 
+## SEAM AUDIT — added 2026-09-13, after the owner asked whether I had audited readers and writers; I had not, and the answer changes the guidance
+
+**What the ruling says about Members — *"reuse/extract the complete predicate that produces its row
+status"* — reads as though one predicate exists. It does not.**
+
+**Members' row status has SIX producers, in TWO parallel duplicated blocks** (`src/lib/ownerView.ts`):
+
+| line | value |
+| --- | --- |
+| `:153` | `'Live'` |
+| `:172` | `isAwaitingScoreGame(...) ? 'Awaiting score' : 'Upcoming'` |
+| `:196` | `'Final'` |
+| `:226` | `'Live'` |
+| `:243` | `isAwaitingScoreGame(...) ? 'Awaiting score' : 'Upcoming'` |
+| `:268` | `'Final'` |
+
+Plus `'No games this week'`. **`isAwaitingScoreGame` is only ONE branch of three**, and it appears
+twice. **So the extraction IS the work** — there is nothing sitting there to reuse, and a fix that
+threads only `isAwaitingScoreGame` reproduces the awaiting-only shape the ruling retired.
+
+**And the counts do NOT come from that path at all.** `weekSummary.liveGames` / `finalGames` /
+`scheduledGames` / `totalGames` read straight off `ownerSlate` (`ownerView.ts:344-349`) — i.e.
+`deriveOwnerWeekSlates`, the SAME producer Matchups' card reads.
+
+**That is the real shape of this defect, and the prompt did not state it:**
+
+- **Both surfaces' COUNTS share one producer** (`deriveOwnerWeekSlates`).
+- **Their ROWS have different authorities** — Matchups from `projectGameScoreboardState`
+  (`MatchupsWeekPanel.tsx:188`), Members from the six-branch block above.
+- So on Members, **a summary disagreeing with the rows beneath it is STRUCTURAL** — two separate code
+  paths, not one policy parameter. Fixing the slate counts without the row side leaves #722's shape
+  alive in the component the fix is meant to make consistent.
+
+**One more trap:** `liveRows = rosterRows.filter((row) => row.currentStatus === 'Live')`
+(`ownerView.ts:334`) — a value `isAwaitingScoreGame` **never produces**. Anything reasoning from the
+awaiting predicate alone cannot see how a row becomes `'Live'`.
+
+### Other `liveGames` facts that are NOT yours
+
+Found in the same audit, listed so you do not converge them: `computeStandings`
+(`gameTags.ts:585-624`) increments a per-owner `liveGames` from its own derivation, and the Overview
+league-tag path (`gameTags.ts:33,282`) counts a `liveGames` ARRAY for *"N live games affecting
+standings"*. **Different surfaces, own rows, out of scope.** The acceptance boundary's invariant
+`live + final + scheduled === distinct games` is **per slate**, never global — do not read it as a
+claim about these.
+
 ## STOP — read receipt before writing any code
 
 1. **Enumerate every caller of `getStateFromScore` in `matchups.ts`**, with what each does with the
@@ -180,6 +226,11 @@ unpinned today, so your test is the first thing asserting the contract.
    are the ones that become time bombs the moment `nowMs` is threaded through.
 6. The contract names finals and non-finals. **What ordering does an unknown/`neutral` state get, and
    can it occur in production?** If you cannot produce one, say so and pick the safe placement.
-7. **What in this prompt contradicts what you found in the files?**
+7. **Enumerate every READER of the slate counts and say what each MEANS by them** — a rendered stat,
+   a filter, a sort key, a disclosure threshold. `MatchupsWeekPanel.tsx:427-430` and
+   `OwnerPanel.tsx:508-514` are two; give the count and say whether any reader would change meaning
+   under distinct-game counting. **A reader that renders a number and one that gates a control fail
+   differently.**
+8. **What in this prompt contradicts what you found in the files?**
 
 Do not start until the receipt is answered and I have ruled on it.
