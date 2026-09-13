@@ -99,14 +99,14 @@ These consolidate recurring historical observations, not new project-governance 
 
 - Change: `fetchCfbdUsage` called `fetch` unbounded, ahead of the work it gates. It now routes
   through `fetchUpstreamJson`, so both phases share one 40,000 ms ceiling.
-  `CFBD_USAGE_PROBE_TIMEOUT_MS` is a separate constant holding a LITERAL — both reviewers found that
+  `CFBD_USAGE_PROBE_TIMEOUT_MS` is a separate constant holding a LITERAL — both reviewers found
   aliasing `CFBD_PEAK_LATENCY_TIMEOUT_MS` rebuilt the coupling it exists to prevent.
 - Scope limit: no call site changed. `systemHealth`'s race bounds its render, not the invocation —
   [#764](https://github.com/znpruitt/cfb-app/issues/764), untouched. `cfbd` pacing not adopted, per
   [#632](https://github.com/znpruitt/cfb-app/issues/632). **No retry**: the reserve's 2-call margin
-  accounts for one `/info` call, so there is **no `maxAttempts > 1` path to cover**, recorded because
+  accounts for one `/info` call, so **no `maxAttempts > 1` path to cover**, recorded because
   [#662](https://github.com/znpruitt/cfb-app/issues/662)'s HIGH shipped through that silence.
-- Evidence: a TLS server that completed the handshake and never answered held the call **301.3s**
+- Evidence: a TLS server completing the handshake and never answering held the call **301.3s**
   (301.1s on the default dispatcher) before undici's stock 300s `headersTimeout` — two 300s timers,
   not zero, correcting the issue's mechanism. `next: { revalidate: 600 }` survives the shared helper:
   3 requests = 1 upstream hit, against a `no-store` control at 3. Value from the retained
@@ -119,10 +119,9 @@ These consolidate recurring historical observations, not new project-governance 
 - Review / verification: [RV6](#shared-review-statements). `tsc`, `lint:all` and the full suite each
   exited 0 as its own command; four mutations each named the assertion that fired. LIMITATION of the
   review evidence, not of the branch: a reviewer's full-suite run exited 1, nothing attributable in
-  its log — neither confirming nor excluding a real failure, and deliberately not called
-  environmental —
-  [#767](https://github.com/znpruitt/cfb-app/issues/767).
-- Status: Implemented — PR open.
+  its log — neither confirming nor excluding a real failure, deliberately not called environmental
+  ([#767](https://github.com/znpruitt/cfb-app/issues/767)).
+- Status: MERGED `7b70ee6c` (PR #765), 2026-09-13; #755 closed.
 
 ### PLATFORM-671-LIVE-FINALS-TAG-SLOT-CODEX-v1
 
@@ -235,7 +234,7 @@ These consolidate recurring historical observations, not new project-governance 
 - Scope limit: observation-only; not `ScorePack`, cadence, or any response — `/api/scores` builds `{ items, meta }` from `ScorePack[]`, asserted on the serialized body, positive-controlled.
 - Evidence: "stamp in `scoreMerge` only ⇒ FBS only" was wrong — the merge is SHARED, and `finalScoreSweep` finalizes the non-FBS population `/scoreboard` (`classification=fbs`) never sees: 355 of 454 week-1 rows at one `2026-09-08T12:00Z` cron clock, on the read-only replica. Hence `stampFirstFinalObservation`, default-absent, two live sites, not keyed on `onlyIfMissingUsableFinal`. Self-describing: a swept row is stamped in `itemUpdatedAtById`, absent here. The branch re-fires for an already-final id, so first-write-wins is code and a child already final is never stamped. See L1, L4.
 - Review / verification: converged in one round, three findings accepted — Codex P3 refuted this record's own score-less-final claim: both opt-in callers require both scores, and it came from the classifier, not the population. `tsc`/`lint:all` 0; `npm test` 5,193/5,193 (+21); ten mutations, each at its own assertion.
-- Status: Implemented — PR open.
+- Status: MERGED `65cf8fb3` (PR #743), 2026-09-11; #692 closed. Flipped 2026-09-13 — it read **PR open** for two days.
 
 ### PLATFORM-676-OVERVIEW-SECTION-EXPANSION-CODEX-v1
 
