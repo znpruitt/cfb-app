@@ -188,6 +188,22 @@ test('THE DISJUNCT: a league whose operating year exceeds the ceiling is still s
   );
 });
 
+test('a padded year is served, not refused — emptiness and validity read the SAME trimmed value', async () => {
+  const slug = 'year-bound-padded';
+  await seedLeague(slug, currentYear());
+
+  // The first cut trimmed for the emptiness check but tested the UNTRIMMED
+  // value for validity, so these two disagreed: whitespace alone was absent
+  // (200) while whitespace around a good year was a hard 400 that
+  // `Number.parseInt` had served before #770. Padding is not the defect.
+  const padded = await call(slug, `?year=%20${currentYear()}%20`);
+  const whitespaceOnly = await call(slug, '?year=%20');
+
+  assert.equal(padded.status, 200, 'a padded but legitimate year must still be served');
+  assert.equal(whitespaceOnly.status, 200, 'whitespace alone is absent, as an empty value is');
+  assert.ok(buildInvocations > 0, 'and the padded request really did resolve to a real season');
+});
+
 test('BEHAVIOUR CHANGE, pinned: a sub-2000 year is now a 400 rather than a silent fallback', async () => {
   const slug = 'year-bound-floor';
   await seedLeague(slug, currentYear());

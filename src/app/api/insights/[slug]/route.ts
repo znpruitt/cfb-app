@@ -66,15 +66,23 @@ function resolveRequestedYear(
 ): YearResolution {
   const operatingYear = league ? resolveLeagueOperatingYear(league) : undefined;
 
+  // TRIMMED ONCE, and both decisions below read the trimmed value. The first cut
+  // decided EMPTINESS on the trimmed string and VALIDITY on the untrimmed one,
+  // so `?year=%20` was absent (200) while `?year=%202026` — the same padding
+  // around a perfectly good year — was a hard 400 that `Number.parseInt` had
+  // served before this slice. Review finding; the inconsistency was mine, and
+  // the padded value is not the defect #770 is about.
+  const trimmed = raw?.trim() ?? '';
+
   // An absent `year` is the DEFAULT request, not a rejected one: it resolves to
   // the server-derived operating year, which is never subjected to the bound.
   // An empty value is treated as absent rather than invalid, preserving what
   // `?year=` did before — the change this slice makes is to absurd years, and
   // widening it to empty ones would be an unreviewed second behaviour change.
-  if (raw === null || raw.trim() === '') return { ok: true, year: operatingYear };
+  if (trimmed === '') return { ok: true, year: operatingYear };
 
   const maxYear = maxCreatableSeasonYear(now.getTime());
-  const parsed = parseYearParam(raw);
+  const parsed = parseYearParam(trimmed);
   if (parsed !== null) {
     if (parsed >= MIN_SEASON_YEAR && parsed <= maxYear) return { ok: true, year: parsed };
     if (operatingYear !== undefined && parsed === operatingYear) {

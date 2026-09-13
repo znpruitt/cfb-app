@@ -455,6 +455,21 @@ export async function loadInsightsForLeague(
   // above `maxCreatableSeasonYear` (a bad rollover, a legacy record), this is
   // the path that still has to render it. The route is the authority for
   // caller-supplied years; this stays the fallback it has always been.
+  //
+  // ONE EXCEPTION to that authority, named here because the sentence above
+  // otherwise overstates it (review finding). A legacy record whose operating
+  // year is BELOW this floor — `status: { state: 'season', year: 1999 }` with a
+  // later `league.year` — is accepted by the route (it is that league's own
+  // year, so the disjunct admits it) and then discarded HERE in favour of
+  // `league.year`. The route's `loadWeeklyRecap` call still scopes to 1999, so
+  // one response carries a feed and a recap describing different seasons.
+  //
+  // NOT introduced by the bound, and not worsened by it: the identical state is
+  // reachable with NO `?year=` at all, because `resolveLeagueOperatingYear`
+  // returns the same sub-floor value — measured, not reasoned. Left alone here
+  // because raising this floor would refuse such a league its own feed on BOTH
+  // callers, which is the failure the paragraph above exists to prevent.
+  // Recorded as residue on #770's closeout rather than fixed inside its scope.
   const resolvedYear =
     typeof year === 'number' && Number.isFinite(year) && year >= 2000 ? year : league.year;
 
