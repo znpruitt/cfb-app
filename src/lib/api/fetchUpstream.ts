@@ -276,10 +276,78 @@ function toUpstreamFetchError(params: {
   });
 }
 
-export async function fetchUpstreamResponse(
+/** What a body consumer needs to classify its own failure (PLATFORM-662). */
+type UpstreamAttemptContext = {
+  url: string;
+  timeoutController: AbortController;
+  requestSignal?: AbortSignal;
+  timeoutMs: number;
+};
+
+/**
+ * Classify a failure raised while CONSUMING a response body (PLATFORM-662).
+ *
+ * The discriminant is measured, not assumed: a body whose bytes arrived and did
+ * not parse throws `SyntaxError` (both "not JSON at all" and a short body whose
+ * stream closed cleanly — "Unexpected end of JSON input"). A body whose
+ * TRANSPORT died mid-download throws something else entirely — `TypeError:
+ * terminated` (cause `SocketError`) from a destroyed socket, a `DOMException`
+ * named `AbortError` when a deadline fires. So `SyntaxError` is the only case
+ * that is genuinely a payload problem, and everything else is handed to
+ * {@link toUpstreamFetchError}, which resolves it against the live signals:
+ * our own deadline → `timeout`, a caller's signal → `aborted`, otherwise
+ * `network`.
+ *
+ * This is what keeps `parse` meaningful. Before this item every body failure —
+ * abort, socket reset, truncation, genuine schema garbage — was reported as
+ * `parse` with the message "Upstream response was not valid JSON", so a consumer
+ * could not tell a dead network from a changed provider schema.
+ */
+function toBodyFailureError(
+  params: UpstreamAttemptContext & { error: unknown }
+): UpstreamFetchError {
+  if (params.error instanceof UpstreamFetchError) return params.error;
+  if (params.error instanceof SyntaxError) {
+    return new UpstreamFetchError({
+      kind: 'parse',
+      // A FIXED message — never the raw `error.message`. A JSON parse error
+      // embeds a fragment of the response body verbatim, which on a credentialed
+      // provider is exactly the kind of content that must not reach a log or a
+      // durable record (PLATFORM-086C2). The `url` here is already sanitized.
+      message: 'Upstream response was not valid JSON',
+      url: params.url,
+    });
+  }
+  return toUpstreamFetchError(params);
+}
+
+/** Run a body consumer, classifying whatever it throws (PLATFORM-662). */
+async function consumeClassified<T>(
+  res: Response,
+  ctx: UpstreamAttemptContext,
+  consume: (res: Response, ctx: UpstreamAttemptContext) => Promise<T>
+): Promise<T> {
+  try {
+    return await consume(res, ctx);
+  } catch (error) {
+    throw toBodyFailureError({ ...ctx, error });
+  }
+}
+
+/**
+ * The shared attempt loop. `consume` runs INSIDE the try, the retry loop and the
+ * per-attempt deadline, so whatever it does to the response is covered by the
+ * same timeout and the same retry decision as the request that produced it.
+ *
+ * Anything `consume` throws is classified by {@link toBodyFailureError} here, in
+ * ONE place, so no consumer can read a body without inheriting the vocabulary.
+ * An `UpstreamFetchError` passes through untouched.
+ */
+async function runUpstreamAttempts<T>(
   url: string,
-  options: FetchUpstreamResponseOptions = {}
-): Promise<Response> {
+  options: FetchUpstreamResponseOptions,
+  consume: (res: Response, ctx: UpstreamAttemptContext) => Promise<T>
+): Promise<T> {
   const {
     timeoutMs = 10_000,
     signal: requestSignal,
@@ -296,6 +364,12 @@ export async function fetchUpstreamResponse(
   for (let attempt = 1; attempt <= retryPolicy.maxAttempts; attempt += 1) {
     const timeoutController = new AbortController();
     const timeoutHandle = setTimeout(() => timeoutController.abort(), timeoutMs);
+    const attemptContext: UpstreamAttemptContext = {
+      url: safeUrl,
+      timeoutController,
+      requestSignal,
+      timeoutMs,
+    };
 
     try {
       const signal = combineSignals(timeoutController.signal, requestSignal);
@@ -349,7 +423,7 @@ export async function fetchUpstreamResponse(
         }
 
         if (!throwOnHttpError) {
-          return res;
+          return await consumeClassified(res, attemptContext, consume);
         }
 
         const responseBody = await res.text().catch(() => '');
@@ -363,7 +437,7 @@ export async function fetchUpstreamResponse(
         });
       }
 
-      return res;
+      return await consumeClassified(res, attemptContext, consume);
     } catch (error) {
       const normalized = toUpstreamFetchError({
         error,
@@ -406,21 +480,65 @@ export async function fetchUpstreamResponse(
   });
 }
 
+/**
+ * Headers-only fetch. CONTRACT UNCHANGED by PLATFORM-662: the per-attempt
+ * deadline ends when this returns, because the caller — not this function —
+ * decides when and whether to read the body.
+ *
+ * ## A body read out here is UNBOUNDED, and one exists today
+ *
+ * `oddsRefreshExecutor` is the sole caller and it does read the body
+ * (`oddsRefreshExecutor.ts`, after its usage capture), with no deadline on that
+ * read. That is the other half of the defect PLATFORM-662 fixed for
+ * `fetchUpstreamJson`, and it is STILL OPEN, tracked as
+ * [#759](https://github.com/znpruitt/cfb-app/issues/759). This docblock says so
+ * rather than asserting a property the file does not have: an earlier revision
+ * of this comment claimed there were no body-reading callers, which stopped
+ * being true the moment the odds attempt was reverted, and a claim that was
+ * never true reads as documentation forever.
+ *
+ * #662 tried three models for fixing it from OUT HERE and all three failed, for
+ * one reason worth keeping: a deadline armed by the caller cannot see the retry
+ * loop's attempt boundaries, so it either spans attempts it does not belong to
+ * (discarding a successful retry) or grants a fresh budget per phase. #759
+ * carries that evidence. The fix belongs inside the loop, not around it.
+ *
+ * NEW CALLERS SHOULD USE {@link fetchUpstreamJson}, which reads the body inside
+ * the attempt's deadline and retry. Reach for this function only when the
+ * RESPONSE itself is needed, and do not add a second unbounded body read.
+ */
+export async function fetchUpstreamResponse(
+  url: string,
+  options: FetchUpstreamResponseOptions = {}
+): Promise<Response> {
+  return runUpstreamAttempts(url, options, async (res) => res);
+}
+
+/**
+ * Fetch and parse a JSON body under ONE deadline spanning both phases.
+ *
+ * PLATFORM-662: the body is consumed inside the attempt loop, so a body that
+ * outlives `timeoutMs` aborts instead of downloading forever, and its failure
+ * reaches the SAME retry decision as a header-phase failure. No retry rule is
+ * written here on purpose — `isRetryableError` already returns the right answer
+ * once the kind is honest: a body abort is `timeout` and a mid-download
+ * transport death is `network`, both retryable; malformed JSON is `parse`, which
+ * is NOT retried, because re-requesting a schema problem spends provider quota
+ * to fail identically. If a body failure ever needs a retry branch of its own,
+ * the classification above it is wrong.
+ *
+ * `throwOnHttpError` is forced: a non-OK response must raise `http` with its
+ * status, never be handed to the JSON parser as though it were a payload.
+ */
 export async function fetchUpstreamJson<T>(
   url: string,
   options: FetchUpstreamJsonOptions = {}
 ): Promise<T> {
-  const response = await fetchUpstreamResponse(url, options);
-
-  try {
-    return (await response.json()) as T;
-  } catch {
-    throw new UpstreamFetchError({
-      kind: 'parse',
-      message: 'Upstream response was not valid JSON',
-      url: sanitizeUpstreamUrl(url),
-    });
-  }
+  return runUpstreamAttempts<T>(
+    url,
+    { ...options, throwOnHttpError: true },
+    async (res) => (await res.json()) as T
+  );
 }
 
 /**

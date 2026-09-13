@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { fetchCfbdUsage } from '@/lib/api/cfbdUsage';
+import { CFBD_PEAK_LATENCY_TIMEOUT_MS } from '@/lib/api/cfbdRequestPolicy';
 import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
 import { buildCfbdGameTeamStatsUrl, type CfbdSeasonType } from '@/lib/cfbd';
 import { GAME_STATS_SCOPE, getGameStatsKey } from '@/lib/gameStats/cache';
@@ -322,7 +323,7 @@ export async function GET(req: Request) {
     const cfbdUrl = buildCfbdGameTeamStatsUrl({ year, week, seasonType });
     const payload = await fetchUpstreamJson<unknown>(cfbdUrl.toString(), {
       cache: 'no-store',
-      timeoutMs: 12_000,
+      timeoutMs: CFBD_PEAK_LATENCY_TIMEOUT_MS,
       headers: { Authorization: `Bearer ${cfbdApiKey}` },
       retry: CFBD_RETRY_POLICY,
       pacing: CFBD_PACING_POLICY,
