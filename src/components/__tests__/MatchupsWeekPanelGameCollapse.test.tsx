@@ -6,9 +6,10 @@
 // `formatSlateSummaryText`, so a label counting one unit sat above a list
 // rendering another — which is how three distinct unowned opponents counted as
 // one, and how a drafted league's reserved `NoClaim` owner collapsed every
-// unclaimed team into a single group. And `buildOwnerSlateGames` emits one entry
-// per owned SIDE, so an owner holding both teams got two mirrored rows for one
-// game. Counting and rendering the same unit — the game — removes all three.
+// unclaimed team into a single group. And the raw owned-side projection emits
+// one entry per owned SIDE, so an owner holding both teams got two mirrored rows
+// for one game. Counting and rendering the same unit — the game — removes all
+// three.
 //
 // This suite needs a real DOM because the interaction is the subject; the other
 // `MatchupsWeekPanel` suite renders to static markup and can only observe the
@@ -21,9 +22,10 @@ import React from 'react';
 import { cleanup, fireEvent, render, within } from '@testing-library/react';
 
 import MatchupsWeekPanel from '../MatchupsWeekPanel';
-import { deriveOwnerWeekSlates } from '../../lib/matchups';
+import { deriveOwnerWeekSlates, deriveWeekMatchupSections } from '../../lib/matchups';
 import {
   getDefaultVisibleGamesCount,
+  selectOwnerSlateGamesForBucket,
   selectSlateGameVisibility,
 } from '../../lib/selectors/matchups';
 import { NO_CLAIM_OWNER } from '../../lib/standings';
@@ -32,6 +34,11 @@ import type { AppGame } from '../../lib/schedule';
 afterEach(() => cleanup());
 
 const OWNER = 'Taylor';
+const MATCHUPS_TEST_NOW_MS = Date.parse('2025-08-30T19:00:00.000Z');
+const MATCHUPS_TEST_PROJECTION = {
+  surface: 'matchups' as const,
+  nowMs: MATCHUPS_TEST_NOW_MS,
+};
 
 function game(overrides: Partial<AppGame> & { key: string }): AppGame {
   return {
@@ -127,7 +134,7 @@ function renderPanel(games: AppGame[], rosterByTeam: Map<string, string>) {
       scoresByKey={{}}
       rosterByTeam={rosterByTeam}
       displayTimeZone="America/New_York"
-      nowMs={Date.parse('2025-08-30T19:00:00.000Z')}
+      nowMs={MATCHUPS_TEST_NOW_MS}
     />
   );
 }
@@ -189,7 +196,7 @@ test('the control label states the number of games actually withheld (Item 135)'
 
   // Derive the expectation the way the surface does, from the slate itself,
   // rather than restating a literal that would pass against a wrong slice.
-  const slate = deriveOwnerWeekSlates(games, rosterByTeam, {}).find(
+  const slate = deriveOwnerWeekSlates(games, rosterByTeam, {}, MATCHUPS_TEST_PROJECTION).find(
     (entry) => entry.owner === OWNER
   );
   assert.ok(slate, 'owner slate should exist');
@@ -221,7 +228,7 @@ test('the count is indifferent to who owns the opponents (Item 135)', () => {
   const visible = getDefaultVisibleGamesCount();
   const { games, rosterByTeam, opponentNames } = noClaimRoster(visible + 2);
 
-  const slate = deriveOwnerWeekSlates(games, rosterByTeam, {}).find(
+  const slate = deriveOwnerWeekSlates(games, rosterByTeam, {}, MATCHUPS_TEST_PROJECTION).find(
     (entry) => entry.owner === OWNER
   );
   assert.ok(slate, 'owner slate should exist');
@@ -246,20 +253,24 @@ test('the count is indifferent to who owns the opponents (Item 135)', () => {
 });
 
 test('a self game renders one row, not two mirrored rows (Item 135)', () => {
-  // 39 games in the 2026 season have one owner holding both teams. Each renders
-  // twice today, because `buildOwnerSlateGames` emits one entry per owned side
-  // and the row key carried `ownerTeamSide`.
+  // 39 games in the 2026 season have one owner holding both teams. The raw
+  // projection emits one entry per owned side; the derived slate must collapse
+  // those before either its aggregates or the component can read them.
   const games = [game({ key: 'self-1', csvAway: 'Jacksonville State', csvHome: 'North Dakota' })];
   const rosterByTeam = new Map([
     ['Jacksonville State', 'Whited'],
     ['North Dakota', 'Whited'],
   ]);
+  const bucket = deriveWeekMatchupSections(games, rosterByTeam).ownerMatchups[0];
+  assert.ok(bucket, 'positive control: both owned sides produce an owner matchup bucket');
+  const rawGames = selectOwnerSlateGamesForBucket(bucket, 'Whited');
 
-  const slate = deriveOwnerWeekSlates(games, rosterByTeam, {}).find(
+  const slate = deriveOwnerWeekSlates(games, rosterByTeam, {}, MATCHUPS_TEST_PROJECTION).find(
     (entry) => entry.owner === 'Whited'
   );
   assert.ok(slate, 'owner slate should exist');
-  assert.equal(slate.games.length, 2, 'positive control: the slate really does carry two entries');
+  assert.equal(rawGames.length, 2, 'positive control: raw projection carries both owned sides');
+  assert.equal(slate.games.length, 1, 'the slate deduplicates before the component reads it');
 
   const { container } = renderPanel(games, rosterByTeam);
 

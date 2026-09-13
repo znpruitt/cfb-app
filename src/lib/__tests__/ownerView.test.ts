@@ -66,6 +66,10 @@ function mismatchGame(overrides: Partial<AppGame>): AppGame {
 }
 
 const roster = new Map([['Washington State', 'Alice']]);
+const TEST_GAME_DAY_CONTEXT = {
+  season: 2026,
+  now: Date.parse('2026-09-01T00:00:00.000Z'),
+};
 
 test('deriveOwnerRoster includes a final owned game and records the W despite a provider-name mismatch', () => {
   const scoresByKey: Record<string, ScorePack> = {
@@ -81,7 +85,8 @@ test('deriveOwnerRoster includes a final owned game and records the W despite a 
     'Alice',
     [mismatchGame({ key: 'g', status: 'final' })],
     roster,
-    scoresByKey
+    scoresByKey,
+    TEST_GAME_DAY_CONTEXT
   );
 
   assert.equal(rows.length, 1);
@@ -90,7 +95,13 @@ test('deriveOwnerRoster includes a final owned game and records the W despite a 
 });
 
 test('deriveOwnerRoster resolves side and next opponent for an upcoming owned game despite a mismatch', () => {
-  const rows = deriveOwnerRoster('Alice', [mismatchGame({ key: 'g' })], roster, {});
+  const rows = deriveOwnerRoster(
+    'Alice',
+    [mismatchGame({ key: 'g' })],
+    roster,
+    {},
+    TEST_GAME_DAY_CONTEXT
+  );
 
   assert.equal(rows.length, 1);
   const row = rows[0];
@@ -128,6 +139,7 @@ const EMPTY_VIEW = {
   weekGames: [] as AppGame[],
   rosterByTeam: new Map<string, string>(),
   scoresByKey: {} as Record<string, ScorePack>,
+  gameDayContext: TEST_GAME_DAY_CONTEXT,
 };
 
 test('owner header prefers canonical standings over contradictory local rows (PLATFORM-044)', () => {
@@ -217,6 +229,7 @@ test('roster rows stay client-derived while the header uses canonical (PLATFORM-
     weekGames: games,
     rosterByTeam: roster,
     scoresByKey,
+    gameDayContext: TEST_GAME_DAY_CONTEXT,
   });
 
   // Header from canonical…
@@ -267,7 +280,8 @@ test('POLISH-005: a stale in_progress schedule row does not render Live over a f
     'Alice',
     [mismatchGame({ key: 'g', status: 'in_progress' })],
     roster,
-    finalScore
+    finalScore,
+    TEST_GAME_DAY_CONTEXT
   );
 
   assert.equal(rows.length, 1);
@@ -286,7 +300,13 @@ test('POLISH-005: an in-progress SCORE does render Live', () => {
     },
   };
 
-  const rows = deriveOwnerRoster('Alice', [mismatchGame({ key: 'g' })], roster, liveScore);
+  const rows = deriveOwnerRoster(
+    'Alice',
+    [mismatchGame({ key: 'g' })],
+    roster,
+    liveScore,
+    TEST_GAME_DAY_CONTEXT
+  );
 
   assert.equal(rows.length, 1);
   assert.equal(rows[0]?.currentStatus, 'Live', 'an attached in-progress score is what Live means');
@@ -299,7 +319,8 @@ test('POLISH-005: no attached score is not evidence of play', () => {
     'Alice',
     [mismatchGame({ key: 'g', status: 'in_progress' })],
     roster,
-    {}
+    {},
+    TEST_GAME_DAY_CONTEXT
   );
 
   assert.equal(rows.length, 1);
@@ -328,7 +349,7 @@ test('POLISH-007: Awaiting score is bounded and never replaces disrupted status'
     {},
     { season: 2026, now: Date.parse(kickoff) + 25 * 60 * 60_000 }
   );
-  assert.equal(afterWindow[0]?.currentStatus, 'Upcoming');
+  assert.equal(afterWindow[0]?.currentStatus, 'No score reported.');
 
   const delayed = deriveOwnerRoster(
     'Alice',
@@ -345,4 +366,50 @@ test('POLISH-007: Awaiting score is bounded and never replaces disrupted status'
     { season: 2026, now: Date.parse(kickoff) + 60_000 }
   );
   assert.notEqual(delayed[0]?.currentStatus, 'Awaiting score');
+});
+
+test('Members counts a post-window scoreless game from the same state its row renders', () => {
+  const kickoff = '2026-09-05T17:00:00.000Z';
+  const staleGame = mismatchGame({ key: 'stale', date: kickoff });
+  const snapshot = deriveOwnerViewSnapshot({
+    selectedOwner: 'Alice',
+    standingsRows: [standingsRow({ owner: 'Alice' })],
+    canonicalStandingsRows: [standingsRow({ owner: 'Alice' })],
+    allGames: [staleGame],
+    weekGames: [staleGame],
+    rosterByTeam: roster,
+    scoresByKey: {},
+    gameDayContext: { season: 2026, now: Date.parse(kickoff) + 25 * 60 * 60_000 },
+  });
+
+  assert.equal(snapshot.weekRows[0]?.currentStatus, 'No score reported.');
+  assert.deepEqual(
+    snapshot.weekSummary && {
+      total: snapshot.weekSummary.totalGames,
+      live: snapshot.weekSummary.liveGames,
+      final: snapshot.weekSummary.finalGames,
+      scheduled: snapshot.weekSummary.scheduledGames,
+      unavailable: snapshot.weekSummary.unavailableGames,
+    },
+    { total: 1, live: 0, final: 0, scheduled: 0, unavailable: 1 }
+  );
+});
+
+test('Members uses its complete row authority for a startTimeTBD slate count', () => {
+  const kickoff = '2026-09-05T17:00:00.000Z';
+  const tbdGame = mismatchGame({ key: 'tbd', date: kickoff, startTimeTBD: true });
+  const snapshot = deriveOwnerViewSnapshot({
+    selectedOwner: 'Alice',
+    standingsRows: [standingsRow({ owner: 'Alice' })],
+    canonicalStandingsRows: [standingsRow({ owner: 'Alice' })],
+    allGames: [tbdGame],
+    weekGames: [tbdGame],
+    rosterByTeam: roster,
+    scoresByKey: {},
+    gameDayContext: { season: 2026, now: Date.parse(kickoff) + 60_000 },
+  });
+
+  assert.equal(snapshot.weekRows[0]?.currentStatus, 'Awaiting score');
+  assert.equal(snapshot.weekSummary?.liveGames, 1);
+  assert.equal(snapshot.weekSummary?.scheduledGames, 0);
 });

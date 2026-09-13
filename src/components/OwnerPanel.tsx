@@ -4,6 +4,7 @@ import { gameStatusLabelPresentation, type GameStatusLabelTone } from '../lib/ga
 import type { OwnerRosterRow, OwnerViewSnapshot } from '../lib/ownerView';
 import type { TeamRankingEnrichment } from '../lib/rankings';
 import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
+import { NO_SCORE_REPORTED_LABEL } from '../lib/selectors/gameScoreboardState';
 import { selectFreshOwnerPendingDelta } from '../lib/selectors/liveDelta';
 import type { LiveDelta } from '../lib/selectors/liveDelta';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
@@ -33,10 +34,17 @@ function formatKickoff(date: string | null, timeZone: string): string {
 }
 
 function ownerStatusTone(status: OwnerRosterRow['currentStatus']): GameStatusLabelTone {
-  if (status === 'Live') return 'live';
-  if (status === 'Final') return 'final';
-  if (status === 'Awaiting score') return 'unknown';
-  return 'scheduled';
+  switch (status) {
+    case 'Live':
+      return 'live';
+    case 'Final':
+      return 'final';
+    case 'Awaiting score':
+    case NO_SCORE_REPORTED_LABEL:
+      return 'unknown';
+    case 'Upcoming':
+      return 'scheduled';
+  }
 }
 
 function OwnerStatusLabel({
@@ -512,6 +520,9 @@ export default function OwnerPanel({
             </span>
             <span className="rounded-md bg-white/80 px-2.5 py-2 dark:bg-zinc-900/70">
               {snapshot.weekSummary.finalGames} final
+            </span>
+            <span className="rounded-md bg-white/80 px-2.5 py-2 dark:bg-zinc-900/70">
+              {snapshot.weekSummary.unavailableGames} — {NO_SCORE_REPORTED_LABEL}
             </span>
             <span className="rounded-md bg-white/80 px-2.5 py-2 dark:bg-zinc-900/70">
               Opponents:{' '}

@@ -1,7 +1,15 @@
 import { classifyScorePackStatus, formatCompactGameStatus } from '../gameStatus';
-import type { OwnerSlateGame, OwnerWeekSlate, WeekMatchupSections } from '../matchups';
+import type {
+  MatchupBucket,
+  OwnerSlateGame,
+  OwnerWeekSlate,
+  WeekMatchupSections,
+} from '../matchups';
 import type { ScorePack } from '../scores';
 import { isPolicyFcsConference } from '../conferenceSubdivision';
+import { getGameParticipantTeamId } from '../schedule';
+import type { GameScoreboardState } from './gameScoreboardState';
+import { projectOwnerSlateGameState, type OwnerSlateSurfaceProjection } from './ownerGameState';
 
 // Games shown before an owner card collapses the rest behind its control.
 const DEFAULT_VISIBLE_GAMES = 3;
@@ -21,6 +29,46 @@ const DEFAULT_VISIBLE_OPPONENTS = 3;
 const FCS_DESCRIPTOR = 'FCS';
 const NO_CLAIM_FBS_DESCRIPTOR = 'NoClaim (FBS)';
 const SELF_DESCRIPTOR = 'Self';
+
+/** Raw owned-side entries for one bucket; a self game deliberately emits two. */
+export function selectOwnerSlateGamesForBucket(
+  bucket: MatchupBucket,
+  owner: string
+): OwnerSlateGame[] {
+  const games: OwnerSlateGame[] = [];
+
+  if (bucket.awayOwner === owner) {
+    games.push({
+      owner,
+      game: bucket.game,
+      ownerTeamSide: 'away',
+      ownerTeamId: getGameParticipantTeamId(bucket.game, 'away') ?? bucket.game.canAway,
+      ownerTeamName: bucket.game.csvAway,
+      opponentTeamId: getGameParticipantTeamId(bucket.game, 'home') ?? bucket.game.canHome,
+      opponentTeamName: bucket.game.csvHome,
+      opponentOwner: bucket.homeOwner,
+      isOwnerVsOwner: Boolean(bucket.homeOwner),
+      isOpponentUnownedOrNonLeague: !bucket.homeOwner,
+    });
+  }
+
+  if (bucket.homeOwner === owner) {
+    games.push({
+      owner,
+      game: bucket.game,
+      ownerTeamSide: 'home',
+      ownerTeamId: getGameParticipantTeamId(bucket.game, 'home') ?? bucket.game.canHome,
+      ownerTeamName: bucket.game.csvHome,
+      opponentTeamId: getGameParticipantTeamId(bucket.game, 'away') ?? bucket.game.canAway,
+      opponentTeamName: bucket.game.csvAway,
+      opponentOwner: bucket.awayOwner,
+      isOwnerVsOwner: Boolean(bucket.awayOwner),
+      isOpponentUnownedOrNonLeague: !bucket.awayOwner,
+    });
+  }
+
+  return games;
+}
 
 export type OpponentSummaryEntry = {
   label: string;
@@ -72,9 +120,9 @@ function getSummaryOpponentLabel(slateGame: OwnerSlateGame): string {
 /**
  * Item 135 — the distinct GAMES on an owner's slate, in slate order.
  *
- * `buildOwnerSlateGames` (`src/lib/matchups.ts`) has two independent `if`
- * blocks, one per side, so an owner holding BOTH teams in a game gets TWO slate
- * entries for that one game — mirror images differing only in `ownerTeamSide`.
+ * `selectOwnerSlateGamesForBucket` above has two independent `if` blocks, one
+ * per side, so an owner holding BOTH teams in a game gets TWO raw slate entries
+ * for that one game — mirror images differing only in `ownerTeamSide`.
  * The 2026 season carries 39 such games out of 888 involving a rostered team,
  * so this is production's shape rather than an edge case.
  *
@@ -82,11 +130,11 @@ function getSummaryOpponentLabel(slateGame: OwnerSlateGame): string {
  * entries compare equal on every sort key, so their push order survives, and an
  * away-first row states the scoreline in the order the matchup line prints it.
  */
-export function selectDistinctSlateGames(slate: OwnerWeekSlate): OwnerSlateGame[] {
+export function selectDistinctOwnerSlateGames(games: OwnerSlateGame[]): OwnerSlateGame[] {
   const seen = new Set<string>();
   const distinct: OwnerSlateGame[] = [];
 
-  for (const slateGame of slate.games) {
+  for (const slateGame of games) {
     if (seen.has(slateGame.game.key)) continue;
     seen.add(slateGame.game.key);
     distinct.push(slateGame);
@@ -95,18 +143,118 @@ export function selectDistinctSlateGames(slate: OwnerWeekSlate): OwnerSlateGame[
   return distinct;
 }
 
+export function selectDistinctSlateGames(slate: OwnerWeekSlate): OwnerSlateGame[] {
+  return selectDistinctOwnerSlateGames(slate.games);
+}
+
+export type OwnerSlateStateProjection = {
+  games: OwnerSlateGame[];
+  totalGames: number;
+  liveGames: number;
+  finalGames: number;
+  scheduledGames: number;
+  unavailableGames: number;
+};
+
+type ProjectedSlateGame = {
+  slateGame: OwnerSlateGame;
+  state: GameScoreboardState;
+};
+
+function stateSortRank(state: GameScoreboardState): number {
+  switch (state) {
+    case 'scheduled':
+    case 'live':
+    case 'awaiting':
+    case 'unavailable':
+      return 0;
+    case 'final':
+      return 1;
+  }
+}
+
+function kickoffSortTime(slateGame: OwnerSlateGame): number {
+  const parsed = slateGame.game.date ? Date.parse(slateGame.game.date) : Number.NaN;
+  return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER;
+}
+
+function compareProjectedSlateGames(a: ProjectedSlateGame, b: ProjectedSlateGame): number {
+  const rankDiff = stateSortRank(a.state) - stateSortRank(b.state);
+  if (rankDiff !== 0) return rankDiff;
+
+  const kickoffDiff = kickoffSortTime(a.slateGame) - kickoffSortTime(b.slateGame);
+  if (kickoffDiff !== 0) return kickoffDiff;
+  return a.slateGame.game.key.localeCompare(b.slateGame.game.key);
+}
+
+function incrementSlateStateCount(
+  counts: Omit<OwnerSlateStateProjection, 'games' | 'totalGames'>,
+  state: GameScoreboardState
+): void {
+  switch (state) {
+    case 'scheduled':
+      counts.scheduledGames += 1;
+      return;
+    case 'live':
+    case 'awaiting':
+      counts.liveGames += 1;
+      return;
+    case 'unavailable':
+      counts.unavailableGames += 1;
+      return;
+    case 'final':
+      counts.finalGames += 1;
+      return;
+  }
+}
+
+/**
+ * One distinct game population and one complete surface projection feed slate
+ * ordering and every state count. The UI may no longer deduplicate or reclassify
+ * this result independently.
+ */
+export function selectOwnerSlateStateProjection(params: {
+  games: OwnerSlateGame[];
+  scoresByKey: Record<string, ScorePack>;
+  projection: OwnerSlateSurfaceProjection;
+}): OwnerSlateStateProjection {
+  const { games, scoresByKey, projection } = params;
+  const projectedGames = selectDistinctOwnerSlateGames(games).map(
+    (slateGame): ProjectedSlateGame => ({
+      slateGame,
+      state: projectOwnerSlateGameState({
+        game: slateGame.game,
+        score: scoresByKey[slateGame.game.key],
+        projection,
+      }),
+    })
+  );
+  const counts = {
+    liveGames: 0,
+    finalGames: 0,
+    scheduledGames: 0,
+    unavailableGames: 0,
+  };
+
+  for (const projected of projectedGames) incrementSlateStateCount(counts, projected.state);
+  projectedGames.sort(compareProjectedSlateGames);
+
+  return {
+    games: projectedGames.map(({ slateGame }) => slateGame),
+    totalGames: projectedGames.length,
+    ...counts,
+  };
+}
+
 /**
  * Opponent groups for the DORMANT `formatSlateSummaryText`, which is the only
  * thing that needs them — it renders prose like `5 games · vs Alice, FCS (x2)`.
  * Nothing in production calls it; Item 117 decides its fate. The owner-card
  * control no longer consumes this: it counts games, which is what it renders.
  *
- * These groups are built over DISTINCT games, so a caller pairing them with a
- * game total must use the distinct count — `selectDistinctSlateGames(slate).length`
- * or `selectSlateGameVisibility(...).distinctGames.length`, NOT `slate.totalGames`,
- * which counts slate entries and reads 2 for a single self game. Passing the
- * latter would print a total of two above a group of one: the same label/list
- * unit mismatch Item 135 removed, relocated into this path.
+ * These groups are built over DISTINCT games, as is `slate.totalGames`. The
+ * defensive selector call keeps hand-built/legacy slate fixtures from restoring
+ * mirrored self-game entries at this presentation boundary.
  */
 export function summarizeSlateOpponents(slate: OwnerWeekSlate): OpponentSummaryEntry[] {
   const counts = new Map<string, number>();

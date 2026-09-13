@@ -98,6 +98,10 @@ const rosterByTeam = new Map([
   ['Georgia', 'Bob'],
   ['Oregon', 'Cara'],
 ]);
+const TEST_GAME_DAY_CONTEXT = {
+  season: 2026,
+  now: Date.parse('2026-08-30T00:00:00.000Z'),
+};
 
 test('deriveOwnerMatchupMatrix counts weekly owner matchups and final records', () => {
   const weekGames = [
@@ -164,7 +168,13 @@ test('deriveOwnerRoster calculates team records and matchup labels per owned tea
     },
   };
 
-  const roster = deriveOwnerRoster('Alice', games, rosterByTeam, scoresByKey);
+  const roster = deriveOwnerRoster(
+    'Alice',
+    games,
+    rosterByTeam,
+    scoresByKey,
+    TEST_GAME_DAY_CONTEXT
+  );
 
   assert.deepEqual(roster, [
     {
@@ -210,7 +220,7 @@ test('deriveOwnerRoster uses neutral-site phrasing for neutral games', () => {
     }),
   ];
 
-  const roster = deriveOwnerRoster('Alice', games, rosterByTeam, {});
+  const roster = deriveOwnerRoster('Alice', games, rosterByTeam, {}, TEST_GAME_DAY_CONTEXT);
   const texas = roster.find((row) => row.teamName === 'Texas');
 
   assert.equal(texas?.nextGameLabel, 'vs Michigan');
@@ -243,7 +253,13 @@ test('deriveOwnerRoster prefers live game context over the next scheduled game',
     },
   };
 
-  const roster = deriveOwnerRoster('Alice', games, rosterByTeam, scoresByKey);
+  const roster = deriveOwnerRoster(
+    'Alice',
+    games,
+    rosterByTeam,
+    scoresByKey,
+    TEST_GAME_DAY_CONTEXT
+  );
   const texas = roster.find((row) => row.teamName === 'Texas');
 
   assert.deepEqual(texas, {
@@ -285,6 +301,7 @@ test('deriveOwnerViewSnapshot builds owner-centric roster, live, and week sectio
     weekGames,
     rosterByTeam,
     scoresByKey,
+    gameDayContext: TEST_GAME_DAY_CONTEXT,
   });
 
   assert.equal(snapshot.selectedOwner, 'Alice');
@@ -312,12 +329,20 @@ test('deriveOwnerViewSnapshot keeps week rows aligned with summary semantics whe
     allGames,
     weekGames: allGames,
     rosterByTeam,
-    scoresByKey: {},
+    scoresByKey: {
+      'missing-final': {
+        home: { team: 'Georgia', score: null },
+        away: { team: 'Texas', score: 21 },
+        status: 'Final',
+        time: null,
+      },
+    },
+    gameDayContext: TEST_GAME_DAY_CONTEXT,
   });
 
-  assert.equal(snapshot.weekSummary?.performanceSummary, 'Scheduled');
-  assert.equal(snapshot.weekSummary?.finalGames, 0);
-  assert.equal(snapshot.weekRows[0]?.currentStatus, 'Upcoming');
+  assert.equal(snapshot.weekSummary?.performanceSummary, '0–0');
+  assert.equal(snapshot.weekSummary?.finalGames, 1);
+  assert.equal(snapshot.weekRows[0]?.currentStatus, 'Final');
   assert.equal(snapshot.weekRows[0]?.currentScore, null);
   assert.equal(snapshot.weekRows[0]?.nextGameLabel, 'at Georgia');
 });
@@ -335,7 +360,13 @@ test('deriveOwnerRoster keeps multi-team owners to one row per team and marks se
     },
   };
 
-  const roster = deriveOwnerRoster('Alice', allGames, rosterByTeam, scoresByKey);
+  const roster = deriveOwnerRoster(
+    'Alice',
+    allGames,
+    rosterByTeam,
+    scoresByKey,
+    TEST_GAME_DAY_CONTEXT
+  );
 
   assert.deepEqual(roster, [
     {

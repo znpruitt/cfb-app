@@ -33,10 +33,8 @@ import type { AppGame } from '../lib/schedule';
 import { EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID, type ScoreboardTeamLogosById } from '../lib/teamLogos';
 import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
 import type { LiveDelta } from '../lib/selectors/liveDelta';
-import {
-  projectGameScoreboardState,
-  type GameScoreboardState,
-} from '../lib/selectors/gameScoreboardState';
+import { type GameScoreboardState } from '../lib/selectors/gameScoreboardState';
+import { projectMatchupsGameState } from '../lib/selectors/ownerGameState';
 import {
   EMPTY_TEAM_RECORDS_BY_PROVIDER_GAME_ID,
   type TeamRecordsByProviderGameId,
@@ -185,11 +183,7 @@ function GameRow({
   const scheduledSeparator =
     usesNeutralSiteSemantics(slateGame.game) || slateGame.game.neutral ? 'vs' : '@';
   const liveClockLabel = buildLiveClockLabel(score);
-  const scoreboardState = projectGameScoreboardState(
-    score,
-    slateGame.game.startTimeTBD === true ? null : slateGame.game.date,
-    nowMs
-  );
+  const scoreboardState = projectMatchupsGameState({ game: slateGame.game, score, nowMs });
   const liveGameDelta = liveDelta?.byGame[slateGame.game.key];
   const showLiveIndicator =
     scoreboardState === 'live' &&
@@ -245,7 +239,12 @@ function GameRow({
     (opponentDescriptor === 'FCS' && scoreboardShowsOpponentFcsMarker);
   const metadataEntries: string[] = [];
   if (!hideOpponentDescriptor) metadataEntries.push(opponentDescriptor);
-  if (scoreboardState === 'live' || scoreboardState === 'awaiting' || scoreboardState === 'final') {
+  if (
+    scoreboardState === 'live' ||
+    scoreboardState === 'awaiting' ||
+    scoreboardState === 'unavailable' ||
+    scoreboardState === 'final'
+  ) {
     metadataEntries.push(
       formatExpandedKickoff(slateGame.game.date, displayTimeZone, slateGame.game.startTimeTBD)
     );
@@ -267,6 +266,7 @@ function GameRow({
       homeScore: homeScore ?? null,
     },
     awaiting: { awayScore: null, homeScore: null },
+    unavailable: { awayScore: null, homeScore: null },
     final: { awayScore: awayScore ?? null, homeScore: homeScore ?? null },
   };
   const scoreboardDisplay = displayByState[scoreboardState];
@@ -394,8 +394,8 @@ function OwnerCard({
   const gameListId = `${React.useId()}-games`;
   // Item 135 — the selector decides both the count and which games the collapsed
   // card shows, so the control's label and the list it governs cannot disagree.
-  // It also deduplicates: an owner holding both teams in a game gets two mirror
-  // slate entries, and that is one game, one row.
+  // The slate is already distinct; the presentation selector preserves that
+  // boundary defensively for hand-built/legacy inputs.
   const { visibleGames, hiddenGameCount, hasHiddenGames } = React.useMemo(
     () => selectSlateGameVisibility(slate, isExpanded),
     [slate, isExpanded]
@@ -492,7 +492,10 @@ export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.
     nowMs,
     teamLogosById = EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID,
   } = props;
-  const rawOwnerSlates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey);
+  const rawOwnerSlates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey, {
+    surface: 'matchups',
+    nowMs,
+  });
   const visibleOwnerSlates = rawOwnerSlates.filter((slate) => displayOwner(slate.owner) !== null);
   // Reorder owner cards to match canonical owner identity when canonical is
   // present so Matchups shares the alphabetical ordering used by Standings/
