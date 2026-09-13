@@ -245,7 +245,7 @@ a multi-round slice.
 
 | # | item | what |
 | --- | --- | --- |
-| **1** | **173b** | IMPLEMENTED AND REVIEWED 2026-09-12 — Live and Recent finals use the shared status-row tag slot with selector-owned `top25` / `close`; exact 0-0 packs suppress only `close`. Pre-merge closeout is on `codex/671-live-finals-tag-slot`; [#671](https://github.com/znpruitt/cfb-app/issues/671) remains open until merge. |
+| **1** | **173b** | IMPLEMENTED AND REVIEWED 2026-09-12 — Live and Recent finals use the shared status-row tag slot with selector-owned `top25` / `close`. `Close` eligibility is centralized across all Overview consumers: scheduled/unknown packs never qualify; finals qualify at margins ≤7 except exact 0-0; Live qualifies at margins ≤7 with nonzero points or period/clock evidence. Suppression preserves other eligible tags. Pre-merge closeout is on `codex/671-live-finals-tag-slot`; [#671](https://github.com/znpruitt/cfb-app/issues/671) and [#716](https://github.com/znpruitt/cfb-app/issues/716) remain open until merge. |
 | ✅ | ~~170~~ | CLOSED, NOT A DEFECT — the tertiary element clipping first is the hierarchy working |
 | ✅ | ~~179~~ | DONE — the awaiting anchor renders the contract's en dash |
 
