@@ -245,7 +245,7 @@ a multi-round slice.
 
 | # | item | what |
 | --- | --- | --- |
-| **1** | **173b** | IMPLEMENTED AND REVIEWED 2026-09-12 — Live and Recent finals use the shared status-row tag slot with selector-owned `top25` / `close`. `Close` eligibility is centralized across all Overview consumers: scheduled/unknown packs never qualify; finals qualify at margins ≤7 except exact 0-0; Live qualifies at margins ≤7 with nonzero points or period/clock evidence. Suppression preserves other eligible tags. Pre-merge closeout is on `codex/671-live-finals-tag-slot`; [#671](https://github.com/znpruitt/cfb-app/issues/671) and [#716](https://github.com/znpruitt/cfb-app/issues/716) remain open until merge. |
+| **1** | **173b** | IMPLEMENTED AND REVIEWED 2026-09-12 — Live and Recent finals use the shared status-row tag slot with selector-owned `top25` / `close`. `Close` eligibility is centralized across all Overview consumers: scheduled/unknown packs never qualify; finals qualify at margins ≤7 except exact 0-0; Live qualifies at margins ≤7 with nonzero points or period/clock evidence. Suppression preserves other eligible tags. **MERGED `1d0cc3f8` (PR #763) 2026-09-13**; [#671](https://github.com/znpruitt/cfb-app/issues/671) and [#716](https://github.com/znpruitt/cfb-app/issues/716) both closed — **#716 was fixed CONSEQUENTIALLY by the centralization, not targeted**, because the watchlist reaches the same predicate through `prioritizeOverviewItems`. Residue: [#760](https://github.com/znpruitt/cfb-app/issues/760), [#761](https://github.com/znpruitt/cfb-app/issues/761). |
 | ✅ | ~~170~~ | CLOSED, NOT A DEFECT — the tertiary element clipping first is the hierarchy working |
 | ✅ | ~~179~~ | DONE — the awaiting anchor renders the contract's en dash |
 
@@ -550,11 +550,11 @@ number.**
 | **166** | resolved — see the audit appendix | CLOSED, ALREADY SATISFIED. The cap ships, in the selector, with the test |
 | **167** | resolved — see the audit appendix | audit Overview's other sections against the row reference |
 | **168** | [#715](https://github.com/znpruitt/cfb-app/issues/715) | Matchups renders no odds, and the mockup says scheduled rows carry them |
-| **169** | [#716](https://github.com/znpruitt/cfb-app/issues/716) | `Close` can fire on a game that has not been played |
+| **169** | [#716](https://github.com/znpruitt/cfb-app/issues/716) | RESOLVED 2026-09-13 by PR #763 (`1d0cc3f8`) — closed as a CONSEQUENCE of centralizing `Close` eligibility for Item 173b, not by a targeted fix. Scheduled and unknown packs are never eligible, so the watchlist's `0-0` path is gone |
 | **170** | resolved — see the audit appendix | CLOSED, NOT A DEFECT. The tertiary element clipping first is the hierarchy wor |
 | **171** | [#685](https://github.com/znpruitt/cfb-app/issues/685) | a dead scoring term in the watchlist sort |
 | **172** | [#661](https://github.com/znpruitt/cfb-app/issues/661) | the code describes a provider vocabulary the provider has never used |
-| **173** | [#671](https://github.com/znpruitt/cfb-app/issues/671) | IMPLEMENTED AND REVIEWED 2026-09-12 — Live and Recent finals tag-slot residue; merge pending |
+| **173** | [#671](https://github.com/znpruitt/cfb-app/issues/671) | RESOLVED 2026-09-13 — MERGED `1d0cc3f8` (PR #763). 173a shipped Featured (PR #588); 173b shipped Live and Recent finals with `Close` eligibility centralized across all four Overview consumers |
 | **174** | resolved — see the audit appendix | DONE: Live rows render no broadcast |
 | **175** | resolved — see the audit appendix | DONE: two tag treatments in one slot, and the code cites the wrong row |
 | **176** | resolved — see the audit appendix | DONE: the Featured section renders empty instead of hiding |
