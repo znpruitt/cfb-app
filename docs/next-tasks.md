@@ -197,7 +197,7 @@ each other.**
 | ✅ | ~~110B~~ | recurring correction reconciliation — **merged `9b150eb0`, PR #590** |
 | ✅ | ~~199~~ | the catalog read `altColor`; the provider sends `alternateColor` — **merged `1cfa9df1`, PR #591** |
 | **1** | **204** | **empty-body guard on the catalog refresh — BLOCKS the Item 199 resync click** |
-| 2 | **188** | provider deadlines carried through body consumption |
+| ✅ | ~~188~~ | provider deadlines carried through body consumption — **merged `57fdbd82`, PR #762**; closed #632 alongside. The ODDS body read is NOT covered and is #759 |
 | 3 | **20** | bounded database waits |
 | 4 | **47** | admin authorization for the Insights diagnostic bypass |
 
