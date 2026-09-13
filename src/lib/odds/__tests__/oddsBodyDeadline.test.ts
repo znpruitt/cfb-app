@@ -37,23 +37,32 @@ const YEAR = 2026;
 const KEY = defaultOddsCacheKey(YEAR);
 const SCOPE = oddsTargetScope(YEAR, 'canonical', KEY);
 
-type BodyMode = 'ok' | 'slow-body' | 'socket-death' | 'malformed' | 'slow-headers';
+type BodyMode = 'ok' | 'slow-body' | 'socket-death' | 'malformed' | 'recover-on-2';
+
+/** Requests served since the last reset — lets a test assert a RETRY happened. */
+let servedCount = 0;
 let server: Server;
 let baseUrl = '';
 let mode: BodyMode = 'ok';
 
 test.before(async () => {
   server = createServer((_req, res) => {
-    if (mode === 'slow-headers') {
-      // Headers deliberately late so the body phase's REMAINING budget is
-      // measurably smaller than the full one.
-      NATIVE_SET_TIMEOUT(() => {
-        res.writeHead(200, { 'content-type': 'application/json' });
-        res.end('[]');
-      }, 60);
-      return;
+    servedCount += 1;
+    // Real provider usage headers: without them `usageHeadersTrustworthy` is false
+    // on EVERY path, and an assertion about capture cannot discriminate.
+    const usageHeaders = {
+      'content-type': 'application/json',
+      'x-requests-used': '17',
+      'x-requests-remaining': '483',
+      'x-requests-last': '1',
+    };
+    if (mode === 'recover-on-2') {
+      // Attempt 1 never answers -> attempt deadline fires -> retried.
+      if (servedCount === 1) return;
+      res.writeHead(200, usageHeaders);
+      return void res.end('[]');
     }
-    res.writeHead(200, { 'content-type': 'application/json' });
+    res.writeHead(200, usageHeaders);
     if (mode === 'ok') return void res.end('[]');
     if (mode === 'malformed') return void res.end('not json at all');
     res.write('[');
@@ -85,7 +94,12 @@ test.afterEach(() => {
   globalThis.fetch = ORIGINAL_FETCH;
 });
 
-async function runRefresh(): Promise<{ status: string; reason: string }> {
+async function runRefresh(maxAttempts = 1): Promise<{
+  status: string;
+  reason: string;
+  usageFromHeaders: boolean;
+  usedRemaining: number | null;
+}> {
   const attempt = await beginProviderRefreshAttempt('odds', SCOPE, {
     startedAt: new Date().toISOString(),
   });
@@ -101,7 +115,7 @@ async function runRefresh(): Promise<{ status: string; reason: string }> {
     observationAt: new Date().toISOString(),
     now: new Date().toISOString(),
     retry: {
-      maxAttempts: 1,
+      maxAttempts,
       baseDelayMs: 0,
       maxDelayMs: 0,
       jitterRatio: 0,
@@ -110,7 +124,12 @@ async function runRefresh(): Promise<{ status: string; reason: string }> {
     emptyClassificationEvidence: { scheduleItems: [], resolver: null } as never,
     resolveCanonicalInputs: async () => ({ available: true, games: [], resolver: null as never }),
   });
-  return { status: execution.result.status, reason: execution.result.reason };
+  return {
+    status: execution.result.status,
+    reason: execution.result.reason,
+    usageFromHeaders: execution.usageFromHeaders,
+    usedRemaining: execution.usage?.remaining ?? null,
+  };
 }
 
 test('#662: a body that outlives the deadline is `provider-fetch-failed`, not a payload rejection', async () => {
@@ -158,42 +177,51 @@ test('#662 CONTROL: a complete, valid body is unaffected by the deadline', async
   assert.notEqual(result.reason, 'odds-invalid-payload');
 });
 
-test('#662: the odds body deadline is armed at the HEADERS on the REMAINING budget', async () => {
-  // Review remediation, pinned deterministically rather than by racing a clock.
+test('#662 MULTI-ATTEMPT: a retried odds request delivers the RECOVERED attempt', async () => {
+  // The HIGH this suite missed, now pinned here.
   //
-  // Two regressions must be caught: arming the body deadline only where the body
-  // is READ (leaving the durable usage write in an unbounded window), and
-  // granting the body a FRESH full budget (making the lane's real ceiling
-  // `timeoutMs` twice over, plus the write).
+  // The previous model computed the body budget from before the FIRST attempt,
+  // but `timeoutMs` is per attempt and the retry loop is internal to
+  // `fetchUpstreamResponse`. Once attempt 1 spent the budget, every later attempt
+  // armed at `Math.max(0, negative)` -> fires on the next macrotask -> aborted a
+  // complete, successful response during the usage write. Manual `/api/odds`
+  // carries `maxAttempts: 3`, so retries could not recover from a header timeout:
+  // two provider calls billed and the payload discarded.
   //
-  // Both show up in the DELAY the executor arms with. The request timer is armed
-  // at exactly ODDS_UPSTREAM_TIMEOUT_MS; a correct body deadline is armed at that
-  // budget MINUS however long the headers took, so it is strictly smaller. A
-  // fresh-budget regression arms two timers of exactly 12000 and no smaller one.
-  // The timer never has to fire, so there is nothing to flake.
-  mode = 'slow-headers';
-  const nativeSetTimeout = globalThis.setTimeout;
-  const armedDelays: number[] = [];
-  globalThis.setTimeout = ((handler: never, delay?: number, ...args: never[]) => {
-    if (typeof delay === 'number') armedDelays.push(delay);
-    return nativeSetTimeout(handler, delay as number, ...args);
-  }) as typeof globalThis.setTimeout;
+  // Invisible at `maxAttempts: 1`, which every test in this suite used. The fix
+  // was to delete the second deadline and let the shared loop own both phases;
+  // this test is what holds that, and it is the coverage the seam lacked.
+  mode = 'recover-on-2';
+  servedCount = 0;
+  const result = await withCompressedTimeouts(async () => runRefresh(3));
 
-  try {
-    await runRefresh();
-  } finally {
-    globalThis.setTimeout = nativeSetTimeout;
-  }
+  assert.notEqual(
+    result.reason,
+    'provider-fetch-failed',
+    'the recovered attempt returned a complete body; it must not be reported as a fetch failure'
+  );
+  assert.ok(servedCount >= 2, 'attempt 1 must have timed out and been retried');
+});
 
-  const FULL_BUDGET_MS = 12_000;
-  assert.ok(
-    armedDelays.includes(FULL_BUDGET_MS),
-    `the request timer should arm at the full budget; saw ${JSON.stringify(armedDelays)}`
+test('#662: usage is persisted from the headers even when the BODY fails', async () => {
+  // The claim the whole third model rests on, tested rather than reasoned:
+  // `captureOddsUsageSnapshot` takes Headers, so usage has no dependency on the
+  // body and must still be recorded when the body dies mid-download.
+  //
+  // THE FIRST VERSION OF THIS TEST WAS VACUOUS and a mutation caught it: it
+  // asserted `getLatestKnownOddsUsage() !== undefined`, which is true whether or
+  // not THIS request recorded anything, and the server sent no usage headers at
+  // all — so `usageHeadersTrustworthy` was false on every path and there was
+  // nothing to discriminate. It stayed green with the header stash moved AFTER
+  // the body read, which is the exact defect it exists to catch.
+  mode = 'socket-death';
+  const result = await runRefresh();
+
+  assert.equal(result.reason, 'provider-fetch-failed', 'a dead transport is a fetch failure');
+  assert.equal(
+    result.usageFromHeaders,
+    true,
+    'the request was BILLED — its usage headers must be captured even though the body died'
   );
-  const bodyDeadlines = armedDelays.filter((d) => d < FULL_BUDGET_MS && d > FULL_BUDGET_MS - 1_000);
-  assert.ok(
-    bodyDeadlines.length >= 1,
-    'the body deadline must be armed on the REMAINING budget (strictly less than the full one), ' +
-      `which also proves it was armed at the headers rather than at the read; saw ${JSON.stringify(armedDelays)}`
-  );
+  assert.equal(result.usedRemaining, 483, "and the captured snapshot must be this response's");
 });

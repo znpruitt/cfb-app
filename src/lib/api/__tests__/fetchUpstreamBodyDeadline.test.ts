@@ -3,9 +3,9 @@ import { createServer, type Server } from 'node:http';
 import test, { after, before } from 'node:test';
 
 import {
+  fetchUpstreamConsuming,
   fetchUpstreamJson,
   fetchUpstreamResponse,
-  startUpstreamBodyDeadline,
   UpstreamFetchError,
 } from '../fetchUpstream.ts';
 
@@ -39,7 +39,11 @@ type BodyMode =
   | 'slow-body' // headers immediately, body finishes ~1s later
   | 'socket-death' // headers, partial body, socket destroyed
   | 'clean-truncation' // headers, partial body, stream closed cleanly
-  | 'malformed'; // complete body that is not JSON
+  | 'malformed' // complete body that is not JSON
+  | 'recover-on-2'; // attempt 1 never answers; attempt 2 answers normally
+
+/** Requests served since the last reset — lets a test assert a RETRY happened. */
+let servedCount = 0;
 
 let server: Server;
 let baseUrl = '';
@@ -48,6 +52,16 @@ before(async () => {
   server = createServer((req, res) => {
     const mode = (new URL(req.url ?? '/', 'http://localhost').searchParams.get('mode') ??
       'ok') as BodyMode;
+    servedCount += 1;
+
+    if (mode === 'recover-on-2') {
+      // Attempt 1 never responds, so the ATTEMPT deadline fires and the request
+      // is retried. Attempt 2 answers with a complete, valid body.
+      if (servedCount === 1) return;
+      res.writeHead(200, { 'content-type': 'application/json' });
+      return void res.end('{"ok":true}');
+    }
+
     res.writeHead(200, { 'content-type': 'application/json' });
 
     if (mode === 'ok') return void res.end('{"ok":true}');
@@ -230,7 +244,6 @@ test('#662: the headers-only path clears its attempt timer without reading the b
     globalThis.clearTimeout(control);
     assert.equal(liveAttemptTimers(), 0, 'control: clearing it must be observable too');
 
-    const { fetchUpstreamResponse } = await import('../fetchUpstream.ts');
     const res = await fetchUpstreamResponse(`${baseUrl}/?mode=ok`, {
       timeoutMs: ATTEMPT_TIMEOUT_MS,
       retry: { maxAttempts: 1 },
@@ -253,69 +266,50 @@ test('#662: the headers-only path clears its attempt timer without reading the b
   }
 });
 
-test('#662: the body deadline covers time spent BEFORE the read, not just the read', async () => {
-  // The review finding this replaces, as a permanent property.
+test('#662 MULTI-ATTEMPT: a header timeout on attempt 1 must not poison attempt 2', async () => {
+  // THE TEST THAT WAS MISSING, and its absence is the finding rather than the
+  // arithmetic it catches.
   //
-  // `oddsRefreshExecutor` persists a durable usage snapshot between the headers
-  // arriving and the body being read. The first cut armed the deadline at the
-  // READ, so that write sat in an unbounded window — and `fetchUpstreamResponse`
-  // has already cleared its own timer by then. Reproduced before fixing: with a
-  // 400ms write ahead of it, a 507ms body was ACCEPTED against a 300ms deadline.
+  // Every test in this branch's first two rounds used `maxAttempts: 1`. A HIGH
+  // defect that only appears once a SECOND attempt runs was therefore invisible
+  // to a fully green suite: the odds lane computed its body budget from before
+  // the first attempt, while `timeoutMs` is per attempt, so any retry left the
+  // recovered attempt with a non-positive budget and its complete, successful
+  // response was aborted and reported as a fetch failure. Retries could not
+  // recover from a header timeout — strictly worse than the defect being fixed.
   //
-  // Modelled exactly: arm, do slow work, then read a body that would otherwise
-  // have succeeded. The read itself is fast; only the interval before it is
-  // long. A deadline armed at the read cannot fail this, which is the point.
-  const abort = new AbortController();
-  const res = await fetchUpstreamResponse(`${baseUrl}/?mode=ok`, {
-    timeoutMs: 5_000,
-    retry: { maxAttempts: 1 },
-    signal: abort.signal,
-  });
+  // The shape to hold onto: a budget that spans attempts is invisible at
+  // `maxAttempts: 1`, so this seam needs multi-attempt coverage permanently.
+  servedCount = 0;
+  const result = await attempt('recover-on-2', { timeoutMs: 120, maxAttempts: 3 });
 
-  const deadline = startUpstreamBodyDeadline({
-    url: `${baseUrl}/?mode=ok`,
-    remainingMs: 40,
-    budgetMs: 5_000,
-    abortController: abort,
-  });
-
-  // The "durable usage write" — unbounded work standing between the two phases.
-  await new Promise((resolve) => setTimeout(resolve, 120));
-
-  await assert.rejects(
-    () => deadline.readJson(res),
-    (error: unknown) => {
-      assert.ok(error instanceof UpstreamFetchError);
-      assert.equal(error.details.kind, 'timeout');
-      // The message names the CONTRACT the caller set, not the remainder that
-      // happened to be left when the body phase started.
-      assert.equal(error.details.message, 'Upstream request timed out after 5000ms');
-      return true;
-    }
-  );
+  assert.equal(result.kind, null, 'the recovered attempt must DELIVER, not abort');
+  assert.deepEqual(result.value, { ok: true });
+  assert.equal(result.attempts, 2, 'attempt 1 must have timed out and been retried');
+  assert.ok(servedCount >= 2, 'the server must actually have seen a second request');
 });
 
-test('#662: disposing the body deadline stops it aborting a later reader', async () => {
-  // Every path that does NOT read the body must dispose, or a timer fires into a
-  // request that already returned. `dispose` is idempotent because `readJson`
-  // also disposes in its own `finally`.
-  const abort = new AbortController();
-  const res = await fetchUpstreamResponse(`${baseUrl}/?mode=ok`, {
-    timeoutMs: 5_000,
-    retry: { maxAttempts: 1 },
-    signal: abort.signal,
-  });
+test('#662: fetchUpstreamConsuming inherits the same vocabulary as fetchUpstreamJson', async () => {
+  // The odds lane consumes through this, so its failures must classify
+  // identically — the classification lives in the shared loop, not in either
+  // caller. A consumer reading a body with a bare `res.json()` still gets
+  // `parse` for malformed bytes and `network` for a dead transport.
+  const read = async (mode: BodyMode, timeoutMs: number) => {
+    try {
+      await fetchUpstreamConsuming<unknown>(
+        `${baseUrl}/?mode=${mode}`,
+        { timeoutMs, retry: { maxAttempts: 1 }, throwOnHttpError: false },
+        async (res) => (await res.json()) as unknown
+      );
+      return null;
+    } catch (error) {
+      assert.ok(error instanceof UpstreamFetchError, `expected UpstreamFetchError, got ${error}`);
+      return error.details.kind;
+    }
+  };
 
-  const deadline = startUpstreamBodyDeadline({
-    url: `${baseUrl}/?mode=ok`,
-    remainingMs: 20,
-    budgetMs: 5_000,
-    abortController: abort,
-  });
-  deadline.dispose();
-  deadline.dispose(); // idempotent
-
-  await new Promise((resolve) => setTimeout(resolve, 80)); // past the disposed deadline
-  assert.equal(abort.signal.aborted, false, 'a disposed deadline must never abort');
-  assert.deepEqual(await res.json(), { ok: true });
+  assert.equal(await read('malformed', 5_000), 'parse');
+  assert.equal(await read('socket-death', 5_000), 'network');
+  assert.equal(await read('slow-body', 50), 'timeout');
+  assert.equal(await read('ok', 5_000), null);
 });

@@ -321,86 +321,27 @@ function toBodyFailureError(
   return toUpstreamFetchError(params);
 }
 
-/**
- * A body-phase deadline the caller ARMS ITSELF, classifying failures exactly as
- * the shared attempt loop does (PLATFORM-662).
- *
- * For callers that must observe the RESPONSE between the headers arriving and
- * the body being read — `oddsRefreshExecutor` persists a usage snapshot there,
- * deliberately, because the request spent credits whether or not the body ever
- * parses. Such a caller cannot hand body consumption to the retry loop without
- * moving that durable write inside a retried callback, so it keeps the read and
- * takes the deadline with it. The CLASSIFIER is shared; only the arming site
- * differs.
- *
- * ARM IT THE MOMENT THE HEADERS RETURN, NOT WHERE THE BODY IS READ. Review
- * remediation: the first cut armed it immediately before `readJson`, leaving the
- * durable usage write in between — and `fetchUpstreamResponse` has already
- * cleared its own timer by then, so for the whole of that round trip the body
- * streamed with no deadline at all. Measured: with a 400ms write ahead of it, a
- * 507ms body was ACCEPTED against a 300ms deadline. An await that sits ahead of
- * consequential work has to be inside the budget, not before it.
- *
- * `remainingMs` is what is LEFT of the request's budget, so the two phases share
- * one ceiling rather than granting the body a fresh full timeout (which would
- * make the real bound `timeoutMs` twice over, plus the write). `budgetMs` is
- * only what the timeout MESSAGE reports, so the error names the contract the
- * caller set rather than the remainder that happened to be left.
- *
- * `abortController` must be the controller whose signal was passed to the
- * request as `signal` — aborting it is what errors the body stream. A timer that
- * merely rejects a race would leave the download running.
- */
-export type UpstreamBodyDeadline = {
-  /** Read and classify. Disposes the timer on every exit. */
-  readJson<T>(response: Response): Promise<T>;
-  /** Idempotent. Must be called on any path that does NOT read the body. */
-  dispose(): void;
-};
-
-export function startUpstreamBodyDeadline(params: {
-  url: string;
-  remainingMs: number;
-  budgetMs: number;
-  abortController: AbortController;
-  requestSignal?: AbortSignal;
-}): UpstreamBodyDeadline {
-  const { url, remainingMs, budgetMs, abortController, requestSignal } = params;
-  const safeUrl = sanitizeUpstreamUrl(url);
-  // A budget already spent fires on the next tick rather than never.
-  const timeoutHandle = setTimeout(() => abortController.abort(), Math.max(0, remainingMs));
-  let disposed = false;
-
-  const dispose = (): void => {
-    if (disposed) return;
-    disposed = true;
-    clearTimeout(timeoutHandle);
-  };
-
-  return {
-    async readJson<T>(response: Response): Promise<T> {
-      try {
-        return (await response.json()) as T;
-      } catch (error) {
-        throw toBodyFailureError({
-          error,
-          url: safeUrl,
-          timeoutController: abortController,
-          requestSignal,
-          timeoutMs: budgetMs,
-        });
-      } finally {
-        dispose();
-      }
-    },
-    dispose,
-  };
+/** Run a body consumer, classifying whatever it throws (PLATFORM-662). */
+async function consumeClassified<T>(
+  res: Response,
+  ctx: UpstreamAttemptContext,
+  consume: (res: Response, ctx: UpstreamAttemptContext) => Promise<T>
+): Promise<T> {
+  try {
+    return await consume(res, ctx);
+  } catch (error) {
+    throw toBodyFailureError({ ...ctx, error });
+  }
 }
 
 /**
  * The shared attempt loop. `consume` runs INSIDE the try, the retry loop and the
  * per-attempt deadline, so whatever it does to the response is covered by the
  * same timeout and the same retry decision as the request that produced it.
+ *
+ * Anything `consume` throws is classified by {@link toBodyFailureError} here, in
+ * ONE place, so no consumer can read a body without inheriting the vocabulary.
+ * An `UpstreamFetchError` passes through untouched.
  */
 async function runUpstreamAttempts<T>(
   url: string,
@@ -482,7 +423,7 @@ async function runUpstreamAttempts<T>(
         }
 
         if (!throwOnHttpError) {
-          return await consume(res, attemptContext);
+          return await consumeClassified(res, attemptContext, consume);
         }
 
         const responseBody = await res.text().catch(() => '');
@@ -496,7 +437,7 @@ async function runUpstreamAttempts<T>(
         });
       }
 
-      return await consume(res, attemptContext);
+      return await consumeClassified(res, attemptContext, consume);
     } catch (error) {
       const normalized = toUpstreamFetchError({
         error,
@@ -542,9 +483,15 @@ async function runUpstreamAttempts<T>(
 /**
  * Headers-only fetch. CONTRACT UNCHANGED by PLATFORM-662: the per-attempt
  * deadline still ends when this returns, because the caller — not this function
- * — decides when and whether to read the body. A caller that does read one must
- * bound it: {@link startUpstreamBodyDeadline}, or `fetchUpstreamJson`, which
- * reads inside the loop.
+ * — decides when and whether to read the body.
+ *
+ * IT HAS NO CALLERS THAT READ A BODY, AND SHOULD NOT GAIN ONE. A body read out
+ * here is unbounded by construction — that is the defect this item exists to
+ * remove, and the odds lane proved it cannot be fixed from outside: a deadline
+ * armed by the caller cannot see the retry loop's attempt boundaries, so it
+ * either spans attempts it does not belong to or grants a fresh budget per
+ * phase. Use {@link fetchUpstreamJson}, or {@link fetchUpstreamConsuming} when
+ * the response itself is needed, and let the loop own both phases.
  */
 export async function fetchUpstreamResponse(
   url: string,
@@ -573,13 +520,33 @@ export async function fetchUpstreamJson<T>(
   url: string,
   options: FetchUpstreamJsonOptions = {}
 ): Promise<T> {
-  return runUpstreamAttempts<T>(url, { ...options, throwOnHttpError: true }, async (res, ctx) => {
-    try {
-      return (await res.json()) as T;
-    } catch (error) {
-      throw toBodyFailureError({ ...ctx, error });
-    }
-  });
+  return runUpstreamAttempts<T>(
+    url,
+    { ...options, throwOnHttpError: true },
+    async (res) => (await res.json()) as T
+  );
+}
+
+/**
+ * Fetch and consume the response INSIDE the attempt's deadline and retry loop.
+ *
+ * For the caller that needs the RESPONSE, not just its JSON — `oddsRefreshExecutor`
+ * reads usage headers and handles non-OK statuses itself, so it cannot use
+ * `fetchUpstreamJson`. `consume` runs where `fetchUpstreamJson`'s read runs, so
+ * it gets the same single deadline spanning both phases, the same per-attempt
+ * budget, the same retry decision, and the same failure vocabulary.
+ *
+ * CONSUME MUST NOT PERFORM DURABLE WORK. It runs once per attempt and inside the
+ * transport budget; a durable write in here would be retried with the request and
+ * would spend the body's deadline. Copy what is needed off the response —
+ * `headers` do not expire — and do the durable work after this returns.
+ */
+export async function fetchUpstreamConsuming<T>(
+  url: string,
+  options: FetchUpstreamResponseOptions,
+  consume: (res: Response) => Promise<T>
+): Promise<T> {
+  return runUpstreamAttempts<T>(url, options, async (res) => consume(res));
 }
 
 /**
