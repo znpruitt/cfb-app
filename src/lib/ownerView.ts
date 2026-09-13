@@ -293,8 +293,8 @@ export function deriveOwnerViewSnapshot(params: {
    * rows, and weekly game details always remain schedule/client-derived.
    */
   canonicalStandingsRows?: OwnerStandingsRow[];
-  /** Explicit client clock/season for bounded game-day status copy. */
-  gameDayContext?: GameDayContext;
+  /** Explicit client clock/season for bounded game-day status and slate projection. */
+  gameDayContext: GameDayContext;
 }): OwnerViewSnapshot {
   const { selectedOwner, standingsRows, allGames, weekGames, rosterByTeam, scoresByKey } = params;
 
@@ -340,7 +340,12 @@ export function deriveOwnerViewSnapshot(params: {
   );
 
   const weekSections = deriveWeekMatchupSections(weekGames, rosterByTeam);
-  const ownerSlates = deriveOwnerWeekSlates(weekGames, rosterByTeam, scoresByKey);
+  const ownerSlates = deriveOwnerWeekSlates(
+    weekGames,
+    rosterByTeam,
+    scoresByKey,
+    params.gameDayContext.now
+  );
   const ownerSlate = ownerSlates.find((slate) => slate.owner === resolvedOwner) ?? null;
   const opponentOwners = ownerSlate?.opponentOwners ?? [];
   const totalGames = ownerSlate?.totalGames ?? 0;

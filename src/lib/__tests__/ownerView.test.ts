@@ -66,6 +66,10 @@ function mismatchGame(overrides: Partial<AppGame>): AppGame {
 }
 
 const roster = new Map([['Washington State', 'Alice']]);
+const OWNER_VIEW_TEST_CONTEXT = {
+  season: 2026,
+  now: Date.parse('2026-08-01T00:00:00.000Z'),
+};
 
 test('deriveOwnerRoster includes a final owned game and records the W despite a provider-name mismatch', () => {
   const scoresByKey: Record<string, ScorePack> = {
@@ -128,6 +132,7 @@ const EMPTY_VIEW = {
   weekGames: [] as AppGame[],
   rosterByTeam: new Map<string, string>(),
   scoresByKey: {} as Record<string, ScorePack>,
+  gameDayContext: OWNER_VIEW_TEST_CONTEXT,
 };
 
 test('owner header prefers canonical standings over contradictory local rows (PLATFORM-044)', () => {
@@ -217,6 +222,7 @@ test('roster rows stay client-derived while the header uses canonical (PLATFORM-
     weekGames: games,
     rosterByTeam: roster,
     scoresByKey,
+    gameDayContext: OWNER_VIEW_TEST_CONTEXT,
   });
 
   // Header from canonical…

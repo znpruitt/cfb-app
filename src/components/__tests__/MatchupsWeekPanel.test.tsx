@@ -539,6 +539,84 @@ test('shared kickoff projection renders SCH before kickoff and Awaiting score at
   assert.equal((atKickoff.match(/data-scoreboard-value="(?:away|home)">–/g) ?? []).length, 2);
 });
 
+test('an awaiting row counts as live on its owner card (Item 722)', () => {
+  const nowMs = Date.parse('2025-08-30T21:00:00.000Z');
+  const awaitingGame = game({
+    key: 'g-awaiting-count',
+    date: '2025-08-30T20:00:00.000Z',
+    csvAway: 'Florida',
+    csvHome: 'LSU',
+  });
+  const rosterByTeam = new Map([['Florida', 'Avery']]);
+  const liveScores = {
+    'g-awaiting-count': {
+      status: 'In Progress',
+      time: 'Q1 12:00',
+      away: { team: 'Florida', score: 0 },
+      home: { team: 'LSU', score: 0 },
+    },
+  };
+
+  const positiveControl = deriveOwnerWeekSlates([awaitingGame], rosterByTeam, liveScores, nowMs)[0];
+  assert.ok(positiveControl);
+  assert.equal(positiveControl.liveGames, 1, 'the fixture can produce a live count');
+
+  const awaitingSlate = deriveOwnerWeekSlates([awaitingGame], rosterByTeam, {}, nowMs)[0];
+  assert.ok(awaitingSlate);
+  assert.equal(awaitingSlate.totalGames, 1);
+  assert.equal(awaitingSlate.liveGames, 1, 'awaiting is an indeterminate live state');
+  assert.equal(awaitingSlate.finalGames, 0);
+  assert.equal(awaitingSlate.scheduledGames, 0);
+  assert.equal(
+    awaitingSlate.liveGames + awaitingSlate.finalGames + awaitingSlate.scheduledGames,
+    awaitingSlate.totalGames
+  );
+  assert.equal(awaitingSlate.performance.summary, '0–0 · 1 live');
+
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[awaitingGame]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={rosterByTeam}
+      displayTimeZone="UTC"
+      nowMs={nowMs}
+    />
+  );
+  const card = ownerCardMarkup(html, 'Avery');
+  assert.match(card, /0–0 · 1 live/);
+  assert.match(card, /data-scoreboard-state="awaiting"/);
+  assert.match(card, /Awaiting score/);
+});
+
+test('a final label without usable scores follows the awaiting scoreboard projection', () => {
+  const nowMs = Date.parse('2025-08-30T21:00:00.000Z');
+  const incompleteFinal = game({
+    key: 'g-incomplete-final',
+    date: '2025-08-30T20:00:00.000Z',
+    csvAway: 'Florida',
+    csvHome: 'LSU',
+  });
+  const slate = deriveOwnerWeekSlates(
+    [incompleteFinal],
+    new Map([['Florida', 'Avery']]),
+    {
+      'g-incomplete-final': {
+        status: 'Final',
+        time: 'Final',
+        away: { team: 'Florida', score: null },
+        home: { team: 'LSU', score: null },
+      },
+    },
+    nowMs
+  )[0];
+
+  assert.ok(slate);
+  assert.equal(slate.liveGames, 1);
+  assert.equal(slate.finalGames, 0, 'a final counter requires the same usable score as the row');
+  assert.equal(slate.scheduledGames, 0);
+});
+
 test('matchups threads current records to both participants across scheduled, live, and final rows', () => {
   const html = renderToStaticMarkup(
     <MatchupsWeekPanel
@@ -1124,7 +1202,7 @@ test('owner slates count final owned-vs-owned, NoClaim, and FCS results from own
     },
   };
 
-  const slates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey);
+  const slates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey, MATCHUPS_TEST_NOW_MS);
   const avery = slates.find((slate) => slate.owner === 'Avery');
   const blair = slates.find((slate) => slate.owner === 'Blair');
 
@@ -1198,7 +1276,7 @@ test('scheduled and live games do not change owner final record summaries', () =
     },
   };
 
-  const slates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey);
+  const slates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey, MATCHUPS_TEST_NOW_MS);
   const casey = slates.find((slate) => slate.owner === 'Casey');
   assert.ok(casey);
   assert.equal(casey.performance.summary, '1–0 · 1 live');
@@ -1246,7 +1324,7 @@ test('owner slate shows final record when one game is final and another is still
     },
   };
 
-  const slates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey);
+  const slates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey, MATCHUPS_TEST_NOW_MS);
   const casey = slates.find((slate) => slate.owner === 'Casey');
   assert.ok(casey);
   assert.equal(casey.totalGames, 2);

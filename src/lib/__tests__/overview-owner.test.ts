@@ -7,6 +7,11 @@ import type { ScorePack } from '../scores';
 import type { AppGame } from '../schedule';
 import type { OwnerStandingsRow } from '../standings';
 
+const OWNER_VIEW_TEST_CONTEXT = {
+  season: 2026,
+  now: Date.parse('2026-08-01T00:00:00.000Z'),
+};
+
 function game(overrides: Partial<AppGame>): AppGame {
   return {
     key: overrides.key ?? 'g',
@@ -285,6 +290,7 @@ test('deriveOwnerViewSnapshot builds owner-centric roster, live, and week sectio
     weekGames,
     rosterByTeam,
     scoresByKey,
+    gameDayContext: OWNER_VIEW_TEST_CONTEXT,
   });
 
   assert.equal(snapshot.selectedOwner, 'Alice');
@@ -313,6 +319,7 @@ test('deriveOwnerViewSnapshot keeps week rows aligned with summary semantics whe
     weekGames: allGames,
     rosterByTeam,
     scoresByKey: {},
+    gameDayContext: OWNER_VIEW_TEST_CONTEXT,
   });
 
   assert.equal(snapshot.weekSummary?.performanceSummary, 'Scheduled');
@@ -320,6 +327,35 @@ test('deriveOwnerViewSnapshot keeps week rows aligned with summary semantics whe
   assert.equal(snapshot.weekRows[0]?.currentStatus, 'Upcoming');
   assert.equal(snapshot.weekRows[0]?.currentScore, null);
   assert.equal(snapshot.weekRows[0]?.nextGameLabel, 'at Georgia');
+});
+
+test('deriveOwnerViewSnapshot counts an awaiting week row as live (Item 722)', () => {
+  const allGames = [
+    game({
+      key: 'awaiting-score',
+      csvAway: 'Texas',
+      csvHome: 'Georgia',
+      date: '2026-09-01T17:00:00.000Z',
+    }),
+  ];
+  const snapshot = deriveOwnerViewSnapshot({
+    selectedOwner: 'Alice',
+    standingsRows,
+    allGames,
+    weekGames: allGames,
+    rosterByTeam,
+    scoresByKey: {},
+    gameDayContext: {
+      season: 2026,
+      now: Date.parse('2026-09-01T18:00:00.000Z'),
+    },
+  });
+
+  assert.equal(snapshot.weekRows[0]?.currentStatus, 'Awaiting score');
+  assert.equal(snapshot.weekSummary?.liveGames, 1);
+  assert.equal(snapshot.weekSummary?.finalGames, 0);
+  assert.equal(snapshot.weekSummary?.scheduledGames, 0);
+  assert.equal(snapshot.weekSummary?.performanceSummary, '0–0 · 1 live');
 });
 
 test('deriveOwnerRoster keeps multi-team owners to one row per team and marks season complete', () => {

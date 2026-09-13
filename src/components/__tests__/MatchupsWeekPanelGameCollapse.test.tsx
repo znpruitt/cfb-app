@@ -32,6 +32,7 @@ import type { AppGame } from '../../lib/schedule';
 afterEach(() => cleanup());
 
 const OWNER = 'Taylor';
+const MATCHUPS_TEST_NOW_MS = Date.parse('2025-08-30T19:00:00.000Z');
 
 function game(overrides: Partial<AppGame> & { key: string }): AppGame {
   return {
@@ -127,7 +128,7 @@ function renderPanel(games: AppGame[], rosterByTeam: Map<string, string>) {
       scoresByKey={{}}
       rosterByTeam={rosterByTeam}
       displayTimeZone="America/New_York"
-      nowMs={Date.parse('2025-08-30T19:00:00.000Z')}
+      nowMs={MATCHUPS_TEST_NOW_MS}
     />
   );
 }
@@ -189,7 +190,7 @@ test('the control label states the number of games actually withheld (Item 135)'
 
   // Derive the expectation the way the surface does, from the slate itself,
   // rather than restating a literal that would pass against a wrong slice.
-  const slate = deriveOwnerWeekSlates(games, rosterByTeam, {}).find(
+  const slate = deriveOwnerWeekSlates(games, rosterByTeam, {}, MATCHUPS_TEST_NOW_MS).find(
     (entry) => entry.owner === OWNER
   );
   assert.ok(slate, 'owner slate should exist');
@@ -221,7 +222,7 @@ test('the count is indifferent to who owns the opponents (Item 135)', () => {
   const visible = getDefaultVisibleGamesCount();
   const { games, rosterByTeam, opponentNames } = noClaimRoster(visible + 2);
 
-  const slate = deriveOwnerWeekSlates(games, rosterByTeam, {}).find(
+  const slate = deriveOwnerWeekSlates(games, rosterByTeam, {}, MATCHUPS_TEST_NOW_MS).find(
     (entry) => entry.owner === OWNER
   );
   assert.ok(slate, 'owner slate should exist');
@@ -255,7 +256,7 @@ test('a self game renders one row, not two mirrored rows (Item 135)', () => {
     ['North Dakota', 'Whited'],
   ]);
 
-  const slate = deriveOwnerWeekSlates(games, rosterByTeam, {}).find(
+  const slate = deriveOwnerWeekSlates(games, rosterByTeam, {}, MATCHUPS_TEST_NOW_MS).find(
     (entry) => entry.owner === 'Whited'
   );
   assert.ok(slate, 'owner slate should exist');

@@ -492,7 +492,7 @@ export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.
     nowMs,
     teamLogosById = EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID,
   } = props;
-  const rawOwnerSlates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey);
+  const rawOwnerSlates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey, nowMs);
   const visibleOwnerSlates = rawOwnerSlates.filter((slate) => displayOwner(slate.owner) !== null);
   // Reorder owner cards to match canonical owner identity when canonical is
   // present so Matchups shares the alphabetical ordering used by Standings/

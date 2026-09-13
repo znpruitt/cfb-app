@@ -16,6 +16,8 @@ import { NO_CLAIM_OWNER } from '../standings';
 import type { OwnerSlateGame, OwnerWeekSlate } from '../matchups';
 import type { AppGame } from '../schedule';
 
+const MATCHUPS_TEST_NOW_MS = Date.parse('2025-01-01T00:00:00.000Z');
+
 function game(overrides: Partial<AppGame>): AppGame {
   return {
     key: overrides.key ?? 'g',
@@ -62,6 +64,7 @@ function game(overrides: Partial<AppGame>): AppGame {
     awayConf: overrides.awayConf ?? 'SEC',
     homeConf: overrides.homeConf ?? 'SEC',
     sources: overrides.sources,
+    startTimeTBD: overrides.startTimeTBD,
   };
 }
 
@@ -257,6 +260,88 @@ test('deriveWeekMatchupSections resolves owners despite a provider-name mismatch
   assert.equal(sections.ownerMatchups[0]?.homeOwner, 'Bob');
 });
 
+test('owner slates sort every non-final by kickoff before finals (Item 724)', () => {
+  const nowMs = Date.parse('2026-09-01T19:30:00.000Z');
+  const games = [
+    game({
+      key: 'final-first-kickoff',
+      date: '2026-09-01T17:00:00.000Z',
+      csvAway: 'Owned Final',
+      canAway: 'Owned Final',
+    }),
+    game({
+      key: 'scheduled-later',
+      date: '2026-09-01T21:00:00.000Z',
+      csvAway: 'Owned Scheduled',
+      canAway: 'Owned Scheduled',
+    }),
+    game({
+      key: 'live-middle',
+      date: '2026-09-01T19:00:00.000Z',
+      csvAway: 'Owned Live',
+      canAway: 'Owned Live',
+    }),
+    game({
+      key: 'awaiting-earlier',
+      date: '2026-09-01T18:00:00.000Z',
+      csvAway: 'Owned Awaiting',
+      canAway: 'Owned Awaiting',
+    }),
+    game({
+      key: 'invalid-b',
+      date: 'not-a-kickoff-b',
+      csvAway: 'Owned Invalid B',
+      canAway: 'Owned Invalid B',
+    }),
+    game({
+      key: 'invalid-a',
+      date: 'not-a-kickoff-a',
+      csvAway: 'Owned Invalid A',
+      canAway: 'Owned Invalid A',
+    }),
+    game({
+      key: 'invalid-tbd',
+      date: '2026-09-01T16:00:00.000Z',
+      csvAway: 'Owned Invalid TBD',
+      canAway: 'Owned Invalid TBD',
+      startTimeTBD: true,
+    }),
+  ];
+  const rosterByTeam = new Map(
+    games.map((scheduledGame) => [scheduledGame.csvAway, 'Alex'] as const)
+  );
+  const scoresByKey = {
+    'final-first-kickoff': {
+      status: 'Final',
+      time: 'Final',
+      away: { team: 'Owned Final', score: 24 },
+      home: { team: 'Home', score: 17 },
+    },
+    'live-middle': {
+      status: 'In Progress',
+      time: 'Q3 8:14',
+      away: { team: 'Owned Live', score: 21 },
+      home: { team: 'Home', score: 17 },
+    },
+  };
+
+  const slate = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey, nowMs)[0];
+  assert.ok(slate);
+  assert.deepEqual(
+    slate.games.map((slateGameItem) => slateGameItem.game.key),
+    [
+      'awaiting-earlier',
+      'live-middle',
+      'scheduled-later',
+      'invalid-a',
+      'invalid-b',
+      'invalid-tbd',
+      'final-first-kickoff',
+    ],
+    'state does not outrank kickoff inside the non-final group'
+  );
+});
+
 // ---------------------------------------------------------------------------
 // Item 135, after the model change — the owner-card control counts GAMES.
 //
@@ -341,7 +426,7 @@ function noClaimRosterSlate(opponents: string[]): {
   opponents.forEach((_, index) => rosterByTeam.set(`Owned${index}`, 'Taylor'));
   for (const opponent of opponents) rosterByTeam.set(opponent, NO_CLAIM_OWNER);
 
-  const ownerSlate = deriveOwnerWeekSlates(games, rosterByTeam, {}).find(
+  const ownerSlate = deriveOwnerWeekSlates(games, rosterByTeam, {}, MATCHUPS_TEST_NOW_MS).find(
     (entry) => entry.owner === 'Taylor'
   );
   assert.ok(ownerSlate, 'owner slate should exist');
@@ -356,7 +441,8 @@ function selfGameSlate(): OwnerWeekSlate {
       ['Jacksonville State', 'Whited'],
       ['North Dakota State', 'Whited'],
     ]),
-    {}
+    {},
+    MATCHUPS_TEST_NOW_MS
   ).find((entry) => entry.owner === 'Whited');
   assert.ok(ownerSlate, 'owner slate should exist');
   return ownerSlate;
@@ -665,7 +751,7 @@ test('the excluded-games summary counts a game between two unclaimed teams (Item
 
 test('no owner slate is built for the reserved sentinel (Item 713)', () => {
   const { games, rosterByTeam } = confirmedDraftScenario();
-  const slates = deriveOwnerWeekSlates(games, rosterByTeam, {});
+  const slates = deriveOwnerWeekSlates(games, rosterByTeam, {}, MATCHUPS_TEST_NOW_MS);
 
   assert.deepEqual(
     slates.map((slate) => slate.owner).sort(),
@@ -693,7 +779,7 @@ test('an unclaimed FBS opponent takes the non-owner descriptor branch (Item 713)
   // descriptor must fall through to the FCS/placeholder/NoClaim (FBS) ladder
   // rather than substitute an empty owner. Previously this rendered `vs NoClaim`.
   const { games, rosterByTeam } = confirmedDraftScenario();
-  const alice = deriveOwnerWeekSlates(games, rosterByTeam, {}).find(
+  const alice = deriveOwnerWeekSlates(games, rosterByTeam, {}, MATCHUPS_TEST_NOW_MS).find(
     (slate) => slate.owner === 'Alice'
   );
   assert.ok(alice, "Alice's slate should exist");
@@ -709,7 +795,7 @@ test('two unclaimed teams are not a self matchup (Item 713)', () => {
   // reported as one owner playing themselves — with a `Counts as 1W / 1L`
   // accounting claim — for a game no member owns.
   const { games, rosterByTeam } = confirmedDraftScenario();
-  const slates = deriveOwnerWeekSlates(games, rosterByTeam, {});
+  const slates = deriveOwnerWeekSlates(games, rosterByTeam, {}, MATCHUPS_TEST_NOW_MS);
 
   assert.equal(
     slates.some((slate) => slate.owner === NO_CLAIM_OWNER),
