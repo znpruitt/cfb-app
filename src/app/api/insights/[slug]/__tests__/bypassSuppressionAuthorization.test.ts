@@ -315,7 +315,9 @@ test('ENVIRONMENT: with ADMIN_API_TOKEN unset IN production the guard refuses', 
       'admin-token-server-misconfigured'
     );
   } finally {
-    (process.env as Record<string, string | undefined>).NODE_ENV = previousNodeEnv;
+    if (previousNodeEnv === undefined)
+      delete (process.env as Record<string, string | undefined>).NODE_ENV;
+    else (process.env as Record<string, string>).NODE_ENV = previousNodeEnv;
   }
 });
 
@@ -327,6 +329,17 @@ test('ENVIRONMENT CONTROL: the same direct call authorizes a valid token in prod
   try {
     assert.equal(await requireAdminAuth(asAdmin('?bypassSuppression=1')), null);
   } finally {
-    (process.env as Record<string, string | undefined>).NODE_ENV = previousNodeEnv;
+    if (previousNodeEnv === undefined)
+      delete (process.env as Record<string, string | undefined>).NODE_ENV;
+    else (process.env as Record<string, string>).NODE_ENV = previousNodeEnv;
   }
+});
+
+test('ENVIRONMENT: the two tests above restore NODE_ENV by DELETING it, not by assigning undefined', () => {
+  // `process.env.X = undefined` coerces to the five-character string
+  // `"undefined"`, which is truthy and is not `'production'` — so every
+  // `=== 'development'` / `=== 'test'` branch in any transitively imported module
+  // flips for whatever runs next. Harmless only while those two tests are LAST in
+  // the file, which is not a property a file keeps. Red before the fix.
+  assert.notEqual(process.env.NODE_ENV, 'undefined');
 });
