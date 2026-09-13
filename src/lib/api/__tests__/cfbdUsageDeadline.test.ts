@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test, { afterEach, beforeEach } from 'node:test';
 
-import { CFBD_PEAK_LATENCY_TIMEOUT_MS, CFBD_USAGE_PROBE_TIMEOUT_MS } from '../cfbdRequestPolicy.ts';
+import { CFBD_USAGE_PROBE_TIMEOUT_MS } from '../cfbdRequestPolicy.ts';
 import {
   __fetchCfbdUsageWithTimeoutForTests,
   fetchCfbdUsage,
@@ -232,9 +232,24 @@ test('a 200 whose body is not JSON at all still THROWS — unavailable stays dis
 // 4. The value, and the delegation the seam cannot reach.
 // ---------------------------------------------------------------------------
 
-test('the probe ceiling is 40s and starts life equal to the payload ceiling', () => {
+test('the probe ceiling is its own 40s value, not the payload ceiling by reference', () => {
   assert.equal(CFBD_USAGE_PROBE_TIMEOUT_MS, 40_000);
-  assert.equal(CFBD_USAGE_PROBE_TIMEOUT_MS, CFBD_PEAK_LATENCY_TIMEOUT_MS);
+
+  // Their equality is deliberately NOT asserted. The two constants hold the same
+  // number today for different reasons, and pinning that here would rebuild in
+  // the suite exactly the coupling that was just removed from the source: a
+  // payload-driven edit to the `/games` ceiling would turn this test red and
+  // invite someone to "fix" it by moving the probe's ceiling too. The reviewers
+  // split on this point; this follows the one that keeps them independent.
+  //
+  // What IS worth pinning is that the probe's value cannot move by reference.
+  const src = readFileSync(new URL('../cfbdRequestPolicy.ts', import.meta.url), 'utf8');
+  assert.match(src, /export const CFBD_USAGE_PROBE_TIMEOUT_MS = 40_000;/);
+  assert.doesNotMatch(
+    src,
+    /export const CFBD_USAGE_PROBE_TIMEOUT_MS = CFBD_PEAK_LATENCY_TIMEOUT_MS;/,
+    'the probe ceiling must not be an alias of the payload ceiling'
+  );
 });
 
 test('fetchCfbdUsage delegates with CFBD_USAGE_PROBE_TIMEOUT_MS, not a literal', () => {

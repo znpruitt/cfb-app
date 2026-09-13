@@ -46,16 +46,28 @@ export const CFBD_PEAK_LATENCY_TIMEOUT_MS = 40_000;
  * does not protect the gated work — it CANCELS it. A tighter ceiling therefore
  * buys nothing and costs samples: against the series above, 30s would drop 2 of
  * 33 observations and 40s drops none, each drop being a 6-hour hole in an
- * append-only series that exists to be read. The invocation envelope admits it:
- * `season-transition/route.ts:58` declares `maxDuration = 300` and ships, which
- * rules out a 60s plan cap, and a 44,596ms `schedule-refresh` run completed in
- * production, which puts the floor above 44.6s. (None of the probe's own callers
- * declare `maxDuration`, so they take the platform default — the point is only
- * that the ceiling is far above 80s.) A 40s probe ahead of 40s of gated work is
- * therefore not close to binding.
+ * append-only series that exists to be read.
+ *
+ * ## What the invocation envelope is, and what it is NOT known to be
+ *
+ * Stated precisely, because an earlier revision of this docblock overreached and
+ * a review caught it. MEASURED: the plan permits at least 300s
+ * (`season-transition/route.ts:58` declares `maxDuration = 300` and ships), and
+ * the default envelope is at least 44.6s (a 44,596ms `schedule-refresh` run
+ * completed in production). NOT MEASURED: the default itself. None of this
+ * probe's callers declare `maxDuration`, so they take the platform default, and
+ * nothing here establishes it exceeds 80s — which is what a 40s probe followed
+ * by a 40s payload call would need. The earlier text asserted that anyway.
+ *
+ * So the 40s ceiling is justified by the LATENCY distribution above, not by
+ * envelope headroom. If the default envelope is in fact 60s, a pathological
+ * probe plus a pathological payload call still overruns it — but strictly less
+ * often than before this item, when the probe alone could hold the invocation
+ * for 300s. Declaring `maxDuration` on the probe's callers, or measuring the
+ * default, is separate work and is reported rather than assumed here.
  *
  * What the deadline actually buys is that the refusal is CLEAN and ATTRIBUTABLE
  * and leaves budget to record itself, instead of the platform killing a hung
  * invocation with an unresolved attempt open.
  */
-export const CFBD_USAGE_PROBE_TIMEOUT_MS = CFBD_PEAK_LATENCY_TIMEOUT_MS;
+export const CFBD_USAGE_PROBE_TIMEOUT_MS = 40_000;

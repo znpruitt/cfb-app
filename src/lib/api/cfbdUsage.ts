@@ -86,10 +86,21 @@ export function resolveCfbdUsage(data: CfbdInfoResponse): CfbdUsage {
  *
  * ## A timed-out probe is not a provider-data failure
  *
- * It throws, and every caller's `catch` already maps a thrown probe to
+ * It throws, and the six `fresh: true` QUOTA GATES already map a thrown probe to
  * "usage unavailable" — the same conservative path a probe that RETURNS
- * unavailable lands on. The gate's job is to decide whether to spend; a
- * deadline changes when that decision is reached, never what it is.
+ * unavailable lands on. The gate's job is to decide whether to spend; a deadline
+ * changes when that decision is reached, never what it is.
+ *
+ * The two CACHED callers differ and are named rather than swept into that
+ * sentence, which an earlier revision of this docblock did:
+ *   - `systemHealth.ts` already races this call against its own 8s loader bound,
+ *     so its behaviour is unchanged for any ceiling above 8s.
+ *   - `admin/usage/route.ts` returns HTTP 500 `usage-fetch-failed`, and
+ *     `fetchCfbdUsageSnapshot` re-throws on it. So on that ONE surface the
+ *     deadline is a real behaviour change: a `/info` slower than the ceiling
+ *     used to render eventually and now 500s. Against the measured distribution
+ *     (max 37.0s) the ceiling leaves ~8% headroom, so this is a narrow tail, but
+ *     it is a tail and not nothing.
  */
 export async function fetchCfbdUsage(options: { fresh?: boolean } = {}): Promise<CfbdUsage> {
   return probeCfbdUsage(options, CFBD_USAGE_PROBE_TIMEOUT_MS);
@@ -118,6 +129,15 @@ async function probeCfbdUsage(options: { fresh?: boolean }, timeoutMs: number): 
     ? ({ cache: 'no-store' } as const)
     : ({ next: { revalidate: 600 } } as const);
 
+  // NO PACING, decided rather than overlooked. Every other CFBD call through
+  // this helper passes a `cfbd`-keyed 150ms policy, and a review reasonably
+  // asked why this one does not. Two reasons. The pattern-match is not itself an
+  // argument — #632 records the rule for exactly this situation ("Decide
+  // separately; do not sweep it in on pattern-match alone") — and the shared key
+  // would make the probe queue behind unrelated CFBD traffic, converting other
+  // callers' spacing into latency for a call that sits AHEAD of the work it
+  // gates and inside the same invocation budget. Adopting it is a real decision
+  // with a real cost, so it is reported as follow-up work, not swept in here.
   const parsed = await fetchUpstreamJson<unknown>('https://api.collegefootballdata.com/info', {
     headers: { Authorization: `Bearer ${cfbdApiKey}`, Accept: 'application/json' },
     timeoutMs,
