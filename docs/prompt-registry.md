@@ -163,10 +163,7 @@ These consolidate recurring historical observations, not new project-governance 
 - Deferred finding: the pre-existing normalized-rank lookup mismatch is filed separately as
   [#760](https://github.com/znpruitt/cfb-app/issues/760); PLATFORM-671 widens its rendered population
   but does not change ranking identity.
-- Status: Implemented on `codex/671-live-finals-tag-slot` (`1bfecf1d`, `ecfc36e6`, `63600dd9`,
-  `8ba38f31`, `97c03ecb`, `a6eb1e89`, `fa0c6573` + this closeout); four review rounds are complete
-  and merge is pending. [#671](https://github.com/znpruitt/cfb-app/issues/671) and
-  [#716](https://github.com/znpruitt/cfb-app/issues/716) stay open until merge.
+- Status: MERGED `1d0cc3f8` (PR #763), 2026-09-13. Flipped 2026-09-13 by an ancestry sweep — it described the feature branch.
 
 ### PLATFORM-662-UPSTREAM-BODY-DEADLINE-CLAUDE-v1
 
@@ -299,8 +296,7 @@ These consolidate recurring historical observations, not new project-governance 
 - Contract: Production FBS artwork comes from the durable catalog; seed-backed FBS/FCS can use retained schedule provider IDs. Populated artwork failing the dark-surface/64px-family/host gate blocks fallback; absent/empty artwork permits it. Missing or failed images leave an empty slot. Provider IDs remain paired with their participant; URL changes recover, same-URL retries are bounded.
 - Evidence / review: Owner selected 28px from 14–28px comparisons on phone/desktop. Measured coverage: 138/138 production FBS, 126/128 catalog FCS, 100/100 FCS opponents on the live slate. Review findings resolved; build, TypeScript, lint and 253 affected tests passed. Full suite retained only Item 137 failures; measured net +8 tests (14 added, six retired/replaced).
 
-- Status: Implemented — PR #719; owner authorized merge after this documentation closeout on
-  2026-09-10.
+- Status: MERGED `3c000300` (PR #719), 2026-09-11. Flipped 2026-09-13 by an ancestry sweep — it read **owner authorized merge**, which describes permission rather than outcome.
 
 ### PLATFORM-119-TEAM-COLOUR-BAR-CODEX-v2
 
@@ -362,9 +358,7 @@ These consolidate recurring historical observations, not new project-governance 
 - Review: A post-delete cleanliness assertion is retained only as a postcondition, not proof of inheritance detection. The first exposure probe silently ran zero tests for bracketed route paths; corrected coverage was 389 files, zero zero-test rows, 5,105 tests. Corrupt-payload probing proves store reads, not that realistic inheritance changes assertions. Test delta 0; Item 137 baseline only.
 - Recorded sequencing (2026-09-10): Item 210 destructive-seam protection first, then Item 209 unique paths/cleanup and ten exposed suites; Item 208 settings-error/hold conflation separately. This slice did not generalize a newly recognized destructive delete. See L1, L4–L5.
 
-- Status: Implemented on `claude/207-planner-test-isolation` (`4a9f47a6` + `f9b65a9f` + this
-  closeout); Codex returned no findings, Claude's round resolved in one, merge pending at time of
-  writing. No production code changed, so nothing to deploy or click.
+- Status: MERGED `a08c8e7e` (PR #593), 2026-09-10. Flipped 2026-09-13 by an ancestry sweep — it described the feature branch.
 - Source links: [`docs/campaigns/item-209-app-state-test-isolation.md`](campaigns/item-209-app-state-test-isolation.md).
 
 ### PLATFORM-204-CATALOG-EMPTY-GUARD-CLAUDE-v1
@@ -374,11 +368,7 @@ These consolidate recurring historical observations, not new project-governance 
 - Impact / evidence: Source enumeration found 17 readers/one writer. Empty catalogs also threaten season probes, archives, rollover, owner CSV repair, Insights, records, draft pages and debug output; guarding standings did not fix those readers. Executed builder/store probes confirmed empty replacement and absence-vs-empty behavior.
 - Review: Measured +12 tests; positive replacement and negative refusal mutations discriminated both directions. Removing the standings guard exposed degraded success. JSDOM assertions were changed to booleans so regression fails rather than hanging during object inspection. Reviewer command failures were reproduced with passing targeted suites before being classified as tooling artifacts. Only Item 137 baseline failures remained; production resync was still the owner's unperformed action. See L1, L4, L6.
 
-- Status: Implemented on `claude/204-catalog-empty-guard` (`ca70a2c3` + `4f5e92de` + this closeout);
-  both reviews resolved in one round, merge pending at time of writing. **Production still needs its
-  resync click — the owner's action, deliberately not performed, and now guarded:** a bad CFBD
-  response at the moment it is pressed leaves the catalog untouched and shows a red refusal naming
-  what was kept.
+- Status: MERGED `6ae1bd72` (PR #592), 2026-09-10. Flipped 2026-09-13 by an ancestry sweep — it described the feature branch.
 
 ### PLATFORM-199-ALTERNATE-COLOUR-MAPPING-CLAUDE-v1
 
@@ -386,24 +376,21 @@ These consolidate recurring historical observations, not new project-governance 
 - Evidence: CFBD returned 138 rows with `alternateColor` and none with `altColor`; the durable catalog had 138 primaries/zero alternates. Resolver replay reduced fallback teams 13 → 3 (navy plus extreme-neutral white still rejected). All five relevant checks failed against the reverted fix; changing the stored name affected eight files, including four production files. Measured +4 tests, both reviews clean, Item 137 baseline only.
 - Historical boundary: This entry anticipated Item 119's color bar and required an owner resync, which was not performed here. The resolver had no production consumers at this checkpoint. The later PLATFORM-198 entry records the owner's logo replacement; that does not erase the ingest correction or its original rationale.
 
-- Status: Implemented on `claude/199-alternate-colour-mapping` (`d8007afe` + this closeout); reviews
-  resolved, merge pending at time of writing.
+- Status: MERGED `1cfa9df1` (PR #591), 2026-09-09. Flipped 2026-09-13 by an ancestry sweep — it described the feature branch.
 
 ### PLATFORM-179-AWAITING-ANCHOR-CODEX-v2
 
 - Change: Item 179 uses en dash `–` (U+2013) for the shared non-scheduled null-score anchor, including a live row with one missing score. Scheduled anchors stay blank; final presentation requires both scores. Item 170 closed without code after confirming intended owner-first clipping.
 - Verification: Three literals checked, old-glyph assertions retargeted, scheduled guard rejects either dash. Independent review clean; test delta 0, 663 component tests passed, only Item 137 baseline failures. No layout, tag, outcome-rail, or tint change.
 
-- Status: Implemented on `codex/170-179-scoreboard-row` (`6d3014fc` + this closeout); reviews resolved,
-  merge pending at time of writing.
+- Status: MERGED `d913ede6` (PR #589), 2026-09-09. Flipped 2026-09-13 by an ancestry sweep — it described the feature branch.
 
 ### PLATFORM-173A-FEATURED-TAG-SLOT-CODEX-v2
 
 - Change: Featured forwards existing highlight tags and its postseason badge through the shared status-row `tagSlot`, replacing the separate `contextSlot` line; selection/precedence stay unchanged. Badge styling survives except `leading-normal`: the 21px badge clipped in a 16px slot, so it now inherits `leading-none`.
 - Review: Both reviewers found clipping; remediation also replaced a greedy article-wide regex with scoped JSDOM. Mutations proved tags and fit, while the watchlist assertion stayed green when Featured tags were removed. Confirmations left only filed Items 187/195. Test delta 0, 74 focused tests passed, only Item 137 baseline failures.
 
-- Status: Implemented on `codex/173-overview-tags` (`05873bc0`, `64497b51` + this closeout); reviews
-  resolved, merge pending at time of writing.
+- Status: MERGED `00e3fccc` (PR #588), 2026-09-09. Flipped 2026-09-13 by an ancestry sweep — it described the feature branch.
 
 ### PLATFORM-143-MATCHUPS-STATUS-ROW-CODEX-v5
 
@@ -411,8 +398,7 @@ These consolidate recurring historical observations, not new project-governance 
 - Contract: Tags use the fixed right edge of the 16px status row with scheduled-only phone wrapping and `leading-none`; recursive renderability preserves the exact untagged branch. Overview's disruption guard/sectioning, Schedule behavior, odds, provider classification and polling were unchanged.
 - Review: Both reviewers found the accepted clipping P2; one remediation passed its previously failing assertion. Static markup does not prove pixel height. Disrupted-label and awaiting-window findings were rejected against the explicit v5 rulings. Measured +5 tests; only Item 137 baseline failures. Net diff +467/−95 across 12 files, smaller than abandoned v3.
 
-- Status: Implemented on `codex/143-status-row-v2` (`63e92a15`, `71cf1250` + this closeout); reviews
-  resolved, merge pending at time of writing.
+- Status: MERGED `ac965a19` (PR #587), 2026-09-09. Flipped 2026-09-13 by an ancestry sweep — it described the feature branch.
 - Other source hashes: `d399411a`.
 
 ### PLATFORM-143-MATCHUPS-STATUS-ROW-CODEX-v3
@@ -439,9 +425,7 @@ These consolidate recurring historical observations, not new project-governance 
 - Review: Route-level verification on a file-store copy caught a writer refusal consuming a pass and falsely reporting corrected zero; production `updated_at` remained identical. Changing the satisfaction gate required re-deriving empty-response semantics. Measured +64 tests; only Item 137 baseline failures.
 - Open: Initial polling window Item 131, raw-category gap Item 193, refresh-status correction Item 194, dedicated health reader Item 197; unknown-kickoff coverage and repeated idle re-probes retained as bounded findings. No production reconciliation was run. See L1, L4, L6.
 
-- Status: Implemented on `claude/110b-correction-reconciliation` (`1329fef9`, `2003dd69`,
-  `1d4d984d` + this closeout); reviews resolved, no production run — the gate forbids it and
-  promotion stays with the owner.
+- Status: MERGED `9b150eb0` (PR #590), 2026-09-09. Flipped 2026-09-13 — the cited branch commits were rebased away, so an ancestry test could not see this one; the PR is the evidence.
 
 ### PLATFORM-110A-GAME-STAT-RECOVERY-CLAUDE-v1
 
@@ -450,17 +434,14 @@ These consolidate recurring historical observations, not new project-governance 
 - Evidence correction: The approved normalized table showed 26 deltas but omitted approximately thirty raw-only differences (including Florida State tackles 0 → 33); it understated the change. Rebuilt evidence compares raw category dictionaries, the merge unit. Existing raw-only unknown categories cannot be overwritten and replay reports unchanged; they are not publicly projected, so Item 193 is storage hygiene, not exposed wrong data.
 - Review / open: One cohesive round fixed unenforced empty/partial/stale invariants and evidence errors; seven mutations, measured +33 tests, only Item 137 baseline failures. Item 194 retained the stale partition success receipt; Item 192 recorded the startup write-credential exposure. Recurring reconciliation belongs to 110B. See L1, L4–L6.
 
-- Status: Implemented on `claude/110a-game-stat-recovery` (`03cf0d90`, `b04ce2b9` + this closeout);
-  reviews resolved, production apply authorized and performed by the owner, merged to `main`.
-  Promotion stays with the owner.
+- Status: MERGED 2026-09-09 as `03cf0d90` — **pushed directly to `main`, no PR**; the commit sits on main's first-parent chain, so there is no merge commit to cite. Flipped 2026-09-13 by an ancestry sweep — it described the feature branch.
 
 ### PLATFORM-174-175-176-178-180-OVERVIEW-CONFORMANCE-CLAUDE-v3
 
 - Change: Items 174/175/176/178/180 implement Overview conformance: live/awaiting broadcast, no final broadcast; remove shared `Streaming ·` while retaining `Radio ·` (Schedule deliberately inherits this); bronze-pill watchlist reason; hide empty Featured; opt-in 17px/650 game-section headers, leaving GB Race 15px/500. The header exception had been documented since 2026-09-03 but not implemented. Tag selection/shared-scoreboard code stayed outside scope.
 - Review: Corrected prompt/citation claims and two blind verification instruments. Featured visibility and streaming removal were mutation-proven; DOM output cannot observe caller-side broadcast enumeration because the shared component already filters it, so a structural pin carries a retirement condition. Measured +6 tests; Item 137 baseline only. Final lows filed as Items 185–187, including the third chip under a cap counting two. See L1–L2, L4.
 
-- Status: Implemented on `claude/174-178-overview-conformance` (`0f2ec105`, `e5a3cbb4` + this
-  closeout); reviews resolved, merge pending at time of writing.
+- Status: MERGED `9867652c` (PR #586), 2026-09-09. Flipped 2026-09-13 by an ancestry sweep — it described the feature branch.
 - Other source hashes: `4ba486e3`.
 
 ### PLATFORM-157-162-163-TAG-VOCABULARY-CLAUDE-v2
@@ -469,16 +450,14 @@ These consolidate recurring historical observations, not new project-governance 
 - Ranking decision: Retiring a chip must not silently remove its watchlist signal. `hasTop25RankedTeam` preserves the one-ranked signal without a chip. Owner ruled every Top 25 Matchup above non-top-25 games, with lowest average pair rank first. Contender Watch's selection influence was real even though its claimed five-of-six prevalence was not reproduced.
 - Evidence / review: Corrected citations, a missed `Self` descriptor branch, and an assertion about never-rendered `NoClaim (FBS)`. On 2026-09-08, 777 poll entries across 19 stored weeks were all integers 1–25, so bound protections were latent. Four passes corrected upper/lower bounds, false universal-bound claims, colliding `hasRankedTeam` names and unlabeled measurements. +9 tests, only Item 137 baseline failures. Items 169/170 and dead scoring term 171 remained follow-ups. See L1–L3.
 
-- Status: Implemented on `claude/157-162-163-tag-vocabulary` (`a008b39c`, `1f4b83a4`, `ca2a13f9`,
-  `2e9c7468`, `3da3c42e`, `0d741e81` + this closeout); merge pending.
+- Status: MERGED `3e2385e6` (PR #585), 2026-09-08. Flipped 2026-09-13 by an ancestry sweep — it described the feature branch.
 
 ### PLATFORM-153-EYEBROW-TREATMENT-CLAUDE-v1
 
 - Change: Shared `EYEBROW_TAG_CLASSES` / `EYEBROW_REASON_CLASSES` replace four treatments across Overview, Schedule and Matchups. Use the 0.5px bronze border and 10px text; preserve shipped radius/padding/tracking rather than non-authoritative mockup values. Schedule's 1px border changes visibly; neutral filled watchlist chips become uppercase/unfilled. Overview reason text is bronze and its conference-championship badge slate; amber upset border retired. Selection/placement and champion amber stay outside scope.
 - Evidence / review: Runtime confirmed emitted utilities and actual glyph colors. The claimed 1.37:1 contrast did not reproduce: pill text/champion amber is 2.13:1; 1.32:1 describes a different pair. Seven findings fixed, including a repository-wide guard replacing a three-file inventory, shared `shrink-0`, stable file reads, and restored styling assertions. Measured +5 tests, Item 137 baseline only. Featured badge styling and Matchups owner-summary blue remained follow-ups. See L1–L3.
 
-- Status: Implemented on `claude/153-eyebrow-treatment` (`8cb888e9`, `10d0e046` + this closeout);
-  merge pending.
+- Status: MERGED `19ccc370` (PR #584), 2026-09-08. Flipped 2026-09-13 — same rebase case as PLATFORM-110B.
 - Other source hashes: `67224b39`, `59f7003e`.
 
 ### PLATFORM-155-MATCHUPS-SCHEDULED-ROW-CODEX-v2
@@ -486,8 +465,7 @@ These consolidate recurring historical observations, not new project-governance 
 - Change: Matchups consumes the already-loaded participant records: right-edge anchors for scheduled rows, equivalent inline placement otherwise; absent records remain blank. Footer space is reserved only for a caller-supplied slot. Overview explicitly retains its two-column band; Matchups/Schedule lose dead scheduled space, with Schedule odds still tier 2. v2 corrects v1's assumption that all reservation was accidental.
 - Verification / limits: +5 tests, 179 focused tests, TypeScript/lint clean and Item 137 baseline only. Mutations proved blank anchors, footer ownership, awaiting equivalence and unchanged Overview. Runtime exercised orientation, five route payloads and cross-year isolation. Normalization drift goes to Item 156; Schedule records remain unwired. No new selector, loader, scoreboard prop, outcome-rail or promotion behavior.
 
-- Status: Implemented and reviewed on `codex/155-matchups-scheduled-row` (`00ab9d69` + this closeout);
-  merge pending.
+- Status: MERGED `c6582fe7` (PR #583), 2026-09-08. Flipped 2026-09-13 by an ancestry sweep — it described the feature branch.
 
 ### PLATFORM-144-ITEM-87-DOC-RECONCILIATION-CLAUDE-v1
 
@@ -495,7 +473,7 @@ These consolidate recurring historical observations, not new project-governance 
 - Decisions: Blank anchor supersedes spread fallback at all four restatements; storage failure differs from an unwired surface; records degradation is conditional. Mockup retained squared facing tint corners at `0 -8px`, restored status label/ESPN2, marked stale notes, and annotated Item 152's 1320 arithmetic. Discharged claims were checked against code or binding docs.
 - Verification / open: No runtime change or review round; lint/TypeScript passed, tests retained Item 137 baseline. Reported queue gaps included postseason grouping, Featured blue, 0–0 owner header, member highlight, `displayOwner` guard, missing color-removal/dependency notes, and drifting design line citations. This is historical reconciliation, not fresh implementation of those obligations.
 
-- Status: Implemented on `claude/144-item-87-doc-reconciliation` (`62f9c6a5` + this closeout); merge pending.
+- Status: MERGED `08a31979` (PR #582), 2026-09-08. Flipped 2026-09-13 by an ancestry sweep — it described the feature branch.
 
 ### PLATFORM-117-MATCHUPS-SCOREBOARD-CODEX-v2
 
@@ -1242,7 +1220,7 @@ These consolidate recurring historical observations, not new project-governance 
 - Change: Reconstruct current architecture/operations around present auth, provider jobs, storage, diagnostics and control-plane behavior; move useful completed F2 history to a dated archive and repair doc maps/roadmap links. Distinguish enforced platform-admin-only access from planned commissioner/member roles. Correct two stale System Health descriptions without changing runtime policy or permissions.
 - Review / boundary: Owner approved sequential reconstructions and the cross-doc pass; 25-file +3,362/−10,616 diff chiefly deletes repeated history. Reviewed against live code inventories before cohesive authority/procedure/link remediation. Pre-remediation gates passed; exact remediation evidence belongs to PR #513. Feature branch remained unmerged at this entry.
 
-- Status: Implemented on the feature branch; not yet merged.
+- Status: UNVERIFIABLE from this entry — 2026-09-13 ancestry sweep. It records no merge commit and no surviving hash on `main`, so whether this branch merged or its work reached `main` another way is not recoverable here. **The document it produced IS on `main`**, so the OUTCOME shipped; only the route is unrecorded. Left as a known gap rather than asserted either way.
 - Other source hashes: `67195db3`.
 
 ### DOCS-017-APP-ARCHITECTURE-SKETCH-v1
@@ -1256,7 +1234,7 @@ These consolidate recurring historical observations, not new project-governance 
   depicts scores, odds, ownership, and presentation as overlays feeding selectors/components and UI.
 - Review / verification: checked against `AGENTS.md`, the current architecture overview and game-data
   flow; Markdown structure, local links, and diff integrity verified.
-- Status: Implemented on the feature branch; not yet merged.
+- Status: UNVERIFIABLE from this entry — 2026-09-13 ancestry sweep. It records no merge commit and no surviving hash on `main`, so whether this branch merged or its work reached `main` another way is not recoverable here. **The document it produced IS on `main`**, so the OUTCOME shipped; only the route is unrecorded. Left as a known gap rather than asserted either way.
 
 ### DOCS-016-DEPLOYMENT-RUNBOOK-RECONSTRUCTION-v1
 
@@ -1270,7 +1248,7 @@ These consolidate recurring historical observations, not new project-governance 
   moved to a dated operations archive; one canonical five-schedule `CRON_SECRET` rotation replaced
   the accumulated two/four/five-schedule variants.
 - Review / verification: cross-reference, Markdown-link, stale-claim, and diff-integrity checks.
-- Status: Implemented on the feature branch; not yet merged.
+- Status: UNVERIFIABLE from this entry — 2026-09-13 ancestry sweep. It records no merge commit and no surviving hash on `main`, so whether this branch merged or its work reached `main` another way is not recoverable here. **The document it produced IS on `main`**, so the OUTCOME shipped; only the route is unrecorded. Left as a known gap rather than asserted either way.
 
 ### DOCS-015-VISION-REFRESH-v1
 
@@ -1284,7 +1262,7 @@ These consolidate recurring historical observations, not new project-governance 
   preserves the private-link entry decision; and frames commissioner signup as conditional growth.
 - Review / verification: checked against the current roadmap, production activation records, and
   documentation ownership map; Markdown lint and diff-integrity checks completed.
-- Status: Implemented on the feature branch; not yet merged.
+- Status: UNVERIFIABLE from this entry — 2026-09-13 ancestry sweep. It records no merge commit and no surviving hash on `main`, so whether this branch merged or its work reached `main` another way is not recoverable here. **The document it produced IS on `main`**, so the OUTCOME shipped; only the route is unrecorded. Left as a known gap rather than asserted either way.
 
 ### DOCS-014-PROMPT-REGISTRY-COMPACTION-v1
 
@@ -1297,7 +1275,7 @@ These consolidate recurring historical observations, not new project-governance 
   history instead of living in the active ledger.
 - Review / verification: structural checks cover heading uniqueness, chronological placement of the
   repaired entries, prompt-ID coverage, five-field shape for compacted records, and Markdown lint.
-- Status: Implemented on the feature branch; not yet merged.
+- Status: UNVERIFIABLE from this entry — 2026-09-13 ancestry sweep. It records no merge commit and no surviving hash on `main`, so whether this branch merged or its work reached `main` another way is not recoverable here. **The document it produced IS on `main`**, so the OUTCOME shipped; only the route is unrecorded. Left as a known gap rather than asserted either way.
 
 ### PLATFORM-110-SCHEDULE-VANISHED-GAME-LOGGING-v2
 
