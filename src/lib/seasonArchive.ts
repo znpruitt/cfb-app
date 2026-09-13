@@ -2,6 +2,8 @@ import { revalidateTag, unstable_cache } from 'next/cache';
 import { cache } from 'react';
 
 import { getAppState, setAppState, listAppStateKeys } from './server/appStateStore.ts';
+import { MIN_SEASON_YEAR, type LeagueStatus } from './league.ts';
+import { resolveLeagueOperatingYear } from './selectors/leagueLifecycle.ts';
 import type { StandingsHistory, StandingsHistoryStandingRow } from './standingsHistory.ts';
 import type { AppGame } from './schedule.ts';
 import type { ScorePack } from './scores.ts';
@@ -189,6 +191,109 @@ export const listSeasonArchives = cache(async (leagueSlug: string): Promise<numb
     throw err;
   }
 });
+
+export type ArchiveYearResolution = { ok: true; year: number } | { ok: false; error: string };
+
+/**
+ * Digits only, deliberately — `Number()` reads `2026.5`, `2e10` and `0x7E0` as
+ * numbers, and `Number.parseInt` accepts trailing junk. Mirrors #770's
+ * `parseYearParam`, whose shape and error contract this bound reuses.
+ */
+function parseArchiveYearSegment(raw: string): number | null {
+  if (!/^\d+$/.test(raw)) return null;
+  const n = Number.parseInt(raw, 10);
+  return Number.isSafeInteger(n) ? n : null;
+}
+
+/**
+ * Bound a CALLER-SUPPLIED archive year — #774.
+ *
+ * THE UNCLOSED HALF OF A DOCUMENTED HAZARD, which is the most useful thing to
+ * know about this function. `rolloverTargeting.ts` already refuses an unusable
+ * year on the WRITE side, and its own comment names `2026.5` by name: an
+ * unvalidated year there would "mint a permanent, TTL-less archive" under such a
+ * key. PLATFORM-086F2H1R4 hardened the writer against exactly this value. The
+ * READ side was never given the same guard, so `getSeasonArchive` would mint the
+ * cache entry the writer had been forbidden to mint. This is not a new class of
+ * defect; it is the other half of one the codebase had already diagnosed, and
+ * the precedent for the fix was already here.
+ *
+ * WHY THE CALLERS APPLY THIS AND `getSeasonArchive` DOES NOT. Only a caller can
+ * tell a year a CLIENT sent from one the SERVER derived, and only the former may
+ * ever be rejected — #770's rule, and the reason its bound lives at its route.
+ * `getSeasonArchive` stays unbounded so every server-derived read still works.
+ * This lives here rather than in each caller because there are TWO of them (the
+ * API route and the RSC page) and they had already drifted into two independent
+ * copies of the same broken parser — which is how the page came to share the
+ * defect without sharing a line of code.
+ *
+ * INTEGERS ARE THE LARGER HALF OF THE FIX. A range alone still admits infinitely
+ * many values between any two years, so the accepted set stays dense and no
+ * enumeration bounds it. `parseArchiveYearSegment` is what collapses it to a
+ * countable one.
+ *
+ * THE CEILING IS THE OPERATING YEAR, NOT `currentYear + 1`. #770 accepts next
+ * season because a league legitimately OPERATES in one during rollover. An
+ * ARCHIVE of a future season cannot exist — an archive is the record of a season
+ * that finished — so #770's ceiling would admit at least one year no league can
+ * ever hold.
+ *
+ * THE DISJUNCT IS LOAD-BEARING, and it is not belt-and-braces. Measured against
+ * production on 2026-09-13, every league's newest archive is at or below its
+ * operating year, so the range alone rejects nothing genuine TODAY. That is a
+ * fact about the current registry, not a property of the code: a legacy record
+ * whose top-level year sits below its own newest archive would have that archive
+ * refused. Consulting the archive list makes rejecting a year the league
+ * genuinely holds STRUCTURALLY impossible instead of merely unlikely.
+ *
+ * IT ALSO COSTS NO NEW CACHE IDENTITY, which is what makes it safe to consult
+ * from a bound whose whole purpose is to stop cache growth.
+ * `listSeasonArchives` is keyed `['season-archive-years', slug]` — slug alone,
+ * no caller-supplied value reaches it — is `React.cache`-wrapped per request,
+ * and is already read by seven league pages plus `/api/history/[slug]`. It runs
+ * ONLY when the range has already rejected, so probing absurd years costs one
+ * slug-keyed cached read and mints nothing.
+ *
+ * BOUNDING ON THE ARCHIVE LIST ALONE WOULD BE WRONG, and this is why it is a
+ * disjunct rather than the whole rule. It would refuse the league its own
+ * operating year (no archive exists for a season still under way), and it would
+ * turn every GAP year into a refusal — `tsc` genuinely has holes at 2019 and
+ * 2020 — converting the history page's designed "no archived data" empty state
+ * into a `notFound()`, and answering "no archive" with "bad year". Those are
+ * different questions and they deserve different answers.
+ *
+ * A STORE FAILURE MUST PROPAGATE, never be read as "no archives". Treating a
+ * failed read as an empty list would reject a year the league genuinely holds
+ * because the database blinked — the exact property this disjunct exists to
+ * guarantee — and it is the same rule `readArchiveYearsFromStore`'s own header
+ * states for the cache callbacks.
+ */
+export async function resolveArchiveYearParam(
+  leagueSlug: string,
+  raw: string,
+  league: { status?: LeagueStatus | null; year: number }
+): Promise<ArchiveYearResolution> {
+  const operatingYear = resolveLeagueOperatingYear(league);
+
+  // TRIMMED ONCE, and the single decision below reads the trimmed value. A
+  // padded-but-legitimate segment (`/history/tsc/%202026%20`) is served today
+  // and collapses onto the same cache entry as the bare year, so it is not part
+  // of the defect and refusing it would be an unreviewed second behaviour
+  // change. #770 shipped that inconsistency and had it caught at review.
+  const parsed = parseArchiveYearSegment(raw.trim());
+
+  if (parsed !== null) {
+    if (parsed >= MIN_SEASON_YEAR && parsed <= operatingYear) return { ok: true, year: parsed };
+    if ((await listSeasonArchives(leagueSlug)).includes(parsed)) return { ok: true, year: parsed };
+  }
+
+  // Names BOTH admitting conditions. Stating only the range would misdescribe
+  // the bound to the one caller the disjunct exists for.
+  return {
+    ok: false,
+    error: `year must be an integer between ${MIN_SEASON_YEAR} and ${operatingYear}, or a season this league has archived`,
+  };
+}
 
 /**
  * Bust the cross-request archive cache for a league+year. Called from

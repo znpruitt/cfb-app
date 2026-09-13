@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import { isPlatformAdminSession } from '@/lib/server/adminAuth';
 import { getLeague } from '@/lib/leagueRegistry';
-import { getSeasonArchive } from '@/lib/seasonArchive';
+import { getSeasonArchive, resolveArchiveYearParam } from '@/lib/seasonArchive';
 import {
   selectFinalStandings,
   selectOwnerRoster,
@@ -28,14 +28,28 @@ export default async function SeasonDetailPage({
   const { slug, year: yearStr } = await params;
   const gate = await renderLeagueGateIfBlocked(slug);
   if (gate) return gate;
-  const year = Number(yearStr);
 
-  if (!Number.isFinite(year) || year < 2000) {
-    notFound();
-  }
-
+  // HOISTED ABOVE THE YEAR CHECK — #774. The bound is relative to the league, so
+  // the record has to be in hand first. Both reads are `React.cache`-wrapped and
+  // the gate above has already done them, so this costs nothing and changes no
+  // outcome: an unknown league still reaches the same `notFound()`.
   const [isAdmin, league] = await Promise.all([isPlatformAdminSession(), getLeague(slug)]);
   if (!league) notFound();
+
+  // #774 — this page carried its OWN copy of the API route's broken parser
+  // (`Number(yearStr)`, a floor, no ceiling, no integer test) and so shared the
+  // defect without sharing a line of code. Measured before the fix:
+  // `/history/<slug>/2029.25` and `/2029.75` each rendered 200 and each minted
+  // its own `revalidate: false` archive cache entry. One resolver now serves both
+  // callers; only the refusal differs, and this one stays `notFound()`.
+  //
+  // The empty state below is why the ceiling is the operating year rather than
+  // the archive list: an in-range season the league simply has no archive for —
+  // `tsc` genuinely has gaps at 2019 and 2020 — must still render it. Bounding on
+  // the archive list alone would turn that designed surface into a `notFound()`.
+  const resolved = await resolveArchiveYearParam(slug, yearStr, league);
+  if (!resolved.ok) notFound();
+  const year = resolved.year;
 
   const archive = await getSeasonArchive(slug, year);
 
