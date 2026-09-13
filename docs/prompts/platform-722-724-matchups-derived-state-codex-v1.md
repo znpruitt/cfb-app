@@ -201,6 +201,47 @@ special-case, and do not change the record contract to make the two numbers agre
 closeout as a deliberate, ruled outcome so the next reader does not file it as a defect — 39 games
 are affected this season.
 
+## RULINGS ON THE v3 RECEIPT — 2026-09-13, binding. Items 1, 2, 4, 6 accepted as reported.
+
+**Item 5 accepted as a CORRECTION of mine.** "21 call sites / 24 mechanical test edits" described no
+real population. The figures are **11** direct clockless slate-selector test calls, plus **19**
+clockless snapshot/roster calls once the Members seam is included. Use yours.
+
+**Item 3 accepted and verified independently.** Five pages mount `CFBScheduleApp` — Overview,
+`matchups`, `members`, `schedule`, `standings` — and **only `src/app/league/[slug]/page.tsx:48` seeds
+`initialNowMs`**. So Matchups is a parameter pass and Members is not, and the clock reaching four more
+route pages IS the slice size. (An earlier round seeded those routes, but on a branch that was
+restructured rather than merged — it is not on `main`.)
+
+**Item 7 is the most valuable finding in the receipt.** `compareSlates` using the counts as owner-card
+**sort keys** is exactly the reader-meaning that matters: distinct-game counting reorders cards, not
+merely renders different numbers. And `selectSlateGameVisibility` **already deduplicating
+independently** is why #712 is invisible in the row list and visible only in the stat.
+
+### The eight contradictions
+
+**(c) Selector layer — you are right, with a boundary.** `AGENTS.md:193` makes derivation outside
+`src/lib/selectors/` an architecture violation. **Put the new distinct-population and surface-projection
+code in `src/lib/selectors/`. Do NOT relocate the rest of `matchups.ts`** — that is a pre-existing
+question, and moving it here would bury this change under a refactor.
+
+**(e) and (f) — the OWNER RULING stands over the review.** A live row behind disclosure is accepted as
+specified; guaranteeing its visibility would add a priority bucket contradicting #724's contract. And
+**per-surface row agreement is the invariant — cross-surface equality is not**, so a `startTimeTBD`
+divergence between Matchups and Members is not a defect in this slice. **Where a review finding and an
+owner ruling conflict, the ruling wins and the finding is recorded as SUPERSEDED**, never silently
+dropped.
+
+**(h) Selector-layer dedup is required by (c).** A shared harness under `src/test` is **not** —
+**keep fixtures local unless the same construction appears in more than two files.** If it does, name
+them and say why in the receipt rather than creating new top-level test infrastructure inside a slice.
+
+**(i) The `preview` grant transfers to v3.** It was slice-scoped, not literally branch-scoped; this is
+the same #722/#724 work, and the platform lane's suspension still holds, so single-writer is
+preserved. **Declining to assume it was correct** — say so when you take the ref.
+
+**(d) and (g) went to the owner and are answered — see OWNER RULINGS above.**
+
 ## SEAM AUDIT — added 2026-09-13, after the owner asked whether I had audited readers and writers; I had not, and the answer changes the guidance
 
 **What the ruling says about Members — *"reuse/extract the complete predicate that produces its row
