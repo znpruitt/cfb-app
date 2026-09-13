@@ -103,24 +103,32 @@ These consolidate recurring historical observations, not new project-governance 
   items through signals derived over the measured 79-item `keyMatchups` population. Routing,
   ordering, caps, Featured, Watchlist, Matchups and Schedule are unchanged.
 - Outcome: Live and Recent finals render the existing fact-only `top25` / `close` vocabulary; no
-  Overview producer emits `Upset`, whose predicate remains separate work. An exact numeric 0-0 pack
-  is indistinguishable here between a placeholder and a real live tie. Preventing the unacceptable
-  placeholder `close` excludes both: a genuine 0-0 live game also loses the tag. That false negative
-  is routine but mostly benign in the opening minutes; the real cost is a rare late defensive 0-0,
-  exactly when `close` is most informative. Nonzero close margins remain eligible. With an empty
-  rankings map, `top25` cannot fire and rows remain untagged; that is a sequenced dependency.
-  [#716](https://github.com/znpruitt/cfb-app/issues/716) remains open because Watchlist is unchanged.
-- Review / verification: two passes, no Codex findings; its second verification did not execute, so
-  only the verdict carries. `/code-review` found status-keyed containment and a vacuous fixture.
-  Reinstating that predicate failed both boundary assertions; excluding both ids failed the ranked
-  positive control. Test delta: +3 tests, one existing test expanded, none removed. At `63600dd9`,
-  `lint:all`, TypeScript, the full suite and required browser gate exited 0. The two-id vocabulary
-  cannot exercise the two-chip cap or produce a container-state tag; those are contract/structural
-  pins, not claimed behavioral regressions. Phone-width relief awaits owner decision
-  [#758](https://github.com/znpruitt/cfb-app/issues/758).
-- Status: Implemented and reviewed on `codex/671-live-finals-tag-slot` (`1bfecf1d`, `ecfc36e6`,
-  `63600dd9` + this closeout); [#671](https://github.com/znpruitt/cfb-app/issues/671) stays open until
-  merge.
+  Overview producer emits `Upset`, whose predicate remains separate work. `Close` now requires a
+  trusted route and evidence the reader can verify: Awaiting score is never eligible, a final needs
+  a nonzero margin, and Live needs nonzero points or period/clock evidence. A real clocked 0-0 Live
+  tie therefore keeps `Close`; a generic `In Progress` 0-0 loses it until clock/period or scoring
+  evidence arrives. The latter is the deliberate false negative that prevents a kickoff placeholder
+  claiming a close contest. An owner read-only measurement on 2026-09-12 found 20,497 score-row
+  occurrences, 42 at 0-0 and 33 of those marked final; 0-0 finals are treated as disrupted or
+  incomplete artifacts, never close contests. With an empty rankings map, `top25` cannot fire and
+  rows remain untagged; that is a sequenced dependency. [#716](https://github.com/znpruitt/cfb-app/issues/716)
+  remains open because Watchlist is unchanged.
+- Evidence / verification: the `ScorePack.time` writer/consumer audit covered both typed shapes via
+  compiler mutation plus every loose production mirror. All semantic writers persist kickoff or
+  null there; the scoreboard puts period/clock in `status`. A separate read-only measurement of all
+  15 current production score partitions found 20,496 row occurrences at that instant: 19,969 null
+  times, 527 ISO kickoffs, and no clocks, status labels or other values. `formatLiveGameClock` is
+  reused rather than giving `time` a new meaning. Mutations admitting Awaiting, evidence-free Live,
+  or zero-margin finals each failed their named assertion; ranked `top25` controls prove only
+  `close` is excluded. Final-state focused tests passed 31/31; `lint:all`, TypeScript, the full suite
+  (5,234/5,234), and the required browser gate (1/1) exited 0. Two sandboxed full-suite attempts
+  failed only the Chrome-start and loopback-refusal capability tests; the unrestricted gate is the
+  green evidence. The two-id vocabulary cannot exercise the two-chip cap or produce a
+  container-state tag; those remain honest structural/contract pins rather than claimed behavioral
+  regressions. Phone-width relief awaits owner decision [#758](https://github.com/znpruitt/cfb-app/issues/758).
+- Status: Implemented on `codex/671-live-finals-tag-slot` (`1bfecf1d`, `ecfc36e6`, `63600dd9`,
+  `8ba38f31`, `97c03ecb`, `a6eb1e89` + this closeout); final-state review and merge pending.
+  [#671](https://github.com/znpruitt/cfb-app/issues/671) stays open until merge.
 
 ### PLATFORM-713-MATCHUPS-NOCLAIM-SEAM-CLAUDE-v1
 

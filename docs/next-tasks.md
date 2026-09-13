@@ -700,10 +700,10 @@ Acceptance boundary:
 This is the canonical deferral register. These items are explicitly not scheduled. Resolved entries
 are removed rather than retained with strikethrough; their outcomes live in `docs/completed-work.md`.
 
-- **Overview Live / Recent-finals phone tag fit ([#758](https://github.com/znpruitt/cfb-app/issues/758)).** Their fact pills use the fixed status-row edge
-  without Featured's `max-sm:` relief. `DESIGN.md` gates that wrapping exemption on scheduled state,
-  while these rows are Live or Final. Decide whether to widen the established Featured pattern;
-  PLATFORM-671 deliberately makes no phone-width style change.
+- **Overview Live / Recent-finals phone tag fit ([#758](https://github.com/znpruitt/cfb-app/issues/758)).** Their fact pills use the fixed status-row edge.
+  The existing `max-sm:` wrapping relief is gated on scheduled state and therefore belongs to
+  scheduled Matchups/Schedule rows, not Featured or these Live/Final rows. Decide whether Live/Final
+  needs its own relief; PLATFORM-671 deliberately makes no phone-width style change.
 - **Team-record reconciliation log volume.** Persistent equal-time score conflicts or participant
   mismatches emit one structured error on every request to each of five dynamic league routes. The
   failure must remain distinguishable from a legitimate empty reconciliation, so any rate limit or
