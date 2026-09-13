@@ -201,7 +201,7 @@ special-case, and do not change the record contract to make the two numbers agre
 closeout as a deliberate, ruled outcome so the next reader does not file it as a defect — 39 games
 are affected this season.
 
-## RULINGS ON THE v3 RECEIPT — 2026-09-13, binding. Items 1, 2, 4, 6 accepted as reported.
+## RULINGS ON THE v3 RECEIPT — 2026-09-13, binding; items 1, 2, 4 and 6 accepted as reported
 
 **Item 5 accepted as a CORRECTION of mine.** "21 call sites / 24 mechanical test edits" described no
 real population. The figures are **11** direct clockless slate-selector test calls, plus **19**
