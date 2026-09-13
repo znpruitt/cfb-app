@@ -482,16 +482,30 @@ async function runUpstreamAttempts<T>(
 
 /**
  * Headers-only fetch. CONTRACT UNCHANGED by PLATFORM-662: the per-attempt
- * deadline still ends when this returns, because the caller — not this function
- * — decides when and whether to read the body.
+ * deadline ends when this returns, because the caller — not this function —
+ * decides when and whether to read the body.
  *
- * IT HAS NO CALLERS THAT READ A BODY, AND SHOULD NOT GAIN ONE. A body read out
- * here is unbounded by construction — that is the defect this item exists to
- * remove, and the odds lane proved it cannot be fixed from outside: a deadline
- * armed by the caller cannot see the retry loop's attempt boundaries, so it
- * either spans attempts it does not belong to or grants a fresh budget per
- * phase. Use {@link fetchUpstreamJson}, or {@link fetchUpstreamConsuming} when
- * the response itself is needed, and let the loop own both phases.
+ * ## A body read out here is UNBOUNDED, and one exists today
+ *
+ * `oddsRefreshExecutor` is the sole caller and it does read the body
+ * (`oddsRefreshExecutor.ts`, after its usage capture), with no deadline on that
+ * read. That is the other half of the defect PLATFORM-662 fixed for
+ * `fetchUpstreamJson`, and it is STILL OPEN, tracked as
+ * [#759](https://github.com/znpruitt/cfb-app/issues/759). This docblock says so
+ * rather than asserting a property the file does not have: an earlier revision
+ * of this comment claimed there were no body-reading callers, which stopped
+ * being true the moment the odds attempt was reverted, and a claim that was
+ * never true reads as documentation forever.
+ *
+ * #662 tried three models for fixing it from OUT HERE and all three failed, for
+ * one reason worth keeping: a deadline armed by the caller cannot see the retry
+ * loop's attempt boundaries, so it either spans attempts it does not belong to
+ * (discarding a successful retry) or grants a fresh budget per phase. #759
+ * carries that evidence. The fix belongs inside the loop, not around it.
+ *
+ * NEW CALLERS SHOULD USE {@link fetchUpstreamJson}, which reads the body inside
+ * the attempt's deadline and retry. Reach for this function only when the
+ * RESPONSE itself is needed, and do not add a second unbounded body read.
  */
 export async function fetchUpstreamResponse(
   url: string,
@@ -525,28 +539,6 @@ export async function fetchUpstreamJson<T>(
     { ...options, throwOnHttpError: true },
     async (res) => (await res.json()) as T
   );
-}
-
-/**
- * Fetch and consume the response INSIDE the attempt's deadline and retry loop.
- *
- * For the caller that needs the RESPONSE, not just its JSON — `oddsRefreshExecutor`
- * reads usage headers and handles non-OK statuses itself, so it cannot use
- * `fetchUpstreamJson`. `consume` runs where `fetchUpstreamJson`'s read runs, so
- * it gets the same single deadline spanning both phases, the same per-attempt
- * budget, the same retry decision, and the same failure vocabulary.
- *
- * CONSUME MUST NOT PERFORM DURABLE WORK. It runs once per attempt and inside the
- * transport budget; a durable write in here would be retried with the request and
- * would spend the body's deadline. Copy what is needed off the response —
- * `headers` do not expire — and do the durable work after this returns.
- */
-export async function fetchUpstreamConsuming<T>(
-  url: string,
-  options: FetchUpstreamResponseOptions,
-  consume: (res: Response) => Promise<T>
-): Promise<T> {
-  return runUpstreamAttempts<T>(url, options, async (res) => consume(res));
 }
 
 /**

@@ -20,7 +20,7 @@
  */
 
 import {
-  fetchUpstreamConsuming,
+  fetchUpstreamResponse,
   sanitizeUpstreamUrl,
   UpstreamFetchError,
   type UpstreamPacingPolicy,
@@ -322,30 +322,6 @@ function usageHeadersTrustworthy(headers: Headers): boolean {
   );
 }
 
-/**
- * The odds provider request budget, per attempt, spanning headers AND body — the
- * shared attempt loop owns both phases, so there is one number and one timer.
- *
- * ## Why this stays at 12s when the ten CFBD sites moved to 40s
- *
- * PLATFORM-662 changed what every upstream `timeoutMs` MEANS: it used to bound
- * connect+headers, and now bounds the whole exchange. Ten CFBD call sites were
- * raised to `CFBD_PEAK_LATENCY_TIMEOUT_MS`, because leaving 12s would have
- * silently moved them from effectively unbounded to below CFBD's MEASURED
- * completion band (PLATFORM-115: 8.2s, 16.0s, 21.5s).
- *
- * This is THE ODDS API, a different provider, and [#632](…/issues/632) names it
- * explicitly: "Decide separately; do not sweep it in on pattern-match alone."
- * No equivalent latency band has been measured for it, so raising it to a
- * CFBD-derived constant would assert something about a provider nobody sampled.
- *
- * RECORDED SO IT IS NOT MISTAKEN FOR AN OVERSIGHT: this lane did narrow, from
- * unbounded-body to a 12s total, and that narrowing is deliberate and unproven
- * rather than measured. [#756](…/issues/756) owns getting it an observation
- * window; the honest next step is a measured band, not a borrowed number.
- */
-const ODDS_UPSTREAM_TIMEOUT_MS = 12_000;
-
 function safeDetailFromUpstream(error: UpstreamFetchError): SafeUpstreamDetail {
   return {
     kind: error.details.kind,
@@ -442,83 +418,21 @@ export async function executeOddsRefresh(params: {
   });
 
   // ---- Provider request (real credential URL; caller retry policy) ----
-  //
-  // PLATFORM-662, third model and the one the evidence actually supports. The
-  // first two put a durable usage write between the headers and the body and
-  // then argued about where the deadline went; two review rounds prescribed
-  // OPPOSITE placements for that write, which is the signal that the placement
-  // was never the variable.
-  //
-  // `captureOddsUsageSnapshot(headers, context)` takes Headers, not a Response.
-  // The usage snapshot therefore has NO ordering dependency on the body at all —
-  // the original "capture BEFORE parsing" comment was encoding a guarantee
-  // ("recorded even if parsing fails") that sequencing happened to provide.
-  // Copying the headers off the response and persisting AFTER the fetch gives
-  // that guarantee strictly better: it also covers the abort and transport paths,
-  // where the ordering version never ran at all.
-  //
-  // With the write out of the way, this lane has no reason to own a body read.
-  // The shared loop takes both phases, so the attempt budget, the retry decision
-  // and the failure vocabulary are the ones every other caller gets, and the
-  // second deadline — with its cross-attempt remainder arithmetic — is deleted
-  // rather than placed a third time.
-  type OddsUpstreamOutcome =
-    | { ok: false; status: number; statusText: string }
-    | { ok: true; data: unknown };
-
-  // Written by `consume` on every attempt that reaches headers, INCLUDING one
-  // whose body then fails: that request was billed and its usage must still be
-  // recorded. Holds the last attempt's headers.
-  let responseHeaders: Headers | null = null;
-  let outcome: OddsUpstreamOutcome | null = null;
-  let upstreamError: unknown = null;
-
+  let upstreamRes: Response;
   try {
-    outcome = await fetchUpstreamConsuming<OddsUpstreamOutcome>(
-      buildOddsProviderUrl(apiKey, query),
-      {
-        cache: 'no-store',
-        timeoutMs: ODDS_UPSTREAM_TIMEOUT_MS,
-        retry,
-        pacing,
-        throwOnHttpError: false,
-      },
-      async (res) => {
-        // Stashed BEFORE the body read, and nothing durable happens in here.
-        responseHeaders = res.headers;
-        if (!res.ok) return { ok: false, status: res.status, statusText: res.statusText };
-        return { ok: true, data: (await res.json()) as unknown };
-      }
-    );
+    upstreamRes = await fetchUpstreamResponse(buildOddsProviderUrl(apiKey, query), {
+      cache: 'no-store',
+      timeoutMs: 12000,
+      retry,
+      pacing,
+      throwOnHttpError: false,
+    });
   } catch (error) {
-    upstreamError = error;
-  }
-
-  // Capture + persist usage from the HEADERS (the request spent credits
-  // regardless of how the body ended), OUTSIDE the transport budget so a cold
-  // durable write can neither be aborted by the body deadline nor consume it.
-  // Only trustworthy headers become this request's usage; otherwise
-  // captureOddsUsageSnapshot would return the cached pre-probe balance and commit
-  // that PRE-SPEND value into the raw cache (which public `/api/odds` prefers). A
-  // null here keeps the committed entry from advertising a stale balance; the
-  // automatic caller applies a conservative global estimate instead (remediation).
-  const billedHeaders: Headers | null = responseHeaders;
-  if (billedHeaders) {
-    usageFromHeaders = usageHeadersTrustworthy(billedHeaders);
-    usage = usageFromHeaders ? await captureOddsUsageSnapshot(billedHeaders, usageContext) : null;
-  }
-
-  if (upstreamError !== null) {
-    // ONE classified failure path for both phases. Only `parse` — bytes that
-    // arrived and were not JSON — may claim knowledge of a payload; a timeout or
-    // a dead transport never finished answering, so it is a fetch failure.
-    if (upstreamError instanceof UpstreamFetchError && upstreamError.details.kind === 'parse') {
-      return await rejectPayload('odds-invalid-payload');
-    }
+    // Transport/timeout/network — record failure, return a safe detail.
     const detail =
-      upstreamError instanceof UpstreamFetchError
-        ? safeDetailFromUpstream(upstreamError)
-        : { kind: 'network' as const, message: 'odds provider request failed', url: '' };
+      error instanceof UpstreamFetchError
+        ? safeDetailFromUpstream(error)
+        : { kind: 'network', message: 'odds provider request failed', url: '' };
     const result = oddsRefreshResult('failure', 'provider-fetch-failed', 502);
     await recordProviderRefreshFailure('odds', scope, {
       attempt,
@@ -529,11 +443,15 @@ export async function executeOddsRefresh(params: {
     return base(result, { providerErrorDetail: detail });
   }
 
-  const upstreamOutcome = outcome as OddsUpstreamOutcome;
-
-  if (!upstreamOutcome.ok) {
-    // Usage was captured from the headers above — on this path and every other.
-    if (upstreamOutcome.status === 402 || upstreamOutcome.status === 429) {
+  if (!upstreamRes.ok) {
+    usageFromHeaders = usageHeadersTrustworthy(upstreamRes.headers);
+    // Only trust RESPONSE-DERIVED usage when the headers are trustworthy. Otherwise
+    // captureOddsUsageSnapshot returns the cached pre-probe balance, which would be
+    // reported as this billed request's post-call usage (review remediation).
+    usage = usageFromHeaders
+      ? await captureOddsUsageSnapshot(upstreamRes.headers, usageContext)
+      : null;
+    if (upstreamRes.status === 402 || upstreamRes.status === 429) {
       // Quota-exhaustion signal. TRUSTWORTHY headers are authoritative and kept
       // as-is (even an explicit `remaining: 0` — its real `lastCost`/source). Only
       // when the headers are missing/malformed do we author the zero fallback AND
@@ -558,9 +476,9 @@ export async function executeOddsRefresh(params: {
     // Never read/return the raw response body.
     const detail: SafeUpstreamDetail = {
       kind: 'http',
-      message: `Upstream request failed with status ${upstreamOutcome.status}`,
-      status: upstreamOutcome.status,
-      ...(upstreamOutcome.statusText ? { statusText: upstreamOutcome.statusText } : {}),
+      message: `Upstream request failed with status ${upstreamRes.status}`,
+      status: upstreamRes.status,
+      ...(upstreamRes.statusText ? { statusText: upstreamRes.statusText } : {}),
       url: sanitizeUpstreamUrl(buildOddsProviderUrl(apiKey, query)),
     };
     const result = oddsRefreshResult('failure', 'provider-fetch-failed', 502);
@@ -568,13 +486,28 @@ export async function executeOddsRefresh(params: {
       attempt,
       error: detail.message,
       code: 'provider-fetch-failed',
-      status: upstreamOutcome.status,
+      status: upstreamRes.status,
     });
     return base(result, { providerErrorDetail: detail });
   }
 
-  const upstreamData = upstreamOutcome.data;
+  // Capture + persist usage BEFORE parsing (the request spent credits regardless).
+  // Only trustworthy headers become this request's usage; otherwise
+  // captureOddsUsageSnapshot would return the cached pre-probe balance and commit
+  // that PRE-SPEND value into the raw cache (which public `/api/odds` prefers). A
+  // null here keeps the committed entry from advertising a stale balance; the
+  // automatic caller applies a conservative global estimate instead (remediation).
+  usageFromHeaders = usageHeadersTrustworthy(upstreamRes.headers);
+  usage = usageFromHeaders
+    ? await captureOddsUsageSnapshot(upstreamRes.headers, usageContext)
+    : null;
 
+  let upstreamData: unknown;
+  try {
+    upstreamData = await upstreamRes.json();
+  } catch {
+    return await rejectPayload('odds-invalid-payload');
+  }
   if (!Array.isArray(upstreamData)) {
     return await rejectPayload('odds-invalid-payload');
   }

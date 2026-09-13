@@ -2,12 +2,7 @@ import assert from 'node:assert/strict';
 import { createServer, type Server } from 'node:http';
 import test, { after, before } from 'node:test';
 
-import {
-  fetchUpstreamConsuming,
-  fetchUpstreamJson,
-  fetchUpstreamResponse,
-  UpstreamFetchError,
-} from '../fetchUpstream.ts';
+import { fetchUpstreamJson, fetchUpstreamResponse, UpstreamFetchError } from '../fetchUpstream.ts';
 
 /**
  * PLATFORM-662 — the deadline must span BODY consumption, and the three ways a
@@ -287,29 +282,4 @@ test('#662 MULTI-ATTEMPT: a header timeout on attempt 1 must not poison attempt 
   assert.deepEqual(result.value, { ok: true });
   assert.equal(result.attempts, 2, 'attempt 1 must have timed out and been retried');
   assert.ok(servedCount >= 2, 'the server must actually have seen a second request');
-});
-
-test('#662: fetchUpstreamConsuming inherits the same vocabulary as fetchUpstreamJson', async () => {
-  // The odds lane consumes through this, so its failures must classify
-  // identically — the classification lives in the shared loop, not in either
-  // caller. A consumer reading a body with a bare `res.json()` still gets
-  // `parse` for malformed bytes and `network` for a dead transport.
-  const read = async (mode: BodyMode, timeoutMs: number) => {
-    try {
-      await fetchUpstreamConsuming<unknown>(
-        `${baseUrl}/?mode=${mode}`,
-        { timeoutMs, retry: { maxAttempts: 1 }, throwOnHttpError: false },
-        async (res) => (await res.json()) as unknown
-      );
-      return null;
-    } catch (error) {
-      assert.ok(error instanceof UpstreamFetchError, `expected UpstreamFetchError, got ${error}`);
-      return error.details.kind;
-    }
-  };
-
-  assert.equal(await read('malformed', 5_000), 'parse');
-  assert.equal(await read('socket-death', 5_000), 'network');
-  assert.equal(await read('slow-body', 50), 'timeout');
-  assert.equal(await read('ok', 5_000), null);
 });
