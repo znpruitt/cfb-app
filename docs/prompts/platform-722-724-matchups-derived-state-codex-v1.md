@@ -2,8 +2,10 @@ PROMPT_ID: PLATFORM-722-724-MATCHUPS-DERIVED-STATE-CODEX-v1
 PURPOSE: Matchups derives game state from the score alone, while the row it renders derives it from
 score plus kickoff plus now. That single divergence produces both a card that reports zero live games
 while a row inside it says otherwise (#722) and a sort order the contract does not describe (#724).
-SCOPE: `src/lib/matchups.ts` and its suites; `src/components/MatchupsWeekPanel.tsx` only if the
-convergence requires the panel to pass something it already has. NOT `GameWeekPanel.tsx`, NOT
+SCOPE: `src/lib/matchups.ts`, **`src/lib/ownerView.ts`** (added 2026-09-13 at the receipt gate — it
+holds the second production caller of `deriveOwnerWeekSlates` and the slice is wrong without it), and
+their suites; `src/components/MatchupsWeekPanel.tsx` only if the convergence requires the panel to pass
+something it already has. NOT `GameWeekPanel.tsx`, NOT
 Overview, NOT the shared scoreboard, NOT tags, broadcast, odds or the third-column tier — those are
 slices 2, 3 and 5 of the same residue and they touch different files.
 CARRIES: `docs/campaigns/item-87-INDEX.md` → **CARRY THIS**, LIVE standing rows 1, 6, 7, 8 and 9.
@@ -26,7 +28,27 @@ Slice 1 of 5 in the #672 residue — see `docs/next-tasks.md` → **UI LANE ORDE
 **UI lane, `/Users/zach/cfb-app-codex`.** Branch off current `origin/main` — **verify the SHA rather
 than trusting any written here**, a prompt in this campaign already shipped with a stale one. `npm test`
 exits 0 on clean `main` and **the known-failure set is EMPTY**, so any failure stops the merge. Push
-`preview` with every commit including the closeout.
+**`preview`: SLICE-SCOPED GRANT, see below.**
+
+### `preview` — slice-scoped exception, granted 2026-09-13
+
+**`AGENTS.md:856` is the binding rule and it says Codex does NOT push `preview`.** An earlier version
+of this prompt told you to push it with every commit, which was wrong on its face — corrected here
+after the lane flagged it at the receipt gate.
+
+**A slice-scoped exception IS granted for this branch**, on the reasoning `AGENTS.md` requires:
+the rule exists because two worktrees force-pushing one ref make `preview` ambiguous, and this slice
+changes owner-card counts and slate order — a user-visible surface the owner has historically caught
+defects on by clicking.
+
+**The grant's condition is ONE WRITER TO `preview`, which is not the same as one active lane.** The
+platform lane is concurrently taking #755, and **its kickoff has been amended to suspend
+`CLAUDE.md`'s push-`preview` instruction for that branch** — that suspension is what preserves the
+single-writer property, not lane idleness. It has been notified that the suspension is now
+load-bearing.
+
+So: push the branch and `preview` together with every commit including the closeout. **The grant
+lapses when this slice merges.**
 
 ## One root, two issues — this is why they are one slice
 
@@ -99,6 +121,45 @@ the owner to invoke both against the same commit. Gather both before any remedia
 Pre-merge, on the branch: `docs/prompt-registry.md` entry and the `docs/next-tasks.md` slice row.
 Record the unknown-state ordering decision as taken, and any caller of `getStateFromScore` left
 unconverged with the reason.
+
+## RULINGS ON THE READ RECEIPT — 2026-09-13, binding — the prompt above was wrong in three places
+
+**1. Five callers, not two — accepted, and one of your findings is a third divergence I had not named.**
+`getStateFromScore` accepts a final status **without requiring usable scores**, while the row uses
+`hasUsableFinalScore`. So even the final counter disagrees with the row. That strengthens the
+instruction rather than changing it: **converge the authority; do not patch five call sites.**
+
+**2. SCOPE EXPANDED to `src/lib/ownerView.ts`.** You are right that the slice is wrong without it —
+leaving one of two `deriveOwnerWeekSlates` callers on the score-only path preserves the divergence on
+the owner view, which is the same defect one surface over. The clock is already available there
+(`gameDayContext.now`, `:343`), so it is a parameter pass rather than new plumbing. No collision: the
+platform lane is in `cfbdUsage.ts`.
+
+**3. `nowMs` IS REQUIRED, NOT DEFAULTED — this is the ruling that costs you the most and it is not
+negotiable.** A parameter defaulting to `Date.now()` would leave all 21 call sites compiling untouched
+and every one of them reading the wall clock. **That is precisely how the bombs Item 137 removed got
+in.** Update all 21 sites to pass an explicit fixed clock; 24 mechanical test edits is the price of not
+planting 24 time bombs, and `npm run test:clock-shift` would otherwise find them later at far higher
+cost.
+
+**4. Unknown-state placement accepted as you proposed it** — every non-final, including any future
+unknown, in the single kickoff-ordered non-final group; missing or invalid kickoffs keep the
+end-of-group `MAX_SAFE_INTEGER` placement and key tie-break; finals after every non-final. **Also
+remove `neutral` from `getStateFromScore`'s return type if the helper survives** — an unreachable union
+member is a false claim about the function, and `AGENTS.md` binds that something with no reachable path
+says why in the code or goes. `MatchupPerformanceState.tone === 'neutral'` is unrelated and stays.
+
+**5. `buildOwnerWeekPerformance` is at `:320`, not `:319`.** Accepted; my citation was stale by one.
+
+**6. The `preview` contradiction — you were right and the prompt was wrong.** See the slice-scoped grant
+in *Lane and branch* above, now rewritten. `AGENTS.md:856` says Codex does not push `preview`; a grant
+is slice-scoped and conditional on one writer to the ref. **Both lanes were pushing it earlier today
+under my instruction, which is the ambiguity the rule exists to prevent** — you observed the symptom
+and reported it as a writer moving the ref three times. The grant is now explicit and the platform
+lane's instruction is suspended.
+
+**Nothing else in the receipt needs a ruling.** Item 4's zero is the answer I wanted: the sort is
+unpinned today, so your test is the first thing asserting the contract.
 
 ## STOP — read receipt before writing any code
 

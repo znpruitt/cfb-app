@@ -26,9 +26,14 @@ by the lane that correctly refused to widen into it.
 
 **Platform lane, `/Users/zach/cfb-app-claude`.** Branch off current `origin/main` — **verify the SHA**,
 do not trust one written here. You are currently on a merged branch; return to `claude/base` first.
-`npm test` exits 0 on clean `main` and **the known-failure set is EMPTY**. Push `preview` with every
-commit including the closeout. **`preview` is held by the UI lane** — if you need it, say so and take
-it explicitly.
+`npm test` exits 0 on clean `main` and **the known-failure set is EMPTY**. **`CLAUDE.md`'s push-`preview` instruction is SUSPENDED for this branch.**
+
+**Do not push `preview` at any point on this slice.** A slice-scoped `preview` grant is in force for
+the UI lane's #722/#724 branch, and `AGENTS.md:856` makes such a grant conditional on **one writer to
+`preview`** — a property preserved by this suspension, not by lane idleness. This slice bounds a quota
+probe in `cfbdUsage.ts` and has **no user-visible surface**, so the suspension costs nothing.
+
+Verify locally instead. If you believe you need `preview`, stop and ask — do not take it.
 
 ## The defect
 
