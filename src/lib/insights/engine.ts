@@ -107,11 +107,18 @@ export function shouldSuppressGenerator(g: InsightGenerator, context: InsightCon
   // inferred from absence.
   //
   // This entry LABELS the skip so the diagnostics table can say `gated` instead of
-  // reporting an ordinary zero. It does not enforce it: `bypassSuppression` lifts
-  // everything here and is reachable by any caller on a passwordless league, so
-  // the generator carries its own non-bypassable copy of this check. See the long
-  // note in `generators/membership.ts` — for one round this was the only
-  // placement, and `?bypassSuppression=1` published the withheld card publicly.
+  // reporting an ordinary zero. It does not ENFORCE it: `bypassSuppression` lifts
+  // everything here, and the generator carries its own copy of this check, which
+  // is the enforcement. See the long note in `generators/membership.ts` — for one
+  // round this entry was the only placement, and `?bypassSuppression=1` published
+  // the withheld card publicly.
+  //
+  // BOTH STAY, and #627 is why that needs saying. That change made the flag
+  // platform-admin-only, which does NOT make the generator's copy redundant:
+  // route protection is never the authority, and the copy is what makes the flag
+  // change no SERVED CONTENT at all — measured, not assumed. Deleting it as
+  // obsolete would restore exactly the round named above. AGENTS.md Season Launch
+  // invariant 4 is the rule both placements serve.
   if (
     g.id === 'narrative:membership' &&
     (context.seasonOwners === null || context.membershipDisagreement.length > 0)

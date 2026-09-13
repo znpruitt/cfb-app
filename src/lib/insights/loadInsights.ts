@@ -231,8 +231,10 @@ type RawInsightsPayload = {
  *
  * Deliberately uncached, like the rest of this function: the page exists to show
  * live truth, and an admin opening it occasionally is not the hot path. Do not
- * reach for this from a public surface — that is precisely what PLATFORM-101 is
- * about.
+ * reach for this from a public surface — an anonymous caller who can force an
+ * uncached build is the defect #627 closed for `?bypassSuppression=1`, and
+ * [#770](https://github.com/znpruitt/cfb-app/issues/770) is the same shape still
+ * open through an unbounded `?year=`.
  */
 /**
  * Owners named by a CONFIRMED draft, or null when it is not confirmed.
