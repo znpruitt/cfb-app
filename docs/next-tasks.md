@@ -15,6 +15,14 @@ Supersedes: (none)
 - Only this file may designate work `NEXT` or `CURRENT`.
 - Legacy item numbers are stable cross-reference handles. Gaps mean the completed item was moved to
   `docs/completed-work.md`; do not renumber the remaining entries merely to close a gap.
+- **NEW WORK GETS NO LEGACY ITEM NUMBER. The GitHub issue number IS the handle.** Recorded 2026-09-13
+  after a lane correctly stopped and asked rather than assigning itself one (`AGENTS.md:742` — a lane
+  updates the status of items it was given and never assigns numbers, because two writers drawing from
+  one sequence collide). **The sequence ENDED at 211.** Every prompt since the 2026-09-10 owner
+  decision is keyed by issue number — 678, 692, 713, 722, 727, 732, 733, 755 — and #759 is already
+  carried in this file by issue link alone. Assigning 212 would restart a sequence that decision
+  retired. Key new rows by the issue link; the numbered columns exist only for items that already
+  had one.
 - Keep task context to what a future implementation needs: the unresolved behavior, governing
   decision, dependency, trigger, and acceptance boundary. Do not add review transcripts, commit
   lists, test totals, or shipped implementation narratives.
