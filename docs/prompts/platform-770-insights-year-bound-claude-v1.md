@@ -52,39 +52,35 @@ lane at **~157 ms median** on a 900-game file-backed fixture (7 concurrent store
 are network round trips, so production is higher. And **each distinct value mints another
 `unstable_cache` entry** — unbounded key cardinality from an anonymous caller, not merely wasted work.
 
-## A SECOND CONSUMER — added 2026-09-13, after the owner asked whether I had audited readers and writers and I had not
+## SECOND CONSUMER — REFUTED 2026-09-13 by the receipt, with a positive control; I was wrong twice
 
-**The prompt above originally treated the cache key as the only reader of `resolvedYear`. It is not.**
-The same value feeds a second subsystem, concurrently, in the same `Promise.all` (`route.ts:77-82`):
+**This section originally claimed `loadWeeklyRecap` amplifies an absurd year** via
+`loadRecapContext.ts:44`'s `year < seasonYear` archive filter. **That is false.**
 
-```ts
-loadInsightsForLeague(slug, resolvedYear, { bypassSuppression }),
-league && resolvedYear
-  ? loadWeeklyRecap({ leagueSlug: slug, seasonYear: resolvedYear, ... })
-```
+`loadRecapContextForSeasonScope` (`loadRecapContext.ts:176`) gates on `isWeeklyRecapActiveSeason`,
+which is `status.state === 'season' && status.year === seasonYear` — an **equality** check, not a
+range. With an absurd year it returns `null` **before `loadRecapContext` is called**, so `:44` is
+never reached. **An absurd year makes the recap path do LESS work, not more.** Measured, with the
+control that makes it non-vacuous: a legit year reaches the loader (`absent`) while both absurd years
+stop at the gate (`inactive`). And even if reached, `tsc`'s archives are 2018 and 2021–2025 — all
+already below 2026 — so the amplification factor in production would be **1×**.
 
-`loadWeeklyRecap` → `loadRecapContextForSeasonScope` → `loadRecapContext`
-(`src/lib/recap/loadRecapContext.ts:174`, memoized with React `cache()` on
-`(leagueSlug, seasonYear, now)` — per request, so it does not accumulate across requests the way
-`unstable_cache` does; it still does the work).
+**So the section written to correct a miss was itself wrong, and it named the wrong consumer.**
 
-**And the recap path AMPLIFIES an absurd year rather than merely wasting a lookup.**
-`loadRecapContext.ts:44`:
+**The REAL second consumer is canonical standings**, and it is worse than the recap would have been.
+`getCanonicalStandings({ year: resolvedYear })` → `resolveStandingsYear`, where the override wins
+unconditionally → `canonicalStandingsCacheKeyParts`, which echoes `String(resolvedYear)` exactly as the
+insights key does. **So each distinct year mints TWO cache identities, not one** — and the standings
+entry carries **`revalidate: false`**: tag-only, no time expiry. Its year tag can never fire, and it
+survives on `standingsSlugTag(slug)` alone.
 
-```ts
-const years = (await listSeasonArchives(leagueSlug)).filter((year) => year < seasonYear);
-```
+**The LOCATION ruling survives, on better ground.** Not "the recap path would read the raw value" —
+that was the false premise. **`route.ts:74` is the one place that distinguishes a CALLER-SUPPLIED year
+from a SERVER-DERIVED one, and only the former may ever be rejected.**
 
-**With `seasonYear = 987654321`, every archive passes that filter.** A real year selects the archives
-before it; an absurd one selects ALL of them. So the second consumer's cost grows with the league's
-archive count, in the same request, on the same anonymous input.
-
-**This changes the shape of the fix, not just its size.** A bound applied only where the cache key is
-built would leave the recap path reading the raw value. **The bound belongs where the year is
-RESOLVED — one place, before either consumer — not at either consumer.**
-
-**Treat my reader list as incomplete and re-derive it.** Receipt item 8 is the enumeration I should
-have done before writing this.
+**And there is a second unbounded parse inside this slice's own scope: `loadInsights.ts:445`**
+re-validates `year >= 2000` with no ceiling before assigning its own `resolvedYear`. The prompt named
+`:182` (the key) and missed `:445` (the library's own parse).
 
 ## A class, not an instance — and its reachability differs
 
