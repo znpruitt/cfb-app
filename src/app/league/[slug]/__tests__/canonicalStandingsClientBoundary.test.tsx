@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import test, { beforeEach } from 'node:test';
-import type { ReactElement } from 'react';
+import { cloneElement, type ComponentProps, type ReactElement } from 'react';
 
+import CFBScheduleApp from 'components/CFBScheduleApp';
 import { addLeague } from '@/lib/leagueRegistry';
 import {
   __deleteAppStateFileForTests,
@@ -11,15 +12,13 @@ import {
   __setAppStateReadFailureForTests,
   setAppState,
 } from '@/lib/server/appStateStore';
-import { getCanonicalStandings, type CanonicalStandings } from '@/lib/selectors/leagueStandings';
-import { selectSeasonContext, type SeasonContext } from '@/lib/selectors/seasonContext';
+import { getCanonicalStandings } from '@/lib/selectors/leagueStandings';
+import { selectSeasonContext } from '@/lib/selectors/seasonContext';
 import type { StandingsHistoryWeekSnapshot } from '@/lib/standingsHistory';
-import {
-  teamRecordsClientProps,
-  type TeamRecordsByProviderGameId,
-} from '@/lib/selectors/teamRecordsClient';
-import type { ScheduleWireItem } from '@/lib/schedule';
+import { teamRecordsClientProps } from '@/lib/selectors/teamRecordsClient';
+import type { AppGame, ScheduleWireItem } from '@/lib/schedule';
 import type { TeamRecordItem, TeamRecordsCacheRead } from '@/lib/teamRecords/teamRecordsCache';
+import { renderWithAppContext } from '../../../../components/__tests__/_setup/renderWithAppContext';
 
 import LeagueRootPage from '../page';
 import LeagueMatchupsPage from '../matchups/page';
@@ -84,17 +83,65 @@ function recordCache(
   return { at: Date.UTC(YEAR, 8, 2), year: YEAR, items, uncreditableTeamIds };
 }
 
-type CFBScheduleAppProps = {
-  canonicalStandings?: CanonicalStandings;
-  seasonContext?: SeasonContext;
-  initialNowMs?: number;
-  teamRecordsByProviderGameId?: TeamRecordsByProviderGameId;
-};
+type CFBScheduleAppProps = NonNullable<ComponentProps<typeof CFBScheduleApp>>;
 
 /** The pages return `<main><CFBScheduleApp {...props} /></main>`; read the props. */
-function appProps(page: ReactElement): CFBScheduleAppProps {
+function appElement(page: ReactElement): ReactElement<CFBScheduleAppProps> {
   const main = page as ReactElement<{ children: ReactElement<CFBScheduleAppProps> }>;
-  return main.props.children.props;
+  return main.props.children;
+}
+
+function appProps(page: ReactElement): CFBScheduleAppProps {
+  return appElement(page).props;
+}
+
+function promotableGame(kickoffMs: number): AppGame {
+  return {
+    key: 'members-promotion-observer',
+    eventId: 'members-promotion-observer',
+    week: 1,
+    providerWeek: 1,
+    canonicalWeek: 1,
+    date: new Date(kickoffMs).toISOString(),
+    stage: 'regular',
+    status: 'scheduled',
+    startTimeTBD: false,
+    stageOrder: 1,
+    slotOrder: 1,
+    eventKey: 'members-promotion-observer',
+    label: null,
+    conference: null,
+    bowlName: null,
+    playoffRound: null,
+    postseasonRole: null,
+    providerGameId: null,
+    neutral: false,
+    neutralDisplay: 'home_away',
+    venue: null,
+    isPlaceholder: false,
+    participants: {
+      away: {
+        kind: 'team',
+        teamId: 'georgia',
+        displayName: 'Georgia',
+        canonicalName: 'Georgia',
+        rawName: 'Georgia',
+      },
+      home: {
+        kind: 'team',
+        teamId: 'texas',
+        displayName: 'Texas',
+        canonicalName: 'Texas',
+        rawName: 'Texas',
+      },
+    },
+    csvAway: 'Georgia',
+    csvHome: 'Texas',
+    canAway: 'Georgia',
+    canHome: 'Texas',
+    awayConf: 'SEC',
+    homeConf: 'SEC',
+  };
 }
 
 const SURFACES: ReadonlyArray<[string, (slug: string) => Promise<ReactElement>]> = [
@@ -522,7 +569,7 @@ test('a finished season reaches the client as `final`, not the default', async (
   }
 });
 
-test('every league route seeds the request-time clock', async () => {
+test('every league route seeds a usable clock, and Members does not inherit Overview promotion', async () => {
   // WIDENED from "only the Overview route seeds the request-time promotion
   // clock" (e5a13131). That assertion was correct while `initialNowMs` existed
   // solely for the Overview recent-finals promotion. It no longer does: the
@@ -532,12 +579,13 @@ test('every league route seeds the request-time clock', async () => {
   // render, so every non-final game projects `scheduled` — the card ships
   // `LIVE 0` in the SSR payload and flips after the mount effect.
   //
-  // The promotion itself stays Overview-only; that is `OverviewPanel`'s
-  // concern and is pinned in `OverviewPanelPromotion.test.tsx`, not here.
   await seedLeagueWithAPendingGame();
 
+  const appsBySurface = new Map<string, ReactElement<CFBScheduleAppProps>>();
   for (const [name, render] of SURFACES) {
-    const props = appProps(await render(SLUG));
+    const app = appElement(await render(SLUG));
+    const props = app.props;
+    appsBySurface.set(name, app);
     assert.equal(typeof props.initialNowMs, 'number', `${name} must seed a request-time clock`);
     assert.equal(
       Number.isFinite(props.initialNowMs) && (props.initialNowMs as number) > 0,
@@ -545,4 +593,30 @@ test('every league route seeds the request-time clock', async () => {
       `${name} must seed a usable instant, not the 0 that projects every game scheduled`
     );
   }
+
+  const memberApp = appsBySurface.get('members');
+  assert.ok(memberApp);
+  const nowMs = memberApp.props.initialNowMs as number;
+  const promotableMemberApp = cloneElement(memberApp, {
+    initialGames: [promotableGame(nowMs - 60_000)],
+    initialRoster: [
+      { team: 'Georgia', owner: 'Alice' },
+      { team: 'Texas', owner: 'Bob' },
+    ],
+  });
+  const overviewHtml = renderWithAppContext(
+    cloneElement(promotableMemberApp, { initialWeekViewMode: 'overview' })
+  );
+  assert.match(
+    overviewHtml,
+    /id="overview-live-games"/,
+    'the fixture and observer must expose Overview promotion when that surface is active'
+  );
+
+  const membersHtml = renderWithAppContext(promotableMemberApp);
+  assert.doesNotMatch(
+    membersHtml,
+    /id="overview-live-games"/,
+    'Members must seed its slate clock without activating Overview promotion'
+  );
 });
