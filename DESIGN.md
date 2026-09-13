@@ -199,7 +199,13 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   kickoff or game clock, broadcast, then `Neutral site`. Bullets are conditional separators before
   broadcast and neutral-site metadata, never leading decoration; a row containing only either label
   begins with that label. Broadcast renders for scheduled, live, and awaiting rows, but not finals.
-  `Awaiting score` is an indeterminate post-kickoff subset of live for this presentation rule, and a
+  **`No score reported` is what `Awaiting score` BECOMES 24 hours after kickoff** — the point
+  `POLLING_WINDOW_AFTER_KICKOFF_MS` stops the score pipeline trying, so nothing further is coming and
+  "awaiting" is a claim the app no longer believes. **A fifth state was required because none of the
+  four was truthful there**: not scheduled (kickoff passed), not live, not awaiting, not final (no
+  score) — and folding it into `scheduled` would have recreated the card-versus-row contradiction
+  #722 fixed, under a different label. It counts toward neither live nor final nor scheduled;
+  Members renders its own count, Matchups does not. `Awaiting score` is an indeterminate post-kickoff subset of live for this presentation rule, and a
   broadcast label names the game's carrier rather than claiming it is currently on air
 - **A broadcast label is the outlet NAME, with no qualifier prefix — one exception, `Radio ·`.**
   Added 2026-09-08 (Item 180), recording in the canonical file a rule that had lived only in
@@ -269,6 +275,8 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 - Compact scoreboard state variants share that row anatomy: scheduled uses its metadata header,
   team-record anchors, and an odds footer; live uses a green dot + `Live` + clock status row and score
   anchors; awaiting uses a neutral `Awaiting score` status row with no live dot or live DOM state;
+  **`unavailable` uses a neutral `No score reported` status row** — added 2026-09-13 by
+  [#722/#724](https://github.com/znpruitt/cfb-app/issues/722) (merged `ebc4ec79`, PR #777);
   final uses a neutral `Final` status row and score anchors. In the final variant,
   away → home order remains fixed while the winner receives primary weight and the loser is muted,
   including when the home team won. **A final row carries no date and no time** — for a completed
