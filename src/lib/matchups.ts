@@ -7,6 +7,7 @@ import {
   projectGameScoreboardState,
   type GameScoreboardState,
 } from './selectors/gameScoreboardState.ts';
+import { isAwaitingScoreGame } from './selectors/gameDayConfidence.ts';
 
 export type MatchupBucket = {
   game: AppGame;
@@ -231,24 +232,62 @@ function buildOwnerWeekPerformance(
   };
 }
 
+/**
+ * How a slate's owner card folds the `awaiting` scoreboard state into its live
+ * count. There is ONE state authority — `projectGameScoreboardState` — but the
+ * two surfaces that render these counts derive their ROWS from different
+ * predicates, and a card must agree with the rows beside it:
+ *
+ * - `unbounded` (Matchups): `MatchupsWeekPanel` renders each row from the same
+ *   unbounded `projectGameScoreboardState`, so every `awaiting` game is labelled
+ *   `Awaiting score` in the row and must count as live in the card (#722).
+ * - `bounded` (Members): `OwnerPanel` renders `weekRows` from
+ *   `isAwaitingScoreGame`, which is limited to the current season and the live
+ *   score kickoff window and excludes disrupted labels. Outside that bound the
+ *   row reads `Upcoming`, so the card must count the game as scheduled — an
+ *   unbounded fold here reports `1 live` beside a row saying `Upcoming`, which
+ *   is #722 inverted rather than fixed.
+ *
+ * `now` is required in both variants and is never read from the wall clock
+ * inside the selector: a selector that reads its own clock cannot be tested at a
+ * fixed instant, which is how the time bombs Item 137 removed got in.
+ */
+export type SlateAwaitingPolicy =
+  | { kind: 'unbounded'; now: number }
+  | { kind: 'bounded'; season: number; now: number };
+
 type ProjectedOwnerSlateGame = {
   game: OwnerSlateGame;
+  /** The raw projection, unchanged by the policy — the sort reads this. */
   state: GameScoreboardState;
   kickoffMs: number;
+  /** The policy's verdict on this game for the card's live count. */
+  countsAsLive: boolean;
 };
 
 function projectOwnerSlateGameState(
   game: OwnerSlateGame,
   scoresByKey: Record<string, ScorePack>,
-  nowMs: number
+  policy: SlateAwaitingPolicy
 ): ProjectedOwnerSlateGame {
   const kickoff = game.game.startTimeTBD === true ? null : game.game.date;
   const parsedKickoffMs = kickoff ? Date.parse(kickoff) : Number.NaN;
+  const score = scoresByKey[game.game.key];
+  const state = projectGameScoreboardState(score, kickoff, policy.now);
 
   return {
     game,
-    state: projectGameScoreboardState(scoresByKey[game.game.key], kickoff, nowMs),
+    state,
     kickoffMs: Number.isFinite(parsedKickoffMs) ? parsedKickoffMs : Number.MAX_SAFE_INTEGER,
+    countsAsLive:
+      state === 'live' ||
+      (state === 'awaiting' &&
+        (policy.kind === 'unbounded' ||
+          isAwaitingScoreGame({
+            game: game.game,
+            score,
+            context: { season: policy.season, now: policy.now },
+          }))),
   };
 }
 
@@ -256,7 +295,7 @@ export function deriveOwnerWeekSlates(
   games: AppGame[],
   rosterByTeam: Map<string, string>,
   scoresByKey: Record<string, ScorePack>,
-  nowMs: number
+  policy: SlateAwaitingPolicy
 ): OwnerWeekSlate[] {
   const sections = deriveWeekMatchupSections(games, rosterByTeam);
   const relevantBuckets = [...sections.ownerMatchups, ...sections.secondaryGames];
@@ -285,7 +324,7 @@ export function deriveOwnerWeekSlates(
   return Array.from(slatesByOwner.entries())
     .map(([owner, ownerGames]) => {
       const projectedGames = ownerGames.map((game) =>
-        projectOwnerSlateGameState(game, scoresByKey, nowMs)
+        projectOwnerSlateGameState(game, scoresByKey, policy)
       );
       const sortedProjectedGames = projectedGames.slice().sort((a, b) => {
         // The contract has two groups: every non-final together by kickoff,
@@ -298,9 +337,7 @@ export function deriveOwnerWeekSlates(
         return a.game.game.key.localeCompare(b.game.game.key);
       });
       const gamesForOwner = sortedProjectedGames.map(({ game }) => game);
-      const liveGames = projectedGames.filter(
-        ({ state }) => state === 'live' || state === 'awaiting'
-      ).length;
+      const liveGames = projectedGames.filter(({ countsAsLive }) => countsAsLive).length;
       const finalGames = projectedGames.filter(({ state }) => state === 'final').length;
       const scheduledGames = gamesForOwner.length - liveGames - finalGames;
       const opponentOwners = Array.from(

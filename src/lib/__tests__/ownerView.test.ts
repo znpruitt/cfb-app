@@ -352,3 +352,117 @@ test('POLISH-007: Awaiting score is bounded and never replaces disrupted status'
   );
   assert.notEqual(delayed[0]?.currentStatus, 'Awaiting score');
 });
+
+// ---------------------------------------------------------------------------
+// #722 remediation — the Members owner card and the rows beside it are rendered
+// from ONE `deriveOwnerViewSnapshot` call and appear in ONE `SectionCard`
+// (`OwnerPanel.tsx`), so they must never contradict each other. The card counts
+// through `deriveOwnerWeekSlates`; the rows classify through
+// `isAwaitingScoreGame`, which is bounded to the current season and the live
+// score kickoff window. Every case below asserts BOTH halves — a test that
+// checked only the count could not see the contradiction it exists to prevent.
+// ---------------------------------------------------------------------------
+
+const AWAITING_KICKOFF = '2026-09-05T17:00:00.000Z';
+const AWAITING_KICKOFF_MS = Date.parse(AWAITING_KICKOFF);
+
+function membersSnapshotAt(params: {
+  season: number;
+  now: number;
+  scoresByKey?: Record<string, ScorePack>;
+}) {
+  const game = mismatchGame({ key: 'g', date: AWAITING_KICKOFF });
+  return deriveOwnerViewSnapshot({
+    selectedOwner: 'Alice',
+    standingsRows: [standingsRow({ owner: 'Alice' })],
+    allGames: [game],
+    weekGames: [game],
+    rosterByTeam: roster,
+    scoresByKey: params.scoresByKey ?? {},
+    gameDayContext: { season: params.season, now: params.now },
+  });
+}
+
+test('an in-window scoreless game counts live AND says so in the row (#722 positive control)', () => {
+  // The control the remediation needs: this fixture CAN produce a live count,
+  // so the zero-live assertions below fail for the bound, not because the
+  // fixture was incapable of reaching the branch.
+  const snapshot = membersSnapshotAt({
+    season: 2026,
+    now: AWAITING_KICKOFF_MS + 60 * 60_000,
+  });
+
+  assert.equal(snapshot.weekRows[0]?.currentStatus, 'Awaiting score');
+  assert.equal(snapshot.weekSummary?.liveGames, 1);
+  assert.equal(snapshot.weekSummary?.scheduledGames, 0);
+});
+
+test('a scoreless game past the kickoff window counts scheduled, matching its Upcoming row', () => {
+  // The defect: `projectGameScoreboardState` returns `awaiting` here with no
+  // window bound at all, so an unbounded fold reported `1 live` beside a row
+  // reading `Upcoming` — #722 inverted. Reachable whenever a member selects an
+  // earlier week containing a game that never attached a score row.
+  const snapshot = membersSnapshotAt({
+    season: 2026,
+    now: AWAITING_KICKOFF_MS + 25 * 60 * 60_000,
+  });
+
+  assert.equal(snapshot.weekRows[0]?.currentStatus, 'Upcoming');
+  assert.equal(snapshot.weekSummary?.liveGames, 0);
+  assert.equal(snapshot.weekSummary?.scheduledGames, 1);
+});
+
+test('a scoreless game in a non-current season counts scheduled, matching its Upcoming row', () => {
+  // The second axis `isAwaitingScoreGame` bounds and the projection does not.
+  // `now` sits one hour after kickoff, so only the season disqualifies it.
+  const snapshot = membersSnapshotAt({
+    season: 2025,
+    now: AWAITING_KICKOFF_MS + 60 * 60_000,
+  });
+
+  assert.equal(snapshot.weekRows[0]?.currentStatus, 'Upcoming');
+  assert.equal(snapshot.weekSummary?.liveGames, 0);
+  assert.equal(snapshot.weekSummary?.scheduledGames, 1);
+});
+
+test('a canceled score row past kickoff counts scheduled, matching its Upcoming row', () => {
+  // Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed
+  // behaviour: read the measurement note above `DISRUPTED_RE` in
+  // `src/lib/gameStatus.ts` before reasoning from this test (Item 661).
+  const snapshot = membersSnapshotAt({
+    season: 2026,
+    now: AWAITING_KICKOFF_MS + 60 * 60_000,
+    scoresByKey: {
+      g: {
+        status: 'STATUS_CANCELED',
+        time: 'Canceled',
+        away: { team: 'Wash St', score: null },
+        home: { team: 'Oregon', score: null },
+      },
+    },
+  });
+
+  assert.equal(snapshot.weekRows[0]?.currentStatus, 'Upcoming');
+  assert.equal(snapshot.weekSummary?.liveGames, 0);
+  assert.equal(snapshot.weekSummary?.scheduledGames, 1);
+});
+
+test('the Members counts still sum to the slate size in every bound state', () => {
+  // The acceptance boundary the reclassification must not break: a game may be
+  // recounted, never double-counted or dropped.
+  for (const now of [
+    AWAITING_KICKOFF_MS - 60 * 60_000,
+    AWAITING_KICKOFF_MS + 60 * 60_000,
+    AWAITING_KICKOFF_MS + 25 * 60 * 60_000,
+  ]) {
+    for (const season of [2025, 2026]) {
+      const summary = membersSnapshotAt({ season, now })?.weekSummary;
+      assert.ok(summary);
+      assert.equal(
+        summary.liveGames + summary.finalGames + summary.scheduledGames,
+        summary.totalGames,
+        `counts must sum at season ${season}, now ${now}`
+      );
+    }
+  }
+});

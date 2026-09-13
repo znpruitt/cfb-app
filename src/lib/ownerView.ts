@@ -340,12 +340,15 @@ export function deriveOwnerViewSnapshot(params: {
   );
 
   const weekSections = deriveWeekMatchupSections(weekGames, rosterByTeam);
-  const ownerSlates = deriveOwnerWeekSlates(
-    weekGames,
-    rosterByTeam,
-    scoresByKey,
-    params.gameDayContext.now
-  );
+  // Bounded: `weekRows` above classifies the same games through
+  // `isAwaitingScoreGame`, so the summary counts must honour the same season and
+  // kickoff-window bound. An unbounded fold reports `1 live` beside a row
+  // reading `Upcoming` for any past-week game that never attached a score.
+  const ownerSlates = deriveOwnerWeekSlates(weekGames, rosterByTeam, scoresByKey, {
+    kind: 'bounded',
+    season: params.gameDayContext.season,
+    now: params.gameDayContext.now,
+  });
   const ownerSlate = ownerSlates.find((slate) => slate.owner === resolvedOwner) ?? null;
   const opponentOwners = ownerSlate?.opponentOwners ?? [];
   const totalGames = ownerSlate?.totalGames ?? 0;

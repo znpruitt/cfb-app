@@ -492,7 +492,13 @@ export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.
     nowMs,
     teamLogosById = EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID,
   } = props;
-  const rawOwnerSlates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey, nowMs);
+  // Unbounded: every row in this panel derives its own state from the same
+  // unbounded `projectGameScoreboardState` (see the `scoreboardState` call
+  // above), so the card's live count must fold `awaiting` the same way.
+  const rawOwnerSlates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey, {
+    kind: 'unbounded',
+    now: nowMs,
+  });
   const visibleOwnerSlates = rawOwnerSlates.filter((slate) => displayOwner(slate.owner) !== null);
   // Reorder owner cards to match canonical owner identity when canonical is
   // present so Matchups shares the alphabetical ordering used by Standings/

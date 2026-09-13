@@ -522,19 +522,27 @@ test('a finished season reaches the client as `final`, not the default', async (
   }
 });
 
-test('only the Overview route seeds the request-time promotion clock', async () => {
+test('every league route seeds the request-time clock', async () => {
+  // WIDENED from "only the Overview route seeds the request-time promotion
+  // clock" (e5a13131). That assertion was correct while `initialNowMs` existed
+  // solely for the Overview recent-finals promotion. It no longer does: the
+  // prop seeds `liveStaleClock`, which #722/#724 made load-bearing for the
+  // owner-card slate counts and slate ordering on every surface. Left
+  // unseeded, the clock is `0` for the server render and the first client
+  // render, so every non-final game projects `scheduled` — the card ships
+  // `LIVE 0` in the SSR payload and flips after the mount effect.
+  //
+  // The promotion itself stays Overview-only; that is `OverviewPanel`'s
+  // concern and is pinned in `OverviewPanelPromotion.test.tsx`, not here.
   await seedLeagueWithAPendingGame();
 
-  const overviewProps = appProps(await LeagueRootPage({ params: Promise.resolve({ slug: SLUG }) }));
-  const memberProps = appProps(
-    await LeagueMembersPage({ params: Promise.resolve({ slug: SLUG }) })
-  );
-
-  assert.equal(typeof overviewProps.initialNowMs, 'number');
-  assert.equal(Number.isFinite(overviewProps.initialNowMs), true);
-  assert.equal(
-    Object.prototype.hasOwnProperty.call(memberProps, 'initialNowMs'),
-    false,
-    'Members must not inherit the Overview request-time context'
-  );
+  for (const [name, render] of SURFACES) {
+    const props = appProps(await render(SLUG));
+    assert.equal(typeof props.initialNowMs, 'number', `${name} must seed a request-time clock`);
+    assert.equal(
+      Number.isFinite(props.initialNowMs) && (props.initialNowMs as number) > 0,
+      true,
+      `${name} must seed a usable instant, not the 0 that projects every game scheduled`
+    );
+  }
 });

@@ -325,7 +325,10 @@ test('owner slates sort every non-final by kickoff before finals (Item 724)', ()
     },
   };
 
-  const slate = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey, nowMs)[0];
+  const slate = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey, {
+    kind: 'unbounded',
+    now: nowMs,
+  })[0];
   assert.ok(slate);
   assert.deepEqual(
     slate.games.map((slateGameItem) => slateGameItem.game.key),
@@ -426,9 +429,12 @@ function noClaimRosterSlate(opponents: string[]): {
   opponents.forEach((_, index) => rosterByTeam.set(`Owned${index}`, 'Taylor'));
   for (const opponent of opponents) rosterByTeam.set(opponent, NO_CLAIM_OWNER);
 
-  const ownerSlate = deriveOwnerWeekSlates(games, rosterByTeam, {}, MATCHUPS_TEST_NOW_MS).find(
-    (entry) => entry.owner === 'Taylor'
-  );
+  const ownerSlate = deriveOwnerWeekSlates(
+    games,
+    rosterByTeam,
+    {},
+    { kind: 'unbounded', now: MATCHUPS_TEST_NOW_MS }
+  ).find((entry) => entry.owner === 'Taylor');
   assert.ok(ownerSlate, 'owner slate should exist');
   return { slate: ownerSlate, rosterByTeam };
 }
@@ -442,7 +448,7 @@ function selfGameSlate(): OwnerWeekSlate {
       ['North Dakota State', 'Whited'],
     ]),
     {},
-    MATCHUPS_TEST_NOW_MS
+    { kind: 'unbounded', now: MATCHUPS_TEST_NOW_MS }
   ).find((entry) => entry.owner === 'Whited');
   assert.ok(ownerSlate, 'owner slate should exist');
   return ownerSlate;
@@ -751,7 +757,12 @@ test('the excluded-games summary counts a game between two unclaimed teams (Item
 
 test('no owner slate is built for the reserved sentinel (Item 713)', () => {
   const { games, rosterByTeam } = confirmedDraftScenario();
-  const slates = deriveOwnerWeekSlates(games, rosterByTeam, {}, MATCHUPS_TEST_NOW_MS);
+  const slates = deriveOwnerWeekSlates(
+    games,
+    rosterByTeam,
+    {},
+    { kind: 'unbounded', now: MATCHUPS_TEST_NOW_MS }
+  );
 
   assert.deepEqual(
     slates.map((slate) => slate.owner).sort(),
@@ -779,9 +790,12 @@ test('an unclaimed FBS opponent takes the non-owner descriptor branch (Item 713)
   // descriptor must fall through to the FCS/placeholder/NoClaim (FBS) ladder
   // rather than substitute an empty owner. Previously this rendered `vs NoClaim`.
   const { games, rosterByTeam } = confirmedDraftScenario();
-  const alice = deriveOwnerWeekSlates(games, rosterByTeam, {}, MATCHUPS_TEST_NOW_MS).find(
-    (slate) => slate.owner === 'Alice'
-  );
+  const alice = deriveOwnerWeekSlates(
+    games,
+    rosterByTeam,
+    {},
+    { kind: 'unbounded', now: MATCHUPS_TEST_NOW_MS }
+  ).find((slate) => slate.owner === 'Alice');
   assert.ok(alice, "Alice's slate should exist");
   const unclaimedOpponent = alice.games.find((slateGame) => slateGame.game.key === 'g-mixed');
   assert.ok(unclaimedOpponent, 'the mixed game is on the slate');
@@ -795,7 +809,12 @@ test('two unclaimed teams are not a self matchup (Item 713)', () => {
   // reported as one owner playing themselves — with a `Counts as 1W / 1L`
   // accounting claim — for a game no member owns.
   const { games, rosterByTeam } = confirmedDraftScenario();
-  const slates = deriveOwnerWeekSlates(games, rosterByTeam, {}, MATCHUPS_TEST_NOW_MS);
+  const slates = deriveOwnerWeekSlates(
+    games,
+    rosterByTeam,
+    {},
+    { kind: 'unbounded', now: MATCHUPS_TEST_NOW_MS }
+  );
 
   assert.equal(
     slates.some((slate) => slate.owner === NO_CLAIM_OWNER),
@@ -814,4 +833,47 @@ test('two unclaimed teams are not a self matchup (Item 713)', () => {
     false,
     'no slate game is a self matchup, so no finalSelf tone or 1W / 1L claim is reachable'
   );
+});
+
+// ---------------------------------------------------------------------------
+// #722 remediation — the awaiting fold is policy-dependent ON PURPOSE, because
+// the two surfaces rendering these counts derive their ROWS differently:
+// `MatchupsWeekPanel` renders every row from the unbounded
+// `projectGameScoreboardState`, while `OwnerPanel` renders `weekRows` from the
+// bounded `isAwaitingScoreGame`. Each card must agree with its own rows, so
+// bounding Matchups too would reintroduce #722 there. This pins that split; the
+// Members half is pinned in `ownerView.test.ts`.
+// ---------------------------------------------------------------------------
+
+test('the unbounded policy counts an out-of-window awaiting game as live (Matchups rows say so)', () => {
+  const kickoff = '2026-09-05T17:00:00.000Z';
+  const kickoffMs = Date.parse(kickoff);
+  const games = [game({ key: 'stale-awaiting', date: kickoff, csvAway: 'Owned', csvHome: 'Home' })];
+  const rosterByTeam = new Map([['Owned', 'Alice']]);
+
+  const inWindow = deriveOwnerWeekSlates(
+    games,
+    rosterByTeam,
+    {},
+    {
+      kind: 'unbounded',
+      now: kickoffMs + 60 * 60_000,
+    }
+  )[0];
+  assert.equal(inWindow?.liveGames, 1, 'the in-window control must reach the live branch');
+
+  // 25 hours out — past `LIVE_SCORE_WINDOW_AFTER_MS`, where the Members card
+  // now counts scheduled. Matchups must NOT follow, because its row still
+  // reads `Awaiting score` via `CompactGameScoreboard`.
+  const outOfWindow = deriveOwnerWeekSlates(
+    games,
+    rosterByTeam,
+    {},
+    {
+      kind: 'unbounded',
+      now: kickoffMs + 25 * 60 * 60_000,
+    }
+  )[0];
+  assert.equal(outOfWindow?.liveGames, 1);
+  assert.equal(outOfWindow?.scheduledGames, 0);
 });

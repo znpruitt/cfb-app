@@ -61,6 +61,7 @@ export default async function LeagueStandingsPage({
   return (
     <main>
       <CFBScheduleApp
+        initialNowMs={Date.now()}
         leagueSlug={slug}
         leagueDisplayName={league?.displayName}
         initialWeekViewMode="standings"

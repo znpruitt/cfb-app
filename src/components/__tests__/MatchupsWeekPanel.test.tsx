@@ -557,11 +557,19 @@ test('an awaiting row counts as live on its owner card (Item 722)', () => {
     },
   };
 
-  const positiveControl = deriveOwnerWeekSlates([awaitingGame], rosterByTeam, liveScores, nowMs)[0];
+  const positiveControl = deriveOwnerWeekSlates([awaitingGame], rosterByTeam, liveScores, {
+    kind: 'unbounded',
+    now: nowMs,
+  })[0];
   assert.ok(positiveControl);
   assert.equal(positiveControl.liveGames, 1, 'the fixture can produce a live count');
 
-  const awaitingSlate = deriveOwnerWeekSlates([awaitingGame], rosterByTeam, {}, nowMs)[0];
+  const awaitingSlate = deriveOwnerWeekSlates(
+    [awaitingGame],
+    rosterByTeam,
+    {},
+    { kind: 'unbounded', now: nowMs }
+  )[0];
   assert.ok(awaitingSlate);
   assert.equal(awaitingSlate.totalGames, 1);
   assert.equal(awaitingSlate.liveGames, 1, 'awaiting is an indeterminate live state');
@@ -608,7 +616,7 @@ test('a final label without usable scores follows the awaiting scoreboard projec
         home: { team: 'LSU', score: null },
       },
     },
-    nowMs
+    { kind: 'unbounded', now: nowMs }
   )[0];
 
   assert.ok(slate);
@@ -1202,7 +1210,10 @@ test('owner slates count final owned-vs-owned, NoClaim, and FCS results from own
     },
   };
 
-  const slates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey, MATCHUPS_TEST_NOW_MS);
+  const slates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey, {
+    kind: 'unbounded',
+    now: MATCHUPS_TEST_NOW_MS,
+  });
   const avery = slates.find((slate) => slate.owner === 'Avery');
   const blair = slates.find((slate) => slate.owner === 'Blair');
 
@@ -1276,7 +1287,10 @@ test('scheduled and live games do not change owner final record summaries', () =
     },
   };
 
-  const slates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey, MATCHUPS_TEST_NOW_MS);
+  const slates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey, {
+    kind: 'unbounded',
+    now: MATCHUPS_TEST_NOW_MS,
+  });
   const casey = slates.find((slate) => slate.owner === 'Casey');
   assert.ok(casey);
   assert.equal(casey.performance.summary, '1–0 · 1 live');
@@ -1324,7 +1338,10 @@ test('owner slate shows final record when one game is final and another is still
     },
   };
 
-  const slates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey, MATCHUPS_TEST_NOW_MS);
+  const slates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey, {
+    kind: 'unbounded',
+    now: MATCHUPS_TEST_NOW_MS,
+  });
   const casey = slates.find((slate) => slate.owner === 'Casey');
   assert.ok(casey);
   assert.equal(casey.totalGames, 2);
