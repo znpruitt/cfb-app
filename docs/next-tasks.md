@@ -262,6 +262,53 @@ owner pass against 173b for order. **Two of them are gated:** #726 (no third-col
 surface) waits on the width numbers in #678/#681 being re-derived against the 28px logo slot,
 and #750 is the owner's call on whether Overview's tier starts below 1348px.
 
+#### UI LANE ORDER — the #672 residue, ordering pass 2026-09-13
+
+**Five slices, grouped by FILE rather than by severity**, because the UI lane is strictly serial with
+itself and two slices touching one component file cost two reviews of the same diff. All ten issues
+were read in full; the grouping is stated so a future reader can check it rather than re-derive it.
+
+| # | slice | issues | file(s) | state |
+| --- | --- | --- | --- | --- |
+| 1 | Matchups derived state | **#722**, **#724** | `src/lib/matchups.ts` | ready |
+| 2 | Matchups caller work | **#723**, **#725**, **#715** | `MatchupsWeekPanel.tsx` | ready |
+| 3 | Schedule presentation | **#728**, **#730**, **#731** | `GameWeekPanel.tsx` | ready |
+| 4 | Schedule team-name form | **#729** | `gameWeek.ts`, `DESIGN.md` | **BLOCKED — owner decision** |
+| 5 | Third-column tier | **#726** | both panels | **BLOCKED — and must be LAST** |
+
+**#722 leads because it is the only CORRECTNESS defect in the ten.** An owner card reports zero live
+games and can read `Scheduled` while a row inside it reads `Awaiting score` — wrong information on
+screen, not a style divergence. Everything else in the set is conformance. It pairs with **#724**
+because both are derived state in `matchups.ts` (aggregation at `:317`, sort at `:400`) rather than
+rendering, so one slice covers one file and one kind of change.
+
+**Slices 2 and 3 are mostly BACK-APPLICATION of decisions already ruled on Overview**, which is
+exactly what the #672 audit exists to surface. **#725 is the direct
+one-surface-over instance of #671's ruling** — `DESIGN.md` puts the two-tag cap in the SELECTOR, and Matchups adds a second,
+invisible cap with a responsive `hidden`, so the cap that ships is not the cap that was ruled. **#728
+is the slot confusion Item 173a already fixed on Featured.** Take them while those rulings are warm.
+
+**#715 may split out of slice 2 if it grows.** It is caller work in the same file as #723 and #725,
+but it carries a specified empty state (`Line not posted` as CONTENT, never a reserved band) and a
+mockup-measured scope limit (scheduled rows only; zero `sb-odds` on live or final). If the receipt
+shows it is more than passing `footerSlot`, it becomes its own slice rather than widening one.
+
+**#726 IS LAST, AND NOT ONLY BECAUSE IT IS GATED.** It waits on the #678/#681 width numbers being
+re-derived against the 28px logo — but the stronger reason is that **slices 2 and 3 change what a row
+CONTAINS**: #723 adds broadcast, #715 adds an odds footer, #728 moves tags into the status row, #730
+changes block padding. A column-count breakpoint derived before the row content is final has to be
+derived twice, and the first derivation is the one that gets recorded and believed.
+
+**#729 is a DECISION, not a conformance fix, and it is the owner's.** `DESIGN.md` is silent on team-name
+display form, so the only contract is a campaign document that `DESIGN.md` does not corroborate —
+and abbreviations may simply be correct at Schedule's density. `AGENTS.md` binds that a campaign
+decision absent from `DESIGN.md` is not settled until `DESIGN.md` changes, so whichever way it goes,
+**`DESIGN.md` gains the line.** A test currently defends the abbreviations (`GameWeekPanel.test.tsx:644`),
+which is a fact about coverage, not evidence of a decision.
+
+**Not in this order:** #750 (Overview tier breakpoint) is its own owner decision and gates nothing
+here; #758 (phone-width tag relief) came out of 173b and is unsequenced.
+
 #### Then both lanes converge
 
 **189** truthful planner settings failures, **190** observable and replayable invalidation, then the
