@@ -56,8 +56,17 @@ first commit; if you are not where this table says you should be, stop and say s
 | `/Users/zach/cfb-app-claude` | `claude/<task>` off `main` | **Implementation Claude** | **No** | `src/`, tests, and its branch's closeout |
 | `/Users/zach/cfb-app-codex` | the Codex branch | Codex | **No** | its own branch only |
 
-- **Implementation Claude branches per implementation set**, off current `origin/main`, from
-  `claude/base` in that worktree. It never commits to `main` directly.
+- **Implementation Claude branches per implementation set, off current `origin/main`.** It never
+  commits to `main` directly.
+  **`claude/base` is a RESTING POINTER, not a base with content** — clarified 2026-09-13 after this
+  line was found naming two bases in one sentence while they had diverged by **51 commits** (the lane
+  flagged it; `claude/base` was still at `2bd76544`). *"Off current `origin/main`, from `claude/base`"*
+  is only unambiguous while the two are equal, and nothing was keeping them equal.
+  **So: fast-forward `claude/base` to `origin/main` on returning to it after every merge.** It is
+  always zero-ahead and fast-forwardable, so this is housekeeping, not a decision — and it removes the
+  trap where `git checkout -b <new>` from a resting worktree silently inherits a stale base. If it is
+  ever NOT zero-ahead, stop and report: something was committed to the resting branch, which nothing
+  should do.
 - **The implementation lane opens its own PR and merges it — owner decision 2026-09-05**, amending the
   earlier rule that the owner merged. By the time both reviewers have converged the decision is
   already made, and the owner's merge step was mechanical: every catch in practice happened at REPORT
