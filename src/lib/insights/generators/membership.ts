@@ -287,10 +287,16 @@ export const membershipGenerator: InsightGenerator = {
     // no proof, which is why the completeness authority that used to sit here is
     // deleted rather than fixed.
     //
-    // Non-bypassable because `shouldSuppressGenerator` is lifted by
-    // `?bypassSuppression=1`, which any caller can set on a passwordless league
-    // (PLATFORM-101). The entry there LABELS the skip for diagnostics; this
-    // ENFORCES it.
+    // Non-bypassable, and it STAYS non-bypassable. `shouldSuppressGenerator` is
+    // lifted by `?bypassSuppression=1`: the entry there LABELS the skip for
+    // diagnostics, this ENFORCES it.
+    //
+    // #627 made that flag platform-admin-only. It did NOT make this check
+    // redundant, and the distinction is load-bearing — route protection is never
+    // the authority, and this check is half of what makes the flag change no
+    // SERVED CONTENT at all, measured through the route rather than assumed.
+    // Tidying it away as superseded would restore the round in which that URL
+    // published the withheld card publicly.
     if (!context.seasonOwners) return [];
     if (context.archives.length === 0) return [];
 
