@@ -261,21 +261,31 @@ test('an explicit Live period and clock preserve Close on a genuine 0-0 tie', ()
   );
 });
 
-test('a 0-0 final excludes only Close', () => {
+test('a final excludes Close only for exact 0-0, not every tied score', () => {
   const final = item(game({ key: 'final-zero-zero', date: KICKOFF }), {
     score: score('Final', 0, 0),
+  });
+  const tiedFinal = item(game({ key: 'final-fourteen-all', date: KICKOFF }), {
+    score: score('Final', 14, 14),
   });
   const rankingsByTeamId = new Map<string, TeamRankingEnrichment>([
     ['final-zero-zero-away', { rank: 6, rankSource: 'ap' }],
     ['final-zero-zero-home', { rank: 11, rankSource: 'ap' }],
+    ['final-fourteen-all-away', { rank: 14, rankSource: 'ap' }],
+    ['final-fourteen-all-home', { rank: 18, rankSource: 'ap' }],
   ]);
 
-  const sections = select([final], '2026-09-05T17:00:00.000Z', [], rankingsByTeamId);
+  const sections = select([final, tiedFinal], '2026-09-05T17:00:00.000Z', [], rankingsByTeamId);
+  const finalsByKey = new Map(sections.recentFinals.map((entry) => [entry.bucket.game.key, entry]));
 
-  assert.equal(sections.recentFinals[0]?.routeStatus.kind, 'final');
+  assert.equal(finalsByKey.get('final-zero-zero')?.routeStatus.kind, 'final');
   assert.deepEqual(
-    sections.recentFinals[0]?.highlightTags.map((tag) => tag.id),
+    finalsByKey.get('final-zero-zero')?.highlightTags.map((tag) => tag.id),
     ['top25']
+  );
+  assert.deepEqual(
+    finalsByKey.get('final-fourteen-all')?.highlightTags.map((tag) => tag.id),
+    ['top25', 'close']
   );
 });
 

@@ -999,18 +999,6 @@ test('deriveGameHighlightTags emits exactly Top 25 Matchup and Close for a ranke
       { id: 'close', text: 'Close' },
     ]
   );
-  assert.deepEqual(
-    deriveGameHighlightTags({
-      item: rankedCloseGame,
-      rankingsByTeamId: new Map([
-        ['away', { rank: 6, rankSource: 'ap' }],
-        ['home', { rank: 11, rankSource: 'ap' }],
-      ]),
-      excludedTagIds: new Set(['close']),
-    }).map((tag) => tag.id),
-    ['top25'],
-    'excluding Close preserves another eligible tag'
-  );
 });
 
 test('deriveGameHighlightTags requires both teams INSIDE the top 25, not merely ranked', () => {

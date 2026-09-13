@@ -1,6 +1,5 @@
 import { isDisruptedStatusLabel, normalizeStatusTokens } from '../gameStatus';
 import { deriveGameHighlightTags, type GameHighlightTag } from '../gameTags';
-import { formatLiveGameClock } from '../gameUi';
 import type { OverviewGameItem } from '../overview';
 import type { TeamRankingEnrichment } from '../rankings';
 import type { AppGame } from '../schedule';
@@ -14,7 +13,6 @@ import { selectWeeklyRecapTileState, selectWeeklyRecapWeekTargets } from './week
 export const OVERVIEW_LIVE_LIMIT = 6;
 export const OVERVIEW_RECENT_FINALS_LIMIT = 6;
 export const OVERVIEW_WATCHLIST_LIMIT = 6;
-const CLOSE_EXCLUDED_HIGHLIGHT_TAG_IDS: ReadonlySet<GameHighlightTag['id']> = new Set(['close']);
 
 export type OverviewGameRouteStatus =
   | { kind: 'scheduled'; label: 'Scheduled' }
@@ -188,31 +186,6 @@ function uniqueOverviewItems(items: OverviewGameItem[]): OverviewGameItem[] {
   });
 }
 
-function isCloseTagEligible(item: OverviewGameItem, routeStatus: OverviewGameRouteStatus): boolean {
-  const score = item.score;
-  if (!score) return false;
-
-  // Close is a score-derived assertion, so an Awaiting score row is never eligible:
-  // that route explicitly tells the reader the attached score is not yet trusted,
-  // regardless of whether the pack happens to carry numbers. A final also needs a
-  // nonzero margin; production 0-0 finals are disrupted/incomplete artifacts, not
-  // close contests. Live rows need either nonzero points or period/clock evidence.
-  // The live writer stores kickoff-or-null in `time` and the live clock in `status`;
-  // reusing the shared formatter rejects an ISO kickoff while preserving Q/OT evidence.
-  if (routeStatus.kind === 'final') {
-    return (
-      score.away.score !== null &&
-      score.home.score !== null &&
-      score.away.score !== score.home.score
-    );
-  }
-  if (routeStatus.kind !== 'live') return false;
-  const hasNonzeroPoints =
-    (score.away.score !== null && score.away.score !== 0) ||
-    (score.home.score !== null && score.home.score !== 0);
-  return hasNonzeroPoints || formatLiveGameClock(score) !== null;
-}
-
 function expiredFinalWeeks(scheduleGames: AppGame[], now: Date): ReadonlySet<number> {
   return new Set(
     selectWeeklyRecapWeekTargets(scheduleGames)
@@ -275,14 +248,9 @@ export function selectOverviewGameSections(params: {
   for (const { item, section, status } of routesByKey.values()) {
     if (section !== 'live' && section !== 'recentFinals') continue;
 
-    // Apply eligibility before the shared selector-owned cap so excluding Close cannot
-    // consume a slot that another vocabulary item could use later.
     const highlightTags = deriveGameHighlightTags({
       item,
       rankingsByTeamId,
-      excludedTagIds: isCloseTagEligible(item, status)
-        ? undefined
-        : CLOSE_EXCLUDED_HIGHLIGHT_TAG_IDS,
     });
     const taggedItem = { ...item, routeStatus: status, highlightTags };
 
