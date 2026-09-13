@@ -201,14 +201,14 @@ test('owner panel shows live, final, and upcoming week-row detail correctly', ()
   assert.match(html, /dark:text-zinc-300">Final<\/span>/);
   assert.match(html, /dark:text-sky-400">Upcoming<\/span>/);
   assert.match(html, /dark:text-zinc-400">Awaiting score<\/span>/);
-  assert.doesNotMatch(html, /No score reported\./);
+  assert.doesNotMatch(html, /No score reported/);
   assert.doesNotMatch(html, /amber/);
 });
 
 test('Members renders the no-score-reported label and count with neutral treatment', () => {
   const noScoreRow: OwnerViewSnapshot['weekRows'][number] = {
     ...snapshot.weekRows[1]!,
-    currentStatus: 'No score reported.',
+    currentStatus: 'No score reported',
   };
   const html = renderToStaticMarkup(
     <OwnerPanel
@@ -222,7 +222,7 @@ test('Members renders the no-score-reported label and count with neutral treatme
           scheduledGames: 0,
           finalGames: 0,
           unavailableGames: 1,
-          performanceSummary: 'No score reported.',
+          performanceSummary: 'No score reported',
           performanceDetail: '1 game',
         },
       }}
@@ -232,9 +232,9 @@ test('Members renders the no-score-reported label and count with neutral treatme
     />
   );
 
-  assert.match(html, /dark:text-zinc-400">No score reported\.<\/span>/);
-  assert.match(html, /1 — No score reported\./);
-  assert.doesNotMatch(html, /dark:text-sky-400">No score reported\.<\/span>/);
+  assert.match(html, /dark:text-zinc-400">No score reported<\/span>/);
+  assert.match(html, /1 — No score reported/);
+  assert.doesNotMatch(html, /dark:text-sky-400">No score reported<\/span>/);
 });
 
 test('owner panel renders season-complete messaging without week rows', () => {

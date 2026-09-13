@@ -6,7 +6,7 @@ import type { ScorePack } from '../scores';
 export type GameScoreboardState = 'scheduled' | 'live' | 'awaiting' | 'unavailable' | 'final';
 
 /** Planning-owned fifth-state copy; one seam keeps a later owner override one line. */
-export const NO_SCORE_REPORTED_LABEL = 'No score reported.' as const;
+export const NO_SCORE_REPORTED_LABEL = 'No score reported' as const;
 
 export function isScorePollingWindowExpired(
   kickoff: string | null | undefined,

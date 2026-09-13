@@ -349,7 +349,7 @@ test('POLISH-007: Awaiting score is bounded and never replaces disrupted status'
     {},
     { season: 2026, now: Date.parse(kickoff) + 25 * 60 * 60_000 }
   );
-  assert.equal(afterWindow[0]?.currentStatus, 'No score reported.');
+  assert.equal(afterWindow[0]?.currentStatus, 'No score reported');
 
   const delayed = deriveOwnerRoster(
     'Alice',
@@ -382,7 +382,7 @@ test('Members counts a post-window scoreless game from the same state its row re
     gameDayContext: { season: 2026, now: Date.parse(kickoff) + 25 * 60 * 60_000 },
   });
 
-  assert.equal(snapshot.weekRows[0]?.currentStatus, 'No score reported.');
+  assert.equal(snapshot.weekRows[0]?.currentStatus, 'No score reported');
   assert.deepEqual(
     snapshot.weekSummary && {
       total: snapshot.weekSummary.totalGames,

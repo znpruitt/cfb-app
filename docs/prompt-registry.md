@@ -108,7 +108,7 @@ These consolidate recurring historical observations, not new project-governance 
   kickoff + 24h remains `awaiting`, +1ms becomes `unavailable`, and live/final evidence wins.
   The reused 24h system bound is distinct from the 8h world fact that a game is no longer live.
 - Copy / treatment owed to `DESIGN.md` at merge: **planning**, after three unanswered owner requests,
-  chose exactly `No score reported.` with neutral treatment. One constant owns it. Matchups keeps
+  chose exactly `No score reported` with neutral treatment. One constant owns it. Matchups keeps
   GAMES/WINS/WIN%/LIVE and its unavailable count internal; Members shows its neutral count only when
   positive. A TBD placeholder never ages into this terminal claim.
 - Consequences / limits: [#712](https://github.com/znpruitt/cfb-app/issues/712) and

@@ -739,7 +739,7 @@ test('no-score-reported scoreboard uses the ruled copy and neutral treatment', (
   const header = headerMarkup(html);
 
   assert.match(html, /data-scoreboard-state="unavailable"/);
-  assert.match(header, />No score reported\.<\/span>/);
+  assert.match(header, />No score reported<\/span>/);
   assert.match(header, /dark:text-zinc-400/);
   assert.doesNotMatch(
     header,

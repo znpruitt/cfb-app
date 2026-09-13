@@ -19,7 +19,7 @@ function score(status: string, away: number | null, home: number | null): ScoreP
 }
 
 test('the planning-owned fifth-state label is pinned at its single seam', () => {
-  assert.equal(NO_SCORE_REPORTED_LABEL, 'No score reported.');
+  assert.equal(NO_SCORE_REPORTED_LABEL, 'No score reported');
 });
 
 test('projection enumerates every scoreboard state with explicit precedence', () => {

@@ -575,7 +575,7 @@ test('a post-window Matchups row reports no score without adding a fifth card st
   );
 
   assert.match(scoreboard, /data-scoreboard-state="unavailable"/);
-  assert.match(scoreboardHeaderMarkup(scoreboard), />No score reported\.<\/span>/);
+  assert.match(scoreboardHeaderMarkup(scoreboard), />No score reported<\/span>/);
   assert.match(card, />1<\/span><span[^>]*>GAMES<\/span>/);
   assert.match(card, />0<\/span><span[^>]*>LIVE<\/span>/);
   assert.deepEqual(statLabels, ['GAMES', 'WINS', 'WIN%', 'LIVE']);
