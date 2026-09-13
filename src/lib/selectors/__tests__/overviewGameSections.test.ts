@@ -171,7 +171,7 @@ test('Live promotes to Recent finals only when a final score attaches', () => {
   assert.deepEqual(memberships(select([final], now), gameValue.key), ['recentFinals']);
 });
 
-test('nonzero close margins retain selector-owned tags across Live, awaiting, and Recent finals', () => {
+test('Close requires a trusted Live or Recent-final route even when scores are nonzero', () => {
   const live = item(game({ key: 'tagged-live', date: KICKOFF }), {
     score: score('In Progress', 14, 10),
   });
@@ -206,7 +206,7 @@ test('nonzero close margins retain selector-owned tags across Live, awaiting, an
   assert.equal(liveByKey.get('tagged-awaiting')?.routeStatus.kind, 'awaiting-score');
   assert.deepEqual(
     liveByKey.get('tagged-awaiting')?.highlightTags.map((tag) => tag.id),
-    ['top25', 'close']
+    ['top25']
   );
   assert.deepEqual(
     sections.recentFinals[0]?.highlightTags.map((tag) => tag.id),
@@ -214,12 +214,12 @@ test('nonzero close margins retain selector-owned tags across Live, awaiting, an
   );
 });
 
-test('exact 0-0 score packs exclude only Close across Live route states', () => {
+test('untrusted 0-0 score packs exclude only Close across awaiting and generic Live states', () => {
   const awaiting = item(game({ key: 'awaiting-zero-zero', date: KICKOFF }), {
     score: score('Scheduled', 0, 0),
   });
   const live = item(game({ key: 'live-zero-zero', date: KICKOFF }), {
-    score: score('In Progress', 0, 0),
+    score: { ...score('In Progress', 0, 0), time: KICKOFF },
   });
   const rankingsByTeamId = new Map<string, TeamRankingEnrichment>([
     ['awaiting-zero-zero-away', { rank: 6, rankSource: 'ap' }],
@@ -239,6 +239,42 @@ test('exact 0-0 score packs exclude only Close across Live route states', () => 
   assert.equal(liveByKey.get('live-zero-zero')?.routeStatus.kind, 'live');
   assert.deepEqual(
     liveByKey.get('live-zero-zero')?.highlightTags.map((tag) => tag.id),
+    ['top25']
+  );
+});
+
+test('an explicit Live period and clock preserve Close on a genuine 0-0 tie', () => {
+  const live = item(game({ key: 'clocked-live-zero-zero', date: KICKOFF }), {
+    score: { ...score('Q1 15:00', 0, 0), time: KICKOFF },
+  });
+  const rankingsByTeamId = new Map<string, TeamRankingEnrichment>([
+    ['clocked-live-zero-zero-away', { rank: 6, rankSource: 'ap' }],
+    ['clocked-live-zero-zero-home', { rank: 11, rankSource: 'ap' }],
+  ]);
+
+  const sections = select([live], '2026-09-05T17:00:00.000Z', [], rankingsByTeamId);
+
+  assert.equal(sections.live[0]?.routeStatus.kind, 'live');
+  assert.deepEqual(
+    sections.live[0]?.highlightTags.map((tag) => tag.id),
+    ['top25', 'close']
+  );
+});
+
+test('a 0-0 final excludes only Close', () => {
+  const final = item(game({ key: 'final-zero-zero', date: KICKOFF }), {
+    score: score('Final', 0, 0),
+  });
+  const rankingsByTeamId = new Map<string, TeamRankingEnrichment>([
+    ['final-zero-zero-away', { rank: 6, rankSource: 'ap' }],
+    ['final-zero-zero-home', { rank: 11, rankSource: 'ap' }],
+  ]);
+
+  const sections = select([final], '2026-09-05T17:00:00.000Z', [], rankingsByTeamId);
+
+  assert.equal(sections.recentFinals[0]?.routeStatus.kind, 'final');
+  assert.deepEqual(
+    sections.recentFinals[0]?.highlightTags.map((tag) => tag.id),
     ['top25']
   );
 });
