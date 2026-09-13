@@ -161,6 +161,46 @@ lane's instruction is suspended.
 **Nothing else in the receipt needs a ruling.** Item 4's zero is the answer I wanted: the sort is
 unpinned today, so your test is the first thing asserting the contract.
 
+## OWNER RULINGS 2026-09-13 — the two escalated decisions, binding
+
+**(1) AWAITING IS BOUNDED AT `kickoff + 24h`. Owner ruling, and this slice takes it — absorbing
+[#766](https://github.com/znpruitt/cfb-app/issues/766).**
+
+The reasoning, so it is not re-argued: the contract calls awaiting *"an indeterminate subset of
+live"*. That is true a minute past kickoff and false eight weeks past — by then it is not
+indeterminate, it is abandoned. **The bound is not invented: `POLLING_WINDOW_AFTER_KICKOFF_MS = 24h`
+(`pollingTarget.ts:30`, aliased `RECONCILIATION_GUARANTEE_MS`) is the point the score pipeline itself
+stops trying to attach a result.** Past it, nothing is still coming, so "awaiting" is a claim the app
+does not believe. **Reuse that constant. Do not introduce a second 24h literal.**
+
+Without this, converging the card on its row authority would make a week-3 game count as LIVE in week
+8 — strictly worse than the defect being fixed.
+
+**Note what is already true:** Members' `isAwaitingScoreGame` (`gameDayConfidence.ts:41`) is ALREADY
+bounded — `isCurrentLiveScoreSeason`, `isLiveScoreEligibleGame`, and a disrupted-status check. **It is
+`projectGameScoreboardState` that is unbounded.** So this ruling narrows the gap between the two
+authorities rather than inventing a third; it does not make them identical, and it is not required to.
+
+**WHERE the bound goes is yours to determine, and it has a blast radius — receipt item 9.**
+`projectGameScoreboardState` has FOUR non-test callers: `MatchupsWeekPanel.tsx:188`,
+`overviewGameSections.ts:94`, `gameWeek.ts:82` (Schedule), and the slate selector this slice adds.
+Bounding inside the function reaches Overview and Schedule rows too. **One authority argues for
+inside; blast radius argues for care.** Measure it, do not choose blind.
+
+**And say what the state BECOMES past the bound.** A game past `kickoff + 24h` with no score is not
+scheduled (kickoff has passed), not awaiting (nothing is coming), not live, and not final (no score).
+**The existing vocabulary may have no truthful value for it.** If it does not, say so and propose —
+do not quietly pick the least-wrong enum member, and do not invent a new state without saying it is
+new.
+
+**(2) `1 game · 1–1` STANDS. Owner ruling — leave it.**
+
+A self-matchup counts as ONE distinct game while the participation record stays `1–1`, because the
+owner took both a win and a loss from it. It reads oddly and it is true. **Do not add a display
+special-case, and do not change the record contract to make the two numbers agree.** Record it in the
+closeout as a deliberate, ruled outcome so the next reader does not file it as a defect — 39 games
+are affected this season.
+
 ## SEAM AUDIT — added 2026-09-13, after the owner asked whether I had audited readers and writers; I had not, and the answer changes the guidance
 
 **What the ruling says about Members — *"reuse/extract the complete predicate that produces its row
@@ -231,6 +271,13 @@ claim about these.
    `OwnerPanel.tsx:508-514` are two; give the count and say whether any reader would change meaning
    under distinct-game counting. **A reader that renders a number and one that gates a control fail
    differently.**
-8. **What in this prompt contradicts what you found in the files?**
+8. **The awaiting bound's blast radius.** `projectGameScoreboardState` has four non-test callers.
+   If you bound inside it, **what changes on Overview and Schedule rows?** Name the rows and produce
+   one. If you bound at the Matchups consumption point instead, say what stops the next consumer from
+   inheriting the unbounded version. **Either answer is acceptable; an unmeasured one is not.**
+9. **What does a game past `kickoff + 24h` with no score become?** Enumerate what `GameScoreboardState`
+   can express and say whether any member is truthful for it. **If none is, say so** — that is a
+   finding, and inventing a state silently is worse than reporting the gap.
+10. **What in this prompt contradicts what you found in the files?**
 
 Do not start until the receipt is answered and I have ruled on it.
