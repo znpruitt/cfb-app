@@ -22,6 +22,7 @@
  */
 
 import teamsCatalog from '../../data/teams.json';
+import { CFBD_PEAK_LATENCY_TIMEOUT_MS } from '../api/cfbdRequestPolicy.ts';
 import { fetchUpstreamJson } from '../api/fetchUpstream.ts';
 import { classifyUpstreamFault, type UpstreamFaultClass } from '../api/upstreamFaultClass.ts';
 import { buildCfbdRankingsUrl } from '../cfbd.ts';
@@ -112,7 +113,7 @@ async function fetchPartition(params: {
   try {
     upstream = await fetchUpstreamJson<CfbdPollWeek[]>(url, {
       cache: 'no-store',
-      timeoutMs: 12_000,
+      timeoutMs: CFBD_PEAK_LATENCY_TIMEOUT_MS,
       headers: { Authorization: `Bearer ${apiKey}` },
       retry: CFBD_RETRY_POLICY,
       pacing: CFBD_PACING_POLICY,

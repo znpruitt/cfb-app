@@ -68,6 +68,7 @@ import {
   operatorWriteConnectionString,
 } from './lib/operatorEnv.ts';
 import { fetchCfbdUsage } from '../src/lib/api/cfbdUsage.ts';
+import { CFBD_PEAK_LATENCY_TIMEOUT_MS } from '../src/lib/api/cfbdRequestPolicy.ts';
 import { fetchUpstreamJson, UpstreamFetchError } from '../src/lib/api/fetchUpstream.ts';
 import { buildCfbdGameTeamStatsUrl, type CfbdSeasonType } from '../src/lib/cfbd.ts';
 import { GAME_STATS_SCOPE, getGameStatsKey } from '../src/lib/gameStats/cache.ts';
@@ -859,7 +860,7 @@ async function runCapture(args: CaptureArgs): Promise<number> {
   try {
     payload = await fetchUpstreamJson<unknown>(url.toString(), {
       cache: 'no-store',
-      timeoutMs: 20_000,
+      timeoutMs: CFBD_PEAK_LATENCY_TIMEOUT_MS,
       headers: { Authorization: `Bearer ${apiKey}` },
       retry: CFBD_RETRY_POLICY,
       pacing: CFBD_PACING_POLICY,

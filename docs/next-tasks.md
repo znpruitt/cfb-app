@@ -197,7 +197,7 @@ each other.**
 | ✅ | ~~110B~~ | recurring correction reconciliation — **merged `9b150eb0`, PR #590** |
 | ✅ | ~~199~~ | the catalog read `altColor`; the provider sends `alternateColor` — **merged `1cfa9df1`, PR #591** |
 | **1** | **204** | **empty-body guard on the catalog refresh — BLOCKS the Item 199 resync click** |
-| 2 | **188** | provider deadlines carried through body consumption |
+| ✅ | ~~188~~ | provider deadlines carried through body consumption — **merged `57fdbd82`, PR #762**; closed #632 alongside. The ODDS body read is NOT covered and is #759 |
 | 3 | **20** | bounded database waits |
 | 4 | **47** | admin authorization for the Insights diagnostic bypass |
 
@@ -483,7 +483,7 @@ number.**
 | **85** | [#654](https://github.com/znpruitt/cfb-app/issues/654) | repair archived seasons polluted by the identity collision |
 | **86** | [#612](https://github.com/znpruitt/cfb-app/issues/612) | the archive audit's integrity check can never pass |
 | **88** | resolved — see the audit appendix | Provider data health cannot describe a schedule-armed dataset — SUPERSEDED by Item 132 ([#691](https://github.com/znpruitt/cfb-app/issues/691)). **Had TWO headings under one number.** |
-| **93** | [#632](https://github.com/znpruitt/cfb-app/issues/632) | nine CFBD call sites still carry the pre-PLATFORM-115 timeout |
+| **93** | [#632](https://github.com/znpruitt/cfb-app/issues/632) | RESOLVED 2026-09-13 — all ten raised to `CFBD_PEAK_LATENCY_TIMEOUT_MS`, merged `57fdbd82` inside the #662 branch, because #662 changed what `timeoutMs` MEANS. The row read *nine* until 2026-09-12; the tenth writes `12000` without the underscore, which a `12_000` grep misses — keep that trap recorded, it has caught this count twice |
 | **94** | [#655](https://github.com/znpruitt/cfb-app/issues/655) | measure the first full in-season month of CFBD burn (READ 2026-09-30) |
 | **95** | [#604](https://github.com/znpruitt/cfb-app/issues/604) | remaining live-score cadence work |
 | **96** | [#656](https://github.com/znpruitt/cfb-app/issues/656) | pause the in-season QStash schedules through the offseason |
@@ -569,7 +569,7 @@ number.**
 | **185** | [#702](https://github.com/znpruitt/cfb-app/issues/702) | two web fonts are downloaded on every page and neither is used |
 | **186** | [#718](https://github.com/znpruitt/cfb-app/issues/718) | the watchlist reason row has no overflow valve |
 | **187** | [#673](https://github.com/znpruitt/cfb-app/issues/673) | the third chip is uncounted |
-| **188** | [#662](https://github.com/znpruitt/cfb-app/issues/662) | the provider deadline ends before the response body downloads |
+| **188** | [#662](https://github.com/znpruitt/cfb-app/issues/662) | RESOLVED 2026-09-13 — merged `57fdbd82` (PR #762), 14 of 15 call sites. **The ODDS body read is deliberately NOT covered** — pulled under a pre-committed stopping rule after four findings in one seam across three rounds, and owned by [#759](https://github.com/znpruitt/cfb-app/issues/759) with the model that took those rounds to find |
 | **189** | resolved — see the audit appendix | an unreadable planner settings store reports itself as an operator pause |
 | **190** | [#693](https://github.com/znpruitt/cfb-app/issues/693) | a failed standings invalidation can leave results stale indefinitely |
 | **191** | [#663](https://github.com/znpruitt/cfb-app/issues/663) | targeted schedule repairs never converge on the whole-season snapshot |

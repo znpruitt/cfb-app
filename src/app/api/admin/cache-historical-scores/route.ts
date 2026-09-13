@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+import { CFBD_PEAK_LATENCY_TIMEOUT_MS } from '@/lib/api/cfbdRequestPolicy';
 import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
 import { buildCfbdGamesUrl } from '@/lib/cfbd';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
@@ -50,7 +51,7 @@ async function fetchScoreItems(
   const cfbdUrl = buildCfbdGamesUrl({ year, seasonType, week: null });
   const rawGames = await fetchUpstreamJson<CfbdGameLoose[]>(cfbdUrl.toString(), {
     cache: 'no-store',
-    timeoutMs: 12_000,
+    timeoutMs: CFBD_PEAK_LATENCY_TIMEOUT_MS,
     headers: { Authorization: `Bearer ${cfbdApiKey}` },
     retry: CFBD_RETRY_POLICY,
     pacing: CFBD_PACING_POLICY,
