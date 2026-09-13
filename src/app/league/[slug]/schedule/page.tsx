@@ -49,6 +49,7 @@ export default async function LeagueSchedulePage({
   return (
     <main>
       <CFBScheduleApp
+        initialNowMs={Date.now()}
         leagueSlug={slug}
         leagueDisplayName={league?.displayName}
         leagueYear={league?.year}

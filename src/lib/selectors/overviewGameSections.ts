@@ -111,20 +111,21 @@ function routeForItem(
   // out even if an inconsistent score row claims in-progress.
   if (!pending) return null;
 
-  if (scoreboardState === 'live') {
-    return { section: 'live', status: { kind: 'live', label: 'Live' } };
+  switch (scoreboardState) {
+    case 'live':
+      return { section: 'live', status: { kind: 'live', label: 'Live' } };
+    case 'scheduled':
+      return { section: 'scheduled', status: { kind: 'scheduled', label: 'Scheduled' } };
+    case 'awaiting':
+      return {
+        section: 'live',
+        status: { kind: 'awaiting-score', label: 'Awaiting score' },
+      };
+    case 'unavailable':
+      // The eight-hour abandonment return above makes this 24-hour state
+      // unreachable on Overview, but naming it preserves exhaustiveness.
+      return null;
   }
-  if (scoreboardState === 'scheduled') {
-    return { section: 'scheduled', status: { kind: 'scheduled', label: 'Scheduled' } };
-  }
-  if (scoreboardState === 'awaiting') {
-    return {
-      section: 'live',
-      status: { kind: 'awaiting-score', label: 'Awaiting score' },
-    };
-  }
-
-  throw new Error('Unreachable Overview scoreboard state');
 }
 
 /**

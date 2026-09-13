@@ -95,6 +95,36 @@ These consolidate recurring historical observations, not new project-governance 
 
 ## Prompt ledger (source order retained)
 
+### PLATFORM-722-724-MATCHUPS-DERIVED-STATE-CODEX-v1
+
+- Change: [#722](https://github.com/znpruitt/cfb-app/issues/722) and
+  [#724](https://github.com/znpruitt/cfb-app/issues/724) now use complete, selector-owned
+  per-surface projections over DISTINCT game keys. Matchups reuses `projectGameScoreboardState`;
+  Members replaces six duplicated status producers. Rows, counts and sort consume the projection;
+  `live + final + scheduled + unavailable === totalGames` is asserted. Non-finals remain one
+  kickoff-ordered group before finals, so a live row may remain behind disclosure by ruling.
+- Vocabulary: `GameScoreboardState` gains `unavailable`; none of the former values truthfully
+  describes a scoreless game after polling ends, and `scheduled` would recreate #722. Exact
+  kickoff + 24h remains `awaiting`, +1ms becomes `unavailable`, and live/final evidence wins.
+  The reused 24h system bound is distinct from the 8h world fact that a game is no longer live.
+- Copy / treatment owed to `DESIGN.md` at merge: **planning**, after three unanswered owner requests,
+  chose exactly `No score reported` with neutral treatment. One constant owns it. Matchups keeps
+  GAMES/WINS/WIN%/LIVE and its unavailable count internal; Members shows its neutral count only when
+  positive. A TBD placeholder never ages into this terminal claim.
+- Consequences / limits: [#712](https://github.com/znpruitt/cfb-app/issues/712) and
+  [#766](https://github.com/znpruitt/cfb-app/issues/766) close consequentially. A self matchup is one
+  game but retains the owner-ruled `1–1` record. Score-only `getStateFromScore` survives only in the
+  production-unread legacy `buildMatchupCardViewModel`; it drives no row, count or sort. `DESIGN.md`
+  remains planning-owned and unchanged.
+- Review / verification: v2's three reviews returned eight disjoint findings; v3 converged—Codex
+  none, `/code-review high` five surface findings (one superseded, four remediated). Population
+  corrections: 11 + 19 calls, and four of five routes lacked `initialNowMs`, not three of four;
+  Members was omitted. Delta +13 tests; unrestricted full/+0 passed 5,284/5,284; +200d produced only
+  the documented lifecycle failure. Lint/TypeScript passed; six mutations covered count, sort,
+  boundary, route clock, promotion and exhaustiveness.
+- Status: Implemented and reviewed at `45d94d5d`; pending merge from
+  `codex/722-724-matchups-derived-state-v3`.
+
 ### PLATFORM-627-INSIGHTS-BYPASS-AUTHORIZATION-CLAUDE-v1
 
 - Purpose: `?bypassSuppression=1` was gated only by `isAuthorizedForLeague`, which admits any caller on a passwordless league ([#627](https://github.com/znpruitt/cfb-app/issues/627), audit S1; prerequisite 6/6 in [#610](https://github.com/znpruitt/cfb-app/issues/610)).

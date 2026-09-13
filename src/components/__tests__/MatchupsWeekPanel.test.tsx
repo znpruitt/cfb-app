@@ -112,6 +112,10 @@ function game(overrides: Partial<AppGame>): AppGame {
 }
 
 const MATCHUPS_TEST_NOW_MS = Date.parse('2025-08-30T19:00:00.000Z');
+const MATCHUPS_TEST_PROJECTION = {
+  surface: 'matchups' as const,
+  nowMs: MATCHUPS_TEST_NOW_MS,
+};
 
 function MatchupsWeekPanel(
   props: Omit<React.ComponentProps<typeof MatchupsWeekPanelImpl>, 'nowMs'> & { nowMs?: number }
@@ -531,12 +535,50 @@ test('shared kickoff projection renders SCH before kickoff and Awaiting score at
   const before = scoreboardMarkup(card, 'Rutgers @ Maryland');
   const atKickoff = scoreboardMarkup(card, 'Temple @ Navy');
 
+  assert.match(card, /0–0 · 1 live/);
+  assert.match(card, />2<\/span><span[^>]*>GAMES<\/span>/);
+  assert.match(card, />1<\/span><span[^>]*>LIVE<\/span>/);
   assert.match(before, /data-scoreboard-state="scheduled"/);
   assert.match(scoreboardHeaderMarkup(before), />SCH<\/span>/);
   assert.match(atKickoff, /data-scoreboard-state="awaiting"/);
   assert.match(scoreboardHeaderMarkup(atKickoff), />Awaiting score<\/span>/);
   assert.doesNotMatch(scoreboardHeaderMarkup(atKickoff), />SCH<\/span>/);
   assert.equal((atKickoff.match(/data-scoreboard-value="(?:away|home)">–/g) ?? []).length, 2);
+});
+
+test('a post-window Matchups row reports no score without adding a fifth card stat', () => {
+  const kickoff = '2025-08-30T20:00:00.000Z';
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[
+        game({
+          key: 'no-score-reported',
+          date: kickoff,
+          csvAway: 'Rutgers',
+          csvHome: 'Maryland',
+        }),
+      ]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map([['Rutgers', 'Nia']])}
+      displayTimeZone="UTC"
+      nowMs={Date.parse(kickoff) + 25 * 60 * 60_000}
+    />
+  );
+  const card = ownerCardMarkup(html, 'Nia');
+  const scoreboard = scoreboardMarkup(card, 'Rutgers @ Maryland');
+  const statLabels = Array.from(
+    card.matchAll(
+      /<span class="text-xs font-semibold uppercase tracking-wider[^"]*">([^<]+)<\/span>/g
+    ),
+    (match) => match[1]
+  );
+
+  assert.match(scoreboard, /data-scoreboard-state="unavailable"/);
+  assert.match(scoreboardHeaderMarkup(scoreboard), />No score reported<\/span>/);
+  assert.match(card, />1<\/span><span[^>]*>GAMES<\/span>/);
+  assert.match(card, />0<\/span><span[^>]*>LIVE<\/span>/);
+  assert.deepEqual(statLabels, ['GAMES', 'WINS', 'WIN%', 'LIVE']);
 });
 
 test('matchups threads current records to both participants across scheduled, live, and final rows', () => {
@@ -1124,7 +1166,7 @@ test('owner slates count final owned-vs-owned, NoClaim, and FCS results from own
     },
   };
 
-  const slates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey);
+  const slates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey, MATCHUPS_TEST_PROJECTION);
   const avery = slates.find((slate) => slate.owner === 'Avery');
   const blair = slates.find((slate) => slate.owner === 'Blair');
 
@@ -1198,7 +1240,7 @@ test('scheduled and live games do not change owner final record summaries', () =
     },
   };
 
-  const slates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey);
+  const slates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey, MATCHUPS_TEST_PROJECTION);
   const casey = slates.find((slate) => slate.owner === 'Casey');
   assert.ok(casey);
   assert.equal(casey.performance.summary, '1–0 · 1 live');
@@ -1246,7 +1288,7 @@ test('owner slate shows final record when one game is final and another is still
     },
   };
 
-  const slates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey);
+  const slates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey, MATCHUPS_TEST_PROJECTION);
   const casey = slates.find((slate) => slate.owner === 'Casey');
   assert.ok(casey);
   assert.equal(casey.totalGames, 2);

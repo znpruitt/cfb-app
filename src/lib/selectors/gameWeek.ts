@@ -17,7 +17,7 @@ import { getOwnerForGameSide } from '../gameOwnership';
 import { formatLiveGameClock } from '../gameUi';
 import { projectGameScoreboardState, type GameScoreboardState } from './gameScoreboardState';
 
-export type ScheduleScoreboardState = GameScoreboardState;
+export type ScheduleScoreboardState = Exclude<GameScoreboardState, 'unavailable'>;
 
 type ScheduleScoreboardResolution = {
   scoreboardState: ScheduleScoreboardState;
@@ -84,12 +84,18 @@ function resolveScheduleScoreboard(params: {
     confirmedKickoff,
     currentDateMs ?? Number.NaN
   );
-  if (projected === 'final' || projected === 'live') {
-    return {
-      scoreboardState: projected,
-      scheduleNotice: null,
-      suppressScheduledMetadata: false,
-    };
+  switch (projected) {
+    case 'final':
+    case 'live':
+      return {
+        scoreboardState: projected,
+        scheduleNotice: null,
+        suppressScheduledMetadata: false,
+      };
+    case 'scheduled':
+    case 'awaiting':
+    case 'unavailable':
+      break;
   }
 
   const disruptionNotice = disruptedScheduleNotice(game, score);
@@ -102,11 +108,24 @@ function resolveScheduleScoreboard(params: {
     };
   }
 
-  return {
-    scoreboardState: projected,
-    scheduleNotice: projected === 'scheduled' ? evidenceFreeScheduleNotice(score) : null,
-    suppressScheduledMetadata: false,
-  };
+  switch (projected) {
+    case 'scheduled':
+      return {
+        scoreboardState: projected,
+        scheduleNotice: evidenceFreeScheduleNotice(score),
+        suppressScheduledMetadata: false,
+      };
+    case 'awaiting':
+      return {
+        scoreboardState: projected,
+        scheduleNotice: null,
+        suppressScheduledMetadata: false,
+      };
+    case 'unavailable':
+      // A confirmed kickoff old enough to exhaust the 24-hour score window is
+      // necessarily beyond Schedule's eight-hour abandonment gate above.
+      throw new Error('Unavailable score state escaped the Schedule abandonment gate');
+  }
 }
 
 function formatScheduleKickoff(

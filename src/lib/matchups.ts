@@ -1,10 +1,17 @@
 import { classifyScorePackStatus } from './gameStatus.ts';
 import type { CombinedOdds } from './odds.ts';
 import type { ScorePack } from './scores.ts';
-import { getGameParticipantTeamId, type AppGame } from './schedule.ts';
+import type { AppGame } from './schedule.ts';
 import { deriveFinalOwnedParticipations } from './standings.ts';
 import { isPolicyFcsConference } from './conferenceSubdivision.ts';
 import { displayOwner, getOwnerForGameSide } from './gameOwnership.ts';
+import {
+  selectOwnerSlateStateProjection,
+  selectOwnerSlateGamesForBucket,
+  type OwnerSlateStateProjection,
+} from './selectors/matchups.ts';
+import { NO_SCORE_REPORTED_LABEL } from './selectors/gameScoreboardState.ts';
+import type { OwnerSlateSurfaceProjection } from './selectors/ownerGameState.ts';
 
 export type MatchupBucket = {
   game: AppGame;
@@ -58,6 +65,7 @@ export type OwnerWeekSlate = {
   liveGames: number;
   finalGames: number;
   scheduledGames: number;
+  unavailableGames: number;
   performance: MatchupPerformanceState;
 };
 
@@ -121,7 +129,7 @@ export function deriveWeekMatchupSections(
   return { ownerMatchups, secondaryGames, otherGames };
 }
 
-function getStateFromScore(score?: ScorePack): 'scheduled' | 'inprogress' | 'final' | 'neutral' {
+function getStateFromScore(score?: ScorePack): 'scheduled' | 'inprogress' | 'final' {
   const bucket = classifyScorePackStatus(score);
   if (bucket === 'final') return 'final';
   if (bucket === 'inprogress') return 'inprogress';
@@ -249,42 +257,6 @@ export function buildMatchupCardViewModel(
   };
 }
 
-function buildOwnerSlateGames(bucket: MatchupBucket, owner: string): OwnerSlateGame[] {
-  const games: OwnerSlateGame[] = [];
-
-  if (bucket.awayOwner === owner) {
-    games.push({
-      owner,
-      game: bucket.game,
-      ownerTeamSide: 'away',
-      ownerTeamId: getGameParticipantTeamId(bucket.game, 'away') ?? bucket.game.canAway,
-      ownerTeamName: bucket.game.csvAway,
-      opponentTeamId: getGameParticipantTeamId(bucket.game, 'home') ?? bucket.game.canHome,
-      opponentTeamName: bucket.game.csvHome,
-      opponentOwner: bucket.homeOwner,
-      isOwnerVsOwner: Boolean(bucket.homeOwner),
-      isOpponentUnownedOrNonLeague: !bucket.homeOwner,
-    });
-  }
-
-  if (bucket.homeOwner === owner) {
-    games.push({
-      owner,
-      game: bucket.game,
-      ownerTeamSide: 'home',
-      ownerTeamId: getGameParticipantTeamId(bucket.game, 'home') ?? bucket.game.canHome,
-      ownerTeamName: bucket.game.csvHome,
-      opponentTeamId: getGameParticipantTeamId(bucket.game, 'away') ?? bucket.game.canAway,
-      opponentTeamName: bucket.game.csvAway,
-      opponentOwner: bucket.awayOwner,
-      isOwnerVsOwner: Boolean(bucket.awayOwner),
-      isOpponentUnownedOrNonLeague: !bucket.awayOwner,
-    });
-  }
-
-  return games;
-}
-
 function compareSlates(a: OwnerWeekSlate, b: OwnerWeekSlate): number {
   if (b.liveGames !== a.liveGames) return b.liveGames - a.liveGames;
   if (a.scheduledGames !== b.scheduledGames) return a.scheduledGames - b.scheduledGames;
@@ -319,29 +291,14 @@ function countOwnerRecordForBucket(
 
 function buildOwnerWeekPerformance(
   owner: string,
-  games: OwnerSlateGame[],
+  stateProjection: OwnerSlateStateProjection,
   buckets: MatchupBucket[],
   rosterByTeam: Map<string, string>,
   scoresByKey: Record<string, ScorePack>
 ): MatchupPerformanceState {
-  let liveGames = 0;
-  let finalGames = 0;
-  let scheduledGames = 0;
+  const { games, liveGames, finalGames, scheduledGames, unavailableGames } = stateProjection;
   let wins = 0;
   let losses = 0;
-
-  for (const slateGame of games) {
-    const score = scoresByKey[slateGame.game.key];
-    const state = getStateFromScore(score);
-
-    if (state === 'inprogress') {
-      liveGames += 1;
-    } else if (state === 'final') {
-      finalGames += 1;
-    } else {
-      scheduledGames += 1;
-    }
-  }
 
   for (const bucket of buckets) {
     const counted = countOwnerRecordForBucket(bucket, owner, rosterByTeam, scoresByKey);
@@ -371,21 +328,30 @@ function buildOwnerWeekPerformance(
     return {
       summary: record,
       detail: `${games.length} game${games.length === 1 ? '' : 's'}`,
-      tone: scheduledGames > 0 ? 'neutral' : 'final',
+      tone: scheduledGames > 0 || unavailableGames > 0 ? 'neutral' : 'final',
+    };
+  }
+
+  if (unavailableGames === games.length) {
+    return {
+      summary: NO_SCORE_REPORTED_LABEL,
+      detail: `${games.length} game${games.length === 1 ? '' : 's'}`,
+      tone: 'neutral',
     };
   }
 
   return {
     summary: 'Scheduled',
     detail: `${games.length} game${games.length === 1 ? '' : 's'}`,
-    tone: 'scheduled',
+    tone: unavailableGames > 0 ? 'neutral' : 'scheduled',
   };
 }
 
 export function deriveOwnerWeekSlates(
   games: AppGame[],
   rosterByTeam: Map<string, string>,
-  scoresByKey: Record<string, ScorePack>
+  scoresByKey: Record<string, ScorePack>,
+  projection: OwnerSlateSurfaceProjection
 ): OwnerWeekSlate[] {
   const sections = deriveWeekMatchupSections(games, rosterByTeam);
   const relevantBuckets = [...sections.ownerMatchups, ...sections.secondaryGames];
@@ -398,7 +364,7 @@ export function deriveOwnerWeekSlates(
     if (bucket.homeOwner) ownersForBucket.add(bucket.homeOwner);
 
     for (const owner of ownersForBucket) {
-      const slateGames = buildOwnerSlateGames(bucket, owner);
+      const slateGames = selectOwnerSlateGamesForBucket(bucket, owner);
       if (slateGames.length === 0) continue;
 
       const existing = slatesByOwner.get(owner) ?? [];
@@ -413,30 +379,12 @@ export function deriveOwnerWeekSlates(
 
   return Array.from(slatesByOwner.entries())
     .map(([owner, ownerGames]) => {
-      const gamesForOwner = ownerGames.slice().sort((a, b) => {
-        const stateRank = (game: OwnerSlateGame): number => {
-          const state = getStateFromScore(scoresByKey[game.game.key]);
-          if (state === 'inprogress') return 0;
-          if (state === 'scheduled') return 1;
-          if (state === 'final') return 2;
-          return 3;
-        };
-
-        const rankDiff = stateRank(a) - stateRank(b);
-        if (rankDiff !== 0) return rankDiff;
-
-        const aTime = a.game.date ? new Date(a.game.date).getTime() : Number.MAX_SAFE_INTEGER;
-        const bTime = b.game.date ? new Date(b.game.date).getTime() : Number.MAX_SAFE_INTEGER;
-        if (aTime !== bTime) return aTime - bTime;
-        return a.game.key.localeCompare(b.game.key);
+      const stateProjection = selectOwnerSlateStateProjection({
+        games: ownerGames,
+        scoresByKey,
+        projection,
       });
-      const liveGames = gamesForOwner.filter(
-        (game) => getStateFromScore(scoresByKey[game.game.key]) === 'inprogress'
-      ).length;
-      const finalGames = gamesForOwner.filter(
-        (game) => getStateFromScore(scoresByKey[game.game.key]) === 'final'
-      ).length;
-      const scheduledGames = gamesForOwner.length - liveGames - finalGames;
+      const gamesForOwner = stateProjection.games;
       const opponentOwners = Array.from(
         new Set(
           gamesForOwner
@@ -449,13 +397,14 @@ export function deriveOwnerWeekSlates(
         owner,
         games: gamesForOwner,
         opponentOwners,
-        totalGames: gamesForOwner.length,
-        liveGames,
-        finalGames,
-        scheduledGames,
+        totalGames: stateProjection.totalGames,
+        liveGames: stateProjection.liveGames,
+        finalGames: stateProjection.finalGames,
+        scheduledGames: stateProjection.scheduledGames,
+        unavailableGames: stateProjection.unavailableGames,
         performance: buildOwnerWeekPerformance(
           owner,
-          gamesForOwner,
+          stateProjection,
           bucketsByOwner.get(owner) ?? [],
           rosterByTeam,
           scoresByKey

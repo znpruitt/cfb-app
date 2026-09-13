@@ -145,6 +145,7 @@ const snapshot: OwnerViewSnapshot = {
     liveGames: 1,
     finalGames: 1,
     scheduledGames: 1,
+    unavailableGames: 0,
     opponentOwners: ['Foster'],
     performanceSummary: '1–0 · 1 live',
     performanceDetail: '3 games',
@@ -200,7 +201,40 @@ test('owner panel shows live, final, and upcoming week-row detail correctly', ()
   assert.match(html, /dark:text-zinc-300">Final<\/span>/);
   assert.match(html, /dark:text-sky-400">Upcoming<\/span>/);
   assert.match(html, /dark:text-zinc-400">Awaiting score<\/span>/);
+  assert.doesNotMatch(html, /No score reported/);
   assert.doesNotMatch(html, /amber/);
+});
+
+test('Members renders the no-score-reported label and count with neutral treatment', () => {
+  const noScoreRow: OwnerViewSnapshot['weekRows'][number] = {
+    ...snapshot.weekRows[1]!,
+    currentStatus: 'No score reported',
+  };
+  const html = renderToStaticMarkup(
+    <OwnerPanel
+      snapshot={{
+        ...snapshot,
+        weekRows: [noScoreRow],
+        weekSummary: {
+          ...snapshot.weekSummary!,
+          totalGames: 1,
+          liveGames: 0,
+          scheduledGames: 0,
+          finalGames: 0,
+          unavailableGames: 1,
+          performanceSummary: 'No score reported',
+          performanceDetail: '1 game',
+        },
+      }}
+      selectedWeekLabel="Week 1"
+      displayTimeZone="UTC"
+      onOwnerChange={() => {}}
+    />
+  );
+
+  assert.match(html, /dark:text-zinc-400">No score reported<\/span>/);
+  assert.match(html, /1 — No score reported/);
+  assert.doesNotMatch(html, /dark:text-sky-400">No score reported<\/span>/);
 });
 
 test('owner panel renders season-complete messaging without week rows', () => {
@@ -582,6 +616,10 @@ function renderDerivedOwnerPanel(params: {
     weekGames: params.games,
     rosterByTeam: params.rosterByTeam,
     scoresByKey: {},
+    gameDayContext: {
+      season: 2026,
+      now: Date.parse('2026-08-30T00:00:00.000Z'),
+    },
   });
 
   const html = renderToStaticMarkup(
