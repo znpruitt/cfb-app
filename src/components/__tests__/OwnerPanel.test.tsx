@@ -582,6 +582,10 @@ function renderDerivedOwnerPanel(params: {
     weekGames: params.games,
     rosterByTeam: params.rosterByTeam,
     scoresByKey: {},
+    gameDayContext: {
+      season: 2026,
+      now: Date.parse('2026-08-01T00:00:00.000Z'),
+    },
   });
 
   const html = renderToStaticMarkup(

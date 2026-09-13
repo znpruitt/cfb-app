@@ -32,6 +32,7 @@ import type { AppGame } from '../../lib/schedule';
 afterEach(() => cleanup());
 
 const OWNER = 'Taylor';
+const MATCHUPS_TEST_NOW_MS = Date.parse('2025-08-30T19:00:00.000Z');
 
 function game(overrides: Partial<AppGame> & { key: string }): AppGame {
   return {
@@ -127,7 +128,7 @@ function renderPanel(games: AppGame[], rosterByTeam: Map<string, string>) {
       scoresByKey={{}}
       rosterByTeam={rosterByTeam}
       displayTimeZone="America/New_York"
-      nowMs={Date.parse('2025-08-30T19:00:00.000Z')}
+      nowMs={MATCHUPS_TEST_NOW_MS}
     />
   );
 }
@@ -189,9 +190,12 @@ test('the control label states the number of games actually withheld (Item 135)'
 
   // Derive the expectation the way the surface does, from the slate itself,
   // rather than restating a literal that would pass against a wrong slice.
-  const slate = deriveOwnerWeekSlates(games, rosterByTeam, {}).find(
-    (entry) => entry.owner === OWNER
-  );
+  const slate = deriveOwnerWeekSlates(
+    games,
+    rosterByTeam,
+    {},
+    { kind: 'matchups', now: MATCHUPS_TEST_NOW_MS }
+  ).find((entry) => entry.owner === OWNER);
   assert.ok(slate, 'owner slate should exist');
   const collapsed = selectSlateGameVisibility(slate, false);
   const expectedWithheld = collapsed.distinctGames.length - collapsed.visibleGames.length;
@@ -221,9 +225,12 @@ test('the count is indifferent to who owns the opponents (Item 135)', () => {
   const visible = getDefaultVisibleGamesCount();
   const { games, rosterByTeam, opponentNames } = noClaimRoster(visible + 2);
 
-  const slate = deriveOwnerWeekSlates(games, rosterByTeam, {}).find(
-    (entry) => entry.owner === OWNER
-  );
+  const slate = deriveOwnerWeekSlates(
+    games,
+    rosterByTeam,
+    {},
+    { kind: 'matchups', now: MATCHUPS_TEST_NOW_MS }
+  ).find((entry) => entry.owner === OWNER);
   assert.ok(slate, 'owner slate should exist');
   // The positive control has TWO halves since Item 713, and it needs both. The
   // ROSTER carrying the sentinel is what makes this fixture reach the branch —
@@ -245,21 +252,33 @@ test('the count is indifferent to who owns the opponents (Item 135)', () => {
   assert.equal(gameRowCount(container), visible);
 });
 
-test('a self game renders one row, not two mirrored rows (Item 135)', () => {
-  // 39 games in the 2026 season have one owner holding both teams. Each renders
-  // twice today, because `buildOwnerSlateGames` emits one entry per owned side
-  // and the row key carried `ownerTeamSide`.
+test('a self game is aggregated and rendered once (#712, Item 135)', () => {
+  // 39 games in the 2026 season have one owner holding both teams. The internal
+  // side expansion reaches both sides, but the derived slate now deduplicates
+  // before its aggregates and the presentation consume it.
   const games = [game({ key: 'self-1', csvAway: 'Jacksonville State', csvHome: 'North Dakota' })];
   const rosterByTeam = new Map([
     ['Jacksonville State', 'Whited'],
     ['North Dakota', 'Whited'],
   ]);
 
-  const slate = deriveOwnerWeekSlates(games, rosterByTeam, {}).find(
-    (entry) => entry.owner === 'Whited'
-  );
+  const slate = deriveOwnerWeekSlates(
+    games,
+    rosterByTeam,
+    {},
+    { kind: 'matchups', now: MATCHUPS_TEST_NOW_MS }
+  ).find((entry) => entry.owner === 'Whited');
   assert.ok(slate, 'owner slate should exist');
-  assert.equal(slate.games.length, 2, 'positive control: the slate really does carry two entries');
+  assert.equal(slate.games.length, 1);
+  assert.equal(slate.totalGames, 1);
+  assert.equal(slate.liveGames, 0);
+  assert.equal(slate.finalGames, 0);
+  assert.equal(slate.scheduledGames, 1);
+  assert.equal(
+    slate.liveGames + slate.finalGames + slate.scheduledGames,
+    slate.totalGames,
+    'the aggregate counts the same distinct game the list renders'
+  );
 
   const { container } = renderPanel(games, rosterByTeam);
 

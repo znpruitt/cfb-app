@@ -64,6 +64,7 @@ export default async function LeagueStandingsPage({
         leagueSlug={slug}
         leagueDisplayName={league?.displayName}
         initialWeekViewMode="standings"
+        initialNowMs={Date.now()}
         leagueYear={league?.year}
         leagueStatus={resolveDisplayLeagueStatus(league)}
         assignmentMethod={league?.assignmentMethod}

@@ -33,10 +33,8 @@ import type { AppGame } from '../lib/schedule';
 import { EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID, type ScoreboardTeamLogosById } from '../lib/teamLogos';
 import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
 import type { LiveDelta } from '../lib/selectors/liveDelta';
-import {
-  projectGameScoreboardState,
-  type GameScoreboardState,
-} from '../lib/selectors/gameScoreboardState';
+import type { GameScoreboardState } from '../lib/selectors/gameScoreboardState';
+import { projectMatchupsRowState } from '../lib/selectors/ownerGameState';
 import {
   EMPTY_TEAM_RECORDS_BY_PROVIDER_GAME_ID,
   type TeamRecordsByProviderGameId,
@@ -67,7 +65,7 @@ type MatchupsWeekPanelProps = {
    * fresh-LIVE dot on in-progress games and is suppressed when stale.
    */
   liveDelta?: LiveDelta | null;
-  /** Shared clock fact used only by the scoreboard state projection. */
+  /** Shared clock fact used by the row and slate state projections. */
   nowMs: number;
   teamLogosById?: ScoreboardTeamLogosById;
 };
@@ -185,11 +183,7 @@ function GameRow({
   const scheduledSeparator =
     usesNeutralSiteSemantics(slateGame.game) || slateGame.game.neutral ? 'vs' : '@';
   const liveClockLabel = buildLiveClockLabel(score);
-  const scoreboardState = projectGameScoreboardState(
-    score,
-    slateGame.game.startTimeTBD === true ? null : slateGame.game.date,
-    nowMs
-  );
+  const scoreboardState = projectMatchupsRowState(slateGame.game, score, nowMs);
   const liveGameDelta = liveDelta?.byGame[slateGame.game.key];
   const showLiveIndicator =
     scoreboardState === 'live' &&
@@ -492,7 +486,10 @@ export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.
     nowMs,
     teamLogosById = EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID,
   } = props;
-  const rawOwnerSlates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey);
+  const rawOwnerSlates = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey, {
+    kind: 'matchups',
+    now: nowMs,
+  });
   const visibleOwnerSlates = rawOwnerSlates.filter((slate) => displayOwner(slate.owner) !== null);
   // Reorder owner cards to match canonical owner identity when canonical is
   // present so Matchups shares the alphabetical ordering used by Standings/

@@ -58,6 +58,7 @@ export default async function LeagueSchedulePage({
         {...canonicalStandingsClientProps(canonicalStandings)}
         {...teamRecordProps}
         initialWeekViewMode="schedule"
+        initialNowMs={Date.now()}
         isAdmin={isAdmin}
       />
     </main>

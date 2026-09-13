@@ -56,6 +56,7 @@ export default async function LeagueMatchupsPage({
         {...canonicalStandingsClientProps(canonicalStandings)}
         {...teamRecordProps}
         initialWeekViewMode="matchups"
+        initialNowMs={Date.now()}
         isAdmin={isAdmin}
       />
     </main>

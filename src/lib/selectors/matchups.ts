@@ -1,5 +1,10 @@
 import { classifyScorePackStatus, formatCompactGameStatus } from '../gameStatus';
-import type { OwnerSlateGame, OwnerWeekSlate, WeekMatchupSections } from '../matchups';
+import {
+  selectDistinctOwnerSlateGames,
+  type OwnerSlateGame,
+  type OwnerWeekSlate,
+  type WeekMatchupSections,
+} from '../matchups';
 import type { ScorePack } from '../scores';
 import { isPolicyFcsConference } from '../conferenceSubdivision';
 
@@ -73,26 +78,17 @@ function getSummaryOpponentLabel(slateGame: OwnerSlateGame): string {
  * Item 135 — the distinct GAMES on an owner's slate, in slate order.
  *
  * `buildOwnerSlateGames` (`src/lib/matchups.ts`) has two independent `if`
- * blocks, one per side, so an owner holding BOTH teams in a game gets TWO slate
- * entries for that one game — mirror images differing only in `ownerTeamSide`.
- * The 2026 season carries 39 such games out of 888 involving a rostered team,
- * so this is production's shape rather than an edge case.
+ * blocks, one per side, so an owner holding BOTH teams in a game initially
+ * creates two mirror entries. `deriveOwnerWeekSlates` deduplicates them before
+ * computing any aggregate or ordering; this selector retains the same boundary
+ * for manually constructed/legacy slates.
  *
  * A game is one game. First occurrence wins, which is the `away` entry: the two
  * entries compare equal on every sort key, so their push order survives, and an
  * away-first row states the scoreline in the order the matchup line prints it.
  */
 export function selectDistinctSlateGames(slate: OwnerWeekSlate): OwnerSlateGame[] {
-  const seen = new Set<string>();
-  const distinct: OwnerSlateGame[] = [];
-
-  for (const slateGame of slate.games) {
-    if (seen.has(slateGame.game.key)) continue;
-    seen.add(slateGame.game.key);
-    distinct.push(slateGame);
-  }
-
-  return distinct;
+  return selectDistinctOwnerSlateGames(slate.games);
 }
 
 /**
@@ -101,12 +97,11 @@ export function selectDistinctSlateGames(slate: OwnerWeekSlate): OwnerSlateGame[
  * Nothing in production calls it; Item 117 decides its fate. The owner-card
  * control no longer consumes this: it counts games, which is what it renders.
  *
- * These groups are built over DISTINCT games, so a caller pairing them with a
- * game total must use the distinct count — `selectDistinctSlateGames(slate).length`
- * or `selectSlateGameVisibility(...).distinctGames.length`, NOT `slate.totalGames`,
- * which counts slate entries and reads 2 for a single self game. Passing the
- * latter would print a total of two above a group of one: the same label/list
- * unit mismatch Item 135 removed, relocated into this path.
+ * These groups are built over DISTINCT games. Derived slates carry that same
+ * population in `slate.totalGames`; manually constructed/legacy slates should
+ * use `selectDistinctSlateGames(slate).length` or
+ * `selectSlateGameVisibility(...).distinctGames.length` when pairing a total
+ * with these entries.
  */
 export function summarizeSlateOpponents(slate: OwnerWeekSlate): OpponentSummaryEntry[] {
   const counts = new Map<string, number>();

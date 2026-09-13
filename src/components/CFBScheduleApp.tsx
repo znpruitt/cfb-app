@@ -753,8 +753,7 @@ export default function CFBScheduleApp({
         weekGames: selectedTab === 'postseason' ? postseasonGames : filteredWeekGames,
         rosterByTeam,
         scoresByKey,
-        gameDayContext:
-          liveStaleClock > 0 ? { season: selectedSeason, now: liveStaleClock } : undefined,
+        gameDayContext: { season: selectedSeason, now: liveStaleClock },
       }),
     [
       canonicalRows,
