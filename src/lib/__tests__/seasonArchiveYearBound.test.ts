@@ -289,3 +289,24 @@ test('a store failure PROPAGATES from the disjunct — it is never read as "no a
     'a failed read must not silently become a refusal'
   );
 });
+
+test('A SUB-FLOOR YEAR NEVER CONSULTS THE STORE, so an outage cannot turn its 400 into a 500', async () => {
+  // Review finding. The archive list is itself floored at 2000, so consulting it
+  // for `1999` is a round-trip whose result cannot change the answer — and
+  // because that read propagates failure by design, the dead path converted a
+  // certain refusal into a throw. Asserting on a BROKEN store is what makes this
+  // observe the absence of the read rather than infer it: if the disjunct still
+  // ran, this would reject instead of returning.
+  forceStoreReadFailure();
+
+  const refused = await resolveArchiveYearParam(SLUG, '1999', league());
+  assert.equal(refused.ok, false, 'a sub-floor year must refuse without reading the store');
+
+  // CONTROL: the store really is broken, so the assertion above is about the
+  // sub-floor path and not about a store that happens to be working. An
+  // ABOVE-ceiling year does reach the disjunct and therefore must still throw.
+  await assert.rejects(
+    () => resolveArchiveYearParam(SLUG, '3000', league()),
+    'the same broken store still surfaces through the path that does read it'
+  );
+});

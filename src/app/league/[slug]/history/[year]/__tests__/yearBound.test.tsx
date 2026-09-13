@@ -90,6 +90,29 @@ async function pageText(slug: string, year: string): Promise<string> {
   return collectPageText(await render(slug, year));
 }
 
+/**
+ * A REFUSAL IS `notFound()`, NOT MERELY A REJECTION — review finding, and the
+ * distinction is load-bearing here rather than pedantic. `resolveArchiveYearParam`
+ * THROWS by design when the archive-list read fails, so a bare `assert.rejects`
+ * would stay green if this page started 500-ing on these inputs instead of
+ * 404-ing, and the suite would report the bound as working. Digest measured
+ * against this Next version rather than assumed: `notFound()` throws an error
+ * carrying `NEXT_HTTP_ERROR_FALLBACK;404`.
+ */
+const NOT_FOUND = /^NEXT_HTTP_ERROR_FALLBACK;404$/;
+
+async function assertNotFound(slug: string, year: string, message: string): Promise<void> {
+  await assert.rejects(
+    () => render(slug, year),
+    (err: unknown) => {
+      const digest = (err as { digest?: unknown }).digest;
+      assert.match(String(digest), NOT_FOUND, `${message} (got digest ${String(digest)})`);
+      return true;
+    },
+    message
+  );
+}
+
 test.beforeEach(async () => {
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
@@ -99,8 +122,9 @@ test('MUTATION: a planted fractional archive does NOT render — the page refuse
   await seedLeague(SLUG);
   await plantArchive(SLUG, '2026.5');
 
-  await assert.rejects(
-    () => render(SLUG, '2026.5'),
+  await assertNotFound(
+    SLUG,
+    '2026.5',
     'an archive exists at this key; before #774 the page found it and rendered it'
   );
 });
@@ -139,14 +163,18 @@ test('the operating year renders its empty state, and the year beyond it is refu
   const atCeiling = await pageText(SLUG, String(OPERATING_YEAR));
   assert.match(atCeiling, new RegExp(`No archived data found for the ${OPERATING_YEAR} season\\.`));
 
-  await assert.rejects(() => render(SLUG, String(OPERATING_YEAR + 1)));
+  await assertNotFound(
+    SLUG,
+    String(OPERATING_YEAR + 1),
+    'a year above the ceiling must be a 404, not a crash'
+  );
 });
 
 test('dense years are refused — each was an independent cache entry on this page', async () => {
   await seedLeague(SLUG);
 
   for (const year of ['2029.25', '2029.75', '2026.0000001', '2e10', '0x7E0']) {
-    await assert.rejects(() => render(SLUG, year), `${year} must be refused`);
+    await assertNotFound(SLUG, year, `${year} must be refused`);
   }
 });
 
@@ -159,7 +187,7 @@ test('THE DISJUNCT: the page serves an archive above the operating year', async 
   assert.match(html, /2024 Season/);
 
   // MUTATION CONTROL: identical league, identical shape, archive absent.
-  await assert.rejects(() => render(desynced, '2025'));
+  await assertNotFound(desynced, '2025', 'the disjunct must admit only years actually archived');
 });
 
 test('a padded but legitimate year still renders', async () => {
@@ -173,6 +201,6 @@ test('a padded but legitimate year still renders', async () => {
 test('BEHAVIOUR PRESERVED: a sub-2000 year and a non-numeric one are still refused', async () => {
   await seedLeague(SLUG);
 
-  await assert.rejects(() => render(SLUG, '1999'));
-  await assert.rejects(() => render(SLUG, 'nonsense'));
+  await assertNotFound(SLUG, '1999', 'the sub-2000 floor predates #774');
+  await assertNotFound(SLUG, 'nonsense', 'a non-numeric year was refused before #774 too');
 });

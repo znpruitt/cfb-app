@@ -206,6 +206,17 @@ function parseArchiveYearSegment(raw: string): number | null {
 }
 
 /**
+ * Names BOTH admitting conditions. Stating only the range would misdescribe the
+ * bound to the one caller the disjunct exists for.
+ */
+function refusal(operatingYear: number): ArchiveYearResolution {
+  return {
+    ok: false,
+    error: `year must be an integer between ${MIN_SEASON_YEAR} and ${operatingYear}, or a season this league has archived`,
+  };
+}
+
+/**
  * Bound a CALLER-SUPPLIED archive year — #774.
  *
  * THE UNCLOSED HALF OF A DOCUMENTED HAZARD, which is the most useful thing to
@@ -284,15 +295,19 @@ export async function resolveArchiveYearParam(
 
   if (parsed !== null) {
     if (parsed >= MIN_SEASON_YEAR && parsed <= operatingYear) return { ok: true, year: parsed };
+    // THE FLOOR GUARDS THE DISJUNCT TOO, and this is not redundancy — review
+    // finding. `readArchiveYearsFromStore` filters `n >= 2000`, so the list can
+    // never contain a sub-floor value and consulting it for one is a store
+    // round-trip whose result cannot change the answer. That matters because the
+    // read below deliberately PROPAGATES failure: without this guard a store
+    // outage turned a certain 400 on `/history/tsc/1999` into a 500, and the
+    // page's `notFound()` into an error boundary. One comparison makes the dead
+    // path unreachable and the floor structural rather than incidental.
+    if (parsed < MIN_SEASON_YEAR) return refusal(operatingYear);
     if ((await listSeasonArchives(leagueSlug)).includes(parsed)) return { ok: true, year: parsed };
   }
 
-  // Names BOTH admitting conditions. Stating only the range would misdescribe
-  // the bound to the one caller the disjunct exists for.
-  return {
-    ok: false,
-    error: `year must be an integer between ${MIN_SEASON_YEAR} and ${operatingYear}, or a season this league has archived`,
-  };
+  return refusal(operatingYear);
 }
 
 /**
