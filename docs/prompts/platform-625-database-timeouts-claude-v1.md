@@ -84,7 +84,7 @@ leave budget to RECORD the failure.** A bound that only fires at 300 s is the pl
 different name, and it produces an unresolved attempt with no trace — which is the outcome CARRIES
 exists to prevent.
 
-## RULINGS ON THE READ RECEIPT — 2026-09-14, binding. Three corrections accepted; one question is the owner's.
+## RULINGS ON THE READ RECEIPT — 2026-09-14, binding; three corrections accepted, one question is the owner's
 
 **1. THE BUDGET ARITHMETIC IS WRONG AND YOURS IS RIGHT.** `statement_timeout` is **per statement**,
 not per interaction. `commitCanonicalOddsRefresh` issues **eight** statements, so the worst case is
