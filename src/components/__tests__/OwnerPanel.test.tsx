@@ -180,6 +180,25 @@ test('owner panel renders merged header navigation and team-based roster table',
   assert.match(html, /Live/);
 });
 
+test('Members describes awaiting-score rows in the Live games section truthfully', () => {
+  const awaitingRow = snapshot.rosterRows[2]!;
+  const html = renderToStaticMarkup(
+    <OwnerPanel
+      snapshot={{
+        ...snapshot,
+        liveRows: [snapshot.liveRows[0]!, awaitingRow],
+      }}
+      selectedWeekLabel="Week 1"
+      displayTimeZone="UTC"
+      onOwnerChange={() => {}}
+    />
+  );
+
+  assert.match(html, /Teams in progress or awaiting a score for the selected entry\./);
+  assert.match(html, /Awaiting score/);
+  assert.doesNotMatch(html, /Teams currently in progress for the selected entry\./);
+});
+
 test('owner panel shows live, final, and upcoming week-row detail correctly', () => {
   const html = renderToStaticMarkup(
     <OwnerPanel

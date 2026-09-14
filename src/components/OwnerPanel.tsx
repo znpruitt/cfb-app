@@ -490,7 +490,7 @@ export default function OwnerPanel({
 
       <SectionCard
         title="Live games"
-        description="Teams currently in progress for the selected entry."
+        description="Teams in progress or awaiting a score for the selected entry."
       >
         <OwnerRosterTable
           rows={snapshot.liveRows}
