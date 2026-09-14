@@ -588,3 +588,71 @@ is consistent with a shorter margin and proves nothing about the tail, which is 
 matters — the margin exists for the games that overrun, not the ones that do not. **Re-run this after
 two or three full Saturdays.** The scripts are in this document's method above; the stamp is the input
 they were waiting for.
+
+### THE OVERRUN DISTRIBUTION EXISTS — measured 2026-09-14, after the first full weekend
+
+**This is the evidence #689 step 2 said to wait for.** Item 140's stamp (#692) shipped 2026-09-11 and
+held five observations from one Friday night; after the 2026-09-12 slate it holds **85**.
+
+**Coverage first, because it is what makes the rest trustworthy.** The `scores / 2026-2-regular`
+partition holds 86 rows and **85 carry a stamp**. The Saturday schedule lists 271 games, but only 71
+involve an FBS team and **all 71 are stamped** — the remainder are the D-II/D-III rows this app
+deliberately does not ingest (Item 149). So this is the near-complete tracked slate, not a subset that
+could be hiding the slow tail.
+
+| hours from a game's OWN kickoff to its first final observation | |
+| --- | --- |
+| min | 2.85 |
+| p50 | **3.50** |
+| p90 | 3.95 |
+| p95 | 4.35 |
+| max | **5.70** (Georgia Southern @ Clemson) |
+
+**Nine of 85 ran past 4h, two past 5h, and NONE past 6h.**
+
+#### What the clusters actually required
+
+The dense margin is measured from a cluster's LAST kickoff, so the binding number is how long after
+that the last final landed:
+
+| kickoff day | stamped | last kickoff | last final seen | margin REQUIRED | unused of the 8h |
+| --- | --- | --- | --- | --- | --- |
+| Fri 2026-09-11 | 4 | 23:30Z | 03:27Z | 3.95h | 4.05h |
+| **Sat 2026-09-12** | **71** | **23:45Z** | **05:12Z** | **5.45h** | **2.55h** |
+| Sun 2026-09-13 | 10 | 03:59Z | 07:27Z | 3.47h | 4.53h |
+
+**A 6h margin would have covered all three days. A 5h margin would have missed Saturday by 27
+minutes.**
+
+#### Worth, and a risk that is smaller than it looks
+
+At the **~323 October wakeups per hour of margin** measured 2026-09-12, **8h → 6h is ~646 wakeups a
+month, about 10% of October's projected 6,574.**
+
+**Cutting the margin does not lose a final.** Past `denseEndMs` the hourly reconciliation schedule
+still runs to `kickoff + RECONCILIATION_GUARANTEE_MS` (24h), so a game finishing after the dense phase
+is picked up on the next hourly poll. The cost of cutting close is **up to an hour of staleness, not a
+missing result** — a freshness cost, not a correctness one.
+
+#### Two designs, and the cheap one is not the item
+
+- **Fixed 6h margin** — one constant, ~646 wakeups/month. This is the cheap version.
+- **Stand down when the games actually finish** — what #689 step 2 describes. It captures the full
+  unused margin each day (**2.55h to 4.53h observed**) rather than a flat 2h, and is worth
+  correspondingly more. It needs a signal and real code.
+
+#### Do not cut yet, and the reason is in this document's own history
+
+**One weekend, three cluster-days, in September.** And **the tail has already moved once**: at five
+observations the max was 4.45h; at 85 it is 5.70h. Tails extend as n grows, and October brings night
+games, overtime and weather delays that September's early slate does not.
+
+**Re-run after another weekend or two and append below.** The script reads
+`firstFinalObservedAtById` from every `scores` partition and joins `schedule / 2026-all-all` for
+kickoffs, through `DATABASE_URL_RO`. **State the stamped-over-tracked coverage with any figure** — a
+distribution over an unstated denominator is what this section exists to avoid.
+
+**One caveat on the numbers themselves:** a stamp records when the poller FIRST OBSERVED a final, not
+when the game ended, so each figure carries up to one dense polling interval (3 min) plus provider
+lag. The required margins above are therefore slightly overstated, which is the conservative
+direction.
