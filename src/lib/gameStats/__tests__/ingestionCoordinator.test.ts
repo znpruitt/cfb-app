@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import test from 'node:test';
 
 import type { Pool } from 'pg';
@@ -101,7 +102,11 @@ const REQUIRED_SIX: WireStat[] = [
  * record so authorization passes and the merge reaches its commit. No
  * concurrency/capacity is modeled (one sequential call).
  */
-class LostCommitClient {
+// PLATFORM-625: a real pg client is an EventEmitter and a CHECKED-OUT one has no
+// `'error'` listener of its own, so `appStateStore` attaches one for the client's
+// checked-out lifetime. A fake without that surface cannot model the contract —
+// and a fake that lacks it is exactly what let the missing listener ship.
+class LostCommitClient extends EventEmitter {
   released = false;
   /** Set once this transaction has actually submitted a mutation. */
   private sawWrite = false;

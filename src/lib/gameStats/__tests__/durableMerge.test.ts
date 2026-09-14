@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import test from 'node:test';
 
 import type { Pool } from 'pg';
@@ -806,7 +807,11 @@ test('authorization: an invalid input fence still short-circuits before any cont
  * `lockKey` rejection is the ordering error), so PG mode is required to
  * exercise the typed `control-lock-unavailable` mapping.
  */
-class ControlLockDownClient {
+// PLATFORM-625: a real pg client is an EventEmitter and a CHECKED-OUT one has no
+// `'error'` listener of its own, so `appStateStore` attaches one for the client's
+// checked-out lifetime. A fake without that surface cannot model the contract —
+// and a fake that lacks it is exactly what let the missing listener ship.
+class ControlLockDownClient extends EventEmitter {
   private lockCalls = 0;
   wroteAnything = false;
   async query(text: string): Promise<{ rows: unknown[] }> {

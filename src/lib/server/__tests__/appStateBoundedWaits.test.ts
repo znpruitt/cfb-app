@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import test from 'node:test';
 import type { Pool } from 'pg';
 
@@ -6,8 +7,10 @@ import {
   __appStatePoolConfigForTests,
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  __setAppStateOpenerTimeoutForTests,
   __setAppStatePoolForTests,
   AppStateKeyLockAcquireError,
+  AppStateOpenerTimeoutError,
   getAppState,
   setAppState,
   withAppStateKeyTransaction,
@@ -44,14 +47,26 @@ import { yearScope } from '../../providerRefreshScope.ts';
 
 type Recorded = { client: number; sql: string; params?: unknown[] };
 
-class RecordingClient {
+// PLATFORM-625: a real pg client is an EventEmitter and a CHECKED-OUT one has no
+// `'error'` listener of its own, so `appStateStore` attaches one for the client's
+// checked-out lifetime. A fake without that surface cannot model the contract —
+// and a fake that lacks it is exactly what let the missing listener ship.
+class RecordingClient extends EventEmitter {
   constructor(
     private readonly pool: RecordingPool,
     readonly index: number
-  ) {}
+  ) {
+    super();
+  }
 
   async query(sql: string, params?: unknown[]): Promise<{ rows: unknown[] }> {
     this.pool.statements.push({ client: this.index, sql, params });
+    // Observed WHILE checked out — after release the listener is expected to be gone.
+    this.pool.observeClient?.(this);
+    if (this.pool.emitErrorOn?.test(sql)) {
+      // What `pg` does on any socket-level failure, via `_handleErrorEvent`.
+      this.emit('error', new Error('socket reset'));
+    }
     const injected = this.pool.takeInjected(sql);
     if (injected) throw injected;
     const normalized = sql.trim().toLowerCase();
@@ -67,6 +82,12 @@ class RecordingClient {
 
 class RecordingPool {
   readonly statements: Recorded[] = [];
+  /** Every client handed out, so a test can inspect listeners after release. */
+  readonly clients: RecordingClient[] = [];
+  /** Called with the client on each statement, while it is still checked out. */
+  observeClient?: (client: RecordingClient) => void;
+  /** Emit a socket-level 'error' on the client when a statement matches. */
+  emitErrorOn?: RegExp;
   readonly releases: Array<{ index: number; destroyed: boolean }> = [];
   /** Statements issued through the POOL rather than a checked-out client. */
   readonly poolStatements: string[] = [];
@@ -88,7 +109,9 @@ class RecordingPool {
 
   async connect(): Promise<RecordingClient> {
     this.connects += 1;
-    return new RecordingClient(this, this.connects);
+    const client = new RecordingClient(this, this.connects);
+    this.clients.push(client);
+    return client;
   }
 
   async query(sql: string): Promise<{ rows: unknown[] }> {
@@ -96,6 +119,50 @@ class RecordingPool {
     return { rows: [{ present: true }] };
   }
 
+  async end(): Promise<void> {}
+}
+
+/** A client whose OPENER never settles — the stall `openBoundedTransaction` bounds. */
+class StalledOpenerClient extends EventEmitter {
+  readonly issued: string[] = [];
+  released: { destroyed: boolean } | null = null;
+
+  constructor(private readonly stall: boolean) {
+    super();
+  }
+
+  async query(sql: string): Promise<{ rows: unknown[] }> {
+    this.issued.push(sql);
+    if (this.stall && sql.trimStart().toLowerCase().startsWith('begin')) {
+      return new Promise(() => {}); // never settles
+    }
+    if (sql.includes('to_regclass')) return { rows: [{ present: true }] };
+    return { rows: [] };
+  }
+
+  release(error?: Error): void {
+    this.released = { destroyed: error !== undefined };
+  }
+}
+
+/**
+ * Stalls the opener from the `stallFrom`-th client onward. `ensureDatabase`'s schema
+ * transaction takes client 1, so letting it through is what puts the stall on the
+ * TRANSACTION's own opener — otherwise the DDL stalls first and the rejection never
+ * reaches `withAppStateKeyTransaction`'s wrapper at all. (It is still bounded there,
+ * which is the second test below.)
+ */
+class StalledOpenerPool {
+  readonly clients: StalledOpenerClient[] = [];
+  constructor(private readonly stallFrom: number) {}
+  async connect(): Promise<StalledOpenerClient> {
+    const client = new StalledOpenerClient(this.clients.length + 1 >= this.stallFrom);
+    this.clients.push(client);
+    return client;
+  }
+  async query(): Promise<{ rows: unknown[] }> {
+    return { rows: [{ present: true }] };
+  }
   async end(): Promise<void> {}
 }
 
@@ -261,9 +328,32 @@ test('a lock timeout at acquisition surfaces as AppStateKeyLockAcquireError carr
   });
 });
 
-// === CARRIES: a bound firing must not change what a refresh records ===
+// === CARRIES: what the RECORDER does with a bound's identity once it has it ===
 
-test('a bound firing on the data commit preserves prior-good and never advances lastSuccessAt', async () => {
+/**
+ * NAMED FOR WHAT IT PROVES, after review caught the earlier name claiming more. This
+ * runs on the FILE fallback and hands the recorder a `57014` directly — it does NOT
+ * fire a bound, and it would pass unchanged with the whole `SET LOCAL` change
+ * reverted. What it does prove is the CARRIES half: given a bound's identity, the
+ * recorder preserves prior-good, never advances `lastSuccessAt`, and keeps the code.
+ *
+ * The other half — that a fired bound's identity SURVIVES THE JOURNEY to the record —
+ * is NOT proven anywhere, because it is not true today: every transactional caller
+ * does `catch { return 'store-unavailable' }` (e.g.
+ * `src/lib/schedule/fullSeasonScheduleRefresh.ts:182`) and then records the fixed
+ * string `schedule-durable-commit-failed`, so a `55P03` and a `57014` record
+ * IDENTICALLY. The store surfaces them distinguishably — that IS proven, by the two
+ * tests above — and the flattening happens in callers this slice's scope excludes.
+ */
+test('the recorder preserves prior-good and keeps the bound code, given a failure carrying one', async () => {
+  // Guarded like `appStateStore.test.ts`: an ambient DATABASE_URL would put this on
+  // the live store, and `beforeEach`'s `__deleteAppStateFileForTests()` would issue
+  // `delete from app_state` through `queryBounded`.
+  assert.equal(
+    process.env.DATABASE_URL ?? '',
+    '',
+    'this test is file-fallback only — unset DATABASE_URL'
+  );
   const scope = yearScope(2026);
 
   const first = await beginProviderRefreshAttempt('schedule', scope, {
@@ -325,6 +415,107 @@ test('with no DATABASE_URL the file fallback never reaches the pool at all', asy
   } finally {
     __setAppStatePoolForTests(null);
     if (previous !== undefined) process.env.DATABASE_URL = previous;
+    __resetAppStateForTests();
+  }
+});
+
+// === Client containment: a checked-out client has no error listener of its own ===
+
+test('a checked-out client carries an error listener for its whole lifetime, and hands it back', async () => {
+  await withFakePg(async (pool) => {
+    let duringOperation = -1;
+    pool.observeClient = (client) => {
+      duringOperation = Math.max(duringOperation, client.listenerCount('error'));
+    };
+    await getAppState('bounds', 'k');
+    // `pg-pool` REMOVES its idle listener at checkout and adds nothing back, so
+    // without our guard this is 0 and any socket error is an uncaught exception.
+    assert.ok(duringOperation > 0, 'no error listener was attached while checked out');
+    // And it must come OFF at release, or it accumulates on every pooled reuse.
+    for (const client of pool.clients) {
+      assert.equal(client.listenerCount('error'), 0, 'the listener outlived the checkout');
+    }
+  });
+});
+
+test('an error emitted on a checked-out client does not become an uncaught exception', async () => {
+  await withFakePg(async (pool) => {
+    // The production shape: Neon reaps the connection, or a TLS reset lands, while the
+    // client is checked out. `pg` emits 'error' on the client regardless of whether a
+    // query is in flight; an emit with no listener is ERR_UNHANDLED_ERROR.
+    pool.emitErrorOn = /select value/;
+    await assert.doesNotReject(getAppState('bounds', 'k'));
+    assert.ok(pool.clients.length > 0);
+  });
+});
+
+// === The opener is the one statement no server-side bound can cover ===
+
+test('an opener that never settles is bounded, and the client is DESTROYED rather than rolled back', async () => {
+  const previous = process.env.DATABASE_URL;
+  process.env.DATABASE_URL = 'postgres://fake-host/fake-db';
+  const pool = new StalledOpenerPool(2); // let the schema DDL through
+  __setAppStatePoolForTests(pool as unknown as Pool);
+  __setAppStateOpenerTimeoutForTests(150);
+  try {
+    await assert.rejects(
+      withAppStateKeyTransaction('bounds', 'k', async () => undefined),
+      (error: unknown) => {
+        assert.ok(error instanceof AppStateKeyLockAcquireError);
+        assert.ok(
+          error.cause instanceof AppStateOpenerTimeoutError,
+          'the opener deadline should be the identified cause'
+        );
+        return true;
+      }
+    );
+
+    // Client 1 is `ensureDatabase`'s schema transaction, which completed normally and
+    // is released HEALTHY; client 2 is the one whose opener stalled. Selecting by
+    // "first released client" would read the schema client and prove nothing.
+    assert.equal(pool.clients.length, 2, 'expected a schema client and a stalled one');
+    const stalled = pool.clients[1];
+    assert.ok(stalled.released, 'the stalled client was never released');
+    // DESTROYED, not returned healthy: a client-side timeout leaves the wire protocol
+    // desynchronised, and a timed-out client put back in the pool poisons every later
+    // query on it (measured against production).
+    assert.equal(stalled.released?.destroyed, true, 'the client must be destroyed');
+    // And no ROLLBACK was attempted — that would be an unbounded wait inside the
+    // cleanup for an unbounded wait.
+    assert.ok(
+      !stalled.issued.some((sql) => sql.trim().toLowerCase() === 'rollback'),
+      'no rollback may be issued on a client whose opener never completed'
+    );
+  } finally {
+    __setAppStateOpenerTimeoutForTests(null);
+    __setAppStatePoolForTests(null);
+    if (previous === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previous;
+    __resetAppStateForTests();
+  }
+});
+
+test('an opener stall on the schema transaction is bounded too, and destroys that client', async () => {
+  const previous = process.env.DATABASE_URL;
+  process.env.DATABASE_URL = 'postgres://fake-host/fake-db';
+  const pool = new StalledOpenerPool(1); // the very first opener stalls
+  __setAppStatePoolForTests(pool as unknown as Pool);
+  __setAppStateOpenerTimeoutForTests(150);
+  try {
+    // `ensureDatabase` runs before the transaction takes its own client, so this is
+    // the first opener in the process and nothing has installed a bound yet.
+    await assert.rejects(getAppState('bounds', 'k'), (error: unknown) => {
+      assert.ok(error instanceof AppStateOpenerTimeoutError);
+      return true;
+    });
+    const stalled = pool.clients.find((client) => client.released !== null);
+    assert.ok(stalled, 'the stalled client was never released');
+    assert.equal(stalled.released?.destroyed, true, 'the client must be destroyed');
+  } finally {
+    __setAppStateOpenerTimeoutForTests(null);
+    __setAppStatePoolForTests(null);
+    if (previous === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previous;
     __resetAppStateForTests();
   }
 });

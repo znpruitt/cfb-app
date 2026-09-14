@@ -476,6 +476,98 @@ const APP_STATE_BOUNDED_BEGIN =
   `set local lock_timeout = ${APP_STATE_LOCK_TIMEOUT_MS}`;
 
 /**
+ * A CHECKED-OUT pooled client has NO `'error'` listener, and that is a crash, not a
+ * warning. `pg-pool`'s `_acquireClient` REMOVES its idle listener at checkout and
+ * adds nothing back; `pool.query` compensates internally with its own `once('error')`
+ * for the life of the query, but a client taken via `pool.connect()` gets nothing.
+ * `pg` emits `'error'` on ANY socket-level failure (`_handleErrorEvent`, and the
+ * `con.once('end')` path), whether or not a query is in flight — and an `'error'`
+ * emit with no listener is an `ERR_UNHANDLED_ERROR` UNCAUGHT EXCEPTION.
+ *
+ * Measured: destroying the socket under an in-flight query on a checked-out client
+ * took the whole process down; with this one listener attached the query rejects
+ * normally and the process survives. Neon reaping an idle connection, an autosuspend,
+ * or a TLS reset between the opener and the statement is exactly that scenario — so
+ * without this, the failure class #625 exists to make SURVIVABLE instead kills the
+ * function instance and every concurrent request on it.
+ *
+ * The in-flight query still rejects on its own (`_errorAllQueries` runs first), so
+ * this listener never swallows an error the caller needed; it exists purely to keep
+ * a dead connection from being fatal. Returns the detach function — the listener MUST
+ * come off before release, or it accumulates on every reuse of a pooled client.
+ */
+function guardPooledClientErrors(client: PoolClient): () => void {
+  const onClientError = (error: unknown): void => {
+    console.error('appStateStore: pooled client connection error', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  };
+  client.on('error', onClientError);
+  return () => client.removeListener('error', onClientError);
+}
+
+/**
+ * The opener is the ONE statement no server-side bound can cover, because it is the
+ * statement that installs them. At the moment it runs `statement_timeout` is still
+ * `0`, and `connectionTimeoutMillis` is already spent — `pg-pool` clears that timer
+ * in its connect callback, so nothing client-side is armed either. On a transaction
+ * pooler this is also where backend assignment happens, so it is a REAL stall point
+ * rather than a theoretical one. Measured against production: a first statement on a
+ * freshly connected client ran 20,062 ms with `connectionTimeoutMillis` at 5,000 ms
+ * and was not bounded by it.
+ *
+ * A client-side deadline is therefore the only thing that can bound this, and the
+ * caller MUST destroy the client when it fires. That is not belt-and-braces: a
+ * client-side timeout leaves the wire protocol desynchronised, and a timed-out client
+ * returned to the pool poisons it — measured, every subsequent query on the reused
+ * client failed. Sized to match `connectionTimeoutMillis`, because on a pooled
+ * endpoint the opener IS part of acquiring a usable backend.
+ */
+const APP_STATE_OPENER_TIMEOUT_MS = 15_000;
+
+// Test-only: shorten the opener deadline so a test can reach it without waiting the
+// full 15 s. Null (production) always means `APP_STATE_OPENER_TIMEOUT_MS`.
+let __openerTimeoutForTests: number | null = null;
+
+function openerTimeoutMs(): number {
+  return __openerTimeoutForTests ?? APP_STATE_OPENER_TIMEOUT_MS;
+}
+
+/** The opener exceeded its client-side deadline; the client must be DESTROYED. */
+export class AppStateOpenerTimeoutError extends Error {
+  constructor() {
+    super(
+      `app-state transaction opener exceeded ${openerTimeoutMs()} ms — ` +
+        'no server-side bound applies until the opener itself completes'
+    );
+    this.name = 'AppStateOpenerTimeoutError';
+  }
+}
+
+/**
+ * Issue the bounded opener under a client-side deadline. On rejection the caller must
+ * destroy the client rather than rolling it back: a ROLLBACK on a desynchronised
+ * connection can hang exactly as the opener did, and would be equally unbounded.
+ */
+async function openBoundedTransaction(client: PoolClient): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const opener = client.query(APP_STATE_BOUNDED_BEGIN);
+  // The race may ABANDON this promise; keep a late rejection from surfacing as an
+  // unhandled rejection. `race` still observes whichever settles first.
+  opener.catch(() => undefined);
+  try {
+    await Promise.race([
+      opener,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new AppStateOpenerTimeoutError()), openerTimeoutMs());
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+/**
  * Run ONE statement inside a bounded transaction, on a dedicated pooled client.
  *
  * Every non-transactional store statement goes through here, so the bounds apply to
@@ -488,16 +580,30 @@ const APP_STATE_BOUNDED_BEGIN =
  * Client containment matches `withAppStateKeyTransaction`: a client whose transaction
  * state is uncertain is DESTROYED rather than returned to the pool as healthy, and
  * disposal happens exactly once.
+ *
+ * DURABILITY UNCERTAINTY IS NOT SIGNALLED HERE, and that is a KNOWN LIMIT rather than
+ * an oversight — stated because review asked for one or the other. `setAppState` and
+ * `deleteAppState` were single autocommit statements before this change, so a LOST
+ * acknowledgement already left durability unknown and already went unsignalled; this
+ * wrapper does not introduce that, but it does WIDEN the window from one
+ * acknowledgement to two (the statement's and the COMMIT's). A caller that must
+ * distinguish "certainly not written" from "may have executed server-side" has to use
+ * `withAppStateKeyTransaction`, whose `AppStateTxnFinalizeError` /
+ * `AppStateTxnCleanupError` carry `writeAttempted` / `writeAcknowledged` for exactly
+ * this. Giving `queryBounded` the same typed uncertainty would change the error type
+ * flowing out of 80 `setAppState` call sites and belongs in its own item, not here.
  */
 async function queryBounded<R extends QueryResultRow>(
   text: string,
   values?: unknown[]
 ): Promise<QueryResult<R>> {
   const client = await getPool().connect();
+  const detachErrorGuard = guardPooledClientErrors(client);
   let disposed = false;
   const releaseDestroy = (cause: unknown): void => {
     if (disposed) return;
     disposed = true;
+    detachErrorGuard();
     try {
       client.release(cause instanceof Error ? cause : new Error(String(cause)));
     } catch {
@@ -506,17 +612,20 @@ async function queryBounded<R extends QueryResultRow>(
   };
   const releaseHealthy = (): void => {
     if (disposed) return;
+    detachErrorGuard();
     try {
       client.release();
       disposed = true;
     } catch (error) {
+      // `detachErrorGuard` already ran; `releaseDestroy` short-circuits on
+      // `disposed`, which is still false here, and detaching twice is a no-op.
       releaseDestroy(error);
     }
   };
 
   let began = false;
   try {
-    await client.query(APP_STATE_BOUNDED_BEGIN);
+    await openBoundedTransaction(client);
     began = true;
     const result = await client.query<R>(text, values);
     await client.query('commit');
@@ -964,6 +1073,10 @@ export async function withAppStateKeyTransaction<T>(
     } catch (error) {
       throw new AppStateKeyLockAcquireError(error);
     }
+    // A checked-out client has no `'error'` listener of its own, and this
+    // transaction holds one across the ENTIRE callback — the longest unprotected
+    // window in the store. See `guardPooledClientErrors`.
+    const detachErrorGuard = guardPooledClientErrors(client);
 
     let finished = false;
     // Mutation possibility is tracked from SUBMISSION, not acknowledgement: a
@@ -1104,6 +1217,7 @@ export async function withAppStateKeyTransaction<T>(
     const releaseDestroy = (cause: unknown): void => {
       if (disposed) return;
       disposed = true;
+      detachErrorGuard();
       try {
         client.release(cause instanceof Error ? cause : new Error(String(cause)));
       } catch {
@@ -1112,11 +1226,13 @@ export async function withAppStateKeyTransaction<T>(
     };
     const releaseHealthy = (): void => {
       if (disposed) return;
+      detachErrorGuard();
       try {
         client.release();
         disposed = true;
       } catch (error) {
         // Healthy disposal did NOT complete — contain the client instead.
+        // `disposed` is still false, so this runs; detaching twice is a no-op.
         releaseDestroy(error);
       }
     };
@@ -1135,8 +1251,19 @@ export async function withAppStateKeyTransaction<T>(
       try {
         // PLATFORM-625: the bounds ride along with BEGIN, in the SAME round trip, so
         // the primary advisory-lock acquisition below is already bounded by
-        // `lock_timeout` rather than waiting forever on a stuck holder.
-        await client.query(APP_STATE_BOUNDED_BEGIN);
+        // `lock_timeout` rather than waiting forever on a stuck holder. The opener
+        // itself is the one statement no server-side bound can cover, so it carries a
+        // client-side deadline instead.
+        await openBoundedTransaction(client);
+      } catch (error) {
+        // DESTROY, do not roll back. The opener never completed, so the connection's
+        // protocol state is unknown and a ROLLBACK on it could hang exactly as the
+        // opener did — an unbounded wait inside the cleanup for an unbounded wait.
+        releaseDestroy(error);
+        throw new AppStateKeyLockAcquireError(error);
+      }
+
+      try {
         await client.query('select pg_advisory_xact_lock(hashtextextended($1, 0))', [
           appStateLockIdentity(scope, key),
         ]);
@@ -1783,6 +1910,14 @@ export function __setAppStateKeyLockFailureForTests(
 ): void {
   __keyLockFailureForTests = error;
   __keyLockFailureScopeForTests = error ? scope : null;
+}
+
+/**
+ * Test-only: shorten the opener's client-side deadline, so a test can reach it
+ * without waiting the full 15 s. Null restores production. Never set outside tests.
+ */
+export function __setAppStateOpenerTimeoutForTests(ms: number | null): void {
+  __openerTimeoutForTests = ms;
 }
 
 /**

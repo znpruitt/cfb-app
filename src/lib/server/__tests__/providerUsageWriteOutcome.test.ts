@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import test from 'node:test';
 import type { Pool } from 'pg';
 
@@ -39,7 +40,11 @@ type StoreState = { row: unknown | undefined; readThrows: boolean };
  * earlier version failed both, so the callback threw a plain error before any
  * COMMIT was attempted and the test never reached the code it was written for.
  */
-class FakeClient {
+// PLATFORM-625: a real pg client is an EventEmitter and a CHECKED-OUT one has no
+// `'error'` listener of its own, so `appStateStore` attaches one for the client's
+// checked-out lifetime. A fake without that surface cannot model the contract —
+// and a fake that lacks it is exactly what let the missing listener ship.
+class FakeClient extends EventEmitter {
   /** Set once this transaction has actually submitted a mutation. */
   private sawWrite = false;
 
