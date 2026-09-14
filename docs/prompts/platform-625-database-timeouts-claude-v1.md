@@ -84,6 +84,46 @@ leave budget to RECORD the failure.** A bound that only fires at 300 s is the pl
 different name, and it produces an unresolved attempt with no trace — which is the outcome CARRIES
 exists to prevent.
 
+## RULINGS ON THE READ RECEIPT — 2026-09-14, binding. Three corrections accepted; one question is the owner's.
+
+**1. THE BUDGET ARITHMETIC IS WRONG AND YOURS IS RIGHT.** `statement_timeout` is **per statement**,
+not per interaction. `commitCanonicalOddsRefresh` issues **eight** statements, so the worst case is
+**~135 s**, not the 30 s this prompt claimed. **It still fits a 300 s envelope**, so the values hold —
+but the framing was wrong and the closeout records **135 s**, not 30 s. A reader who budgets against
+30 s would size the next bound incorrectly.
+
+**2. NAME `standingsCacheWarmer.ts:125` IN THE CLOSEOUT.** It is the one path where `lock_timeout: 10 s`
+**changes behaviour** rather than merely bounding a hang, and it is also #595's nested-read structure
+on the longest-holding lock. **That is not a reason to loosen the bound** — it is the path the bound
+exists for. It IS a reason to say so explicitly, because the first production timeout will come from
+there and should be recognised rather than investigated from scratch.
+
+**3. THE FAILURE-RECORDING PATH CAN ITSELF BE BOUNDED OUT.** `readPriorStatus` failing →
+`logReadFailureSkip` → no record. **Pre-existing, not a regression, and the closeout must NOT imply
+the failure is always recorded.** Say plainly that a bound firing during the status read produces a
+skip rather than a recorded failure. If that is worth its own item, say so and I will file it — do not
+fix it here.
+
+**4. A FIGURE THIS PROMPT SHOULD HAVE CITED.** `docs/deployment-runbook.md:252-255` already records a
+measured cold connect: **1,333 ms first connect after idle, 198 ms warm** — and says, in the line
+written for exactly this situation, *"enough to matter if someone ever budgets a timeout against it."*
+My 3,088 ms was a remote client and over-states it, which is the safe direction, but **the repo had
+the number and I measured a worse one instead of citing it.** Use the runbook's figure; 15 s clears it
+by 11×.
+
+**5. THE MECHANISM QUESTION IS THE OWNER'S, AND THE DEFAULT IS D.** The runbook documents only the
+**RO rail's** endpoint (direct, not `-pooler`); it says nothing about production's `DATABASE_URL`, and
+Vercel's environment is the authority. **Until the owner confirms, implement D.**
+
+**The risk is asymmetric and that is the whole argument.** C guessed wrong is a **total outage** —
+session settings silently not persisting through a transaction pooler, so every bound is absent while
+appearing configured. D guessed wrong costs **+2 round trips** on non-transactional calls, which is
+recoverable and measurable. **A recoverable cost beats an unrecoverable one when the input is
+unknown.**
+
+**If the owner confirms the direct host, switch to C** — it is free, and free is better. Record which
+was used and why, so the next person does not re-derive the asymmetry.
+
 ## Acceptance boundary
 
 - All four settings applied on every pooled connection, not per call site.
