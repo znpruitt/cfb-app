@@ -3,8 +3,9 @@ PURPOSE: Two admin debug routes read season archives under a `leagueSlug` taken 
 and never checked, so a slug naming no league mints a cache entry tagged for a league that will never
 exist — and nothing can ever reclaim it.
 SCOPE: `src/app/api/debug/archive-audit/route.ts`,
-`src/app/api/debug/archive-integrity/route.ts`, and `src/lib/seasonArchive.ts` if the refusal belongs
-in the authority (see the decision below), plus their suites. NOT the year bound (#770/#774, both
+`src/app/api/debug/archive-integrity/route.ts`, and `src/lib/seasonArchive.ts` — **including
+`listSeasonArchives`, added 2026-09-14 at the receipt gate: it mints a SEPARATE cache identity under
+the same `archive:<slug>` tag and shares the hole** — plus their suites. NOT the year bound (#770/#774, both
 shipped), NOT the other debug routes' year parsers, NOT the archive write path.
 CARRIES: **NONE from the Item 87 index — checked; no row is owned by #778 or the debug surfaces.**
 The governing precedent is #774, merged 2026-09-13 (`4c939fbf`, PR #779), recorded in `AGENTS.md` →
@@ -45,9 +46,13 @@ then `getSeasonArchive(leagueSlug, year)`, which caches under
 
 **Why that is worse than #774's junk entries, which are already fixed.** Those carried
 `archive:<real-slug>`, and the season-rollover cron fires that tag — swept once a season. **A tag
-naming a league that does not exist can never fire**, because no rollover will ever run for it, and
-`revalidate: false` means no time expiry either. **These are the only entries in this family with no
-reclamation path at all.**
+naming a league that does not exist can never fire**, because no rollover will ever run for it.
+**CORRECTED 2026-09-14 at the receipt gate:** `revalidate: false` is **not** "no time expiry" —
+`unstable-cache.js:27` reads `typeof revalidate !== 'number' ? CACHE_ONE_YEAR : revalidate`, and
+`CACHE_ONE_YEAR = 31536000`, so it becomes a **one-year TTL**. Verified on disk: the minted entries
+carry `"revalidate":31536000`. So the accurate claim is **no tag-driven reclamation, and a one-year
+floor** — past every operational horizon, but not unbounded. The fix is unchanged; the sentence was
+wrong and #778's body is corrected to match.
 
 **A third sibling already does it right and is the pattern:**
 `debug/insights-career-diagnostic/route.ts:21-23` calls `getLeague(leagueSlug)` and returns
@@ -120,6 +125,53 @@ owed an amendment at merge — that file is planning's; report the sentence rath
 claim as "both sides survived" — PR #777 silently reverted a true correction that way, and #774's lane
 caught a later one only because it read the merged file. Read it; do not report the absence of
 conflicts.
+
+## RULINGS ON THE READ RECEIPT — 2026-09-14, binding
+
+**The refusal goes in the AUTHORITY, covering BOTH `getSeasonArchive` and `listSeasonArchives`.**
+Your item-5 argument is the one that carries it, and it is stronger than the ratio this prompt
+offered: **a refusal placed only in `getSeasonArchive` leaves the sibling unguarded for the next
+caller.** The 2-of-3 ratio is weaker than my 2-of-4 framing — accepted — and the measured cost is one
+registry store read per request, which is zero.
+
+**Q1 — RETURN `null` (and `[]`), do not throw.** Your lean is right and the reason is stronger than
+"it preserves callers": **`null` is already the contract's answer for "this league has no archive," and
+a league that does not exist genuinely has none.** So this is the authority answering correctly, not
+a refusal smuggled in as a return value. A throw would change eight currently-safe callers' failure
+mode to buy nothing. `listSeasonArchives` returns `[]` on the same reasoning.
+
+**The two routes keep an explicit `404 league-not-found`**, matching `insights-career-diagnostic`. The
+authority stops the mint; the route says why. Those are different jobs and both are wanted.
+
+**Q2 — amend `seasonArchive.ts:232`, in the same commit. Granted, and it is yours to write:** that
+comment lives in `src/`, which is your file, and the prose being #774's does not change who owns the
+line. **Say WHY the two properties differ** rather than just narrowing the old claim — the year bound
+stayed at the callers because only a caller can tell a client-supplied value from a server-derived
+one, and **no equivalent distinction exists for a slug: there is no legitimate server-derived slug
+naming a league that does not exist.** A reader who sees only "the callers apply this and the
+authority does not" four lines from an authority-applied refusal will read it as contradicted.
+
+**Accepted corrections, all five.** The one-year TTL (this prompt is corrected above, and #778's body
+with it); the 8/3/4 split replacing my 11/4; `listSeasonArchives` sharing the hole (now in SCOPE); the
+`seasonArchive.ts:232` precedent; and both routes echoing the raw slug into their 404 body. **The
+acceptance boundary's "eleven RSC sites and the eleven-plus library call sites" is void** — use your
+measured population.
+
+**Two things in your sweep to carry into the closeout rather than leave in the receipt:**
+
+- **Site 7 (`admin/[slug]/preseason/owners:46`) is safe BY READING, not by observation** — your probe
+  got a 307 from middleware and the page body never ran. Say so; it is the one cell in that table with
+  a different warrant.
+- **`recap/loadRecapContext.ts:45` is safe by three unrelated accidents, not by a check.** It calls
+  `getLeague` nowhere. That is worth a sentence, because the next change to any one of those three
+  paths removes the protection with nothing to fail.
+
+**Do not widen to the standings or insights caches** — you measured them as reclaimable and
+TTL-bounded respectively, and that is the finding.
+
+**Expect the bill you quoted:** `seasonArchive.test.ts` and `seasonArchiveYearBound.test.ts` plant
+archives for slugs no registry fixture backs. Quoting it at the receipt rather than discovering it in
+round 3 is the right instinct — plant the registry entries rather than weakening the guard.
 
 ## STOP — read receipt before writing any code
 
