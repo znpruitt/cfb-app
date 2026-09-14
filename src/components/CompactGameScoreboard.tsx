@@ -4,7 +4,10 @@ import Image from 'next/image';
 import type { ProviderClassification } from '../lib/conferenceSubdivision';
 import { gameStatusLabelPresentation, type GameStatusLabelOptions } from '../lib/gameUi';
 import { rankSourceLabel, type RankSource } from '../lib/rankings';
-import type { GameScoreboardState } from '../lib/selectors/gameScoreboardState';
+import {
+  NO_SCORE_REPORTED_LABEL,
+  type GameScoreboardState,
+} from '../lib/selectors/gameScoreboardState';
 import type { TeamRecordClient } from '../lib/selectors/teamRecordsClient';
 import {
   SCOREBOARD_TEAM_LOGO_DISPLAY_SIZE,
@@ -165,6 +168,7 @@ export default function CompactGameScoreboard({
     scheduled: statusLabel?.trim() || null,
     live: 'Live',
     awaiting: 'Awaiting score',
+    unavailable: NO_SCORE_REPORTED_LABEL,
     final: 'Final',
   };
   const statusToneByState: Record<GameScoreboardState, 'scheduled' | 'live' | 'unknown' | 'final'> =
@@ -172,20 +176,36 @@ export default function CompactGameScoreboard({
       scheduled: 'scheduled',
       live: 'live',
       awaiting: 'unknown',
+      unavailable: 'unknown',
       final: 'final',
     };
+  const displayPolicyByState: Record<
+    GameScoreboardState,
+    { acceptsScheduleNotice: boolean; showsBroadcast: boolean; showsInlineRecord: boolean }
+  > = {
+    scheduled: {
+      acceptsScheduleNotice: true,
+      showsBroadcast: true,
+      showsInlineRecord: false,
+    },
+    live: { acceptsScheduleNotice: false, showsBroadcast: true, showsInlineRecord: true },
+    awaiting: { acceptsScheduleNotice: false, showsBroadcast: true, showsInlineRecord: true },
+    unavailable: { acceptsScheduleNotice: false, showsBroadcast: true, showsInlineRecord: true },
+    final: { acceptsScheduleNotice: false, showsBroadcast: false, showsInlineRecord: true },
+  };
   const statusText = statusTextByState[state];
   const statusPresentation = statusText
     ? gameStatusLabelPresentation(statusToneByState[state], { liveHue, liveDot })
     : null;
-  const hasScheduleNotice = state === 'scheduled' && Boolean(scheduleNoticeLabel);
+  const displayPolicy = displayPolicyByState[state];
+  const hasScheduleNotice = displayPolicy.acceptsScheduleNotice && Boolean(scheduleNoticeLabel);
   const hasHeaderLead = Boolean(statusPresentation) || hasScheduleNotice || Boolean(clockLabel);
-  const showsBroadcast = state !== 'final' && Boolean(broadcastLabel);
+  const showsBroadcast = displayPolicy.showsBroadcast && Boolean(broadcastLabel);
   const hasContextSlot = hasRenderableContent(contextSlot);
   const hasTagSlot = hasRenderableContent(tagSlot);
   const hasFooterSlot = hasRenderableContent(footerSlot);
   const hasTier2Slot = hasRenderableContent(tier2Slot);
-  const showsInlineRecord = state === 'live' || state === 'final' || state === 'awaiting';
+  const showsInlineRecord = displayPolicy.showsInlineRecord;
   const headerContent = (
     <>
       {statusPresentation ? (

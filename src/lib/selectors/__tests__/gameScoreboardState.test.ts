@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { POLLING_WINDOW_AFTER_KICKOFF_MS } from '../../liveScores/pollingTarget';
 import type { ScorePack } from '../../scores';
-import { projectGameScoreboardState } from '../gameScoreboardState';
+import { NO_SCORE_REPORTED_LABEL, projectGameScoreboardState } from '../gameScoreboardState';
 
 const KICKOFF = '2026-09-05T16:00:00.000Z';
 const BEFORE_KICKOFF = Date.parse('2026-09-05T15:59:59.999Z');
@@ -17,7 +18,11 @@ function score(status: string, away: number | null, home: number | null): ScoreP
   };
 }
 
-test('projection enumerates final, live, scheduled, and awaiting with explicit precedence', () => {
+test('the planning-owned fifth-state label is pinned at its single seam', () => {
+  assert.equal(NO_SCORE_REPORTED_LABEL, 'No score reported');
+});
+
+test('projection enumerates every scoreboard state with explicit precedence', () => {
   assert.equal(
     projectGameScoreboardState(score('Final', 21, 17), KICKOFF, BEFORE_KICKOFF),
     'final'
@@ -40,5 +45,25 @@ test('projection enumerates final, live, scheduled, and awaiting with explicit p
   assert.equal(
     projectGameScoreboardState(score('Final', 21, null), KICKOFF, AT_KICKOFF),
     'awaiting'
+  );
+});
+
+test('awaiting includes the polling boundary and becomes unavailable one millisecond later', () => {
+  const atPollingBoundary = AT_KICKOFF + POLLING_WINDOW_AFTER_KICKOFF_MS;
+
+  assert.equal(projectGameScoreboardState(undefined, KICKOFF, atPollingBoundary), 'awaiting');
+  assert.equal(
+    projectGameScoreboardState(undefined, KICKOFF, atPollingBoundary + 1),
+    'unavailable'
+  );
+  assert.equal(
+    projectGameScoreboardState(score('Q4', 21, 17), KICKOFF, atPollingBoundary + 1),
+    'live',
+    'attached live evidence wins at any age'
+  );
+  assert.equal(
+    projectGameScoreboardState(score('Final', 21, 17), KICKOFF, atPollingBoundary + 1),
+    'final',
+    'usable final evidence wins at any age'
   );
 });

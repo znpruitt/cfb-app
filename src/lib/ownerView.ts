@@ -1,12 +1,23 @@
 import { getGameSideForTeam } from './gameOwnership.ts';
-import { gameStateFromScore, isLiveGame, usesNeutralSiteSemantics } from './gameUi.ts';
+import { usesNeutralSiteSemantics } from './gameUi.ts';
 import { deriveOwnerWeekSlates, deriveWeekMatchupSections } from './matchups.ts';
-import { isAwaitingScoreGame, type GameDayContext } from './selectors/gameDayConfidence.ts';
+import type { GameDayContext } from './selectors/gameDayConfidence.ts';
+import { NO_SCORE_REPORTED_LABEL } from './selectors/gameScoreboardState.ts';
+import {
+  projectMembersGameState,
+  selectMembersRowGame,
+  type MembersRowGameProjection,
+} from './selectors/ownerGameState.ts';
 import type { ScorePack } from './scores.ts';
 import { getGameParticipantTeamId, type AppGame } from './schedule.ts';
 import type { OwnerStandingsRow } from './standings.ts';
 
-export type OwnerRosterRowStatus = 'Final' | 'Live' | 'Awaiting score' | 'Upcoming';
+export type OwnerRosterRowStatus =
+  | 'Final'
+  | 'Live'
+  | 'Awaiting score'
+  | typeof NO_SCORE_REPORTED_LABEL
+  | 'Upcoming';
 
 export type OwnerRosterRow = {
   teamId?: string;
@@ -43,6 +54,7 @@ export type OwnerViewSnapshot = {
     liveGames: number;
     finalGames: number;
     scheduledGames: number;
+    unavailableGames: number;
     opponentOwners: string[];
     performanceSummary: string;
     performanceDetail: string;
@@ -91,10 +103,6 @@ function getOpponentProviderName(teamName: string, game: AppGame): string {
   return getOwnerTeamSide(teamName, game) === 'away' ? game.csvHome : game.csvAway;
 }
 
-function isAttachedFinalGame(score?: ScorePack): boolean {
-  return gameStateFromScore(score) === 'final';
-}
-
 function buildNextGameLabel(teamName: string, game: AppGame): string {
   const opponent = getOpponentProviderName(teamName, game);
   if (usesNeutralSiteSemantics(game) || game.neutral) {
@@ -104,12 +112,39 @@ function buildNextGameLabel(teamName: string, game: AppGame): string {
   return getOwnerTeamSide(teamName, game) === 'away' ? `at ${opponent}` : `vs ${opponent}`;
 }
 
+function ownerRosterStatus(projection: MembersRowGameProjection): OwnerRosterRowStatus {
+  switch (projection.state) {
+    case 'scheduled':
+      return 'Upcoming';
+    case 'live':
+      return 'Live';
+    case 'awaiting':
+      return 'Awaiting score';
+    case 'unavailable':
+      return NO_SCORE_REPORTED_LABEL;
+    case 'final':
+      return 'Final';
+  }
+}
+
+function isFinalOwnerRosterProjection(projection: MembersRowGameProjection): boolean {
+  switch (projection.state) {
+    case 'scheduled':
+    case 'live':
+    case 'awaiting':
+    case 'unavailable':
+      return false;
+    case 'final':
+      return true;
+  }
+}
+
 export function deriveOwnerRoster(
   owner: string,
   games: AppGame[],
   rosterByTeam: Map<string, string>,
   scoresByKey: Record<string, ScorePack>,
-  gameDayContext?: GameDayContext
+  gameDayContext: GameDayContext
 ): OwnerRosterRow[] {
   const ownedTeams = Array.from(rosterByTeam.entries())
     .filter(([, teamOwner]) => teamOwner === owner)
@@ -125,7 +160,12 @@ export function deriveOwnerRoster(
 
     for (const game of teamGames) {
       const score = scoresByKey[game.key];
-      if (!isAttachedFinalGame(score)) continue;
+      const state = projectMembersGameState({
+        game,
+        score,
+        context: gameDayContext,
+      });
+      if (state !== 'final') continue;
 
       const side = getOwnerTeamSide(teamName, game);
       const teamScore = side === 'away' ? score?.away.score : score?.home.score;
@@ -136,50 +176,28 @@ export function deriveOwnerRoster(
       else losses += 1;
     }
 
-    const liveGame = teamGames.find((game) => isLiveGame(scoresByKey[game.key]));
-    if (liveGame) {
-      const liveScore = scoresByKey[liveGame.key];
-      const ownerTeamSide = getOwnerTeamSide(teamName, liveGame);
+    const selected = selectMembersRowGame({
+      games: teamGames,
+      scoresByKey,
+      context: gameDayContext,
+    });
+    if (selected && !isFinalOwnerRosterProjection(selected)) {
+      const selectedGame = selected.game;
+      const ownerTeamSide = getOwnerTeamSide(teamName, selectedGame);
+      const isLive = selected.state === 'live';
       return {
         teamId,
         teamName,
         record: `${wins}–${losses}`,
-        nextOpponent: getOpponentProviderName(teamName, liveGame),
-        nextOpponentTeamId: getOpponentTeamId(teamName, liveGame),
-        nextGameLabel: buildNextGameLabel(teamName, liveGame),
+        nextOpponent: getOpponentProviderName(teamName, selectedGame),
+        nextOpponentTeamId: getOpponentTeamId(teamName, selectedGame),
+        nextGameLabel: buildNextGameLabel(teamName, selectedGame),
         ownerTeamSide,
-        isNeutralSite: usesNeutralSiteSemantics(liveGame) || liveGame.neutral,
-        nextKickoff: liveGame.date,
-        currentStatus: 'Live',
-        currentScore: buildScoreLine(liveScore),
-        liveGameKey: liveGame.key,
-      };
-    }
-
-    const nextGame = teamGames.find((game) => !isAttachedFinalGame(scoresByKey[game.key]));
-    if (nextGame) {
-      const ownerTeamSide = getOwnerTeamSide(teamName, nextGame);
-      return {
-        teamId,
-        teamName,
-        record: `${wins}–${losses}`,
-        nextOpponent: getOpponentProviderName(teamName, nextGame),
-        nextOpponentTeamId: getOpponentTeamId(teamName, nextGame),
-        nextGameLabel: buildNextGameLabel(teamName, nextGame),
-        ownerTeamSide,
-        isNeutralSite: usesNeutralSiteSemantics(nextGame) || nextGame.neutral,
-        nextKickoff: nextGame.date,
-        currentStatus:
-          gameDayContext &&
-          isAwaitingScoreGame({
-            game: nextGame,
-            score: scoresByKey[nextGame.key],
-            context: gameDayContext,
-          })
-            ? 'Awaiting score'
-            : 'Upcoming',
-        currentScore: null,
-        liveGameKey: null,
+        isNeutralSite: usesNeutralSiteSemantics(selectedGame) || selectedGame.neutral,
+        nextKickoff: selectedGame.date,
+        currentStatus: ownerRosterStatus(selected),
+        currentScore: isLive ? buildScoreLine(scoresByKey[selectedGame.key]) : null,
+        liveGameKey: isLive ? selectedGame.key : null,
       };
     }
 
@@ -204,7 +222,7 @@ function filterRosterRowsToWeek(
   allRosterRows: OwnerRosterRow[],
   weekGames: AppGame[],
   scoresByKey: Record<string, ScorePack>,
-  gameDayContext?: GameDayContext
+  gameDayContext: GameDayContext
 ): OwnerRosterRow[] {
   // Rows are already this owner's teams; a row belongs to the week when its
   // stored team plays a week game (resolved via canonical game identity).
@@ -212,66 +230,29 @@ function filterRosterRowsToWeek(
     .filter((row) => getTeamGames(row.teamName, weekGames).length > 0)
     .map((row) => {
       const teamWeekGames = getTeamGames(row.teamName, weekGames).sort(compareGamesByKickoff);
-      const liveGame = teamWeekGames.find((game) => isLiveGame(scoresByKey[game.key]));
-      if (liveGame) {
-        const opponentTeamName = getOpponentProviderName(row.teamName, liveGame);
-        return {
-          ...row,
-          nextOpponent: opponentTeamName,
-          nextOpponentTeamId: getOpponentTeamId(row.teamName, liveGame),
-          nextGameLabel: buildNextGameLabel(row.teamName, liveGame),
-          ownerTeamSide: getOwnerTeamSide(row.teamName, liveGame),
-          isNeutralSite: usesNeutralSiteSemantics(liveGame) || liveGame.neutral,
-          nextKickoff: liveGame.date,
-          currentStatus: 'Live',
-          currentScore: buildScoreLine(scoresByKey[liveGame.key]),
-          liveGameKey: liveGame.key,
-        };
-      }
+      const selected = selectMembersRowGame({
+        games: teamWeekGames,
+        scoresByKey,
+        context: gameDayContext,
+      });
+      if (!selected) return row;
 
-      const nextGame = teamWeekGames.find((game) => !isAttachedFinalGame(scoresByKey[game.key]));
-      if (nextGame) {
-        const opponentTeamName = getOpponentProviderName(row.teamName, nextGame);
-        return {
-          ...row,
-          nextOpponent: opponentTeamName,
-          nextOpponentTeamId: getOpponentTeamId(row.teamName, nextGame),
-          nextGameLabel: buildNextGameLabel(row.teamName, nextGame),
-          ownerTeamSide: getOwnerTeamSide(row.teamName, nextGame),
-          isNeutralSite: usesNeutralSiteSemantics(nextGame) || nextGame.neutral,
-          nextKickoff: nextGame.date,
-          currentStatus:
-            gameDayContext &&
-            isAwaitingScoreGame({
-              game: nextGame,
-              score: scoresByKey[nextGame.key],
-              context: gameDayContext,
-            })
-              ? 'Awaiting score'
-              : 'Upcoming',
-          currentScore: null,
-          liveGameKey: null,
-        };
-      }
-
-      const latestWeekGame = teamWeekGames.at(-1);
-      if (latestWeekGame) {
-        const opponentTeamName = getOpponentProviderName(row.teamName, latestWeekGame);
-        return {
-          ...row,
-          nextOpponent: opponentTeamName,
-          nextOpponentTeamId: getOpponentTeamId(row.teamName, latestWeekGame),
-          nextGameLabel: buildNextGameLabel(row.teamName, latestWeekGame),
-          ownerTeamSide: getOwnerTeamSide(row.teamName, latestWeekGame),
-          isNeutralSite: usesNeutralSiteSemantics(latestWeekGame) || latestWeekGame.neutral,
-          nextKickoff: latestWeekGame.date,
-          currentStatus: 'Final',
-          currentScore: buildScoreLine(scoresByKey[latestWeekGame.key]),
-          liveGameKey: null,
-        };
-      }
-
-      return row;
+      const selectedGame = selected.game;
+      const opponentTeamName = getOpponentProviderName(row.teamName, selectedGame);
+      const isLive = selected.state === 'live';
+      const isFinal = selected.state === 'final';
+      return {
+        ...row,
+        nextOpponent: opponentTeamName,
+        nextOpponentTeamId: getOpponentTeamId(row.teamName, selectedGame),
+        nextGameLabel: buildNextGameLabel(row.teamName, selectedGame),
+        ownerTeamSide: getOwnerTeamSide(row.teamName, selectedGame),
+        isNeutralSite: usesNeutralSiteSemantics(selectedGame) || selectedGame.neutral,
+        nextKickoff: selectedGame.date,
+        currentStatus: ownerRosterStatus(selected),
+        currentScore: isLive || isFinal ? buildScoreLine(scoresByKey[selectedGame.key]) : null,
+        liveGameKey: isLive ? selectedGame.key : null,
+      };
     });
 }
 
@@ -294,7 +275,7 @@ export function deriveOwnerViewSnapshot(params: {
    */
   canonicalStandingsRows?: OwnerStandingsRow[];
   /** Explicit client clock/season for bounded game-day status copy. */
-  gameDayContext?: GameDayContext;
+  gameDayContext: GameDayContext;
 }): OwnerViewSnapshot {
   const { selectedOwner, standingsRows, allGames, weekGames, rosterByTeam, scoresByKey } = params;
 
@@ -340,13 +321,17 @@ export function deriveOwnerViewSnapshot(params: {
   );
 
   const weekSections = deriveWeekMatchupSections(weekGames, rosterByTeam);
-  const ownerSlates = deriveOwnerWeekSlates(weekGames, rosterByTeam, scoresByKey);
+  const ownerSlates = deriveOwnerWeekSlates(weekGames, rosterByTeam, scoresByKey, {
+    surface: 'members',
+    context: params.gameDayContext,
+  });
   const ownerSlate = ownerSlates.find((slate) => slate.owner === resolvedOwner) ?? null;
   const opponentOwners = ownerSlate?.opponentOwners ?? [];
   const totalGames = ownerSlate?.totalGames ?? 0;
   const liveGames = ownerSlate?.liveGames ?? 0;
   const finalGames = ownerSlate?.finalGames ?? 0;
   const scheduledGames = ownerSlate?.scheduledGames ?? 0;
+  const unavailableGames = ownerSlate?.unavailableGames ?? 0;
 
   return {
     selectedOwner: resolvedOwner,
@@ -369,6 +354,7 @@ export function deriveOwnerViewSnapshot(params: {
           liveGames,
           finalGames,
           scheduledGames,
+          unavailableGames,
           opponentOwners,
           performanceSummary: ownerSlate.performance.summary,
           performanceDetail: ownerSlate.performance.detail,
@@ -379,6 +365,7 @@ export function deriveOwnerViewSnapshot(params: {
             liveGames: 0,
             finalGames: 0,
             scheduledGames: 0,
+            unavailableGames: 0,
             opponentOwners: [],
             performanceSummary: 'No games this week',
             performanceDetail: 'No owned teams are attached to this week.',

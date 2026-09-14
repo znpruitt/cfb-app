@@ -71,7 +71,7 @@ function EmptyFooterSlot(): null {
   return null;
 }
 
-const SCOREBOARD_STATES = ['scheduled', 'live', 'awaiting', 'final'] as const;
+const SCOREBOARD_STATES = ['scheduled', 'live', 'awaiting', 'unavailable', 'final'] as const;
 type Participant = React.ComponentProps<typeof CompactGameScoreboard>['away'];
 type CardOwnerFlag = boolean | undefined | 'absent';
 
@@ -729,8 +729,26 @@ test('awaiting scoreboard uses a neutral status row without claiming the game is
   assert.doesNotMatch(header, />Live<\/span>|dark:text-emerald-400|rounded-full bg-current/);
 });
 
-test('broadcast renders on scheduled, live, and awaiting scoreboards but not finals', () => {
-  for (const state of ['scheduled', 'live', 'awaiting'] as const) {
+test('no-score-reported scoreboard uses the ruled copy and neutral treatment', () => {
+  const html = renderScoreboard({
+    state: 'unavailable',
+    clock: undefined,
+    away: { teamName: 'Michigan', owner: 'Whited', rank: null, score: null },
+    home: { teamName: 'Ohio State', owner: 'Chamness', rank: null, score: null },
+  });
+  const header = headerMarkup(html);
+
+  assert.match(html, /data-scoreboard-state="unavailable"/);
+  assert.match(header, />No score reported<\/span>/);
+  assert.match(header, /dark:text-zinc-400/);
+  assert.doesNotMatch(
+    header,
+    />Live<\/span>|dark:text-emerald-400|dark:text-sky-400|rounded-full bg-current/
+  );
+});
+
+test('broadcast renders on every non-final scoreboard state but not finals', () => {
+  for (const state of ['scheduled', 'live', 'awaiting', 'unavailable'] as const) {
     const html = renderScoreboard({
       state,
       clock: state === 'scheduled' ? undefined : 'Q2 4:10',
@@ -1103,7 +1121,7 @@ test('new scoreboard additions reject named and arbitrary values across one guar
 });
 
 test('every scoreboard state excludes the inaccessible dark zinc-500 text token', () => {
-  const html = (['scheduled', 'live', 'awaiting', 'final'] as const)
+  const html = (['scheduled', 'live', 'awaiting', 'unavailable', 'final'] as const)
     .map((state) =>
       renderScoreboard({
         state,

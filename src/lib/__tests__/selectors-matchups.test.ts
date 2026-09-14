@@ -7,14 +7,22 @@ import {
   deriveOwnerOutcome,
   formatSlateSummaryText,
   getDefaultVisibleGamesCount,
+  selectOwnerSlateGamesForBucket,
   selectDistinctSlateGames,
   selectSlateGameVisibility,
   summarizeSlateOpponents,
 } from '../selectors/matchups.ts';
 import { deriveOwnerWeekSlates, deriveWeekMatchupSections } from '../matchups';
+import { projectMatchupsGameState } from '../selectors/ownerGameState';
 import { NO_CLAIM_OWNER } from '../standings';
 import type { OwnerSlateGame, OwnerWeekSlate } from '../matchups';
 import type { AppGame } from '../schedule';
+import type { ScorePack } from '../scores';
+
+const MATCHUPS_TEST_PROJECTION = {
+  surface: 'matchups' as const,
+  nowMs: Date.parse('2026-08-30T00:00:00.000Z'),
+};
 
 function game(overrides: Partial<AppGame>): AppGame {
   return {
@@ -65,6 +73,15 @@ function game(overrides: Partial<AppGame>): AppGame {
   };
 }
 
+function score(status: string, away: number | null, home: number | null): ScorePack {
+  return {
+    status,
+    time: null,
+    away: { team: 'Away', score: away },
+    home: { team: 'Home', score: home },
+  };
+}
+
 function slateGame(overrides: Partial<OwnerSlateGame>): OwnerSlateGame {
   return {
     owner: overrides.owner ?? 'Alex',
@@ -94,12 +111,13 @@ test('selector derives summary and outcome including self-game edge case', () =>
     liveGames: 0,
     finalGames: 2,
     scheduledGames: 0,
+    unavailableGames: 0,
     performance: { summary: '1-1', detail: 'x', tone: 'final' },
   } as OwnerWeekSlate);
 
   // Item 135 retarget. This fixture holds the SAME slate entry twice, which is
-  // the shape `buildOwnerSlateGames` produces for one self game — so it is one
-  // game, and the summary now says so. It previously read
+  // the shape the raw owned-side projection produces for one self game — so it
+  // is one game, and the summary now says so. It previously read
   // `2 games · vs Self (x2)`, counting the duplicate as a second game.
   // Both original assertions are preserved: the formatter's output for a self
   // slate, and the `finalSelf` outcome tone below.
@@ -275,6 +293,7 @@ function slate(games: OwnerSlateGame[], owner = 'Alex'): OwnerWeekSlate {
     liveGames: 0,
     finalGames: 0,
     scheduledGames: games.length,
+    unavailableGames: 0,
     performance: { summary: '0-0', detail: '', tone: 'scheduled' },
   } as OwnerWeekSlate;
 }
@@ -341,25 +360,27 @@ function noClaimRosterSlate(opponents: string[]): {
   opponents.forEach((_, index) => rosterByTeam.set(`Owned${index}`, 'Taylor'));
   for (const opponent of opponents) rosterByTeam.set(opponent, NO_CLAIM_OWNER);
 
-  const ownerSlate = deriveOwnerWeekSlates(games, rosterByTeam, {}).find(
+  const ownerSlate = deriveOwnerWeekSlates(games, rosterByTeam, {}, MATCHUPS_TEST_PROJECTION).find(
     (entry) => entry.owner === 'Taylor'
   );
   assert.ok(ownerSlate, 'owner slate should exist');
   return { slate: ownerSlate, rosterByTeam };
 }
 
-/** An owner holding BOTH teams in a game — 39 of these in the 2026 season. */
+/** The raw mirrored shape for an owner holding both teams in one game. */
 function selfGameSlate(): OwnerWeekSlate {
-  const ownerSlate = deriveOwnerWeekSlates(
-    [game({ key: 'self-1', csvAway: 'Jacksonville State', csvHome: 'North Dakota State' })],
-    new Map([
-      ['Jacksonville State', 'Whited'],
-      ['North Dakota State', 'Whited'],
-    ]),
-    {}
-  ).find((entry) => entry.owner === 'Whited');
-  assert.ok(ownerSlate, 'owner slate should exist');
-  return ownerSlate;
+  const selfGame = game({
+    key: 'self-1',
+    csvAway: 'Jacksonville State',
+    csvHome: 'North Dakota State',
+  });
+  const rosterByTeam = new Map([
+    ['Jacksonville State', 'Whited'],
+    ['North Dakota State', 'Whited'],
+  ]);
+  const bucket = deriveWeekMatchupSections([selfGame], rosterByTeam).ownerMatchups[0];
+  assert.ok(bucket, 'positive control: both owned sides produce an owner matchup bucket');
+  return slate(selectOwnerSlateGamesForBucket(bucket, 'Whited'), 'Whited');
 }
 
 test('selectDistinctSlateGames collapses the mirrored entries of a self game (Item 135)', () => {
@@ -367,7 +388,7 @@ test('selectDistinctSlateGames collapses the mirrored entries of a self game (It
 
   // Positive control: the fixture must actually carry the duplicate, or it
   // proves nothing about the deduplication.
-  assert.equal(source.games.length, 2, 'buildOwnerSlateGames emits one entry per owned side');
+  assert.equal(source.games.length, 2, 'positive control: the source carries both owned sides');
   assert.deepEqual(
     source.games.map((slateGameItem) => slateGameItem.ownerTeamSide),
     ['away', 'home']
@@ -377,6 +398,45 @@ test('selectDistinctSlateGames collapses the mirrored entries of a self game (It
 
   assert.equal(distinct.length, 1, 'one real game is one game');
   assert.equal(distinct[0]?.ownerTeamSide, 'away', 'first occurrence wins, deterministically');
+});
+
+test('deriveOwnerWeekSlates deduplicates a self game before every slate aggregate (#712)', () => {
+  const source = selfGameSlate();
+  const rosterByTeam = new Map([
+    ['Jacksonville State', 'Whited'],
+    ['North Dakota State', 'Whited'],
+  ]);
+  const derived = deriveOwnerWeekSlates(
+    [source.games[0]!.game],
+    rosterByTeam,
+    {},
+    MATCHUPS_TEST_PROJECTION
+  )[0];
+
+  assert.equal(source.games.length, 2, 'positive control: raw projection carries both owned sides');
+  assert.equal(derived?.games.length, 1);
+  assert.equal(derived?.totalGames, 1);
+  assert.equal(derived?.scheduledGames, 1);
+});
+
+test('a self final is one distinct game and a 1–1 participation record (owner ruling)', () => {
+  const source = selfGameSlate();
+  const gameKey = source.games[0]!.game.key;
+  const derived = deriveOwnerWeekSlates(
+    [source.games[0]!.game],
+    new Map([
+      ['Jacksonville State', 'Whited'],
+      ['North Dakota State', 'Whited'],
+    ]),
+    { [gameKey]: score('Final', 24, 17) },
+    MATCHUPS_TEST_PROJECTION
+  )[0];
+
+  assert.equal(source.games.length, 2, 'positive control: raw projection carries both owned sides');
+  assert.equal(derived?.totalGames, 1);
+  assert.equal(derived?.finalGames, 1);
+  assert.equal(derived?.performance.summary, '1–1');
+  assert.equal(derived?.performance.detail, '1 game');
 });
 
 test('a self game renders one row and counts once (Item 135)', () => {
@@ -665,7 +725,7 @@ test('the excluded-games summary counts a game between two unclaimed teams (Item
 
 test('no owner slate is built for the reserved sentinel (Item 713)', () => {
   const { games, rosterByTeam } = confirmedDraftScenario();
-  const slates = deriveOwnerWeekSlates(games, rosterByTeam, {});
+  const slates = deriveOwnerWeekSlates(games, rosterByTeam, {}, MATCHUPS_TEST_PROJECTION);
 
   assert.deepEqual(
     slates.map((slate) => slate.owner).sort(),
@@ -693,7 +753,7 @@ test('an unclaimed FBS opponent takes the non-owner descriptor branch (Item 713)
   // descriptor must fall through to the FCS/placeholder/NoClaim (FBS) ladder
   // rather than substitute an empty owner. Previously this rendered `vs NoClaim`.
   const { games, rosterByTeam } = confirmedDraftScenario();
-  const alice = deriveOwnerWeekSlates(games, rosterByTeam, {}).find(
+  const alice = deriveOwnerWeekSlates(games, rosterByTeam, {}, MATCHUPS_TEST_PROJECTION).find(
     (slate) => slate.owner === 'Alice'
   );
   assert.ok(alice, "Alice's slate should exist");
@@ -709,7 +769,7 @@ test('two unclaimed teams are not a self matchup (Item 713)', () => {
   // reported as one owner playing themselves — with a `Counts as 1W / 1L`
   // accounting claim — for a game no member owns.
   const { games, rosterByTeam } = confirmedDraftScenario();
-  const slates = deriveOwnerWeekSlates(games, rosterByTeam, {});
+  const slates = deriveOwnerWeekSlates(games, rosterByTeam, {}, MATCHUPS_TEST_PROJECTION);
 
   assert.equal(
     slates.some((slate) => slate.owner === NO_CLAIM_OWNER),
@@ -728,4 +788,113 @@ test('two unclaimed teams are not a self matchup (Item 713)', () => {
     false,
     'no slate game is a self matchup, so no finalSelf tone or 1W / 1L claim is reachable'
   );
+});
+
+test('#722: Matchups counts its awaiting row as live through the complete row projection', () => {
+  const kickoff = '2026-09-05T17:00:00.000Z';
+  const nowMs = Date.parse(kickoff) + 60_000;
+  const awaitingGame = game({
+    key: 'awaiting',
+    date: kickoff,
+    csvAway: 'Owned',
+    canAway: 'Owned',
+  });
+  const rosterByTeam = new Map([['Owned', 'Alice']]);
+  const projection = { surface: 'matchups' as const, nowMs };
+
+  assert.equal(projectMatchupsGameState({ game: awaitingGame, nowMs }), 'awaiting');
+  const awaitingSlate = deriveOwnerWeekSlates([awaitingGame], rosterByTeam, {}, projection)[0];
+  assert.equal(awaitingSlate?.liveGames, 1);
+  assert.equal(awaitingSlate?.scheduledGames, 0);
+
+  const liveScores = { awaiting: score('Q2', 7, 3) };
+  assert.equal(
+    projectMatchupsGameState({ game: awaitingGame, score: liveScores.awaiting, nowMs }),
+    'live',
+    'positive control: the same fixture can carry genuine live evidence'
+  );
+  assert.equal(
+    deriveOwnerWeekSlates([awaitingGame], rosterByTeam, liveScores, projection)[0]?.liveGames,
+    1,
+    'positive control: the live counter itself is reachable'
+  );
+});
+
+test('#724: every non-final state sorts by kickoff before finals', () => {
+  const nowMs = Date.parse('2026-09-06T18:00:00.000Z');
+  const games = [
+    game({ key: 'final-first-kickoff', date: '2026-09-06T15:00:00.000Z', csvAway: 'Final' }),
+    game({ key: 'live', date: '2026-09-06T17:00:00.000Z', csvAway: 'Live' }),
+    game({ key: 'awaiting', date: '2026-09-06T17:30:00.000Z', csvAway: 'Awaiting' }),
+    game({ key: 'scheduled', date: '2026-09-06T19:00:00.000Z', csvAway: 'Scheduled' }),
+    game({ key: 'unavailable', date: '2026-09-05T17:00:00.000Z', csvAway: 'Unavailable' }),
+  ];
+  const rosterByTeam = new Map(games.map((entry) => [entry.csvAway, 'Alice']));
+  const scoresByKey = {
+    'final-first-kickoff': score('Final', 21, 17),
+    live: score('Q3', 14, 10),
+  };
+
+  const slate = deriveOwnerWeekSlates(games, rosterByTeam, scoresByKey, {
+    surface: 'matchups',
+    nowMs,
+  })[0];
+
+  assert.deepEqual(
+    slate?.games.map(({ game: slateEntry }) => slateEntry.key),
+    ['unavailable', 'live', 'awaiting', 'scheduled', 'final-first-kickoff']
+  );
+});
+
+test('slate state counts partition the distinct game population', () => {
+  const nowMs = Date.parse('2026-09-06T18:00:00.000Z');
+  const games = [
+    game({ key: 'final', date: '2026-09-06T15:00:00.000Z', csvAway: 'Final' }),
+    game({ key: 'live', date: '2026-09-06T17:00:00.000Z', csvAway: 'Live' }),
+    game({ key: 'awaiting', date: '2026-09-06T17:30:00.000Z', csvAway: 'Awaiting' }),
+    game({ key: 'scheduled', date: '2026-09-06T19:00:00.000Z', csvAway: 'Scheduled' }),
+    game({ key: 'unavailable', date: '2026-09-05T17:00:00.000Z', csvAway: 'Unavailable' }),
+  ];
+  const rosterByTeam = new Map(games.map((entry) => [entry.csvAway, 'Alice']));
+  const slate = deriveOwnerWeekSlates(
+    games,
+    rosterByTeam,
+    { final: score('Final', 21, 17), live: score('Q3', 14, 10) },
+    { surface: 'matchups', nowMs }
+  )[0];
+  assert.ok(slate);
+
+  assert.deepEqual(
+    {
+      total: slate.totalGames,
+      live: slate.liveGames,
+      final: slate.finalGames,
+      scheduled: slate.scheduledGames,
+      unavailable: slate.unavailableGames,
+    },
+    { total: 5, live: 2, final: 1, scheduled: 1, unavailable: 1 }
+  );
+  assert.equal(
+    slate.liveGames + slate.finalGames + slate.scheduledGames + slate.unavailableGames,
+    slate.totalGames
+  );
+});
+
+test('a mixed upcoming and unavailable slate does not headline every game as unreported', () => {
+  const nowMs = Date.parse('2026-09-06T18:00:00.000Z');
+  const games = [
+    game({ key: 'unavailable', date: '2026-09-05T17:00:00.000Z', csvAway: 'Unavailable' }),
+    game({ key: 'scheduled', date: '2026-09-06T19:00:00.000Z', csvAway: 'Scheduled' }),
+  ];
+  const slate = deriveOwnerWeekSlates(
+    games,
+    new Map(games.map((entry) => [entry.csvAway, 'Alice'])),
+    {},
+    { surface: 'matchups', nowMs }
+  )[0];
+
+  assert.equal(slate?.unavailableGames, 1);
+  assert.equal(slate?.scheduledGames, 1);
+  assert.equal(slate?.performance.summary, 'Scheduled');
+  assert.equal(slate?.performance.tone, 'neutral');
 });
