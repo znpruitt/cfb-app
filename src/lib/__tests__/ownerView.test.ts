@@ -465,6 +465,92 @@ test('Members counts a post-window scoreless game from the same state its row re
   );
 });
 
+test('#780: Members Live list includes awaiting rows and excludes terminal no-score rows', () => {
+  const awaitingKickoff = '2026-09-06T17:00:00.000Z';
+  const unavailableKickoff = '2026-09-05T16:00:00.000Z';
+  const now = Date.parse('2026-09-06T18:00:00.000Z');
+  const awaitingTeam = 'Awaiting State';
+  const unavailableTeam = 'No Score State';
+  const ownedGames = [
+    mismatchGame({
+      key: 'awaiting-row',
+      eventId: 'awaiting-row',
+      eventKey: 'awaiting-row',
+      date: awaitingKickoff,
+      participants: {
+        away: teamParticipant({
+          teamId: 'awaiting-state',
+          displayName: awaitingTeam,
+          canonicalName: awaitingTeam,
+          rawName: awaitingTeam,
+        }),
+        home: teamParticipant({
+          teamId: 'awaiting-opponent',
+          displayName: 'Awaiting Opponent',
+          canonicalName: 'Awaiting Opponent',
+          rawName: 'Awaiting Opponent',
+        }),
+      },
+      csvAway: awaitingTeam,
+      canAway: awaitingTeam,
+      csvHome: 'Awaiting Opponent',
+      canHome: 'Awaiting Opponent',
+    }),
+    mismatchGame({
+      key: 'unavailable-row',
+      eventId: 'unavailable-row',
+      eventKey: 'unavailable-row',
+      date: unavailableKickoff,
+      participants: {
+        away: teamParticipant({
+          teamId: 'no-score-state',
+          displayName: unavailableTeam,
+          canonicalName: unavailableTeam,
+          rawName: unavailableTeam,
+        }),
+        home: teamParticipant({
+          teamId: 'unavailable-opponent',
+          displayName: 'Unavailable Opponent',
+          canonicalName: 'Unavailable Opponent',
+          rawName: 'Unavailable Opponent',
+        }),
+      },
+      csvAway: unavailableTeam,
+      canAway: unavailableTeam,
+      csvHome: 'Unavailable Opponent',
+      canHome: 'Unavailable Opponent',
+    }),
+  ];
+  const ownerRoster = new Map([
+    [awaitingTeam, 'Alice'],
+    [unavailableTeam, 'Alice'],
+  ]);
+  const snapshot = deriveOwnerViewSnapshot({
+    selectedOwner: 'Alice',
+    standingsRows: [standingsRow({ owner: 'Alice' })],
+    canonicalStandingsRows: [standingsRow({ owner: 'Alice' })],
+    allGames: ownedGames,
+    weekGames: ownedGames,
+    rosterByTeam: ownerRoster,
+    scoresByKey: {},
+    gameDayContext: { season: 2026, now },
+  });
+
+  assert.deepEqual(
+    snapshot.rosterRows.map(({ teamName, currentStatus }) => ({ teamName, currentStatus })),
+    [
+      { teamName: awaitingTeam, currentStatus: 'Awaiting score' },
+      { teamName: unavailableTeam, currentStatus: 'No score reported' },
+    ]
+  );
+  assert.deepEqual(
+    snapshot.liveRows.map((row) => row.teamName),
+    [awaitingTeam]
+  );
+  assert.equal(snapshot.weekSummary?.liveGames, 1);
+  assert.equal(snapshot.weekSummary?.unavailableGames, 1);
+});
+
 test('Members requires an explicitly confirmed kickoff before reporting unavailable', () => {
   const kickoff = '2026-09-05T17:00:00.000Z';
   for (const [startTimeTBD, expectedStatus, expectedScheduled, expectedUnavailable] of [
