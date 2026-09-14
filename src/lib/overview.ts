@@ -1,4 +1,5 @@
 import { gameStateFromScore } from './gameUi.ts';
+import { hasUsableFinalScore } from './gameStatus.ts';
 import { isTruePostseasonGame } from './postseason-display.ts';
 import { chooseDefaultWeek, deriveRegularWeeks, filterGamesForWeek } from './weekSelection.ts';
 import { deriveWeekMatchupSections, type MatchupBucket } from './matchups.ts';
@@ -97,9 +98,11 @@ function isLiveScore(score?: ScorePack): boolean {
   return gameStateFromScore(score) === 'inprogress';
 }
 
-function isKeyMatchupState(score?: ScorePack): boolean {
-  const state = gameStateFromScore(score);
-  return state === 'inprogress' || state === 'scheduled' || state === 'unknown';
+function isActiveKeyMatchupCandidate(score?: ScorePack): boolean {
+  // A provider `final` label is not a confirmed result until both scores attach.
+  // Keep incomplete finals in the population so the downstream row authority can
+  // render their awaiting/scheduled/unavailable state instead of losing the game.
+  return !hasUsableFinalScore(score);
 }
 
 function isUpcomingScore(score?: ScorePack): boolean {
@@ -405,7 +408,7 @@ export function deriveOverviewSnapshot(params: {
   const recentMode =
     !activeSlateStatus.hasLive && !activeSlateStatus.hasUpcoming && activeSlateStatus.hasFinal;
   const keyMatchups = [...activeSlateItems]
-    .filter((item) => (includeFinalWeekGames ? true : isKeyMatchupState(item.score)))
+    .filter((item) => (includeFinalWeekGames ? true : isActiveKeyMatchupCandidate(item.score)))
     .sort(recentMode ? compareRecentOverviewItems : compareOverviewItems);
 
   const context = deriveOverviewContext({ selectedWeekLabel });
