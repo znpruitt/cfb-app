@@ -62,6 +62,18 @@ Rules:
   measurement, a named limit or open work — never restated method. Past 300, reconstruct or split**; only 2.5% of records are above that line and
   none of them should have been. These are bounds the existing corpus actually satisfies: a ceiling
   that most entries already violate is a line people learn to skip.
+  **AN EVIDENCE-DENSE ENTRY CAN FLOOR ABOVE 300, AND THE ANSWER IS A REPORTED BREAKDOWN, NOT CUT
+  EVIDENCE.** Added 2026-09-14 from `PLATFORM-778`, which the lane condensed from 1,572 words and
+  still landed at 344 after every restated-method clause was gone. Per bullet: Evidence 84, Change 75,
+  Scope limit 52, Open work 44, Review 27, Status 16, Source links 13, Owed 11 — **200 of those sit in
+  the categories this rule explicitly protects**, and the next word out is a measurement or a named
+  limit. **Neither escape applies:** there is nothing to split (one slice, one story), and
+  reconstructing costs the evidence the length was earned with. **So report the per-bullet breakdown
+  and leave it over** — a documented exception is information about this rule; a silent overrun is not,
+  and evidence deleted to hit a round number is the failure the whole budget exists to prevent.
+  **One thing that is always trimmable, found the same day: HAND-OFF TEXT.** A verbatim amendment owed
+  to planning is dead weight the moment it is applied — it belongs in the relay or the PR body. It was
+  77 of PLATFORM-778's words.
 - **Say what is unique; reference what is shared.** A recurring review lesson goes as `See L1`, a
   boilerplate verification sentence as an `RV` code, both defined below. An entry earns its length
   with measurements, named limits and open work, not with restated method.
@@ -171,7 +183,7 @@ These consolidate recurring historical observations, not new project-governance 
 - Review / verification: RV1; lint, tsc, test each exit 0; delta **+13 at both ends** (5,328 -> 5,341). Both reviewers against `31698c92`; six findings, all accepted.
 - Status: MERGED `99a41fbe` (PR #783), 2026-09-14; #778 closed. Built, NOT promoted — auto-promotion is off.
 - Open work: Route-Handler amplification is [#782](https://github.com/znpruitt/cfb-app/issues/782) — owner-ruled to ship, a correctness fix not waiting on a performance question; lean toward an optional pre-resolved-league parameter. RESIDUE: minted entries are neither enumerable nor purgeable; an absent registry makes archives unreadable (pinned, unreachable in production).
-- Owed to planning: invariant 4's "Still open: two admin debug routes cache archives under an UNVALIDATED `leagueSlug`" goes false. Replacement: **"Both archive readers refuse a slug no league holds, returning `null`/`[]` before any entry is minted, and the debug routes answer `404 league-not-found` — #778. The refusal is the AUTHORITY's, unlike #770/#774: only a caller can tell a client-supplied year from a server-derived one, whereas no legitimate server-derived slug names a league that does not exist."**
+- Owed to planning: DONE — `AGENTS.md` invariant 4 amended 2026-09-14.
 - Source links: [#778](https://github.com/znpruitt/cfb-app/issues/778), [#782](https://github.com/znpruitt/cfb-app/issues/782); precedent [#774](https://github.com/znpruitt/cfb-app/issues/774) `4c939fbf`. Other source hashes: `31698c92`, `975032a8`.
 
 ### PLATFORM-755-CFBD-USAGE-DEADLINE-CLAUDE-v1
