@@ -397,6 +397,20 @@ function appStatePoolConfig(): PoolConfig {
     // (postmaster uptime 1 s, so a genuine wake) and 1,333 ms in
     // `docs/deployment-runbook.md`. Warm connects are ~200-230 ms.
     connectionTimeoutMillis: 15_000,
+    // `pg` defaults `keepAlive` to FALSE, so nothing detects a peer that stopped
+    // answering WITHOUT closing — a NAT idle timeout, a Fluid instance resuming, Neon
+    // reaping mid-transaction. No FIN or RST arrives, so `pg` emits no `'error'`, the
+    // client-error guard sees nothing, and a server-side `statement_timeout` fires but
+    // its error packet never lands. TCP keepalive is what turns that silence into a
+    // socket error the guard and the in-flight query can both observe.
+    //
+    // HONEST LIMIT: this is DETECTION, not a tight bound. Probing starts after 10 s
+    // idle and then takes the OS's own probe/retry schedule to declare the peer dead,
+    // so it closes the "hangs forever" case, NOT the "bounded at 15 s" case. A true
+    // per-statement client deadline is a larger change — see the note on
+    // `openBoundedTransaction` about why a naive global `query_timeout` is not it.
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10_000,
     ssl:
       process.env.PGSSLMODE?.toLowerCase() === 'disable'
         ? undefined
@@ -1830,6 +1844,11 @@ export function __resetAppStateForTests(): void {
   __onDualErrorConstructForTests = null;
   __keyLockFailureForTests = null;
   __keyLockFailureScopeForTests = null;
+  // Left out when the seam was added, and the failure mode is nasty: a test that
+  // throws past its own `finally` would leave a 150 ms opener deadline installed for
+  // the rest of the process, and every later store test in that file would race a
+  // deadline it never set — surfacing as an unrelated `AppStateOpenerTimeoutError`.
+  __openerTimeoutForTests = null;
   keyLockChains.clear();
   if (pool) {
     void pool.end().catch(() => undefined);
@@ -1918,6 +1937,16 @@ export function __setAppStateKeyLockFailureForTests(
  */
 export function __setAppStateOpenerTimeoutForTests(ms: number | null): void {
   __openerTimeoutForTests = ms;
+}
+
+/**
+ * Test-only: the deadline currently in effect. A reader rather than a behavioural
+ * probe on purpose — asserting the override through a stalled opener either races a
+ * timer (vacuous: the fake settles first) or holds the deadline's own 15 s timer open
+ * for the rest of the run. Measured vacuous before this existed.
+ */
+export function __appStateOpenerTimeoutForTests(): number {
+  return openerTimeoutMs();
 }
 
 /**

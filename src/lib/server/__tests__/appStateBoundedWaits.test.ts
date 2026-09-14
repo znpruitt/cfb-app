@@ -7,6 +7,7 @@ import {
   __appStatePoolConfigForTests,
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  __appStateOpenerTimeoutForTests,
   __setAppStateOpenerTimeoutForTests,
   __setAppStatePoolForTests,
   AppStateKeyLockAcquireError,
@@ -256,6 +257,32 @@ test('a plain read cannot bypass the bounds by using the pool directly', async (
     assert.deepEqual(pool.poolStatements, []);
     assert.ok(pool.connects > 0, 'the read should have checked out a client');
   });
+});
+
+test('the pool enables TCP keepalive, so a silently black-holed peer is detectable at all', async () => {
+  // `pg` defaults this to false. Without it a peer that stops answering WITHOUT
+  // closing produces no socket error at all: no FIN, no RST, no 'error' event for the
+  // client guard to catch, and a server-side statement_timeout whose error packet
+  // never arrives. Detection, not a tight bound — see the comment on the option.
+  const config = __appStatePoolConfigForTests();
+  assert.equal(config.keepAlive, true);
+  assert.ok(
+    typeof config.keepAliveInitialDelayMillis === 'number' &&
+      config.keepAliveInitialDelayMillis > 0,
+    'keepalive needs a probe delay, or the OS default (often hours) applies'
+  );
+});
+
+test('the opener deadline override is cleared by __resetAppStateForTests', async () => {
+  // It was not, when the seam was added. A test that throws past its own `finally`
+  // would otherwise leave a short deadline installed for the whole process, and every
+  // later store test would race a deadline it never set — surfacing as an unrelated
+  // `AppStateOpenerTimeoutError`.
+  const production = __appStateOpenerTimeoutForTests();
+  __setAppStateOpenerTimeoutForTests(5);
+  assert.equal(__appStateOpenerTimeoutForTests(), 5, 'the seam should take effect');
+  __resetAppStateForTests();
+  assert.equal(__appStateOpenerTimeoutForTests(), production, 'the reset must restore it');
 });
 
 test('connectionTimeoutMillis is configured on the pool, finite, and clears a cold wake', async () => {
