@@ -74,6 +74,20 @@ Rules:
   **One thing that is always trimmable, found the same day: HAND-OFF TEXT.** A verbatim amendment owed
   to planning is dead weight the moment it is applied — it belongs in the relay or the PR body. It was
   77 of PLATFORM-778's words.
+  **AMENDED 2026-09-14, on the second and third consecutive invocations.** `PLATFORM-778` landed at
+  **344** and `PLATFORM-625` at **625**, both with the breakdown reported rather than evidence cut, and
+  both correctly declining the two escapes — one slice each, nothing to split, and every bullet past
+  `Change` a measurement, a named limit or open work. `PLATFORM-625`'s largest bullet is **Review at
+  158**, which is two gathered rounds plus their adjudications.
+  **So read 300 as the threshold where a BREAKDOWN IS OWED, not a ceiling that should not be crossed.**
+  The original line was calibrated on entries written before the current working pattern — two
+  reviewers gathered before remediation, a receipt gate, measured evidence, and residue tracked to
+  filed issues. **That pattern produces more of exactly what this rule protects**, so an entry
+  carrying two review rounds has a higher floor than one carrying none, and saying so is more useful
+  than an exception invoked every time.
+  **What has NOT changed:** an entry over 300 still owes its per-bullet breakdown, still may not pad,
+  and still may not delete a measurement to hit a number. **If the breakdown shows restated method,
+  that is the thing to cut** — the exception covers evidence, not prose.
 - **Say what is unique; reference what is shared.** A recurring review lesson goes as `See L1`, a
   boilerplate verification sentence as an `RV` code, both defined below. An entry earns its length
   with measurements, named limits and open work, not with restated method.
