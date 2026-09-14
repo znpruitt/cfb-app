@@ -98,7 +98,7 @@ neutrally (`DESIGN.md` → *Cards and game results*). Match that treatment; do n
 disrupted game. **That is terminal and must NOT enter the Live list.** A predicate written before B
 would not know the value exists.
 
-## RULINGS ON THE READ RECEIPT — 2026-09-14, binding. Part B is NARROWED; the premise did not cover the vocabulary.
+## RULINGS ON THE READ RECEIPT — 2026-09-14, binding; part B is NARROWED because the premise did not cover the vocabulary
 
 **1. PART B APPLIES TO CANCELED AND POSTPONED ONLY. Delayed and suspended are EXCLUDED.** This is the
 ruling your finding forced, and it corrects mine.
