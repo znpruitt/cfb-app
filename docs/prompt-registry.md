@@ -98,31 +98,34 @@ These consolidate recurring historical observations, not new project-governance 
 ### PLATFORM-722-724-MATCHUPS-DERIVED-STATE-CODEX-v1
 
 - Change: [#722](https://github.com/znpruitt/cfb-app/issues/722) and
-  [#724](https://github.com/znpruitt/cfb-app/issues/724) now use complete, selector-owned
-  per-surface projections over DISTINCT game keys. Matchups reuses `projectGameScoreboardState`;
-  Members replaces six duplicated status producers. Rows, counts and sort consume the projection;
-  `live + final + scheduled + unavailable === totalGames` is asserted. Non-finals remain one
-  kickoff-ordered group before finals, so a live row may remain behind disclosure by ruling.
-- Vocabulary: `GameScoreboardState` gains `unavailable`; none of the former values truthfully
-  describes a scoreless game after polling ends, and `scheduled` would recreate #722. Exact
-  kickoff + 24h remains `awaiting`, +1ms becomes `unavailable`, and live/final evidence wins.
-  The reused 24h system bound is distinct from the 8h world fact that a game is no longer live.
-- Copy / treatment owed to `DESIGN.md` at merge: **planning**, after three unanswered owner requests,
-  chose exactly `No score reported` with neutral treatment. One constant owns it. Matchups keeps
-  GAMES/WINS/WIN%/LIVE and its unavailable count internal; Members shows its neutral count only when
-  positive. A TBD placeholder never ages into this terminal claim.
-- Consequences / limits: [#712](https://github.com/znpruitt/cfb-app/issues/712) and
-  [#766](https://github.com/znpruitt/cfb-app/issues/766) close consequentially. A self matchup is one
-  game but retains the owner-ruled `1–1` record. Score-only `getStateFromScore` survives only in the
-  production-unread legacy `buildMatchupCardViewModel`; it drives no row, count or sort. `DESIGN.md`
-  remains planning-owned and unchanged.
-- Review / verification: v2's three reviews returned eight disjoint findings; v3 converged—Codex
-  none, `/code-review high` five surface findings (one superseded, four remediated). Population
-  corrections: 11 + 19 calls, and four of five routes lacked `initialNowMs`, not three of four;
-  Members was omitted. Delta +13 tests; unrestricted full/+0 passed 5,284/5,284; +200d produced only
-  the documented lifecycle failure. Lint/TypeScript passed; six mutations covered count, sort,
-  boundary, route clock, promotion and exhaustiveness.
-- Status: MERGED `ebc4ec79` (PR #777), 2026-09-13; #722 and #724 closed, with #712 and #766 consequentially absorbed.
+  [#724](https://github.com/znpruitt/cfb-app/issues/724) derive rows, counts and sort from
+  selector projections over distinct keys; state counts sum to the
+  population. [#712](https://github.com/znpruitt/cfb-app/issues/712) and
+  [#766](https://github.com/znpruitt/cfb-app/issues/766) closed consequentially. A self-game remains
+  one game with owner-ruled `1–1`; non-finals remain kickoff-ordered before finals. The score-only
+  `buildMatchupCardViewModel` remains production-unread legacy.
+- Vocabulary / treatment: `GameScoreboardState` gained `unavailable` because no former value was
+  truthful after polling stopped; `scheduled` would recreate #722. At exactly +24h it is `awaiting`,
+  then neutral **`No score reported`**. Matchups keeps its count internal; Members renders a positive
+  count. The 24h system bound differs from football's 8h abandonment bound. Remediation requires a
+  real, planned, undisrupted game and `startTimeTBD === false`; absence fails closed. Partial finals
+  and unrecognized complete scores await then become unavailable, season-independently. Overview
+  retains incomplete finals upstream; the deleted scoreless-final snapshot guard was restored.
+- Evidence: 6/900 non-final packs have complete scores—all scheduled 0–0 placeholders in
+  2023, zero real instances. One of 19,609 final packs is partial: `2025-all-regular`, game
+  `401773541`, 62–null. Of 15,250 2018–2024 schedule rows omitting `startTimeTBD`, only 12 reach the
+  gate; all 7,510 2025–2026 rows carry it.
+- Review / dispositions: Codex was clean twice; final review covered `c33995bf` and
+  5,307 tests passed. Corrections were 11 + 19 calls and four of five routes lacking `initialNowMs`.
+  No season gate: terminal absence remains true historically and is pinned in `ownerView.test.ts`.
+  No ordering-only test: Schedule's abandonment and unavailable fallback render identically; if
+  they diverge, ordering becomes observable and untested. [#740](https://github.com/znpruitt/cfb-app/issues/740)
+  is the inverse omitted-flag default under another owner.
+- Open work / status: [#780](https://github.com/znpruitt/cfb-app/issues/780) confirms that Members can
+  count awaiting as live without listing it as confirmed-live—deferred, not superseded.
+  [#781](https://github.com/znpruitt/cfb-app/issues/781) confirms Matchups has no disrupted treatment
+  and renders Scheduled—vocabulary ruling deferred. MERGED `ebc4ec79` (PR #777),
+  2026-09-13; remediation is IMPLEMENTED AND REVIEWED in PR #784, pending merge.
 
 ### PLATFORM-627-INSIGHTS-BYPASS-AUTHORIZATION-CLAUDE-v1
 
