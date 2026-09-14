@@ -1405,6 +1405,16 @@ export async function getAppStateEntries<T>(
 
 export async function listAppStateKeys(scope: string): Promise<string[]> {
   assertDurableStorageAvailable();
+  // Test-only seam, same contract as `getAppState`'s above — and it was MISSING
+  // here until #778, which is a coverage gap rather than a style difference.
+  // `seasonArchiveYearBound.test.ts` records having measured its absence and
+  // fallen back to the global `NODE_ENV=production` switch; that switch fails
+  // EVERY scope, so once #778 put a registry read in front of the archive read
+  // there was no way to fail the archive read alone and four store-failure
+  // regression tests went vacuous. Scoped injection is what lets a test fail
+  // `standings-archive:*` while the registry stays readable. Never set in
+  // production paths.
+  applyReadFailureSeamForTests(scope);
 
   if (hasDatabaseConfig()) {
     await ensureDatabase();

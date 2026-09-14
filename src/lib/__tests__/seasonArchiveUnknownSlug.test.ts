@@ -5,6 +5,7 @@ import { getSeasonArchive, listSeasonArchives, type SeasonArchive } from '../sea
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  __setAppStateReadFailureForTests,
   setAppState,
 } from '../server/appStateStore.ts';
 
@@ -77,8 +78,13 @@ async function plantRegistry(slugs: readonly string[]): Promise<void> {
 test.beforeEach(async () => {
   MUTABLE_ENV.NODE_ENV = 'development';
   restoreDatabaseUrl();
+  __setAppStateReadFailureForTests(null);
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
+});
+
+test.afterEach(() => {
+  __setAppStateReadFailureForTests(null);
 });
 
 test.after(() => {
@@ -155,33 +161,33 @@ test('#778: listSeasonArchives returns [] for a slug NO league holds, archives p
 // `null` under `revalidate: false`. The guard deliberately does not catch.
 // ---------------------------------------------------------------------------
 
-test('#778: a store failure PROPAGATES through the guard — an outage is never read as "unknown league"', async () => {
+test('#778: a REGISTRY read failure propagates — an outage is never read as "unknown league"', async () => {
   await plantRegistry([KNOWN_SLUG]);
   await plantArchive(KNOWN_SLUG, YEAR);
 
-  // `NODE_ENV=production` with no `DATABASE_URL` makes every app-state read
-  // throw before it touches a backend — the mechanism `seasonArchive.test.ts`
-  // uses. The registry read is now the FIRST read either function makes, so this
-  // is the path the guard sits on.
-  MUTABLE_ENV.NODE_ENV = 'production';
-  delete MUTABLE_ENV.DATABASE_URL;
-  __resetAppStateForTests();
+  // Scoped to the registry alone, so this test is about the read the GUARD
+  // makes. The first version used the global `NODE_ENV=production` switch, which
+  // fails every scope — it could not distinguish the guard's read from the
+  // archive read, and that ambiguity is exactly what made four pre-existing
+  // tests in `seasonArchive.test.ts` vacuous when #778 landed. Both properties
+  // are real and now each has its own test: the archive read's failure
+  // propagates (there), the registry read's does (here).
+  __setAppStateReadFailureForTests(new Error('registry read failed'), 'leagues');
 
   await assert.rejects(
     () => getSeasonArchive(KNOWN_SLUG, YEAR),
-    'a store failure must reject, never resolve to null'
+    'a registry read failure must reject, never resolve to null'
   );
   await assert.rejects(
     () => listSeasonArchives(KNOWN_SLUG),
-    'a store failure must reject, never resolve to []'
+    'a registry read failure must reject, never resolve to []'
   );
 
   // And the same fixture reads cleanly once the store is back — proving the
   // rejection was the outage and not a permanently broken fixture.
-  MUTABLE_ENV.NODE_ENV = 'development';
-  restoreDatabaseUrl();
-  __resetAppStateForTests();
+  __setAppStateReadFailureForTests(null);
   assert.equal((await getSeasonArchive(KNOWN_SLUG, YEAR))?.year, YEAR);
+  assert.deepEqual(await listSeasonArchives(KNOWN_SLUG), [YEAR]);
 });
 
 // ---------------------------------------------------------------------------
@@ -203,6 +209,34 @@ test('#778: with NO registry at all, archives are unreadable — recorded, not i
 
   // Control: the identical fixture is served the moment a registry exists, so
   // the two assertions above are about the registry and nothing else.
+  await plantRegistry([KNOWN_SLUG]);
+  assert.equal((await getSeasonArchive(KNOWN_SLUG, YEAR))?.year, YEAR);
+  assert.deepEqual(await listSeasonArchives(KNOWN_SLUG), [YEAR]);
+});
+
+test('#778: a MALFORMED registry THROWS rather than reading as "no such league"', async () => {
+  // Review finding. `getLeagues()` flattens `missing` and `malformed` alike to
+  // `[]`, so the obvious guard would answer a CORRUPT registry with a confident
+  // "this league does not exist" — and `debug/archive-audit`, the tool for
+  // diagnosing that corruption, would say `404 league-not-found` and send the
+  // operator hunting a slug typo. The two states are discriminated deliberately:
+  // `missing` is absence (pinned above), `malformed` is a fault.
+  await plantArchive(KNOWN_SLUG, YEAR);
+  await setAppState('leagues', 'registry', { notAnArray: true });
+
+  await assert.rejects(
+    () => getSeasonArchive(KNOWN_SLUG, YEAR),
+    /malformed/,
+    'a corrupt registry must not read as "this league has no archive"'
+  );
+  await assert.rejects(
+    () => listSeasonArchives(KNOWN_SLUG),
+    /malformed/,
+    'a corrupt registry must not read as "this league has no archives"'
+  );
+
+  // Control: the SAME fixture reads cleanly once the registry is well-formed, so
+  // the rejections above are the malformed value and not the archive.
   await plantRegistry([KNOWN_SLUG]);
   assert.equal((await getSeasonArchive(KNOWN_SLUG, YEAR))?.year, YEAR);
   assert.deepEqual(await listSeasonArchives(KNOWN_SLUG), [YEAR]);

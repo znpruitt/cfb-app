@@ -15,6 +15,7 @@ import {
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  __setAppStateReadFailureForTests,
   setAppState,
 } from '../server/appStateStore.ts';
 
@@ -38,8 +39,11 @@ function restoreDatabaseUrl(): void {
  * than weakening the guard is deliberate: a suite that could read archives for
  * leagues that do not exist was testing a state production cannot reach.
  *
- * `test` is the only slug this file does NOT plant — it is the one the
- * unknown-slug tests refuse against, so planting it would make them vacuous.
+ * The unknown-slug REFUSAL is not tested here — it lives in
+ * `seasonArchiveUnknownSlug.test.ts`, against slugs this file never mentions.
+ * (An earlier version of this comment claimed `test` was deliberately left
+ * unplanted for that purpose; no test in either file uses that slug, so the
+ * coupling it described did not exist.)
  */
 const FIXTURE_LEAGUE_SLUGS = ['tsc', 'other'] as const;
 
@@ -60,9 +64,14 @@ async function plantLeagueRegistry(slugs: readonly string[]): Promise<void> {
 test.beforeEach(async () => {
   MUTABLE_ENV.NODE_ENV = 'development';
   restoreDatabaseUrl();
+  __setAppStateReadFailureForTests(null);
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
   await plantLeagueRegistry(FIXTURE_LEAGUE_SLUGS);
+});
+
+test.afterEach(() => {
+  __setAppStateReadFailureForTests(null);
 });
 
 test.after(() => {
@@ -71,16 +80,37 @@ test.after(() => {
 });
 
 /**
- * Force the app-state store to throw on read the way a transient database
- * failure would: `NODE_ENV=production` without `DATABASE_URL` makes every
- * `getAppState`/`listAppStateKeys` call throw `APP_STATE_PRODUCTION_CONFIG_ERROR`
- * before it touches any backend. Used to prove read failures propagate rather
- * than being swallowed to `null`/`[]` and cached.
+ * Force the ARCHIVE read to throw the way a transient database failure would,
+ * while the REGISTRY stays readable.
+ *
+ * IT USED TO BE THE GLOBAL SWITCH (`NODE_ENV=production` with no
+ * `DATABASE_URL`), AND #778 MADE THAT VACUOUS — the review finding this
+ * addresses, reproduced before it was believed. #778 put a registry read in
+ * front of the archive read in both readers, and the global switch fails EVERY
+ * scope, so the rejection these tests assert started coming from the registry
+ * and `readSeasonArchiveFromStore` / `readArchiveYearsFromStore` were never
+ * reached. Measured: with both readers mutated to swallow every store failure to
+ * `null`/`[]`, the suite was 24/24 GREEN; removing only the two guard lines
+ * turned exactly these four tests red. The property the file's longest comment
+ * block exists to defend — a transient failure must reject so `unstable_cache`
+ * never persists a bogus `null` under `revalidate: false` — had lost its only
+ * coverage.
+ *
+ * The scoped seam is what restores it: it fails `standings-archive:<slug>` alone,
+ * so the guard's registry read succeeds and the archive read is the one that
+ * throws. `listAppStateKeys` did not honour the seam until #778 extended it,
+ * which is why the global switch was used here in the first place.
  */
-function forceStoreReadFailure(): void {
-  MUTABLE_ENV.NODE_ENV = 'production';
-  delete MUTABLE_ENV.DATABASE_URL;
-  __resetAppStateForTests();
+function forceArchiveReadFailure(slug: string): void {
+  __setAppStateReadFailureForTests(new Error('archive read failed'), archiveScopeForTests(slug));
+}
+
+/** The scope string the archive readers use. `archiveScope` is private to
+ * `seasonArchive.ts`, so this mirrors it — and every test below pairs the
+ * failure with a control that reads the SAME scope successfully, which is what
+ * proves the string is the real one rather than a drifted copy. */
+function archiveScopeForTests(slug: string): string {
+  return `standings-archive:${slug}`;
 }
 
 function makeArchive(
@@ -194,18 +224,21 @@ test('listSeasonArchives returns [] for a league with no archives', async () => 
 // ---------------------------------------------------------------------------
 
 test('a store read failure propagates and is not swallowed to null', async () => {
-  forceStoreReadFailure();
+  // CONTROL first: the archive is readable, so the rejection below can only be
+  // the injected failure — not an absent fixture or a drifted scope string.
+  await saveSeasonArchive(makeArchive({ leagueSlug: 'tsc', year: 2025 }));
+  assert.ok(await getSeasonArchive('tsc', 2025), 'control: the archive must be readable');
+
+  forceArchiveReadFailure('tsc');
   await assert.rejects(() => getSeasonArchive('tsc', 2025));
 });
 
 test('after a failed archive read, a subsequent successful read returns the archive', async () => {
-  forceStoreReadFailure();
+  forceArchiveReadFailure('tsc');
   await assert.rejects(() => getSeasonArchive('tsc', 2025));
 
   // Store recovers: nothing bogus was cached, so the real archive is returned.
-  MUTABLE_ENV.NODE_ENV = 'development';
-  restoreDatabaseUrl();
-  __resetAppStateForTests();
+  __setAppStateReadFailureForTests(null);
   const archive = makeArchive({ leagueSlug: 'tsc', year: 2025 });
   await saveSeasonArchive(archive);
 
@@ -213,17 +246,22 @@ test('after a failed archive read, a subsequent successful read returns the arch
 });
 
 test('a year-list read failure propagates and is not swallowed to []', async () => {
-  forceStoreReadFailure();
+  await saveSeasonArchive(makeArchive({ leagueSlug: 'tsc', year: 2025 }));
+  assert.deepEqual(
+    await listSeasonArchives('tsc'),
+    [2025],
+    'control: the year list must be readable'
+  );
+
+  forceArchiveReadFailure('tsc');
   await assert.rejects(() => listSeasonArchives('tsc'));
 });
 
 test('after a failed year-list read, a subsequent successful read returns the year list', async () => {
-  forceStoreReadFailure();
+  forceArchiveReadFailure('tsc');
   await assert.rejects(() => listSeasonArchives('tsc'));
 
-  MUTABLE_ENV.NODE_ENV = 'development';
-  restoreDatabaseUrl();
-  __resetAppStateForTests();
+  __setAppStateReadFailureForTests(null);
   await saveSeasonArchive(makeArchive({ leagueSlug: 'tsc', year: 2024 }));
   await saveSeasonArchive(makeArchive({ leagueSlug: 'tsc', year: 2025 }));
 

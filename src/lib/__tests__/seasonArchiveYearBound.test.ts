@@ -77,10 +77,15 @@ function restoreDatabaseUrl(): void {
  * Force the store to throw on read the way a transient database failure would.
  * The same mechanism `seasonArchive.test.ts` uses: `NODE_ENV=production` with no
  * `DATABASE_URL` makes every `listAppStateKeys` call throw before it reaches any
- * backend. The dedicated `__setAppStateReadFailureForTests` seam does NOT work
- * here — measured: `listAppStateKeys` never calls `applyReadFailureSeamForTests`,
- * so injecting through it produced no rejection at all and the first cut of this
- * test passed vacuously in the wrong direction.
+ * backend. The dedicated `__setAppStateReadFailureForTests` seam did NOT work
+ * here when this was written — measured then: `listAppStateKeys` never called
+ * `applyReadFailureSeamForTests`, so injecting through it produced no rejection
+ * and the first cut of this test passed vacuously in the wrong direction.
+ * #778 CLOSED THAT GAP (the seam now fires in `listAppStateKeys` too), because a
+ * registry read in front of the archive read made the global switch unable to
+ * fail one without the other. This suite keeps the global switch: its assertion
+ * is that a store outage propagates at all, and which read throws first is not
+ * what it is about.
  */
 function forceStoreReadFailure(): void {
   MUTABLE_ENV.NODE_ENV = 'production';

@@ -2,7 +2,7 @@ import { revalidateTag, unstable_cache } from 'next/cache';
 import { cache } from 'react';
 
 import { getAppState, setAppState, listAppStateKeys } from './server/appStateStore.ts';
-import { getLeague } from './leagueRegistry.ts';
+import { readLeagueRegistry } from './leagueRegistry.ts';
 import { MIN_SEASON_YEAR, type LeagueStatus } from './league.ts';
 import { resolveLeagueOperatingYear } from './selectors/leagueLifecycle.ts';
 import type { StandingsHistory, StandingsHistoryStandingRow } from './standingsHistory.ts';
@@ -187,7 +187,30 @@ const dataCachedArchiveYears = (leagueSlug: string) =>
  * and one for the year list): ONE registry store read.
  */
 async function leagueExists(leagueSlug: string): Promise<boolean> {
-  return (await getLeague(leagueSlug)) !== null;
+  const registry = await readLeagueRegistry();
+  // A MALFORMED registry is a FAULT, not a statement that no league exists —
+  // review finding, and the distinction is the same one this file already draws
+  // for store failures a few lines below. `getLeague` would flatten `malformed`
+  // to `null` (its own doc calls that collapse a falsehood: "a cron facing a
+  // corrupt registry reports a zero-target reason asserting no league exists"),
+  // which before #778 cost the archive readers nothing because they never
+  // consulted the registry. Now it would: a corrupt registry row would make a
+  // decade of archives read as absent, and `debug/archive-audit` — the tool an
+  // operator reaches for to diagnose exactly that — would answer
+  // `404 league-not-found` and point them at a slug typo that does not exist.
+  // Throwing keeps the fault visible and keeps `unstable_cache` from persisting
+  // a bogus `null` under `revalidate: false`.
+  //
+  // `missing` is NOT a fault: an absent registry means no league exists anywhere,
+  // which is a state the store genuinely reaches on a first run, and every other
+  // surface already agrees. Pinned by test.
+  if (registry.kind === 'malformed') {
+    throw new Error(
+      `League registry is malformed; refusing to read archives for '${leagueSlug}' as though it had none.`
+    );
+  }
+  if (registry.kind === 'missing') return false;
+  return registry.leagues.some((league) => league.slug === leagueSlug);
 }
 
 /**
