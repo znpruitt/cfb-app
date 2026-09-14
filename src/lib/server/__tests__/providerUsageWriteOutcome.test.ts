@@ -40,9 +40,21 @@ type StoreState = { row: unknown | undefined; readThrows: boolean };
  * COMMIT was attempted and the test never reached the code it was written for.
  */
 class FakeClient {
+  /** Set once this transaction has actually submitted a mutation. */
+  private sawWrite = false;
+
   async query(text: string): Promise<{ rows: unknown[] }> {
     const sql = String(text).trim().toLowerCase();
-    if (sql.startsWith('commit')) throw new Error('COMMIT acknowledgement lost');
+    if (sql.startsWith('insert into app_state')) this.sawWrite = true;
+    // PLATFORM-625: lose the acknowledgement ONLY for a transaction that wrote.
+    // `ensureDatabase`'s schema DDL now runs in a bounded transaction of its own and
+    // commits too; failing that one aborts the run before the code under test is
+    // reached — the same over-broad failure this file's header already records
+    // having fixed once.
+    if (sql.startsWith('commit')) {
+      if (!this.sawWrite) return { rows: [] };
+      throw new Error('COMMIT acknowledgement lost');
+    }
     if (sql.startsWith('select value')) return { rows: [] };
     return { rows: [{ present: true }] };
   }

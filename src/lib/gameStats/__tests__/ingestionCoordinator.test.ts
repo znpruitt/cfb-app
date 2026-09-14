@@ -103,8 +103,11 @@ const REQUIRED_SIX: WireStat[] = [
  */
 class LostCommitClient {
   released = false;
+  /** Set once this transaction has actually submitted a mutation. */
+  private sawWrite = false;
   async query(text: string, params?: unknown[]): Promise<{ rows: unknown[] }> {
     const sql = text.toLowerCase().trim();
+    if (sql.startsWith('insert into app_state')) this.sawWrite = true;
     if (sql.includes('to_regclass')) return { rows: [{ present: true }] };
     if (sql.includes('select value')) {
       if (params?.[0] === 'game-stats-writer-control') {
@@ -119,7 +122,14 @@ class LostCommitClient {
       }
       return { rows: [] }; // empty existing partition
     }
-    if (sql === 'commit') throw new Error('commit acknowledgement lost');
+    // PLATFORM-625: lose the acknowledgement ONLY for a transaction that WROTE.
+    // `ensureDatabase`'s schema DDL now runs in a bounded transaction of its own and
+    // commits too; failing that commit aborts the run before the code under test is
+    // reached, so the assertion would describe schema setup rather than a lost write.
+    if (sql === 'commit') {
+      if (!this.sawWrite) return { rows: [] };
+      throw new Error('commit acknowledgement lost');
+    }
     // begin / pg_advisory_xact_lock (primary + control) / insert (write
     // submitted) / rollback / ddl.
     return { rows: [] };

@@ -256,9 +256,19 @@ test('an empty stored series is a readable state, not an absent one', async () =
  * reachable only through the Postgres path.
  */
 class FakeClient {
+  /** Set once this transaction has actually submitted a mutation. */
+  private sawWrite = false;
+
   async query(text: string): Promise<{ rows: unknown[] }> {
     const sql = String(text).trim().toLowerCase();
-    if (sql.startsWith('commit')) throw new Error('COMMIT acknowledgement lost');
+    if (sql.startsWith('insert into app_state')) this.sawWrite = true;
+    // PLATFORM-625: lose the acknowledgement ONLY for a transaction that wrote.
+    // `ensureDatabase`'s schema DDL now commits a bounded transaction of its own;
+    // failing that one aborts the run before the code under test is reached.
+    if (sql.startsWith('commit')) {
+      if (!this.sawWrite) return { rows: [] };
+      throw new Error('COMMIT acknowledgement lost');
+    }
     if (sql.startsWith('select value')) return { rows: [] };
     return { rows: [{ present: true }] };
   }
