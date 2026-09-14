@@ -98,7 +98,38 @@ neutrally (`DESIGN.md` → *Cards and game results*). Match that treatment; do n
 disrupted game. **That is terminal and must NOT enter the Live list.** A predicate written before B
 would not know the value exists.
 
-## RULINGS ON THE READ RECEIPT — 2026-09-14, binding; part B is NARROWED because the premise did not cover the vocabulary
+## RULINGS — 2026-09-14. PART B IS WITHDRAWN ENTIRELY. This slice is A and C only
+
+**0. PART B IS WITHDRAWN. Do not implement it. [#781](https://github.com/znpruitt/cfb-app/issues/781)
+is closed.**
+
+**CFBD does not provide a disrupted status at all.** Owner, 2026-09-14: *"Games get
+delayed/rescheduled and the status never changes."* So nothing ever presents as disrupted, and the
+projection this part was written to fix never happens. Your measurement — **zero disrupted labels
+across 22,760 schedule rows and 20,424 score statuses** — was not a rarity finding; it was the whole
+answer.
+
+**`gameStatus.ts:74-79` already recorded this, and says building on it has cost TWICE:**
+
+> **What is NOT licensed is reasoning FROM the absence.** No disrupted label rests in the caches, so a
+> behaviour, test expectation or design premised on a disrupted game being VISIBLE THERE is premised
+> on nothing — **which has now cost twice**, a wrong conclusion about Item 169 and disruption handling
+> built for #727.
+
+**Part B would have been the third**, and I ruled on it twice before your measurement surfaced it.
+
+**The real case is already covered.** A hurricane cancellation that never resolves does not arrive as
+a label — it arrives as a game that never gets a score, passes `kickoff +
+POLLING_WINDOW_AFTER_KICKOFF_MS`, and projects `unavailable` through #722/#724's fifth state. Correct
+answer, reached without a label the provider never sets.
+
+**Do NOT delete the disruption predicates or their guards.** `gameStatus.ts:71-73` keeps them by Item
+661's deliberate decision, and removing them on the strength of the absence *"would be the same error
+in the other direction."*
+
+**The rulings below are retained for the record and are now moot.** Part C's dependency on part B
+disappears with it — C stands alone, and its disrupted exclusion is unreachable contract coverage
+rather than defensive.
 
 **1. PART B APPLIES TO CANCELED AND POSTPONED ONLY. Delayed and suspended are EXCLUDED.** This is the
 ruling your finding forced, and it corrects mine.
