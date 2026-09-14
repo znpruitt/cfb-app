@@ -111,9 +111,16 @@ My 3,088 ms was a remote client and over-states it, which is the safe direction,
 the number and I measured a worse one instead of citing it.** Use the runbook's figure; 15 s clears it
 by 11×.
 
-**5. THE MECHANISM QUESTION IS THE OWNER'S, AND THE DEFAULT IS D.** The runbook documents only the
-**RO rail's** endpoint (direct, not `-pooler`); it says nothing about production's `DATABASE_URL`, and
-Vercel's environment is the authority. **Until the owner confirms, implement D.**
+**5. ANSWERED — PRODUCTION IS POOLED. MECHANISM D, AND IT IS CORRECT RATHER THAN MERELY SAFE.** The runbook documents only the **RO rail's** endpoint, but
+[#735](https://github.com/znpruitt/cfb-app/issues/735) settles the question without reading a secret:
+**`DATABASE_URL_UNPOOLED` and `POSTGRES_URL_NON_POOLING` both exist in Vercel**, added with the other
+six by the Neon-Vercel integration on 2026-08-31. **That integration's convention is fixed — the base
+`DATABASE_URL` is the POOLED string and `_UNPOOLED` is the direct one.** A separate unpooled variable
+exists only because the base one is pooled.
+
+**This is inference from a documented convention plus the observed variable set, not a read of the
+value.** Confidence is high and it agrees with the risk asymmetry below, so it decides the mechanism
+— but **if your own work can confirm the host cheaply and safely, do, and record which it was.**
 
 **The risk is asymmetric and that is the whole argument.** C guessed wrong is a **total outage** —
 session settings silently not persisting through a transaction pooler, so every bound is absent while
@@ -121,8 +128,9 @@ appearing configured. D guessed wrong costs **+2 round trips** on non-transactio
 recoverable and measurable. **A recoverable cost beats an unrecoverable one when the input is
 unknown.**
 
-**If the owner confirms the direct host, switch to C** — it is free, and free is better. Record which
-was used and why, so the next person does not re-derive the asymmetry.
+**Do NOT use C.** Under a transaction pooler a session-level `SET` is precisely the silent-failure case
+— every bound appears configured and none applies. Record the endpoint finding and its source, so the
+next person does not re-derive it.
 
 ## Acceptance boundary
 
