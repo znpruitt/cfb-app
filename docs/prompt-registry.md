@@ -107,6 +107,35 @@ These consolidate recurring historical observations, not new project-governance 
 
 ## Prompt ledger (source order retained)
 
+### PLATFORM-776-780-781-STATE-RULINGS-CODEX-v1
+
+- Purpose: close the false history empty-state range claim
+  ([#776](https://github.com/znpruitt/cfb-app/issues/776)) and align the Members Live list with its
+  existing awaiting-inclusive count ([#780](https://github.com/znpruitt/cfb-app/issues/780)). The
+  disrupted-game projection ([#781](https://github.com/znpruitt/cfb-app/issues/781)) was withdrawn;
+  #781 closed.
+- Scope / outcome: deleted the history sentence without replacing it with another range; Members
+  `liveRows` now accepts `Live` and `Awaiting score`, while `No score reported` remains excluded.
+  Its No-score exclusion is unreachable as disruption evidence: the test reaches that existing state
+  through 24-hour score absence and cannot demonstrate a CFBD-disrupted row. Agreement means state
+  eligibility, not row cardinality; self-games can still make counts differ. Review remediation made
+  the Live-games description name both admitted states. The bound, count, projector, and disruption
+  guards are unchanged.
+- Evidence: zero disrupted labels across 22,760 schedule rows and 20,424 score statuses (43,184
+  total) is the whole provider answer, not a rarity finding. Part B therefore could not be validated
+  against production data and could not regress observable production behavior. Item 661 remains
+  the reason to retain the dormant guards rather than infer impossibility in the other direction.
+- Review / verification: implementation `0475d984`; `/codex:review` clean. `/code-review high`
+  reported two Medium findings: the branch-attributed false Members description was accepted and
+  fixed in `7d0cf3cd`; the confirmed but pre-existing Members/Overview 24h-versus-8h divergence was
+  not swept in and is reported to planning for a separate design ruling. Copy and awaiting admission
+  were mutation-proven; the `No score reported` assertion pins state eligibility but was not the red
+  edge. Lint and `tsc` pass; the normal and zero-day suites pass 5,356/5,356, delta **+2 measured at
+  both ends** (5,354 → 5,356). The +30-day suite has exactly its one declared lifecycle-sweep failure
+  (5,355 pass, 1 fail). Confirming reviews remain pending.
+- Status: IMPLEMENTED — pre-merge closeout complete on
+  `codex/776-780-history-members-state`; confirming review and merge pending.
+
 ### PLATFORM-722-724-MATCHUPS-DERIVED-STATE-CODEX-v1
 
 - Change: [#722](https://github.com/znpruitt/cfb-app/issues/722) and
@@ -133,11 +162,11 @@ These consolidate recurring historical observations, not new project-governance 
   No ordering-only test: Schedule's abandonment and unavailable fallback render identically; if
   they diverge, ordering becomes observable and untested. [#740](https://github.com/znpruitt/cfb-app/issues/740)
   is the inverse omitted-flag default under another owner.
-- Open work / status: [#780](https://github.com/znpruitt/cfb-app/issues/780) confirms that Members can
-  count awaiting as live without listing it as confirmed-live—deferred, not superseded.
-  [#781](https://github.com/znpruitt/cfb-app/issues/781) confirms Matchups has no disrupted treatment
-  and renders Scheduled—vocabulary ruling deferred. MERGED `ebc4ec79` (PR #777),
-  2026-09-13; remediation is IMPLEMENTED AND REVIEWED in PR #784, pending merge.
+- Follow-up / status: [#780](https://github.com/znpruitt/cfb-app/issues/780) is implemented by
+  PLATFORM-776-780-781-STATE-RULINGS-CODEX-v1. [#781](https://github.com/znpruitt/cfb-app/issues/781)
+  was withdrawn and closed after the provider measurement established that CFBD supplies no
+  disrupted status; the dormant guards remain. MERGED `ebc4ec79` (PR #777), 2026-09-13;
+  remediation is IMPLEMENTED AND REVIEWED in PR #784, pending merge.
 
 ### PLATFORM-627-INSIGHTS-BYPASS-AUTHORIZATION-CLAUDE-v1
 
@@ -172,7 +201,9 @@ These consolidate recurring historical observations, not new project-governance 
 - Status: MERGED `4c939fbf` (PR #779), 2026-09-13; #774 closed. Branched at `396c45ff`; `origin/main` merged into the branch before the PR, clean `ort`, no conflict. **Both directions verified in the merged file rather than inferred from the clean merge** — the three `Status:` flips from `74c74006` present, these appends present, with a positive control confirming the check can report a genuine absence.
 - Open work: **RESIDUE, mixed error shapes, deliberately not filed.** The route now returns a JSON 400 beside plain-text 404s. Only the refusal shape is in scope, and matching #770 makes `AGENTS.md` invariant 4 one rule rather than two; converting the 404s is a second unreviewed behaviour change — the same reasoning #770 used for empty-versus-absent — and the route has **no in-app callers** (grep over `src` returns none) to keep consistent. Owner ruling: a route with no consumers and mixed error shapes is a note, not an item.
 - Open work: **RESIDUE, the disjunct cannot reach below 2000, found by a test of mine failing.** `readArchiveYearsFromStore` filters `n >= 2000`, so `listSeasonArchives` never surfaces a sub-2000 archive and the disjunct cannot admit one. Pinned rather than fixed: the league page, history index, insights and recap all read the same floored list, so such an archive is already invisible everywhere, and admitting it here alone would let one route mint an entry for a season no other surface agrees exists.
-- Open work: the page's empty-state copy — _"Historical data is available from the 2025 season onward"_ — is factually wrong against production (`tsc` holds 2018). Flagged, not fixed; it is [#776](https://github.com/znpruitt/cfb-app/issues/776), which records that #774's ceiling deliberately admits gap years so that this empty state renders. The two are coupled.
+- Follow-up: [#776](https://github.com/znpruitt/cfb-app/issues/776) is implemented by
+  PLATFORM-776-780-781-STATE-RULINGS-CODEX-v1: the false _"Historical data is available from the
+  2025 season onward"_ sentence is deleted while #774's gap-year empty state remains.
 - Open work: **RESIDUE, two debug routes still reach this cache unbounded — review finding, and its shape needed correcting.** `api/debug/archive-integrity/route.ts:329` and `api/debug/archive-audit/route.ts:455` both parse the year with a `< 2000` floor and no ceiling and call `getSeasonArchive`, and neither validates `leagueSlug` against the registry. **They are #770's shape, NOT #774's** — measured: `Number.parseInt('2026.5', 10)` is 2026, `'2e10'` is 2, `'0x7E0'` is 0, so the accepted set is unbounded but COUNTABLE and the dense half does not apply. **The unvalidated slug is the worse and genuinely novel dimension**: `?leagueSlug=anything&year=999999999` mints an entry tagged `archive:anything`, and since no rollover will ever run for a league that does not exist, that tag can never fire — permanent in the strict sense, where #774's junk entries were swept once a season. Both are `requireAdminAuth`-gated, and the prompt's scope excludes the other year parsers, so reported rather than fixed. Named here because the bullets above enumerate `draft/[slug]/[year]`, `schedule-eligibility` and `parseSeasonParam` while omitting the only two that mint an ARCHIVE entry.
 - Open work: **AT MERGE, VERIFY BOTH DIRECTIONS IN THIS FILE, not just that these rows landed.** The three `Status:` flips the owner made in `74c74006` touch the same two documents this closeout appends to. These edits are pure appends and will merge cleanly — which is the hazard, not the reassurance: PR #777 silently reverted the #770 flip through exactly such a merge, with no conflict and nothing to review. So read the merged file and confirm the flipped rows survived alongside the new ones.
 - Owed to planning at merge (planning owns `AGENTS.md`): in Season Launch invariant 4, the sentence **"The same shape is still OPEN on `/api/history/[slug]/[year]` — #774."** goes false. Suggested replacement: **"`/api/history/[slug]/[year]` and its RSC page are bounded the same way, with one difference that is derived rather than copied: the ceiling is the league's OPERATING YEAR, not `currentYear + 1`, because an archive of a season that has not finished cannot exist — and a year the league has actually archived is admitted regardless of the range — #774."**

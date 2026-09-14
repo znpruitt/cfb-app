@@ -186,6 +186,7 @@ test('Members describes awaiting-score rows in the Live games section truthfully
     <OwnerPanel
       snapshot={{
         ...snapshot,
+        rosterRows: snapshot.rosterRows.filter((row) => row !== awaitingRow),
         liveRows: [snapshot.liveRows[0]!, awaitingRow],
       }}
       selectedWeekLabel="Week 1"
