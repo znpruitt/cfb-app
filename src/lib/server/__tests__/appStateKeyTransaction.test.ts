@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import test from 'node:test';
 
 import type { Pool } from 'pg';
@@ -44,7 +45,12 @@ function classifyQuery(text: string): QueryKind {
   if (sql.includes('pg_advisory_xact_lock')) return 'lock';
   if (sql.includes('select value')) return 'read';
   if (sql.includes('insert into app_state')) return 'write';
-  if (sql.trim() === 'begin') return 'begin';
+  // PLATFORM-625: BEGIN now carries its bounds in the same round trip, so the
+  // fake must accept a multi-statement opener. It is deliberately recorded rather
+  // than asserted here — a classifier that REJECTED an unbounded `begin` would
+  // redden all 86 tests for either missing bound, which cannot tell the two apart.
+  // The per-bound wiring assertions live in their own tests below.
+  if (sql.trim() === 'begin' || sql.trimStart().startsWith('begin;')) return 'begin';
   if (sql.trim() === 'commit') return 'commit';
   if (sql.trim() === 'rollback') return 'rollback';
   throw new Error(`unclassified query in fake pool: ${text}`);
@@ -52,7 +58,11 @@ function classifyQuery(text: string): QueryKind {
 
 type LockEntry = { owner: FakeClient; waiters: Array<{ client: FakeClient; grant: () => void }> };
 
-class FakeClient {
+// PLATFORM-625: a real pg client is an EventEmitter and a CHECKED-OUT one has no
+// `'error'` listener of its own, so `appStateStore` attaches one for the client's
+// checked-out lifetime. A fake without that surface cannot model the contract —
+// and a fake that lacks it is exactly what let the missing listener ship.
+class FakeClient extends EventEmitter {
   readonly calls: QueryKind[] = [];
   released = false;
   destroyed = false;
@@ -62,7 +72,9 @@ class FakeClient {
   constructor(
     private readonly pool: FakePool,
     readonly index: number
-  ) {}
+  ) {
+    super();
+  }
 
   async query(text: string, params?: unknown[]) {
     if (this.released) throw new Error(`query after release (client ${this.index})`);
@@ -76,6 +88,7 @@ class FakeClient {
 
     switch (kind) {
       case 'begin':
+        this.pool.beginStatements.push(text);
         this.staged = new Map();
         return { rows: [] };
       case 'lock': {
@@ -167,6 +180,8 @@ class FakeClient {
 
 class FakePool {
   readonly log: string[] = [];
+  /** Every BEGIN verbatim, so a test can assert which bounds rode along with it. */
+  readonly beginStatements: string[] = [];
   readonly releases: Array<{ index: number; destroyed: boolean }> = [];
   readonly committed = new Map<string, string>();
   readonly locks = new Map<string, LockEntry>();
@@ -182,6 +197,22 @@ class FakePool {
   outstanding = 0;
   connectCount = 0;
   private readonly connectQueue: Array<() => void> = [];
+
+  /**
+   * PLATFORM-625: forget everything the one-per-process schema warm did, so each
+   * test observes the client indices and log it observed before `ensureDatabase`
+   * needed a transaction of its own. Committed rows are deliberately KEPT — a test
+   * may seed them before the warm runs.
+   */
+  forgetWarmup(): void {
+    this.log.length = 0;
+    this.beginStatements.length = 0;
+    this.releases.length = 0;
+    this.idle.length = 0;
+    this.destroyedIds.clear();
+    this.connectCount = 0;
+    this.outstanding = 0;
+  }
 
   takeFailure(clientIndex: number, kind: QueryKind): Error | null {
     const perClient = this.perClientFailures[`client${clientIndex}:${kind}`];
@@ -234,6 +265,13 @@ async function withFakePg(fn: (pool: FakePool) => Promise<void>): Promise<void> 
   const pool = new FakePool();
   __setAppStatePoolForTests(pool as unknown as Pool);
   try {
+    // PLATFORM-625: `ensureDatabase`'s `create table if not exists` now runs inside
+    // its own bounded transaction, so it checks out a client and appears in the log.
+    // In production that happens ONCE per process; asserting a per-transaction client
+    // sequence with it in front would describe startup, not steady state. Warm it
+    // here and forget it. That the DDL is ITSELF bounded has its own test below.
+    await getAppState('schema-warm', 'schema-warm');
+    pool.forgetWarmup();
     await fn(pool);
   } finally {
     if (previous === undefined) delete process.env.DATABASE_URL;

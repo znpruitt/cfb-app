@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import test from 'node:test';
 import type { Pool } from 'pg';
 
@@ -255,10 +256,24 @@ test('an empty stored series is a readable state, not an absent one', async () =
  * `writeAttempted: false` — the CERTAIN case. A lost COMMIT acknowledgement is
  * reachable only through the Postgres path.
  */
-class FakeClient {
+// PLATFORM-625: a real pg client is an EventEmitter and a CHECKED-OUT one has no
+// `'error'` listener of its own, so `appStateStore` attaches one for the client's
+// checked-out lifetime. A fake without that surface cannot model the contract —
+// and a fake that lacks it is exactly what let the missing listener ship.
+class FakeClient extends EventEmitter {
+  /** Set once this transaction has actually submitted a mutation. */
+  private sawWrite = false;
+
   async query(text: string): Promise<{ rows: unknown[] }> {
     const sql = String(text).trim().toLowerCase();
-    if (sql.startsWith('commit')) throw new Error('COMMIT acknowledgement lost');
+    if (sql.startsWith('insert into app_state')) this.sawWrite = true;
+    // PLATFORM-625: lose the acknowledgement ONLY for a transaction that wrote.
+    // `ensureDatabase`'s schema DDL now commits a bounded transaction of its own;
+    // failing that one aborts the run before the code under test is reached.
+    if (sql.startsWith('commit')) {
+      if (!this.sawWrite) return { rows: [] };
+      throw new Error('COMMIT acknowledgement lost');
+    }
     if (sql.startsWith('select value')) return { rows: [] };
     return { rows: [{ present: true }] };
   }
@@ -302,7 +317,11 @@ test('an uncertain COMMIT is reported as INDETERMINATE, never as a loss', async 
  * A client whose stored row is CORRUPT (so the callback refuses) and whose
  * ROLLBACK then also fails — the one path that re-wraps our refusal.
  */
-class RollbackFailingClient {
+// PLATFORM-625: a real pg client is an EventEmitter and a CHECKED-OUT one has no
+// `'error'` listener of its own, so `appStateStore` attaches one for the client's
+// checked-out lifetime. A fake without that surface cannot model the contract —
+// and a fake that lacks it is exactly what let the missing listener ship.
+class RollbackFailingClient extends EventEmitter {
   async query(text: string): Promise<{ rows: unknown[] }> {
     const sql = String(text).trim().toLowerCase();
     if (sql.startsWith('rollback')) throw new Error('ROLLBACK failed');

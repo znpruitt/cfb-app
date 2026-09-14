@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, promises as fs, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { Pool, type PoolClient } from 'pg';
+import { Pool, type PoolClient, type PoolConfig, type QueryResult, type QueryResultRow } from 'pg';
 
 import { writeJsonFileAtomic } from './atomicFileWrite.ts';
 
@@ -363,18 +363,303 @@ function getPool(): Pool {
     // `new Pool(` appears nowhere else in `src/`, `pg` is imported nowhere else
     // outside tests, and `app_state` is the only table.
     if (testIsolationEnabled()) throw new Error(APP_STATE_TEST_ISOLATION_POOL_REFUSAL);
-    pool = new Pool({
-      connectionString: process.env.DATABASE_URL,
-      max: 3,
-      idleTimeoutMillis: 5_000,
-      ssl:
-        process.env.PGSSLMODE?.toLowerCase() === 'disable'
-          ? undefined
-          : { rejectUnauthorized: false },
-    });
+    pool = new Pool(appStatePoolConfig());
   }
 
   return pool;
+}
+
+/**
+ * The exact configuration `new Pool` receives. Factored out so a test can assert
+ * it: GUARD 1 refuses to CONSTRUCT a real pool whenever isolation is on, which is
+ * every test process, so there is otherwise no way to observe these values. What
+ * this buys is wiring, not behaviour — that `connectionTimeoutMillis` actually
+ * bounds both waits was established against production (see the comment on the
+ * field itself), and this keeps it from being silently dropped later.
+ */
+function appStatePoolConfig(): PoolConfig {
+  return {
+    connectionString: process.env.DATABASE_URL,
+    max: 3,
+    idleTimeoutMillis: 5_000,
+    // PLATFORM-625. The ONLY one of the four bounds that is a pool option, and
+    // the only one that is endpoint-independent: it is a pg-pool timer, not a
+    // server setting, so no proxy can discard it. It covers BOTH waits, with a
+    // different message for each and NO SQLSTATE on either:
+    //   - pool exhausted -> 'timeout exceeded when trying to connect'
+    //   - connect/TLS    -> 'Connection terminated due to connection timeout'
+    // The first is what bounds #595: with `max: 3` and a nested read inside a
+    // transaction, the fourth acquisition waits on clients its own caller holds.
+    // Measured 2026-09-14 against production — unbounded, that wait was still
+    // running when the observer gave up at 16,001 ms; at 8,000 ms it ended at
+    // 8,003 ms. ANY finite value breaks the permanent wait; this one is sized to
+    // clear a cold Neon autosuspend wake with room, measured at 1,468 ms here
+    // (postmaster uptime 1 s, so a genuine wake) and 1,333 ms in
+    // `docs/deployment-runbook.md`. Warm connects are ~200-230 ms.
+    connectionTimeoutMillis: 15_000,
+    // `pg` defaults `keepAlive` to FALSE, so nothing detects a peer that stopped
+    // answering WITHOUT closing — a NAT idle timeout, a Fluid instance resuming, Neon
+    // reaping mid-transaction. No FIN or RST arrives, so `pg` emits no `'error'`, the
+    // client-error guard sees nothing, and a server-side `statement_timeout` fires but
+    // its error packet never lands. TCP keepalive is what turns that silence into a
+    // socket error the guard and the in-flight query can both observe.
+    //
+    // HONEST LIMIT: this is DETECTION, not a tight bound. Probing starts after 10 s
+    // idle and then takes the OS's own probe/retry schedule to declare the peer dead,
+    // so it closes the "hangs forever" case, NOT the "bounded at 15 s" case. A true
+    // per-statement client deadline is a larger change — see the note on
+    // `openBoundedTransaction` about why a naive global `query_timeout` is not it.
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10_000,
+    ssl:
+      process.env.PGSSLMODE?.toLowerCase() === 'disable'
+        ? undefined
+        : { rejectUnauthorized: false },
+  };
+}
+
+/** Test-only: the configuration the real pool is built from. Never used at runtime. */
+export function __appStatePoolConfigForTests(): PoolConfig {
+  return appStatePoolConfig();
+}
+
+// ---------------------------------------------------------------------------
+// PLATFORM-625: bounded waits.
+//
+// `statement_timeout` and `lock_timeout` are delivered as `SET LOCAL` INSIDE each
+// transaction. That is not a stylistic choice — it is the only mechanism that
+// works, and three more obvious ones are each wrong in a different way. Measured
+// 2026-09-14 against production Neon (PG 17.11) on BOTH the direct endpoint and
+// its `-pooler` twin:
+//
+//   `new Pool({ statement_timeout })`   direct: SILENTLY INERT   pooled: SILENTLY INERT
+//   `pool.on('connect', ... SET ...)`   direct: applies 18/18    pooled: 17/18 WRONG
+//   `?options=-c statement_timeout=`    direct: applies          pooled: HARD CONNECT FAILURE
+//   `SET LOCAL` after `BEGIN`           direct: applies          pooled: APPLIES
+//
+// - The pg client option is inert because pg sends it as a STARTUP PARAMETER
+//   (`client.js` `getStartupConf`) and Neon's proxy drops unrecognised ones without
+//   erroring. Positive control separating "discarded" from merely "ineffective":
+//   `statement_timeout: 'NOT_AN_INT'` CONNECTS CLEANLY, while the same invalid value
+//   sent via `?options=` is REJECTED `22023`. The channel is dropped, not ignored.
+// - A session `SET` is correct on a direct endpoint and is the SILENT-FAILURE case
+//   through a transaction pooler: six logical clients each setting a distinct value
+//   landed on five backends, and 17 of 18 observations read `0` or ANOTHER CLIENT'S
+//   value. Every bound would appear configured and none would apply.
+// - `?options=` is rejected outright by the pooler with `08P01 unsupported startup
+//   parameter in options`, i.e. a total outage, not a degradation.
+//
+// Production's `DATABASE_URL` is the POOLED string: `DATABASE_URL_UNPOOLED` and
+// `POSTGRES_URL_NON_POOLING` both exist in Vercel (confirmed present 2026-09-14 by
+// `vercel env ls`, names only — the values are encrypted and were not read), and the
+// Neon-Vercel integration only adds an `_UNPOOLED` variable because the base one is
+// pooled. That is inference from a fixed convention plus the observed variable set,
+// not a read of the host — but `SET LOCAL` is correct on BOTH, so the bound does not
+// depend on the inference being right.
+//
+// `SET LOCAL` also reverts at COMMIT/ROLLBACK, so a bound can never leak onto a
+// server connection the pooler later hands to someone else.
+
+/**
+ * ~240x the measured server-side cost of the largest realistic write. The biggest
+ * row in `app_state` (`schedule/2025-all-all`) is 2,579,978 bytes as the JSON the
+ * app actually sends — NOT the 0.36 MB it occupies on disk after TOAST compression —
+ * and re-parsing it server-side costs 39.7 ms, compressing it 22.1 ms. Reads are
+ * cheaper still: that row's `select` executes in 0.041 ms server-side, the rest of
+ * its round trip being transfer. Nothing in `app_state` is a scan or a join.
+ */
+const APP_STATE_STATEMENT_TIMEOUT_MS = 15_000;
+
+/**
+ * Deliberately BELOW `statement_timeout`, so lock contention surfaces as `55P03`
+ * rather than as a slow statement's `57014` — the two are indistinguishable if the
+ * lock bound is the looser one. Measured: contention fires at 10,089 ms with `55P03`
+ * while the statement bound fires at 15,044 ms with `57014`.
+ */
+const APP_STATE_LOCK_TIMEOUT_MS = 10_000;
+
+/**
+ * Opens a transaction WITH its bounds in ONE round trip. Multi-statement is legal
+ * here only because there are no parameters, so pg uses the simple protocol; the
+ * explicit `begin` keeps the transaction open past the string. Verified applying on
+ * both endpoints, including for the parameterized (extended-protocol) statements
+ * that follow it inside the same transaction.
+ */
+const APP_STATE_BOUNDED_BEGIN =
+  `begin; set local statement_timeout = ${APP_STATE_STATEMENT_TIMEOUT_MS}; ` +
+  `set local lock_timeout = ${APP_STATE_LOCK_TIMEOUT_MS}`;
+
+/**
+ * A CHECKED-OUT pooled client has NO `'error'` listener, and that is a crash, not a
+ * warning. `pg-pool`'s `_acquireClient` REMOVES its idle listener at checkout and
+ * adds nothing back; `pool.query` compensates internally with its own `once('error')`
+ * for the life of the query, but a client taken via `pool.connect()` gets nothing.
+ * `pg` emits `'error'` on ANY socket-level failure (`_handleErrorEvent`, and the
+ * `con.once('end')` path), whether or not a query is in flight — and an `'error'`
+ * emit with no listener is an `ERR_UNHANDLED_ERROR` UNCAUGHT EXCEPTION.
+ *
+ * Measured: destroying the socket under an in-flight query on a checked-out client
+ * took the whole process down; with this one listener attached the query rejects
+ * normally and the process survives. Neon reaping an idle connection, an autosuspend,
+ * or a TLS reset between the opener and the statement is exactly that scenario — so
+ * without this, the failure class #625 exists to make SURVIVABLE instead kills the
+ * function instance and every concurrent request on it.
+ *
+ * The in-flight query still rejects on its own (`_errorAllQueries` runs first), so
+ * this listener never swallows an error the caller needed; it exists purely to keep
+ * a dead connection from being fatal. Returns the detach function — the listener MUST
+ * come off before release, or it accumulates on every reuse of a pooled client.
+ */
+function guardPooledClientErrors(client: PoolClient): () => void {
+  const onClientError = (error: unknown): void => {
+    console.error('appStateStore: pooled client connection error', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  };
+  client.on('error', onClientError);
+  return () => client.removeListener('error', onClientError);
+}
+
+/**
+ * The opener is the ONE statement no server-side bound can cover, because it is the
+ * statement that installs them. At the moment it runs `statement_timeout` is still
+ * `0`, and `connectionTimeoutMillis` is already spent — `pg-pool` clears that timer
+ * in its connect callback, so nothing client-side is armed either. On a transaction
+ * pooler this is also where backend assignment happens, so it is a REAL stall point
+ * rather than a theoretical one. Measured against production: a first statement on a
+ * freshly connected client ran 20,062 ms with `connectionTimeoutMillis` at 5,000 ms
+ * and was not bounded by it.
+ *
+ * A client-side deadline is therefore the only thing that can bound this, and the
+ * caller MUST destroy the client when it fires. That is not belt-and-braces: a
+ * client-side timeout leaves the wire protocol desynchronised, and a timed-out client
+ * returned to the pool poisons it — measured, every subsequent query on the reused
+ * client failed. Sized to match `connectionTimeoutMillis`, because on a pooled
+ * endpoint the opener IS part of acquiring a usable backend.
+ */
+const APP_STATE_OPENER_TIMEOUT_MS = 15_000;
+
+// Test-only: shorten the opener deadline so a test can reach it without waiting the
+// full 15 s. Null (production) always means `APP_STATE_OPENER_TIMEOUT_MS`.
+let __openerTimeoutForTests: number | null = null;
+
+function openerTimeoutMs(): number {
+  return __openerTimeoutForTests ?? APP_STATE_OPENER_TIMEOUT_MS;
+}
+
+/** The opener exceeded its client-side deadline; the client must be DESTROYED. */
+export class AppStateOpenerTimeoutError extends Error {
+  constructor() {
+    super(
+      `app-state transaction opener exceeded ${openerTimeoutMs()} ms — ` +
+        'no server-side bound applies until the opener itself completes'
+    );
+    this.name = 'AppStateOpenerTimeoutError';
+  }
+}
+
+/**
+ * Issue the bounded opener under a client-side deadline. On rejection the caller must
+ * destroy the client rather than rolling it back: a ROLLBACK on a desynchronised
+ * connection can hang exactly as the opener did, and would be equally unbounded.
+ */
+async function openBoundedTransaction(client: PoolClient): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const opener = client.query(APP_STATE_BOUNDED_BEGIN);
+  // The race may ABANDON this promise; keep a late rejection from surfacing as an
+  // unhandled rejection. `race` still observes whichever settles first.
+  opener.catch(() => undefined);
+  try {
+    await Promise.race([
+      opener,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new AppStateOpenerTimeoutError()), openerTimeoutMs());
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+/**
+ * Run ONE statement inside a bounded transaction, on a dedicated pooled client.
+ *
+ * Every non-transactional store statement goes through here, so the bounds apply to
+ * the whole database surface rather than per call site. The cost is the mechanism's
+ * price, accepted deliberately: +2 round trips (the bounded `begin` and the
+ * `commit`) versus a bare `pool.query`. It also holds a pooled client for three
+ * round trips instead of one, which RAISES contention on a three-client pool — the
+ * reason `connectionTimeoutMillis` above is load-bearing rather than belt-and-braces.
+ *
+ * Client containment matches `withAppStateKeyTransaction`: a client whose transaction
+ * state is uncertain is DESTROYED rather than returned to the pool as healthy, and
+ * disposal happens exactly once.
+ *
+ * DURABILITY UNCERTAINTY IS NOT SIGNALLED HERE, and that is a KNOWN LIMIT rather than
+ * an oversight — stated because review asked for one or the other. `setAppState` and
+ * `deleteAppState` were single autocommit statements before this change, so a LOST
+ * acknowledgement already left durability unknown and already went unsignalled; this
+ * wrapper does not introduce that, but it does WIDEN the window from one
+ * acknowledgement to two (the statement's and the COMMIT's). A caller that must
+ * distinguish "certainly not written" from "may have executed server-side" has to use
+ * `withAppStateKeyTransaction`, whose `AppStateTxnFinalizeError` /
+ * `AppStateTxnCleanupError` carry `writeAttempted` / `writeAcknowledged` for exactly
+ * this. Giving `queryBounded` the same typed uncertainty would change the error type
+ * flowing out of 80 `setAppState` call sites and belongs in its own item, not here.
+ */
+async function queryBounded<R extends QueryResultRow>(
+  text: string,
+  values?: unknown[]
+): Promise<QueryResult<R>> {
+  const client = await getPool().connect();
+  const detachErrorGuard = guardPooledClientErrors(client);
+  let disposed = false;
+  const releaseDestroy = (cause: unknown): void => {
+    if (disposed) return;
+    disposed = true;
+    detachErrorGuard();
+    try {
+      client.release(cause instanceof Error ? cause : new Error(String(cause)));
+    } catch {
+      // The connection is already gone; nothing healthier to do.
+    }
+  };
+  const releaseHealthy = (): void => {
+    if (disposed) return;
+    detachErrorGuard();
+    try {
+      client.release();
+      disposed = true;
+    } catch (error) {
+      // `detachErrorGuard` already ran; `releaseDestroy` short-circuits on
+      // `disposed`, which is still false here, and detaching twice is a no-op.
+      releaseDestroy(error);
+    }
+  };
+
+  let began = false;
+  try {
+    await openBoundedTransaction(client);
+    began = true;
+    const result = await client.query<R>(text, values);
+    await client.query('commit');
+    releaseHealthy();
+    return result;
+  } catch (error) {
+    if (!began) {
+      // The bounded BEGIN itself failed: no transaction to roll back, and the
+      // client's state is unknown.
+      releaseDestroy(error);
+      throw error;
+    }
+    try {
+      await client.query('rollback');
+      releaseHealthy();
+    } catch (cleanup) {
+      releaseDestroy(cleanup);
+    }
+    throw error;
+  }
 }
 
 const APP_STATE_TABLE_DDL = `
@@ -402,8 +687,8 @@ export function isReadOnlyTransactionError(error: unknown): boolean {
   );
 }
 
-async function appStateTableExists(pool: Pool): Promise<boolean> {
-  const result = await pool.query<{ present: boolean }>(
+async function appStateTableExists(): Promise<boolean> {
+  const result = await queryBounded<{ present: boolean }>(
     "select to_regclass('app_state') is not null as present"
   );
   return result.rows[0]?.present === true;
@@ -415,16 +700,16 @@ async function ensureDatabase(): Promise<void> {
   if (initPromise) return await initPromise;
 
   initPromise = (async () => {
-    const nextPool = getPool();
+    getPool();
     try {
-      await nextPool.query(APP_STATE_TABLE_DDL);
+      await queryBounded(APP_STATE_TABLE_DDL);
     } catch (error) {
       // Read-only connection (e.g. an operator inspecting production against a
       // read replica): the `create table if not exists` DDL fails with 25006.
       // That is fine for READ callers as long as the table already exists —
       // verify and proceed. Any writer still fails on its own INSERT/DELETE, so
       // this degradation never enables an unsafe write.
-      if (isReadOnlyTransactionError(error) && (await appStateTableExists(nextPool))) {
+      if (isReadOnlyTransactionError(error) && (await appStateTableExists())) {
         return;
       }
       throw error;
@@ -452,7 +737,7 @@ export async function assertAppStateWritable(): Promise<void> {
   if (!hasDatabaseConfig()) {
     throw new Error(APP_STATE_PRODUCTION_CONFIG_ERROR);
   }
-  await getPool().query(APP_STATE_TABLE_DDL);
+  await queryBounded(APP_STATE_TABLE_DDL);
 }
 
 // ---------------------------------------------------------------------------
@@ -802,6 +1087,10 @@ export async function withAppStateKeyTransaction<T>(
     } catch (error) {
       throw new AppStateKeyLockAcquireError(error);
     }
+    // A checked-out client has no `'error'` listener of its own, and this
+    // transaction holds one across the ENTIRE callback — the longest unprotected
+    // window in the store. See `guardPooledClientErrors`.
+    const detachErrorGuard = guardPooledClientErrors(client);
 
     let finished = false;
     // Mutation possibility is tracked from SUBMISSION, not acknowledgement: a
@@ -942,6 +1231,7 @@ export async function withAppStateKeyTransaction<T>(
     const releaseDestroy = (cause: unknown): void => {
       if (disposed) return;
       disposed = true;
+      detachErrorGuard();
       try {
         client.release(cause instanceof Error ? cause : new Error(String(cause)));
       } catch {
@@ -950,11 +1240,13 @@ export async function withAppStateKeyTransaction<T>(
     };
     const releaseHealthy = (): void => {
       if (disposed) return;
+      detachErrorGuard();
       try {
         client.release();
         disposed = true;
       } catch (error) {
         // Healthy disposal did NOT complete — contain the client instead.
+        // `disposed` is still false, so this runs; detaching twice is a no-op.
         releaseDestroy(error);
       }
     };
@@ -971,7 +1263,21 @@ export async function withAppStateKeyTransaction<T>(
 
     try {
       try {
-        await client.query('begin');
+        // PLATFORM-625: the bounds ride along with BEGIN, in the SAME round trip, so
+        // the primary advisory-lock acquisition below is already bounded by
+        // `lock_timeout` rather than waiting forever on a stuck holder. The opener
+        // itself is the one statement no server-side bound can cover, so it carries a
+        // client-side deadline instead.
+        await openBoundedTransaction(client);
+      } catch (error) {
+        // DESTROY, do not roll back. The opener never completed, so the connection's
+        // protocol state is unknown and a ROLLBACK on it could hang exactly as the
+        // opener did — an unbounded wait inside the cleanup for an unbounded wait.
+        releaseDestroy(error);
+        throw new AppStateKeyLockAcquireError(error);
+      }
+
+      try {
         await client.query('select pg_advisory_xact_lock(hashtextextended($1, 0))', [
           appStateLockIdentity(scope, key),
         ]);
@@ -1303,7 +1609,7 @@ export async function getAppState<T>(
 
   if (hasDatabaseConfig()) {
     await ensureDatabase();
-    const result = await getPool().query<{ value: T; updated_at: Date | string }>(
+    const result = await queryBounded<{ value: T; updated_at: Date | string }>(
       'select value, updated_at from app_state where scope = $1 and key = $2 limit 1',
       [scope, key]
     );
@@ -1341,7 +1647,7 @@ export async function setAppState<T>(
   if (hasDatabaseConfig()) {
     if (shouldFailWrite()) throw __writeFailureForTests;
     await ensureDatabase();
-    await getPool().query(
+    await queryBounded(
       `
         insert into app_state (scope, key, value, updated_at)
         values ($1, $2, $3::jsonb, $4::timestamptz)
@@ -1376,11 +1682,11 @@ export async function getAppStateEntries<T>(
   if (hasDatabaseConfig()) {
     await ensureDatabase();
     const result = keyPrefix
-      ? await getPool().query<{ key: string; value: T; updated_at: Date | string }>(
+      ? await queryBounded<{ key: string; value: T; updated_at: Date | string }>(
           'select key, value, updated_at from app_state where scope = $1 and key like $2',
           [scope, `${keyPrefix}%`]
         )
-      : await getPool().query<{ key: string; value: T; updated_at: Date | string }>(
+      : await queryBounded<{ key: string; value: T; updated_at: Date | string }>(
           'select key, value, updated_at from app_state where scope = $1',
           [scope]
         );
@@ -1418,7 +1724,7 @@ export async function listAppStateKeys(scope: string): Promise<string[]> {
 
   if (hasDatabaseConfig()) {
     await ensureDatabase();
-    const result = await getPool().query<{ key: string }>(
+    const result = await queryBounded<{ key: string }>(
       'select key from app_state where scope = $1',
       [scope]
     );
@@ -1444,11 +1750,11 @@ export async function listAppStateScopes(scopePrefix?: string): Promise<string[]
   if (hasDatabaseConfig()) {
     await ensureDatabase();
     const result = scopePrefix
-      ? await getPool().query<{ scope: string }>(
+      ? await queryBounded<{ scope: string }>(
           'select distinct scope from app_state where scope like $1',
           [`${scopePrefix}%`]
         )
-      : await getPool().query<{ scope: string }>('select distinct scope from app_state');
+      : await queryBounded<{ scope: string }>('select distinct scope from app_state');
     return result.rows.map((r) => r.scope);
   }
 
@@ -1468,7 +1774,7 @@ export async function deleteAppState(scope: string, key: string): Promise<void> 
 
   if (hasDatabaseConfig()) {
     await ensureDatabase();
-    await getPool().query('delete from app_state where scope = $1 and key = $2', [scope, key]);
+    await queryBounded('delete from app_state where scope = $1 and key = $2', [scope, key]);
     return;
   }
 
@@ -1495,7 +1801,7 @@ export async function __deleteAppStateFileForTests(): Promise<void> {
 
   if (hasDatabaseConfig()) {
     await ensureDatabase();
-    await getPool().query('delete from app_state');
+    await queryBounded('delete from app_state');
     return;
   }
 
@@ -1538,6 +1844,11 @@ export function __resetAppStateForTests(): void {
   __onDualErrorConstructForTests = null;
   __keyLockFailureForTests = null;
   __keyLockFailureScopeForTests = null;
+  // Left out when the seam was added, and the failure mode is nasty: a test that
+  // throws past its own `finally` would leave a 150 ms opener deadline installed for
+  // the rest of the process, and every later store test in that file would race a
+  // deadline it never set — surfacing as an unrelated `AppStateOpenerTimeoutError`.
+  __openerTimeoutForTests = null;
   keyLockChains.clear();
   if (pool) {
     void pool.end().catch(() => undefined);
@@ -1618,6 +1929,24 @@ export function __setAppStateKeyLockFailureForTests(
 ): void {
   __keyLockFailureForTests = error;
   __keyLockFailureScopeForTests = error ? scope : null;
+}
+
+/**
+ * Test-only: shorten the opener's client-side deadline, so a test can reach it
+ * without waiting the full 15 s. Null restores production. Never set outside tests.
+ */
+export function __setAppStateOpenerTimeoutForTests(ms: number | null): void {
+  __openerTimeoutForTests = ms;
+}
+
+/**
+ * Test-only: the deadline currently in effect. A reader rather than a behavioural
+ * probe on purpose — asserting the override through a stalled opener either races a
+ * timer (vacuous: the fake settles first) or holds the deadline's own 15 s timer open
+ * for the rest of the run. Measured vacuous before this existed.
+ */
+export function __appStateOpenerTimeoutForTests(): number {
+  return openerTimeoutMs();
 }
 
 /**

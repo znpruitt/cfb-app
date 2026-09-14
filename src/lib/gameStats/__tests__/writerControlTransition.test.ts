@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { EventEmitter } from 'node:events';
 import test from 'node:test';
 
 import type { Pool } from 'pg';
@@ -274,9 +275,16 @@ test('store: a proven-nothing-durable commit failure is store-unavailable (known
  * the transition write, then LOSES the COMMIT acknowledgement — the only path
  * to `store-indeterminate` (mutation SQL submitted, durability unknown).
  */
-class LostCommitClient {
+// PLATFORM-625: a real pg client is an EventEmitter and a CHECKED-OUT one has no
+// `'error'` listener of its own, so `appStateStore` attaches one for the client's
+// checked-out lifetime. A fake without that surface cannot model the contract —
+// and a fake that lacks it is exactly what let the missing listener ship.
+class LostCommitClient extends EventEmitter {
+  /** Set once this transaction has actually submitted a mutation. */
+  private sawWrite = false;
   async query(text: string): Promise<{ rows: unknown[] }> {
     const sql = text.toLowerCase().trim();
+    if (sql.startsWith('insert into app_state')) this.sawWrite = true;
     if (sql.includes('to_regclass')) return { rows: [{ present: true }] };
     if (sql.includes('select value')) {
       return {
@@ -285,7 +293,14 @@ class LostCommitClient {
         ],
       };
     }
-    if (sql === 'commit') throw new Error('commit acknowledgement lost');
+    // PLATFORM-625: lose the acknowledgement ONLY for a transaction that WROTE.
+    // `ensureDatabase`'s schema DDL now runs in a bounded transaction of its own and
+    // commits too; failing that commit aborts the run before the code under test is
+    // reached, so the assertion would describe schema setup rather than a lost write.
+    if (sql === 'commit') {
+      if (!this.sawWrite) return { rows: [] };
+      throw new Error('commit acknowledgement lost');
+    }
     // begin / pg_advisory_xact_lock / insert (write submitted) / rollback / ddl.
     return { rows: [] };
   }
