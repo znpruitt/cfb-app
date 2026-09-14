@@ -584,6 +584,44 @@ test('a post-window Matchups row reports no score without adding a fifth card st
   assert.deepEqual(statLabels, ['GAMES', 'WINS', 'WIN%', 'LIVE']);
 });
 
+test('Matchups withholds complete numbers that have no recognized final authority', () => {
+  const kickoff = '2025-08-30T20:00:00.000Z';
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[
+        game({
+          key: 'unconfirmed-result',
+          date: kickoff,
+          startTimeTBD: false,
+          csvAway: 'Rutgers',
+          csvHome: 'Maryland',
+        }),
+      ]}
+      oddsByKey={{}}
+      scoresByKey={{
+        'unconfirmed-result': {
+          status: 'Completed',
+          time: null,
+          away: { team: 'Rutgers', score: 28 },
+          home: { team: 'Maryland', score: 24 },
+        },
+      }}
+      rosterByTeam={new Map([['Rutgers', 'Nia']])}
+      displayTimeZone="UTC"
+      nowMs={Date.parse(kickoff) + 25 * 60 * 60_000}
+    />
+  );
+  const scoreboard = scoreboardMarkup(ownerCardMarkup(html, 'Nia'), 'Rutgers @ Maryland');
+
+  assert.match(scoreboard, /data-scoreboard-state="unavailable"/);
+  assert.match(scoreboardHeaderMarkup(scoreboard), />No score reported<\/span>/);
+  assert.equal((scoreboard.match(/data-scoreboard-value="(?:away|home)">–/g) ?? []).length, 2);
+  assert.doesNotMatch(
+    scoreboard,
+    /data-scoreboard-value="away">28|data-scoreboard-value="home">24/
+  );
+});
+
 test('matchups threads current records to both participants across scheduled, live, and final rows', () => {
   const html = renderToStaticMarkup(
     <MatchupsWeekPanel

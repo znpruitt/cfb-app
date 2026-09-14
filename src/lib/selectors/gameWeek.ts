@@ -92,16 +92,8 @@ function resolveScheduleScoreboard(params: {
       };
     case 'scheduled':
     case 'awaiting':
-      break;
     case 'unavailable':
-      // Schedule has no terminal no-score presentation. Keep the consumer
-      // total: this state degrades to Schedule's existing scheduled treatment
-      // instead of taking down the entire week view.
-      return {
-        scoreboardState: 'scheduled',
-        scheduleNotice: evidenceFreeScheduleNotice(score),
-        suppressScheduledMetadata: false,
-      };
+      break;
   }
 
   const disruptionNotice = disruptedScheduleNotice(game, score);
@@ -125,6 +117,15 @@ function resolveScheduleScoreboard(params: {
       return {
         scoreboardState: projected,
         scheduleNotice: null,
+        suppressScheduledMetadata: false,
+      };
+    case 'unavailable':
+      // Schedule has no terminal no-score presentation. Keep the consumer
+      // total even if its abandonment invariant changes later: this state
+      // degrades to Schedule's neutral scheduled treatment, never a fatal row.
+      return {
+        scoreboardState: 'scheduled',
+        scheduleNotice: 'Scheduled',
         suppressScheduledMetadata: false,
       };
   }

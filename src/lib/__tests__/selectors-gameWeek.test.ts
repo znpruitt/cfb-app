@@ -221,7 +221,6 @@ test('scoreless playable rows await through eight hours, then restore scheduled 
   for (const [elapsedMs, expectedState] of [
     [GAME_MAX_DURATION_MS, 'awaiting'],
     [GAME_MAX_DURATION_MS + 1, 'scheduled'],
-    [POLLING_WINDOW_AFTER_KICKOFF_MS + 1, 'scheduled'],
   ] as const) {
     for (const rawStatus of ['scheduled', 'completed']) {
       const card = cardFromWireStatus(rawStatus, kickoff, Date.parse(kickoff) + elapsedMs, {
@@ -240,6 +239,28 @@ test('scoreless playable rows await through eight hours, then restore scheduled 
       );
     }
   }
+});
+
+test('Schedule abandonment precedence hides an unrecognized completed-pack label', () => {
+  const kickoff = '2026-09-05T16:00:00.000Z';
+  const card = cardFromWireStatus(
+    'scheduled',
+    kickoff,
+    Date.parse(kickoff) + POLLING_WINDOW_AFTER_KICKOFF_MS + 1,
+    {
+      startTimeTBD: false,
+      score: {
+        status: 'Completed',
+        time: null,
+        away: { team: 'Away', score: 28 },
+        home: { team: 'Home', score: 24 },
+      },
+    }
+  );
+
+  assert.equal(card.scoreboardState, 'scheduled');
+  assert.equal(card.scheduleNotice, 'Scheduled');
+  assert.equal(card.statusRowValue, '4:00 PM');
 });
 
 test('placeholder plus a usable final score stays final (v1 regression guard)', () => {

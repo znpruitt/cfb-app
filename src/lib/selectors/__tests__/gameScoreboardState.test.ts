@@ -162,3 +162,15 @@ test('awaiting includes the polling boundary and partial finals become unavailab
     'usable final evidence wins at any age'
   );
 });
+
+test('complete numbers without recognized final authority remain unavailable past the bound', () => {
+  const afterPollingWindow = AT_KICKOFF + POLLING_WINDOW_AFTER_KICKOFF_MS + 1;
+
+  for (const status of ['', 'Completed', 'STATUS_COMPLETE']) {
+    assert.equal(
+      project({ score: score(status, 28, 24), nowMs: afterPollingWindow }),
+      'unavailable',
+      status || '<empty>'
+    );
+  }
+});

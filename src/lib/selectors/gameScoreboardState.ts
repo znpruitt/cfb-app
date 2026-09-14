@@ -30,9 +30,12 @@ export function isScorePollingWindowExpired(
  * particular, the optional `startTimeTBD` field fails closed: only `false`
  * confirms the provider's timestamp.
  *
- * Score-pack finality is deliberately absent from this gate. A partial final
- * still describes a real game that should have produced a complete score; it
- * awaits completion through the polling window and becomes unavailable after.
+ * Score-pack finality and numeric score presence are deliberately absent from
+ * this gate. `unavailable` means no confirmed result was reported, not merely
+ * that no numbers arrived: a partial final and a complete scoreline carrying no
+ * recognized final status both await authority through the polling window and
+ * become unavailable after it. Inferring finality from numbers could publish an
+ * abandoned game's last observed score as a result.
  */
 export function isScoreReportExpectedGame(game: AppGame, score: ScorePack | undefined): boolean {
   if (game.startTimeTBD !== false) return false;

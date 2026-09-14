@@ -57,13 +57,13 @@ export type MembersRowGameProjection = {
   state: GameScoreboardState;
 };
 
-function isUnfinishedMembersRowState(state: GameScoreboardState): boolean {
+function isPendingMembersRowState(state: GameScoreboardState): boolean {
   switch (state) {
     case 'scheduled':
     case 'awaiting':
-    case 'unavailable':
       return true;
     case 'live':
+    case 'unavailable':
     case 'final':
       return false;
   }
@@ -71,8 +71,10 @@ function isUnfinishedMembersRowState(state: GameScoreboardState): boolean {
 
 /**
  * Select the one game a Members owned-team row describes. Live evidence wins;
- * otherwise the first unfinished game wins, followed by the latest final.
- * Every status check flows through `projectMembersGameState`.
+ * otherwise the first pending game wins, followed by the latest terminal row.
+ * `unavailable` is terminal for sequencing even though it is not a scored
+ * final: an old reporting gap must not pin the roster row ahead of a later
+ * upcoming game. Every status check flows through `projectMembersGameState`.
  */
 export function selectMembersRowGame(params: {
   games: AppGame[];
@@ -90,7 +92,7 @@ export function selectMembersRowGame(params: {
   const live = projected.find(({ state }) => state === 'live');
   if (live) return live;
 
-  const unfinished = projected.find(({ state }) => isUnfinishedMembersRowState(state));
-  if (unfinished) return unfinished;
+  const pending = projected.find(({ state }) => isPendingMembersRowState(state));
+  if (pending) return pending;
   return projected.at(-1) ?? null;
 }
