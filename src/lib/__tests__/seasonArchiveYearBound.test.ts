@@ -77,10 +77,15 @@ function restoreDatabaseUrl(): void {
  * Force the store to throw on read the way a transient database failure would.
  * The same mechanism `seasonArchive.test.ts` uses: `NODE_ENV=production` with no
  * `DATABASE_URL` makes every `listAppStateKeys` call throw before it reaches any
- * backend. The dedicated `__setAppStateReadFailureForTests` seam does NOT work
- * here — measured: `listAppStateKeys` never calls `applyReadFailureSeamForTests`,
- * so injecting through it produced no rejection at all and the first cut of this
- * test passed vacuously in the wrong direction.
+ * backend. The dedicated `__setAppStateReadFailureForTests` seam did NOT work
+ * here when this was written — measured then: `listAppStateKeys` never called
+ * `applyReadFailureSeamForTests`, so injecting through it produced no rejection
+ * and the first cut of this test passed vacuously in the wrong direction.
+ * #778 CLOSED THAT GAP (the seam now fires in `listAppStateKeys` too), because a
+ * registry read in front of the archive read made the global switch unable to
+ * fail one without the other. This suite keeps the global switch: its assertion
+ * is that a store outage propagates at all, and which read throws first is not
+ * what it is about.
  */
 function forceStoreReadFailure(): void {
   MUTABLE_ENV.NODE_ENV = 'production';
@@ -88,11 +93,31 @@ function forceStoreReadFailure(): void {
   __resetAppStateForTests();
 }
 
+/**
+ * #778 — `listSeasonArchives` now declines a slug no league holds, and the
+ * DISJUNCT below consults it. Without a registry entry for `SLUG` the disjunct
+ * would read `[]` for every case and the "an archive above the operating year is
+ * still served" test would fail for a reason that has nothing to do with the
+ * year bound. Planted rather than the guard weakened.
+ */
+async function plantLeagueRegistry(): Promise<void> {
+  await setAppState('leagues', 'registry', [
+    {
+      slug: SLUG,
+      displayName: 'Archive Year Bound',
+      year: OPERATING_YEAR,
+      createdAt: '2020-01-01T00:00:00.000Z',
+      status: { state: 'season' as const, year: OPERATING_YEAR },
+    },
+  ]);
+}
+
 test.beforeEach(async () => {
   MUTABLE_ENV.NODE_ENV = 'development';
   restoreDatabaseUrl();
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
+  await plantLeagueRegistry();
 });
 
 test.after(() => {

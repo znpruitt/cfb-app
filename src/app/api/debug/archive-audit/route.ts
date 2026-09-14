@@ -1,6 +1,7 @@
 import { parseOwnersCsv } from '@/lib/parseOwnersCsv';
 import type { AppGame } from '@/lib/schedule';
 import type { ScorePack } from '@/lib/scores';
+import { getLeague } from '@/lib/leagueRegistry';
 import { getSeasonArchive, type SeasonArchive } from '@/lib/seasonArchive';
 import { requireAdminAuth } from '@/lib/server/adminAuth';
 import { getScopedAliasMap } from '@/lib/server/globalAliasStore';
@@ -458,6 +459,19 @@ export async function GET(req: Request): Promise<Response> {
   }
 
   try {
+    // #778 — an unknown slug is refused BEFORE the archive read, matching
+    // `debug/insights-career-diagnostic`'s `404 league-not-found`. The authority
+    // already declines to mint a cache entry for a slug no league holds; this
+    // says WHY, and keeps the three debug siblings answering one condition the
+    // same way. Distinguishing it from the "no archive" 404 below matters: those
+    // are different facts, and only one of them is an operator typo.
+    if (!(await getLeague(leagueSlug))) {
+      return new Response(JSON.stringify({ error: 'league-not-found', leagueSlug }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+      });
+    }
+
     const archive = await getSeasonArchive(leagueSlug, year);
     if (!archive) {
       return errorResponse(404, `No archive found for leagueSlug=${leagueSlug} year=${year}`);

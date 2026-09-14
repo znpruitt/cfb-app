@@ -9,6 +9,7 @@ import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
   __setAppStateReadFailureForTests,
+  getAppState,
   setAppState,
 } from '../../server/appStateStore.ts';
 import { __resetTeamDatabaseStoreForTests } from '../../server/teamDatabaseStore.ts';
@@ -104,7 +105,33 @@ function combinedOdds(args: {
   };
 }
 
+/**
+ * #778 — `listSeasonArchives` and `getSeasonArchive` now decline a slug no league
+ * holds, and `loadHistoricalRecordContext` calls both. Registering the slug is
+ * what keeps these fixtures reachable; without it every archive assertion below
+ * would pass for the wrong reason (an empty year list) rather than exercising
+ * the path it names.
+ *
+ * APPENDS rather than replaces — `schedule absence wins deterministically` seeds
+ * two slugs and needs both registered at once.
+ */
+async function registerLeague(slug: string): Promise<void> {
+  const existing = (await getAppState<{ slug: string }[]>('leagues', 'registry'))?.value ?? [];
+  if (existing.some((league) => league.slug === slug)) return;
+  await setAppState('leagues', 'registry', [
+    ...existing,
+    {
+      slug,
+      displayName: slug,
+      year: YEAR,
+      createdAt: '2020-01-01T00:00:00.000Z',
+      status: { state: 'season' as const, year: YEAR },
+    },
+  ]);
+}
+
 async function seedAvailableContext(slug: string): Promise<void> {
+  await registerLeague(slug);
   await setAppState('schedule', `${YEAR}-all-all`, { items: [scheduleItem('401000001')] });
   await setAppState(`owners:${slug}:${YEAR}`, 'csv', 'team,owner\nTexas,Alice\nGeorgia,Bob\n');
   await setAppState('scores', `${YEAR}-all-regular`, {
@@ -113,6 +140,7 @@ async function seedAvailableContext(slug: string): Promise<void> {
 }
 
 async function seedArchive(slug: string, year: number): Promise<void> {
+  await registerLeague(slug);
   const archive: SeasonArchive = {
     leagueSlug: slug,
     year,

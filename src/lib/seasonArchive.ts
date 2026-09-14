@@ -2,6 +2,7 @@ import { revalidateTag, unstable_cache } from 'next/cache';
 import { cache } from 'react';
 
 import { getAppState, setAppState, listAppStateKeys } from './server/appStateStore.ts';
+import { readLeagueRegistry } from './leagueRegistry.ts';
 import { MIN_SEASON_YEAR, type LeagueStatus } from './league.ts';
 import { resolveLeagueOperatingYear } from './selectors/leagueLifecycle.ts';
 import type { StandingsHistory, StandingsHistoryStandingRow } from './standingsHistory.ts';
@@ -157,6 +158,62 @@ const dataCachedArchiveYears = (leagueSlug: string) =>
   )();
 
 /**
+ * THE UNKNOWN-SLUG GUARD — #778, and it belongs to BOTH readers below.
+ *
+ * Both cache families key and TAG on a caller-supplied `leagueSlug`
+ * (`archive:<slug>`, `archive:<slug>:<year>`), and the ONLY thing that fires
+ * either tag is `invalidateSeasonArchive`, whose one production path is
+ * `saveSeasonArchive` <- the season-rollover cron, which iterates the league
+ * REGISTRY. So a slug naming no league produces an entry no rollover can ever
+ * reclaim. `revalidate: false` does not make it eternal — Next maps a
+ * non-numeric revalidate to `CACHE_ONE_YEAR` (31536000s), so there is a one-year
+ * floor — but a year is past every operational horizon, and the tag never fires
+ * at all.
+ *
+ * IT RETURNS `null`/`[]` RATHER THAN THROWING, and that is the contract being
+ * honoured rather than a refusal smuggled into a return value: `null` is already
+ * this function's answer for "this league has no archive", and a league that
+ * does not exist genuinely has none. Every existing caller's failure mode is
+ * therefore unchanged.
+ *
+ * IT MUST SIT IN THE OUTER `React.cache` WRAPPER, NEVER INSIDE THE
+ * `unstable_cache` CALLBACK. Inside, the registry read would become part of the
+ * memoized derivation AND the entry would already have been minted under the
+ * unknown slug before the callback ran — which is the exact thing being closed.
+ *
+ * THE REGISTRY READ IS FREE. `getLeague` is `React.cache`'d, and every caller
+ * that reaches here has already resolved the same slug. Measured on a history
+ * page render issuing six `getLeague` calls (its own, plus one per archive year
+ * and one for the year list): ONE registry store read.
+ */
+async function leagueExists(leagueSlug: string): Promise<boolean> {
+  const registry = await readLeagueRegistry();
+  // A MALFORMED registry is a FAULT, not a statement that no league exists —
+  // review finding, and the distinction is the same one this file already draws
+  // for store failures a few lines below. `getLeague` would flatten `malformed`
+  // to `null` (its own doc calls that collapse a falsehood: "a cron facing a
+  // corrupt registry reports a zero-target reason asserting no league exists"),
+  // which before #778 cost the archive readers nothing because they never
+  // consulted the registry. Now it would: a corrupt registry row would make a
+  // decade of archives read as absent, and `debug/archive-audit` — the tool an
+  // operator reaches for to diagnose exactly that — would answer
+  // `404 league-not-found` and point them at a slug typo that does not exist.
+  // Throwing keeps the fault visible and keeps `unstable_cache` from persisting
+  // a bogus `null` under `revalidate: false`.
+  //
+  // `missing` is NOT a fault: an absent registry means no league exists anywhere,
+  // which is a state the store genuinely reaches on a first run, and every other
+  // surface already agrees. Pinned by test.
+  if (registry.kind === 'malformed') {
+    throw new Error(
+      `League registry is malformed; refusing to read archives for '${leagueSlug}' as though it had none.`
+    );
+  }
+  if (registry.kind === 'missing') return false;
+  return registry.leagues.some((league) => league.slug === leagueSlug);
+}
+
+/**
  * Read a persisted season archive. `React.cache` dedupes within a request (many
  * history/insights surfaces read the same archive per render); `unstable_cache`
  * caches across requests until a `saveSeasonArchive` write busts the tag.
@@ -166,10 +223,11 @@ const dataCachedArchiveYears = (leagueSlug: string) =>
  * function stays testable — that fallback read also throws on a real store
  * failure. A genuine store/database error propagates (it is never cached and
  * never masquerades as "no archive"); `null` is returned ONLY when the archive
- * does not exist.
+ * does not exist, or when no league holds this slug (see the guard above).
  */
 export const getSeasonArchive = cache(
   async (leagueSlug: string, year: number): Promise<SeasonArchive | null> => {
+    if (!(await leagueExists(leagueSlug))) return null;
     try {
       return await dataCachedSeasonArchive(leagueSlug, year);
     } catch (err) {
@@ -182,6 +240,7 @@ export const getSeasonArchive = cache(
 );
 
 export const listSeasonArchives = cache(async (leagueSlug: string): Promise<number[]> => {
+  if (!(await leagueExists(leagueSlug))) return [];
   try {
     return await dataCachedArchiveYears(leagueSlug);
   } catch (err) {
@@ -229,14 +288,24 @@ function refusal(operatingYear: number): ArchiveYearResolution {
  * defect; it is the other half of one the codebase had already diagnosed, and
  * the precedent for the fix was already here.
  *
- * WHY THE CALLERS APPLY THIS AND `getSeasonArchive` DOES NOT. Only a caller can
- * tell a year a CLIENT sent from one the SERVER derived, and only the former may
- * ever be rejected — #770's rule, and the reason its bound lives at its route.
- * `getSeasonArchive` stays unbounded so every server-derived read still works.
- * This lives here rather than in each caller because there are TWO of them (the
- * API route and the RSC page) and they had already drifted into two independent
- * copies of the same broken parser — which is how the page came to share the
- * defect without sharing a line of code.
+ * WHY THE CALLERS APPLY THIS YEAR BOUND AND `getSeasonArchive` DOES NOT. Only a
+ * caller can tell a year a CLIENT sent from one the SERVER derived, and only the
+ * former may ever be rejected — #770's rule, and the reason its bound lives at
+ * its route. `getSeasonArchive` stays UNBOUNDED IN YEAR so every server-derived
+ * read still works. This lives here rather than in each caller because there are
+ * TWO of them (the API route and the RSC page) and they had already drifted into
+ * two independent copies of the same broken parser — which is how the page came
+ * to share the defect without sharing a line of code.
+ *
+ * THIS IS ABOUT THE YEAR ONLY, AND #778 PUT A SLUG GUARD IN THE AUTHORITY A FEW
+ * LINES ABOVE. That is not a reversal of this paragraph, because the two
+ * properties differ in the one way that decides where a check belongs. A year
+ * splits into client-supplied and server-derived, and the authority cannot tell
+ * which it was handed — so only a caller can bound it. A SLUG DOES NOT SPLIT
+ * THAT WAY: there is no legitimate server-derived slug naming a league that does
+ * not exist, so every reading of an unknown slug is wrong no matter who supplied
+ * it, and the authority can answer it alone. Read narrowly — "the callers bound
+ * the YEAR, the authority rejects an unknown SLUG" — the two are consistent.
  *
  * INTEGERS ARE THE LARGER HALF OF THE FIX. A range alone still admits infinitely
  * many values between any two years, so the accepted set stays dense and no
