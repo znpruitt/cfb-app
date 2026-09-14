@@ -12,7 +12,11 @@ import {
   isMissingRequestStore,
   type SeasonArchive,
 } from '../seasonArchive.ts';
-import { __deleteAppStateFileForTests, __resetAppStateForTests } from '../server/appStateStore.ts';
+import {
+  __deleteAppStateFileForTests,
+  __resetAppStateForTests,
+  setAppState,
+} from '../server/appStateStore.ts';
 
 const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
 const ORIGINAL_DATABASE_URL = process.env.DATABASE_URL;
@@ -28,11 +32,37 @@ function restoreDatabaseUrl(): void {
   }
 }
 
+/**
+ * #778 — both readers now decline a slug no league holds, so every fixture below
+ * needs a REGISTRY as well as an archive. Planting it in `beforeEach` rather
+ * than weakening the guard is deliberate: a suite that could read archives for
+ * leagues that do not exist was testing a state production cannot reach.
+ *
+ * `test` is the only slug this file does NOT plant — it is the one the
+ * unknown-slug tests refuse against, so planting it would make them vacuous.
+ */
+const FIXTURE_LEAGUE_SLUGS = ['tsc', 'other'] as const;
+
+async function plantLeagueRegistry(slugs: readonly string[]): Promise<void> {
+  await setAppState(
+    'leagues',
+    'registry',
+    slugs.map((slug) => ({
+      slug,
+      displayName: slug.toUpperCase(),
+      year: 2025,
+      createdAt: '2020-01-01T00:00:00.000Z',
+      status: { state: 'season' as const, year: 2025 },
+    }))
+  );
+}
+
 test.beforeEach(async () => {
   MUTABLE_ENV.NODE_ENV = 'development';
   restoreDatabaseUrl();
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
+  await plantLeagueRegistry(FIXTURE_LEAGUE_SLUGS);
 });
 
 test.after(() => {

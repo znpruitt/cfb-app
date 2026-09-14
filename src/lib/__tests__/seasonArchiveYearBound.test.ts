@@ -88,11 +88,31 @@ function forceStoreReadFailure(): void {
   __resetAppStateForTests();
 }
 
+/**
+ * #778 — `listSeasonArchives` now declines a slug no league holds, and the
+ * DISJUNCT below consults it. Without a registry entry for `SLUG` the disjunct
+ * would read `[]` for every case and the "an archive above the operating year is
+ * still served" test would fail for a reason that has nothing to do with the
+ * year bound. Planted rather than the guard weakened.
+ */
+async function plantLeagueRegistry(): Promise<void> {
+  await setAppState('leagues', 'registry', [
+    {
+      slug: SLUG,
+      displayName: 'Archive Year Bound',
+      year: OPERATING_YEAR,
+      createdAt: '2020-01-01T00:00:00.000Z',
+      status: { state: 'season' as const, year: OPERATING_YEAR },
+    },
+  ]);
+}
+
 test.beforeEach(async () => {
   MUTABLE_ENV.NODE_ENV = 'development';
   restoreDatabaseUrl();
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
+  await plantLeagueRegistry();
 });
 
 test.after(() => {
