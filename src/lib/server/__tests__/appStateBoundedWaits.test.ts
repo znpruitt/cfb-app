@@ -344,6 +344,10 @@ test('a lock timeout at acquisition surfaces as AppStateKeyLockAcquireError carr
  * string `schedule-durable-commit-failed`, so a `55P03` and a `57014` record
  * IDENTICALLY. The store surfaces them distinguishably — that IS proven, by the two
  * tests above — and the flattening happens in callers this slice's scope excludes.
+ *
+ * PLATFORM-625's third acceptance bullet is therefore recorded UNMET, not relaxed:
+ * the bounds end the hang, but the diagnostic value stays latent until a caller
+ * preserves the SQLSTATE. Filed as #785.
  */
 test('the recorder preserves prior-good and keeps the bound code, given a failure carrying one', async () => {
   // Guarded like `appStateStore.test.ts`: an ambient DATABASE_URL would put this on
