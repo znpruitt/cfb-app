@@ -175,6 +175,46 @@ the UI spine do not touch each other, so they can run concurrently:
   (`schedule/cfbdSchedule.ts`, `schedule.ts`, `schedulePostseasonHelpers.ts` — pipeline, not
   components), and Items 84, 86, 111. **Item 123 shipped 2026-09-04** via PR #565.
 
+### RESIDUE IS FILED AND QUEUED, NOT DISPATCHED — owner decision 2026-09-14
+
+**BINDING.** Work discovered while executing an item is **filed as an issue and queued in dispatch
+order**. It is **not** handed straight to a lane. **The one exception is that production is currently
+broken.**
+
+**"Currently broken" is narrow, deliberately, or the exception swallows the rule:**
+
+- a live defect producing **wrong data a member can see**, or
+- a security exposure **reachable now**, or
+- a hang, outage or unbounded spend **affecting real traffic today**.
+
+**It is NOT:** a latent defect, a theoretical exposure, a defect behind an admin gate, or anything
+**measured at zero occurrences**. Those are real and they get filed — they do not get dispatched.
+
+**Why this rule exists, with the case that produced it.** Between 2026-09-12 and 2026-09-14 the
+platform lane shipped seven slices. **Two were planned** (#662, #627). **Five were residue** — each
+merge surfaced the next, and each was dispatched immediately because it looked more urgent than
+returning to the plan. Every individual call was defensible. **The cumulative effect was five
+consecutive slices of discovered work, and a spine table that absorbed the residue into its own
+numbering** — which is why the drift was invisible from inside it.
+
+**Applied to those five, the rule changes four of them:**
+
+| residue | would it dispatch? | why |
+| --- | --- | --- |
+| [#755](https://github.com/znpruitt/cfb-app/issues/755) `/info` had no timeout | **no** — file | Real and serious; nothing was observed failing. |
+| [#770](https://github.com/znpruitt/cfb-app/issues/770) `?year=` unbounded | **YES** | Reachable by any league member, forcing full rebuilds now. |
+| [#774](https://github.com/znpruitt/cfb-app/issues/774) history `?year=` | **no** — file | Same shape, trivial per-request cost. |
+| [#778](https://github.com/znpruitt/cfb-app/issues/778) unvalidated slug | **no** — file | Admin-gated, never observed. |
+| [#788](https://github.com/znpruitt/cfb-app/issues/788) per-statement bounds | **no** — file | Architectural, nothing breaching today. |
+
+**One of five, not five of five.** The other four still get filed with their full evidence — nothing
+is lost, and the queue stays legible.
+
+**This binds PLANNING, not the lanes.** A lane that finds residue reports it; **planning files it and
+places it.** A lane must not dispatch itself, and planning must not dispatch residue by reflex because
+the context is warm — warm context is an argument for writing the issue well, not for taking the work
+now.
+
 ### DISPATCH ORDER — AUDIT-FIRST, owner decision 2026-09-09
 
 **Evidence:** [`docs/archive/audits/codebase-audit-existing-plans-2026-09-08.md`](archive/audits/codebase-audit-existing-plans-2026-09-08.md)
