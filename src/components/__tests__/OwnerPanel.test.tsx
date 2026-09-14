@@ -200,6 +200,20 @@ test('Members describes awaiting-score rows in the Live games section truthfully
   assert.doesNotMatch(html, /Teams currently in progress for the selected entry\./);
 });
 
+test('Members empty Live games copy names both admitted states', () => {
+  const html = renderToStaticMarkup(
+    <OwnerPanel
+      snapshot={{ ...snapshot, liveRows: [] }}
+      selectedWeekLabel="Week 1"
+      displayTimeZone="UTC"
+      onOwnerChange={() => {}}
+    />
+  );
+
+  assert.match(html, /No games in progress or awaiting a score for this selection right now\./);
+  assert.doesNotMatch(html, /No live games for this selection right now\./);
+});
+
 test('owner panel shows live, final, and upcoming week-row detail correctly', () => {
   const html = renderToStaticMarkup(
     <OwnerPanel

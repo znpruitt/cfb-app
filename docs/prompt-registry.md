@@ -132,9 +132,33 @@ These consolidate recurring historical observations, not new project-governance 
   were mutation-proven; the `No score reported` assertion pins state eligibility but was not the red
   edge. Lint and `tsc` pass; the normal and zero-day suites pass 5,356/5,356, delta **+2 measured at
   both ends** (5,354 → 5,356). The +30-day suite has exactly its one declared lifecycle-sweep failure
-  (5,355 pass, 1 fail). Confirming reviews remain pending.
+  (5,355 pass, 1 fail).
+- Round 2 against `7b922808`: `/codex:review` clean. `/code-review high` reported one Low and one
+  Medium. **The Low was accepted and fixed**: the Live-games `emptyMessage` still said "No live
+  games" one line under the widened description, so the section contradicted itself when empty —
+  now "No games in progress or awaiting a score for this selection right now.", with a test that
+  mutation-proves on its own assertion. Suite 5,357/5,357, delta **+3** against `main`
+  (5,354 → 5,357).
+- **The Medium was REFUTED BY MEASUREMENT, and the refutation is the durable part.** It held that
+  `selectMembersRowGame` shadows an awaiting game behind an earlier row that projects `scheduled`
+  forever, so the list and the count disagree. The mechanism in `ownerGameState.ts:92` is real —
+  `isPendingMembersRowState` ranks `scheduled` and `awaiting` equally, so the FIRST pending game
+  wins — but every input that reaches the permanent-`scheduled` state was measured absent from
+  production. The repro used `startTimeTBD: undefined`, which **`cfbdSchedule.ts:745` can emit but
+  the provider never does: 0 of 3,679 rows (2026) and 0 of 3,831 (2025) omit the flag.** The other
+  two doors are shut the same way: **0 of the 421 live TBD rows are past their placeholder
+  kickoff** (all sit in weeks 4–13, and weeks 1–3 already resolved to `false` — 2025 finished with
+  zero TBD rows, so CFBD confirms the time before kickoff), and disrupted labels are the 0-of-43,184
+  measurement above. Reported to planning rather than fixed.
+- **What IS worth carrying from that finding is a fail-direction asymmetry, not the defect.**
+  `isScoreReportExpectedGame` fails CLOSED on an absent `startTimeTBD` (`!== false`), while
+  `standingsHistory.ts:132` fails OPEN on the same field (`!== true`). Today nothing separates them
+  because the provider always sends the boolean. If that ever stops being true the two disagree
+  about the same game, and this finding is the map of what breaks first —
+  `pollingWindows.ts:136` already warns about the same field in the other direction.
 - Status: IMPLEMENTED — pre-merge closeout complete on
-  `codex/776-780-history-members-state`; confirming review and merge pending.
+  `codex/776-780-history-members-state`; both reviewers gathered and remediated across two rounds.
+  Merge pending.
 
 ### PLATFORM-722-724-MATCHUPS-DERIVED-STATE-CODEX-v1
 

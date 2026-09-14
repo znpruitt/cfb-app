@@ -494,7 +494,7 @@ export default function OwnerPanel({
       >
         <OwnerRosterTable
           rows={snapshot.liveRows}
-          emptyMessage="No live games for this selection right now."
+          emptyMessage="No games in progress or awaiting a score for this selection right now."
           timeZone={timeZone}
           rankingsByTeamId={rankingsByTeamId}
         />
