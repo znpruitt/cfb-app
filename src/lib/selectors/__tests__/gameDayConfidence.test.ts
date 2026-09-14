@@ -29,6 +29,9 @@ function game(overrides: Partial<AppGame> = {}): AppGame {
     date: overrides.date ?? NOW.toISOString(),
     stage: overrides.stage ?? 'regular',
     status: overrides.status ?? 'scheduled',
+    rawStatus: overrides.rawStatus,
+    completed: overrides.completed,
+    startTimeTBD: Object.hasOwn(overrides, 'startTimeTBD') ? overrides.startTimeTBD : false,
     stageOrder: overrides.stageOrder ?? 1,
     slotOrder: overrides.slotOrder ?? 1,
     eventKey: overrides.eventKey ?? 'event-key-1',
@@ -138,6 +141,26 @@ test('reports Waiting for scores after kickoff when no usable score has attached
   });
 
   assert.deepEqual(waiting, { kind: 'waiting', label: 'Waiting for scores' });
+});
+
+test('Waiting for scores requires the provider to confirm the kickoff time explicitly', () => {
+  const kickoff = new Date(NOW.getTime() - 60_000).toISOString();
+  const confirmed = game({ key: 'confirmed', date: kickoff, startTimeTBD: false });
+  const omitted = game({ key: 'omitted', date: kickoff, startTimeTBD: undefined });
+  const explicitTbd = game({ key: 'tbd', date: kickoff, startTimeTBD: true });
+
+  assert.equal(
+    isAwaitingScoreGame({ game: confirmed, context: { season: 2026, now: NOW.getTime() } }),
+    true,
+    'positive control: an explicit false makes the same kickoff eligible'
+  );
+  for (const unconfirmed of [omitted, explicitTbd]) {
+    assert.equal(
+      isAwaitingScoreGame({ game: unconfirmed, context: { season: 2026, now: NOW.getTime() } }),
+      false,
+      unconfirmed.key
+    );
+  }
 });
 
 test('reports Tracking scores only for a freshly observed, same-poll attached live game', () => {

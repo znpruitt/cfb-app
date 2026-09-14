@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { POLLING_WINDOW_AFTER_KICKOFF_MS } from '../liveScores/pollingTarget';
 import { deriveGameWeekPanelViewModel } from '../selectors/gameWeek.ts';
 import { buildScheduleFromApi, type AppGame, type ScheduleWireItem } from '../schedule';
 import type { ScorePack } from '../scores';
@@ -220,6 +221,7 @@ test('scoreless playable rows await through eight hours, then restore scheduled 
   for (const [elapsedMs, expectedState] of [
     [GAME_MAX_DURATION_MS, 'awaiting'],
     [GAME_MAX_DURATION_MS + 1, 'scheduled'],
+    [POLLING_WINDOW_AFTER_KICKOFF_MS + 1, 'scheduled'],
   ] as const) {
     for (const rawStatus of ['scheduled', 'completed']) {
       const card = cardFromWireStatus(rawStatus, kickoff, Date.parse(kickoff) + elapsedMs, {

@@ -509,12 +509,14 @@ test('shared kickoff projection renders SCH before kickoff and Awaiting score at
         game({
           key: 'future',
           date: '2025-08-30T20:00:00.001Z',
+          startTimeTBD: false,
           csvAway: 'Rutgers',
           csvHome: 'Maryland',
         }),
         game({
           key: 'reached',
           date: '2025-08-30T20:00:00.000Z',
+          startTimeTBD: false,
           csvAway: 'Temple',
           csvHome: 'Navy',
         }),
@@ -554,6 +556,7 @@ test('a post-window Matchups row reports no score without adding a fifth card st
         game({
           key: 'no-score-reported',
           date: kickoff,
+          startTimeTBD: false,
           csvAway: 'Rutgers',
           csvHome: 'Maryland',
         }),

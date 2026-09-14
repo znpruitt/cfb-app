@@ -889,6 +889,7 @@ test('overview renders broadcast on live and awaiting rows and never on a final'
       csvAway: 'Rice',
       csvHome: 'Texas State',
       date: '2026-09-01T15:00:00.000Z',
+      startTimeTBD: false,
       media: media('bcast-awaiting'),
     }),
     {

@@ -415,7 +415,7 @@ test('Overview expansion survives a content refresh, follows migration, and rese
 });
 
 test('Awaiting score renders neutrally inside the Live section without claiming the game is live', () => {
-  const awaiting = item(game({ key: 'awaiting-score' }));
+  const awaiting = item(game({ key: 'awaiting-score', startTimeTBD: false }));
   const html = renderPanel({
     games: [awaiting.bucket.game],
     sectionItems: [awaiting],
@@ -537,7 +537,7 @@ test('a populated Recent finals list does not render a contradictory Featured em
 });
 
 test('an incomplete Featured final stays in Live with Awaiting score until both scores attach', () => {
-  const incompleteFinal = item(game({ key: 'featured-score-gap' }), {
+  const incompleteFinal = item(game({ key: 'featured-score-gap', startTimeTBD: false }), {
     status: 'Final',
     away: { team: 'Away', score: 21 },
     home: { team: 'Home', score: null },
@@ -570,7 +570,13 @@ test('overview sections render Featured, Live, Recent finals, then the watchlist
       time: null,
     }
   );
-  const live = item(game({ key: 'live-now', date: '2026-09-05T20:00:00.000Z' }));
+  const live = item(
+    game({
+      key: 'live-now',
+      date: '2026-09-05T20:00:00.000Z',
+      startTimeTBD: false,
+    })
+  );
   const recentFinal = item(game({ key: 'plain-final', date: '2026-09-05T18:00:00.000Z' }), {
     status: 'Final',
     away: { team: 'Away', score: 21 },

@@ -71,19 +71,17 @@ function resolveScheduleScoreboard(params: {
   currentDateMs: number | null | undefined;
 }): ScheduleScoreboardResolution {
   const { game, score, isPlaceholder, currentDateMs } = params;
-  const confirmedKickoff = game.startTimeTBD === false ? game.date : null;
-
   // Precedence model (PLATFORM-727):
   // 1. Project score evidence before consulting any schedule-derived gate.
   // 2. Usable final or live evidence wins over every gate.
   // 3. Placeholder and abandonment constrain only evidence-free scheduled/awaiting states.
   // 4. Evidence wins suppress the abandonment notice too.
   // 5. Disruption occupies the same tier as a forward-looking, non-load-bearing guard.
-  const projected = projectGameScoreboardState(
+  const projected = projectGameScoreboardState({
+    game,
     score,
-    confirmedKickoff,
-    currentDateMs ?? Number.NaN
-  );
+    nowMs: currentDateMs ?? Number.NaN,
+  });
   switch (projected) {
     case 'final':
     case 'live':
@@ -94,8 +92,16 @@ function resolveScheduleScoreboard(params: {
       };
     case 'scheduled':
     case 'awaiting':
-    case 'unavailable':
       break;
+    case 'unavailable':
+      // Schedule has no terminal no-score presentation. Keep the consumer
+      // total: this state degrades to Schedule's existing scheduled treatment
+      // instead of taking down the entire week view.
+      return {
+        scoreboardState: 'scheduled',
+        scheduleNotice: evidenceFreeScheduleNotice(score),
+        suppressScheduledMetadata: false,
+      };
   }
 
   const disruptionNotice = disruptedScheduleNotice(game, score);
@@ -121,10 +127,6 @@ function resolveScheduleScoreboard(params: {
         scheduleNotice: null,
         suppressScheduledMetadata: false,
       };
-    case 'unavailable':
-      // A confirmed kickoff old enough to exhaust the 24-hour score window is
-      // necessarily beyond Schedule's eight-hour abandonment gate above.
-      throw new Error('Unavailable score state escaped the Schedule abandonment gate');
   }
 }
 

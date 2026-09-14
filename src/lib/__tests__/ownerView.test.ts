@@ -28,6 +28,7 @@ function mismatchGame(overrides: Partial<AppGame>): AppGame {
     date: overrides.date ?? '2026-09-05T17:00:00.000Z',
     stage: 'regular',
     status: overrides.status ?? 'scheduled',
+    startTimeTBD: false,
     stageOrder: 1,
     slotOrder: 1,
     eventKey: 'event',
@@ -395,22 +396,32 @@ test('Members counts a post-window scoreless game from the same state its row re
   );
 });
 
-test('Members never turns a startTimeTBD placeholder into a terminal no-score claim', () => {
+test('Members requires an explicitly confirmed kickoff before reporting unavailable', () => {
   const kickoff = '2026-09-05T17:00:00.000Z';
-  const tbdGame = mismatchGame({ key: 'tbd', date: kickoff, startTimeTBD: true });
-  const snapshot = deriveOwnerViewSnapshot({
-    selectedOwner: 'Alice',
-    standingsRows: [standingsRow({ owner: 'Alice' })],
-    canonicalStandingsRows: [standingsRow({ owner: 'Alice' })],
-    allGames: [tbdGame],
-    weekGames: [tbdGame],
-    rosterByTeam: roster,
-    scoresByKey: {},
-    gameDayContext: { season: 2026, now: Date.parse(kickoff) + 25 * 60 * 60_000 },
-  });
+  for (const [startTimeTBD, expectedStatus, expectedScheduled, expectedUnavailable] of [
+    [undefined, 'Upcoming', 1, 0],
+    [true, 'Upcoming', 1, 0],
+    [false, 'No score reported', 0, 1],
+  ] as const) {
+    const candidate = mismatchGame({
+      key: `tbd-${String(startTimeTBD)}`,
+      date: kickoff,
+      startTimeTBD,
+    });
+    const snapshot = deriveOwnerViewSnapshot({
+      selectedOwner: 'Alice',
+      standingsRows: [standingsRow({ owner: 'Alice' })],
+      canonicalStandingsRows: [standingsRow({ owner: 'Alice' })],
+      allGames: [candidate],
+      weekGames: [candidate],
+      rosterByTeam: roster,
+      scoresByKey: {},
+      gameDayContext: { season: 2026, now: Date.parse(kickoff) + 25 * 60 * 60_000 },
+    });
 
-  assert.equal(snapshot.weekRows[0]?.currentStatus, 'Upcoming');
-  assert.equal(snapshot.weekSummary?.liveGames, 0);
-  assert.equal(snapshot.weekSummary?.scheduledGames, 1);
-  assert.equal(snapshot.weekSummary?.unavailableGames, 0);
+    assert.equal(snapshot.weekRows[0]?.currentStatus, expectedStatus, String(startTimeTBD));
+    assert.equal(snapshot.weekSummary?.liveGames, 0, String(startTimeTBD));
+    assert.equal(snapshot.weekSummary?.scheduledGames, expectedScheduled, String(startTimeTBD));
+    assert.equal(snapshot.weekSummary?.unavailableGames, expectedUnavailable, String(startTimeTBD));
+  }
 });

@@ -34,6 +34,9 @@ function game(overrides: Partial<AppGame>): AppGame {
     date: overrides.date ?? '2026-09-01T17:00:00.000Z',
     stage: overrides.stage ?? 'regular',
     status: overrides.status ?? 'scheduled',
+    rawStatus: overrides.rawStatus,
+    completed: overrides.completed,
+    startTimeTBD: Object.hasOwn(overrides, 'startTimeTBD') ? overrides.startTimeTBD : false,
     stageOrder: overrides.stageOrder ?? 1,
     slotOrder: overrides.slotOrder ?? 1,
     eventKey: overrides.eventKey ?? 'event',
@@ -817,6 +820,77 @@ test('#722: Matchups counts its awaiting row as live through the complete row pr
     deriveOwnerWeekSlates([awaitingGame], rosterByTeam, liveScores, projection)[0]?.liveGames,
     1,
     'positive control: the live counter itself is reachable'
+  );
+});
+
+test('Matchups requires an explicitly confirmed kickoff before reporting unavailable', () => {
+  const kickoff = '2026-09-05T17:00:00.000Z';
+  const nowMs = Date.parse(kickoff) + 25 * 60 * 60_000;
+  const candidates = [
+    game({ key: 'omitted', date: kickoff, csvAway: 'Omitted', startTimeTBD: undefined }),
+    game({ key: 'tbd', date: kickoff, csvAway: 'TBD', startTimeTBD: true }),
+    game({ key: 'confirmed', date: kickoff, csvAway: 'Confirmed', startTimeTBD: false }),
+  ];
+  const slates = deriveOwnerWeekSlates(
+    candidates,
+    new Map(candidates.map((entry) => [entry.csvAway, entry.csvAway])),
+    {},
+    { surface: 'matchups', nowMs }
+  );
+
+  assert.deepEqual(
+    candidates.map((entry) => projectMatchupsGameState({ game: entry, nowMs })),
+    ['scheduled', 'scheduled', 'unavailable']
+  );
+  assert.deepEqual(
+    slates.map(({ owner, scheduledGames, unavailableGames }) => ({
+      owner,
+      scheduledGames,
+      unavailableGames,
+    })),
+    [
+      { owner: 'Confirmed', scheduledGames: 0, unavailableGames: 1 },
+      { owner: 'Omitted', scheduledGames: 1, unavailableGames: 0 },
+      { owner: 'TBD', scheduledGames: 1, unavailableGames: 0 },
+    ]
+  );
+});
+
+test('Matchups never turns a disrupted game into a terminal no-score claim', () => {
+  const kickoff = '2026-09-05T17:00:00.000Z';
+  const nowMs = Date.parse(kickoff) + 55 * 60 * 60_000;
+  const rawDisrupted = game({
+    key: 'raw-disrupted',
+    date: kickoff,
+    csvAway: 'Raw disrupted',
+    rawStatus: 'STATUS_CANCELED',
+  });
+  const scoreDisrupted = game({
+    key: 'score-disrupted',
+    date: kickoff,
+    csvAway: 'Score disrupted',
+  });
+  const disruptedScore = score('STATUS_POSTPONED', null, null);
+  const scoresByKey = { 'score-disrupted': disruptedScore };
+  const games = [rawDisrupted, scoreDisrupted];
+  const slates = deriveOwnerWeekSlates(
+    games,
+    new Map(games.map((entry) => [entry.csvAway, entry.csvAway])),
+    scoresByKey,
+    { surface: 'matchups', nowMs }
+  );
+
+  assert.equal(projectMatchupsGameState({ game: rawDisrupted, nowMs }), 'scheduled');
+  assert.equal(
+    projectMatchupsGameState({ game: scoreDisrupted, score: disruptedScore, nowMs }),
+    'scheduled'
+  );
+  assert.deepEqual(
+    slates.map(({ scheduledGames, unavailableGames }) => ({ scheduledGames, unavailableGames })),
+    [
+      { scheduledGames: 1, unavailableGames: 0 },
+      { scheduledGames: 1, unavailableGames: 0 },
+    ]
   );
 });
 
