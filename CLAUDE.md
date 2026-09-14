@@ -89,15 +89,22 @@ first commit; if you are not where this table says you should be, stop and say s
   4. **Report the merge SHA and stop.** Anything ambiguous at merge time — a conflict that needed
      thought, an unexpected diff, a ledger wording you were unsure of — is a stop-and-report, not a
      decision. The merge is delegated; the judgement is not.
-  5. **NEVER PUT A CLOSING KEYWORD IN A PR BODY UNLESS YOU MEAN IT — INCLUDING A NEGATED ONE.**
-     Added 2026-09-14 after exactly that. PR #784's body read *"It does not close #780 or #781; both
-     remain deferred pending product rulings."* **GitHub parsed the substring `close #780` and closed
+  5. **NEVER WRITE A CLOSING KEYWORD YOU DO NOT MEAN — IN A PR BODY *OR* A COMMIT MESSAGE, INCLUDING A NEGATED OR QUOTED ONE.**
+     Added 2026-09-14 after exactly that. PR #784's body said it did **not** close two issues, naming
+     them — the verb sat directly against the first issue number. **GitHub parsed that adjacency and closed
      it on merge.** Its keyword parser has no notion of negation; "not" in front changes nothing.
      **#781 survived only by accident of phrasing** — the keyword binds to the first issue number, so
      `or #781` carried none of its own. **Write "Leaves #780 and #781 open" — avoid the keyword rather
      than negating it.** The close then reads as `COMPLETED` by the PR author, which is indistinguishable
      from a deliberate ruling: it cost a reopen, a corrected issue comment, and a wrong accusation that
      the owner had ruled something they had not.
+     **WIDENED 2026-09-14, within the hour, because the commit that first recorded this rule fired
+     it again.** That commit quoted the offending sentence verbatim to explain the trap, so its
+     message carried the verb adjacent to the issue number and GitHub closed it a second time — with a
+     `commit_id`, from the commit documenting why not to. **The parser reads commit messages on the
+     default branch exactly as it reads PR bodies, and QUOTING the mistake reproduces it.** When
+     writing about a closing keyword, break it so the parser cannot match — spell it out, or keep
+     the verb away from the issue number.
 - **Planning Claude never edits `src/`.** Queue, prompts, governance and closeout documents only.
 - **`docs/` work MAY go to an implementation lane, by exception, when it is a large read.** Owner
   decision 2026-09-08, first taken for **Item 144** (2,273 lines across 16 campaign documents). The
