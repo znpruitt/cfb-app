@@ -98,6 +98,57 @@ neutrally (`DESIGN.md` → *Cards and game results*). Match that treatment; do n
 disrupted game. **That is terminal and must NOT enter the Live list.** A predicate written before B
 would not know the value exists.
 
+## RULINGS ON THE READ RECEIPT — 2026-09-14, binding. Part B is NARROWED; the premise did not cover the vocabulary.
+
+**1. PART B APPLIES TO CANCELED AND POSTPONED ONLY. Delayed and suspended are EXCLUDED.** This is the
+ruling your finding forced, and it corrects mine.
+
+**The owner's terminal-by-construction fact is about RESCHEDULES** — CFBD drops the GameID and issues
+a new one. That describes a game replayed on another date. **A delayed game (kickoff pushed, same day)
+and a suspended game (halted mid-play, often resumed) resolve IN PLACE under the SAME GameID.** Calling
+either "No score reported" would be false and corrected by the next poll.
+
+**The codebase already says this and I wrote past it.** `gameStatus.ts:126-133`:
+
+> A canceled/cancelled game is TERMINAL … **This is deliberately NARROWER than
+> `isDisruptedStatusLabel`: postponed / suspended / delayed are also disrupted but are NOT terminal** —
+> they are unresolved and should still be treated as missing a final result.
+
+**Use `isCanceledOrPostponedStatusLabel` (`gameStatus.ts:142`) — do NOT invent a fourth predicate.**
+Its docblock names exactly this distinction: *"Canceled/postponed are terminal for live polling: unlike
+delayed/suspended, they must not keep a provider or browser polling window armed."* That is the same
+terminality part B needs, and it already exists.
+
+**So Part B's opening sentence is wrong** where it names canceled, postponed **and suspended**, and the
+acceptance boundary's "every disrupted game" is wrong. Both are corrected by this ruling. **Delayed and
+suspended keep their current behaviour** — whatever that is on each surface — and this slice does not
+touch them.
+
+**2. PRECEDENCE: usable final or live evidence WINS over a disrupted label.** Do not change it. A real
+final means the game was played, and a stale disrupted label alongside it is the label being wrong.
+The existing behaviour is correct and this slice preserves it.
+
+**3. AUTHORITY: the shared projector, as you recommend, and reconcile Schedule's and Overview's
+forks.** Two surfaces carrying their own disruption logic IS the divergence pattern this campaign
+exists to remove, and leaving them would mean three answers to one question. **Reconciling them is in
+scope by consequence** — measure what changes on each, do not discover it at review.
+
+**4. CARDINALITY: your reading is right.** "Same population" means matching **state eligibility** —
+Live plus Awaiting, excluding "No score reported" — **not equal counts.** A self-matchup gives the
+summary one distinct game and the list one row per owned team, and the summary's distinct-game
+contract is settled. Say so in the closeout so nobody later "fixes" the difference.
+
+**5. ACCEPTED CORRECTIONS, all of them:** the projector is at `gameScoreboardState.ts:58`, not `:12`;
+B changes which inputs produce an existing `currentStatus` value rather than adding one; Schedule
+**suppresses** the kickoff for disrupted rows, so "renders at its original kickoff time" was true of
+Matchups only; and part C's disrupted exclusion is **defensive contract coverage**, with the actual
+regression fix being the addition of `Awaiting score`.
+
+**6. STATE THE ZERO-OCCURRENCE MEASUREMENT PROMINENTLY IN THE CLOSEOUT.** Zero disrupted labels across
+22,760 schedule rows and 20,424 score statuses means this change **cannot be validated against
+production data and cannot regress anything observable in it.** Both halves matter. A reader must not
+come away thinking the new behaviour was seen working.
+
 ## Acceptance boundary
 
 - Part A: the false sentence is gone and no replacement asserts a range.
