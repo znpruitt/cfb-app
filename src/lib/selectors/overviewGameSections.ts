@@ -91,11 +91,11 @@ function routeForItem(
   // same per-game eight-hour bound without duplicating the threshold or shape.
   if (pending && hasGameBeenAbandoned(pending, now)) return null;
 
-  const scoreboardState = projectGameScoreboardState(
-    item.score,
-    item.bucket.game.startTimeTBD === true ? null : item.bucket.game.date,
-    now.getTime()
-  );
+  const scoreboardState = projectGameScoreboardState({
+    game: item.bucket.game,
+    score: item.score,
+    nowMs: now.getTime(),
+  });
 
   if (scoreboardState === 'final') {
     return { section: 'recentFinals', status: { kind: 'final', label: 'Final' } };

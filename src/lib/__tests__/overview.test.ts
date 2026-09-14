@@ -194,6 +194,71 @@ test('overview key matchups keep owned-vs-owned games ahead of other owned-team 
   );
 });
 
+test('a live-week overview retains an incomplete final until a confirmed result attaches', () => {
+  const rosterByTeam = new Map([
+    ['Texas', 'Alice'],
+    ['Oklahoma', 'Bob'],
+    ['Notre Dame', 'Cory'],
+  ]);
+  const incompleteFinal = game({
+    key: 'incomplete-final',
+    csvAway: 'Texas',
+    csvHome: 'Rice',
+    date: '2026-09-05T17:00:00.000Z',
+  });
+  const completeFinal = game({
+    key: 'complete-final',
+    csvAway: 'Notre Dame',
+    csvHome: 'Navy',
+    date: '2026-09-05T18:00:00.000Z',
+  });
+  const liveGame = game({
+    key: 'live-game',
+    csvAway: 'Oklahoma',
+    csvHome: 'Tulsa',
+    date: '2026-09-05T19:00:00.000Z',
+  });
+
+  const snapshot = deriveOverviewSnapshot({
+    standingsRows,
+    standingsCoverage: coverage,
+    weekGames: [incompleteFinal, completeFinal, liveGame],
+    allGames: [incompleteFinal, completeFinal, liveGame],
+    rosterByTeam,
+    scoresByKey: {
+      'incomplete-final': {
+        status: 'Final',
+        away: { team: 'Texas', score: 62 },
+        home: { team: 'Rice', score: null },
+        time: null,
+      },
+      'complete-final': {
+        status: 'Final',
+        away: { team: 'Notre Dame', score: 31 },
+        home: { team: 'Navy', score: 14 },
+        time: null,
+      },
+      'live-game': {
+        status: 'In Progress',
+        away: { team: 'Oklahoma', score: 21 },
+        home: { team: 'Tulsa', score: 17 },
+        time: null,
+      },
+    },
+  });
+
+  assert.deepEqual(
+    snapshot.liveItems.map((item) => item.bucket.game.key),
+    ['live-game'],
+    'positive control: the selected week is live, so complete finals are filtered'
+  );
+  assert.deepEqual(
+    snapshot.keyMatchups.map((item) => item.bucket.game.key),
+    ['incomplete-final', 'live-game'],
+    'the selector keeps the incomplete final in the population but excludes the confirmed result'
+  );
+});
+
 test('overview shifts to recent-results emphasis when the active slate is complete', () => {
   const rosterByTeam = new Map([
     ['Texas', 'Alice'],

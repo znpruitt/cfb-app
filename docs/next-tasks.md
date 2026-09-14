@@ -282,7 +282,7 @@ were read in full; the grouping is stated so a future reader can check it rather
 
 | # | slice | issues | file(s) | state |
 | --- | --- | --- | --- | --- |
-| 1 | Matchups derived state | **#722**, **#724** | `matchups.ts`, `ownerView.ts`, selector seams | **IMPLEMENTED AND REVIEWED 2026-09-13 — pending merge; #712 and #766 close consequentially with it** |
+| 1 | Matchups derived state | **#722**, **#724** | `matchups.ts`, `ownerView.ts`, selector seams | **MERGED 2026-09-13 (PR #777, `ebc4ec79`); post-merge remediation IMPLEMENTED AND REVIEWED in PR #784, pending merge. #712 and #766 closed consequentially.** |
 | 2 | Matchups caller work | **#723**, **#725**, **#715** | `MatchupsWeekPanel.tsx` | ready |
 | 3 | Schedule presentation | **#728**, **#730**, **#731** | `GameWeekPanel.tsx` | ready |
 | 4 | Schedule team-name form | **#729** | `gameWeek.ts`, `DESIGN.md` | **BLOCKED — owner decision** |
@@ -759,6 +759,16 @@ Acceptance boundary:
 This is the canonical deferral register. These items are explicitly not scheduled. Resolved entries
 are removed rather than retained with strikethrough; their outcomes live in `docs/completed-work.md`.
 
+- **Members live-count / confirmed-live-list treatment
+  ([#780](https://github.com/znpruitt/cfb-app/issues/780)).** `awaiting` deliberately contributes to
+  the summary's live count, while the Live games section lists only confirmed in-progress rows.
+  Decide whether those surfaces should remain distinct or adopt shared copy/population; the count
+  ruling did not decide the section.
+- **Disrupted-game Matchups vocabulary
+  ([#781](https://github.com/znpruitt/cfb-app/issues/781)).** The shared projector conservatively
+  returns `scheduled`, but Matchups has no disrupted presentation and can therefore retain past
+  kickoff copy for a canceled/postponed/suspended game. Decide whether disruption needs a state or a
+  separate row treatment before changing the five-state contract.
 - **Overview Live / Recent-finals phone tag fit ([#758](https://github.com/znpruitt/cfb-app/issues/758)).** Their fact pills use the fixed status-row edge.
   The existing `max-sm:` wrapping relief is gated on scheduled state and therefore belongs to
   scheduled Matchups/Schedule rows, not Featured or these Live/Final rows. Decide whether Live/Final

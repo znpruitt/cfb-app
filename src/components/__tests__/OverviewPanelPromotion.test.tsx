@@ -415,7 +415,7 @@ test('Overview expansion survives a content refresh, follows migration, and rese
 });
 
 test('Awaiting score renders neutrally inside the Live section without claiming the game is live', () => {
-  const awaiting = item(game({ key: 'awaiting-score' }));
+  const awaiting = item(game({ key: 'awaiting-score', startTimeTBD: false }));
   const html = renderPanel({
     games: [awaiting.bucket.game],
     sectionItems: [awaiting],
@@ -537,7 +537,7 @@ test('a populated Recent finals list does not render a contradictory Featured em
 });
 
 test('an incomplete Featured final stays in Live with Awaiting score until both scores attach', () => {
-  const incompleteFinal = item(game({ key: 'featured-score-gap' }), {
+  const incompleteFinal = item(game({ key: 'featured-score-gap', startTimeTBD: false }), {
     status: 'Final',
     away: { team: 'Away', score: 21 },
     home: { team: 'Home', score: null },
@@ -556,6 +556,26 @@ test('an incomplete Featured final stays in Live with Awaiting score until both 
   assert.doesNotMatch(html, /data-scoreboard-state="final"/);
 });
 
+test('an incomplete final with an unconfirmed kickoff still materializes as scheduled', () => {
+  const partialFinal = item(game({ key: 'unconfirmed-partial-final', startTimeTBD: undefined }), {
+    status: 'Final',
+    away: { team: 'Away', score: 21 },
+    home: { team: 'Home', score: null },
+    time: null,
+  });
+  const html = renderPanel({
+    games: [partialFinal.bucket.game],
+    sectionItems: [partialFinal],
+    keyMatchups: [partialFinal],
+    now: '2026-09-01T17:30:00.000Z',
+  });
+
+  assert.match(html, /Upcoming watchlist/);
+  assert.match(html, /data-scoreboard-state="scheduled"/);
+  assert.match(html, /aria-label="Away at Home"/);
+  assert.doesNotMatch(html, /data-scoreboard-state="awaiting"|data-scoreboard-state="final"/);
+});
+
 test('overview sections render Featured, Live, Recent finals, then the watchlist', () => {
   // Owner decision 2026-09-03, recorded in
   // docs/campaigns/item-87-followon-section-ordering.md: ordered by temporal
@@ -570,7 +590,13 @@ test('overview sections render Featured, Live, Recent finals, then the watchlist
       time: null,
     }
   );
-  const live = item(game({ key: 'live-now', date: '2026-09-05T20:00:00.000Z' }));
+  const live = item(
+    game({
+      key: 'live-now',
+      date: '2026-09-05T20:00:00.000Z',
+      startTimeTBD: false,
+    })
+  );
   const recentFinal = item(game({ key: 'plain-final', date: '2026-09-05T18:00:00.000Z' }), {
     status: 'Final',
     away: { team: 'Away', score: 21 },

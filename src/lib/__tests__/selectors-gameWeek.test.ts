@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { POLLING_WINDOW_AFTER_KICKOFF_MS } from '../liveScores/pollingTarget';
 import { deriveGameWeekPanelViewModel } from '../selectors/gameWeek.ts';
 import { buildScheduleFromApi, type AppGame, type ScheduleWireItem } from '../schedule';
 import type { ScorePack } from '../scores';
@@ -238,6 +239,28 @@ test('scoreless playable rows await through eight hours, then restore scheduled 
       );
     }
   }
+});
+
+test('Schedule abandonment precedence hides an unrecognized completed-pack label', () => {
+  const kickoff = '2026-09-05T16:00:00.000Z';
+  const card = cardFromWireStatus(
+    'scheduled',
+    kickoff,
+    Date.parse(kickoff) + POLLING_WINDOW_AFTER_KICKOFF_MS + 1,
+    {
+      startTimeTBD: false,
+      score: {
+        status: 'Completed',
+        time: null,
+        away: { team: 'Away', score: 28 },
+        home: { team: 'Home', score: 24 },
+      },
+    }
+  );
+
+  assert.equal(card.scoreboardState, 'scheduled');
+  assert.equal(card.scheduleNotice, 'Scheduled');
+  assert.equal(card.statusRowValue, '4:00 PM');
 });
 
 test('placeholder plus a usable final score stays final (v1 regression guard)', () => {

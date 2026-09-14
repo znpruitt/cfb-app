@@ -17,6 +17,9 @@ function game(overrides: Partial<AppGame>): AppGame {
     date: overrides.date ?? '2026-09-01T17:00:00.000Z',
     stage: overrides.stage ?? 'regular',
     status: overrides.status ?? 'scheduled',
+    rawStatus: overrides.rawStatus,
+    completed: overrides.completed,
+    startTimeTBD: Object.hasOwn(overrides, 'startTimeTBD') ? overrides.startTimeTBD : false,
     stageOrder: overrides.stageOrder ?? 1,
     slotOrder: overrides.slotOrder ?? 1,
     eventKey: overrides.eventKey ?? 'event',
@@ -318,7 +321,7 @@ test('deriveOwnerViewSnapshot builds owner-centric roster, live, and week sectio
   assert.equal(snapshot.rosterRows[1]?.nextGameLabel, 'at Georgia');
 });
 
-test('deriveOwnerViewSnapshot keeps week rows aligned with summary semantics when final score attachment is missing', () => {
+test('deriveOwnerViewSnapshot does not infer Final from schedule status when no score row attached', () => {
   const allGames = [
     game({ key: 'missing-final', csvAway: 'Texas', csvHome: 'Georgia', status: 'final' }),
   ];
@@ -329,22 +332,60 @@ test('deriveOwnerViewSnapshot keeps week rows aligned with summary semantics whe
     allGames,
     weekGames: allGames,
     rosterByTeam,
-    scoresByKey: {
-      'missing-final': {
-        home: { team: 'Georgia', score: null },
-        away: { team: 'Texas', score: 21 },
-        status: 'Final',
-        time: null,
-      },
-    },
+    scoresByKey: {},
     gameDayContext: TEST_GAME_DAY_CONTEXT,
   });
 
-  assert.equal(snapshot.weekSummary?.performanceSummary, '0–0');
-  assert.equal(snapshot.weekSummary?.finalGames, 1);
-  assert.equal(snapshot.weekRows[0]?.currentStatus, 'Final');
+  assert.equal(snapshot.weekSummary?.performanceSummary, 'Scheduled');
+  assert.equal(snapshot.weekSummary?.finalGames, 0);
+  assert.equal(snapshot.weekRows[0]?.currentStatus, 'Upcoming');
   assert.equal(snapshot.weekRows[0]?.currentScore, null);
   assert.equal(snapshot.weekRows[0]?.nextGameLabel, 'at Georgia');
+});
+
+test('an incomplete final pack awaits through 24 hours and then reports no complete score', () => {
+  const kickoff = '2026-09-05T17:00:00.000Z';
+  const allGames = [
+    game({
+      key: 'incomplete-final',
+      csvAway: 'Texas',
+      csvHome: 'Georgia',
+      date: kickoff,
+      status: 'final',
+    }),
+  ];
+  const scoresByKey = {
+    'incomplete-final': {
+      home: { team: 'Georgia', score: null },
+      away: { team: 'Texas', score: 21 },
+      status: 'Final',
+      time: null,
+    },
+  } satisfies Record<string, ScorePack>;
+  const snapshotAt = (now: number) =>
+    deriveOwnerViewSnapshot({
+      selectedOwner: 'Alice',
+      standingsRows,
+      allGames,
+      weekGames: allGames,
+      rosterByTeam,
+      scoresByKey,
+      gameDayContext: { season: 2026, now },
+    });
+
+  const awaiting = snapshotAt(Date.parse(kickoff) + 60 * 60_000);
+  assert.equal(awaiting.weekSummary?.liveGames, 1);
+  assert.equal(awaiting.weekSummary?.finalGames, 0);
+  assert.equal(awaiting.weekSummary?.unavailableGames, 0);
+  assert.equal(awaiting.weekRows[0]?.currentStatus, 'Awaiting score');
+  assert.equal(awaiting.weekRows[0]?.currentScore, null);
+
+  const unavailable = snapshotAt(Date.parse(kickoff) + 25 * 60 * 60_000);
+  assert.equal(unavailable.weekSummary?.liveGames, 0);
+  assert.equal(unavailable.weekSummary?.finalGames, 0);
+  assert.equal(unavailable.weekSummary?.unavailableGames, 1);
+  assert.equal(unavailable.weekRows[0]?.currentStatus, 'No score reported');
+  assert.equal(unavailable.weekRows[0]?.currentScore, null);
 });
 
 test('deriveOwnerRoster keeps multi-team owners to one row per team and marks season complete', () => {

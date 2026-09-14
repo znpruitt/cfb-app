@@ -557,7 +557,11 @@ export function selectOverviewViewModel(params: {
   const overviewMatchupCandidates = keyMatchups;
   const featuredCandidates = overviewMatchupCandidates.filter((item) => {
     const gameState = gameStateFromScore(item.score);
-    return gameState !== 'final' && gameState !== 'inprogress';
+    // Candidate population must be at least as wide as the complete route
+    // authority. A final-labelled pack with an incomplete score is not a
+    // displayable result; excluding it here prevents a later `scheduled` route
+    // (for example an unconfirmed kickoff) from ever materialising.
+    return !hasUsableFinalScore(item.score) && gameState !== 'inprogress';
   });
   const resultCandidates = overviewMatchupCandidates
     .filter((item) => hasUsableFinalScore(item.score))

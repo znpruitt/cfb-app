@@ -1,13 +1,7 @@
-import { classifyScorePackStatus, isDisruptedStatusLabel } from '../gameStatus';
-import { gameStateFromScore } from '../gameUi';
 import type { AppGame } from '../schedule';
 import type { ScorePack } from '../scores';
 import { isAwaitingScoreGame, type GameDayContext } from './gameDayConfidence';
-import {
-  isScorePollingWindowExpired,
-  projectGameScoreboardState,
-  type GameScoreboardState,
-} from './gameScoreboardState';
+import { projectGameScoreboardState, type GameScoreboardState } from './gameScoreboardState';
 
 export type OwnerSlateSurfaceProjection =
   | { surface: 'matchups'; nowMs: number }
@@ -20,7 +14,7 @@ export function projectMatchupsGameState(params: {
   nowMs: number;
 }): GameScoreboardState {
   const { game, score, nowMs } = params;
-  return projectGameScoreboardState(score, game.startTimeTBD === true ? null : game.date, nowMs);
+  return projectGameScoreboardState({ game, score, nowMs });
 }
 
 /** Complete state authority used by every Members owned-team row and slate consumer. */
@@ -30,27 +24,18 @@ export function projectMembersGameState(params: {
   context: GameDayContext;
 }): GameScoreboardState {
   const { game, score, context } = params;
-  const scoreState = gameStateFromScore(score);
+  const projected = projectGameScoreboardState({ game, score, nowMs: context.now });
 
-  // Members historically treats an attached final label as final even while one
-  // numeric score is absent. Matchups requires a usable final score. Per-surface
-  // row agreement is the invariant; cross-surface equality is deliberately not.
-  if (scoreState === 'final') return 'final';
-  if (scoreState === 'inprogress') return 'live';
-
-  // A TBD date is a schedule placeholder, not kickoff evidence. Live/final
-  // provider evidence above still wins, but the placeholder alone can never
-  // mature into either "Awaiting score" or the terminal no-score state.
-  if (game.startTimeTBD === true) return 'scheduled';
-  if (isAwaitingScoreGame({ game, score, context })) return 'awaiting';
-
-  // A disrupted game is not an evidence-free result that merely aged out of the
-  // polling window. Preserve Members' existing non-awaiting treatment for it.
-  if (classifyScorePackStatus(score) === 'disrupted' || isDisruptedStatusLabel(game.rawStatus)) {
-    return 'scheduled';
+  switch (projected) {
+    case 'scheduled':
+    case 'live':
+    case 'unavailable':
+    case 'final':
+      return projected;
+    case 'awaiting':
+      // Members additionally limits game-day claims to the active score season.
+      return isAwaitingScoreGame({ game, score, context }) ? 'awaiting' : 'scheduled';
   }
-  if (isScorePollingWindowExpired(game.date, context.now)) return 'unavailable';
-  return 'scheduled';
 }
 
 export function projectOwnerSlateGameState(params: {
@@ -72,13 +57,13 @@ export type MembersRowGameProjection = {
   state: GameScoreboardState;
 };
 
-function isUnfinishedMembersRowState(state: GameScoreboardState): boolean {
+function isPendingMembersRowState(state: GameScoreboardState): boolean {
   switch (state) {
     case 'scheduled':
     case 'awaiting':
-    case 'unavailable':
       return true;
     case 'live':
+    case 'unavailable':
     case 'final':
       return false;
   }
@@ -86,8 +71,10 @@ function isUnfinishedMembersRowState(state: GameScoreboardState): boolean {
 
 /**
  * Select the one game a Members owned-team row describes. Live evidence wins;
- * otherwise the first unfinished game wins, followed by the latest final.
- * Every status check flows through `projectMembersGameState`.
+ * otherwise the first pending game wins, followed by the latest terminal row.
+ * `unavailable` is terminal for sequencing even though it is not a scored
+ * final: an old reporting gap must not pin the roster row ahead of a later
+ * upcoming game. Every status check flows through `projectMembersGameState`.
  */
 export function selectMembersRowGame(params: {
   games: AppGame[];
@@ -105,7 +92,7 @@ export function selectMembersRowGame(params: {
   const live = projected.find(({ state }) => state === 'live');
   if (live) return live;
 
-  const unfinished = projected.find(({ state }) => isUnfinishedMembersRowState(state));
-  if (unfinished) return unfinished;
+  const pending = projected.find(({ state }) => isPendingMembersRowState(state));
+  if (pending) return pending;
   return projected.at(-1) ?? null;
 }

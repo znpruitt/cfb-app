@@ -28,6 +28,7 @@ function mismatchGame(overrides: Partial<AppGame>): AppGame {
     date: overrides.date ?? '2026-09-05T17:00:00.000Z',
     stage: 'regular',
     status: overrides.status ?? 'scheduled',
+    startTimeTBD: false,
     stageOrder: 1,
     slotOrder: 1,
     eventKey: 'event',
@@ -368,6 +369,75 @@ test('POLISH-007: Awaiting score is bounded and never replaces disrupted status'
   assert.notEqual(delayed[0]?.currentStatus, 'Awaiting score');
 });
 
+test('a terminal reporting gap does not pin a Members row ahead of its next game', () => {
+  const partialKickoff = '2026-09-05T17:00:00.000Z';
+  const finalKickoff = '2026-09-12T17:00:00.000Z';
+  const nextKickoff = '2026-09-19T17:00:00.000Z';
+  const games = [
+    mismatchGame({
+      key: 'week-2-partial',
+      week: 2,
+      canonicalWeek: 2,
+      providerWeek: 2,
+      date: partialKickoff,
+      csvHome: 'Week 2 Opponent',
+    }),
+    mismatchGame({
+      key: 'week-3-final',
+      week: 3,
+      canonicalWeek: 3,
+      providerWeek: 3,
+      date: finalKickoff,
+      csvHome: 'Week 3 Opponent',
+    }),
+    mismatchGame({
+      key: 'week-4-upcoming',
+      week: 4,
+      canonicalWeek: 4,
+      providerWeek: 4,
+      date: nextKickoff,
+      csvHome: 'Week 4 Opponent',
+    }),
+  ];
+  const scoresByKey = {
+    'week-2-partial': {
+      status: 'Final',
+      time: null,
+      away: { team: 'Wash St', score: 21 },
+      home: { team: 'Week 2 Opponent', score: null },
+    },
+    'week-3-final': {
+      status: 'Final',
+      time: null,
+      away: { team: 'Wash St', score: 31 },
+      home: { team: 'Week 3 Opponent', score: 17 },
+    },
+  } satisfies Record<string, ScorePack>;
+
+  const rows = deriveOwnerRoster('Alice', games, roster, scoresByKey, {
+    season: 2026,
+    now: Date.parse('2026-09-13T18:00:00.000Z'),
+  });
+
+  assert.equal(rows[0]?.currentStatus, 'Upcoming');
+  assert.equal(rows[0]?.nextOpponent, 'Week 4 Opponent');
+  assert.equal(rows[0]?.nextKickoff, nextKickoff);
+});
+
+test('No score reported remains terminal outside the active score season', () => {
+  const kickoff = '2021-09-04T17:00:00.000Z';
+  const rows = deriveOwnerRoster(
+    'Alice',
+    [mismatchGame({ key: 'historical-gap', date: kickoff })],
+    roster,
+    {},
+    { season: 2021, now: Date.parse('2026-09-13T18:00:00.000Z') }
+  );
+
+  assert.equal(rows[0]?.currentStatus, 'No score reported');
+  assert.equal(rows[0]?.nextKickoff, kickoff);
+});
+
 test('Members counts a post-window scoreless game from the same state its row renders', () => {
   const kickoff = '2026-09-05T17:00:00.000Z';
   const staleGame = mismatchGame({ key: 'stale', date: kickoff });
@@ -395,22 +465,32 @@ test('Members counts a post-window scoreless game from the same state its row re
   );
 });
 
-test('Members never turns a startTimeTBD placeholder into a terminal no-score claim', () => {
+test('Members requires an explicitly confirmed kickoff before reporting unavailable', () => {
   const kickoff = '2026-09-05T17:00:00.000Z';
-  const tbdGame = mismatchGame({ key: 'tbd', date: kickoff, startTimeTBD: true });
-  const snapshot = deriveOwnerViewSnapshot({
-    selectedOwner: 'Alice',
-    standingsRows: [standingsRow({ owner: 'Alice' })],
-    canonicalStandingsRows: [standingsRow({ owner: 'Alice' })],
-    allGames: [tbdGame],
-    weekGames: [tbdGame],
-    rosterByTeam: roster,
-    scoresByKey: {},
-    gameDayContext: { season: 2026, now: Date.parse(kickoff) + 25 * 60 * 60_000 },
-  });
+  for (const [startTimeTBD, expectedStatus, expectedScheduled, expectedUnavailable] of [
+    [undefined, 'Upcoming', 1, 0],
+    [true, 'Upcoming', 1, 0],
+    [false, 'No score reported', 0, 1],
+  ] as const) {
+    const candidate = mismatchGame({
+      key: `tbd-${String(startTimeTBD)}`,
+      date: kickoff,
+      startTimeTBD,
+    });
+    const snapshot = deriveOwnerViewSnapshot({
+      selectedOwner: 'Alice',
+      standingsRows: [standingsRow({ owner: 'Alice' })],
+      canonicalStandingsRows: [standingsRow({ owner: 'Alice' })],
+      allGames: [candidate],
+      weekGames: [candidate],
+      rosterByTeam: roster,
+      scoresByKey: {},
+      gameDayContext: { season: 2026, now: Date.parse(kickoff) + 25 * 60 * 60_000 },
+    });
 
-  assert.equal(snapshot.weekRows[0]?.currentStatus, 'Upcoming');
-  assert.equal(snapshot.weekSummary?.liveGames, 0);
-  assert.equal(snapshot.weekSummary?.scheduledGames, 1);
-  assert.equal(snapshot.weekSummary?.unavailableGames, 0);
+    assert.equal(snapshot.weekRows[0]?.currentStatus, expectedStatus, String(startTimeTBD));
+    assert.equal(snapshot.weekSummary?.liveGames, 0, String(startTimeTBD));
+    assert.equal(snapshot.weekSummary?.scheduledGames, expectedScheduled, String(startTimeTBD));
+    assert.equal(snapshot.weekSummary?.unavailableGames, expectedUnavailable, String(startTimeTBD));
+  }
 });

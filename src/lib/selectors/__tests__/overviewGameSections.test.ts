@@ -24,7 +24,7 @@ function game(overrides: Partial<AppGame> = {}): AppGame {
     status: overrides.status ?? 'scheduled',
     rawStatus: overrides.rawStatus,
     completed: overrides.completed,
-    startTimeTBD: overrides.startTimeTBD,
+    startTimeTBD: Object.hasOwn(overrides, 'startTimeTBD') ? overrides.startTimeTBD : false,
     stageOrder: overrides.stageOrder ?? 1,
     slotOrder: overrides.slotOrder ?? 1,
     eventKey: overrides.eventKey ?? key,
@@ -354,6 +354,16 @@ test('a Time-TBD placeholder never promotes on its placeholder timestamp', () =>
   const sections = select([placeholderTime], '2026-09-20T17:00:00.000Z');
 
   assert.deepEqual(memberships(sections, placeholderTime.bucket.game.key), ['scheduled']);
+});
+
+test('an omitted startTimeTBD flag never confirms the placeholder timestamp', () => {
+  const unconfirmedTime = item(
+    game({ key: 'time-unconfirmed', date: KICKOFF, startTimeTBD: undefined }),
+    { score: score('Scheduled', null, null) }
+  );
+  const sections = select([unconfirmedTime], '2026-09-05T17:00:00.000Z');
+
+  assert.deepEqual(memberships(sections, unconfirmedTime.bucket.game.key), ['scheduled']);
 });
 
 test('an unresolved CFP participant shell cannot bypass the pending authority as in-progress', () => {

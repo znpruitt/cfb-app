@@ -2,6 +2,7 @@ import { classifyScorePackStatus, isDisruptedStatusLabel } from '../gameStatus.t
 import { isCurrentLiveScoreSeason, isLiveScoreEligibleGame } from '../liveScores/browserPolling.ts';
 import type { AppGame } from '../schedule.ts';
 import type { ScorePack } from '../scores.ts';
+import { projectGameScoreboardState } from './gameScoreboardState.ts';
 
 /** Covers two server provider-refresh opportunities on the unchanged three-minute cron. */
 export const LIVE_SCORE_OBSERVATION_MAX_AGE_MS = 7 * 60 * 1000;
@@ -31,8 +32,9 @@ function kickoffMs(game: AppGame): number | null {
 
 /**
  * Whether an owned-team row may truthfully say it is awaiting a score. This is
- * bounded to the same current-season kickoff window as browser cache polling and
- * excludes any attached score state known to be disrupted.
+ * the shared complete scoreboard projection plus Members' active-season gate.
+ * A partial final remains awaiting while its complete score can still attach;
+ * unconfirmed, placeholder, and disrupted games fail closed in the projector.
  *
  * Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read the
  * measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before reasoning from this
@@ -46,12 +48,7 @@ export function isAwaitingScoreGame(params: {
   const { game, score, context } = params;
   const now = new Date(context.now);
   if (!isCurrentLiveScoreSeason(context.season, now)) return false;
-  if (!isLiveScoreEligibleGame(game, score, now)) return false;
-  if (isDisruptedStatusLabel(game.rawStatus)) return false;
-
-  const startsAt = kickoffMs(game);
-  if (startsAt === null || context.now < startsAt) return false;
-  return classifyScorePackStatus(score) === 'scheduled';
+  return projectGameScoreboardState({ game, score, nowMs: context.now }) === 'awaiting';
 }
 
 function isRecentObservation(observation: LiveScoreObservation | null, now: number): boolean {
