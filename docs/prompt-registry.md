@@ -74,6 +74,20 @@ Rules:
   **One thing that is always trimmable, found the same day: HAND-OFF TEXT.** A verbatim amendment owed
   to planning is dead weight the moment it is applied — it belongs in the relay or the PR body. It was
   77 of PLATFORM-778's words.
+  **AMENDED 2026-09-14, on the second and third consecutive invocations.** `PLATFORM-778` landed at
+  **344** and `PLATFORM-625` at **625**, both with the breakdown reported rather than evidence cut, and
+  both correctly declining the two escapes — one slice each, nothing to split, and every bullet past
+  `Change` a measurement, a named limit or open work. `PLATFORM-625`'s largest bullet is **Review at
+  158**, which is two gathered rounds plus their adjudications.
+  **So read 300 as the threshold where a BREAKDOWN IS OWED, not a ceiling that should not be crossed.**
+  The original line was calibrated on entries written before the current working pattern — two
+  reviewers gathered before remediation, a receipt gate, measured evidence, and residue tracked to
+  filed issues. **That pattern produces more of exactly what this rule protects**, so an entry
+  carrying two review rounds has a higher floor than one carrying none, and saying so is more useful
+  than an exception invoked every time.
+  **What has NOT changed:** an entry over 300 still owes its per-bullet breakdown, still may not pad,
+  and still may not delete a measurement to hit a number. **If the breakdown shows restated method,
+  that is the thing to cut** — the exception covers evidence, not prose.
 - **Say what is unique; reference what is shared.** A recurring review lesson goes as `See L1`, a
   boilerplate verification sentence as an `RV` code, both defined below. An entry earns its length
   with measurements, named limits and open work, not with restated method.
@@ -112,8 +126,8 @@ These consolidate recurring historical observations, not new project-governance 
 - Purpose: close the false history empty-state range claim
   ([#776](https://github.com/znpruitt/cfb-app/issues/776)) and align the Members Live list with its
   existing awaiting-inclusive count ([#780](https://github.com/znpruitt/cfb-app/issues/780)). The
-  disrupted-game projection ([#781](https://github.com/znpruitt/cfb-app/issues/781)) was withdrawn;
-  #781 closed.
+  disrupted-game projection was not implemented. [#781](https://github.com/znpruitt/cfb-app/issues/781)
+  was withdrawn on 2026-09-14 and stays that way.
 - Scope / outcome: deleted the history sentence without replacing it with another range; Members
   `liveRows` now accepts `Live` and `Awaiting score`, while `No score reported` remains excluded.
   Its No-score exclusion is unreachable as disruption evidence: the test reaches that existing state
@@ -160,6 +174,18 @@ These consolidate recurring historical observations, not new project-governance 
   `codex/776-780-history-members-state`; both reviewers gathered and remediated across two rounds.
   Merge pending.
 
+### PLATFORM-625-DATABASE-TIMEOUTS-CLAUDE-v1
+
+- Change: `statement_timeout` and `lock_timeout` were `0` with no acquisition timeout, so only the 300 s platform kill broke a stuck query, lock wait or starvation. Now 15 s / 10 s as **`SET LOCAL` riding with each `BEGIN`**, `connectionTimeoutMillis` 15 s, `keepAlive` on; `idle_in_transaction_session_timeout` untouched (a Neon default). Every store statement runs in a bounded transaction — +2 round trips, and a client held three round trips rather than one, which RAISES contention on `max: 3`.
+- Evidence — **THE MECHANISM WAS THE SLICE, NOT THE VALUES.** Production Neon, both endpoints: the `pg` client option is **silently inert** (the proxy discards the startup parameter; control — `'NOT_AN_INT'` connects cleanly, the same value via `?options=` is rejected `22023`); a session `SET` is **17/18 wrong** through the pooler, reading `0` or another client's value; `?options=` is a hard **`08P01`** connect failure there. `SET LOCAL` alone applies on both. Production is pooled — `DATABASE_URL_UNPOOLED` and `POSTGRES_URL_NON_POOLING` exist (`vercel env ls`, names only): convention plus variable set, **not a host read**.
+- Values verified, not adopted: `pg_sleep(25)` ran **25,056 ms** unbounded, cancelled at **15,044 ms / `57014`**; contention fired first at **10,089 ms / `55P03`**; starvation still waiting at **16,001 ms**, bounded at 8,003 ms. Largest row is **2,579,978 bytes as wire JSON**, not the 0.36 MB stored — parse 39.7 ms, compress 22.1 ms, so 15 s is ~240x. Cold wake **1,468 ms** (postmaster uptime 1 s).
+- Historical corrections: the prompt's "15 s + 15 s = 30 s" is per-interaction; `statement_timeout` is per STATEMENT and `commitCanonicalOddsRefresh` issues eight — **~135 s** worst case, inside the 300 s envelope. 44.6 s is `schedule-refresh`'s completed run, not an envelope.
+- Scope limit: **acceptance bullet 3 is UNMET, not relaxed** — Postgres distinguishes `55P03` from `57014`, but every transactional caller flattens both into `store-unavailable` with a fixed code; the bounds end the hang, diagnosis stays latent ([#785](https://github.com/znpruitt/cfb-app/issues/785)). **[#595](https://github.com/znpruitt/cfb-app/issues/595) is BOUNDED, NOT FIXED** — nested-read structure unchanged, blast radius only. `standingsCacheWarmer.ts:125` is that structure on the longest-holding lock and the one path where `lock_timeout` CHANGES behaviour; its fallback logs nothing and reports success, so #785 takes it first. Durability uncertainty documented at `queryBounded`, deliberately not filed — `setAppState` was autocommit, so a lost acknowledgement already left it unknown; one became two, and a fix reaches 80 call sites.
+- Review / verification: both reviewers, twice; three lessons worth carrying. **(1) A checked-out pooled client had NO `'error'` listener** — `pg-pool` removes its idle one and `pool.connect()` adds nothing back — so a socket reset mid-query **took the process down**. **(2) The opener is the one statement no server-side bound can cover, because it installs them**: measured **20,062 ms against a 5,000 ms** connect timeout. **(3) A naive global `query_timeout` POISONS THE POOL** — the timed-out client returns to idle and every later query fails — hence destroy-on-timeout and [#788](https://github.com/znpruitt/cfb-app/issues/788) filed, not taken. `keepAlive` was also off: now on, **detection, not a bound**. **See L4** — my seam-reset test was VACUOUS (5 ms never beats an immediately-resolving fake), caught by running the mutation. **Every fake `pg` client is now an `EventEmitter`; a fake lacking that surface is what let (1) ship.** `lint:all`, `tsc`, `npm test` each exited 0; delta **5,354 -> 5,369**, 0 fail at both ends.
+- Status: MERGE-READY on `claude/625-database-timeouts` at `d1967f43`; `preview` suspended by the prompt (no user-visible surface). **Over the 300-word line, breakdown reported at merge** — owner approved these contents explicitly, and every bullet past `Change` is measurement, named limit or open work.
+- Open work: [#785](https://github.com/znpruitt/cfb-app/issues/785); [#788](https://github.com/znpruitt/cfb-app/issues/788) — the payload statement, `COMMIT` and `ROLLBACK` stay unbounded client-side, and four 15 s bounds compose to ~60 s for one `getAppState`.
+- Source links: [#625](https://github.com/znpruitt/cfb-app/issues/625), [#785](https://github.com/znpruitt/cfb-app/issues/785), [#788](https://github.com/znpruitt/cfb-app/issues/788), [#595](https://github.com/znpruitt/cfb-app/issues/595). Other source hashes: `c1d5383b`, `6f52557a`, `fd61d0c3`.
+
 ### PLATFORM-722-724-MATCHUPS-DERIVED-STATE-CODEX-v1
 
 - Change: [#722](https://github.com/znpruitt/cfb-app/issues/722) and
@@ -188,8 +214,8 @@ These consolidate recurring historical observations, not new project-governance 
   is the inverse omitted-flag default under another owner.
 - Follow-up / status: [#780](https://github.com/znpruitt/cfb-app/issues/780) is implemented by
   PLATFORM-776-780-781-STATE-RULINGS-CODEX-v1. [#781](https://github.com/znpruitt/cfb-app/issues/781)
-  was withdrawn and closed after the provider measurement established that CFBD supplies no
-  disrupted status; the dormant guards remain. MERGED `ebc4ec79` (PR #777), 2026-09-13;
+  was withdrawn on 2026-09-14 and stays that way; the provider measurement established that CFBD
+  supplies no disrupted status, and the dormant guards remain. MERGED `ebc4ec79` (PR #777), 2026-09-13;
   remediation is IMPLEMENTED AND REVIEWED in PR #784, pending merge.
 
 ### PLATFORM-627-INSIGHTS-BYPASS-AUTHORIZATION-CLAUDE-v1

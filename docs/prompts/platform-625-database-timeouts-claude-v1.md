@@ -139,7 +139,13 @@ next person does not re-derive it.
   CARRIES: prior-good preserved, `lastSuccessAt` untouched, and the status helpers still cannot throw
   into the provider path.
 - **Lock contention is distinguishable from a slow statement** in whatever is recorded. That is the
-  entire reason the two values differ.
+  entire reason the two values differ. **AMENDED 2026-09-14 at review: this bullet is NOT MET by this
+  slice and the closeout must say so.** Postgres does distinguish them (`55P03` versus `57014`), but
+  every transactional caller flattens both into `store-unavailable` with a fixed code before anything
+  durable records it. Fixing that reaches 19 callers and the transaction seams, which this SCOPE
+  excludes — filed as [#785](https://github.com/znpruitt/cfb-app/issues/785). **The bounds still end
+  the hang; the diagnostic value is latent until a caller preserves the identity.** Do not relax this
+  bullet quietly — record it as unmet.
 - The file-fallback path (no `DATABASE_URL`) is unaffected.
 - **#595's deadlock is BOUNDED, not fixed.** Say so in the closeout; a reader should not come away
   thinking the nested-read structure is safe.
