@@ -227,6 +227,14 @@ first commit; if you are not where this table says you should be, stop and say s
 - **VERIFY A CODEX REPORT'S DIFF BASE BEFORE TREATING IT AS GATHERED — the report BODY cannot tell
   you.** Its header reads only `Target: branch diff against main`, which is byte-identical for a
   real review and for a review of nothing. The range is in the TRANSCRIPT above the `# Codex Review`
+- **READ THE EXIT CODE. IT IS THE CHEAPEST DISCRIMINATOR AND IT CATCHES THE SHAPE BOTH OTHER CHECKS
+  MISS.** Added 2026-09-15, fourth variant. A capacity failure emitted a `# Codex Review` header AND
+  the correct `Target:` line, **16 `git diff` invocations into a real investigation of the right
+  files** — so the banner check passes and the transcript check passes. Only the body sentence
+  (*"Reviewer failed to output a response"*, *"Selected model is at capacity"*) and **exit code 1**
+  distinguish it; a good run exits 0. **Check the exit code first, then the diff base, then the
+  body.** Cheapest to most expensive, and the cheapest is the one that catches a run which did real
+  work and produced no findings.
 - **THE BANNER CAN NAME A BASE THE REVIEW NEVER USED. A THIRD VARIANT, AND THE MOST DANGEROUS.**
   Added 2026-09-15. A run invoked with `--base <802's merge-base>` printed
   `Reviewer started: changes against '262708ff…'` — **and that was the only place the value appeared
