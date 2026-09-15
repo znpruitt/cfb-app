@@ -44,7 +44,9 @@ import {
 } from '@/lib/selectors/leagueStandings';
 import {
   clearPendingStandingsInvalidation,
+  readPendingStandingsInvalidation,
   recordPendingStandingsInvalidation,
+  type PendingStandingsInvalidation,
 } from '@/lib/server/standingsInvalidationPending';
 import {
   getScheduleProbeState,
@@ -629,7 +631,8 @@ async function fullSeasonRefreshResponse(
 async function reportStandingsInvalidation(
   outcome: StandingsInvalidationOutcome,
   site: 'schedule-partition-commit' | 'schedule-single-scope-commit',
-  year: number
+  year: number,
+  observed: PendingStandingsInvalidation | undefined
 ): Promise<void> {
   // DURABLE FIRST, log second. This path writes no scheduler receipt, so before
   // PLATFORM-693's pending record a failure here survived only as long as the logs —
@@ -638,7 +641,10 @@ async function reportStandingsInvalidation(
   // now repaired automatically within a day rather than depending on a human reading
   // a log line about a cache.
   if (outcome.result === 'complete') {
-    await clearPendingStandingsInvalidation(year);
+    // `observed` is read by the caller BEFORE its walk — a clear must name the
+    // obligation it clears, and one read after the walk would be whatever landed
+    // during it.
+    if (observed) await clearPendingStandingsInvalidation(year, observed);
     return;
   }
   await recordPendingStandingsInvalidation(year);
@@ -870,10 +876,13 @@ export async function GET(req: Request) {
       // `revalidate: false` (tag-only), so a missed bust is PERMANENT until some
       // other mutation happens to fire the same tag — the old comment's promise of
       // "natural cache turnover" described a mechanism that does not exist.
+      // Observed BEFORE the walk: a clear must name the obligation it clears.
+      const observedPartition = await readPendingStandingsInvalidation(year);
       await reportStandingsInvalidation(
         await invalidateStandingsForYearReporting(year),
         'schedule-partition-commit',
-        year
+        year,
+        observedPartition
       );
     }
 
@@ -1238,10 +1247,13 @@ export async function GET(req: Request) {
   // cheap.
   // PLATFORM-693: see the partition-commit site above. Same walk, same permanence
   // of a missed bust, same reporting.
+  // Observed BEFORE the walk: a clear must name the obligation it clears.
+  const observedSingleScope = await readPendingStandingsInvalidation(year);
   await reportStandingsInvalidation(
     await invalidateStandingsForYearReporting(year),
     'schedule-single-scope-commit',
-    year
+    year,
+    observedSingleScope
   );
 
   // Update schedule probe state when a full-season admin refresh completes

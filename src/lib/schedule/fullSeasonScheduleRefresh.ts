@@ -33,6 +33,7 @@ import {
 import {
   clearPendingStandingsInvalidation,
   dischargePendingStandingsInvalidation,
+  readPendingStandingsInvalidation,
   recordPendingStandingsInvalidation,
 } from '../server/standingsInvalidationPending.ts';
 import { getAppState, withAppStateKeyTransaction } from '../server/appStateStore.ts';
@@ -261,11 +262,19 @@ async function commitFullSeasonSchedule(params: {
  * so fires nothing.
  */
 async function bustStandingsForYear(year: number): Promise<StandingsInvalidationOutcome> {
+  // Observed BEFORE the walk. A clear must name the obligation it is clearing, and an
+  // obligation read AFTER the walk would be whatever landed during it — which is the
+  // race the token exists to close.
+  const observed = await readPendingStandingsInvalidation(year);
   const outcome = await invalidateStandingsForYearReporting(year);
-  // The pending record is the durable half. The receipt says what THIS RUN did; this
-  // says what is still OWED, which the latest-only receipt structurally cannot.
-  if (outcome.result === 'complete') await clearPendingStandingsInvalidation(year);
-  else await recordPendingStandingsInvalidation(year);
+  // The obligation is the durable half. The receipt says what THIS RUN did; the
+  // obligation says what is still OWED, which the latest-only receipt structurally
+  // cannot.
+  if (outcome.result === 'complete') {
+    if (observed) await clearPendingStandingsInvalidation(year, observed);
+  } else {
+    await recordPendingStandingsInvalidation(year);
+  }
   return outcome;
 }
 

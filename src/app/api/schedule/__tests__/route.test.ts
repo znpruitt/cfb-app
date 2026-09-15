@@ -30,8 +30,8 @@ import {
 } from '../../../../lib/providerRefreshScope.ts';
 import { acquireScheduleRefreshLease } from '../../../../lib/schedule/scheduleRefreshLease.ts';
 import {
+  readPendingStandingsInvalidation,
   recordPendingStandingsInvalidation,
-  STANDINGS_INVALIDATION_PENDING_SCOPE,
 } from '../../../../lib/server/standingsInvalidationPending.ts';
 
 // Schedule status scope now reflects the ACTUAL refresh target (finding 1): a
@@ -1474,13 +1474,11 @@ test('full-year manual refresh under lease contention maps to HTTP 409 with no p
 
 // PLATFORM-693 TRIGGER B — the DESIGNATED REPAIR PATH actually repairs.
 //
-// This is the wiring test, not a unit test of the discharge. Deleting the
-// `dischargePendingStandingsInvalidation` call from `refreshFullSeasonSchedule` must
-// redden THIS, and a unit test of the helper alone did not — it passed with the call
-// site removed, which is the `AGENTS.md:468` failure in miniature.
+// The WIRING test, not a unit test of the discharge. In round 2 I unit-tested the helper
+// and never tested that anything CALLS it: deleting the call site left the suite green,
+// which is `AGENTS.md:468` in miniature. This drives what the System Health repair link
+// drives — `GET /api/schedule?bypassCache=1&year=Y` — and reddens when the call goes.
 //
-// The route under test is exactly what the System Health repair link drives:
-// `GET /api/schedule?bypassCache=1&year=Y`, which reaches the full-season authority.
 // The cron's drain cannot cover this path; that is why there are two triggers.
 test('the full-year admin refresh discharges a pending standings invalidation', async () => {
   process.env.ADMIN_API_TOKEN = 'admin-token';
@@ -1494,8 +1492,7 @@ test('the full-year admin refresh discharges a pending standings invalidation', 
   });
 
   await recordPendingStandingsInvalidation(2027);
-  const before = await getAppState(STANDINGS_INVALIDATION_PENDING_SCOPE, '2027');
-  assert.ok(before?.value, 'precondition: 2027 owes a standings bust');
+  assert.ok(await readPendingStandingsInvalidation(2027), 'precondition: 2027 owes a bust');
 
   await GET(
     new Request('http://localhost/api/schedule?year=2027&seasonType=all&bypassCache=1', {
@@ -1503,10 +1500,9 @@ test('the full-year admin refresh discharges a pending standings invalidation', 
     })
   );
 
-  const after = await getAppState(STANDINGS_INVALIDATION_PENDING_SCOPE, '2027');
   assert.equal(
-    after?.value ?? null,
-    null,
-    'the repair path must discharge the pending bust, not report success over it'
+    await readPendingStandingsInvalidation(2027),
+    undefined,
+    'the repair path must discharge the obligation, not report success over it'
   );
 });

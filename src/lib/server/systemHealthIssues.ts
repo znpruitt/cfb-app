@@ -62,7 +62,8 @@ export type SchedulerIssueCode =
   | 'scheduler-receipt-invalid'
   | 'scheduler-delivery-unavailable'
   | 'scheduler-execution-failed'
-  | 'scheduler-execution-partial';
+  | 'scheduler-execution-partial'
+  | 'standings-invalidation-pending';
 
 export type ProviderAttemptIssueCode =
   | 'provider-refresh-failed'
@@ -741,6 +742,33 @@ function schedulerExecutionIssues(snapshot: SchedulerDeliveryHealthSnapshot): Sy
       });
     }
     // success / no-op / skipped / in-progress → no fault issue.
+
+    // PLATFORM-693 — INDEPENDENT of `receipt.result`, and that independence is the
+    // whole point. A run whose own years succeeded leaves the result `success`, so
+    // without this an outstanding obligation showed up only inside a collapsed Target
+    // panel while Scheduler and Overall stayed green. **A consumer that cannot RAISE
+    // the condition is not a consumer** — rendering the count was not enough, and this
+    // requirement exists because the earlier test ("name the rendering at a specific
+    // line") was satisfied exactly and the fault still could not surface.
+    const target = receipt.target;
+    if (target.kind === 'schedule-years' && target.pendingStandingsInvalidations > 0) {
+      issues.push({
+        code: 'standings-invalidation-pending',
+        severity: 'warning',
+        subject: { axis: 'job', id: row.job },
+        title: `${target.pendingStandingsInvalidations} standings invalidation(s) still pending`,
+        // Says what to DO, because an alarm with no action is its own defect — which
+        // is the failure this requirement corrects, one layer up. Repair is automatic
+        // and the actionable signal is a count that does NOT fall.
+        explanation:
+          `Canonical standings for ${target.pendingStandingsInvalidations} year(s) are stale: a durable commit ` +
+          'succeeded but its cache invalidation did not, and the tags are only cleared by an ' +
+          'invalidation — there is no time-based expiry. The next scheduled run retries them ' +
+          'automatically, so a falling count is repair in progress. A count that does NOT fall ' +
+          'across consecutive runs is the fault worth investigating.',
+        repair,
+      });
+    }
   }
   return issues;
 }
