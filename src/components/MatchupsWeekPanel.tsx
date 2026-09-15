@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { formatExpandedKickoff } from '../lib/gameCardPresentation';
+import { formatExpandedKickoff, formatPrimaryBroadcastLabel } from '../lib/gameCardPresentation';
 import { displayOwner } from '../lib/gameOwnership';
 import type { CombinedOdds } from '../lib/odds';
 import {
@@ -184,6 +184,41 @@ function GameRow({
     usesNeutralSiteSemantics(slateGame.game) || slateGame.game.neutral ? 'vs' : '@';
   const liveClockLabel = buildLiveClockLabel(score);
   const scoreboardState = projectMatchupsGameState({ game: slateGame.game, score, nowMs });
+  // #723. ENUMERATED per state, and `unavailable` is EXCLUDED. `DESIGN.md:201`
+  // names scheduled, live and awaiting; the same bullet defines the fifth state
+  // and supplies the reason. `awaiting` carries a carrier because it is "an
+  // indeterminate post-kickoff subset of live" where "a broadcast label names the
+  // game's carrier rather than claiming it is currently on air" — reasoning scoped
+  // to a state the app still believes. `No score reported` is defined as the state
+  // where "awaiting is a claim the app no longer believes", so a carrier there is
+  // what the fifth state exists to stop, on the same logic that excludes finals.
+  //
+  // THIS GATE IS LOAD-BEARING — do not simplify it to an unconditional pass by
+  // analogy with `OverviewPanel.tsx:877`. Unlike Overview's gate at `:797`, which
+  // its own comment notes changes no rendered output, this one changes what ships:
+  // `displayPolicyByState.unavailable.showsBroadcast` is `true`, so removing this
+  // gate renders `No score reported • FOX` for a game more than 24 hours past
+  // kickoff. Matchups is the only surface that can reach it — `routeForItem` drops
+  // those at the eight-hour abandonment gate and `resolveScheduleScoreboard`
+  // degrades them to `scheduled`. That component-side default is the real defect
+  // and is #796; this gate holds the line until it lands, and stays correct after.
+  //
+  // The three admitted states match `gameWeek.ts:327-330`, the Schedule surface and
+  // the sibling that actually answers `unavailable`. THE MATCH IS NOT EXACT and the
+  // difference is deliberate: that sibling also carries
+  // `&& !scoreboard.suppressScheduledMetadata`, which fires with its disrupted
+  // schedule notice. Matchups passes no `scheduleNotice`, so there is no notice to
+  // suppress alongside — but the consequence is real, because
+  // `isScoreReportExpectedGame` maps a disrupted game to `scheduled`, so a canceled
+  // game would render a carrier for a game that will not be played. That is the same
+  // class of claim the `unavailable` exclusion above exists to stop.
+  // NOT A LIVE DEFECT, and the measurement is why: zero disrupted labels across
+  // 22,760 schedule rows and 20,424 score statuses — the finding that withdrew
+  // #781's part B. If CFBD ever emits one, this gate needs the fourth term.
+  const broadcastLabel =
+    scoreboardState === 'scheduled' || scoreboardState === 'live' || scoreboardState === 'awaiting'
+      ? (formatPrimaryBroadcastLabel(slateGame.game.media) ?? undefined)
+      : undefined;
   const liveGameDelta = liveDelta?.byGame[slateGame.game.key];
   const showLiveIndicator =
     scoreboardState === 'live' &&
@@ -276,6 +311,7 @@ function GameRow({
       <CompactGameScoreboard
         state={scoreboardState}
         statusLabel="SCH"
+        broadcast={broadcastLabel}
         liveHue="neutral"
         liveDot={showLiveIndicator ? 'pulse' : 'none'}
         clock={scoreboardDisplay.clock}
@@ -297,7 +333,7 @@ function GameRow({
               {secondary.map((tag) => (
                 <span
                   key={`${slateGame.game.key}:tag:${tag}`}
-                  className={`hidden sm:inline-flex ${EYEBROW_TAG_CLASSES}`}
+                  className={`inline-flex ${EYEBROW_TAG_CLASSES}`}
                   data-eyebrow-tag
                 >
                   {LEAGUE_TAG_LABELS[tag]}
