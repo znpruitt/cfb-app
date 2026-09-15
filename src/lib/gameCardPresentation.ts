@@ -41,7 +41,8 @@ export function formatMatchupsOddsFooter({
   const favoriteSpread = deriveFavoriteSpreadPair(odds.homeSpread, odds.awaySpread);
   if (favoriteSpread) {
     if (favoriteSpread.favoriteSide === null) {
-      parts.push("Pick'em");
+      // Equal nonzero sides are untrustworthy identity data, not a pick'em.
+      if (favoriteSpread.spread === 0) parts.push("Pick'em");
     } else {
       const favoriteName = favoriteSpread.favoriteSide === 'home' ? homeTeamName : awayTeamName;
       parts.push(`${favoriteName} ${formatSignedSpread(favoriteSpread.spread)}`);

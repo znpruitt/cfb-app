@@ -138,6 +138,27 @@ test("formatMatchupsOddsFooter distinguishes pick'em from missing side data", ()
   );
 });
 
+test("formatMatchupsOddsFooter reserves pick'em for a zero equal-spread pair", () => {
+  assert.equal(
+    formatMatchupsOddsFooter({
+      odds: combinedOdds({ spread: -7.5, homeSpread: -7.5, awaySpread: -7.5, total: 48.5 }),
+      homeTeamName: 'Georgia Tech',
+      awayTeamName: 'Colorado',
+    }),
+    'O/U 48.5',
+    "an equal nonzero pair keeps the usable total without asserting a favorite or pick'em"
+  );
+  assert.equal(
+    formatMatchupsOddsFooter({
+      odds: combinedOdds({ spread: -7.5, homeSpread: -7.5, awaySpread: -7.5 }),
+      homeTeamName: 'Georgia Tech',
+      awayTeamName: 'Colorado',
+    }),
+    'Line not posted',
+    'an equal nonzero spread alone cannot produce a trustworthy line label'
+  );
+});
+
 test('formatVenueLabel supports stadium-only and location-only fallbacks', () => {
   assert.equal(
     formatVenueLabel({ stadium: 'Aviva Stadium', city: null, state: null, country: 'Ireland' }),
