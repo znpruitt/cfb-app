@@ -39,6 +39,7 @@ import {
   readSchedulerDeliveryHealth,
   type SchedulerDeliveryHealthRow,
 } from '../schedulerDeliveryHealth.ts';
+import type { SchedulerExecutionReceipt } from '../schedulerExecutionStatus.ts';
 import { oddsTargetScope, weekPartitionScope } from '../../providerRefreshScope.ts';
 
 function codes(issues: SystemHealthIssue[]): string[] {
@@ -1866,5 +1867,64 @@ test('a row with no schedule left is announced as the whole row, not one schedul
   assert.ok(
     !/slow schedule cannot be checked/.test(unavailable!.title),
     'not announced as a single-schedule fault'
+  );
+});
+
+// === PLATFORM-693 R1 — a positive pending count must make a HEALTHY run report unhealthy ===
+
+/** A schedule-refresh receipt that SUCCEEDED, carrying `n` outstanding obligations. */
+function scheduleReceiptWithPending(n: number): SchedulerExecutionReceipt {
+  const receipt = receiptWithReason('schedule-refresh', 'success', 'year-results');
+  const target = receipt.target as Extract<
+    SchedulerExecutionReceipt['target'],
+    { kind: 'schedule-years' }
+  >;
+  return {
+    ...receipt,
+    target: { ...target, pendingStandingsInvalidations: n },
+  };
+}
+
+test('an outstanding standings invalidation raises an issue even when the run SUCCEEDED', () => {
+  // THE REQUIREMENT, and the reason rendering was not enough: `schedulerExecutionIssues`
+  // warns only on `failure` or `partial`, so a run whose own years succeeded left
+  // Scheduler and Overall green while the count sat inside a collapsed Target panel.
+  // A consumer that cannot RAISE the condition is not a consumer.
+  const issues = deriveSystemHealthIssues(
+    baseInputs({
+      schedulerDelivery: deliverySnapshot([
+        deliveryRow('schedule-refresh', 'on-time', scheduleReceiptWithPending(2)),
+      ]),
+    })
+  );
+
+  const raised = issues.find((issue) => issue.code === 'standings-invalidation-pending');
+  assert.ok(raised, 'a successful run with outstanding obligations must still raise a fault');
+  assert.equal(raised.severity, 'warning');
+  assert.deepEqual(raised.subject, { axis: 'job', id: 'schedule-refresh' });
+  // Says what to DO. An alarm with no action is its own defect — the same failure this
+  // requirement corrects, one layer up.
+  assert.match(raised.explanation, /falling count is repair in progress/i);
+  assert.match(raised.explanation, /does NOT fall/i);
+  // NO REPAIR LINK. The receipt carries a count and cannot name which years are
+  // outstanding, so the job's generic Data Maintenance action cannot act on this fault —
+  // and the explanation says repair is automatic, so a link would contradict its own
+  // issue. An alarm whose action is WRONG is worse than one with no action, because a
+  // wrong action gets taken.
+  assert.equal(raised.repair, null);
+});
+
+test('a clean run with nothing pending raises nothing', () => {
+  // The positive control: without it, an issue that always fires passes the test above.
+  const issues = deriveSystemHealthIssues(
+    baseInputs({
+      schedulerDelivery: deliverySnapshot([
+        deliveryRow('schedule-refresh', 'on-time', scheduleReceiptWithPending(0)),
+      ]),
+    })
+  );
+  assert.equal(
+    issues.find((issue) => issue.code === 'standings-invalidation-pending'),
+    undefined
   );
 });

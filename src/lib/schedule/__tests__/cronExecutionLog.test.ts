@@ -8,6 +8,7 @@ import {
   emitScheduleRefreshCronExecutionEvent,
   type ScheduleRefreshCronYearExecution,
 } from '../cronExecutionLog.ts';
+import { completeStandingsInvalidation } from '../../selectors/leagueStandings.ts';
 
 // PLATFORM-086E1B1 — unit coverage for the weekly cron's aggregate result/reason
 // rules, including the transition-owner deferral semantics (an intentional skip,
@@ -33,6 +34,7 @@ function entry(
     scoreDifferences: [],
     scoreDifferencesTruncated: false,
     scoreSweepFailedPartitions: [],
+    standingsInvalidation: completeStandingsInvalidation(),
     scoreSweepCannotTellCount: 0,
     kickoffsChanged: 0,
     ...over,
@@ -137,4 +139,49 @@ test('the emitted event carries only allowlisted keys, including E1B1 values', (
   const years = event.years as Array<Record<string, unknown>>;
   assert.equal(years[1]!.operation, 'preseason-maintenance');
   assert.ok(Number.isInteger(event.durationMs) && (event.durationMs as number) >= 0);
+});
+
+// === PLATFORM-693 — the per-year `partial` result must reach the run level ===
+
+test('a run whose every year is partial reports partial, never skipped', () => {
+  // THE REGRESSION. `partial` was added to the per-year union for a committed
+  // refresh whose standings bust did not complete. Before the aggregator learned
+  // it, such a year matched no branch here and the run fell through to `skipped` —
+  // reporting that NOTHING RAN for a run that committed rows for every target year.
+  const years = [
+    entry({ result: 'partial', reason: 'standings-invalidation-incomplete' }),
+    entry({ result: 'partial', reason: 'standings-invalidation-incomplete' }),
+  ];
+  assert.equal(aggregateScheduleCronResult(years), 'partial');
+});
+
+test('a partial year is not hidden by a sibling success', () => {
+  const years = [
+    entry({ result: 'success', reason: 'written-clean' }),
+    entry({ result: 'partial', reason: 'standings-invalidation-incomplete' }),
+  ];
+  // Would have reported a clean `success` before the aggregator counted partial.
+  assert.equal(aggregateScheduleCronResult(years), 'partial');
+});
+
+test('a genuine failure still outranks a partial', () => {
+  const years = [
+    entry({ result: 'failure', reason: 'partition-fetch-failed' }),
+    entry({ result: 'partial', reason: 'standings-invalidation-incomplete' }),
+  ];
+  // A failed fetch is a data-integrity failure; a stale cache is not. Mixed stays
+  // `partial` by the existing rule, but the failure must never be downgraded away.
+  assert.equal(aggregateScheduleCronResult(years), 'partial');
+  assert.equal(
+    aggregateScheduleCronResult([entry({ result: 'failure', reason: 'partition-fetch-failed' })]),
+    'failure'
+  );
+});
+
+test('a skipped-only run is still skipped once partial exists', () => {
+  // Positive control that the new clause did not swallow the skipped path.
+  assert.equal(
+    aggregateScheduleCronResult([entry({ result: 'skipped', reason: 'season-transition-owner' })]),
+    'skipped'
+  );
 });

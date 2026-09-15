@@ -62,7 +62,8 @@ export type SchedulerIssueCode =
   | 'scheduler-receipt-invalid'
   | 'scheduler-delivery-unavailable'
   | 'scheduler-execution-failed'
-  | 'scheduler-execution-partial';
+  | 'scheduler-execution-partial'
+  | 'standings-invalidation-pending';
 
 export type ProviderAttemptIssueCode =
   | 'provider-refresh-failed'
@@ -741,6 +742,55 @@ function schedulerExecutionIssues(snapshot: SchedulerDeliveryHealthSnapshot): Sy
       });
     }
     // success / no-op / skipped / in-progress → no fault issue.
+
+    // PLATFORM-693 — INDEPENDENT of `receipt.result`, and that independence is the
+    // whole point. A run whose own years succeeded leaves the result `success`, so
+    // without this an outstanding obligation showed up only inside a collapsed Target
+    // panel while Scheduler and Overall stayed green. **A consumer that cannot RAISE
+    // the condition is not a consumer** — rendering the count was not enough, and this
+    // requirement exists because the earlier test ("name the rendering at a specific
+    // line") was satisfied exactly and the fault still could not surface.
+    const target = receipt.target;
+    if (target.kind === 'schedule-years' && target.pendingStandingsInvalidations > 0) {
+      // ROUND 2 — SEVERITY SAYS WHICH STATE THE FAULT IS IN, because one severity
+      // cannot say both things this condition means. The explanation below already
+      // drew the distinction — a falling count is repair in progress, a count that
+      // does NOT fall is the fault — while the code asserted `warning` for both, so
+      // the ACTIONABLE severity was being published for what is usually the
+      // informational case.
+      //
+      issues.push({
+        code: 'standings-invalidation-pending',
+        severity: 'warning',
+        subject: { axis: 'job', id: row.job },
+        title: `${target.pendingStandingsInvalidations} standings invalidation(s) still pending`,
+        // ONE SEVERITY, ONE SENTENCE — rounds 2 and 3 split this into `info`/`warning`
+        // by an attempt counter and the whole escalation was removed in round 4. The
+        // counter could not do its job (a successful clear wiped the history, so the
+        // escalated state was unreachable for the flapping fault it targeted), and
+        // `warning` was always sufficient for what R1 actually required: the Scheduler
+        // tile yellow and Overall reporting attention needed. The split only ever
+        // bought detail-line priority.
+        //
+        // ONE TEMPLATE LITERAL, NEVER A `+` CHAIN of two interpolating literals — see
+        // the docblock on `APP_STATE_BOUNDED_BEGIN`; that shape took production down on
+        // 2026-09-15.
+        //
+        // Pinned by "an outstanding standings invalidation raises an issue even when
+        // the run SUCCEEDED" here, and by the panel-level tests in
+        // `systemHealthPanels.test.ts`. Do not assert a RENDERING claim in this file:
+        // round 2 did, naming tests that assert severity and cannot see a panel.
+        explanation: `Canonical standings for ${target.pendingStandingsInvalidations} year(s) are stale: a durable commit succeeded but its cache invalidation did not, and the tags are only cleared by an invalidation — there is no time-based expiry. The next scheduled run retries them automatically, so a falling count is repair in progress. A count that does NOT fall across consecutive runs is the fault worth investigating.`,
+        // `repair: null`, NOT the job's generic Data Maintenance action. The receipt
+        // carries a COUNT and cannot name which years are outstanding, so that
+        // destination cannot act on this fault — and the explanation above says repair
+        // is automatic, so a link would contradict its own issue. An alarm whose action
+        // is WRONG is worse than one with no action, because a wrong action gets taken:
+        // this is the alarm-with-no-action defect R1 exists to fix, in its opposite
+        // disguise, introduced while fixing it.
+        repair: null,
+      });
+    }
   }
   return issues;
 }

@@ -4,7 +4,7 @@ import { cache } from 'react';
 import { deriveLifecycleState, deriveTotalRegularSeasonWeeks } from '../insights/lifecycle.ts';
 import type { LifecycleState } from '../insights/types.ts';
 import type { League, LeagueStatus } from '../league.ts';
-import { getLeague } from '../leagueRegistry.ts';
+import { getLeague, readLeagueRegistry, type LeagueRegistryReadResult } from '../leagueRegistry.ts';
 import { parseOwnersCsv } from '../parseOwnersCsv.ts';
 import { getPreseasonOwners } from '../preseasonOwnerStore.ts';
 import type { AppGame } from '../schedule.ts';
@@ -405,19 +405,197 @@ export function invalidateStandings(slug: string, year?: number): void {
  * drift on which error codes count as "no context". Any OTHER error still
  * surfaces.
  */
+export function isMissingRequestContextError(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    (err.message.includes('static generation store missing') ||
+      (err as { __NEXT_ERROR_CODE?: unknown }).__NEXT_ERROR_CODE === 'E263')
+  );
+}
+
 export function invalidateStandingsSafely(slug: string, year?: number): void {
   try {
     invalidateStandings(slug, year);
   } catch (err) {
-    if (
-      err instanceof Error &&
-      (err.message.includes('static generation store missing') ||
-        (err as { __NEXT_ERROR_CODE?: unknown }).__NEXT_ERROR_CODE === 'E263')
-    ) {
-      return;
-    }
+    if (isMissingRequestContextError(err)) return;
     throw err;
   }
+}
+
+/**
+ * PLATFORM-693 — the outcome of a registry-walking invalidation.
+ *
+ * CLOSED and secret-free by construction: counts and league slugs only, never an
+ * error message, so it can ride the schedule refresh-result contract (which forbids
+ * arbitrary error text) and be serialized into a cron receipt unchanged.
+ *
+ * `result` discriminates the three failures that used to share one bare `catch`:
+ *   - `complete`       every registered league's tags were busted (or there were none).
+ *   - `registry-failed` `getLeagues()` threw, so the walk never ran and NOTHING was
+ *                      invalidated. `attempted` is null — the population is unknown,
+ *                      which is different from knowing it was zero.
+ *   - `partial`        the walk ran and some leagues threw.
+ *
+ * A benign out-of-request-context call (`E263`) is NOT a failure and is not recorded
+ * as one. The discrimination happens INLINE in the walk, via the same
+ * `isMissingRequestContextError` predicate `invalidateStandingsSafely` uses — NOT by
+ * calling that wrapper, whose default here is the RAW invalidator. The difference is
+ * load-bearing rather than stylistic: the wrapper returns normally, which would run
+ * `invalidated += 1` and report a bust that did not happen; the inline `continue`
+ * skips both counters, which is what makes an all-benign walk report `partial`.
+ *
+ * COUNTS ONLY, NO SLUGS — deliberately. This value is serialized into the
+ * `schedule-refresh` cron execution event and its durable receipt, and that surface's
+ * stated policy is "a count only: never a slug" (`cronExecutionLog.ts`, on
+ * `invalidLifecycleTargets`). The failing slug is logged where the failure happens
+ * instead, which is not a policed surface and keeps the diagnostic.
+ */
+export type StandingsInvalidationOutcome = {
+  result: 'complete' | 'partial' | 'registry-failed';
+  /**
+   * Registered leagues the walk intended to bust, or `null` when the POPULATION IS
+   * UNKNOWN — the registry read threw, or the stored record was malformed. `null` is
+   * not `0`: zero asserts there were no leagues to invalidate, which is a different
+   * and unverified claim.
+   */
+  attempted: number | null;
+  /** Leagues whose tags were successfully busted. */
+  invalidated: number;
+  /**
+   * Leagues that threw a NON-benign error. NOT derivable as `attempted - invalidated`:
+   * a benign out-of-context `E263` increments neither counter, so an all-benign walk
+   * is `attempted: n, invalidated: 0, failed: 0`. Read the field.
+   */
+  failed: number;
+};
+
+export function completeStandingsInvalidation(): StandingsInvalidationOutcome {
+  return { result: 'complete', attempted: 0, invalidated: 0, failed: 0 };
+}
+
+/**
+ * Invalidate canonical standings for every registered league at `year`, and REPORT
+ * what happened instead of swallowing it.
+ *
+ * PLATFORM-693. Three call sites used to inline this walk under one bare `catch`
+ * whose comment promised recovery "on the next mutation or natural cache turnover".
+ * There is no turnover: `dataCachedCanonicalStandings` is `revalidate: false`, and an
+ * unchanged subsequent refresh commits nothing so fires nothing. A swallowed failure
+ * therefore left canonical standings stale INDEFINITELY.
+ *
+ * The catch itself was correct and is preserved: every caller runs AFTER its durable
+ * commit, so throwing would turn a completed state change into a 500 — which is what
+ * the PLATFORM-086A truthful-status invariant forbids. **The bug was that the failure
+ * was discarded, not that it was caught.** This function never throws; it returns the
+ * failure as data for the caller to record.
+ *
+ * Deliberately does NOT bust `ALL_STANDINGS_TAG` instead, which would make a partial
+ * walk structurally impossible: that tag is carried by every Insights entry too
+ * (`insightsCacheTags`), so a year-scoped schedule commit would recompute every
+ * league's Insights as well as every cached year's standings.
+ */
+export async function invalidateStandingsForYearReporting(
+  year: number,
+  // The REGISTRY READER, not `getLeagues()`. `getLeagues()` collapses `malformed`
+  // into `[]` — its own docblock says classifying a malformed record as missing
+  // "would let a caller proceed as though the registry were empty, which is the
+  // collapse this reader exists to prevent", and proceeding as though it were empty
+  // is exactly what recorded a false success here. This IS a caller that acts on the
+  // distinction (it reports `attempted`), so it consumes the reader directly.
+  //
+  // REACHABILITY, because a fix whose comment overstates its own scope is the defect
+  // class this file is fixing: the malformed branch is LIVE, not defence-in-depth.
+  // `cron/schedule-refresh` (:306) and `cron/season-transition` (:176) both refuse
+  // `registry-malformed` before they ever reach the refresh authority, so it cannot
+  // arise there. But `admin/cache-historical-schedule` reads the registry through
+  // `getLeagues()` with no malformed guard, and `/api/schedule` has no guard at all —
+  // both reach this walk with a corrupt registry.
+  readRegistry: () => Promise<LeagueRegistryReadResult> = readLeagueRegistry,
+  // The RAW invalidator. Injectable so a test can make one league throw mid-walk —
+  // under `node:test` every real `revalidateTag` raises `E263`, so without this the
+  // benign branch would absorb every case and the partial path would be unreachable.
+  invalidate: (slug: string, year: number) => void = invalidateStandings
+): Promise<StandingsInvalidationOutcome> {
+  let read: LeagueRegistryReadResult;
+  try {
+    read = await readRegistry();
+  } catch (error) {
+    console.error('canonical standings invalidation could not read the league registry', {
+      year,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return { result: 'registry-failed', attempted: null, invalidated: 0, failed: 0 };
+  }
+
+  if (read.kind === 'malformed') {
+    // Same CLAIM as the throw above — the population is unknown — so it takes the
+    // same outcome rather than a fourth result value. `malformed` is already surfaced
+    // where an operator acts on it (`registry-malformed` on three cron routes); a
+    // separate value here would add a value without adding information.
+    console.error('canonical standings invalidation found a malformed league registry', { year });
+    return { result: 'registry-failed', attempted: null, invalidated: 0, failed: 0 };
+  }
+
+  // `missing` is a genuine empty registry — nothing to invalidate is success.
+  const leagues: ReadonlyArray<{ slug: string }> = read.kind === 'ok' ? read.leagues : [];
+
+  let invalidated = 0;
+  let failed = 0;
+  for (const league of leagues) {
+    // Captured BEFORE the call. Individual registry entries are not validated, so a
+    // non-object entry throws on property access — and the previous version then
+    // dereferenced it AGAIN inside the catch, throwing out of a helper documented as
+    // never throwing. Post-commit that turns a completed state change into a 500,
+    // which is the CARRIES violation the original swallow existed to prevent.
+    // VALIDATED, not merely captured. `readLeagueRegistry` checks `Array.isArray` and
+    // nothing per-entry, so an entry can be a string, or an object with a missing or
+    // non-string `slug`. Those do NOT throw: `standingsSlugTag(undefined)` returns the
+    // perfectly valid tag `standings:undefined`, `revalidateTag` succeeds, and the walk
+    // would count a bust that never happened — reporting `complete` and CLEARING a
+    // pending record for a league whose standings are still stale. That is a false
+    // success DESTROYING EVIDENCE, which is the defect this whole item exists to end.
+    const slug = (league as { slug?: unknown } | null)?.slug;
+    if (typeof slug !== 'string' || slug.length === 0) {
+      failed += 1;
+      console.error('canonical standings invalidation skipped an unusable registry entry', {
+        year,
+      });
+      continue;
+    }
+    try {
+      invalidate(slug, year);
+      invalidated += 1;
+    } catch (error) {
+      // An out-of-context `E263` is BENIGN and must never be recorded as a failure
+      // (acceptance boundary). It is not counted as invalidated either: nothing was
+      // busted, there was simply no request context to bust it in — and counting it
+      // as success would manufacture evidence of a bust that did not happen. The
+      // SHARED predicate, not a second copy of the discrimination.
+      if (isMissingRequestContextError(error)) continue;
+      // Caught PER LEAGUE, so one bad league cannot abort the rest — aborting is
+      // what made the old walk silently partial.
+      failed += 1;
+      // The slug lives HERE, not in the returned value: the returned value is
+      // serialized into a policed log/receipt surface, this is not.
+      console.error('canonical standings invalidation failed for a league', {
+        slug,
+        year,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return {
+    // A walk that busted FEWER leagues than it attempted is not complete, even when
+    // nothing threw — the all-benign `E263` case busts nothing at all. This is
+    // load-bearing rather than cosmetic: replay clears a pending record only on
+    // `complete`, so classifying a no-op walk as complete would clear a fault that
+    // was never repaired — #693's own defect, relocated into its repair path.
+    result: failed > 0 || invalidated < leagues.length ? 'partial' : 'complete',
+    attempted: leagues.length,
+    invalidated,
+    failed,
+  };
 }
 
 /**

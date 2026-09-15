@@ -30,6 +30,10 @@ import type { CacheEntry } from '@/app/api/schedule/cache';
 import type { UpstreamFaultClass } from '@/lib/api/upstreamFaultClass';
 import type { SeasonType } from '@/lib/schedule/cfbdSchedule';
 import type { FinalScoreDifferenceIdentity } from '@/lib/schedule/finalScoreSweep';
+import {
+  completeStandingsInvalidation,
+  type StandingsInvalidationOutcome,
+} from '@/lib/selectors/leagueStandings';
 
 export type FullSeasonScheduleRefreshStatus = 'success' | 'no-op' | 'failure' | 'in-progress';
 
@@ -100,6 +104,16 @@ export type FullSeasonScheduleRefreshResult = {
   scoreDifferencesTruncated: boolean;
   /** Score partitions whose gap-fill merge failed after the schedule commit. */
   scoreSweepFailedPartitions: ReadonlyArray<{ week: number; seasonType: SeasonType }>;
+  /**
+   * PLATFORM-693 — what the post-commit canonical-standings invalidation actually
+   * did. A POST-COMMIT non-fatal outcome, exactly like `scoreSweepFailedPartitions`
+   * above: the schedule rows are already durable, so this never changes `status`.
+   * It exists because the failure used to be swallowed into a bare `catch` whose
+   * comment promised a recovery the cache cannot provide — standings are
+   * `revalidate: false`, tag-only, so a missed bust is permanent until something
+   * else happens to fire the same tag.
+   */
+  standingsInvalidation: StandingsInvalidationOutcome;
   scoreSweepCannotTellCount: number;
   /** Games present in both schedule observations whose kickoff instant changed. */
   kickoffsChanged: number;
@@ -185,6 +199,7 @@ export function fullSeasonScheduleRefreshResult(params: {
   scoreDifferences?: ReadonlyArray<FinalScoreDifferenceIdentity>;
   scoreDifferencesTruncated?: boolean;
   scoreSweepFailedPartitions?: ReadonlyArray<{ week: number; seasonType: SeasonType }>;
+  standingsInvalidation?: StandingsInvalidationOutcome;
   scoreSweepCannotTellCount?: number;
   kickoffsChanged?: number;
   providerCallAttempted?: boolean;
@@ -209,6 +224,10 @@ export function fullSeasonScheduleRefreshResult(params: {
     scoreDifferences: params.scoreDifferences ?? [],
     scoreDifferencesTruncated: params.scoreDifferencesTruncated ?? false,
     scoreSweepFailedPartitions: params.scoreSweepFailedPartitions ?? [],
+    // Defaults to `complete` with zero attempted: every pre-commit exit reaches
+    // this builder without having walked the registry, and "we never got there"
+    // must not read as a failure.
+    standingsInvalidation: params.standingsInvalidation ?? completeStandingsInvalidation(),
     scoreSweepCannotTellCount: params.scoreSweepCannotTellCount ?? 0,
     kickoffsChanged: params.kickoffsChanged ?? 0,
     providerCallAttempted: params.providerCallAttempted ?? false,

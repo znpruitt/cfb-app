@@ -435,6 +435,9 @@ test('exactly one structured event per invocation with only approved keys', asyn
         'scoreRepairs',
         'scoreSweepCannotTellCount',
         'scoreSweepFailedPartitions',
+        // PLATFORM-693 — the post-commit standings bust outcome. COUNTS ONLY:
+        // this surface's policy is "a count only: never a slug".
+        'standingsInvalidation',
         'year',
       ],
       'year-entry schema is the exact allowlist'
