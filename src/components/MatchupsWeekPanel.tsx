@@ -183,19 +183,32 @@ function GameRow({
   const scheduledSeparator =
     usesNeutralSiteSemantics(slateGame.game) || slateGame.game.neutral ? 'vs' : '@';
   const liveClockLabel = buildLiveClockLabel(score);
-  // #723. PASSED UNCONDITIONALLY, and the alternative was considered: Overview
-  // enumerates per state at `OverviewPanel.tsx:797` but passes unconditionally at
-  // `:877`, so there is no single sibling pattern to match. The deciding reason is
-  // that `unavailable` is REACHABLE here and is not on Overview —
-  // `projectMatchupsGameState` is a bare pass-through, while Overview's
-  // `routeForItem` drops unresolved games at the eight-hour abandonment gate.
-  // `DESIGN.md:201` names scheduled, live and awaiting and no fourth state, so
-  // enumerating at this call site would mean INVENTING the answer for `unavailable`
-  // somewhere with no authority to decide it. `CompactGameScoreboard`'s
-  // `displayPolicyByState` already owns that mapping; this delegates to it rather
-  // than making a second, less-informed copy.
-  const broadcastLabel = formatPrimaryBroadcastLabel(slateGame.game.media) ?? undefined;
   const scoreboardState = projectMatchupsGameState({ game: slateGame.game, score, nowMs });
+  // #723. ENUMERATED per state, and `unavailable` is EXCLUDED. `DESIGN.md:201`
+  // names scheduled, live and awaiting; the same bullet defines the fifth state
+  // and supplies the reason. `awaiting` carries a carrier because it is "an
+  // indeterminate post-kickoff subset of live" where "a broadcast label names the
+  // game's carrier rather than claiming it is currently on air" — reasoning scoped
+  // to a state the app still believes. `No score reported` is defined as the state
+  // where "awaiting is a claim the app no longer believes", so a carrier there is
+  // what the fifth state exists to stop, on the same logic that excludes finals.
+  //
+  // THIS GATE IS LOAD-BEARING — do not simplify it to an unconditional pass by
+  // analogy with `OverviewPanel.tsx:877`. Unlike Overview's gate at `:797`, which
+  // its own comment notes changes no rendered output, this one changes what ships:
+  // `displayPolicyByState.unavailable.showsBroadcast` is `true`, so removing this
+  // gate renders `No score reported • FOX` for a game more than 24 hours past
+  // kickoff. Matchups is the only surface that can reach it — `routeForItem` drops
+  // those at the eight-hour abandonment gate and `resolveScheduleScoreboard`
+  // degrades them to `scheduled`. That component-side default is the real defect
+  // and is #796; this gate holds the line until it lands, and stays correct after.
+  //
+  // Shape follows `gameWeek.ts:327-330`, the Schedule surface, which is the sibling
+  // that actually answers this state.
+  const broadcastLabel =
+    scoreboardState === 'scheduled' || scoreboardState === 'live' || scoreboardState === 'awaiting'
+      ? (formatPrimaryBroadcastLabel(slateGame.game.media) ?? undefined)
+      : undefined;
   const liveGameDelta = liveDelta?.byGame[slateGame.game.key];
   const showLiveIndicator =
     scoreboardState === 'live' &&

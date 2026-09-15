@@ -121,6 +121,94 @@ These consolidate recurring historical observations, not new project-governance 
 
 ## Prompt ledger (source order retained)
 
+### PLATFORM-723-725-715-MATCHUPS-CALLER-WORK-CODEX-v1
+
+- Purpose: back-apply two rulings already made on Overview to the `MatchupsWeekPanel`
+  `CompactGameScoreboard` call site — broadcast ([#723](https://github.com/znpruitt/cfb-app/issues/723))
+  and the responsive tag cap ([#725](https://github.com/znpruitt/cfb-app/issues/725)).
+  [#715](https://github.com/znpruitt/cfb-app/issues/715) (scheduled-row odds) was SPLIT OUT of this
+  slice before implementation and is not in it.
+- Scope / outcome: caller work in `MatchupsWeekPanel.tsx` and its tests only. No selector, no
+  `CompactGameScoreboard.tsx`, no `gameTags.ts`, no `DESIGN.md`. Broadcast is enumerated per state —
+  `scheduled`, `live`, `awaiting` — and `unavailable` is EXCLUDED. The secondary tag's
+  `hidden sm:inline-flex` becomes `inline-flex`, so narrow widths wrap rather than dropping a tag the
+  selector chose.
+- **#715 was split because it is not caller work, and the issue asserting otherwise was wrong.** There
+  is no display formatter for `CombinedOdds` anywhere in `src/`; its only correct home is
+  `gameCardPresentation.ts`, outside this SCOPE. The two available outcomes were violating SCOPE or
+  burying a lib-grade pure function in a component where no other surface can reach it and its tests
+  must render React to exercise it. Carried into the split slice: the formatter must resolve the side
+  from the SIGNED SPREADS and render the row's own name, never `CombinedOdds.favorite` — `favorite` is
+  a canonical name (`odds.ts:168-175`) while the row renders `csvHome`/`csvAway`, so an aliased team
+  would print two names for itself in adjacent elements.
+- Evidence, measured on the read-only replica 2026-09-15: broadcast data reaches 675 of 2,921 future
+  2026 games (23.1%); 1,280 of 3,679 across the season (34.8%); media rows 1,363, mix tv 368 / web 993
+  / radio 2. **So the modal Matchups row renders no broadcast at all** — `formatPrimaryBroadcastLabel`
+  returns null, `Boolean(broadcastLabel)` suppresses, and no space is reserved. A blank row is correct,
+  not broken. Odds, all 305 stored 2026 records: spread+total 305, spread-only 0, total-only 0,
+  pick'em 0 — the three cases the mockup does not show have zero production instances, which is why
+  pick'em went to the owner rather than to a default.
+- **THE REVIEW REVERSED THIS SLICE'S CENTRAL DECISION, AND THE PROMPT'S RULING RESTED ON TWO ERRORS OF
+  MINE.** v1 passed broadcast UNCONDITIONALLY, on my receipt's claim that the sibling precedent was
+  split and that `DESIGN.md:201` named three states and no fourth — so enumerating would mean inventing
+  the answer for `unavailable` at a call site with no authority. **Both claims were false.** (a) I
+  surveyed only `OverviewPanel.tsx` and missed `gameWeek.ts:327-330`, the Schedule surface, which
+  enumerates caller-side and excludes `unavailable`: the precedent is 2-1 FOR enumerating, not split,
+  and the one unconditional pass is a grid where `unavailable` cannot arise. I grepped
+  `formatPrimaryBroadcastLabel` in `components` and never looked in `lib/selectors`. (b) The fifth
+  state is DEFINED in the same bullet, `DESIGN.md:202-208` — I read one sentence and treated the rest
+  of its own paragraph as absent.
+- **The deciding argument is documentary, not the caller count.** `DESIGN.md` justifies broadcast on
+  `awaiting` as "an indeterminate post-kickoff subset of live" where "a broadcast label names the
+  game's carrier rather than claiming it is currently on air" — scoped to a state the app still
+  believes. The fifth state is defined as the one where "awaiting is a claim the app no longer
+  believes." A carrier on a dead game is what that state exists to stop, on the same logic that already
+  excludes finals. That argument holds with zero sibling callers.
+- **Measured, not derived:** rendering `CompactGameScoreboard` directly at `state="unavailable"` with
+  `broadcast="FOX"` emits `No score reported • FOX` for a game more than 24 hours past kickoff.
+  Matchups is the ONLY surface that can reach it — `routeForItem` drops those at the eight-hour
+  abandonment gate (`overviewGameSections.ts:92`) and `resolveScheduleScoreboard` degrades them to
+  `scheduled`. The caller gate is therefore LOAD-BEARING here, unlike Overview's at `:797`, whose own
+  comment records that it changes no rendered output.
+- Residue, all filed pre-merge and all outside this SCOPE:
+  [#795](https://github.com/znpruitt/cfb-app/issues/795) — `DESIGN.md:318` requires a selector-applied
+  tag cap and `prioritizeGameTags` applies none; `TOP_BADGE_LIMIT` governs a different vocabulary at
+  `gameTags.ts:576`. The 2-bound on `LeagueGameTag` is an accident of two mutually exclusive state
+  guards (`upset` requires final, `upset_watch` requires non-final), not an enforced cap, so a fourth
+  tag grows `secondary` unbounded. **After #725 nothing stands in for the missing cap — which is the
+  right outcome, because a renderer-side cap was the defect, but the gap stops being cosmetic the
+  moment the vocabulary grows.**
+  [#796](https://github.com/znpruitt/cfb-app/issues/796) —
+  `displayPolicyByState.unavailable.showsBroadcast` is `true` and should not be; this slice's caller
+  gate holds the line until it lands, and stays correct after.
+  [#797](https://github.com/znpruitt/cfb-app/issues/797) — `CompactGameScoreboard.tsx:255-257` grants
+  `max-sm:flex-wrap` only for `scheduled`, so on live/awaiting/unavailable the header is one
+  non-wrapping line; the `flex-none` tag slot grows and the `overflow-clip` metadata absorbs it, and
+  broadcast sits LAST in the metadata order. **NOT #758**, which is scoped to scheduled rows. The fix
+  is not restoring the `hidden` — that re-hides a tag the selector chose to work around a layout bug
+  belonging to the component. **The overflow is DERIVED from the flex properties and was not observed
+  in a browser.**
+- Review / verification: implementation `239c340a`; both reviewers gathered against it before any
+  remediation. `/codex:review` clean. `/code-review high` three findings, ONE cohesive remediation
+  round: the `unavailable` broadcast (accepted, enumerated), the comment whose two premises were wrong
+  (accepted, rewritten — it was the artifact the next reader would re-derive from), and the
+  phone-width header squeeze (filed as #797, unfixable in scope). Branch merged `origin/main` to pick
+  up the `DESIGN.md` revert at `7dcb31e9` before the closeout, so the comment cites current canonical
+  text. All three changes mutation-proven, each failing only its own test and on its own assertion —
+  removing the `unavailable` gate fails on `doesNotMatch(/>ESPN2</)` with the header reading
+  `No score reported • ESPN2`, which is the defect itself. Gates at the remediated tree:
+  `lint:all` clean, `tsc --noEmit` clean, suite **5,376 pass / 0 fail**, delta **+4** against the
+  5,372 branch point — 4 test declarations added, 0 removed or renamed, both counted from the diff.
+- **A NOTE ON `DESIGN.md` AUTHORITY, recorded because the correction outlives this slice.** The prompt's
+  ruling was made from a `DESIGN.md` that had been amended hours earlier to say broadcast renders on
+  `unavailable`, on the reasoning that the component had four states where the document named three.
+  That INVERTED THE AUTHORITY: `DESIGN.md` is canonical for UI, so an implementation disagreeing with it
+  is a defect in the implementation, and "the code does X" is never evidence that the document should
+  say X. Reverted at `7dcb31e9` with the inversion recorded in place. This slice is the consumer of
+  that correction.
+- Status: IMPLEMENTED — pre-merge closeout on `codex/723-725-715-matchups-caller-work`; both reviewers
+  gathered and remediated in one round. Merge pending.
+
 ### PLATFORM-776-780-781-STATE-RULINGS-CODEX-v1
 
 - Purpose: close the false history empty-state range claim

@@ -1781,6 +1781,39 @@ test('#723: an awaiting Matchups row still carries broadcast', () => {
   assert.match(scoreboardHeaderMarkup(scoreboard), />ESPN2</);
 });
 
+test('#723: an unavailable Matchups row carries no broadcast even with media', () => {
+  const kickoff = '2025-08-29T20:00:00.000Z';
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[
+        game({
+          key: 'stale',
+          date: kickoff,
+          startTimeTBD: false,
+          csvAway: 'Temple',
+          csvHome: 'Navy',
+          media: [{ gameId: '3', mediaType: 'tv' as const, outlet: 'ESPN2' }],
+        }),
+      ]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map([['Temple', 'Nia']])}
+      displayTimeZone="UTC"
+      nowMs={Date.parse(kickoff) + 25 * 60 * 60 * 1000}
+    />
+  );
+  const scoreboard = scoreboardMarkup(ownerCardMarkup(html, 'Nia'), 'Temple @ Navy');
+  const header = scoreboardHeaderMarkup(scoreboard);
+
+  // Positive control: the state must actually BE `unavailable`, or the absence of
+  // a broadcast label proves nothing. `displayPolicyByState.unavailable` still sets
+  // `showsBroadcast: true` (#796), so this passes only because the CALLER withholds
+  // the label — remove the gate and the header reads `No score reported • ESPN2`.
+  assert.match(scoreboard, /data-scoreboard-state="unavailable"/);
+  assert.match(header, />No score reported</);
+  assert.doesNotMatch(header, />ESPN2</);
+});
+
 test('#725: a secondary Matchups tag is not hidden at phone width', () => {
   const html = renderToStaticMarkup(
     <MatchupsWeekPanel
