@@ -3,13 +3,140 @@ import test from 'node:test';
 
 import {
   formatExpandedKickoff,
+  formatMatchupsOddsFooter,
   formatPrimaryBroadcastLabel,
   formatVenueLabel,
 } from '../gameCardPresentation.ts';
+import type { CombinedOdds } from '../odds.ts';
 import {
   MEDIA_TYPE_DISPLAY_PRIORITY,
   type ScheduleMediaItem,
 } from '../schedule/schedulePresentation.ts';
+
+function combinedOdds(overrides: Partial<CombinedOdds> = {}): CombinedOdds {
+  return {
+    favorite: null,
+    spread: null,
+    homeSpread: null,
+    awaySpread: null,
+    spreadPriceHome: null,
+    spreadPriceAway: null,
+    total: null,
+    mlHome: null,
+    mlAway: null,
+    overPrice: null,
+    underPrice: null,
+    source: null,
+    bookmakerKey: null,
+    capturedAt: null,
+    lineSourceStatus: 'latest',
+    ...overrides,
+  };
+}
+
+const EXPECTED_MINUS_SIGN = String.fromCodePoint(0x2212);
+const EXPECTED_MIDDLE_DOT = String.fromCodePoint(0x00b7);
+
+test("formatMatchupsOddsFooter uses the favorite side's row name instead of the canonical favorite", () => {
+  const label = formatMatchupsOddsFooter({
+    odds: combinedOdds({
+      favorite: 'Miami (FL)',
+      spread: -7.5,
+      homeSpread: -7.5,
+      awaySpread: 7.5,
+    }),
+    homeTeamName: 'Miami',
+    awayTeamName: 'Virginia Tech',
+  });
+
+  assert.equal(label, `Miami ${EXPECTED_MINUS_SIGN}7.5`, 'home favorite uses homeTeamName');
+});
+
+test('formatMatchupsOddsFooter emits the exact minus-sign and middle-dot code points', () => {
+  const label = formatMatchupsOddsFooter({
+    odds: combinedOdds({
+      favorite: 'Georgia Tech',
+      spread: -7.5,
+      homeSpread: -7.5,
+      awaySpread: 7.5,
+      total: 48.5,
+    }),
+    homeTeamName: 'Georgia Tech',
+    awayTeamName: 'Colorado',
+  });
+
+  assert.equal(
+    label.codePointAt(label.indexOf('7.5') - 1),
+    0x2212,
+    'spread prefix is U+2212 MINUS SIGN'
+  );
+  assert.equal(
+    label.codePointAt(label.indexOf('O/U') - 2),
+    0x00b7,
+    'segment separator is U+00B7 MIDDLE DOT'
+  );
+  assert.equal(label, `Georgia Tech ${EXPECTED_MINUS_SIGN}7.5 ${EXPECTED_MIDDLE_DOT} O/U 48.5`);
+});
+
+test('formatMatchupsOddsFooter renders spread-only, total-only, and no-line cases independently', () => {
+  assert.equal(
+    formatMatchupsOddsFooter({
+      odds: combinedOdds({ spread: -3.5, homeSpread: 3.5, awaySpread: -3.5 }),
+      homeTeamName: 'Texas',
+      awayTeamName: 'Oklahoma',
+    }),
+    `Oklahoma ${EXPECTED_MINUS_SIGN}3.5`,
+    'spread-only omits the separator and total'
+  );
+  assert.equal(
+    formatMatchupsOddsFooter({
+      odds: combinedOdds({ total: 44.5 }),
+      homeTeamName: 'Texas',
+      awayTeamName: 'Oklahoma',
+    }),
+    'O/U 44.5',
+    'total-only omits the separator and spread'
+  );
+  assert.equal(
+    formatMatchupsOddsFooter({
+      odds: combinedOdds(),
+      homeTeamName: 'Texas',
+      awayTeamName: 'Oklahoma',
+    }),
+    'Line not posted',
+    'a present odds record with neither display field has explicit content'
+  );
+  assert.equal(
+    formatMatchupsOddsFooter({
+      odds: undefined,
+      homeTeamName: 'Texas',
+      awayTeamName: 'Oklahoma',
+    }),
+    'Line not posted',
+    'an absent odds map entry has explicit content'
+  );
+});
+
+test("formatMatchupsOddsFooter distinguishes pick'em from missing side data", () => {
+  assert.equal(
+    formatMatchupsOddsFooter({
+      odds: combinedOdds({ spread: 0, homeSpread: 0, awaySpread: 0, total: 51.5 }),
+      homeTeamName: 'Iowa',
+      awayTeamName: 'Iowa State',
+    }),
+    `Pick'em ${EXPECTED_MIDDLE_DOT} O/U 51.5`,
+    "equal side spreads render the owner-ruled pick'em label"
+  );
+  assert.equal(
+    formatMatchupsOddsFooter({
+      odds: combinedOdds({ favorite: 'Iowa', spread: -2.5, homeSpread: -2.5, total: 51.5 }),
+      homeTeamName: 'Iowa',
+      awayTeamName: 'Iowa State',
+    }),
+    'O/U 51.5',
+    'missing one side refuses the canonical favorite and derived spread fallbacks'
+  );
+});
 
 test('formatVenueLabel supports stadium-only and location-only fallbacks', () => {
   assert.equal(

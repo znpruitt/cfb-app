@@ -2,6 +2,7 @@ import {
   MEDIA_TYPE_DISPLAY_PRIORITY,
   type ScheduleMediaItem,
 } from './schedule/schedulePresentation';
+import { deriveFavoriteSpreadPair, type CombinedOdds } from './odds';
 
 type VenueDetails = {
   stadium?: string | null;
@@ -14,6 +15,41 @@ function cleanVenuePart(value: string | null | undefined): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
+}
+
+const MINUS_SIGN = String.fromCodePoint(0x2212);
+const MIDDLE_DOT = String.fromCodePoint(0x00b7);
+
+function formatSignedSpread(value: number): string {
+  if (value < 0) return `${MINUS_SIGN}${Math.abs(value)}`;
+  if (value > 0) return `+${value}`;
+  return '0';
+}
+
+export function formatMatchupsOddsFooter({
+  odds,
+  homeTeamName,
+  awayTeamName,
+}: {
+  odds: CombinedOdds | null | undefined;
+  homeTeamName: string;
+  awayTeamName: string;
+}): string {
+  if (!odds) return 'Line not posted';
+
+  const parts: string[] = [];
+  const favoriteSpread = deriveFavoriteSpreadPair(odds.homeSpread, odds.awaySpread);
+  if (favoriteSpread) {
+    if (favoriteSpread.favoriteSide === null) {
+      parts.push("Pick'em");
+    } else {
+      const favoriteName = favoriteSpread.favoriteSide === 'home' ? homeTeamName : awayTeamName;
+      parts.push(`${favoriteName} ${formatSignedSpread(favoriteSpread.spread)}`);
+    }
+  }
+  if (odds.total != null) parts.push(`O/U ${odds.total}`);
+
+  return parts.length > 0 ? parts.join(` ${MIDDLE_DOT} `) : 'Line not posted';
 }
 
 /**

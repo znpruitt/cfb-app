@@ -9,7 +9,11 @@ import { deriveOwnerWeekSlates } from '../../lib/matchups';
 import type { CanonicalStandings } from '../../lib/selectors/leagueStandings';
 import type { LiveDelta } from '../../lib/selectors/liveDelta';
 import { EYEBROW_TAG_CLASSES } from '../../lib/gameUi';
+import type { CombinedOdds } from '../../lib/odds';
 import MatchupsWeekPanelImpl from '../MatchupsWeekPanel';
+
+const ODDS_MINUS_SIGN = String.fromCodePoint(0x2212);
+const ODDS_MIDDLE_DOT = String.fromCodePoint(0x00b7);
 
 function ownerCardMarkup(html: string, owner: string): string {
   const marker = `data-owner-card="${owner}"`;
@@ -35,6 +39,12 @@ function scoreboardHeaderMarkup(scoreboard: string): string {
   const header = scoreboard.match(/<div(?=[^>]*data-scoreboard-header)[^>]*>[\s\S]*?<\/div>/)?.[0];
   assert.ok(header, 'scoreboard header must render');
   return header;
+}
+
+function scoreboardFooterMarkup(scoreboard: string): string | null {
+  return (
+    scoreboard.match(/<div(?=[^>]*data-scoreboard-odds-footer)[^>]*>[\s\S]*?<\/div>/)?.[0] ?? null
+  );
 }
 
 function scoreboardTier2Markup(scoreboard: string): string | null {
@@ -109,6 +119,27 @@ function game(overrides: Partial<AppGame>): AppGame {
     sources: overrides.sources,
     startTimeTBD: overrides.startTimeTBD,
     media: overrides.media,
+  };
+}
+
+function combinedOdds(overrides: Partial<CombinedOdds> = {}): CombinedOdds {
+  return {
+    favorite: null,
+    spread: null,
+    homeSpread: null,
+    awaySpread: null,
+    spreadPriceHome: null,
+    spreadPriceAway: null,
+    total: null,
+    mlHome: null,
+    mlAway: null,
+    overPrice: null,
+    underPrice: null,
+    source: null,
+    bookmakerKey: null,
+    capturedAt: null,
+    lineSourceStatus: 'latest',
+    ...overrides,
   };
 }
 
@@ -780,7 +811,13 @@ test('scheduled Matchups keeps a missing record anchor blank even when a spread 
     /data-scoreboard-record|data-scoreboard-value="away"|-7\.5|7\.5|[—–]/
   );
   assert.match(homeRow, /data-scoreboard-value-kind="record" data-scoreboard-value="home">2–0<\//);
-  assert.doesNotMatch(scoreboard, /data-scoreboard-odds-footer|DraftKings|O\/U 49\.5/);
+  const footer = scoreboardFooterMarkup(scoreboard);
+  assert.ok(footer, 'scheduled spread renders outside the participant record anchor');
+  assert.match(
+    footer,
+    new RegExp(`Virginia Tech ${ODDS_MINUS_SIGN}7\\.5 ${ODDS_MIDDLE_DOT} O\\/U 49\\.5`)
+  );
+  assert.doesNotMatch(footer, /DraftKings/);
 });
 
 test('scheduled neutral rows use vs separator instead of @', () => {
@@ -1715,6 +1752,148 @@ test('matchups panel renders date plus Time TBD instead of the placeholder clock
 
   assert.match(html, /Kickoff Sat, Aug 30 · Time TBD/);
   assert.doesNotMatch(html, /12:00 AM/);
+});
+
+test('#715: only scheduled Matchups rows render the odds footer', () => {
+  const nowMs = Date.parse('2025-08-30T21:00:00.000Z');
+  const rowOdds = combinedOdds({
+    favorite: 'Rutgers',
+    spread: -3.5,
+    homeSpread: 3.5,
+    awaySpread: -3.5,
+    total: 44.5,
+  });
+  const oddsByKey = Object.fromEntries(
+    ['scheduled-odds', 'live-odds', 'awaiting-odds', 'unavailable-odds', 'final-odds'].map(
+      (key) => [key, rowOdds]
+    )
+  );
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[
+        game({
+          key: 'scheduled-odds',
+          date: '2025-08-30T22:00:00.000Z',
+          startTimeTBD: false,
+          csvAway: 'Rutgers',
+          csvHome: 'Maryland',
+        }),
+        game({
+          key: 'live-odds',
+          date: '2025-08-30T20:00:00.000Z',
+          startTimeTBD: false,
+          csvAway: 'Ohio',
+          csvHome: 'Penn State',
+        }),
+        game({
+          key: 'awaiting-odds',
+          date: '2025-08-30T20:00:00.000Z',
+          startTimeTBD: false,
+          csvAway: 'Temple',
+          csvHome: 'Navy',
+        }),
+        game({
+          key: 'unavailable-odds',
+          date: '2025-08-29T19:00:00.000Z',
+          startTimeTBD: false,
+          csvAway: 'UConn',
+          csvHome: 'Duke',
+        }),
+        game({
+          key: 'final-odds',
+          date: '2025-08-29T20:00:00.000Z',
+          startTimeTBD: false,
+          csvAway: 'Iowa',
+          csvHome: 'Nebraska',
+        }),
+      ]}
+      oddsByKey={oddsByKey}
+      scoresByKey={{
+        'live-odds': {
+          status: 'in progress',
+          time: 'Q2 04:12',
+          home: { team: 'Penn State', score: 10 },
+          away: { team: 'Ohio', score: 7 },
+        },
+        'final-odds': {
+          status: 'Final',
+          time: 'Final',
+          home: { team: 'Nebraska', score: 17 },
+          away: { team: 'Iowa', score: 24 },
+        },
+      }}
+      rosterByTeam={
+        new Map([
+          ['Rutgers', 'Scheduled Owner'],
+          ['Ohio', 'Live Owner'],
+          ['Temple', 'Awaiting Owner'],
+          ['UConn', 'Unavailable Owner'],
+          ['Iowa', 'Final Owner'],
+        ])
+      }
+      displayTimeZone="UTC"
+      nowMs={nowMs}
+    />
+  );
+  const scheduled = scoreboardMarkup(
+    ownerCardMarkup(html, 'Scheduled Owner'),
+    'Rutgers @ Maryland'
+  );
+  const scheduledFooter = scoreboardFooterMarkup(scheduled);
+
+  // Positive control: dropping `scheduled` from the caller gate removes this
+  // footer and fires the first assertion. Adding any other state to that same
+  // gate fires the corresponding no-footer assertion below.
+  assert.ok(scheduledFooter, 'scheduled row renders an observable odds footer');
+  assert.match(
+    scheduledFooter,
+    new RegExp(`Rutgers ${ODDS_MINUS_SIGN}3\\.5 ${ODDS_MIDDLE_DOT} O\\/U 44\\.5`)
+  );
+  assert.equal(
+    (html.match(/data-scoreboard-odds-footer/g) ?? []).length,
+    1,
+    'the scheduled row is the only footer consumer in a five-state render'
+  );
+
+  for (const [owner, matchupLabel, state] of [
+    ['Live Owner', 'Ohio @ Penn State', 'live'],
+    ['Awaiting Owner', 'Temple @ Navy', 'awaiting'],
+    ['Unavailable Owner', 'UConn @ Duke', 'unavailable'],
+    ['Final Owner', 'Iowa @ Nebraska', 'final'],
+  ] as const) {
+    const scoreboard = scoreboardMarkup(ownerCardMarkup(html, owner), matchupLabel);
+    assert.match(scoreboard, new RegExp(`data-scoreboard-state="${state}"`));
+    assert.equal(scoreboardFooterMarkup(scoreboard), null, `${state} row carries no odds footer`);
+  }
+});
+
+test('#715: scheduled rows render explicit no-line content for absent and empty odds', () => {
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[
+        game({ key: 'absent-odds', csvAway: 'Akron', csvHome: 'Kent State' }),
+        game({ key: 'empty-odds', csvAway: 'Rice', csvHome: 'Tulsa' }),
+      ]}
+      oddsByKey={{ 'empty-odds': combinedOdds() }}
+      scoresByKey={{}}
+      rosterByTeam={
+        new Map([
+          ['Akron', 'Nia'],
+          ['Rice', 'Nia'],
+        ])
+      }
+      displayTimeZone="UTC"
+    />
+  );
+  const card = ownerCardMarkup(html, 'Nia');
+
+  for (const matchupLabel of ['Akron @ Kent State', 'Rice @ Tulsa']) {
+    const footer = scoreboardFooterMarkup(scoreboardMarkup(card, matchupLabel));
+    assert.ok(footer, `${matchupLabel} renders a content-bearing footer`);
+    assert.match(footer, />Line not posted</);
+    assert.match(footer, /tabular-nums/);
+    assert.match(footer, /truncate/);
+  }
 });
 
 test('#723: the Matchups caller supplies broadcast on scheduled rows', () => {
