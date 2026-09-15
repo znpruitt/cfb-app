@@ -485,9 +485,33 @@ const APP_STATE_LOCK_TIMEOUT_MS = 10_000;
  * both endpoints, including for the parameterized (extended-protocol) statements
  * that follow it inside the same transaction.
  */
-const APP_STATE_BOUNDED_BEGIN =
-  `begin; set local statement_timeout = ${APP_STATE_STATEMENT_TIMEOUT_MS}; ` +
-  `set local lock_timeout = ${APP_STATE_LOCK_TIMEOUT_MS}`;
+/**
+ * ONE TEMPLATE LITERAL, NEVER TWO CONCATENATED — this line caused a production outage.
+ *
+ * It was written as `` `...${MS}; ` + `set local lock_timeout = ${MS}` ``, which is
+ * correct in source and evaluates correctly in node. **The minifier folds the two
+ * adjacent literals and DROPS THE TAIL OF THE FIRST ONE after its final interpolation**,
+ * so the emitted bundle contained:
+ *
+ *     begin; set local statement_timeout = 15000set local lock_timeout = 10000
+ *
+ * Postgres answered `42601 trailing junk after numeric literal at or near "15000set"` at
+ * position 38 on every authenticated page that reads `app_state` — 29 occurrences in two
+ * minutes before it was caught.
+ *
+ * THE TRIGGER NEEDS BOTH LITERALS TO INTERPOLATE, established by minimal reproduction and
+ * NOT by reading the output. `` `a = ${N}; ` + `b` `` and `` `a = ${N}` + `; b = ${M}` ``
+ * both survive; only `` `a = ${N}; ` + `b = ${M}` `` loses the left literal's tail. The
+ * first characterisation written during the incident — "a literal ending in a separator" —
+ * was refuted by building that exact probe.
+ *
+ * The defect is SILENT by construction: it emits valid JavaScript containing invalid SQL,
+ * so nothing between the source and the database can see it. Type-checking, linting and
+ * the whole test suite pass, because every one of them reads the SOURCE. **Verify this
+ * string in the BUILT ARTIFACT, not in the file** — `__tests__/boundedBeginArtifact.test.ts`
+ * greps `.next` for it, and skips when no build is present.
+ */
+const APP_STATE_BOUNDED_BEGIN = `begin; set local statement_timeout = ${APP_STATE_STATEMENT_TIMEOUT_MS}; set local lock_timeout = ${APP_STATE_LOCK_TIMEOUT_MS}`;
 
 /**
  * A CHECKED-OUT pooled client has NO `'error'` listener, and that is a crash, not a
