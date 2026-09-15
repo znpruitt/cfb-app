@@ -113,10 +113,10 @@ uses `&minus;` (U+2212), not a hyphen, and `&middot;` (U+00B7) as the separator.
 
 **THIS IS THE PART MOST LIKELY TO EXCEED "CALLER WORK", AND #715 SAYS IT IS CALLER WORK ONLY.**
 That claim rests on the data being present and the seam being open, both true. But **there is no
-display formatter for `CombinedOdds` anywhere in `src/`** — I grepped and found none. The type
-carries `favorite`, `spread`, `homeSpread`, `awaySpread`, `total`, prices and provenance; the
-mockup shows one rendering of three of those fields. Somebody has to write that function and decide
-the cases the mockup does not show.
+formatter that implements #715's `CombinedOdds` contract** — the receipt found three existing
+formatters, but each has different copy, fallback or diagnostic semantics. The type carries fifteen
+fields; the mockup shows one rendering of three of them. Somebody has to write that function and
+decide the cases the mockup does not show.
 
 ---
 

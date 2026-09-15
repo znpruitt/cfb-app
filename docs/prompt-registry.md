@@ -121,6 +121,29 @@ These consolidate recurring historical observations, not new project-governance 
 
 ## Prompt ledger (source order retained)
 
+### PLATFORM-715-MATCHUPS-ODDS-FOOTER-CODEX-v1
+
+- Purpose: render compact betting-line content on scheduled Matchups rows and explicit
+  `Line not posted` content when no trustworthy line can be named. Closes
+  [#715](https://github.com/znpruitt/cfb-app/issues/715).
+- Scope: `gameCardPresentation.ts`, `MatchupsWeekPanel.tsx`, their tests, and closeout corrections;
+  no odds model, shared scoreboard, tag or selector changes.
+- Outcome: added a fourth, Matchups-specific formatter using signed side spreads and the displayed
+  row names, never canonical `odds.favorite`. Exact U+2212/U+00B7 characters, spread-only,
+  total-only, absent/empty, missing-side and `0/0` pick'em cases are defined. Equal nonzero sides are
+  untrustworthy rather than pick'em. Scheduled rows now all gain footer height because even no-line
+  rows carry content; live, awaiting, unavailable and final rows do not.
+- Historical corrections: the prompt's “no formatter anywhere” claim was false — three existed but
+  none fit this contract; `CombinedOdds` has fifteen fields, not eleven; Members can reach
+  `unavailable` but cannot render the compact-scoreboard defect. See the PR for one-line formatter
+  boundary reasons.
+- Review / verification: both reviewers ran twice from merge-base `a8e6acf8`, on implementation
+  `a1e2d599` then remediation `5d5b6a12`. Round one accepted the equal-nonzero guard; confirmation
+  left no credible in-scope P0/P1/P2. Seven tests were added and one existing assertion retargeted
+  without weakening; mutations reddened each named contract. On `5d5b6a12`, lint, TypeScript,
+  focused suites and all 5,383 tests exited 0 with no failures, cancellations or skips. See L1/L4.
+- Status: Implemented and reviewed — [PR #806](https://github.com/znpruitt/cfb-app/pull/806) open.
+
 ### PLATFORM-723-725-715-MATCHUPS-CALLER-WORK-CODEX-v1
 
 - Purpose: back-apply two rulings already made on Overview to the `MatchupsWeekPanel`
@@ -133,14 +156,14 @@ These consolidate recurring historical observations, not new project-governance 
   `scheduled`, `live`, `awaiting` — and `unavailable` is EXCLUDED. The secondary tag's
   `hidden sm:inline-flex` becomes `inline-flex`, so narrow widths wrap rather than dropping a tag the
   selector chose.
-- **#715 was split because it is not caller work, and the issue asserting otherwise was wrong.** There
-  is no display formatter for `CombinedOdds` anywhere in `src/`; its only correct home is
-  `gameCardPresentation.ts`, outside this SCOPE. The two available outcomes were violating SCOPE or
-  burying a lib-grade pure function in a component where no other surface can reach it and its tests
-  must render React to exercise it. Carried into the split slice: the formatter must resolve the side
-  from the SIGNED SPREADS and render the row's own name, never `CombinedOdds.favorite` — `favorite` is
-  a canonical name (`odds.ts:168-175`) while the row renders `csvHome`/`csvAway`, so an aliased team
-  would print two names for itself in adjacent elements.
+- **#715 was split because it is not caller work, and the issue asserting otherwise was wrong.** Three
+  display formatters existed, but none implemented its compact copy, explicit empty content and
+  row-name contract; the fourth belongs in `gameCardPresentation.ts`, outside this SCOPE. The two
+  available outcomes were violating SCOPE or burying a lib-grade pure function in a component where
+  no other surface can reach it and its tests must render React to exercise it. Carried into the split
+  slice: resolve the side from SIGNED SPREADS and render the row's own name, never
+  `CombinedOdds.favorite` — `favorite` is canonical (`odds.ts:168-175`) while the row renders
+  `csvHome`/`csvAway`, so an alias could print two names for one team in adjacent elements.
 - Evidence, measured on the read-only replica 2026-09-15: broadcast data reaches 675 of 2,921 future
   2026 games (23.1%); 1,280 of 3,679 across the season (34.8%); media rows 1,363, mix tv 368 / web 993
   / radio 2. **So the modal Matchups row renders no broadcast at all** — `formatPrimaryBroadcastLabel`
@@ -166,10 +189,11 @@ These consolidate recurring historical observations, not new project-governance 
   excludes finals. That argument holds with zero sibling callers.
 - **Measured, not derived:** rendering `CompactGameScoreboard` directly at `state="unavailable"` with
   `broadcast="FOX"` emits `No score reported • FOX` for a game more than 24 hours past kickoff.
-  Matchups is the ONLY surface that can reach it — `routeForItem` drops those at the eight-hour
-  abandonment gate (`overviewGameSections.ts:92`) and `resolveScheduleScoreboard` degrades them to
-  `scheduled`. The caller gate is therefore LOAD-BEARING here, unlike Overview's at `:797`, whose own
-  comment records that it changes no rendered output.
+  Members also reaches that state through `projectMembersGameState`, but does not consume
+  `CompactGameScoreboard`. Matchups is the compact-scoreboard consumer that can render it:
+  `routeForItem` drops those at the eight-hour abandonment gate (`overviewGameSections.ts:92`) and
+  `resolveScheduleScoreboard` degrades them to `scheduled`. The caller gate is therefore
+  LOAD-BEARING here, unlike Overview's at `:797`, whose comment records no rendered change.
 - Residue, all filed pre-merge and all outside this SCOPE:
   [#795](https://github.com/znpruitt/cfb-app/issues/795) — `DESIGN.md:318` requires a selector-applied
   tag cap and `prioritizeGameTags` applies none; `TOP_BADGE_LIMIT` governs a different vocabulary at
