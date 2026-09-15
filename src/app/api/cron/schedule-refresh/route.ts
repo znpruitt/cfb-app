@@ -12,7 +12,7 @@ import {
   invalidateStandingsForYearReporting,
 } from '@/lib/selectors/leagueStandings';
 import {
-  summarizePendingStandingsInvalidations,
+  countPendingStandingsInvalidations,
   drainPendingStandingsInvalidations,
 } from '@/lib/server/standingsInvalidationPending';
 import { refreshFullSeasonSchedule } from '@/lib/schedule/fullSeasonScheduleRefresh';
@@ -194,19 +194,25 @@ export async function GET(req: Request): Promise<Response> {
    * drain OBSERVED: a lower bound, never zero when work existed.
    */
   let pendingObservedByDrain = 0;
-  const resolvePendingForReceipt = async (): Promise<{ count: number; stuck: number }> => {
-    const summary = await summarizePendingStandingsInvalidations();
-    if (summary !== 'unavailable') return summary;
+  const resolvePendingForReceipt = async (): Promise<number> => {
+    const counted = await countPendingStandingsInvalidations();
+    if (counted !== 'unavailable') return counted;
     console.error('pending standings-invalidation count unavailable; reporting the drain floor', {
       floor: pendingObservedByDrain,
     });
-    // STUCK IS 0 IN THE UNKNOWN CASE, AND THAT IS A CHOICE, NOT A MEASUREMENT. The drain
-    // floor is a count, not an attempt history, so nothing here can establish stuckness.
-    // 0 classifies the fault as repair-in-progress, which renders the tile GRAY rather
-    // than yellow — so Overall still refuses to say all systems are normal and the fault
-    // is not silenced. Claiming the actionable severity off an unknown would be
-    // manufacturing evidence in the opposite direction.
-    return { count: pendingObservedByDrain, stuck: 0 };
+    // THE FALLBACK OVER-REPORTS, AND THE DIRECTION IS STATED CORRECTLY HERE BECAUSE IT
+    // WAS STATED BACKWARDS BEFORE. `drain.observed` is `pending.length` — how many
+    // obligations the drain ATTEMPTED, including every one it then cleared. So relative
+    // to what is still outstanding after the run it is an UPPER bound, not the "lower
+    // bound" the old comment claimed: if all three observed obligations were repaired
+    // and only then the count read failed, this publishes 3 for years that are clean,
+    // and the Scheduler tile stays yellow until the next weekly run.
+    //
+    // It is still the right trade — over-reporting a repair that already happened is
+    // recoverable on the next run, while a false all-clear over stale standings is the
+    // defect this whole module exists to prevent. What was wrong was the stated
+    // direction, which invites the next reader to reason from a property it lacks.
+    return pendingObservedByDrain;
   };
 
   try {
@@ -720,7 +726,7 @@ export async function GET(req: Request): Promise<Response> {
       // COUNTED HERE, as late as possible — see `resolvePendingForReceipt`. Resolved
       // ONCE into a local: the two facts must come from the same observation, and a
       // second call could read a set the first did not.
-      const pending = await resolvePendingForReceipt();
+      const pendingCount = await resolvePendingForReceipt();
       scheduleSchedulerExecutionReceipt({
         job: 'schedule-refresh',
         invocationId: receiptInvocationId,
@@ -728,12 +734,7 @@ export async function GET(req: Request): Promise<Response> {
         result: exec.result,
         reason: exec.reason,
         providerCallAttempted: exec.years.some((entry) => entry.providerCallAttempted),
-        target: scheduleYearsTarget(
-          exec.years,
-          exec.invalidLifecycleTargets,
-          pending.count,
-          pending.stuck
-        ),
+        target: scheduleYearsTarget(exec.years, exec.invalidLifecycleTargets, pendingCount),
       });
     }
   }

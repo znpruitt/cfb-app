@@ -16,10 +16,7 @@ import {
   drainPendingStandingsInvalidations,
   listPendingStandingsInvalidations,
   readPendingStandingsInvalidation,
-  recordPendingDrainAttempt,
   recordPendingStandingsInvalidation,
-  summarizePendingStandingsInvalidations,
-  PENDING_ATTEMPTS_STUCK_THRESHOLD,
   STANDINGS_INVALIDATION_PENDING_SCOPE,
   type PendingStandingsInvalidation,
 } from '../standingsInvalidationPending.ts';
@@ -67,24 +64,22 @@ test('every record is a NEW obligation with a new token', async () => {
 test('a re-record preserves the fault AGE and the repair EFFORT', async () => {
   // Three concepts, three fields. Identity changes; age and effort do not.
   await recordPendingStandingsInvalidation(2026, () => '2026-01-01T00:00:00.000Z');
-  await recordPendingDrainAttempt(2026);
-  await recordPendingDrainAttempt(2026);
   await recordPendingStandingsInvalidation(2026, () => '2026-09-01T00:00:00.000Z');
 
   const after = await readPendingStandingsInvalidation(2026);
   assert.equal(after?.since, '2026-01-01T00:00:00.000Z', 'age survives a re-record');
-  assert.equal(after?.attempts, 2, 'effort survives a re-record');
 });
 
-test('a drain attempt does NOT advance the token', async () => {
-  // A failed repair is the same obligation, not a new one. Advancing here would
-  // invalidate a concurrent drain's observation for a change that is not an obligation.
+test('a failed drain leaves the obligation byte-identical', async () => {
+  // ROUND 4 — a failed repair writes NOTHING. It used to increment an attempt counter;
+  // that counter drove a severity escalation that could not work, and its bookkeeping
+  // produced two defects of its own. The obligation surviving unchanged IS the fault
+  // report, and leaving it untouched cannot invalidate a concurrent drain's observation.
   await recordPendingStandingsInvalidation(2026);
   const before = await readPendingStandingsInvalidation(2026);
-  await recordPendingDrainAttempt(2026);
+  await drainPendingStandingsInvalidations(busted_nothing);
   const after = await readPendingStandingsInvalidation(2026);
-  assert.equal(after?.token, before?.token);
-  assert.equal(after?.attempts, 1);
+  assert.deepEqual(after, before);
 });
 
 test('a v1 record with no token matches no observation and is not readable as pending', async () => {
@@ -93,7 +88,6 @@ test('a v1 record with no token matches no observation and is not readable as pe
   await setAppState(STANDINGS_INVALIDATION_PENDING_SCOPE, '2026', {
     year: 2026,
     since: '2026-01-01T00:00:00.000Z',
-    attempts: 0,
   } as unknown as PendingStandingsInvalidation);
 
   assert.equal(await readPendingStandingsInvalidation(2026), undefined);
@@ -151,7 +145,6 @@ test('clearing when nothing is pending reports false', async () => {
       year: 2031,
       token: 'anything',
       since: '2026-01-01T00:00:00.000Z',
-      attempts: 0,
     }),
     false
   );
@@ -206,8 +199,7 @@ test('a walk that busted nothing leaves the obligation standing', async () => {
   await drainPendingStandingsInvalidations(busted_nothing);
 
   assert.equal(await countPendingStandingsInvalidations(), 1);
-  const after = await readPendingStandingsInvalidation(2026);
-  assert.equal(after?.attempts, 1, 'and the effort is counted, so a stuck year is visible');
+  assert.ok(await readPendingStandingsInvalidation(2026), 'and the obligation survives');
 });
 
 test('a walk that could not read the registry leaves the obligation standing', async () => {
@@ -218,23 +210,31 @@ test('a walk that could not read the registry leaves the obligation standing', a
   assert.equal(await countPendingStandingsInvalidations(), 1, 'population unknown is not a repair');
 });
 
-// === R16 — ordering rotates rather than starving ===
+// === ROUND 4 — ordering is oldest-first, and CAN starve. Pinned, not celebrated. ===
 
-test('a permanently failing year YIELDS to a fresher repairable one', async () => {
-  // Oldest-first alone lets four unrepairable years hold every slot forever while a
-  // fifth, repairable year is never attempted.
-  await recordPendingStandingsInvalidation(2020, () => '2026-01-01T00:00:00.000Z');
-  await recordPendingDrainAttempt(2020);
-  await recordPendingDrainAttempt(2020);
-  await recordPendingStandingsInvalidation(2021, () => '2026-06-01T00:00:00.000Z');
+test('the drain takes the OLDEST obligations, and a newer one can starve behind them', async () => {
+  // THIS TEST RECORDS A KNOWN COST, NOT A DESIRED PROPERTY. The list used to order
+  // fewest-attempts-first precisely so that MAX_PENDING_DRAIN_PER_RUN permanently
+  // unrepairable years could not hold every slot while a newer, repairable year was
+  // never attempted. Removing `attempts` removed that rotation with it.
+  //
+  // It is asserted rather than left to be discovered because the previous test here
+  // claimed the opposite property, and a deleted test would have taken the claim's
+  // refutation with it. The starvation is filed as its own issue.
+  for (const [i, year] of [2011, 2012, 2013, 2014].entries()) {
+    await recordPendingStandingsInvalidation(year, () => `2026-0${i + 1}-01T00:00:00.000Z`);
+  }
+  // Newer than all four, and repairable — the year that starves.
+  await recordPendingStandingsInvalidation(2021, () => '2026-09-01T00:00:00.000Z');
 
   const walked: number[] = [];
   await drainPendingStandingsInvalidations(async (year) => {
     walked.push(year);
-    return { result: 'complete' };
-  }, 1);
+    return { result: 'partial' };
+  });
 
-  assert.deepEqual(walked, [2021], 'fewest attempts first');
+  assert.deepEqual(walked, [2011, 2012, 2013, 2014], 'oldest first, capped at four');
+  assert.ok(!walked.includes(2021), 'the newer repairable year is never reached');
 });
 
 test('among equal effort, the oldest fault goes first', async () => {
@@ -261,7 +261,7 @@ test('a walk that THROWS is contained and counted', async () => {
       throw new Error('registry exploded');
     })
   );
-  assert.equal((await readPendingStandingsInvalidation(2023))?.attempts, 1);
+  assert.ok(await readPendingStandingsInvalidation(2023), 'the obligation survives a throw');
 });
 
 test('an unreadable pending row is stepped over, not thrown on', async () => {
@@ -312,27 +312,7 @@ test('discharging a year with nothing pending walks nothing', async () => {
 test('a discharge whose walk did not bust leaves the obligation standing', async () => {
   await recordPendingStandingsInvalidation(2026);
   await dischargePendingStandingsInvalidation(2026, busted_nothing);
-  const after = await readPendingStandingsInvalidation(2026);
-  assert.ok(after);
-  assert.equal(after.attempts, 1);
-});
-
-test('repeated discharges reach the stuck threshold without the weekly drain', async () => {
-  // THE NUANCE THE THRESHOLD COMMENT CLAIMS, pinned so the claim cannot rot. The drain is
-  // not the only contributor: a discharge charges an attempt whenever its walk fails to
-  // clear, and it is reached from every full-season refresh of a year that still owes a
-  // bust. So a year somebody is actively refreshing escalates faster than the weekly
-  // cadence alone would — the right way round, since the person refreshing is the person
-  // who would act on the escalation.
-  await recordPendingStandingsInvalidation(2026);
-  for (let i = 0; i < PENDING_ATTEMPTS_STUCK_THRESHOLD; i += 1) {
-    await dischargePendingStandingsInvalidation(2026, busted_nothing);
-  }
-  assert.deepEqual(
-    await summarizePendingStandingsInvalidations(),
-    { count: 1, stuck: 1 },
-    'the escalation is reachable without any drain running'
-  );
+  assert.ok(await readPendingStandingsInvalidation(2026));
 });
 
 // === R7 as amended — the cleared MARKER must never read back as an obligation ===
@@ -418,80 +398,11 @@ test('an UNREADABLE row is counted, not silently dropped', async () => {
     year: 2019,
     token: '',
     since: '2026-01-01T00:00:00.000Z',
-    attempts: 0,
   } as unknown as PendingStandingsInvalidation);
 
   assert.equal(await countPendingStandingsInvalidations(), 1, 'an unreadable obligation counts');
   // It still cannot be drained — the walk needs a year it can trust — so it stays.
   assert.deepEqual(await listPendingStandingsInvalidations(), []);
-});
-
-// === Round 2 — the summary separates repair-in-progress from stuck ===
-
-test('an obligation below the attempt threshold is pending but NOT stuck', async () => {
-  await recordPendingStandingsInvalidation(2019, () => '2026-01-01T00:00:00.000Z');
-  for (let i = 0; i < PENDING_ATTEMPTS_STUCK_THRESHOLD - 1; i += 1) {
-    await recordPendingDrainAttempt(2019);
-  }
-  assert.deepEqual(await summarizePendingStandingsInvalidations(), { count: 1, stuck: 0 });
-});
-
-test('an obligation AT the attempt threshold is stuck', async () => {
-  // The boundary itself, asserted rather than approached: `>=`, not `>`. The threshold
-  // is the first attempt count that can show a count failing to fall, so the obligation
-  // that reaches it is already the fault.
-  await recordPendingStandingsInvalidation(2019, () => '2026-01-01T00:00:00.000Z');
-  for (let i = 0; i < PENDING_ATTEMPTS_STUCK_THRESHOLD; i += 1) {
-    await recordPendingDrainAttempt(2019);
-  }
-  assert.deepEqual(await summarizePendingStandingsInvalidations(), { count: 1, stuck: 1 });
-});
-
-test('an UNREADABLE row is STUCK regardless of attempts, because it can never be retried', async () => {
-  // THE CASE A COUNTER ALONE GETS BACKWARDS, and the reason stuckness is not just
-  // `attempts >= threshold`. `readAllPending` cannot parse this row, so
-  // `listPendingStandingsInvalidations` will never offer it to a drain and
-  // `recordPendingDrainAttempt` can never increment it — its attempts are frozen at 0
-  // forever. Classifying by attempts alone would report the ONE permanently
-  // unrepairable state as "repair in progress", which is the false all-clear wearing
-  // the new severity.
-  await setAppState(STANDINGS_INVALIDATION_PENDING_SCOPE, '2019', {
-    year: 2019,
-    token: '',
-    since: '2026-01-01T00:00:00.000Z',
-    attempts: 0,
-  } as unknown as PendingStandingsInvalidation);
-
-  assert.deepEqual(await summarizePendingStandingsInvalidations(), { count: 1, stuck: 1 });
-  // And it is still undrainable, which is exactly why it is stuck.
-  assert.deepEqual(await listPendingStandingsInvalidations(), []);
-});
-
-test('stuck never exceeds count, across a mixed set', async () => {
-  // A fresh obligation, a stuck one, and an unreadable one together.
-  await recordPendingStandingsInvalidation(2019, () => '2026-01-01T00:00:00.000Z');
-  await recordPendingStandingsInvalidation(2020, () => '2026-01-02T00:00:00.000Z');
-  for (let i = 0; i < PENDING_ATTEMPTS_STUCK_THRESHOLD; i += 1) {
-    await recordPendingDrainAttempt(2020);
-  }
-  await setAppState(STANDINGS_INVALIDATION_PENDING_SCOPE, '2021', {
-    year: 2021,
-    token: '',
-    since: '2026-01-03T00:00:00.000Z',
-    attempts: 0,
-  } as unknown as PendingStandingsInvalidation);
-
-  const summary = await summarizePendingStandingsInvalidations();
-  assert.notEqual(summary, 'unavailable');
-  assert.deepEqual(summary, { count: 3, stuck: 2 });
-});
-
-test('the summary reports UNAVAILABLE for a failed store, exactly as the count does', async () => {
-  // The unknown propagates as unknown. A summary of `{count: 0, stuck: 0}` here would be
-  // the false all-clear in both fields at once.
-  await recordPendingStandingsInvalidation(2026);
-  await __corruptAppStateFileForTests();
-  assert.equal(await summarizePendingStandingsInvalidations(), 'unavailable');
 });
 
 test('a store failure reports UNAVAILABLE, never zero', async () => {
@@ -505,9 +416,10 @@ test('a store failure reports UNAVAILABLE, never zero', async () => {
 });
 
 test('a DECLINED clear does not charge an attempt to the newer obligation', async () => {
-  // `attempts` is repair EFFORT and drives fewest-attempts-first ordering. Charging the
-  // new obligation for a repair that actually SUCCEEDED pushes a fresh fault behind
-  // older ones.
+  // ROUND 4 — the clear DECLINES because the token changed, and nothing else happens.
+  // This used to also assert that the newer obligation was not charged an attempt; the
+  // counter is gone, so what remains is the property that matters: a decline leaves the
+  // newer obligation intact and outstanding, so the repair it is owed is not lost.
   await recordPendingStandingsInvalidation(2026, () => '2026-01-01T00:00:00.000Z');
 
   await drainPendingStandingsInvalidations(async (year) => {
@@ -517,14 +429,15 @@ test('a DECLINED clear does not charge an attempt to the newer obligation', asyn
   });
 
   const after = await readPendingStandingsInvalidation(2026);
-  assert.ok(after);
-  assert.equal(after.attempts, 0, 'the new obligation has never been attempted');
+  assert.ok(after, 'the newer obligation survives a declined clear');
 });
 
-test('the drain reports only a lower bound, not a still-pending count', async () => {
-  // A count taken at the drain is a PRE-RUN snapshot: the run's own refreshes can still
-  // clear or record afterwards. The caller recounts at receipt time; this is the floor
-  // used only when that fresh count is unavailable.
+test('the drain reports what it LOOKED AT, which can exceed what remains', async () => {
+  // FINDING 4 — the direction, stated correctly. `observed` is the size of the slice the
+  // drain attempted, INCLUDING every obligation it then cleared, so relative to what is
+  // still outstanding it is an UPPER bound. The old name for it here was "lower bound",
+  // which is the same units error the route's comment carried. The assertion below is
+  // the demonstration: two observed, zero remaining.
   for (const year of [2011, 2012]) {
     await recordPendingStandingsInvalidation(year, () => `${year}-01-01T00:00:00.000Z`);
   }

@@ -98,7 +98,6 @@ function targetFor(job: ExternalSchedulerJob): SchedulerExecutionTarget {
           },
         ],
         0,
-        0,
         0
       );
     case 'rankings':

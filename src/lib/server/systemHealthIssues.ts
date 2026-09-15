@@ -38,7 +38,6 @@ import {
   type SchedulerExecutionReceipt,
 } from './schedulerExecutionStatus.ts';
 import { formatYearFailureEvidence } from './schedulerYearEvidence.ts';
-import { PENDING_ATTEMPTS_STUCK_THRESHOLD } from './standingsInvalidationPending.ts';
 import { seasonYearForToday } from '../scores/normalizers.ts';
 import {
   getProviderDatasetDescriptor,
@@ -760,55 +759,28 @@ function schedulerExecutionIssues(snapshot: SchedulerDeliveryHealthSnapshot): Sy
       // the ACTIONABLE severity was being published for what is usually the
       // informational case.
       //
-      // SEVERITY ANSWERS ACTIONABILITY. IT DOES NOT ANSWER VISIBILITY — and round 2
-      // shipped a comment here claiming otherwise. It read: *"`info` is not silence:
-      // the tile renders GRAY … so Overall still refuses to say all systems are
-      // normal."* **Both halves were false.** `schedulerPanel` had no `info-only`
-      // branch and fell through to GREEN, and `overallPanel` coerces every gray
-      // section to green before its reduce — so this severity made the fault
-      // invisible on the tiles and on the verdict, which is precisely the condition
-      // R1 exists to end. Round 3 fixed it in `systemHealthPanels.ts` by mapping
-      // `info-only` to yellow there; the severity below is now only about priority.
-      //
-      // WHAT THE SEVERITY STILL BUYS: `compareIssues` reads severity FIRST, so at
-      // `info` this can never take the Scheduler tile's one detail line from a
-      // genuine delivery or execution fault. At `warning` it competes for that line,
-      // which is correct, because by then it IS one.
-      //
-      // THE CHAIN, because the failure was a link nobody tested — each has a test:
-      //   1. non-stuck emits `info`     — "a stuck obligation is a WARNING and an
-      //      in-progress repair is not" (`systemHealthIssues.test.ts`)
-      //   2. `info-only` renders yellow — "an info-only scheduler issue makes the
-      //      tile yellow, not green" (`systemHealthPanels.test.ts`)
-      //   3. Overall reports attention — "Overall cannot say all systems are normal
-      //      while an invalidation is pending" (`systemHealthPanels.test.ts`)
-      // Round 2 had link 1 and asserted link 3 in this comment. Do not re-assert a
-      // rendering claim here; assert it where the rendering happens.
-      const stuck = target.pendingStandingsInvalidationsStuck > 0;
       issues.push({
         code: 'standings-invalidation-pending',
-        severity: stuck ? 'warning' : 'info',
+        severity: 'warning',
         subject: { axis: 'job', id: row.job },
-        title: stuck
-          ? `${target.pendingStandingsInvalidationsStuck} standings invalidation(s) are not being repaired`
-          : `${target.pendingStandingsInvalidations} standings invalidation(s) still pending`,
-        // Says what to DO, because an alarm with no action is its own defect — which
-        // is the failure this requirement corrects, one layer up. The two states get
-        // DIFFERENT text, not one line hedged to cover both: the informational one
-        // says repair is automatic and no action is needed, and the actionable one
-        // says repair has been tried and is not working. A single sentence that has
-        // to be true in both states is how the severity came to be wrong.
+        title: `${target.pendingStandingsInvalidations} standings invalidation(s) still pending`,
+        // ONE SEVERITY, ONE SENTENCE — rounds 2 and 3 split this into `info`/`warning`
+        // by an attempt counter and the whole escalation was removed in round 4. The
+        // counter could not do its job (a successful clear wiped the history, so the
+        // escalated state was unreachable for the flapping fault it targeted), and
+        // `warning` was always sufficient for what R1 actually required: the Scheduler
+        // tile yellow and Overall reporting attention needed. The split only ever
+        // bought detail-line priority.
         //
-        // ONE TEMPLATE LITERAL PER BRANCH, NEVER A `+` CHAIN OF TWO INTERPOLATING
-        // LITERALS. This explanation used to be built by concatenation, and while
-        // that particular shape survives the minifier (the right-hand operands were
-        // plain strings), the shape one edit away from it does NOT — it took
-        // production down on 2026-09-15 by dropping the left literal's tail. See the
-        // docblock on `APP_STATE_BOUNDED_BEGIN`. Written as single literals so the
-        // question cannot arise here again.
-        explanation: stuck
-          ? `Canonical standings for ${target.pendingStandingsInvalidationsStuck} year(s) are stale and the automatic repair is not clearing them: the scheduled run has retried each at least ${PENDING_ATTEMPTS_STUCK_THRESHOLD} times, or the record can no longer be read and can never be retried. Standings tags have no time-based expiry, so these will not recover on their own. Investigate the schedule-refresh run's standings invalidation.`
-          : `Canonical standings for ${target.pendingStandingsInvalidations} year(s) are stale: a durable commit succeeded but its cache invalidation did not, and the tags are only cleared by an invalidation — there is no time-based expiry. The next scheduled run retries them automatically, so this is repair in progress and needs no action. A count that does NOT fall across consecutive runs is the fault worth investigating.`,
+        // ONE TEMPLATE LITERAL, NEVER A `+` CHAIN of two interpolating literals — see
+        // the docblock on `APP_STATE_BOUNDED_BEGIN`; that shape took production down on
+        // 2026-09-15.
+        //
+        // Pinned by "an outstanding standings invalidation raises an issue even when
+        // the run SUCCEEDED" here, and by the panel-level tests in
+        // `systemHealthPanels.test.ts`. Do not assert a RENDERING claim in this file:
+        // round 2 did, naming tests that assert severity and cannot see a panel.
+        explanation: `Canonical standings for ${target.pendingStandingsInvalidations} year(s) are stale: a durable commit succeeded but its cache invalidation did not, and the tags are only cleared by an invalidation — there is no time-based expiry. The next scheduled run retries them automatically, so a falling count is repair in progress. A count that does NOT fall across consecutive runs is the fault worth investigating.`,
         // `repair: null`, NOT the job's generic Data Maintenance action. The receipt
         // carries a COUNT and cannot name which years are outstanding, so that
         // destination cannot act on this fault — and the explanation above says repair

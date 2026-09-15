@@ -103,7 +103,6 @@ function targetFor(job: ExternalSchedulerJob, refusals = 0): SchedulerExecutionT
           },
         ],
         refusals,
-        0,
         0
       );
     case 'rankings':

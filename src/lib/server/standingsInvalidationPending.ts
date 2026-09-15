@@ -23,8 +23,8 @@ import { getAppStateEntries, withAppStateKeyTransaction } from './appStateStore.
  * a different value**, three times, and the type and signatures were shaped around
  * those substitutions:
  *
- * - It had no identity, and pressed `since` and `attempts` into that role. **`since` is
- *   the fault's AGE and `attempts` is REPAIR EFFORT. Neither is identity**, and a
+ * - It had no identity, and pressed `since` into that role. **`since` is the fault's
+ *   AGE, and age is not identity**, and a
  *   re-record reproduced both unchanged — so the generation guard could not see the
  *   concurrent re-record it existed for.
  * - `clear` returned `void` because it must never throw, which conflated *"did not
@@ -63,48 +63,6 @@ export const STANDINGS_INVALIDATION_PENDING_SCOPE = 'standings-invalidation-pend
  */
 export const MAX_PENDING_DRAIN_PER_RUN = 4;
 
-/**
- * Attempts at or above which an outstanding obligation stops being "repair in progress"
- * and becomes a fault worth a human's attention.
- *
- * DERIVED FROM R1'S OWN DEFINITION OF THE FAULT, not chosen for roundness. R1 states it
- * directly: a positive count means repair is in progress, and *"a count that does NOT
- * fall across consecutive runs is the fault worth investigating."* **Two is the smallest
- * attempt count that can distinguish those.** One failed attempt is a single data point
- * — it cannot establish that anything failed to fall — so a threshold of 1 would report
- * every transient failure as the standing fault, which is the condition R1 exists to
- * separate. Two failed attempts is the first observation of a count that did not fall.
- *
- * THE CADENCE IS WEEKLY, AND THE WALL-CLOCK CONSEQUENCE IS STATED RATHER THAN BURIED.
- * The drain has exactly one caller — the `schedule-refresh` cron — and that schedule is
- * `0 12 * * 2` (Tuesdays 12:00), pinned in code at
- * `scripts/manage-schedule-refresh-schedule.ts:75`, not merely in the runbook. So two
- * attempts is **roughly two weeks** of stale canonical standings before this escalates.
- * That is a long time, and it is the honest consequence of a weekly repair cycle: the
- * alternative is escalating on the first transient failure.
- *
- * **TWO WEEKS IS THE UNATTENDED WORST CASE, NOT THE ONLY CASE — the weekly drain is not
- * the only thing that charges an attempt.** `dischargePendingStandingsInvalidation` also
- * calls `recordPendingDrainAttempt`, on both of its paths: when a walk ran but did not
- * clear the obligation, and when the walk threw. It is reached from the four non-walking
- * branches of `fullSeasonScheduleRefresh`, so ANY refresh of a year that still owes a
- * bust contributes an attempt — including an operator-triggered one, not just the cron.
- * A year nobody touches escalates on the weekly cadence; a year somebody is actively
- * refreshing escalates sooner, which is the right way round, because the person
- * refreshing is the person who would act on the escalation.
- *
- * It charges only when the obligation was NOT cleared, and it returns early for a year
- * that owes nothing — so a successful repair never advances the counter toward stuck.
- * Pinned by *"a discharge whose walk did not bust leaves the obligation standing"* (which
- * asserts the charge), *"discharging a year with nothing pending walks nothing"*, and
- * *"repeated discharges reach the stuck threshold without the weekly drain"* — all in
- * `standingsInvalidationPending.test.ts`.
- *
- * NO COST MODEL IS ASSERTED HERE. This number is derived from the fault's definition and
- * the drain's cadence — both measured — and from nothing about what a rebuild costs.
- */
-export const PENDING_ATTEMPTS_STUCK_THRESHOLD = 2;
-
 export type PendingStandingsInvalidation = {
   /** The year whose canonical standings are still owed a bust. */
   year: number;
@@ -117,10 +75,8 @@ export type PendingStandingsInvalidation = {
    * order, so a later record can never collide with a stale observation.
    */
   token: string;
-  /** The fault's AGE, preserved across re-records. Not identity, not effort. */
+  /** The fault's AGE, preserved across re-records. Not identity. */
   since: string;
-  /** REPAIR EFFORT so far. Drives ordering. Not identity, not age. */
-  attempts: number;
 };
 
 function isPendingRecord(value: unknown): value is PendingStandingsInvalidation {
@@ -139,10 +95,7 @@ function isPendingRecord(value: unknown): value is PendingStandingsInvalidation 
     // below rather than vanishing.
     typeof row.token === 'string' &&
     row.token.length > 0 &&
-    typeof row.since === 'string' &&
-    typeof row.attempts === 'number' &&
-    Number.isInteger(row.attempts) &&
-    row.attempts >= 0
+    typeof row.since === 'string'
   );
 }
 
@@ -201,8 +154,8 @@ export async function readPendingStandingsInvalidation(
  *
  * Every call records a NEW OBLIGATION and therefore a new `token`, even when one is
  * already outstanding — that is what lets a clear tell a pre-walk observation from an
- * obligation recorded while the walk ran. `since` and `attempts` carry forward, because
- * the fault's age and the effort spent on it both survive a re-record.
+ * obligation recorded while the walk ran. `since` carries forward, because the fault's
+ * age survives a re-record.
  *
  * NEVER THROWS. Every caller runs after a durable commit, so a failure here must not
  * turn a completed state change into a 500 — the invariant the original swallow was
@@ -224,7 +177,6 @@ export async function recordPendingStandingsInvalidation(
           year,
           token: nextToken(),
           since: existing?.since ?? now(),
-          attempts: existing?.attempts ?? 0,
         });
       }
     );
@@ -246,8 +198,8 @@ export async function recordPendingStandingsInvalidation(
  *
  * THE RACE THE TOKEN CLOSES: a walk takes time, and another writer can commit the same
  * year and record a new obligation while it runs. The key transaction serializes the
- * WRITES, not the walk. `since` carries forward across re-records and `attempts` moves
- * only on a drain attempt, so neither can distinguish generations — only the token can.
+ * WRITES, not the walk. `since` carries forward across re-records, so it cannot
+ * distinguish generations — only the token can.
  *
  * The no-op case is decided BEFORE opening a transaction. `withAppStateKeyTransaction`
  * takes a per-key `pg_advisory_xact_lock` before running its callback, so deciding
@@ -308,33 +260,20 @@ export async function clearPendingStandingsInvalidation(
   }
 }
 
-/** Record one failed repair attempt, preserving identity and age. Never throws. */
-export async function recordPendingDrainAttempt(year: number): Promise<void> {
-  try {
-    await withAppStateKeyTransaction(
-      STANDINGS_INVALIDATION_PENDING_SCOPE,
-      String(year),
-      async (txn) => {
-        const prior = (await txn.read<unknown>())?.value;
-        if (!isPendingRecord(prior)) return;
-        // The token is NOT advanced: this is the same obligation with one more failed
-        // repair, not a new one. Advancing it would invalidate a concurrent drain's
-        // observation for a change that is not a new obligation.
-        await txn.write<PendingStandingsInvalidation>({ ...prior, attempts: prior.attempts + 1 });
-      }
-    );
-  } catch {
-    // Attempt bookkeeping is the least important thing here; the obligation itself is
-    // the fault report and survives regardless.
-  }
-}
-
 /**
- * The obligations this run should attempt, FEWEST ATTEMPTS FIRST then oldest fault.
+ * The obligations this run should attempt, OLDEST FAULT FIRST.
  *
- * Fewest-attempts-first is the property, not a tiebreak: oldest-first alone lets four
- * permanently unrepairable years hold every slot on every run forever while a fifth,
- * REPAIRABLE year is never attempted. Ordering by effort makes the cap rotate.
+ * **THIS ORDERING CAN STARVE, AND THAT IS A KNOWN COST OF REMOVING `attempts` — it is
+ * stated here rather than discovered later.** This list used to order fewest-attempts
+ * first, precisely so that `MAX_PENDING_DRAIN_PER_RUN` permanently unrepairable years
+ * could not hold every slot on every run while a newer, REPAIRABLE year was never
+ * attempted. Ordering by effort made the cap rotate; ordering by age does not.
+ *
+ * The counter that made rotation possible was removed because it was load-bearing for a
+ * severity escalation that could not work (a successful clear wiped the history, so the
+ * escalation was unreachable for the flapping fault it targeted). Rotation was the
+ * counter's ONE surviving justification, and it is not enough on its own to keep a field
+ * whose bookkeeping produced two defects. The starvation is filed rather than fixed.
  *
  * NEVER THROWS — an unavailable store yields an empty list, so a drain can never fail
  * the run it runs inside.
@@ -344,10 +283,7 @@ export async function listPendingStandingsInvalidations(
 ): Promise<PendingStandingsInvalidation[]> {
   try {
     const { records } = await readAllPending();
-    records.sort(
-      (a, b) =>
-        a.attempts - b.attempts || Date.parse(a.since) - Date.parse(b.since) || a.year - b.year
-    );
+    records.sort((a, b) => Date.parse(a.since) - Date.parse(b.since) || a.year - b.year);
     return records.slice(0, limit);
   } catch (error) {
     console.error('could not list pending standings invalidations', {
@@ -372,51 +308,15 @@ export async function listPendingStandingsInvalidations(
  * instead of the code. Pinned by *"a store failure reports
  * UNAVAILABLE, never zero"* in `standingsInvalidationPending.test.ts`.
  *
- * The count alone cannot say whether repair is progressing; see
- * `summarizePendingStandingsInvalidations`, which is now the source of both facts.
+ * UNREADABLE ROWS COUNT. They are obligations this module can no longer act on, and
+ * reporting them as zero would be the false all-clear in a new costume.
  */
 export async function countPendingStandingsInvalidations(): Promise<number | 'unavailable'> {
-  const summary = await summarizePendingStandingsInvalidations();
-  return summary === 'unavailable' ? 'unavailable' : summary.count;
-}
-
-/**
- * The whole durable set as two facts: how many years owe a bust, and how many of those
- * are STUCK rather than merely awaiting their next repair.
- *
- * WHY A SECOND FACT EXISTS AT ALL. The receipt used to carry only the count, and the
- * health issue derived from it therefore had one severity for two different conditions.
- * R1 says a positive count usually means repair is in progress and the fault is a count
- * that does not fall — **one severity cannot say both**, so the actionable severity was
- * being asserted for the ordinary informational case.
- *
- * WHAT COUNTS AS STUCK, and the second half is the one a count alone cannot see:
- *
- * 1. A readable record with `attempts >= PENDING_ATTEMPTS_STUCK_THRESHOLD` — repair has
- *    been tried that many times and the obligation is still here.
- * 2. **EVERY UNREADABLE ROW, whatever its attempt history.** `readAllPending` cannot
- *    parse it, so `listPendingStandingsInvalidations` will never offer it to a drain and
- *    `recordPendingDrainAttempt` can never increment it: its attempts are frozen at
- *    whatever they were and its count can never fall. An unreadable obligation is the
- *    "count that does not fall" condition BY CONSTRUCTION, so classifying it by an
- *    attempt counter that is definitionally stuck at zero would report the one
- *    permanently unrepairable state as repair in progress.
- *
- * NEVER THROWS for a readable store; `'unavailable'` is reserved for the store failing,
- * and carries the same meaning it does for the count — unknown, and a caller must not
- * overwrite a known prior with it.
- */
-export async function summarizePendingStandingsInvalidations(): Promise<
-  { count: number; stuck: number } | 'unavailable'
-> {
   try {
     const { records, unreadable } = await readAllPending();
     // Unreadable rows COUNT. They are obligations this module can no longer act on, and
     // reporting them as zero would be the false all-clear in a new costume.
-    const stuckRecords = records.filter(
-      (record) => record.attempts >= PENDING_ATTEMPTS_STUCK_THRESHOLD
-    ).length;
-    return { count: records.length + unreadable, stuck: stuckRecords + unreadable };
+    return records.length + unreadable;
   } catch {
     // NOT 0. A transient store failure is not an empty set, and returning a count here
     // would let a deferred receipt write publish a false all-clear over a standing
@@ -456,21 +356,16 @@ export async function drainPendingStandingsInvalidations(
       // it never repaired. The observed record is passed, so an obligation recorded
       // DURING the walk survives this clear.
       if (outcome.result === 'complete') {
-        // A clear that DECLINES means a newer obligation landed mid-walk. That
-        // obligation has never been attempted, and charging it an attempt would push a
-        // fresh fault behind older ones in the fewest-attempts-first order — for a
-        // repair that actually SUCCEEDED. Effort is only charged when the walk itself
-        // failed to repair.
+        // A clear that DECLINES means a newer obligation landed mid-walk, and the
+        // token is what refuses it. Nothing is recorded either way: a walk that failed
+        // leaves the obligation exactly as it was, which IS the fault report.
         await clearPendingStandingsInvalidation(record.year, record);
-      } else {
-        await recordPendingDrainAttempt(record.year);
       }
     } catch (error) {
       console.error('a pending standings invalidation drain threw', {
         year: record.year,
         error: error instanceof Error ? error.message : String(error),
       });
-      await recordPendingDrainAttempt(record.year);
     }
   }
   return { observed: pending.length };
@@ -513,14 +408,17 @@ export async function dischargePendingStandingsInvalidation(
 
   try {
     const outcome = await walk(year);
-    const cleared =
-      outcome.result === 'complete' && (await clearPendingStandingsInvalidation(year, observed));
-    if (!cleared) await recordPendingDrainAttempt(year);
+    // NOTHING IS RECORDED ON FAILURE, and that deletes a defect rather than fixing one.
+    // This used to charge an attempt whenever the clear returned false — but
+    // `clearPendingStandingsInvalidation` returns false BOTH when a newer obligation
+    // landed mid-walk AND from its own catch when the store threw, so a successful walk
+    // whose clear hit a transient error was charged for a repair that worked. The drain
+    // path never did this. With the counter gone the question does not arise.
+    if (outcome.result === 'complete') await clearPendingStandingsInvalidation(year, observed);
   } catch (error) {
     console.error('a pending standings invalidation discharge threw', {
       year,
       error: error instanceof Error ? error.message : String(error),
     });
-    await recordPendingDrainAttempt(year);
   }
 }
