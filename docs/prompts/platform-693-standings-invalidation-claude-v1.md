@@ -204,6 +204,34 @@ Planning approves crossing the file-count signal, subject to:
    Planning's approval covers the engineering judgement; it does not substitute for the owner's, and
    the registry entry must record which was obtained.
 
+### AMENDMENT 2 — 2026-09-15, after round 2: THE SECOND SIGNAL NOW CROSSES TOO
+
+`e378c090` approved crossing the **file-count** signal when the branch measured 19 files and **1,184
+net lines** — comfortably under the 1,500 line threshold, which was therefore not in question. At
+round 2 (`bbc38a51`) the branch measures **21 files, 1,647 insertions, 56 deletions — 1,591 net**.
+**Both signals in `AGENTS.md:462` are now crossed.**
+
+**The lane flagged this rather than treating the earlier approval as covering it, and that is the
+right instinct: "the approval was for a smaller thing" is exactly how a sizing rule gets hollowed
+out.** An approval is for the thing measured at the time it was given.
+
+**Planning's position is unchanged, and the reason is that the growth is entirely the thing that was
+already ruled in.** Every line of it is replay — the pending scope, the two triggers, the drain
+summary, and their tests — which Amendment 1 established was specified in the acceptance boundary
+from the start and never descoped. No new objective entered.
+
+**A further split is refused, and the reason is reachability rather than size.** The two triggers
+cannot be separated: a cron drain cannot cover the manual repair path, and an authority discharge
+cannot cover a zero-target run because the authority is never called when there are no targets.
+Shipping either alone leaves the repair broken in a way that is invisible from the other half, which
+is the failure this issue exists to close. Measured against the `AGENTS.md` test — *one cohesive
+objective with a clear acceptance contract, independently reviewable, verifiable, deployable, and
+revertible* — this is one objective and reverts as one unit.
+
+**OWNER SIGN-OFF IS STILL OUTSTANDING and now has two signals to cover rather than one.** The
+registry entry records which approvals were obtained and the final measured diffstat; it must not
+read as though `e378c090` covered the line-count signal, because it did not and could not.
+
 ### Design, as ruled
 
 - **Pending state is keyed by YEAR, never by league slug.** No identifier enters a policed surface;
