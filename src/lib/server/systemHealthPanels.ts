@@ -218,7 +218,39 @@ function schedulerPanel(input: SystemHealthPanelsInput): SystemHealthPanel {
   const scoped = input.issues.filter((i) => SCHEDULER_CODES.has(i.code));
   const sev = severityStatus(scoped);
   const gov = governing(input.issues, (c) => SCHEDULER_CODES.has(c));
-  const status: PanelStatus = sev === 'red' ? 'red' : sev === 'yellow' ? 'yellow' : 'green';
+  /**
+   * PLATFORM-693 round 3 — `info-only` IS YELLOW HERE, NOT GREEN, and that is a
+   * correction to this file rather than a special case for one code.
+   *
+   * `severityStatus` returns `info-only` ONLY when `issues.length > 0` (see its body:
+   * the `none` arm is the empty case). So the branch means "there are open issues, all
+   * informational" — and mapping that to green was the one place in this file where an
+   * OPEN ISSUE sat under a green tile, against a principle this file states twice: the
+   * `UNTILED_CODES` note exists so Overall cannot say "all systems are operating
+   * normally" above an open warning, and `overallPanel` says it can never say "all
+   * normal" above a yellow/red tile.
+   *
+   * NOT GRAY, and the codebase settles that rather than taste. `:250-253` treats an
+   * unintentional gray freshness as *contributing yellow* because unknown "warrants
+   * attention", and `overallPanel` coerces every gray section to green before its
+   * reduce. So gray here would both misstate a KNOWN fault (a counted, named pending
+   * repair) as unknown AND leave Overall reporting all-normal — a visible tile above an
+   * unchanged verdict. Gray in this file means unknown or deliberately absent; it is
+   * not a severity below yellow.
+   *
+   * WHY SEVERITY IS STILL WORTH HAVING once the panel no longer reads it for
+   * visibility: `compareIssues` reads severity FIRST, so an `info` issue sorts behind
+   * every `warning` scheduler fault and cannot take this tile's one detail line from a
+   * fault that needs a human. Visibility is the panel's question; actionability is the
+   * issue's. Round 2 conflated them — it lowered the severity to fix the detail-line
+   * displacement and made the fault invisible, because this branch sent it to green.
+   *
+   * NOTHING EXISTING REACHES THIS BRANCH: all six other `SCHEDULER_CODES` are emitted
+   * at `warning`, so no current behaviour changes and — the reason the tests below are
+   * the whole guarantee — no existing test could have caught a mistake in it.
+   */
+  const status: PanelStatus =
+    sev === 'red' ? 'red' : sev === 'yellow' || sev === 'info-only' ? 'yellow' : 'green';
   const stateLabel =
     status === 'red'
       ? 'Action required'

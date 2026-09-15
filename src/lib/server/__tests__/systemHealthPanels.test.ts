@@ -661,3 +661,88 @@ test('provider-data panel: a governing issue still owns the detail line over an 
   );
   assert.equal(p.detail, 'rankings refresh failed');
 });
+
+// === PLATFORM-693 round 3 — an OPEN issue must never sit under a green tile ===
+
+/**
+ * WHY THESE LIVE HERE AND NOT IN `systemHealthIssues.test.ts`. Round 2 lowered the
+ * pending-invalidation severity to `info` and asserted, in a code comment, that the
+ * tile would render gray and Overall would still report attention. Both halves were
+ * false — `schedulerPanel` had no `info-only` branch and fell through to GREEN, and
+ * `overallPanel` coerces gray to green before its reduce — so the fault the slice
+ * exists to surface became invisible on the stoplight tiles and on the verdict.
+ *
+ * Three tests in `systemHealthIssues.test.ts` were named as pinning that claim. They
+ * assert `issue.severity` and CANNOT SEE A PANEL STATUS. A claim about rendering has
+ * to be asserted where the rendering happens, which is this file.
+ *
+ * THE CHAIN, one test per link:
+ *   1. non-stuck emits `info`      — `systemHealthIssues.test.ts`
+ *   2. `info-only` renders yellow  — here
+ *   3. Overall reports attention   — here
+ *
+ * AND THESE ARE THE WHOLE GUARANTEE. All six other `SCHEDULER_CODES` are emitted at
+ * `warning`, so nothing else in the system can reach the `info-only` branch — no
+ * pre-existing test could catch a mistake in it, in either direction.
+ */
+
+/** The pending-invalidation issue as `schedulerExecutionIssues` emits it. */
+function pendingInvalidation(severity: 'info' | 'warning'): SystemHealthIssue {
+  return {
+    code: 'standings-invalidation-pending',
+    severity,
+    subject: { axis: 'job', id: 'schedule-refresh' },
+    title: '3 standings invalidation(s) still pending',
+    explanation: 'Canonical standings for 3 year(s) are stale.',
+    repair: null,
+  };
+}
+
+test('an info-only scheduler issue makes the tile yellow, not green', () => {
+  const input = baseInput({ issues: [pendingInvalidation('info')] });
+  const scheduler = panel(input, 'scheduler');
+  assert.equal(scheduler.status, 'yellow');
+  // NOT gray: gray means unknown or deliberately absent in this file (`:250-253`
+  // escalates an unintentional gray freshness to yellow because unknown "warrants
+  // attention"), and a counted pending repair is a KNOWN fault.
+  assert.notEqual(scheduler.status, 'gray');
+  assert.equal(scheduler.stateLabel, 'Attention needed');
+});
+
+test('Overall cannot say all systems are normal while an invalidation is pending', () => {
+  // THE REQUIREMENT R1 ACTUALLY SET, asserted on the surface an operator reads first.
+  const input = baseInput({ issues: [pendingInvalidation('info')] });
+  const overall = panel(input, 'overall');
+  assert.equal(overall.status, 'yellow');
+  assert.equal(overall.stateLabel, 'Attention needed');
+  assert.notEqual(overall.detail, 'All systems are operating normally.');
+});
+
+test('an info-only pending issue does NOT take the detail line from a real fault', () => {
+  // The anti-displacement property, and the only thing the severity split still buys.
+  // `compareIssues` reads severity first, so `info` sorts behind every `warning`
+  // scheduler fault — including one on a job that sorts AFTER `schedule-refresh` in
+  // the canonical order, which is the case that made the displacement reachable.
+  const realFault: SystemHealthIssue = {
+    code: 'scheduler-delivery-late',
+    severity: 'warning',
+    subject: { axis: 'job', id: 'rankings' },
+    title: 'rankings delivery is late',
+    explanation: 'The rankings job did not arrive on schedule.',
+    repair: null,
+  };
+  // Pre-sorted as `deriveSystemHealthIssues` emits them: warning before info.
+  const input = baseInput({ issues: [realFault, pendingInvalidation('info')] });
+  const scheduler = panel(input, 'scheduler');
+  assert.equal(scheduler.status, 'yellow');
+  assert.equal(scheduler.detail, 'rankings delivery is late');
+});
+
+test('a green scheduler tile still means NO scheduler issues at all', () => {
+  // POSITIVE CONTROL. Without it, a panel that returned yellow unconditionally would
+  // satisfy every assertion above while saying nothing about the `info-only` branch.
+  const scheduler = panel(baseInput(), 'scheduler');
+  assert.equal(scheduler.status, 'green');
+  assert.equal(scheduler.stateLabel, 'Healthy');
+  assert.equal(panel(baseInput(), 'overall').detail, 'All systems are operating normally.');
+});

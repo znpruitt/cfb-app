@@ -760,17 +760,30 @@ function schedulerExecutionIssues(snapshot: SchedulerDeliveryHealthSnapshot): Sy
       // the ACTIONABLE severity was being published for what is usually the
       // informational case.
       //
-      // `info` is not silence: `severityStatus` maps it to `info-only`, the tile
-      // renders GRAY, and `STATUS_RANK` puts gray above green — so Overall still
-      // refuses to say all systems are normal, which is what R1 actually required.
-      // What it also does is keep an automatic repair from outranking a fault that
-      // needs a human: severity is the FIRST key `compareIssues` reads, so at `info`
-      // this can never take the Scheduler tile's one detail line from a genuine
-      // delivery or execution fault. At `warning` it competes for that line, which is
-      // correct, because by then it IS one.
+      // SEVERITY ANSWERS ACTIONABILITY. IT DOES NOT ANSWER VISIBILITY — and round 2
+      // shipped a comment here claiming otherwise. It read: *"`info` is not silence:
+      // the tile renders GRAY … so Overall still refuses to say all systems are
+      // normal."* **Both halves were false.** `schedulerPanel` had no `info-only`
+      // branch and fell through to GREEN, and `overallPanel` coerces every gray
+      // section to green before its reduce — so this severity made the fault
+      // invisible on the tiles and on the verdict, which is precisely the condition
+      // R1 exists to end. Round 3 fixed it in `systemHealthPanels.ts` by mapping
+      // `info-only` to yellow there; the severity below is now only about priority.
       //
-      // Pinned by "a stuck obligation is a WARNING and an in-progress repair is not"
-      // and its two siblings in `systemHealthIssues.test.ts`.
+      // WHAT THE SEVERITY STILL BUYS: `compareIssues` reads severity FIRST, so at
+      // `info` this can never take the Scheduler tile's one detail line from a
+      // genuine delivery or execution fault. At `warning` it competes for that line,
+      // which is correct, because by then it IS one.
+      //
+      // THE CHAIN, because the failure was a link nobody tested — each has a test:
+      //   1. non-stuck emits `info`     — "a stuck obligation is a WARNING and an
+      //      in-progress repair is not" (`systemHealthIssues.test.ts`)
+      //   2. `info-only` renders yellow — "an info-only scheduler issue makes the
+      //      tile yellow, not green" (`systemHealthPanels.test.ts`)
+      //   3. Overall reports attention — "Overall cannot say all systems are normal
+      //      while an invalidation is pending" (`systemHealthPanels.test.ts`)
+      // Round 2 had link 1 and asserted link 3 in this comment. Do not re-assert a
+      // rendering claim here; assert it where the rendering happens.
       const stuck = target.pendingStandingsInvalidationsStuck > 0;
       issues.push({
         code: 'standings-invalidation-pending',
