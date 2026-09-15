@@ -155,6 +155,7 @@ test('THE DESIGNED EMPTY STATE SURVIVES for an in-range gap year', async () => {
   const html = await pageText(SLUG, '2019');
 
   assert.match(html, /No archived data found for the 2019 season\./);
+  assert.doesNotMatch(html, /Historical data is available from/);
 });
 
 test('the operating year renders its empty state, and the year beyond it is refused', async () => {

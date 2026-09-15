@@ -312,7 +312,9 @@ export function deriveOwnerViewSnapshot(params: {
     scoresByKey,
     params.gameDayContext
   );
-  const liveRows = rosterRows.filter((row) => row.currentStatus === 'Live');
+  const liveRows = rosterRows.filter(
+    (row) => row.currentStatus === 'Live' || row.currentStatus === 'Awaiting score'
+  );
   const weekRows = filterRosterRowsToWeek(
     rosterRows,
     weekGames,

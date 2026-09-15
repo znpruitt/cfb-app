@@ -73,9 +73,6 @@ export default async function SeasonDetailPage({
               <p className="text-lg font-semibold text-gray-800 dark:text-zinc-100">
                 No archived data found for the {year} season.
               </p>
-              <p className="mt-2 text-sm text-gray-500 dark:text-zinc-400">
-                Historical data is available from the 2025 season onward.
-              </p>
             </div>
           </div>
         </LeaguePageShell>

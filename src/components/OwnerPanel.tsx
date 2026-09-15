@@ -490,11 +490,11 @@ export default function OwnerPanel({
 
       <SectionCard
         title="Live games"
-        description="Teams currently in progress for the selected entry."
+        description="Teams in progress or awaiting a score for the selected entry."
       >
         <OwnerRosterTable
           rows={snapshot.liveRows}
-          emptyMessage="No live games for this selection right now."
+          emptyMessage="No games in progress or awaiting a score for this selection right now."
           timeZone={timeZone}
           rankingsByTeamId={rankingsByTeamId}
         />
