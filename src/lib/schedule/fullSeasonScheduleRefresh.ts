@@ -480,17 +480,29 @@ export async function refreshFullSeasonSchedule(params: {
           })
         : EMPTY_FINAL_SCORE_SWEEP_RESULT;
 
-    // PLATFORM-693 — TRIGGER B: discharge any outstanding bust for THIS year before the
-    // content decision below. The `unchanged-clean` branch deliberately skips the walk
-    // when nothing changed, which is correct for a healthy run and is exactly what made
-    // the designated repair report success over a standing fault: a failed bust leaves
-    // content unchanged, so the repair run took that branch and never re-walked.
+    // PLATFORM-693 — TRIGGER B: discharge an outstanding bust for THIS year on the
+    // branches that would otherwise WALK NOTHING.
     //
-    // Ahead of the switch, so every outcome benefits and no branch has to remember.
-    await dischargePendingStandingsInvalidation(year, invalidateStandingsForYearReporting);
+    // Placed here rather than ahead of the switch, and the earlier placement was wrong
+    // in a way worse than waste. `bustStandingsForYear` already walks on `written-clean`
+    // and on a score repair, and already clears the obligation when that walk completes —
+    // so an unconditional discharge made the registry walk TWICE in one refresh. Both
+    // reviewers found it, and codex named the consequence: if the discharge's walk
+    // succeeds and the branch's own walk then transiently fails, the run reports
+    // `partial` and records a NEW obligation although the cache was already invalidated.
+    // A redundant repair that MANUFACTURES a fault is worse than the cost it duplicates.
+    //
+    // The branches below that never walk — `stale-observation`, `empty-response`,
+    // `empty-replacement-rejected`, and `unchanged-clean` with no score repair — are
+    // exactly the ones the designated repair lands on, because a failed bust leaves
+    // content unchanged.
+    const dischargeIfNoWalkFollows = async (): Promise<void> => {
+      await dischargePendingStandingsInvalidation(year, invalidateStandingsForYearReporting);
+    };
 
     switch (commit.kind) {
       case 'stale-observation': {
+        await dischargeIfNoWalkFollows();
         await recordProviderRefreshNoop('schedule', scope, {
           attempt,
           source: 'cfbd',
@@ -509,6 +521,7 @@ export async function refreshFullSeasonSchedule(params: {
         });
       }
       case 'empty-response': {
+        await dischargeIfNoWalkFollows();
         await recordProviderRefreshNoop('schedule', scope, {
           attempt,
           source: 'cfbd',
@@ -525,6 +538,7 @@ export async function refreshFullSeasonSchedule(params: {
         });
       }
       case 'empty-replacement-rejected': {
+        await dischargeIfNoWalkFollows();
         await recordProviderRefreshFailure('schedule', scope, {
           attempt,
           error: `schedule ${year}: provider returned zero games while a populated schedule is cached — rejected as an unexpected empty replacement`,
@@ -567,10 +581,15 @@ export async function refreshFullSeasonSchedule(params: {
         // Only a repaired score changes what standings derive from, so an
         // untouched schedule still busts nothing — and `complete` with zero
         // attempted is the truthful record of "no walk was needed".
-        const unchangedInvalidation =
-          scoreSweep.repaired > 0
-            ? await bustStandingsForYear(year)
-            : completeStandingsInvalidation();
+        let unchangedInvalidation;
+        if (scoreSweep.repaired > 0) {
+          // This branch WALKS, and its walk clears the obligation itself.
+          unchangedInvalidation = await bustStandingsForYear(year);
+        } else {
+          // This branch walks nothing — the designated repair's landing spot.
+          await dischargeIfNoWalkFollows();
+          unchangedInvalidation = completeStandingsInvalidation();
+        }
         await recordProviderRefreshSuccess('schedule', scope, {
           attempt,
           committedAt: commit.committedAt,

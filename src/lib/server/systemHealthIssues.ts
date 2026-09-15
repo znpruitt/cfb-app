@@ -766,7 +766,14 @@ function schedulerExecutionIssues(snapshot: SchedulerDeliveryHealthSnapshot): Sy
           'invalidation — there is no time-based expiry. The next scheduled run retries them ' +
           'automatically, so a falling count is repair in progress. A count that does NOT fall ' +
           'across consecutive runs is the fault worth investigating.',
-        repair,
+        // `repair: null`, NOT the job's generic Data Maintenance action. The receipt
+        // carries a COUNT and cannot name which years are outstanding, so that
+        // destination cannot act on this fault — and the explanation above says repair
+        // is automatic, so a link would contradict its own issue. An alarm whose action
+        // is WRONG is worse than one with no action, because a wrong action gets taken:
+        // this is the alarm-with-no-action defect R1 exists to fix, in its opposite
+        // disguise, introduced while fixing it.
+        repair: null,
       });
     }
   }

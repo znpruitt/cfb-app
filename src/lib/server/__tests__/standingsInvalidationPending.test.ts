@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  __corruptAppStateFileForTests,
   __setAppStateReadFailureForTests,
   getAppState,
   setAppState,
@@ -94,7 +95,11 @@ test('a v1 record with no token matches no observation and is not readable as pe
   } as unknown as PendingStandingsInvalidation);
 
   assert.equal(await readPendingStandingsInvalidation(2026), undefined);
-  assert.equal(await countPendingStandingsInvalidations(), 0);
+  // It is NOT readable as an obligation — but it no longer vanishes either. Round 1
+  // made an unreadable row count, because dropping it destroyed the obligation in the
+  // module whose purpose is to stop obligations being destroyed.
+  assert.equal(await countPendingStandingsInvalidations(), 1);
+  assert.deepEqual(await listPendingStandingsInvalidations(), []);
 });
 
 // === R2 + R7 — the race a counter could not close ===
@@ -158,12 +163,16 @@ test('a drain whose clear did not confirm counts the year as still pending', asy
   const observed = (await readPendingStandingsInvalidation(2026))!;
 
   // The walk succeeds, but a concurrent obligation makes the clear decline.
-  const summary = await drainPendingStandingsInvalidations(async (year) => {
+  await drainPendingStandingsInvalidations(async (year) => {
     await recordPendingStandingsInvalidation(year);
     return { result: 'complete' };
   });
 
-  assert.equal(summary.stillPending, 1, 'a declined clear must not read as cleared');
+  assert.equal(
+    await countPendingStandingsInvalidations(),
+    1,
+    'a declined clear must not read as cleared'
+  );
   const after = await readPendingStandingsInvalidation(2026);
   assert.ok(after && after.token !== observed.token);
 });
@@ -177,9 +186,13 @@ test('a backlog larger than the drain bound is reported, not hidden', async () =
     await recordPendingStandingsInvalidation(year, () => `${year}-01-01T00:00:00.000Z`);
   }
 
-  const summary = await drainPendingStandingsInvalidations(complete);
+  await drainPendingStandingsInvalidations(complete);
 
-  assert.equal(summary.stillPending, 2, 'six pending, four drained, two must be reported');
+  assert.equal(
+    await countPendingStandingsInvalidations(),
+    2,
+    'six pending, four drained, two must be reported'
+  );
   assert.equal(await countPendingStandingsInvalidations(), 2);
 });
 
@@ -188,19 +201,19 @@ test('a backlog larger than the drain bound is reported, not hidden', async () =
 test('a walk that busted nothing leaves the obligation standing', async () => {
   // `partial` is what an all-benign (E263) walk produces: nothing threw, nothing busted.
   await recordPendingStandingsInvalidation(2026);
-  const summary = await drainPendingStandingsInvalidations(busted_nothing);
+  await drainPendingStandingsInvalidations(busted_nothing);
 
-  assert.equal(summary.stillPending, 1);
+  assert.equal(await countPendingStandingsInvalidations(), 1);
   const after = await readPendingStandingsInvalidation(2026);
   assert.equal(after?.attempts, 1, 'and the effort is counted, so a stuck year is visible');
 });
 
 test('a walk that could not read the registry leaves the obligation standing', async () => {
   await recordPendingStandingsInvalidation(2025);
-  const summary = await drainPendingStandingsInvalidations(async () => ({
+  await drainPendingStandingsInvalidations(async () => ({
     result: 'registry-failed',
   }));
-  assert.equal(summary.stillPending, 1, 'population unknown is not a repair');
+  assert.equal(await countPendingStandingsInvalidations(), 1, 'population unknown is not a repair');
 });
 
 // === R16 — ordering rotates rather than starving ===
@@ -266,12 +279,12 @@ test('an unreadable pending row is stepped over, not thrown on', async () => {
 
 test('an empty pending set walks nothing and reports zero', async () => {
   let calls = 0;
-  const summary = await drainPendingStandingsInvalidations(async () => {
+  await drainPendingStandingsInvalidations(async () => {
     calls += 1;
     return { result: 'complete' };
   });
   assert.equal(calls, 0);
-  assert.equal(summary.stillPending, 0);
+  assert.equal(await countPendingStandingsInvalidations(), 0);
   assert.deepEqual(await listPendingStandingsInvalidations(), []);
 });
 
@@ -322,12 +335,12 @@ test('a cleared marker is not counted, listed, or drained', async () => {
   assert.equal(await readPendingStandingsInvalidation(2026), undefined);
 
   let walked = 0;
-  const summary = await drainPendingStandingsInvalidations(async () => {
+  await drainPendingStandingsInvalidations(async () => {
     walked += 1;
     return { result: 'complete' };
   });
   assert.equal(walked, 0, 'a cleared marker must never be drained');
-  assert.equal(summary.stillPending, 0);
+  assert.equal(await countPendingStandingsInvalidations(), 0);
 });
 
 // === A cleared record is not readable as pending ===
@@ -374,3 +387,60 @@ test('a clear that could not reach the store reports FALSE, not success', async 
  * because no in-process test can reach it — would remove the only protection on the very
  * race the token exists for, in production.
  */
+
+// === Remediation round 1 — the count must never report a false all-clear ===
+
+test('an UNREADABLE row is counted, not silently dropped', async () => {
+  // Dropping it would destroy the obligation in the module whose purpose is to stop
+  // obligations being destroyed: never listed, drained, counted, or logged, while System
+  // Health reported zero pending and the standings stayed stale forever.
+  await setAppState(STANDINGS_INVALIDATION_PENDING_SCOPE, '2019', {
+    year: 2019,
+    token: '',
+    since: '2026-01-01T00:00:00.000Z',
+    attempts: 0,
+  } as unknown as PendingStandingsInvalidation);
+
+  assert.equal(await countPendingStandingsInvalidations(), 1, 'an unreadable obligation counts');
+  // It still cannot be drained — the walk needs a year it can trust — so it stays.
+  assert.deepEqual(await listPendingStandingsInvalidations(), []);
+});
+
+test('a store failure reports UNAVAILABLE, never zero', async () => {
+  // Returning 0 here lets a receipt publish a false all-clear over a standing warning
+  // while standings are stale — this issue's own defect, one more time.
+  await recordPendingStandingsInvalidation(2026);
+  // `getAppStateEntries` does not consult the read-failure seam, so the store is made
+  // genuinely unreadable instead.
+  await __corruptAppStateFileForTests();
+  assert.equal(await countPendingStandingsInvalidations(), 'unavailable');
+});
+
+test('a DECLINED clear does not charge an attempt to the newer obligation', async () => {
+  // `attempts` is repair EFFORT and drives fewest-attempts-first ordering. Charging the
+  // new obligation for a repair that actually SUCCEEDED pushes a fresh fault behind
+  // older ones.
+  await recordPendingStandingsInvalidation(2026, () => '2026-01-01T00:00:00.000Z');
+
+  await drainPendingStandingsInvalidations(async (year) => {
+    // A newer obligation lands mid-walk, so the clear will decline.
+    await recordPendingStandingsInvalidation(year);
+    return { result: 'complete' };
+  });
+
+  const after = await readPendingStandingsInvalidation(2026);
+  assert.ok(after);
+  assert.equal(after.attempts, 0, 'the new obligation has never been attempted');
+});
+
+test('the drain reports only a lower bound, not a still-pending count', async () => {
+  // A count taken at the drain is a PRE-RUN snapshot: the run's own refreshes can still
+  // clear or record afterwards. The caller recounts at receipt time; this is the floor
+  // used only when that fresh count is unavailable.
+  for (const year of [2011, 2012]) {
+    await recordPendingStandingsInvalidation(year, () => `${year}-01-01T00:00:00.000Z`);
+  }
+  const drain = await drainPendingStandingsInvalidations(complete);
+  assert.equal(drain.observed, 2, 'what it looked at, not what remains');
+  assert.equal(await countPendingStandingsInvalidations(), 0);
+});

@@ -1903,6 +1903,12 @@ test('an outstanding standings invalidation raises an issue even when the run SU
   // requirement corrects, one layer up.
   assert.match(raised.explanation, /falling count is repair in progress/i);
   assert.match(raised.explanation, /does NOT fall/i);
+  // NO REPAIR LINK. The receipt carries a count and cannot name which years are
+  // outstanding, so the job's generic Data Maintenance action cannot act on this fault —
+  // and the explanation says repair is automatic, so a link would contradict its own
+  // issue. An alarm whose action is WRONG is worse than one with no action, because a
+  // wrong action gets taken.
+  assert.equal(raised.repair, null);
 });
 
 test('a clean run with nothing pending raises nothing', () => {

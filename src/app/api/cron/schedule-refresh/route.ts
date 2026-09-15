@@ -11,7 +11,10 @@ import {
   completeStandingsInvalidation,
   invalidateStandingsForYearReporting,
 } from '@/lib/selectors/leagueStandings';
-import { drainPendingStandingsInvalidations } from '@/lib/server/standingsInvalidationPending';
+import {
+  countPendingStandingsInvalidations,
+  drainPendingStandingsInvalidations,
+} from '@/lib/server/standingsInvalidationPending';
 import { refreshFullSeasonSchedule } from '@/lib/schedule/fullSeasonScheduleRefresh';
 import { refreshSchedulePresentation } from '@/lib/schedule/schedulePresentationRefresh';
 import {
@@ -176,10 +179,29 @@ export async function GET(req: Request): Promise<Response> {
   // authentication (never inferred from the final result/reason). Null means
   // no durable receipt is scheduled for this invocation.
   let receiptInvocationId: string | null = null;
-  // PLATFORM-693 — declared in the OUTER scope, beside `exec`, so a throw anywhere
-  // after the drain still carries its result into the receipt. Zero is truthful before
-  // the drain runs: nothing was left pending by a drain that did not happen.
-  let pendingDrainStillPending = 0;
+  /**
+   * PLATFORM-693 — the receipt's pending count, resolved as LATE as possible.
+   *
+   * NOT counted at the drain: that is a PRE-RUN snapshot, and the run's own per-year
+   * refreshes can still clear an overflow obligation through the authority's discharge,
+   * or record a new one, afterwards. A five-year backlog whose fifth entry is the active
+   * year would otherwise report one pending for a full weekly cycle after the authority
+   * had already repaired it.
+   *
+   * AN UNAVAILABLE COUNT IS NOT ZERO. A transient store failure must not publish a false
+   * all-clear over a standing warning, and an omitted field normalizes to 0 on rebuild —
+   * which is the same false all-clear by a different route. So the fallback is what the
+   * drain OBSERVED: a lower bound, never zero when work existed.
+   */
+  let pendingObservedByDrain = 0;
+  const resolvePendingCountForReceipt = async (): Promise<number> => {
+    const counted = await countPendingStandingsInvalidations();
+    if (counted !== 'unavailable') return counted;
+    console.error('pending standings-invalidation count unavailable; reporting the drain floor', {
+      floor: pendingObservedByDrain,
+    });
+    return pendingObservedByDrain;
+  };
 
   try {
     // CRON_SECRET first — fail closed. No registry/schedule/settings/status/
@@ -223,9 +245,8 @@ export async function GET(req: Request): Promise<Response> {
     // Best-effort in both directions: it cannot fail the run and it cannot alter the
     // refresh's reported status. The schedule commit succeeded; CARRIES forbids saying
     // otherwise because a cache repair could not be attempted.
-    pendingDrainStillPending = (
-      await drainPendingStandingsInvalidations(invalidateStandingsForYearReporting)
-    ).stillPending;
+    const drain = await drainPendingStandingsInvalidations(invalidateStandingsForYearReporting);
+    pendingObservedByDrain = drain.observed;
 
     // Target selection — cache-only registry read. `season` AND `preseason`
     // leagues are targets (E1B1: cache-armed early preseason gets ordinary weekly
@@ -697,10 +718,11 @@ export async function GET(req: Request): Promise<Response> {
         result: exec.result,
         reason: exec.reason,
         providerCallAttempted: exec.years.some((entry) => entry.providerCallAttempted),
+        // COUNTED HERE, as late as possible — see `resolvePendingCountForReceipt`.
         target: scheduleYearsTarget(
           exec.years,
           exec.invalidLifecycleTargets,
-          pendingDrainStillPending
+          await resolvePendingCountForReceipt()
         ),
       });
     }

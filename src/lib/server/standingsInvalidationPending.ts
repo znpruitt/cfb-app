@@ -87,9 +87,14 @@ function isPendingRecord(value: unknown): value is PendingStandingsInvalidation 
   return (
     typeof row.year === 'number' &&
     Number.isInteger(row.year) &&
-    // A v1 record carries no token, so it fails here and is treated as a DISTINCT
-    // generation matching no observation: the first clear after deploy declines, the
-    // next drain re-observes and succeeds. One extra cycle, and no erasure.
+    // A v1 record carries no token and therefore FAILS this check, which means
+    // `readAllPending` DROPS IT: it is never listed, drained, counted or cleared. That
+    // is the truth, and an earlier comment here claimed the opposite — that a drain
+    // would re-observe it and succeed — while the test one file over pinned the drop.
+    // Harmless in fact (v1 never reached `main`, so no such row exists), and recorded
+    // because a comment asserting a recovery that does not happen is the defect this
+    // module's own history is made of. Anything unreadable is surfaced by the counter
+    // below rather than vanishing.
     typeof row.token === 'string' &&
     row.token.length > 0 &&
     typeof row.since === 'string' &&
@@ -105,13 +110,28 @@ function isPendingRecord(value: unknown): value is PendingStandingsInvalidation 
  * `getAppStateEntries` returns keys and values together. v1 listed keys and then issued
  * a read per key, which is the shape this rebuild exists not to keep.
  */
-async function readAllPending(): Promise<PendingStandingsInvalidation[]> {
+async function readAllPending(): Promise<{
+  records: PendingStandingsInvalidation[];
+  unreadable: number;
+}> {
   const entries = await getAppStateEntries<unknown>(STANDINGS_INVALIDATION_PENDING_SCOPE);
   const records: PendingStandingsInvalidation[] = [];
+  let unreadable = 0;
   for (const entry of entries) {
-    if (isPendingRecord(entry.value)) records.push(entry.value);
+    if (isPendingRecord(entry.value)) {
+      records.push(entry.value);
+      continue;
+    }
+    // A CLEARED MARKER is `null` and is not a fault — see the note where it is written.
+    if (entry.value === null) continue;
+    // ANYTHING ELSE is an obligation this module can no longer read, and dropping it
+    // silently would destroy the obligation in the one module whose purpose is to stop
+    // obligations being destroyed. It cannot be drained (the walk needs a year it can
+    // trust), so it is COUNTED and LOGGED instead of vanishing.
+    unreadable += 1;
+    console.error('unreadable pending standings-invalidation record', { key: entry.key });
   }
-  return records;
+  return { records, unreadable };
 }
 
 /**
@@ -128,7 +148,7 @@ export async function readPendingStandingsInvalidation(
   year: number
 ): Promise<PendingStandingsInvalidation | undefined> {
   try {
-    return (await readAllPending()).find((record) => record.year === year);
+    return (await readAllPending()).records.find((record) => record.year === year);
   } catch {
     return undefined;
   }
@@ -189,17 +209,21 @@ export async function recordPendingStandingsInvalidation(
  *
  * The no-op case is decided BEFORE opening a transaction. `withAppStateKeyTransaction`
  * takes a per-key `pg_advisory_xact_lock` before running its callback, so deciding
- * inside would serialize every caller on this key — and the single-scope commit site is
- * reachable by NON-ADMIN cold reads. Reading first does not avoid a pooled client
- * (`getAppStateEntries` takes one too); it avoids the LOCK, and with it the
- * serialization of concurrent public reads.
+ * inside would serialize every caller on this key. Reading first does not avoid a pooled
+ * client (`getAppStateEntries` takes one too); it avoids the LOCK.
+ *
+ * AN EARLIER VERSION OF THIS NOTE CLAIMED the single-scope commit site is reachable by
+ * NON-ADMIN cold reads. It is NOT — every non-admin path returns before the commit
+ * (`route.ts:743`). That claim came from a review finding and was written here without
+ * being checked: a finding's PREMISE arrives wrapped in the authority of its conclusion,
+ * and adjudication is aimed at the conclusion. The conclusion held; the premise did not.
  */
 export async function clearPendingStandingsInvalidation(
   year: number,
   observed: PendingStandingsInvalidation
 ): Promise<boolean> {
   try {
-    const current = (await readAllPending()).find((record) => record.year === year);
+    const current = (await readAllPending()).records.find((record) => record.year === year);
     if (!current || current.token !== observed.token) return false;
 
     return await withAppStateKeyTransaction(
@@ -277,7 +301,7 @@ export async function listPendingStandingsInvalidations(
   limit: number = MAX_PENDING_DRAIN_PER_RUN
 ): Promise<PendingStandingsInvalidation[]> {
   try {
-    const records = await readAllPending();
+    const { records } = await readAllPending();
     records.sort(
       (a, b) =>
         a.attempts - b.attempts || Date.parse(a.since) - Date.parse(b.since) || a.year - b.year
@@ -299,11 +323,19 @@ export async function listPendingStandingsInvalidations(
  * while six stayed stale. One query. Never throws — an unreadable store reports 0 and
  * the next run re-counts, rather than failing a run whose schedule work succeeded.
  */
-export async function countPendingStandingsInvalidations(): Promise<number> {
+export async function countPendingStandingsInvalidations(): Promise<number | 'unavailable'> {
   try {
-    return (await readAllPending()).length;
+    const { records, unreadable } = await readAllPending();
+    // Unreadable rows COUNT. They are obligations this module can no longer act on, and
+    // reporting them as zero would be the false all-clear in a new costume.
+    return records.length + unreadable;
   } catch {
-    return 0;
+    // NOT 0. A transient store failure is not an empty set, and returning a count here
+    // would let a deferred receipt write publish a false all-clear over a standing
+    // warning while the standings are still stale — this issue's own defect, one more
+    // time. The caller must decide what to do with "unknown", and what it must not do
+    // is overwrite a known prior with it.
+    return 'unavailable';
   }
 }
 
@@ -311,9 +343,12 @@ export async function countPendingStandingsInvalidations(): Promise<number> {
  * Attempt every obligation this run is willing to take, then report how many remain
  * across the whole durable set.
  *
- * ONLY `stillPending` is computed. Drain volume — attempted, cleared — has no reader,
- * and on this branch the burden of proof sits on COMPUTING a value, not on omitting
- * one. If drain volume is ever wanted it arrives with a named reader.
+ * RETURNS ONLY A LOWER BOUND, and deliberately not "how many are still pending": a count
+ * taken here is a PRE-RUN snapshot: the run's own per-year refreshes can still clear an overflow obligation
+ * through the authority's discharge, or record a new one, after this returns. The
+ * caller recounts immediately before building its receipt, and uses `observed` ONLY as a
+ * fallback when that fresh count is unavailable — where reporting zero would be a false
+ * all-clear. Drain volume (attempted, cleared) still has no reader and is not computed.
  *
  * Pure cache work: it re-walks a recorded year and makes no provider call, which is what
  * replay was required to be.
@@ -323,7 +358,7 @@ export async function countPendingStandingsInvalidations(): Promise<number> {
 export async function drainPendingStandingsInvalidations(
   walk: (year: number) => Promise<{ result: 'complete' | 'partial' | 'registry-failed' }>,
   limit: number = MAX_PENDING_DRAIN_PER_RUN
-): Promise<{ stillPending: number }> {
+): Promise<{ observed: number }> {
   const pending = await listPendingStandingsInvalidations(limit);
   for (const record of pending) {
     try {
@@ -332,10 +367,16 @@ export async function drainPendingStandingsInvalidations(
       // `invalidated === attempted`, so a walk that busted nothing cannot clear a fault
       // it never repaired. The observed record is passed, so an obligation recorded
       // DURING the walk survives this clear.
-      const cleared =
-        outcome.result === 'complete' &&
-        (await clearPendingStandingsInvalidation(record.year, record));
-      if (!cleared) await recordPendingDrainAttempt(record.year);
+      if (outcome.result === 'complete') {
+        // A clear that DECLINES means a newer obligation landed mid-walk. That
+        // obligation has never been attempted, and charging it an attempt would push a
+        // fresh fault behind older ones in the fewest-attempts-first order — for a
+        // repair that actually SUCCEEDED. Effort is only charged when the walk itself
+        // failed to repair.
+        await clearPendingStandingsInvalidation(record.year, record);
+      } else {
+        await recordPendingDrainAttempt(record.year);
+      }
     } catch (error) {
       console.error('a pending standings invalidation drain threw', {
         year: record.year,
@@ -344,9 +385,7 @@ export async function drainPendingStandingsInvalidations(
       await recordPendingDrainAttempt(record.year);
     }
   }
-  // Counted from the durable set AFTER the drain, so a backlog larger than the cap is
-  // reported rather than hidden, and a clear that silently failed still counts.
-  return { stillPending: await countPendingStandingsInvalidations() };
+  return { observed: pending.length };
 }
 
 /**
@@ -377,7 +416,7 @@ export async function dischargePendingStandingsInvalidation(
 ): Promise<void> {
   let observed: PendingStandingsInvalidation | undefined;
   try {
-    observed = (await readAllPending()).find((record) => record.year === year);
+    observed = (await readAllPending()).records.find((record) => record.year === year);
   } catch {
     // Unreadable is not a discharge; the obligation survives and the cron retries.
     return;
