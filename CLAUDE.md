@@ -184,8 +184,13 @@ first commit; if you are not where this table says you should be, stop and say s
 - **VERIFY A CODEX REPORT'S DIFF BASE BEFORE TREATING IT AS GATHERED — the report BODY cannot tell
   you.** Its header reads only `Target: branch diff against main`, which is byte-identical for a
   real review and for a review of nothing. The range is in the TRANSCRIPT above the `# Codex Review`
-  header, where the companion logs its own `git diff --stat <base>...` — confirm that base is the
-  branch point. **A transcript with no diff command, or a base equal to HEAD, is a review of nothing
+  header, where the companion logs its own `git diff` invocations — confirm that base is the branch
+  point. **GREP ANY `git diff` LINE CARRYING A FULL 40-HEX SHA. DO NOT KEY ON THE `--stat` LINE:**
+  corrected 2026-09-15, within hours of writing it, by the lane that used it first. The log
+  TRUNCATES that line — it renders as `git diff --stat 9764b...` — so a grep for a full SHA after
+  `--stat` finds nothing and reports a review of nothing on a perfectly good review. The full SHA
+  survives on the `git diff --unified=N <sha>` lines. **A check that cries wolf gets skipped**, which
+  would have cost more than the gap it closes. **A transcript with no diff command, or a base equal to HEAD, is a review of nothing
   wearing a clean report's shape.** This is the mutation-harness failure in a second place: "did not
   run" and "ran and found nothing" are different results that render identically, and the fix is the
   same — find the quantity that separates them and read it every time.
