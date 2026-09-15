@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
+
+import { completeStandingsInvalidation } from '../../selectors/leagueStandings.ts';
 import { fileURLToPath } from 'node:url';
 
 import type { UpstreamFaultClass } from '../../api/upstreamFaultClass.ts';
@@ -45,6 +47,7 @@ function scheduleEntry(
     scoreRepairs: 0,
     scoreDifferenceCount: 0,
     scoreSweepFailedPartitions: [] as ReadonlyArray<unknown>,
+    standingsInvalidation: completeStandingsInvalidation(),
     scoreSweepCannotTellCount: 0,
     kickoffsChanged: 0,
     ...cleanScheduleYearOutcome(over),

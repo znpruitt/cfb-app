@@ -7,6 +7,7 @@ import {
   getProviderRefreshSettings,
   isAutoRefreshAllowedBySettings,
 } from '@/lib/server/providerRefreshSettings';
+import { completeStandingsInvalidation } from '@/lib/selectors/leagueStandings';
 import { refreshFullSeasonSchedule } from '@/lib/schedule/fullSeasonScheduleRefresh';
 import { refreshSchedulePresentation } from '@/lib/schedule/schedulePresentationRefresh';
 import {
@@ -110,10 +111,16 @@ function yearEntryFromRefresh(
   refresh: FullSeasonScheduleRefreshResult
 ): ScheduleRefreshCronYearExecution {
   const scoreSweepFailed = refresh.scoreSweepFailedPartitions.length > 0;
+  // PLATFORM-693 — a committed refresh whose standings bust did not complete is
+  // PARTIAL. Ordered BELOW the score-sweep check on purpose: a failed sweep is a
+  // data-integrity failure and outranks a stale cache.
+  const standingsIncomplete = refresh.standingsInvalidation.result !== 'complete';
   const result: ScheduleRefreshCronYearExecution['result'] = scoreSweepFailed
     ? 'failure'
     : refresh.status === 'success'
-      ? 'success'
+      ? standingsIncomplete
+        ? 'partial'
+        : 'success'
       : refresh.status === 'no-op' || refresh.status === 'in-progress'
         ? 'no-op'
         : 'failure';
@@ -121,7 +128,11 @@ function yearEntryFromRefresh(
     year,
     operation,
     result,
-    reason: scoreSweepFailed ? 'score-sweep-failed' : refresh.reason,
+    reason: scoreSweepFailed
+      ? 'score-sweep-failed'
+      : result === 'partial'
+        ? 'standings-invalidation-incomplete'
+        : refresh.reason,
     providerCallAttempted: refresh.providerCallAttempted,
     // PLATFORM-126B — copied verbatim from the authority, never re-derived.
     attemptedSeasonTypes: refresh.attemptedSeasonTypes,
@@ -134,6 +145,7 @@ function yearEntryFromRefresh(
     scoreDifferences: refresh.scoreDifferences,
     scoreDifferencesTruncated: refresh.scoreDifferencesTruncated,
     scoreSweepFailedPartitions: refresh.scoreSweepFailedPartitions,
+    standingsInvalidation: refresh.standingsInvalidation,
     scoreSweepCannotTellCount: refresh.scoreSweepCannotTellCount,
     kickoffsChanged: refresh.kickoffsChanged,
   };
@@ -464,6 +476,7 @@ export async function GET(req: Request): Promise<Response> {
           scoreDifferences: [],
           scoreDifferencesTruncated: false,
           scoreSweepFailedPartitions: [],
+          standingsInvalidation: completeStandingsInvalidation(),
           scoreSweepCannotTellCount: 0,
           kickoffsChanged: 0,
         });
@@ -491,6 +504,7 @@ export async function GET(req: Request): Promise<Response> {
           scoreDifferences: [],
           scoreDifferencesTruncated: false,
           scoreSweepFailedPartitions: [],
+          standingsInvalidation: completeStandingsInvalidation(),
           scoreSweepCannotTellCount: 0,
           kickoffsChanged: 0,
         });
@@ -516,6 +530,7 @@ export async function GET(req: Request): Promise<Response> {
           scoreDifferences: [],
           scoreDifferencesTruncated: false,
           scoreSweepFailedPartitions: [],
+          standingsInvalidation: completeStandingsInvalidation(),
           scoreSweepCannotTellCount: 0,
           kickoffsChanged: 0,
         });
@@ -540,6 +555,7 @@ export async function GET(req: Request): Promise<Response> {
           scoreDifferences: [],
           scoreDifferencesTruncated: false,
           scoreSweepFailedPartitions: [],
+          standingsInvalidation: completeStandingsInvalidation(),
           scoreSweepCannotTellCount: 0,
           kickoffsChanged: 0,
         });

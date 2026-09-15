@@ -314,6 +314,14 @@ export type SchedulerExecutionTarget =
       scoreDifferences: number;
       /** Score partitions whose backstop merge failed after schedule commit. */
       scoreSweepFailures: number;
+      /**
+       * PLATFORM-693 — target years whose schedule COMMITTED but whose canonical
+       * standings bust did not complete, leaving the cache stale indefinitely
+       * (standings are `revalidate: false`, tag-only — there is no turnover). A
+       * count; the per-year outcome says which. A legacy receipt omits it and the
+       * rebuild normalizes to 0, exactly as `invalidLifecycleTargets` does.
+       */
+      standingsInvalidationFailures: number;
       scoreSweepCannotTellCount: number;
       /** Kickoff instants changed across the schedule observations in this run. */
       kickoffsChanged: number;
@@ -502,6 +510,12 @@ export function scheduleYearsTarget(
     scoreRepairs: number;
     scoreDifferenceCount: number;
     scoreSweepFailedPartitions: ReadonlyArray<unknown>;
+    /**
+     * PLATFORM-693 — REQUIRED for the same reason every metric here is: a caller
+     * reconstructing this target without it would record a run whose standings
+     * bust nothing can now establish.
+     */
+    standingsInvalidation: { result: 'complete' | 'partial' | 'registry-failed' };
     scoreSweepCannotTellCount: number;
     kickoffsChanged: number;
     // PLATFORM-126B — the per-year outcome. REQUIRED for the same reason the
@@ -541,6 +555,11 @@ export function scheduleYearsTarget(
       (total, entry) => total + entry.scoreSweepCannotTellCount,
       0
     ),
+    // PLATFORM-693 — years whose committed refresh left canonical standings
+    // un-busted. Counted, not enumerated: the per-year outcome already says which.
+    standingsInvalidationFailures: entries.filter(
+      (entry) => entry.standingsInvalidation.result !== 'complete'
+    ).length,
     kickoffsChanged: entries.reduce((total, entry) => total + entry.kickoffsChanged, 0),
     years,
   };
@@ -893,6 +912,12 @@ function rebuildTarget(target: SchedulerExecutionTarget): SchedulerExecutionTarg
         scoreRepairs: target.scoreRepairs ?? 0,
         scoreDifferences: target.scoreDifferences ?? 0,
         scoreSweepFailures: target.scoreSweepFailures ?? 0,
+        // PLATFORM-693 legacy compatibility, same rule: every receipt written
+        // before this field existed omits it and normalizes to an explicit 0.
+        // Zero is the TRUTHFUL value for those runs — the old code could not have
+        // recorded an invalidation failure, so none is the only thing a legacy
+        // receipt can honestly assert.
+        standingsInvalidationFailures: target.standingsInvalidationFailures ?? 0,
         scoreSweepCannotTellCount: target.scoreSweepCannotTellCount ?? 0,
         kickoffsChanged: target.kickoffsChanged ?? 0,
         years: target.years.slice(0, MAX_SCHEDULER_TARGET_YEARS).map((entry) => ({
@@ -1204,6 +1229,10 @@ function isValidStoredTarget(value: unknown, job: ExternalSchedulerJob): boolean
         (target.scoreDifferences === undefined || isNonNegativeInteger(target.scoreDifferences)) &&
         (target.scoreSweepFailures === undefined ||
           isNonNegativeInteger(target.scoreSweepFailures)) &&
+        // PLATFORM-693 — same optional-but-validated rule: absent parses (legacy),
+        // present-but-invalid rejects the whole record.
+        (target.standingsInvalidationFailures === undefined ||
+          isNonNegativeInteger(target.standingsInvalidationFailures)) &&
         (target.scoreSweepCannotTellCount === undefined ||
           isNonNegativeInteger(target.scoreSweepCannotTellCount)) &&
         (target.kickoffsChanged === undefined || isNonNegativeInteger(target.kickoffsChanged)) &&

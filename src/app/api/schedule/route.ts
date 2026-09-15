@@ -38,8 +38,10 @@ import {
   recordProviderRefreshSuccess,
 } from '@/lib/server/providerRefreshStatus';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
-import { getLeagues } from '@/lib/leagueRegistry';
-import { invalidateStandings } from '@/lib/selectors/leagueStandings';
+import {
+  invalidateStandingsForYearReporting,
+  type StandingsInvalidationOutcome,
+} from '@/lib/selectors/leagueStandings';
 import {
   getScheduleProbeState,
   saveScheduleProbeState,
@@ -607,6 +609,35 @@ async function fullSeasonRefreshResponse(
   });
 }
 
+/**
+ * PLATFORM-693 — surface a post-commit invalidation failure on the HTTP path.
+ *
+ * THIS PATH HAS NO DURABLE CONSUMER, and that is a finding rather than an oversight.
+ * The cron reaches `refreshFullSeasonSchedule` directly and its outcome lands in the
+ * `schedule-refresh` execution receipt, which System Health already reads. These two
+ * blocks serve direct `/api/schedule` requests, which write no receipt — so the
+ * honest surface is a structured log a human can find, not a durable record nothing
+ * would ever read back. Giving the HTTP path a durable record means building its
+ * reader too; that is #693's open residue, not this slice.
+ *
+ * Silent on success so a healthy refresh stays quiet.
+ */
+function reportStandingsInvalidation(
+  outcome: StandingsInvalidationOutcome,
+  site: 'schedule-partition-commit' | 'schedule-single-scope-commit',
+  year: number
+): void {
+  if (outcome.result === 'complete') return;
+  console.error('standings invalidation incomplete after a committed schedule write', {
+    site,
+    year,
+    result: outcome.result,
+    attempted: outcome.attempted,
+    invalidated: outcome.invalidated,
+    failed: outcome.failed,
+  });
+}
+
 export async function GET(req: Request) {
   recordRouteRequest('schedule');
   const url = new URL(req.url);
@@ -821,15 +852,15 @@ export async function GET(req: Request) {
       pruneCache(SCHEDULE_ROUTE_CACHE, 'schedule');
       // Invalidate canonical standings once for the year (a committed child
       // persisted new schedule rows). Non-fatal on failure.
-      try {
-        const leagues = await getLeagues();
-        for (const league of leagues) {
-          invalidateStandings(league.slug, year);
-        }
-      } catch {
-        // Non-fatal — a child already persisted; canonical refreshes on the next
-        // mutation or natural cache turnover.
-      }
+      // PLATFORM-693: non-fatal, but no longer silent. Canonical standings are
+      // `revalidate: false` (tag-only), so a missed bust is PERMANENT until some
+      // other mutation happens to fire the same tag — the old comment's promise of
+      // "natural cache turnover" described a mechanism that does not exist.
+      reportStandingsInvalidation(
+        await invalidateStandingsForYearReporting(year),
+        'schedule-partition-commit',
+        year
+      );
     }
 
     if (failures.length > 0) {
@@ -1191,15 +1222,13 @@ export async function GET(req: Request) {
   // is season-scoped, not league-scoped, so we walk the registry. The set is
   // small (one platform admin's leagues today); the per-tag revalidate is
   // cheap.
-  try {
-    const leagues = await getLeagues();
-    for (const league of leagues) {
-      invalidateStandings(league.slug, year);
-    }
-  } catch {
-    // Non-fatal — schedule write already succeeded; canonical will refresh on
-    // the next mutation or natural cache turnover.
-  }
+  // PLATFORM-693: see the partition-commit site above. Same walk, same permanence
+  // of a missed bust, same reporting.
+  reportStandingsInvalidation(
+    await invalidateStandingsForYearReporting(year),
+    'schedule-single-scope-commit',
+    year
+  );
 
   // Update schedule probe state when a full-season admin refresh completes
   if (bypassCache && week === null && requestedSeasonType === 'all' && items.length > 0) {

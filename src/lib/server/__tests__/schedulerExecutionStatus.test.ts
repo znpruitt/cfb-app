@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { completeStandingsInvalidation } from '../../selectors/leagueStandings.ts';
+
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
@@ -206,6 +208,7 @@ test('all job target shapes persist with exact allowlisted target keys', async (
             scoreRepairs: 0,
             scoreDifferenceCount: 0,
             scoreSweepFailedPartitions: [],
+            standingsInvalidation: completeStandingsInvalidation(),
             scoreSweepCannotTellCount: 0,
             kickoffsChanged: 0,
             ...cleanScheduleYearOutcome(),
@@ -216,6 +219,7 @@ test('all job target shapes persist with exact allowlisted target keys', async (
             scoreRepairs: 0,
             scoreDifferenceCount: 0,
             scoreSweepFailedPartitions: [],
+            standingsInvalidation: completeStandingsInvalidation(),
             scoreSweepCannotTellCount: 0,
             kickoffsChanged: 0,
             ...cleanScheduleYearOutcome(),
@@ -272,6 +276,8 @@ test('all job target shapes persist with exact allowlisted target keys', async (
         'scoreRepairs',
         'scoreSweepCannotTellCount',
         'scoreSweepFailures',
+        // PLATFORM-693 — target years whose committed refresh left standings stale.
+        'standingsInvalidationFailures',
         'totalYears',
         'truncated',
         'years',
@@ -342,6 +348,7 @@ test('all nine jobs derive the correct source and persist their target shape', a
             scoreRepairs: 0,
             scoreDifferenceCount: 0,
             scoreSweepFailedPartitions: [],
+            standingsInvalidation: completeStandingsInvalidation(),
             scoreSweepCannotTellCount: 0,
             kickoffsChanged: 0,
             ...cleanScheduleYearOutcome(),
@@ -649,6 +656,7 @@ test('multi-year targets cap at eight entries with truthful totalYears and trunc
     scoreRepairs: 0,
     scoreDifferenceCount: 0,
     scoreSweepFailedPartitions: [],
+    standingsInvalidation: completeStandingsInvalidation(),
     scoreSweepCannotTellCount: 0,
     kickoffsChanged: 0,
     ...cleanScheduleYearOutcome(),

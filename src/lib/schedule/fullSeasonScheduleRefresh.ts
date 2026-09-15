@@ -24,9 +24,12 @@
 
 import { CacheEntry, SCHEDULE_ROUTE_CACHE } from '@/app/api/schedule/cache';
 
-import { getLeagues } from '../leagueRegistry.ts';
 import { yearScope } from '../providerRefreshScope.ts';
-import { invalidateStandings } from '../selectors/leagueStandings.ts';
+import {
+  completeStandingsInvalidation,
+  invalidateStandingsForYearReporting,
+  type StandingsInvalidationOutcome,
+} from '../selectors/leagueStandings.ts';
 import { getAppState, withAppStateKeyTransaction } from '../server/appStateStore.ts';
 import {
   beginProviderRefreshAttempt,
@@ -235,17 +238,20 @@ async function commitFullSeasonSchedule(params: {
   };
 }
 
-/** Invalidate canonical standings for every league at `year` (non-fatal). */
-async function invalidateStandingsForYear(year: number): Promise<void> {
-  try {
-    const leagues = await getLeagues();
-    for (const league of leagues) {
-      invalidateStandings(league.slug, year);
-    }
-  } catch {
-    // Non-fatal — the schedule commit already succeeded; canonical standings
-    // refresh on the next mutation or natural cache turnover.
-  }
+/**
+ * Invalidate canonical standings for every league at `year`, NON-FATALLY but not
+ * silently (PLATFORM-693).
+ *
+ * This is the site the CRON reaches: `cron/schedule-refresh` calls
+ * `refreshFullSeasonSchedule` directly and never goes through `/api/schedule` over
+ * HTTP, so the two route-local blocks never run for an automated refresh. The old
+ * body swallowed every failure under one bare `catch` and promised recovery "on the
+ * next mutation or natural cache turnover" — there is none: canonical standings are
+ * `revalidate: false`, tag-only, and an unchanged subsequent refresh commits nothing
+ * so fires nothing.
+ */
+async function invalidateStandingsForYear(year: number): Promise<StandingsInvalidationOutcome> {
+  return await invalidateStandingsForYearReporting(year);
 }
 
 /**
@@ -525,7 +531,13 @@ export async function refreshFullSeasonSchedule(params: {
         // Post-commit order: durable commit → process-cache publication (done in
         // commit) → score gap-fill → standings invalidation only when a score was
         // repaired → status. An unchanged schedule alone still invalidates nothing.
-        if (scoreSweep.repaired > 0) await invalidateStandingsForYear(year);
+        // Only a repaired score changes what standings derive from, so an
+        // untouched schedule still busts nothing — and `complete` with zero
+        // attempted is the truthful record of "no walk was needed".
+        const unchangedInvalidation =
+          scoreSweep.repaired > 0
+            ? await invalidateStandingsForYear(year)
+            : completeStandingsInvalidation();
         await recordProviderRefreshSuccess('schedule', scope, {
           attempt,
           committedAt: commit.committedAt,
@@ -548,6 +560,7 @@ export async function refreshFullSeasonSchedule(params: {
           scoreDifferences: scoreSweep.differences,
           scoreDifferencesTruncated: scoreSweep.differencesTruncated,
           scoreSweepFailedPartitions: scoreSweep.failedPartitions,
+          standingsInvalidation: unchangedInvalidation,
           scoreSweepCannotTellCount: scoreSweep.cannotTellCount,
           kickoffsChanged: commit.kickoffsChanged,
           observedAt,
@@ -560,7 +573,7 @@ export async function refreshFullSeasonSchedule(params: {
         // Post-commit order: durable commit → process-cache publication (done in
         // commit) → score gap-fill → standings invalidation (content changed) →
         // status. Schedule + score changes share the existing single year bust.
-        await invalidateStandingsForYear(year);
+        const writtenInvalidation = await invalidateStandingsForYear(year);
         await recordProviderRefreshSuccess('schedule', scope, {
           attempt,
           committedAt: commit.committedAt,
@@ -583,6 +596,7 @@ export async function refreshFullSeasonSchedule(params: {
           scoreDifferences: scoreSweep.differences,
           scoreDifferencesTruncated: scoreSweep.differencesTruncated,
           scoreSweepFailedPartitions: scoreSweep.failedPartitions,
+          standingsInvalidation: writtenInvalidation,
           scoreSweepCannotTellCount: scoreSweep.cannotTellCount,
           kickoffsChanged: commit.kickoffsChanged,
           observedAt,

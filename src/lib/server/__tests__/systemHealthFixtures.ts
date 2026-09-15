@@ -49,6 +49,7 @@ import {
   yearScope,
   type ProviderRefreshScope,
 } from '../../providerRefreshScope.ts';
+import { completeStandingsInvalidation } from '../../selectors/leagueStandings.ts';
 import type { ProviderAttemptOutcome } from '../providerRefreshStatus.ts';
 import type {
   AutomationHealth,
@@ -95,6 +96,7 @@ function targetFor(job: ExternalSchedulerJob, refusals = 0): SchedulerExecutionT
             scoreRepairs: 0,
             scoreDifferenceCount: 0,
             scoreSweepFailedPartitions: [],
+            standingsInvalidation: completeStandingsInvalidation(),
             scoreSweepCannotTellCount: 0,
             kickoffsChanged: 0,
             ...cleanScheduleYearOutcome(),
