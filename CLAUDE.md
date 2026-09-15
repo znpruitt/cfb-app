@@ -199,7 +199,22 @@ first commit; if you are not where this table says you should be, stop and say s
   two-dot review would have reported that the branch **deleted an entire reconstruction prompt and
   reverted this file's corrections** — findings a reviewer would rate high, against a branch that
   touched neither file. `/code-review <sha>` takes the commit directly and has
-  no such exposure. It reviews `main...HEAD`, and `resolveCommandCwd` in the companion is
+  no such exposure.
+- **`--base` HAS TWO USES AND THEY LOOK IDENTICAL AT THE CALL SITE. PASS A REAL MERGE-BASE, NEVER A
+  BRANCH COMMIT.** Added 2026-09-15 after a lane passed its own previous branch tip as `--base`,
+  believing it was applying the drift fix above. **Passing a branch commit ALSO avoids the phantom
+  deletions, so it looks like it is doing the drift-protection job while silently narrowing what the
+  reviewer sees.** One is a correctness fix for a two-dot artefact; the other is a judgement about
+  review scope, and it rides along invisibly. **Measured on #693:** the real merge-base gave 25
+  files / 2,625 insertions; the branch commit gave 13 / 576 — **less than a quarter of the branch**.
+  Verify with `git merge-base --is-ancestor <base> origin/main`; a true merge-base IS an ancestor of
+  `origin/main` and a branch commit is not.
+- **A DELTA REVIEW CANNOT SEE AN INTEGRATION DEFECT, WHICH IS THE CLASS THIS REPO ACTUALLY SHIPS.**
+  Every serious finding on #693 was correct in its own diff and wrong in where it LANDED: a helper
+  nothing called; an issue code no panel claimed; a registration whose entire risk is the tile it
+  files under. **Review against the merge-base even when a narrower range is defensible** — the cost
+  is re-reported findings, which an adjudication record dismisses in a line, and per the standing
+  rule a repeat you believe is wrong gets a TEST, not a rebuttal. It reviews `main...HEAD`, and `resolveCommandCwd` in the companion is
   `options.cwd ? path.resolve(process.cwd(), options.cwd) : process.cwd()`, so **the workspace comes
   from the invoking process's cwd.** Invoke it from the session whose worktree holds the branch.
   From the PLANNING worktree, which sits on `main`, the range is empty. `main...HEAD` is therefore
