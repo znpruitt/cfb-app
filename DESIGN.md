@@ -198,7 +198,7 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 - Compact scoreboard header metadata stays on one line in this order: state or schedule notice,
   kickoff or game clock, broadcast, then `Neutral site`. Bullets are conditional separators before
   broadcast and neutral-site metadata, never leading decoration; a row containing only either label
-  begins with that label. Broadcast renders for scheduled, live, and awaiting rows, but not finals.
+  begins with that label. Broadcast renders for scheduled, live, and awaiting rows, but not finals — **and on `unavailable`, which this sentence omitted until 2026-09-15.** `CompactGameScoreboard`'s `displayPolicy` has always had four states showing broadcast and one suppressing it; this line named three, so a caller enumerating per state from THIS document would have had to invent the fourth answer. The component is the authority for the state-to-broadcast mapping and a caller should pass the label unconditionally rather than re-deciding it — the reason `MatchupsWeekPanel` does so. Found by the UI lane on the #723 receipt; `unavailable` is reachable on Matchups (`projectMatchupsGameState` is a bare pass-through) and unreachable on Overview (`routeForItem`'s abandoned-game gate), which is why the gap survived a surface that could never hit it.
   **`No score reported` is what `Awaiting score` BECOMES 24 hours after kickoff** — the point
   `POLLING_WINDOW_AFTER_KICKOFF_MS` stops the score pipeline trying, so nothing further is coming and
   "awaiting" is a claim the app no longer believes. **A fifth state was required because none of the
