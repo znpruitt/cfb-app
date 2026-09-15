@@ -108,6 +108,7 @@ function game(overrides: Partial<AppGame>): AppGame {
     homeClassification: overrides.homeClassification,
     sources: overrides.sources,
     startTimeTBD: overrides.startTimeTBD,
+    media: overrides.media,
   };
 }
 
@@ -1714,4 +1715,111 @@ test('matchups panel renders date plus Time TBD instead of the placeholder clock
 
   assert.match(html, /Kickoff Sat, Aug 30 · Time TBD/);
   assert.doesNotMatch(html, /12:00 AM/);
+});
+
+test('#723: Matchups passes broadcast and the component policy keeps it off finals', () => {
+  const media = [{ gameId: '1', mediaType: 'tv' as const, outlet: 'FOX' }];
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[
+        game({ key: 'sched', startTimeTBD: false, csvAway: 'Rutgers', csvHome: 'Maryland', media }),
+        game({ key: 'done', startTimeTBD: false, csvAway: 'Iowa', csvHome: 'Nebraska', media }),
+      ]}
+      oddsByKey={{}}
+      scoresByKey={{
+        done: {
+          status: 'Final',
+          time: 'Final',
+          home: { team: 'Nebraska', score: 24 },
+          away: { team: 'Iowa', score: 31 },
+        },
+      }}
+      rosterByTeam={
+        new Map([
+          ['Rutgers', 'Nia'],
+          ['Iowa', 'Nia'],
+        ])
+      }
+      displayTimeZone="UTC"
+    />
+  );
+  const card = ownerCardMarkup(html, 'Nia');
+  const scheduled = scoreboardMarkup(card, 'Rutgers @ Maryland');
+  const finalRow = scoreboardMarkup(card, 'Iowa @ Nebraska');
+
+  // The caller passes the label unconditionally; `displayPolicyByState` decides.
+  // Both rows carry identical media, so a difference between them can only come
+  // from the component's per-state policy — which is the delegation being pinned.
+  assert.match(scoreboardHeaderMarkup(scheduled), />FOX</);
+  assert.doesNotMatch(scoreboardHeaderMarkup(finalRow), />FOX</);
+});
+
+test('#723: an awaiting Matchups row still carries broadcast', () => {
+  const kickoff = '2025-08-30T20:00:00.000Z';
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[
+        game({
+          key: 'awaiting',
+          date: kickoff,
+          startTimeTBD: false,
+          csvAway: 'Temple',
+          csvHome: 'Navy',
+          media: [{ gameId: '2', mediaType: 'tv' as const, outlet: 'ESPN2' }],
+        }),
+      ]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map([['Temple', 'Nia']])}
+      displayTimeZone="UTC"
+      nowMs={Date.parse(kickoff)}
+    />
+  );
+  const scoreboard = scoreboardMarkup(ownerCardMarkup(html, 'Nia'), 'Temple @ Navy');
+
+  assert.match(scoreboard, /data-scoreboard-state="awaiting"/);
+  assert.match(scoreboardHeaderMarkup(scoreboard), />ESPN2</);
+});
+
+test('#725: a secondary Matchups tag is not hidden at phone width', () => {
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[game({ key: 'upset', csvAway: 'Iowa', csvHome: 'Nebraska' })]}
+      oddsByKey={{}}
+      scoresByKey={{
+        upset: {
+          status: 'Final',
+          time: 'Final',
+          home: { team: 'Nebraska', score: 24 },
+          away: { team: 'Iowa', score: 31 },
+        },
+      }}
+      rosterByTeam={
+        new Map([
+          ['Iowa', 'Lane'],
+          ['Nebraska', 'Mira'],
+        ])
+      }
+      rankingsByTeamId={
+        new Map([
+          ['a', { rank: 20, rankSource: 'ap' }],
+          ['h', { rank: 5, rankSource: 'ap' }],
+        ])
+      }
+      displayTimeZone="UTC"
+    />
+  );
+  const scoreboard = scoreboardMarkup(ownerCardMarkup(html, 'Lane'), 'Iowa @ Nebraska');
+  const tags = [
+    ...scoreboard.matchAll(/<span(?=[^>]*\sdata-eyebrow-tag)[^>]*\sclass="([^"]*)"[^>]*>/g),
+  ].map((match) => match[1] ?? '');
+
+  // Positive control: a lone primary would make the `hidden` assertion vacuous,
+  // so the secondary tag must actually be present before its class is judged.
+  assert.equal(tags.length, 2, 'the upset final between two ranked teams must emit two tags');
+  assert.match(scoreboard, />Upset</);
+  assert.match(scoreboard, />Top 25 Matchup</);
+  for (const className of tags) {
+    assert.doesNotMatch(className, /(?:^|\s)hidden(?:\s|$)/);
+  }
 });

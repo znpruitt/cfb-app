@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { formatExpandedKickoff } from '../lib/gameCardPresentation';
+import { formatExpandedKickoff, formatPrimaryBroadcastLabel } from '../lib/gameCardPresentation';
 import { displayOwner } from '../lib/gameOwnership';
 import type { CombinedOdds } from '../lib/odds';
 import {
@@ -183,6 +183,18 @@ function GameRow({
   const scheduledSeparator =
     usesNeutralSiteSemantics(slateGame.game) || slateGame.game.neutral ? 'vs' : '@';
   const liveClockLabel = buildLiveClockLabel(score);
+  // #723. PASSED UNCONDITIONALLY, and the alternative was considered: Overview
+  // enumerates per state at `OverviewPanel.tsx:797` but passes unconditionally at
+  // `:877`, so there is no single sibling pattern to match. The deciding reason is
+  // that `unavailable` is REACHABLE here and is not on Overview —
+  // `projectMatchupsGameState` is a bare pass-through, while Overview's
+  // `routeForItem` drops unresolved games at the eight-hour abandonment gate.
+  // `DESIGN.md:201` names scheduled, live and awaiting and no fourth state, so
+  // enumerating at this call site would mean INVENTING the answer for `unavailable`
+  // somewhere with no authority to decide it. `CompactGameScoreboard`'s
+  // `displayPolicyByState` already owns that mapping; this delegates to it rather
+  // than making a second, less-informed copy.
+  const broadcastLabel = formatPrimaryBroadcastLabel(slateGame.game.media) ?? undefined;
   const scoreboardState = projectMatchupsGameState({ game: slateGame.game, score, nowMs });
   const liveGameDelta = liveDelta?.byGame[slateGame.game.key];
   const showLiveIndicator =
@@ -276,6 +288,7 @@ function GameRow({
       <CompactGameScoreboard
         state={scoreboardState}
         statusLabel="SCH"
+        broadcast={broadcastLabel}
         liveHue="neutral"
         liveDot={showLiveIndicator ? 'pulse' : 'none'}
         clock={scoreboardDisplay.clock}
@@ -297,7 +310,7 @@ function GameRow({
               {secondary.map((tag) => (
                 <span
                   key={`${slateGame.game.key}:tag:${tag}`}
-                  className={`hidden sm:inline-flex ${EYEBROW_TAG_CLASSES}`}
+                  className={`inline-flex ${EYEBROW_TAG_CLASSES}`}
                   data-eyebrow-tag
                 >
                   {LEAGUE_TAG_LABELS[tag]}
