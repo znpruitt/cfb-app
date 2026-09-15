@@ -146,3 +146,131 @@ branch" into "gates passed on this tree."
 7. **What in this prompt contradicts what you found in the files?**
 
 Do not start until the receipt is answered and I have ruled on it.
+
+---
+
+## SCOPE AMENDMENT — 2026-09-14, planning ruling, after `/code-review` on `4efd3c19`
+
+**Cite this section by its commit SHA in the PR and the registry entry.** `AGENTS.md:462` requires
+that a crossed stop-and-reassess signal be explained in the PR and either split or **explicitly
+approved**, with the approval and the actual diffstat recorded in the registry entry. This is the
+approval, and the reasoning it rests on.
+
+### What expanded
+
+The branch as reviewed was 15 files / 556 insertions / 48 deletions — **already at the 15-file
+signal**, with net lines well under 1,500. Remediation adds a durable pending-state module, a drain
+phase in the existing schedule-refresh cron, and their tests, so the file count crosses.
+
+### Why, and why a split is refused
+
+`/code-review` finding 1: the branch as built produces a **warning that clears itself while the
+fault persists**. Run 1 commits rows, the invalidation throws, the year records `partial`. The
+repair policy sends the operator to the full-year refresh. They click it; content is unchanged, so
+run 2 takes the `completeStandingsInvalidation()` sentinel, never re-walks, and records `success`.
+`schedulerExecutionStatus` is latest-only monotonic persistence, one row per job, so run 2's record
+replaces run 1's and the warning disappears with standings permanently stale.
+
+**A false all-clear is worse than the silence #693 was opened to fix** — before, there was no
+warning to falsely clear.
+
+The per-run record is truthful and the per-year status is false: *"no walk was needed this run"* and
+*"no walk is outstanding"* are different claims and nothing in the system distinguishes them. So no
+per-run reclassification fixes it, and the two obvious partial ships are both worse than the branch:
+
+- **Ship as-is** — the false all-clear above.
+- **Never record success without a walk** — an unclearable warning, which is the failure mode
+  `CLAUDE.md` records against [#721](https://github.com/znpruitt/cfb-app/issues/721): a check that
+  cannot pass is a line people learn to skip.
+
+**Detection is therefore not shippable without a working repair.** Replay was in this prompt's *What
+the fix owes* and its acceptance boundary from the start (*"a missed invalidation must be retryable
+from recorded state alone"*, *"replay needs no provider call"*) and was never descoped. **This is not
+scope growth; it is scope that was specified and not built.** Splitting it would ship the false
+all-clear and defer the thing that makes the branch net-positive.
+
+### Approved, with conditions
+
+Planning approves crossing the file-count signal, subject to:
+
+1. **The PR explains the expansion and cites this amendment by SHA.** The registry entry records
+   this approval and the final measured diffstat.
+2. **`AGENTS.md:464` does not trip.** The drain is a phase inside the EXISTING schedule-refresh
+   cron, not a second automation job. State this in the PR — a reviewer will reach for the line, and
+   its named failure case (`PLATFORM-086F2H1B` v1) is two jobs with the second untested.
+3. **`AGENTS.md:468` binds: route-level coverage for the drain is mandatory.** Delete the drain and
+   the suite must go red, demonstrated as an explicit mutation naming which tests fire.
+4. **Owner sign-off on the expansion is requested and still outstanding** at the time of writing.
+   Planning's approval covers the engineering judgement; it does not substitute for the owner's, and
+   the registry entry must record which was obtained.
+
+### AMENDMENT 2 — 2026-09-15, after round 2: THE SECOND SIGNAL NOW CROSSES TOO
+
+`e378c090` approved crossing the **file-count** signal when the branch measured 19 files and **1,184
+net lines** — comfortably under the 1,500 line threshold, which was therefore not in question. At
+round 2 (`bbc38a51`) the branch measures **21 files, 1,647 insertions, 56 deletions — 1,591 net**.
+**Both signals in `AGENTS.md:462` are now crossed.**
+
+**The lane flagged this rather than treating the earlier approval as covering it, and that is the
+right instinct: "the approval was for a smaller thing" is exactly how a sizing rule gets hollowed
+out.** An approval is for the thing measured at the time it was given.
+
+**Planning's position is unchanged, and the reason is that the growth is entirely the thing that was
+already ruled in.** Every line of it is replay — the pending scope, the two triggers, the drain
+summary, and their tests — which Amendment 1 established was specified in the acceptance boundary
+from the start and never descoped. No new objective entered.
+
+**A further split is refused, and the reason is reachability rather than size.** The two triggers
+cannot be separated: a cron drain cannot cover the manual repair path, and an authority discharge
+cannot cover a zero-target run because the authority is never called when there are no targets.
+Shipping either alone leaves the repair broken in a way that is invisible from the other half, which
+is the failure this issue exists to close. Measured against the `AGENTS.md` test — *one cohesive
+objective with a clear acceptance contract, independently reviewable, verifiable, deployable, and
+revertible* — this is one objective and reverts as one unit.
+
+**OWNER SIGN-OFF IS STILL OUTSTANDING and now has two signals to cover rather than one.** The
+registry entry records which approvals were obtained and the final measured diffstat; it must not
+read as though `e378c090` covered the line-count signal, because it did not and could not.
+
+### Design, as ruled
+
+- **Pending state is keyed by YEAR, never by league slug.** No identifier enters a policed surface;
+  `scheduleYearsTarget` already records years. Replay re-walks all leagues for the year.
+- **A separate `app_state` scope, NOT co-located with the schedule-refresh lease.**
+  `releaseScheduleRefreshLease` writes `{ lease: null }` — a whole-record replacement — so a field
+  beside it is erased by the release at the end of the very run that wrote it. Co-location is
+  self-erasing, not merely untidy.
+- **Discharge is one mechanism: the cron drains the pending set at run start**, bounded, oldest
+  first. Year Y's own discharge falls out of that. A per-year trigger alone cannot work:
+  `admin/cache-historical-schedule` explicitly refuses active-season and preseason years, so the
+  only years it can pend are ones the cron never revisits.
+- **Clear only on a walk that actually busted** — `complete` AND `invalidated === attempted`.
+  Otherwise an all-`E263` drain busts nothing, clears the record, and loses the fault permanently:
+  this branch's own defect relocated into its repair path.
+- **The pending record is its own failure report.** A failed drain leaves it uncleared; that is the
+  durable evidence. No second reporting channel, and a drain failure must not fail the run or alter
+  the refresh's reported status.
+- **Over-invalidation on the replay path is not a reversal of the ruling against it on the commit
+  path.** The discriminator is evidence: the commit path has none that a bust failed, so it would
+  spend an unrelated blast radius on a maybe; the replay path names a year known to have one.
+  Bounded cost for a known fault versus unbounded cost for an unknown one.
+
+### The bound — a correction to planning's own framing
+
+I instructed that the drain bound be derived from deferred rebuild cost rather than cron wall-clock.
+**That framing overstates the cost and the constant's comment must not record it.**
+
+The drain is cheap — a registry read and `revalidateTag` per league, no provider call, no recompute.
+The rebuild is deferred to the next READ, so an invalidated year with no readers costs nothing at
+all, and most of the pendable population is cold historical archives. The realized cost is bounded
+by **readership**, not by entry count, and the rebuilds are spread across whenever each entry is
+next read rather than landing together. The active year is the only one reliably read, and it is
+already invalidated by every content-changed refresh, so draining it adds nothing to what a normal
+run costs.
+
+**So the bound is a safety rail against pathological growth of the pending set, not a cost
+optimisation.** `N = 4` is accepted on that basis — it is defensible as a rail without needing a
+rebuild measurement nobody has taken. **Do not ship a constant whose comment states the
+deferred-cost model**: that would be a plausible, disproven rationale frozen in a comment, which is
+the same defect class as the disproven comment at `standingsCacheWarmer.ts:153` that this branch's
+own finding 6 is about.

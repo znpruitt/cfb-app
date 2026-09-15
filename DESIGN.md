@@ -198,7 +198,8 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 - Compact scoreboard header metadata stays on one line in this order: state or schedule notice,
   kickoff or game clock, broadcast, then `Neutral site`. Bullets are conditional separators before
   broadcast and neutral-site metadata, never leading decoration; a row containing only either label
-  begins with that label. Broadcast renders for scheduled, live, and awaiting rows, but not finals.
+  begins with that label. Broadcast renders for scheduled, live, and awaiting rows, but not finals — **and NOT on `unavailable`.** The exclusion is not an omission; it follows from the fifth state's own definition below, and from the justification this rule gives for `awaiting`. **`CompactGameScoreboard`'s `displayPolicy` currently sets `showsBroadcast: true` on `unavailable` and is WRONG to** — [#796](https://github.com/znpruitt/cfb-app/issues/796). Measured on 2026-09-15 by rendering the component directly: it emits `No score reported • FOX` for a game whose kickoff was more than 24 hours ago.
+  **THIS PARAGRAPH SAID THE OPPOSITE FOR PART OF 2026-09-15 AND THE CORRECTION IS THE POINT.** I amended it to add `unavailable`, on the reasoning that the component had four states and this line named three, so the document had a gap. **That inverted the authority.** `DESIGN.md` is canonical for UI; an implementation disagreeing with it is a defect in the implementation, and "the code does X" is never evidence that the document should say X. The document was also not silent — the fifth state is defined in this same bullet, two lines down.
   **`No score reported` is what `Awaiting score` BECOMES 24 hours after kickoff** — the point
   `POLLING_WINDOW_AFTER_KICKOFF_MS` stops the score pipeline trying, so nothing further is coming and
   "awaiting" is a claim the app no longer believes. **A fifth state was required because none of the
