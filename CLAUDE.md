@@ -169,6 +169,26 @@ first commit; if you are not where this table says you should be, stop and say s
   `codex-companion.mjs` script directly is reaching around that flag — do not.** Ask the owner, the
   same as `/code-review`. Found by the Item 204 lane, which flagged the stale instruction instead of
   working around it.
+- **`/codex:review` TAKES NO ARGUMENT, AND IT REVIEWS THE INVOKING SESSION'S WORKTREE.** Added
+  2026-09-15 after two failed rounds on #693. Passing it a SHA fails outright — *"does not support
+  custom focus text"*, exit 1. It reviews `main...HEAD`, and `resolveCommandCwd` in the companion is
+  `options.cwd ? path.resolve(process.cwd(), options.cwd) : process.cwd()`, so **the workspace comes
+  from the invoking process's cwd.** Invoke it from the session whose worktree holds the branch.
+  From the PLANNING worktree, which sits on `main`, the range is empty. `main...HEAD` is therefore
+  per-worktree, NOT a shared quantity — two lanes are independent on the git axis, and any claim
+  that they cannot be reviewed concurrently must rest on the codex runtime, not on the diff.
+- **`/code-review` and `/codex:review` MUST BE SENT AS SEPARATE MESSAGES**, the second only after the
+  first agent has returned. Typed in one message, the second line is absorbed into the first agent's
+  description and **no process starts and no output file is written** — it does not fail, it simply
+  never runs. Cost two full rounds on #693 before the mechanism was identified.
+- **VERIFY A CODEX REPORT'S DIFF BASE BEFORE TREATING IT AS GATHERED — the report BODY cannot tell
+  you.** Its header reads only `Target: branch diff against main`, which is byte-identical for a
+  real review and for a review of nothing. The range is in the TRANSCRIPT above the `# Codex Review`
+  header, where the companion logs its own `git diff --stat <base>...` — confirm that base is the
+  branch point. **A transcript with no diff command, or a base equal to HEAD, is a review of nothing
+  wearing a clean report's shape.** This is the mutation-harness failure in a second place: "did not
+  run" and "ran and found nothing" are different results that render identically, and the fix is the
+  same — find the quantity that separates them and read it every time.
 - Both reviews must run against the **same commit**, and both must be gathered before any
   remediation — see `AGENTS.md` → **Review and remediation limits**.
 
