@@ -1717,7 +1717,7 @@ test('matchups panel renders date plus Time TBD instead of the placeholder clock
   assert.doesNotMatch(html, /12:00 AM/);
 });
 
-test('#723: Matchups passes broadcast and the component policy keeps it off finals', () => {
+test('#723: the Matchups caller supplies broadcast on scheduled rows', () => {
   const media = [{ gameId: '1', mediaType: 'tv' as const, outlet: 'FOX' }];
   const html = renderToStaticMarkup(
     <MatchupsWeekPanel
@@ -1747,9 +1747,22 @@ test('#723: Matchups passes broadcast and the component policy keeps it off fina
   const scheduled = scoreboardMarkup(card, 'Rutgers @ Maryland');
   const finalRow = scoreboardMarkup(card, 'Iowa @ Nebraska');
 
-  // The caller passes the label unconditionally; `displayPolicyByState` decides.
-  // Both rows carry identical media, so a difference between them can only come
-  // from the component's per-state policy — which is the delegation being pinned.
+  // NAMED FOR THE ASSERTION THAT DISCRIMINATES, which is the scheduled one:
+  // dropping `scheduled` from the caller's gate reddens this test on the first
+  // assertion. Both rows carry identical media, so nothing but the caller's state
+  // enumeration separates them.
+  //
+  // THE FINAL-ROW ASSERTION BELOW DISCRIMINATES NOTHING, and saying so is the point.
+  // Two independent mechanisms suppress it — this gate, and
+  // `displayPolicyByState.final.showsBroadcast: false` — so NO single mutation
+  // falsifies it: adding `final` to the gate leaves this file green, and so does
+  // flipping the component's policy. It documents intent; it does not pin it.
+  // The component-policy invariant is pinned in `CompactGameScoreboard.test.tsx`,
+  // where flipping that flag reddens two tests. The coverage exists, just not here.
+  //
+  // This test was named for the component policy until #723 v2. That claim was true
+  // while the caller passed unconditionally, and the v2 gate made it false — the
+  // gate now withholds the label before the component is ever consulted.
   assert.match(scoreboardHeaderMarkup(scheduled), />FOX</);
   assert.doesNotMatch(scoreboardHeaderMarkup(finalRow), />FOX</);
 });

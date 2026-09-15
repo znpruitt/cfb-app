@@ -199,6 +199,51 @@ These consolidate recurring historical observations, not new project-governance 
   `No score reported • ESPN2`, which is the defect itself. Gates at the remediated tree:
   `lint:all` clean, `tsc --noEmit` clean, suite **5,376 pass / 0 fail**, delta **+4** against the
   5,372 branch point — 4 test declarations added, 0 removed or renamed, both counted from the diff.
+- **Confirming pass (step 5) against `05768f5d`: Codex clean; `/code-review` five findings, and one
+  was a defect in this slice's OWN TEST.** Base verified on both transcripts rather than assumed —
+  each resolved to merge-base `7dcb31e9`, `/codex:review` via an explicit `--base` and `/code-review`
+  via three-dot `main...HEAD`. That pin mattered: `--base main` resolves to a TWO-DOT diff, so every
+  commit landed on `main` after the branch's last merge renders as a DELETION in the branch's diff
+  and the reviewer reports removals the branch never made. `origin/main` moved four times during this
+  slice and the merge-base moved zero times.
+- **STEP-6 ROUND (owner-approved, findings 1 and 3 only, zero production behaviour change — the
+  entire diff is comments plus one test name).**
+- **FINDING 1, AND IT IS THE MOST INSTRUCTIVE THING ON THIS SLICE BECAUSE IT READS AS TRIVIAL ONCE
+  FIXED.** The test was named _"the component policy keeps it off finals"_ and its comment said the
+  delegation was "the thing being pinned". Both were TRUE in v1 and made FALSE by v2's gate, which
+  withholds the label before `displayPolicyByState` is consulted. Mutating
+  `displayPolicyByState.final.showsBroadcast` to `true` left the file 40/40 GREEN. **This is the
+  hazard the v2 commit cites as its reason for rewriting the source comment — and it survived one
+  file over: I fixed it in the source file and did not look in the test file, where I had written the
+  same claim.** The generalisation: a design change invalidates every restatement of the old design
+  wherever it lives, and **a diff flags none of them, because nobody edited those lines.** Same class
+  as [#798](https://github.com/znpruitt/cfb-app/issues/798).
+- **THE FIRST RENAME WAS ALSO UNFALSIFIABLE, AND ONLY THE OWNER'S CONDITION CAUGHT IT.** The approval
+  required naming a claim some mutation actually reddens. I first renamed it _"the caller withholds
+  broadcast on final rows"_ — and adding `final` back to the gate left the file GREEN, exactly as the
+  original defect had. **The final-row assertion discriminates NOTHING: two independent mechanisms
+  suppress it — the caller gate and `displayPolicyByState.final.showsBroadcast: false` — so no single
+  mutation can falsify it.** Renaming a test to describe what it appears to prove, without checking
+  that anything can falsify the new description, ships the same defect with better wording. The
+  discriminating assertion is the SCHEDULED one: dropping `scheduled` from the gate reddens the test
+  on its first assertion. It is now named for that, and the comment states plainly that the final-row
+  assertion documents intent rather than pinning it, and that the component-policy invariant lives in
+  `CompactGameScoreboard.test.tsx` where that flag flip reddens two tests — so the next reader finds
+  the coverage instead of concluding it is absent.
+- Finding 3: the gate comment claimed _"Shape follows `gameWeek.ts:327-330`"_ while dropping that
+  sibling's `&& !suppressScheduledMetadata` term. Corrected in place rather than by adding the term:
+  `isScoreReportExpectedGame` maps a disrupted game to `scheduled`, so a canceled game would render a
+  carrier for a game that will not be played — the same class of claim the `unavailable` exclusion
+  stops. **Not a live defect, and the measurement is why:** zero disrupted labels across 22,760
+  schedule rows and 20,424 score statuses, the same finding that withdrew #781's part B. The comment
+  now names the missing term and the condition under which it becomes required.
+- Findings not taken, with reasons: [#798](https://github.com/znpruitt/cfb-app/issues/798) — the
+  `EYEBROW_TAG_CLASSES` carve-out whose stated reason #725 removed, real and out of SCOPE.
+  Compile-checking the broadcast enumeration the way `displayByState` is checked — declined by owner
+  ruling: it defaults in the safe direction, and a safe default plus an explicit issue beats widening
+  scope for a hypothetical sixth state. [#797](https://github.com/znpruitt/cfb-app/issues/797) — the
+  phone-width squeeze, which the confirming reviewer reached independently, including that confirming
+  it needs a browser at 375px rather than more reading.
 - **A NOTE ON `DESIGN.md` AUTHORITY, recorded because the correction outlives this slice.** The prompt's
   ruling was made from a `DESIGN.md` that had been amended hours earlier to say broadcast renders on
   `unavailable`, on the reasoning that the component had four states where the document named three.

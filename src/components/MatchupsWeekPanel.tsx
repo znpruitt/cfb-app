@@ -203,8 +203,18 @@ function GameRow({
   // degrades them to `scheduled`. That component-side default is the real defect
   // and is #796; this gate holds the line until it lands, and stays correct after.
   //
-  // Shape follows `gameWeek.ts:327-330`, the Schedule surface, which is the sibling
-  // that actually answers this state.
+  // The three admitted states match `gameWeek.ts:327-330`, the Schedule surface and
+  // the sibling that actually answers `unavailable`. THE MATCH IS NOT EXACT and the
+  // difference is deliberate: that sibling also carries
+  // `&& !scoreboard.suppressScheduledMetadata`, which fires with its disrupted
+  // schedule notice. Matchups passes no `scheduleNotice`, so there is no notice to
+  // suppress alongside — but the consequence is real, because
+  // `isScoreReportExpectedGame` maps a disrupted game to `scheduled`, so a canceled
+  // game would render a carrier for a game that will not be played. That is the same
+  // class of claim the `unavailable` exclusion above exists to stop.
+  // NOT A LIVE DEFECT, and the measurement is why: zero disrupted labels across
+  // 22,760 schedule rows and 20,424 score statuses — the finding that withdrew
+  // #781's part B. If CFBD ever emits one, this gate needs the fourth term.
   const broadcastLabel =
     scoreboardState === 'scheduled' || scoreboardState === 'live' || scoreboardState === 'awaiting'
       ? (formatPrimaryBroadcastLabel(slateGame.game.media) ?? undefined)
