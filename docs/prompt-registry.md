@@ -142,7 +142,7 @@ These consolidate recurring historical observations, not new project-governance 
   left no credible in-scope P0/P1/P2. Seven tests were added and one existing assertion retargeted
   without weakening; mutations reddened each named contract. On `5d5b6a12`, lint, TypeScript,
   focused suites and all 5,383 tests exited 0 with no failures, cancellations or skips. See L1/L4.
-- Status: Implemented and reviewed — [PR #806](https://github.com/znpruitt/cfb-app/pull/806) open.
+- Status: Merged ([PR #806](https://github.com/znpruitt/cfb-app/pull/806), `f62a47e3`, 2026-09-15).
 
 ### PLATFORM-723-725-715-MATCHUPS-CALLER-WORK-CODEX-v1
 

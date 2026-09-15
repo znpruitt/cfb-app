@@ -30,10 +30,11 @@ Merged evolution through 2026-09-06. `CompactGameScoreboard` replaced separate O
 - Slice 5b added caller-supplied `isCardOwnerTeam` tinting with seamless adjacent marked rows. **No caller was wired by that slice**, so it introduced capability without changing existing renders. The tint remains `dark:`-gated.
 - **Schedule and Postseason do not render team records.** The attempted timestamp-only finalization gate was removed because it discarded game identity and blanked the whole projection; Item 139 owned shared completed-game reconciliation at closeout. Overview's prior records feed was unchanged. The earlier finals-record join blocker was GitHub issue #548; it is an issue reference, not a PR.
 - Provider classification is absent from 2018–2024, so the FCS prefix is intentionally unavailable there. Contrast corrections raised small text to zinc-400; loss of one color-hierarchy step was accepted. The owner declined disrupted/placeholder presentation changes after finding no disrupted provider statuses in the measured 2024–2026 schedule population; that decision is not proof such statuses can never occur.
+- Matchups scheduled rows now carry compact betting-line content derived from signed side spreads and the displayed row names; canonical favorite labels cannot diverge from the row. Missing or untrustworthy lines say `Line not posted` as real content, so every scheduled row gains footer height while live, awaiting, unavailable, and final rows remain footer-free. Only equal zero spreads render as pick'em.
 
 Supersedes the original one-line Schedule collapse, orphaned `GameScoreboard`, and earlier Overview-only status treatments. Later ordering decisions are consolidated separately below.
 
-PR references: #241, #531, #535, #537, #541, #549, #570, #572, #575.
+PR references: #241, #531, #535, #537, #541, #549, #570, #572, #575, #806.
 
 ### 02. Overview ordering, disclosure, and removal of competing presentation state
 
