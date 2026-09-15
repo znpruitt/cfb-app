@@ -507,9 +507,28 @@ const APP_STATE_LOCK_TIMEOUT_MS = 10_000;
  *
  * The defect is SILENT by construction: it emits valid JavaScript containing invalid SQL,
  * so nothing between the source and the database can see it. Type-checking, linting and
- * the whole test suite pass, because every one of them reads the SOURCE. **Verify this
- * string in the BUILT ARTIFACT, not in the file** — `__tests__/boundedBeginArtifact.test.ts`
- * greps `.next` for it, and skips when no build is present.
+ * the whole test suite pass, because every one of them reads the SOURCE.
+ *
+ * WHAT GUARDS THIS LINE, AND WHAT DOES NOT. `__tests__/boundedBeginShape.test.ts` asserts
+ * this declaration stays ONE template literal, so a re-split is caught in review. **It
+ * cannot see the minifier, so it cannot catch a recurrence of the incident itself** —
+ * nothing in the suite reads the build. Do not read the first sentence and assume the
+ * incident is guarded.
+ *
+ * A VALUE ASSERTION WOULD NOT HELP, and that was measured rather than assumed: a re-split
+ * evaluates to the SAME string, so with the constant re-split `appStateBoundedWaits.test.ts`
+ * — which captures the real BEGIN and asserts its contents — stayed fully green. Only the
+ * source SHAPE distinguishes them.
+ *
+ * THE ARTIFACT REMAINS UNVERIFIED BY ANY TEST. The fix's own evidence is point-in-time and
+ * stated as such: after a clean `rm -rf .next && npm run build` on 2026-09-15, the only
+ * opener form anywhere under `.next` was
+ * `begin; set local statement_timeout = 15000; set local lock_timeout = 10000`, in
+ * `.next/server/chunks/3227.js` and
+ * `.next/server/app/admin/[slug]/preseason/owners/page.js`. A point-in-time verification
+ * stated as point-in-time is worth more than a permanent check that can lie — the check
+ * that used to live here greped `.next`, which is gitignored and machine-local, and passed
+ * green against a tree that still contained the defect.
  */
 const APP_STATE_BOUNDED_BEGIN = `begin; set local statement_timeout = ${APP_STATE_STATEMENT_TIMEOUT_MS}; set local lock_timeout = ${APP_STATE_LOCK_TIMEOUT_MS}`;
 
