@@ -210,6 +210,25 @@ export async function clearPendingStandingsInvalidation(
         // land between it and here.
         const inside = (await txn.read<unknown>())?.value;
         if (!isPendingRecord(inside) || inside.token !== observed.token) return false;
+        // WRITTEN `null`, DELIBERATELY NOT DELETED — and this is a correctness choice,
+        // not an oversight, so do not "fix" it.
+        //
+        // `AppStateKeyTxn` exposes read/write/readKey/writeKey/lockKey and NO delete, so
+        // a generation-checked delete does not exist. Both routes to one are worse than
+        // the marker they remove:
+        //   - Deleting after COMMIT reopens the exact race the token closes. An
+        //     obligation can land between the commit and the delete, and the delete
+        //     removes it — the erasure this module exists to prevent, reintroduced by
+        //     the cleanup for it.
+        //   - Calling `deleteAppState` inside this callback is a nested store call while
+        //     holding a transaction client, which is #595's shape against a
+        //     three-connection pool.
+        //
+        // The cost a delete would save is already gone: `readAllPending` reads the whole
+        // scope in ONE query, so a cleared marker is a filtered row in a result set
+        // rather than a round trip, and the row count is bounded by distinct years ever
+        // pended. `isPendingRecord` rejects `null`, which is what keeps a marker from
+        // ever being read back as an obligation — pinned by test.
         await txn.write<null>(null);
         return true;
       }

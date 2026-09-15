@@ -302,6 +302,34 @@ test('a discharge whose walk did not bust leaves the obligation standing', async
   assert.equal(after.attempts, 1);
 });
 
+// === R7 as amended — the cleared MARKER must never read back as an obligation ===
+
+test('a cleared marker is not counted, listed, or drained', async () => {
+  // A cleared record is written `null` rather than deleted, because the transaction
+  // accessor has no generation-checked delete and both routes to one are worse (see the
+  // module). The whole safety of that choice rests on the read filtering it: a marker
+  // misread as an obligation would drain forever, every run, and never clear.
+  await recordPendingStandingsInvalidation(2026);
+  const observed = (await readPendingStandingsInvalidation(2026))!;
+  assert.equal(await clearPendingStandingsInvalidation(2026, observed), true);
+
+  // The row is still there...
+  assert.notEqual(await readRaw(2026), undefined, 'precondition: a marker was retained');
+
+  // ...and must be invisible to every reader.
+  assert.equal(await countPendingStandingsInvalidations(), 0);
+  assert.deepEqual(await listPendingStandingsInvalidations(), []);
+  assert.equal(await readPendingStandingsInvalidation(2026), undefined);
+
+  let walked = 0;
+  const summary = await drainPendingStandingsInvalidations(async () => {
+    walked += 1;
+    return { result: 'complete' };
+  });
+  assert.equal(walked, 0, 'a cleared marker must never be drained');
+  assert.equal(summary.stillPending, 0);
+});
+
 // === A cleared record is not readable as pending ===
 
 test('a cleared year reports nothing pending', async () => {
