@@ -84,6 +84,13 @@ whose own years succeeded while old obligations remain pending leaves the result
 still-pending line appears only inside a collapsed Target panel while Scheduler and Overall stay
 green. **Derive an independent issue from a positive pending count.**
 
+**Shape, from the receipt and accepted:** `schedulerExecutionIssues` beside `scheduler-execution-partial`
+at `:733`; code `standings-invalidation-pending`; severity `warning`; subject
+`{ axis: 'job', id: 'schedule-refresh' }`. The SCHEDULER axis changes, and Overall through it, which is
+the point. **The explanation must say that a positive count means repair is IN PROGRESS and that the
+fault is a count which does NOT fall across runs** — the next cron drains it and there is no manual
+action. Without that, this is an alarm nobody can act on, which is its own defect.
+
 > **This requirement reverses a ruling I gave, and the reversal is the transferable part.** We
 > declined a health issue code on the correct grounds that three earlier findings all came from
 > adding a field ahead of a consumer, and I set the condition *"name the rendering at a specific
@@ -94,12 +101,21 @@ green. **Derive an independent issue from a positive pending count.**
 **R2. The generation guard must actually discriminate a concurrent re-record.** In v1,
 `recordPendingStandingsInvalidation` reproduces an existing record byte-for-byte, so neither `since`
 nor `attempts` can distinguish generations — **the exact race `observed` exists for is undetectable**.
-Carry a revision that advances on **every** obligation recorded, and compare it at **all three** clear
-sites.
+**Carry a UNIQUE TOKEN per obligation — not a counter, and not a sequence.** Compare it at **all
+four** clear sites. *Amended 2026-09-15 from the receipt: a monotonic counter reintroduces the exact
+race this closes, because R7's deletion RESETS it.* Record at rev 1; a drain observes rev 1; another
+drain clears and deletes; a new obligation is recorded fresh at rev 1; the first drain's stale
+observation now MATCHES and erases it. A token is identity rather than order, so a post-deletion
+record can never collide with a stale observation. A v1 record carrying no token is a distinct
+generation that matches no observation: the first clear after deploy declines, the next drain
+re-observes and succeeds — one extra cycle, no erasure.
 
-**R3. Both post-walk clears must pass `observed`.** In v1, `bustStandingsForYear` and
-`reportStandingsInvalidation` pass none, against a docblock stating that is correct only where no
-walk preceded.
+**R3. Both post-walk clears must pass `observed`.** In v1, `bustStandingsForYear` (`route.ts:641`)
+and `reportStandingsInvalidation` (`fullSeasonScheduleRefresh.ts:267`) pass none, against a docblock
+stating that is correct only where no walk preceded. **There are FOUR clear callers, not three** —
+those two plus `drainPendingStandingsInvalidations:273` and `dischargePendingStandingsInvalidation:325`
+inside the module, which already pass `observed`. *Corrected 2026-09-15 from the receipt; the
+original text undercounted.*
 
 **R4. `cleared` must count the RESULT, not the attempt.** The clear swallows store errors and
 declines on mismatch, while the drain increments unconditionally — so **four failed clears report
@@ -107,16 +123,30 @@ declines on mismatch, while the drain increments unconditionally — so **four f
 the fourth time. Have the clear return a confirmed boolean and count that.
 
 **R5. `stillPending` must be derived from the full durable set after the drain, not from the drained
-slice.** Capped at the drain bound, ten pending years drain four and report zero.
+slice.** Capped at the drain bound, ten pending years drain four and report zero. **Use
+`getAppStateEntries(scope)` — one `select key, value, updated_at ... where scope = $1`, not
+`listAppStateKeys` plus a `getAppState` per key**, which is v1's shape and worth not rebuilding.
+Bounded by distinct pending years, and with R7 the scope holds only genuinely pending ones, so the
+normal case is zero rows.
 
 **R6. The "do not write when nothing is pending" guard must sit OUTSIDE the transaction.** In v1 it
-is inside, so the client checkout and advisory lock it exists to avoid happen anyway (lock ~`:1281`,
-`fn(txn)` at `:1297`). Read with `getAppState` before opening one.
+is inside, so the work it exists to avoid happens anyway (lock ~`:1281`, `fn(txn)` at `:1297`). Read
+with `getAppState` before opening one. **CORRECTED 2026-09-15 from the receipt: what this avoids is
+the ADVISORY LOCK, and therefore the serialization of concurrent public cold reads on one key — NOT
+the client checkout,** which `getAppState` pays too via the bounded-transaction helper from #625.
+The benefit is real; my original sentence named the wrong one.
 
 **R7. A cleared record is DELETED, not tombstoned.** `listAppStateKeys` returns tombstones forever.
 
 **R8. The discharge's return value must be recorded**, or its docblock must stop saying a caller can
 record it.
+
+**R8a. DO NOT COMPUTE `attempted` OR `cleared`.** *Added 2026-09-15 from the receipt.* v1 computes,
+returns and then DISCARDS both — the cron takes `.stillPending` alone (`route.ts:226`). Two values
+with no consumer is the exact defect four findings on this branch were about, and I earlier approved
+routing them to the execution event without establishing that anything reads it. **On this branch the
+burden of proof now sits on COMPUTING a value, not on omitting one.** R5's durable count is the one
+number. If drain volume is ever wanted, it arrives as a new requirement with a named reader.
 
 **R9. Two comments must state what is true.** The v1 comment claims trigger B "repairs during a
 provider outage" — it sits after the fetch, so it does not.
