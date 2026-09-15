@@ -95,7 +95,15 @@ function isPendingRecord(value: unknown): value is PendingStandingsInvalidation 
     // below rather than vanishing.
     typeof row.token === 'string' &&
     row.token.length > 0 &&
-    typeof row.since === 'string'
+    typeof row.since === 'string' &&
+    // PARSEABLE, not merely a string. `listPendingStandingsInvalidations` sorts on
+    // `Date.parse(since)`, and an unparseable value makes that subtraction `NaN` — which
+    // is not merely "sorts last": a comparator returning NaN for SOME pairs is
+    // inconsistent, and `Array.prototype.sort` leaves the result unspecified, so the
+    // documented oldest-first ordering degrades silently and the capped slice can miss
+    // genuinely old obligations. A row we cannot order is a row we cannot act on, so it
+    // falls into `unreadable` — an already-handled state that surfaces in the count.
+    Number.isFinite(Date.parse(row.since))
   );
 }
 
@@ -191,10 +199,19 @@ export async function recordPendingStandingsInvalidation(
 /**
  * Clear year `year`'s obligation, but only the exact one the caller observed.
  *
- * RETURNS WHETHER IT CONFIRMED A CLEAR, and that is load-bearing rather than
- * convenience: this function must never throw, so a `void` return would make "the store
- * failed", "another obligation arrived" and "cleared" indistinguishable — which is how
- * four failed clears came to report zero still pending.
+ * RETURNS NOTHING, and that is a round-5 correction to a claim this docblock made for
+ * four rounds. It said the boolean was "load-bearing rather than convenience" — true
+ * when an attempt counter consumed it, false from the moment round 4 deleted that
+ * counter. **No production caller reads it**: all four sites await and discard.
+ *
+ * Ask what a caller would DO with it and the answer is nothing, in either branch. A
+ * clear that THREW leaves the obligation standing; a clear that DECLINED leaves a newer
+ * obligation standing. Both are correct, both are self-documenting in the durable state,
+ * and neither has an action that depends on telling them apart.
+ *
+ * The lesson is recorded because nothing in a diff catches it: **deleting a value's last
+ * consumer invalidates every comment that argued the value was needed**, and the
+ * comment's own lines are untouched by the change that falsifies it.
  *
  * THE RACE THE TOKEN CLOSES: a walk takes time, and another writer can commit the same
  * year and record a new obligation while it runs. The key transaction serializes the
@@ -215,19 +232,19 @@ export async function recordPendingStandingsInvalidation(
 export async function clearPendingStandingsInvalidation(
   year: number,
   observed: PendingStandingsInvalidation
-): Promise<boolean> {
+): Promise<void> {
   try {
     const current = (await readAllPending()).records.find((record) => record.year === year);
-    if (!current || current.token !== observed.token) return false;
+    if (!current || current.token !== observed.token) return;
 
-    return await withAppStateKeyTransaction(
+    await withAppStateKeyTransaction(
       STANDINGS_INVALIDATION_PENDING_SCOPE,
       String(year),
       async (txn) => {
         // Re-checked INSIDE the lock: the read above is advisory, and an obligation can
         // land between it and here.
         const inside = (await txn.read<unknown>())?.value;
-        if (!isPendingRecord(inside) || inside.token !== observed.token) return false;
+        if (!isPendingRecord(inside) || inside.token !== observed.token) return;
         // WRITTEN `null`, DELIBERATELY NOT DELETED — and this is a correctness choice,
         // not an oversight, so do not "fix" it.
         //
@@ -248,7 +265,6 @@ export async function clearPendingStandingsInvalidation(
         // pended. `isPendingRecord` rejects `null`, which is what keeps a marker from
         // ever being read back as an obligation — pinned by test.
         await txn.write<null>(null);
-        return true;
       }
     );
   } catch (error) {
@@ -256,7 +272,6 @@ export async function clearPendingStandingsInvalidation(
       year,
       error: error instanceof Error ? error.message : String(error),
     });
-    return false;
   }
 }
 
@@ -280,16 +295,29 @@ export async function clearPendingStandingsInvalidation(
  */
 export async function listPendingStandingsInvalidations(
   limit: number = MAX_PENDING_DRAIN_PER_RUN
-): Promise<PendingStandingsInvalidation[]> {
+): Promise<PendingStandingsInvalidation[] | 'unavailable'> {
   try {
     const { records } = await readAllPending();
     records.sort((a, b) => Date.parse(a.since) - Date.parse(b.since) || a.year - b.year);
     return records.slice(0, limit);
   } catch (error) {
+    // NOT `[]`. AN UNREADABLE STORE IS UNKNOWN, AND AN EMPTY LIST IS A CLAIM.
+    //
+    // Returning `[]` here made a failed read indistinguishable from "nothing pending",
+    // and the lie did not stop at this function: the drain reported `observed: 0`, the
+    // cron used that as its fallback when the count was ALSO unavailable — the two reads
+    // fail together, so the floor was exactly 0 whenever it was needed — and the receipt
+    // published zero pending over a prior receipt that said N. Receipts are latest-only
+    // monotonic, so that erased a standing warning while the obligations remained.
+    //
+    // This module already held the right pattern, written for this branch in round 1:
+    // `invalidateStandingsForYearReporting` records `attempted: null` because "0 asserts
+    // there were no leagues to invalidate, which is a different and unverified claim."
+    // Same distinction, same module — established here, then violated here.
     console.error('could not list pending standings invalidations', {
       error: error instanceof Error ? error.message : String(error),
     });
-    return [];
+    return 'unavailable';
   }
 }
 
@@ -346,8 +374,11 @@ export async function countPendingStandingsInvalidations(): Promise<number | 'un
 export async function drainPendingStandingsInvalidations(
   walk: (year: number) => Promise<{ result: 'complete' | 'partial' | 'registry-failed' }>,
   limit: number = MAX_PENDING_DRAIN_PER_RUN
-): Promise<{ observed: number }> {
+): Promise<{ attempted: number } | 'unavailable'> {
   const pending = await listPendingStandingsInvalidations(limit);
+  // The store could not be read, so this run attempted nothing AND knows nothing. Those
+  // are different from "there was nothing to do" and the caller is told which.
+  if (pending === 'unavailable') return 'unavailable';
   for (const record of pending) {
     try {
       const outcome = await walk(record.year);
@@ -368,7 +399,7 @@ export async function drainPendingStandingsInvalidations(
       });
     }
   }
-  return { observed: pending.length };
+  return { attempted: pending.length };
 }
 
 /**

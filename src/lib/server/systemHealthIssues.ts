@@ -763,7 +763,7 @@ function schedulerExecutionIssues(snapshot: SchedulerDeliveryHealthSnapshot): Sy
         code: 'standings-invalidation-pending',
         severity: 'warning',
         subject: { axis: 'job', id: row.job },
-        title: `${target.pendingStandingsInvalidations} standings invalidation(s) still pending`,
+        title: `${target.pendingStandingsInvalidations} standings invalidation(s) pending as of the last scheduled run`,
         // ONE SEVERITY, ONE SENTENCE — rounds 2 and 3 split this into `info`/`warning`
         // by an attempt counter and the whole escalation was removed in round 4. The
         // counter could not do its job (a successful clear wiped the history, so the
@@ -780,7 +780,20 @@ function schedulerExecutionIssues(snapshot: SchedulerDeliveryHealthSnapshot): Sy
         // the run SUCCEEDED" here, and by the panel-level tests in
         // `systemHealthPanels.test.ts`. Do not assert a RENDERING claim in this file:
         // round 2 did, naming tests that assert severity and cannot see a panel.
-        explanation: `Canonical standings for ${target.pendingStandingsInvalidations} year(s) are stale: a durable commit succeeded but its cache invalidation did not, and the tags are only cleared by an invalidation — there is no time-based expiry. The next scheduled run retries them automatically, so a falling count is repair in progress. A count that does NOT fall across consecutive runs is the fault worth investigating.`,
+        // SAY WHEN IT WAS MEASURED, because this receipt is a per-run SNAPSHOT and the
+        // text used to imply a currency it does not have. An obligation recorded or
+        // repaired outside the weekly cron — by `/api/schedule`, or by the full-season
+        // discharge — does not rewrite this receipt, so after a successful MANUAL repair
+        // this count stays at its old value for up to a week while the explanation tells
+        // the operator that a count which does not fall is the fault worth investigating.
+        // The fix is to qualify the claim, not to relocate the fact: "do not publish a
+        // freshness you did not measure" is the same rule as "do not publish a number you
+        // did not measure".
+        //
+        // Deriving this from the durable set instead would make it current, and that is
+        // filed rather than built: the orchestrator read can itself fail, which would
+        // reintroduce unknown-representation at a new site.
+        explanation: `As of the last scheduled run, canonical standings for ${target.pendingStandingsInvalidations} year(s) were stale: a durable commit succeeded but its cache invalidation did not, and the tags are only cleared by an invalidation — there is no time-based expiry. This count is a snapshot from that run and does not reflect repairs made since, so a manual repair will not clear it until the next scheduled run. Across consecutive scheduled runs, a falling count is repair in progress; a count that does NOT fall is the fault worth investigating.`,
         // `repair: null`, NOT the job's generic Data Maintenance action. The receipt
         // carries a COUNT and cannot name which years are outstanding, so that
         // destination cannot act on this fault — and the explanation above says repair

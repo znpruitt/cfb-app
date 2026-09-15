@@ -541,7 +541,7 @@ export async function invalidateStandingsForYearReporting(
 
   let invalidated = 0;
   let failed = 0;
-  for (const league of leagues) {
+  for (const [registryIndex, league] of leagues.entries()) {
     // Captured BEFORE the call. Individual registry entries are not validated, so a
     // non-object entry throws on property access — and the previous version then
     // dereferenced it AGAIN inside the catch, throwing out of a helper documented as
@@ -557,8 +557,21 @@ export async function invalidateStandingsForYearReporting(
     const slug = (league as { slug?: unknown } | null)?.slug;
     if (typeof slug !== 'string' || slug.length === 0) {
       failed += 1;
+      // IDENTIFY THE ENTRY. This used to log the year alone, which left an operator
+      // facing a standing, unrepairable warning with no way to find the league causing
+      // it — an unactionable alarm produced by the log rather than by the alarm's text.
+      // An entry like this NEVER repairs, so the warning is permanent until someone
+      // edits the registry, and finding the row is the whole action available.
+      //
+      // The slug itself cannot be logged, because not being a usable string is the
+      // defect. What identifies it instead is its POSITION plus the shape of what was
+      // found there — enough to locate the row without echoing registry contents.
       console.error('canonical standings invalidation skipped an unusable registry entry', {
         year,
+        registryIndex,
+        entryType: league === null ? 'null' : typeof league,
+        slugType: slug === undefined ? 'missing' : typeof slug,
+        slugEmpty: typeof slug === 'string' && slug.length === 0,
       });
       continue;
     }

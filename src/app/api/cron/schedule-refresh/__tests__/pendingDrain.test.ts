@@ -116,12 +116,23 @@ test('an unauthenticated request drains nothing', async () => {
 });
 
 /**
- * NOT TESTED HERE, AND THE REASON IS THE HARNESS, NOT AN OVERSIGHT: that the drain's
- * count reaches the RECEIPT. `runRoute` does not persist a scheduler receipt — a probe
- * on a clean run reads `undefined` at `scheduler-execution-status/schedule-refresh` —
- * so a route test cannot observe one no matter how the assertion is written. Asking
- * whether the harness can reach the state comes before rewriting the assertion; a test
- * at the wrong layer is impossible, not weak.
+ * NOT TESTED HERE, AND THE REASON IS **THIS** HARNESS. `runRoute` in `_routeHarness`
+ * does not persist a scheduler receipt — a probe on a clean run reads `undefined` at
+ * `scheduler-execution-status/schedule-refresh` — so the count-to-receipt join cannot be
+ * observed from this file.
+ *
+ * THIS NOTE USED TO SAY "a route test cannot observe one no matter how the assertion is
+ * written", AND THAT WAS FALSE. `receipts.test.ts`, in this same directory, installs a
+ * receipt deferrer, flushes it, and reads the stored receipt back — the join is covered
+ * there, by "a positive pending count reaches the stored receipt" and "an unreadable
+ * pending set writes NO receipt". A reviewer found the gap this sentence was concealing.
+ *
+ * I MEASURED ONE HARNESS AND STATED A PROPERTY OF THE SYSTEM, in a docblock, as a
+ * REASON — which is the form that stops the next reader looking, because it explains why
+ * looking is futile. **A stated limitation is a claim and needs the same standard as any
+ * other: name the population it was measured over, and write it so a reviewer can
+ * falsify it.** "This harness cannot" and "a test cannot" are different claims, and only
+ * the first was measured.
  *
  * The join is covered where each half is observable: the count's derivation from the
  * durable set in `standingsInvalidationPending.test.ts`, and the receipt target's shape

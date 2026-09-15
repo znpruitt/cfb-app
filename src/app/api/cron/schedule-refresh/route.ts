@@ -193,26 +193,27 @@ export async function GET(req: Request): Promise<Response> {
    * which is the same false all-clear by a different route. So the fallback is what the
    * drain OBSERVED: a lower bound, never zero when work existed.
    */
-  let pendingObservedByDrain = 0;
-  const resolvePendingForReceipt = async (): Promise<number> => {
+  /**
+   * The pending count for the receipt, or `'unknown'` when the durable set could not be
+   * read.
+   *
+   * THERE IS NO FALLBACK ANY MORE, AND ITS ABSENCE IS THE FIX. This used to fall back to
+   * the drain's observed count when the fresh read failed — but `listPendingStandingsInvalidations`
+   * converted its own store failure into an empty list, so the two reads failed TOGETHER
+   * and the floor was exactly 0 precisely when it was needed. The receipt then published
+   * zero pending over a prior receipt that said N, and because receipts are latest-only
+   * monotonic that erased a standing warning while the standings were still stale — the
+   * false all-clear this module exists to prevent, produced by the code meant to prevent it.
+   *
+   * THE COMMENT THAT USED TO LIVE HERE WAS WRONG THREE TIMES, each differently: "a lower
+   * bound, never zero when work existed" (it is zero exactly then), then "an UPPER bound"
+   * (true only for the all-cleared case, not the store-failure case the fallback existed
+   * for). Correcting its DIRECTION twice never questioned its PREMISE. It is deleted
+   * rather than corrected a fourth time.
+   */
+  const resolvePendingForReceipt = async (): Promise<number | 'unknown'> => {
     const counted = await countPendingStandingsInvalidations();
-    if (counted !== 'unavailable') return counted;
-    console.error('pending standings-invalidation count unavailable; reporting the drain floor', {
-      floor: pendingObservedByDrain,
-    });
-    // THE FALLBACK OVER-REPORTS, AND THE DIRECTION IS STATED CORRECTLY HERE BECAUSE IT
-    // WAS STATED BACKWARDS BEFORE. `drain.observed` is `pending.length` — how many
-    // obligations the drain ATTEMPTED, including every one it then cleared. So relative
-    // to what is still outstanding after the run it is an UPPER bound, not the "lower
-    // bound" the old comment claimed: if all three observed obligations were repaired
-    // and only then the count read failed, this publishes 3 for years that are clean,
-    // and the Scheduler tile stays yellow until the next weekly run.
-    //
-    // It is still the right trade — over-reporting a repair that already happened is
-    // recoverable on the next run, while a false all-clear over stale standings is the
-    // defect this whole module exists to prevent. What was wrong was the stated
-    // direction, which invites the next reader to reason from a property it lacks.
-    return pendingObservedByDrain;
+    return counted === 'unavailable' ? 'unknown' : counted;
   };
 
   try {
@@ -258,7 +259,12 @@ export async function GET(req: Request): Promise<Response> {
     // refresh's reported status. The schedule commit succeeded; CARRIES forbids saying
     // otherwise because a cache repair could not be attempted.
     const drain = await drainPendingStandingsInvalidations(invalidateStandingsForYearReporting);
-    pendingObservedByDrain = drain.observed;
+    if (drain === 'unavailable') {
+      // Distinct from "nothing was pending": the store could not be read, so this run
+      // repaired nothing AND established nothing. Logged because it is otherwise
+      // indistinguishable from a clean no-op run.
+      console.error('pending standings-invalidation drain could not read the durable set');
+    }
 
     // Target selection — cache-only registry read. `season` AND `preseason`
     // leagues are targets (E1B1: cache-armed early preseason gets ordinary weekly
@@ -720,22 +726,45 @@ export async function GET(req: Request): Promise<Response> {
     // invocation, scheduled post-response. Result/reason are the tracker's
     // verbatim; provider truth is true when ANY recorded year attempted a
     // provider-data request; the bounded target summarizes at most the first
-    // eight years. Best-effort, so it can neither change the response nor mask
-    // a propagating throw.
+    // eight years.
+    //
+    // HALF OF THE OLD CLAIM HERE WAS MADE FALSE BY A CHANGE IN THIS BRANCH, AND IS
+    // CORRECTED RATHER THAN LEFT. It read "Best-effort, so it can neither change the
+    // response nor mask a propagating throw." The `await resolvePendingForReceipt()`
+    // below runs a full-scope `app_state` read BEFORE the receipt is scheduled, so this
+    // is no longer off the response path: every cron invocation pays that round trip
+    // (bounded by `queryBounded`, but not zero). The other half still holds — the read
+    // cannot throw, so it cannot mask one.
     if (receiptInvocationId !== null) {
-      // COUNTED HERE, as late as possible — see `resolvePendingForReceipt`. Resolved
-      // ONCE into a local: the two facts must come from the same observation, and a
-      // second call could read a set the first did not.
+      // COUNTED HERE, as late as possible — see `resolvePendingForReceipt`.
       const pendingCount = await resolvePendingForReceipt();
-      scheduleSchedulerExecutionReceipt({
-        job: 'schedule-refresh',
-        invocationId: receiptInvocationId,
-        startedAtMs,
-        result: exec.result,
-        reason: exec.reason,
-        providerCallAttempted: exec.years.some((entry) => entry.providerCallAttempted),
-        target: scheduleYearsTarget(exec.years, exec.invalidLifecycleTargets, pendingCount),
-      });
+      if (pendingCount === 'unknown') {
+        // SKIP THE RECEIPT RATHER THAN PUBLISH A NUMBER NOBODY MEASURED. Receipts are
+        // latest-only monotonic, so writing one now would REPLACE the last receipt that
+        // was actually measured — and the only value available to write is a fabricated
+        // one. Skipping preserves the last measured state, which is stale but true.
+        //
+        // The cost is stated rather than hidden: this run's execution result is not
+        // recorded, so the job will look like it did not report. That is the honest
+        // reading — when the durable store cannot be read, the system genuinely cannot
+        // say what this run left behind, and scheduler-delivery health is the right
+        // place for that to surface.
+        // NOT `return` — this block is a `finally`, and returning from it would replace
+        // the response the try already produced.
+        console.error('skipping the schedule-refresh receipt: pending count unavailable', {
+          invocationId: receiptInvocationId,
+        });
+      } else {
+        scheduleSchedulerExecutionReceipt({
+          job: 'schedule-refresh',
+          invocationId: receiptInvocationId,
+          startedAtMs,
+          result: exec.result,
+          reason: exec.reason,
+          providerCallAttempted: exec.years.some((entry) => entry.providerCallAttempted),
+          target: scheduleYearsTarget(exec.years, exec.invalidLifecycleTargets, pendingCount),
+        });
+      }
     }
   }
 }

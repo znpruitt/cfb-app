@@ -109,7 +109,7 @@ test('a clear does NOT erase an obligation recorded while the walk ran', async (
   // byte-identical record and the clear proceeded.
   await recordPendingStandingsInvalidation(2026);
 
-  assert.equal(await clearPendingStandingsInvalidation(2026, observed), false);
+  await clearPendingStandingsInvalidation(2026, observed);
   assert.ok(await readPendingStandingsInvalidation(2026), 'the newer obligation must survive');
 });
 
@@ -117,7 +117,7 @@ test('a clear with the CURRENT obligation still clears', async () => {
   // Positive control: without it, a clear that never clears passes the test above.
   await recordPendingStandingsInvalidation(2026);
   const observed = (await readPendingStandingsInvalidation(2026))!;
-  assert.equal(await clearPendingStandingsInvalidation(2026, observed), true);
+  await clearPendingStandingsInvalidation(2026, observed);
   assert.equal(await readPendingStandingsInvalidation(2026), undefined);
 });
 
@@ -129,25 +129,25 @@ test('a token cannot collide across a clear and a fresh record', async () => {
   await clearPendingStandingsInvalidation(2026, stale);
   await recordPendingStandingsInvalidation(2026);
 
-  assert.equal(
-    await clearPendingStandingsInvalidation(2026, stale),
-    false,
+  await clearPendingStandingsInvalidation(2026, stale);
+  assert.ok(
+    await readPendingStandingsInvalidation(2026),
     'a stale observation must never match a post-clear record'
   );
-  assert.ok(await readPendingStandingsInvalidation(2026));
 });
 
-// === R4 — the clear reports the RESULT, not the attempt ===
+// === R4 as amended in round 5 — the clear's EFFECT is the contract, not a boolean ===
 
-test('clearing when nothing is pending reports false', async () => {
-  assert.equal(
-    await clearPendingStandingsInvalidation(2031, {
-      year: 2031,
-      token: 'anything',
-      since: '2026-01-01T00:00:00.000Z',
-    }),
-    false
-  );
+test('clearing when nothing is pending changes nothing', async () => {
+  // The boolean is gone: no caller could act on it, in either branch. What every caller
+  // actually depends on is the durable state, so that is what is asserted — which is
+  // strictly stronger than the return value it replaces.
+  await clearPendingStandingsInvalidation(2031, {
+    year: 2031,
+    token: 'anything',
+    since: '2026-01-01T00:00:00.000Z',
+  });
+  assert.equal(await readPendingStandingsInvalidation(2031), undefined);
 });
 
 test('a drain whose clear did not confirm counts the year as still pending', async () => {
@@ -324,7 +324,7 @@ test('a cleared marker is not counted, listed, or drained', async () => {
   // misread as an obligation would drain forever, every run, and never clear.
   await recordPendingStandingsInvalidation(2026);
   const observed = (await readPendingStandingsInvalidation(2026))!;
-  assert.equal(await clearPendingStandingsInvalidation(2026, observed), true);
+  await clearPendingStandingsInvalidation(2026, observed);
 
   // The row is still there...
   assert.notEqual(await readRaw(2026), undefined, 'precondition: a marker was retained');
@@ -357,16 +357,17 @@ test('a cleared year reports nothing pending', async () => {
   assert.notEqual(await readRaw(2026), undefined);
 });
 
-test('a clear that could not reach the store reports FALSE, not success', async () => {
-  // THE DEFECT CLASS ITSELF. This function must never throw, so a swallowed store
-  // failure that returned `true` would be a false all-clear — exactly what made four
-  // failed clears report zero still pending in v1.
+test('a clear that could not reach the store leaves the obligation standing', async () => {
+  // THE DEFECT CLASS ITSELF, asserted on the durable state rather than on a return
+  // value. This function must never throw, so a swallowed store failure that ERASED the
+  // record would be the false all-clear that made four failed clears report zero still
+  // pending in v1. What matters is that the obligation survives to be drained again.
   await recordPendingStandingsInvalidation(2026);
   const observed = (await readPendingStandingsInvalidation(2026))!;
 
   __setAppStateReadFailureForTests(new Error('store unavailable'));
   try {
-    assert.equal(await clearPendingStandingsInvalidation(2026, observed), false);
+    await clearPendingStandingsInvalidation(2026, observed);
   } finally {
     __setAppStateReadFailureForTests(null);
   }
@@ -442,6 +443,39 @@ test('the drain reports what it LOOKED AT, which can exceed what remains', async
     await recordPendingStandingsInvalidation(year, () => `${year}-01-01T00:00:00.000Z`);
   }
   const drain = await drainPendingStandingsInvalidations(complete);
-  assert.equal(drain.observed, 2, 'what it looked at, not what remains');
+  assert.notEqual(drain, 'unavailable');
+  assert.deepEqual(drain, { attempted: 2 }, 'what it looked at, not what remains');
   assert.equal(await countPendingStandingsInvalidations(), 0);
+});
+
+// === ROUND 5 — a failed read is UNKNOWN, never "nothing pending" ===
+
+test('an unreadable store makes the list UNAVAILABLE, not empty', async () => {
+  // THE HIGH's ROOT. `[]` made a failed read indistinguishable from "nothing pending",
+  // and that indistinguishability propagated: the drain reported zero attempted, the
+  // cron used it as a fallback when the count was also unavailable — the two reads fail
+  // together — and the receipt published zero over a prior warning.
+  await recordPendingStandingsInvalidation(2026);
+  await __corruptAppStateFileForTests();
+  assert.equal(await listPendingStandingsInvalidations(), 'unavailable');
+});
+
+test('an unreadable store makes the DRAIN unavailable, not a clean no-op', async () => {
+  // A drain that read nothing and a drain that repaired nothing are different runs.
+  await recordPendingStandingsInvalidation(2026);
+  await __corruptAppStateFileForTests();
+  let walked = 0;
+  const drain = await drainPendingStandingsInvalidations(async () => {
+    walked += 1;
+    return { result: 'complete' };
+  });
+  assert.equal(drain, 'unavailable');
+  assert.equal(walked, 0, 'nothing can be walked from a set that could not be read');
+});
+
+test('a READABLE empty set is still an empty list — the positive control', async () => {
+  // Without this, a list that returned 'unavailable' unconditionally would pass both
+  // tests above while destroying the ordinary case.
+  assert.deepEqual(await listPendingStandingsInvalidations(), []);
+  assert.deepEqual(await drainPendingStandingsInvalidations(complete), { attempted: 0 });
 });
