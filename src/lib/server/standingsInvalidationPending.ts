@@ -83,6 +83,23 @@ export const MAX_PENDING_DRAIN_PER_RUN = 4;
  * That is a long time, and it is the honest consequence of a weekly repair cycle: the
  * alternative is escalating on the first transient failure.
  *
+ * **TWO WEEKS IS THE UNATTENDED WORST CASE, NOT THE ONLY CASE — the weekly drain is not
+ * the only thing that charges an attempt.** `dischargePendingStandingsInvalidation` also
+ * calls `recordPendingDrainAttempt`, on both of its paths: when a walk ran but did not
+ * clear the obligation, and when the walk threw. It is reached from the four non-walking
+ * branches of `fullSeasonScheduleRefresh`, so ANY refresh of a year that still owes a
+ * bust contributes an attempt — including an operator-triggered one, not just the cron.
+ * A year nobody touches escalates on the weekly cadence; a year somebody is actively
+ * refreshing escalates sooner, which is the right way round, because the person
+ * refreshing is the person who would act on the escalation.
+ *
+ * It charges only when the obligation was NOT cleared, and it returns early for a year
+ * that owes nothing — so a successful repair never advances the counter toward stuck.
+ * Pinned by *"a discharge whose walk did not bust leaves the obligation standing"* (which
+ * asserts the charge), *"discharging a year with nothing pending walks nothing"*, and
+ * *"repeated discharges reach the stuck threshold without the weekly drain"* — all in
+ * `standingsInvalidationPending.test.ts`.
+ *
  * NO COST MODEL IS ASSERTED HERE. This number is derived from the fault's definition and
  * the drain's cadence — both measured — and from nothing about what a rebuild costs.
  */

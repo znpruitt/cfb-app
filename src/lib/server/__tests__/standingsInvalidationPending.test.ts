@@ -317,6 +317,24 @@ test('a discharge whose walk did not bust leaves the obligation standing', async
   assert.equal(after.attempts, 1);
 });
 
+test('repeated discharges reach the stuck threshold without the weekly drain', async () => {
+  // THE NUANCE THE THRESHOLD COMMENT CLAIMS, pinned so the claim cannot rot. The drain is
+  // not the only contributor: a discharge charges an attempt whenever its walk fails to
+  // clear, and it is reached from every full-season refresh of a year that still owes a
+  // bust. So a year somebody is actively refreshing escalates faster than the weekly
+  // cadence alone would — the right way round, since the person refreshing is the person
+  // who would act on the escalation.
+  await recordPendingStandingsInvalidation(2026);
+  for (let i = 0; i < PENDING_ATTEMPTS_STUCK_THRESHOLD; i += 1) {
+    await dischargePendingStandingsInvalidation(2026, busted_nothing);
+  }
+  assert.deepEqual(
+    await summarizePendingStandingsInvalidations(),
+    { count: 1, stuck: 1 },
+    'the escalation is reachable without any drain running'
+  );
+});
+
 // === R7 as amended — the cleared MARKER must never read back as an obligation ===
 
 test('a cleared marker is not counted, listed, or drained', async () => {
