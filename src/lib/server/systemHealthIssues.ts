@@ -38,6 +38,7 @@ import {
   type SchedulerExecutionReceipt,
 } from './schedulerExecutionStatus.ts';
 import { formatYearFailureEvidence } from './schedulerYearEvidence.ts';
+import { PENDING_ATTEMPTS_STUCK_THRESHOLD } from './standingsInvalidationPending.ts';
 import { seasonYearForToday } from '../scores/normalizers.ts';
 import {
   getProviderDatasetDescriptor,
@@ -752,20 +753,49 @@ function schedulerExecutionIssues(snapshot: SchedulerDeliveryHealthSnapshot): Sy
     // line") was satisfied exactly and the fault still could not surface.
     const target = receipt.target;
     if (target.kind === 'schedule-years' && target.pendingStandingsInvalidations > 0) {
+      // ROUND 2 — SEVERITY SAYS WHICH STATE THE FAULT IS IN, because one severity
+      // cannot say both things this condition means. The explanation below already
+      // drew the distinction — a falling count is repair in progress, a count that
+      // does NOT fall is the fault — while the code asserted `warning` for both, so
+      // the ACTIONABLE severity was being published for what is usually the
+      // informational case.
+      //
+      // `info` is not silence: `severityStatus` maps it to `info-only`, the tile
+      // renders GRAY, and `STATUS_RANK` puts gray above green — so Overall still
+      // refuses to say all systems are normal, which is what R1 actually required.
+      // What it also does is keep an automatic repair from outranking a fault that
+      // needs a human: severity is the FIRST key `compareIssues` reads, so at `info`
+      // this can never take the Scheduler tile's one detail line from a genuine
+      // delivery or execution fault. At `warning` it competes for that line, which is
+      // correct, because by then it IS one.
+      //
+      // Pinned by "a stuck obligation is a WARNING and an in-progress repair is not"
+      // and its two siblings in `systemHealthIssues.test.ts`.
+      const stuck = target.pendingStandingsInvalidationsStuck > 0;
       issues.push({
         code: 'standings-invalidation-pending',
-        severity: 'warning',
+        severity: stuck ? 'warning' : 'info',
         subject: { axis: 'job', id: row.job },
-        title: `${target.pendingStandingsInvalidations} standings invalidation(s) still pending`,
+        title: stuck
+          ? `${target.pendingStandingsInvalidationsStuck} standings invalidation(s) are not being repaired`
+          : `${target.pendingStandingsInvalidations} standings invalidation(s) still pending`,
         // Says what to DO, because an alarm with no action is its own defect — which
-        // is the failure this requirement corrects, one layer up. Repair is automatic
-        // and the actionable signal is a count that does NOT fall.
-        explanation:
-          `Canonical standings for ${target.pendingStandingsInvalidations} year(s) are stale: a durable commit ` +
-          'succeeded but its cache invalidation did not, and the tags are only cleared by an ' +
-          'invalidation — there is no time-based expiry. The next scheduled run retries them ' +
-          'automatically, so a falling count is repair in progress. A count that does NOT fall ' +
-          'across consecutive runs is the fault worth investigating.',
+        // is the failure this requirement corrects, one layer up. The two states get
+        // DIFFERENT text, not one line hedged to cover both: the informational one
+        // says repair is automatic and no action is needed, and the actionable one
+        // says repair has been tried and is not working. A single sentence that has
+        // to be true in both states is how the severity came to be wrong.
+        //
+        // ONE TEMPLATE LITERAL PER BRANCH, NEVER A `+` CHAIN OF TWO INTERPOLATING
+        // LITERALS. This explanation used to be built by concatenation, and while
+        // that particular shape survives the minifier (the right-hand operands were
+        // plain strings), the shape one edit away from it does NOT — it took
+        // production down on 2026-09-15 by dropping the left literal's tail. See the
+        // docblock on `APP_STATE_BOUNDED_BEGIN`. Written as single literals so the
+        // question cannot arise here again.
+        explanation: stuck
+          ? `Canonical standings for ${target.pendingStandingsInvalidationsStuck} year(s) are stale and the automatic repair is not clearing them: the scheduled run has retried each at least ${PENDING_ATTEMPTS_STUCK_THRESHOLD} times, or the record can no longer be read and can never be retried. Standings tags have no time-based expiry, so these will not recover on their own. Investigate the schedule-refresh run's standings invalidation.`
+          : `Canonical standings for ${target.pendingStandingsInvalidations} year(s) are stale: a durable commit succeeded but its cache invalidation did not, and the tags are only cleared by an invalidation — there is no time-based expiry. The next scheduled run retries them automatically, so this is repair in progress and needs no action. A count that does NOT fall across consecutive runs is the fault worth investigating.`,
         // `repair: null`, NOT the job's generic Data Maintenance action. The receipt
         // carries a COUNT and cannot name which years are outstanding, so that
         // destination cannot act on this fault — and the explanation above says repair

@@ -63,6 +63,31 @@ export const STANDINGS_INVALIDATION_PENDING_SCOPE = 'standings-invalidation-pend
  */
 export const MAX_PENDING_DRAIN_PER_RUN = 4;
 
+/**
+ * Attempts at or above which an outstanding obligation stops being "repair in progress"
+ * and becomes a fault worth a human's attention.
+ *
+ * DERIVED FROM R1'S OWN DEFINITION OF THE FAULT, not chosen for roundness. R1 states it
+ * directly: a positive count means repair is in progress, and *"a count that does NOT
+ * fall across consecutive runs is the fault worth investigating."* **Two is the smallest
+ * attempt count that can distinguish those.** One failed attempt is a single data point
+ * — it cannot establish that anything failed to fall — so a threshold of 1 would report
+ * every transient failure as the standing fault, which is the condition R1 exists to
+ * separate. Two failed attempts is the first observation of a count that did not fall.
+ *
+ * THE CADENCE IS WEEKLY, AND THE WALL-CLOCK CONSEQUENCE IS STATED RATHER THAN BURIED.
+ * The drain has exactly one caller — the `schedule-refresh` cron — and that schedule is
+ * `0 12 * * 2` (Tuesdays 12:00), pinned in code at
+ * `scripts/manage-schedule-refresh-schedule.ts:75`, not merely in the runbook. So two
+ * attempts is **roughly two weeks** of stale canonical standings before this escalates.
+ * That is a long time, and it is the honest consequence of a weekly repair cycle: the
+ * alternative is escalating on the first transient failure.
+ *
+ * NO COST MODEL IS ASSERTED HERE. This number is derived from the fault's definition and
+ * the drain's cadence — both measured — and from nothing about what a rebuild costs.
+ */
+export const PENDING_ATTEMPTS_STUCK_THRESHOLD = 2;
+
 export type PendingStandingsInvalidation = {
   /** The year whose canonical standings are still owed a bust. */
   year: number;
@@ -320,15 +345,61 @@ export async function listPendingStandingsInvalidations(
  *
  * Deliberately not derived from the drained slice: that is capped at
  * `MAX_PENDING_DRAIN_PER_RUN`, so ten pending years would drain four and report zero
- * while six stayed stale. One query. Never throws — an unreadable store reports 0 and
- * the next run re-counts, rather than failing a run whose schedule work succeeded.
+ * while six stayed stale.
+ *
+ * THIS COMMENT USED TO SAY *"never throws — an unreadable store reports 0"*, and that
+ * was false when it was written: the body already returned `'unavailable'`, for the
+ * reason its own `catch` states. Corrected here rather than left, because a comment
+ * promising 0 is exactly what would license a caller to skip handling the unknown —
+ * the false all-clear this module exists to prevent, arriving through the documentation
+ * instead of the code. Pinned by *"a store failure reports
+ * UNAVAILABLE, never zero"* in `standingsInvalidationPending.test.ts`.
+ *
+ * The count alone cannot say whether repair is progressing; see
+ * `summarizePendingStandingsInvalidations`, which is now the source of both facts.
  */
 export async function countPendingStandingsInvalidations(): Promise<number | 'unavailable'> {
+  const summary = await summarizePendingStandingsInvalidations();
+  return summary === 'unavailable' ? 'unavailable' : summary.count;
+}
+
+/**
+ * The whole durable set as two facts: how many years owe a bust, and how many of those
+ * are STUCK rather than merely awaiting their next repair.
+ *
+ * WHY A SECOND FACT EXISTS AT ALL. The receipt used to carry only the count, and the
+ * health issue derived from it therefore had one severity for two different conditions.
+ * R1 says a positive count usually means repair is in progress and the fault is a count
+ * that does not fall — **one severity cannot say both**, so the actionable severity was
+ * being asserted for the ordinary informational case.
+ *
+ * WHAT COUNTS AS STUCK, and the second half is the one a count alone cannot see:
+ *
+ * 1. A readable record with `attempts >= PENDING_ATTEMPTS_STUCK_THRESHOLD` — repair has
+ *    been tried that many times and the obligation is still here.
+ * 2. **EVERY UNREADABLE ROW, whatever its attempt history.** `readAllPending` cannot
+ *    parse it, so `listPendingStandingsInvalidations` will never offer it to a drain and
+ *    `recordPendingDrainAttempt` can never increment it: its attempts are frozen at
+ *    whatever they were and its count can never fall. An unreadable obligation is the
+ *    "count that does not fall" condition BY CONSTRUCTION, so classifying it by an
+ *    attempt counter that is definitionally stuck at zero would report the one
+ *    permanently unrepairable state as repair in progress.
+ *
+ * NEVER THROWS for a readable store; `'unavailable'` is reserved for the store failing,
+ * and carries the same meaning it does for the count — unknown, and a caller must not
+ * overwrite a known prior with it.
+ */
+export async function summarizePendingStandingsInvalidations(): Promise<
+  { count: number; stuck: number } | 'unavailable'
+> {
   try {
     const { records, unreadable } = await readAllPending();
     // Unreadable rows COUNT. They are obligations this module can no longer act on, and
     // reporting them as zero would be the false all-clear in a new costume.
-    return records.length + unreadable;
+    const stuckRecords = records.filter(
+      (record) => record.attempts >= PENDING_ATTEMPTS_STUCK_THRESHOLD
+    ).length;
+    return { count: records.length + unreadable, stuck: stuckRecords + unreadable };
   } catch {
     // NOT 0. A transient store failure is not an empty set, and returning a count here
     // would let a deferred receipt write publish a false all-clear over a standing

@@ -12,7 +12,7 @@ import {
   invalidateStandingsForYearReporting,
 } from '@/lib/selectors/leagueStandings';
 import {
-  countPendingStandingsInvalidations,
+  summarizePendingStandingsInvalidations,
   drainPendingStandingsInvalidations,
 } from '@/lib/server/standingsInvalidationPending';
 import { refreshFullSeasonSchedule } from '@/lib/schedule/fullSeasonScheduleRefresh';
@@ -194,13 +194,19 @@ export async function GET(req: Request): Promise<Response> {
    * drain OBSERVED: a lower bound, never zero when work existed.
    */
   let pendingObservedByDrain = 0;
-  const resolvePendingCountForReceipt = async (): Promise<number> => {
-    const counted = await countPendingStandingsInvalidations();
-    if (counted !== 'unavailable') return counted;
+  const resolvePendingForReceipt = async (): Promise<{ count: number; stuck: number }> => {
+    const summary = await summarizePendingStandingsInvalidations();
+    if (summary !== 'unavailable') return summary;
     console.error('pending standings-invalidation count unavailable; reporting the drain floor', {
       floor: pendingObservedByDrain,
     });
-    return pendingObservedByDrain;
+    // STUCK IS 0 IN THE UNKNOWN CASE, AND THAT IS A CHOICE, NOT A MEASUREMENT. The drain
+    // floor is a count, not an attempt history, so nothing here can establish stuckness.
+    // 0 classifies the fault as repair-in-progress, which renders the tile GRAY rather
+    // than yellow — so Overall still refuses to say all systems are normal and the fault
+    // is not silenced. Claiming the actionable severity off an unknown would be
+    // manufacturing evidence in the opposite direction.
+    return { count: pendingObservedByDrain, stuck: 0 };
   };
 
   try {
@@ -711,6 +717,10 @@ export async function GET(req: Request): Promise<Response> {
     // eight years. Best-effort, so it can neither change the response nor mask
     // a propagating throw.
     if (receiptInvocationId !== null) {
+      // COUNTED HERE, as late as possible — see `resolvePendingForReceipt`. Resolved
+      // ONCE into a local: the two facts must come from the same observation, and a
+      // second call could read a set the first did not.
+      const pending = await resolvePendingForReceipt();
       scheduleSchedulerExecutionReceipt({
         job: 'schedule-refresh',
         invocationId: receiptInvocationId,
@@ -718,11 +728,11 @@ export async function GET(req: Request): Promise<Response> {
         result: exec.result,
         reason: exec.reason,
         providerCallAttempted: exec.years.some((entry) => entry.providerCallAttempted),
-        // COUNTED HERE, as late as possible — see `resolvePendingCountForReceipt`.
         target: scheduleYearsTarget(
           exec.years,
           exec.invalidLifecycleTargets,
-          await resolvePendingCountForReceipt()
+          pending.count,
+          pending.stuck
         ),
       });
     }

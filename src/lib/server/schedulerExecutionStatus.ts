@@ -332,6 +332,25 @@ export type SchedulerExecutionTarget =
        * trains people to skim it. Those two live in the per-invocation event.
        */
       pendingStandingsInvalidations: number;
+      /**
+       * PLATFORM-693 round 2 — how many of `pendingStandingsInvalidations` are STUCK
+       * rather than awaiting their next repair. Carried because the count alone cannot
+       * say which state the fault is in, and the health issue derived from it needs
+       * that to pick a severity: a positive count normally means repair is in progress,
+       * while the fault worth a human is a count that does not fall.
+       *
+       * **THIS FIELD EXISTS BECAUSE `attempts` DOES NOT REACH THIS LAYER.** It is
+       * recorded durably per obligation in `standingsInvalidationPending.ts`, and
+       * `deriveSystemHealthIssues` reads THIS RECEIPT, not that store — so without a
+       * second carried fact the severity decision has nothing to read. Stated plainly
+       * because the round-2 scope was written on the belief that no new state was
+       * needed, and it was.
+       *
+       * Always `<= pendingStandingsInvalidations`. A legacy receipt omits it and the
+       * rebuild normalizes to 0 — the truthful value, since a receipt written before
+       * the drain existed cannot assert that anything was stuck.
+       */
+      pendingStandingsInvalidationsStuck: number;
       scoreSweepCannotTellCount: number;
       /** Kickoff instants changed across the schedule observations in this run. */
       kickoffsChanged: number;
@@ -547,7 +566,11 @@ export function scheduleYearsTarget(
   // REQUIRED for the same reason every metric here is: a caller reconstructing this
   // target without it would record a run whose outstanding repair work nothing can
   // now establish.
-  pendingStandingsInvalidations: number
+  pendingStandingsInvalidations: number,
+  // REQUIRED for the same reason, and one more: defaulting it to 0 would silently
+  // assert "nothing is stuck", which is the informational reading of a fault that may
+  // be the actionable one. A wrong default here is the false all-clear again.
+  pendingStandingsInvalidationsStuck: number
 ): Extract<SchedulerExecutionTarget, { kind: 'schedule-years' }> {
   const years = entries.slice(0, MAX_SCHEDULER_TARGET_YEARS).map((entry) => ({
     year: entry.year,
@@ -575,6 +598,13 @@ export function scheduleYearsTarget(
       (entry) => entry.standingsInvalidation.result !== 'complete'
     ).length,
     pendingStandingsInvalidations,
+    // Clamped, not trusted: the two facts are resolved by separate awaits, so a
+    // concurrent clear between them could otherwise publish stuck > total — a state
+    // the type forbids and a reader would have to invent a meaning for.
+    pendingStandingsInvalidationsStuck: Math.min(
+      pendingStandingsInvalidationsStuck,
+      pendingStandingsInvalidations
+    ),
     kickoffsChanged: entries.reduce((total, entry) => total + entry.kickoffsChanged, 0),
     years,
   };
@@ -936,6 +966,9 @@ function rebuildTarget(target: SchedulerExecutionTarget): SchedulerExecutionTarg
         // Legacy receipts predate the replay drain and normalize to an explicit 0,
         // which is the truthful value: no drain ran, so nothing was left pending by one.
         pendingStandingsInvalidations: target.pendingStandingsInvalidations ?? 0,
+        // Legacy receipts predate the severity split. 0 is the truthful value: a
+        // receipt written before stuckness was measured cannot assert anything was.
+        pendingStandingsInvalidationsStuck: target.pendingStandingsInvalidationsStuck ?? 0,
         scoreSweepCannotTellCount: target.scoreSweepCannotTellCount ?? 0,
         kickoffsChanged: target.kickoffsChanged ?? 0,
         years: target.years.slice(0, MAX_SCHEDULER_TARGET_YEARS).map((entry) => ({
@@ -1253,6 +1286,8 @@ function isValidStoredTarget(value: unknown, job: ExternalSchedulerJob): boolean
           isNonNegativeInteger(target.standingsInvalidationFailures)) &&
         (target.pendingStandingsInvalidations === undefined ||
           isNonNegativeInteger(target.pendingStandingsInvalidations)) &&
+        (target.pendingStandingsInvalidationsStuck === undefined ||
+          isNonNegativeInteger(target.pendingStandingsInvalidationsStuck)) &&
         (target.scoreSweepCannotTellCount === undefined ||
           isNonNegativeInteger(target.scoreSweepCannotTellCount)) &&
         (target.kickoffsChanged === undefined || isNonNegativeInteger(target.kickoffsChanged)) &&

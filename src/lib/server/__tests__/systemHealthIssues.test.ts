@@ -1872,14 +1872,24 @@ test('a row with no schedule left is announced as the whole row, not one schedul
 
 // === PLATFORM-693 R1 — a positive pending count must make a HEALTHY run report unhealthy ===
 
-/** A schedule-refresh receipt that SUCCEEDED, carrying `n` outstanding obligations. */
-function scheduleReceiptWithPending(n: number): SchedulerExecutionReceipt {
+/**
+ * A schedule-refresh receipt that SUCCEEDED, carrying `n` outstanding obligations of
+ * which `stuck` are not being repaired.
+ */
+function scheduleReceiptWithPending(n: number, stuck = 0): SchedulerExecutionReceipt {
   const receipt = receiptWithReason('schedule-refresh', 'success', 'year-results');
   const target = receipt.target as Extract<
     SchedulerExecutionReceipt['target'],
     { kind: 'schedule-years' }
   >;
-  return { ...receipt, target: { ...target, pendingStandingsInvalidations: n } };
+  return {
+    ...receipt,
+    target: {
+      ...target,
+      pendingStandingsInvalidations: n,
+      pendingStandingsInvalidationsStuck: stuck,
+    },
+  };
 }
 
 test('an outstanding standings invalidation raises an issue even when the run SUCCEEDED', () => {
@@ -1897,11 +1907,13 @@ test('an outstanding standings invalidation raises an issue even when the run SU
 
   const raised = issues.find((issue) => issue.code === 'standings-invalidation-pending');
   assert.ok(raised, 'a successful run with outstanding obligations must still raise a fault');
-  assert.equal(raised.severity, 'warning');
+  // `info`, NOT `warning` — round 2. Nothing is stuck here, so this is repair in
+  // progress; the severity split is pinned by the three tests below.
+  assert.equal(raised.severity, 'info');
   assert.deepEqual(raised.subject, { axis: 'job', id: 'schedule-refresh' });
   // Says what to DO. An alarm with no action is its own defect — the same failure this
   // requirement corrects, one layer up.
-  assert.match(raised.explanation, /falling count is repair in progress/i);
+  assert.match(raised.explanation, /repair in progress and needs no action/i);
   assert.match(raised.explanation, /does NOT fall/i);
   // NO REPAIR LINK. The receipt carries a count and cannot name which years are
   // outstanding, so the job's generic Data Maintenance action cannot act on this fault —
@@ -1909,6 +1921,74 @@ test('an outstanding standings invalidation raises an issue even when the run SU
   // issue. An alarm whose action is WRONG is worse than one with no action, because a
   // wrong action gets taken.
   assert.equal(raised.repair, null);
+});
+
+// === PLATFORM-693 round 2 — severity says WHICH STATE the fault is in ===
+
+test('a stuck obligation is a WARNING and an in-progress repair is not', () => {
+  // THE ROUND-2 REQUIREMENT. One severity cannot mean both "repair is running" and
+  // "repair is not working", and the code asserted the actionable one for both — so
+  // a self-healing condition that explicitly needs no action outranked faults that do.
+  const repairing = deriveSystemHealthIssues(
+    baseInputs({
+      schedulerDelivery: deliverySnapshot([
+        deliveryRow('schedule-refresh', 'on-time', scheduleReceiptWithPending(3, 0)),
+      ]),
+    })
+  ).find((issue) => issue.code === 'standings-invalidation-pending');
+
+  const stuck = deriveSystemHealthIssues(
+    baseInputs({
+      schedulerDelivery: deliverySnapshot([
+        deliveryRow('schedule-refresh', 'on-time', scheduleReceiptWithPending(3, 1)),
+      ]),
+    })
+  ).find((issue) => issue.code === 'standings-invalidation-pending');
+
+  assert.equal(repairing?.severity, 'info', 'nothing stuck — repair is in progress');
+  assert.equal(stuck?.severity, 'warning', 'one stuck obligation makes this actionable');
+});
+
+test('the two states do not share one hedged sentence', () => {
+  // The severity split is only half the fix: an operator reading the detail line must
+  // be told which state it is. A single sentence true in both states is what let the
+  // severity be wrong without anyone noticing.
+  const repairing = deriveSystemHealthIssues(
+    baseInputs({
+      schedulerDelivery: deliverySnapshot([
+        deliveryRow('schedule-refresh', 'on-time', scheduleReceiptWithPending(2, 0)),
+      ]),
+    })
+  ).find((issue) => issue.code === 'standings-invalidation-pending');
+  const stuck = deriveSystemHealthIssues(
+    baseInputs({
+      schedulerDelivery: deliverySnapshot([
+        deliveryRow('schedule-refresh', 'on-time', scheduleReceiptWithPending(2, 2)),
+      ]),
+    })
+  ).find((issue) => issue.code === 'standings-invalidation-pending');
+
+  assert.match(repairing!.explanation, /needs no action/i);
+  assert.match(stuck!.explanation, /not clearing them/i);
+  assert.notEqual(stuck!.title, repairing!.title, 'the title must distinguish them too');
+  // The stuck title counts the STUCK obligations, not the total: reporting the total
+  // as unrepairable would overstate a fault that is partly repairing.
+  assert.match(stuck!.title, /2 standings invalidation\(s\) are not being repaired/);
+});
+
+test('a stuck obligation keeps repair null — it is still not a Data Maintenance action', () => {
+  // The escalation changes the severity, NOT the destination. The receipt still carries
+  // a count and cannot name which years are outstanding, so the generic Data Maintenance
+  // action still cannot act on it. An alarm whose action is WRONG is worse than one with
+  // no action, and that stays true when the alarm gets louder.
+  const stuck = deriveSystemHealthIssues(
+    baseInputs({
+      schedulerDelivery: deliverySnapshot([
+        deliveryRow('schedule-refresh', 'on-time', scheduleReceiptWithPending(1, 1)),
+      ]),
+    })
+  ).find((issue) => issue.code === 'standings-invalidation-pending');
+  assert.equal(stuck?.repair, null);
 });
 
 test('a clean run with nothing pending raises nothing', () => {

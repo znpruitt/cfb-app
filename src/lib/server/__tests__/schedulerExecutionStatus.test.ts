@@ -226,6 +226,7 @@ test('all job target shapes persist with exact allowlisted target keys', async (
           },
         ],
         0,
+        0,
         0
       ),
     }),
@@ -277,6 +278,7 @@ test('all job target shapes persist with exact allowlisted target keys', async (
         'scoreRepairs',
         'scoreSweepCannotTellCount',
         'pendingStandingsInvalidations',
+        'pendingStandingsInvalidationsStuck',
         'scoreSweepFailures',
         // PLATFORM-693 — target years whose committed refresh left standings stale,
         // and years still owing a bust after this run's replay drain.
@@ -357,6 +359,7 @@ test('all nine jobs derive the correct source and persist their target shape', a
             ...cleanScheduleYearOutcome(),
           },
         ],
+        0,
         0,
         0
       ),
@@ -665,7 +668,7 @@ test('multi-year targets cap at eight entries with truthful totalYears and trunc
     kickoffsChanged: 0,
     ...cleanScheduleYearOutcome(),
   }));
-  const capped = scheduleYearsTarget(many, 0, 0);
+  const capped = scheduleYearsTarget(many, 0, 0, 0);
   assert.equal(capped.totalYears, 10);
   assert.equal(capped.truncated, true);
   assert.equal(capped.years.length, 8);

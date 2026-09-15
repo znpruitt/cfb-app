@@ -18,6 +18,8 @@ import {
   readPendingStandingsInvalidation,
   recordPendingDrainAttempt,
   recordPendingStandingsInvalidation,
+  summarizePendingStandingsInvalidations,
+  PENDING_ATTEMPTS_STUCK_THRESHOLD,
   STANDINGS_INVALIDATION_PENDING_SCOPE,
   type PendingStandingsInvalidation,
 } from '../standingsInvalidationPending.ts';
@@ -404,6 +406,74 @@ test('an UNREADABLE row is counted, not silently dropped', async () => {
   assert.equal(await countPendingStandingsInvalidations(), 1, 'an unreadable obligation counts');
   // It still cannot be drained — the walk needs a year it can trust — so it stays.
   assert.deepEqual(await listPendingStandingsInvalidations(), []);
+});
+
+// === Round 2 — the summary separates repair-in-progress from stuck ===
+
+test('an obligation below the attempt threshold is pending but NOT stuck', async () => {
+  await recordPendingStandingsInvalidation(2019, () => '2026-01-01T00:00:00.000Z');
+  for (let i = 0; i < PENDING_ATTEMPTS_STUCK_THRESHOLD - 1; i += 1) {
+    await recordPendingDrainAttempt(2019);
+  }
+  assert.deepEqual(await summarizePendingStandingsInvalidations(), { count: 1, stuck: 0 });
+});
+
+test('an obligation AT the attempt threshold is stuck', async () => {
+  // The boundary itself, asserted rather than approached: `>=`, not `>`. The threshold
+  // is the first attempt count that can show a count failing to fall, so the obligation
+  // that reaches it is already the fault.
+  await recordPendingStandingsInvalidation(2019, () => '2026-01-01T00:00:00.000Z');
+  for (let i = 0; i < PENDING_ATTEMPTS_STUCK_THRESHOLD; i += 1) {
+    await recordPendingDrainAttempt(2019);
+  }
+  assert.deepEqual(await summarizePendingStandingsInvalidations(), { count: 1, stuck: 1 });
+});
+
+test('an UNREADABLE row is STUCK regardless of attempts, because it can never be retried', async () => {
+  // THE CASE A COUNTER ALONE GETS BACKWARDS, and the reason stuckness is not just
+  // `attempts >= threshold`. `readAllPending` cannot parse this row, so
+  // `listPendingStandingsInvalidations` will never offer it to a drain and
+  // `recordPendingDrainAttempt` can never increment it — its attempts are frozen at 0
+  // forever. Classifying by attempts alone would report the ONE permanently
+  // unrepairable state as "repair in progress", which is the false all-clear wearing
+  // the new severity.
+  await setAppState(STANDINGS_INVALIDATION_PENDING_SCOPE, '2019', {
+    year: 2019,
+    token: '',
+    since: '2026-01-01T00:00:00.000Z',
+    attempts: 0,
+  } as unknown as PendingStandingsInvalidation);
+
+  assert.deepEqual(await summarizePendingStandingsInvalidations(), { count: 1, stuck: 1 });
+  // And it is still undrainable, which is exactly why it is stuck.
+  assert.deepEqual(await listPendingStandingsInvalidations(), []);
+});
+
+test('stuck never exceeds count, across a mixed set', async () => {
+  // A fresh obligation, a stuck one, and an unreadable one together.
+  await recordPendingStandingsInvalidation(2019, () => '2026-01-01T00:00:00.000Z');
+  await recordPendingStandingsInvalidation(2020, () => '2026-01-02T00:00:00.000Z');
+  for (let i = 0; i < PENDING_ATTEMPTS_STUCK_THRESHOLD; i += 1) {
+    await recordPendingDrainAttempt(2020);
+  }
+  await setAppState(STANDINGS_INVALIDATION_PENDING_SCOPE, '2021', {
+    year: 2021,
+    token: '',
+    since: '2026-01-03T00:00:00.000Z',
+    attempts: 0,
+  } as unknown as PendingStandingsInvalidation);
+
+  const summary = await summarizePendingStandingsInvalidations();
+  assert.notEqual(summary, 'unavailable');
+  assert.deepEqual(summary, { count: 3, stuck: 2 });
+});
+
+test('the summary reports UNAVAILABLE for a failed store, exactly as the count does', async () => {
+  // The unknown propagates as unknown. A summary of `{count: 0, stuck: 0}` here would be
+  // the false all-clear in both fields at once.
+  await recordPendingStandingsInvalidation(2026);
+  await __corruptAppStateFileForTests();
+  assert.equal(await summarizePendingStandingsInvalidations(), 'unavailable');
 });
 
 test('a store failure reports UNAVAILABLE, never zero', async () => {

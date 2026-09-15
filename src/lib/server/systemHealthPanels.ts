@@ -67,6 +67,15 @@ const SCHEDULER_CODES = new Set<string>([
   'scheduler-delivery-unavailable',
   'scheduler-execution-failed',
   'scheduler-execution-partial',
+  // PLATFORM-693 round 2 — a pending standings invalidation is a job-execution fact
+  // about `schedule-refresh`, exactly like the two codes above it: it is the residue
+  // of such a run. It belongs here and NOT in `UNTILED_CODES`, whose admission test is
+  // that no tile's subject covers the fault — the scheduler tile's subject does.
+  //
+  // IT WAS IN NO SET AT ALL UNTIL NOW, which filed it onto Provider data through the
+  // residual predicate below. That is the SECOND code to land there that way; see
+  // `panelOwnerForCode` for the check that makes a third impossible.
+  'standings-invalidation-pending',
 ]);
 const AUTOMATION_CODES = new Set<string>([
   'automation-global-pause-active',
@@ -106,6 +115,43 @@ const STORAGE_CODES = new Set<string>(['storage-production-misconfigured']);
  * itself carries the detail in the Actionable Issues list below.
  */
 const UNTILED_CODES = new Set<string>(['lifecycle-data-unusable']);
+
+/** Which stoplight tile owns a code. `'untiled'` is claimed but shown in no section. */
+export type SystemHealthPanelOwner =
+  | 'scheduler'
+  | 'automation'
+  | 'quota'
+  | 'storage'
+  | 'untiled'
+  | 'provider';
+
+/**
+ * THE ONE PLACE A CODE'S TILE IS DECIDED. `providerDataPanel` consumes this rather than
+ * re-stating the predicate, so a test can pin the real decision instead of a copy.
+ *
+ * **IT IS STILL RESIDUAL, AND THAT IS THE HAZARD THIS FUNCTION EXISTS TO CONTAIN.**
+ * Anything no explicit set claims is Provider data, so a new code lands on the provider
+ * tile silently — no error, no test failure, just a false statement on the dashboard
+ * naming the provider as degraded for a fault that has nothing to do with it. That has
+ * now happened TWICE: `lifecycle-data-unusable` in PLATFORM-086F2H3B2, and
+ * `standings-invalidation-pending` in PLATFORM-693. Twice is a pattern, not a slip.
+ *
+ * Making the fallback explicit would mean listing all 26 `ProviderDiagnosticCode`s here,
+ * duplicating a union that already exists and would drift. So the residual stays, and
+ * the guarantee is moved to the type system instead: `systemHealthPanelRegistration.test.ts`
+ * holds a `Record<SystemHealthIssueCode, SystemHealthPanelOwner>`, which TypeScript
+ * REQUIRES to be exhaustive. A new issue code therefore fails `tsc --noEmit` until
+ * somebody writes down which tile owns it — the decision is forced at compile time,
+ * where silence was the failure before.
+ */
+export function panelOwnerForCode(code: string): SystemHealthPanelOwner {
+  if (SCHEDULER_CODES.has(code)) return 'scheduler';
+  if (AUTOMATION_CODES.has(code)) return 'automation';
+  if (QUOTA_CODES.has(code)) return 'quota';
+  if (STORAGE_CODES.has(code)) return 'storage';
+  if (UNTILED_CODES.has(code)) return 'untiled';
+  return 'provider';
+}
 
 function isUnavailability(code: string): boolean {
   return code.endsWith('-unavailable');
@@ -193,12 +239,7 @@ function schedulerPanel(input: SystemHealthPanelsInput): SystemHealthPanel {
 }
 
 function providerDataPanel(input: SystemHealthPanelsInput): SystemHealthPanel {
-  const isProvider = (c: string) =>
-    !SCHEDULER_CODES.has(c) &&
-    !AUTOMATION_CODES.has(c) &&
-    !QUOTA_CODES.has(c) &&
-    !STORAGE_CODES.has(c) &&
-    !UNTILED_CODES.has(c);
+  const isProvider = (c: string) => panelOwnerForCode(c) === 'provider';
   const scoped = input.issues.filter((i) => isProvider(i.code));
   const sev = severityStatus(scoped);
   const gov = governing(input.issues, isProvider);
