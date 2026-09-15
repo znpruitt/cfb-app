@@ -42,6 +42,40 @@ cohesive remediation round after its reviews, and step 7 after that: report, rec
 
 ---
 
+## SCOPE ACKNOWLEDGEMENT 3 — 2026-09-15, owner: "ok"
+
+The rebuild landed at **22 files / 1,745 net** (`77fb95db`), against 21 / 1,591 at Amendment 2. The
+rebuilt module is **379 lines to v1's 335**, so it did NOT land smaller and does not qualify for
+Amendment 2's *"a v2 that lands smaller than v1 does not need a third"* clause. **The lane flagged
+that against its own interest rather than letting the clause be read loosely**, which is the second
+time on this issue that it held planning to a sizing rule planning wrote.
+
+**Owner acknowledged rather than re-deliberated**, and the record should say which: the growth is the
+same ruled-in replay work plus R1's issue code, which was authorised after the second approval. No
+new objective entered. Both `AGENTS.md:462` signals remain crossed and remain approved —
+`e378c090`, `4abd0528`, and this.
+
+### R7 AMENDED — the tombstone stays
+
+**A cleared record is written `null`, not deleted, and that is the ruling rather than a shortfall.**
+`AppStateKeyTxn` exposes `read`/`write`/`readKey`/`writeKey`/`lockKey` and **no delete**, so a
+generation-checked removal does not exist. Verified in `appStateStore.ts:1059-1065`.
+
+**R7's stated cost was already removed by R5, and I did not notice the two requirements interacted
+when I wrote them.** R7 existed because `listAppStateKeys` returns tombstones forever; R5 replaced
+that with one `getAppStateEntries` query, so a cleared marker is a filtered row rather than a round
+trip, growing one row per distinct year ever pended.
+
+Both routes to literal deletion are worse than what they fix: deleting after COMMIT **reopens the
+exact race R2 closes**, since an obligation landing in that window is erased; and `deleteAppState`
+inside the transaction callback is a nested store call holding a transaction client — #595's shape
+against a three-client pool. Adding `deleteKey` is a core-file touch outside this scope and is filed
+as [#799](https://github.com/znpruitt/cfb-app/issues/799).
+
+**Two conditions:** the module states the tombstone is deliberate and why, so the next reader does
+not "fix" it and reintroduce the race; and a test proves the read filters `null`, since a tombstone
+misread as an obligation would drain forever.
+
 ## What you KEEP — do not rebuild, do not "improve"
 
 Every file below is reviewed by both reviewers and settled. Touch one only if a requirement here
