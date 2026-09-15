@@ -30,6 +30,10 @@ CARRIES: Item 87 INDEX row 3 (DISCHARGED, quoted because it is the contract bein
          Matchups carries it on 1 of 10 rows, Schedule on 3 of 13, and each section has two live
          rows split one-and-one. DESIGN.md:201 decides it per state with no surface exception.
          #723 is therefore a conformance fix, not a decision. See the issue comment for the counts.
+
+         OWNER RULING 2026-09-15: "Matchups should carry broadcast." This now rests on the owner's
+         word, not on my reading of DESIGN.md — so do NOT spend receipt effort re-litigating whether
+         it should render. What is still open is HOW, which is item 1 below.
 ```
 
 ---
