@@ -227,6 +227,20 @@ first commit; if you are not where this table says you should be, stop and say s
 - **VERIFY A CODEX REPORT'S DIFF BASE BEFORE TREATING IT AS GATHERED — the report BODY cannot tell
   you.** Its header reads only `Target: branch diff against main`, which is byte-identical for a
   real review and for a review of nothing. The range is in the TRANSCRIPT above the `# Codex Review`
+- **THE BANNER CAN NAME A BASE THE REVIEW NEVER USED. A THIRD VARIANT, AND THE MOST DANGEROUS.**
+  Added 2026-09-15. A run invoked with `--base <802's merge-base>` printed
+  `Reviewer started: changes against '262708ff…'` — **and that was the only place the value appeared
+  in the entire log.** All sixteen `git diff` invocations used `a1421035`, the merge-base of the
+  branch that happened to be CHECKED OUT, and it reviewed that branch's files and commits. The
+  requested branch was checked out in no worktree at all, so the companion resolved HEAD from cwd
+  (`resolveCommandCwd`), derived its own base, and accepted the passed `--base` into the banner only.
+  **A review of NOTHING wears a clean report's shape; this is a review of the WRONG THING wearing the
+  RIGHT banner — so a header check confirms exactly the wrong conclusion.** The diff commands in the
+  transcript are the only quantity that separates them, which is why they are what you read.
+- **SO: THE BRANCH YOU WANT REVIEWED MUST BE CHECKED OUT IN THE INVOKING WORKTREE.** `--base` does not
+  select a branch and cannot; it only narrows the range within whatever HEAD resolves to. Check
+  `git worktree list` before invoking, and never switch branches in a worktree while a review is
+  reading it. `/code-review <sha>` is immune — it takes the commit directly.
   header, where the companion logs its own `git diff` invocations — confirm that base is the branch
   point. **GREP ANY `git diff` LINE CARRYING A FULL 40-HEX SHA. DO NOT KEY ON THE `--stat` LINE:**
   corrected 2026-09-15, within hours of writing it, by the lane that used it first. The log
