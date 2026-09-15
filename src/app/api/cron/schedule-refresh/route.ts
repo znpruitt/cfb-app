@@ -7,7 +7,11 @@ import {
   getProviderRefreshSettings,
   isAutoRefreshAllowedBySettings,
 } from '@/lib/server/providerRefreshSettings';
-import { completeStandingsInvalidation } from '@/lib/selectors/leagueStandings';
+import {
+  completeStandingsInvalidation,
+  invalidateStandingsForYearReporting,
+} from '@/lib/selectors/leagueStandings';
+import { drainPendingStandingsInvalidations } from '@/lib/server/standingsInvalidationPending';
 import { refreshFullSeasonSchedule } from '@/lib/schedule/fullSeasonScheduleRefresh';
 import { refreshSchedulePresentation } from '@/lib/schedule/schedulePresentationRefresh';
 import {
@@ -445,6 +449,29 @@ export async function GET(req: Request): Promise<Response> {
         if (hasOrdinary) ordinaryGate = 'unavailable';
       }
     }
+
+    // PLATFORM-693 — DRAIN OUTSTANDING STANDINGS INVALIDATIONS FIRST.
+    //
+    // A phase of THIS job, not a second automation job (`AGENTS.md:464`): it shares
+    // this run, this authentication, this receipt, and this event.
+    //
+    // It runs BEFORE the year loop and is deliberately NOT limited to this run's
+    // maintenance targets. The cron targets only the distinct `season` and
+    // `preseason` years from the registry, while `admin/cache-historical-schedule`
+    // operates — BY CONSTRUCTION, it refuses protected years — only on years this
+    // cron will never revisit. A discharge tied to "a later refresh of year Y" would
+    // therefore never reach a historical repair's failed bust, making it a permanent
+    // unclearable fault: the #721 shape, reintroduced by the fix for it.
+    //
+    // Draining here also repairs the operator path. The System Health repair link
+    // sends an operator to a full-year refresh; that run drains Y before deciding
+    // whether content changed, so the `unchanged-clean` path can no longer report
+    // success over an outstanding fault.
+    //
+    // Best-effort in both directions: it cannot fail the run, and it cannot alter the
+    // refresh's reported status. The schedule commit succeeded; CARRIES forbids
+    // saying otherwise because a cache repair could not be attempted.
+    await drainPendingStandingsInvalidations(invalidateStandingsForYearReporting);
 
     // Execute sequentially in ascending year order. Each allowed year delegates to
     // the E1A authority exactly once; skipped/deferred/context-unavailable years

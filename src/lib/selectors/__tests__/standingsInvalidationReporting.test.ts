@@ -6,6 +6,7 @@ import {
   invalidateStandingsForYearReporting,
   isMissingRequestContextError,
 } from '../leagueStandings.ts';
+import type { LeagueRegistryReadResult } from '../../leagueRegistry.ts';
 
 /**
  * PLATFORM-693 — the post-commit canonical-standings bust reports instead of
@@ -31,6 +32,11 @@ import {
  */
 
 const LEAGUES = [{ slug: 'alpha' }, { slug: 'beta' }, { slug: 'gamma' }];
+
+/** The reader's `ok` shape. The seam consumes `readLeagueRegistry`, not `getLeagues`. */
+function okRegistry(leagues: ReadonlyArray<{ slug: string }>) {
+  return async () => ({ kind: 'ok', leagues }) as unknown as LeagueRegistryReadResult;
+}
 
 /** An E263 shaped exactly as Next raises it outside a request context. */
 function missingContextError(): Error {
@@ -66,14 +72,10 @@ test('a failed registry read records registry-failed, and attempted is null rath
 
 test('a mid-loop failure is PARTIAL, and the walk continues past it instead of aborting', async () => {
   const touched: string[] = [];
-  const outcome = await invalidateStandingsForYearReporting(
-    2026,
-    async () => LEAGUES,
-    (slug) => {
-      touched.push(slug);
-      if (slug === 'beta') throw new Error('revalidateTag exploded');
-    }
-  );
+  const outcome = await invalidateStandingsForYearReporting(2026, okRegistry(LEAGUES), (slug) => {
+    touched.push(slug);
+    if (slug === 'beta') throw new Error('revalidateTag exploded');
+  });
 
   assert.equal(outcome.result, 'partial');
   assert.equal(outcome.attempted, 3);
@@ -86,13 +88,9 @@ test('a mid-loop failure is PARTIAL, and the walk continues past it instead of a
 });
 
 test('a partial failure is neither total success nor total failure', async () => {
-  const outcome = await invalidateStandingsForYearReporting(
-    2026,
-    async () => LEAGUES,
-    (slug) => {
-      if (slug !== 'alpha') throw new Error('nope');
-    }
-  );
+  const outcome = await invalidateStandingsForYearReporting(2026, okRegistry(LEAGUES), (slug) => {
+    if (slug !== 'alpha') throw new Error('nope');
+  });
   // Distinguishable in BOTH directions — the acceptance boundary's requirement.
   assert.notEqual(outcome.result, 'complete');
   assert.notEqual(outcome.result, 'registry-failed');
@@ -103,16 +101,15 @@ test('a partial failure is neither total success nor total failure', async () =>
 // === Case 3: E263 is benign and must NOT be recorded as a failure ===
 
 test('an out-of-request-context E263 is not recorded as a failure', async () => {
-  const outcome = await invalidateStandingsForYearReporting(
-    2026,
-    async () => LEAGUES,
-    () => {
-      throw missingContextError();
-    }
-  );
+  const outcome = await invalidateStandingsForYearReporting(2026, okRegistry(LEAGUES), () => {
+    throw missingContextError();
+  });
 
-  assert.equal(outcome.result, 'complete', 'E263 is benign — never a recorded failure');
-  assert.equal(outcome.failed, 0);
+  // Benign means NOT A FAILURE — it does not mean success. `failed` stays 0 (the
+  // acceptance boundary's requirement), but the walk busted nothing, so the result
+  // must not read as done. That second half became load-bearing when replay landed.
+  assert.equal(outcome.failed, 0, 'E263 is benign — never a recorded failure');
+  assert.notEqual(outcome.result, 'complete', 'but nothing was busted');
   // Nor is it counted as invalidated: nothing was busted, there was simply no
   // context to bust it in. Counting it as success would manufacture evidence.
   assert.equal(outcome.invalidated, 0);
@@ -122,13 +119,9 @@ test('an out-of-request-context E263 is not recorded as a failure', async () => 
 test('the E263 exemption discriminates — an ordinary error is still a failure', async () => {
   // POSITIVE CONTROL for the test above. Without this, an implementation that
   // swallowed EVERY error would pass the E263 test identically.
-  const outcome = await invalidateStandingsForYearReporting(
-    2026,
-    async () => LEAGUES,
-    () => {
-      throw new Error('a perfectly ordinary failure');
-    }
-  );
+  const outcome = await invalidateStandingsForYearReporting(2026, okRegistry(LEAGUES), () => {
+    throw new Error('a perfectly ordinary failure');
+  });
   assert.equal(outcome.result, 'partial');
   assert.equal(outcome.failed, 3);
 });
@@ -150,25 +143,11 @@ test('the shared predicate is what discriminates, not a second copy', () => {
 
 test('a clean walk records complete with every league invalidated', async () => {
   const touched: string[] = [];
-  const outcome = await invalidateStandingsForYearReporting(
-    2026,
-    async () => LEAGUES,
-    (slug) => {
-      touched.push(slug);
-    }
-  );
+  const outcome = await invalidateStandingsForYearReporting(2026, okRegistry(LEAGUES), (slug) => {
+    touched.push(slug);
+  });
   assert.deepEqual(outcome, { result: 'complete', attempted: 3, invalidated: 3, failed: 0 });
   assert.deepEqual(touched, ['alpha', 'beta', 'gamma']);
-});
-
-test('an empty registry is complete, not a failure', async () => {
-  const outcome = await invalidateStandingsForYearReporting(
-    2026,
-    async () => [],
-    () => {}
-  );
-  assert.equal(outcome.result, 'complete');
-  assert.equal(outcome.attempted, 0);
 });
 
 test('completeStandingsInvalidation is the truthful record for a refresh that never walked', () => {
@@ -180,4 +159,71 @@ test('completeStandingsInvalidation is the truthful record for a refresh that ne
     invalidated: 0,
     failed: 0,
   });
+});
+
+// === Codex review: the registry can be CORRUPT, which is not the same as empty ===
+
+test('a MALFORMED registry is population-unknown, not an empty registry', async () => {
+  // `getLeagues()` collapses malformed into `[]`, which made this walk record
+  // `complete` with zero attempts over a corrupt registry — a false success after a
+  // durable commit. The reader's own docblock names that collapse as the thing it
+  // exists to prevent, so the seam consumes the reader directly.
+  const touched: string[] = [];
+  const outcome = await invalidateStandingsForYearReporting(
+    2026,
+    async () => ({ kind: 'malformed' }) as LeagueRegistryReadResult,
+    (slug) => {
+      touched.push(slug);
+    }
+  );
+  assert.equal(outcome.result, 'registry-failed');
+  assert.equal(outcome.attempted, null, 'population is UNKNOWN, not zero');
+  assert.deepEqual(touched, []);
+});
+
+test('a MISSING registry is a genuine empty registry, and that is success', async () => {
+  // The other half of the distinction: absent is not corrupt.
+  const outcome = await invalidateStandingsForYearReporting(
+    2026,
+    async () => ({ kind: 'missing' }) as LeagueRegistryReadResult,
+    () => {}
+  );
+  assert.equal(outcome.result, 'complete');
+  assert.equal(outcome.attempted, 0, 'known to be empty, so zero not null');
+});
+
+// === Codex review: a malformed ENTRY must not throw out of a non-throwing helper ===
+
+test('an unreadable registry entry is counted, not rethrown', async () => {
+  // Individual entries are NOT validated, so a non-object entry throws on property
+  // access. The previous catch then dereferenced it AGAIN while logging, throwing out
+  // of a helper documented as never throwing — post-commit that turns a completed
+  // state change into a 500, the exact CARRIES violation the swallow prevented.
+  const withBadEntry = [{ slug: 'alpha' }, null, { slug: 'gamma' }];
+  const touched: string[] = [];
+  const outcome = await invalidateStandingsForYearReporting(
+    2026,
+    okRegistry(withBadEntry as unknown as ReadonlyArray<{ slug: string }>),
+    (slug) => {
+      touched.push(slug);
+    }
+  );
+  assert.equal(outcome.result, 'partial');
+  assert.equal(outcome.failed, 1);
+  assert.equal(outcome.invalidated, 2);
+  // And the walk continued past it.
+  assert.deepEqual(touched, ['alpha', 'gamma']);
+});
+
+// === Finding 6, promoted: a walk that busted nothing is NOT complete ===
+
+test('an all-benign walk busts nothing and must NOT classify complete', async () => {
+  // Load-bearing once replay exists: clearing a pending record keys on `complete`,
+  // so a no-op walk classifying complete would clear a fault it never repaired.
+  const outcome = await invalidateStandingsForYearReporting(2026, okRegistry(LEAGUES), () => {
+    throw missingContextError();
+  });
+  assert.equal(outcome.invalidated, 0);
+  assert.equal(outcome.failed, 0);
+  assert.notEqual(outcome.result, 'complete', 'nothing was busted — this cannot read as done');
 });

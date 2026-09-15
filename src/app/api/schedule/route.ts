@@ -43,6 +43,10 @@ import {
   type StandingsInvalidationOutcome,
 } from '@/lib/selectors/leagueStandings';
 import {
+  clearPendingStandingsInvalidation,
+  recordPendingStandingsInvalidation,
+} from '@/lib/server/standingsInvalidationPending';
+import {
   getScheduleProbeState,
   saveScheduleProbeState,
   deriveFirstGameDate,
@@ -622,12 +626,22 @@ async function fullSeasonRefreshResponse(
  *
  * Silent on success so a healthy refresh stays quiet.
  */
-function reportStandingsInvalidation(
+async function reportStandingsInvalidation(
   outcome: StandingsInvalidationOutcome,
   site: 'schedule-partition-commit' | 'schedule-single-scope-commit',
   year: number
-): void {
-  if (outcome.result === 'complete') return;
+): Promise<void> {
+  // DURABLE FIRST, log second. This path writes no scheduler receipt, so before
+  // PLATFORM-693's pending record a failure here survived only as long as the logs —
+  // which is why both reviewers called the manual path unrepairable. The pending
+  // record is what the cron's drain discharges, so a manual refresh's failed bust is
+  // now repaired automatically within a day rather than depending on a human reading
+  // a log line about a cache.
+  if (outcome.result === 'complete') {
+    await clearPendingStandingsInvalidation(year);
+    return;
+  }
+  await recordPendingStandingsInvalidation(year);
   console.error('standings invalidation incomplete after a committed schedule write', {
     site,
     year,
@@ -856,7 +870,7 @@ export async function GET(req: Request) {
       // `revalidate: false` (tag-only), so a missed bust is PERMANENT until some
       // other mutation happens to fire the same tag — the old comment's promise of
       // "natural cache turnover" described a mechanism that does not exist.
-      reportStandingsInvalidation(
+      await reportStandingsInvalidation(
         await invalidateStandingsForYearReporting(year),
         'schedule-partition-commit',
         year
@@ -1224,7 +1238,7 @@ export async function GET(req: Request) {
   // cheap.
   // PLATFORM-693: see the partition-commit site above. Same walk, same permanence
   // of a missed bust, same reporting.
-  reportStandingsInvalidation(
+  await reportStandingsInvalidation(
     await invalidateStandingsForYearReporting(year),
     'schedule-single-scope-commit',
     year

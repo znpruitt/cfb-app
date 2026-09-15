@@ -30,6 +30,10 @@ import {
   invalidateStandingsForYearReporting,
   type StandingsInvalidationOutcome,
 } from '../selectors/leagueStandings.ts';
+import {
+  clearPendingStandingsInvalidation,
+  recordPendingStandingsInvalidation,
+} from '../server/standingsInvalidationPending.ts';
 import { getAppState, withAppStateKeyTransaction } from '../server/appStateStore.ts';
 import {
   beginProviderRefreshAttempt,
@@ -239,8 +243,13 @@ async function commitFullSeasonSchedule(params: {
 }
 
 /**
- * Invalidate canonical standings for every league at `year`, NON-FATALLY but not
- * silently (PLATFORM-693).
+ * Bust canonical standings for every league at `year`, NON-FATALLY but not silently,
+ * and record whether a bust is still OWED (PLATFORM-693).
+ *
+ * NAMED `bust...` rather than `invalidateStandingsForYear` deliberately:
+ * `standingsCacheWarmer.ts` exports a function of that exact name with the OPPOSITE
+ * reporting semantics (it still swallows — #785). Two functions with one name and
+ * opposite behaviour is a trap for whoever picks that item up.
  *
  * This is the site the CRON reaches: `cron/schedule-refresh` calls
  * `refreshFullSeasonSchedule` directly and never goes through `/api/schedule` over
@@ -250,8 +259,13 @@ async function commitFullSeasonSchedule(params: {
  * `revalidate: false`, tag-only, and an unchanged subsequent refresh commits nothing
  * so fires nothing.
  */
-async function invalidateStandingsForYear(year: number): Promise<StandingsInvalidationOutcome> {
-  return await invalidateStandingsForYearReporting(year);
+async function bustStandingsForYear(year: number): Promise<StandingsInvalidationOutcome> {
+  const outcome = await invalidateStandingsForYearReporting(year);
+  // The pending record is the durable half. The receipt says what THIS RUN did; this
+  // says what is still OWED, which the latest-only receipt structurally cannot.
+  if (outcome.result === 'complete') await clearPendingStandingsInvalidation(year);
+  else await recordPendingStandingsInvalidation(year);
+  return outcome;
 }
 
 /**
@@ -536,7 +550,7 @@ export async function refreshFullSeasonSchedule(params: {
         // attempted is the truthful record of "no walk was needed".
         const unchangedInvalidation =
           scoreSweep.repaired > 0
-            ? await invalidateStandingsForYear(year)
+            ? await bustStandingsForYear(year)
             : completeStandingsInvalidation();
         await recordProviderRefreshSuccess('schedule', scope, {
           attempt,
@@ -573,7 +587,7 @@ export async function refreshFullSeasonSchedule(params: {
         // Post-commit order: durable commit → process-cache publication (done in
         // commit) → score gap-fill → standings invalidation (content changed) →
         // status. Schedule + score changes share the existing single year bust.
-        const writtenInvalidation = await invalidateStandingsForYear(year);
+        const writtenInvalidation = await bustStandingsForYear(year);
         await recordProviderRefreshSuccess('schedule', scope, {
           attempt,
           committedAt: commit.committedAt,

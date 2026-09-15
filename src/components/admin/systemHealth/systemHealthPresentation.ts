@@ -346,6 +346,15 @@ export function summarizeReceiptTarget(target: SchedulerExecutionReceipt['target
         target.scoreRepairs > 0 ? `${target.scoreRepairs} score repair(s)` : '',
         target.scoreDifferences > 0 ? `${target.scoreDifferences} score difference(s)` : '',
         target.scoreSweepFailures > 0 ? `${target.scoreSweepFailures} score sweep failure(s)` : '',
+        // PLATFORM-693 — rendered because it is sometimes the ONLY durable evidence.
+        // Two independent cases: a run truncated past `MAX_SCHEDULER_TARGET_YEARS`
+        // whose only partial year falls outside the retained slice, and a year where
+        // the score sweep ALSO failed, since `yearEntryFromRefresh` deliberately keeps
+        // `score-sweep-failed` as that year's reason. In both, the per-year rendering
+        // structurally cannot carry it.
+        target.standingsInvalidationFailures > 0
+          ? `${target.standingsInvalidationFailures} standings invalidation failure(s)`
+          : '',
         target.kickoffsChanged > 0 ? `${target.kickoffsChanged} kickoff change(s)` : '',
       ].filter(Boolean);
       const sweepDetail = sweep.length > 0 ? ` · ${sweep.join(' · ')}` : '';
