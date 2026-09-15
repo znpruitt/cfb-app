@@ -138,3 +138,26 @@ test('an unauthenticated request drains nothing', async () => {
   assert.equal(response.status, 401);
   assert.ok(await readPending(2013), 'a rejected request must not have drained anything');
 });
+
+test('a ZERO-TARGET run still drains — the offseason case', async () => {
+  // THE PLACEMENT REGRESSION, and it fails against f62b4200. The drain used to sit
+  // AFTER the zero-target return, so it was dead for the entire offseason — the one
+  // season in which `admin/cache-historical-schedule` (which refuses protected years
+  // by construction, so it only ever touches years this cron never revisits) is the
+  // path an operator uses. Every other test in this file seeds an active league, which
+  // is exactly why none of them could catch it.
+  //
+  // No league is seeded: the run reports a zero-target reason and returns early.
+  await seedPending(2019, '2026-09-01T00:00:00.000Z');
+
+  const { res, events } = await runRoute();
+
+  assert.equal(res.status, 200);
+  assert.ok(
+    ['no-maintenance-target', 'no-automatic-maintenance-target'].includes(
+      events[0]?.reason as string
+    ),
+    `expected a zero-target reason, got ${events[0]?.reason}`
+  );
+  assert.equal(await readPending(2019), null, 'a zero-target run must still drain');
+});

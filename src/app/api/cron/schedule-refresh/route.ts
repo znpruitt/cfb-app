@@ -176,6 +176,10 @@ export async function GET(req: Request): Promise<Response> {
   // authentication (never inferred from the final result/reason). Null means
   // no durable receipt is scheduled for this invocation.
   let receiptInvocationId: string | null = null;
+  // PLATFORM-693 — declared in the OUTER scope, beside `exec`, so a throw anywhere
+  // after the drain still carries its result into the receipt. Zero is truthful before
+  // the drain runs: nothing was left pending by a drain that did not happen.
+  let pendingDrainStillPending = 0;
 
   try {
     // CRON_SECRET first — fail closed. No registry/schedule/settings/status/
@@ -196,6 +200,32 @@ export async function GET(req: Request): Promise<Response> {
       );
     }
     receiptInvocationId = createSchedulerInvocationId();
+
+    // PLATFORM-693 — DRAIN OUTSTANDING STANDINGS INVALIDATIONS, AHEAD OF EVERY EXIT.
+    //
+    // Placement is the whole point and it was wrong once. Both reviewers found the
+    // drain sitting after the zero-target return, which made it DEAD FOR THE ENTIRE
+    // OFFSEASON — the one season in which `admin/cache-historical-schedule` (the
+    // operator path that pends historical years, and which refuses protected years by
+    // construction) is the one an operator uses. Here it runs past the 401 and ahead
+    // of the registry-throw, `registry-malformed`, and zero-target returns.
+    //
+    // It therefore also runs when the REGISTRY ITSELF is unreadable or malformed. The
+    // walk fails in that state and correctly leaves the records pending — a drain that
+    // skipped itself on the fault most likely to have CAUSED the backlog would be the
+    // defect wearing the shape of a safeguard.
+    //
+    // This is ONE OF TWO TRIGGERS and neither substitutes for the other, because there
+    // are two REACHABILITY gaps, not two placements of one idea: a cron drain cannot
+    // cover the manual paths, and the authority's discharge cannot cover a zero-target
+    // run, because the authority is never called when there are no targets.
+    //
+    // Best-effort in both directions: it cannot fail the run and it cannot alter the
+    // refresh's reported status. The schedule commit succeeded; CARRIES forbids saying
+    // otherwise because a cache repair could not be attempted.
+    pendingDrainStillPending = (
+      await drainPendingStandingsInvalidations(invalidateStandingsForYearReporting)
+    ).stillPending;
 
     // Target selection — cache-only registry read. `season` AND `preseason`
     // leagues are targets (E1B1: cache-armed early preseason gets ordinary weekly
@@ -450,29 +480,6 @@ export async function GET(req: Request): Promise<Response> {
       }
     }
 
-    // PLATFORM-693 — DRAIN OUTSTANDING STANDINGS INVALIDATIONS FIRST.
-    //
-    // A phase of THIS job, not a second automation job (`AGENTS.md:464`): it shares
-    // this run, this authentication, this receipt, and this event.
-    //
-    // It runs BEFORE the year loop and is deliberately NOT limited to this run's
-    // maintenance targets. The cron targets only the distinct `season` and
-    // `preseason` years from the registry, while `admin/cache-historical-schedule`
-    // operates — BY CONSTRUCTION, it refuses protected years — only on years this
-    // cron will never revisit. A discharge tied to "a later refresh of year Y" would
-    // therefore never reach a historical repair's failed bust, making it a permanent
-    // unclearable fault: the #721 shape, reintroduced by the fix for it.
-    //
-    // Draining here also repairs the operator path. The System Health repair link
-    // sends an operator to a full-year refresh; that run drains Y before deciding
-    // whether content changed, so the `unchanged-clean` path can no longer report
-    // success over an outstanding fault.
-    //
-    // Best-effort in both directions: it cannot fail the run, and it cannot alter the
-    // refresh's reported status. The schedule commit succeeded; CARRIES forbids
-    // saying otherwise because a cache repair could not be attempted.
-    await drainPendingStandingsInvalidations(invalidateStandingsForYearReporting);
-
     // Execute sequentially in ascending year order. Each allowed year delegates to
     // the E1A authority exactly once; skipped/deferred/context-unavailable years
     // create no provider-refresh attempt and no provider work.
@@ -690,7 +697,11 @@ export async function GET(req: Request): Promise<Response> {
         result: exec.result,
         reason: exec.reason,
         providerCallAttempted: exec.years.some((entry) => entry.providerCallAttempted),
-        target: scheduleYearsTarget(exec.years, exec.invalidLifecycleTargets),
+        target: scheduleYearsTarget(
+          exec.years,
+          exec.invalidLifecycleTargets,
+          pendingDrainStillPending
+        ),
       });
     }
   }

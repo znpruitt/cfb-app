@@ -29,6 +29,10 @@ import {
   yearScope,
 } from '../../../../lib/providerRefreshScope.ts';
 import { acquireScheduleRefreshLease } from '../../../../lib/schedule/scheduleRefreshLease.ts';
+import {
+  recordPendingStandingsInvalidation,
+  STANDINGS_INVALIDATION_PENDING_SCOPE,
+} from '../../../../lib/server/standingsInvalidationPending.ts';
 
 // Schedule status scope now reflects the ACTUAL refresh target (finding 1): a
 // full-year (seasonType=all) refresh records the year rollup, while a single
@@ -1466,4 +1470,43 @@ test('full-year manual refresh under lease contention maps to HTTP 409 with no p
   const json = await res.json();
   assert.equal(json.code, 'refresh-in-progress');
   assert.equal(fetchCalls, 0, 'the losing full-year caller makes no provider request');
+});
+
+// PLATFORM-693 TRIGGER B — the DESIGNATED REPAIR PATH actually repairs.
+//
+// This is the wiring test, not a unit test of the discharge. Deleting the
+// `dischargePendingStandingsInvalidation` call from `refreshFullSeasonSchedule` must
+// redden THIS, and a unit test of the helper alone did not — it passed with the call
+// site removed, which is the `AGENTS.md:468` failure in miniature.
+//
+// The route under test is exactly what the System Health repair link drives:
+// `GET /api/schedule?bypassCache=1&year=Y`, which reaches the full-season authority.
+// The cron's drain cannot cover this path; that is why there are two triggers.
+test('the full-year admin refresh discharges a pending standings invalidation', async () => {
+  process.env.ADMIN_API_TOKEN = 'admin-token';
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+
+  setMockFetch(async () => {
+    return new Response(JSON.stringify([]), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  });
+
+  await recordPendingStandingsInvalidation(2027);
+  const before = await getAppState(STANDINGS_INVALIDATION_PENDING_SCOPE, '2027');
+  assert.ok(before?.value, 'precondition: 2027 owes a standings bust');
+
+  await GET(
+    new Request('http://localhost/api/schedule?year=2027&seasonType=all&bypassCache=1', {
+      headers: { 'x-admin-token': 'admin-token' },
+    })
+  );
+
+  const after = await getAppState(STANDINGS_INVALIDATION_PENDING_SCOPE, '2027');
+  assert.equal(
+    after?.value ?? null,
+    null,
+    'the repair path must discharge the pending bust, not report success over it'
+  );
 });

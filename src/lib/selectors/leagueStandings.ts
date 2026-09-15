@@ -437,8 +437,12 @@ export function invalidateStandingsSafely(slug: string, year?: number): void {
  *   - `partial`        the walk ran and some leagues threw.
  *
  * A benign out-of-request-context call (`E263`) is NOT a failure and is not recorded
- * as one — `invalidateStandingsSafely` absorbs it, which is the whole reason this
- * walks through that wrapper rather than the raw helper.
+ * as one. The discrimination happens INLINE in the walk, via the same
+ * `isMissingRequestContextError` predicate `invalidateStandingsSafely` uses — NOT by
+ * calling that wrapper, whose default here is the RAW invalidator. The difference is
+ * load-bearing rather than stylistic: the wrapper returns normally, which would run
+ * `invalidated += 1` and report a bust that did not happen; the inline `continue`
+ * skips both counters, which is what makes an all-benign walk report `partial`.
  *
  * COUNTS ONLY, NO SLUGS — deliberately. This value is serialized into the
  * `schedule-refresh` cron execution event and its durable receipt, and that surface's
@@ -543,10 +547,23 @@ export async function invalidateStandingsForYearReporting(
     // dereferenced it AGAIN inside the catch, throwing out of a helper documented as
     // never throwing. Post-commit that turns a completed state change into a 500,
     // which is the CARRIES violation the original swallow existed to prevent.
-    let slug: string | null = null;
+    // VALIDATED, not merely captured. `readLeagueRegistry` checks `Array.isArray` and
+    // nothing per-entry, so an entry can be a string, or an object with a missing or
+    // non-string `slug`. Those do NOT throw: `standingsSlugTag(undefined)` returns the
+    // perfectly valid tag `standings:undefined`, `revalidateTag` succeeds, and the walk
+    // would count a bust that never happened — reporting `complete` and CLEARING a
+    // pending record for a league whose standings are still stale. That is a false
+    // success DESTROYING EVIDENCE, which is the defect this whole item exists to end.
+    const slug = (league as { slug?: unknown } | null)?.slug;
+    if (typeof slug !== 'string' || slug.length === 0) {
+      failed += 1;
+      console.error('canonical standings invalidation skipped an unusable registry entry', {
+        year,
+      });
+      continue;
+    }
     try {
-      slug = (league as { slug?: unknown } | null)?.slug as string;
-      invalidate(league.slug, year);
+      invalidate(slug, year);
       invalidated += 1;
     } catch (error) {
       // An out-of-context `E263` is BENIGN and must never be recorded as a failure
@@ -561,7 +578,7 @@ export async function invalidateStandingsForYearReporting(
       // The slug lives HERE, not in the returned value: the returned value is
       // serialized into a policed log/receipt surface, this is not.
       console.error('canonical standings invalidation failed for a league', {
-        slug: typeof slug === 'string' ? slug : '(unreadable registry entry)',
+        slug,
         year,
         error: error instanceof Error ? error.message : String(error),
       });

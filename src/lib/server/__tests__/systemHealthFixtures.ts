@@ -102,7 +102,8 @@ function targetFor(job: ExternalSchedulerJob, refusals = 0): SchedulerExecutionT
             ...cleanScheduleYearOutcome(),
           },
         ],
-        refusals
+        refusals,
+        0
       );
     case 'rankings':
       return rankingsYearsTarget(

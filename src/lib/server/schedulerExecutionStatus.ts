@@ -322,6 +322,16 @@ export type SchedulerExecutionTarget =
        * rebuild normalizes to 0, exactly as `invalidLifecycleTargets` does.
        */
       standingsInvalidationFailures: number;
+      /**
+       * PLATFORM-693 — years still owing a standings bust AFTER this run's replay
+       * drain. Run-level, like `invalidLifecycleTargets`: it is a fact about repair
+       * work for OTHER years, so it must never flip a year's own result — a year
+       * whose work completed is a succeeded refresh, and CARRIES forbids marking it
+       * failed. Only the still-pending count is carried: attempted and cleared are
+       * true and UNACTIONABLE, and a health line that reports successful repairs
+       * trains people to skim it. Those two live in the per-invocation event.
+       */
+      pendingStandingsInvalidations: number;
       scoreSweepCannotTellCount: number;
       /** Kickoff instants changed across the schedule observations in this run. */
       kickoffsChanged: number;
@@ -533,7 +543,11 @@ export function scheduleYearsTarget(
   }>,
   // REQUIRED: a defaulted parameter would let a caller that reconstructs this
   // target silently record zero refusals with no compiler signal.
-  invalidLifecycleTargets: number
+  invalidLifecycleTargets: number,
+  // REQUIRED for the same reason every metric here is: a caller reconstructing this
+  // target without it would record a run whose outstanding repair work nothing can
+  // now establish.
+  pendingStandingsInvalidations: number
 ): Extract<SchedulerExecutionTarget, { kind: 'schedule-years' }> {
   const years = entries.slice(0, MAX_SCHEDULER_TARGET_YEARS).map((entry) => ({
     year: entry.year,
@@ -560,6 +574,7 @@ export function scheduleYearsTarget(
     standingsInvalidationFailures: entries.filter(
       (entry) => entry.standingsInvalidation.result !== 'complete'
     ).length,
+    pendingStandingsInvalidations,
     kickoffsChanged: entries.reduce((total, entry) => total + entry.kickoffsChanged, 0),
     years,
   };
@@ -918,6 +933,9 @@ function rebuildTarget(target: SchedulerExecutionTarget): SchedulerExecutionTarg
         // recorded an invalidation failure, so none is the only thing a legacy
         // receipt can honestly assert.
         standingsInvalidationFailures: target.standingsInvalidationFailures ?? 0,
+        // Legacy receipts predate the replay drain and normalize to an explicit 0,
+        // which is the truthful value: no drain ran, so nothing was left pending by one.
+        pendingStandingsInvalidations: target.pendingStandingsInvalidations ?? 0,
         scoreSweepCannotTellCount: target.scoreSweepCannotTellCount ?? 0,
         kickoffsChanged: target.kickoffsChanged ?? 0,
         years: target.years.slice(0, MAX_SCHEDULER_TARGET_YEARS).map((entry) => ({
@@ -1233,6 +1251,8 @@ function isValidStoredTarget(value: unknown, job: ExternalSchedulerJob): boolean
         // present-but-invalid rejects the whole record.
         (target.standingsInvalidationFailures === undefined ||
           isNonNegativeInteger(target.standingsInvalidationFailures)) &&
+        (target.pendingStandingsInvalidations === undefined ||
+          isNonNegativeInteger(target.pendingStandingsInvalidations)) &&
         (target.scoreSweepCannotTellCount === undefined ||
           isNonNegativeInteger(target.scoreSweepCannotTellCount)) &&
         (target.kickoffsChanged === undefined || isNonNegativeInteger(target.kickoffsChanged)) &&

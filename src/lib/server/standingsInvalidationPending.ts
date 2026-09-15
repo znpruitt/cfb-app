@@ -119,18 +119,44 @@ export async function recordPendingStandingsInvalidation(
 }
 
 /**
- * Clear year `year`'s pending record. Call ONLY after a walk that actually busted —
- * clearing on a walk that invalidated nothing would discard a fault it never repaired,
- * which is this item's own defect relocated into its repair path.
+ * Clear year `year`'s pending record, but ONLY if it is still the generation the
+ * caller observed before its cache walk.
  *
- * NEVER THROWS, for the same reason as above.
+ * THE RACE THIS CLOSES, which an unconditional write does not: a walk takes time, and
+ * another schedule writer can commit the same year and record a NEW obligation while
+ * it runs. The key transaction serializes the writes, not the walk — so a blind clear
+ * would erase an obligation recorded after the walk began, leaving the newest mutation
+ * stale with no marker. Re-recording deliberately preserves `since`, so `since` alone
+ * cannot distinguish generations; `attempts` moves independently. Both are compared.
+ *
+ * Passing no `observed` clears unconditionally, which is correct only where no walk
+ * preceded the call.
+ *
+ * NEVER THROWS: every caller runs after a durable commit, and a failure here must not
+ * turn a completed state change into a 500.
  */
-export async function clearPendingStandingsInvalidation(year: number): Promise<void> {
+export async function clearPendingStandingsInvalidation(
+  year: number,
+  observed?: PendingStandingsInvalidation
+): Promise<void> {
   try {
     await withAppStateKeyTransaction(
       STANDINGS_INVALIDATION_PENDING_SCOPE,
       String(year),
       async (txn) => {
+        const current = (await txn.read<unknown>())?.value;
+        // Nothing pending — do not write. A blind write would create a JSON-null row
+        // per refreshed year, and the single-scope commit site is reachable by
+        // NON-ADMIN cold reads, so every cold public read that commits would take a
+        // pooled client and an advisory lock on this key.
+        if (!isPendingRecord(current)) return;
+        if (
+          observed &&
+          (current.since !== observed.since || current.attempts !== observed.attempts)
+        ) {
+          // A newer obligation arrived while the walk ran. Leave it standing.
+          return;
+        }
         await txn.write<null>(null);
       }
     );
@@ -193,9 +219,15 @@ export async function listPendingStandingsInvalidations(
     }
   }
 
-  // Oldest fault first: a year that has been stale longest is repaired first, and the
-  // overflow drains on the next run rather than being starved by newer entries.
-  records.sort((a, b) => Date.parse(a.since) - Date.parse(b.since) || a.year - b.year);
+  // FEWEST ATTEMPTS FIRST, then oldest fault. Oldest-first alone STARVES: four years
+  // whose walks keep failing would hold every slot on every run forever, and a fifth,
+  // repairable year would never be attempted. Ordering by attempts makes a
+  // persistently-failing year yield to a fresher one automatically, so the cap rotates
+  // instead of merely bounding the damage.
+  records.sort(
+    (a, b) =>
+      a.attempts - b.attempts || Date.parse(a.since) - Date.parse(b.since) || a.year - b.year
+  );
   return records.slice(0, limit);
 }
 
@@ -214,19 +246,35 @@ export async function listPendingStandingsInvalidations(
  * NEVER THROWS. The pending record IS the failure report — a drain that fails leaves
  * it uncleared, which is durable evidence that cannot lie by omission.
  */
+export type PendingDrainSummary = {
+  /** Pending years this run walked. */
+  attempted: number;
+  /** Years whose walk busted and whose record was cleared. */
+  cleared: number;
+  /** Years still owing a bust after this run — the only one of the three that is a FAULT. */
+  stillPending: number;
+};
+
 export async function drainPendingStandingsInvalidations(
   walk: (year: number) => Promise<{ result: 'complete' | 'partial' | 'registry-failed' }>,
   limit: number = MAX_PENDING_DRAIN_PER_RUN
-): Promise<void> {
+): Promise<PendingDrainSummary> {
   const pending = await listPendingStandingsInvalidations(limit);
+  let cleared = 0;
   for (const record of pending) {
     try {
       const outcome = await walk(record.year);
       // CLEAR ONLY ON A WALK THAT ACTUALLY BUSTED. `complete` already encodes
       // `invalidated === attempted`, so a no-op walk cannot clear a fault it never
       // repaired — that would be this item's own defect relocated into its repair path.
-      if (outcome.result === 'complete') await clearPendingStandingsInvalidation(record.year);
-      else await recordPendingDrainAttempt(record.year);
+      // The observed generation is passed so a newer obligation recorded DURING the
+      // walk is not erased by this clear.
+      if (outcome.result === 'complete') {
+        await clearPendingStandingsInvalidation(record.year, record);
+        cleared += 1;
+      } else {
+        await recordPendingDrainAttempt(record.year);
+      }
     } catch (error) {
       console.error('a pending standings invalidation drain threw', {
         year: record.year,
@@ -234,5 +282,54 @@ export async function drainPendingStandingsInvalidations(
       });
       await recordPendingDrainAttempt(record.year);
     }
+  }
+  return { attempted: pending.length, cleared, stillPending: pending.length - cleared };
+}
+
+/**
+ * Discharge ONE year's outstanding bust, if it has one. The second of the two
+ * triggers.
+ *
+ * Lives on the path every full-season caller takes — cron, season-transition,
+ * historical repair, and the manual `/api/schedule?bypassCache=1` that the System
+ * Health repair link drives — so it is the only trigger the MANUAL paths reach. The
+ * cron's drain cannot cover them, exactly as this cannot cover a zero-target run.
+ *
+ * Without it the designated repair does not repair: a failed bust means content is
+ * almost certainly unchanged, so the refresh takes the no-walk-needed sentinel and
+ * reports success while the standings stay stale. Both reviewers found that
+ * independently.
+ *
+ * Returns whether a discharge was attempted, so a caller can record it. Never throws.
+ */
+export async function dischargePendingStandingsInvalidation(
+  year: number,
+  walk: (year: number) => Promise<{ result: 'complete' | 'partial' | 'registry-failed' }>
+): Promise<{ attempted: boolean; cleared: boolean }> {
+  let observed: PendingStandingsInvalidation | null = null;
+  try {
+    const row = await getAppState<unknown>(STANDINGS_INVALIDATION_PENDING_SCOPE, String(year));
+    if (isPendingRecord(row?.value)) observed = row.value;
+  } catch {
+    // Unreadable is not a discharge; the record survives and the cron retries.
+    return { attempted: false, cleared: false };
+  }
+  if (!observed) return { attempted: false, cleared: false };
+
+  try {
+    const outcome = await walk(year);
+    if (outcome.result !== 'complete') {
+      await recordPendingDrainAttempt(year);
+      return { attempted: true, cleared: false };
+    }
+    await clearPendingStandingsInvalidation(year, observed);
+    return { attempted: true, cleared: true };
+  } catch (error) {
+    console.error('a pending standings invalidation discharge threw', {
+      year,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    await recordPendingDrainAttempt(year);
+    return { attempted: true, cleared: false };
   }
 }

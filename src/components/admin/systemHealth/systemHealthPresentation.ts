@@ -355,6 +355,13 @@ export function summarizeReceiptTarget(target: SchedulerExecutionReceipt['target
         target.standingsInvalidationFailures > 0
           ? `${target.standingsInvalidationFailures} standings invalidation failure(s)`
           : '',
+        // PLATFORM-693 — the outstanding-repair fault. Still-pending ONLY: attempted
+        // and cleared are true and unactionable, and every non-fault on a health line
+        // costs attention the faults need. A count that stays nonzero across runs is
+        // itself the "stuck" signal, so no attempt count is needed here either.
+        target.pendingStandingsInvalidations > 0
+          ? `${target.pendingStandingsInvalidations} standings invalidation(s) still pending`
+          : '',
         target.kickoffsChanged > 0 ? `${target.kickoffsChanged} kickoff change(s)` : '',
       ].filter(Boolean);
       const sweepDetail = sweep.length > 0 ? ` · ${sweep.join(' · ')}` : '';

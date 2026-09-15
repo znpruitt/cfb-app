@@ -160,11 +160,13 @@ export function createScheduleRefreshCronExecutionState(): ScheduleRefreshCronEx
  * by E1B1):
  *   1. no entries → `skipped`;
  *   2. all entries skipped → `skipped`;
- *   3. ≥1 failure AND ≥1 non-failure (success/no-op) among the non-skipped →
+ *   3. ≥1 failure AND ≥1 non-failure (success/no-op/partial) among the non-skipped →
  *      `partial`;
  *   4. every non-skipped entry failed → `failure`;
- *   5. ≥1 success and no failure → `success`;
- *   6. otherwise (≥1 no-op, no success/failure) → `no-op`.
+ *   5. ≥1 per-year `partial` and no failure → `partial` (PLATFORM-693: a year that
+ *      COMMITTED but whose standings bust did not complete);
+ *   6. ≥1 success and no failure or partial → `success`;
+ *   7. otherwise (≥1 no-op, nothing else) → `no-op`.
  * Skips are excluded before the partial/failure comparison, so neither a gated
  * ordinary year NOR a transition-owned preseason year (an intentional
  * `season-transition-owner` deferral) can make a successful sibling run partial —

@@ -97,6 +97,7 @@ function targetFor(job: ExternalSchedulerJob): SchedulerExecutionTarget {
             ...cleanScheduleYearOutcome(),
           },
         ],
+        0,
         0
       );
     case 'rankings':

@@ -32,6 +32,7 @@ import {
 } from '../selectors/leagueStandings.ts';
 import {
   clearPendingStandingsInvalidation,
+  dischargePendingStandingsInvalidation,
   recordPendingStandingsInvalidation,
 } from '../server/standingsInvalidationPending.ts';
 import { getAppState, withAppStateKeyTransaction } from '../server/appStateStore.ts';
@@ -469,6 +470,15 @@ export async function refreshFullSeasonSchedule(params: {
             observedAtMs,
           })
         : EMPTY_FINAL_SCORE_SWEEP_RESULT;
+
+    // PLATFORM-693 — TRIGGER B: discharge any outstanding bust for THIS year before the
+    // content decision below. The `unchanged-clean` branch deliberately skips the walk
+    // when nothing changed, which is correct for a healthy run and is exactly what made
+    // the designated repair report success over a standing fault: a failed bust leaves
+    // content unchanged, so the repair run took that branch and never re-walked.
+    //
+    // Ahead of the switch, so every outcome benefits and no branch has to remember.
+    await dischargePendingStandingsInvalidation(year, invalidateStandingsForYearReporting);
 
     switch (commit.kind) {
       case 'stale-observation': {
