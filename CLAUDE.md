@@ -227,6 +227,30 @@ first commit; if you are not where this table says you should be, stop and say s
 - **VERIFY A CODEX REPORT'S DIFF BASE BEFORE TREATING IT AS GATHERED — the report BODY cannot tell
   you.** Its header reads only `Target: branch diff against main`, which is byte-identical for a
   real review and for a review of nothing. The range is in the TRANSCRIPT above the `# Codex Review`
+  header, where the companion logs its own `git diff` invocations — confirm that base is the branch
+  point. **MATCH THE BASE'S FIRST 12 HEX CHARACTERS ON ANY `git diff` LINE. DO NOT REQUIRE A FULL
+  40-HEX SHA, AND DO NOT KEY ON ANY PARTICULAR DIFF FORM.** The log truncates each form at a
+  different width — observed on one run: `--check` at 28 characters, `--numstat` at 38, `--stat`
+  shorter still — and a run may issue **no `--unified` diff at all**. Twelve hex characters is
+  unambiguous in this repo and survives every truncation seen.
+  **THIS RULE HAS NOW CRIED WOLF TWICE, BOTH TIMES FOR THE SAME STRUCTURAL REASON, AND THE REASON IS
+  THE LESSON.** v1 keyed on the `--stat` line; v2 keyed on a full SHA and assumed `--unified` would
+  always be present. **Both keyed on a RENDERING DETAIL of the log rather than on the quantity the
+  check cares about — "did a diff against the intended base happen."** A prefix match on any diff
+  line asks that question directly, so it does not decay when the reviewer changes which diff forms
+  it issues. **If you find yourself correcting this rule a third time, check first whether the new
+  version is keyed on the question or on the output.**
+  **THIRD INSTANCE, 2026-09-16 — AND IT WAS IN THE CHECK, NOT IN THIS TEXT.** A lane's grep capped the
+  gap between `git diff` and the prefix at 40 characters; the Codex run for #802 issued
+  `--find-renames --find-copies --unified=80`, 43 characters, and a real review was flagged empty.
+  **This rule sets no distance. Require only that `git diff` and the 12-hex prefix appear on the same
+  line.** A length bound anywhere in the pattern is another rendering detail.
+  All three failures produced the same dangerous shape: **a CLEAN report declared a review of nothing**,
+  which is when a clean verdict most needs to be trusted or rejected correctly. **A check that
+  rejects good reviews gets skipped, and then the variant it exists to catch walks through.** **A transcript with no diff command, or a base equal to HEAD, is a review of nothing
+  wearing a clean report's shape.** This is the mutation-harness failure in a second place: "did not
+  run" and "ran and found nothing" are different results that render identically, and the fix is the
+  same — find the quantity that separates them and read it every time.
 - **READ THE EXIT CODE. IT IS THE CHEAPEST DISCRIMINATOR AND IT CATCHES THE SHAPE BOTH OTHER CHECKS
   MISS.** Added 2026-09-15, fourth variant. A capacity failure emitted a `# Codex Review` header AND
   the correct `Target:` line, **16 `git diff` invocations into a real investigation of the right
@@ -249,25 +273,6 @@ first commit; if you are not where this table says you should be, stop and say s
   select a branch and cannot; it only narrows the range within whatever HEAD resolves to. Check
   `git worktree list` before invoking, and never switch branches in a worktree while a review is
   reading it. `/code-review <sha>` is immune — it takes the commit directly.
-  header, where the companion logs its own `git diff` invocations — confirm that base is the branch
-  point. **MATCH THE BASE'S FIRST 12 HEX CHARACTERS ON ANY `git diff` LINE. DO NOT REQUIRE A FULL
-  40-HEX SHA, AND DO NOT KEY ON ANY PARTICULAR DIFF FORM.** The log truncates each form at a
-  different width — observed on one run: `--check` at 28 characters, `--numstat` at 38, `--stat`
-  shorter still — and a run may issue **no `--unified` diff at all**. Twelve hex characters is
-  unambiguous in this repo and survives every truncation seen.
-  **THIS RULE HAS NOW CRIED WOLF TWICE, BOTH TIMES FOR THE SAME STRUCTURAL REASON, AND THE REASON IS
-  THE LESSON.** v1 keyed on the `--stat` line; v2 keyed on a full SHA and assumed `--unified` would
-  always be present. **Both keyed on a RENDERING DETAIL of the log rather than on the quantity the
-  check cares about — "did a diff against the intended base happen."** A prefix match on any diff
-  line asks that question directly, so it does not decay when the reviewer changes which diff forms
-  it issues. **If you find yourself correcting this rule a third time, check first whether the new
-  version is keyed on the question or on the output.**
-  Both failures produced the same dangerous shape: **a CLEAN report declared a review of nothing**,
-  which is when a clean verdict most needs to be trusted or rejected correctly. **A check that
-  rejects good reviews gets skipped, and then the variant it exists to catch walks through.** **A transcript with no diff command, or a base equal to HEAD, is a review of nothing
-  wearing a clean report's shape.** This is the mutation-harness failure in a second place: "did not
-  run" and "ran and found nothing" are different results that render identically, and the fix is the
-  same — find the quantity that separates them and read it every time.
 - Both reviews must run against the **same commit**, and both must be gathered before any
   remediation — see `AGENTS.md` → **Review and remediation limits**.
 
