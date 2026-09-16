@@ -250,12 +250,21 @@ first commit; if you are not where this table says you should be, stop and say s
   `git worktree list` before invoking, and never switch branches in a worktree while a review is
   reading it. `/code-review <sha>` is immune — it takes the commit directly.
   header, where the companion logs its own `git diff` invocations — confirm that base is the branch
-  point. **GREP ANY `git diff` LINE CARRYING A FULL 40-HEX SHA. DO NOT KEY ON THE `--stat` LINE:**
-  corrected 2026-09-15, within hours of writing it, by the lane that used it first. The log
-  TRUNCATES that line — it renders as `git diff --stat 9764b...` — so a grep for a full SHA after
-  `--stat` finds nothing and reports a review of nothing on a perfectly good review. The full SHA
-  survives on the `git diff --unified=N <sha>` lines. **A check that cries wolf gets skipped**, which
-  would have cost more than the gap it closes. **A transcript with no diff command, or a base equal to HEAD, is a review of nothing
+  point. **MATCH THE BASE'S FIRST 12 HEX CHARACTERS ON ANY `git diff` LINE. DO NOT REQUIRE A FULL
+  40-HEX SHA, AND DO NOT KEY ON ANY PARTICULAR DIFF FORM.** The log truncates each form at a
+  different width — observed on one run: `--check` at 28 characters, `--numstat` at 38, `--stat`
+  shorter still — and a run may issue **no `--unified` diff at all**. Twelve hex characters is
+  unambiguous in this repo and survives every truncation seen.
+  **THIS RULE HAS NOW CRIED WOLF TWICE, BOTH TIMES FOR THE SAME STRUCTURAL REASON, AND THE REASON IS
+  THE LESSON.** v1 keyed on the `--stat` line; v2 keyed on a full SHA and assumed `--unified` would
+  always be present. **Both keyed on a RENDERING DETAIL of the log rather than on the quantity the
+  check cares about — "did a diff against the intended base happen."** A prefix match on any diff
+  line asks that question directly, so it does not decay when the reviewer changes which diff forms
+  it issues. **If you find yourself correcting this rule a third time, check first whether the new
+  version is keyed on the question or on the output.**
+  Both failures produced the same dangerous shape: **a CLEAN report declared a review of nothing**,
+  which is when a clean verdict most needs to be trusted or rejected correctly. **A check that
+  rejects good reviews gets skipped, and then the variant it exists to catch walks through.** **A transcript with no diff command, or a base equal to HEAD, is a review of nothing
   wearing a clean report's shape.** This is the mutation-harness failure in a second place: "did not
   run" and "ran and found nothing" are different results that render identically, and the fix is the
   same — find the quantity that separates them and read it every time.
