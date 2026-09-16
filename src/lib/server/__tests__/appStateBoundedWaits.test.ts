@@ -212,10 +212,13 @@ test('statement_timeout rides with EVERY begin — the locked transaction and th
   await withFakePg(async (pool) => {
     await bothPaths(pool);
     for (const begin of begins(pool)) {
+      // ANCHORED WITH THE TRAILING `;`. Unanchored, this matched happily INSIDE
+      // `15000set local ...` — the exact string production ran during the 2026-09-15
+      // incident — so the suite had never once asserted the property that broke.
       assert.match(
         begin,
-        /set local statement_timeout = 15000/,
-        `a BEGIN carried no statement_timeout: ${begin}`
+        /set local statement_timeout = 15000;/,
+        `a BEGIN carried no statement_timeout, or no separator after it: ${begin}`
       );
     }
   });
