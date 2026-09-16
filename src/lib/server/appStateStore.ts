@@ -479,15 +479,61 @@ const APP_STATE_STATEMENT_TIMEOUT_MS = 15_000;
 const APP_STATE_LOCK_TIMEOUT_MS = 10_000;
 
 /**
- * Opens a transaction WITH its bounds in ONE round trip. Multi-statement is legal
- * here only because there are no parameters, so pg uses the simple protocol; the
- * explicit `begin` keeps the transaction open past the string. Verified applying on
- * both endpoints, including for the parameterized (extended-protocol) statements
- * that follow it inside the same transaction.
+ * Opens a transaction WITH its bounds in ONE round trip. Multi-statement is legal here
+ * only because there are no parameters, so pg uses the simple protocol; the explicit
+ * `begin` keeps the transaction open past the string. Verified applying on both
+ * endpoints, including for the parameterized (extended-protocol) statements that follow
+ * it inside the same transaction.
+ *
+ * ONE TEMPLATE LITERAL, NEVER TWO CONCATENATED — this line caused a production outage on
+ * 2026-09-15, and the separator between the two SET statements is the thing that vanished.
+ *
+ * WHAT IS OBSERVED, each item with its provenance, because THE MECHANISM IS NOT
+ * ESTABLISHED and three characterisations of it have already been wrong:
+ *
+ *   - The shipped bundle contained `begin; set local statement_timeout = 15000set local
+ *     lock_timeout = 10000`, and Postgres answered `42601 trailing junk after numeric
+ *     literal at or near "15000set"` on every authenticated page that reads `app_state`,
+ *     29 times in two minutes. OBSERVED, in production.
+ *   - The source at that commit was two template literals joined with `+`. OBSERVED.
+ *   - Rewriting it as one literal produced a correct bundle. OBSERVED, re-verified by a
+ *     clean `rm -rf .next && npm run build` for the current commit.
+ *   - Six OTHER production sites use the same two-literal shape and their tails are
+ *     INTACT in that same build — e.g. `insights/suppression.ts` emits "...aging out
+ *     under the TTL..." with its trailing space. OBSERVED, twice, by two reviewers
+ *     independently.
+ *   - Next's bundled SWC reproduced the corruption on a minimal probe using module-level
+ *     consts. MEASURED BY A REVIEWER, not by this lane.
+ *   - `esbuild --minify` did NOT reproduce it on a minimal probe. MEASURED BY A DIFFERENT
+ *     REVIEWER, not by this lane. **This does not contradict the line above — they are
+ *     different minifiers, and only SWC is in this build path.**
+ *
+ * THE THREE FAILED CHARACTERISATIONS, recorded so a fourth is not attempted casually:
+ * "a literal ending in a separator" (refuted by building that exact probe); "the trigger
+ * needs both literals to interpolate" (refuted by `suppression.ts`, which has that shape
+ * and is intact — and which stood in this comment for five rounds AFTER the refutation was
+ * acknowledged); and "the minifier is not the cause" (an esbuild probe, which cannot reach
+ * Next's SWC).
+ *
+ * **NO TRIGGER RULE IS STATED HERE, DELIBERATELY.** The single-literal form is correct
+ * whichever mechanism is true, so the fix does not depend on settling it — and publishing
+ * the most plausible remaining candidate would be the fourth confident guess in a file
+ * whose subject is a false confident claim. This is `attempted: null` applied to prose:
+ * when the population is unknown, say so in a form that cannot be mistaken for knowledge.
+ *
+ * WHAT GUARDS THIS LINE, AND WHAT DOES NOT. `__tests__/boundedBeginShape.test.ts` asserts
+ * the literal's body is EXACTLY the intended SQL — separator included — and that the
+ * declaration stays one template literal. **It reads source, so it cannot see the build
+ * and cannot catch a recurrence of the incident itself.** Do not read the first half and
+ * assume the incident is guarded; nothing in the suite reads the build.
+ *
+ * AN EARLIER VERSION OF THAT TEST WAS GREEN ON THE INCIDENT'S OWN BYTES — it asserted the
+ * shape and that both interpolations existed, and never that anything separated them. The
+ * content assertion exists because of that, and `appStateBoundedWaits.test.ts` is now
+ * anchored with the trailing `;` for the same reason: unanchored, it matched inside
+ * `15000set`.
  */
-const APP_STATE_BOUNDED_BEGIN =
-  `begin; set local statement_timeout = ${APP_STATE_STATEMENT_TIMEOUT_MS}; ` +
-  `set local lock_timeout = ${APP_STATE_LOCK_TIMEOUT_MS}`;
+const APP_STATE_BOUNDED_BEGIN = `begin; set local statement_timeout = ${APP_STATE_STATEMENT_TIMEOUT_MS}; set local lock_timeout = ${APP_STATE_LOCK_TIMEOUT_MS}`;
 
 /**
  * A CHECKED-OUT pooled client has NO `'error'` listener, and that is a crash, not a
