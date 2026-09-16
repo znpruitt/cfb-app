@@ -350,6 +350,43 @@ function retainedScheduleMetadata(item: ScheduleWireItem): Partial<AppGame> {
   return fields;
 }
 
+const SHARED_FIRST_ROUND_EVENT_KEY = 'cfp-first-round';
+const NON_FBS_PROVIDER_CLASSIFICATIONS: ReadonlySet<ProviderClassification> = new Set([
+  'fcs',
+  'ii',
+  'iii',
+]);
+
+/**
+ * The event key a `gamePhase: 'postseason'` row is built under (PLATFORM-708).
+ *
+ * `playoffEventKey` mints ONE key for every CFP first-round game — there is no
+ * bowl name to tell the four apart — and it is persisted at ingest, so stored
+ * 2024/2025 rows carry it too. Keyed on that, all four games shared an
+ * `eventId`, and a label override saved on one landed on all four. The build
+ * therefore appends the provider id to exactly that stored key, which covers
+ * stored and freshly ingested rows through one rule. Every other key is
+ * returned unchanged. An empty id keeps today's key, and an explicitly non-FBS
+ * row never acquires a derived `cfp-` key.
+ *
+ * Asserted by `cfpFirstRoundIdentity.test.ts`: "first-round rows get distinct
+ * eventIds and keys", "an empty id keeps today's key", "an explicitly non-FBS
+ * row never gets a derived cfp- key", and "a TBD row and its resolved row share
+ * one eventId".
+ */
+function postseasonEventKey(item: ScheduleWireItem): string {
+  const eventKey = item.eventKey?.trim() || `${item.week}-${item.id}`;
+  if (eventKey !== SHARED_FIRST_ROUND_EVENT_KEY) return eventKey;
+  const providerId = item.id?.trim() ?? '';
+  if (!providerId) return eventKey;
+  const explicitNonFbs = [item.homeClassification, item.awayClassification].some(
+    (classification) =>
+      classification !== undefined && NON_FBS_PROVIDER_CLASSIFICATIONS.has(classification)
+  );
+  if (explicitNonFbs) return eventKey;
+  return `${SHARED_FIRST_ROUND_EVENT_KEY}-${providerId}`;
+}
+
 export function buildScheduleFromApi(params: {
   scheduleItems: ScheduleWireItem[];
   teams: TeamCatalogItem[];
@@ -495,7 +532,7 @@ export function buildScheduleFromApi(params: {
       continue;
     }
     if (item.gamePhase === 'postseason') {
-      const eventKey = item.eventKey?.trim() || `${item.week}-${item.id}`;
+      const eventKey = postseasonEventKey(item);
       const eventId = `${season}-${eventKey}`;
       const stage: GameStage = item.postseasonSubtype === 'playoff' ? 'playoff' : 'bowl';
       const conf = item.conferenceChampionshipConference ?? null;
