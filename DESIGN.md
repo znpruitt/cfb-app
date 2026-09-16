@@ -271,8 +271,12 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   never reordering, marks the live leader or final winner
 - Schedule groups games by date in a two-column row-major grid. An odd game count therefore leaves an
   intentional empty right-hand cell rather than moving the next date's first game backward. Every
-  date heading carries a full-width 2px bottom rule — one step heavier than the 1px separator below
-  each game — so that day boundary remains legible across both columns
+  date heading carries a full-width 2px bottom rule so that day boundary remains legible across both
+  columns. Games inside a date group are discrete neutral blocks with no divider rules, so the date
+  rule is the only horizontal line in the group. **Amended 2026-09-16** (owner-approved, #730): this
+  line previously justified the rule as "one step heavier than the 1px separator below each game";
+  that separator is removed by the block treatment, and the rule stands on the empty-cell reason
+  alone. Reasoning: `item-87-followon-presentation-decisions.md` → _Games are discrete blocks_
 - Compact scoreboard state variants share that row anatomy: scheduled uses its metadata header,
   team-record anchors, and an odds footer; live uses a green dot + `Live` + clock status row and score
   anchors; awaiting uses a neutral `Awaiting score` status row with no live dot or live DOM state;

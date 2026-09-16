@@ -414,7 +414,7 @@ three surfaces' breakpoints to agree.
 
 **Block layout ignores grid `gap`.** At one column the grids become `display: block` and stack with no separation at all. Adjacent-sibling margins are required. This is easy to ship unnoticed because it appears at one breakpoint only.
 
-**Date headings** carry a full-width **2px BOTTOM** rule — corrected 2026-09-11; this said "rule above" and disagreed with canonical `DESIGN.md:267`, which places it below and one step heavier than the 1px separator under each game — asymmetric spacing binding them to the group below, and uppercase tertiary styling. A date heading is chrome, not content: making it bigger would fight the game rows; making it quieter but structurally distinct separates without competing.
+**Date headings** carry a full-width **2px BOTTOM** rule — corrected 2026-09-11; this said "rule above" and disagreed with canonical `DESIGN.md:267`, which places it below; its former comparison to a per-game separator was dropped 2026-09-16, when #730's blocks removed that separator — asymmetric spacing binding them to the group below, and uppercase tertiary styling. A date heading is chrome, not content: making it bigger would fight the game rows; making it quieter but structurally distinct separates without competing.
 
 ---
 

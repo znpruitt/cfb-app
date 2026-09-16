@@ -110,7 +110,7 @@ Three changes, and the third does most of the work:
 
 1. **Asymmetric spacing** — roughly double the space above, tighter below, so the heading belongs to the group it introduces rather than floating between two.
 2. **Quieter but distinct in kind** — uppercase, letterspaced, secondary. A date heading is chrome, not content. Making it *bigger* would fight the game rows; making it *different* separates without competing.
-3. **A 1px rule at ~16% white, spanning the full width above it.** The layout has no other horizontal line at this level, so the eye has nothing to catch on. First group omits it — nothing above to separate from.
+3. **A full-width rule.** The layout has no other horizontal line at this level, so the eye has nothing to catch on. **SUPERSEDED 2026-09-16 on position and weight:** this point read *"a 1px rule at ~16% white, spanning the full width above it"*, and the first group omitted it. `DESIGN.md` is canonical and places a **2px rule BELOW every heading**, including the first — `item-87-reference-game-row.md` §9 was corrected to match on 2026-09-11 and this copy was missed.
 
 ---
 
