@@ -1660,6 +1660,17 @@ test('scoreboard event name prefers label over notes and preserves valid notes f
     /data-scoreboard-context-slot[^>]*>[\s\S]*data-expanded-event-name[^>]*>Official Event Name/,
     'the event name must remain inside the scoreboard context slot'
   );
+  const eventNameClasses = classTokens(
+    openingTagForDataAttribute(notesHtml, 'data-expanded-event-name')
+  );
+  assert.ok(
+    eventNameClasses.has('block'),
+    'the long event name must remain a block so truncate can paint its ellipsis'
+  );
+  assert.ok(
+    eventNameClasses.has('truncate'),
+    'the long event name must retain its overflow truncation utility'
+  );
 });
 
 test('neutral-site provider matchup labels fall back to notes when canonical matchup uses vs', () => {

@@ -150,7 +150,7 @@ export default function GameWeekPanel({
                       contextSlot={
                         contextEventName ? (
                           <span
-                            className="min-w-0 truncate text-xs dark:text-zinc-400"
+                            className="block min-w-0 truncate text-xs dark:text-zinc-400"
                             data-expanded-event-name
                           >
                             {contextEventName}
