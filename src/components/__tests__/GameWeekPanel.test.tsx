@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import type { AppGame } from '../../lib/schedule';
 import type { VenueInfo } from '../../lib/schedule/cfbdSchedule';
 import { EYEBROW_TAG_CLASSES } from '../../lib/gameUi';
+import type { GameScoreboardState } from '../../lib/selectors/gameScoreboardState';
 
 /**
  * Counting the MARKER alone would keep these assertions green if the shared bronze
@@ -33,7 +34,24 @@ function assertEveryEyebrowIsBronze(html: string): void {
     'every rendered eyebrow must carry the shared bronze treatment'
   );
 }
+import CompactGameScoreboard from '../CompactGameScoreboard';
 import GameWeekPanel from '../GameWeekPanel';
+
+function openingTagForDataAttribute(html: string, attribute: string): string {
+  const openingTag = html.match(new RegExp(`<[^>]+${attribute}(?=[=\\s>])[^>]*>`))?.[0];
+  assert.ok(openingTag, `expected opening tag carrying ${attribute}`);
+  return openingTag;
+}
+
+function classTokens(openingTag: string): Set<string> {
+  const className = openingTag.match(/class="([^"]*)"/)?.[1];
+  assert.ok(className, 'expected opening tag to carry a class attribute');
+  return new Set(className.replaceAll('&amp;', '&').replaceAll('&gt;', '>').split(/\s+/));
+}
+
+function scoreboardHeaderClasses(html: string): Set<string> {
+  return classTokens(openingTagForDataAttribute(html, 'data-scoreboard-header'));
+}
 
 function game(overrides: Partial<AppGame>): AppGame {
   return {
@@ -185,7 +203,93 @@ test('every date heading carries the full-width rule that explains an unmatched 
     assert.match(classes, /\bborder-b-2\b/);
     assert.match(classes, /\bdark:border-zinc-800\/80\b/);
     assert.match(classes, /\bpb-2\b/);
+    assert.match(classes, /\btext-xs\b/);
+    assert.match(classes, /\bfont-semibold\b/);
+    assert.match(classes, /\buppercase\b/);
+    assert.match(classes, /\btracking-widest\b/);
+    assert.match(classes, /\btext-gray-500\b/);
+    assert.match(classes, /\bdark:text-zinc-400\b/);
   }
+});
+
+test('schedule games render as separated neutral blocks with a rounded focus ring', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[game({ key: 'presentation-block' })]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+      focusedGameId="presentation-block"
+    />
+  );
+  const cardClasses = classTokens(
+    openingTagForDataAttribute(html, 'data-game-card-id="presentation-block"')
+  );
+  const gridClasses = classTokens(
+    openingTagForDataAttribute(html, 'data-schedule-scoreboard-grid')
+  );
+
+  assert.ok(cardClasses.has('bg-[rgba(255,255,255,0.022)]'), 'block keeps the neutral fill');
+  assert.ok(cardClasses.has('rounded-[5px]'), 'block keeps the settled 5px radius');
+  assert.ok(cardClasses.has('py-[7px]'), 'block keeps 7px vertical padding');
+  assert.ok(cardClasses.has('px-2.5'), 'block keeps 10px horizontal padding');
+  assert.ok(cardClasses.has('ring-1'), 'focused block carries its ring on the rounded wrapper');
+  assert.ok(gridClasses.has('gap-y-1.5'), 'two-column rows keep the settled 6px gap');
+  assert.ok(
+    gridClasses.has('@max-[760.01px]:gap-y-2'),
+    'the one-column grid increases row separation to 8px'
+  );
+});
+
+test('schedule wrapper directly targets the scoreboard divider and outer padding', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[game({ key: 'local-scoreboard-override' })]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+  const cardClasses = classTokens(
+    openingTagForDataAttribute(html, 'data-game-card-id="local-scoreboard-override"')
+  );
+
+  assert.match(
+    html,
+    /data-game-card-id="local-scoreboard-override"><article(?=[^>]*data-game-scoreboard(?=[=\s>]))/,
+    'the data-game-scoreboard hook must remain the wrapper direct child'
+  );
+  assert.ok(
+    cardClasses.has('[&>[data-game-scoreboard]]:border-b-0'),
+    'Schedule must locally remove the shared scoreboard divider'
+  );
+  assert.ok(
+    cardClasses.has('[&>[data-game-scoreboard]]:py-0'),
+    'Schedule must locally remove the shared scoreboard outer padding'
+  );
+});
+
+test('default scoreboard retains its divider and outer padding outside the Schedule override', () => {
+  const html = renderToStaticMarkup(
+    <CompactGameScoreboard
+      state="scheduled"
+      matchupLabel="Away at Home"
+      away={{ teamName: 'Away', score: null }}
+      home={{ teamName: 'Home', score: null }}
+    />
+  );
+  const scoreboardClasses = classTokens(openingTagForDataAttribute(html, 'data-game-scoreboard'));
+
+  assert.ok(scoreboardClasses.has('border-b'), 'default scoreboard must retain its divider');
+  assert.ok(scoreboardClasses.has('py-3'), 'default scoreboard must retain its outer padding');
 });
 
 test('late-night kickoff header matches kickoff text timezone', () => {
@@ -1551,6 +1655,22 @@ test('scoreboard event name prefers label over notes and preserves valid notes f
     notesHtml,
     /data-expanded-event-name[^>]*>Aer Lingus College Football Classic<\/span>/
   );
+  assert.match(
+    labelHtml,
+    /data-scoreboard-context-slot[^>]*>[\s\S]*data-expanded-event-name[^>]*>Official Event Name/,
+    'the event name must remain inside the scoreboard context slot'
+  );
+  const eventNameClasses = classTokens(
+    openingTagForDataAttribute(notesHtml, 'data-expanded-event-name')
+  );
+  assert.ok(
+    eventNameClasses.has('block'),
+    'the long event name must remain a block so truncate can paint its ellipsis'
+  );
+  assert.ok(
+    eventNameClasses.has('truncate'),
+    'the long event name must retain its overflow truncation utility'
+  );
 });
 
 test('neutral-site provider matchup labels fall back to notes when canonical matchup uses vs', () => {
@@ -1684,6 +1804,21 @@ test('schedule cards use primary tag priority (upset watch over top-25) with sub
   assert.match(html, /data-eyebrow-tag[^>]*>Top 25 Matchup<\/span>/);
   assert.doesNotMatch(html, /data-eyebrow-tag[^>]*>Top 25<\/span>/);
   assert.equal(bronzeEyebrows(html).length, 2);
+  assert.match(
+    html,
+    /data-scoreboard-tag-slot[^>]*>[\s\S]*Upset watch[\s\S]*Top 25 Matchup/,
+    'primary and secondary Schedule tags must render in the scoreboard tag slot'
+  );
+  assert.doesNotMatch(
+    html,
+    /data-scoreboard-context-slot/,
+    'tags without an event name must not create an empty context slot'
+  );
+  assert.equal(
+    scoreboardHeaderClasses(html).has('max-sm:flex-wrap'),
+    false,
+    'a tagged live Schedule row must not gain the phone-width wrap exception'
+  );
 });
 
 test('single-tag cards render only a primary tag without any secondary tag chips', () => {
@@ -1710,6 +1845,20 @@ test('single-tag cards render only a primary tag without any secondary tag chips
   assert.match(html, /data-eyebrow-tag[^>]*>Top 25 Matchup<\/span>/);
   assert.doesNotMatch(html, /data-eyebrow-tag[^>]*>Top 25<\/span>/);
   assert.equal(bronzeEyebrows(html).length, 1);
+  assert.match(
+    html,
+    /data-scoreboard-tag-slot[^>]*>[\s\S]*Top 25 Matchup/,
+    'a primary Schedule tag must render in the scoreboard tag slot'
+  );
+  assert.doesNotMatch(
+    html,
+    /data-scoreboard-context-slot/,
+    'a tag alone must not justify a scoreboard context wrapper'
+  );
+  assert.ok(
+    scoreboardHeaderClasses(html).has('max-sm:flex-wrap'),
+    'a tagged scheduled Schedule row must gain the phone-width wrap exception'
+  );
 });
 
 test('cards without qualifying tags render no expanded tag chips', () => {
@@ -1729,6 +1878,41 @@ test('cards without qualifying tags render no expanded tag chips', () => {
   assert.match(html, /data-game-card-id="zero-tag"/);
   assert.match(html, /data-primary-tag=""/);
   assert.equal(bronzeEyebrows(html).length, 0);
+  assert.doesNotMatch(html, /data-scoreboard-tag-slot/);
+  assert.equal(
+    scoreboardHeaderClasses(html).has('max-sm:flex-wrap'),
+    false,
+    'an untagged scheduled Schedule row must not gain the phone-width wrap exception'
+  );
+});
+
+test('tagged non-scheduled scoreboard states never inherit the phone-width wrap exception', () => {
+  const renderTaggedHeader = (state: GameScoreboardState): Set<string> =>
+    scoreboardHeaderClasses(
+      renderToStaticMarkup(
+        <CompactGameScoreboard
+          state={state}
+          matchupLabel={`Away at Home (${state})`}
+          away={{ teamName: 'Away', score: state === 'live' || state === 'final' ? 17 : null }}
+          home={{ teamName: 'Home', score: state === 'live' || state === 'final' ? 10 : null }}
+          tagSlot={<span data-row-26-tag>Top 25 Matchup</span>}
+        />
+      )
+    );
+
+  for (const state of ['live', 'awaiting', 'unavailable', 'final'] as const) {
+    const classes = renderTaggedHeader(state);
+    assert.equal(
+      classes.has('max-sm:flex-wrap'),
+      false,
+      `tagged ${state} rows must not wrap at phone width`
+    );
+    assert.equal(
+      classes.has('max-sm:gap-y-1'),
+      false,
+      `tagged ${state} rows must not gain a phone-width row gap`
+    );
+  }
 });
 
 test('collapsed and expanded tag presentation stay aligned to the same primary tag', () => {
