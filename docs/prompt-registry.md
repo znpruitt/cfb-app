@@ -121,6 +121,30 @@ These consolidate recurring historical observations, not new project-governance 
 
 ## Prompt ledger (source order retained)
 
+### PLATFORM-728-730-731-SCHEDULE-PRESENTATION-CODEX-v1
+
+- Purpose: bring Schedule's scoreboard rows to the settled presentation contract for
+  [#728](https://github.com/znpruitt/cfb-app/issues/728),
+  [#730](https://github.com/znpruitt/cfb-app/issues/730), and
+  [#731](https://github.com/znpruitt/cfb-app/issues/731).
+- Scope: `GameWeekPanel.tsx` and its component suite only. No selector, shared-scoreboard, tag-choice,
+  or `DESIGN.md` implementation change; the uncapped selector output remains
+  [#795](https://github.com/znpruitt/cfb-app/issues/795).
+- Outcome: event names alone occupy `contextSlot`; primary-gated tags occupy `tagSlot`. Schedule
+  rows are neutral 5px blocks with 7px/10px padding, matching-radius focus rings, responsive vertical
+  gaps, and direct-child overrides for the shared divider and outer padding. Date headings use the
+  quiet uppercase token set. Long event names retain block ellipsis truncation. The existing
+  asymmetric section spacing is unchanged.
+- Review / verification: two accepted findings were remediated — a Tailwind token boundary that made
+  `py-0` depend on test-source scanning, then lost event-name ellipsis after the slot move. The owner
+  approved the additional round; final Codex and `/code-review high` confirmations found no remaining
+  issue. Four tests were added and existing assertions strengthened without weakening. Mutations
+  reddened every named styling, slot, state-wrap, Tailwind-discovery and truncation assertion. Full
+  suite (5,387), `lint:all`, required browser gate and clean production build passed on `c932d609`;
+  the emitted CSS contained both direct-child rules. Planning resolved the prompt's real date-rule
+  contradiction in `e6f6b630` before the clean rebase; this lane did not edit `DESIGN.md`. See L4/L6.
+- Status: Implemented and reviewed — [PR #809](https://github.com/znpruitt/cfb-app/pull/809) open.
+
 ### PLATFORM-715-MATCHUPS-ODDS-FOOTER-CODEX-v1
 
 - Purpose: render compact betting-line content on scheduled Matchups rows and explicit
