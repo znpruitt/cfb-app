@@ -1,6 +1,10 @@
 import React from 'react';
 
-import { formatExpandedKickoff, formatPrimaryBroadcastLabel } from '../lib/gameCardPresentation';
+import {
+  formatExpandedKickoff,
+  formatMatchupsOddsFooter,
+  formatPrimaryBroadcastLabel,
+} from '../lib/gameCardPresentation';
 import { displayOwner } from '../lib/gameOwnership';
 import type { CombinedOdds } from '../lib/odds';
 import {
@@ -192,16 +196,19 @@ function GameRow({
   // to a state the app still believes. `No score reported` is defined as the state
   // where "awaiting is a claim the app no longer believes", so a carrier there is
   // what the fifth state exists to stop, on the same logic that excludes finals.
+  // Members can also reach `unavailable` through `projectMembersGameState`, but it
+  // does not consume `CompactGameScoreboard`. Of the compact-scoreboard consumers,
+  // Matchups is the one that can render this defect: `routeForItem` drops those at
+  // the eight-hour abandonment gate and `resolveScheduleScoreboard` degrades them
+  // to `scheduled`.
   //
   // THIS GATE IS LOAD-BEARING — do not simplify it to an unconditional pass by
   // analogy with `OverviewPanel.tsx:877`. Unlike Overview's gate at `:797`, which
   // its own comment notes changes no rendered output, this one changes what ships:
   // `displayPolicyByState.unavailable.showsBroadcast` is `true`, so removing this
   // gate renders `No score reported • FOX` for a game more than 24 hours past
-  // kickoff. Matchups is the only surface that can reach it — `routeForItem` drops
-  // those at the eight-hour abandonment gate and `resolveScheduleScoreboard`
-  // degrades them to `scheduled`. That component-side default is the real defect
-  // and is #796; this gate holds the line until it lands, and stays correct after.
+  // kickoff. That component-side default is the real defect and is #796; this gate
+  // holds the line until it lands, and stays correct after.
   //
   // The three admitted states match `gameWeek.ts:327-330`, the Schedule surface and
   // the sibling that actually answers `unavailable`. THE MATCH IS NOT EXACT and the
@@ -364,6 +371,13 @@ function GameRow({
           record: teamRecords?.home,
           score: scoreboardDisplay.homeScore,
         }}
+        footerSlot={
+          scoreboardState === 'scheduled' ? (
+            <span className="block min-w-0 truncate tabular-nums">
+              {formatMatchupsOddsFooter({ odds, homeTeamName, awayTeamName })}
+            </span>
+          ) : undefined
+        }
         tier2Slot={
           tier2Content ? (
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs leading-5 text-gray-500 dark:text-zinc-400">

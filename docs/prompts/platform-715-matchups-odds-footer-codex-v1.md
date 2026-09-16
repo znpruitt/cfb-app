@@ -3,8 +3,8 @@
 ```text
 PROMPT_ID: PLATFORM-715-MATCHUPS-ODDS-FOOTER-CODEX-v1
 PURPOSE: Render the betting line on SCHEDULED Matchups rows, with `Line not posted` as explicit
-         content when no line exists. Requires a new display formatter for `CombinedOdds`, which
-         does not exist anywhere in src/ today.
+         content when no line exists. Requires a contract-specific display formatter for
+         `CombinedOdds`; three formatters exist, but none implements this contract.
 SCOPE:   src/lib/gameCardPresentation.ts (new formatter + tests) and
          src/components/MatchupsWeekPanel.tsx (the caller) and its tests.
          DO NOT modify src/lib/odds.ts, CompactGameScoreboard.tsx, matchups.ts, gameTags.ts, or
@@ -31,10 +31,12 @@ CARRIES: Item 87 INDEX row 29, verbatim in the part that binds:
 
 This issue was grouped with #723 and #725 as "Matchups caller work" and **split out at the read receipt**,
 because the issue's claim that it is caller-only turned out to be false. The data is present and the
-seam is open — both true — but **there is no display formatter for `CombinedOdds` anywhere in
-`src/`.** Verified by grep during the receipt. The type carries eleven fields and the mockup shows
-one rendering of three of them, so somebody has to write that function and decide the cases the
-mockup does not show.
+seam is open — both true — but **none of the three display formatters for `CombinedOdds` implements
+this contract.** `watchlistOddsFooter` uses canonical favorite data and nullable empty content;
+`formatOddsSummary` is an expanded Schedule summary with labels and moneylines; `buildOddsSummary`
+is a diagnostic string with source metadata. The type carries fifteen fields and the mockup shows
+one rendering of three of them, so this slice still needs its own formatter and decisions for the
+cases the mockup does not show.
 
 Those two shipped in `539982ee` (PR #800). This is the remainder.
 
@@ -150,9 +152,10 @@ the sibling issue; this is the check that catches them inside the commit.
 5. **What renders today on a scheduled Matchups row's footer?** Nothing, per the issue. Verify it,
    and say whether adding one changes row height or spacing for rows that currently have none.
 6. **Enumerate the states `projectMatchupsGameState` can return**, and confirm `scheduled` is the
-   only one that gets a footer. Note that `unavailable` is reachable on Matchups and on no other
-   surface — say explicitly whether it gets odds. (It should not. Say so from the ruling, not from
-   the code.)
+   only one that gets a footer. `Members` also reaches `unavailable` through
+   `projectMembersGameState`, but does not consume `CompactGameScoreboard`; of the scoreboard
+   consumers, Matchups is the one that can render the defect. Say explicitly that `unavailable`
+   gets no odds, from the ruling rather than from the code.
 7. **Is the U+2212 / U+00B7 requirement satisfiable in the test harness?** A raw U+2028 once made a
    test look vacuous on this project. Say how you will assert the exact characters.
 8. **What in this prompt contradicts what you found in the files?**

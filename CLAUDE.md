@@ -199,7 +199,22 @@ first commit; if you are not where this table says you should be, stop and say s
   two-dot review would have reported that the branch **deleted an entire reconstruction prompt and
   reverted this file's corrections** — findings a reviewer would rate high, against a branch that
   touched neither file. `/code-review <sha>` takes the commit directly and has
-  no such exposure. It reviews `main...HEAD`, and `resolveCommandCwd` in the companion is
+  no such exposure.
+- **`--base` HAS TWO USES AND THEY LOOK IDENTICAL AT THE CALL SITE. PASS A REAL MERGE-BASE, NEVER A
+  BRANCH COMMIT.** Added 2026-09-15 after a lane passed its own previous branch tip as `--base`,
+  believing it was applying the drift fix above. **Passing a branch commit ALSO avoids the phantom
+  deletions, so it looks like it is doing the drift-protection job while silently narrowing what the
+  reviewer sees.** One is a correctness fix for a two-dot artefact; the other is a judgement about
+  review scope, and it rides along invisibly. **Measured on #693:** the real merge-base gave 25
+  files / 2,625 insertions; the branch commit gave 13 / 576 — **less than a quarter of the branch**.
+  Verify with `git merge-base --is-ancestor <base> origin/main`; a true merge-base IS an ancestor of
+  `origin/main` and a branch commit is not.
+- **A DELTA REVIEW CANNOT SEE AN INTEGRATION DEFECT, WHICH IS THE CLASS THIS REPO ACTUALLY SHIPS.**
+  Every serious finding on #693 was correct in its own diff and wrong in where it LANDED: a helper
+  nothing called; an issue code no panel claimed; a registration whose entire risk is the tile it
+  files under. **Review against the merge-base even when a narrower range is defensible** — the cost
+  is re-reported findings, which an adjudication record dismisses in a line, and per the standing
+  rule a repeat you believe is wrong gets a TEST, not a rebuttal. It reviews `main...HEAD`, and `resolveCommandCwd` in the companion is
   `options.cwd ? path.resolve(process.cwd(), options.cwd) : process.cwd()`, so **the workspace comes
   from the invoking process's cwd.** Invoke it from the session whose worktree holds the branch.
   From the PLANNING worktree, which sits on `main`, the range is empty. `main...HEAD` is therefore
@@ -212,13 +227,44 @@ first commit; if you are not where this table says you should be, stop and say s
 - **VERIFY A CODEX REPORT'S DIFF BASE BEFORE TREATING IT AS GATHERED — the report BODY cannot tell
   you.** Its header reads only `Target: branch diff against main`, which is byte-identical for a
   real review and for a review of nothing. The range is in the TRANSCRIPT above the `# Codex Review`
+- **READ THE EXIT CODE. IT IS THE CHEAPEST DISCRIMINATOR AND IT CATCHES THE SHAPE BOTH OTHER CHECKS
+  MISS.** Added 2026-09-15, fourth variant. A capacity failure emitted a `# Codex Review` header AND
+  the correct `Target:` line, **16 `git diff` invocations into a real investigation of the right
+  files** — so the banner check passes and the transcript check passes. Only the body sentence
+  (*"Reviewer failed to output a response"*, *"Selected model is at capacity"*) and **exit code 1**
+  distinguish it; a good run exits 0. **Check the exit code first, then the diff base, then the
+  body.** Cheapest to most expensive, and the cheapest is the one that catches a run which did real
+  work and produced no findings.
+- **THE BANNER CAN NAME A BASE THE REVIEW NEVER USED. A THIRD VARIANT, AND THE MOST DANGEROUS.**
+  Added 2026-09-15. A run invoked with `--base <802's merge-base>` printed
+  `Reviewer started: changes against '262708ff…'` — **and that was the only place the value appeared
+  in the entire log.** All sixteen `git diff` invocations used `a1421035`, the merge-base of the
+  branch that happened to be CHECKED OUT, and it reviewed that branch's files and commits. The
+  requested branch was checked out in no worktree at all, so the companion resolved HEAD from cwd
+  (`resolveCommandCwd`), derived its own base, and accepted the passed `--base` into the banner only.
+  **A review of NOTHING wears a clean report's shape; this is a review of the WRONG THING wearing the
+  RIGHT banner — so a header check confirms exactly the wrong conclusion.** The diff commands in the
+  transcript are the only quantity that separates them, which is why they are what you read.
+- **SO: THE BRANCH YOU WANT REVIEWED MUST BE CHECKED OUT IN THE INVOKING WORKTREE.** `--base` does not
+  select a branch and cannot; it only narrows the range within whatever HEAD resolves to. Check
+  `git worktree list` before invoking, and never switch branches in a worktree while a review is
+  reading it. `/code-review <sha>` is immune — it takes the commit directly.
   header, where the companion logs its own `git diff` invocations — confirm that base is the branch
-  point. **GREP ANY `git diff` LINE CARRYING A FULL 40-HEX SHA. DO NOT KEY ON THE `--stat` LINE:**
-  corrected 2026-09-15, within hours of writing it, by the lane that used it first. The log
-  TRUNCATES that line — it renders as `git diff --stat 9764b...` — so a grep for a full SHA after
-  `--stat` finds nothing and reports a review of nothing on a perfectly good review. The full SHA
-  survives on the `git diff --unified=N <sha>` lines. **A check that cries wolf gets skipped**, which
-  would have cost more than the gap it closes. **A transcript with no diff command, or a base equal to HEAD, is a review of nothing
+  point. **MATCH THE BASE'S FIRST 12 HEX CHARACTERS ON ANY `git diff` LINE. DO NOT REQUIRE A FULL
+  40-HEX SHA, AND DO NOT KEY ON ANY PARTICULAR DIFF FORM.** The log truncates each form at a
+  different width — observed on one run: `--check` at 28 characters, `--numstat` at 38, `--stat`
+  shorter still — and a run may issue **no `--unified` diff at all**. Twelve hex characters is
+  unambiguous in this repo and survives every truncation seen.
+  **THIS RULE HAS NOW CRIED WOLF TWICE, BOTH TIMES FOR THE SAME STRUCTURAL REASON, AND THE REASON IS
+  THE LESSON.** v1 keyed on the `--stat` line; v2 keyed on a full SHA and assumed `--unified` would
+  always be present. **Both keyed on a RENDERING DETAIL of the log rather than on the quantity the
+  check cares about — "did a diff against the intended base happen."** A prefix match on any diff
+  line asks that question directly, so it does not decay when the reviewer changes which diff forms
+  it issues. **If you find yourself correcting this rule a third time, check first whether the new
+  version is keyed on the question or on the output.**
+  Both failures produced the same dangerous shape: **a CLEAN report declared a review of nothing**,
+  which is when a clean verdict most needs to be trusted or rejected correctly. **A check that
+  rejects good reviews gets skipped, and then the variant it exists to catch walks through.** **A transcript with no diff command, or a base equal to HEAD, is a review of nothing
   wearing a clean report's shape.** This is the mutation-harness failure in a second place: "did not
   run" and "ran and found nothing" are different results that render identically, and the fix is the
   same — find the quantity that separates them and read it every time.
