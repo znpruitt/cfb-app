@@ -132,8 +132,8 @@ export default function GameWeekPanel({
                       }
                       gameCardRefs.current.set(g.key, element);
                     }}
-                    className={`rounded-[5px] bg-[rgba(255,255,255,0.022)] px-2.5 py-[7px] [&>[data-game-scoreboard]]:border-b-0 [&>[data-game-scoreboard]]:py-0${
-                      focusedGameId === g.key ? ' ring-1 ring-blue-500 dark:ring-blue-500' : ''
+                    className={`rounded-[5px] bg-[rgba(255,255,255,0.022)] px-2.5 py-[7px] [&>[data-game-scoreboard]]:border-b-0 [&>[data-game-scoreboard]]:py-0 ${
+                      focusedGameId === g.key ? 'ring-1 ring-blue-500 dark:ring-blue-500' : ''
                     }`}
                     data-primary-tag={primaryTag ?? ''}
                     data-ranked-game={card.hasRankedTeam ? 'true' : 'false'}
