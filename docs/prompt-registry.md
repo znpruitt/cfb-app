@@ -139,11 +139,12 @@ These consolidate recurring historical observations, not new project-governance 
   `py-0` depend on test-source scanning, then lost event-name ellipsis after the slot move. The owner
   approved the additional round; final Codex and `/code-review high` confirmations found no remaining
   issue. Four tests were added and existing assertions strengthened without weakening. Mutations
-  reddened every named styling, slot, state-wrap, Tailwind-discovery and truncation assertion. Full
-  suite (5,387), `lint:all`, required browser gate and clean production build passed on `c932d609`;
+  reddened every named styling, slot, state-wrap, Tailwind-discovery and truncation assertion. `lint:all`,
+  required browser gate and clean production build passed on the pre-rebase head `c932d609` (5,387 tests), which is not on
+  `origin`; after the rebase planning re-ran the suite on merged `81f7e287` (5,396 pass, 0 fail), whose tree matches head `dc9adff8`;
   the emitted CSS contained both direct-child rules. Planning resolved the prompt's real date-rule
   contradiction in `e6f6b630` before the clean rebase; this lane did not edit `DESIGN.md`. See L4/L6.
-- Status: Implemented and reviewed — [PR #809](https://github.com/znpruitt/cfb-app/pull/809) open.
+- Status: Merged ([PR #809](https://github.com/znpruitt/cfb-app/pull/809), `81f7e287`, 2026-09-16).
 
 ### PLATFORM-715-MATCHUPS-ODDS-FOOTER-CODEX-v1
 
