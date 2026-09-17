@@ -618,6 +618,46 @@ test('E4 collection: scalar-only manual team-name overrides remain supported', (
   assert.equal(overridden.participants.home.teamId, 'alpha');
 });
 
+test('E4 collection: participant replacements outrank conflicting scalar team-name overrides', () => {
+  const base = e4AppGame({
+    eventId: 'manual-override-participant-precedence',
+    providerGameId: '702',
+    participants: {
+      home: teamSlot('alpha', 'Alpha'),
+      away: teamSlot('beta', 'Beta'),
+    },
+    csvHome: 'Alpha',
+    csvAway: 'Beta',
+    canHome: 'Alpha',
+    canAway: 'Beta',
+  });
+
+  const [overridden] = buildAuthoritativeGameCollection([base], [], {
+    [base.eventId]: {
+      participants: {
+        home: teamSlot('gamma', 'Gamma'),
+        away: teamSlot('beta', 'Beta'),
+      },
+      csvHome: 'Conflicting Operator Label',
+      canHome: 'Conflicting Operator Canonical Name',
+    },
+  });
+
+  assert.ok(overridden);
+  assert.equal(
+    overridden.csvHome,
+    'Gamma',
+    'the replacement participant owns the provider-facing name for its side'
+  );
+  assert.equal(
+    overridden.canHome,
+    'Gamma',
+    'the replacement participant owns the canonical name for its side'
+  );
+  assert.equal(overridden.participants.home.kind, 'team');
+  assert.equal(overridden.participants.home.teamId, 'gamma');
+});
+
 test('E4 collection: a fragment naming a foreign team never hydrates the wrong game', () => {
   // A partial row with ONE settled team slot naming UC Davis must not attach
   // its slot to the fully resolved Texas–Georgia candidate.
