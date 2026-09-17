@@ -369,28 +369,39 @@ const NON_FBS_PROVIDER_CLASSIFICATIONS: ReadonlySet<ProviderClassification> = ne
  * returned unchanged. An empty id keeps today's key, and an explicitly non-FBS
  * row never acquires a derived `cfp-` key.
  *
- * The id must be ALL DIGITS, not merely present (#708 round 1, Codex P2): when
- * CFBD omits `id`, `mapCfbdScheduleGame` fabricates one from the week and the
- * TEAM NAMES, so a TBD row and its resolved row would carry DIFFERENT ids and
- * an override saved on the placeholder would stop applying at exactly the
- * transition it exists for. A fabricated id therefore keeps the shared key,
- * which does not move across resolution. This is the same "a real provider id
- * is a plain decimal" rule `collectionIdentity` applies.
+ * The id must be a SAFE-INTEGER decimal, not merely present (#708 round 1,
+ * Codex P2): when CFBD omits `id`, `mapCfbdScheduleGame` fabricates one from
+ * the week and the TEAM NAMES, so a TBD row and its resolved row would carry
+ * DIFFERENT ids and an override saved on the placeholder would stop applying at
+ * exactly the transition it exists for. A fabricated id therefore keeps the
+ * shared key, which does not move across resolution. The safe-integer bound is
+ * what makes this the SAME rule `collectionIdentity` applies: it treats a
+ * beyond-safe decimal as id-less because such strings collapse under `Number`,
+ * and an id this function accepted but that one rejected would be a distinct
+ * `eventId` over a row the collection routes by its fragment rules.
  *
  * Asserted by `cfpFirstRoundIdentity.test.ts`: "first-round rows get distinct
  * eventIds and keys", "an empty id keeps today's key", "a fabricated id keeps
- * today's key across resolution", "an explicitly non-FBS row never gets a
- * derived cfp- key", and "a TBD row and its resolved row share one eventId".
+ * today's key across resolution", "a beyond-safe-integer id keeps today's key",
+ * "an explicitly non-FBS row never gets a derived cfp- key", and "a TBD row and
+ * its resolved row share one eventId".
  */
 function postseasonEventKey(item: ScheduleWireItem): string {
   const eventKey = item.eventKey?.trim() || `${item.week}-${item.id}`;
   if (eventKey !== SHARED_FIRST_ROUND_EVENT_KEY) return eventKey;
   const providerId = item.id?.trim() ?? '';
-  if (!/^\d+$/.test(providerId)) return eventKey;
+  if (!/^\d+$/.test(providerId) || !Number.isSafeInteger(Number(providerId))) return eventKey;
   const explicitNonFbs = [item.homeClassification, item.awayClassification].some(
     (classification) =>
       classification !== undefined && NON_FBS_PROVIDER_CLASSIFICATIONS.has(classification)
   );
+  // Returning the SHARED key here leaves explicitly non-FBS rows colliding with
+  // each other exactly as they do today — #811 owns that residue, along with the
+  // identical collision in every other bare `cfp-<round>` key. The guard stays
+  // because its reason is the one recorded at `cfbdSchedule.ts:640-646`: a
+  // non-FBS row must never acquire a derived CFP identity. No stored row has
+  // ever carried a `cfp-` key with a non-FBS participant, which is an argument
+  // that the guard cannot be exercised, not that it is wrong.
   if (explicitNonFbs) return eventKey;
   return `${SHARED_FIRST_ROUND_EVENT_KEY}-${providerId}`;
 }

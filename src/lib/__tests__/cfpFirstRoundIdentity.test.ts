@@ -210,6 +210,66 @@ test("a fabricated id keeps today's key across resolution", () => {
   assert.equal(resolved?.label, 'First Round at Autzen', 'the override still applies');
 });
 
+// Parity with `collectionIdentity` (`schedulePostseasonHelpers.ts:185-193`),
+// which treats a beyond-safe decimal as id-less because such strings collapse
+// under `Number`. An id this build accepted but that one rejected would mint a
+// distinct eventId over a row the collection routes by its fragment rules.
+test("a beyond-safe-integer id keeps today's key", () => {
+  const beyondSafe = '9007199254740993'; // 2^53 + 1
+  assert.equal(Number(beyondSafe), Number('9007199254740992'), 'the two ids collapse under Number');
+
+  const [game] = build([
+    storedFirstRoundRow(beyondSafe, 'Oregon', 'Tulane', '2025-12-20T17:00:00.000Z'),
+  ]);
+  assert.equal(game?.eventId, '2025-cfp-first-round', 'a beyond-safe id is not appended');
+});
+
+// CHARACTERIZATION, not an endorsement (#811). Rows CFBD sends without an `id`
+// keep the shared key, so several of them still collide on one eventId and one
+// override still reaches all of them — the residue #708 does not close, along
+// with the identical collision in every other bare `cfp-<round>` key. The
+// alternative is worse and was measured: a fabricated id is TEAM-DERIVED, so
+// appending it moves the eventId across resolution and loses the override at
+// the one transition it exists for ("a fabricated id keeps today's key across
+// resolution" above). This test exists so a later change to the guard has to
+// confront the trade rather than discover it.
+test('#811 residue: id-less first-round rows still share one eventId', () => {
+  const raw = (home: string, away: string): CfbdScheduleGame =>
+    ({
+      week: 1,
+      home_team: home,
+      away_team: away,
+      start_date: home === 'Oregon' ? '2025-12-21T00:30:00.000Z' : '2025-12-20T17:00:00.000Z',
+      notes: 'College Football Playoff First Round Game',
+      season_type: 'postseason',
+      game_phase: 'postseason',
+    }) as CfbdScheduleGame;
+
+  const mapped = [raw('Oregon', 'James Madison'), raw('Texas A&M', 'Miami')].map((row) =>
+    mapCfbdScheduleGame(row, 'postseason')
+  );
+  assert.ok(mapped.every((result) => result.ok));
+  const items = mapped.flatMap((result) => (result.ok ? [result.item] : []));
+  assert.equal(new Set(items.map((item) => item.id)).size, 2, 'the fabricated ids differ');
+
+  const games = build(items).filter((game) => game.playoffRound === 'first-round');
+  assert.equal(games.length, 2);
+  assert.equal(
+    new Set(games.map((game) => game.eventId)).size,
+    1,
+    'id-less rows share one eventId — the #811 residue'
+  );
+
+  const overridden = build(items, {
+    [games[0]!.eventId]: { label: 'Applies to both' },
+  }).filter((game) => game.playoffRound === 'first-round');
+  assert.equal(
+    overridden.filter((game) => game.label === 'Applies to both').length,
+    2,
+    'one override still reaches both id-less games — the #811 residue'
+  );
+});
+
 test('an explicitly non-FBS row never gets a derived cfp- key', () => {
   const [storedNonFbs] = build([
     storedFirstRoundRow('401729786', 'Oregon', 'Tulane', '2025-12-20T17:00:00.000Z', {
