@@ -350,6 +350,87 @@ function retainedScheduleMetadata(item: ScheduleWireItem): Partial<AppGame> {
   return fields;
 }
 
+const SHARED_FIRST_ROUND_EVENT_KEY = 'cfp-first-round';
+const NON_FBS_PROVIDER_CLASSIFICATIONS: ReadonlySet<ProviderClassification> = new Set([
+  'fcs',
+  'ii',
+  'iii',
+]);
+
+/**
+ * The event key a `gamePhase: 'postseason'` row is built under (PLATFORM-708).
+ *
+ * `playoffEventKey` mints ONE key for every CFP first-round game — there is no
+ * bowl name to tell the four apart — and it is persisted at ingest, so stored
+ * 2024/2025 rows carry it too. Keyed on that, all four games shared an
+ * `eventId`, and a label override saved on one landed on all four. The build
+ * therefore appends the provider id to exactly that stored key, which covers
+ * stored and freshly ingested rows through one rule. Every other key is
+ * returned unchanged. An empty id keeps today's key, and an explicitly non-FBS
+ * row never acquires a derived `cfp-` key.
+ *
+ * The id must be a SAFE-INTEGER decimal, not merely present (#708 round 1,
+ * Codex P2): when CFBD omits `id`, `mapCfbdScheduleGame` fabricates one from
+ * the week and the TEAM NAMES, so a TBD row and its resolved row would carry
+ * DIFFERENT ids and an override saved on the placeholder would stop applying at
+ * exactly the transition it exists for. A fabricated id therefore keeps the
+ * shared key, which does not move across resolution.
+ *
+ * THREE conditions, none of them redundant. Together they accept a STRICT
+ * SUBSET of what `collectionIdentity` (`schedulePostseasonHelpers.ts:185-193`)
+ * accepts — not the same set, which this comment claimed twice before a review
+ * caught it: the sibling reads `'0401779840'` as pid 401779840 and this function
+ * rejects it outright.
+ *   - `typeof === 'string'`: a durable row reaches this function UNVALIDATED
+ *     (`seasonBuild.ts:97` casts stored items straight to `ScheduleWireItem[]`),
+ *     so a JSON-number `id` would throw on `.trim()` and take down the WHOLE
+ *     build, not one row. The sibling guards the same way.
+ *   - all digits AND safe-integer: a beyond-safe decimal collapses under
+ *     `Number`, which is why the sibling treats it as id-less.
+ *   - canonical round-trip: `'0401779840'` is digits and safe, but the sibling
+ *     reads it as pid 401779840 — the same game as `'401779840'` — while an
+ *     appended key would spell two different events. Rejecting it is why the
+ *     accepted set is a subset rather than a match.
+ * `1e16` passes the round-trip and fails the safe-integer bound; `'0401779840'`
+ * does the reverse. Both checks earn their place.
+ *
+ * WHAT IS GUARDED HERE IS THE `id` READ, AND ONLY IT. The `eventKey` read on the
+ * first line of the body has the SAME unvalidated-durable-field exposure and no
+ * such guard: a stored row whose `eventKey` is a JSON number throws there,
+ * before control ever reaches the `id` check. That line predates this function
+ * (it is `schedule.ts:498` on `7b9eca26`) and is filed as #813 with the
+ * duplicated non-FBS classification set — do not read the `id` guard as
+ * evidence that this function is hardened.
+ *
+ * Asserted by `cfpFirstRoundIdentity.test.ts`: "first-round rows get distinct
+ * eventIds and keys", "an empty id keeps today's key", "a fabricated id keeps
+ * today's key across resolution", "a beyond-safe-integer id keeps today's key",
+ * "a non-string id does not throw and keeps today's key", "a leading-zero id
+ * keeps today's key", "an explicitly non-FBS row never gets a derived cfp- key",
+ * and "a TBD row and its resolved row share one eventId".
+ */
+function postseasonEventKey(item: ScheduleWireItem): string {
+  const eventKey = item.eventKey?.trim() || `${item.week}-${item.id}`;
+  if (eventKey !== SHARED_FIRST_ROUND_EVENT_KEY) return eventKey;
+  const providerId = typeof item.id === 'string' ? item.id.trim() : '';
+  if (!/^\d+$/.test(providerId)) return eventKey;
+  const numericId = Number(providerId);
+  if (!Number.isSafeInteger(numericId) || String(numericId) !== providerId) return eventKey;
+  const explicitNonFbs = [item.homeClassification, item.awayClassification].some(
+    (classification) =>
+      classification !== undefined && NON_FBS_PROVIDER_CLASSIFICATIONS.has(classification)
+  );
+  // Returning the SHARED key here leaves explicitly non-FBS rows colliding with
+  // each other exactly as they do today — #811 owns that residue, along with the
+  // identical collision in every other bare `cfp-<round>` key. The guard stays
+  // because its reason is the one recorded at `cfbdSchedule.ts:640-646`: a
+  // non-FBS row must never acquire a derived CFP identity. No stored row has
+  // ever carried a `cfp-` key with a non-FBS participant, which is an argument
+  // that the guard cannot be exercised, not that it is wrong.
+  if (explicitNonFbs) return eventKey;
+  return `${SHARED_FIRST_ROUND_EVENT_KEY}-${providerId}`;
+}
+
 export function buildScheduleFromApi(params: {
   scheduleItems: ScheduleWireItem[];
   teams: TeamCatalogItem[];
@@ -495,7 +576,7 @@ export function buildScheduleFromApi(params: {
       continue;
     }
     if (item.gamePhase === 'postseason') {
-      const eventKey = item.eventKey?.trim() || `${item.week}-${item.id}`;
+      const eventKey = postseasonEventKey(item);
       const eventId = `${season}-${eventKey}`;
       const stage: GameStage = item.postseasonSubtype === 'playoff' ? 'playoff' : 'bowl';
       const conf = item.conferenceChampionshipConference ?? null;
