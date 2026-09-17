@@ -169,6 +169,47 @@ test("an empty id keeps today's key", () => {
   assert.equal(new Set(games.map((game) => game.key)).size, 4, 'keys stay distinct');
 });
 
+// #708 round 1, Codex P2: `CfbdScheduleGame.id` is optional, and when CFBD
+// omits it `mapCfbdScheduleGame` fabricates `${week}-${homeTeam}-${awayTeam}`
+// — a value that CHANGES when the teams are assigned. Appending a fabricated
+// id would move the eventId across exactly the transition an override has to
+// survive, so an id that is not all digits keeps the shared key instead.
+test("a fabricated id keeps today's key across resolution", () => {
+  const raw = (home: string, away: string): CfbdScheduleGame =>
+    ({
+      week: 1,
+      home_team: home,
+      away_team: away,
+      start_date: '2025-12-20T17:00:00.000Z',
+      notes: 'College Football Playoff First Round Game',
+      season_type: 'postseason',
+      game_phase: 'postseason',
+    }) as CfbdScheduleGame;
+
+  const tbdMapped = mapCfbdScheduleGame(raw('TBD', 'TBD'), 'postseason');
+  const resolvedMapped = mapCfbdScheduleGame(raw('Oregon', 'James Madison'), 'postseason');
+  assert.ok(tbdMapped.ok && resolvedMapped.ok);
+  if (!tbdMapped.ok || !resolvedMapped.ok) return;
+  // The ids ingest fabricates differ precisely because the teams do.
+  assert.equal(tbdMapped.item.id, '1-TBD-TBD');
+  assert.equal(resolvedMapped.item.id, '1-Oregon-James Madison');
+
+  const [tbd] = build([tbdMapped.item]);
+  assert.equal(tbd?.isPlaceholder, true, 'the TBD game is a placeholder');
+  assert.equal(tbd?.eventId, '2025-cfp-first-round', 'a fabricated id is not appended');
+
+  const override = { [tbd!.eventId]: { label: 'First Round at Autzen' } };
+  const [resolved] = build([resolvedMapped.item], override);
+
+  assert.equal(resolved?.isPlaceholder, false, 'the resolved game has its teams');
+  assert.equal(
+    resolved?.eventId,
+    tbd?.eventId,
+    'a fabricated id leaves the eventId unmoved across resolution'
+  );
+  assert.equal(resolved?.label, 'First Round at Autzen', 'the override still applies');
+});
+
 test('an explicitly non-FBS row never gets a derived cfp- key', () => {
   const [storedNonFbs] = build([
     storedFirstRoundRow('401729786', 'Oregon', 'Tulane', '2025-12-20T17:00:00.000Z', {

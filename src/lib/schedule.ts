@@ -369,16 +369,24 @@ const NON_FBS_PROVIDER_CLASSIFICATIONS: ReadonlySet<ProviderClassification> = ne
  * returned unchanged. An empty id keeps today's key, and an explicitly non-FBS
  * row never acquires a derived `cfp-` key.
  *
+ * The id must be ALL DIGITS, not merely present (#708 round 1, Codex P2): when
+ * CFBD omits `id`, `mapCfbdScheduleGame` fabricates one from the week and the
+ * TEAM NAMES, so a TBD row and its resolved row would carry DIFFERENT ids and
+ * an override saved on the placeholder would stop applying at exactly the
+ * transition it exists for. A fabricated id therefore keeps the shared key,
+ * which does not move across resolution. This is the same "a real provider id
+ * is a plain decimal" rule `collectionIdentity` applies.
+ *
  * Asserted by `cfpFirstRoundIdentity.test.ts`: "first-round rows get distinct
- * eventIds and keys", "an empty id keeps today's key", "an explicitly non-FBS
- * row never gets a derived cfp- key", and "a TBD row and its resolved row share
- * one eventId".
+ * eventIds and keys", "an empty id keeps today's key", "a fabricated id keeps
+ * today's key across resolution", "an explicitly non-FBS row never gets a
+ * derived cfp- key", and "a TBD row and its resolved row share one eventId".
  */
 function postseasonEventKey(item: ScheduleWireItem): string {
   const eventKey = item.eventKey?.trim() || `${item.week}-${item.id}`;
   if (eventKey !== SHARED_FIRST_ROUND_EVENT_KEY) return eventKey;
   const providerId = item.id?.trim() ?? '';
-  if (!providerId) return eventKey;
+  if (!/^\d+$/.test(providerId)) return eventKey;
   const explicitNonFbs = [item.homeClassification, item.awayClassification].some(
     (classification) =>
       classification !== undefined && NON_FBS_PROVIDER_CLASSIFICATIONS.has(classification)
