@@ -169,7 +169,7 @@ These consolidate recurring historical observations, not new project-governance 
 - Verification: `lint:all`, `tsc --noEmit` and `npm test` each exited 0 on the merged tree; 5,407
   pass, 0 fail, 0 cancelled, 0 skipped — 5,403 on the branch before `origin/main` was merged in, plus
   4 from PLATFORM-728-730-731. 11 tests added here, every named assertion mutation-proven.
-- Status: Implemented — [PR #814](https://github.com/znpruitt/cfb-app/pull/814) open.
+- Status: Merged ([PR #814](https://github.com/znpruitt/cfb-app/pull/814), `68fbf397`, 2026-09-17); merged tree `93ac797b` identical to the gated branch tip. NOT promoted.
 
 ### PLATFORM-728-730-731-SCHEDULE-PRESENTATION-CODEX-v1
 
