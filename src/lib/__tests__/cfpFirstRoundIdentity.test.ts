@@ -330,6 +330,13 @@ test('#811 residue: id-less first-round rows still share one eventId', () => {
   );
 });
 
+// SYNTHETIC INPUT, deliberately: ingest cannot emit this row. `cfbdSchedule.ts`
+// (`:573` and `:646`) already refuses to mint any `cfp-*` key for a row with an
+// explicit non-FBS participant, so no mapper-produced row arrives carrying
+// `eventKey: 'cfp-first-round'` AND a non-FBS classification. The first half
+// below hand-builds that impossible combination to exercise the guard as defence
+// in depth; the SECOND half, through the real mapper, is the part that asserts
+// production behaviour.
 test('an explicitly non-FBS row never gets a derived cfp- key', () => {
   const [storedNonFbs] = build([
     storedFirstRoundRow('401729786', 'Oregon', 'Tulane', '2025-12-20T17:00:00.000Z', {
