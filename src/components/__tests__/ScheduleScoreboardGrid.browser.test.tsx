@@ -13,6 +13,7 @@ import GameWeekPanel from '../GameWeekPanel';
 
 const STRESS_TEAM_NAME = 'Westgate Christian University';
 const REQUIRED_WIDTHS = [761, 390] as const;
+const CLIPPING_CONTROL_WIDTH = 200;
 
 type ScheduleLayoutMeasurement = {
   width: number;
@@ -22,7 +23,7 @@ type ScheduleLayoutMeasurement = {
   whiteSpace: string;
   overflow: string;
   textOverflow: string;
-  textLineCount: number;
+  labelClipped: boolean;
   rowHeight: number;
   labelWidth: number;
   contentWidth: number;
@@ -172,7 +173,7 @@ async function measureWidths(
           whiteSpace: labelStyle.whiteSpace,
           overflow: labelStyle.overflow,
           textOverflow: labelStyle.textOverflow,
-          textLineCount: team.getClientRects().length,
+          labelClipped: contentRect.width > labelRect.width + 0.5,
           rowHeight: round(rowRect.height),
           labelWidth: round(labelRect.width),
           contentWidth: round(contentRect.width),
@@ -186,7 +187,7 @@ async function measureWidths(
   `);
 }
 
-test('Schedule keeps the longest provider team name single-line without moving the score anchor', async (t) => {
+test('Schedule keeps the owner-required provider-name stress case single-line with a stable score anchor', async (t) => {
   assert.equal(
     STRESS_TEAM_NAME.length,
     29,
@@ -200,11 +201,14 @@ test('Schedule keeps the longest provider team name single-line without moving t
       markup: async () => fixtureMarkup(await compileFixtureStyles()),
     },
     async (page) => {
-      const measurements = await measureWidths(page, REQUIRED_WIDTHS);
-      const [twoColumn, oneColumn] = measurements;
-      assert.ok(twoColumn && oneColumn, 'both Schedule widths must be measured');
+      const measurements = await measureWidths(page, [...REQUIRED_WIDTHS, CLIPPING_CONTROL_WIDTH]);
+      const [twoColumn, oneColumn, clippingControl] = measurements;
+      assert.ok(twoColumn && oneColumn && clippingControl, 'all Schedule widths must be measured');
       assert.deepEqual(
-        measurements.map(({ width, columns }) => ({ width, columns })),
+        measurements.slice(0, REQUIRED_WIDTHS.length).map(({ width, columns }) => ({
+          width,
+          columns,
+        })),
         [
           { width: 761, columns: 2 },
           { width: 390, columns: 1 },
@@ -217,14 +221,27 @@ test('Schedule keeps the longest provider team name single-line without moving t
         assert.equal(measurement.whiteSpace, 'nowrap');
         assert.equal(measurement.overflow, 'hidden');
         assert.equal(measurement.textOverflow, 'ellipsis');
-        assert.equal(measurement.textLineCount, 1);
         assert.equal(measurement.anchorInside, true);
         assert.equal(measurement.valueFlexShrink, '0');
       }
       assert.equal(oneColumn.rowHeight, twoColumn.rowHeight, 'the team row must stay single-line');
+      assert.equal(
+        clippingControl.rowHeight,
+        twoColumn.rowHeight,
+        'the clipped control must keep the same single-line row height'
+      );
+      assert.equal(
+        clippingControl.labelClipped,
+        true,
+        'the ellipsis observer needs a control where label content exceeds its box'
+      );
       assert.ok(
         Math.abs(oneColumn.anchorInset - twoColumn.anchorInset) <= 0.1,
         `the right-hand score anchor must keep its row-relative position: ${twoColumn.anchorInset} vs ${oneColumn.anchorInset}`
+      );
+      assert.ok(
+        Math.abs(clippingControl.anchorInset - twoColumn.anchorInset) <= 0.1,
+        `the clipping control must keep the right-hand score anchor fixed: ${twoColumn.anchorInset} vs ${clippingControl.anchorInset}`
       );
 
       const displacedAnchorDetected = await page.evaluate<boolean>(`

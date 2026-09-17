@@ -41,7 +41,9 @@ function providerTeamIdForMergedParticipant(
   return null;
 }
 
-function applyManualOverride(base: AppGame, override: Partial<AppGame>): AppGame {
+export function applyPostseasonGameOverride(base: AppGame, override: Partial<AppGame>): AppGame {
+  const hasHomeParticipantOverride = override.participants?.home !== undefined;
+  const hasAwayParticipantOverride = override.participants?.away !== undefined;
   const participants = {
     home: override.participants?.home ?? base.participants.home,
     away: override.participants?.away ?? base.participants.away,
@@ -70,16 +72,25 @@ function applyManualOverride(base: AppGame, override: Partial<AppGame>): AppGame
       : null;
   };
 
-  return {
+  const merged: AppGame = {
     ...base,
     ...override,
     homeProviderTeamId: providerTeamIdAfterOverride('home'),
     awayProviderTeamId: providerTeamIdAfterOverride('away'),
     participants,
-    csvHome: participantCsvValue(participants.home),
-    csvAway: participantCsvValue(participants.away),
     sources: { ...base.sources, ...(override.sources ?? {}) },
   };
+
+  if (hasHomeParticipantOverride) {
+    merged.csvHome = participantCsvValue(participants.home);
+    merged.canHome = participantCanonicalValue(participants.home);
+  }
+  if (hasAwayParticipantOverride) {
+    merged.csvAway = participantCsvValue(participants.away);
+    merged.canAway = participantCanonicalValue(participants.away);
+  }
+
+  return merged;
 }
 
 export function toPlaceholderDisplay(conference?: string | null): string {
@@ -441,7 +452,9 @@ export function buildAuthoritativeGameCollection(
       byMergeKey.set(
         mergeKey,
         candidates.map((candidate) =>
-          candidate.eventId === eventId ? applyManualOverride(candidate, override) : candidate
+          candidate.eventId === eventId
+            ? applyPostseasonGameOverride(candidate, override)
+            : candidate
         )
       );
     }

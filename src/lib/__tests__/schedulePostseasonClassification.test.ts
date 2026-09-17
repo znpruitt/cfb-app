@@ -576,6 +576,46 @@ test('E4 collection: a participant override cannot retain the replaced team prov
     'Beta',
     'the unchanged away participant keeps its provider name paired with its identity'
   );
+  assert.equal(
+    overridden.canHome,
+    'Gamma',
+    'a participant override keeps the canonical home name paired with the home identity'
+  );
+  assert.equal(
+    overridden.canAway,
+    'Beta',
+    'the unchanged away participant keeps its canonical name paired with its identity'
+  );
+});
+
+test('E4 collection: scalar-only manual team-name overrides remain supported', () => {
+  const base = e4AppGame({
+    eventId: 'manual-override-scalar-names',
+    providerGameId: '701',
+    participants: {
+      home: teamSlot('alpha', 'Alpha'),
+      away: teamSlot('beta', 'Beta'),
+    },
+    csvHome: 'Alpha',
+    csvAway: 'Beta',
+    canHome: 'Alpha',
+    canAway: 'Beta',
+  });
+
+  const [overridden] = buildAuthoritativeGameCollection([base], [], {
+    [base.eventId]: {
+      csvHome: 'Operator Home Label',
+      canHome: 'Operator Home Canonical',
+    },
+  });
+
+  assert.ok(overridden);
+  assert.equal(overridden.csvHome, 'Operator Home Label');
+  assert.equal(overridden.canHome, 'Operator Home Canonical');
+  assert.equal(overridden.csvAway, 'Beta');
+  assert.equal(overridden.canAway, 'Beta');
+  assert.equal(overridden.participants.home.kind, 'team');
+  assert.equal(overridden.participants.home.teamId, 'alpha');
 });
 
 test('E4 collection: a fragment naming a foreign team never hydrates the wrong game', () => {
