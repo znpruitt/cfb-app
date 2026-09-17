@@ -308,6 +308,14 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   is **tagged scheduled rows at phone width** — an untagged row has roughly 131px more room and fits.
   This buys a kickoff time on tagged rows on phones; it is not a general licence to wrap
 - Rankings display inline with team names — "#4 Oregon vs #2 Indiana"
+- **Team names on scoreboard rows are the provider's full school name, and every surface uses the same
+  field** — "Mississippi State", never "MSST". A team outside the catalog and a TBD placeholder go
+  through that same field, so one row never mixes a full name with an abbreviation. Governs every
+  scoreboard surface: Overview, Matchups, Schedule and the Postseason tab it renders, and the recap.
+  **Added 2026-09-16** by owner decision on #729. This file was silent; Overview and Matchups already
+  rendered provider names, while Schedule rendered an abbreviation for every FBS team — the team
+  catalog carries no short name (0 of 138, measured on production), so its label chain fell through
+  to `abbreviation`. The recap was not measured. Source: `item-87-reference-game-row.md` → _Team name_
 - Use W16 CFP rankings for postseason game cards — not Final Poll rankings
 - CFP round badges use full words — "CFP Quarterfinal" not "CFP QF"
 - Conference championship badges include the conference name — "SEC Champ"

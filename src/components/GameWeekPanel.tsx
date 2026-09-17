@@ -90,14 +90,14 @@ export default function GameWeekPanel({
         {viewModel.groupedGames.map((group) => (
           <section key={group.dateKey} className="space-y-1.5">
             <div
-              className="border-b-2 border-gray-200 pb-2 text-sm font-semibold text-gray-700 dark:border-zinc-800/80 dark:text-zinc-300"
+              className="border-b-2 border-gray-200 pb-2 text-xs font-semibold uppercase tracking-widest text-gray-500 dark:border-zinc-800/80 dark:text-zinc-400"
               data-date-header={group.dateKey}
             >
               {group.label}
             </div>
 
             <div
-              className="grid grid-cols-2 gap-x-10 @max-[760.01px]:grid-cols-1"
+              className="grid grid-cols-2 gap-x-10 gap-y-1.5 @max-[760.01px]:grid-cols-1 @max-[760.01px]:gap-y-2"
               data-schedule-scoreboard-grid
             >
               {group.games.map((card) => {
@@ -113,7 +113,6 @@ export default function GameWeekPanel({
                   eventName ?? (card.showCanonicalEventLabel ? g.label : null);
                 const primaryTag = card.tagPrimary;
                 const secondaryTags = card.tagSecondary;
-                const tags = primaryTag ? [primaryTag, ...secondaryTags] : secondaryTags;
                 const awayRanking = rankingsByTeamId.get(card.awayTeamId);
                 const homeRanking = rankingsByTeamId.get(card.homeTeamId);
                 const hasTier2Content = Boolean(
@@ -133,9 +132,9 @@ export default function GameWeekPanel({
                       }
                       gameCardRefs.current.set(g.key, element);
                     }}
-                    className={
+                    className={`rounded-[5px] bg-[rgba(255,255,255,0.022)] px-2.5 py-[7px] [&>[data-game-scoreboard]]:border-b-0 [&>[data-game-scoreboard]]:py-0 ${
                       focusedGameId === g.key ? 'ring-1 ring-blue-500 dark:ring-blue-500' : ''
-                    }
+                    }`}
                     data-primary-tag={primaryTag ?? ''}
                     data-ranked-game={card.hasRankedTeam ? 'true' : 'false'}
                     data-focused-game={focusedGameId === g.key ? 'true' : 'false'}
@@ -149,26 +148,31 @@ export default function GameWeekPanel({
                       scheduleNotice={card.scheduleNotice}
                       matchupLabel={matchupLabel}
                       contextSlot={
-                        contextEventName || tags.length > 0 ? (
-                          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                            {contextEventName ? (
+                        contextEventName ? (
+                          <span
+                            className="block min-w-0 truncate text-xs dark:text-zinc-400"
+                            data-expanded-event-name
+                          >
+                            {contextEventName}
+                          </span>
+                        ) : undefined
+                      }
+                      tagSlot={
+                        primaryTag ? (
+                          <span className="inline-flex flex-wrap gap-1">
+                            <span className={`inline-flex ${EYEBROW_TAG_CLASSES}`} data-eyebrow-tag>
+                              {LEAGUE_TAG_LABELS[primaryTag]}
+                            </span>
+                            {secondaryTags.map((tag) => (
                               <span
-                                className="min-w-0 truncate text-xs dark:text-zinc-400"
-                                data-expanded-event-name
-                              >
-                                {contextEventName}
-                              </span>
-                            ) : null}
-                            {tags.map((tag) => (
-                              <span
-                                key={`${g.key}:${tag}`}
+                                key={`${g.key}:tag:${tag}`}
                                 className={`inline-flex ${EYEBROW_TAG_CLASSES}`}
                                 data-eyebrow-tag
                               >
                                 {LEAGUE_TAG_LABELS[tag]}
                               </span>
                             ))}
-                          </div>
+                          </span>
                         ) : undefined
                       }
                       away={{
