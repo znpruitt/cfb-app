@@ -33,6 +33,7 @@ export type TeamIdentity = {
   id: string;
   displayName: string;
   shortDisplayName: string;
+  // #810 removes this scoreboard-only label after #729 leaves it without a production consumer.
   scoreboardName: string;
   subdivision: TeamSubdivision;
   conference?: string | null;

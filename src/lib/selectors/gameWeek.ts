@@ -183,17 +183,6 @@ function formatOddsSummary(
   return segments.length > 0 ? segments.join(' • ') : null;
 }
 
-function participantScoreboardName(game: AppGame, side: 'away' | 'home'): string {
-  const participant = game.participants[side];
-  if (participant.kind === 'team' && participant.labels) {
-    return participant.labels.scoreboardName;
-  }
-
-  return participant.kind === 'team'
-    ? participant.rawName.trim() || participant.displayName
-    : participant.displayName;
-}
-
 function formatConferenceSummary(game: AppGame): string | null {
   const awayConference = game.awayConf.trim();
   const homeConference = game.homeConf.trim();
@@ -309,8 +298,8 @@ export function deriveGameWeekPanelViewModel(params: {
         : undefined;
       const homeTeamId = getGameParticipantTeamId(game, 'home') ?? game.canHome;
       const awayTeamId = getGameParticipantTeamId(game, 'away') ?? game.canAway;
-      const homeTeamName = participantScoreboardName(game, 'home');
-      const awayTeamName = participantScoreboardName(game, 'away');
+      const homeTeamName = game.csvHome;
+      const awayTeamName = game.csvAway;
       const hasRankedTeam =
         (rankingsByTeamId.get(homeTeamId)?.rank ?? null) != null ||
         (rankingsByTeamId.get(awayTeamId)?.rank ?? null) != null;
