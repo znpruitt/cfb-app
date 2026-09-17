@@ -566,6 +566,16 @@ test('E4 collection: a participant override cannot retain the replaced team prov
   assert.equal(overridden.participants.home.kind, 'team');
   assert.equal(overridden.homeProviderTeamId, null, 'Gamma never inherits the Alpha logo id');
   assert.equal(overridden.awayProviderTeamId, 202, 'the unchanged Beta pairing survives');
+  assert.equal(
+    overridden.csvHome,
+    'Gamma',
+    'a participant override keeps the rendered home name paired with the home identity'
+  );
+  assert.equal(
+    overridden.csvAway,
+    'Beta',
+    'the unchanged away participant keeps its provider name paired with its identity'
+  );
 });
 
 test('E4 collection: a fragment naming a foreign team never hydrates the wrong game', () => {

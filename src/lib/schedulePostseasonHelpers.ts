@@ -76,6 +76,8 @@ function applyManualOverride(base: AppGame, override: Partial<AppGame>): AppGame
     homeProviderTeamId: providerTeamIdAfterOverride('home'),
     awayProviderTeamId: providerTeamIdAfterOverride('away'),
     participants,
+    csvHome: participantCsvValue(participants.home),
+    csvAway: participantCsvValue(participants.away),
     sources: { ...base.sources, ...(override.sources ?? {}) },
   };
 }

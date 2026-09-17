@@ -155,9 +155,13 @@ test('Overview scoreboard grid renders its required container tiers and 416px ta
     t,
     {
       directoryPrefix: 'cfb-overview-grid-',
-      markup: fixtureMarkup(await compileFixtureStyles()),
+      markup: async () => fixtureMarkup(await compileFixtureStyles()),
     },
     async (page) => {
+      await assert.rejects(
+        page.evaluate('undefined'),
+        /Browser evaluation returned no serializable value/
+      );
       const measurements = await measureWidths(page, [...REQUIRED_WIDTHS, 240]);
       const byWidth = new Map(measurements.map((measurement) => [measurement.width, measurement]));
       assert.deepEqual(

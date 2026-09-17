@@ -29,7 +29,7 @@ export type BrowserFixturePage = {
 
 type BrowserFixtureOptions = {
   directoryPrefix: string;
-  markup: string;
+  markup: string | (() => string | Promise<string>);
 };
 
 function remainingTimeout(deadline: number, maximumMs: number, operation: string): number {
@@ -107,7 +107,7 @@ class CdpClient implements BrowserFixturePage {
 
   async evaluate<T>(expression: string): Promise<T> {
     const response = await this.command<{
-      result: { value?: T; description?: string };
+      result?: { value?: T; description?: string };
       exceptionDetails?: { text?: string };
     }>('Runtime.evaluate', {
       expression,
@@ -116,8 +116,13 @@ class CdpClient implements BrowserFixturePage {
     });
     if (response.exceptionDetails) {
       throw new Error(
-        response.exceptionDetails.text ?? response.result.description ?? 'browser evaluation failed'
+        response.exceptionDetails.text ??
+          response.result?.description ??
+          'browser evaluation failed'
       );
+    }
+    if (!response.result || !Object.prototype.hasOwnProperty.call(response.result, 'value')) {
+      throw new Error('Browser evaluation returned no serializable value');
     }
     return response.result.value as T;
   }
@@ -386,7 +391,8 @@ export async function withBrowserFixture(
     fixtureDirectory = await mkdtemp(path.join(tmpdir(), options.directoryPrefix));
     const profileDirectory = path.join(fixtureDirectory, 'chrome-profile');
     const fixturePath = path.join(fixtureDirectory, 'index.html');
-    await writeFile(fixturePath, options.markup, 'utf8');
+    const markup = typeof options.markup === 'function' ? await options.markup() : options.markup;
+    await writeFile(fixturePath, markup, 'utf8');
 
     let stderr = '';
     let launchError: Error | null = null;

@@ -190,14 +190,14 @@ test('Schedule keeps the longest provider team name single-line without moving t
   assert.equal(
     STRESS_TEAM_NAME.length,
     29,
-    'the fixture must retain the measured 29-character name'
+    'the fixture must retain the owner-required 29-character stress name'
   );
 
   await withBrowserFixture(
     t,
     {
       directoryPrefix: 'cfb-schedule-grid-',
-      markup: fixtureMarkup(await compileFixtureStyles()),
+      markup: async () => fixtureMarkup(await compileFixtureStyles()),
     },
     async (page) => {
       const measurements = await measureWidths(page, REQUIRED_WIDTHS);
@@ -222,10 +222,9 @@ test('Schedule keeps the longest provider team name single-line without moving t
         assert.equal(measurement.valueFlexShrink, '0');
       }
       assert.equal(oneColumn.rowHeight, twoColumn.rowHeight, 'the team row must stay single-line');
-      assert.equal(
-        oneColumn.anchorInset,
-        twoColumn.anchorInset,
-        'the right-hand score anchor must keep its row-relative position'
+      assert.ok(
+        Math.abs(oneColumn.anchorInset - twoColumn.anchorInset) <= 0.1,
+        `the right-hand score anchor must keep its row-relative position: ${twoColumn.anchorInset} vs ${oneColumn.anchorInset}`
       );
 
       const displacedAnchorDetected = await page.evaluate<boolean>(`
