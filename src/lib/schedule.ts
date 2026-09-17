@@ -374,23 +374,36 @@ const NON_FBS_PROVIDER_CLASSIFICATIONS: ReadonlySet<ProviderClassification> = ne
  * the week and the TEAM NAMES, so a TBD row and its resolved row would carry
  * DIFFERENT ids and an override saved on the placeholder would stop applying at
  * exactly the transition it exists for. A fabricated id therefore keeps the
- * shared key, which does not move across resolution. The safe-integer bound is
- * what makes this the SAME rule `collectionIdentity` applies: it treats a
- * beyond-safe decimal as id-less because such strings collapse under `Number`,
- * and an id this function accepted but that one rejected would be a distinct
- * `eventId` over a row the collection routes by its fragment rules.
+ * shared key, which does not move across resolution.
+ *
+ * THREE conditions, none of them redundant, and together they are exactly the
+ * id `collectionIdentity` (`schedulePostseasonHelpers.ts:185-193`) accepts:
+ *   - `typeof === 'string'`: a durable row reaches this function UNVALIDATED
+ *     (`seasonBuild.ts:97` casts stored items straight to `ScheduleWireItem[]`),
+ *     so a JSON-number `id` would throw on `.trim()` and take down the WHOLE
+ *     build, not one row. The sibling guards the same way.
+ *   - all digits AND safe-integer: a beyond-safe decimal collapses under
+ *     `Number`, which is why the sibling treats it as id-less.
+ *   - canonical round-trip: `'0401779840'` is digits and safe, but the sibling
+ *     reads it as pid 401779840 — the same game as `'401779840'` — while an
+ *     appended key would spell two different events.
+ * `1e16` passes the round-trip and fails the safe-integer bound; `'0401779840'`
+ * does the reverse. Both checks earn their place.
  *
  * Asserted by `cfpFirstRoundIdentity.test.ts`: "first-round rows get distinct
  * eventIds and keys", "an empty id keeps today's key", "a fabricated id keeps
  * today's key across resolution", "a beyond-safe-integer id keeps today's key",
- * "an explicitly non-FBS row never gets a derived cfp- key", and "a TBD row and
- * its resolved row share one eventId".
+ * "a non-string id does not throw and keeps today's key", "a leading-zero id
+ * keeps today's key", "an explicitly non-FBS row never gets a derived cfp- key",
+ * and "a TBD row and its resolved row share one eventId".
  */
 function postseasonEventKey(item: ScheduleWireItem): string {
   const eventKey = item.eventKey?.trim() || `${item.week}-${item.id}`;
   if (eventKey !== SHARED_FIRST_ROUND_EVENT_KEY) return eventKey;
-  const providerId = item.id?.trim() ?? '';
-  if (!/^\d+$/.test(providerId) || !Number.isSafeInteger(Number(providerId))) return eventKey;
+  const providerId = typeof item.id === 'string' ? item.id.trim() : '';
+  if (!/^\d+$/.test(providerId)) return eventKey;
+  const numericId = Number(providerId);
+  if (!Number.isSafeInteger(numericId) || String(numericId) !== providerId) return eventKey;
   const explicitNonFbs = [item.homeClassification, item.awayClassification].some(
     (classification) =>
       classification !== undefined && NON_FBS_PROVIDER_CLASSIFICATIONS.has(classification)

@@ -222,6 +222,47 @@ test("a beyond-safe-integer id keeps today's key", () => {
     storedFirstRoundRow(beyondSafe, 'Oregon', 'Tulane', '2025-12-20T17:00:00.000Z'),
   ]);
   assert.equal(game?.eventId, '2025-cfp-first-round', 'a beyond-safe id is not appended');
+
+  // 1e16 ROUND-TRIPS (`String(Number(x)) === x`) and is still not a safe
+  // integer, so the canonical check alone would let it through: this case is
+  // what makes `Number.isSafeInteger` load-bearing rather than decorative.
+  const roundTripsButUnsafe = '10000000000000000';
+  assert.equal(String(Number(roundTripsButUnsafe)), roundTripsButUnsafe, 'it round-trips');
+  assert.equal(Number.isSafeInteger(Number(roundTripsButUnsafe)), false, 'and is not safe');
+
+  const [unsafe] = build([
+    storedFirstRoundRow(roundTripsButUnsafe, 'Oregon', 'Tulane', '2025-12-20T17:00:00.000Z'),
+  ]);
+  assert.equal(
+    unsafe?.eventId,
+    '2025-cfp-first-round',
+    'an unsafe id that round-trips is not appended'
+  );
+});
+
+// A durable schedule row reaches `buildScheduleFromApi` UNVALIDATED —
+// `seasonBuild.ts:97` casts stored items straight to `ScheduleWireItem[]` — so a
+// row whose `id` is a JSON number must not throw. A throw here would take down
+// the whole build (season build, draft board, odds, live scores), not one row.
+test("a non-string id does not throw and keeps today's key", () => {
+  const row = {
+    ...storedFirstRoundRow('unused', 'Oregon', 'Tulane', '2025-12-20T17:00:00.000Z'),
+    id: 401779842 as unknown as string,
+  };
+
+  const games = build([row]).filter((game) => game.playoffRound === 'first-round');
+  assert.equal(games.length, 1, 'the row still builds');
+  assert.equal(games[0]?.eventId, '2025-cfp-first-round', 'a non-string id is not appended');
+});
+
+// `collectionIdentity` reads '0401779840' as pid 401779840 — the SAME game as
+// '401779840' — so appending the raw string would spell two different events for
+// one provider game. The canonical round-trip is what keeps the two rules equal.
+test("a leading-zero id keeps today's key", () => {
+  const [game] = build([
+    storedFirstRoundRow('0401779840', 'Oregon', 'Tulane', '2025-12-20T17:00:00.000Z'),
+  ]);
+  assert.equal(game?.eventId, '2025-cfp-first-round', 'a non-canonical decimal is not appended');
 });
 
 // CHARACTERIZATION, not an endorsement (#811). Rows CFBD sends without an `id`
@@ -267,6 +308,25 @@ test('#811 residue: id-less first-round rows still share one eventId', () => {
     overridden.filter((game) => game.label === 'Applies to both').length,
     2,
     'one override still reaches both id-less games — the #811 residue'
+  );
+
+  // The ABSENT -> PRESENT edge of the same residue (#811, Codex round 3): when a
+  // later refresh supplies the real id, the eventId moves off the shared key and
+  // the override saved on the id-less row stops matching. Pinned, not endorsed —
+  // the alternative is appending the TEAM-DERIVED fabricated id, which loses the
+  // override at the TBD -> resolved transition instead.
+  const withRealId = build([{ ...items[0]!, id: '401779843' }], {
+    [games[0]!.eventId]: { label: 'Applies to both' },
+  }).filter((game) => game.playoffRound === 'first-round');
+  assert.equal(
+    withRealId[0]?.eventId,
+    '2025-cfp-first-round-401779843',
+    'an id arriving later moves the eventId — the #811 residue'
+  );
+  assert.equal(
+    withRealId[0]?.label,
+    null,
+    'the override saved on the id-less row no longer matches — the #811 residue'
   );
 });
 
