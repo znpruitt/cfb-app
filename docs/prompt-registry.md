@@ -121,6 +121,37 @@ These consolidate recurring historical observations, not new project-governance 
 
 ## Prompt ledger (source order retained)
 
+### PLATFORM-729-SCHEDULE-TEAM-NAMES-CODEX-v1
+
+- Purpose: render provider full school names on Schedule/Postseason with Overview/Matchups parity.
+  Resolves [#729](https://github.com/znpruitt/cfb-app/issues/729).
+- Scope / outcome: `gameWeek.ts` now takes row and odds labels from `csvAway` / `csvHome`; every
+  abbreviation assertion was replaced, including the omitted 899, 1126-1129 and 1199 cases.
+  Divergent catalog, FCS and placeholder fixtures are controls. A replaced participant re-derives
+  `csv*` / `can*` and outranks conflicting scalar names; scalar-only overrides remain supported. The
+  one `teamIdentity.ts` comment leaves
+  [#810](https://github.com/znpruitt/cfb-app/issues/810) open to remove `scoreboardName` and is the only
+  edit there.
+- Scope deviations: the owner accepted `schedulePostseasonHelpers.ts`, despite the original
+  untouched ruling, to repair override coherence, and `CFBScheduleApp.tsx` to reuse that helper for
+  optimistic state. A third, initially unreported deviation extracted Overview's browser setup into
+  `src/test/browserFixture.ts`; old-to-new assertion mapping found no loss, and a temporary
+  `gap-x-10` to `gap-x-8` mutation failed `atThree.columnGap`.
+- Evidence: acceptance 1 remained unmet at `1c3a7cf9`: Schedule was pinned only to its own fields.
+  Commit `816dd657` added a shared-game DOM test with distinct `csv*`, `can*`, and `scoreboardName`
+  values; mutating Overview's six `csv*` reads to `can*` failed “Schedule and Overview away
+  team-name strings must match” (`Canonical Away` vs `Provider Away University`). The required
+  29-character / three-digit-score browser probe measured row/label/content/anchor-inset as
+  32/200.469/200.469/0px at 761px and 390px; its real 200px clipping control measured
+  32/108.813/200.469/0px. Assertions pin single-line and ellipsis properties plus anchor stability,
+  not those pixel values.
+- Review / verification: `/code-review high` and a fresh Codex review against `377359f2` completed.
+  The former's no-clipping proposal contradicted the reworded acceptance, and broadening #810
+  contradicted the explicit one-comment scope; neither was actionable. Codex found no regression.
+  `tsc --noEmit`, `lint:all`, all 5,401 tests, and both required browser tests passed. One test was
+  added; no production code changed in the final round. See L4/RV6.
+- Status: Implemented and reviewed at `816dd657`; pre-merge closeout, PR pending. #810 remains open.
+
 ### PLATFORM-708-CFP-FIRST-ROUND-IDENTITY-CLAUDE-v1
 
 - Change: the postseason build in `schedule.ts` appends the provider id to the one key ingest mints
