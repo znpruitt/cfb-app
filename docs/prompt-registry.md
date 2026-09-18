@@ -197,12 +197,57 @@ These consolidate recurring historical observations, not new project-governance 
   `currentDate: probe` leaves the selector to call `new Date()` microseconds later, usually in the
   same millisecond. The defect IS the intermittency, so no test reddens on it; making the publication
   record primary is what removed the dependence.
+- **Round 3, owner-authorized and deliberately narrow.** The confirming pass returned 8 findings —
+  3 P2 from Codex, 5 LOW from `/code-review`, which stated outright that it found no correctness
+  defect reachable on a production path. All 8 were confirmed; none refuted. Round 3 was scoped to
+  the ONE finding reachable in the route's actual usage mode (an admin issuing one request) and two
+  zero-risk edits, and it deliberately did not touch `classifyCacheRead`, the verdict taxonomy or the
+  publication signals.
+- **WHY THAT SCOPE, and it is the most reusable thing this branch produced.** Attribution by
+  `git log -S` per symbol: round 0 introduced 3 of the surviving findings, **round 1 introduced 2,
+  and round 2 introduced 3 — all three of round 2's in the detector, the surface round 2 existed to
+  clean up.** The introduction rate did not decay across rounds, which is the exact mechanism the
+  adaptive limit in `AGENTS.md` describes. The comparison core drew ZERO findings in the confirming
+  pass and the guards were independently validated as correct, so the sedimentary part is the
+  detector and nothing else. Round 3 therefore ADDED to an untouched surface rather than modifying
+  the one that keeps regressing.
+- **The acceptance bullet that went unchecked for two review rounds.** The prompt asks for the
+  per-owner values **for both sides** AND a `differences` array; only `differences` was built, so the
+  PRIMARY SUCCESS CASE returned a count and field names and no values — unauditable. Neither reviewer
+  caught it across two rounds because both reported against the receipt's RULINGS rather than the
+  prompt's acceptance list, and the rulings amended the unit and the field set without removing this.
+  This is `feedback_rulings_orphan_the_acceptance_boundary` firing exactly as written.
+- **A flake, and its cause is a finding rather than a harness artefact.** Adding two tests ahead of
+  the empty-population test flipped it; moving them made it pass; a bare five-run loop failed once.
+  A warm and a read microseconds apart can share a millisecond, and `classifyCacheRead` then reads a
+  genuine HIT as `bypassed` — the open millisecond-precision finding, reproduced. Every test
+  asserting a verdict or a blocker now warms at a fixed clock; 8/8 runs stable after. **The
+  underlying defect is NOT fixed and is filed below.**
+- **Five findings left open on purpose**, to be filed as follow-ups rather than patched, because
+  each would mean editing the detector: the `bypassed` fall-through under same-millisecond
+  concurrency (observed, not theoretical); the year bound omitting #774's **"or a season this league
+  has archived"** disjunct, which this route cites as precedent and implements more narrowly than;
+  `classifyCacheRead` branching on `workStoreCachePresent` where Next branches on the work store
+  OBJECT (`unstable-cache.js:94`); `dataCachePublicationQueued` structurally false on the inline
+  branch, so the fresh rebuild's archive publications go unreported; and the import-graph alias guard
+  being line-based, which a Prettier-wrapped multi-line `export { … as … }` defeats.
 - Verification: `tsc --noEmit`, `lint:all`, `npm run build` and `npm test` each exited 0 on branch
-  tip `0ac98c46`; **5,441 pass / 0 fail / 0 cancelled / 0 skipped**, against the 5,412 recorded for
-  #815 plus the **29** added here (27 route + 2 import-graph). Both required browser tests passed.
-  Across the three mutation runs every named assertion was proven, and the round-2 run includes a
-  mutation that restores the round-1 HIGH and is caught.
-- Status: **Not merged; the round-2 confirming pass has not run.** The route has NOT been exercised
+  tip `b5076728`; **5,444 pass / 0 fail / 0 cancelled / 0 skipped**, against the 5,412 recorded for
+  #815 plus the **32** added here (30 route + 2 import-graph). Both required browser tests passed.
+  Across four mutation runs every named assertion was proven — including a round-2 mutation that
+  restores the round-1 HIGH and is caught, and a round-3 control proving the stale-entry fixture is
+  not inert.
+- **Runtime evidence, measured 2026-09-17 and partial.** The route is deployed on preview
+  (`cfb-app-preview.vercel.app`, commit `0ac98c4` read from the build log, not assumed). A plain
+  `curl` gets `302 → sso-api`; `vercel curl` gets the APPLICATION's `401 admin-token-required` —
+  which **verifies the admin gate fails closed in a real deployment**, something the `node:test`
+  version cannot do because it has to pin `NODE_ENV`. It also confirms `ADMIN_API_TOKEN` is set on
+  preview, live rather than by report. **An authenticated call was NOT made**: the variable is marked
+  Sensitive, so Vercel does not return it to the CLI, and routing around that would be an
+  access-control change to make automation pass. **No run against production data has happened at
+  all**, and preview reads its own Neon branch, so even an authenticated preview run would answer
+  about preview's snapshot.
+- Status: **Not merged. Three remediation rounds spent; the round-3 confirming pass has not run.** The route has NOT been exercised
   against production — it is not deployed, and preview sits behind Vercel SSO, so the `test`/2025 and
   `tsc`/2026 runs are an owner action. Prediction on record: `tsc`/2026 should report `hit` with an
   empty delta, because `/api/cron/live-scores` calls `invalidateAndWarmStandingsForYear` after every
