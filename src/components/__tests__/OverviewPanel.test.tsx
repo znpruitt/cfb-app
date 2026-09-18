@@ -12,6 +12,7 @@ import OverviewPanelImpl, {
   OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX,
   OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX,
 } from '../OverviewPanel';
+import GameWeekPanel from '../GameWeekPanel';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../../lib/overview';
 import { deriveLeagueInsights, deriveOverviewInsights } from '../../lib/selectors/insights';
 import { TREND_EMPTY_MESSAGE } from '../../lib/trendEmptyState';
@@ -188,6 +189,128 @@ const matchupMatrix: OwnerMatchupMatrix = {
     },
   ],
 };
+
+test('Schedule and Overview emit the same provider team names from one divergent game', () => {
+  const sharedGame = game({
+    key: 'cross-surface-team-name-parity',
+    csvAway: 'Provider Away University',
+    csvHome: 'Provider Home College',
+    canAway: 'Canonical Away',
+    canHome: 'Canonical Home',
+    participants: {
+      away: {
+        kind: 'team',
+        teamId: 'away-team',
+        displayName: 'Canonical Away',
+        labels: {
+          displayName: 'Away Display',
+          shortDisplayName: 'Away Short',
+          scoreboardName: 'AWY',
+        },
+        canonicalName: 'Canonical Away',
+        rawName: 'Provider Away University',
+      },
+      home: {
+        kind: 'team',
+        teamId: 'home-team',
+        displayName: 'Canonical Home',
+        labels: {
+          displayName: 'Home Display',
+          shortDisplayName: 'Home Short',
+          scoreboardName: 'HME',
+        },
+        canonicalName: 'Canonical Home',
+        rawName: 'Provider Home College',
+      },
+    },
+  });
+  const sharedScore: ScorePack = {
+    status: 'In Progress',
+    away: { team: sharedGame.csvAway, score: 7 },
+    home: { team: sharedGame.csvHome, score: 3 },
+    time: 'Q1',
+  };
+  const sharedOverviewItem = itemWithScore(sharedGame, sharedScore);
+
+  assert.equal(
+    new Set([
+      sharedGame.csvAway,
+      sharedGame.canAway,
+      sharedGame.participants.away.kind === 'team'
+        ? sharedGame.participants.away.labels?.scoreboardName
+        : undefined,
+    ]).size,
+    3,
+    'away csv, canonical, and scoreboard labels must be pairwise distinct'
+  );
+  assert.equal(
+    new Set([
+      sharedGame.csvHome,
+      sharedGame.canHome,
+      sharedGame.participants.home.kind === 'team'
+        ? sharedGame.participants.home.labels?.scoreboardName
+        : undefined,
+    ]).size,
+    3,
+    'home csv, canonical, and scoreboard labels must be pairwise distinct'
+  );
+
+  const scheduleHtml = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[sharedGame]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{ [sharedGame.key]: sharedScore }}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+  const overviewHtml = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[sharedOverviewItem]}
+      keyMatchups={[]}
+      sectionItems={[sharedOverviewItem]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  const emittedTeamName = (
+    html: string,
+    side: 'away' | 'home',
+    surface: 'Schedule' | 'Overview'
+  ): string => {
+    const document = new JSDOM(html).window.document;
+    const names = Array.from(document.querySelectorAll(`[data-scoreboard-team="${side}"]`)).map(
+      (element) => element.textContent ?? ''
+    );
+    assert.equal(names.length, 1, `${surface} must emit one ${side} team-name string`);
+    return names[0]!;
+  };
+
+  const scheduleAway = emittedTeamName(scheduleHtml, 'away', 'Schedule');
+  const overviewAway = emittedTeamName(overviewHtml, 'away', 'Overview');
+  const scheduleHome = emittedTeamName(scheduleHtml, 'home', 'Schedule');
+  const overviewHome = emittedTeamName(overviewHtml, 'home', 'Overview');
+
+  assert.equal(
+    overviewAway,
+    scheduleAway,
+    'Schedule and Overview away team-name strings must match'
+  );
+  assert.equal(
+    overviewHome,
+    scheduleHome,
+    'Schedule and Overview home team-name strings must match'
+  );
+  assert.equal(scheduleAway, sharedGame.csvAway, 'the shared away string must come from csvAway');
+  assert.equal(scheduleHome, sharedGame.csvHome, 'the shared home string must come from csvHome');
+});
 
 test('overview panel uses neutral wording for neutral-site games', () => {
   const neutralGame = game({
