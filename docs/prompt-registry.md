@@ -121,6 +121,112 @@ These consolidate recurring historical observations, not new project-governance 
 
 ## Prompt ledger (source order retained)
 
+### PLATFORM-816-STANDINGS-CACHE-DELTA-CLAUDE-v2
+
+- Purpose: `GET /api/debug/standings-cache-delta` — admin-gated, one league and year per request —
+  returns the CACHED canonical standings beside a fresh uncached rebuild, with a per-owner delta, and
+  says which of the two the cached read actually was. Refs
+  [#816](https://github.com/znpruitt/cfb-app/issues/816).
+- **v1 IS SUPERSEDED AND UNMERGED. Its closeout is at `1a29024f`** on
+  `claude/816-standings-cache-delta`, and the branch is preserved rather than deleted because that
+  ledger is the only record of what four review passes taught.
+- **WHY IT WAS RECONSTRUCTED, which is the reusable part.** v1 took four passes; **every one of the
+  ~20 findings was a single class — the detector claiming more than it observes — and the per-round
+  introduction rate never fell.** Attribution by `git log -S` per symbol: round 1 introduced 2 of the
+  surviving findings, round 2 introduced 3, round 4 introduced 3, and round 4's entire purpose was to
+  remove that class. A precommitment agreed BEFORE the evidence arrived stopped the branch on the
+  next instance; it fired on the first pass after it was made, on findings that each looked like a
+  one-line fix. The comparison core drew zero findings in two consecutive passes while the detector
+  drew all of them, which is what made the detector — and only the detector — the thing to rebuild.
+- **THE RULE v2 OBEYS: do not classify by elimination.** Every v1 defect was a verdict derived from
+  what did NOT happen — nothing was queued so it must be a hit; not draft mode so it must be X — and
+  each derivation was only as sound as an enumeration that kept turning out incomplete. v2 publishes
+  the observations and derives one thing, from values that are themselves printed.
+- **KEYS, NOT COUNTS.** `pendingRevalidates` keys are reported at entry, after the cached read and at
+  exit; `publicationKeysAdded` is a SET DIFFERENCE. `patch-fetch.js:182` and `:723` DELETE keys as
+  fetch cache-sets settle while `unstable_cache` never deletes, so a count is not monotonic and a
+  delta of zero is not evidence of no write — the defect that ended v1. The keys also name WHICH
+  entry published, archive-years or standings, which a count never permitted.
+- **`cannot-tell` IS A FIRST-CLASS OUTCOME**, reachable three ways and tested on all three. The
+  defining row: no publication plus a matching stamp stays UNRESOLVED, with `isDraftMode` printed
+  beside it. v1 resolved that state by elimination twice — to `bypassed`, then to `hit` — and both
+  were review findings. **No better discriminator exists:** `unstable_cache` surfaces its invocation
+  key only WHEN IT PUBLISHES, which is precisely the case the other rows already resolve.
+- **Five fields died.** `dataCachePublicationConfirmed` with **nothing replacing it** — Next drains
+  `pendingRevalidates` through `pendingWaitUntil` after the handler returns, so no request can
+  confirm its own write, and v1 kept the field alive through four rounds of increasingly careful
+  wording where the wording was the thing that was wrong. Also gone: `dataCachePublicationQueued`,
+  `provenanceRestsOnTimestamp`, the `bypassed` verdict, and the `workStoreCachePresent` predicate
+  that duplicated Next's own `if (workStore)` branch.
+- **REFUTED AND NOT RE-DERIVED**, carried forward from #819: `classifyCacheRead` branching on
+  `workStoreCachePresent` where Next branches on the work-store object is UNREACHABLE —
+  `work-store.js:45` builds the store's cache as
+  `renderOpts.incrementalCache || globalThis.__incrementalCache`, so "store present, cache absent"
+  implies the global is absent and the `unavailable` path fires first. v2 removes the predicate
+  anyway, by construction.
+- **ACCEPTANCE 2 — a reader can re-derive every verdict from the printed values.** Captured from real
+  responses, not composed:
+
+  ```text
+  MISS         verdictRule=published-and-stamped-here
+               stampedByThisRequest=true   publicationKeysAdded=[archive-years, canonical-standings]
+  HIT          verdictRule=no-publication-and-value-predates-request
+               stampedByThisRequest=false  publicationKeysAdded=[]
+               snapshotGeneratedAt=2026-09-01T00:00:00.000Z (the warming request's stamp)
+  CANNOT-TELL  verdictRule=no-data-cache-consulted
+               incrementalCachePresent=false  workStorePresent=false
+               stampedByThisRequest=TRUE — which is exactly why the verdict cannot be read off the
+               stamp, and why this row is not a `miss`
+  ```
+
+- **Four comparison-core corrections, and planning's "the core is clean" was wrong in ONE place
+  reachably, not three.** The history digest is now POSITIONAL: `selectRankTrend`
+  (`trends.ts:306-320`) derives rank from `byWeek[week].standings.findIndex(...)`, so sorting
+  normalised away the one thing the array carries that the row fields do not. `byOwner` is compared
+  PER OWNER, naming who diverged, rather than by a key count that agrees whenever the owner set does.
+  **`ownerColorOrder` and `coverage.message` are cross-checks, not gap-closers** — I reported both to
+  planning as live blind spots and reading the derivations afterwards showed each is a pure function
+  of data already compared (`buildOwnerColorOrder(rows)`; and inside a canonical snapshot the only
+  coverage shapes reachable are `{complete,null}` and `{partial,COVERAGE_INCOMPLETE}`, with
+  `STANDINGS_COVERAGE_UNAVAILABLE` a CLIENT-side fallback that never enters the selector). They are
+  compared anyway, with two tests pinning the PURITY so they become live if it stops holding.
+  `pending` stays sorted deliberately: it is a set the abandonment rule scans, with no index
+  semantics, unlike `standings` where the index IS the rank.
+- **#818's archived-season disjunct is taken, on parity grounds, and the issue's stated consequence
+  was wrong.** Measured on the read-only replica 2026-09-18: archives are `tsc/2018` and
+  `tsc/2021-2025`, all inside `2000…2027`, so **no archived season was being refused**. Taken because
+  a route that cites a precedent should implement it. Its cost is commented: the disjunct reads
+  `listSeasonArchives`, behind the same shared cache both comparison sides read through, so a stale
+  list refuses a real year. The unknown-slug 404 moved ABOVE it so an unregistered slug never reaches
+  that read. A rejected year now touches the per-league archive-years entry — keyed on the SLUG
+  alone, so the property the bound protects holds: a distinct `?year=` still cannot mint an unbounded
+  keyspace, and never a per-year standings entry or a build.
+- **Three mutations initially SURVIVED, all against vacuous fixtures of mine**, and each is recorded
+  because the fixture was the defect: a key-deletion fixture that netted +1 so a count-based
+  implementation survived it; an `ownerColorOrder` fixture where canonical and alphabetical order
+  coincided so a broken sort was invisible; and **the #818 disjunct had no acceptance test at all** —
+  I wrote the refusal half and not the acceptance half. All three were rebuilt until they redden.
+- Verification: `tsc --noEmit`, `lint:all`, `npm run build` and `npm test` each exited 0 on branch
+  tip `15471378`; **5,450 pass / 0 fail / 0 cancelled / 0 skipped** in 40.5 s, against the 5,412
+  baseline plus the **38** added here (36 route + 2 import-graph). Both required browser tests passed.
+  **13 mutations, every one reddening a named assertion**, including one that restores the
+  elimination rule this reconstruction removes.
+- **A verification note worth keeping.** Three full-suite runs first came back with 8, 20 and 20
+  CANCELLED at 28, 59 and 82 minutes against a normal ~45 s. My first read was contention from my own
+  piled-up runs — which I had in fact caused — but it persisted running alone. The cause was the
+  MACHINE: `ANECompilerService` at 90%, `contactsd` 75%, `AdobeGCClient` 73%, `peopled` 70%, load
+  average 52, blowing the 30 s per-test timeout; the cancelled files were scattered and unrelated and
+  their durations clustered identically, the signature of queued-and-starved rather than slow. The
+  clean run above is the same code at load 6. **Cancellations are not failures and were not reported
+  as either.**
+- Status: **Not merged; no review has run on v2.** The precommitment carries forward: another
+  instance of **the detector claims more than it observes** ships with the limitation documented rather
+  than being patched again.
+- **THE GATE IS UN-RUN, and fail-closed on preview is not the gate.** v1 verified the admin refusal in
+  real preview runtime, but **no authenticated call has ever been made and nothing has run against
+  production data**. Preview reads its own Neon branch, so even an authenticated preview call answers
+  about preview's snapshot. **The gate stays un-run until an authenticated call happens post-merge.**
+
 ### PLATFORM-729-SCHEDULE-TEAM-NAMES-CODEX-v1
 
 - Purpose: render provider full school names on Schedule/Postseason with Overview/Matchups parity.
