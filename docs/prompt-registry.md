@@ -265,10 +265,50 @@ These consolidate recurring historical observations, not new project-governance 
   operator script could have imported the uncached full-season rebuild unguarded. And
   `sharedNestedCachesAreEnumeratedCompletely` matched only an `unstable_cache(` call BEGINNING a
   line, in the one test whose job is keeping that enumeration honest.
-- **PRECOMMITMENT ON RECORD, agreed before the evidence arrived:** if the next pass surfaces another
+- **PRECOMMITMENT ON RECORD, agreed before the evidence arrived:** if the next pass surfaced another
   variant of "the detector claims more than it observes", the branch **stops and ships with the
   limitation documented**. No fifth round on that class, including when the next finding looks small.
-  This is the device that ended #693's spiral.
+- **IT FIRED, ON THE FIRST PASS AFTER IT WAS MADE.** The round-4 confirming pass returned four
+  findings — Codex 1 P2, `/code-review` 1 medium and 2 low — and **every one is that class. Three of
+  the four were introduced by round 4 itself**, whose entire purpose was to make the detector's
+  claims true. The per-round introduction rate did not fall: rounds 1, 2 and 4 each added about
+  three. **No fix was applied to any of them**, and each is a small one. That is the precommitment
+  working rather than failing.
+- **OPEN, DOCUMENTED, NOT FIXED — the four from this pass.**
+  1. `digestHistoryWeek` **sorts** each week's rows, normalising away their ORDER, while
+     `selectRankTrend` (`trends.ts:306-320`) derives every historical rank from
+     `byWeek[week].standings.findIndex(...)`. A reordering with identical statistics is therefore
+     invisible here and still changes rank history. One line: include each row's index in the digest.
+     (`selectRankTrend` has no consumer today, by its own comment, so the member-visible impact is
+     latent — which does not exempt it.)
+  2. `dataCachePublicationQueued` now reads a single entry-to-end delta, which is only a widening if
+     `Object.keys(pendingRevalidates).length` is monotonic within a request. **It is not:**
+     `patch-fetch.js:182` and `:723` DELETE keys as fetch cache-sets settle, while `unstable_cache`
+     never deletes — which is where the assumption came from. A pending fetch key settling inside the
+     window can mask a real standings publication and report `false`. Round 4 caused this by dropping
+     the `queuedPublication ||` term; restoring it gets the widening without the assumption. Reported
+     as an unfiled note in an earlier round when the window was narrow enough to make it unreachable;
+     widening the window is what made it reachable.
+  3. Gating `bypassed` on `isDraftMode` routes EVERY other way the publication delta can fail to
+     register into the final `hit`, and `hit` is the only verdict `resolveComparisonBlocker` clears —
+     so a request that previously degraded to `matches: null` now reports a false `matches: true`.
+     The failure mode got louder rather than quieter, which is the risk the round limit exists for.
+  4. The inline-branch residual comment names only the VERDICT, but the same `return` sets
+     `publicationConfirmed: computedHere`, so the same collision emits
+     `dataCachePublicationConfirmed: true` for a request that read an existing entry and wrote
+     nothing — contradicting the payload's own statement that CONFIRMED is sayable only where the
+     `set` was awaited.
+- **OPEN from earlier passes, unchanged:** the year bound omitting #774's **"or a season this league
+  has archived"** disjunct; `dataCachePublicationQueued` structurally false on the inline branch,
+  where no publication record exists at all; and the import-graph alias filter being line-based,
+  which a Prettier-wrapped multi-line `export { … as … }` defeats.
+- **What round 4 did land, and it is not nothing:** the `bypassed` verdict is gated on an observed
+  flag instead of derived by elimination; the archive-years exposure is named per lifecycle as a
+  blind spot rather than collapsed into a blocker that would have answered `null` for every real
+  request; the publication summary counts from entry; the import-graph guard walks `scripts/`; and
+  the `unstable_cache` counter no longer keys on formatting. Eight mutations, all reddening a named
+  assertion.
+
 - Verification: `tsc --noEmit`, `lint:all`, `npm run build` and `npm test` each exited 0 on branch
   tip `bbd37393`; **5,448 pass / 0 fail / 0 cancelled / 0 skipped**, with **36** tests added here
   (34 route + 2 import-graph). Both required browser tests passed. Across five mutation runs every
@@ -288,10 +328,12 @@ These consolidate recurring historical observations, not new project-governance 
   access-control change to make automation pass. **No run against production data has happened at
   all**, and preview reads its own Neon branch, so even an authenticated preview run would answer
   about preview's snapshot.
-- Status: **Not merged; the round-4 confirming pass has not run.** Review was not resolved at round
-  3 — credible P2s remained, chiefly the millisecond-precision verdict — and round 4 was authorized
-  by the owner as a final cohesive round on that class, above the ordinary limit and on the record as
-  such.
+- Status: **Not merged. The round-4 confirming pass ran and the precommitment stopped the branch.**
+  Seven findings are open and documented above; none is a P0/P1, one is a P2 and one a medium, and
+  all sit in the one class the precommitment covers. Under `AGENTS.md` review is therefore NOT
+  resolved in the literal sense, and the branch is offered for an owner decision — merge with the
+  limitations on record, or reconstruct the detector — rather than patched again. Round 4 was authorized by the owner as a final
+  cohesive round on that class, above the ordinary limit and on the record as such.
 - **THE GATE IS UN-RUN. Fail-closed on preview is not the gate.** The route is deployed on preview
   and its admin refusal is verified there in real runtime, but **no authenticated call has been made
   and nothing has run against production data**. Preview reads its own Neon branch, so even an
