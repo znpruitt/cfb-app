@@ -10,10 +10,18 @@ import OverviewPanelImpl, {
   OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX,
   OVERVIEW_SCOREBOARD_GRID_CLASSES,
   OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX,
+  OVERVIEW_SCOREBOARD_GRID_MAX_TRACK_PX,
+  OVERVIEW_SCOREBOARD_GRID_ONE_COLUMN_MAX_WIDTH_PX,
   OVERVIEW_SCOREBOARD_GRID_STYLE,
   OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX,
   OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX,
+  OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_MAX_WIDTH_PX,
+  OVERVIEW_SCOREBOARD_GRID_TWO_COLUMN_MAX_WIDTH_PX,
   OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT,
+  OVERVIEW_SCOREBOARD_MEASURED_NON_LOGO_CONTENT_PX,
+  OVERVIEW_SCOREBOARD_MINIMUM_SCORE_GAP_PX,
+  OVERVIEW_SCOREBOARD_SECTION_CLASSES,
+  OVERVIEW_SCOREBOARD_WIDTH_CLASSES,
 } from '../OverviewPanel';
 import GameWeekPanel from '../GameWeekPanel';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../../lib/overview';
@@ -27,6 +35,7 @@ import type { StandingsHistory } from '../../lib/standingsHistory';
 import type { AppGame } from '../../lib/schedule';
 import type { ScorePack } from '../../lib/scores';
 import { buildOddsByGame } from '../../lib/odds';
+import { SCOREBOARD_TEAM_LOGO_SLOT } from '../../lib/teamLogos';
 import {
   OVERVIEW_LIVE_LIMIT,
   OVERVIEW_RECENT_FINALS_LIMIT,
@@ -814,7 +823,13 @@ test('overview scoreboards keep current records across scheduled, live, and fina
   );
   const document = new JSDOM(html).window.document;
   const scoreboards = Array.from(document.querySelectorAll<HTMLElement>('[data-game-scoreboard]'));
-  assert.ok(scoreboards.length >= 3, 'the fixture must exercise every Overview scoreboard list');
+  assert.deepEqual(
+    [...new Set(scoreboards.map((scoreboard) => scoreboard.dataset.scoreboardState))].sort(),
+    ['final', 'live', 'scheduled'],
+    'the fixture must exercise the scheduled, live, and recent-final row states it names'
+  );
+  assert.ok(document.querySelector('[data-live-scoreboard-grid]'));
+  assert.ok(document.querySelector('[data-watchlist-scoreboard-grid]'));
   for (const scoreboard of scoreboards) {
     const grid = scoreboard.parentElement;
     assert.ok(grid);
@@ -825,11 +840,18 @@ test('overview scoreboards keep current records across scheduled, live, and fina
       'every Overview scoreboard must remain a direct child of its capped grid'
     );
     assert.ok(grid.classList.contains('w-full'));
-    assert.ok(
-      Math.abs(Number.parseFloat(grid.style.maxWidth) - OVERVIEW_SCOREBOARD_GRID_STYLE.maxWidth) <=
-        0.001,
-      'every Overview scoreboard grid must carry the derived grid cap'
-    );
+    for (const [property, value] of Object.entries(OVERVIEW_SCOREBOARD_GRID_STYLE)) {
+      assert.equal(
+        grid.style.getPropertyValue(property),
+        value,
+        'every Overview scoreboard grid must carry every derived tier cap'
+      );
+    }
+    const section = grid.closest<HTMLElement>('[data-overview-scoreboard-section]');
+    assert.ok(section, 'every rendered scoreboard grid must share its cap with its section shell');
+    for (const [property, value] of Object.entries(OVERVIEW_SCOREBOARD_GRID_STYLE)) {
+      assert.equal(section.style.getPropertyValue(property), value);
+    }
   }
 });
 
@@ -908,10 +930,13 @@ test('overview Live section consumes the shared scoreboard in a row-major respon
     />
   );
 
-  assert.match(
-    html,
-    /grid w-full grid-cols-2 gap-x-10 @max-\[760\.01px\]:grid-cols-1 @min-\[1341px\]:grid-cols-3" style="max-width:1341px" data-live-scoreboard-grid/
-  );
+  const document = new JSDOM(html).window.document;
+  const liveGrid = document.querySelector<HTMLElement>('[data-live-scoreboard-grid]');
+  assert.ok(liveGrid);
+  assert.equal(liveGrid.className, OVERVIEW_SCOREBOARD_GRID_CLASSES);
+  const liveSection = liveGrid.closest<HTMLElement>('[data-overview-scoreboard-section]');
+  assert.ok(liveSection);
+  assert.equal(liveSection.className, OVERVIEW_SCOREBOARD_SECTION_CLASSES);
   assert.equal((html.match(/data-game-scoreboard=/g) ?? []).length, 2);
   const awayLeadingCard = html.indexOf('aria-label="Utah at Arizona State"');
   const homeLeadingCard = html.indexOf('aria-label="Michigan at Ohio State"');
@@ -1287,10 +1312,14 @@ test('overview Featured renders its badge and existing tag in the final status r
   // Sibling control for the rule above: the time is removed from FINAL rows only. A
   // live row still carries its clock.
   assert.match(liveScoreboard, /Q2 6:14/);
-  assert.match(
-    html,
-    /<section class="@container">[\s\S]*?<div class="grid w-full grid-cols-2 gap-x-10 @max-\[760\.01px\]:grid-cols-1 @min-\[1341px\]:grid-cols-3" style="max-width:1341px" data-featured-scoreboard-grid="true">/
-  );
+  const document = new JSDOM(html).window.document;
+  const featuredGrid = document.querySelector<HTMLElement>('[data-featured-scoreboard-grid]');
+  assert.ok(featuredGrid);
+  assert.equal(featuredGrid.className, OVERVIEW_SCOREBOARD_GRID_CLASSES);
+  const featuredSection = featuredGrid.closest<HTMLElement>('[data-overview-scoreboard-section]');
+  assert.ok(featuredSection);
+  assert.equal(featuredSection.className, OVERVIEW_SCOREBOARD_SECTION_CLASSES);
+  assert.ok(featuredSection.querySelector('hr'));
 });
 
 test('overview three-column grid arithmetic stays coupled to its literal utility', () => {
@@ -1298,20 +1327,51 @@ test('overview three-column grid arithmetic stays coupled to its literal utility
   assert.equal(OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX, 40);
   assert.ok(OVERVIEW_SCOREBOARD_GRID_CLASSES.includes(OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS));
   assert.equal(OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT, 3);
+  assert.equal(OVERVIEW_SCOREBOARD_MINIMUM_SCORE_GAP_PX, 12);
   assert.equal(OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX, 403);
+  assert.equal(
+    OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX,
+    Math.ceil(
+      OVERVIEW_SCOREBOARD_MEASURED_NON_LOGO_CONTENT_PX +
+        SCOREBOARD_TEAM_LOGO_SLOT.widthPx +
+        OVERVIEW_SCOREBOARD_MINIMUM_SCORE_GAP_PX
+    ),
+    'the target must retain structural coupling to the shared logo slot and score gap'
+  );
   assert.equal(OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX, 52);
+  assert.equal(
+    OVERVIEW_SCOREBOARD_GRID_MAX_TRACK_PX,
+    OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX +
+      OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX / OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT
+  );
+  assert.equal(
+    OVERVIEW_SCOREBOARD_GRID_ONE_COLUMN_MAX_WIDTH_PX,
+    OVERVIEW_SCOREBOARD_GRID_MAX_TRACK_PX
+  );
+  assert.equal(
+    OVERVIEW_SCOREBOARD_GRID_TWO_COLUMN_MAX_WIDTH_PX,
+    2 * OVERVIEW_SCOREBOARD_GRID_MAX_TRACK_PX + OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX
+  );
   assert.equal(OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX, 1341);
   assert.equal(
-    OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT *
-      (OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX +
-        OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX / OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT) +
+    OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT * OVERVIEW_SCOREBOARD_GRID_MAX_TRACK_PX +
       (OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT - 1) * OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX,
     OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX,
     'the grid cap must exactly contain three equal headroom-bearing tracks and two gaps'
   );
+  assert.equal(
+    OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_MAX_WIDTH_PX,
+    OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX
+  );
   assert.deepEqual(OVERVIEW_SCOREBOARD_GRID_STYLE, {
-    maxWidth: OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX,
+    '--overview-scoreboard-one-column-max-width': `${OVERVIEW_SCOREBOARD_GRID_ONE_COLUMN_MAX_WIDTH_PX}px`,
+    '--overview-scoreboard-two-column-max-width': `${OVERVIEW_SCOREBOARD_GRID_TWO_COLUMN_MAX_WIDTH_PX}px`,
+    '--overview-scoreboard-three-column-max-width': `${OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_MAX_WIDTH_PX}px`,
   });
+  for (const widthClass of OVERVIEW_SCOREBOARD_WIDTH_CLASSES.split(' ')) {
+    assert.ok(OVERVIEW_SCOREBOARD_GRID_CLASSES.includes(widthClass));
+    assert.ok(OVERVIEW_SCOREBOARD_SECTION_CLASSES.includes(widthClass));
+  }
   assert.ok(
     OVERVIEW_SCOREBOARD_GRID_CLASSES.includes(
       `@min-[${OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX}px]:grid-cols-3`

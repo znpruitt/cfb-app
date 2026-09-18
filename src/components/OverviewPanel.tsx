@@ -59,7 +59,11 @@ import {
 } from '../lib/rankings';
 import { getGameParticipantTeamId, type AppGame } from '../lib/schedule';
 import type { ScorePack } from '../lib/scores';
-import { EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID, type ScoreboardTeamLogosById } from '../lib/teamLogos';
+import {
+  EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID,
+  SCOREBOARD_TEAM_LOGO_SLOT,
+  type ScoreboardTeamLogosById,
+} from '../lib/teamLogos';
 import { standingsCoverageNoticeWithSubject } from '../lib/standings';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
 import type { StandingsHistory } from '../lib/standingsHistory';
@@ -74,12 +78,13 @@ const EMPTY_OVERVIEW_ODDS_BY_KEY: Record<string, CombinedOdds> = {};
 
 // PLATFORM-750 measured the production row rather than carrying Item 134's unmeasured
 // 416px mockup target. The final-state fixture is #25 Southeast Missouri State (12–0),
-// owner Mastromatteo, score 100, plus the always-reserved 32px logo slot. On the
-// verified macOS production font stack its content used 390.469px; the mandatory
-// 12px flex gap before the score makes 402.469px, rounded up to the 403px target.
-// OverviewScoreboardGrid.browser.test.tsx asserts the same fixture still fits.
-const OVERVIEW_SCOREBOARD_MEASURED_ROW_CONTENT_PX = 390.469;
-const OVERVIEW_SCOREBOARD_MINIMUM_SCORE_GAP_PX = 12;
+// owner Mastromatteo, score 100. Its measured non-logo content used 358.469px on the
+// verified macOS production font stack; add the shared 32px logo slot and mandatory
+// 12px flex gap before the score to get 402.469px, rounded up to the 403px target.
+// The browser gate proves the fixture fits at that target and explicitly records the
+// narrower two-column interval that still clips pending the owner decision in #821.
+export const OVERVIEW_SCOREBOARD_MEASURED_NON_LOGO_CONTENT_PX = 358.469;
+export const OVERVIEW_SCOREBOARD_MINIMUM_SCORE_GAP_PX = 12;
 const OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX_BY_CLASS = {
   'gap-x-10': 40,
 } as const;
@@ -89,7 +94,9 @@ export const OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX =
   OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX_BY_CLASS[OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS];
 export const OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT = 3;
 export const OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX = Math.ceil(
-  OVERVIEW_SCOREBOARD_MEASURED_ROW_CONTENT_PX + OVERVIEW_SCOREBOARD_MINIMUM_SCORE_GAP_PX
+  OVERVIEW_SCOREBOARD_MEASURED_NON_LOGO_CONTENT_PX +
+    SCOREBOARD_TEAM_LOGO_SLOT.widthPx +
+    OVERVIEW_SCOREBOARD_MINIMUM_SCORE_GAP_PX
 );
 // The declared production stack resolved 17.250px wider on this host with system-ui
 // than with its Helvetica/Arial fallbacks. Reserve one observed stack-face spread per
@@ -109,12 +116,34 @@ export const OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX =
 // The arbitrary variant must remain literal for Tailwind discovery; the arithmetic
 // test couples its 1341px value back to the derived breakpoint above.
 const OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_CLASS = '@min-[1341px]:grid-cols-3' as const;
-export const OVERVIEW_SCOREBOARD_GRID_CLASSES = `grid w-full grid-cols-2 ${OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS} @max-[760.01px]:grid-cols-1 ${OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_CLASS}`;
-// At and above the wide-tier threshold, cap the equal-track grid itself. Each card
-// continues to fill its track, the 40px gaps stay fixed, and all surplus section width
-// accumulates once at the right rather than between independently capped rows.
-export const OVERVIEW_SCOREBOARD_GRID_STYLE = {
-  maxWidth: OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX,
+export const OVERVIEW_SCOREBOARD_GRID_MAX_TRACK_PX =
+  OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX +
+  OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX / OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT;
+const overviewScoreboardGridMaxWidth = (columnCount: number): number =>
+  columnCount * OVERVIEW_SCOREBOARD_GRID_MAX_TRACK_PX +
+  (columnCount - 1) * OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX;
+export const OVERVIEW_SCOREBOARD_GRID_ONE_COLUMN_MAX_WIDTH_PX = overviewScoreboardGridMaxWidth(1);
+export const OVERVIEW_SCOREBOARD_GRID_TWO_COLUMN_MAX_WIDTH_PX = overviewScoreboardGridMaxWidth(2);
+export const OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_MAX_WIDTH_PX = overviewScoreboardGridMaxWidth(
+  OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT
+);
+export const OVERVIEW_SCOREBOARD_WIDTH_CLASSES =
+  'w-full max-w-[var(--overview-scoreboard-one-column-max-width)] @max-[760.01px]:!max-w-[var(--overview-scoreboard-one-column-max-width)] @min-[760.01px]:max-w-[var(--overview-scoreboard-two-column-max-width)] @min-[1341px]:max-w-[var(--overview-scoreboard-three-column-max-width)]';
+export const OVERVIEW_SCOREBOARD_GRID_CLASSES = `grid ${OVERVIEW_SCOREBOARD_WIDTH_CLASSES} grid-cols-2 ${OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS} @max-[760.01px]:grid-cols-1 ${OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_CLASS}`;
+export const OVERVIEW_SCOREBOARD_SECTION_CLASSES = `${OVERVIEW_SCOREBOARD_WIDTH_CLASSES} space-y-5`;
+// Cap the equal-track grid for every active column count. Cards continue to fill
+// their tracks, the 40px gaps stay fixed, and surplus section width accumulates once
+// at the right. CSS variables keep the responsive utilities derived from the same
+// target/headroom/gap constants as the 1341px threshold.
+type OverviewScoreboardGridStyle = React.CSSProperties & {
+  '--overview-scoreboard-one-column-max-width': string;
+  '--overview-scoreboard-two-column-max-width': string;
+  '--overview-scoreboard-three-column-max-width': string;
+};
+export const OVERVIEW_SCOREBOARD_GRID_STYLE: OverviewScoreboardGridStyle = {
+  '--overview-scoreboard-one-column-max-width': `${OVERVIEW_SCOREBOARD_GRID_ONE_COLUMN_MAX_WIDTH_PX}px`,
+  '--overview-scoreboard-two-column-max-width': `${OVERVIEW_SCOREBOARD_GRID_TWO_COLUMN_MAX_WIDTH_PX}px`,
+  '--overview-scoreboard-three-column-max-width': `${OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_MAX_WIDTH_PX}px`,
 } as const;
 
 /**
@@ -421,6 +450,25 @@ function GbChangeTable({
 
 function SectionDivider(): React.ReactElement {
   return <hr className="border-t border-gray-200/60 dark:border-zinc-800/60" />;
+}
+
+function OverviewScoreboardSection({
+  children,
+}: {
+  children: React.ReactNode;
+}): React.ReactElement {
+  return (
+    <section className="@container">
+      <div
+        className={OVERVIEW_SCOREBOARD_SECTION_CLASSES}
+        style={OVERVIEW_SCOREBOARD_GRID_STYLE}
+        data-overview-scoreboard-section
+      >
+        <SectionDivider />
+        <div>{children}</div>
+      </div>
+    </section>
+  );
 }
 
 /**
@@ -1881,141 +1929,129 @@ export default function OverviewPanel({
         result does was already absent and stays absent.
       */}
       {viewModel.recentResults.length > 0 ? (
-        <>
-          <SectionDivider />
-          <section className="@container">
-            <SectionHeader
-              gameSection
-              title="Featured games"
-              action={
-                <button type="button" className={viewMoreLinkClass} onClick={onViewSchedule}>
-                  All results →
-                </button>
-              }
+        <OverviewScoreboardSection>
+          <SectionHeader
+            gameSection
+            title="Featured games"
+            action={
+              <button type="button" className={viewMoreLinkClass} onClick={onViewSchedule}>
+                All results →
+              </button>
+            }
+          />
+          <div className="mt-2.5">
+            <FeaturedGamesList
+              prioritizedItems={viewModel.recentResults}
+              emptyMessage="No recent results yet."
+              rankingsByTeamId={rankingsByTeamId}
+              teamRecordsByProviderGameId={teamRecordsByProviderGameId}
+              teamLogosById={teamLogosById}
             />
-            <div className="mt-2.5">
-              <FeaturedGamesList
-                prioritizedItems={viewModel.recentResults}
-                emptyMessage="No recent results yet."
-                rankingsByTeamId={rankingsByTeamId}
-                teamRecordsByProviderGameId={teamRecordsByProviderGameId}
-                teamLogosById={teamLogosById}
-              />
-            </div>
-          </section>
-        </>
+          </div>
+        </OverviewScoreboardSection>
       ) : null}
 
       {/* Live games */}
       {gameSections.live.length > 0 ? (
-        <>
-          <SectionDivider />
-          <section className="@container">
-            <SectionHeader
-              gameSection
-              title={liveTitle}
-              action={
-                <button
-                  type="button"
-                  className={viewMoreLinkClass}
-                  onClick={() => onViewMatchups?.(gameSections.live[0]?.bucket.game)}
-                >
-                  All matchups →
-                </button>
-              }
+        <OverviewScoreboardSection>
+          <SectionHeader
+            gameSection
+            title={liveTitle}
+            action={
+              <button
+                type="button"
+                className={viewMoreLinkClass}
+                onClick={() => onViewMatchups?.(gameSections.live[0]?.bucket.game)}
+              >
+                All matchups →
+              </button>
+            }
+          />
+          <div id="overview-live-games" className="mt-2.5">
+            <GameCardList
+              items={visibleLiveItems}
+              rankingsByTeamId={rankingsByTeamId}
+              teamRecordsByProviderGameId={teamRecordsByProviderGameId}
+              state="live"
+              teamLogosById={teamLogosById}
             />
-            <div id="overview-live-games" className="mt-2.5">
-              <GameCardList
-                items={visibleLiveItems}
-                rankingsByTeamId={rankingsByTeamId}
-                teamRecordsByProviderGameId={teamRecordsByProviderGameId}
-                state="live"
-                teamLogosById={teamLogosById}
-              />
-            </div>
-            <SectionExpansionControl
-              sectionLabel="Live games"
-              controlsId="overview-live-games"
-              expanded={expandedSections.live}
-              hiddenGameCount={gameSections.live.length - OVERVIEW_LIVE_LIMIT}
-              onToggle={() => toggleExpandedSection('live')}
-            />
-          </section>
-        </>
+          </div>
+          <SectionExpansionControl
+            sectionLabel="Live games"
+            controlsId="overview-live-games"
+            expanded={expandedSections.live}
+            hiddenGameCount={gameSections.live.length - OVERVIEW_LIVE_LIMIT}
+            onToggle={() => toggleExpandedSection('live')}
+          />
+        </OverviewScoreboardSection>
       ) : null}
 
       {/* Recent finals */}
       {gameSections.recentFinals.length > 0 ? (
-        <>
-          <SectionDivider />
-          <section className="@container">
-            <SectionHeader
-              gameSection
-              title="Recent finals"
-              action={
-                <button type="button" className={viewMoreLinkClass} onClick={onViewSchedule}>
-                  All results →
-                </button>
-              }
+        <OverviewScoreboardSection>
+          <SectionHeader
+            gameSection
+            title="Recent finals"
+            action={
+              <button type="button" className={viewMoreLinkClass} onClick={onViewSchedule}>
+                All results →
+              </button>
+            }
+          />
+          <div id="overview-recent-finals" className="mt-2.5">
+            <GameCardList
+              items={visibleRecentFinals}
+              rankingsByTeamId={rankingsByTeamId}
+              teamRecordsByProviderGameId={teamRecordsByProviderGameId}
+              state="final"
+              teamLogosById={teamLogosById}
             />
-            <div id="overview-recent-finals" className="mt-2.5">
-              <GameCardList
-                items={visibleRecentFinals}
-                rankingsByTeamId={rankingsByTeamId}
-                teamRecordsByProviderGameId={teamRecordsByProviderGameId}
-                state="final"
-                teamLogosById={teamLogosById}
-              />
-            </div>
-            <SectionExpansionControl
-              sectionLabel="Recent finals"
-              controlsId="overview-recent-finals"
-              expanded={expandedSections.recentFinals}
-              hiddenGameCount={gameSections.recentFinals.length - OVERVIEW_RECENT_FINALS_LIMIT}
-              onToggle={() => toggleExpandedSection('recentFinals')}
-            />
-          </section>
-        </>
+          </div>
+          <SectionExpansionControl
+            sectionLabel="Recent finals"
+            controlsId="overview-recent-finals"
+            expanded={expandedSections.recentFinals}
+            hiddenGameCount={gameSections.recentFinals.length - OVERVIEW_RECENT_FINALS_LIMIT}
+            onToggle={() => toggleExpandedSection('recentFinals')}
+          />
+        </OverviewScoreboardSection>
       ) : null}
 
       {/* Upcoming watchlist */}
       {gameSections.scheduled.length > 0 ? (
-        <>
-          <SectionDivider />
-          <section className="@container">
-            <SectionHeader
-              gameSection
-              title="Upcoming watchlist"
-              action={
-                <button
-                  type="button"
-                  className={viewMoreLinkClass}
-                  onClick={() => onViewMatchups?.()}
-                >
-                  All matchups →
-                </button>
-              }
+        <OverviewScoreboardSection>
+          <SectionHeader
+            gameSection
+            title="Upcoming watchlist"
+            action={
+              <button
+                type="button"
+                className={viewMoreLinkClass}
+                onClick={() => onViewMatchups?.()}
+              >
+                All matchups →
+              </button>
+            }
+          />
+          <div id="overview-watchlist-games" className="mt-2.5">
+            <WatchlistScoreboardList
+              prioritizedItems={visibleWatchlistItems}
+              emptyMessage="No featured matchups yet for this slate."
+              timeZone={timeZone}
+              rankingsByTeamId={rankingsByTeamId}
+              teamRecordsByProviderGameId={teamRecordsByProviderGameId}
+              oddsByKey={oddsByKey}
+              teamLogosById={teamLogosById}
             />
-            <div id="overview-watchlist-games" className="mt-2.5">
-              <WatchlistScoreboardList
-                prioritizedItems={visibleWatchlistItems}
-                emptyMessage="No featured matchups yet for this slate."
-                timeZone={timeZone}
-                rankingsByTeamId={rankingsByTeamId}
-                teamRecordsByProviderGameId={teamRecordsByProviderGameId}
-                oddsByKey={oddsByKey}
-                teamLogosById={teamLogosById}
-              />
-            </div>
-            <SectionExpansionControl
-              sectionLabel="Upcoming watchlist"
-              controlsId="overview-watchlist-games"
-              expanded={expandedSections.watchlist}
-              hiddenGameCount={gameSections.scheduled.length - OVERVIEW_WATCHLIST_LIMIT}
-              onToggle={() => toggleExpandedSection('watchlist')}
-            />
-          </section>
-        </>
+          </div>
+          <SectionExpansionControl
+            sectionLabel="Upcoming watchlist"
+            controlsId="overview-watchlist-games"
+            expanded={expandedSections.watchlist}
+            hiddenGameCount={gameSections.scheduled.length - OVERVIEW_WATCHLIST_LIMIT}
+            onToggle={() => toggleExpandedSection('watchlist')}
+          />
+        </OverviewScoreboardSection>
       ) : null}
 
       {/* GB Race */}
