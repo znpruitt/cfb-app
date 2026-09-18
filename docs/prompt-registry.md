@@ -223,14 +223,46 @@ These consolidate recurring historical observations, not new project-governance 
   genuine HIT as `bypassed` — the open millisecond-precision finding, reproduced. Every test
   asserting a verdict or a blocker now warms at a fixed clock; 8/8 runs stable after. **The
   underlying defect is NOT fixed and is filed below.**
-- **Five findings left open on purpose**, to be filed as follow-ups rather than patched, because
-  each would mean editing the detector: the `bypassed` fall-through under same-millisecond
-  concurrency (observed, not theoretical); the year bound omitting #774's **"or a season this league
-  has archived"** disjunct, which this route cites as precedent and implements more narrowly than;
-  `classifyCacheRead` branching on `workStoreCachePresent` where Next branches on the work store
-  OBJECT (`unstable-cache.js:94`); `dataCachePublicationQueued` structurally false on the inline
-  branch, so the fresh rebuild's archive publications go unreported; and the import-graph alias guard
-  being line-based, which a Prettier-wrapped multi-line `export { … as … }` defeats.
+- **Round-3 confirming pass: `/code-review` 6 findings, Codex 3. One REFUTATION, four new, the rest
+  re-reports of the deferred set.** Review is NOT resolved — credible P2s remain.
+- **The refutation, recorded with its evidence so no future round re-derives it.** The filed finding
+  that `classifyCacheRead` branches on `workStoreCachePresent` where Next branches on the work-store
+  OBJECT (`unstable-cache.js:94`) is **UNREACHABLE**: `work-store.js:45` builds the store's cache as
+  `renderOpts.incrementalCache || globalThis.__incrementalCache`, so "store present, cache absent"
+  implies the global is absent too, `incrementalCachePresent` is false, and the `unavailable` early
+  return fires before the discriminator is consulted. Verified independently. **Struck from the open
+  list.**
+- **THE ONE THAT BLOCKS RESOLUTION, now reported three times across both reviewers.** A warm snapshot
+  sharing a millisecond with the probe makes a genuine HIT read as `bypassed` on the work-store path
+  and as a CONFIRMED `miss` on the inline path. Observed, not theoretical: the suite flaked on it
+  until every verdict-asserting test was pinned to a fixed clock. Codex names the fix shape — use a
+  signal that uniquely identifies callback execution rather than timestamp equality; `/code-review`
+  names the narrower one — gate `bypassed` on the observable `isDraftMode` flag, its only reachable
+  cause, and otherwise fall through to `hit`, which removes the stamp dependence from the
+  no-publication case entirely.
+- **New, and it is my own comment contradicting my own code.** `resolveComparisonBlocker` gates
+  `shared-archive-cache` on `freshSource === 'archive'`, while `SHARED_NESTED_CACHES` forty lines up
+  states the archive-YEARS cache is read on EVERY season compute, "not limited to
+  `source === 'archive'`". A stale archive-years list makes `archiveYears.includes(year)` false on
+  BOTH sides, both take the live branch, and the payload reports `matches: true, blockedBy: null`
+  over exactly the fault class this route exists to find.
+- **New: the publication summary misses pre-bracket writes.** `resolveStandingsYear` runs BEFORE
+  `cacheContextBefore` and, on a default-year offseason request, can queue a cold archive-years
+  publication. I reasoned about that ordering deliberately and recorded it as protection against a
+  false POSITIVE, without noticing it creates a false NEGATIVE: `dataCachePublicationQueued: false`
+  on a request that did queue one.
+- **New, both LOW, both in the proof surface.** The import-graph guard walks `src/` only, while five
+  scripts import from `../src` — including `recover-game-stats.ts`, the one place CLAUDE.md says
+  holds the production WRITE credential; an operator script could import the uncached full-season
+  rebuild and the guard stays green. And `sharedNestedCachesAreEnumeratedCompletely` counts
+  `/\n\s*unstable_cache\(/g`, which matches only a call BEGINNING a line — keyed on a rendering
+  detail rather than on the quantity it cares about, which is the pattern CLAUDE.md flags for the
+  Codex diff-base check, in the one test whose job is keeping that enumeration honest.
+- **Still open and unchanged:** the year bound omitting #774's **"or a season this league has
+  archived"** disjunct (Codex downgraded it to P3 this round); `dataCachePublicationQueued`
+  structurally false on the inline branch, contradicting `dataCachePublicationConfirmed: true` in the
+  same payload; and the line-based import-graph alias filter that a Prettier-wrapped multi-line
+  export defeats.
 - Verification: `tsc --noEmit`, `lint:all`, `npm run build` and `npm test` each exited 0 on branch
   tip `b5076728`; **5,444 pass / 0 fail / 0 cancelled / 0 skipped**, against the 5,412 recorded for
   #815 plus the **32** added here (30 route + 2 import-graph). Both required browser tests passed.
@@ -247,7 +279,9 @@ These consolidate recurring historical observations, not new project-governance 
   access-control change to make automation pass. **No run against production data has happened at
   all**, and preview reads its own Neon branch, so even an authenticated preview run would answer
   about preview's snapshot.
-- Status: **Not merged. Three remediation rounds spent; the round-3 confirming pass has not run.** The route has NOT been exercised
+- Status: **Not merged, and review is NOT resolved** — credible P2s remain, chiefly the
+  millisecond-precision verdict. Three remediation rounds are spent, so under `AGENTS.md` this is
+  report-and-stop rather than a fourth round. The route has NOT been exercised
   against production — it is not deployed, and preview sits behind Vercel SSO, so the `test`/2025 and
   `tsc`/2026 runs are an owner action. Prediction on record: `tsc`/2026 should report `hit` with an
   empty delta, because `/api/cron/live-scores` calls `invalidateAndWarmStandingsForYear` after every
