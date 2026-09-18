@@ -47,7 +47,8 @@ const { GET } = routeModule;
 // STALE-DETECTION. It does not and cannot prove production's write TIMING, and
 // no `node:test` can. The practical exposure is that a second cached read
 // inside one request is not reliably a hit in production, which is exactly why
-// the route reads the work store for its `unavailable` verdict instead of
+// the route reads the work store for its `publication-unobservable-inline-path`
+// verdict rule instead of
 // probing the cache twice.
 // ---------------------------------------------------------------------------
 
@@ -82,7 +83,7 @@ function fakeIncrementalCache(events: string[]) {
     /**
      * Test-only: mark every stored entry stale, so `incrementalCache.get`
      * returns one. Without this the fake could never produce `isStale: true`
-     * and `classifyCacheRead`'s background-revalidation branch was unreachable
+     * and `deriveCacheReadFacts`'s background-revalidation branch was unreachable
      * from the suite — coverage the classifier's doc comment implied and did not
      * have.
      */
@@ -163,7 +164,7 @@ async function requestThrough(
  *
  * Use `warmAtFixedClock` instead in any test that asserts a VERDICT or a
  * BLOCKER. Two requests microseconds apart can land in the same millisecond, and
- * `classifyCacheRead` then reads a genuine hit as `bypassed` — a live
+ * `deriveCacheReadFacts` then reads a genuine hit as `cannot-tell` — a live
  * reproduction of the open millisecond-precision finding, not a harness
  * artefact. It surfaced as an ORDER-DEPENDENT failure: adding two tests ahead of
  * `reportsNullRatherThanDisagreementOverAnEmptyPopulation` shifted timing enough
@@ -180,7 +181,7 @@ async function warmThrough(
 
 /**
  * Archive rows, which is what `SeasonArchive.finalStandings` holds. Note the
- * `ties` — see `archiveRowsCarryAFabricatedTieCount` at the foot of this file.
+ * `ties` — see `archiveRowsCarryAFabricatedTieCountAndLiveRowsCarryNone` below.
  */
 /**
  * Warm the snapshot at a FIXED, distinctly-past clock.
@@ -1252,6 +1253,130 @@ test('acceptsAnArchivedSeasonOutsideTheOrdinaryRange', async () => {
 });
 
 // ---------------------------------------------------------------------------
+// Review round 1. The attribution fix was authorized as an override of the
+// precommitment; the other two are outside its class.
+// ---------------------------------------------------------------------------
+
+/**
+ * THE VERDICT MUST IGNORE PUBLICATIONS FROM OTHER CACHE FAMILIES.
+ *
+ * `resolveStandingsYear` runs inside the observation window and, on an offseason
+ * league, reads `listSeasonArchives` — tagged `archive:<slug>`, a different
+ * family from `standings:*`. Branching on ANY added key reported a plain hit as
+ * `published-and-value-predates-request` with `backgroundRevalidation: true`.
+ * Both reviewers found it independently and one reproduced it.
+ *
+ * The fixture is theirs: offseason league with archives, warm at a fixed clock,
+ * evict only the archive entries, then one request.
+ */
+test('doesNotAttributeAnArchiveYearsPublicationToTheStandingsRead', async () => {
+  await setAppState('leagues', 'registry', [{ ...makeLeague(), status: { state: 'offseason' } }]);
+  await seedArchive([makeRow('Ann', { wins: 9, losses: 1 })]);
+
+  const cache = fakeIncrementalCache([]);
+  await warmAtFixedClock(cache);
+  // Evict ONLY the archive family. Canonical standings does not carry this tag.
+  await cache.revalidateTag(`archive:${SLUG}`);
+
+  const { body } = await requestThrough(cache);
+  const cacheRead = body.cacheRead as unknown as Record<string, unknown>;
+
+  // The archive-years publication really does land in the window — without this
+  // the test would pass for the wrong reason.
+  assert.ok(
+    (cacheRead.publicationKeysAdded as string[]).some((k) => k.includes('season-archive-years')),
+    'the archive-years entry was published inside the observed window'
+  );
+  assert.deepEqual(
+    cacheRead.standingsPublicationKeysAdded,
+    [],
+    'but NOTHING was published for the canonical-standings entry'
+  );
+  assert.equal(cacheRead.verdict, 'hit');
+  assert.equal(
+    cacheRead.verdictRule,
+    'no-publication-and-value-predates-request',
+    'so the verdict is a plain hit, not a background revalidation'
+  );
+  assert.equal(cacheRead.backgroundRevalidation, false);
+});
+
+/**
+ * The signature is derived from `canonicalStandingsCacheKeyParts`, so it cannot
+ * drift from the key it matches. Printed too, so a reader can check the match
+ * rather than trust it.
+ */
+test('printsTheStandingsKeySignatureItMatchedOn', async () => {
+  await seedLive({ csv: LIVE_CSV, homeScore: 31, awayScore: 17 });
+  const { body } = await requestThrough(fakeIncrementalCache([]));
+  const cacheRead = body.cacheRead as unknown as Record<string, unknown>;
+
+  const signature = String(cacheRead.standingsKeySignature);
+  assert.match(signature, /^canonical-standings,delta-probe,2026,/);
+  assert.ok(
+    (cacheRead.standingsPublicationKeysAdded as string[]).every((k) => k.includes(signature)),
+    'every key the verdict rested on really contains the signature'
+  );
+  assert.ok((cacheRead.standingsPublicationKeysAdded as string[]).length > 0);
+  assert.equal(cacheRead.verdict, 'miss');
+});
+
+/**
+ * #818's disjunct must not turn a certain 400 into a 500.
+ *
+ * `readArchiveYearsFromStore` filters `n >= 2000`, so a sub-floor year can never
+ * be in the list and consulting the store for one is a round-trip whose result
+ * cannot change the answer — while the read propagates failure. This is the
+ * precedent's own review finding (`seasonArchive.ts`), which I cited and did not
+ * copy.
+ */
+test('refusesASubFloorYearWithoutReadingArchives', async () => {
+  await seedLive({ csv: LIVE_CSV, homeScore: 31, awayScore: 17 });
+  const events: string[] = [];
+  const { status } = await requestThrough(
+    fakeIncrementalCache(events),
+    `?leagueSlug=${SLUG}&year=1999`
+  );
+  assert.equal(status, 400);
+  assert.equal(
+    events.some((e) => e.includes('season-archive-years')),
+    false,
+    'the archive store was never consulted for a year it could not contain'
+  );
+});
+
+/**
+ * A durable archive predating `finalGames` must not silently lose the field.
+ *
+ * `finalGames` is typed required but legacy archives omit it (`trends.ts:124`
+ * documents exactly this, and `undefined > 0` is false rather than an error,
+ * which is why nothing else caught it). Assigning `undefined` made
+ * `JSON.stringify` drop the key, so the projection shipped without a field
+ * `comparedFields` advertises.
+ */
+test('serializesAMissingLegacyFieldAsNullRatherThanDroppingIt', async () => {
+  await setAppState('leagues', 'registry', [makeLeague()]);
+  const legacy = makeRow('Ann', { wins: 9, losses: 1 }) as Record<string, unknown>;
+  delete legacy.finalGames;
+  await seedArchive([legacy as unknown as StandingsHistoryStandingRow]);
+
+  const { body } = await requestThrough(fakeIncrementalCache([]));
+  const comparison = body.comparison as unknown as Record<string, unknown>;
+  const ann = (comparison.owners as Array<Record<string, unknown>>).find((o) => o.owner === 'Ann');
+  const cached = ann!.cached as Record<string, unknown>;
+
+  assert.ok(
+    Object.hasOwn(cached, 'finalGames'),
+    'the field survives serialization instead of vanishing'
+  );
+  assert.equal(cached.finalGames, null);
+  assert.ok(
+    (comparison.comparedFields as string[]).includes('finalGames'),
+    'and it is still advertised, so the payload and the projection agree'
+  );
+});
+
+// ---------------------------------------------------------------------------
 // Acceptance 5 — #770 / #774. Rejected BEFORE any build, and minting no entry.
 // ---------------------------------------------------------------------------
 test('rejectsAnOutOfRangeYearBeforeAnyBuild', async () => {
@@ -1348,7 +1473,7 @@ test('performsNoAppStateWriteOnAnyPath', async () => {
           GET(authedRequest())
         ),
     ],
-    ['no incremental cache (unavailable)', () => GET(authedRequest())],
+    ['no incremental cache (cannot-tell)', () => GET(authedRequest())],
     ['rejected year', () => GET(authedRequest(`?leagueSlug=${SLUG}&year=99999`))],
     // 404 now, and that IS the point of the path: it must refuse before the
     // cached read rather than mint an entry under an arbitrary slug.
@@ -1407,7 +1532,7 @@ test('comparedFieldsExcludeTies', async () => {
  * not declare, whose value is fabricated; a live-sourced snapshot's rows carry
  * no such key at all. A `ties` column in this route would report one of those
  * two things and call it a tie count. This test states the shape so the claim in
- * the route's `EXCLUDED_FIELD_NOTE` is checkable rather than asserted, and
+ * the route's `comparedFields` is checkable rather than asserted, and
  * reddens if either half changes.
  */
 test('archiveRowsCarryAFabricatedTieCountAndLiveRowsCarryNone', async () => {

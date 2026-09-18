@@ -332,59 +332,6 @@ export async function getCanonicalStandings(
   return cachedCanonicalStandings(input.slug, input.year ?? null, input.currentDate);
 }
 
-/**
- * Invalidate cached canonical standings for a league. Call from mutation
- * paths that affect standings inputs (roster CSV, alias map, postseason
- * override, draft confirmation, schedule/scores cache, archive writes,
- * rollover). After invalidation, the next request that calls
- * `getCanonicalStandings` for this slug recomputes fresh data.
- *
- * - Pass `year` to invalidate only that year's snapshot (preferred — most
- *   mutations are year-scoped).
- * - Omit `year` to invalidate every year-keyed snapshot for the league via
- *   the per-slug umbrella tag.
- *
- * Wired into:
- * - PUT /api/owners (league-scoped roster CSV)
- * - PUT /api/aliases (year-scoped: `aliases:${year}` feeds every league, so it
- *   invalidates that year for every registered league; global-scoped:
- *   invalidates every registered league's umbrella tag). The league-scoped PUT
- *   was removed (PLATFORM-064) and league aliases no longer resolve at runtime
- *   (PLATFORM-067).
- * - PUT /api/postseason-overrides
- * - POST + DELETE /api/draft/[slug]/[year]/confirm
- * - GET /api/schedule (admin refresh, walks registry)
- * - GET /api/scores (cache miss + fallback paths, walks registry)
- * - `confirmPreseasonOwners` + `beginPreseason` server actions (PLATFORM-071,
- *   league-scoped: preseason owners / offseason→preseason lifecycle change)
- * - GET /api/cron/season-rollover (per rolled-over league) and
- *   GET /api/cron/season-transition (per transitioned league) — PLATFORM-071
- *
- * Global mutations (team-database sync, `PUT /api/aliases?scope=global`, and the
- * lazy legacy promotion in `GET /api/aliases?scope=global`) call
- * `invalidateAllLeaguesStandings()`, which busts the shared `ALL_STANDINGS_TAG`
- * carried by every snapshot — no registry enumeration (PLATFORM-070).
- *
- * Remaining un-wired lifecycle mutators (intentional): `completeSetup` (flips a
- * setupComplete flag; no standings-content change).
- *
- * The `slug='test'` dev-tooling actions in `admin/[slug]/actions.ts` are now
- * WIRED, not exempt — INSIGHTS-025 made draft publication an input to the cached
- * insights build, so anything that creates, deletes or retracts a draft changes
- * cached public output. That covers the manual demo transition (both the `season`
- * and `preseason` branches, the latter because `clearTestLeagueYear` deletes the
- * draft and roster), `resetTestDraft`, and `autoCompleteDraft`. This paragraph
- * listed them as intentionally un-wired for one round after they were wired,
- * which would have hidden two genuine gaps from anyone auditing by reading it.
- * Note that those paths share
- * the SAME key-collision property that justified wiring the season branch —
- * `resolveStandingsYear` returns the same resolved year across a preseason
- * re-click, and an offseason write projects `league.year` to the outgoing
- * season year — so they are un-wired by scope, not because they are safe.
- * Tracked in `docs/next-tasks.md`. If a genuinely un-wired mutating path is
- * hit, the cache may serve stale canonical data until a subsequent
- * invalidation fires from another path.
- */
 export type ComputeCanonicalStandingsUncachedInput = {
   slug: string;
   /** Explicit year; `null`/omitted reproduces the default-year resolution. */
@@ -401,7 +348,7 @@ export type ComputeCanonicalStandingsUncachedInput = {
  * snapshot beside a fresh rebuild, so it needs a path that provably skips both
  * cache layers. The two alternatives were both wrong:
  *
- *   - `getCanonicalStandings`'s `leagueStatusOverride` bypass in `getCanonicalStandings` forces the
+ *   - `getCanonicalStandings`'s `leagueStatusOverride` `leagueStatusOverride` bypass forces the
  *     caller to supply a `LeagueStatus`, and `computeCanonicalStandings` resolves
  *     `statusOverride ?? league.status ?? { state: 'season', year: league.year }`.
  *     A caller CANNOT pass `undefined` to mean "whatever the registry says" —

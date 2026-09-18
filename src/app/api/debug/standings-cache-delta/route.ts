@@ -6,6 +6,7 @@ import { getLeague } from '@/lib/leagueRegistry';
 import { listSeasonArchives } from '@/lib/seasonArchive';
 import { resolveLeagueOperatingYear } from '@/lib/selectors/leagueLifecycle';
 import {
+  canonicalStandingsCacheKeyParts,
   computeCanonicalStandingsUncached,
   getCanonicalStandings,
   resolveStandingsYear,
@@ -24,8 +25,8 @@ export const dynamic = 'force-dynamic';
 // from this module's own export and from nothing else — `dynamic` does not feed
 // it. Exporting it here would make every request a forced recompute, so the
 // route would report `miss` forever and publish a snapshot every time.
-// Asserted by `reportsHitAgainstAWarmSnapshot` in the route suite, which would
-// fail if the read were bypassed.
+// Asserted by `reportsHitWhenNothingIsPublishedAndTheSnapshotPredatesTheRequest`,
+// which would fail if the read were bypassed.
 
 /**
  * The comparison's unit. Named `owner` and not `team` on purpose: canonical
@@ -104,17 +105,6 @@ type SnapshotFieldDifference = {
 };
 
 /**
- * FOUR values, not the three this slice's receipt named. `bypassed` was added at
- * review: `unstable_cache` skips its read AND its publication when
- * `workStore.isDraftMode` (`unstable-cache.js:143` and `:204` — the flag gates
- * both), so a draft-mode request recomputes and publishes nothing. That is
- * neither a hit (no existing snapshot was returned) nor a miss (no snapshot was
- * created), and reporting it as either is the confident-falsehood-about-durable-
- * state class this route exists to prevent. An earlier comment here listed
- * `isDraftMode` alongside the flags that present as a perpetual MISS; that was
- * backwards, because those other flags still publish.
- */
-/**
  * Digits only, deliberately — `Number.parseInt` accepts trailing junk and
  * `Number` reads `2026.5`, `2e10` and `0x7E0`. Mirrors `parseYearParam` in
  * `/api/insights/[slug]` (#770) and `parseArchiveYearSegment` in
@@ -183,6 +173,20 @@ async function resolveRequestedYear(
     // direction: a wrongly refused year costs a 400, a wrongly admitted one
     // mints a full-season rebuild and a year-long cache entry per distinct
     // value.
+    // THE FLOOR GUARDS THE DISJUNCT TOO, and it is not redundancy — this is the
+    // precedent's own review finding, which I cited and then failed to copy.
+    // `readArchiveYearsFromStore` filters `n >= 2000`, so the list can never
+    // contain a sub-floor value and consulting it for one is a store round-trip
+    // whose result cannot change the answer. It matters because the read below
+    // deliberately PROPAGATES failure: without this guard a store outage turns a
+    // certain 400 into a 500. `seasonArchive.ts` carries the identical guard for
+    // the identical reason after `/history/tsc/1999` did exactly that.
+    if (parsed < MIN_SEASON_YEAR) {
+      return {
+        ok: false,
+        error: `year must be an integer between ${MIN_SEASON_YEAR} and ${maxYear}, or a season this league has archived`,
+      };
+    }
     const archivedYears = await listSeasonArchives(leagueSlug);
     if (archivedYears.includes(parsed)) return { ok: true, year: parsed };
   }
@@ -295,8 +299,11 @@ function readCacheObservation(): CacheObservation {
 type CacheReadFacts = {
   verdict: CacheReadVerdict;
   verdictRule: VerdictRule;
+  /** Every key added in the window — the observation, including other cache families. */
   publicationKeysAdded: string[];
   publicationKeysRemoved: string[];
+  /** The subset attributable to the canonical-standings entry; the verdict uses ONLY this. */
+  standingsPublicationKeysAdded: string[];
   stampedByThisRequest: boolean;
   backgroundRevalidation: boolean;
 };
@@ -332,17 +339,39 @@ function deriveCacheReadFacts(
   entry: CacheObservation,
   exit: CacheObservation,
   snapshotGeneratedAt: string,
-  probeStamp: string
+  probeStamp: string,
+  standingsKeySignature: string
 ): CacheReadFacts {
   const entryKeys = new Set(entry.pendingRevalidateKeys);
   const exitKeys = new Set(exit.pendingRevalidateKeys);
   const publicationKeysAdded = exit.pendingRevalidateKeys.filter((key) => !entryKeys.has(key));
   const publicationKeysRemoved = entry.pendingRevalidateKeys.filter((key) => !exitKeys.has(key));
+  // THE VERDICT BRANCHES ON THE STANDINGS ENTRY ALONE, not on any added key.
+  //
+  // `resolveStandingsYear` runs inside this window and, on an offseason league,
+  // reads `listSeasonArchives` — a DIFFERENT cache family, tagged `archive:<slug>`.
+  // Treating its key as evidence about the canonical read reported a plain hit as
+  // `published-and-value-predates-request` with `backgroundRevalidation: true`,
+  // and under a stamp collision as a `miss`. Both reviewers found it; the payload
+  // comment already claimed the keys let a reader tell the two apart while the
+  // derivation did not.
+  //
+  // The signature is DERIVED from `canonicalStandingsCacheKeyParts`, the same
+  // function that builds the key, rather than matched on a hand-written
+  // substring. `unstable_cache` composes its invocation key as
+  // `${cb.toString()}-${keyParts.join(',')}-${JSON.stringify(args)}`, so the
+  // joined parts appear verbatim inside it. If that composition ever changes, the
+  // match finds nothing and the verdict degrades to `cannot-tell` — declining
+  // rather than claiming, which is the safe direction for this route.
+  const standingsPublicationKeysAdded = publicationKeysAdded.filter((key) =>
+    key.includes(standingsKeySignature)
+  );
   const stampedByThisRequest = snapshotGeneratedAt === probeStamp;
 
   const base = {
     publicationKeysAdded,
     publicationKeysRemoved,
+    standingsPublicationKeysAdded,
     stampedByThisRequest,
     backgroundRevalidation: false,
   };
@@ -357,7 +386,7 @@ function deriveCacheReadFacts(
       verdictRule: 'publication-unobservable-inline-path',
     };
   }
-  if (publicationKeysAdded.length > 0) {
+  if (standingsPublicationKeysAdded.length > 0) {
     return stampedByThisRequest
       ? { ...base, verdict: 'miss', verdictRule: 'published-and-stamped-here' }
       : {
@@ -397,7 +426,7 @@ function orderedSides(snapshot: CanonicalStandings): Map<string, OwnerSide> {
  * differently — which is the whole point of printing it. NoClaim carries `null`:
  * it sits outside the canonical order, so it has no position to report.
  */
-type OwnerProjection = ({ rank: number | null } & Pick<OwnerStandingsRow, ComparedField>) | null;
+type OwnerProjection = ({ rank: number | null } & Record<ComparedField, number | null>) | null;
 
 type OwnerComparison = {
   owner: string;
@@ -410,8 +439,15 @@ function projectSide(side: OwnerSide | undefined): OwnerProjection {
   if (!side) return null;
   const projection = { rank: side.isNoClaim ? null : side.rank } as {
     rank: number | null;
-  } & Record<ComparedField, number>;
-  for (const field of COMPARED_FIELDS) projection[field] = side.row[field];
+  } & Record<ComparedField, number | null>;
+  // NULL, NOT `undefined`, and the difference is whether the field survives
+  // serialization. `finalGames` is typed required but durable archives predate
+  // it (`trends.ts:124` documents exactly this, and `undefined > 0` is false
+  // rather than an error, which is why nothing else caught it). Assigning
+  // `undefined` here makes `JSON.stringify` DROP the key, so a legacy archive
+  // silently ships an owner projection missing a field `comparedFields`
+  // advertises — the payload promising both sides and delivering one.
+  for (const field of COMPARED_FIELDS) projection[field] = side.row[field] ?? null;
   return projection;
 }
 
@@ -815,11 +851,15 @@ export async function GET(req: Request): Promise<Response> {
   // The VERDICT is derived from the cached read alone — a key the rebuild adds
   // afterwards says nothing about whether the cached read was a hit. The exit
   // observation is still published, for the durable-effect account.
+  // Derived from the same function that builds the cache key, so the match
+  // cannot drift from the key it is matching.
+  const standingsKeySignature = canonicalStandingsCacheKeyParts(leagueSlug, resolvedYear).join(',');
   const cacheReadFacts = deriveCacheReadFacts(
     cacheEntry,
     cacheAfterCachedRead,
     cached.generatedAt,
-    probeStamp
+    probeStamp,
+    standingsKeySignature
   );
   const requestKeysAdded = cacheExit.pendingRevalidateKeys.filter(
     (key) => !new Set(cacheEntry.pendingRevalidateKeys).has(key)
@@ -866,6 +906,11 @@ export async function GET(req: Request): Promise<Response> {
 
       // --- derived, each a set difference or an equality over the above ---
       publicationKeysAdded: cacheReadFacts.publicationKeysAdded,
+      // The subset the VERDICT rests on. Printed separately from the full added
+      // set so a reader can see that an archive-years publication was observed
+      // and correctly excluded, rather than having to trust that it was.
+      standingsPublicationKeysAdded: cacheReadFacts.standingsPublicationKeysAdded,
+      standingsKeySignature,
       publicationKeysRemoved: cacheReadFacts.publicationKeysRemoved,
       stampedByThisRequest: cacheReadFacts.stampedByThisRequest,
       backgroundRevalidation: cacheReadFacts.backgroundRevalidation,
@@ -913,36 +958,26 @@ export async function GET(req: Request): Promise<Response> {
       unit: 'owner',
       comparedFields: COMPARED_FIELDS,
       derivedFields: ['rank'],
-      // NULL, NOT A BOOLEAN, WHENEVER THE COMPARISON CANNOT DETECT A DIVERGENCE.
+      // NULL, NOT A BOOLEAN, WHENEVER AN EMPTY RESULT CANNOT BE READ AS AGREEMENT.
       //
-      // The first cut gated this on the cache verdict alone and both reviewers
-      // found the same shape three more times. The gate is not "was the cached
-      // side real" — it is "could this comparison have SEEN a difference if one
-      // existed", and that fails in four distinct ways:
+      // The gate is not "was the cached side real" but "could this comparison
+      // have SEEN a difference if one existed", and it fails three ways —
+      // `resolveComparisonBlocker` is the single place that decides, so
+      // `blockedBy` and `matches` cannot disagree:
       //
-      //  1. verdict !== 'hit' — on a miss the cached read COMPUTED the value it
-      //     returned, so the two sides are one computation of one input set
-      //     seconds apart and agree by construction. `bypassed` and
-      //     `unavailable` have no cached side at all.
-      //  2. source === 'archive' — both sides read the same nested, tag-only
-      //     `getSeasonArchive` cache, so the rebuild cannot diverge from the
-      //     snapshot however stale the archive is. The route already computed
-      //     this as `freshness.comparisonIsMeaningfulForSource` and then failed
-      //     to consult it; `nestedSeasonArchiveCacheIsSharedByBothSides` was
-      //     ASSERTING the misleading `matches: true` it produced.
-      //  3. comparedOwners === 0 — agreement over an empty population is not
-      //     agreement. This previously reported `matches: false`, which is worse
-      //     than either: an assertion of divergence with nothing to point at.
-      //  4. anything the field set does not reach — named in `excluded` and
-      //     `freshness.caveat` rather than silently folded in.
+      //   1. verdict !== 'hit' — the cached side is not established as a
+      //      pre-existing snapshot, so agreement carries no information.
+      //   2. freshSource === 'archive' — both sides read the same nested,
+      //      tag-only `getSeasonArchive` cache, so the rebuild cannot diverge
+      //      from the snapshot however stale the archive is.
+      //   3. comparedOwners === 0 — agreement over an empty population is not
+      //      agreement.
       //
-      // Each of these is a "cannot tell", and a boolean has nowhere to put one.
-      // Asserted by `reportsMissAgainstAnEmptyCache`,
+      // A BLOCKER GATES ABSENCE ONLY: a difference that WAS found is evidence
+      // under all three, so `matches` is `false` whenever the lists are
+      // non-empty. Asserted by `reportsMissWhenAKeyIsPublishedAndTheSnapshotCarriesThisRequestStamp`,
       // `nestedSeasonArchiveCacheIsSharedByBothSides` and
       // `reportsNullRatherThanDisagreementOverAnEmptyPopulation`.
-      // A blocker gates ABSENCE only: `false` whenever a difference was actually
-      // found, whatever the blocker says, because a positive finding is evidence
-      // under all of them.
       matches: differencesAreEmpty ? (comparisonBlocker === null ? true : null) : false,
       blockedBy: comparisonBlocker,
       // What a `true` here does NOT cover. Empty when nothing shared could have
