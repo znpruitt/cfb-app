@@ -419,6 +419,13 @@ These consolidate recurring historical observations, not new project-governance 
 
 ### PLATFORM-722-724-MATCHUPS-DERIVED-STATE-CODEX-v1
 
+> **Two abandoned reconstruction attempts, branches deleted from `origin` 2026-09-17** (owner
+> decision), recorded here because the branch was the only trace: `codex/722-724-matchups-derived-state`
+> at `15f7812d` (3 commits) and `-v2` at `9a74f063` (1 commit). **v3 is what shipped** —
+> `codex/722-724-matchups-derived-state-v3`, merged `ebc4ec79` ([PR #777](https://github.com/znpruitt/cfb-app/pull/777)),
+> 2026-09-13. The entry below is v3's execution record; nothing in v1 or v2 was carried forward
+> uncaptured by it.
+
 - Change: [#722](https://github.com/znpruitt/cfb-app/issues/722) and
   [#724](https://github.com/znpruitt/cfb-app/issues/724) derive rows, counts and sort from
   selector projections over distinct keys; state counts sum to the
