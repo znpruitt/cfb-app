@@ -12,6 +12,7 @@ import {
 } from '@/lib/selectors/leagueStandings';
 import { requireAdminAuth } from '@/lib/server/adminAuth';
 import { NO_CLAIM_OWNER, type OwnerStandingsRow } from '@/lib/standings';
+import type { StandingsHistory } from '@/lib/standingsHistory';
 
 export const dynamic = 'force-dynamic';
 
@@ -82,7 +83,18 @@ type SnapshotFieldDifference = {
   fresh: string | number | null;
 };
 
-type CacheReadVerdict = 'hit' | 'miss' | 'unavailable';
+/**
+ * FOUR values, not the three this slice's receipt named. `bypassed` was added at
+ * review: `unstable_cache` skips its read AND its publication when
+ * `workStore.isDraftMode` (`unstable-cache.js:143` and `:204` — the flag gates
+ * both), so a draft-mode request recomputes and publishes nothing. That is
+ * neither a hit (no existing snapshot was returned) nor a miss (no snapshot was
+ * created), and reporting it as either is the confident-falsehood-about-durable-
+ * state class this route exists to prevent. An earlier comment here listed
+ * `isDraftMode` alongside the flags that present as a perpetual MISS; that was
+ * backwards, because those other flags still publish.
+ */
+type CacheReadVerdict = 'hit' | 'miss' | 'bypassed' | 'unavailable';
 
 /**
  * Digits only, deliberately — `Number.parseInt` accepts trailing junk and
@@ -141,6 +153,8 @@ function resolveRequestedYear(
 
 type CacheContext = {
   incrementalCachePresent: boolean;
+  /** Narrower than the above: the work store's own cache, absent the global. */
+  workStoreCachePresent: boolean;
   /** How many data-cache publications this request has queued so far. */
   pendingPublications: number;
   /** Read, not assumed — each of these bypasses the cache READ in `unstable_cache`. */
@@ -164,10 +178,14 @@ type CacheContext = {
  * none can be: a false statement about durable state, which is the exact defect
  * class this route exists to expose.
  *
- * The flags are REPORTED, not asserted. Each one independently makes
- * `unstable_cache` skip its read and recompute, which would present as a
- * perpetual `miss`; printing them lets a reader tell that apart from a genuinely
- * cold cache without redeploying.
+ * The flags are REPORTED, not asserted — and they do NOT all behave alike, which
+ * an earlier version of this comment got backwards. `fetchCache ===
+ * 'force-no-store'` and either `isOnDemandRevalidate` make `unstable_cache` skip
+ * its READ and recompute, but it still PUBLISHES, so they present as a perpetual
+ * `miss`. `isDraftMode` gates the read AND the publication
+ * (`unstable-cache.js:143` and `:204`), so it presents as neither — it is why
+ * the `bypassed` verdict exists. Printing all of them lets a reader tell any of
+ * these apart from a genuinely cold cache without redeploying.
  *
  * `standingsCacheWarmer.ts` already reads `workAsyncStorage.getStore()` from
  * `src/`, so this is an established seam here rather than a new coupling.
@@ -183,7 +201,18 @@ function readCacheContext(): CacheContext {
       }
     | undefined;
   return {
-    incrementalCachePresent: Boolean(store?.incrementalCache),
+    // `unstable_cache` resolves its cache as
+    // `workStore?.incrementalCache || globalThis.__incrementalCache`
+    // (`unstable-cache.js:60`), and a Next server sets that global process-wide
+    // (`base-server.js:852`). Checking only the work store would report
+    // `unavailable` — and "nothing was read from or written to the data cache" —
+    // for a request whose read went through the global and whose `set` was
+    // AWAITED INLINE on the no-workStore branch. Reported as a false negative on
+    // durable state, which is the one thing this field must not produce.
+    incrementalCachePresent:
+      Boolean(store?.incrementalCache) ||
+      Boolean((globalThis as { __incrementalCache?: unknown }).__incrementalCache),
+    workStoreCachePresent: Boolean(store?.incrementalCache),
     pendingPublications: Object.keys(store?.pendingRevalidates ?? {}).length,
     flags: {
       workStorePresent: Boolean(store),
@@ -244,18 +273,27 @@ function classifyCacheRead(
   probeStamp: string,
   before: CacheContext,
   after: CacheContext
-): { verdict: CacheReadVerdict; publishedEntry: boolean; backgroundRevalidation: boolean } {
+): { verdict: CacheReadVerdict; queuedPublication: boolean; backgroundRevalidation: boolean } {
   if (!before.incrementalCachePresent) {
-    return { verdict: 'unavailable', publishedEntry: false, backgroundRevalidation: false };
+    return { verdict: 'unavailable', queuedPublication: false, backgroundRevalidation: false };
   }
-  const publishedEntry = after.pendingPublications > before.pendingPublications;
+  const queuedPublication = after.pendingPublications > before.pendingPublications;
   const computedHere = snapshot.generatedAt === probeStamp;
-  if (publishedEntry && computedHere) {
-    return { verdict: 'miss', publishedEntry, backgroundRevalidation: false };
+  if (queuedPublication && computedHere) {
+    return { verdict: 'miss', queuedPublication, backgroundRevalidation: false };
   }
-  // Published but returned someone else's value: a stale entry served while its
-  // replacement recomputes. The caller read the cache, so it is a hit.
-  return { verdict: 'hit', publishedEntry, backgroundRevalidation: publishedEntry };
+  if (queuedPublication) {
+    // Queued a publication but returned someone else's value: a stale entry
+    // served while its replacement recomputes. The caller read the cache.
+    return { verdict: 'hit', queuedPublication, backgroundRevalidation: true };
+  }
+  if (computedHere) {
+    // Recomputed and published NOTHING, with a cache present. `isDraftMode` is
+    // the reachable cause — it gates the read and the publication alike. The
+    // other read-skipping flags still publish, so they land on `miss` above.
+    return { verdict: 'bypassed', queuedPublication, backgroundRevalidation: false };
+  }
+  return { verdict: 'hit', queuedPublication, backgroundRevalidation: false };
 }
 
 function cacheReadRestsOn(
@@ -265,13 +303,15 @@ function cacheReadRestsOn(
 ): string {
   switch (verdict) {
     case 'unavailable':
-      return 'no incrementalCache on the request work store, so getCanonicalStandings fell back to a direct compute (leagueStandings.ts catches "incrementalCache missing"); nothing was read from or written to the data cache and no snapshot exists';
+      return 'neither workStore.incrementalCache nor globalThis.__incrementalCache was present, so getCanonicalStandings fell back to a direct compute (leagueStandings.ts catches "incrementalCache missing"); nothing was read from the data cache and no snapshot exists';
     case 'miss':
-      return `the cached read queued a data-cache publication on workStore.pendingRevalidates AND returned generatedAt === ${probeStamp}, the currentDate this request supplied — so THIS REQUEST computed the snapshot; the cached and fresh sides are two computations of the same inputs seconds apart and their agreement means nothing`;
+      return `the cached read QUEUED a data-cache publication on workStore.pendingRevalidates AND returned generatedAt === ${probeStamp}, the currentDate this request supplied — so THIS REQUEST computed the snapshot; the cached and fresh sides are two computations of the same inputs seconds apart and their agreement means nothing`;
+    case 'bypassed':
+      return `a data cache was present, but the cached read queued NO publication and still returned generatedAt === ${probeStamp} — so the value was recomputed and nothing was stored. unstable_cache skips both its read and its publication under workStore.isDraftMode; check the isDraftMode flag below. This is neither a hit nor a miss and no snapshot exists`;
     case 'hit':
       return backgroundRevalidation
         ? `the cached read returned an EXISTING snapshot (generatedAt is not ${probeStamp}) while queueing a recompute — a stale entry served with a background revalidation behind it; the value compared below is the stale one`
-        : 'the cached read queued no data-cache publication, so an existing snapshot was returned; its generatedAt is when that snapshot was warmed';
+        : 'the cached read queued no data-cache publication and returned a snapshot it did not compute, so an existing snapshot was returned; its generatedAt is when that snapshot was warmed';
   }
 }
 
@@ -310,15 +350,27 @@ function compareOwners(
 
     if (!left || !right) {
       const present = (left ?? right)!;
+      const fields: FieldDifference[] = COMPARED_FIELDS.map((field) => ({
+        field,
+        cached: left ? present.row[field] : null,
+        fresh: left ? null : present.row[field],
+      }));
+      // Rank travels with the one-sided rows too. The response advertises it as
+      // a derived field, and omitting it here made the payload inconsistent
+      // between the two difference shapes for no reason. NoClaim has no rank
+      // because it sits outside the canonical order.
+      if (!isNoClaim) {
+        fields.push({
+          field: 'rank',
+          cached: left ? present.rank : null,
+          fresh: left ? null : present.rank,
+        });
+      }
       differences.push({
         owner,
         isNoClaim,
         presence: left ? 'cached-only' : 'fresh-only',
-        fields: COMPARED_FIELDS.map((field) => ({
-          field,
-          cached: left ? present.row[field] : null,
-          fresh: left ? null : present.row[field],
-        })),
+        fields,
       });
       continue;
     }
@@ -340,6 +392,55 @@ function compareOwners(
   return { comparedOwners: owners.length, differences };
 }
 
+/**
+ * A per-week digest of a standings history, stable across key order.
+ *
+ * Deliberately NOT a whole-object hash: two opaque digests tell a reader that
+ * something differs and nothing about what, and this route's job is to name the
+ * divergence. Each week contributes its `played` flag, its coverage state and a
+ * canonical projection of its standing rows, so the first differing week is
+ * reported by name.
+ */
+function digestHistoryWeek(history: StandingsHistory, week: number): string {
+  const snapshot = history.byWeek[week];
+  if (!snapshot) return 'absent';
+  const rows = [...snapshot.standings]
+    .map((row) => `${row.owner}:${row.wins}-${row.losses}:${row.pointsFor}/${row.pointsAgainst}`)
+    .sort()
+    .join('|');
+  return `played=${String(snapshot.played)};coverage=${snapshot.coverage.state};rows=${rows}`;
+}
+
+function compareHistories(
+  cached: StandingsHistory | null,
+  fresh: StandingsHistory | null
+): Array<[string, string | number | null, string | number | null]> {
+  if (!cached || !fresh) {
+    return cached === fresh
+      ? []
+      : [['standingsHistory', cached ? 'present' : null, fresh ? 'present' : null]];
+  }
+  const out: Array<[string, string | number | null, string | number | null]> = [];
+  const cachedWeeks = cached.weeks.join(',');
+  const freshWeeks = fresh.weeks.join(',');
+  if (cachedWeeks !== freshWeeks) {
+    out.push(['standingsHistory.weeks', cachedWeeks, freshWeeks]);
+  }
+  for (const week of [...new Set([...cached.weeks, ...fresh.weeks])].sort((a, b) => a - b)) {
+    const left = digestHistoryWeek(cached, week);
+    const right = digestHistoryWeek(fresh, week);
+    if (left !== right) out.push([`standingsHistory.week${week}`, left, right]);
+  }
+  // `byOwner` is a projection of the same weeks, so its size is a cheap check
+  // that the two projections agree on the owner set even when every week does.
+  const cachedOwners = Object.keys(cached.byOwner).length;
+  const freshOwners = Object.keys(fresh.byOwner).length;
+  if (cachedOwners !== freshOwners) {
+    out.push(['standingsHistory.byOwner', cachedOwners, freshOwners]);
+  }
+  return out;
+}
+
 function compareSnapshotFields(
   cached: CanonicalStandings,
   fresh: CanonicalStandings
@@ -358,12 +459,18 @@ function compareSnapshotFields(
     ['archiveYearResolved', cached.archiveYearResolved, fresh.archiveYearResolved],
     ['coverage.state', cached.coverage.state, fresh.coverage.state],
     ['inferredSeasonStart', cached.inferredSeasonStart, fresh.inferredSeasonStart],
-    [
-      'standingsHistory.weeks',
-      cached.standingsHistory?.weeks.length ?? null,
-      fresh.standingsHistory?.weeks.length ?? null,
-    ],
   ];
+
+  // THE HISTORY IS COMPARED BY CONTENT, NOT BY LENGTH.
+  //
+  // Comparing `weeks.length` alone was a detection gap both reviewers found, and
+  // the case is not hypothetical: `STANDINGS_HISTORY_SHAPE_VERSION` exists
+  // precisely because a week's `played` flag can flip meaning across a deploy,
+  // and `selectSeasonContext` reads it to decide whether a season is FINAL. A
+  // flip there changes no week count and no owner row — `deriveStandings` even
+  // drops final ties outright — so the old comparison reported a clean match
+  // over a snapshot that would tell Overview and Trends the wrong thing.
+  fields.push(...compareHistories(cached.standingsHistory, fresh.standingsHistory));
   return fields
     .filter(([, left, right]) => left !== right)
     .map(([field, cachedValue, freshValue]) => ({
@@ -371,6 +478,29 @@ function compareSnapshotFields(
       cached: cachedValue,
       fresh: freshValue,
     }));
+}
+
+/**
+ * The single place that decides whether a comparison could have detected a
+ * divergence. Returns `null` when it could, and otherwise the reason it could
+ * not — which becomes both the `matches: null` gate and the response's
+ * `notComparableBecause`, so the two can never disagree.
+ */
+function resolveComparisonBlocker(input: {
+  verdict: CacheReadVerdict;
+  freshSource: CanonicalStandings['source'];
+  comparedOwners: number;
+}): string | null {
+  if (input.verdict !== 'hit') {
+    return `cacheRead is "${input.verdict}", so the cached side is not a pre-existing snapshot and the two sides agreeing carries no information`;
+  }
+  if (input.freshSource === 'archive') {
+    return 'both sides derive from the season archive, which has its own tag-only unstable_cache that the fresh rebuild reads through — so the rebuild cannot diverge from the snapshot however stale the archive is, and agreement here is structural rather than evidence';
+  }
+  if (input.comparedOwners === 0) {
+    return 'the comparison covered zero owners, so there was nothing that could have differed';
+  }
+  return null;
 }
 
 export async function GET(req: Request): Promise<Response> {
@@ -400,6 +530,30 @@ export async function GET(req: Request): Promise<Response> {
   }
   const yearOverride = yearResolution.year;
 
+  // UNKNOWN SLUG IS REFUSED, and the argument is the one twenty lines up in
+  // `resolveRequestedYear` — which I made for `year` and failed to apply to the
+  // sibling parameter until review pointed at it. `getCanonicalStandings` on an
+  // unregistered slug does not decline: it computes an empty snapshot and
+  // PUBLISHES it under `canonicalStandingsCacheKeyParts(slug, null)` with
+  // `revalidate: false`, i.e. a year-long entry keyed on an arbitrary
+  // caller-supplied string. Nothing can ever reclaim it — the only things that
+  // fire `standings:<slug>` are mutations that walk the registry, and this slug
+  // is in no registry. #778 settled the identical hazard for the season-archive
+  // readers (`seasonArchive.ts`, "THE UNKNOWN-SLUG GUARD"); this is the same
+  // guard for the same reason.
+  //
+  // 404 rather than 400: the parameter is well-formed, the league is absent.
+  // Asserted by `refusesAnUnregisteredLeagueBeforeTouchingTheCache`.
+  if (!league) {
+    return NextResponse.json(
+      {
+        error: 'league-not-registered',
+        detail: `no league is registered under slug "${leagueSlug}"`,
+      },
+      { status: 404 }
+    );
+  }
+
   const resolvedYear = await resolveStandingsYear(leagueSlug, yearOverride);
 
   // ONE Date for both sides. The cached read needs it as the detector's probe
@@ -419,7 +573,7 @@ export async function GET(req: Request): Promise<Response> {
     currentDate: probe,
   });
   const cacheContextAfter = readCacheContext();
-  const { verdict, publishedEntry, backgroundRevalidation } = classifyCacheRead(
+  const { verdict, queuedPublication, backgroundRevalidation } = classifyCacheRead(
     cached,
     probeStamp,
     cacheContextBefore,
@@ -431,9 +585,22 @@ export async function GET(req: Request): Promise<Response> {
     year: yearOverride,
     currentDate: probe,
   });
+  // A THIRD reading, because the fresh rebuild has durable effects of its own.
+  // It runs UN-NESTED, so `getSeasonArchive` / `listSeasonArchives` inside it go
+  // through their own `unstable_cache` and publish on a cold archive cache.
+  // Bracketing only the cached read meant a `hit` could report no data-cache
+  // effect for a request that had queued one — in the field whose entire job is
+  // naming this route's durable effects.
+  const cacheContextAfterFresh = readCacheContext();
 
   const { comparedOwners, differences } = compareOwners(cached, fresh);
   const snapshotDifferences = compareSnapshotFields(cached, fresh);
+  const differencesAreEmpty = differences.length === 0 && snapshotDifferences.length === 0;
+  const comparisonBlockedBecause = resolveComparisonBlocker({
+    verdict,
+    freshSource: fresh.source,
+    comparedOwners,
+  });
 
   return NextResponse.json({
     leagueSlug,
@@ -447,8 +614,12 @@ export async function GET(req: Request): Promise<Response> {
       verdict,
       restsOn: cacheReadRestsOn(verdict, probeStamp, backgroundRevalidation),
       // The primary signal, printed so the verdict can be checked rather than
-      // taken on trust.
-      publishedEntry,
+      // taken on trust — BOTH sides of the bracket, since the verdict rests on
+      // the delta and reporting one side leaves it unreconstructable.
+      queuedPublication,
+      pendingPublicationsBefore: cacheContextBefore.pendingPublications,
+      pendingPublicationsAfterCachedRead: cacheContextAfter.pendingPublications,
+      pendingPublicationsAfterFreshRebuild: cacheContextAfterFresh.pendingPublications,
       backgroundRevalidation,
       probeStamp,
       cachedGeneratedAt: cached.generatedAt,
@@ -459,7 +630,16 @@ export async function GET(req: Request): Promise<Response> {
       // `app_state` and NOT with respect to the Next data cache. The word for it
       // is published, not written, and it is the same publication a member page
       // visit performs — but it is a durable effect and it gets named.
-      dataCacheWritten: publishedEntry,
+      // QUEUED, not written, and the distinction is this route's own subject.
+      // `unstable_cache` inserts the `cacheNewResult` PROMISE into
+      // `pendingRevalidates` and returns the computed value immediately; Next
+      // awaits it only after the handler returns. If that `set` rejects, nothing
+      // durable exists and this request can never know. Claiming "written" would
+      // be a statement about durable state made before the state is durable.
+      dataCachePublicationQueued:
+        queuedPublication ||
+        cacheContextAfterFresh.pendingPublications > cacheContextAfter.pendingPublications,
+      dataCachePublicationConfirmed: false,
       ...cacheContextBefore,
     },
     freshness: {
@@ -489,7 +669,15 @@ export async function GET(req: Request): Promise<Response> {
       freshGeneratedAt: fresh.generatedAt,
       clockIsShared: fresh.generatedAt === probeStamp,
       caveat:
-        'the season archive has its own tag-only unstable_cache that BOTH sides read through, so a stale archive entry cannot be detected here; sources other than "archive" re-read every input from the store',
+        'the season archive has its own tag-only unstable_cache that BOTH sides read through, so a stale archive entry cannot be detected here and an archive-sourced comparison returns matches: null; sources other than "archive" re-read every input from the store',
+      // The comparison's reach, stated rather than left to be inferred from an
+      // empty `differences`. Rows cover the declared numeric fields; the history
+      // is compared per week by played flag, coverage state and row projection.
+      // Anything outside both — `ownerColorOrder`, `coverage.message`, the
+      // per-week series objects' identity — is not compared and a clean result
+      // says nothing about it.
+      comparisonReach:
+        'owner rows on the declared numeric fields plus derived rank; snapshot facts; standings history per week (played, coverage state, row projection). Not compared: ownerColorOrder, coverage.message, and any field not listed in comparedFields',
       cachedSource: cached.source,
       freshSource: fresh.source,
       comparisonIsMeaningfulForSource: fresh.source !== 'archive',
@@ -504,27 +692,35 @@ export async function GET(req: Request): Promise<Response> {
       comparedFields: COMPARED_FIELDS,
       derivedFields: ['rank'],
       excluded: EXCLUDED_FIELD_NOTE,
-      // NULL, not `true`, when the cached side was not a pre-existing snapshot.
+      // NULL, NOT A BOOLEAN, WHENEVER THE COMPARISON CANNOT DETECT A DIVERGENCE.
       //
-      // On a MISS the cached read COMPUTED the value it returned, so the two
-      // sides are the same computation over the same inputs seconds apart and
-      // they agree by construction. Reporting `matches: true` there would be a
-      // clean report from a review of nothing wearing a clean report's shape —
-      // byte-identical, at this field, to a genuine agreement, and only one of
-      // them means anything. `unavailable` is the same: there is no cached side
-      // at all. A zero-owner comparison is `false` for the matching reason —
-      // agreement over an empty population is not agreement.
+      // The first cut gated this on the cache verdict alone and both reviewers
+      // found the same shape three more times. The gate is not "was the cached
+      // side real" — it is "could this comparison have SEEN a difference if one
+      // existed", and that fails in four distinct ways:
       //
-      // Asserted by `reportsMissAgainstAnEmptyCache` (null on a miss) and
-      // `reportsHitAgainstAWarmSnapshot` (true only on a hit).
-      matches:
-        verdict !== 'hit'
-          ? null
-          : comparedOwners > 0 && differences.length === 0 && snapshotDifferences.length === 0,
-      notComparableBecause:
-        verdict === 'hit'
-          ? null
-          : `cacheRead is "${verdict}", so the cached side is not a pre-existing snapshot and the two sides agreeing carries no information`,
+      //  1. verdict !== 'hit' — on a miss the cached read COMPUTED the value it
+      //     returned, so the two sides are one computation of one input set
+      //     seconds apart and agree by construction. `bypassed` and
+      //     `unavailable` have no cached side at all.
+      //  2. source === 'archive' — both sides read the same nested, tag-only
+      //     `getSeasonArchive` cache, so the rebuild cannot diverge from the
+      //     snapshot however stale the archive is. The route already computed
+      //     this as `freshness.comparisonIsMeaningfulForSource` and then failed
+      //     to consult it; `nestedSeasonArchiveCacheIsSharedByBothSides` was
+      //     ASSERTING the misleading `matches: true` it produced.
+      //  3. comparedOwners === 0 — agreement over an empty population is not
+      //     agreement. This previously reported `matches: false`, which is worse
+      //     than either: an assertion of divergence with nothing to point at.
+      //  4. anything the field set does not reach — named in `excluded` and
+      //     `freshness.caveat` rather than silently folded in.
+      //
+      // Each of these is a "cannot tell", and a boolean has nowhere to put one.
+      // Asserted by `reportsMissAgainstAnEmptyCache`,
+      // `nestedSeasonArchiveCacheIsSharedByBothSides` and
+      // `reportsNullRatherThanDisagreementOverAnEmptyPopulation`.
+      matches: comparisonBlockedBecause === null ? differencesAreEmpty : null,
+      notComparableBecause: comparisonBlockedBecause,
       differences,
       snapshotDifferences,
     },

@@ -12,7 +12,10 @@ import {
   __setAppStateWriteFailureForTests,
   setAppState,
 } from '../../../../../lib/server/appStateStore.ts';
-import { computeCanonicalStandingsUncached } from '../../../../../lib/selectors/leagueStandings.ts';
+import {
+  computeCanonicalStandingsUncached,
+  getCanonicalStandings,
+} from '../../../../../lib/selectors/leagueStandings.ts';
 import type { OwnerStandingsRow } from '../../../../../lib/standings.ts';
 import type {
   StandingsHistory,
@@ -154,6 +157,31 @@ async function warmThrough(
  * Archive rows, which is what `SeasonArchive.finalStandings` holds. Note the
  * `ties` — see `archiveRowsCarryAFabricatedTieCount` at the foot of this file.
  */
+/**
+ * Warm the snapshot at a FIXED, distinctly-past clock.
+ *
+ * `warmThrough` warms through the route, which stamps the snapshot with its own
+ * `new Date()`. Any later assertion that the warm stamp DIFFERS from the reading
+ * request's then depends on the two landing in different milliseconds — against
+ * an in-memory store they need not, and the test would redden with no code
+ * defect. (That is the same intermittency the route's own detector was
+ * re-derived to stop depending on, which is why it must not reappear here.)
+ *
+ * Warming via `getCanonicalStandings` with an explicit `currentDate` publishes
+ * through the same real `unstable_cache` — an explicit year and the default both
+ * resolve to one cache key, which is exactly the equivalence the production
+ * warmer relies on — and makes the stamp deterministic.
+ */
+const WARM_CLOCK = new Date('2026-09-01T00:00:00.000Z');
+
+async function warmAtFixedClock(cache: ReturnType<typeof fakeIncrementalCache>): Promise<void> {
+  const store = nextStore(cache);
+  await workAsyncStorage.run(store as never, () =>
+    getCanonicalStandings({ slug: SLUG, year: YEAR, currentDate: WARM_CLOCK })
+  );
+  await Promise.allSettled(Object.values(store.pendingRevalidates));
+}
+
 function makeRow(
   owner: string,
   overrides: Partial<StandingsHistoryStandingRow> = {}
@@ -316,7 +344,22 @@ test('reportsMissAgainstAnEmptyCache', async () => {
   assert.equal(status, 200);
   const cacheRead = body.cacheRead as unknown as Record<string, unknown>;
   assert.equal(cacheRead.verdict, 'miss', 'an empty cache must read as a miss');
-  assert.equal(cacheRead.dataCacheWritten, true, 'a miss publishes a data-cache entry');
+  assert.equal(
+    cacheRead.dataCachePublicationQueued,
+    true,
+    'a miss QUEUES a data-cache publication — queued, because unstable_cache inserts the promise and Next awaits it after the handler returns'
+  );
+  assert.equal(
+    cacheRead.dataCachePublicationConfirmed,
+    false,
+    'and this request cannot confirm it landed, so it does not say it did'
+  );
+  assert.equal(cacheRead.queuedPublication, true);
+  assert.ok(
+    (cacheRead.pendingPublicationsAfterCachedRead as number) >
+      (cacheRead.pendingPublicationsBefore as number),
+    'both sides of the bracket are printed, so the verdict can be reconstructed'
+  );
   assert.equal(cacheRead.incrementalCachePresent, true);
   assert.equal(
     cacheRead.cachedGeneratedAt,
@@ -340,10 +383,14 @@ test('reportsMissAgainstAnEmptyCache', async () => {
 // Acceptance 1 — and the other half of the detector's control.
 // ---------------------------------------------------------------------------
 test('reportsHitAgainstAWarmSnapshot', async () => {
-  await seedBaseline();
+  // THE LIVE PATH, NOT THE ARCHIVE ONE, and the reason is a review finding. An
+  // archive-sourced league can never report `matches: true`: both sides read the
+  // same nested `getSeasonArchive` cache, so the route declines to answer. This
+  // test needs a fixture where a match is genuinely informative.
+  await seedLive({ csv: LIVE_CSV, homeScore: 31, awayScore: 17 });
   const events: string[] = [];
   const cache = fakeIncrementalCache(events);
-  await warmThrough(cache);
+  await warmAtFixedClock(cache);
 
   const setsAfterWarm = events.filter((e) => e.startsWith('set:')).length;
   assert.ok(setsAfterWarm > 0, 'the warm actually published a snapshot');
@@ -359,16 +406,21 @@ test('reportsHitAgainstAWarmSnapshot', async () => {
 
   const cacheRead = body.cacheRead as unknown as Record<string, unknown>;
   assert.equal(cacheRead.verdict, 'hit');
-  assert.equal(cacheRead.dataCacheWritten, false);
-  assert.notEqual(
+  assert.equal(cacheRead.queuedPublication, false, 'a hit queues no standings publication');
+  assert.equal(
+    cacheRead.pendingPublicationsAfterCachedRead,
+    cacheRead.pendingPublicationsBefore,
+    'the bracket did not move across the cached read'
+  );
+  assert.equal(
     cacheRead.cachedGeneratedAt,
-    cacheRead.probeStamp,
-    'a hit returns the WARMING request’s stamp, not this one’s'
+    WARM_CLOCK.toISOString(),
+    'a hit returns the WARMING request’s stamp, not this one’s — asserted against the exact known warm clock rather than "different from now", which would ride on a millisecond boundary'
   );
 
   const comparison = body.comparison as unknown as Record<string, unknown>;
   assert.equal(comparison.matches, true, 'an unchanged warm snapshot matches the fresh rebuild');
-  assert.equal(comparison.notComparableBecause, null);
+  assert.equal(comparison.notComparableBecause, null, 'and nothing blocked the comparison');
   assert.equal(comparison.comparedOwners, 2, 'the population is printed, and it is not zero');
   assert.deepEqual(comparison.differences, []);
   assert.deepEqual(comparison.snapshotDifferences, []);
@@ -390,7 +442,11 @@ test('reportsUnavailableWithoutAnIncrementalCache', async () => {
   const cacheRead = body.cacheRead as unknown as Record<string, unknown>;
   assert.equal(cacheRead.verdict, 'unavailable');
   assert.equal(cacheRead.incrementalCachePresent, false);
-  assert.equal(cacheRead.dataCacheWritten, false, 'nothing was written, so do not say it was');
+  assert.equal(
+    cacheRead.dataCachePublicationQueued,
+    false,
+    'nothing was queued, so do not say it was'
+  );
   assert.match(String(cacheRead.restsOn), /no snapshot exists/);
   assert.equal(
     (cacheRead.flags as Record<string, unknown>).workStorePresent,
@@ -503,7 +559,7 @@ test('reportsAnOwnerWhoExistsOnOnlyOneSide', async () => {
 test('theFreshRebuildSharesTheProbeClock', async () => {
   await seedLive({ csv: LIVE_CSV, homeScore: 31, awayScore: 17 });
   const cache = fakeIncrementalCache([]);
-  await warmThrough(cache);
+  await warmAtFixedClock(cache);
   const { body } = await requestThrough(cache);
 
   const freshness = body.freshness as unknown as Record<string, unknown>;
@@ -515,9 +571,9 @@ test('theFreshRebuildSharesTheProbeClock', async () => {
     'the rebuild was stamped with the probe date, so both sides ran on one clock'
   );
   assert.equal(freshness.clockIsShared, true);
-  assert.notEqual(
+  assert.equal(
     cacheRead.cachedGeneratedAt,
-    freshness.freshGeneratedAt,
+    WARM_CLOCK.toISOString(),
     'and the CACHED side kept the warming request’s stamp — the two are genuinely different snapshots'
   );
 });
@@ -555,10 +611,157 @@ test('reportsSnapshotLevelDivergenceWithIdenticalRows', async () => {
   );
   assert.deepEqual(
     comparison.snapshotDifferences,
-    [{ field: 'standingsHistory.weeks', cached: 1, fresh: 2 }],
-    'the divergence is in the snapshot facts, and both values are named'
+    [
+      { field: 'standingsHistory.weeks', cached: '1', fresh: '1,2' },
+      {
+        field: 'standingsHistory.week2',
+        cached: 'absent',
+        fresh: 'played=false;coverage=complete;rows=Ann:1-0:31/17|Bob:0-1:17/31',
+      },
+    ],
+    'the divergence is named per week, with the week’s CONTENT — not just a count'
   );
   assert.equal(comparison.matches, false, 'identical rows over a different history is not a match');
+});
+
+// ---------------------------------------------------------------------------
+// Added at review. Each of these covers a way the route could claim more than
+// it knows — the shape both reviewers found repeatedly.
+// ---------------------------------------------------------------------------
+
+/**
+ * An unregistered slug must be refused BEFORE the cached read.
+ *
+ * `getCanonicalStandings` does not decline for an unknown league: it computes an
+ * empty snapshot and publishes it under `canonicalStandingsCacheKeyParts(slug,
+ * null)` with `revalidate: false`. Nothing can reclaim that entry — the only
+ * things that fire `standings:<slug>` walk the registry, and this slug is in no
+ * registry. #778 settled the identical hazard for the season-archive readers.
+ */
+test('refusesAnUnregisteredLeagueBeforeTouchingTheCache', async () => {
+  await seedLive({ csv: LIVE_CSV, homeScore: 31, awayScore: 17 });
+  const events: string[] = [];
+  const { status, body } = await requestThrough(
+    fakeIncrementalCache(events),
+    '?leagueSlug=no-such-league'
+  );
+  assert.equal(status, 404);
+  assert.equal((body as unknown as { error: string }).error, 'league-not-registered');
+  assert.deepEqual(
+    events,
+    [],
+    'no cache get and — the point — no set, so no year-long entry is minted under an arbitrary slug'
+  );
+});
+
+/**
+ * Draft mode is the one flag that gates BOTH the read and the publication
+ * (`unstable-cache.js:143` and `:204`), so it recomputes and stores nothing.
+ * Reporting that as `hit` would assert an existing snapshot was returned; as
+ * `miss` it would assert one was created. Neither is true.
+ */
+test('reportsBypassedWhenTheCacheIsPresentButNothingIsReadOrPublished', async () => {
+  await seedLive({ csv: LIVE_CSV, homeScore: 31, awayScore: 17 });
+  const cache = fakeIncrementalCache([]);
+  await warmThrough(cache);
+
+  const store = { ...nextStore(cache), isDraftMode: true };
+  const res = await workAsyncStorage.run(store as never, () => GET(authedRequest()));
+  const body = (await res.json()) as Record<string, never>;
+  const cacheRead = body.cacheRead as unknown as Record<string, unknown>;
+
+  assert.equal(cacheRead.verdict, 'bypassed');
+  assert.equal(cacheRead.queuedPublication, false, 'draft mode publishes nothing');
+  assert.equal(cacheRead.dataCachePublicationQueued, false);
+  assert.match(String(cacheRead.restsOn), /neither a hit nor a miss/);
+  assert.equal((cacheRead.flags as Record<string, unknown>).isDraftMode, true);
+  assert.equal(
+    (body.comparison as unknown as Record<string, unknown>).matches,
+    null,
+    'and nothing is claimed about agreement'
+  );
+});
+
+/**
+ * `unstable_cache` resolves its cache as
+ * `workStore?.incrementalCache || globalThis.__incrementalCache`
+ * (`unstable-cache.js:60`), and a Next server sets that global process-wide
+ * (`base-server.js:852`). Checking only the work store reported `unavailable`
+ * and "nothing was read from the data cache" for a request whose read went
+ * through the global — a false negative about durable state.
+ */
+test('doesNotReportUnavailableWhenOnlyTheGlobalCacheIsPresent', async () => {
+  await seedLive({ csv: LIVE_CSV, homeScore: 31, awayScore: 17 });
+  const globals = globalThis as { __incrementalCache?: unknown };
+  const original = globals.__incrementalCache;
+  globals.__incrementalCache = fakeIncrementalCache([]);
+  try {
+    // No `workAsyncStorage.run`: the work store is absent, the global is not.
+    const res = await GET(authedRequest());
+    const body = (await res.json()) as Record<string, never>;
+    const cacheRead = body.cacheRead as unknown as Record<string, unknown>;
+    assert.notEqual(
+      cacheRead.verdict,
+      'unavailable',
+      'a cache the read can actually reach must not be reported as absent'
+    );
+    assert.equal(cacheRead.incrementalCachePresent, true);
+    assert.equal(
+      (cacheRead.flags as Record<string, unknown>).workStorePresent,
+      false,
+      'and the narrower fact is still reported, so the two can be told apart'
+    );
+  } finally {
+    if (original === undefined) delete globals.__incrementalCache;
+    else globals.__incrementalCache = original;
+  }
+});
+
+/**
+ * A zero-owner comparison previously reported `matches: false` with
+ * `differences: []` — an assertion of divergence with nothing to point at.
+ */
+test('reportsNullRatherThanDisagreementOverAnEmptyPopulation', async () => {
+  // A registered league with no roster and no archive: the snapshot carries no
+  // rows at all, so the population is empty on both sides.
+  await setAppState('leagues', 'registry', [makeLeague()]);
+  const cache = fakeIncrementalCache([]);
+  await warmThrough(cache);
+  const { body } = await requestThrough(cache);
+
+  const comparison = body.comparison as unknown as Record<string, unknown>;
+  assert.equal(comparison.comparedOwners, 0, 'the population is zero, and it is printed');
+  assert.equal(comparison.matches, null, 'not false — there was nothing that could have differed');
+  assert.match(String(comparison.notComparableBecause), /zero owners/);
+  assert.deepEqual(comparison.differences, []);
+});
+
+/**
+ * Rank travels with a one-sided owner too. The response advertises rank as a
+ * derived field, and omitting it here made the two difference shapes disagree.
+ */
+test('includesRankForAnOwnerPresentOnOnlyOneSide', async () => {
+  await seedLive({ csv: LIVE_CSV, homeScore: 31, awayScore: 17 });
+  const cache = fakeIncrementalCache([]);
+  await warmThrough(cache);
+  await setAppState(`owners:${SLUG}:${YEAR}`, 'csv', 'team,owner\nTexas,Cal\nGeorgia,Bob\n');
+
+  const { body } = await requestThrough(cache);
+  const byOwner = new Map(
+    (
+      (body.comparison as unknown as Record<string, unknown>).differences as Array<
+        Record<string, unknown>
+      >
+    ).map((d) => [d.owner as string, d])
+  );
+  const annRank = (byOwner.get('Ann')!.fields as Array<Record<string, unknown>>).find(
+    (f) => f.field === 'rank'
+  );
+  assert.deepEqual(annRank, { field: 'rank', cached: 1, fresh: null });
+  const calRank = (byOwner.get('Cal')!.fields as Array<Record<string, unknown>>).find(
+    (f) => f.field === 'rank'
+  );
+  assert.deepEqual(calRank, { field: 'rank', cached: null, fresh: 1 });
 });
 
 // ---------------------------------------------------------------------------
@@ -689,6 +892,8 @@ test('performsNoAppStateWriteOnAnyPath', async () => {
     ],
     ['no incremental cache (unavailable)', () => GET(authedRequest())],
     ['rejected year', () => GET(authedRequest(`?leagueSlug=${SLUG}&year=99999`))],
+    // 404 now, and that IS the point of the path: it must refuse before the
+    // cached read rather than mint an entry under an arbitrary slug.
     ['unknown league', () => GET(authedRequest('?leagueSlug=no-such-league'))],
   ];
 
@@ -703,7 +908,10 @@ test('performsNoAppStateWriteOnAnyPath', async () => {
   try {
     for (const [name, run] of paths) {
       const res = await run();
-      assert.ok(res.status === 200 || res.status === 400, `${name}: ${res.status}`);
+      assert.ok(
+        res.status === 200 || res.status === 400 || res.status === 404,
+        `${name}: ${res.status}`
+      );
     }
   } finally {
     __setAppStateWriteFailureForTests(null);
@@ -842,12 +1050,16 @@ test('nestedSeasonArchiveCacheIsSharedByBothSides', async () => {
 
   const { body } = await requestThrough(cache);
   const comparison = body.comparison as unknown as Record<string, unknown>;
+  // THIS ASSERTION IS THE REVIEW FINDING. It used to read `matches: true` —
+  // the route asserting agreement over a divergence it structurally cannot see,
+  // with this test pinning the misleading output as if it were correct.
   assert.equal(
     comparison.matches,
-    true,
-    'the rebuild read the same CACHED archive, so it agrees with the stale snapshot — the route cannot see this class of staleness'
+    null,
+    'both sides read the same cached archive, so the route must decline to answer rather than claim agreement'
   );
-  assert.deepEqual(comparison.differences, []);
+  assert.match(String(comparison.notComparableBecause), /season archive/i);
+  assert.deepEqual(comparison.differences, [], 'and it still has nothing to point at');
 
   assert.match(
     String((body.freshness as unknown as Record<string, unknown>).caveat),
