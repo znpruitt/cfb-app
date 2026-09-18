@@ -369,6 +369,155 @@ test('deriveGameWeekPanelViewModel groups games and computes counts', () => {
   assert.equal(vm.groupedGames[0]?.games[0]?.homeOwner, 'Bob');
 });
 
+test('Schedule team labels preserve csvAway/csvHome parity for catalog, FCS, and placeholder rows', () => {
+  const catalogGame = game({
+    key: 'catalog-label-parity',
+    csvAway: 'Ole Miss',
+    csvHome: 'Mississippi State',
+    participants: {
+      away: {
+        kind: 'team',
+        teamId: 'mississippi',
+        displayName: 'Mississippi',
+        labels: {
+          displayName: 'Mississippi',
+          shortDisplayName: 'Ole Miss',
+          scoreboardName: 'OLE MISS',
+        },
+        canonicalName: 'Mississippi',
+        rawName: 'Ole Miss',
+      },
+      home: {
+        kind: 'team',
+        teamId: 'mississippi-state',
+        displayName: 'Mississippi State',
+        labels: {
+          displayName: 'Mississippi State',
+          shortDisplayName: 'Mississippi State',
+          scoreboardName: 'MSST',
+        },
+        canonicalName: 'Mississippi State',
+        rawName: 'Mississippi State',
+      },
+    },
+  });
+  const fcsGame = game({
+    key: 'fcs-label-parity',
+    csvAway: 'Westgate Christian University',
+    csvHome: 'UAlbany',
+    awayConf: 'FCS',
+    homeConf: 'FCS',
+    participants: {
+      away: {
+        kind: 'team',
+        teamId: 'westgate-christian',
+        displayName: 'Westgate Christian University',
+        labels: {
+          displayName: 'Westgate Christian University',
+          shortDisplayName: 'Westgate Christian',
+          scoreboardName: 'WCU',
+        },
+        canonicalName: 'Westgate Christian University',
+        rawName: 'Westgate Christian University',
+      },
+      home: {
+        kind: 'team',
+        teamId: 'ualbany',
+        displayName: 'UAlbany',
+        labels: {
+          displayName: 'UAlbany',
+          shortDisplayName: 'UAlbany',
+          scoreboardName: 'UALB',
+        },
+        canonicalName: 'UAlbany',
+        rawName: 'UAlbany',
+      },
+    },
+  });
+  const placeholderGame = game({
+    key: 'placeholder-label-parity',
+    stage: 'bowl',
+    status: 'placeholder',
+    isPlaceholder: true,
+    csvAway: 'Winner Semifinal A',
+    csvHome: 'Winner Semifinal B',
+    participants: {
+      away: {
+        kind: 'placeholder',
+        slotId: 'semifinal-a-winner',
+        displayName: 'Winner Semifinal A',
+      },
+      home: {
+        kind: 'placeholder',
+        slotId: 'semifinal-b-winner',
+        displayName: 'Winner Semifinal B',
+      },
+    },
+  });
+
+  const catalogAway = catalogGame.participants.away;
+  const catalogHome = catalogGame.participants.home;
+  assert.equal(catalogAway.kind, 'team');
+  assert.equal(catalogHome.kind, 'team');
+  if (catalogAway.kind !== 'team' || catalogHome.kind !== 'team') {
+    assert.fail('catalog parity fixture must use team participants');
+  }
+  assert.notEqual(
+    catalogAway.labels?.scoreboardName,
+    catalogGame.csvAway,
+    'positive control: away scoreboardName must diverge from csvAway'
+  );
+  assert.notEqual(
+    catalogHome.labels?.scoreboardName,
+    catalogGame.csvHome,
+    'positive control: home scoreboardName must diverge from csvHome'
+  );
+  const fcsAway = fcsGame.participants.away;
+  const fcsHome = fcsGame.participants.home;
+  assert.equal(fcsAway.kind, 'team');
+  assert.equal(fcsHome.kind, 'team');
+  if (fcsAway.kind !== 'team' || fcsHome.kind !== 'team') {
+    assert.fail('FCS parity fixture must use team participants');
+  }
+  assert.notEqual(
+    fcsAway.labels?.scoreboardName,
+    fcsGame.csvAway,
+    'positive control: FCS away scoreboardName must diverge from csvAway'
+  );
+  assert.notEqual(
+    fcsHome.labels?.scoreboardName,
+    fcsGame.csvHome,
+    'positive control: FCS home scoreboardName must diverge from csvHome'
+  );
+
+  const vm = deriveGameWeekPanelViewModel({
+    games: [catalogGame, fcsGame, placeholderGame],
+    oddsByKey: {},
+    scoresByKey: {},
+    rosterByTeam: new Map(),
+    rankingsByTeamId: new Map(),
+    displayTimeZone: 'America/New_York',
+  });
+  const cardsByKey = new Map(
+    vm.groupedGames.flatMap((group) => group.games).map((card) => [card.game.key, card])
+  );
+
+  for (const sourceGame of [catalogGame, fcsGame, placeholderGame]) {
+    const card = cardsByKey.get(sourceGame.key);
+    assert.ok(card, sourceGame.key);
+    assert.equal(
+      card.awayTeamName,
+      sourceGame.csvAway,
+      `${sourceGame.key}: awayTeamName must equal csvAway`
+    );
+    assert.equal(
+      card.homeTeamName,
+      sourceGame.csvHome,
+      `${sourceGame.key}: homeTeamName must equal csvHome`
+    );
+  }
+});
+
 test('deriveGameWeekPanelViewModel marks placeholders and canonical-label rule', () => {
   const vm = deriveGameWeekPanelViewModel({
     games: [

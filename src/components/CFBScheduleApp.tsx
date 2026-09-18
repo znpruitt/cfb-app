@@ -43,6 +43,7 @@ import {
 import type { SeasonContext } from '../lib/selectors/seasonContext';
 import { isAwaitingSeasonStartDate } from '../lib/selectors/seasonStartDate';
 import { buildScheduleFromApi, fetchSeasonSchedule, type AppGame } from '../lib/schedule';
+import { applyPostseasonGameOverride } from '../lib/schedulePostseasonHelpers';
 import { fetchTeamsCatalog } from '../lib/teamsCatalog';
 import type { TeamCatalogItem } from '../lib/teamIdentity';
 import { buildScoreboardTeamLogosById } from '../lib/teamLogos';
@@ -1218,16 +1219,6 @@ export default function CFBScheduleApp({
 
   const savePostseasonOverride = useCallback(
     (eventId: string, patch: Partial<AppGame>) => {
-      const applyOverride = (base: AppGame, override: Partial<AppGame>): AppGame => ({
-        ...base,
-        ...override,
-        participants: {
-          home: override.participants?.home ?? base.participants.home,
-          away: override.participants?.away ?? base.participants.away,
-        },
-        sources: { ...base.sources, ...(override.sources ?? {}) },
-      });
-
       // CONFIRM FIRST. This used to write `localStorage` and patch `games`
       // optimistically, then PUT. When the PUT failed the local edit stayed —
       // persisted across reloads — so the author saw a postseason label nobody
@@ -1266,7 +1257,9 @@ export default function CFBScheduleApp({
               // on the `loadScheduleFromApi` rebuild below, which recomputes
               // keys from the overridden participants and bumps generation.
               setGames((prevGames) =>
-                prevGames.map((g) => (g.eventId === eventId ? applyOverride(g, override) : g))
+                prevGames.map((g) =>
+                  g.eventId === eventId ? applyPostseasonGameOverride(g, override) : g
+                )
               );
             }
 

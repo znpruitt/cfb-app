@@ -840,8 +840,8 @@ test('shared scoreboard renders team rows, rankings, scores, and final status', 
   assert.match(html, /data-scoreboard-side="away"/);
   assert.match(html, /data-scoreboard-side="home"/);
   assert.match(html, />#7<\/span>/);
-  assert.match(html, /data-scoreboard-team="away">OLE MISS<\/span>/);
-  assert.match(html, /data-scoreboard-team="home">MSST<\/span>/);
+  assert.match(html, /data-scoreboard-team="away">Ole Miss<\/span>/);
+  assert.match(html, /data-scoreboard-team="home">Mississippi State<\/span>/);
   assert.match(html, /data-scoreboard-value="away">38<\/span>/);
   assert.match(html, /data-scoreboard-value="home">19<\/span>/);
   assert.match(html, /data-scoreboard-side="away" data-scoreboard-leading="true"/);
@@ -849,7 +849,7 @@ test('shared scoreboard renders team rows, rankings, scores, and final status', 
   assert.doesNotMatch(html, /data-scoreboard-team-logo="home"/);
 });
 
-test('expanded scoreboard uses provider casing for non-catalog teams and catalog scoreboard labels', () => {
+test('expanded scoreboard uses provider names for catalog and non-catalog teams', () => {
   const html = renderToStaticMarkup(
     <GameWeekPanel
       games={[
@@ -896,7 +896,8 @@ test('expanded scoreboard uses provider casing for non-catalog teams and catalog
   assert.ok(awayRow);
   assert.match(awayRow, />UAlbany<\//);
   assert.doesNotMatch(awayRow, />ualbany<\//);
-  assert.match(html, /data-scoreboard-team="home">BUF<\//);
+  assert.match(html, /data-scoreboard-team="home">Buffalo<\//);
+  assert.doesNotMatch(html, /data-scoreboard-team="home">BUF<\//);
 });
 
 test('shared scoreboard presents live state and preserves pregame notices', () => {
@@ -1123,10 +1124,10 @@ test('moneyline-only odds use the same scoreboard names as the participant rows'
     />
   );
 
-  assert.match(html, /data-scoreboard-team="away">SC<\/span>/);
-  assert.match(html, /data-scoreboard-team="home">CLEM<\/span>/);
-  assert.match(html, /Moneyline: SC \+425 • CLEM -600/);
-  assert.doesNotMatch(html, /Moneyline: South Carolina|Moneyline:[^<]*Clemson/);
+  assert.match(html, /data-scoreboard-team="away">South Carolina<\/span>/);
+  assert.match(html, /data-scoreboard-team="home">Clemson<\/span>/);
+  assert.match(html, /Moneyline: South Carolina \+425 • Clemson -600/);
+  assert.doesNotMatch(html, /Moneyline: SC |• CLEM /);
   assert.doesNotMatch(html, /No odds/);
 });
 
@@ -1194,9 +1195,9 @@ test('spread favorite uses the same scoreboard name as its participant row', () 
     />
   );
 
-  assert.match(html, /data-scoreboard-team="away">MSST<\/span>/);
-  assert.match(html, /Spread: MSST -3.5/);
-  assert.doesNotMatch(html, /Spread: Mississippi State/);
+  assert.match(html, /data-scoreboard-team="away">Mississippi State<\/span>/);
+  assert.match(html, /Spread: Mississippi State -3.5/);
+  assert.doesNotMatch(html, /Spread: MSST/);
 });
 
 test('team rows keep owners while conference remains a separate tier-2 line', () => {
