@@ -150,7 +150,7 @@ These consolidate recurring historical observations, not new project-governance 
   contradicted the explicit one-comment scope; neither was actionable. Codex found no regression.
   `tsc --noEmit`, `lint:all`, all 5,401 tests, and both required browser tests passed. One test was
   added; no production code changed in the final round. See L4/RV6.
-- Status: Implemented and reviewed at `816dd657`; pre-merge closeout, PR pending. #810 remains open.
+- Status: Merged ([PR #815](https://github.com/znpruitt/cfb-app/pull/815), `c9cb3195`, 2026-09-17). NOT promoted. The 5,401 figure above was gated at `816dd657`; the branch then merged `main` and the lane reported 5,412 pass / 0 fail on the final tip `a62357ef`. **The merged tree is NOT identical to that tip** — it also carries planning's `ca55da85`, which landed on `main` while the branch held. Measured: the two trees differ in `docs/next-tasks.md` and one new prompt file, and in **zero** files under `src/` or `package.json`. #810 remains open and is now unblocked.
 
 ### PLATFORM-708-CFP-FIRST-ROUND-IDENTITY-CLAUDE-v1
 
