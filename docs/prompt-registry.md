@@ -121,6 +121,56 @@ These consolidate recurring historical observations, not new project-governance 
 
 ## Prompt ledger (source order retained)
 
+### PLATFORM-708-CFP-FIRST-ROUND-IDENTITY-CLAUDE-v1
+
+- Change: the postseason build in `schedule.ts` appends the provider id to the one key ingest mints
+  for every CFP first-round game, `cfp-first-round`, so each game carries its own `eventId`/`key` and
+  one label override reaches one game. One rule at one site covers stored and freshly ingested rows;
+  `playoffEventKey` is unchanged. Closes [#708](https://github.com/znpruitt/cfb-app/issues/708).
+- Scope limit: first round only. Four id conditions — string-typed, all digits, safe integer,
+  canonical round-trip — accept a STRICT SUBSET of what `collectionIdentity` accepts; `'0401779840'`
+  is the case that separates them. Every other id (empty, fabricated, beyond-safe, non-canonical)
+  keeps today's key, because a fabricated id is TEAM-DERIVED and would move the `eventId` across the
+  TBD-to-resolved transition an override exists to survive.
+- Evidence, read-only replica 2026-09-16/17: built over all seven stored seasons, 8 first-round games
+  change `eventId` and `key` and 0 other games change either. Postseason overrides: **0 rows,
+  measured twice** (`scope like 'postseason-overrides%'`, then any scope/key `ilike '%override%'`), so
+  no stored override is orphaned; `/code-review`'s own replica query agreed. Stored ids: 22,760 of
+  22,760 strings, 0 leading-zero. Stored `eventKey`: 454 strings, 22,306 null, 0 numbers.
+- Durable keys: `eventId` and `key` both move, and two durable stores key on them —
+  `postseason-overrides:<league>:<year>` and `durable-odds:<season>` (`oddsCommit.ts:147`,`:173`). Only
+  `durable-odds:2026` exists (315 entries, 0 `cfp` keys); there is no 2024 or 2025 row, and this
+  deploy precedes any 2026 postseason ingest. **True by timing, not by design** — the general property
+  is [#812](https://github.com/znpruitt/cfb-app/issues/812).
+- Archives: a rebuilt 2024/2025 first-round key no longer matches the archived key, and nothing joins
+  the two — `slateSnapshot.ts:13-17` bans cross-provenance, and `archive-integrity` and `archive-audit`
+  pair each archive's own `games[].key` with its own `scoresByKey`.
+- Runtime verification: the dev server, cold-started against CFBD, served the four distinct 2025 ids
+  with scores attached by `provider_event_id`; 2024 the same, 2018 untouched, repeats identical.
+  `PUT`/`GET /api/postseason-overrides` round-tripped one per-game id. **Override APPLICATION was never
+  driven end-to-end** — save-and-read only; applying it needs a league in the local store. Local-only
+  finding: `.env.local`'s `ADMIN_API_TOKEN` contains `$`, Next dotenv-expands it, and the literal value
+  401s — quote the value.
+- Prompt errors: the merge key uses the full kickoff TIMESTAMP, so the four never shared a merge group
+  (the prompt said three shared a date); the canonical postseason week is 17, not the `w1` in its
+  example key.
+- Review: both reviewers, four gathered rounds from merge-base `7b9eca26`, on `c8633bb8`, `f6e21ae7`,
+  `3bac0eda`, `ad6052b1`. **Round 1's Codex run printed the correct banner but its only `git diff`
+  against the base FAILED (exit 1)**; it read the changed files and `git show HEAD` instead, and was
+  treated as gathered only because the branch was then one commit on that base. Rounds 2-4 each carry a
+  successful `git diff` against `7b9eca26`. Fixed: a `TypeError` on an unvalidated durable `id` that
+  would have taken down the whole build, and two comment claims of mine that overstated parity. Five
+  findings were variants of "the id is not a stable discriminator", ruled and filed. Residue:
+  [#811](https://github.com/znpruitt/cfb-app/issues/811) (id-less and other bare `cfp-<round>`
+  collisions), [#812](https://github.com/znpruitt/cfb-app/issues/812),
+  [#813](https://github.com/znpruitt/cfb-app/issues/813) (the unguarded `eventKey` read, duplicated
+  non-FBS set), [#808](https://github.com/znpruitt/cfb-app/issues/808) (CFBD capture around Selection
+  Day, which would settle whether a first-round id survives resolution). See L1/L4/L6.
+- Verification: `lint:all`, `tsc --noEmit` and `npm test` each exited 0 on the merged tree; 5,407
+  pass, 0 fail, 0 cancelled, 0 skipped — 5,403 on the branch before `origin/main` was merged in, plus
+  4 from PLATFORM-728-730-731. 11 tests added here, every named assertion mutation-proven.
+- Status: Merged ([PR #814](https://github.com/znpruitt/cfb-app/pull/814), `68fbf397`, 2026-09-17); merged tree `93ac797b` identical to the gated branch tip. NOT promoted.
+
 ### PLATFORM-728-730-731-SCHEDULE-PRESENTATION-CODEX-v1
 
 - Purpose: bring Schedule's scoreboard rows to the settled presentation contract for
@@ -368,6 +418,13 @@ These consolidate recurring historical observations, not new project-governance 
 - Source links: [#625](https://github.com/znpruitt/cfb-app/issues/625), [#785](https://github.com/znpruitt/cfb-app/issues/785), [#788](https://github.com/znpruitt/cfb-app/issues/788), [#595](https://github.com/znpruitt/cfb-app/issues/595). Other source hashes: `c1d5383b`, `6f52557a`, `fd61d0c3`.
 
 ### PLATFORM-722-724-MATCHUPS-DERIVED-STATE-CODEX-v1
+
+> **Two abandoned reconstruction attempts, branches deleted from `origin` 2026-09-17** (owner
+> decision), recorded here because the branch was the only trace: `codex/722-724-matchups-derived-state`
+> at `15f7812d` (3 commits) and `-v2` at `9a74f063` (1 commit). **v3 is what shipped** —
+> `codex/722-724-matchups-derived-state-v3`, merged `ebc4ec79` ([PR #777](https://github.com/znpruitt/cfb-app/pull/777)),
+> 2026-09-13. The entry below is v3's execution record; nothing in v1 or v2 was carried forward
+> uncaptured by it.
 
 - Change: [#722](https://github.com/znpruitt/cfb-app/issues/722) and
   [#724](https://github.com/znpruitt/cfb-app/issues/724) derive rows, counts and sort from
