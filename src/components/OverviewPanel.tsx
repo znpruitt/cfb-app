@@ -59,11 +59,7 @@ import {
 } from '../lib/rankings';
 import { getGameParticipantTeamId, type AppGame } from '../lib/schedule';
 import type { ScorePack } from '../lib/scores';
-import {
-  EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID,
-  SCOREBOARD_TEAM_LOGO_SLOT,
-  type ScoreboardTeamLogosById,
-} from '../lib/teamLogos';
+import { EMPTY_SCOREBOARD_TEAM_LOGOS_BY_ID, type ScoreboardTeamLogosById } from '../lib/teamLogos';
 import { standingsCoverageNoticeWithSubject } from '../lib/standings';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
 import type { StandingsHistory } from '../lib/standingsHistory';
@@ -76,12 +72,14 @@ import { getPresentationTimeZone } from '../lib/weekPresentation';
 
 const EMPTY_OVERVIEW_ODDS_BY_KEY: Record<string, CombinedOdds> = {};
 
-// Item 134. The 400px target is unmeasured prose from the live-scoreboard mockup,
-// whose team line already reserved 16px at line start. Production now reserves the
-// explicit 32px logo slot, so the inherited target becomes 400 - 16 + 32 = 416px.
-// Three targets, two 40px gaps, and 20px deliberate headroom produce 1348px.
-const OVERVIEW_SCOREBOARD_MOCKUP_TARGET_PX = 400;
-const OVERVIEW_SCOREBOARD_MOCKUP_PREFIX_SLOT_PX = 16;
+// PLATFORM-750 measured the production row rather than carrying Item 134's unmeasured
+// 416px mockup target. The final-state fixture is #25 Southeast Missouri State (12–0),
+// owner Mastromatteo, score 100, plus the always-reserved 32px logo slot. On the
+// verified macOS production font stack its content used 390.469px; the mandatory
+// 12px flex gap before the score makes 402.469px, rounded up to the 403px target.
+// OverviewScoreboardGrid.browser.test.tsx asserts the same fixture still fits.
+const OVERVIEW_SCOREBOARD_MEASURED_ROW_CONTENT_PX = 390.469;
+const OVERVIEW_SCOREBOARD_MINIMUM_SCORE_GAP_PX = 12;
 const OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX_BY_CLASS = {
   'gap-x-10': 40,
 } as const;
@@ -89,19 +87,48 @@ export const OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS =
   'gap-x-10' satisfies keyof typeof OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX_BY_CLASS;
 export const OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX =
   OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX_BY_CLASS[OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS];
-const OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX = 20;
-export const OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX =
-  OVERVIEW_SCOREBOARD_MOCKUP_TARGET_PX -
-  OVERVIEW_SCOREBOARD_MOCKUP_PREFIX_SLOT_PX +
-  SCOREBOARD_TEAM_LOGO_SLOT.widthPx;
+export const OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT = 3;
+export const OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX = Math.ceil(
+  OVERVIEW_SCOREBOARD_MEASURED_ROW_CONTENT_PX + OVERVIEW_SCOREBOARD_MINIMUM_SCORE_GAP_PX
+);
+// The declared production stack resolved 17.250px wider on this host with system-ui
+// than with its Helvetica/Arial fallbacks. Reserve one observed stack-face spread per
+// column so a wider host resolution retains the 12px score gap. The browser gate pins
+// both the distributed headroom and the resulting unclipped row.
+const OVERVIEW_SCOREBOARD_OBSERVED_FONT_STACK_SPREAD_PX = 17.25;
+export const OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX = Math.ceil(
+  OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT * OVERVIEW_SCOREBOARD_OBSERVED_FONT_STACK_SPREAD_PX
+);
+export const OVERVIEW_SCOREBOARD_ROW_CONTENT_CAP_PX =
+  OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX +
+  OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX / OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT;
 export const OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX =
-  3 * OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX +
-  2 * OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX +
+  OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT * OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX +
+  (OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT - 1) * OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX +
   OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX;
 // Tailwind emits the preserved max variant as `width < 760.01px`: exactly
 // 760.01px is therefore in the two-column band, while practical whole-pixel
 // checks at 760px and 761px land on the intended sides.
-export const OVERVIEW_SCOREBOARD_GRID_CLASSES = `grid grid-cols-2 ${OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS} @max-[760.01px]:grid-cols-1 @min-[1348px]:grid-cols-3`;
+// The arbitrary variant must remain literal for Tailwind discovery; the arithmetic
+// test couples its 1341px value back to the derived breakpoint above.
+const OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_CLASS = '@min-[1341px]:grid-cols-3' as const;
+export const OVERVIEW_SCOREBOARD_GRID_CLASSES = `grid grid-cols-2 ${OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS} @max-[760.01px]:grid-cols-1 ${OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_CLASS}`;
+
+export function OverviewScoreboardGridItem({
+  children,
+}: {
+  children: React.ReactNode;
+}): React.ReactElement {
+  return (
+    <div
+      className="w-full min-w-0 justify-self-start"
+      style={{ maxWidth: OVERVIEW_SCOREBOARD_ROW_CONTENT_CAP_PX }}
+      data-overview-scoreboard-grid-item
+    >
+      {children}
+    </div>
+  );
+}
 
 /**
  * The last `n` weeks that are RESOLVED — played, with a usable snapshot.
@@ -797,50 +824,51 @@ function GameCardList({
         const broadcast = state === 'live' ? formatPrimaryBroadcastLabel(game.media) : undefined;
 
         return (
-          <CompactGameScoreboard
-            key={game.key}
-            state={isAwaitingScore ? 'awaiting' : state}
-            clock={
-              state === 'live' && !isAwaitingScore
-                ? (formatLiveGameClock(item.score) ?? undefined)
-                : undefined
-            }
-            broadcast={broadcast}
-            matchupLabel={formatGameMatchupLabel(game)}
-            tagSlot={
-              item.highlightTags.length > 0 ? (
-                <>
-                  {item.highlightTags.map((tag) => (
-                    <span
-                      key={tag.id}
-                      className={`inline-flex ${EYEBROW_TAG_CLASSES}`}
-                      data-eyebrow-tag={tag.id}
-                    >
-                      {tag.text}
-                    </span>
-                  ))}
-                </>
-              ) : undefined
-            }
-            away={{
-              teamName: game.csvAway,
-              teamLogo: teamLogosById.get(awayTeamId),
-              owner: displayOwner(item.bucket.awayOwner),
-              rank: awayRanking.rank,
-              rankSource: awayRanking.rankSource,
-              record: teamRecords?.away,
-              score: item.score?.away.score ?? null,
-            }}
-            home={{
-              teamName: game.csvHome,
-              teamLogo: teamLogosById.get(homeTeamId),
-              owner: displayOwner(item.bucket.homeOwner),
-              rank: homeRanking.rank,
-              rankSource: homeRanking.rankSource,
-              record: teamRecords?.home,
-              score: item.score?.home.score ?? null,
-            }}
-          />
+          <OverviewScoreboardGridItem key={game.key}>
+            <CompactGameScoreboard
+              state={isAwaitingScore ? 'awaiting' : state}
+              clock={
+                state === 'live' && !isAwaitingScore
+                  ? (formatLiveGameClock(item.score) ?? undefined)
+                  : undefined
+              }
+              broadcast={broadcast}
+              matchupLabel={formatGameMatchupLabel(game)}
+              tagSlot={
+                item.highlightTags.length > 0 ? (
+                  <>
+                    {item.highlightTags.map((tag) => (
+                      <span
+                        key={tag.id}
+                        className={`inline-flex ${EYEBROW_TAG_CLASSES}`}
+                        data-eyebrow-tag={tag.id}
+                      >
+                        {tag.text}
+                      </span>
+                    ))}
+                  </>
+                ) : undefined
+              }
+              away={{
+                teamName: game.csvAway,
+                teamLogo: teamLogosById.get(awayTeamId),
+                owner: displayOwner(item.bucket.awayOwner),
+                rank: awayRanking.rank,
+                rankSource: awayRanking.rankSource,
+                record: teamRecords?.away,
+                score: item.score?.away.score ?? null,
+              }}
+              home={{
+                teamName: game.csvHome,
+                teamLogo: teamLogosById.get(homeTeamId),
+                owner: displayOwner(item.bucket.homeOwner),
+                rank: homeRanking.rank,
+                rankSource: homeRanking.rankSource,
+                record: teamRecords?.home,
+                score: item.score?.home.score ?? null,
+              }}
+            />
+          </OverviewScoreboardGridItem>
         );
       })}
     </div>
@@ -887,29 +915,29 @@ function WatchlistScoreboardList({
         const footerSlot = <WatchlistOddsFooterSlot odds={oddsByKey[game.key]} />;
 
         return (
-          <CompactGameScoreboard
-            key={game.key}
-            state="scheduled"
-            clock={kickoff}
-            broadcast={broadcast}
-            scheduleNotice={
-              // Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read
-              // the measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before
-              // reasoning from this comment (Item 661).
-              prioritized.routeStatus.kind === 'disrupted'
-                ? prioritized.routeStatus.label
-                : undefined
-            }
-            matchupLabel={formatGameMatchupLabel(game)}
-            // Keep this wrapper unconditional: min-h-[22px] deliberately reserves the reason-row
-            // band even when empty. Passing undefined would silently drop that 22px reservation.
-            contextSlot={
-              <div
-                className="flex min-h-[22px] min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap"
-                aria-hidden={hasReason ? undefined : true}
-                data-watchlist-reason-row
-              >
-                {/*
+          <OverviewScoreboardGridItem key={game.key}>
+            <CompactGameScoreboard
+              state="scheduled"
+              clock={kickoff}
+              broadcast={broadcast}
+              scheduleNotice={
+                // Disrupted-label vocabulary is a FORWARD-LOOKING guard, not observed behaviour: read
+                // the measurement note above `DISRUPTED_RE` in `src/lib/gameStatus.ts` before
+                // reasoning from this comment (Item 661).
+                prioritized.routeStatus.kind === 'disrupted'
+                  ? prioritized.routeStatus.label
+                  : undefined
+              }
+              matchupLabel={formatGameMatchupLabel(game)}
+              // Keep this wrapper unconditional: min-h-[22px] deliberately reserves the reason-row
+              // band even when empty. Passing undefined would silently drop that 22px reservation.
+              contextSlot={
+                <div
+                  className="flex min-h-[22px] min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap"
+                  aria-hidden={hasReason ? undefined : true}
+                  data-watchlist-reason-row
+                >
+                  {/*
                   Item 175 — ONE TREATMENT. This label sits INLINE BESIDE a tag
                   pill, so it is functioning as a tag and takes the tag's
                   treatment; `item-87-reference-game-row.md` §2 rejects the split
@@ -921,45 +949,46 @@ function WatchlistScoreboardList({
                   truncates: it is a pill like every other eyebrow on every surface,
                   which is what the cross-surface equality test pins.
                 */}
-                {prioritized.highlightLabel ? (
-                  <span
-                    className={`inline-flex ${EYEBROW_TAG_CLASSES}`}
-                    data-watchlist-reason-label
-                  >
-                    {prioritized.highlightLabel}
-                  </span>
-                ) : null}
-                {highlightTags.map((tag) => (
-                  <span
-                    key={tag.id}
-                    className={`inline-flex ${EYEBROW_TAG_CLASSES}`}
-                    data-eyebrow-tag
-                  >
-                    {tag.text}
-                  </span>
-                ))}
-              </div>
-            }
-            away={{
-              teamName: game.csvAway,
-              teamLogo: teamLogosById.get(awayTeamId),
-              owner: displayOwner(item.bucket.awayOwner),
-              rank: awayRanking.rank,
-              rankSource: awayRanking.rankSource,
-              record: teamRecords?.away,
-              score: null,
-            }}
-            home={{
-              teamName: game.csvHome,
-              teamLogo: teamLogosById.get(homeTeamId),
-              owner: displayOwner(item.bucket.homeOwner),
-              rank: homeRanking.rank,
-              rankSource: homeRanking.rankSource,
-              record: teamRecords?.home,
-              score: null,
-            }}
-            footerSlot={footerSlot}
-          />
+                  {prioritized.highlightLabel ? (
+                    <span
+                      className={`inline-flex ${EYEBROW_TAG_CLASSES}`}
+                      data-watchlist-reason-label
+                    >
+                      {prioritized.highlightLabel}
+                    </span>
+                  ) : null}
+                  {highlightTags.map((tag) => (
+                    <span
+                      key={tag.id}
+                      className={`inline-flex ${EYEBROW_TAG_CLASSES}`}
+                      data-eyebrow-tag
+                    >
+                      {tag.text}
+                    </span>
+                  ))}
+                </div>
+              }
+              away={{
+                teamName: game.csvAway,
+                teamLogo: teamLogosById.get(awayTeamId),
+                owner: displayOwner(item.bucket.awayOwner),
+                rank: awayRanking.rank,
+                rankSource: awayRanking.rankSource,
+                record: teamRecords?.away,
+                score: null,
+              }}
+              home={{
+                teamName: game.csvHome,
+                teamLogo: teamLogosById.get(homeTeamId),
+                owner: displayOwner(item.bucket.homeOwner),
+                rank: homeRanking.rank,
+                rankSource: homeRanking.rankSource,
+                record: teamRecords?.home,
+                score: null,
+              }}
+              footerSlot={footerSlot}
+            />
+          </OverviewScoreboardGridItem>
         );
       })}
     </div>
@@ -998,57 +1027,58 @@ function FeaturedGamesList({
         const teamRecords = teamRecordsForGame(game, teamRecordsByProviderGameId);
 
         return (
-          <CompactGameScoreboard
-            key={game.key}
-            state="final"
-            // No date or time on a final row: for a completed game the result is the
-            // information. Owner decision 2026-09-04, section-ordering resolutions §3;
-            // DESIGN.md carries the rule. Within OVERVIEW, Recent finals already complied
-            // and Featured was the holdout — the rule is repo-wide, but Matchups and
-            // Schedule still print a kickoff on final rows and are not changed here.
-            matchupLabel={formatGameMatchupLabel(game)}
-            tagSlot={
-              gameBadge || highlightTags.length > 0 ? (
-                <>
-                  {gameBadge ? (
-                    <span
-                      className={`inline-flex rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${gameBadge.classes}`}
-                      data-featured-game-badge
-                    >
-                      {gameBadge.label}
-                    </span>
-                  ) : null}
-                  {highlightTags.map((tag) => (
-                    <span
-                      key={tag.id}
-                      className={`inline-flex ${EYEBROW_TAG_CLASSES}`}
-                      data-eyebrow-tag
-                    >
-                      {tag.text}
-                    </span>
-                  ))}
-                </>
-              ) : undefined
-            }
-            away={{
-              teamName: game.csvAway,
-              teamLogo: teamLogosById.get(awayTeamId),
-              owner: displayOwner(item.bucket.awayOwner),
-              rank: awayRanking.rank,
-              rankSource: awayRanking.rankSource,
-              record: teamRecords?.away,
-              score: score?.away.score ?? null,
-            }}
-            home={{
-              teamName: game.csvHome,
-              teamLogo: teamLogosById.get(homeTeamId),
-              owner: displayOwner(item.bucket.homeOwner),
-              rank: homeRanking.rank,
-              rankSource: homeRanking.rankSource,
-              record: teamRecords?.home,
-              score: score?.home.score ?? null,
-            }}
-          />
+          <OverviewScoreboardGridItem key={game.key}>
+            <CompactGameScoreboard
+              state="final"
+              // No date or time on a final row: for a completed game the result is the
+              // information. Owner decision 2026-09-04, section-ordering resolutions §3;
+              // DESIGN.md carries the rule. Within OVERVIEW, Recent finals already complied
+              // and Featured was the holdout — the rule is repo-wide, but Matchups and
+              // Schedule still print a kickoff on final rows and are not changed here.
+              matchupLabel={formatGameMatchupLabel(game)}
+              tagSlot={
+                gameBadge || highlightTags.length > 0 ? (
+                  <>
+                    {gameBadge ? (
+                      <span
+                        className={`inline-flex rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${gameBadge.classes}`}
+                        data-featured-game-badge
+                      >
+                        {gameBadge.label}
+                      </span>
+                    ) : null}
+                    {highlightTags.map((tag) => (
+                      <span
+                        key={tag.id}
+                        className={`inline-flex ${EYEBROW_TAG_CLASSES}`}
+                        data-eyebrow-tag
+                      >
+                        {tag.text}
+                      </span>
+                    ))}
+                  </>
+                ) : undefined
+              }
+              away={{
+                teamName: game.csvAway,
+                teamLogo: teamLogosById.get(awayTeamId),
+                owner: displayOwner(item.bucket.awayOwner),
+                rank: awayRanking.rank,
+                rankSource: awayRanking.rankSource,
+                record: teamRecords?.away,
+                score: score?.away.score ?? null,
+              }}
+              home={{
+                teamName: game.csvHome,
+                teamLogo: teamLogosById.get(homeTeamId),
+                owner: displayOwner(item.bucket.homeOwner),
+                rank: homeRanking.rank,
+                rankSource: homeRanking.rankSource,
+                record: teamRecords?.home,
+                score: score?.home.score ?? null,
+              }}
+            />
+          </OverviewScoreboardGridItem>
         );
       })}
     </div>

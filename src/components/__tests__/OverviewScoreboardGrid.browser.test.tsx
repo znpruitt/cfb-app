@@ -9,21 +9,28 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 import CompactGameScoreboard from '../CompactGameScoreboard';
 import {
+  OverviewScoreboardGridItem,
   OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX,
   OVERVIEW_SCOREBOARD_GRID_CLASSES,
+  OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX,
   OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX,
+  OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT,
+  OVERVIEW_SCOREBOARD_ROW_CONTENT_CAP_PX,
 } from '../OverviewPanel';
 import { OVERVIEW_RESULTS_LIMIT } from '../../lib/selectors/overview';
 import { SCOREBOARD_TEAM_LOGO_SLOT } from '../../lib/teamLogos';
 import { type BrowserFixturePage, withBrowserFixture } from '../../test/browserFixture';
 
-const REQUIRED_WIDTHS = [760, 761, 1347, 1348, 1392] as const;
+const REQUIRED_WIDTHS = [760, 761, 1340, 1341, 1600, 1920] as const;
+const MINIMUM_SCORE_GAP_PX = 12;
 
 type LayoutMeasurement = {
   width: number;
   columns: number;
   columnGap: number;
+  trackWidths: number[];
   cardRects: Array<{ left: number; top: number; width: number }>;
+  firstRowInterCardGap: number | null;
   stressLabelClipped: boolean;
   stressLabelWidth: number;
   stressLabelContentWidth: number;
@@ -50,23 +57,25 @@ async function compileFixtureStyles(): Promise<string> {
 
 function fixtureMarkup(styles: string): string {
   const scoreboards = Array.from({ length: OVERVIEW_RESULTS_LIMIT }, (_, index) => (
-    <CompactGameScoreboard
-      key={index}
-      state="final"
-      matchupLabel={`Fixture game ${index + 1}`}
-      away={{
-        teamName: index === 0 ? 'Middle Tennessee State' : `Away Team ${index + 1}`,
-        owner: index === 0 ? 'Shambaugh' : 'Alice',
-        record: { wins: 3, losses: 5 },
-        score: 13,
-      }}
-      home={{
-        teamName: `Home Team ${index + 1}`,
-        owner: 'Bob',
-        record: { wins: 6, losses: 2 },
-        score: 20,
-      }}
-    />
+    <OverviewScoreboardGridItem key={index}>
+      <CompactGameScoreboard
+        state="final"
+        matchupLabel={`Fixture game ${index + 1}`}
+        away={{
+          teamName: index === 0 ? 'Southeast Missouri State' : `Away Team ${index + 1}`,
+          owner: index === 0 ? 'Mastromatteo' : 'Alice',
+          rank: index === 0 ? 25 : null,
+          record: index === 0 ? { wins: 12, losses: 0 } : { wins: 3, losses: 5 },
+          score: index === 0 ? 100 : 13,
+        }}
+        home={{
+          teamName: `Home Team ${index + 1}`,
+          owner: 'Bob',
+          record: { wins: 6, losses: 2 },
+          score: 20,
+        }}
+      />
+    </OverviewScoreboardGridItem>
   ));
   const body = renderToStaticMarkup(
     <div className="@container" data-layout-container style={{ width: REQUIRED_WIDTHS[0] }}>
@@ -98,7 +107,11 @@ async function measureWidths(
         await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         const gridStyle = getComputedStyle(grid);
         const gridRect = grid.getBoundingClientRect();
-        const cards = Array.from(grid.children, (card) => {
+        const cards = Array.from(grid.children, (item) => {
+          const card = item.querySelector('[data-game-scoreboard]');
+          if (!(card instanceof HTMLElement)) {
+            throw new Error('Overview scoreboard wrapper did not contain a card');
+          }
           const rect = card.getBoundingClientRect();
           return {
             left: round(rect.left - gridRect.left),
@@ -124,11 +137,21 @@ async function measureWidths(
         const stressValueRect = stressValue.getBoundingClientRect();
         const stressLabelContentWidth = stressContentRect.width;
         const stressLabelWidth = stressLabelRect.width;
+        const firstRowInterCardGap =
+          cards.length >= 2 && Math.abs(cards[0].top - cards[1].top) <= 0.1
+            ? round(cards[1].left - cards[0].left - cards[0].width)
+            : null;
         results.push({
           width,
           columns: gridStyle.gridTemplateColumns.trim().split(/\\s+/).filter(Boolean).length,
           columnGap: round(parseFloat(gridStyle.columnGap)),
+          trackWidths: gridStyle.gridTemplateColumns
+            .trim()
+            .split(/\\s+/)
+            .filter(Boolean)
+            .map((value) => round(parseFloat(value))),
           cardRects: cards,
+          firstRowInterCardGap,
           stressLabelClipped: stressLabelContentWidth > stressLabelWidth + 0.5,
           stressLabelWidth: round(stressLabelWidth),
           stressLabelContentWidth: round(stressLabelContentWidth),
@@ -150,7 +173,7 @@ function assertNear(actual: number, expected: number, message: string): void {
   );
 }
 
-test('Overview scoreboard grid renders its required container tiers and 416px target', async (t) => {
+test('Overview scoreboard grid renders its measured tiers and capped rows', async (t) => {
   await withBrowserFixture(
     t,
     {
@@ -169,17 +192,29 @@ test('Overview scoreboard grid renders its required container tiers and 416px ta
         [
           { width: 760, columns: 1 },
           { width: 761, columns: 2 },
-          { width: 1347, columns: 2 },
-          { width: 1348, columns: 3 },
-          { width: 1392, columns: 3 },
+          { width: 1340, columns: 2 },
+          { width: 1341, columns: 3 },
+          { width: 1600, columns: 3 },
+          { width: 1920, columns: 3 },
         ]
       );
 
-      const atThree = byWidth.get(1348);
+      const atThree = byWidth.get(1341);
+      const at1600 = byWidth.get(1600);
+      const at1920 = byWidth.get(1920);
       const clippingControl = byWidth.get(240);
-      assert.ok(atThree && clippingControl, 'all required measurements must be returned');
+      assert.ok(
+        atThree && at1600 && at1920 && clippingControl,
+        'all required measurements must be returned'
+      );
       t.diagnostic(
-        `1348px: ${atThree.cardRects[0]!.width}px columns, ${atThree.stressLabelContentWidth}px stress content in a ${atThree.stressLabelWidth}px fractional label box, ${atThree.stressLabelSlack}px slack, ${atThree.stressContentToScoreGap}px to the score`
+        `1341px: ${atThree.trackWidths[0]}px columns, ${atThree.cardRects[0]!.width}px capped rows, ${atThree.stressLabelContentWidth}px stress content in a ${atThree.stressLabelWidth}px fractional label box, ${atThree.stressLabelSlack}px slack, ${atThree.stressContentToScoreGap}px to the score`
+      );
+      t.diagnostic(
+        `1600px: ${at1600.trackWidths[0]}px columns, ${at1600.cardRects[0]!.width}px capped rows, ${at1600.firstRowInterCardGap}px between adjacent cards`
+      );
+      t.diagnostic(
+        `1920px: ${at1920.trackWidths[0]}px columns, ${at1920.cardRects[0]!.width}px capped rows, ${at1920.firstRowInterCardGap}px between adjacent cards`
       );
       assert.match(
         atThree.computedFontFamily,
@@ -199,19 +234,53 @@ test('Overview scoreboard grid renders its required container tiers and 416px ta
         clippingControl.stressContentToScoreGap < 0,
         'the clipping control must make the untruncated text collide with the score'
       );
-      assert.equal(atThree.stressLabelClipped, false, 'the named stress row must fit at 1348px');
+      assert.equal(atThree.stressLabelClipped, false, 'the named stress row must fit at the cap');
       assert.ok(
-        atThree.stressContentToScoreGap >= 11.5,
-        'the stress content must retain the rendered 12px flex gap before the score'
+        atThree.stressContentToScoreGap >=
+          MINIMUM_SCORE_GAP_PX +
+            OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX / OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT -
+            0.5,
+        'the stress content must retain the 12px score gap plus its per-column font allowance'
       );
       assert.equal(atThree.stressRowPaddingLeft, SCOREBOARD_TEAM_LOGO_SLOT.widthPx);
       assert.equal(atThree.columnGap, OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX);
-      assert.ok(atThree.cardRects[0]!.width >= OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX);
+      assert.ok(atThree.trackWidths[0]! >= OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX);
       assertNear(
-        3 * (atThree.cardRects[0]!.width - OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX),
-        20,
+        OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT *
+          (atThree.trackWidths[0]! - OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX),
+        OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX,
         'three rendered columns must distribute the specified total headroom'
       );
+      for (const measurement of [atThree, at1600, at1920]) {
+        assertNear(
+          measurement.cardRects[0]!.width,
+          OVERVIEW_SCOREBOARD_ROW_CONTENT_CAP_PX,
+          `${measurement.width}px rows must equal the derived cap`
+        );
+        assert.equal(
+          measurement.stressLabelClipped,
+          false,
+          `${measurement.width}px must not clip the named stress row`
+        );
+      }
+      assertNear(
+        at1600.cardRects[0]!.width,
+        at1920.cardRects[0]!.width,
+        'capped row width must not grow with its grid track'
+      );
+      for (const measurement of [at1600, at1920]) {
+        assert.ok(
+          measurement.firstRowInterCardGap !== null,
+          `${measurement.width}px must expose an adjacent first-row pair`
+        );
+        assertNear(
+          measurement.firstRowInterCardGap!,
+          measurement.trackWidths[0]! -
+            OVERVIEW_SCOREBOARD_ROW_CONTENT_CAP_PX +
+            OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX,
+          `${measurement.width}px inter-card space must be the fixed gap plus unused track width`
+        );
+      }
 
       assert.equal(OVERVIEW_RESULTS_LIMIT, 4, 'Featured keeps its owner-approved four-item cap');
       const [first, second, third, fourth] = atThree.cardRects;

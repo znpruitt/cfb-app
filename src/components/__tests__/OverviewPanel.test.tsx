@@ -9,8 +9,11 @@ import OverviewPanelImpl, {
   OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS,
   OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX,
   OVERVIEW_SCOREBOARD_GRID_CLASSES,
+  OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX,
   OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX,
   OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX,
+  OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT,
+  OVERVIEW_SCOREBOARD_ROW_CONTENT_CAP_PX,
 } from '../OverviewPanel';
 import GameWeekPanel from '../GameWeekPanel';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../../lib/overview';
@@ -24,6 +27,11 @@ import type { StandingsHistory } from '../../lib/standingsHistory';
 import type { AppGame } from '../../lib/schedule';
 import type { ScorePack } from '../../lib/scores';
 import { buildOddsByGame } from '../../lib/odds';
+import {
+  OVERVIEW_LIVE_LIMIT,
+  OVERVIEW_RECENT_FINALS_LIMIT,
+  OVERVIEW_WATCHLIST_LIMIT,
+} from '../../lib/selectors/overviewGameSections';
 
 type OverviewPanelProps = React.ComponentProps<typeof OverviewPanelImpl>;
 type OverviewPanelTestProps = Omit<OverviewPanelProps, 'sectionItems' | 'nowMs'> &
@@ -804,6 +812,23 @@ test('overview scoreboards keep current records across scheduled, live, and fina
     6,
     'scheduled, live, and recent-final renderers must each render both team logos'
   );
+  const document = new JSDOM(html).window.document;
+  const scoreboards = Array.from(document.querySelectorAll<HTMLElement>('[data-game-scoreboard]'));
+  assert.ok(scoreboards.length >= 3, 'the fixture must exercise every Overview scoreboard list');
+  for (const scoreboard of scoreboards) {
+    const wrapper = scoreboard.parentElement;
+    assert.ok(wrapper);
+    assert.ok(wrapper.hasAttribute('data-overview-scoreboard-grid-item'));
+    assert.ok(wrapper.classList.contains('justify-self-start'));
+    assert.ok(wrapper.classList.contains('w-full'));
+    assert.ok(wrapper.classList.contains('min-w-0'));
+    assert.ok(
+      Math.abs(
+        Number.parseFloat(wrapper.style.maxWidth) - OVERVIEW_SCOREBOARD_ROW_CONTENT_CAP_PX
+      ) <= 0.001,
+      'every Overview scoreboard wrapper must carry the derived row cap'
+    );
+  }
 });
 
 test('overview watchlist renders withheld records as absent and preserves an empty odds row', () => {
@@ -883,7 +908,7 @@ test('overview Live section consumes the shared scoreboard in a row-major respon
 
   assert.match(
     html,
-    /grid grid-cols-2 gap-x-10 @max-\[760\.01px\]:grid-cols-1 @min-\[1348px\]:grid-cols-3" data-live-scoreboard-grid/
+    /grid grid-cols-2 gap-x-10 @max-\[760\.01px\]:grid-cols-1 @min-\[1341px\]:grid-cols-3" data-live-scoreboard-grid/
   );
   assert.equal((html.match(/data-game-scoreboard=/g) ?? []).length, 2);
   const awayLeadingCard = html.indexOf('aria-label="Utah at Arizona State"');
@@ -1262,7 +1287,7 @@ test('overview Featured renders its badge and existing tag in the final status r
   assert.match(liveScoreboard, /Q2 6:14/);
   assert.match(
     html,
-    /<section class="@container">[\s\S]*?<div class="grid grid-cols-2 gap-x-10 @max-\[760\.01px\]:grid-cols-1 @min-\[1348px\]:grid-cols-3" data-featured-scoreboard-grid="true">/
+    /<section class="@container">[\s\S]*?<div class="grid grid-cols-2 gap-x-10 @max-\[760\.01px\]:grid-cols-1 @min-\[1341px\]:grid-cols-3" data-featured-scoreboard-grid="true">/
   );
 });
 
@@ -1270,13 +1295,31 @@ test('overview three-column grid arithmetic stays coupled to its literal utility
   assert.equal(OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS, 'gap-x-10');
   assert.equal(OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX, 40);
   assert.ok(OVERVIEW_SCOREBOARD_GRID_CLASSES.includes(OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS));
-  assert.equal(OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX, 416);
-  assert.equal(OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX, 1348);
+  assert.equal(OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT, 3);
+  assert.equal(OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX, 403);
+  assert.equal(OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX, 52);
+  assert.equal(
+    OVERVIEW_SCOREBOARD_ROW_CONTENT_CAP_PX,
+    OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX +
+      OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX / OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT
+  );
+  assert.equal(OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX, 1341);
+  assert.equal(
+    OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT * OVERVIEW_SCOREBOARD_ROW_CONTENT_CAP_PX +
+      (OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT - 1) * OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX,
+    OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX,
+    'the cap must exactly fill each equal track when the wide tier begins'
+  );
   assert.ok(
     OVERVIEW_SCOREBOARD_GRID_CLASSES.includes(
       `@min-[${OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX}px]:grid-cols-3`
     ),
     'the rendered Tailwind breakpoint must match the documented arithmetic'
+  );
+  assert.deepEqual(
+    [OVERVIEW_LIVE_LIMIT, OVERVIEW_RECENT_FINALS_LIMIT, OVERVIEW_WATCHLIST_LIMIT],
+    [6, 6, 6],
+    'the game-section caps remain six items and tier-independent'
   );
 });
 
