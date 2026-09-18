@@ -219,7 +219,46 @@ These consolidate recurring historical observations, not new project-governance 
   their durations clustered identically, the signature of queued-and-starved rather than slow. The
   clean run above is the same code at load 6. **Cancellations are not failures and were not reported
   as either.**
-- Status: **Not merged; no review has run on v2.** The precommitment carries forward: another
+- **Review round 1: `/code-review` 9 findings, Codex 3, one overlapping — 11 distinct, all confirmed.**
+  **Nine fixed, TWO LEFT OPEN BY THE PRECOMMITMENT.**
+- **The finding both reviewers found independently, and one reproduced.**
+  `resolveStandingsYear` runs inside the observation window and, on an offseason league, reads
+  `listSeasonArchives` — a different cache family tagged `archive:<slug>`. Branching on ANY added key
+  reported a plain hit as `published-and-value-predates-request` with `backgroundRevalidation: true`,
+  and under a stamp collision as a `miss`. **The payload comment already claimed the keys let a
+  reader tell the two apart; the derivation did not.** Fixing it was an OWNER OVERRIDE of the
+  precommitment — taken because both reviewers found it and the fix ADDS a filter rather than
+  restructuring the derivation. The verdict now branches on `standingsPublicationKeysAdded`, whose
+  signature is derived from `canonicalStandingsCacheKeyParts` rather than a hand-written substring;
+  if Next's key composition changes, the match finds nothing and the verdict degrades to
+  `cannot-tell`, declining rather than claiming.
+- **OPEN, DOCUMENTED, NOT FIXED — the precommitment class.**
+  1. `resolveComparisonBlocker` reports `cached-side-not-a-snapshot` for EVERY `cannot-tell`,
+     including `no-publication-and-stamp-matches`, where this branch's own test constructs a genuine
+     pre-existing snapshot and says so. Gating `matches` to `null` there is right; asserting WHY is
+     not observed. A fourth blocker code ("verdict undetermined") would say only what is known.
+  2. `requestPublicationKeysAdded` is documented as the whole request's durable effect, entry to
+     exit, but the entry observation is taken AFTER `resolveRequestedYear` — which on the #818 path
+     can publish `season-archive-years` first, as this branch's own
+     `rejectsAnOutOfRangeYearBeforeAnyBuild` asserts. A publication the request genuinely queued is
+     missing from an account that claims to be complete.
+- **The floor guard the cited precedent already carried.** #774's `resolveArchiveYearParam` checks
+  the floor BEFORE reading archives, with a comment recording that without it a store outage turned a
+  certain 400 on `/history/tsc/1999` into a 500. I implemented the disjunct without it — while my own
+  test comment noted the `n >= 2000` filter that makes the read pointless. **Third time in this work
+  that citing a rule stood in for implementing it.**
+- Also fixed: a legacy archive predating `finalGames` no longer loses the field to
+  `JSON.stringify` (`trends.ts:124` documents the shape and notes `undefined > 0` is false rather
+  than an error, which is why nothing else caught it); and six comment defects carried over when v1's
+  files were copied — **a 53-line JSDoc I duplicated into `leagueStandings.ts` and attached to the
+  wrong symbol**, a scripted-edit error from extracting a block whose end boundary swallowed the next
+  doc comment, plus five citations naming removed symbols and tests that do not exist, each verified
+  to resolve ONLY inside the comment citing it.
+- Round-1 verification: `tsc --noEmit`, `lint:all`, `npm run build` and `npm test` each exited 0 on
+  tip `974a1466`; **5,454 pass / 0 fail / 0 cancelled / 0 skipped** in 46.6 s. Both required browser
+  tests passed. **5 mutations, every one reddening a named assertion**, including one that restores
+  the exact attribution bug both reviewers found.
+- Status: **Not merged; the round-1 confirming pass has not run.** The precommitment carries forward: another
   instance of **the detector claims more than it observes** ships with the limitation documented rather
   than being patched again.
 - **THE GATE IS UN-RUN, and fail-closed on preview is not the gate.** v1 verified the admin refusal in
