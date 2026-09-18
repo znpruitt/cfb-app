@@ -121,6 +121,98 @@ These consolidate recurring historical observations, not new project-governance 
 
 ## Prompt ledger (source order retained)
 
+### PLATFORM-816-STANDINGS-CACHE-DELTA-CLAUDE-v1
+
+- Purpose: make the audit's second validation gate runnable. `GET /api/debug/standings-cache-delta`
+  returns the CACHED canonical standings beside a fresh uncached rebuild for one league and year,
+  with a per-owner delta, and says which of the two the cached read actually was. Refs
+  [#816](https://github.com/znpruitt/cfb-app/issues/816).
+- Scope: one new route under `src/app/api/debug/` (the twelfth, not the ninth the prompt counted),
+  its two suites, and one new export from `leagueStandings.ts`. No caching behaviour, tag,
+  `invalidateStandings`, member surface or System Health change; nothing #693 touched.
+- Outcome — THE DETECTOR IS THE CACHE'S OWN WRITE RECORD. On a miss in an App Route,
+  `unstable_cache` assigns its publication to `workStore.pendingRevalidates`
+  (`next/dist/server/web/spec-extension/unstable-cache.js`); the route brackets the cached read and
+  reports `miss` when that map grew AND `generatedAt` equals the `currentDate` this request supplied.
+  A publication WITHOUT that stamp is a stale entry served with a background revalidation — a hit.
+  **The prompt's compute-counter mechanism was refuted**: it must live inside `leagueStandings.ts`
+  (the compute call is inside the cache closure, so a counter in the route sees only the route's own
+  fresh call), and it is PER-INSTANCE while the data cache is shared across Fluid instances, so a hit
+  on an entry another instance wrote would read as a miss.
+- Outcome — a third verdict, `unavailable`, reads `workAsyncStorage` for the incremental cache
+  (the seam `standingsCacheWarmer.ts:27` already uses). Without it `getCanonicalStandings`' catch of
+  `incrementalCache missing` falls back to a direct compute whose snapshot carries this request's
+  stamp, and the route would report `miss` and claim it created a snapshot that does not exist.
+  `matches` is **null**, not `true`, on `miss` or `unavailable`: the two sides are one computation of
+  one input set seconds apart, so their agreement carries no information.
+- Outcome — `computeCanonicalStandingsUncached` exported for this one caller, pinning
+  `statusOverride` to `undefined`. The `leagueStatusOverride` bypass was rejected on correctness, not
+  only on hygiene: it cannot express "whatever the registry says", so it cannot reproduce a
+  status-absent league — the shape `/api/admin/leagues` creates by default and the one most likely to
+  be misconfigured. `standingsCacheDeltaImportGraph.test.ts` fails if anything outside
+  `src/app/api/debug/standings-cache-delta/` names the symbol, or if the defining module aliases it.
+- Findings recorded, both ruled into the design rather than worked around. **The comparison is
+  per OWNER, not per team**: `OwnerStandingsRow` is keyed by owner and `CanonicalStandings` carries no
+  team-to-owner map at all — `roster` lives in `liveDeriveStandings`'s `LiveDerivation` and never
+  reaches the snapshot. **There is no `ties` column and there cannot be one**: `deriveStandings`
+  `console.warn`s a final tie and `continue`s (`standings.ts:219-224`), so no game contributes one;
+  the ONLY tie count in the system is the hardcoded `ties: 0` that `toHistoryStandingsRows`
+  (`standingsHistory.ts:83-88`) writes onto archive rows, which `snapshotFromArchive` then passes
+  into `rows`. So archive-sourced rows carry an undeclared, fabricated `ties` and live-sourced rows
+  carry no such key — pinned by `archiveRowsCarryAFabricatedTieCountAndLiveRowsCarryNone`.
+- **Named limitation, in the response payload and not only here.** "Fresh" means uncached AT THE
+  CANONICAL-STANDINGS LAYER. `getSeasonArchive` and `listSeasonArchives` carry their own tag-only
+  `unstable_cache` (`seasonArchive.ts:143-158`) and BOTH sides read through it, so on an
+  `archive`-sourced league a stale archive entry is invisible to this route. Found by a test that
+  failed: the first stale-detection fixture used the archive path and agreed with itself. Every other
+  canonical input is a direct `getAppState` (owners CSV, schedule, scores, team catalog, alias scopes,
+  postseason overrides, preseason owners), so `live` and `preseason-names` snapshots ARE compared
+  against re-read inputs. Pinned by `nestedSeasonArchiveCacheIsSharedByBothSides`.
+- Cost, measured on the read-only replica 2026-09-17: a 2026 rebuild walks **3,679** cached schedule
+  items (`schedule/2026-all-all`, 347,718 bytes) against a **138**-item team catalog and a 138-row
+  owners CSV. Per compute pass ≈9 store reads; a HIT costs ≈10-11 reads and one build, a MISS ≈19-20
+  and two. **Nothing rate-limits it** — no `/api/debug/*` route has a limit or a `maxDuration` — so
+  the admin gate is the only control, and that is stated rather than implied. Year is bounded before
+  any build (#770/#774 precedent) so a rejected year mints no entry.
+- **#771 is untouched and is not narrowed here.** `isAuthorizedAdminRequest` returns
+  `!isProductionRuntime()` when `ADMIN_API_TOKEN` is unset, so the 401 test pins
+  `NODE_ENV='production'` and says in-file that it therefore does NOT exercise #771's condition.
+  Planning verified `ADMIN_API_TOKEN` is set for Production and Preview on 2026-09-17, so preview is
+  not exposed — **a measurement of current state, not a property: the exposure returns if the
+  variable is removed.**
+- Corrections to the prompt's fact table, recorded because the route's own output describes the cache:
+  the snapshot does NOT "never expire" — `unstable-cache.js` maps `revalidate: false` to
+  `CACHE_ONE_YEAR` (`constants.js:263` = 31,536,000 s), a 365-day ceiling; and eleven `/api/debug/*`
+  routes existed, not nine (`archive-audit` and `insights/[slug]/suppression` were omitted).
+  `origin/main` was `c9cb3195`, not the `ca55da85` the prompt named — PR #815 merged between writing
+  and reading it.
+- Route-handler behaviour VERIFIED BY READING NEXT 15.5.24 SOURCE, not assumed: `dynamic =
+  'force-dynamic'` does **not** set `workStore.fetchCache` — `app-route/module.js:501-502` sets it
+  from the route module's own export and nothing else — so `unstable_cache` does consult the data
+  cache here. The miss-path WRITE is deferred to `pendingRevalidates` and drained after the response
+  (`module.js:214`), which is why a second in-request read cannot distinguish "real miss" from "no
+  cache" and the route reads the work store instead.
+- Review / verification: `tsc --noEmit`, `lint:all`, `npm run build` and `npm test` each exited 0 on
+  branch tip `0994ce74` (tree `d3708045`); **5,432 pass / 0 fail / 0 cancelled / 0 skipped**, against
+  the 5,412 recorded for #815 plus the **20** added here (18 route + 2 import-graph). Both required
+  browser tests passed. **14 mutations run; every one reddens a NAMED assertion, and the failing
+  assertion was recorded for each.** Two earlier mutations SURVIVED and both were real gaps, now
+  closed: the test harness did not model `app-route`'s `fetchCache` wiring (so a route exporting
+  `fetchCache = 'force-no-store'` went undetected), and nothing covered the snapshot-field
+  comparison. A third survivor was NOT closed but is documented in the code: dropping
+  `currentDate: probe` leaves the selector to call `new Date()` microseconds later, usually in the
+  same millisecond — the defect IS the intermittency, so no test reddens on it, and making the
+  publication count primary is what removed the dependence rather than a test.
+- Status: **Not merged. Reviews not yet gathered** — `/code-review` and `/codex:review` are both
+  user-invocable only. The route has NOT been exercised against production data: it is not deployed,
+  and preview sits behind Vercel SSO, so the `test`/2025 and `tsc`/2026 runs are an owner action.
+  Prediction on record: `tsc`/2026 should report `hit` with an empty delta because
+  `/api/cron/live-scores` calls `invalidateAndWarmStandingsForYear` after every committed score write
+  (`route.ts:458,:591`), which republishes the snapshot in the same request — **so a clean `tsc`
+  result confirms the warmer runs and says nothing about whether the cache can go stale.** `test`/2025
+  is the informative target: status `season` 2025, no archive under `standings-archive:test`, inputs
+  untouched since July, so it takes the live path over re-read inputs.
+
 ### PLATFORM-729-SCHEDULE-TEAM-NAMES-CODEX-v1
 
 - Purpose: render provider full school names on Schedule/Postseason with Overview/Matchups parity.
