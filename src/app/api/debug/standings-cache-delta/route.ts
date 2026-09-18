@@ -33,6 +33,15 @@ export const dynamic = 'force-dynamic';
  * inside `liveDeriveStandings`'s `LiveDerivation` and never reaches the
  * snapshot. A per-team delta is not obtainable from the two values this route
  * compares.
+ *
+ * `ties` is absent and cannot be added honestly: `deriveStandings` drops a final
+ * tie (`console.warn` + `continue`), so no game contributes one, and the only
+ * tie count in the system is the hardcoded `ties: 0` that `toHistoryStandingsRows`
+ * writes onto archive rows. An archive-sourced row therefore carries an
+ * undeclared, fabricated `ties` and a selector-built row carries no such key —
+ * pinned by `archiveRowsCarryAFabricatedTieCountAndLiveRowsCarryNone`. The
+ * payload ships this list, not a sentence about it: an earlier `excluded` string
+ * asserted "no row carries a tie count", which that same test refutes.
  */
 const COMPARED_FIELDS = [
   'wins',
@@ -47,18 +56,6 @@ const COMPARED_FIELDS = [
 
 type ComparedField = (typeof COMPARED_FIELDS)[number];
 
-/**
- * The fields compared on each owner row.
- *
- * `ties` is absent and cannot be added honestly: `deriveStandings` drops a final
- * tie (`console.warn` + `continue`), so no game contributes one, and the only
- * tie count in the system is the hardcoded `ties: 0` that `toHistoryStandingsRows`
- * writes onto archive rows. An archive-sourced row therefore carries an
- * undeclared, fabricated `ties` and a selector-built row carries no such key —
- * pinned by `archiveRowsCarryAFabricatedTieCountAndLiveRowsCarryNone`. The
- * payload ships this list, not a sentence about it: an earlier `excluded` string
- * asserted "no row carries a tie count", which that same test refutes.
- */
 /**
  * Caches BOTH sides read through, so a divergence behind one of them is
  * invisible to this route.
@@ -391,15 +388,58 @@ function orderedSides(snapshot: CanonicalStandings): Map<string, OwnerSide> {
   return sides;
 }
 
+/**
+ * One side's values for one owner, or `null` when that side has no such owner.
+ *
+ * `rank` rides inside the side rather than beside it because the prompt asks for
+ * final position FOR BOTH SIDES, and the two sides can order the same owner
+ * differently — which is the whole point of printing it. NoClaim carries `null`:
+ * it sits outside the canonical order, so it has no position to report.
+ */
+type OwnerProjection = ({ rank: number | null } & Pick<OwnerStandingsRow, ComparedField>) | null;
+
+type OwnerComparison = {
+  owner: string;
+  isNoClaim: boolean;
+  cached: OwnerProjection;
+  fresh: OwnerProjection;
+};
+
+function projectSide(side: OwnerSide | undefined): OwnerProjection {
+  if (!side) return null;
+  const projection = { rank: side.isNoClaim ? null : side.rank } as {
+    rank: number | null;
+  } & Record<ComparedField, number>;
+  for (const field of COMPARED_FIELDS) projection[field] = side.row[field];
+  return projection;
+}
+
 function compareOwners(
   cached: CanonicalStandings,
   fresh: CanonicalStandings
-): { comparedOwners: number; differences: OwnerDifference[] } {
+): { comparedOwners: number; differences: OwnerDifference[]; owners: OwnerComparison[] } {
   const cachedSides = orderedSides(cached);
   const freshSides = orderedSides(fresh);
   const owners = [...new Set([...cachedSides.keys(), ...freshSides.keys()])].sort((a, b) =>
     a.localeCompare(b)
   );
+
+  // BOTH SIDES FOR EVERY COMPARED OWNER, not only the ones that differ.
+  //
+  // The prompt asks for this outright and I shipped only `differences`, which
+  // meant the PRIMARY SUCCESS CASE — cached and fresh agree — returned a count
+  // and a list of field names and no values at all. An operator could not see
+  // what had actually been compared, which is the same "a clean report must be
+  // readable as evidence" argument the rest of this route is built on. Two full
+  // review rounds missed it because both sides reported against the receipt's
+  // rulings rather than against the prompt's acceptance list; the rulings
+  // amended the UNIT and the FIELD SET and never removed this.
+  const projections: OwnerComparison[] = owners.map((owner) => ({
+    owner,
+    isNoClaim: (cachedSides.get(owner) ?? freshSides.get(owner))!.isNoClaim,
+    cached: projectSide(cachedSides.get(owner)),
+    fresh: projectSide(freshSides.get(owner)),
+  }));
 
   const differences: OwnerDifference[] = [];
   for (const owner of owners) {
@@ -448,7 +488,7 @@ function compareOwners(
     }
   }
 
-  return { comparedOwners: owners.length, differences };
+  return { comparedOwners: owners.length, differences, owners: projections };
 }
 
 /**
@@ -678,7 +718,7 @@ export async function GET(req: Request): Promise<Response> {
   // naming this route's durable effects.
   const cacheContextAfterFresh = readCacheContext();
 
-  const { comparedOwners, differences } = compareOwners(cached, fresh);
+  const { comparedOwners, differences, owners: ownerProjections } = compareOwners(cached, fresh);
   const snapshotDifferences = compareSnapshotFields(cached, fresh);
   const differencesAreEmpty = differences.length === 0 && snapshotDifferences.length === 0;
   const comparisonBlocker = resolveComparisonBlocker({
@@ -790,6 +830,9 @@ export async function GET(req: Request): Promise<Response> {
       // under all of them.
       matches: differencesAreEmpty ? (comparisonBlocker === null ? true : null) : false,
       blockedBy: comparisonBlocker,
+      // Every compared owner with both sides' values — the success case has to be
+      // readable, not just assertable.
+      owners: ownerProjections,
       differences,
       snapshotDifferences,
     },

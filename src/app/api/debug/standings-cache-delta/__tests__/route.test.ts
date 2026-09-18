@@ -59,7 +59,7 @@ const TOKEN = 'test-admin-token';
 const SLUG = 'delta-probe';
 const YEAR = 2026;
 
-type CacheRecord = { value: unknown; isStale: false };
+type CacheRecord = { value: unknown; isStale: boolean };
 
 /** Mirrors `fakeIncrementalCache` in `src/lib/server/__tests__/standingsCacheWarmer.test.ts`. */
 function fakeIncrementalCache(events: string[]) {
@@ -78,6 +78,16 @@ function fakeIncrementalCache(events: string[]) {
       events.push(`set:${key}`);
       records.set(key, { value, isStale: false });
       tagsByKey.set(key, context.tags ?? []);
+    },
+    /**
+     * Test-only: mark every stored entry stale, so `incrementalCache.get`
+     * returns one. Without this the fake could never produce `isStale: true`
+     * and `classifyCacheRead`'s background-revalidation branch was unreachable
+     * from the suite — coverage the classifier's doc comment implied and did not
+     * have.
+     */
+    markAllStale() {
+      for (const [key, record] of records) records.set(key, { ...record, isStale: true });
     },
     async revalidateTag(tags: string | string[]) {
       const requested = Array.isArray(tags) ? tags : [tags];
@@ -146,6 +156,19 @@ async function requestThrough(
  * Warm the snapshot and PUBLISH it. The second step is the harness limitation
  * described at the top of this file: production drains `pendingRevalidates`
  * after the response through `pendingWaitUntil`; here the test does it.
+ */
+/**
+ * WARMS THROUGH THE ROUTE, so the warming request stamps the snapshot with its
+ * own `new Date()`.
+ *
+ * Use `warmAtFixedClock` instead in any test that asserts a VERDICT or a
+ * BLOCKER. Two requests microseconds apart can land in the same millisecond, and
+ * `classifyCacheRead` then reads a genuine hit as `bypassed` — a live
+ * reproduction of the open millisecond-precision finding, not a harness
+ * artefact. It surfaced as an ORDER-DEPENDENT failure: adding two tests ahead of
+ * `reportsNullRatherThanDisagreementOverAnEmptyPopulation` shifted timing enough
+ * to flip it, moving them made it pass, and a bare five-run loop failed once.
+ * Order-dependent green is not green, so the warm is pinned instead.
  */
 async function warmThrough(
   cache: ReturnType<typeof fakeIncrementalCache>,
@@ -473,7 +496,7 @@ test('reportsStaleSnapshotDifferences', async () => {
   await seedLive({ csv: LIVE_CSV, homeScore: 31, awayScore: 17 });
   const events: string[] = [];
   const cache = fakeIncrementalCache(events);
-  await warmThrough(cache);
+  await warmAtFixedClock(cache);
 
   // ONE input moves, and nothing invalidates: the score is corrected the other
   // way. No `revalidateTag` anywhere, so the snapshot stays warm and wrong.
@@ -726,7 +749,7 @@ test('reportsNullRatherThanDisagreementOverAnEmptyPopulation', async () => {
   // rows at all, so the population is empty on both sides.
   await setAppState('leagues', 'registry', [makeLeague()]);
   const cache = fakeIncrementalCache([]);
-  await warmThrough(cache);
+  await warmAtFixedClock(cache);
   const { body } = await requestThrough(cache);
 
   const comparison = body.comparison as unknown as Record<string, unknown>;
@@ -743,7 +766,7 @@ test('reportsNullRatherThanDisagreementOverAnEmptyPopulation', async () => {
 test('includesRankForAnOwnerPresentOnOnlyOneSide', async () => {
   await seedLive({ csv: LIVE_CSV, homeScore: 31, awayScore: 17 });
   const cache = fakeIncrementalCache([]);
-  await warmThrough(cache);
+  await warmAtFixedClock(cache);
   await setAppState(`owners:${SLUG}:${YEAR}`, 'csv', 'team,owner\nTexas,Cal\nGeorgia,Bob\n');
 
   const { body } = await requestThrough(cache);
@@ -830,7 +853,7 @@ test('reportsFalseWhenADifferenceIsFoundEvenUnderABlocker', async () => {
   // would fire — but the schedule probe moves the source underneath it.
   await setAppState('leagues', 'registry', [makeLeague()]);
   const cache = fakeIncrementalCache([]);
-  await warmThrough(cache);
+  await warmAtFixedClock(cache);
 
   await setAppState('schedule-probe', String(YEAR), {
     year: YEAR,
@@ -911,6 +934,115 @@ test('sharedNestedCachesAreEnumeratedCompletely', async () => {
     ((body.freshness as unknown as Record<string, unknown>).sharedNestedCaches as string[]).length,
     sites.length,
     'and the payload lists exactly that many'
+  );
+});
+
+/**
+ * THE ACCEPTANCE BULLET THAT WENT UNCHECKED FOR TWO REVIEW ROUNDS.
+ *
+ * The prompt asks for the per-owner values "for both sides" AND a `differences`
+ * array. Only `differences` was built, so when cached and fresh agreed the
+ * response carried a count and a list of field names and no values — the
+ * PRIMARY SUCCESS CASE could not show what it had compared. Both reviewers
+ * missed it for two rounds because both reported against the receipt's rulings
+ * rather than the prompt's acceptance list, and the rulings amended the unit and
+ * the field set without ever removing this.
+ */
+test('returnsBothSidesForEveryComparedOwnerWhenTheyAgree', async () => {
+  await seedLive({ csv: LIVE_CSV, homeScore: 31, awayScore: 17 });
+  const cache = fakeIncrementalCache([]);
+  await warmAtFixedClock(cache);
+  const { body } = await requestThrough(cache);
+
+  const comparison = body.comparison as unknown as Record<string, unknown>;
+  assert.equal(comparison.matches, true, 'this is the success case');
+  assert.deepEqual(comparison.differences, [], 'and it has no differences to show');
+
+  const owners = comparison.owners as Array<Record<string, unknown>>;
+  assert.equal(owners.length, comparison.comparedOwners, 'every compared owner is listed');
+  const ann = owners.find((o) => o.owner === 'Ann');
+  assert.ok(ann, 'Ann is present even though nothing about her changed');
+  assert.deepEqual(
+    ann.cached,
+    {
+      rank: 1,
+      wins: 1,
+      losses: 0,
+      pointsFor: 31,
+      pointsAgainst: 17,
+      pointDifferential: 14,
+      winPct: 1,
+      gamesBack: 0,
+      finalGames: 1,
+    },
+    'the cached side carries values, not just a field name'
+  );
+  assert.deepEqual(ann.fresh, ann.cached, 'and the fresh side is reported independently');
+});
+
+test('returnsANullSideForAnOwnerMissingFromOneSnapshot', async () => {
+  await seedLive({ csv: LIVE_CSV, homeScore: 31, awayScore: 17 });
+  const cache = fakeIncrementalCache([]);
+  await warmAtFixedClock(cache);
+  await setAppState(`owners:${SLUG}:${YEAR}`, 'csv', 'team,owner\nTexas,Cal\nGeorgia,Bob\n');
+
+  const { body } = await requestThrough(cache);
+  const owners = (body.comparison as unknown as Record<string, unknown>).owners as Array<
+    Record<string, unknown>
+  >;
+  const ann = owners.find((o) => o.owner === 'Ann')!;
+  const cal = owners.find((o) => o.owner === 'Cal')!;
+  assert.equal(ann.fresh, null, 'absent from the rebuild');
+  assert.equal((ann.cached as Record<string, unknown>).rank, 1);
+  assert.equal(cal.cached, null, 'absent from the snapshot');
+  assert.equal((cal.fresh as Record<string, unknown>).rank, 1);
+});
+
+/**
+ * THE FOURTH BRANCH OF `classifyCacheRead`, which nothing exercised.
+ *
+ * `unstable_cache` serves a stale entry and queues its replacement
+ * (`unstable-cache.js`, the `cacheEntry.isStale` path): the caller gets the OLD
+ * value while a recompute lands in `pendingRevalidates`. So the publication
+ * signal fires on a request that is unambiguously a HIT — which is exactly why
+ * the verdict cannot rest on that signal alone, and why `generatedAt` has to
+ * separate them.
+ *
+ * `fakeIncrementalCache` hardcoded `isStale: false`, so this branch was
+ * unreachable from the suite while the classifier's doc named a test for each of
+ * the other three verdicts. Review called that coverage that does not exist, and
+ * it was right.
+ */
+test('reportsAHitWithBackgroundRevalidationForAStaleEntry', async () => {
+  await seedLive({ csv: LIVE_CSV, homeScore: 31, awayScore: 17 });
+  const events: string[] = [];
+  const cache = fakeIncrementalCache(events);
+  await warmAtFixedClock(cache);
+
+  cache.markAllStale();
+  const { body } = await requestThrough(cache);
+  const cacheRead = body.cacheRead as unknown as Record<string, unknown>;
+
+  assert.equal(
+    cacheRead.verdict,
+    'hit',
+    'a stale entry is still served — the caller read the cache'
+  );
+  assert.equal(
+    cacheRead.queuedPublication,
+    true,
+    'and a replacement was queued, so the publication signal alone would have said `miss`'
+  );
+  assert.equal(cacheRead.backgroundRevalidation, true);
+  assert.equal(
+    cacheRead.cachedGeneratedAt,
+    WARM_CLOCK.toISOString(),
+    'the value compared is the STALE one, stamped by the warming request'
+  );
+  assert.equal(
+    cacheRead.dataCachePublicationConfirmed,
+    false,
+    'the replacement is queued, not confirmed'
   );
 });
 
@@ -1192,7 +1324,7 @@ test('nestedSeasonArchiveCacheIsSharedByBothSides', async () => {
   await seedArchive([makeRow('Ann', { wins: 9, losses: 1 })]);
 
   const cache = fakeIncrementalCache([]);
-  await warmThrough(cache);
+  await warmAtFixedClock(cache);
 
   // The archive moves. Nothing invalidates the standings tag OR the archive tag.
   await seedArchive([makeRow('Ann', { wins: 2, losses: 8 })]);
