@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import test from 'node:test';
 
 import '../../../../../test/installAsyncLocalStorage';
@@ -366,12 +368,11 @@ test('reportsMissAgainstAnEmptyCache', async () => {
     cacheRead.probeStamp,
     'the miss verdict rests on the returned stamp equalling this request’s own'
   );
-  assert.match(String(cacheRead.restsOn), /THIS REQUEST computed the snapshot/);
 
   // Acceptance 2's second half: the report must NOT say cached and fresh agree.
   const comparison = body.comparison as unknown as Record<string, unknown>;
   assert.equal(comparison.matches, null, 'a miss cannot report agreement');
-  assert.match(String(comparison.notComparableBecause), /not a pre-existing snapshot/);
+  assert.equal(comparison.blockedBy, 'cached-side-not-a-snapshot');
   assert.equal(
     (comparison.differences as unknown[]).length,
     0,
@@ -420,7 +421,7 @@ test('reportsHitAgainstAWarmSnapshot', async () => {
 
   const comparison = body.comparison as unknown as Record<string, unknown>;
   assert.equal(comparison.matches, true, 'an unchanged warm snapshot matches the fresh rebuild');
-  assert.equal(comparison.notComparableBecause, null, 'and nothing blocked the comparison');
+  assert.equal(comparison.blockedBy, null, 'and nothing blocked the comparison');
   assert.equal(comparison.comparedOwners, 2, 'the population is printed, and it is not zero');
   assert.deepEqual(comparison.differences, []);
   assert.deepEqual(comparison.snapshotDifferences, []);
@@ -447,7 +448,6 @@ test('reportsUnavailableWithoutAnIncrementalCache', async () => {
     false,
     'nothing was queued, so do not say it was'
   );
-  assert.match(String(cacheRead.restsOn), /no snapshot exists/);
   assert.equal(
     (cacheRead.flags as Record<string, unknown>).workStorePresent,
     false,
@@ -616,7 +616,8 @@ test('reportsSnapshotLevelDivergenceWithIdenticalRows', async () => {
       {
         field: 'standingsHistory.week2',
         cached: 'absent',
-        fresh: 'played=false;coverage=complete;rows=Ann:1-0:31/17|Bob:0-1:17/31',
+        fresh:
+          'played=false;coverage=complete;pending=2-texas-georgia-H@2026-09-02T18:00:00.000Z;rows=Ann:1-0:31/17|Bob:0-1:17/31',
       },
     ],
     'the divergence is named per week, with the week’s CONTENT — not just a count'
@@ -673,7 +674,6 @@ test('reportsBypassedWhenTheCacheIsPresentButNothingIsReadOrPublished', async ()
   assert.equal(cacheRead.verdict, 'bypassed');
   assert.equal(cacheRead.queuedPublication, false, 'draft mode publishes nothing');
   assert.equal(cacheRead.dataCachePublicationQueued, false);
-  assert.match(String(cacheRead.restsOn), /neither a hit nor a miss/);
   assert.equal((cacheRead.flags as Record<string, unknown>).isDraftMode, true);
   assert.equal(
     (body.comparison as unknown as Record<string, unknown>).matches,
@@ -732,7 +732,7 @@ test('reportsNullRatherThanDisagreementOverAnEmptyPopulation', async () => {
   const comparison = body.comparison as unknown as Record<string, unknown>;
   assert.equal(comparison.comparedOwners, 0, 'the population is zero, and it is printed');
   assert.equal(comparison.matches, null, 'not false — there was nothing that could have differed');
-  assert.match(String(comparison.notComparableBecause), /zero owners/);
+  assert.equal(comparison.blockedBy, 'empty-population');
   assert.deepEqual(comparison.differences, []);
 });
 
@@ -762,6 +762,156 @@ test('includesRankForAnOwnerPresentOnOnlyOneSide', async () => {
     (f) => f.field === 'rank'
   );
   assert.deepEqual(calRank, { field: 'rank', cached: null, fresh: 1 });
+});
+
+// ---------------------------------------------------------------------------
+// Added at the confirming pass. Every one of these covers a way the route could
+// still claim more than it knows — three of them defects round 1 introduced.
+// ---------------------------------------------------------------------------
+
+/**
+ * ROUND 1 SHIPPED A FALSE CLAIM ABOUT DURABLE STATE HERE, and this is the test
+ * that would have caught it.
+ *
+ * `unstable_cache` publishes one of two ways: with a work store it defers into
+ * `pendingRevalidates` (`unstable-cache.js:211`); without one it `await`s
+ * `cacheNewResult` INLINE (`:249`) and never touches that map. Round 1 widened
+ * the cache check to include `globalThis.__incrementalCache` but left the
+ * publication signal reading the work store, so on the inline branch the delta
+ * was structurally zero, a cold read fell through to `bypassed`, and the route
+ * announced "nothing was stored, no snapshot exists" for a request that had just
+ * written two entries.
+ *
+ * The round-1 test asserted only `notEqual(verdict, 'unavailable')` and sailed
+ * straight over it. This one asserts the verdict AND the cache's own events.
+ */
+test('reportsMissAndConfirmsThePublicationOnTheInlineBranch', async () => {
+  await seedLive({ csv: LIVE_CSV, homeScore: 31, awayScore: 17 });
+  const globals = globalThis as { __incrementalCache?: unknown };
+  const original = globals.__incrementalCache;
+  const events: string[] = [];
+  globals.__incrementalCache = fakeIncrementalCache(events);
+  try {
+    // No `workAsyncStorage.run`: the work store is absent, the global is not.
+    const res = await GET(authedRequest());
+    const body = (await res.json()) as Record<string, never>;
+    const cacheRead = body.cacheRead as unknown as Record<string, unknown>;
+
+    const sets = events.filter((e) => e.startsWith('set:'));
+    assert.ok(sets.length > 0, 'the inline branch really did publish');
+    assert.equal(
+      cacheRead.verdict,
+      'miss',
+      'a cold read that published must not report `bypassed` — that asserts nothing was stored'
+    );
+    assert.equal(
+      cacheRead.dataCachePublicationConfirmed,
+      true,
+      'and here alone it can say CONFIRMED: the set was awaited before the value came back'
+    );
+    assert.equal(cacheRead.incrementalCachePresent, true);
+    assert.equal((cacheRead.flags as Record<string, unknown>).workStorePresent, false);
+  } finally {
+    if (original === undefined) delete globals.__incrementalCache;
+    else globals.__incrementalCache = original;
+  }
+});
+
+/**
+ * A BLOCKER GATES ABSENCE ONLY.
+ *
+ * Round 1 applied the blockers to `matches` unconditionally, so a snapshot with
+ * no owners reported `matches: null` — "nothing could have differed" — while
+ * `snapshotDifferences` listed a real divergence in the same payload. A positive
+ * finding is evidence under every blocker in the list.
+ */
+test('reportsFalseWhenADifferenceIsFoundEvenUnderABlocker', async () => {
+  // No roster and no archive: zero owners on both sides, so `empty-population`
+  // would fire — but the schedule probe moves the source underneath it.
+  await setAppState('leagues', 'registry', [makeLeague()]);
+  const cache = fakeIncrementalCache([]);
+  await warmThrough(cache);
+
+  await setAppState('schedule-probe', String(YEAR), {
+    year: YEAR,
+    baseCachedAt: null,
+    firstGameDate: `${YEAR}-08-30T00:00:00.000Z`,
+  });
+
+  const { body } = await requestThrough(cache);
+  const comparison = body.comparison as unknown as Record<string, unknown>;
+
+  assert.equal(comparison.comparedOwners, 0, 'still an empty population');
+  assert.ok(
+    (comparison.snapshotDifferences as unknown[]).length > 0,
+    'and a real snapshot-level difference was found'
+  );
+  assert.equal(
+    comparison.matches,
+    false,
+    'a difference that WAS found is evidence, whatever the blocker says about what could not be'
+  );
+  assert.equal(comparison.blockedBy, 'empty-population', 'the blocker is still reported');
+});
+
+/**
+ * `pending` in the history digest — the case `selectSeasonContext` reads.
+ *
+ * `standingsHistory.ts` states it one line above `played`: the elapsed-time
+ * allowance is deliberately not folded into `played`, so `pending` carries what
+ * a consumer needs to apply the clock. Correcting an unresolved game's kickoff
+ * moves `pending` and moves nothing else — same rows, same `played`, same
+ * coverage — so a digest without it reports a clean match over a history that
+ * decides finality differently.
+ */
+test('detectsAPendingKickoffCorrectionWithIdenticalRows', async () => {
+  await seedLive({ csv: LIVE_CSV, homeScore: 31, awayScore: 17 });
+  await seedSchedule([scheduleGame('g1', 1, 'final'), scheduleGame('g2', 2, 'scheduled')]);
+  const cache = fakeIncrementalCache([]);
+  await warmThrough(cache);
+
+  // ONLY the unresolved game's kickoff moves. Nothing invalidates.
+  const moved = { ...scheduleGame('g2', 2, 'scheduled'), startDate: `${YEAR}-09-05T23:30:00.000Z` };
+  await seedSchedule([scheduleGame('g1', 1, 'final'), moved]);
+
+  const { body } = await requestThrough(cache);
+  const comparison = body.comparison as unknown as Record<string, unknown>;
+
+  assert.deepEqual(comparison.differences, [], 'no owner row moved — that is the point');
+  const weekDiffs = (comparison.snapshotDifferences as Array<Record<string, unknown>>).filter((d) =>
+    String(d.field).startsWith('standingsHistory.week')
+  );
+  assert.equal(weekDiffs.length, 1, 'exactly the week whose pending game moved');
+  assert.match(String(weekDiffs[0]!.cached), /pending=.*2026-09-02/);
+  assert.match(String(weekDiffs[0]!.fresh), /pending=.*2026-09-05/);
+  assert.equal(comparison.matches, false);
+});
+
+/**
+ * The shared-cache list is a FACT THE TESTS CHECK, not a sentence.
+ *
+ * The prose it replaced asserted that non-archive sources "re-read every input
+ * from the store", which review showed is false — `resolveSeason` calls
+ * `listSeasonArchives` on every season compute and it is `unstable_cache`-
+ * wrapped. This fails if `seasonArchive.ts` grows another cache site, so the
+ * enumeration cannot go stale the way the sentence did.
+ */
+test('sharedNestedCachesAreEnumeratedCompletely', async () => {
+  const source = await readFile(join(process.cwd(), 'src/lib/seasonArchive.ts'), 'utf8');
+  const sites = source.match(/\n\s*unstable_cache\(/g) ?? [];
+  assert.equal(
+    sites.length,
+    2,
+    'seasonArchive.ts has exactly the two cache sites the payload enumerates; a third means sharedNestedCaches is now incomplete'
+  );
+
+  await seedLive({ csv: LIVE_CSV, homeScore: 31, awayScore: 17 });
+  const { body } = await requestThrough(fakeIncrementalCache([]));
+  assert.equal(
+    ((body.freshness as unknown as Record<string, unknown>).sharedNestedCaches as string[]).length,
+    sites.length,
+    'and the payload lists exactly that many'
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -929,9 +1079,8 @@ test('comparedFieldsExcludeTies', async () => {
   assert.equal(
     (comparison.comparedFields as string[]).includes('ties'),
     false,
-    'there is no ties field to compare'
+    'there is no ties field to compare — the list IS the claim, rather than a sentence about it'
   );
-  assert.match(String(comparison.excluded), /deriveStandings drops final ties/);
   assert.deepEqual(comparison.derivedFields, ['rank'], 'rank is derived and labelled as derived');
   assert.equal(comparison.unit, 'owner', 'the unit is owner, not team');
 });
@@ -1058,12 +1207,13 @@ test('nestedSeasonArchiveCacheIsSharedByBothSides', async () => {
     null,
     'both sides read the same cached archive, so the route must decline to answer rather than claim agreement'
   );
-  assert.match(String(comparison.notComparableBecause), /season archive/i);
+  assert.equal(comparison.blockedBy, 'shared-archive-cache');
   assert.deepEqual(comparison.differences, [], 'and it still has nothing to point at');
 
-  assert.match(
-    String((body.freshness as unknown as Record<string, unknown>).caveat),
-    /season archive/i,
-    'and the response says so, rather than letting a clean result imply more than it proves'
+  assert.ok(
+    ((body.freshness as unknown as Record<string, unknown>).sharedNestedCaches as string[]).some(
+      (entry) => entry.includes('archive')
+    ),
+    'and the response enumerates the shared cache, rather than letting a clean result imply more than it proves'
   );
 });
