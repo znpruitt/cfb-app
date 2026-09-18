@@ -332,6 +332,57 @@ export async function getCanonicalStandings(
   return cachedCanonicalStandings(input.slug, input.year ?? null, input.currentDate);
 }
 
+export type ComputeCanonicalStandingsUncachedInput = {
+  slug: string;
+  /** Explicit year; `null`/omitted reproduces the default-year resolution. */
+  year?: number | null;
+  /** Wall clock for lifecycle classification. Required — see the note below. */
+  currentDate: Date;
+};
+
+/**
+ * The UNCACHED canonical computation, for `GET /api/debug/standings-cache-delta`
+ * and for nothing else (PLATFORM-816).
+ *
+ * WHY THIS EXISTS AT ALL. The diagnostic's whole job is to put the CACHED
+ * snapshot beside a fresh rebuild, so it needs a path that provably skips both
+ * cache layers. The two alternatives were both wrong:
+ *
+ *   - `getCanonicalStandings`'s `leagueStatusOverride` bypass (`:324`) forces the
+ *     caller to supply a `LeagueStatus`, and `computeCanonicalStandings` resolves
+ *     `statusOverride ?? league.status ?? { state: 'season', year: league.year }`.
+ *     A caller CANNOT pass `undefined` to mean "whatever the registry says" —
+ *     that re-enters the cache — so the override cannot reproduce the
+ *     status-absent league at all. Leagues created via `/api/admin/leagues`
+ *     default to no status (see `resolveStandingsYear` above), so the bypass
+ *     would silently compare against a DIFFERENT computation for exactly the
+ *     league shape most likely to be misconfigured. It is also labelled
+ *     test-only, and widening a test-only door for production use is a decision,
+ *     not a detail.
+ *   - Counting compute executions in-process, to tell a cache hit from a miss,
+ *     would need a mutable counter in this module and would be per-instance —
+ *     wrong on Fluid, where the data cache is shared and a counter is not. The
+ *     route reads `generatedAt` instead, which travels inside the cached value.
+ *
+ * THIS WRAPPER IS DELIBERATELY NARROWER THAN THE FUNCTION IT CALLS. It pins
+ * `statusOverride` to `undefined`, so exporting it cannot become a second route
+ * to the test-only override.
+ *
+ * `currentDate` is REQUIRED rather than defaulted. The route passes one Date to
+ * both sides so the only difference between them is the DATA, not the clock —
+ * a default would hand each side its own `new Date()` and manufacture a
+ * lifecycle difference the cache had nothing to do with.
+ *
+ * NOT FOR ANY MEMBER PATH. One call is a full-season rebuild (#714 measures the
+ * same order of cost on the Insights page). `standingsCacheDeltaImportGraph.test.ts`
+ * fails if anything outside `src/app/api/debug/` imports this.
+ */
+export function computeCanonicalStandingsUncached(
+  input: ComputeCanonicalStandingsUncachedInput
+): Promise<CanonicalStandings> {
+  return computeCanonicalStandings(input.slug, input.year ?? null, undefined, input.currentDate);
+}
+
 /**
  * Invalidate cached canonical standings for a league. Call from mutation
  * paths that affect standings inputs (roster CSV, alias map, postseason
