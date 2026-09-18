@@ -921,7 +921,19 @@ test('detectsAPendingKickoffCorrectionWithIdenticalRows', async () => {
  */
 test('sharedNestedCachesAreEnumeratedCompletely', async () => {
   const source = await readFile(join(process.cwd(), 'src/lib/seasonArchive.ts'), 'utf8');
-  const sites = source.match(/\n\s*unstable_cache\(/g) ?? [];
+  // COUNT THE QUANTITY, NOT ITS FORMATTING. The first version matched only a
+  // call that BEGAN a line, so `return unstable_cache(` or
+  // `export const x = unstable_cache(` would have been invisible while this test
+  // stayed green and `SHARED_NESTED_CACHES` went stale — the same
+  // keyed-on-a-rendering-detail mistake CLAUDE.md records for the Codex
+  // diff-base check, in the one test whose job is keeping that list honest.
+  // Import lines and comments are excluded because neither is a cache site.
+  const sites =
+    source
+      .split('\n')
+      .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line) && !/^\s*import\b/.test(line))
+      .join('\n')
+      .match(/unstable_cache\s*\(/g) ?? [];
   assert.equal(
     sites.length,
     2,
@@ -1044,6 +1056,182 @@ test('reportsAHitWithBackgroundRevalidationForAStaleEntry', async () => {
     false,
     'the replacement is queued, not confirmed'
   );
+});
+
+// ---------------------------------------------------------------------------
+// Round 4. All three fixes are one class: the detector describing more than it
+// observes. The precommitment is that another variant of this class ends the
+// remediation and ships with the limitation documented.
+// ---------------------------------------------------------------------------
+
+/**
+ * A GENUINE HIT MUST NOT READ AS `bypassed` WHEN THE STAMPS COLLIDE.
+ *
+ * `bypassed` used to be derived by elimination — no publication and the stamp
+ * matches — so a snapshot warmed in this request's millisecond flipped a real
+ * hit into "recomputed and published nothing". Both reviewers reported it three
+ * times and this suite reproduced it. It is now gated on the observed
+ * `isDraftMode` flag, the only thing that can actually produce that state.
+ *
+ * The collision is forced here rather than waited for: warming at the probe's
+ * own clock is the same-millisecond case, made deterministic.
+ */
+test('doesNotReportBypassedWhenAWarmStampCollidesWithTheProbe', async () => {
+  await seedLive({ csv: LIVE_CSV, homeScore: 31, awayScore: 17 });
+  const cache = fakeIncrementalCache([]);
+
+  // Warm with a clock we then force the request to share.
+  const collide = new Date();
+  const store = nextStore(cache);
+  await workAsyncStorage.run(store as never, () =>
+    getCanonicalStandings({ slug: SLUG, year: YEAR, currentDate: collide })
+  );
+  await Promise.allSettled(Object.values(store.pendingRevalidates));
+
+  // The route calls `new Date()`, which does NOT consult `Date.now`, so stubbing
+  // `Date.now` alone leaves the stamps a millisecond or two apart and the test
+  // proves nothing. Freeze the constructor for exactly one request instead — the
+  // collision assertion below is what catches it if this ever stops working.
+  const RealDate = globalThis.Date;
+  class FrozenDate extends RealDate {
+    constructor(...args: unknown[]) {
+      if (args.length === 0) super(collide.getTime());
+      else super(...(args as [number]));
+    }
+    static override now(): number {
+      return collide.getTime();
+    }
+  }
+  globalThis.Date = FrozenDate as unknown as DateConstructor;
+  let body: Record<string, never>;
+  try {
+    ({ body } = await requestThrough(cache));
+  } finally {
+    globalThis.Date = RealDate;
+  }
+
+  const cacheRead = body!.cacheRead as unknown as Record<string, unknown>;
+  assert.equal(
+    cacheRead.cachedGeneratedAt,
+    cacheRead.probeStamp,
+    'the stamps really do collide — without this the test proves nothing'
+  );
+  assert.equal(cacheRead.queuedPublication, false, 'and nothing was published');
+  assert.equal(
+    cacheRead.verdict,
+    'hit',
+    'so the old elimination rule would have said `bypassed`; the flag gate says hit'
+  );
+  assert.equal(
+    cacheRead.provenanceRestsOnTimestamp,
+    false,
+    'and this verdict no longer rests on the stamp at all'
+  );
+});
+
+test('reportsThatProvenanceStillRestsOnTheStampWhereItDoes', async () => {
+  await seedLive({ csv: LIVE_CSV, homeScore: 31, awayScore: 17 });
+  const globals = globalThis as { __incrementalCache?: unknown };
+  const original = globals.__incrementalCache;
+  globals.__incrementalCache = fakeIncrementalCache([]);
+  try {
+    // The inline branch keeps no publication record, so the stamp is its only
+    // signal and the residual is real. The route says so rather than implying
+    // the stamp problem is gone everywhere.
+    const res = await GET(authedRequest());
+    const cacheRead = ((await res.json()) as Record<string, never>).cacheRead as unknown as Record<
+      string,
+      unknown
+    >;
+    assert.equal(cacheRead.provenanceRestsOnTimestamp, true);
+  } finally {
+    if (original === undefined) delete globals.__incrementalCache;
+    else globals.__incrementalCache = original;
+  }
+});
+
+/**
+ * THE BLIND SPOT IS NAMED, AND IT IS NOT A BLOCKER.
+ *
+ * `resolveSeason`/`resolveOffseason` read `listSeasonArchives` through its own
+ * tag-only cache, so a stale years list sends BOTH sides down the live branch
+ * and they agree for that reason. The rows are still independently re-derived,
+ * so blocking `matches` outright would answer `null` for essentially every real
+ * request; the exposure is reported instead, which is what lets a reader tell
+ * "agrees" from "both sides read the same stale input".
+ */
+test('namesTheArchiveYearsBlindSpotPerLifecycle', async () => {
+  await seedLive({ csv: LIVE_CSV, homeScore: 31, awayScore: 17 });
+  const cache = fakeIncrementalCache([]);
+  await warmAtFixedClock(cache);
+  const { body } = await requestThrough(cache);
+  const comparison = body.comparison as unknown as Record<string, unknown>;
+
+  assert.equal(comparison.matches, true, 'a season league still gets a usable answer');
+  assert.equal(comparison.blockedBy, null, 'the blind spot is not a blocker');
+  assert.equal((comparison.blindSpots as string[]).length, 1);
+  assert.match(String((comparison.blindSpots as string[])[0]), /stale-archive-years-list/);
+
+  // Preseason never calls `listSeasonArchives`, so it carries no such exposure.
+  await setAppState('leagues', 'registry', [
+    { ...makeLeague(), status: { state: 'preseason', year: YEAR } },
+  ]);
+  await setAppState(`preseason-owners:${SLUG}`, String(YEAR), ['Ann', 'Bob']);
+  const preseason = await requestThrough(fakeIncrementalCache([]));
+  assert.deepEqual(
+    (preseason.body.comparison as unknown as Record<string, unknown>).blindSpots,
+    [],
+    'preseason reads no archive-years cache, so it claims no blind spot it does not have'
+  );
+});
+
+/**
+ * THE PUBLICATION SUMMARY COUNTS FROM ENTRY, NOT FROM THE VERDICT'S BRACKET.
+ *
+ * `resolveStandingsYear` consults `listSeasonArchives` on an offseason league
+ * and can queue a publication before the bracket opens. The bracket stays narrow
+ * so a year-resolution write cannot be mistaken for the standings entry; the
+ * SUMMARY widened, because reporting `false` on a request that queued one is the
+ * same false-negative-about-durable-state this route exists to prevent.
+ */
+test('countsPublicationsQueuedBeforeTheVerdictBracket', async () => {
+  // An OFFSEASON league with NO archives, chosen so the pre-bracket write is the
+  // ONLY publication in the request. `resolveStandingsYear` consults
+  // `listSeasonArchives` for offseason status; with no archive rows
+  // `resolveOffseason` never reaches `getSeasonArchive`, so the fresh rebuild
+  // publishes nothing and the two mutations this pins — taking the entry reading
+  // after year resolution, and summarising from the narrow bracket — both flip a
+  // number rather than relying on a coincidence.
+  await setAppState('leagues', 'registry', [{ ...makeLeague(), status: { state: 'offseason' } }]);
+
+  const cache = fakeIncrementalCache([]);
+  await warmAtFixedClock(cache);
+  // Warming published the archive-years entry through the UN-NESTED
+  // `resolveStandingsYear`. Evict it (and nothing else) so the next request's
+  // year resolution misses again; `archive:<slug>` is the archive family's tag
+  // and canonical standings does not carry it.
+  await cache.revalidateTag(`archive:${SLUG}`);
+
+  const { body } = await requestThrough(cache);
+  const cacheRead = body.cacheRead as unknown as Record<string, unknown>;
+
+  assert.equal(cacheRead.verdict, 'hit', 'the standings entry itself is still warm');
+  assert.ok(
+    (cacheRead.pendingPublicationsAtEntry as number) <
+      (cacheRead.pendingPublicationsBefore as number),
+    'year resolution queued a publication BEFORE the verdict bracket opened — which is only visible because the entry reading is taken first'
+  );
+  assert.equal(
+    cacheRead.pendingPublicationsAfterFreshRebuild,
+    cacheRead.pendingPublicationsAfterCachedRead,
+    'and nothing else published, so the pre-bracket write is the only one in the request'
+  );
+  assert.equal(
+    cacheRead.dataCachePublicationQueued,
+    true,
+    'the summary must report it; counting from the bracket instead would say false on a request that queued one'
+  );
+  assert.equal(cacheRead.queuedPublication, false, 'while the VERDICT stays on the narrow bracket');
 });
 
 // ---------------------------------------------------------------------------

@@ -287,6 +287,32 @@ function readCacheContext(): CacheContext {
  * `reportsHitAgainstAWarmSnapshot`; `reportsUnavailableWithoutAnIncrementalCache`
  * covers the third verdict.
  */
+/**
+ * Which verdicts still rest on millisecond-precision timestamps, and which do
+ * not — reported so a reader can tell without knowing this file.
+ *
+ * Gating `bypassed` on the observed `isDraftMode` flag removed the stamp from
+ * the no-publication case on the work-store path. Two residuals remain and are
+ * NOT fixed:
+ *
+ *  - the INLINE branch (no work store) has no publication record at all, so the
+ *    stamp is its only signal: a hit warmed in this request's millisecond reads
+ *    as `miss`;
+ *  - on the work-store path, a STALE entry served with a background
+ *    revalidation queues a publication, so `miss` and `hit`-with-revalidation
+ *    are separated by the stamp alone: a stale hit warmed in this millisecond
+ *    reads as `miss`.
+ *
+ * Both need a same-millisecond coincidence with the warming request. Neither is
+ * removable without a per-execution identity `unstable_cache` does not expose.
+ */
+function provenanceRestsOnTimestamp(before: CacheContext, queuedPublication: boolean): boolean {
+  if (!before.incrementalCachePresent) return false;
+  if (!before.workStoreCachePresent) return true;
+  if (before.flags.isDraftMode === true) return false;
+  return queuedPublication;
+}
+
 function classifyCacheRead(
   snapshot: CanonicalStandings,
   probeStamp: string,
@@ -324,6 +350,13 @@ function classifyCacheRead(
   // the value came back, so a returned value means the write landed. That is the
   // one place this route can say CONFIRMED rather than queued.
   if (!before.workStoreCachePresent) {
+    // RESIDUAL, NAMED RATHER THAN IMPLIED: this branch has no publication record
+    // at all (`unstable-cache.js:249` awaits `cacheNewResult` inline and never
+    // touches `pendingRevalidates`), so the stamp is the ONLY available signal
+    // and the same-millisecond collision is not removable here. A hit warmed in
+    // this request's millisecond still reads as `miss`. Reported as
+    // `provenanceRestsOnTimestamp: true` so a reader can see which verdicts are
+    // exposed to it instead of having to know this file.
     return {
       verdict: computedHere ? 'miss' : 'hit',
       queuedPublication: false,
@@ -351,11 +384,18 @@ function classifyCacheRead(
       backgroundRevalidation: true,
     };
   }
-  if (computedHere) {
-    // Recomputed and published NOTHING, with a work store and a cache present.
-    // `isDraftMode` is the reachable cause — it gates the read and the
-    // publication alike (`unstable-cache.js:143` and `:204`). The other
-    // read-skipping flags still publish, so they land on `miss` above.
+  if (before.flags.isDraftMode === true) {
+    // BYPASSED IS GATED ON THE OBSERVED FLAG, NOT ON THE STAMP.
+    //
+    // `isDraftMode` gates the read AND the publication alike
+    // (`unstable-cache.js:143` and `:204`), so it is the only way a request can
+    // recompute with a cache present and store nothing — and it is directly
+    // observable on the work store. Deriving this verdict by ELIMINATION
+    // instead, as "no publication and the stamp matches", made a genuine hit
+    // read as `bypassed` whenever the warming request happened to land in the
+    // same millisecond as this one. That was reported by both reviewers three
+    // times, and reproduced in this repo's own suite before the tests were
+    // pinned to a fixed clock.
     return {
       verdict: 'bypassed',
       queuedPublication,
@@ -632,6 +672,42 @@ function resolveComparisonBlocker(input: {
   return null;
 }
 
+/**
+ * What a `matches: true` does NOT cover — the shared inputs that can make both
+ * sides agree for a reason other than the cache being correct.
+ *
+ * A BLIND SPOT IS NOT A BLOCKER, and collapsing the two would have been the
+ * wrong fix. `resolveSeason` and `resolveOffseason` both read
+ * `listSeasonArchives`, which carries its own tag-only `unstable_cache`, so a
+ * stale years list makes `archiveYears.includes(year)` false on BOTH sides and
+ * both take the live branch — the route then reports agreement over exactly the
+ * fault it exists to find. But the rows on that path are still independently
+ * re-derived from the owners CSV, schedule, scores, catalog, aliases and
+ * overrides, every one of them a direct `getAppState`. Blocking `matches`
+ * outright for every season league would make the route answer `null` for
+ * essentially every real request and detect nothing at all.
+ *
+ * So the total block stays scoped to `source === 'archive'`, where the ROWS
+ * THEMSELVES come through the shared cache and the rebuild cannot diverge at
+ * all; and this names the narrower exposure so a reader can tell "the two sides
+ * agree" from "the two sides read the same possibly-stale input". That
+ * distinction is the whole point — a clean verdict that cannot make it is the
+ * failure shape this route was built to stop producing.
+ *
+ * `preseason` is absent on purpose: `resolvePreseason` never calls
+ * `listSeasonArchives`. Pinned by `namesTheArchiveYearsBlindSpotPerLifecycle`.
+ */
+function resolveBlindSpots(statusState: LeagueStatus['state'] | undefined): string[] {
+  // `computeCanonicalStandings` synthesises `{ state: 'season' }` when the
+  // registry holds no status, so an absent status reads the archive-years cache
+  // exactly as a season league does.
+  const state = statusState ?? 'season';
+  if (state !== 'season' && state !== 'offseason') return [];
+  return [
+    'stale-archive-years-list: resolveSeason/resolveOffseason read listSeasonArchives through its own tag-only unstable_cache, so a stale years list sends BOTH sides down the live branch and they agree for that reason rather than because the snapshot is current',
+  ];
+}
+
 export async function GET(req: Request): Promise<Response> {
   const authFailure = await requireAdminAuth(req);
   if (authFailure) return authFailure;
@@ -683,6 +759,18 @@ export async function GET(req: Request): Promise<Response> {
     );
   }
 
+  // ENTRY READING, TAKEN BEFORE YEAR RESOLUTION.
+  //
+  // `resolveStandingsYear` consults `listSeasonArchives` on an offseason league,
+  // and that read carries its own `unstable_cache` — so on a cold archive-years
+  // cache it queues a publication BEFORE the verdict's bracket opens. The
+  // bracket deliberately starts after this call so a year-resolution write
+  // cannot be mistaken for the standings entry, and I recorded that as
+  // protection against a false POSITIVE without noticing it left a false
+  // NEGATIVE in the summary: a request that queued a publication could report
+  // `dataCachePublicationQueued: false`. The verdict still reads the narrow
+  // bracket; the SUMMARY reads from here.
+  const cacheContextAtEntry = readCacheContext();
   const resolvedYear = await resolveStandingsYear(leagueSlug, yearOverride);
 
   // ONE Date for both sides. The cached read needs it as the detector's probe
@@ -721,6 +809,7 @@ export async function GET(req: Request): Promise<Response> {
   const { comparedOwners, differences, owners: ownerProjections } = compareOwners(cached, fresh);
   const snapshotDifferences = compareSnapshotFields(cached, fresh);
   const differencesAreEmpty = differences.length === 0 && snapshotDifferences.length === 0;
+  const blindSpots = resolveBlindSpots(league.status?.state);
   const comparisonBlocker = resolveComparisonBlocker({
     verdict,
     freshSource: fresh.source,
@@ -740,6 +829,12 @@ export async function GET(req: Request): Promise<Response> {
       // taken on trust — BOTH sides of the bracket, since the verdict rests on
       // the delta and reporting one side leaves it unreconstructable.
       queuedPublication,
+      // TRUE when this particular verdict could still be flipped by a
+      // same-millisecond coincidence with the warming request; see
+      // `provenanceRestsOnTimestamp`. Printed rather than left to the reader to
+      // infer, because "the stamp problem is fixed" would be the wrong takeaway
+      // from the `bypassed` gate alone.
+      provenanceRestsOnTimestamp: provenanceRestsOnTimestamp(cacheContextBefore, queuedPublication),
       pendingPublicationsBefore: cacheContextBefore.pendingPublications,
       pendingPublicationsAfterCachedRead: cacheContextAfter.pendingPublications,
       pendingPublicationsAfterFreshRebuild: cacheContextAfterFresh.pendingPublications,
@@ -759,9 +854,12 @@ export async function GET(req: Request): Promise<Response> {
       // awaits it only after the handler returns. If that `set` rejects, nothing
       // durable exists and this request can never know. Claiming "written" would
       // be a statement about durable state made before the state is durable.
+      // EVERY publication this request queued, from entry to the end of the
+      // fresh rebuild — year resolution, the cached read, and the rebuild's own
+      // un-nested archive reads alike.
       dataCachePublicationQueued:
-        queuedPublication ||
-        cacheContextAfterFresh.pendingPublications > cacheContextAfter.pendingPublications,
+        cacheContextAfterFresh.pendingPublications > cacheContextAtEntry.pendingPublications,
+      pendingPublicationsAtEntry: cacheContextAtEntry.pendingPublications,
       // CONFIRMED is only sayable on the inline-publication branch, where the set
       // was awaited before the value returned. On the work-store branch Next
       // drains `pendingRevalidates` after the handler, so this request cannot
@@ -830,6 +928,9 @@ export async function GET(req: Request): Promise<Response> {
       // under all of them.
       matches: differencesAreEmpty ? (comparisonBlocker === null ? true : null) : false,
       blockedBy: comparisonBlocker,
+      // What a `true` here does NOT cover. Empty when nothing shared could have
+      // manufactured the agreement.
+      blindSpots,
       // Every compared owner with both sides' values — the success case has to be
       // readable, not just assertable.
       owners: ownerProjections,
