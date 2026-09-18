@@ -258,7 +258,43 @@ These consolidate recurring historical observations, not new project-governance 
   tip `974a1466`; **5,454 pass / 0 fail / 0 cancelled / 0 skipped** in 46.6 s. Both required browser
   tests passed. **5 mutations, every one reddening a named assertion**, including one that restores
   the exact attribution bug both reviewers found.
-- Status: **Not merged; the round-1 confirming pass has not run.** The precommitment carries forward: another
+- **Review round 2: `/code-review` 6 findings, Codex 3, one overlapping — 8 distinct.** Five fixed,
+  one an expected re-report of an already-open item, **two NEW and left open by the precommitment**.
+- **ROUND 1'S COMMIT MESSAGE CLAIMED THE `undefined` DEFECT WAS CLOSED WHILE IT WAS FIXED IN ONE OF
+  TWO SITES.** `projectSide` got `?? null`; `compareOwners` did not. `finalGames` is typed required
+  while durable archives omit it (`trends.ts:124`), so TypeScript sees neither site. The code is now
+  fixed in both and each of the three sites is mutation-proven independently — **the false claim
+  stays on this record**, because a ledger that quietly absorbs it is how the next reader learns to
+  trust a commit message over a test.
+- **Three text defects, and the pattern beneath them is the reusable part.** A duplicated token my own
+  `sed` produced **while removing scripted-edit debris**; a garbled sentence from `15471378` that round
+  1's sweep for exactly this did not catch; and a JSDoc orphaned from its symbol in a hunk round 1
+  edited. In every case I had asserted `s.count(old) == 1` before replacing — **which proves the
+  ANCHOR is unique and says nothing about whether the RESULT is well-formed.** Every edit in round 2
+  was verified by reading its diff hunk, then the files were swept for further doubled tokens and
+  back-to-back JSDoc blocks: one more orphan was found and merged, and two in `leagueStandings.ts`
+  were confirmed pre-existing on `main` and left alone.
+- **Two positive results from review, recorded because they are evidence and not absence of it.** The
+  attribution fix is NON-VACUOUS — reverting `standingsPublicationKeysAdded` to `publicationKeysAdded`
+  reddens `doesNotAttributeAnArchiveYearsPublicationToTheStandingsRead` and nothing else. And the
+  substring premise was confirmed against the installed Next 15.5.24 by LIVE PROBE: `unstable_cache`
+  keys `pendingRevalidates` on `` `${cb.toString()}-${keyParts.join(',')}-${JSON.stringify(args)}` ``
+  and a probe printed the joined parts verbatim, so the derived signature matches what it claims to.
+- **OPEN, DOCUMENTED, NOT FIXED — two NEW instances of the precommitment class, both from Codex.**
+  3. A STALE entry warmed in this request's millisecond: Next queues the revalidation (key added) and
+     returns the stale value whose stamp equals the probe stamp, so `deriveCacheReadFacts` reports
+     `miss` on what was a hit. The observations are indistinguishable from a real miss, so the rule
+     requires `cannot-tell`. This is the same millisecond residual the code already names — now shown
+     to produce a WRONG VERDICT rather than only a lost distinction.
+  4. `SHARED_NESTED_CACHES` says the per-year archive cache is "read when that year is listed".
+     `resolveOffseason` gates `getSeasonArchive(slug, targetYear)` on `mostRecentArchivedYear != null`
+     and passes the caller's year, so an UNLISTED year is read too — and a stale cached `null` there
+     sends both sides to live data. The enumeration understates its own blind spot.
+- Round-2 verification: `tsc --noEmit`, `lint:all`, `npm run build` and `npm test` each exited 0 on
+  tip `d959b97a`; **5,455 pass / 0 fail / 0 cancelled / 0 skipped** in 51.0 s. Both required browser
+  tests passed. **3 mutations, each reddening a named assertion**, one per legacy-field site.
+- Status: **Not merged; the round-2 confirming pass has not run.** Four findings are open and
+  documented, all in the precommitment class; none has been patched. The precommitment carries forward: another
   instance of **the detector claims more than it observes** ships with the limitation documented rather
   than being patched again.
 - **THE GATE IS UN-RUN, and fail-closed on preview is not the gate.** v1 verified the admin refusal in
