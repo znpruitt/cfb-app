@@ -154,13 +154,11 @@ async function requestThrough(
 }
 
 /**
- * Warm the snapshot and PUBLISH it. The second step is the harness limitation
- * described at the top of this file: production drains `pendingRevalidates`
- * after the response through `pendingWaitUntil`; here the test does it.
- */
-/**
- * WARMS THROUGH THE ROUTE, so the warming request stamps the snapshot with its
- * own `new Date()`.
+ * WARMS THROUGH THE ROUTE AND PUBLISHES. The publish step is the harness
+ * limitation described at the top of this file: production drains
+ * `pendingRevalidates` after the response through `pendingWaitUntil`; here the
+ * test does it. The warming request stamps the snapshot with its own
+ * `new Date()`.
  *
  * Use `warmAtFixedClock` instead in any test that asserts a VERDICT or a
  * BLOCKER. Two requests microseconds apart can land in the same millisecond, and
@@ -179,10 +177,6 @@ async function warmThrough(
   await Promise.allSettled(Object.values(store.pendingRevalidates));
 }
 
-/**
- * Archive rows, which is what `SeasonArchive.finalStandings` holds. Note the
- * `ties` — see `archiveRowsCarryAFabricatedTieCountAndLiveRowsCarryNone` below.
- */
 /**
  * Warm the snapshot at a FIXED, distinctly-past clock.
  *
@@ -208,6 +202,10 @@ async function warmAtFixedClock(cache: ReturnType<typeof fakeIncrementalCache>):
   await Promise.allSettled(Object.values(store.pendingRevalidates));
 }
 
+/**
+ * Archive rows, which is what `SeasonArchive.finalStandings` holds. Note the
+ * `ties` — see `archiveRowsCarryAFabricatedTieCountAndLiveRowsCarryNone` below.
+ */
 function makeRow(
   owner: string,
   overrides: Partial<StandingsHistoryStandingRow> = {}
@@ -1374,6 +1372,70 @@ test('serializesAMissingLegacyFieldAsNullRatherThanDroppingIt', async () => {
     (comparison.comparedFields as string[]).includes('finalGames'),
     'and it is still advertised, so the payload and the projection agree'
   );
+});
+
+/**
+ * THE LEGACY-FIELD DEFECT, CLOSED IN BOTH PLACES IT OCCURS.
+ *
+ * Round 1 applied `?? null` in `projectSide` and not in `compareOwners`, and its
+ * commit message said the defect was closed. `finalGames` is typed required
+ * while durable archives omit it (`trends.ts:124`), so TypeScript cannot see
+ * either site; `JSON.stringify` drops an `undefined` value, and the difference
+ * entry then reports NEITHER side's value while its own shape implies the
+ * missing side was absent.
+ *
+ * Both directions are driven here because the reviewer reproduced both, and a
+ * one-directional test would have passed against the half-fix that shipped.
+ */
+test('serializesBothSidesOfALegacyFieldDifferenceRatherThanDroppingOne', async () => {
+  await setAppState('leagues', 'registry', [makeLeague()]);
+  const modern = makeRow('Ann', { wins: 9, losses: 1 });
+  await seedArchive([modern]);
+
+  const cache = fakeIncrementalCache([]);
+  await warmAtFixedClock(cache);
+
+  // DIRECTION A — the both-sides branch. Ann keeps her row but loses
+  // `finalGames`, so `left.row[field] !== right.row[field]` is `5 !== undefined`
+  // and the pushed difference would drop `fresh`.
+  // DIRECTION B — the one-sided branch. A legacy Bob appears only on the fresh
+  // side, so his projection maps every compared field including the absent one.
+  const legacyAnn = { ...modern } as Record<string, unknown>;
+  delete legacyAnn.finalGames;
+  const legacyBob = { ...makeRow('Bob', { wins: 4, losses: 6 }) } as Record<string, unknown>;
+  delete legacyBob.finalGames;
+  await seedArchive([
+    legacyAnn as unknown as StandingsHistoryStandingRow,
+    legacyBob as unknown as StandingsHistoryStandingRow,
+  ]);
+  await cache.revalidateTag(`archive:${SLUG}`);
+
+  const { body } = await requestThrough(cache);
+  const comparison = body.comparison as unknown as Record<string, unknown>;
+  const byOwner = new Map(
+    (comparison.differences as Array<Record<string, unknown>>).map((d) => [d.owner as string, d])
+  );
+
+  const annFinalGames = (byOwner.get('Ann')!.fields as Array<Record<string, unknown>>).find(
+    (f) => f.field === 'finalGames'
+  );
+  assert.ok(annFinalGames, 'the both-sides branch reported the field');
+  assert.ok(
+    Object.hasOwn(annFinalGames, 'fresh'),
+    'and BOTH keys survived serialization — `fresh` is present, not dropped'
+  );
+  assert.deepEqual(annFinalGames, { field: 'finalGames', cached: 10, fresh: null });
+
+  const bob = byOwner.get('Bob')!;
+  assert.equal(bob.presence, 'fresh-only', 'the one-sided branch');
+  const bobFinalGames = (bob.fields as Array<Record<string, unknown>>).find(
+    (f) => f.field === 'finalGames'
+  );
+  assert.ok(
+    Object.hasOwn(bobFinalGames!, 'fresh'),
+    'the one-sided branch keeps both keys too — the site round 1 did not fix'
+  );
+  assert.deepEqual(bobFinalGames, { field: 'finalGames', cached: null, fresh: null });
 });
 
 // ---------------------------------------------------------------------------

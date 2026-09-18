@@ -348,7 +348,7 @@ export type ComputeCanonicalStandingsUncachedInput = {
  * snapshot beside a fresh rebuild, so it needs a path that provably skips both
  * cache layers. The two alternatives were both wrong:
  *
- *   - `getCanonicalStandings`'s `leagueStatusOverride` `leagueStatusOverride` bypass forces the
+ *   - `getCanonicalStandings`'s `leagueStatusOverride` bypass forces the
  *     caller to supply a `LeagueStatus`, and `computeCanonicalStandings` resolves
  *     `statusOverride ?? league.status ?? { state: 'season', year: league.year }`.
  *     A caller CANNOT pass `undefined` to mean "whatever the registry says" —

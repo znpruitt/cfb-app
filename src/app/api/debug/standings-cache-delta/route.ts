@@ -486,10 +486,16 @@ function compareOwners(
 
     if (!left || !right) {
       const present = (left ?? right)!;
+      // `?? null` ON BOTH SIDES, for the reason `projectSide` needs it: a durable
+      // archive predating `finalGames` yields `undefined`, `JSON.stringify` DROPS
+      // the key, and the difference entry ships reporting neither side's value
+      // while its own shape implies the missing side was absent. Round 1 fixed
+      // this in `projectSide` and NOT here, and its commit message said the
+      // defect was closed — one of the two sites it occurs in.
       const fields: FieldDifference[] = COMPARED_FIELDS.map((field) => ({
         field,
-        cached: left ? present.row[field] : null,
-        fresh: left ? null : present.row[field],
+        cached: left ? (present.row[field] ?? null) : null,
+        fresh: left ? null : (present.row[field] ?? null),
       }));
       // Rank travels with the one-sided rows too. The response advertises it as
       // a derived field, and omitting it here made the payload inconsistent
@@ -514,7 +520,11 @@ function compareOwners(
     const fields: FieldDifference[] = [];
     for (const field of COMPARED_FIELDS) {
       if (left.row[field] !== right.row[field]) {
-        fields.push({ field, cached: left.row[field], fresh: right.row[field] });
+        fields.push({
+          field,
+          cached: left.row[field] ?? null,
+          fresh: right.row[field] ?? null,
+        });
       }
     }
     if (!isNoClaim && left.rank !== right.rank) {
@@ -768,7 +778,7 @@ export async function GET(req: Request): Promise<Response> {
   // resolved, and the resolution needs the year before the cache is keyed.
   const league = await getLeague(leagueSlug);
   // UNKNOWN SLUG IS REFUSED, and the argument is the one
-  // `resolveRequestedYear` below makes for `year` — which I made for `year` and failed to apply to the
+  // `resolveRequestedYear` below makes for `year`, and which I failed to apply to the
   // sibling parameter until review pointed at it. `getCanonicalStandings` on an
   // unregistered slug does not decline: it computes an empty snapshot and
   // PUBLISHES it under `canonicalStandingsCacheKeyParts(slug, null)` with
