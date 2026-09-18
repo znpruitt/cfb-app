@@ -10,10 +10,10 @@ import OverviewPanelImpl, {
   OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX,
   OVERVIEW_SCOREBOARD_GRID_CLASSES,
   OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX,
+  OVERVIEW_SCOREBOARD_GRID_STYLE,
   OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX,
   OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX,
   OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT,
-  OVERVIEW_SCOREBOARD_ROW_CONTENT_CAP_PX,
 } from '../OverviewPanel';
 import GameWeekPanel from '../GameWeekPanel';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../../lib/overview';
@@ -816,17 +816,19 @@ test('overview scoreboards keep current records across scheduled, live, and fina
   const scoreboards = Array.from(document.querySelectorAll<HTMLElement>('[data-game-scoreboard]'));
   assert.ok(scoreboards.length >= 3, 'the fixture must exercise every Overview scoreboard list');
   for (const scoreboard of scoreboards) {
-    const wrapper = scoreboard.parentElement;
-    assert.ok(wrapper);
-    assert.ok(wrapper.hasAttribute('data-overview-scoreboard-grid-item'));
-    assert.ok(wrapper.classList.contains('justify-self-start'));
-    assert.ok(wrapper.classList.contains('w-full'));
-    assert.ok(wrapper.classList.contains('min-w-0'));
+    const grid = scoreboard.parentElement;
+    assert.ok(grid);
     assert.ok(
-      Math.abs(
-        Number.parseFloat(wrapper.style.maxWidth) - OVERVIEW_SCOREBOARD_ROW_CONTENT_CAP_PX
-      ) <= 0.001,
-      'every Overview scoreboard wrapper must carry the derived row cap'
+      grid.matches(
+        '[data-live-scoreboard-grid], [data-watchlist-scoreboard-grid], [data-featured-scoreboard-grid]'
+      ),
+      'every Overview scoreboard must remain a direct child of its capped grid'
+    );
+    assert.ok(grid.classList.contains('w-full'));
+    assert.ok(
+      Math.abs(Number.parseFloat(grid.style.maxWidth) - OVERVIEW_SCOREBOARD_GRID_STYLE.maxWidth) <=
+        0.001,
+      'every Overview scoreboard grid must carry the derived grid cap'
     );
   }
 });
@@ -908,7 +910,7 @@ test('overview Live section consumes the shared scoreboard in a row-major respon
 
   assert.match(
     html,
-    /grid grid-cols-2 gap-x-10 @max-\[760\.01px\]:grid-cols-1 @min-\[1341px\]:grid-cols-3" data-live-scoreboard-grid/
+    /grid w-full grid-cols-2 gap-x-10 @max-\[760\.01px\]:grid-cols-1 @min-\[1341px\]:grid-cols-3" style="max-width:1341px" data-live-scoreboard-grid/
   );
   assert.equal((html.match(/data-game-scoreboard=/g) ?? []).length, 2);
   const awayLeadingCard = html.indexOf('aria-label="Utah at Arizona State"');
@@ -1287,7 +1289,7 @@ test('overview Featured renders its badge and existing tag in the final status r
   assert.match(liveScoreboard, /Q2 6:14/);
   assert.match(
     html,
-    /<section class="@container">[\s\S]*?<div class="grid grid-cols-2 gap-x-10 @max-\[760\.01px\]:grid-cols-1 @min-\[1341px\]:grid-cols-3" data-featured-scoreboard-grid="true">/
+    /<section class="@container">[\s\S]*?<div class="grid w-full grid-cols-2 gap-x-10 @max-\[760\.01px\]:grid-cols-1 @min-\[1341px\]:grid-cols-3" style="max-width:1341px" data-featured-scoreboard-grid="true">/
   );
 });
 
@@ -1298,18 +1300,18 @@ test('overview three-column grid arithmetic stays coupled to its literal utility
   assert.equal(OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT, 3);
   assert.equal(OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX, 403);
   assert.equal(OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX, 52);
-  assert.equal(
-    OVERVIEW_SCOREBOARD_ROW_CONTENT_CAP_PX,
-    OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX +
-      OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX / OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT
-  );
   assert.equal(OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX, 1341);
   assert.equal(
-    OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT * OVERVIEW_SCOREBOARD_ROW_CONTENT_CAP_PX +
+    OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT *
+      (OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX +
+        OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX / OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT) +
       (OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT - 1) * OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX,
     OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX,
-    'the cap must exactly fill each equal track when the wide tier begins'
+    'the grid cap must exactly contain three equal headroom-bearing tracks and two gaps'
   );
+  assert.deepEqual(OVERVIEW_SCOREBOARD_GRID_STYLE, {
+    maxWidth: OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX,
+  });
   assert.ok(
     OVERVIEW_SCOREBOARD_GRID_CLASSES.includes(
       `@min-[${OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX}px]:grid-cols-3`
