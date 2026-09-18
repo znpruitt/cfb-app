@@ -293,7 +293,40 @@ These consolidate recurring historical observations, not new project-governance 
 - Round-2 verification: `tsc --noEmit`, `lint:all`, `npm run build` and `npm test` each exited 0 on
   tip `d959b97a`; **5,455 pass / 0 fail / 0 cancelled / 0 skipped** in 51.0 s. Both required browser
   tests passed. **3 mutations, each reddening a named assertion**, one per legacy-field site.
-- Status: **Not merged; the round-2 confirming pass has not run.** Four findings are open and
+- **Review round 3: `/code-review` 4 findings, Codex 5 — 5 new, 4 expected re-reports of the open
+  class items.** Codex usefully WIDENED one: the false `miss` has a second cause beyond the
+  millisecond collision, since on-demand revalidation also skips the cache read and publishes.
+- **THE `undefined`-DROP DEFECT WAS DECLARED CLOSED TWICE AND WAS CLOSED NEITHER TIME** — at one of
+  three sites, then at two. `compareSnapshotFields` passed seven of eight entries raw while
+  `coverage.message` alone carried `?? null`, **an asymmetry I had written myself and which was the
+  tell.** Both claims were made from the sites I happened to be looking at.
+- **So round 3 did not add a third `?? null` and assert completeness again.** The normalization moved
+  to the single boundary every entry funnels through, and
+  `assertEveryComparisonEntryCarriesBothSides` now walks every owner projection and difference entry
+  in the response and fails on a dropped key — **a check that does not depend on anyone enumerating
+  the sites.** It found the third site immediately. Note the shape of the observable defect:
+  `JSON.stringify` drops an `undefined` VALUE, so what a reader sees is an ABSENT KEY; walking the
+  parsed body for `undefined` finds nothing.
+- Normalization sits BEFORE the filter deliberately, and both halves are tested: absent-vs-real-value
+  IS a difference carrying both keys; absent-vs-null is NOT one, because they mean the same thing and
+  reporting it would put a shape artefact in the list whose emptiness is the signal.
+- **The year is resolved once and reused** by the cached read, the fresh rebuild and the key
+  signature; previously all three resolved independently, so an overlapping lifecycle transition
+  could make `year.resolved` and `standingsKeySignature` describe a year the comparison did not use.
+- **TWO MUTATIONS SURVIVE BY DESIGN, AND SAYING SO IS THE POINT.** Reverting either read to the
+  unpinned form leaves the suite green, because the two forms are equivalent in every reachable
+  branch — which is simultaneously the safety argument for pinning and the reason the pinning has no
+  observable effect in-suite. Its benefit appears only under an interleaving no test can stage. The
+  test's own doc records this rather than implying coverage it does not have.
+- **A fourth orphaned JSDoc, created IN ROUND 3 by the same mechanism as the three it fixed** —
+  anchoring an insertion on a declaration line without accounting for its preceding doc comment.
+  Caught by the class-wide sweep, **not** by reading the hunk, which looked correct in isolation.
+  That is the refinement: read the hunk AND re-sweep the file for the class.
+- Round-3 verification: `tsc --noEmit`, `lint:all`, `npm run build` and `npm test` each exited 0 on
+  tip `72524ecc`; **5,458 pass / 0 fail / 0 cancelled / 0 skipped** in 47.3 s. Both required browser
+  tests passed. **6 mutations run, 4 red on a named assertion, 2 surviving by design and documented.**
+- Status: **Not merged; the round-3 confirming pass has not run.** Four findings remain open, all in
+  the precommitment class, none patched. Four findings are open and
   documented, all in the precommitment class; none has been patched. The precommitment carries forward: another
   instance of **the detector claims more than it observes** ships with the limitation documented rather
   than being patched again.
