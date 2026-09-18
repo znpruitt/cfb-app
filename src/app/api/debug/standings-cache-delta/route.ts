@@ -660,7 +660,7 @@ function compareSnapshotFields(
     // to either derivation would make them live — `ownerColorOrderIsPureInRows`
     // and `coverageMessageIsDeterminedByState` pin exactly that, and redden if
     // the purity they rest on stops holding.
-    ['coverage.message', cached.coverage.message ?? null, fresh.coverage.message ?? null],
+    ['coverage.message', cached.coverage.message, fresh.coverage.message],
     ['ownerColorOrder', cached.ownerColorOrder.join(','), fresh.ownerColorOrder.join(',')],
     ['inferredSeasonStart', cached.inferredSeasonStart, fresh.inferredSeasonStart],
   ];
@@ -675,7 +675,28 @@ function compareSnapshotFields(
   // drops final ties outright — so the old comparison reported a clean match
   // over a snapshot that would tell Overview and Trends the wrong thing.
   fields.push(...compareHistories(cached.standingsHistory, fresh.standingsHistory));
+  // ONE NORMALIZATION, AT THE BOUNDARY EVERY ENTRY FUNNELS THROUGH.
+  //
+  // This defect has been declared closed twice and was closed neither time —
+  // once at one of three sites, once at two — because each fix enumerated the
+  // sites I was looking at. A value typed required but absent at runtime is
+  // `undefined`, `JSON.stringify` drops the key, and the entry ships reporting
+  // neither side. `compareSnapshotFields` passed seven of eight entries raw while
+  // `coverage.message` alone carried `?? null`; that asymmetry was the tell, and
+  // I had written the one defended line myself.
+  //
+  // Normalizing here rather than per entry means a field added to this list
+  // later cannot reintroduce it. `everyComparisonEntryCarriesBothSidesAcrossEveryShape`
+  // asserts the invariant over the whole response, so the check does not depend
+  // on anyone enumerating the sites correctly either.
+  //
+  // BEFORE the filter, deliberately: a cached snapshot predating a field yields
+  // `undefined` where the rebuild yields `null`, and those mean the same thing.
+  // Comparing raw would report a difference that is a shape artefact rather than
+  // a divergence — noise in the list whose emptiness is the signal. A cached
+  // `undefined` against a real fresh value is still reported, with both keys.
   return fields
+    .map(([field, left, right]) => [field, left ?? null, right ?? null] as const)
     .filter(([, left, right]) => left !== right)
     .map(([field, cachedValue, freshValue]) => ({
       field,
@@ -778,7 +799,7 @@ export async function GET(req: Request): Promise<Response> {
   // resolved, and the resolution needs the year before the cache is keyed.
   const league = await getLeague(leagueSlug);
   // UNKNOWN SLUG IS REFUSED, and the argument is the one
-  // `resolveRequestedYear` below makes for `year`, and which I failed to apply to the
+  // `resolveRequestedYear` below makes for `year`. I failed to apply it to the
   // sibling parameter until review pointed at it. `getCanonicalStandings` on an
   // unregistered slug does not decline: it computes an empty snapshot and
   // PUBLISHES it under `canonicalStandingsCacheKeyParts(slug, null)` with
@@ -840,16 +861,42 @@ export async function GET(req: Request): Promise<Response> {
   const probe = now;
   const probeStamp = probe.toISOString();
 
+  // ONE RESOLUTION, REUSED — the cached read, the fresh rebuild and the key
+  // signature all take `resolvedYear` rather than each resolving again.
+  //
+  // The route previously resolved the year three times: once for reporting
+  // (`resolveStandingsYear` above), once inside `getCanonicalStandings` because
+  // no `year` was passed, and once inside `computeCanonicalStandings` for the
+  // fresh side. A lifecycle transition, rollover or archive write overlapping the
+  // request could make them disagree, so `year.resolved` and
+  // `standingsKeySignature` could describe a year the comparison did not use.
+  //
+  // PASSING THE RESOLVED YEAR IS EQUIVALENT IN EVERY BRANCH, and the selector's
+  // own comment is why that needs saying: it warns that the compute deliberately
+  // receives the ORIGINAL override to preserve `resolveOffseason`'s fallback, and
+  // that a default-year and an explicit-year request can otherwise produce
+  // different snapshots. Checked branch by branch —
+  //   season / preseason: `resolveStandingsYear` returns `status.year`, which is
+  //     what `resolveSeason`/`resolvePreseason` use anyway;
+  //   offseason WITH archives: it returns `Math.max(...archives)`, exactly the
+  //     `mostRecentArchivedYear` the fallback would pick;
+  //   offseason WITHOUT archives: it returns `league.year`, and the fallback
+  //     resolves `null ?? null ?? league.year` to the same;
+  //   status absent: it returns `league.year`, matching the synthesized
+  //     `{ state: 'season', year: league.year }`.
+  // The cache key is built from the resolved year either way, so identity is
+  // unchanged. `aDefaultYearRequestAndAnExplicitResolvedYearRequestShareOneKey`
+  // pins that equivalence rather than leaving it as an argument.
   const cached = await getCanonicalStandings({
     slug: leagueSlug,
-    ...(yearOverride != null ? { year: yearOverride } : {}),
+    ...(resolvedYear != null ? { year: resolvedYear } : {}),
     currentDate: probe,
   });
   const cacheAfterCachedRead = readCacheObservation();
 
   const fresh = await computeCanonicalStandingsUncached({
     slug: leagueSlug,
-    year: yearOverride,
+    year: resolvedYear,
     currentDate: probe,
   });
   // The fresh rebuild runs UN-NESTED, so `getSeasonArchive` / `listSeasonArchives`

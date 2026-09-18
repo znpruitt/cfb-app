@@ -15,8 +15,10 @@ import {
   setAppState,
 } from '../../../../../lib/server/appStateStore.ts';
 import {
+  canonicalStandingsCacheKeyParts,
   computeCanonicalStandingsUncached,
   getCanonicalStandings,
+  resolveStandingsYear,
 } from '../../../../../lib/selectors/leagueStandings.ts';
 import type { OwnerStandingsRow } from '../../../../../lib/standings.ts';
 import type {
@@ -79,6 +81,16 @@ function fakeIncrementalCache(events: string[]) {
       events.push(`set:${key}`);
       records.set(key, { value, isStale: false });
       tagsByKey.set(key, context.tags ?? []);
+    },
+    /**
+     * Test-only: rewrite every stored value. Used to build the ONE fixture that
+     * cannot be produced through the selector — a snapshot published before a
+     * field existed, where the key is absent rather than null.
+     */
+    mutateStoredValues(fn: (value: unknown) => unknown) {
+      for (const [key, record] of records) {
+        records.set(key, { ...record, value: fn(record.value) });
+      }
     },
     /**
      * Test-only: mark every stored entry stale, so `incrementalCache.get`
@@ -194,6 +206,7 @@ async function warmThrough(
  */
 const WARM_CLOCK = new Date('2026-09-01T00:00:00.000Z');
 
+/** @see WARM_CLOCK above for why the warm clock is pinned. */
 async function warmAtFixedClock(cache: ReturnType<typeof fakeIncrementalCache>): Promise<void> {
   const store = nextStore(cache);
   await workAsyncStorage.run(store as never, () =>
@@ -1396,10 +1409,12 @@ test('serializesBothSidesOfALegacyFieldDifferenceRatherThanDroppingOne', async (
   await warmAtFixedClock(cache);
 
   // DIRECTION A — the both-sides branch. Ann keeps her row but loses
-  // `finalGames`, so `left.row[field] !== right.row[field]` is `5 !== undefined`
-  // and the pushed difference would drop `fresh`.
-  // DIRECTION B — the one-sided branch. A legacy Bob appears only on the fresh
-  // side, so his projection maps every compared field including the absent one.
+  // `finalGames`, so `left.row[field] !== right.row[field]` is `10 !== undefined`
+  // (`makeRow` derives `finalGames` from wins + losses) and the pushed difference
+  // would drop `fresh`.
+  // DIRECTION B — the one-sided branch of `compareOwners`. A legacy Bob appears
+  // only on the fresh side, so every compared field is mapped for him including
+  // the absent one.
   const legacyAnn = { ...modern } as Record<string, unknown>;
   delete legacyAnn.finalGames;
   const legacyBob = { ...makeRow('Bob', { wins: 4, losses: 6 }) } as Record<string, unknown>;
@@ -1436,6 +1451,214 @@ test('serializesBothSidesOfALegacyFieldDifferenceRatherThanDroppingOne', async (
     'the one-sided branch keeps both keys too — the site round 1 did not fix'
   );
   assert.deepEqual(bobFinalGames, { field: 'finalGames', cached: null, fresh: null });
+});
+
+// ---------------------------------------------------------------------------
+// Review round 3. The undefined-drop defect has now been "closed" twice and was
+// closed neither time — once at 1 of 3 sites, once at 2 of 3, each claim made
+// from the sites I happened to be looking at. So this round does not add a third
+// `?? null` and assert completeness again; it adds a check that does not depend
+// on my enumeration being right.
+// ---------------------------------------------------------------------------
+
+/**
+ * THE BOUNDARY INVARIANT: every difference-shaped object in the response carries
+ * BOTH of its value keys, and every owner projection carries every compared
+ * field.
+ *
+ * `JSON.stringify` DROPS an `undefined` value, so a dropped key — not an
+ * `undefined` one — is what a reader actually sees. Walking the parsed body for
+ * `undefined` would therefore find nothing; the observable defect is ABSENCE.
+ *
+ * This asserts the shape over every entry the response contains, so it covers
+ * `compareOwners`' two branches, `compareSnapshotFields`, and any comparison
+ * site added later, without anyone having to enumerate them.
+ */
+function assertEveryComparisonEntryCarriesBothSides(body: Record<string, never>): void {
+  const comparison = body.comparison as unknown as Record<string, unknown>;
+  const comparedFields = comparison.comparedFields as string[];
+
+  for (const owner of comparison.owners as Array<Record<string, unknown>>) {
+    for (const side of ['cached', 'fresh'] as const) {
+      const projection = owner[side] as Record<string, unknown> | null;
+      if (projection === null) continue;
+      for (const field of [...comparedFields, 'rank']) {
+        assert.ok(
+          Object.hasOwn(projection, field),
+          `owners[${owner.owner as string}].${side} dropped "${field}" — an undefined value does not survive serialization`
+        );
+      }
+    }
+  }
+
+  for (const entry of comparison.differences as Array<Record<string, unknown>>) {
+    for (const diff of entry.fields as Array<Record<string, unknown>>) {
+      for (const side of ['cached', 'fresh'] as const) {
+        assert.ok(
+          Object.hasOwn(diff, side),
+          `differences[${entry.owner as string}].${diff.field as string} dropped "${side}"`
+        );
+      }
+    }
+  }
+
+  for (const diff of comparison.snapshotDifferences as Array<Record<string, unknown>>) {
+    for (const side of ['cached', 'fresh'] as const) {
+      assert.ok(
+        Object.hasOwn(diff, side),
+        `snapshotDifferences[${diff.field as string}] dropped "${side}"`
+      );
+    }
+  }
+}
+
+/**
+ * The third site, and the one the boundary check exists for.
+ *
+ * `compareSnapshotFields` passes seven of its eight entries raw. A snapshot
+ * PUBLISHED BEFORE a field was added to `CanonicalStandings` is still served
+ * under the same key — `dataCachedCanonicalStandings` wraps a thin arrow whose
+ * `cb.toString()` does not change when a field appears, the key versions only the
+ * history shape, and `revalidate: false` means tag-only invalidation. The cached
+ * side then yields `undefined`, `undefined !== null` pushes a difference, and the
+ * response ships that difference missing its `cached` key.
+ *
+ * The fixture reaches into the fake cache and removes the field from the STORED
+ * value, which is exactly what a pre-deploy snapshot looks like.
+ */
+test('doesNotDropASideWhenACachedSnapshotPredatesAField', async () => {
+  await seedLive({ csv: LIVE_CSV, homeScore: 31, awayScore: 17 });
+  const cache = fakeIncrementalCache([]);
+  await warmAtFixedClock(cache);
+
+  // The snapshot as it would have been published before `lifecycle` existed: the
+  // key is ABSENT, not null. A field whose rebuild value is itself null would not
+  // do — absent and null now compare equal, correctly, so the difference needs a
+  // real value on one side to exist at all.
+  // `unstable_cache` stores an envelope — `{ kind, data: { body: <json> } }` —
+  // so the snapshot has to be reached through `data.body`, not at the top level.
+  cache.mutateStoredValues((value) => {
+    const envelope = value as { data?: { body?: string } };
+    if (typeof envelope?.data?.body !== 'string') return value;
+    const snapshot = JSON.parse(envelope.data.body) as Record<string, unknown>;
+    if (!Object.hasOwn(snapshot, 'lifecycle')) return value;
+    // `lifecycle` -> absent vs a real string: a difference, both keys present.
+    // `inferredSeasonStart` -> absent vs null: NOT a difference.
+    delete snapshot.lifecycle;
+    delete snapshot.inferredSeasonStart;
+    return { ...envelope, data: { ...envelope.data, body: JSON.stringify(snapshot) } };
+  });
+
+  const { body } = await requestThrough(cache);
+  const comparison = body.comparison as unknown as Record<string, unknown>;
+
+  const diff = (comparison.snapshotDifferences as Array<Record<string, unknown>>).find(
+    (d) => d.field === 'lifecycle'
+  );
+  assert.ok(diff, 'the absent field really did produce a difference — the control');
+  assert.ok(
+    Object.hasOwn(diff, 'cached'),
+    'and BOTH keys survived serialization; this is the site two previous rounds claimed closed'
+  );
+  assert.equal(
+    diff.cached,
+    null,
+    'the absent cached side normalizes to null rather than vanishing'
+  );
+  assert.equal(typeof diff.fresh, 'string', 'and the rebuild supplies a real value on the other');
+
+  // AND THE OTHER HALF OF THE NORMALIZATION CLAIM: absent on one side against
+  // NULL on the other is NOT a difference, because they mean the same thing.
+  // `inferredSeasonStart` is null on this path, so a snapshot predating it must
+  // produce no entry at all — normalizing AFTER the filter instead would report
+  // a shape artefact as a divergence, in the list whose emptiness is the signal.
+  assert.equal(
+    (comparison.snapshotDifferences as Array<Record<string, unknown>>).some(
+      (d) => d.field === 'inferredSeasonStart'
+    ),
+    false,
+    'absent-vs-null is not reported as a difference'
+  );
+
+  assertEveryComparisonEntryCarriesBothSides(body);
+});
+
+/**
+ * The boundary invariant, run over the fixtures that exercise the other two
+ * sites — so one assertion covers all three and any site added later.
+ */
+test('everyComparisonEntryCarriesBothSidesAcrossEveryShape', async () => {
+  // Legacy rows on both sides and one-sided, the round-2 fixture.
+  await setAppState('leagues', 'registry', [makeLeague()]);
+  const modern = makeRow('Ann', { wins: 9, losses: 1 });
+  await seedArchive([modern]);
+  const cache = fakeIncrementalCache([]);
+  await warmAtFixedClock(cache);
+  const legacyAnn = { ...modern } as Record<string, unknown>;
+  delete legacyAnn.finalGames;
+  const legacyBob = { ...makeRow('Bob', { wins: 4, losses: 6 }) } as Record<string, unknown>;
+  delete legacyBob.finalGames;
+  await seedArchive([
+    legacyAnn as unknown as StandingsHistoryStandingRow,
+    legacyBob as unknown as StandingsHistoryStandingRow,
+  ]);
+  await cache.revalidateTag(`archive:${SLUG}`);
+  const archiveShaped = await requestThrough(cache);
+  assert.ok(
+    (archiveShaped.body.comparison as unknown as Record<string, unknown>).differences,
+    'the archive fixture produced a comparison'
+  );
+  assertEveryComparisonEntryCarriesBothSides(archiveShaped.body);
+
+  // A live-path miss, where every projection is fully populated.
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+  await seedLive({ csv: LIVE_CSV, homeScore: 31, awayScore: 17 });
+  const live = await requestThrough(fakeIncrementalCache([]));
+  assertEveryComparisonEntryCarriesBothSides(live.body);
+});
+
+/**
+ * The EQUIVALENCE the year-pinning rests on — and this test proves only that.
+ *
+ * WHAT IT DOES NOT PROVE, stated because a mutation showed it: reverting the
+ * route to `year: yearOverride` on either read leaves this green. The two forms
+ * resolve to the same year in every reachable branch, which is precisely the
+ * safety argument for pinning, and it also means the pinning itself has no
+ * observable effect in-suite. Its benefit appears only when a lifecycle
+ * transition, rollover or archive write lands BETWEEN the route's resolution and
+ * the reads — an interleaving no test here can stage.
+ *
+ * So: the change removes a real TOCTOU, its benefit is unobservable, and this
+ * test pins the equivalence that makes it safe rather than the pinning itself.
+ * `leagueStandings.ts` warns that a default-year and an explicit-year request
+ * can produce different snapshots on the offseason path; if that ever became
+ * true the pinning would be unsafe, and this is what would catch it.
+ */
+test('aDefaultYearRequestAndAnExplicitResolvedYearRequestShareOneKey', async () => {
+  // Offseason with archives is the branch the selector's warning is about.
+  await setAppState('leagues', 'registry', [{ ...makeLeague(), status: { state: 'offseason' } }]);
+  await seedArchive([makeRow('Ann', { wins: 9, losses: 1 })]);
+
+  const resolved = await resolveStandingsYear(SLUG, null);
+  assert.equal(resolved, YEAR, 'the resolver picks the archived year');
+
+  const defaultKey = canonicalStandingsCacheKeyParts(SLUG, resolved).join(',');
+  const explicitKey = canonicalStandingsCacheKeyParts(
+    SLUG,
+    await resolveStandingsYear(SLUG, resolved)
+  ).join(',');
+  assert.equal(explicitKey, defaultKey, 'both resolutions produce one cache identity');
+
+  // And the route reports the year it actually compared.
+  const { body } = await requestThrough(fakeIncrementalCache([]));
+  assert.equal((body.year as unknown as Record<string, unknown>).resolved, YEAR);
+  assert.ok(
+    String((body.cacheRead as unknown as Record<string, unknown>).standingsKeySignature).includes(
+      `,${YEAR},`
+    ),
+    'and the signature names that same year'
+  );
 });
 
 // ---------------------------------------------------------------------------
