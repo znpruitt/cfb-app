@@ -29,6 +29,10 @@ import {
   yearScope,
 } from '../../../../lib/providerRefreshScope.ts';
 import { acquireScheduleRefreshLease } from '../../../../lib/schedule/scheduleRefreshLease.ts';
+import {
+  readPendingStandingsInvalidation,
+  recordPendingStandingsInvalidation,
+} from '../../../../lib/server/standingsInvalidationPending.ts';
 
 // Schedule status scope now reflects the ACTUAL refresh target (finding 1): a
 // full-year (seasonType=all) refresh records the year rollup, while a single
@@ -1466,4 +1470,130 @@ test('full-year manual refresh under lease contention maps to HTTP 409 with no p
   const json = await res.json();
   assert.equal(json.code, 'refresh-in-progress');
   assert.equal(fetchCalls, 0, 'the losing full-year caller makes no provider request');
+});
+
+// PLATFORM-693 TRIGGER B — the DESIGNATED REPAIR PATH actually repairs.
+//
+// The WIRING test, not a unit test of the discharge. In round 2 I unit-tested the helper
+// and never tested that anything CALLS it: deleting the call site left the suite green,
+// which is `AGENTS.md:468` in miniature. This drives what the System Health repair link
+// drives — `GET /api/schedule?bypassCache=1&year=Y` — and reddens when the call goes.
+//
+// The cron's drain cannot cover this path; that is why there are two triggers.
+test('the full-year admin refresh discharges a pending standings invalidation', async () => {
+  process.env.ADMIN_API_TOKEN = 'admin-token';
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+
+  setMockFetch(async () => {
+    return new Response(JSON.stringify([]), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  });
+
+  await recordPendingStandingsInvalidation(2027);
+  assert.ok(await readPendingStandingsInvalidation(2027), 'precondition: 2027 owes a bust');
+
+  await GET(
+    new Request('http://localhost/api/schedule?year=2027&seasonType=all&bypassCache=1', {
+      headers: { 'x-admin-token': 'admin-token' },
+    })
+  );
+
+  assert.equal(
+    await readPendingStandingsInvalidation(2027),
+    undefined,
+    'the repair path must discharge the obligation, not report success over it'
+  );
+});
+
+// === PLATFORM-693 round 5 — BOTH targeted commit shapes report, not just the full year ===
+
+/**
+ * `AGENTS.md:468`: deleting the behaviour must redden the suite. Before these, the only
+ * `/api/schedule` coverage exercised the full-year authority branch — so removing EITHER
+ * route-local `reportStandingsInvalidation` call (the week-all partition commit and the
+ * single-scope commit) left the whole suite green. Two commit shapes, two tests.
+ *
+ * The walk is forced INCOMPLETE with a MALFORMED REGISTRY ENTRY rather than by failing
+ * the registry read. Failing the read globally was the first attempt and it does not
+ * work: the route resolves the year's lifecycle from the same registry, so the request
+ * never reaches a commit and the test passes for the wrong reason. An entry whose `slug`
+ * is not a usable string leaves every other read intact, reaches the walk, and is
+ * counted `failed` — `partial`, not `complete`, so the commit must leave an obligation.
+ */
+
+/** A registry whose single entry cannot be busted: `slug` is not a usable string. */
+async function seedUnbustableRegistry(year: number): Promise<void> {
+  await setAppState('leagues', 'registry', [
+    { slug: 42, displayName: 'Malformed', year, createdAt: `${year}-01-01T00:00:00.000Z` },
+  ]);
+}
+
+/** A provider that commits one real row for every requested partition. */
+function commitOneGame(): void {
+  setMockFetch(async () => {
+    return new Response(JSON.stringify([{ week: 1, home_team: 'Texas', away_team: 'Rice' }]), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  });
+}
+
+test('a WEEK-ALL commit whose standings walk fails records a pending obligation', async () => {
+  process.env.ADMIN_API_TOKEN = 'admin-token';
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  commitOneGame();
+
+  // A specific week with no season type spans BOTH week partitions — the `isWeekAll`
+  // branch, which is a different commit path from the full-year authority.
+  await seedUnbustableRegistry(2025);
+  await GET(
+    new Request('http://localhost/api/schedule?year=2025&week=1&bypassCache=1', {
+      headers: { 'x-admin-token': 'admin-token' },
+    })
+  );
+
+  assert.ok(
+    await readPendingStandingsInvalidation(2025),
+    'a week-all commit that could not bust standings must leave an obligation'
+  );
+});
+
+test('a SINGLE-PARTITION commit whose standings walk fails records a pending obligation', async () => {
+  process.env.ADMIN_API_TOKEN = 'admin-token';
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  commitOneGame();
+
+  await seedUnbustableRegistry(2026);
+  await GET(
+    new Request('http://localhost/api/schedule?year=2026&week=1&seasonType=regular&bypassCache=1', {
+      headers: { 'x-admin-token': 'admin-token' },
+    })
+  );
+
+  assert.ok(
+    await readPendingStandingsInvalidation(2026),
+    'a single-partition commit that could not bust standings must leave an obligation'
+  );
+});
+
+test('a commit whose standings walk SUCCEEDS records nothing — the positive control', async () => {
+  // Without this, a route that recorded an obligation unconditionally would satisfy both
+  // tests above while telling us nothing about the walk's outcome.
+  process.env.ADMIN_API_TOKEN = 'admin-token';
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  commitOneGame();
+
+  await GET(
+    new Request('http://localhost/api/schedule?year=2024&week=1&seasonType=regular&bypassCache=1', {
+      headers: { 'x-admin-token': 'admin-token' },
+    })
+  );
+
+  assert.equal(
+    await readPendingStandingsInvalidation(2024),
+    undefined,
+    'a successful bust must not leave a false obligation'
+  );
 });

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { completeStandingsInvalidation } from '../../selectors/leagueStandings.ts';
+
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
@@ -206,6 +208,7 @@ test('all job target shapes persist with exact allowlisted target keys', async (
             scoreRepairs: 0,
             scoreDifferenceCount: 0,
             scoreSweepFailedPartitions: [],
+            standingsInvalidation: completeStandingsInvalidation(),
             scoreSweepCannotTellCount: 0,
             kickoffsChanged: 0,
             ...cleanScheduleYearOutcome(),
@@ -216,11 +219,13 @@ test('all job target shapes persist with exact allowlisted target keys', async (
             scoreRepairs: 0,
             scoreDifferenceCount: 0,
             scoreSweepFailedPartitions: [],
+            standingsInvalidation: completeStandingsInvalidation(),
             scoreSweepCannotTellCount: 0,
             kickoffsChanged: 0,
             ...cleanScheduleYearOutcome(),
           },
         ],
+        0,
         0
       ),
     }),
@@ -271,7 +276,11 @@ test('all job target shapes persist with exact allowlisted target keys', async (
         'scoreDifferences',
         'scoreRepairs',
         'scoreSweepCannotTellCount',
+        'pendingStandingsInvalidations',
         'scoreSweepFailures',
+        // PLATFORM-693 — target years whose committed refresh left standings stale,
+        // and years still owing a bust after this run's replay drain.
+        'standingsInvalidationFailures',
         'totalYears',
         'truncated',
         'years',
@@ -342,11 +351,13 @@ test('all nine jobs derive the correct source and persist their target shape', a
             scoreRepairs: 0,
             scoreDifferenceCount: 0,
             scoreSweepFailedPartitions: [],
+            standingsInvalidation: completeStandingsInvalidation(),
             scoreSweepCannotTellCount: 0,
             kickoffsChanged: 0,
             ...cleanScheduleYearOutcome(),
           },
         ],
+        0,
         0
       ),
     }),
@@ -649,11 +660,12 @@ test('multi-year targets cap at eight entries with truthful totalYears and trunc
     scoreRepairs: 0,
     scoreDifferenceCount: 0,
     scoreSweepFailedPartitions: [],
+    standingsInvalidation: completeStandingsInvalidation(),
     scoreSweepCannotTellCount: 0,
     kickoffsChanged: 0,
     ...cleanScheduleYearOutcome(),
   }));
-  const capped = scheduleYearsTarget(many, 0);
+  const capped = scheduleYearsTarget(many, 0, 0);
   assert.equal(capped.totalYears, 10);
   assert.equal(capped.truncated, true);
   assert.equal(capped.years.length, 8);

@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
+
+import { completeStandingsInvalidation } from '../../selectors/leagueStandings.ts';
 import { fileURLToPath } from 'node:url';
 
 import type { UpstreamFaultClass } from '../../api/upstreamFaultClass.ts';
@@ -45,6 +47,7 @@ function scheduleEntry(
     scoreRepairs: 0,
     scoreDifferenceCount: 0,
     scoreSweepFailedPartitions: [] as ReadonlyArray<unknown>,
+    standingsInvalidation: completeStandingsInvalidation(),
     scoreSweepCannotTellCount: 0,
     kickoffsChanged: 0,
     ...cleanScheduleYearOutcome(over),
@@ -104,7 +107,7 @@ test('GENERATED: year count × which year fails × class × absent optionals all
                 })
               : scheduleEntry(2020 + index)
           );
-          const parsed = roundTrip('schedule-refresh', scheduleYearsTarget(entries, 0));
+          const parsed = roundTrip('schedule-refresh', scheduleYearsTarget(entries, 0, 0));
           const target = parsed.target as Extract<
             SchedulerExecutionReceipt['target'],
             { kind: 'schedule-years' }
@@ -314,6 +317,7 @@ test('the partition list is bounded, so a corrupt row cannot inflate the receipt
         ],
       }),
     ],
+    0,
     0
   );
   assert.equal(target.years[0]!.failedPartitions.length, MAX_RECEIPT_PARTITIONS);
@@ -374,6 +378,7 @@ test('the System Health execution-failed issue carries the evidence, and its sev
           ],
         }),
       ],
+      0,
       0
     ),
   };

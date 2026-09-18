@@ -661,3 +661,80 @@ test('provider-data panel: a governing issue still owns the detail line over an 
   );
   assert.equal(p.detail, 'rankings refresh failed');
 });
+
+// === PLATFORM-693 — a pending invalidation must reach the tiles and the verdict ===
+
+/**
+ * WHY THESE LIVE HERE. Round 2 lowered this issue's severity to `info` and asserted, in
+ * a code comment, that the tile would render gray and Overall would still report
+ * attention. Both halves were false — `schedulerPanel` has no `info-only` branch and
+ * falls through to GREEN, and `overallPanel` coerces gray to green before its reduce —
+ * so the fault the slice exists to surface became invisible on the stoplight tiles and
+ * on the verdict. Three tests in `systemHealthIssues.test.ts` were named as pinning
+ * that claim; they assert `issue.severity` and CANNOT SEE A PANEL STATUS.
+ *
+ * Round 4 removed the severity split entirely. `warning` was always sufficient for what
+ * R1 required, and these tests are what make that checkable at the layer where it is
+ * true rather than at the layer where it is convenient to assert.
+ */
+
+/** The pending-invalidation issue as `schedulerExecutionIssues` emits it. */
+function pendingInvalidation(): SystemHealthIssue {
+  return {
+    code: 'standings-invalidation-pending',
+    severity: 'warning',
+    subject: { axis: 'job', id: 'schedule-refresh' },
+    title: '3 standings invalidation(s) still pending',
+    explanation: 'Canonical standings for 3 year(s) are stale.',
+    repair: null,
+  };
+}
+
+test('a pending invalidation makes the Scheduler tile yellow', () => {
+  const scheduler = panel(baseInput({ issues: [pendingInvalidation()] }), 'scheduler');
+  assert.equal(scheduler.status, 'yellow');
+  assert.equal(scheduler.stateLabel, 'Attention needed');
+});
+
+test('Overall cannot say all systems are normal while an invalidation is pending', () => {
+  // THE REQUIREMENT R1 ACTUALLY SET, asserted on the surface an operator reads first.
+  // This is the test that would have caught round 2, and it did not exist then.
+  const overall = panel(baseInput({ issues: [pendingInvalidation()] }), 'overall');
+  assert.equal(overall.status, 'yellow');
+  assert.equal(overall.stateLabel, 'Attention needed');
+  assert.notEqual(overall.detail, 'All systems are operating normally.');
+});
+
+test('a pending invalidation CAN take the detail line from a later-indexed job', () => {
+  // THIS PINS A KNOWN COST, NOT A DESIRED PROPERTY — the same shape as the starvation
+  // test in `standingsInvalidationPending.test.ts`. Both issues are `warning` on the
+  // `job` axis, so `compareIssues` falls to canonical job order, and `schedule-refresh`
+  // is index 4 while `rankings` is 5. `governing` takes the first match in the globally
+  // sorted list, so the pending repair wins the tile's ONE detail line and the genuine
+  // late delivery is not named.
+  //
+  // Rounds 2 and 3 existed to prevent exactly this, via a severity split that could not
+  // work. Removing the split brings the displacement back, deliberately: a fault that is
+  // visible but named second beats a fault nobody sees. Filed as its own issue.
+  const lateRankings: SystemHealthIssue = {
+    code: 'scheduler-delivery-late',
+    severity: 'warning',
+    subject: { axis: 'job', id: 'rankings' },
+    title: 'rankings delivery is late',
+    explanation: 'The rankings job did not arrive on schedule.',
+    repair: null,
+  };
+  const input = baseInput({ issues: [pendingInvalidation(), lateRankings] });
+  const scheduler = panel(input, 'scheduler');
+  assert.equal(scheduler.status, 'yellow', 'the tile is still yellow either way');
+  assert.equal(scheduler.detail, '3 standings invalidation(s) still pending');
+});
+
+test('a green scheduler tile still means NO scheduler issues at all', () => {
+  // POSITIVE CONTROL. Without it, a panel that returned yellow unconditionally would
+  // satisfy every assertion above.
+  const scheduler = panel(baseInput(), 'scheduler');
+  assert.equal(scheduler.status, 'green');
+  assert.equal(scheduler.stateLabel, 'Healthy');
+  assert.equal(panel(baseInput(), 'overall').detail, 'All systems are operating normally.');
+});

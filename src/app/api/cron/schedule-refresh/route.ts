@@ -7,6 +7,14 @@ import {
   getProviderRefreshSettings,
   isAutoRefreshAllowedBySettings,
 } from '@/lib/server/providerRefreshSettings';
+import {
+  completeStandingsInvalidation,
+  invalidateStandingsForYearReporting,
+} from '@/lib/selectors/leagueStandings';
+import {
+  countPendingStandingsInvalidations,
+  drainPendingStandingsInvalidations,
+} from '@/lib/server/standingsInvalidationPending';
 import { refreshFullSeasonSchedule } from '@/lib/schedule/fullSeasonScheduleRefresh';
 import { refreshSchedulePresentation } from '@/lib/schedule/schedulePresentationRefresh';
 import {
@@ -110,10 +118,16 @@ function yearEntryFromRefresh(
   refresh: FullSeasonScheduleRefreshResult
 ): ScheduleRefreshCronYearExecution {
   const scoreSweepFailed = refresh.scoreSweepFailedPartitions.length > 0;
+  // PLATFORM-693 — a committed refresh whose standings bust did not complete is
+  // PARTIAL. Ordered BELOW the score-sweep check on purpose: a failed sweep is a
+  // data-integrity failure and outranks a stale cache.
+  const standingsIncomplete = refresh.standingsInvalidation.result !== 'complete';
   const result: ScheduleRefreshCronYearExecution['result'] = scoreSweepFailed
     ? 'failure'
     : refresh.status === 'success'
-      ? 'success'
+      ? standingsIncomplete
+        ? 'partial'
+        : 'success'
       : refresh.status === 'no-op' || refresh.status === 'in-progress'
         ? 'no-op'
         : 'failure';
@@ -121,7 +135,11 @@ function yearEntryFromRefresh(
     year,
     operation,
     result,
-    reason: scoreSweepFailed ? 'score-sweep-failed' : refresh.reason,
+    reason: scoreSweepFailed
+      ? 'score-sweep-failed'
+      : result === 'partial'
+        ? 'standings-invalidation-incomplete'
+        : refresh.reason,
     providerCallAttempted: refresh.providerCallAttempted,
     // PLATFORM-126B — copied verbatim from the authority, never re-derived.
     attemptedSeasonTypes: refresh.attemptedSeasonTypes,
@@ -134,6 +152,7 @@ function yearEntryFromRefresh(
     scoreDifferences: refresh.scoreDifferences,
     scoreDifferencesTruncated: refresh.scoreDifferencesTruncated,
     scoreSweepFailedPartitions: refresh.scoreSweepFailedPartitions,
+    standingsInvalidation: refresh.standingsInvalidation,
     scoreSweepCannotTellCount: refresh.scoreSweepCannotTellCount,
     kickoffsChanged: refresh.kickoffsChanged,
   };
@@ -160,6 +179,42 @@ export async function GET(req: Request): Promise<Response> {
   // authentication (never inferred from the final result/reason). Null means
   // no durable receipt is scheduled for this invocation.
   let receiptInvocationId: string | null = null;
+  /**
+   * PLATFORM-693 — the receipt's pending count, resolved as LATE as possible.
+   *
+   * NOT counted at the drain: that is a PRE-RUN snapshot, and the run's own per-year
+   * refreshes can still clear an overflow obligation through the authority's discharge,
+   * or record a new one, afterwards. A five-year backlog whose fifth entry is the active
+   * year would otherwise report one pending for a full weekly cycle after the authority
+   * had already repaired it.
+   *
+   * AN UNAVAILABLE COUNT IS NOT ZERO. A transient store failure must not publish a false
+   * all-clear over a standing warning, and an omitted field normalizes to 0 on rebuild —
+   * which is the same false all-clear by a different route. So the fallback is what the
+   * drain OBSERVED: a lower bound, never zero when work existed.
+   */
+  /**
+   * The pending count for the receipt, or `'unknown'` when the durable set could not be
+   * read.
+   *
+   * THERE IS NO FALLBACK ANY MORE, AND ITS ABSENCE IS THE FIX. This used to fall back to
+   * the drain's observed count when the fresh read failed — but `listPendingStandingsInvalidations`
+   * converted its own store failure into an empty list, so the two reads failed TOGETHER
+   * and the floor was exactly 0 precisely when it was needed. The receipt then published
+   * zero pending over a prior receipt that said N, and because receipts are latest-only
+   * monotonic that erased a standing warning while the standings were still stale — the
+   * false all-clear this module exists to prevent, produced by the code meant to prevent it.
+   *
+   * THE COMMENT THAT USED TO LIVE HERE WAS WRONG THREE TIMES, each differently: "a lower
+   * bound, never zero when work existed" (it is zero exactly then), then "an UPPER bound"
+   * (true only for the all-cleared case, not the store-failure case the fallback existed
+   * for). Correcting its DIRECTION twice never questioned its PREMISE. It is deleted
+   * rather than corrected a fourth time.
+   */
+  const resolvePendingForReceipt = async (): Promise<number | 'unknown'> => {
+    const counted = await countPendingStandingsInvalidations();
+    return counted === 'unavailable' ? 'unknown' : counted;
+  };
 
   try {
     // CRON_SECRET first — fail closed. No registry/schedule/settings/status/
@@ -180,6 +235,36 @@ export async function GET(req: Request): Promise<Response> {
       );
     }
     receiptInvocationId = createSchedulerInvocationId();
+
+    // PLATFORM-693 — DRAIN OUTSTANDING STANDINGS INVALIDATIONS, AHEAD OF EVERY EXIT.
+    //
+    // Placement is the whole point and it was wrong once. Both reviewers found the
+    // drain sitting after the zero-target return, which made it DEAD FOR THE ENTIRE
+    // OFFSEASON — the one season in which `admin/cache-historical-schedule` (the
+    // operator path that pends historical years, and which refuses protected years by
+    // construction) is the one an operator uses. Here it runs past the 401 and ahead
+    // of the registry-throw, `registry-malformed`, and zero-target returns.
+    //
+    // It therefore also runs when the REGISTRY ITSELF is unreadable or malformed. The
+    // walk fails in that state and correctly leaves the records pending — a drain that
+    // skipped itself on the fault most likely to have CAUSED the backlog would be the
+    // defect wearing the shape of a safeguard.
+    //
+    // This is ONE OF TWO TRIGGERS and neither substitutes for the other, because there
+    // are two REACHABILITY gaps, not two placements of one idea: a cron drain cannot
+    // cover the manual paths, and the authority's discharge cannot cover a zero-target
+    // run, because the authority is never called when there are no targets.
+    //
+    // Best-effort in both directions: it cannot fail the run and it cannot alter the
+    // refresh's reported status. The schedule commit succeeded; CARRIES forbids saying
+    // otherwise because a cache repair could not be attempted.
+    const drain = await drainPendingStandingsInvalidations(invalidateStandingsForYearReporting);
+    if (drain === 'unavailable') {
+      // Distinct from "nothing was pending": the store could not be read, so this run
+      // repaired nothing AND established nothing. Logged because it is otherwise
+      // indistinguishable from a clean no-op run.
+      console.error('pending standings-invalidation drain could not read the durable set');
+    }
 
     // Target selection — cache-only registry read. `season` AND `preseason`
     // leagues are targets (E1B1: cache-armed early preseason gets ordinary weekly
@@ -464,6 +549,7 @@ export async function GET(req: Request): Promise<Response> {
           scoreDifferences: [],
           scoreDifferencesTruncated: false,
           scoreSweepFailedPartitions: [],
+          standingsInvalidation: completeStandingsInvalidation(),
           scoreSweepCannotTellCount: 0,
           kickoffsChanged: 0,
         });
@@ -491,6 +577,7 @@ export async function GET(req: Request): Promise<Response> {
           scoreDifferences: [],
           scoreDifferencesTruncated: false,
           scoreSweepFailedPartitions: [],
+          standingsInvalidation: completeStandingsInvalidation(),
           scoreSweepCannotTellCount: 0,
           kickoffsChanged: 0,
         });
@@ -516,6 +603,7 @@ export async function GET(req: Request): Promise<Response> {
           scoreDifferences: [],
           scoreDifferencesTruncated: false,
           scoreSweepFailedPartitions: [],
+          standingsInvalidation: completeStandingsInvalidation(),
           scoreSweepCannotTellCount: 0,
           kickoffsChanged: 0,
         });
@@ -540,6 +628,7 @@ export async function GET(req: Request): Promise<Response> {
           scoreDifferences: [],
           scoreDifferencesTruncated: false,
           scoreSweepFailedPartitions: [],
+          standingsInvalidation: completeStandingsInvalidation(),
           scoreSweepCannotTellCount: 0,
           kickoffsChanged: 0,
         });
@@ -637,18 +726,45 @@ export async function GET(req: Request): Promise<Response> {
     // invocation, scheduled post-response. Result/reason are the tracker's
     // verbatim; provider truth is true when ANY recorded year attempted a
     // provider-data request; the bounded target summarizes at most the first
-    // eight years. Best-effort, so it can neither change the response nor mask
-    // a propagating throw.
+    // eight years.
+    //
+    // HALF OF THE OLD CLAIM HERE WAS MADE FALSE BY A CHANGE IN THIS BRANCH, AND IS
+    // CORRECTED RATHER THAN LEFT. It read "Best-effort, so it can neither change the
+    // response nor mask a propagating throw." The `await resolvePendingForReceipt()`
+    // below runs a full-scope `app_state` read BEFORE the receipt is scheduled, so this
+    // is no longer off the response path: every cron invocation pays that round trip
+    // (bounded by `queryBounded`, but not zero). The other half still holds — the read
+    // cannot throw, so it cannot mask one.
     if (receiptInvocationId !== null) {
-      scheduleSchedulerExecutionReceipt({
-        job: 'schedule-refresh',
-        invocationId: receiptInvocationId,
-        startedAtMs,
-        result: exec.result,
-        reason: exec.reason,
-        providerCallAttempted: exec.years.some((entry) => entry.providerCallAttempted),
-        target: scheduleYearsTarget(exec.years, exec.invalidLifecycleTargets),
-      });
+      // COUNTED HERE, as late as possible — see `resolvePendingForReceipt`.
+      const pendingCount = await resolvePendingForReceipt();
+      if (pendingCount === 'unknown') {
+        // SKIP THE RECEIPT RATHER THAN PUBLISH A NUMBER NOBODY MEASURED. Receipts are
+        // latest-only monotonic, so writing one now would REPLACE the last receipt that
+        // was actually measured — and the only value available to write is a fabricated
+        // one. Skipping preserves the last measured state, which is stale but true.
+        //
+        // The cost is stated rather than hidden: this run's execution result is not
+        // recorded, so the job will look like it did not report. That is the honest
+        // reading — when the durable store cannot be read, the system genuinely cannot
+        // say what this run left behind, and scheduler-delivery health is the right
+        // place for that to surface.
+        // NOT `return` — this block is a `finally`, and returning from it would replace
+        // the response the try already produced.
+        console.error('skipping the schedule-refresh receipt: pending count unavailable', {
+          invocationId: receiptInvocationId,
+        });
+      } else {
+        scheduleSchedulerExecutionReceipt({
+          job: 'schedule-refresh',
+          invocationId: receiptInvocationId,
+          startedAtMs,
+          result: exec.result,
+          reason: exec.reason,
+          providerCallAttempted: exec.years.some((entry) => entry.providerCallAttempted),
+          target: scheduleYearsTarget(exec.years, exec.invalidLifecycleTargets, pendingCount),
+        });
+      }
     }
   }
 }

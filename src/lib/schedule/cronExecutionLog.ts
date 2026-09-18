@@ -5,6 +5,7 @@ import type {
 import type { FinalScoreDifferenceIdentity } from './finalScoreSweep.ts';
 import { rebuildUpstreamFaultClass } from '../api/upstreamFaultClass.ts';
 import type { SeasonType } from './cfbdSchedule.ts';
+import type { StandingsInvalidationOutcome } from '../selectors/leagueStandings.ts';
 import type { WeeklyScheduleRefreshOperation } from './weeklyRefreshOperation.ts';
 
 /**
@@ -68,14 +69,24 @@ export type ScheduleRefreshCronYearExecution = {
   year: number;
   /** The classified operation, or null when context was unavailable/skipped pre-classification. */
   operation: WeeklyScheduleRefreshOperation | null;
-  result: 'skipped' | 'success' | 'no-op' | 'failure';
+  /**
+   * PLATFORM-693 added `partial`: the schedule rows COMMITTED but the post-commit
+   * canonical-standings bust did not complete. Neither `success` (the cache is
+   * stale and will stay stale — `revalidate: false` is tag-only) nor `failure`
+   * (the data landed; calling the refresh failed would be untrue and would raise a
+   * schedule-health issue for a healthy refresh). The receipt layer already
+   * accepted `partial` — `yearOutcome` takes the full `SchedulerExecutionResult` —
+   * so this widening flows straight through to System Health.
+   */
+  result: 'skipped' | 'success' | 'partial' | 'no-op' | 'failure';
   reason:
     | FullSeasonScheduleRefreshReason
     | 'automation-paused-or-disabled'
     | 'season-transition-owner'
     | 'canonical-context-unavailable'
     | 'settings-unavailable'
-    | 'score-sweep-failed';
+    | 'score-sweep-failed'
+    | 'standings-invalidation-incomplete';
   providerCallAttempted: boolean;
   /**
    * PLATFORM-126B — the partitions this year's refresh actually requested, empty
@@ -97,6 +108,11 @@ export type ScheduleRefreshCronYearExecution = {
   scoreDifferences: ReadonlyArray<FinalScoreDifferenceIdentity>;
   scoreDifferencesTruncated: boolean;
   scoreSweepFailedPartitions: ReadonlyArray<{ week: number; seasonType: SeasonType }>;
+  /**
+   * PLATFORM-693 — what the post-commit canonical-standings bust did. Counts and
+   * slugs only, never an error message, so the whole entry stays log-safe.
+   */
+  standingsInvalidation: StandingsInvalidationOutcome;
   scoreSweepCannotTellCount: number;
   kickoffsChanged: number;
 };
@@ -144,11 +160,13 @@ export function createScheduleRefreshCronExecutionState(): ScheduleRefreshCronEx
  * by E1B1):
  *   1. no entries → `skipped`;
  *   2. all entries skipped → `skipped`;
- *   3. ≥1 failure AND ≥1 non-failure (success/no-op) among the non-skipped →
+ *   3. ≥1 failure AND ≥1 non-failure (success/no-op/partial) among the non-skipped →
  *      `partial`;
  *   4. every non-skipped entry failed → `failure`;
- *   5. ≥1 success and no failure → `success`;
- *   6. otherwise (≥1 no-op, no success/failure) → `no-op`.
+ *   5. ≥1 per-year `partial` and no failure → `partial` (PLATFORM-693: a year that
+ *      COMMITTED but whose standings bust did not complete);
+ *   6. ≥1 success and no failure or partial → `success`;
+ *   7. otherwise (≥1 no-op, nothing else) → `no-op`.
  * Skips are excluded before the partial/failure comparison, so neither a gated
  * ordinary year NOR a transition-owned preseason year (an intentional
  * `season-transition-owner` deferral) can make a successful sibling run partial —
@@ -163,8 +181,15 @@ export function aggregateScheduleCronResult(
   const hasFailure = nonSkipped.some((entry) => entry.result === 'failure');
   const hasSuccess = nonSkipped.some((entry) => entry.result === 'success');
   const hasNoop = nonSkipped.some((entry) => entry.result === 'no-op');
-  if (hasFailure && (hasSuccess || hasNoop)) return 'partial';
+  // PLATFORM-693 — a per-year `partial` (committed, but the standings bust did not
+  // complete) MUST be counted here. Without this clause a run whose every year was
+  // partial matched no branch and fell through to `skipped`, reporting that NOTHING
+  // RAN for a run that committed schedule rows for every target year; and a mixed
+  // partial/success run reported a clean `success`, hiding it entirely.
+  const hasPartial = nonSkipped.some((entry) => entry.result === 'partial');
+  if (hasFailure && (hasSuccess || hasNoop || hasPartial)) return 'partial';
   if (hasFailure) return 'failure';
+  if (hasPartial) return 'partial';
   if (hasSuccess) return 'success';
   return hasNoop ? 'no-op' : 'skipped';
 }
@@ -239,6 +264,12 @@ export function emitScheduleRefreshCronExecutionEvent(
           week: partition.week,
           seasonType: partition.seasonType,
         })),
+        standingsInvalidation: {
+          result: entry.standingsInvalidation.result,
+          attempted: entry.standingsInvalidation.attempted,
+          invalidated: entry.standingsInvalidation.invalidated,
+          failed: entry.standingsInvalidation.failed,
+        },
         scoreSweepCannotTellCount: entry.scoreSweepCannotTellCount,
         kickoffsChanged: entry.kickoffsChanged,
       })),

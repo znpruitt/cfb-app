@@ -11,7 +11,9 @@ import { workAsyncStorage } from 'next/dist/server/app-render/work-async-storage
 
 import { GET } from '../route';
 import { TEST_LEAGUE_SLUG, type League } from '../../../../../lib/league.ts';
+import { recordPendingStandingsInvalidation } from '../../../../../lib/server/standingsInvalidationPending.ts';
 import {
+  __corruptAppStateFileForTests,
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
   __setAppStateWriteFailureForTests,
@@ -266,6 +268,8 @@ async function seedPriorReceipt() {
       scoreRepairs: 0,
       scoreDifferences: 0,
       scoreSweepFailures: 0,
+      standingsInvalidationFailures: 0,
+      pendingStandingsInvalidations: 0,
       scoreSweepCannotTellCount: 0,
       kickoffsChanged: 0,
       years: [{ year: 2031, operation: 'ordinary-maintenance', ...legacyYearOutcome() }],
@@ -316,6 +320,8 @@ test('a no-maintenance-target run writes a healthy provider-free skip receipt', 
     scoreRepairs: 0,
     scoreDifferences: 0,
     scoreSweepFailures: 0,
+    standingsInvalidationFailures: 0,
+    pendingStandingsInvalidations: 0,
     scoreSweepCannotTellCount: 0,
     kickoffsChanged: 0,
     years: [],
@@ -565,6 +571,8 @@ test('a demo-only active registry writes a zero-target provider-free receipt', a
     scoreRepairs: 0,
     scoreDifferences: 0,
     scoreSweepFailures: 0,
+    standingsInvalidationFailures: 0,
+    pendingStandingsInvalidations: 0,
     scoreSweepCannotTellCount: 0,
     kickoffsChanged: 0,
     years: [],
@@ -806,6 +814,8 @@ test('PLATFORM-107: an invalid present sweep counter rejects the stored receipt'
       scoreRepairs: -1,
       scoreDifferences: 0,
       scoreSweepFailures: 0,
+      standingsInvalidationFailures: 0,
+      pendingStandingsInvalidations: 0,
       scoreSweepCannotTellCount: 0,
       kickoffsChanged: 0,
       years: [{ year: 2020, operation: 'ordinary-maintenance', ...legacyYearOutcome() }],
@@ -833,6 +843,8 @@ test('R2: the System Health schedule summary renders the refusal count', async (
       scoreRepairs: 0,
       scoreDifferences: 0,
       scoreSweepFailures: 0,
+      standingsInvalidationFailures: 0,
+      pendingStandingsInvalidations: 0,
       scoreSweepCannotTellCount: 0,
       kickoffsChanged: 0,
       years: [{ year: 2020, operation: 'ordinary-maintenance', ...legacyYearOutcome() }],
@@ -850,6 +862,8 @@ test('R2: the System Health schedule summary renders the refusal count', async (
       scoreRepairs: 0,
       scoreDifferences: 0,
       scoreSweepFailures: 0,
+      standingsInvalidationFailures: 0,
+      pendingStandingsInvalidations: 0,
       scoreSweepCannotTellCount: 0,
       kickoffsChanged: 0,
       years: [{ year: 2020, operation: 'ordinary-maintenance', ...legacyYearOutcome() }],
@@ -869,6 +883,8 @@ test('R2: the System Health schedule summary renders the refusal count', async (
       scoreRepairs: 0,
       scoreDifferences: 0,
       scoreSweepFailures: 0,
+      standingsInvalidationFailures: 0,
+      pendingStandingsInvalidations: 0,
       scoreSweepCannotTellCount: 0,
       kickoffsChanged: 0,
       years: [],
@@ -885,10 +901,83 @@ test('R2: the System Health schedule summary renders the refusal count', async (
       scoreRepairs: 2,
       scoreDifferences: 1,
       scoreSweepFailures: 1,
+      standingsInvalidationFailures: 0,
+      pendingStandingsInvalidations: 0,
       scoreSweepCannotTellCount: 1,
       kickoffsChanged: 3,
       years: [{ year: 2020, operation: 'ordinary-maintenance', ...legacyYearOutcome() }],
     }),
     '1 year(s): 2020 (ordinary-maintenance) · 2 score repair(s) · 1 score difference(s) · 1 score sweep failure(s) · 3 kickoff change(s)'
+  );
+});
+
+// === PLATFORM-693 round 5 — the count-to-receipt join, end to end ===
+
+/**
+ * `AGENTS.md:468`: if deleting the behaviour leaves the suite green, it was never in the
+ * acceptance contract. Replacing `pendingCount` at the receipt call site with a literal
+ * `0` USED TO leave the whole suite green — every receipt assertion on this branch
+ * asserted `pendingStandingsInvalidations: 0`, so nothing could tell a real count from a
+ * hardcoded one.
+ *
+ * I PREVIOUSLY DOCUMENTED THAT THIS COULD NOT BE TESTED, and that was wrong. The note in
+ * `pendingDrain.test.ts` said "a route test cannot observe one no matter how the
+ * assertion is written" — true of THAT harness, whose `runRoute` does not persist a
+ * receipt, and false of the system: this file installs a receipt deferrer, flushes it,
+ * and reads the stored receipt back. I measured one harness and stated a property of the
+ * system, in a docblock, as a REASON — which is the form that stops the next reader
+ * looking. A stated limitation is a claim and needs the population named.
+ */
+
+test('a positive pending count reaches the stored receipt', async () => {
+  await seedSeasonLeague(2031);
+  await seedSchedule(2031, CRITICAL_KICKOFF);
+  stubProvider({ 2031: gameBody(2031) });
+
+  // SIX obligations against a drain capped at `MAX_PENDING_DRAIN_PER_RUN` (4). The walk
+  // succeeds in this harness, so the drain repairs and clears four and TWO SURVIVE — a
+  // positive count that is a real measurement of the durable set, not a contrivance.
+  for (const year of [2011, 2012, 2013, 2014, 2015, 2016]) {
+    await recordPendingStandingsInvalidation(year);
+  }
+
+  await runRoute();
+  await deferrer.flush();
+
+  const stored = await readSchedulerReceipt('schedule-refresh');
+  assert.ok(stored);
+  const receipt = stored.value;
+  assert.equal(receipt.target.kind, 'schedule-years');
+  const target = receipt.target as Extract<typeof receipt.target, { kind: 'schedule-years' }>;
+  // THE ASSERTION A LITERAL ZERO CANNOT SATISFY.
+  assert.equal(
+    target.pendingStandingsInvalidations,
+    2,
+    'the overflow beyond the drain cap must reach the receipt'
+  );
+});
+
+test('an unreadable pending set writes NO receipt, preserving the last measured one', async () => {
+  // ROUND 5's PRINCIPLE, at the surface it protects. The fallback used to publish the
+  // drain's observed count here — which is 0 when the store is down, because the list
+  // read converts its own failure to an empty list. Receipts are latest-only monotonic,
+  // so that zero REPLACED a prior receipt reporting real outstanding work.
+  await seedSeasonLeague(2031);
+  await seedSchedule(2031, CRITICAL_KICKOFF);
+  stubProvider({ 2031: gameBody(2031) });
+
+  // OBSERVED ON THE DEFERRER, NOT BY READING BACK. A corrupted store cannot be read to
+  // verify what survived it — `getAppStateEntries` does not consult the scoped
+  // read-failure seam, so the failure cannot be narrowed to the pending scope. The
+  // deferrer counts what the route SCHEDULED, which is the decision under test: with the
+  // count unknown, no receipt is scheduled at all, so nothing can overwrite the last one
+  // that was actually measured.
+  await __corruptAppStateFileForTests();
+  await runRoute();
+
+  assert.equal(
+    deferrer.count(),
+    0,
+    'an unknown pending count must schedule NO receipt, so the last measured one stands'
   );
 });
