@@ -146,7 +146,7 @@ These consolidate recurring historical observations, not new project-governance 
   `npm run test:browser:required` used real Chrome and passed 2/2: 40px gutters, right slack
   `0 / 259 / 579px` at `1341 / 1600 / 1920px`. Full suite: 5,412 pass / 0 fail / 0 skipped; lint and
   TypeScript passed.
-- Status: Implemented — [PR #829](https://github.com/znpruitt/cfb-app/pull/829) open; owner preview
+- Status: **Merged `22a0607f` ([PR #829](https://github.com/znpruitt/cfb-app/pull/829)), 2026-09-19;** merged tree `d373dec3`. NOT promoted. Owner preview
   approved 2026-09-19. Planning's `95d658a8` DESIGN amendment is incorporated. Leaves
   [#726](https://github.com/znpruitt/cfb-app/issues/726),
   [#821](https://github.com/znpruitt/cfb-app/issues/821) and
