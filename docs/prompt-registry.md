@@ -121,6 +121,277 @@ These consolidate recurring historical observations, not new project-governance 
 
 ## Prompt ledger (source order retained)
 
+### PLATFORM-816-STANDINGS-CACHE-DELTA-CLAUDE-v2
+
+- Purpose: `GET /api/debug/standings-cache-delta` — admin-gated, one league and year per request —
+  returns the CACHED canonical standings beside a fresh uncached rebuild, with a per-owner delta, and
+  says which of the two the cached read actually was. Refs
+  [#816](https://github.com/znpruitt/cfb-app/issues/816).
+- **v1 IS SUPERSEDED AND UNMERGED. Its closeout is at `1a29024f`** on
+  `claude/816-standings-cache-delta`, and the branch is preserved rather than deleted because that
+  ledger is the only record of what four review passes taught.
+- **WHY IT WAS RECONSTRUCTED, which is the reusable part.** v1 took four passes; **every one of the
+  ~20 findings was a single class — the detector claiming more than it observes — and the per-round
+  introduction rate never fell.** Attribution by `git log -S` per symbol: round 1 introduced 2 of the
+  surviving findings, round 2 introduced 3, round 4 introduced 3, and round 4's entire purpose was to
+  remove that class. A precommitment agreed BEFORE the evidence arrived stopped the branch on the
+  next instance; it fired on the first pass after it was made, on findings that each looked like a
+  one-line fix. The comparison core drew zero findings in two consecutive passes while the detector
+  drew all of them, which is what made the detector — and only the detector — the thing to rebuild.
+- **THE RULE v2 OBEYS: do not classify by elimination.** Every v1 defect was a verdict derived from
+  what did NOT happen — nothing was queued so it must be a hit; not draft mode so it must be X — and
+  each derivation was only as sound as an enumeration that kept turning out incomplete. v2 publishes
+  the observations and derives one thing, from values that are themselves printed.
+- **KEYS, NOT COUNTS.** `pendingRevalidates` keys are reported at entry, after the cached read and at
+  exit; `publicationKeysAdded` is a SET DIFFERENCE. `patch-fetch.js:182` and `:723` DELETE keys as
+  fetch cache-sets settle while `unstable_cache` never deletes, so a count is not monotonic and a
+  delta of zero is not evidence of no write — the defect that ended v1. The keys also name WHICH
+  entry published, archive-years or standings, which a count never permitted.
+- **`cannot-tell` IS A FIRST-CLASS OUTCOME**, reachable three ways and tested on all three. The
+  defining row: no publication plus a matching stamp stays UNRESOLVED, with `isDraftMode` printed
+  beside it. v1 resolved that state by elimination twice — to `bypassed`, then to `hit` — and both
+  were review findings. **No better discriminator exists:** `unstable_cache` surfaces its invocation
+  key only WHEN IT PUBLISHES, which is precisely the case the other rows already resolve.
+- **Five fields died.** `dataCachePublicationConfirmed` with **nothing replacing it** — Next drains
+  `pendingRevalidates` through `pendingWaitUntil` after the handler returns, so no request can
+  confirm its own write, and v1 kept the field alive through four rounds of increasingly careful
+  wording where the wording was the thing that was wrong. Also gone: `dataCachePublicationQueued`,
+  `provenanceRestsOnTimestamp`, the `bypassed` verdict, and the `workStoreCachePresent` predicate
+  that duplicated Next's own `if (workStore)` branch.
+- **REFUTED AND NOT RE-DERIVED**, carried forward from #819: `classifyCacheRead` branching on
+  `workStoreCachePresent` where Next branches on the work-store object is UNREACHABLE —
+  `work-store.js:45` builds the store's cache as
+  `renderOpts.incrementalCache || globalThis.__incrementalCache`, so "store present, cache absent"
+  implies the global is absent and the `unavailable` path fires first. v2 removes the predicate
+  anyway, by construction.
+- **ACCEPTANCE 2 — a reader can re-derive every verdict from the printed values.** Captured from real
+  responses, not composed:
+
+  ```text
+  MISS         verdictRule=published-and-stamped-here
+               stampedByThisRequest=true   publicationKeysAdded=[archive-years, canonical-standings]
+  HIT          verdictRule=no-publication-and-value-predates-request
+               stampedByThisRequest=false  publicationKeysAdded=[]
+               snapshotGeneratedAt=2026-09-01T00:00:00.000Z (the warming request's stamp)
+  CANNOT-TELL  verdictRule=no-data-cache-consulted
+               incrementalCachePresent=false  workStorePresent=false
+               stampedByThisRequest=TRUE — which is exactly why the verdict cannot be read off the
+               stamp, and why this row is not a `miss`
+  ```
+
+- **Four comparison-core corrections, and planning's "the core is clean" was wrong in ONE place
+  reachably, not three.** The history digest is now POSITIONAL: `selectRankTrend`
+  (`trends.ts:306-320`) derives rank from `byWeek[week].standings.findIndex(...)`, so sorting
+  normalised away the one thing the array carries that the row fields do not. `byOwner` is compared
+  PER OWNER, naming who diverged, rather than by a key count that agrees whenever the owner set does.
+  **`ownerColorOrder` and `coverage.message` are cross-checks, not gap-closers** — I reported both to
+  planning as live blind spots and reading the derivations afterwards showed each is a pure function
+  of data already compared (`buildOwnerColorOrder(rows)`; and inside a canonical snapshot the only
+  coverage shapes reachable are `{complete,null}` and `{partial,COVERAGE_INCOMPLETE}`, with
+  `STANDINGS_COVERAGE_UNAVAILABLE` a CLIENT-side fallback that never enters the selector). They are
+  compared anyway, with two tests pinning the PURITY so they become live if it stops holding.
+  `pending` stays sorted deliberately: it is a set the abandonment rule scans, with no index
+  semantics, unlike `standings` where the index IS the rank.
+- **#818's archived-season disjunct is taken, on parity grounds, and the issue's stated consequence
+  was wrong.** Measured on the read-only replica 2026-09-18: archives are `tsc/2018` and
+  `tsc/2021-2025`, all inside `2000…2027`, so **no archived season was being refused**. Taken because
+  a route that cites a precedent should implement it. Its cost is commented: the disjunct reads
+  `listSeasonArchives`, behind the same shared cache both comparison sides read through, so a stale
+  list refuses a real year. The unknown-slug 404 moved ABOVE it so an unregistered slug never reaches
+  that read. A rejected year now touches the per-league archive-years entry — keyed on the SLUG
+  alone, so the property the bound protects holds: a distinct `?year=` still cannot mint an unbounded
+  keyspace, and never a per-year standings entry or a build.
+- **Three mutations initially SURVIVED, all against vacuous fixtures of mine**, and each is recorded
+  because the fixture was the defect: a key-deletion fixture that netted +1 so a count-based
+  implementation survived it; an `ownerColorOrder` fixture where canonical and alphabetical order
+  coincided so a broken sort was invisible; and **the #818 disjunct had no acceptance test at all** —
+  I wrote the refusal half and not the acceptance half. All three were rebuilt until they redden.
+- Verification: `tsc --noEmit`, `lint:all`, `npm run build` and `npm test` each exited 0 on branch
+  tip `15471378`; **5,450 pass / 0 fail / 0 cancelled / 0 skipped** in 40.5 s, against the 5,412
+  baseline plus the **38** added here (36 route + 2 import-graph). Both required browser tests passed.
+  **13 mutations, every one reddening a named assertion**, including one that restores the
+  elimination rule this reconstruction removes.
+- **A verification note worth keeping.** Three full-suite runs first came back with 8, 20 and 20
+  CANCELLED at 28, 59 and 82 minutes against a normal ~45 s. My first read was contention from my own
+  piled-up runs — which I had in fact caused — but it persisted running alone. The cause was the
+  MACHINE: `ANECompilerService` at 90%, `contactsd` 75%, `AdobeGCClient` 73%, `peopled` 70%, load
+  average 52, blowing the 30 s per-test timeout; the cancelled files were scattered and unrelated and
+  their durations clustered identically, the signature of queued-and-starved rather than slow. The
+  clean run above is the same code at load 6. **Cancellations are not failures and were not reported
+  as either.**
+- **Review round 1: `/code-review` 9 findings, Codex 3, one overlapping — 11 distinct, all confirmed.**
+  **Nine fixed, TWO LEFT OPEN BY THE PRECOMMITMENT.**
+- **The finding both reviewers found independently, and one reproduced.**
+  `resolveStandingsYear` runs inside the observation window and, on an offseason league, reads
+  `listSeasonArchives` — a different cache family tagged `archive:<slug>`. Branching on ANY added key
+  reported a plain hit as `published-and-value-predates-request` with `backgroundRevalidation: true`,
+  and under a stamp collision as a `miss`. **The payload comment already claimed the keys let a
+  reader tell the two apart; the derivation did not.** Fixing it was an OWNER OVERRIDE of the
+  precommitment — taken because both reviewers found it and the fix ADDS a filter rather than
+  restructuring the derivation. The verdict now branches on `standingsPublicationKeysAdded`, whose
+  signature is derived from `canonicalStandingsCacheKeyParts` rather than a hand-written substring;
+  if Next's key composition changes, the match finds nothing and the verdict degrades to
+  `cannot-tell`, declining rather than claiming.
+- **OPEN, DOCUMENTED, NOT FIXED — the precommitment class.**
+  1. `resolveComparisonBlocker` reports `cached-side-not-a-snapshot` for EVERY `cannot-tell`,
+     including `no-publication-and-stamp-matches`, where this branch's own test constructs a genuine
+     pre-existing snapshot and says so. Gating `matches` to `null` there is right; asserting WHY is
+     not observed. A fourth blocker code ("verdict undetermined") would say only what is known.
+  2. `requestPublicationKeysAdded` is documented as the whole request's durable effect, entry to
+     exit, but the entry observation is taken AFTER `resolveRequestedYear` — which on the #818 path
+     can publish `season-archive-years` first, as this branch's own
+     `rejectsAnOutOfRangeYearBeforeAnyBuild` asserts. A publication the request genuinely queued is
+     missing from an account that claims to be complete.
+- **The floor guard the cited precedent already carried.** #774's `resolveArchiveYearParam` checks
+  the floor BEFORE reading archives, with a comment recording that without it a store outage turned a
+  certain 400 on `/history/tsc/1999` into a 500. I implemented the disjunct without it — while my own
+  test comment noted the `n >= 2000` filter that makes the read pointless. **Third time in this work
+  that citing a rule stood in for implementing it.**
+- Also fixed: a legacy archive predating `finalGames` no longer loses the field to
+  `JSON.stringify` (`trends.ts:124` documents the shape and notes `undefined > 0` is false rather
+  than an error, which is why nothing else caught it); and six comment defects carried over when v1's
+  files were copied — **a 53-line JSDoc I duplicated into `leagueStandings.ts` and attached to the
+  wrong symbol**, a scripted-edit error from extracting a block whose end boundary swallowed the next
+  doc comment, plus five citations naming removed symbols and tests that do not exist, each verified
+  to resolve ONLY inside the comment citing it.
+- Round-1 verification: `tsc --noEmit`, `lint:all`, `npm run build` and `npm test` each exited 0 on
+  tip `974a1466`; **5,454 pass / 0 fail / 0 cancelled / 0 skipped** in 46.6 s. Both required browser
+  tests passed. **5 mutations, every one reddening a named assertion**, including one that restores
+  the exact attribution bug both reviewers found.
+- **Review round 2: `/code-review` 6 findings, Codex 3, one overlapping — 8 distinct.** Five fixed,
+  one an expected re-report of an already-open item, **two NEW and left open by the precommitment**.
+- **ROUND 1'S COMMIT MESSAGE CLAIMED THE `undefined` DEFECT WAS CLOSED WHILE IT WAS FIXED IN ONE OF
+  TWO SITES.** `projectSide` got `?? null`; `compareOwners` did not. `finalGames` is typed required
+  while durable archives omit it (`trends.ts:124`), so TypeScript sees neither site. The code is now
+  fixed in both and each of the three sites is mutation-proven independently — **the false claim
+  stays on this record**, because a ledger that quietly absorbs it is how the next reader learns to
+  trust a commit message over a test.
+- **Three text defects, and the pattern beneath them is the reusable part.** A duplicated token my own
+  `sed` produced **while removing scripted-edit debris**; a garbled sentence from `15471378` that round
+  1's sweep for exactly this did not catch; and a JSDoc orphaned from its symbol in a hunk round 1
+  edited. In every case I had asserted `s.count(old) == 1` before replacing — **which proves the
+  ANCHOR is unique and says nothing about whether the RESULT is well-formed.** Every edit in round 2
+  was verified by reading its diff hunk, then the files were swept for further doubled tokens and
+  back-to-back JSDoc blocks: one more orphan was found and merged, and two in `leagueStandings.ts`
+  were confirmed pre-existing on `main` and left alone.
+- **Two positive results from review, recorded because they are evidence and not absence of it.** The
+  attribution fix is NON-VACUOUS — reverting `standingsPublicationKeysAdded` to `publicationKeysAdded`
+  reddens `doesNotAttributeAnArchiveYearsPublicationToTheStandingsRead` and nothing else. And the
+  substring premise was confirmed against the installed Next 15.5.24 by LIVE PROBE: `unstable_cache`
+  keys `pendingRevalidates` on `` `${cb.toString()}-${keyParts.join(',')}-${JSON.stringify(args)}` ``
+  and a probe printed the joined parts verbatim, so the derived signature matches what it claims to.
+- **OPEN, DOCUMENTED, NOT FIXED — two NEW instances of the precommitment class, both from Codex.**
+  3. A STALE entry warmed in this request's millisecond: Next queues the revalidation (key added) and
+     returns the stale value whose stamp equals the probe stamp, so `deriveCacheReadFacts` reports
+     `miss` on what was a hit. The observations are indistinguishable from a real miss, so the rule
+     requires `cannot-tell`. This is the same millisecond residual the code already names — now shown
+     to produce a WRONG VERDICT rather than only a lost distinction.
+  4. `SHARED_NESTED_CACHES` says the per-year archive cache is "read when that year is listed".
+     `resolveOffseason` gates `getSeasonArchive(slug, targetYear)` on `mostRecentArchivedYear != null`
+     and passes the caller's year, so an UNLISTED year is read too — and a stale cached `null` there
+     sends both sides to live data. The enumeration understates its own blind spot.
+- Round-2 verification: `tsc --noEmit`, `lint:all`, `npm run build` and `npm test` each exited 0 on
+  tip `d959b97a`; **5,455 pass / 0 fail / 0 cancelled / 0 skipped** in 51.0 s. Both required browser
+  tests passed. **3 mutations, each reddening a named assertion**, one per legacy-field site.
+- **Review round 3: `/code-review` 4 findings, Codex 5 — 5 new, 4 expected re-reports of the open
+  class items.** Codex usefully WIDENED one: the false `miss` has a second cause beyond the
+  millisecond collision, since on-demand revalidation also skips the cache read and publishes.
+- **THE `undefined`-DROP DEFECT WAS DECLARED CLOSED TWICE AND WAS CLOSED NEITHER TIME** — at one of
+  three sites, then at two. `compareSnapshotFields` passed seven of eight entries raw while
+  `coverage.message` alone carried `?? null`, **an asymmetry I had written myself and which was the
+  tell.** Both claims were made from the sites I happened to be looking at.
+- **So round 3 did not add a third `?? null` and assert completeness again.** The normalization moved
+  to the single boundary every entry funnels through, and
+  `assertEveryComparisonEntryCarriesBothSides` now walks every owner projection and difference entry
+  in the response and fails on a dropped key — **a check that does not depend on anyone enumerating
+  the sites.** It found the third site immediately. Note the shape of the observable defect:
+  `JSON.stringify` drops an `undefined` VALUE, so what a reader sees is an ABSENT KEY; walking the
+  parsed body for `undefined` finds nothing.
+- Normalization sits BEFORE the filter deliberately, and both halves are tested: absent-vs-real-value
+  IS a difference carrying both keys; absent-vs-null is NOT one, because they mean the same thing and
+  reporting it would put a shape artefact in the list whose emptiness is the signal.
+- **The year is resolved once and reused** by the cached read, the fresh rebuild and the key
+  signature; previously all three resolved independently, so an overlapping lifecycle transition
+  could make `year.resolved` and `standingsKeySignature` describe a year the comparison did not use.
+- **TWO MUTATIONS SURVIVE BY DESIGN, AND SAYING SO IS THE POINT.** Reverting either read to the
+  unpinned form leaves the suite green, because the two forms are equivalent in every reachable
+  branch — which is simultaneously the safety argument for pinning and the reason the pinning has no
+  observable effect in-suite. Its benefit appears only under an interleaving no test can stage. The
+  test's own doc records this rather than implying coverage it does not have.
+- **A fourth orphaned JSDoc, created IN ROUND 3 by the same mechanism as the three it fixed** —
+  anchoring an insertion on a declaration line without accounting for its preceding doc comment.
+  Caught by the class-wide sweep, **not** by reading the hunk, which looked correct in isolation.
+  That is the refinement: read the hunk AND re-sweep the file for the class.
+- Round-3 verification: `tsc --noEmit`, `lint:all`, `npm run build` and `npm test` each exited 0 on
+  tip `72524ecc`; **5,458 pass / 0 fail / 0 cancelled / 0 skipped** in 47.3 s. Both required browser
+  tests passed. **6 mutations run, 4 red on a named assertion, 2 surviving by design and documented.**
+- **Review round 4: `/code-review high` on `72524ecc` 3 findings, all new and all confirmed; Codex
+  on `be93943f` (the round-3 closeout, zero `src/` difference) 4, all re-reports of the open class
+  items, zero new.** Remediation was owner-approved. **Every new finding was about round 3's
+  VERIFICATION, not the detector**: that surface has now drawn no new finding in a pass.
+- **F1 — a real 500 on the exact input the route exists to diagnose.** Round 3 normalized at the
+  boundary, but that runs on tuples ALREADY BUILT, and three entries dereferenced the value while
+  building them: `cached.coverage.state`, `cached.coverage.message`, `cached.ownerColorOrder.join`.
+  A snapshot predating either field (reachable: `revalidate: false` with tag-only invalidation, so
+  entries survive deploys) threw before a body existed. **Round 3's comment claimed a later field
+  "cannot reintroduce it", and its response-wide assertion could not see a throw**, because a throw
+  leaves no body to walk. Pre-existing from v1; the false coverage claim was round 3's.
+- **The fix is a check with no list in it.** `survivesASnapshotMissingAnyOneField` WALKS a real
+  snapshot for field paths, deletes each in turn, and asserts a 200 with both sides present. It
+  found `snapshot.rows.forEach`, which neither reviewer named; a mutation then showed the walk was
+  top-level only, and descending into plain objects found `history.byWeek[week]` and
+  `byOwner[owner]`. **Four rounds of me enumerating sites produced three false "closed" claims; one
+  walk produced three real sites.**
+- **F2 — the year pin was TAUTOLOGICAL and `route.ts` cited it by name.** `resolveStandingsYear`
+  returns a non-null override on its first line, so the key assertion compared `f(x)` with `f(x)`.
+  It now deep-equals the two COMPUTES — the equivalence actually at risk, since
+  `dataCachedCanonicalStandings` passes the raw override into the compute while keying on the
+  resolved year. **F3** — the boundary sweep's fixture guard was truthy for `[]`, so it could report
+  full coverage over zero entries; it now requires non-zero differences AND non-zero fields.
+- **The recurring defect on this branch has moved from the route to my verification of it**: a
+  boundary check that cannot see throws, a guard that passes on an empty array, and an equality
+  that cannot fail, each cited as proof.
+- Round-4 verification: 7 mutations, every one reddening a named assertion, one per restored
+  dereference (recorded in `181c52c6`). The first gate run had `lint:all` 1 and `build` 1 — the F2
+  fix orphaned an import `tsc` does not flag; fixed before commit. On the closeout tip, whose `src/`
+  is byte-identical to `181c52c6`: `tsc --noEmit` 0, `npm run build` 0, `lint:all` 0, `npm test` 0 —
+  **5,459 pass / 0 fail / 0 cancelled / 0 skipped** in 46.2 s. Browser tests were not re-run for
+  the closeout.
+- **Confirming pass on `c44dff2e` (the round-4 closeout; `src/` identical to `181c52c6`), both
+  reviewers against merge-base `b5d9103b`: no finding on the round-4 fix, none new on the
+  detector.** Codex returned the four open class items and nothing else; `/code-review high`
+  returned one new low finding outside the class and confirmed the verdict logic against Next's
+  `unstable-cache.js`, the year pinning, the stamp comparison and the year-bound ordering.
+  **Owner ruling 2026-09-19: the confirming pass clears it — merge with the limitations
+  documented.**
+- **Every open finding is on record in an issue, and this branch leaves #817, #820, #822, #823 and
+  #824 open:**
+  1. false `miss` on a same-millisecond stale entry or an on-demand revalidation — comment on
+     [#817](https://github.com/znpruitt/cfb-app/issues/817);
+  2. the blocker asserts `cached-side-not-a-snapshot` for every `cannot-tell` —
+     [#822](https://github.com/znpruitt/cfb-app/issues/822);
+  3. the per-year archive cache is read for an unlisted year and missing from
+     `SHARED_NESTED_CACHES` — [#824](https://github.com/znpruitt/cfb-app/issues/824);
+  4. `requestPublicationKeysAdded` starts observing after a publishing year read —
+     [#823](https://github.com/znpruitt/cfb-app/issues/823);
+  5. **new, low, unpatched**: the import-graph guard's `bindingAlias` pattern misses
+     `export async function` and gives up past 80 characters, so an async wrapper in
+     `leagueStandings.ts` would pass it — comment on
+     [#820](https://github.com/znpruitt/cfb-app/issues/820). No such wrapper exists. It is a test gap
+     outside the precommitment class, on a path no code takes. **The stronger fix recorded there:
+     assert the symbol appears in `leagueStandings.ts` only at its declaration and in no other file
+     except the route** — ask where the symbol is named rather than enumerate the shapes a leak
+     could take, which is the mistake this guard has now made twice.
+- Status: **Merged by PR; see the merge SHA in the PR.** Four remediation rounds ran, the fourth
+  owner-approved, then one confirming pass with no patching.
+- **THE GATE REMAINS UN-RUN.** Merging does not run it and neither does a green build. Two owner
+  steps must both happen: **promotion** (a merge builds but does not ship), and **an authenticated
+  call against production** to `/api/debug/standings-cache-delta`. Until both have happened, nothing
+  is known about whether served standings match their inputs, and #693 stays parked on that
+  question. **Fail-closed on preview is not the gate either**: v1 verified the admin refusal in real
+  preview runtime, but no authenticated call has ever been made, and preview reads its own Neon
+  branch, so even an authenticated preview call answers about preview's snapshot.
+
 ### PLATFORM-729-SCHEDULE-TEAM-NAMES-CODEX-v1
 
 - Purpose: render provider full school names on Schedule/Postseason with Overview/Matchups parity.
