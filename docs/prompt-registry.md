@@ -382,7 +382,7 @@ These consolidate recurring historical observations, not new project-governance 
      assert the symbol appears in `leagueStandings.ts` only at its declaration and in no other file
      except the route** — ask where the symbol is named rather than enumerate the shapes a leak
      could take, which is the mistake this guard has now made twice.
-- Status: **Merged by PR; see the merge SHA in the PR.** Four remediation rounds ran, the fourth
+- Status: **Merged `e920e7de` ([PR #826](https://github.com/znpruitt/cfb-app/pull/826)), 2026-09-19;** merged tree `618ab2d3` identical to the gated tip `e55e46d1`. NOT promoted. Four remediation rounds ran, the fourth
   owner-approved, then one confirming pass with no patching.
 - **THE GATE REMAINS UN-RUN.** Merging does not run it and neither does a green build. Two owner
   steps must both happen: **promotion** (a merge builds but does not ship), and **an authenticated
