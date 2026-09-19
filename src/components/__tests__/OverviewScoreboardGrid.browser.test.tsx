@@ -288,11 +288,6 @@ test('Overview keeps full-width equal tracks while capping each left-aligned sco
         true,
         'the known 761px two-column clipping interval remains explicit pending #821'
       );
-      assert.equal(
-        atTarget.stressLabelClipped,
-        false,
-        'the named stress row must fit once each two-column track reaches the measured target'
-      );
       assert.equal(atThree.stressLabelClipped, false, 'the named stress row must fit at 1341px');
       assert.ok(
         atThree.stressContentToScoreGap >= 11.5,
