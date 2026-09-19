@@ -490,6 +490,13 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 - Primary line: rank (muted) · name · champion badge (if applicable) · record · GB
 - Secondary line: Win% · Diff
 - GB is the primary metric in a pool format and sits on the primary line
+- **Records are live, movement is resolved.** The condensed table's record, Win%, Diff and GB are the
+  live canonical rows — the same values the podium and the full Standings page show — so one screen
+  never presents two leaders. Rank movement stays anchored on the latest fully resolved weeks, so a
+  partial week never makes the comparison skip a boundary. **Added 2026-09-19** by owner decision on
+  [#827](https://github.com/znpruitt/cfb-app/issues/827): the table had been taking its record VALUES
+  from the resolved-week snapshot as well, so on a Week 3 game day the podium read Chamness 17–6 while
+  the table beneath it read BHooper 15–4. **Not yet implemented** — #827 is the slice
 - Column headers are omitted on condensed snapshot tables of ≤4 columns where data is self-evident at the table's density (rank · name · record · GB) — retained on dense tables of ≥5 columns where the additional columns introduce metrics whose meaning is not obvious from value alone (Win%, Seasons, Avg, Titles)
 
 ## Overview trifold layout
