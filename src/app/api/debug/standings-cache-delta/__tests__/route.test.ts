@@ -15,7 +15,6 @@ import {
   setAppState,
 } from '../../../../../lib/server/appStateStore.ts';
 import {
-  canonicalStandingsCacheKeyParts,
   computeCanonicalStandingsUncached,
   getCanonicalStandings,
   resolveStandingsYear,
@@ -1604,9 +1603,15 @@ test('everyComparisonEntryCarriesBothSidesAcrossEveryShape', async () => {
   ]);
   await cache.revalidateTag(`archive:${SLUG}`);
   const archiveShaped = await requestThrough(cache);
+  // NON-ZERO, not merely present. `assert.ok([])` is truthy, so the guard passed
+  // while both difference loops swept nothing — the invariant would have reported
+  // full coverage over an empty set if this fixture ever regressed.
+  const archiveComparison = archiveShaped.body.comparison as unknown as Record<string, unknown>;
+  const archiveDifferences = archiveComparison.differences as Array<Record<string, unknown>>;
+  assert.ok(archiveDifferences.length > 0, 'the archive fixture produced differences to sweep');
   assert.ok(
-    (archiveShaped.body.comparison as unknown as Record<string, unknown>).differences,
-    'the archive fixture produced a comparison'
+    archiveDifferences.reduce((n, d) => n + (d.fields as unknown[]).length, 0) > 0,
+    'and those differences carry fields — the loop bodies actually execute'
   );
   assertEveryComparisonEntryCarriesBothSides(archiveShaped.body);
 
@@ -1643,12 +1648,29 @@ test('aDefaultYearRequestAndAnExplicitResolvedYearRequestShareOneKey', async () 
   const resolved = await resolveStandingsYear(SLUG, null);
   assert.equal(resolved, YEAR, 'the resolver picks the archived year');
 
-  const defaultKey = canonicalStandingsCacheKeyParts(SLUG, resolved).join(',');
-  const explicitKey = canonicalStandingsCacheKeyParts(
-    SLUG,
-    await resolveStandingsYear(SLUG, resolved)
-  ).join(',');
-  assert.equal(explicitKey, defaultKey, 'both resolutions produce one cache identity');
+  // THE EQUIVALENCE ACTUALLY AT RISK is between the two COMPUTES, not between a
+  // key and itself. `resolveStandingsYear` returns a non-null override on its
+  // first line, so comparing `canonicalStandingsCacheKeyParts(SLUG, resolved)`
+  // against a re-resolution of `resolved` was `f(x) === f(x)` — a pin that could
+  // not fail, cited by name in `route.ts` as the safety argument for the change.
+  // `dataCachedCanonicalStandings` passes the RAW `yearOverride` into
+  // `computeCanonicalStandings` while keying on the resolved year, so the two
+  // forms could in principle produce different snapshots under one key.
+  const fromDefault = await computeCanonicalStandingsUncached({
+    slug: SLUG,
+    year: null,
+    currentDate: WARM_CLOCK,
+  });
+  const fromResolved = await computeCanonicalStandingsUncached({
+    slug: SLUG,
+    year: resolved,
+    currentDate: WARM_CLOCK,
+  });
+  assert.deepEqual(
+    fromResolved,
+    fromDefault,
+    'the default-year and explicit-resolved-year computes agree on the offseason-with-archives branch, which is what makes pinning the year safe'
+  );
 
   // And the route reports the year it actually compared.
   const { body } = await requestThrough(fakeIncrementalCache([]));
@@ -1659,6 +1681,96 @@ test('aDefaultYearRequestAndAnExplicitResolvedYearRequestShareOneKey', async () 
     ),
     'and the signature names that same year'
   );
+});
+
+/**
+ * THE ENUMERATION COMES FROM THE DATA, NOT FROM ME.
+ *
+ * Four rounds running, this defect was declared closed from the sites I happened
+ * to be looking at, and each claim was wrong. Round 3's answer — a response-wide
+ * assertion — still missed the case where an entry DEREFERENCES the absent value
+ * while building its tuple, because that THROWS and a throw leaves no body to
+ * assert on.
+ *
+ * So this reads the field list off a real snapshot and deletes each key in turn.
+ * It cannot be wrong about which fields exist, because it does not contain a
+ * list; whatever `CanonicalStandings` carries at the time the test runs is what
+ * gets exercised, including fields added later.
+ *
+ * Reachable because `dataCachedCanonicalStandings` uses `revalidate: false` with
+ * tag-only invalidation, so an entry published before a field existed survives
+ * the deploy that adds it — the exact staleness this route is for.
+ */
+test('survivesASnapshotMissingAnyOneField', async () => {
+  await seedLive({ csv: LIVE_CSV, homeScore: 31, awayScore: 17 });
+
+  // A real snapshot, so the key list is the live shape rather than a copy of it.
+  const reference = await computeCanonicalStandingsUncached({
+    slug: SLUG,
+    year: YEAR,
+    currentDate: WARM_CLOCK,
+  });
+  // PATHS, NOT TOP-LEVEL KEYS. A first cut enumerated `Object.keys` only, and a
+  // mutation restoring `cached.weeks.join(',')` survived it — the nested
+  // `standingsHistory.*` and `coverage.*` fields were never exercised. The walk
+  // descends into plain objects (not arrays, whose elements are data rather than
+  // shape), so the depth comes from the snapshot too.
+  const fieldPaths: string[] = [];
+  const collect = (node: unknown, prefix: string): void => {
+    if (node === null || typeof node !== 'object' || Array.isArray(node)) return;
+    for (const [key, value] of Object.entries(node)) {
+      const path = prefix ? `${prefix}.${key}` : key;
+      fieldPaths.push(path);
+      collect(value, path);
+    }
+  };
+  collect(reference, '');
+  assert.ok(
+    fieldPaths.length >= 15,
+    `the reference snapshot carries the expected shape (saw ${fieldPaths.length} paths)`
+  );
+  assert.ok(
+    fieldPaths.includes('standingsHistory.weeks'),
+    'and the walk really descends — the nested path a top-level enumeration missed'
+  );
+
+  const deleteAtPath = (root: Record<string, unknown>, path: string): boolean => {
+    const parts = path.split('.');
+    let node: Record<string, unknown> = root;
+    for (const part of parts.slice(0, -1)) {
+      const next = node[part];
+      if (next === null || typeof next !== 'object') return false;
+      node = next as Record<string, unknown>;
+    }
+    const leaf = parts[parts.length - 1]!;
+    if (!Object.hasOwn(node, leaf)) return false;
+    delete node[leaf];
+    return true;
+  };
+
+  for (const field of fieldPaths) {
+    await __deleteAppStateFileForTests();
+    __resetAppStateForTests();
+    await seedLive({ csv: LIVE_CSV, homeScore: 31, awayScore: 17 });
+
+    const cache = fakeIncrementalCache([]);
+    await warmAtFixedClock(cache);
+    cache.mutateStoredValues((value) => {
+      const envelope = value as { data?: { body?: string } };
+      if (typeof envelope?.data?.body !== 'string') return value;
+      const snapshot = JSON.parse(envelope.data.body) as Record<string, unknown>;
+      if (!deleteAtPath(snapshot, field)) return value;
+      return { ...envelope, data: { ...envelope.data, body: JSON.stringify(snapshot) } };
+    });
+
+    const { status, body } = await requestThrough(cache);
+    assert.equal(
+      status,
+      200,
+      `a cached snapshot missing "${field}" must still be reportable — a throw here is a 500 on the input the route exists to diagnose`
+    );
+    assertEveryComparisonEntryCarriesBothSides(body);
+  }
 });
 
 // ---------------------------------------------------------------------------

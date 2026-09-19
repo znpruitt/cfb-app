@@ -405,7 +405,7 @@ function orderedSides(snapshot: CanonicalStandings): Map<string, OwnerSide> {
   const sides = new Map<string, OwnerSide>();
   // `rows` is already in canonical order (`compareStandingsRows`) and excludes
   // NoClaim; rank is that position, derived here and labelled as derived.
-  snapshot.rows.forEach((row, index) => {
+  (snapshot.rows ?? []).forEach((row, index) => {
     sides.set(row.owner, { rank: index + 1, isNoClaim: false, row });
   });
   // NoClaim is folded into the SAME comparison rather than left out. Omitting it
@@ -548,7 +548,7 @@ function compareOwners(
  * reported by name.
  */
 function digestHistoryWeek(history: StandingsHistory, week: number): string {
-  const snapshot = history.byWeek[week];
+  const snapshot = history.byWeek?.[week];
   if (!snapshot) return 'absent';
   // POSITIONAL, NOT SORTED, AND THE POSITION IS THE POINT.
   //
@@ -558,7 +558,7 @@ function digestHistoryWeek(history: StandingsHistory, week: number): string {
   // two histories differing ONLY in order render different rank trends while a
   // sorted digest reports them identical. Prefixing the index makes a reordering
   // a difference, which is what it is.
-  const rows = snapshot.standings
+  const rows = (snapshot.standings ?? [])
     .map(
       (row, index) =>
         `${index}:${row.owner}:${row.wins}-${row.losses}:${row.pointsFor}/${row.pointsAgainst}`
@@ -573,7 +573,7 @@ function digestHistoryWeek(history: StandingsHistory, week: number): string {
     .map((game) => `${game.key}@${game.kickoff ?? 'unplanned'}`)
     .sort()
     .join('|');
-  return `played=${String(snapshot.played)};coverage=${snapshot.coverage.state};pending=${pending};rows=${rows}`;
+  return `played=${String(snapshot.played)};coverage=${snapshot.coverage?.state};pending=${pending};rows=${rows}`;
 }
 
 /**
@@ -585,7 +585,7 @@ function digestHistoryWeek(history: StandingsHistory, week: number): string {
  * and a reader who needs the values has the owner to look them up by.
  */
 function digestOwnerSeries(history: StandingsHistory, owner: string): string {
-  const series = (history.byOwner as Record<string, unknown>)[owner];
+  const series = (history.byOwner as Record<string, unknown> | undefined)?.[owner];
   if (series === undefined) return 'absent';
   return JSON.stringify(series);
 }
@@ -600,12 +600,14 @@ function compareHistories(
       : [['standingsHistory', cached ? 'present' : null, fresh ? 'present' : null]];
   }
   const out: Array<[string, string | number | null, string | number | null]> = [];
-  const cachedWeeks = cached.weeks.join(',');
-  const freshWeeks = fresh.weeks.join(',');
+  const cachedWeeks = (cached.weeks ?? []).join(',');
+  const freshWeeks = (fresh.weeks ?? []).join(',');
   if (cachedWeeks !== freshWeeks) {
     out.push(['standingsHistory.weeks', cachedWeeks, freshWeeks]);
   }
-  for (const week of [...new Set([...cached.weeks, ...fresh.weeks])].sort((a, b) => a - b)) {
+  for (const week of [...new Set([...(cached.weeks ?? []), ...(fresh.weeks ?? [])])].sort(
+    (a, b) => a - b
+  )) {
     const left = digestHistoryWeek(cached, week);
     const right = digestHistoryWeek(fresh, week);
     if (left !== right) out.push([`standingsHistory.week${week}`, left, right]);
@@ -614,7 +616,7 @@ function compareHistories(
   // whenever the owner SET matched, so two projections with the same owners and
   // different series read as identical.
   for (const owner of [
-    ...new Set([...Object.keys(cached.byOwner), ...Object.keys(fresh.byOwner)]),
+    ...new Set([...Object.keys(cached.byOwner ?? {}), ...Object.keys(fresh.byOwner ?? {})]),
   ].sort((a, b) => a.localeCompare(b))) {
     const left = digestOwnerSeries(cached, owner);
     const right = digestOwnerSeries(fresh, owner);
@@ -639,7 +641,7 @@ function compareSnapshotFields(
     ['lifecycle', cached.lifecycle, fresh.lifecycle],
     ['ownersRosterSource', cached.ownersRosterSource, fresh.ownersRosterSource],
     ['archiveYearResolved', cached.archiveYearResolved, fresh.archiveYearResolved],
-    ['coverage.state', cached.coverage.state, fresh.coverage.state],
+    ['coverage.state', cached.coverage?.state, fresh.coverage?.state],
     // THESE TWO ARE CROSS-CHECKS, NOT GAP-CLOSERS, and saying otherwise would be
     // the exact habit this reconstruction exists to break. I reported both to
     // planning as live blind spots; reading the derivations afterwards showed
@@ -660,8 +662,12 @@ function compareSnapshotFields(
     // to either derivation would make them live — `ownerColorOrderIsPureInRows`
     // and `coverageMessageIsDeterminedByState` pin exactly that, and redden if
     // the purity they rest on stops holding.
-    ['coverage.message', cached.coverage.message, fresh.coverage.message],
-    ['ownerColorOrder', cached.ownerColorOrder.join(','), fresh.ownerColorOrder.join(',')],
+    ['coverage.message', cached.coverage?.message, fresh.coverage?.message],
+    [
+      'ownerColorOrder',
+      (cached.ownerColorOrder ?? []).join(','),
+      (fresh.ownerColorOrder ?? []).join(','),
+    ],
     ['inferredSeasonStart', cached.inferredSeasonStart, fresh.inferredSeasonStart],
   ];
 
@@ -685,10 +691,14 @@ function compareSnapshotFields(
   // `coverage.message` alone carried `?? null`; that asymmetry was the tell, and
   // I had written the one defended line myself.
   //
-  // Normalizing here rather than per entry means a field added to this list
-  // later cannot reintroduce it. `everyComparisonEntryCarriesBothSidesAcrossEveryShape`
-  // asserts the invariant over the whole response, so the check does not depend
-  // on anyone enumerating the sites correctly either.
+  // Normalizing here covers a field whose VALUE is absent. It does NOT cover an
+  // entry that DEREFERENCES the value while building its tuple — review found
+  // that `cached.coverage.state` and `cached.ownerColorOrder.join(',')` threw on
+  // a snapshot predating those fields, 500ing the diagnostic on exactly the
+  // input it exists to diagnose, and the response-wide assertion could not see it
+  // because a throw leaves no body to assert on. Those entries are now
+  // absence-tolerant at construction; `survivesASnapshotMissingAnyOneField`
+  // derives the field list from a real snapshot rather than from this comment.
   //
   // BEFORE the filter, deliberately: a cached snapshot predating a field yields
   // `undefined` where the rebuild yields `null`, and those mean the same thing.
@@ -1010,8 +1020,8 @@ export async function GET(req: Request): Promise<Response> {
       // Printed so a zero-length comparison cannot read as agreement. `matches`
       // is gated on it below, and on the cache verdict.
       comparedOwners,
-      cachedOwners: cached.rows.length + (cached.noClaimRow ? 1 : 0),
-      freshOwners: fresh.rows.length + (fresh.noClaimRow ? 1 : 0),
+      cachedOwners: (cached.rows ?? []).length + (cached.noClaimRow ? 1 : 0),
+      freshOwners: (fresh.rows ?? []).length + (fresh.noClaimRow ? 1 : 0),
       unit: 'owner',
       comparedFields: COMPARED_FIELDS,
       derivedFields: ['rank'],
