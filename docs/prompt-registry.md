@@ -357,15 +357,40 @@ These consolidate recurring historical observations, not new project-governance 
   is byte-identical to `181c52c6`: `tsc --noEmit` 0, `npm run build` 0, `lint:all` 0, `npm test` 0 —
   **5,459 pass / 0 fail / 0 cancelled / 0 skipped** in 46.2 s. Browser tests were not re-run for
   the closeout.
-- Status: **Not merged. Four remediation rounds have run, the fourth owner-approved; under
-  `AGENTS.md` step 7 there is no further patching.** No confirming pass has run on `181c52c6`. Four
-  findings remain open and documented, all in the precommitment class, none patched. The
-  precommitment carries forward: another instance of **the detector claims more than it observes**
-  ships with the limitation documented rather than being patched again.
-- **THE GATE IS UN-RUN, and fail-closed on preview is not the gate.** v1 verified the admin refusal in
-  real preview runtime, but **no authenticated call has ever been made and nothing has run against
-  production data**. Preview reads its own Neon branch, so even an authenticated preview call answers
-  about preview's snapshot. **The gate stays un-run until an authenticated call happens post-merge.**
+- **Confirming pass on `c44dff2e` (the round-4 closeout; `src/` identical to `181c52c6`), both
+  reviewers against merge-base `b5d9103b`: no finding on the round-4 fix, none new on the
+  detector.** Codex returned the four open class items and nothing else; `/code-review high`
+  returned one new low finding outside the class and confirmed the verdict logic against Next's
+  `unstable-cache.js`, the year pinning, the stamp comparison and the year-bound ordering.
+  **Owner ruling 2026-09-19: the confirming pass clears it — merge with the limitations
+  documented.**
+- **Every open finding is on record in an issue, and this branch leaves #817, #820, #822, #823 and
+  #824 open:**
+  1. false `miss` on a same-millisecond stale entry or an on-demand revalidation — comment on
+     [#817](https://github.com/znpruitt/cfb-app/issues/817);
+  2. the blocker asserts `cached-side-not-a-snapshot` for every `cannot-tell` —
+     [#822](https://github.com/znpruitt/cfb-app/issues/822);
+  3. the per-year archive cache is read for an unlisted year and missing from
+     `SHARED_NESTED_CACHES` — [#824](https://github.com/znpruitt/cfb-app/issues/824);
+  4. `requestPublicationKeysAdded` starts observing after a publishing year read —
+     [#823](https://github.com/znpruitt/cfb-app/issues/823);
+  5. **new, low, unpatched**: the import-graph guard's `bindingAlias` pattern misses
+     `export async function` and gives up past 80 characters, so an async wrapper in
+     `leagueStandings.ts` would pass it — comment on
+     [#820](https://github.com/znpruitt/cfb-app/issues/820). No such wrapper exists. It is a test gap
+     outside the precommitment class, on a path no code takes. **The stronger fix recorded there:
+     assert the symbol appears in `leagueStandings.ts` only at its declaration and in no other file
+     except the route** — ask where the symbol is named rather than enumerate the shapes a leak
+     could take, which is the mistake this guard has now made twice.
+- Status: **Merged by PR; see the merge SHA in the PR.** Four remediation rounds ran, the fourth
+  owner-approved, then one confirming pass with no patching.
+- **THE GATE REMAINS UN-RUN.** Merging does not run it and neither does a green build. Two owner
+  steps must both happen: **promotion** (a merge builds but does not ship), and **an authenticated
+  call against production** to `/api/debug/standings-cache-delta`. Until both have happened, nothing
+  is known about whether served standings match their inputs, and #693 stays parked on that
+  question. **Fail-closed on preview is not the gate either**: v1 verified the admin refusal in real
+  preview runtime, but no authenticated call has ever been made, and preview reads its own Neon
+  branch, so even an authenticated preview call answers about preview's snapshot.
 
 ### PLATFORM-729-SCHEDULE-TEAM-NAMES-CODEX-v1
 
