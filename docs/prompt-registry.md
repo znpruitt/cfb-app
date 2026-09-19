@@ -121,6 +121,47 @@ These consolidate recurring historical observations, not new project-governance 
 
 ## Prompt ledger (source order retained)
 
+### PLATFORM-750-OVERVIEW-COLUMN-BREAKPOINT-CODEX-v2
+
+- Purpose: resolve [#750](https://github.com/znpruitt/cfb-app/issues/750) by replacing Overview's
+  inherited `416px` / `1348px` sizing and stopping wide rows from stretching scores away from names.
+- Four derived constants: **`403px` target** =
+  `ceil(358.469px measured non-logo content + 32px logo slot + 12px score gap)`; **`52px` headroom**
+  = `ceil(3 × 17.25px observed font-stack spread)`; **`880⅔px` two-column cap** =
+  `2 × (403 + 52/3) + 40`; **`1341px` three-column breakpoint/cap** =
+  `3 × 403 + 2 × 40 + 52`. Rows fill equal tracks; gutters stay 40px; surplus collects at the right.
+  One-column grids and chrome remain full width.
+- Shape chronology: `f6de2547` capped rows inside full-width tracks; the owner rejected its preview
+  because gaps grew to ~126px at 1600px and ~233px at 1920px. The 09:29 ruling moved the cap to the
+  grid (`53347131`); the 15:54 ruling refined that into tier-specific inset grids with full-width
+  chrome (`2bb1ccc2`). On 2026-09-19 a review read the superseded 01:22 instruction as current and
+  produced the same rejected shape at `d750aefd` (PR #825); both PR and branch were retired without
+  merge.
+- Review / verification: `/code-review high` found one proof-only P2 at `2bb1ccc2`: exact fit
+  classifications below the cap varied with the host-resolved font. `877a62a9` removed them while
+  retaining all-width geometry, the real 240px clipping control and fit checks at/above the cap;
+  production stayed unchanged and the narrow interval remains
+  [#821](https://github.com/znpruitt/cfb-app/issues/821). Both confirming reviewers returned no
+  actionable P0/P1/P2. After sandbox Chrome/loopback `EPERM`, the unmodified
+  `npm run test:browser:required` used real Chrome and passed 2/2: 40px gutters, right slack
+  `0 / 259 / 579px` at `1341 / 1600 / 1920px`. Full suite: 5,412 pass / 0 fail / 0 skipped; lint and
+  TypeScript passed.
+- Status: Implemented — [PR #829](https://github.com/znpruitt/cfb-app/pull/829) open; owner preview
+  approved 2026-09-19. Planning's `95d658a8` DESIGN amendment is incorporated. Leaves
+  [#726](https://github.com/znpruitt/cfb-app/issues/726),
+  [#821](https://github.com/znpruitt/cfb-app/issues/821) and
+  [#827](https://github.com/znpruitt/cfb-app/issues/827) open.
+
+### PLATFORM-750-OVERVIEW-COLUMN-BREAKPOINT-CODEX-v1
+
+- Purpose: measure the reachable worst-case Overview row and replace Item 134's unmeasured target.
+- Outcome: its receipt established the 24-character reachable team name, 12-character owner,
+  `390.469px` row content including the 32px logo slot, `403px` target, `52px` headroom and `1341px`
+  breakpoint. It showed that changing only 1348 → 1341 was visually immaterial while row stretch was
+  the actual defect, so the scope was rewritten as v2.
+- Status: Superseded/unimplemented by
+  `PLATFORM-750-OVERVIEW-COLUMN-BREAKPOINT-CODEX-v2`; its measurements became v2's inputs.
+
 ### PLATFORM-816-STANDINGS-CACHE-DELTA-CLAUDE-v2
 
 - Purpose: `GET /api/debug/standings-cache-delta` — admin-gated, one league and year per request —

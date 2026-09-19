@@ -6,6 +6,7 @@ import { JSDOM } from 'jsdom';
 import React from 'react';
 
 import CFBScheduleApp from '../CFBScheduleApp';
+import { OVERVIEW_SCOREBOARD_GRID_STYLE } from '../OverviewPanel';
 import { AppContextProviders } from './_setup/renderWithAppContext';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
@@ -173,6 +174,21 @@ test('Overview keeps the recap tile before its podium when the schedule succeeds
   const podium = rendered.getByText('League summary').closest('section');
   assert.ok(tile);
   assert.ok(podium);
+  assert.doesNotMatch(
+    tile.className,
+    /(?:^|\s)(?:max-w-|w-\[)/,
+    'the full-width recap exception must not inherit a scoreboard max-width utility'
+  );
+  assert.equal(tile.style.maxWidth, '', 'the recap tile must not carry an inline max-width');
+  const scoreboardWidthProperties = Object.keys(OVERVIEW_SCOREBOARD_GRID_STYLE);
+  assert.ok(scoreboardWidthProperties.length > 0, 'positive control: the cap has inline variables');
+  for (const property of scoreboardWidthProperties) {
+    assert.equal(
+      tile.style.getPropertyValue(property),
+      '',
+      `the recap tile must not inherit the scoreboard width variable ${property}`
+    );
+  }
   assert.ok(
     tile.compareDocumentPosition(podium) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING,
     'recap stays before the podium in normal flow'
