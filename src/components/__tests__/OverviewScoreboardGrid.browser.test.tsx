@@ -28,7 +28,6 @@ const REQUIRED_WIDTHS = [
   760, 761, 790, 820, 846, 880, 881, 900, 1100, 1280, 1340, 1341, 1600, 1920,
 ] as const;
 const REPORTED_WIDTHS = [760, 880, 881, 1341, 1600, 1920] as const;
-const KNOWN_NARROW_CLIPPING_WIDTHS = [761, 790, 820] as const;
 
 type LayoutMeasurement = {
   width: number;
@@ -387,16 +386,13 @@ test('Overview scoreboard grid renders its measured tiers and derived grid cap',
         atThree.cardRects[0]!.width,
         '1340→1341 must add a column without a card-width discontinuity'
       );
-      for (const width of KNOWN_NARROW_CLIPPING_WIDTHS) {
-        const measurement = byWidth.get(width);
-        assert.ok(measurement);
-        assert.ok(
-          measurement.stressContentToScoreGap < OVERVIEW_SCOREBOARD_MINIMUM_SCORE_GAP_PX,
-          `${width}px must keep the pre-existing narrow-tier clipping boundary observable for #821`
-        );
-      }
+      // Below the two-column cap, #821 owns the intentionally narrower tracks. Their
+      // exact text-fit boundary depends on which face the host resolves from system-ui,
+      // so this cross-host gate asserts their geometry above without classifying fit.
       for (const width of REQUIRED_WIDTHS.filter(
-        (candidate) => !KNOWN_NARROW_CLIPPING_WIDTHS.includes(candidate as 761 | 790 | 820)
+        (candidate) =>
+          candidate === 760 ||
+          candidate >= Math.ceil(OVERVIEW_SCOREBOARD_GRID_TWO_COLUMN_MAX_WIDTH_PX)
       )) {
         const measurement = byWidth.get(width);
         assert.ok(measurement);

@@ -81,8 +81,9 @@ const EMPTY_OVERVIEW_ODDS_BY_KEY: Record<string, CombinedOdds> = {};
 // owner Mastromatteo, score 100. Its measured non-logo content used 358.469px on the
 // verified macOS production font stack; add the shared 32px logo slot and mandatory
 // 12px flex gap before the score to get 402.469px, rounded up to the 403px target.
-// The browser gate proves the fixture fits at that target and explicitly records the
-// narrower two-column interval that still clips pending the owner decision in #821.
+// The browser gate proves the fixture fits at the capped track width. The narrower
+// uncapped two-column interval remains #821's concern; its exact text-fit boundary
+// varies with the host's resolved system font and is not a stable geometry gate.
 export const OVERVIEW_SCOREBOARD_MEASURED_NON_LOGO_CONTENT_PX = 358.469;
 export const OVERVIEW_SCOREBOARD_MINIMUM_SCORE_GAP_PX = 12;
 const OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX_BY_CLASS = {
