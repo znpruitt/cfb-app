@@ -12,8 +12,6 @@ import {
   OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX,
   OVERVIEW_SCOREBOARD_GRID_CLASSES,
   OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX,
-  OVERVIEW_SCOREBOARD_GRID_ONE_COLUMN_MAX_WIDTH_PX,
-  OVERVIEW_SCOREBOARD_SECTION_CLASSES,
   OVERVIEW_SCOREBOARD_GRID_STYLE,
   OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX,
   OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX,
@@ -26,7 +24,10 @@ import { OVERVIEW_RESULTS_LIMIT } from '../../lib/selectors/overview';
 import { SCOREBOARD_TEAM_LOGO_SLOT } from '../../lib/teamLogos';
 import { type BrowserFixturePage, withBrowserFixture } from '../../test/browserFixture';
 
-const REQUIRED_WIDTHS = [760, 761, 790, 820, 846, 900, 1100, 1280, 1340, 1341, 1600, 1920] as const;
+const REQUIRED_WIDTHS = [
+  760, 761, 790, 820, 846, 880, 881, 900, 1100, 1280, 1340, 1341, 1600, 1920,
+] as const;
+const REPORTED_WIDTHS = [760, 880, 881, 1341, 1600, 1920] as const;
 const KNOWN_NARROW_CLIPPING_WIDTHS = [761, 790, 820] as const;
 
 type LayoutMeasurement = {
@@ -36,7 +37,7 @@ type LayoutMeasurement = {
   gridWidth: number;
   gridMaxWidth: string;
   gridLeftOffset: number;
-  sectionRightSlack: number;
+  gridRightSlack: number;
   sectionWidth: number;
   sectionMaxWidth: string;
   sectionLeftOffset: number;
@@ -91,24 +92,18 @@ function fixtureMarkup(styles: string): string {
     />
   ));
   const body = renderToStaticMarkup(
-    <div className="@container" data-layout-container style={{ width: REQUIRED_WIDTHS[0] }}>
-      <div
-        className={OVERVIEW_SCOREBOARD_SECTION_CLASSES}
-        style={OVERVIEW_SCOREBOARD_GRID_STYLE}
-        data-layout-section
-      >
-        <hr data-layout-divider />
-        <div>
-          <div data-layout-header>Featured games</div>
-          <div
-            className={OVERVIEW_SCOREBOARD_GRID_CLASSES}
-            style={OVERVIEW_SCOREBOARD_GRID_STYLE}
-            data-layout-grid
-          >
-            {scoreboards}
-          </div>
+    <div data-layout-container style={{ width: REQUIRED_WIDTHS[0] }}>
+      <hr data-layout-divider />
+      <section className="@container" data-layout-section>
+        <div data-layout-header>Featured games</div>
+        <div
+          className={OVERVIEW_SCOREBOARD_GRID_CLASSES}
+          style={OVERVIEW_SCOREBOARD_GRID_STYLE}
+          data-layout-grid
+        >
+          {scoreboards}
         </div>
-      </div>
+      </section>
     </div>
   );
   return `<!doctype html><html><head><meta charset="utf-8"><style>${styles}</style></head><body>${body}</body></html>`;
@@ -190,7 +185,7 @@ async function measureWidths(
           gridWidth: round(gridRect.width),
           gridMaxWidth: gridStyle.maxWidth,
           gridLeftOffset: round(gridRect.left - containerRect.left),
-          sectionRightSlack: round(containerRect.right - gridRect.right),
+          gridRightSlack: round(containerRect.right - gridRect.right),
           sectionWidth: round(sectionRect.width),
           sectionMaxWidth: getComputedStyle(section).maxWidth,
           sectionLeftOffset: round(sectionRect.left - containerRect.left),
@@ -246,6 +241,8 @@ test('Overview scoreboard grid renders its measured tiers and derived grid cap',
           { width: 790, columns: 2 },
           { width: 820, columns: 2 },
           { width: 846, columns: 2 },
+          { width: 880, columns: 2 },
+          { width: 881, columns: 2 },
           { width: 900, columns: 2 },
           { width: 1100, columns: 2 },
           { width: 1280, columns: 2 },
@@ -265,11 +262,11 @@ test('Overview scoreboard grid renders its measured tiers and derived grid cap',
         atThree && at1600 && at1920 && at1340 && clippingControl,
         'all required measurements must be returned'
       );
-      for (const width of [900, 1100, 1280, 1340, 1341, 1600, 1920]) {
+      for (const width of REPORTED_WIDTHS) {
         const measurement = byWidth.get(width);
         assert.ok(measurement);
         t.diagnostic(
-          `${width}px: ${measurement.trackWidths[0]}px tracks, ${measurement.cardRects[0]!.width}px cards, ${measurement.firstRowInterCardGap}px between adjacent cards, ${measurement.sectionRightSlack}px section-right slack`
+          `${width}px: ${measurement.trackWidths[0]}px tracks, ${measurement.cardRects[0]!.width}px cards, ${measurement.firstRowInterCardGap}px between adjacent cards, ${measurement.gridRightSlack}px right slack`
         );
       }
       const at760 = byWidth.get(760);
@@ -308,13 +305,15 @@ test('Overview scoreboard grid renders its measured tiers and derived grid cap',
         'three rendered columns must distribute the specified total headroom'
       );
       for (const measurement of REQUIRED_WIDTHS.map((width) => byWidth.get(width)!)) {
-        const tierMaxWidth =
+        const expectedGridWidth =
           measurement.columns === 1
-            ? OVERVIEW_SCOREBOARD_GRID_ONE_COLUMN_MAX_WIDTH_PX
-            : measurement.columns === 2
-              ? OVERVIEW_SCOREBOARD_GRID_TWO_COLUMN_MAX_WIDTH_PX
-              : OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_MAX_WIDTH_PX;
-        const expectedGridWidth = Math.min(measurement.width, tierMaxWidth);
+            ? measurement.width
+            : Math.min(
+                measurement.width,
+                measurement.columns === 2
+                  ? OVERVIEW_SCOREBOARD_GRID_TWO_COLUMN_MAX_WIDTH_PX
+                  : OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_MAX_WIDTH_PX
+              );
         assertNear(
           measurement.gridWidth,
           expectedGridWidth,
@@ -326,29 +325,29 @@ test('Overview scoreboard grid renders its measured tiers and derived grid cap',
           `${measurement.width}px grid must stay left-aligned`
         );
         assertNear(
-          measurement.sectionRightSlack,
+          measurement.gridRightSlack,
           measurement.width - expectedGridWidth,
-          `${measurement.width}px surplus must accumulate once at the section right`
+          `${measurement.width}px surplus must accumulate once to the grid's right`
         );
         assertNear(
           measurement.sectionWidth,
-          measurement.gridWidth,
-          `${measurement.width}px section shell must align with its scoreboard grid`
+          measurement.width,
+          `${measurement.width}px section shell must remain full width`
         );
         assertNear(
           measurement.sectionLeftOffset,
-          measurement.gridLeftOffset,
-          `${measurement.width}px section shell and grid must share their left edge`
+          0,
+          `${measurement.width}px section shell must retain the panel's left edge`
         );
         assertNear(
           measurement.headerWidth,
-          measurement.gridWidth,
-          `${measurement.width}px header must align with its scoreboard grid`
+          measurement.width,
+          `${measurement.width}px header must remain full width`
         );
         assertNear(
           measurement.dividerWidth,
-          measurement.gridWidth,
-          `${measurement.width}px divider must align with its scoreboard grid`
+          measurement.width,
+          `${measurement.width}px divider must remain full width`
         );
         const expectedTrackWidth =
           (expectedGridWidth - (measurement.columns - 1) * OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX) /

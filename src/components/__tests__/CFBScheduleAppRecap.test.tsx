@@ -174,10 +174,6 @@ test('Overview keeps the recap tile before its podium when the schedule succeeds
   const podium = rendered.getByText('League summary').closest('section');
   assert.ok(tile);
   assert.ok(podium);
-  assert.ok(
-    tile.parentElement === podium.parentElement?.parentElement?.parentElement,
-    'the recap tile remains a direct full-width timely-content sibling of Overview'
-  );
   assert.doesNotMatch(
     tile.className,
     /(?:^|\s)(?:max-w-|w-\[)/,
@@ -193,7 +189,6 @@ test('Overview keeps the recap tile before its podium when the schedule succeeds
       `the recap tile must not inherit the scoreboard width variable ${property}`
     );
   }
-  assert.equal(tile.hasAttribute('data-overview-scoreboard-section'), false);
   assert.ok(
     tile.compareDocumentPosition(podium) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING,
     'recap stays before the podium in normal flow'

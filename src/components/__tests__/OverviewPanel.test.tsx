@@ -11,7 +11,6 @@ import OverviewPanelImpl, {
   OVERVIEW_SCOREBOARD_GRID_CLASSES,
   OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX,
   OVERVIEW_SCOREBOARD_GRID_MAX_TRACK_PX,
-  OVERVIEW_SCOREBOARD_GRID_ONE_COLUMN_MAX_WIDTH_PX,
   OVERVIEW_SCOREBOARD_GRID_STYLE,
   OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX,
   OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX,
@@ -20,8 +19,6 @@ import OverviewPanelImpl, {
   OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT,
   OVERVIEW_SCOREBOARD_MEASURED_NON_LOGO_CONTENT_PX,
   OVERVIEW_SCOREBOARD_MINIMUM_SCORE_GAP_PX,
-  OVERVIEW_SCOREBOARD_SECTION_CLASSES,
-  OVERVIEW_SCOREBOARD_WIDTH_CLASSES,
 } from '../OverviewPanel';
 import GameWeekPanel from '../GameWeekPanel';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../../lib/overview';
@@ -847,11 +844,17 @@ test('overview scoreboards keep current records across scheduled, live, and fina
         'every Overview scoreboard grid must carry every derived tier cap'
       );
     }
-    const section = grid.closest<HTMLElement>('[data-overview-scoreboard-section]');
-    assert.ok(section, 'every rendered scoreboard grid must share its cap with its section shell');
-    for (const [property, value] of Object.entries(OVERVIEW_SCOREBOARD_GRID_STYLE)) {
-      assert.equal(section.style.getPropertyValue(property), value);
+    const section = grid.closest<HTMLElement>('section');
+    assert.ok(section, 'every rendered scoreboard grid must retain its container-query section');
+    assert.ok(section.classList.contains('@container'));
+    for (const property of Object.keys(OVERVIEW_SCOREBOARD_GRID_STYLE)) {
+      assert.equal(
+        section.style.getPropertyValue(property),
+        '',
+        'scoreboard cap variables must remain on the inset grid, not the full-width section chrome'
+      );
     }
+    assert.ok(section.previousElementSibling?.matches('hr'));
   }
 });
 
@@ -934,9 +937,10 @@ test('overview Live section consumes the shared scoreboard in a row-major respon
   const liveGrid = document.querySelector<HTMLElement>('[data-live-scoreboard-grid]');
   assert.ok(liveGrid);
   assert.equal(liveGrid.className, OVERVIEW_SCOREBOARD_GRID_CLASSES);
-  const liveSection = liveGrid.closest<HTMLElement>('[data-overview-scoreboard-section]');
+  const liveSection = liveGrid.closest<HTMLElement>('section');
   assert.ok(liveSection);
-  assert.equal(liveSection.className, OVERVIEW_SCOREBOARD_SECTION_CLASSES);
+  assert.equal(liveSection.className, '@container');
+  assert.ok(liveSection.previousElementSibling?.matches('hr'));
   assert.equal((html.match(/data-game-scoreboard=/g) ?? []).length, 2);
   const awayLeadingCard = html.indexOf('aria-label="Utah at Arizona State"');
   const homeLeadingCard = html.indexOf('aria-label="Michigan at Ohio State"');
@@ -1316,13 +1320,13 @@ test('overview Featured renders its badge and existing tag in the final status r
   const featuredGrid = document.querySelector<HTMLElement>('[data-featured-scoreboard-grid]');
   assert.ok(featuredGrid);
   assert.equal(featuredGrid.className, OVERVIEW_SCOREBOARD_GRID_CLASSES);
-  const featuredSection = featuredGrid.closest<HTMLElement>('[data-overview-scoreboard-section]');
+  const featuredSection = featuredGrid.closest<HTMLElement>('section');
   assert.ok(featuredSection);
-  assert.equal(featuredSection.className, OVERVIEW_SCOREBOARD_SECTION_CLASSES);
-  assert.ok(featuredSection.querySelector('hr'));
+  assert.equal(featuredSection.className, '@container');
+  assert.ok(featuredSection.previousElementSibling?.matches('hr'));
 });
 
-test('overview three-column grid arithmetic stays coupled to its literal utility', () => {
+test('overview multi-column grid caps stay coupled to their literal utilities', () => {
   assert.equal(OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS, 'gap-x-10');
   assert.equal(OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX, 40);
   assert.ok(OVERVIEW_SCOREBOARD_GRID_CLASSES.includes(OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS));
@@ -1345,12 +1349,10 @@ test('overview three-column grid arithmetic stays coupled to its literal utility
       OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX / OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT
   );
   assert.equal(
-    OVERVIEW_SCOREBOARD_GRID_ONE_COLUMN_MAX_WIDTH_PX,
-    OVERVIEW_SCOREBOARD_GRID_MAX_TRACK_PX
-  );
-  assert.equal(
     OVERVIEW_SCOREBOARD_GRID_TWO_COLUMN_MAX_WIDTH_PX,
-    2 * OVERVIEW_SCOREBOARD_GRID_MAX_TRACK_PX + OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX
+    2 * OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX +
+      OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX +
+      (2 * OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX) / OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT
   );
   assert.equal(OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX, 1341);
   assert.equal(
@@ -1364,19 +1366,31 @@ test('overview three-column grid arithmetic stays coupled to its literal utility
     OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX
   );
   assert.deepEqual(OVERVIEW_SCOREBOARD_GRID_STYLE, {
-    '--overview-scoreboard-one-column-max-width': `${OVERVIEW_SCOREBOARD_GRID_ONE_COLUMN_MAX_WIDTH_PX}px`,
     '--overview-scoreboard-two-column-max-width': `${OVERVIEW_SCOREBOARD_GRID_TWO_COLUMN_MAX_WIDTH_PX}px`,
     '--overview-scoreboard-three-column-max-width': `${OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_MAX_WIDTH_PX}px`,
   });
-  for (const widthClass of OVERVIEW_SCOREBOARD_WIDTH_CLASSES.split(' ')) {
-    assert.ok(OVERVIEW_SCOREBOARD_GRID_CLASSES.includes(widthClass));
-    assert.ok(OVERVIEW_SCOREBOARD_SECTION_CLASSES.includes(widthClass));
-  }
+  assert.ok(
+    OVERVIEW_SCOREBOARD_GRID_CLASSES.includes(
+      `@min-[${OVERVIEW_SCOREBOARD_GRID_TWO_COLUMN_MAX_WIDTH_PX}px]:max-w-[var(--overview-scoreboard-two-column-max-width)]`
+    ),
+    'the two-column cap transition must match the derived 880⅔px width'
+  );
+  assert.ok(
+    OVERVIEW_SCOREBOARD_GRID_CLASSES.includes(
+      `@min-[${OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_MAX_WIDTH_PX}px]:max-w-[var(--overview-scoreboard-three-column-max-width)]`
+    ),
+    'the three-column cap transition must match the derived 1341px width'
+  );
   assert.ok(
     OVERVIEW_SCOREBOARD_GRID_CLASSES.includes(
       `@min-[${OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX}px]:grid-cols-3`
     ),
     'the rendered Tailwind breakpoint must match the documented arithmetic'
+  );
+  assert.doesNotMatch(
+    OVERVIEW_SCOREBOARD_GRID_CLASSES,
+    /one-column-max-width|!max-w/,
+    'the one-column tier must remain full width without an override'
   );
   assert.deepEqual(
     [OVERVIEW_LIVE_LIMIT, OVERVIEW_RECENT_FINALS_LIMIT, OVERVIEW_WATCHLIST_LIMIT],
