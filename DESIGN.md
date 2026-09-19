@@ -403,24 +403,41 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 
 - Outer card containers are removed from all Overview sections except the season podium
 - Overview compact game scoreboards flow row-major through three container-width tiers: one column
-  below `760.01px`, two columns from `760.01px` through `1347.99px`, and three columns at `1348px`
+  below `760.01px`, two columns from `760.01px` through `1340.99px`, and three columns at `1341px`
   and above. Tailwind emits the preserved `@max-[760.01px]` utility as a strict `< 760.01px`
   condition, so exactly `760.01px` is in the two-column tier; the practical integer boundary remains
   one column at 760px and two at 761px. Remainders stay left-aligned, leaving empty tracks on the
   right. Featured deliberately keeps its four-item cap, so its wide tier is `3 + 1`; the six-item
   section caps likewise remain count-based rather than tier-dependent.
-- The Overview wide-tier arithmetic uses a `416px` **target**, not a minimum the two-column tier
-  enforces. Its provenance is intentionally mixed: `400px` is unmeasured prose in
-  `mockups/live-scoreboard-mockup.html`, described there as a comfortable width and never measured in
-  production; `16px` is that mockup's historical `.sb-line` left padding; and only the replacement
-  `32px` `pl-8` logo slot comes from shipped code. With that provenance visible, the inherited target
-  is `400 - 16 + 32 = 416px`, and three targets plus two 40px gaps and 20px deliberate headroom give
-  `1348px`. The required browser gate compiles the production `globals.css` and measures the same
-  `ui-sans-serif, system-ui, ...` stack the app renders rather than substituting a test font. On the
-  verified macOS host the stress row uses 268.094px and retains 104.844px before the score at the
-  threshold. The result is deliberately host-specific production evidence, not a universal font
-  metric; the owner-authorized target remains the design choice rather than being silently tightened
-  to that one environment.
+- **The scoreboard grids are inset by tier; the chrome around them is not.** Each grid caps at the
+  width its tier can use — `880.667px` at two columns, `1341px` at three — and sits left-aligned, so
+  gutters stay 40px at every width and the surplus collects once at the section's right edge. The
+  one-column tier stays full width. Section headers, dividers and the recap tile remain full width,
+  which is a deliberate mixed-width page rather than an oversight. **Amended 2026-09-19** by owner
+  decision on [#750](https://github.com/znpruitt/cfb-app/issues/750), after a production preview
+  showed rows stretching with their tracks: at 1920px a card's score sat hundreds of pixels from its
+  name. A per-row cap was tried first and rejected — it left ~233px between adjacent cards. Content-
+  sized (unequal) tracks were rejected for a reason specific to this page: scores are live-polled and
+  tags are state-dependent, so a content-sized track would resize while a member watches a game.
+- **The tier arithmetic is measured, not inherited.** The worst-case row is the one production can
+  actually render: `#25 Southeast Missouri State (12–0)`, owner `Mastromatteo`, score `100` — the
+  longest reachable name is 24 characters and the longest owner label 12, measured on the read-only
+  replica across 1,776 rendered labels. Its non-logo content measures `358.469px` on the verified
+  macOS production font stack; plus the shared `32px` logo slot and the mandatory `12px` gap before
+  the score gives `402.469px`, rounded up to a **`403px` target**. The declared stack resolved
+  `17.25px` wider under `system-ui` than under its Helvetica/Arial fallbacks, so one observed
+  stack-face spread per column is reserved as **`52px` headroom** — `3 × 403 + 2 × 40 + 52 = 1341px`,
+  and a capped track is `420.333px`. This replaces Item 134's `416px`, whose provenance was
+  `400px` of unmeasured prose in `mockups/live-scoreboard-mockup.html` minus that mockup's `16px`
+  `.sb-line` padding plus the shipped `32px` logo slot. The required browser gate compiles the
+  production `globals.css` and measures the stack the app renders rather than substituting a test
+  font, with a control at a width where the fixture genuinely clips. The measurements are
+  host-specific production evidence, not a universal font metric; the headroom is what absorbs that.
+- **Governs Overview only.** Matchups (`1372px`) and Schedule (`1320px`) keep their inherited numbers,
+  whose provenance is the same unmeasured prose and whose Schedule arithmetic does not reproduce at
+  all; [#726](https://github.com/znpruitt/cfb-app/issues/726) applies this method to them per surface.
+  Whether a long label may ellipsize — which would let the target fall to the common case rather than
+  the 0.3% worst case — is [#821](https://github.com/znpruitt/cfb-app/issues/821), undecided.
 - The weekly recap tile is the one timely-content exception: its full-width dark surface and 8px
   radius bind a collapsed editorial headline to its expand-in-place disclosure. It carries no
   decorative border or accent color, and this exception does not authorize card chrome for ordinary
@@ -490,6 +507,13 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 - Primary line: rank (muted) · name · champion badge (if applicable) · record · GB
 - Secondary line: Win% · Diff
 - GB is the primary metric in a pool format and sits on the primary line
+- **Records are live, movement is resolved.** The condensed table's record, Win%, Diff and GB are the
+  live canonical rows — the same values the podium and the full Standings page show — so one screen
+  never presents two leaders. Rank movement stays anchored on the latest fully resolved weeks, so a
+  partial week never makes the comparison skip a boundary. **Added 2026-09-19** by owner decision on
+  [#827](https://github.com/znpruitt/cfb-app/issues/827): the table had been taking its record VALUES
+  from the resolved-week snapshot as well, so on a Week 3 game day the podium read Chamness 17–6 while
+  the table beneath it read BHooper 15–4. **Not yet implemented** — #827 is the slice
 - Column headers are omitted on condensed snapshot tables of ≤4 columns where data is self-evident at the table's density (rank · name · record · GB) — retained on dense tables of ≥5 columns where the additional columns introduce metrics whose meaning is not obvious from value alone (Win%, Seasons, Avg, Titles)
 
 ## Overview trifold layout
