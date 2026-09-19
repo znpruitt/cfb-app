@@ -76,12 +76,15 @@ import { getPresentationTimeZone } from '../lib/weekPresentation';
 
 const EMPTY_OVERVIEW_ODDS_BY_KEY: Record<string, CombinedOdds> = {};
 
-// Item 134. The 400px target is unmeasured prose from the live-scoreboard mockup,
-// whose team line already reserved 16px at line start. Production now reserves the
-// explicit 32px logo slot, so the inherited target becomes 400 - 16 + 32 = 416px.
-// Three targets, two 40px gaps, and 20px deliberate headroom produce 1348px.
-const OVERVIEW_SCOREBOARD_MOCKUP_TARGET_PX = 400;
-const OVERVIEW_SCOREBOARD_MOCKUP_PREFIX_SLOT_PX = 16;
+// PLATFORM-750 measured the production row rather than carrying Item 134's unmeasured
+// 416px mockup target. The final-state fixture is #25 Southeast Missouri State (12–0),
+// owner Mastromatteo, score 100. Its measured non-logo content used 358.469px on the
+// verified macOS production font stack; add the shared 32px logo slot and mandatory
+// 12px flex gap before the score to get 402.469px, rounded up to the 403px target.
+// The browser gate proves the fixture fits at the capped width and explicitly records
+// the narrower two-column interval that still clips pending the owner decision in #821.
+export const OVERVIEW_SCOREBOARD_MEASURED_NON_LOGO_CONTENT_PX = 358.469;
+export const OVERVIEW_SCOREBOARD_MINIMUM_SCORE_GAP_PX = 12;
 const OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX_BY_CLASS = {
   'gap-x-10': 40,
 } as const;
@@ -89,19 +92,42 @@ export const OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS =
   'gap-x-10' satisfies keyof typeof OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX_BY_CLASS;
 export const OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX =
   OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX_BY_CLASS[OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS];
-const OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX = 20;
-export const OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX =
-  OVERVIEW_SCOREBOARD_MOCKUP_TARGET_PX -
-  OVERVIEW_SCOREBOARD_MOCKUP_PREFIX_SLOT_PX +
-  SCOREBOARD_TEAM_LOGO_SLOT.widthPx;
+export const OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT = 3;
+export const OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX = Math.ceil(
+  OVERVIEW_SCOREBOARD_MEASURED_NON_LOGO_CONTENT_PX +
+    SCOREBOARD_TEAM_LOGO_SLOT.widthPx +
+    OVERVIEW_SCOREBOARD_MINIMUM_SCORE_GAP_PX
+);
+// The declared production stack resolved 17.250px wider on this host with system-ui
+// than with its Helvetica/Arial fallbacks. Reserve one observed stack-face spread per
+// column so a wider host resolution retains the 12px score gap. The browser gate pins
+// both the distributed headroom and the resulting unclipped row.
+const OVERVIEW_SCOREBOARD_OBSERVED_FONT_STACK_SPREAD_PX = 17.25;
+export const OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX = Math.ceil(
+  OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT * OVERVIEW_SCOREBOARD_OBSERVED_FONT_STACK_SPREAD_PX
+);
+export const OVERVIEW_SCOREBOARD_ROW_CONTENT_CAP_PX =
+  OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX +
+  OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX / OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT;
 export const OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX =
-  3 * OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX +
-  2 * OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX +
+  OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT * OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX +
+  (OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT - 1) * OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX +
   OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX;
 // Tailwind emits the preserved max variant as `width < 760.01px`: exactly
 // 760.01px is therefore in the two-column band, while practical whole-pixel
 // checks at 760px and 761px land on the intended sides.
-export const OVERVIEW_SCOREBOARD_GRID_CLASSES = `grid grid-cols-2 ${OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS} @max-[760.01px]:grid-cols-1 @min-[1348px]:grid-cols-3`;
+// The arbitrary variant must remain literal for Tailwind discovery; the arithmetic
+// test couples its 1341px value back to the derived breakpoint above.
+const OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_CLASS = '@min-[1341px]:grid-cols-3' as const;
+const OVERVIEW_SCOREBOARD_ROW_CAP_CLASS =
+  '[&>[data-game-scoreboard]]:w-full [&>[data-game-scoreboard]]:max-w-[var(--overview-scoreboard-row-content-cap)] [&>[data-game-scoreboard]]:justify-self-start' as const;
+export const OVERVIEW_SCOREBOARD_GRID_CLASSES = `grid w-full grid-cols-2 ${OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS} @max-[760.01px]:grid-cols-1 ${OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_CLASS} ${OVERVIEW_SCOREBOARD_ROW_CAP_CLASS}`;
+type OverviewScoreboardGridStyle = React.CSSProperties & {
+  '--overview-scoreboard-row-content-cap': string;
+};
+export const OVERVIEW_SCOREBOARD_GRID_STYLE: OverviewScoreboardGridStyle = {
+  '--overview-scoreboard-row-content-cap': `${OVERVIEW_SCOREBOARD_ROW_CONTENT_CAP_PX}px`,
+};
 
 /**
  * The last `n` weeks that are RESOLVED — played, with a usable snapshot.
@@ -765,7 +791,11 @@ function GameCardList({
   }
 
   return (
-    <div className={OVERVIEW_SCOREBOARD_GRID_CLASSES} data-live-scoreboard-grid>
+    <div
+      className={OVERVIEW_SCOREBOARD_GRID_CLASSES}
+      style={OVERVIEW_SCOREBOARD_GRID_STYLE}
+      data-live-scoreboard-grid
+    >
       {items.map((item) => {
         const game = item.bucket.game;
         const isAwaitingScore = state === 'live' && item.routeStatus.kind === 'awaiting-score';
@@ -869,7 +899,11 @@ function WatchlistScoreboardList({
   }
 
   return (
-    <div className={OVERVIEW_SCOREBOARD_GRID_CLASSES} data-watchlist-scoreboard-grid>
+    <div
+      className={OVERVIEW_SCOREBOARD_GRID_CLASSES}
+      style={OVERVIEW_SCOREBOARD_GRID_STYLE}
+      data-watchlist-scoreboard-grid
+    >
       {prioritizedItems.map((prioritized) => {
         const item = prioritized.item;
         const game = item.bucket.game;
@@ -984,7 +1018,11 @@ function FeaturedGamesList({
   }
 
   return (
-    <div className={OVERVIEW_SCOREBOARD_GRID_CLASSES} data-featured-scoreboard-grid>
+    <div
+      className={OVERVIEW_SCOREBOARD_GRID_CLASSES}
+      style={OVERVIEW_SCOREBOARD_GRID_STYLE}
+      data-featured-scoreboard-grid
+    >
       {prioritizedItems.map((prioritized) => {
         const item = prioritized.item;
         const game = item.bucket.game;

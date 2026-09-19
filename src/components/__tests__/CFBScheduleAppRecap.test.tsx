@@ -6,6 +6,7 @@ import { JSDOM } from 'jsdom';
 import React from 'react';
 
 import CFBScheduleApp from '../CFBScheduleApp';
+import { OVERVIEW_SCOREBOARD_GRID_STYLE } from '../OverviewPanel';
 import { AppContextProviders } from './_setup/renderWithAppContext';
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
@@ -173,6 +174,17 @@ test('Overview keeps the recap tile before its podium when the schedule succeeds
   const podium = rendered.getByText('League summary').closest('section');
   assert.ok(tile);
   assert.ok(podium);
+  assert.ok(
+    Object.keys(OVERVIEW_SCOREBOARD_GRID_STYLE).length > 0,
+    'positive control: scoreboard grids carry a width-cap style contract'
+  );
+  assert.doesNotMatch(
+    tile.className,
+    /(?:^|\s)(?:max-w-|w-\[)/,
+    'the recap tile remains a full-width section rather than inheriting the scoreboard row cap'
+  );
+  assert.equal(tile.style.maxWidth, '');
+  assert.equal(tile.style.getPropertyValue('--overview-scoreboard-row-content-cap'), '');
   assert.ok(
     tile.compareDocumentPosition(podium) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING,
     'recap stays before the podium in normal flow'

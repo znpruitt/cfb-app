@@ -9,12 +9,24 @@ import OverviewPanelImpl, {
   OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS,
   OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX,
   OVERVIEW_SCOREBOARD_GRID_CLASSES,
+  OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX,
+  OVERVIEW_SCOREBOARD_GRID_STYLE,
   OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX,
   OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX,
+  OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT,
+  OVERVIEW_SCOREBOARD_MEASURED_NON_LOGO_CONTENT_PX,
+  OVERVIEW_SCOREBOARD_MINIMUM_SCORE_GAP_PX,
+  OVERVIEW_SCOREBOARD_ROW_CONTENT_CAP_PX,
 } from '../OverviewPanel';
 import GameWeekPanel from '../GameWeekPanel';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../../lib/overview';
 import { deriveLeagueInsights, deriveOverviewInsights } from '../../lib/selectors/insights';
+import { OVERVIEW_RESULTS_LIMIT } from '../../lib/selectors/overview';
+import {
+  OVERVIEW_LIVE_LIMIT,
+  OVERVIEW_RECENT_FINALS_LIMIT,
+  OVERVIEW_WATCHLIST_LIMIT,
+} from '../../lib/selectors/overviewGameSections';
 import { TREND_EMPTY_MESSAGE } from '../../lib/trendEmptyState';
 import { selectSeasonContext, type SeasonContext } from '../../lib/selectors/seasonContext';
 import { selectLiveDelta, type LiveDelta } from '../../lib/selectors/liveDelta';
@@ -24,6 +36,7 @@ import type { StandingsHistory } from '../../lib/standingsHistory';
 import type { AppGame } from '../../lib/schedule';
 import type { ScorePack } from '../../lib/scores';
 import { buildOddsByGame } from '../../lib/odds';
+import { SCOREBOARD_TEAM_LOGO_SLOT } from '../../lib/teamLogos';
 
 type OverviewPanelProps = React.ComponentProps<typeof OverviewPanelImpl>;
 type OverviewPanelTestProps = Omit<OverviewPanelProps, 'sectionItems' | 'nowMs'> &
@@ -804,6 +817,42 @@ test('overview scoreboards keep current records across scheduled, live, and fina
     6,
     'scheduled, live, and recent-final renderers must each render both team logos'
   );
+
+  const document = new JSDOM(html).window.document;
+  const scoreboards = Array.from(document.querySelectorAll<HTMLElement>('[data-game-scoreboard]'));
+  assert.deepEqual(
+    scoreboards.map((scoreboard) => scoreboard.dataset.scoreboardState).sort(),
+    ['final', 'live', 'scheduled'],
+    'the fixture must exercise each scoreboard renderer once'
+  );
+  for (const scoreboard of scoreboards) {
+    assert.ok(
+      scoreboard.parentElement?.matches(
+        '[data-live-scoreboard-grid], [data-featured-scoreboard-grid], [data-watchlist-scoreboard-grid]'
+      ),
+      'each scoreboard must remain a direct grid child so the row cap applies'
+    );
+  }
+  const grids = Array.from(
+    document.querySelectorAll<HTMLElement>(
+      '[data-live-scoreboard-grid], [data-featured-scoreboard-grid], [data-watchlist-scoreboard-grid]'
+    )
+  );
+  assert.equal(grids.length, 3, 'the fixture must exercise all three Overview grid variants');
+  for (const grid of grids) {
+    assert.equal(grid.className, OVERVIEW_SCOREBOARD_GRID_CLASSES);
+    assert.equal(
+      grid.style.getPropertyValue('--overview-scoreboard-row-content-cap'),
+      OVERVIEW_SCOREBOARD_GRID_STYLE['--overview-scoreboard-row-content-cap']
+    );
+    const section = grid.closest('section');
+    assert.equal(section?.className, '@container', 'the section remains the container-query owner');
+    assert.equal(
+      section?.previousElementSibling?.tagName,
+      'HR',
+      'the full-width divider remains outside the row-capped grid'
+    );
+  }
 });
 
 test('overview watchlist renders withheld records as absent and preserves an empty odds row', () => {
@@ -881,9 +930,13 @@ test('overview Live section consumes the shared scoreboard in a row-major respon
     />
   );
 
-  assert.match(
-    html,
-    /grid grid-cols-2 gap-x-10 @max-\[760\.01px\]:grid-cols-1 @min-\[1348px\]:grid-cols-3" data-live-scoreboard-grid/
+  const document = new JSDOM(html).window.document;
+  const liveGrid = document.querySelector<HTMLElement>('[data-live-scoreboard-grid]');
+  assert.ok(liveGrid, 'the live scoreboard grid must render');
+  assert.equal(liveGrid.className, OVERVIEW_SCOREBOARD_GRID_CLASSES);
+  assert.equal(
+    liveGrid.style.getPropertyValue('--overview-scoreboard-row-content-cap'),
+    OVERVIEW_SCOREBOARD_GRID_STYLE['--overview-scoreboard-row-content-cap']
   );
   assert.equal((html.match(/data-game-scoreboard=/g) ?? []).length, 2);
   const awayLeadingCard = html.indexOf('aria-label="Utah at Arizona State"');
@@ -1260,24 +1313,74 @@ test('overview Featured renders its badge and existing tag in the final status r
   // Sibling control for the rule above: the time is removed from FINAL rows only. A
   // live row still carries its clock.
   assert.match(liveScoreboard, /Q2 6:14/);
-  assert.match(
-    html,
-    /<section class="@container">[\s\S]*?<div class="grid grid-cols-2 gap-x-10 @max-\[760\.01px\]:grid-cols-1 @min-\[1348px\]:grid-cols-3" data-featured-scoreboard-grid="true">/
-  );
+  const document = new JSDOM(html).window.document;
+  const featuredGrid = document.querySelector<HTMLElement>('[data-featured-scoreboard-grid]');
+  assert.ok(featuredGrid, 'the Featured scoreboard grid must render');
+  assert.equal(featuredGrid.className, OVERVIEW_SCOREBOARD_GRID_CLASSES);
+  assert.equal(featuredGrid.closest('section')?.className, '@container');
 });
 
 test('overview three-column grid arithmetic stays coupled to its literal utility', () => {
   assert.equal(OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS, 'gap-x-10');
   assert.equal(OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX, 40);
+  assert.equal(OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT, 3);
+  assert.equal(OVERVIEW_SCOREBOARD_MINIMUM_SCORE_GAP_PX, 12);
   assert.ok(OVERVIEW_SCOREBOARD_GRID_CLASSES.includes(OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_CLASS));
-  assert.equal(OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX, 416);
-  assert.equal(OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX, 1348);
+  assert.equal(OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX, 403);
+  assert.equal(
+    OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX,
+    Math.ceil(
+      OVERVIEW_SCOREBOARD_MEASURED_NON_LOGO_CONTENT_PX +
+        SCOREBOARD_TEAM_LOGO_SLOT.widthPx +
+        OVERVIEW_SCOREBOARD_MINIMUM_SCORE_GAP_PX
+    ),
+    'the target column width must remain coupled to measured content, logo slot, and score gap'
+  );
+  assert.equal(OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX, 52);
+  assert.equal(
+    OVERVIEW_SCOREBOARD_ROW_CONTENT_CAP_PX,
+    OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX +
+      OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX / OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT
+  );
+  assert.equal(OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX, 1341);
+  assert.equal(
+    OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX,
+    OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT * OVERVIEW_SCOREBOARD_GRID_TARGET_COLUMN_PX +
+      (OVERVIEW_SCOREBOARD_GRID_WIDE_COLUMN_COUNT - 1) * OVERVIEW_SCOREBOARD_GRID_COLUMN_GAP_PX +
+      OVERVIEW_SCOREBOARD_GRID_HEADROOM_PX
+  );
   assert.ok(
     OVERVIEW_SCOREBOARD_GRID_CLASSES.includes(
       `@min-[${OVERVIEW_SCOREBOARD_GRID_THREE_COLUMN_BREAKPOINT_PX}px]:grid-cols-3`
     ),
     'the rendered Tailwind breakpoint must match the documented arithmetic'
   );
+  assert.ok(OVERVIEW_SCOREBOARD_GRID_CLASSES.includes('w-full'));
+  assert.ok(
+    OVERVIEW_SCOREBOARD_GRID_CLASSES.includes(
+      '[&>[data-game-scoreboard]]:max-w-[var(--overview-scoreboard-row-content-cap)]'
+    ),
+    'the width cap must apply to each direct scoreboard child rather than the grid'
+  );
+  assert.ok(
+    OVERVIEW_SCOREBOARD_GRID_CLASSES.includes('[&>[data-game-scoreboard]]:justify-self-start'),
+    'each capped scoreboard must align to the left edge of its equal grid track'
+  );
+  assert.doesNotMatch(
+    OVERVIEW_SCOREBOARD_GRID_CLASSES,
+    /(?:^|\s)max-w-/,
+    'the grid itself must not be capped into one large trailing blank strip'
+  );
+  assert.equal(
+    OVERVIEW_SCOREBOARD_GRID_STYLE['--overview-scoreboard-row-content-cap'],
+    `${OVERVIEW_SCOREBOARD_ROW_CONTENT_CAP_PX}px`
+  );
+  assert.deepEqual(
+    [OVERVIEW_LIVE_LIMIT, OVERVIEW_RECENT_FINALS_LIMIT, OVERVIEW_WATCHLIST_LIMIT],
+    [6, 6, 6],
+    'Live, Recent finals, and Upcoming watchlist retain their six-item caps'
+  );
+  assert.equal(OVERVIEW_RESULTS_LIMIT, 4, 'Featured retains its four-item cap');
 });
 
 test('overview Featured conversion preserves the existing recent-results selection and order', () => {
