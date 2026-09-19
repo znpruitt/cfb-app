@@ -325,11 +325,43 @@ These consolidate recurring historical observations, not new project-governance 
 - Round-3 verification: `tsc --noEmit`, `lint:all`, `npm run build` and `npm test` each exited 0 on
   tip `72524ecc`; **5,458 pass / 0 fail / 0 cancelled / 0 skipped** in 47.3 s. Both required browser
   tests passed. **6 mutations run, 4 red on a named assertion, 2 surviving by design and documented.**
-- Status: **Not merged; the round-3 confirming pass has not run.** Four findings remain open, all in
-  the precommitment class, none patched. Four findings are open and
-  documented, all in the precommitment class; none has been patched. The precommitment carries forward: another
-  instance of **the detector claims more than it observes** ships with the limitation documented rather
-  than being patched again.
+- **Review round 4: `/code-review high` on `72524ecc` 3 findings, all new and all confirmed; Codex
+  on `be93943f` (the round-3 closeout, zero `src/` difference) 4, all re-reports of the open class
+  items, zero new.** Remediation was owner-approved. **Every new finding was about round 3's
+  VERIFICATION, not the detector**: that surface has now drawn no new finding in a pass.
+- **F1 — a real 500 on the exact input the route exists to diagnose.** Round 3 normalized at the
+  boundary, but that runs on tuples ALREADY BUILT, and three entries dereferenced the value while
+  building them: `cached.coverage.state`, `cached.coverage.message`, `cached.ownerColorOrder.join`.
+  A snapshot predating either field (reachable: `revalidate: false` with tag-only invalidation, so
+  entries survive deploys) threw before a body existed. **Round 3's comment claimed a later field
+  "cannot reintroduce it", and its response-wide assertion could not see a throw**, because a throw
+  leaves no body to walk. Pre-existing from v1; the false coverage claim was round 3's.
+- **The fix is a check with no list in it.** `survivesASnapshotMissingAnyOneField` WALKS a real
+  snapshot for field paths, deletes each in turn, and asserts a 200 with both sides present. It
+  found `snapshot.rows.forEach`, which neither reviewer named; a mutation then showed the walk was
+  top-level only, and descending into plain objects found `history.byWeek[week]` and
+  `byOwner[owner]`. **Four rounds of me enumerating sites produced three false "closed" claims; one
+  walk produced three real sites.**
+- **F2 — the year pin was TAUTOLOGICAL and `route.ts` cited it by name.** `resolveStandingsYear`
+  returns a non-null override on its first line, so the key assertion compared `f(x)` with `f(x)`.
+  It now deep-equals the two COMPUTES — the equivalence actually at risk, since
+  `dataCachedCanonicalStandings` passes the raw override into the compute while keying on the
+  resolved year. **F3** — the boundary sweep's fixture guard was truthy for `[]`, so it could report
+  full coverage over zero entries; it now requires non-zero differences AND non-zero fields.
+- **The recurring defect on this branch has moved from the route to my verification of it**: a
+  boundary check that cannot see throws, a guard that passes on an empty array, and an equality
+  that cannot fail, each cited as proof.
+- Round-4 verification: 7 mutations, every one reddening a named assertion, one per restored
+  dereference (recorded in `181c52c6`). The first gate run had `lint:all` 1 and `build` 1 — the F2
+  fix orphaned an import `tsc` does not flag; fixed before commit. On the closeout tip, whose `src/`
+  is byte-identical to `181c52c6`: `tsc --noEmit` 0, `npm run build` 0, `lint:all` 0, `npm test` 0 —
+  **5,459 pass / 0 fail / 0 cancelled / 0 skipped** in 46.2 s. Browser tests were not re-run for
+  the closeout.
+- Status: **Not merged. Four remediation rounds have run, the fourth owner-approved; under
+  `AGENTS.md` step 7 there is no further patching.** No confirming pass has run on `181c52c6`. Four
+  findings remain open and documented, all in the precommitment class, none patched. The
+  precommitment carries forward: another instance of **the detector claims more than it observes**
+  ships with the limitation documented rather than being patched again.
 - **THE GATE IS UN-RUN, and fail-closed on preview is not the gate.** v1 verified the admin refusal in
   real preview runtime, but **no authenticated call has ever been made and nothing has run against
   production data**. Preview reads its own Neon branch, so even an authenticated preview call answers
