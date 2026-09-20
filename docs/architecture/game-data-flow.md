@@ -110,11 +110,14 @@ retained, refresh recorded as failed, `502`); only a genuinely inapplicable/unpu
 (postseason before bowls, a future season not yet published) resolves as a **no-op** that writes
 nothing and preserves prior-good success metadata. An empty schedule is never
 committed-then-labelled-a-no-op (which would empty the cache while claiming old rows are still
-served). Both paths share ONE empty-response classifier (`classifyEmptyScheduleRefresh` in
-`scheduleSeasonFetch.ts`, PLATFORM-086A 6th review) so they cannot drift: the season-transition cron
-applies the same rule, so an empty probe over a populated prior-good schedule is a rejected failure
-(prior-good retained, and the league does **not** flip off the empty probe that run) rather than a
-silent no-op. See [storage-and-caching.md](storage-and-caching.md) → "Schedule refresh
+served). **CORRECTED 2026-09-20:** this paragraph used to say both paths share ONE
+classifier, `classifyEmptyScheduleRefresh` in `scheduleSeasonFetch.ts` — **that helper has no
+production caller on `main` today.** PLATFORM-663 made the whole-year aggregate the single writer
+and the check moved into it: `commitFullSeasonSchedule` decides all-empty inside the
+advisory-locked transaction against a transaction-fresh prior entry
+(`fullSeasonScheduleRefresh.ts:151-157`). The rule is unchanged — an empty probe over a populated
+prior-good schedule is a rejected failure, prior-good retained, and the league does **not** flip off
+that empty probe — and it now cannot drift because there is one path rather than two. See [storage-and-caching.md](storage-and-caching.md) → "Schedule refresh
 completeness".
 
 **Every production full-season schedule writer converges onto ONE refresh authority

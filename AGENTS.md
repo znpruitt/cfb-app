@@ -345,12 +345,20 @@ Do not reintroduce `teams-<year>.json` / `teams-latest.json` copies unless there
        (`classifyRankingsPartition`) so a nonempty partition normalizing to zero usable weeks is
        schema drift (`rankings-partition-schema-drift`, whole aggregate rejected, prior-good
        retained) — one healthy partition can never mask a drifted one, and drift is never mistaken
-       for the raw-empty no-op/rejected-replacement path. **The schedule empty-response policy is
-       one shared classifier (6th review):** `classifyEmptyScheduleRefresh`
-       (`scheduleSeasonFetch.ts`) is called by BOTH the `/api/schedule` route and the
-       season-transition cron, so an empty cron probe over a populated prior-good schedule is a
-       rejected failure (`schedule-empty-replacement-rejected`, prior-good retained, and the league
-       does **not** transition off that empty probe), never a silent no-op. **Status classification
+       for the raw-empty no-op/rejected-replacement path. **The schedule empty-response policy holds
+       at ONE COMMIT POINT:** an all-empty result over populated prior-good is rejected
+       (`schedule-empty-replacement-rejected`, prior-good retained, and the league does **not**
+       transition off that empty probe), never a silent no-op. **CORRECTED 2026-09-20 — this
+       sentence used to name `classifyEmptyScheduleRefresh` (`scheduleSeasonFetch.ts`) and say it
+       is called by BOTH the `/api/schedule` route and the season-transition cron. It is called by
+       NEITHER**; on `main` today that helper has no production caller at all, only its own test.
+       PLATFORM-663 made the aggregate the single writer, and the check moved with it:
+       `commitFullSeasonSchedule` decides it inside the advisory-locked transaction, on a prior
+       entry re-read transaction-fresh (`fullSeasonScheduleRefresh.ts:151-157`). **The invariant is
+       unchanged and the drift risk the old mechanism guarded against is GONE by construction —
+       two paths cannot diverge when there is one path.** Do not restore a second classifier to
+       satisfy the old wording; if a second writer is ever added, it converges on the refresh
+       authority rather than calling a shared helper. **Status classification
        is separator-agnostic (6th review):** `gameStatus.ts` normalizes provider/cache enum labels
        (`STATUS_CANCELED`, `STATUS_POSTPONED`, hyphen/space variants) to tokens before matching (a
        bare `\b` word boundary silently fails on `_`), so the score-terminal and

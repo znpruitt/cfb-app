@@ -157,7 +157,7 @@ Both schedule refresh paths — the season-transition cron (`/api/cron/season-tr
 On uncertainty the two routes surface it in their own style but with the same effect — no durable write, no process-cache update, no standings invalidation, prior-good state retained:
 
 - the **cron** (PLATFORM-085B) requests regular + postseason, retains prior-good durable schedule/probe, and reports `partialFailure` on that year's result (the next run retries). Its lifecycle status flip is a separate write that runs off the validated probe, so a partial fetch never advances the probe and the transition only ever acts on complete/prior-good schedule data.
-- the **`/api/schedule` route** (PLATFORM-085C) makes `fetchSeasonType` throw on a non-array or nonempty→zero-rows partition, so it lands in `failedSeasonTypes`; the existing completeness gate (`hasRequiredSeasonTypeFailure`) then returns `502` (with `failedSeasonTypes` for an `all` request) before the durable-first commit block runs — so `SCHEDULE_ROUTE_CACHE`, the durable `${cacheKey}`, and standings invalidation are all left untouched. A legitimately empty partition (empty upstream array) still commits normally.
+- the **`/api/schedule` route** (PLATFORM-085C) refuses to commit an incomplete season, returning `502` before the durable-first commit block runs — so `SCHEDULE_ROUTE_CACHE`, the durable `${cacheKey}`, and standings invalidation are all left untouched. A legitimately empty partition (empty upstream array) still commits normally. **CORRECTED 2026-09-20:** this bullet used to name `fetchSeasonType` and `hasRequiredSeasonTypeFailure` as the mechanism. **`fetchSeasonType` no longer exists in `src/` at all, and `hasRequiredSeasonTypeFailure` has no production caller** — PLATFORM-663 retired the per-season-type partition machinery those two implemented. The refusal survives; the symbols do not. See #833/#837 for their removal.
 - an **all-empty** result — every requested partition validly returned zero rows — is classified
   **before** the durable/process-cache write (PLATFORM-086A 4th review): if a populated schedule is
   already cached under `${cacheKey}`, the empty result is **rejected** as an unexpected replacement
@@ -165,14 +165,17 @@ On uncertainty the two routes surface it in their own style but with the same ef
   genuinely inapplicable/unpublished empty (postseason before bowls, a future season) resolves as a
   **no-op** that writes nothing and preserves prior-good success metadata. An empty schedule is
   never written durably and then reported as a no-op (which would empty the authoritative cache
-  while status claimed the old rows were still served). Both the `/api/schedule` route and the
+  while status claimed the old rows were still served). **CORRECTED 2026-09-20:** this used to say the route and the
   season-transition cron call the **same** `classifyEmptyScheduleRefresh(...)` helper
-  (`scheduleSeasonFetch.ts`, PLATFORM-086A 6th review) — `not-empty` |
-  `unexpected-empty-replacement` | `valid-noop` from the mapped-row count and the prior-good durable
-  row count — so the cron's empty-probe handling can never drift from the route's: an empty cron
-  probe over a populated prior-good schedule is a rejected failure
-  (`schedule-empty-replacement-rejected`, prior-good retained) and the league does **not**
-  transition off that empty probe, while a genuinely unpublished empty probe is a no-op.
+  (`scheduleSeasonFetch.ts`, PLATFORM-086A 6th review). **Neither calls it** — on `main` today the
+  helper has no production caller, only its own test. PLATFORM-663 made the whole-year aggregate the
+  single writer, and the decision moved into `commitFullSeasonSchedule`, which classifies all-empty
+  inside the advisory-locked transaction against a prior entry re-read transaction-fresh
+  (`fullSeasonScheduleRefresh.ts:151-157`). **The behaviour is identical and the drift the shared
+  helper existed to prevent is now structurally impossible:** an empty commit over a populated
+  prior-good schedule is a rejected failure (`schedule-empty-replacement-rejected`, prior-good
+  retained) and the league does **not** transition off that empty probe, while a genuinely
+  unpublished empty is a no-op that writes nothing.
 
 This composes with the durable-first rule above: on a **complete** refresh the schedule is persisted durably first, then the process cache, then invalidation.
 
