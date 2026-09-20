@@ -391,10 +391,29 @@ export async function GET(req: Request) {
   // removed with it.
   //
   // So: any successful populated commit re-derives the probe, whatever the request
-  // shape that caused it. Presentation seeding stays bound to the authorized
-  // whole-season `bypassCache=1` request, because that IS a request-shape concern —
-  // it seeds a presentation cache an operator asked to seed, and nothing downstream
-  // reads it as lifecycle input.
+  // shape that caused it.
+  //
+  // WHAT THAT WIDENS, stated because dropping `bypassCache` from the gate widens it
+  // further than "window refreshes" (review round 2). Any ADMIN GET that finds a
+  // stale aggregate now writes `schedule-probe` — including the internal sub-request
+  // from `/api/debug/_lib/loadDebugSeasonContext.ts:52`, which forwards the caller's
+  // own admin credentials on purpose (`forwardAdminAuthHeaders`). So a read-shaped
+  // debug request can write lifecycle state. **That is correct, not incidental:** the
+  // same request was ALREADY committing the aggregate before this slice — the
+  // fallthrough is unchanged — and the probe is derived FROM the aggregate, so the
+  // two moving together is the invariant. The bug would be a commit with a probe
+  // left behind. (`/api/odds/route.ts:241` also self-fetches this route but forwards
+  // NO credentials, so it is non-admin and cannot reach the refresh at all; the
+  // review named it and it does not qualify.)
+  //
+  // Presentation seeding stays bound to the authorized whole-season `bypassCache=1`
+  // request. That asymmetry is deliberate and it is NOT the same shape as the probe
+  // bug above: PLATFORM-086E1C1 scoped seeding to that one request on purpose, the
+  // media overlay is display-only, and it self-heals on the next whole-season or
+  // weekly refresh — whereas a stale probe silently defers a lifecycle cron. The
+  // honest cost: games first committed by a WINDOW refresh carry no media/venue
+  // overlay until the next seeding. Widening it would spend provider calls on a path
+  // that never did, so it is a separate decision rather than a fix folded in here.
   if (result.status === 'success' && result.items.length > 0) {
     try {
       const existingProbe = await getScheduleProbeState(year);

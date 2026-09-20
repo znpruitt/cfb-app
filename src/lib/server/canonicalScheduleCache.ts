@@ -85,10 +85,30 @@ export function canonicalScheduleAggregateServes(value: unknown): boolean {
  * `/api/schedule`. It is the single source the canonical standings selector and
  * Insights share, so both build the same canonical games from the same inputs.
  *
- * #663 made this the only copy. `assembleSeasonScoredBuild` re-implemented the
- * same precedence inline and `loadScheduleDisappearanceFallback` spelled out the
- * same two partition keys again; a convergence contract that depends on three
- * copies agreeing is not a contract.
+ * #663 made this the only copy **among the paths it converged**:
+ * `assembleSeasonScoredBuild` re-implemented the precedence inline and
+ * `loadScheduleDisappearanceFallback` spelled out the same two partition keys
+ * again, and both now come through here.
+ *
+ * **IT IS NOT YET THE ONLY COPY IN THE REPO, AND SAYING SO WOULD BE FALSE.** The
+ * first version of this comment claimed exactly that and was corrected at review.
+ * Still carrying their own precedence, all outside #663's scope and tracked by
+ * [#833](https://github.com/znpruitt/cfb-app/issues/833):
+ *   - `providerDataDiagnostics.ts:374-401` — inlines the aggregate-serves predicate
+ *     and hardcodes `${year}-all-regular`; its own comment says it "MUST mirror
+ *     `loadCachedScheduleItems`' key precedence", which is the drift this module
+ *     exists to prevent, asserted rather than enforced.
+ *   - `LeagueStatusPanel.tsx:77-79` — a DIFFERENT precedence, and the one that is
+ *     actually wrong: `getAppState(...'-all-all').then(r => r ?? getAppState(...))`
+ *     tests RECORD presence, not ROW presence, so an empty aggregate record shadows
+ *     a populated partition and `hasSchedule` reads true with zero rows. That is
+ *     precisely the disagreement {@link canonicalScheduleAggregateServes} warns
+ *     about, two files away and still live.
+ *   - `seasonRollover.ts:17-25` — a third shape: aggregate, else `-all-postseason`
+ *     only.
+ * Those three are why the key builders and the predicate are EXPORTED rather than
+ * private: the convergence is available to them, and until they consume it this
+ * module is the canonical copy, not the only one.
  */
 export async function loadCachedScheduleItems(year: number): Promise<ScheduleWireItem[]> {
   const entry = await loadCanonicalScheduleEntry<ScheduleWireItem>(year);

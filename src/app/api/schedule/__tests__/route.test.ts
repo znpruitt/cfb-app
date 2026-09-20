@@ -14,6 +14,7 @@ import {
   __resetAppStateForTests,
   __setAppStateReadFailureForTests,
   getAppState,
+  listAppStateKeys,
   setAppState,
 } from '../../../../lib/server/appStateStore.ts';
 import {
@@ -629,24 +630,26 @@ async function seedAggregate(at = Date.now()) {
   });
 }
 
-/** Every durable key in the `schedule` scope, so a test can assert what exists. */
+/**
+ * Every durable key in the `schedule` scope — a REAL enumeration, not a guess.
+ *
+ * The first version of this helper probed a hand-written candidate list (weeks 0-3
+ * plus a few shapes) while its comment claimed to return every key. It backs this
+ * slice's two central assertions — "a window refresh must write the aggregate and
+ * nothing else" and "a lease-losing window refresh writes no schedule key at all" —
+ * so a regression committing a key OUTSIDE the guessed list (week 4, another year,
+ * a differently shaped key) would have passed silently. The mutation I used to prove
+ * those assertions happened to write week 1, inside the list, so the proof did not
+ * generalise the way the closeout claimed it did.
+ *
+ * `listAppStateKeys` asks the store what it actually holds, so the assertion now
+ * means what its name says. A convergence test whose measurement is a guess about
+ * where the defect would land is exactly the "clean measurement of the wrong
+ * population" failure.
+ */
 async function scheduleKeysPresent(): Promise<string[]> {
-  const found: string[] = [];
-  const candidates = [
-    P663_AGGREGATE_KEY,
-    `${P663_YEAR}-all-regular`,
-    `${P663_YEAR}-all-postseason`,
-    `${P663_YEAR}-1-all`,
-    `${P663_YEAR}-2-all`,
-  ];
-  for (let week = 0; week <= 3; week += 1) {
-    candidates.push(`${P663_YEAR}-${week}-regular`, `${P663_YEAR}-${week}-postseason`);
-  }
-  for (const key of candidates) {
-    const record = await getAppState<unknown>('schedule', key);
-    if (record?.value != null) found.push(key);
-  }
-  return found;
+  const keys = await listAppStateKeys('schedule');
+  return [...keys].sort();
 }
 
 test('a week request is served as a projection of the aggregate, with no provider call', async () => {
@@ -993,4 +996,85 @@ test('a window refresh serializes against an in-flight full-season refresh', asy
     [],
     'a lease-losing window refresh writes no schedule key at all'
   );
+});
+
+test('an ADMIN request with a stale aggregate and no bypassCache refreshes and re-derives the probe', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  process.env.ADMIN_API_TOKEN = 'admin-token';
+
+  // PLATFORM-663 review round 2. This pins the `if (!isAdmin)` stale-fallthrough,
+  // which had NO test after this slice deleted the one that covered it. Disabling
+  // that branch left the ENTIRE suite green at 5454/5454 — proven by mutation, not
+  // by reading — while every admin request was served stale rows until TTL.
+  //
+  // It is the only path that reaches the provider WITHOUT `bypassCache=1`, and
+  // round 1 made it the path that re-derives the lifecycle-critical probe, so the
+  // branch got more load-bearing in the same slice that removed its coverage.
+  await setAppState('schedule', P663_AGGREGATE_KEY, {
+    at: Date.now() - 3_601_000,
+    items: [{ ...p663Row('stale', 1, 'regular'), startDate: `${P663_YEAR}-10-05T00:00:00.000Z` }],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+  await setAppState('schedule-probe', String(P663_YEAR), {
+    year: P663_YEAR,
+    baseCachedAt: `${P663_YEAR}-01-01T00:00:00.000Z`,
+    firstGameDate: `${P663_YEAR}-10-05T00:00:00.000Z`,
+  });
+
+  let fetchCalls = 0;
+  setMockFetch(async (input: URL | string) => {
+    fetchCalls += 1;
+    const seasonType = new URL(String(input)).searchParams.get('seasonType');
+    return new Response(
+      JSON.stringify(
+        seasonType === 'postseason'
+          ? []
+          : [
+              {
+                week: 1,
+                home_team: 'Fresh Home',
+                away_team: 'Fresh Away',
+                id: 7001,
+                start_date: `${P663_YEAR}-08-28T23:00:00.000Z`,
+              },
+            ]
+      ),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    );
+  });
+
+  // NOTE the shape: an authenticated admin, NO bypassCache. Every other
+  // refresh-path test in this file passes `bypassCache=1`, and both stale tests
+  // deliberately send no credentials — which is why this branch was uncovered.
+  const { result: res } = await runCapturingTags(() =>
+    GET(
+      new Request(`http://localhost/api/schedule?year=${P663_YEAR}&seasonType=regular`, {
+        headers: { 'x-admin-token': 'admin-token' },
+      })
+    )
+  );
+  const json = await res.json();
+
+  assert.equal(res.status, 200, JSON.stringify(json));
+  assert.ok(fetchCalls > 0, 'an admin stale read must fall through to the provider');
+  assert.equal(json.meta.cache, 'miss', 'it is a refresh, not a stale cache hit');
+  assert.notEqual(json.meta.stale, true, 'the admin gets fresh rows, not stale-flagged ones');
+  assert.deepEqual(
+    json.items.map((i: { homeTeam: string }) => i.homeTeam),
+    ['Fresh Home'],
+    'the refreshed rows are served, projected to the requested window'
+  );
+
+  // The commit landed on the one canonical key...
+  assert.deepEqual(await scheduleKeysPresent(), [P663_AGGREGATE_KEY]);
+
+  // ...and the probe followed it off the obsolete date. This is the half that
+  // round 1 made load-bearing: without the fallthrough there is no commit, and
+  // without the round-1 fix there is a commit with a stale probe.
+  const probe = await getAppState<{ firstGameDate: string | null }>(
+    'schedule-probe',
+    String(P663_YEAR)
+  );
+  assert.equal(probe?.value?.firstGameDate, `${P663_YEAR}-08-28T00:00:00.000Z`);
 });
