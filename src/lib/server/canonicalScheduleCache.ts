@@ -98,17 +98,32 @@ export function canonicalScheduleAggregateServes(value: unknown): boolean {
  *     and hardcodes `${year}-all-regular`; its own comment says it "MUST mirror
  *     `loadCachedScheduleItems`' key precedence", which is the drift this module
  *     exists to prevent, asserted rather than enforced.
- *   - `LeagueStatusPanel.tsx:77-79` — a DIFFERENT precedence, and the one that is
- *     actually wrong: `getAppState(...'-all-all').then(r => r ?? getAppState(...))`
- *     tests RECORD presence, not ROW presence, so an empty aggregate record shadows
- *     a populated partition and `hasSchedule` reads true with zero rows. That is
- *     precisely the disagreement {@link canonicalScheduleAggregateServes} warns
- *     about, two files away and still live.
  *   - `seasonRollover.ts:17-25` — a third shape: aggregate, else `-all-postseason`
  *     only.
- * Those three are why the key builders and the predicate are EXPORTED rather than
- * private: the convergence is available to them, and until they consume it this
- * module is the canonical copy, not the only one.
+ *   - `LeagueStatusPanel.tsx:80-98` — aggregate, else `-all-regular` ONLY, so a store
+ *     whose sole populated partition is `-all-postseason` reads as uncached there
+ *     while every canonical reader serves the season. **Its worse half is FIXED
+ *     (PLATFORM-833): `r ?? getAppState(...)` tested RECORD presence, so an empty
+ *     aggregate record shadowed a populated partition and `hasSchedule` read true
+ *     with zero rows. It consumes {@link canonicalScheduleAggregateServes} now.** The
+ *     narrower fallback remains, deliberately: routing it through
+ *     {@link loadCanonicalScheduleEntry} would fix the precedence but the entry
+ *     carries `at` and no `updatedAt`, which made the panel's freshness age measure a
+ *     different quantity from the row beside it and render 1970 for a record lacking
+ *     `at`. Closing the gap without that regression is its own item.
+ * Those are why the key builders and the predicate are EXPORTED rather than private:
+ * the convergence is available to them, and until they consume it this module is the
+ * canonical copy, not the only one.
+ *
+ * **THIS LIST HAS NOW BEEN WRONG IN BOTH DIRECTIONS, WHICH IS THE THING TO NOTICE.**
+ * Its first version claimed this was already the only copy — false. Round 1 of
+ * PLATFORM-833's review then caught that the list still called `LeagueStatusPanel`
+ * live after that same commit fixed it, so the entry was removed. Round 2 reverted
+ * the fix that justified removing it, which would have made the removal false in
+ * turn. A comment that enumerates other files' behaviour has to be re-read on every
+ * change to any of them, because each edit can falsify it from either side — and a
+ * diff that falsifies a comment owns that comment, which is the rule this module's
+ * header applies to `scheduleSeasonFetch.ts` and could not coherently dodge here.
  */
 export async function loadCachedScheduleItems(year: number): Promise<ScheduleWireItem[]> {
   const entry = await loadCanonicalScheduleEntry<ScheduleWireItem>(year);

@@ -3,6 +3,7 @@ import Link from 'next/link';
 
 import { draftScope, type DraftPhase } from '@/lib/draft';
 import { getAppState } from '@/lib/server/appStateStore';
+import { canonicalScheduleAggregateServes } from '@/lib/server/canonicalScheduleCache';
 
 function formatAge(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
@@ -73,9 +74,27 @@ export default async function LeagueStatusPanel({
   try {
     [rosterRecord, scheduleRecord, scoresRecord, draftRecord] = await Promise.all([
       getAppState<string>(`owners:${slug}:${year}`, 'csv'),
-      // Check combined key first (default seasonType=all), fall back to regular-only key
-      getAppState<unknown>('schedule', `${year}-all-all`).then(
-        (r) => r ?? getAppState<unknown>('schedule', `${year}-all-regular`)
+      // PLATFORM-833: the aggregate serves only when it carries ROWS.
+      //
+      // This was `getAppState(...'-all-all').then((r) => r ?? getAppState(...'-all-regular'))`,
+      // which fell back on RECORD absence — a `-all-all` record holding `items: []`
+      // is present, so `??` kept it, the fallback never fired, and the panel
+      // reported on a key it should have skipped. The shared predicate decides it
+      // now, so the fallback keys on rows.
+      //
+      // IT STILL READS `-all-regular` ONLY, while the canonical reader falls back to
+      // BOTH partition keys — so a store whose only populated partition is
+      // `-all-postseason` reads "not cached" here while every canonical reader serves
+      // the season. Round 1 switched to that reader and review round 2 reverted it:
+      // the canonical entry carries `at` (provider-observation time) and no
+      // `updatedAt`, which made this row measure a different quantity from the Scores
+      // row beside it while looking identical — and rendered a 1970 age for any
+      // record lacking `at`, which is the legacy state the fallback exists for.
+      // Closing the postseason-only gap without that regression is its own item.
+      getAppState<unknown>('schedule', `${year}-all-all`).then((r) =>
+        canonicalScheduleAggregateServes(r?.value)
+          ? r
+          : getAppState<unknown>('schedule', `${year}-all-regular`)
       ),
       getAppState<unknown>('scores', `${year}-all-regular`),
       getAppState<StoredDraftState>(draftScope(slug), String(year)),
@@ -88,8 +107,20 @@ export default async function LeagueStatusPanel({
   const csvText = typeof rosterRecord?.value === 'string' ? rosterRecord.value : '';
   const hasRoster = csvText.trim().length > 0;
 
-  const hasSchedule = Boolean(scheduleRecord);
-  const hasScores = Boolean(scoresRecord);
+  // PLATFORM-833: CONTENT, not presence. Both flags were `Boolean(record)`, so a
+  // record holding `items: []` rendered a green dot and a freshness age for a
+  // season with no games — the panel asserting health from the existence of a
+  // container. `hasRoster` above already derived from content (it trims the CSV and
+  // checks length); these two were the outliers, nine lines below a correct sibling.
+  //
+  // ONE SPELLING of "does this carry rows", applied to both records. The predicate is
+  // schedule-named and is answering a scores question, which reads oddly and is
+  // deliberate: both values are `{ items: [...] }` shaped, and a second spelling is
+  // worse than one odd name — spelling it differently is how the schedule precedence
+  // drifted into four copies to begin with. Generalising the name is a rename
+  // candidate, not this slice's work.
+  const hasSchedule = canonicalScheduleAggregateServes(scheduleRecord?.value);
+  const hasScores = canonicalScheduleAggregateServes(scoresRecord?.value);
   const draftPhase = draftRecord?.value?.phase ?? null;
   const scheduledAt = draftRecord?.value?.settings?.scheduledAt ?? null;
 

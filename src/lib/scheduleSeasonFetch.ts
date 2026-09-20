@@ -1,51 +1,32 @@
+/**
+ * The canonical schedule SEASON-TYPE vocabulary, and nothing else.
+ *
+ * **WHAT THIS FILE USED TO BE, because its name still says it (PLATFORM-833).**
+ * It held the shared schedule empty-response policy —
+ * `classifyEmptyScheduleRefresh` and `hasRequiredSeasonTypeFailure` — and its
+ * header called itself *the single source of truth for the schedule
+ * empty-response policy, shared by the authorized `/api/schedule` route and the
+ * season-transition cron so the two can never drift*.
+ *
+ * **That claim outlived the policy.** PLATFORM-663 made the full-season refresh
+ * authority the only committing schedule path, and that authority enforces
+ * completeness and the empty-response classification in its own commit
+ * transaction. Both functions were left with ZERO production callers while the
+ * docstring went on asserting they prevented drift — a false claim a reader would
+ * act on, which is worse than dead code. They were deleted here rather than
+ * marked deprecated: `AGENTS.md`'s amendment in `91aa30a3` is what records the
+ * argument now, and a binding document is a stronger home for it than a comment on
+ * an uncalled function.
+ *
+ * **WHY THE FILE SURVIVES AT ALL.** `ScheduleSeasonType` has live consumers —
+ * `api/cron/season-transition/route.ts` and `lifecycleCronExecutionLog.ts` — so
+ * deleting the module would break them. The type does not belong in a file named
+ * for a fetch policy that no longer exists; relocating it is
+ * [#837](https://github.com/znpruitt/cfb-app/issues/837), which is not done here
+ * only because both consumers sit outside PLATFORM-833's scope.
+ *
+ * Asserted by `scheduleSeasonFetch.test.ts`, which pins that this module exports
+ * the type and NOT the two removed functions, so neither can return without the
+ * test noticing.
+ */
 export type ScheduleSeasonType = 'regular' | 'postseason';
-
-export function hasRequiredSeasonTypeFailure(
-  requestedSeasonType: ScheduleSeasonType | 'all',
-  failedSeasonTypes: ScheduleSeasonType[]
-): boolean {
-  if (failedSeasonTypes.length === 0) {
-    return false;
-  }
-
-  if (requestedSeasonType === 'all') {
-    return true;
-  }
-
-  return failedSeasonTypes.includes(requestedSeasonType);
-}
-
-/**
- * How to treat a schedule refresh whose applicable partitions all resolved
- * WITHOUT a required-partition failure (a required-partition failure is a
- * separate rejection handled by {@link hasRequiredSeasonTypeFailure} and must be
- * classified BEFORE calling this):
- *   - `not-empty`                    — the refresh mapped ≥1 row: commit as usual.
- *   - `unexpected-empty-replacement` — zero mapped rows OVER a populated
- *     prior-good durable schedule: schema-drift/incomplete upstream. Reject —
- *     retain prior-good, record a failure, do NOT transition off it.
- *   - `valid-noop`                   — zero mapped rows with NO populated
- *     prior-good schedule: genuine absence / not-yet-published. Record a no-op,
- *     write nothing.
- */
-export type EmptyScheduleClassification =
-  | 'not-empty'
-  | 'unexpected-empty-replacement'
-  | 'valid-noop';
-
-/**
- * Single source of truth for the schedule empty-response policy, shared by the
- * authorized `/api/schedule` route and the season-transition cron so the two can
- * never drift into separate interpretations of "provider returned zero games"
- * (PLATFORM-086A 6th-review finding #2). There is no legitimate production case
- * for intentionally committing an empty schedule OVER a populated one, so an
- * empty replacement collapses into a rejection rather than an authoritative
- * zero-row commit.
- */
-export function classifyEmptyScheduleRefresh(params: {
-  mappedRows: number;
-  priorDurableRows: number;
-}): EmptyScheduleClassification {
-  if (params.mappedRows > 0) return 'not-empty';
-  return params.priorDurableRows > 0 ? 'unexpected-empty-replacement' : 'valid-noop';
-}
