@@ -209,9 +209,6 @@ export function scopeMatchesKey(
   return providerRefreshScopeKey(dataset, scope) === key;
 }
 
-/** Season-type as accepted by the schedule route (a whole-year `all` is allowed). */
-export type ScheduleSeasonTypeParam = CanonicalSeasonType | 'all';
-
 /**
  * PLATFORM-833: `scheduleRefreshScope` WAS HERE, AND ITS DELETION IS THE RECORD.
  *

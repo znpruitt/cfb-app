@@ -32,6 +32,31 @@ const MALFORMED_VALUES: Array<[label: string, value: unknown]> = [
   ['a boolean', true],
 ];
 
+/**
+ * Any `.eventKey` read that reaches a STRING METHOD, however it is spelled.
+ *
+ * REWRITTEN AT REVIEW, and the first version is the lesson. It matched only two
+ * observed renderings — `eventKey?.` and `eventKey ?? ''` followed by `)` — so it
+ * caught 1 of 3 real shapes. It MISSED a bare `game.eventKey.trim()`, which is the
+ * spelling a future author is most likely to write, because `AppGame.eventKey` is
+ * declared non-optional `string` and typechecks cleanly; and it missed a
+ * double-quoted `(x.eventKey ?? "").trim()` because it hardcoded `''`.
+ *
+ * That is this repo's recurring check-design failure — keying on how the code
+ * currently LOOKS instead of on the question being asked — the same one `CLAUDE.md`
+ * records correcting three times on the review diff-base rule. This version keys on
+ * the question: does a string method get applied to something derived from
+ * `.eventKey` on this line, whatever punctuation intervenes.
+ *
+ * A false positive here is a loud failure that a comment can resolve; a false
+ * negative is the defect walking back in, so the pattern errs wide on purpose.
+ */
+const STRING_METHODS =
+  'trim|toLowerCase|toUpperCase|startsWith|endsWith|slice|substring|replace|replaceAll|split|padStart|padEnd|charAt|includes|indexOf|match|normalize';
+const UNGUARDED_EVENT_KEY_READ = new RegExp(
+  `\\.eventKey\\b[^;\\n]*?\\.\\s*(?:${STRING_METHODS})\\s*\\(`
+);
+
 function postseasonRow(eventKey: unknown): ScheduleWireItem {
   return {
     id: '401779840',
@@ -169,12 +194,7 @@ test('no unguarded eventKey read remains in src/', async () => {
     const text = await readFile(file, 'utf8');
     for (const [index, line] of text.split('\n').entries()) {
       if (line.trimStart().startsWith('*') || line.trimStart().startsWith('//')) continue;
-      // `eventKey` followed by an optional-chain or nullish-coalesce into a string
-      // method — the two shapes that looked guarded and were not.
-      if (/eventKey\s*(\?\.|\)\s*\.)\s*(trim|toLowerCase|startsWith|slice|replace)\b/.test(line)) {
-        offenders.push(`${path.relative(root, file)}:${index + 1}`);
-      }
-      if (/\(\s*\w+\.eventKey\s*\?\?\s*''\s*\)\s*\.trim\(\)/.test(line)) {
+      if (UNGUARDED_EVENT_KEY_READ.test(line)) {
         offenders.push(`${path.relative(root, file)}:${index + 1}`);
       }
     }
@@ -185,4 +205,100 @@ test('no unguarded eventKey read remains in src/', async () => {
     [],
     `read eventKey through normalizedEventKey() instead: ${offenders.join(', ')}`
   );
+});
+
+test('the sweep can actually see every unguarded spelling', () => {
+  // POSITIVE CONTROL for the sweep. Without this, a pattern that matched nothing
+  // would make the test above pass forever — and the FIRST version of that pattern
+  // really did miss two of these three, so this control is not hypothetical.
+  const mustCatch: Array<[label: string, line: string]> = [
+    ['optional chain', `  const k = item.eventKey?.trim() || fallback;`],
+    ['bare access on a non-optional field', `  const k = game.eventKey.trim();`],
+    ['single-quoted nullish coalesce', `  const k = (row.eventKey ?? '').trim();`],
+    ['double-quoted nullish coalesce', `  const k = (row.eventKey ?? "").trim();`],
+    ['a different string method', `  if (game.eventKey.startsWith('cfp-')) return true;`],
+    ['non-null assertion', `  const k = item.eventKey!.toLowerCase();`],
+  ];
+  for (const [label, line] of mustCatch) {
+    assert.ok(UNGUARDED_EVENT_KEY_READ.test(line), `the sweep must catch the ${label} shape`);
+  }
+
+  const mustIgnore: Array<[label: string, line: string]> = [
+    ['the guarded call', `  const k = normalizedEventKey(item.eventKey) || fallback;`],
+    ['a plain comparison', `  if (game.eventKey === other.eventKey) return true;`],
+    ['an assignment', `  item.eventKey = derived;`],
+    ['a property declaration', `  eventKey?: string | null;`],
+  ];
+  for (const [label, line] of mustIgnore) {
+    assert.equal(
+      UNGUARDED_EVENT_KEY_READ.test(line),
+      false,
+      `the sweep must NOT flag ${label} — a check that cries wolf gets skipped`
+    );
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-813 review round 1 — the SIBLING fields in the same function.
+//
+// The first pass guarded `eventKey` and left
+// `(item.conferenceChampionshipConference ?? '').trim()` two lines below and
+// `(item.startDate ?? '').slice(0, 10)` eight lines below it, on the same
+// unvalidated row, inside the same per-row loop. `CALL SITE 3` above passes a
+// STRING conference, so it never touched either hole — a test that exercises the
+// function without exercising the field it shares a line with.
+// ---------------------------------------------------------------------------
+
+test('a malformed conferenceChampionshipConference does not take down the build', () => {
+  for (const [label, value] of MALFORMED_VALUES) {
+    const row: ScheduleWireItem = {
+      ...postseasonRow('  '), // no usable eventKey, so the conference branch is reached
+      gamePhase: 'conference_championship',
+      conferenceChampionshipConference: value as string | null,
+    };
+
+    const key = buildConferenceChampionshipEventKey(row);
+    // Falls through to the date/id derivation rather than throwing.
+    assert.match(
+      key,
+      /^conference-championship-week-/,
+      `${label} must fall through to the derived key`
+    );
+    assert.equal(key.includes('[object'), false, `${label} must not be stringified into the key`);
+  }
+});
+
+test('a malformed startDate does not take down the build', () => {
+  for (const [label, value] of MALFORMED_VALUES) {
+    const row: ScheduleWireItem = {
+      ...postseasonRow('  '),
+      gamePhase: 'conference_championship',
+      conferenceChampionshipConference: null,
+      startDate: value as string | null,
+    };
+
+    const key = buildConferenceChampionshipEventKey(row);
+    assert.match(key, /date-unknown/, `${label} must yield an explicit unknown date`);
+  }
+});
+
+test('the sibling fields still work correctly when well formed', () => {
+  // Positive control for both guards: a guard returning '' unconditionally would
+  // satisfy the two tests above while destroying real conference and date keys.
+  assert.equal(
+    buildConferenceChampionshipEventKey({
+      ...postseasonRow('  '),
+      gamePhase: 'conference_championship',
+      conferenceChampionshipConference: 'Big Ten',
+    }),
+    'big-ten-championship'
+  );
+
+  const withDate = buildConferenceChampionshipEventKey({
+    ...postseasonRow('  '),
+    gamePhase: 'conference_championship',
+    conferenceChampionshipConference: null,
+    startDate: '2027-12-04T20:00:00.000Z',
+  });
+  assert.match(withDate, /2027-12-04/, 'a well-formed date still reaches the key');
 });

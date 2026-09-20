@@ -3,7 +3,10 @@ import Link from 'next/link';
 
 import { draftScope, type DraftPhase } from '@/lib/draft';
 import { getAppState } from '@/lib/server/appStateStore';
-import { canonicalScheduleAggregateServes } from '@/lib/server/canonicalScheduleCache';
+import {
+  canonicalScheduleAggregateServes,
+  loadCanonicalScheduleEntry,
+} from '@/lib/server/canonicalScheduleCache';
 
 function formatAge(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
@@ -67,28 +70,28 @@ export default async function LeagueStatusPanel({
   year: number;
 }): Promise<React.ReactElement | null> {
   let rosterRecord: Awaited<ReturnType<typeof getAppState<string>>> = null;
-  let scheduleRecord: Awaited<ReturnType<typeof getAppState<unknown>>> = null;
+  let scheduleEntry: Awaited<ReturnType<typeof loadCanonicalScheduleEntry>> = null;
   let scoresRecord: Awaited<ReturnType<typeof getAppState<unknown>>> = null;
   let draftRecord: Awaited<ReturnType<typeof getAppState<StoredDraftState>>> = null;
 
   try {
-    [rosterRecord, scheduleRecord, scoresRecord, draftRecord] = await Promise.all([
+    [rosterRecord, scheduleEntry, scoresRecord, draftRecord] = await Promise.all([
       getAppState<string>(`owners:${slug}:${year}`, 'csv'),
-      // PLATFORM-833: the aggregate serves only when it carries ROWS.
+      // PLATFORM-833: the canonical READER, not a local imitation of it.
       //
-      // This was `getAppState(...'-all-all').then((r) => r ?? getAppState(...'-all-regular'))`,
-      // which falls back on RECORD absence. A `-all-all` record holding `items: []`
-      // is present, so `??` kept it and the fallback never fired — the panel read
-      // the wrong key and reported on an empty season while a populated
-      // `-all-regular` partition sat beside it. `canonicalScheduleAggregateServes`
-      // is the shared predicate the canonical reader uses for exactly this
-      // precedence, and its own docstring warns about readers that spell it
-      // differently. Using it here rather than a fourth spelling is the point.
-      getAppState<unknown>('schedule', `${year}-all-all`).then((r) =>
-        canonicalScheduleAggregateServes(r?.value)
-          ? r
-          : getAppState<unknown>('schedule', `${year}-all-regular`)
-      ),
+      // This began as `getAppState(...'-all-all').then((r) => r ?? getAppState(...'-all-regular'))`,
+      // which fell back on RECORD absence — a `-all-all` record holding `items: []`
+      // is present, so `??` kept it and the fallback never fired.
+      //
+      // Review round 1 caught that the first fix adopted the shared PREDICATE but
+      // not the shared PRECEDENCE: it still hardcoded `-all-regular`, while
+      // `loadCanonicalScheduleEntry` falls back to BOTH partition keys. On a store
+      // whose only populated partition is `-all-postseason` — a legacy or
+      // preview-branch database, which is the exact state that compatibility
+      // fallback exists for — every canonical reader served the season and this
+      // panel would still have said "not cached". Calling the reader is the actual
+      // convergence, and it supplies the observation stamp for the age too.
+      loadCanonicalScheduleEntry(year),
       getAppState<unknown>('scores', `${year}-all-regular`),
       getAppState<StoredDraftState>(draftScope(slug), String(year)),
     ]);
@@ -106,13 +109,15 @@ export default async function LeagueStatusPanel({
   // container. `hasRoster` above already derived from content (it trims the CSV and
   // checks length); these two were the outliers, nine lines below a correct sibling.
   //
-  // `canonicalScheduleAggregateServes` is schedule-named and is answering a SCORES
-  // question on the second line. That reads oddly and is deliberate: both records
-  // are `{ items: [...] }` shaped, and a fourth spelling of "does this carry rows"
-  // is worse than one odd name — spelling it differently is how the schedule
-  // precedence drifted into four copies in the first place. Generalising the name is
-  // a rename candidate, not this slice's work.
-  const hasSchedule = canonicalScheduleAggregateServes(scheduleRecord?.value);
+  // ONE SPELLING of "does this carry rows", applied to both. Schedule passes the
+  // resolved entry (the reader already applied the key precedence, so this asks the
+  // question of what actually SERVES); scores passes its raw record. The predicate is
+  // schedule-named and is answering a scores question, which reads oddly and is
+  // deliberate: both values are `{ items: [...] }` shaped, and a second spelling is
+  // worse than one odd name — spelling it differently is how the schedule precedence
+  // drifted into four copies to begin with. Generalising the name is a rename
+  // candidate, not this slice's work.
+  const hasSchedule = canonicalScheduleAggregateServes(scheduleEntry);
   const hasScores = canonicalScheduleAggregateServes(scoresRecord?.value);
   const draftPhase = draftRecord?.value?.phase ?? null;
   const scheduledAt = draftRecord?.value?.settings?.scheduledAt ?? null;
@@ -188,7 +193,7 @@ export default async function LeagueStatusPanel({
           <span className="w-20 text-gray-600 dark:text-zinc-300">Schedule</span>
           {hasSchedule ? (
             <span className="text-gray-500 dark:text-zinc-400">
-              {formatAge(scheduleRecord!.updatedAt)}
+              {formatAge(new Date(scheduleEntry!.at).toISOString())}
             </span>
           ) : (
             <span className="text-amber-600 dark:text-amber-400">not cached</span>

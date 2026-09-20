@@ -98,17 +98,25 @@ export function canonicalScheduleAggregateServes(value: unknown): boolean {
  *     and hardcodes `${year}-all-regular`; its own comment says it "MUST mirror
  *     `loadCachedScheduleItems`' key precedence", which is the drift this module
  *     exists to prevent, asserted rather than enforced.
- *   - `LeagueStatusPanel.tsx:77-79` — a DIFFERENT precedence, and the one that is
- *     actually wrong: `getAppState(...'-all-all').then(r => r ?? getAppState(...))`
- *     tests RECORD presence, not ROW presence, so an empty aggregate record shadows
- *     a populated partition and `hasSchedule` reads true with zero rows. That is
- *     precisely the disagreement {@link canonicalScheduleAggregateServes} warns
- *     about, two files away and still live.
  *   - `seasonRollover.ts:17-25` — a third shape: aggregate, else `-all-postseason`
  *     only.
- * Those three are why the key builders and the predicate are EXPORTED rather than
- * private: the convergence is available to them, and until they consume it this
- * module is the canonical copy, not the only one.
+ * Those are why the key builders and the predicate are EXPORTED rather than private:
+ * the convergence is available to them, and until they consume it this module is the
+ * canonical copy, not the only one.
+ *
+ * **`LeagueStatusPanel` WAS ON THIS LIST AND IS NOT ANY MORE (PLATFORM-833).** It
+ * held the one entry that was actively WRONG rather than merely duplicated —
+ * `r ?? getAppState(...)` tested RECORD presence, so an empty aggregate record
+ * shadowed a populated partition and `hasSchedule` read true with zero rows. It now
+ * calls {@link loadCanonicalScheduleEntry} directly, so it inherits the precedence
+ * rather than imitating it.
+ *
+ * The entry is removed rather than left as history because PLATFORM-833's own diff
+ * is what made it false: a comment that was true when written became a false claim
+ * the moment that commit fixed the thing it described. A diff that falsifies a
+ * comment owns that comment — which is the same rule this module's header applies to
+ * `scheduleSeasonFetch.ts`, and it would be absurd to cite it there and dodge it
+ * here.
  */
 export async function loadCachedScheduleItems(year: number): Promise<ScheduleWireItem[]> {
   const entry = await loadCanonicalScheduleEntry<ScheduleWireItem>(year);
